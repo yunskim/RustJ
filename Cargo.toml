@@ -1,0 +1,22 @@
+[package]
+name = "rustj"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "An independent, experimental J interpreter written in Rust"
+license = "GPL-3.0-or-later"
+
+[features]
+portable = []
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[[bench]]
+name = "baseline"
+harness = false
+
+[[bench]]
+name = "comparison"
+harness = false

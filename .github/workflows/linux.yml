@@ -1,0 +1,30 @@
+name: Linux milestone
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo test --features portable
+      - run: cargo build --release
+      - run: cargo run --release -- examples/milestone.ijs
+  reference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Fetch the pinned comparison source
+        run: |
+          git init /tmp/jsource
+          git -C /tmp/jsource remote add origin https://github.com/jsoftware/jsource.git
+          git -C /tmp/jsource fetch --depth 1 origin e75016ca74b5e595dd323226e6a4990172f72ec6
+          git -C /tmp/jsource checkout --detach FETCH_HEAD
+      - run: python3 tools/build_reference.py --source /tmp/jsource
+      - run: cargo build --release
+      - run: python3 tools/conformance.py

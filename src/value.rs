@@ -1,0 +1,227 @@
+use crate::error::{Error, Result};
+use std::sync::Arc;
+
+// Shared only when an array is bound/referenced. Kernels consume Values and
+// recover unique Vec storage with Arc::try_unwrap rather than cloning elements.
+#[derive(Clone, Debug)]
+pub enum Data {
+    Bool(Arc<Vec<u8>>),
+    Int(Arc<Vec<i64>>),
+    Float(Arc<Vec<f64>>),
+    Char(Arc<Vec<u8>>),
+}
+
+#[derive(Clone, Debug)]
+pub struct Value {
+    pub(crate) shape: Vec<usize>,
+    pub(crate) data: Data,
+}
+
+pub fn buffer<T>(n: usize) -> Result<Vec<T>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(n).map_err(|_| Error::Limit)?;
+    Ok(v)
+}
+
+// Allocate without zeroing or copying an input. Every element is written once.
+// Copy excludes destructors: if f panics, dropping the len=0 Vec is still safe.
+#[allow(unsafe_code)]
+pub(crate) fn generate<T: Copy>(n: usize, mut f: impl FnMut(usize) -> T) -> Result<Vec<T>> {
+    let mut out = buffer(n)?;
+    for (i, slot) in out.spare_capacity_mut()[..n].iter_mut().enumerate() {
+        slot.write(f(i));
+    }
+    // SAFETY: capacity >= n and all first n elements were initialized above.
+    // If f panicked execution never reaches set_len. T has no destructor.
+    unsafe {
+        out.set_len(n);
+    }
+    Ok(out)
+}
+
+// The producer is internal and must initialize every slot before returning.
+// Keep this unsafe contract inside the numeric module's audited call sites.
+#[allow(unsafe_code)]
+pub(crate) unsafe fn finish_initialized<T>(mut out: Vec<T>, n: usize) -> Vec<T> {
+    // SAFETY: caller guarantees n initialized elements and sufficient capacity.
+    unsafe {
+        out.set_len(n);
+    }
+    out
+}
+
+pub fn count(shape: &[usize]) -> Result<usize> {
+    shape
+        .iter()
+        .try_fold(1usize, |n, &d| n.checked_mul(d).ok_or(Error::Limit))
+}
+
+impl Value {
+    pub fn new(shape: Vec<usize>, data: Data) -> Result<Self> {
+        let n = match &data {
+            Data::Bool(v) | Data::Char(v) => v.len(),
+            Data::Int(v) => v.len(),
+            Data::Float(v) => v.len(),
+        };
+        if count(&shape)? != n {
+            return Err(Error::Length);
+        }
+        if let Data::Bool(v) = &data {
+            if v.iter().any(|&x| x > 1) {
+                return Err(Error::Domain);
+            }
+        }
+        Ok(Self { shape, data })
+    }
+    pub fn ints(shape: Vec<usize>, data: Vec<i64>) -> Result<Self> {
+        Self::new(shape, Data::Int(Arc::new(data)))
+    }
+    pub fn scalar(n: i64) -> Self {
+        Self {
+            shape: vec![],
+            data: Data::Int(Arc::new(vec![n])),
+        }
+    }
+    pub fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+    pub fn data(&self) -> &Data {
+        &self.data
+    }
+    pub fn len(&self) -> usize {
+        match &self.data {
+            Data::Bool(v) | Data::Char(v) => v.len(),
+            Data::Int(v) => v.len(),
+            Data::Float(v) => v.len(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn type_code(&self) -> i32 {
+        match self.data {
+            Data::Bool(_) => 1,
+            Data::Char(_) => 2,
+            Data::Int(_) => 4,
+            Data::Float(_) => 8,
+        }
+    }
+    pub fn int_at(&self, i: usize) -> Result<i64> {
+        match &self.data {
+            Data::Bool(v) => Ok(v[i] as i64),
+            Data::Int(v) => Ok(v[i]),
+            Data::Float(v)
+                if v[i].is_finite()
+                    && v[i].fract() == 0.0
+                    && v[i] >= i64::MIN as f64
+                    && v[i] < -(i64::MIN as f64) =>
+            {
+                Ok(v[i] as i64)
+            }
+            _ => Err(Error::Domain),
+        }
+    }
+    pub fn float_at(&self, i: usize) -> Result<f64> {
+        match &self.data {
+            Data::Bool(v) => Ok(v[i] as f64),
+            Data::Int(v) => Ok(v[i] as f64),
+            Data::Float(v) => Ok(v[i]),
+            _ => Err(Error::Domain),
+        }
+    }
+    pub fn select(
+        &self,
+        shape: Vec<usize>,
+        indices: impl IntoIterator<Item = usize>,
+    ) -> Result<Self> {
+        let n = count(&shape)?;
+        macro_rules! select {
+            ($v:expr, $variant:ident) => {{
+                let mut out = buffer(n)?;
+                for i in indices {
+                    out.push(*$v.get(i).ok_or(Error::Index)?);
+                }
+                Data::$variant(Arc::new(out))
+            }};
+        }
+        let data = match &self.data {
+            Data::Bool(v) => select!(v, Bool),
+            Data::Int(v) => select!(v, Int),
+            Data::Float(v) => select!(v, Float),
+            Data::Char(v) => select!(v, Char),
+        };
+        Self::new(shape, data)
+    }
+    pub fn json(&self) -> String {
+        let shape = self
+            .shape
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let values: Vec<String> = match &self.data {
+            Data::Bool(v) | Data::Char(v) => v.iter().map(u8::to_string).collect(),
+            Data::Int(v) => v.iter().map(i64::to_string).collect(),
+            Data::Float(v) => v
+                .iter()
+                .map(|x| {
+                    if x.is_nan() {
+                        "\"nan\"".into()
+                    } else if *x == f64::INFINITY {
+                        "\"inf\"".into()
+                    } else if *x == f64::NEG_INFINITY {
+                        "\"-inf\"".into()
+                    } else {
+                        x.to_string()
+                    }
+                })
+                .collect(),
+        };
+        format!(
+            "{{\"type\":{},\"shape\":[{}],\"data\":[{}]}}",
+            self.type_code(),
+            shape,
+            values.join(",")
+        )
+    }
+    pub fn display(&self) -> String {
+        match &self.data {
+            Data::Char(v) => String::from_utf8_lossy(v).into_owned(),
+            _ => {
+                let parts: Vec<String> = match &self.data {
+                    Data::Bool(v) => v.iter().map(u8::to_string).collect(),
+                    Data::Int(v) => v.iter().map(|x| x.to_string().replace('-', "_")).collect(),
+                    Data::Float(v) => v
+                        .iter()
+                        .map(|x| {
+                            if x.is_nan() {
+                                "_.".into()
+                            } else if *x == f64::INFINITY {
+                                "_".into()
+                            } else if *x == f64::NEG_INFINITY {
+                                "__".into()
+                            } else {
+                                x.to_string().replace('-', "_")
+                            }
+                        })
+                        .collect(),
+                    _ => unreachable!(),
+                };
+                if self.shape.len() < 2 {
+                    parts.join(" ")
+                } else {
+                    let width = *self.shape.last().unwrap();
+                    if width == 0 {
+                        String::new()
+                    } else {
+                        parts
+                            .chunks(width)
+                            .map(|r| r.join(" "))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    }
+                }
+            }
+        }
+    }
+}

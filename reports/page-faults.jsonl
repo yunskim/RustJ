@@ -1,0 +1,2 @@
+{"n":1000000,"iterations":20,"rust_minor_faults":0,"c_minor_faults":1}
+{"n":4000000,"iterations":20,"rust_minor_faults":0,"c_minor_faults":156260}
