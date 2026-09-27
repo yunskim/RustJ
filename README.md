@@ -1,14 +1,28 @@
-# RustJ — Linux 배열 엔진
+# RustJ — J 배열 컴파일러
 
-J의 일부 문장을 독립적으로 실행하는 Rust 엔진입니다. 기존 C 코드를 번역하거나 C 엔진으로 fallback하지 않습니다. 표준 Rust 라이브러리만 사용하며 Cargo 외부 의존성이 없습니다.
+RustJ는 J의 언어 및 배열 의미론을 보존하면서, **Jaxa 기반 분석·계획 계층을 통해 CPU와 GPU용 최적화 코드를 생성하는 Rust 기반 J 컴파일러**를 목표로 합니다. 기존 C 코드를 번역하거나 C 엔진으로 fallback하지 않으며, `jsource`는 의미·오류·성능을 검증하는 reference implementation으로 사용합니다.
 
-**현재는 제한된 기능의 실험용 인터프리터입니다. 기존 J 전체를 대체하지 않습니다.** Linux x86-64, Ubuntu 24.04/WSL2와 Rust 1.98.0에서 검증했습니다. 배포 파일은 Linux ELF이며 Windows 실행 파일이 아닙니다.
+채택한 목표 파이프라인은 다음과 같습니다.
 
-주요 목표는 C 커널에 의존하지 않는 Rust 구현, 빠른 CPU 배열 연산, 그리고 **CUDA GPU에서 배열을 유지하며 연속 연산을 실행하는 것**입니다. GPU 지원은 아직 미구현이며 첫 GPU 백엔드는 CUDA로 한정합니다. 사용자 요청으로 CUDA 구현은 당분간 보류하고 계획에만 유지합니다. 단계별 범위와 완료 기준은 [구현 계획](reports/IMPLEMENTATION-PLAN.md)에 있습니다. CUDA 의존성은 선택 사항으로 도입하여 GPU 없는 Linux에서도 CPU 빌드·실행을 유지할 계획입니다.
+```text
+J Source
+  -> Parser
+  -> Semantic IR
+  -> Jaxa Analyzer
+  -> Logical Execution Plan
+  -> Physical Planner / Optimizer
+  -> Physical Execution Plan
+  -> Backend Lowering / Code Generation
+  -> Runtime / Executor
+```
 
-M2의 최신 변경과 검증은 [M2 재검토](reports/M2-REVIEW.md), 첫 측정은 [M2 보고서](reports/MILESTONE-2.md), JAXA에서 도입할 compiler 설계는 [검토 보고서](reports/JAXA-REVIEW.md)에 있습니다.
+CPU와 GPU는 같은 Logical Plan에서 출발하는 동등한 backend입니다. J의 `rank/cell/frame/agreement`는 의미 계층에 그대로 두고, stride·offset·layout·tiling·device placement·sharding은 physical planning 계층에서 결정합니다. 전체 설계 기준은 [컴파일러 아키텍처](reports/COMPILER-ARCHITECTURE.md)에 있습니다.
 
-M1 CPU 성능 개선 내용과 C AVX2와의 비교는 [최적화 보고서](reports/PERFORMANCE.md)에 있습니다. 첫 마일스톤 보고서는 변경 전의 역사적 기록입니다.
+**현재 구현은 아직 위 compiler pipeline 전체를 구현하지 않았습니다.** 제한된 기능의 CPU 직접 평가 엔진, portable/AVX2 커널, 차등 검증 도구가 동작합니다. 이 경로는 새 compiler의 의미 기준선과 향후 reference interpreter/debug/fallback 기반으로 유지하면서, Semantic IR과 Jaxa Analyzer부터 단계적으로 compiler 경로를 세웁니다. 기존 J 전체를 대체한다고 주장하지 않습니다.
+
+첫 GPU backend 후보는 CUDA이며, GPU 친화적 배열 설계는 목표 아키텍처에 반영했습니다. 다만 실제 CUDA 구현은 현재 보류 상태입니다. GPU가 없는 Linux에서도 CPU 빌드·검증을 유지하고, GPU 구현을 재개할 때 logical JArray와 physical array representation을 분리한 구조로 진행합니다.
+
+현재 구현·검증 상태는 [M2 재검토](reports/M2-REVIEW.md), [지속 검증 전략](reports/VALIDATION-STRATEGY.md)에 있고, 이후 단계는 [구현 계획](reports/IMPLEMENTATION-PLAN.md), Jaxa에서 가져오는 의미/계획 분리는 [JAXA 검토](reports/JAXA-REVIEW.md)에 정리되어 있습니다. CPU 성능과 C AVX2 비교는 [최적화 보고서](reports/PERFORMANCE.md)를 참고합니다.
 
 ## 빌드와 실행
 
@@ -49,7 +63,7 @@ rank를 적용한 빈 frame의 prototype 추론, 서로 다른 형상 결과의 
 
 미구현: 박스·희소·복소수·확장 정수·유리수·추가 수치 정밀도, Unicode 변환, verb 바인딩·train·함수 정의·제어 흐름·locale, 일반 adverb/conjunction, 다이애드 rank와 rank 목록, scan, 시스템 foreign, 파일 API, 직렬화, 임베딩 ABI, 병렬 실행. 선언하지 않은 일부 구문은 syntax/value 오류로 거부될 수 있습니다. undefined 이름을 지연된 verb로 취급하는 J의 동작도 지원하지 않습니다.
 
-## 내부 구조와 메모리
+## 현재 구현의 내부 구조와 메모리
 
 - `src/syntax.rs`: compact token, 원문 이름 차용과 리터럴
 - `src/runtime.rs`: 제한된 문장 평가와 명사 환경
@@ -132,10 +146,11 @@ python3 tools/compare.py
 
 ## 다음 구현 우선순위
 
-1. CPU 출력 풀 검증·확장과 큰 배열 성능 분석. 정수 출력의 제한된 재사용은 구현했습니다([검증 기록](reports/M2-POOL.md)).
-2. CPU rank/reduction 의미 확대: 빈 frame prototype, 결과 padding. 스칼라 및 2·3개 목록 dyadic rank는 추가했습니다([지원 범위](reports/DYADIC-RANK.md)).
-3. verb·수정자 표현과 실행 규칙을 정식화한 후 함수·박스 지원.
-4. CUDA 커널·장치 버퍼·전송·완료 이벤트 및 GPU 상주 연산은 재개 요청까지 계획으로만 유지.
+1. **Semantic IR과 primitive contract**: parser와 직접 실행을 분리하고 source span, name/version, dtype/shape/rank/error/effect/alias 계약을 명시합니다.
+2. **Jaxa Analyzer와 Logical Plan**: rank/cell/frame/agreement를 해석해 `RankMap`, Map, Reduce, Scan, Gather, Structural operation으로 구성된 실행 계획을 만듭니다. Analyzer는 실행하지 않습니다.
+3. **Physical Planner와 CPU compiler backend**: logical ValueId와 physical BufferId를 분리하고 strides/view, liveness, materialization, layout, fusion을 계획합니다. 먼저 CPU를 통해 compiler pipeline을 기본 실행 경로로 검증합니다.
+4. **GPU backend**: device placement, transfer, dense/tiled layout, frame/cell 기반 GPU work partition, kernel codegen과 GPU 상주 실행을 추가합니다. 실제 CUDA 구현은 재개 요청과 검증 가능한 GPU 환경이 마련될 때 진행합니다.
+5. **JIT specialization/cache와 multi-device**: dtype/rank/shape-layout class/backend capability를 이용한 specialization, compiled artifact cache, multi-GPU sharding을 확장합니다.
 
 각 단계의 완료 기준과 CPU/GPU 검증 정책은 [구현 계획](reports/IMPLEMENTATION-PLAN.md)을 따릅니다.
 
