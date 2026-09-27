@@ -124,3 +124,7 @@ C의 작업 큐·PYX 결과·오류 전파는 설계 참조로 사용한다. fut
 후속 frontend는 Token/Span, 분류와 이름 해석, J 의미 AST, Array IR 진입 검증의 책임을 나눈다. GPU에서 분석·실행 가능한 영역의 제한을 RustJ 전체 언어의 제한으로 혼동하지 않는다. 지원되지 않는 backend와 미구현 J 기능은 다른 진단으로 남긴다.
 
 Python registry, JAXA의 fp32 우선 정책, load/store/emit/cp 문법, 자동 미분·학습 엔진은 현재 요구에 추가하지 않는다. JAXA의 flow/storage는 논리적 역할이며 CpuStorage/향후 CudaStorage 같은 물리 저장소 타입과 동일시하지 않는다. 최초 검증은 같은 작은 논리 그래프에서 두 실행 계획의 값·오류·상태 변화가 같고 materialization·전송 비용이 달라지는지 확인하는 것이다.
+
+## 변경마다 적용하는 검증
+
+[지속 검증 전략](VALIDATION-STRATEGY.md)을 각 단계의 완료 조건으로 적용한다. 의미 변경은 C 차등 사례, 메모리 변경은 소유권·실패 경로 검사, SIMD 변경은 경계·승격 검사를 추가한다. CI는 기본/portable × j64/j64avx2, 상태 기반 생성 검사, 일일 확대 검사를 수행한다. upstream 전체 테스트·Miri·sanitizer는 미완료 검증 과제로 추적한다.

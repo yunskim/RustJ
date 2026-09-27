@@ -80,6 +80,14 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>> {
         if source[i..].starts_with("=.") {
             return Err(Error::Unsupported("local assignment".into()));
         }
+        if let Some(verb) = ["|.", "|:", "{.", "}.", "i:", "I.", "e.", "E."]
+            .into_iter()
+            .find(|verb| source[i..].starts_with(verb))
+        {
+            out.push(Token::Verb(verb));
+            i += 2;
+            continue;
+        }
         if source[i..].starts_with("i.") {
             out.push(Token::Verb("i."));
             i += 2;

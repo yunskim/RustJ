@@ -58,7 +58,7 @@ fn real(op: Op, a: f64, b: f64) -> f64 {
         _ => unreachable!(),
     }
 }
-fn near(a: f64, b: f64) -> bool {
+pub(crate) fn near(a: f64, b: f64) -> bool {
     a == b
         || (a.is_finite()
             && b.is_finite()
@@ -233,6 +233,10 @@ fn dimensions(v: &Value) -> Result<Vec<usize>> {
 
 pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
     match verb {
+        "i:" => crate::index_ops::steps(y),
+        "I." => crate::index_ops::indices(y),
+        "|." => crate::array_ops::reverse(y),
+        "|:" => crate::array_ops::transpose(y),
         "+" => {
             if matches!(y.data, Data::Char(_)) {
                 Err(Error::Domain)
@@ -342,6 +346,10 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
         return atomic(op, a, b);
     }
     match verb {
+        "e." => crate::index_ops::member(a, b),
+        "E." => crate::index_ops::find(a, b),
+        "i." | "i:" => crate::index_ops::index_of(a, b, verb == "i:"),
+        "|." | "{." | "}." => crate::array_ops::scalar_dyad(verb, a, b),
         "$" => {
             let shape = dimensions(&a)?;
             let n = count(&shape)?;

@@ -1,6 +1,8 @@
 #![deny(unsafe_code)]
 
+mod array_ops;
 mod assembly;
+mod index_ops;
 
 pub mod error;
 pub mod kernels;

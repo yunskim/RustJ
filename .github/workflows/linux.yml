@@ -1,5 +1,12 @@
 name: Linux milestone
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 18 * * *'
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -8,6 +15,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - run: python3 -m unittest discover -s tools -p "test_*.py"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
@@ -15,6 +23,11 @@ jobs:
       - run: cargo build --release
       - run: cargo run --release -- examples/milestone.ijs
   reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [j64, j64avx2]
+        backend: [default, portable]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +38,26 @@ jobs:
           git -C /tmp/jsource remote add origin https://github.com/jsoftware/jsource.git
           git -C /tmp/jsource fetch --depth 1 origin e75016ca74b5e595dd323226e6a4990172f72ec6
           git -C /tmp/jsource checkout --detach FETCH_HEAD
-      - run: python3 tools/build_reference.py --source /tmp/jsource
+      - run: python3 tools/build_reference.py --source /tmp/jsource --variant ${{ matrix.variant }}
       - run: cargo build --release
-      - run: python3 tools/conformance.py
+      - if: matrix.backend == 'portable'
+        run: cargo build --release --features portable
+      - name: Differential gate
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          rounds=100
+          seed=20260926
+          if [ "${{ github.event_name }}" = schedule ]; then
+            rounds=1000
+            seed=$(date -u +%Y%m%d)
+          fi
+          python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ matrix.variant }}-${{ matrix.backend }}
+          path: |
+            reports/conformance*
+            .reference/manifest*.json
+            .reference/build.log
