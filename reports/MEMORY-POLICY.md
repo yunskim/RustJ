@@ -1,5 +1,7 @@
 # J의 메모리 관리와 RustJ 설계 방향
 
+현재 상태 보완: 아래의 기존 Rust 표현 설명은 M1 분석 시점이다. 이후 inline scalar/shape와 단독·공유 CPU storage, 차용 뷰를 구현했다. 구현 범위·측정·남은 과제는 [M2 결과](MILESTONE-2.md), 후속 논리/물리 메모리 계획은 [JAXA 검토](JAXA-REVIEW.md)를 참조한다.
+
 후속 조사: [Rust 배열 프로젝트를 반영한 구체적 개선안](RUST-ARRAY-REFERENCES.md). Arrow·ndarray·faer·Polars를 참고해 소유권 회수 조건, scratch와 출력 풀의 분리, 연속 배열 유지, 제한된 연산 결합을 추가했다. 아래 적용 순서에도 scratch 분리를 반영했다.
 
 분석 기준: jsoftware/jsource 커밋 `e75016ca74b5e595dd323226e6a4990172f72ec6`. Linux x86-64의 일반적인 dense 배열 경로를 중심으로 조사했다. GMP, 메모리 매핑, 특수 런타임 객체에는 별도 경로가 있다. 아래 Rust 설계는 제안이며 아직 구현하지 않았다.

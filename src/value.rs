@@ -1,19 +1,21 @@
 use crate::error::{Error, Result};
-use std::sync::Arc;
+use crate::storage::{CpuStorage, Shape};
 
-// Shared only when an array is bound/referenced. Kernels consume Values and
-// recover unique Vec storage with Arc::try_unwrap rather than cloning elements.
+// Intermediates own CPU buffers; name bindings explicitly freeze them for
+// sharing. Device storage will not expose this CPU-only slice interface.
 #[derive(Clone, Debug)]
 pub enum Data {
-    Bool(Arc<Vec<u8>>),
-    Int(Arc<Vec<i64>>),
-    Float(Arc<Vec<f64>>),
-    Char(Arc<Vec<u8>>),
+    Bool(CpuStorage<u8>),
+    Int(CpuStorage<i64>),
+    Float(CpuStorage<f64>),
+    Char(CpuStorage<u8>),
 }
 
 #[derive(Clone, Debug)]
+/// Cloning an owned value copies its payload. Call `into_shared` before cloning
+/// to explicitly share storage without copying (as name bindings do).
 pub struct Value {
-    pub(crate) shape: Vec<usize>,
+    pub(crate) shape: Shape,
     pub(crate) data: Data,
 }
 
@@ -57,7 +59,45 @@ pub fn count(shape: &[usize]) -> Result<usize> {
 }
 
 impl Value {
-    pub fn new(shape: Vec<usize>, data: Data) -> Result<Self> {
+    /// Freeze at an ownership-sharing boundary; intermediates remain unshared.
+    pub fn into_shared(self) -> Self {
+        let data = match self.data {
+            Data::Bool(v) => Data::Bool(v.into_shared()),
+            Data::Int(v) => Data::Int(v.into_shared()),
+            Data::Float(v) => Data::Float(v.into_shared()),
+            Data::Char(v) => Data::Char(v.into_shared()),
+        };
+        Self {
+            shape: self.shape,
+            data,
+        }
+    }
+    /// Borrow a CPU array without copying data or incrementing a refcount.
+    ///
+    /// ```compile_fail
+    /// use rustj::Value;
+    /// let view;
+    /// {
+    ///     let owner = Value::ints([3], vec![1, 2, 3]).unwrap();
+    ///     view = owner.view();
+    /// }
+    /// println!("{}", view.len()); // owner no longer exists
+    /// ```
+    pub fn view(&self) -> crate::storage::ArrayView<'_> {
+        use crate::storage::{ArrayView, CpuView};
+        let data = match &self.data {
+            Data::Bool(v) => CpuView::Bool(v),
+            Data::Int(v) => CpuView::Int(v),
+            Data::Float(v) => CpuView::Float(v),
+            Data::Char(v) => CpuView::Char(v),
+        };
+        ArrayView {
+            shape: &self.shape,
+            data,
+        }
+    }
+    pub fn new(shape: impl Into<Shape>, data: Data) -> Result<Self> {
+        let shape = shape.into();
         let n = match &data {
             Data::Bool(v) | Data::Char(v) => v.len(),
             Data::Int(v) => v.len(),
@@ -73,13 +113,13 @@ impl Value {
         }
         Ok(Self { shape, data })
     }
-    pub fn ints(shape: Vec<usize>, data: Vec<i64>) -> Result<Self> {
-        Self::new(shape, Data::Int(Arc::new(data)))
+    pub fn ints(shape: impl Into<Shape>, data: Vec<i64>) -> Result<Self> {
+        Self::new(shape, Data::Int(CpuStorage::new(data)))
     }
     pub fn scalar(n: i64) -> Self {
         Self {
-            shape: vec![],
-            data: Data::Int(Arc::new(vec![n])),
+            shape: Shape::from([]),
+            data: Data::Int(CpuStorage::Inline(n)),
         }
     }
     pub fn shape(&self) -> &[usize] {
@@ -131,9 +171,10 @@ impl Value {
     }
     pub fn select(
         &self,
-        shape: Vec<usize>,
+        shape: impl Into<Shape>,
         indices: impl IntoIterator<Item = usize>,
     ) -> Result<Self> {
+        let shape = shape.into();
         let n = count(&shape)?;
         macro_rules! select {
             ($v:expr, $variant:ident) => {{
@@ -141,7 +182,7 @@ impl Value {
                 for i in indices {
                     out.push(*$v.get(i).ok_or(Error::Index)?);
                 }
-                Data::$variant(Arc::new(out))
+                Data::$variant(CpuStorage::new(out))
             }};
         }
         let data = match &self.data {

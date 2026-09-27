@@ -6,28 +6,49 @@ use crate::{
 };
 use std::collections::HashMap;
 
-#[derive(Default)]
 pub struct Engine {
     names: HashMap<String, Value>,
+    pool: crate::pool::OutputPool,
 }
 
 #[derive(Clone)]
 struct Verb {
-    name: String,
+    name: &'static str,
     reduce: bool,
-    rank: Option<i64>,
+    rank: Option<[i64; 3]>,
 }
 enum Item {
     Noun(Value),
     Verb(Verb),
 }
 
+impl Default for Engine {
+    fn default() -> Self {
+        Self::with_output_cache_limit(64 * 1024 * 1024)
+    }
+}
 impl Engine {
+    /// Limits retained integer payload bytes. Zero disables caching.
+    pub fn with_output_cache_limit(bytes: usize) -> Self {
+        Self {
+            names: HashMap::new(),
+            pool: crate::pool::OutputPool::new(bytes),
+        }
+    }
+    /// Retained payload capacity in bytes and cumulative reuse count.
+    pub fn output_cache_stats(&self) -> (usize, usize) {
+        self.pool.stats()
+    }
+    /// Return cached buffers to the allocator; RSS may not decrease.
+    pub fn clear_output_cache(&mut self) {
+        self.pool.clear();
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
     pub fn eval(&mut self, source: &str) -> Result<Option<Value>> {
-        let tokens = lex(source)?;
+        let mut tokens = lex(source)?;
         if tokens.is_empty() {
             return Ok(None);
         }
@@ -35,9 +56,9 @@ impl Engine {
             let Token::Name(name) = &tokens[0] else {
                 return Err(Error::Syntax("assignment target".into()));
             };
-            (Some(name.clone()), &tokens[2..])
+            (Some((*name).to_owned()), &mut tokens[2..])
         } else {
-            (None, tokens.as_slice())
+            (None, tokens.as_mut_slice())
         };
         let mut pos = 0;
         let value = self.expression(expr, &mut pos, false, 0)?;
@@ -45,7 +66,9 @@ impl Engine {
             return Err(Error::Syntax("trailing tokens".into()));
         }
         if let Some(name) = name {
-            self.names.insert(name, value);
+            if let Some(old) = self.names.insert(name, value.into_shared()) {
+                self.pool.retire(old);
+            }
             Ok(None)
         } else {
             Ok(Some(value))
@@ -53,8 +76,8 @@ impl Engine {
     }
 
     fn expression(
-        &self,
-        tokens: &[Token],
+        &mut self,
+        tokens: &mut [Token<'_>],
         pos: &mut usize,
         nested: bool,
         depth: usize,
@@ -81,22 +104,29 @@ impl Engine {
                     *pos += 1;
                     items.push(Item::Noun(v));
                 }
-                Token::Noun(v) => {
-                    items.push(Item::Noun(v.clone()));
+                Token::Scalar(v) => {
+                    items.push(Item::Noun(v.into_value()));
+                    *pos += 1;
+                }
+                Token::Noun(_) => {
+                    let Token::Noun(v) = std::mem::replace(&mut tokens[*pos], Token::Open) else {
+                        unreachable!()
+                    };
+                    items.push(Item::Noun(*v));
                     *pos += 1;
                 }
                 Token::Name(n) => {
                     items.push(Item::Noun(
                         self.names
-                            .get(n)
+                            .get(*n)
                             .cloned()
-                            .ok_or_else(|| Error::Value(n.clone()))?,
+                            .ok_or_else(|| Error::Value((*n).to_owned()))?,
                     ));
                     *pos += 1;
                 }
                 Token::Verb(n) => {
                     let mut verb = Verb {
-                        name: n.clone(),
+                        name: n,
                         reduce: false,
                         rank: None,
                     };
@@ -107,13 +137,20 @@ impl Engine {
                     }
                     if matches!(tokens.get(*pos), Some(Token::Rank)) {
                         *pos += 1;
-                        let Some(Token::Noun(v)) = tokens.get(*pos) else {
-                            return Err(Error::Syntax("rank needs a scalar integer".into()));
+                        let v = match tokens.get(*pos) {
+                            Some(Token::Scalar(v)) => v.into_value(),
+                            Some(Token::Noun(v)) => (**v).clone(),
+                            _ => return Err(Error::Syntax("rank needs a numeric literal".into())),
                         };
-                        if !v.shape().is_empty() {
-                            return Err(Error::Unsupported("rank list".into()));
+                        if v.is_empty() || v.len() > 3 {
+                            return Err(Error::Length);
                         }
-                        verb.rank = Some(v.int_at(0)?);
+                        let at = |i| v.int_at(i);
+                        verb.rank = Some(match v.len() {
+                            1 => [at(0)?, at(0)?, at(0)?],
+                            2 => [at(1)?, at(0)?, at(1)?],
+                            _ => [at(0)?, at(1)?, at(2)?],
+                        });
                         *pos += 1;
                     }
                     items.push(Item::Verb(verb));
@@ -136,16 +173,25 @@ impl Engine {
                 let Some(Item::Noun(lhs)) = items.pop() else {
                     unreachable!()
                 };
-                if v.reduce || v.rank.is_some() {
+                if v.reduce {
                     return Err(Error::Unsupported("dyadic derived verb".into()));
                 }
-                rhs = kernels::dyad(&v.name, lhs, rhs)?;
+                if let Some(rank) = v.rank {
+                    rhs = kernels::ranked_dyad_ranks(v.name, rank[1], rank[2], lhs, rhs)?;
+                    continue;
+                }
+                rhs = match v.name {
+                    "+" => kernels::atomic_with_pool(kernels::Op::Add, lhs, rhs, &mut self.pool)?,
+                    "-" => kernels::atomic_with_pool(kernels::Op::Sub, lhs, rhs, &mut self.pool)?,
+                    "*" => kernels::atomic_with_pool(kernels::Op::Mul, lhs, rhs, &mut self.pool)?,
+                    _ => kernels::dyad(v.name, lhs, rhs)?,
+                };
             } else if let Some(rank) = v.rank {
-                rhs = kernels::ranked(&v.name, v.reduce, rank, rhs)?;
+                rhs = kernels::ranked(v.name, v.reduce, rank[0], rhs)?;
             } else if v.reduce {
-                rhs = kernels::reduce(&v.name, rhs)?;
+                rhs = kernels::reduce(v.name, rhs)?;
             } else {
-                rhs = kernels::monad(&v.name, rhs)?;
+                rhs = kernels::monad(v.name, rhs)?;
             }
         }
         Ok(rhs)

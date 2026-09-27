@@ -100,3 +100,52 @@ fn malformed_input_smoke_fuzz_does_not_panic() {
         let _ = Engine::new().eval(&source);
     }
 }
+
+#[test]
+fn dyadic_scalar_rank_frame_repetition_and_errors() {
+    assert_eq!(
+        eval("(10 20 30) +\"1 (i.2 3)"),
+        "{\"type\":4,\"shape\":[2,3],\"data\":[10,21,32,13,24,35]}"
+    );
+    assert_eq!(
+        eval("(i.2 3) -\"1 (i.2 4 3)"),
+        eval(
+            "2 4 3 $ 0 0 0 _3 _3 _3 _6 _6 _6 _9 _9 _9 _9 _9 _9 _12 _12 _12 _15 _15 _15 _18 _18 _18"
+        )
+    );
+    let mut e = Engine::new();
+    e.eval("a=:i.2 3").unwrap();
+    e.eval("alias=:a").unwrap();
+    assert!(matches!(e.eval("a=:a+\"1(i.3 3)"), Err(Error::Length)));
+    assert_eq!(
+        e.eval("a").unwrap().unwrap().json(),
+        e.eval("alias").unwrap().unwrap().json()
+    );
+    assert!(matches!(
+        e.eval("(i.0 3)+\"1(i.0 3)"),
+        Err(Error::Unsupported(_))
+    ));
+    assert_eq!(eval("(i.2 0)+\"1(i.2 0)"), eval("i.2 0"));
+}
+
+#[test]
+fn rank_lists_select_monadic_left_and_right_ranks() {
+    assert_eq!(eval("#\"0 1 i.2 3"), eval("2 $ 3"));
+    assert_eq!(eval("#\"0 2 1 i.2 3"), eval("2 3 $ (1+0)"));
+    assert_eq!(
+        eval("(10 20) +\"0 1 (i.2 3)"),
+        eval("2 3 $ 10 11 12 23 24 25")
+    );
+    assert_eq!(
+        eval("(i.2 3) -\"1 0 (10 20)"),
+        eval("2 3 $ _10 _9 _8 _17 _16 _15")
+    );
+    assert_eq!(
+        eval("(10 20) +\"2 0 1 (i.2 3)"),
+        eval("(10 20) +\"0 1 (i.2 3)")
+    );
+    let mut e = Engine::new();
+    e.eval("a=:i.2 3").unwrap();
+    assert!(matches!(e.eval("a=:#\"1 2 3 4 i.2 3"), Err(Error::Length)));
+    assert_eq!(e.eval("a").unwrap().unwrap().json(), eval("i.2 3"));
+}

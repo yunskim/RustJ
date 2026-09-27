@@ -1,0 +1,6 @@
+{"workload":"bound_add","n":16,"iterations":10000,"us":1.849,"allocations":17,"allocated_bytes":1031,"peak_additional_bytes":773}
+{"workload":"owned_add","n":16,"iterations":10000,"us":0.191,"allocations":4,"allocated_bytes":96,"peak_additional_bytes":56}
+{"workload":"bound_add","n":100000,"iterations":20,"us":102.059,"allocations":17,"allocated_bytes":800903,"peak_additional_bytes":800645}
+{"workload":"owned_add","n":100000,"iterations":20,"us":57.079,"allocations":4,"allocated_bytes":96,"peak_additional_bytes":56}
+{"workload":"bound_add","n":1000000,"iterations":20,"us":3159.368,"allocations":17,"allocated_bytes":8000903,"peak_additional_bytes":8000645}
+{"workload":"owned_add","n":1000000,"iterations":20,"us":934.541,"allocations":4,"allocated_bytes":96,"peak_additional_bytes":56}

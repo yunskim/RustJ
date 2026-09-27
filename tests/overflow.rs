@@ -43,6 +43,7 @@ fn overflow_repair_across_simd_lanes_tails_ownership_and_operand_order() {
                         let values: Vec<i64> =
                             (0..n).map(|i| boundary[i % boundary.len()]).collect();
                         let array = Value::ints(vec![n], values.clone()).unwrap();
+                        let array = if shared { array.into_shared() } else { array };
                         let saved = if shared { Some(array.clone()) } else { None };
                         let pairs: Vec<_> = values
                             .iter()
@@ -72,6 +73,7 @@ fn overflow_repair_across_simd_lanes_tails_ownership_and_operand_order() {
                 let pairs: Vec<_> = a.iter().copied().zip(b.iter().copied()).collect();
                 for shared in [false, true] {
                     let left = Value::ints(vec![n], a.clone()).unwrap();
+                    let left = if shared { left.into_shared() } else { left };
                     let saved = if shared { Some(left.clone()) } else { None };
                     let got = atomic(op, left, Value::ints(vec![n], b.clone()).unwrap()).unwrap();
                     check(op, &pairs, &got);
@@ -125,7 +127,7 @@ fn scalar_multiply_exact_bounds_and_no_overflow_cases() {
 
 #[test]
 fn float_simd_matches_scalar_bits_and_signed_zero() {
-    use std::sync::Arc;
+    use rustj::storage::CpuStorage;
     for n in [63, 64, 65, 127, 128, 129] {
         let values = [
             -0.0,
@@ -142,8 +144,8 @@ fn float_simd_matches_scalar_bits_and_signed_zero() {
             for op in [Op::Add, Op::Sub] {
                 let got = atomic(
                     op,
-                    Value::new(vec![n], Data::Float(Arc::new(x.clone()))).unwrap(),
-                    Value::new(vec![], Data::Float(Arc::new(vec![b]))).unwrap(),
+                    Value::new(vec![n], Data::Float(CpuStorage::new(x.clone()))).unwrap(),
+                    Value::new(vec![], Data::Float(CpuStorage::new(vec![b]))).unwrap(),
                 )
                 .unwrap();
                 let Data::Float(v) = got.data() else { panic!() };
@@ -178,6 +180,7 @@ fn check(op: Op, pairs: &[(i64, i64)], got: &Value) {
 #[test]
 fn same_array_on_both_sides_and_empty_expansion() {
     let a = Value::ints(vec![129], vec![i64::MAX; 129]).unwrap();
+    let a = a.into_shared();
     let b = a.clone();
     let save = a.clone();
     let out = atomic(Op::Add, a, b).unwrap();

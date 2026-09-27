@@ -1,10 +1,11 @@
-//! Typed, one-pass dense kernels. Inspired by jsrc/ve.c's overflow aggregation
-//! and exceptional repair strategy; no C code or C layout is used here.
+use crate::pool::OutputPool;
+// Typed, one-pass dense kernels. Inspired by jsrc/ve.c's overflow aggregation
+// and exceptional repair strategy; no C code or C layout is used here.
+use crate::storage::CpuStorage;
 use crate::{
     error::Result,
     value::{Data, buffer, finish_initialized, generate},
 };
-use std::sync::Arc;
 
 #[inline(always)]
 fn step<const OP: u8>(a: i64, b: i64, overflow: &mut u64) -> i64 {
@@ -39,24 +40,36 @@ fn fresh<const OP: u8>(
     n: usize,
     a: impl Fn(usize) -> i64,
     b: impl Fn(usize) -> i64,
+    pool: &mut OutputPool,
 ) -> Result<Data> {
+    if n == 1 {
+        let (x, y) = (a(0), b(0));
+        let mut bad = 0;
+        let z = step::<OP>(x, y, &mut bad);
+        return Ok(if (bad as i64) < 0 {
+            Data::Float(CpuStorage::Inline(real::<OP>(x, y)))
+        } else {
+            Data::Int(CpuStorage::Inline(z))
+        });
+    }
     let mut overflow = 0u64;
-    let out = generate(n, |i| step::<OP>(a(i), b(i), &mut overflow))?;
+    let mut out = pool.take(n)?;
+    out.extend((0..n).map(|i| step::<OP>(a(i), b(i), &mut overflow)));
     if (overflow as i64) < 0 {
         // Original inputs have not been modified. Promote the complete array.
         drop(out);
-        Ok(Data::Float(Arc::new(generate(n, |i| {
+        Ok(Data::Float(CpuStorage::new(generate(n, |i| {
             real::<OP>(a(i), b(i))
         })?)))
     } else {
-        Ok(Data::Int(Arc::new(out)))
+        Ok(Data::Int(CpuStorage::new(out)))
     }
 }
 
 #[allow(unsafe_code)]
-fn fresh_pair<const OP: u8>(n: usize, x: &[i64], y: &[i64]) -> Result<Data> {
-    if n >= 64 && crate::simd::available() {
-        let mut out = buffer::<i64>(n)?;
+fn fresh_pair<const OP: u8>(n: usize, x: &[i64], y: &[i64], pool: &mut OutputPool) -> Result<Data> {
+    if n >= 64 && (OP < 2 || x.len() == 1 || y.len() == 1) && crate::simd::available() {
+        let mut out = pool.take(n)?;
         let slots = &mut out.spare_capacity_mut()[..n];
         let simd = if OP == 2 && y.len() == 1 {
             crate::simd::mul_scalar(x, y[0], slots)
@@ -68,7 +81,7 @@ fn fresh_pair<const OP: u8>(n: usize, x: &[i64], y: &[i64]) -> Result<Data> {
         if let Some(bad) = simd {
             if bad {
                 drop(out);
-                return Ok(Data::Float(Arc::new(generate(n, |i| {
+                return Ok(Data::Float(CpuStorage::new(generate(n, |i| {
                     real::<OP>(
                         x[if x.len() == 1 { 0 } else { i }],
                         y[if y.len() == 1 { 0 } else { i }],
@@ -76,17 +89,19 @@ fn fresh_pair<const OP: u8>(n: usize, x: &[i64], y: &[i64]) -> Result<Data> {
                 })?)));
             }
             // SAFETY: simd::fill returned Some, guaranteeing n initialized slots.
-            return Ok(Data::Int(Arc::new(unsafe { finish_initialized(out, n) })));
+            return Ok(Data::Int(CpuStorage::new(unsafe {
+                finish_initialized(out, n)
+            })));
         }
     }
     if x.len() == 1 {
         let a = x[0];
-        fresh::<OP>(n, |_| a, |i| y[i])
+        fresh::<OP>(n, |_| a, |i| y[i], pool)
     } else if y.len() == 1 {
         let b = y[0];
-        fresh::<OP>(n, |i| x[i], |_| b)
+        fresh::<OP>(n, |i| x[i], |_| b, pool)
     } else {
-        fresh::<OP>(n, |i| x[i], |i| y[i])
+        fresh::<OP>(n, |i| x[i], |i| y[i], pool)
     }
 }
 
@@ -104,7 +119,7 @@ fn reuse<const OP: u8, const SWAP: bool>(mut out: Vec<i64>, other: &[i64]) -> Re
         }
     }
     if !bad.unwrap_or((overflow as i64) < 0) {
-        return Ok(Data::Int(Arc::new(out)));
+        return Ok(Data::Int(CpuStorage::new(out)));
     }
     // Add/sub are reversible modulo 2^64. Recover the overwritten operand
     // exactly, then convert both original integers separately, as J does.
@@ -126,62 +141,82 @@ fn reuse<const OP: u8, const SWAP: bool>(mut out: Vec<i64>, other: &[i64]) -> Re
             real::<OP>(original, b)
         }
     })?;
-    Ok(Data::Float(Arc::new(floats)))
+    Ok(Data::Float(CpuStorage::new(floats)))
+}
+
+/// A right-fold accumulator is owned; its next left input is a borrowed cell.
+/// Add/sub can recover its original elements if the entire cell must promote.
+pub(crate) fn int_accumulate<const OP: u8>(left: &[i64], right: CpuStorage<i64>) -> Result<Data> {
+    if left.is_empty() {
+        return Ok(Data::Int(right));
+    }
+    if OP < 2 {
+        match right.try_into_vec() {
+            Ok(out) => reuse::<OP, true>(out, left),
+            Err(right) => fresh_pair::<OP>(left.len(), left, &right, &mut OutputPool::default()),
+        }
+    } else {
+        fresh_pair::<OP>(left.len(), left, &right, &mut OutputPool::default())
+    }
 }
 
 pub(crate) fn int<const OP: u8>(
-    x: Arc<Vec<i64>>,
-    y: Arc<Vec<i64>>,
+    x: CpuStorage<i64>,
+    y: CpuStorage<i64>,
     n: usize,
     ad: usize,
     bd: usize,
+    pool: &mut OutputPool,
 ) -> Result<Data> {
     if n == 0 {
-        return Ok(Data::Int(Arc::new(Vec::new())));
+        return Ok(Data::Int(CpuStorage::new(Vec::new())));
     }
     if ad == 1 && bd == 1 {
         if OP < 2 {
-            match Arc::try_unwrap(x) {
+            match x.try_into_vec() {
                 Ok(out) => return reuse::<OP, false>(out, &y),
-                Err(x) => return fresh_pair::<OP>(n, &x, &y),
+                Err(x) => return fresh_pair::<OP>(n, &x, &y, pool),
             }
         }
-        return fresh_pair::<OP>(n, &x, &y);
+        return fresh_pair::<OP>(n, &x, &y, pool);
     }
     if y.len() == 1 {
         if OP < 2 {
-            match Arc::try_unwrap(x) {
+            match x.try_into_vec() {
                 Ok(out) => return reuse::<OP, false>(out, &y),
-                Err(x) => return fresh_pair::<OP>(n, &x, &y),
+                Err(x) => return fresh_pair::<OP>(n, &x, &y, pool),
             }
         }
-        return fresh_pair::<OP>(n, &x, &y);
+        return fresh_pair::<OP>(n, &x, &y, pool);
     }
     if x.len() == 1 {
         if OP < 2 {
-            match Arc::try_unwrap(y) {
+            match y.try_into_vec() {
                 Ok(out) => return reuse::<OP, true>(out, &x),
-                Err(y) => return fresh_pair::<OP>(n, &x, &y),
+                Err(y) => return fresh_pair::<OP>(n, &x, &y, pool),
             }
         }
-        return fresh_pair::<OP>(n, &x, &y);
+        return fresh_pair::<OP>(n, &x, &y, pool);
     }
-    fresh::<OP>(n, |i| x[i / ad], |i| y[i / bd])
+    fresh::<OP>(n, |i| x[i / ad], |i| y[i / bd], pool)
 }
 
 // Float add/sub need no integer promotion pass. Preserve the J-specific
 // multiply/divide handling in the general implementation for now.
 #[allow(unsafe_code)]
 pub(crate) fn float<const SUB: bool>(
-    x: Arc<Vec<f64>>,
-    y: Arc<Vec<f64>>,
+    x: CpuStorage<f64>,
+    y: CpuStorage<f64>,
     n: usize,
     ad: usize,
     bd: usize,
 ) -> Result<Data> {
     let op = |a: f64, b: f64| if SUB { a - b } else { a + b };
+    if n == 1 {
+        return Ok(Data::Float(CpuStorage::Inline(op(x[0], y[0]))));
+    }
     if n == 0 {
-        return Ok(Data::Float(Arc::new(Vec::new())));
+        return Ok(Data::Float(CpuStorage::new(Vec::new())));
     }
     if n >= 64
         && crate::simd::available()
@@ -190,7 +225,9 @@ pub(crate) fn float<const SUB: bool>(
         let mut out = buffer::<f64>(n)?;
         if crate::simd::float_fill::<SUB>(&x, &y, &mut out.spare_capacity_mut()[..n]) {
             // SAFETY: true means all n output slots were written by float_fill.
-            return Ok(Data::Float(Arc::new(unsafe { finish_initialized(out, n) })));
+            return Ok(Data::Float(CpuStorage::new(unsafe {
+                finish_initialized(out, n)
+            })));
         }
     }
     let out = if ad == 1 && bd == 1 {
@@ -204,5 +241,5 @@ pub(crate) fn float<const SUB: bool>(
     } else {
         generate(n, |i| op(x[i / ad], y[i / bd]))?
     };
-    Ok(Data::Float(Arc::new(out)))
+    Ok(Data::Float(CpuStorage::new(out)))
 }

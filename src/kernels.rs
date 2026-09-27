@@ -1,8 +1,8 @@
+use crate::storage::{ArrayView, CpuStorage, CpuView, Shape};
 use crate::{
     error::{Error, Result},
     value::{Data, Value, buffer, count},
 };
-use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Op {
@@ -15,7 +15,7 @@ pub enum Op {
     Gt,
 }
 
-fn agreement(a: &Value, b: &Value) -> Result<(Vec<usize>, usize, usize)> {
+fn agreement(a: &Value, b: &Value) -> Result<(Shape, usize, usize)> {
     let (short, long) = if a.shape.len() <= b.shape.len() {
         (&a.shape, &b.shape)
     } else {
@@ -68,19 +68,31 @@ fn near(a: f64, b: f64) -> bool {
 fn int_pair<const OP: u8>(
     a: Value,
     b: Value,
-    shape: Vec<usize>,
+    shape: Shape,
     ad: usize,
     bd: usize,
+    pool: &mut crate::pool::OutputPool,
 ) -> Result<Value> {
     let (Data::Int(x), Data::Int(y)) = (a.data, b.data) else {
         unreachable!()
     };
-    let data = crate::numeric::int::<OP>(x, y, count(&shape)?, ad, bd)?;
+    let data = crate::numeric::int::<OP>(x, y, count(&shape)?, ad, bd, pool)?;
     Value::new(shape, data)
 }
 pub fn atomic(op: Op, a: Value, b: Value) -> Result<Value> {
+    atomic_with_pool(op, a, b, &mut crate::pool::OutputPool::default())
+}
+pub(crate) fn atomic_with_pool(
+    op: Op,
+    a: Value,
+    b: Value,
+    pool: &mut crate::pool::OutputPool,
+) -> Result<Value> {
     let (shape, ad, bd) = agreement(&a, &b)?;
     let n = count(&shape)?;
+    if n == 1 && matches!(op, Op::Add | Op::Sub | Op::Mul | Op::Div) {
+        return arithmetic_views(op, a.view(), b.view());
+    }
     if matches!(op, Op::Add | Op::Sub)
         && matches!((&a.data, &b.data), (Data::Float(_), Data::Float(_)))
     {
@@ -96,9 +108,9 @@ pub fn atomic(op: Op, a: Value, b: Value) -> Result<Value> {
     }
     if matches!((&a.data, &b.data), (Data::Int(_), Data::Int(_))) {
         match op {
-            Op::Add => return int_pair::<0>(a, b, shape, ad, bd),
-            Op::Sub => return int_pair::<1>(a, b, shape, ad, bd),
-            Op::Mul => return int_pair::<2>(a, b, shape, ad, bd),
+            Op::Add => return int_pair::<0>(a, b, shape, ad, bd, pool),
+            Op::Sub => return int_pair::<1>(a, b, shape, ad, bd, pool),
+            Op::Mul => return int_pair::<2>(a, b, shape, ad, bd, pool),
             _ => (),
         }
     }
@@ -134,7 +146,7 @@ pub fn atomic(op: Op, a: Value, b: Value) -> Result<Value> {
                 _ => unreachable!(),
             } as u8);
         }
-        return Value::new(shape, Data::Bool(Arc::new(out)));
+        return Value::new(shape, Data::Bool(CpuStorage::new(out)));
     }
     if matches!(a.data, Data::Char(_)) || matches!(b.data, Data::Char(_)) {
         return Err(Error::Domain);
@@ -153,18 +165,21 @@ pub fn atomic(op: Op, a: Value, b: Value) -> Result<Value> {
                 for i in 0..n {
                     out.push((a.int_at(i / ad)? * b.int_at(i / bd)?) as u8);
                 }
-                return Value::new(shape, Data::Bool(Arc::new(out)));
+                return Value::new(shape, Data::Bool(CpuStorage::new(out)));
             }
             if ad == 1 && matches!(a.data, Data::Int(_)) {
                 let Data::Int(storage) = a.data else {
                     unreachable!()
                 };
-                let mut out = match Arc::try_unwrap(storage) {
+                let mut out = match storage.try_into_vec() {
                     Ok(v) => v,
                     Err(v) => {
-                        let mut out = buffer(n)?;
-                        out.extend_from_slice(&v);
-                        out
+                        return Value::new(
+                            shape,
+                            Data::Int(CpuStorage::generate(n, |i| {
+                                integer(op, v[i], b.int_at(i / bd).unwrap()).unwrap()
+                            })?),
+                        );
                     }
                 };
                 for (i, x) in out.iter_mut().enumerate() {
@@ -183,24 +198,27 @@ pub fn atomic(op: Op, a: Value, b: Value) -> Result<Value> {
         let Data::Float(storage) = a.data else {
             unreachable!()
         };
-        let mut out = match Arc::try_unwrap(storage) {
+        let mut out = match storage.try_into_vec() {
             Ok(v) => v,
             Err(v) => {
-                let mut out = buffer(n)?;
-                out.extend_from_slice(&v);
-                out
+                return Value::new(
+                    shape,
+                    Data::Float(CpuStorage::generate(n, |i| {
+                        real(op, v[i], b.float_at(i / bd).unwrap())
+                    })?),
+                );
             }
         };
         for (i, x) in out.iter_mut().enumerate() {
             *x = real(op, *x, b.float_at(i / bd)?);
         }
-        Value::new(shape, Data::Float(Arc::new(out)))
+        Value::new(shape, Data::Float(CpuStorage::new(out)))
     } else {
         let mut out = buffer(n)?;
         for i in 0..n {
             out.push(real(op, a.float_at(i / ad)?, b.float_at(i / bd)?));
         }
-        Value::new(shape, Data::Float(Arc::new(out)))
+        Value::new(shape, Data::Float(CpuStorage::new(out)))
     }
 }
 
@@ -243,7 +261,7 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
                 for i in 0..y.len() {
                     out.push(y.float_at(i)?.abs());
                 }
-                Value::new(y.shape, Data::Float(Arc::new(out)))
+                Value::new(y.shape, Data::Float(CpuStorage::new(out)))
             } else {
                 let mut out = buffer(y.len())?;
                 for i in 0..y.len() {
@@ -268,7 +286,7 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
         ),
         "#" => Ok(Value::scalar(y.shape.first().copied().unwrap_or(1) as i64)),
         "," => {
-            y.shape = vec![y.len()];
+            y.shape = Shape::from([y.len()]);
             Ok(y)
         }
         "i." => {
@@ -328,7 +346,7 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
             let shape = dimensions(&a)?;
             let n = count(&shape)?;
             if n == b.len() {
-                b.shape = shape;
+                b.shape = shape.into();
                 return Ok(b);
             }
             if b.is_empty() && n > 0 {
@@ -381,8 +399,18 @@ pub fn reduce(verb: &str, y: Value) -> Result<Value> {
     if y.shape.is_empty() {
         return Ok(y);
     }
+    reduce_view(verb, y.view())
+}
+
+fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
+    if !matches!(verb, "+" | "-" | "*" | "%") {
+        return Err(Error::Unsupported(format!("reduction {verb}")));
+    }
+    if y.shape.is_empty() {
+        return y.to_owned();
+    }
     let items = y.shape[0];
-    let shape = y.shape[1..].to_vec();
+    let shape = Shape::from(&y.shape[1..]);
     let cell = count(&shape)?;
     if items == 0 {
         if !matches!(verb, "+" | "*") {
@@ -391,15 +419,145 @@ pub fn reduce(verb: &str, y: Value) -> Result<Value> {
         let fill = if verb == "+" { 0 } else { 1 };
         let mut data = buffer(cell)?;
         data.resize(cell, fill);
-        return Value::new(shape, Data::Bool(Arc::new(data)));
+        return Value::new(shape, Data::Bool(CpuStorage::new(data)));
     }
     // Reference implementation: right fold. Specialized reductions come later.
-    let mut out = y.select(shape.clone(), (items - 1) * cell..items * cell)?;
+    let mut out = y.cell(shape.len(), items - 1)?.to_owned()?;
     for row in (0..items - 1).rev() {
-        let lhs = y.select(shape.clone(), row * cell..(row + 1) * cell)?;
-        out = dyad(verb, lhs, out)?;
+        let lhs = y.cell(shape.len(), row)?;
+        let op = match verb {
+            "+" => Op::Add,
+            "-" => Op::Sub,
+            "*" => Op::Mul,
+            _ => Op::Div,
+        };
+        out = reduction_step(op, lhs, out)?;
     }
     Ok(out)
+}
+
+fn reduction_step(op: Op, lhs: ArrayView<'_>, rhs: Value) -> Result<Value> {
+    if matches!(op, Op::Add | Op::Sub)
+        && matches!((lhs.data, &rhs.data), (CpuView::Int(_), Data::Int(_)))
+    {
+        let CpuView::Int(left) = lhs.data else {
+            unreachable!()
+        };
+        let Data::Int(right) = rhs.data else {
+            unreachable!()
+        };
+        let data = if matches!(op, Op::Add) {
+            crate::numeric::int_accumulate::<0>(left, right)?
+        } else {
+            crate::numeric::int_accumulate::<1>(left, right)?
+        };
+        return Value::new(rhs.shape, data);
+    }
+    arithmetic_views(op, lhs, rhs.view())
+}
+
+// Right-fold and rank read their inputs through lifetime-bound views. Output
+// storage is owned, so no borrowed cell can escape into the evaluator.
+fn arithmetic_views(op: Op, a: ArrayView<'_>, b: ArrayView<'_>) -> Result<Value> {
+    if matches!(a.data, CpuView::Char(_)) || matches!(b.data, CpuView::Char(_)) {
+        return Err(Error::Domain);
+    }
+    let (short, shape) = if a.shape.len() <= b.shape.len() {
+        (a.shape, b.shape)
+    } else {
+        (b.shape, a.shape)
+    };
+    if !shape.starts_with(short) {
+        return Err(Error::Length);
+    }
+    let n = count(shape)?;
+    let ad = count(&shape[a.shape.len()..])?;
+    let bd = count(&shape[b.shape.len()..])?;
+    let float = matches!(a.data, CpuView::Float(_))
+        || matches!(b.data, CpuView::Float(_))
+        || matches!(op, Op::Div);
+    if !float {
+        if matches!(op, Op::Mul) && matches!((a.data, b.data), (CpuView::Bool(_), CpuView::Bool(_)))
+        {
+            return Value::new(
+                Shape::from(shape),
+                Data::Bool(CpuStorage::generate(n, |i| {
+                    (a.int_at(i / ad).unwrap() * b.int_at(i / bd).unwrap()) as u8
+                })?),
+            );
+        }
+        let mut overflow = false;
+        let out = CpuStorage::generate(n, |i| {
+            match integer(op, a.int_at(i / ad).unwrap(), b.int_at(i / bd).unwrap()) {
+                Some(x) => x,
+                None => {
+                    overflow = true;
+                    0
+                }
+            }
+        })?;
+        if !overflow {
+            return Value::new(Shape::from(shape), Data::Int(out));
+        }
+    }
+    Value::new(
+        Shape::from(shape),
+        Data::Float(CpuStorage::generate(n, |i| {
+            real(op, a.float_at(i / ad).unwrap(), b.float_at(i / bd).unwrap())
+        })?),
+    )
+}
+
+fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
+    match verb {
+        "#" => Ok(Value::scalar(y.shape.first().copied().unwrap_or(1) as i64)),
+        "$" => Value::new(
+            [y.shape.len()],
+            Data::Int(CpuStorage::generate(y.shape.len(), |i| y.shape[i] as i64)?),
+        ),
+        "-" | "%" => {
+            let x = Value::scalar(if verb == "-" { 0 } else { 1 });
+            arithmetic_views(if verb == "-" { Op::Sub } else { Op::Div }, x.view(), y)
+        }
+        "*" | "|" => {
+            if matches!(y.data, CpuView::Char(_)) {
+                return Err(Error::Domain);
+            }
+            let n = y.len();
+            if verb == "*" {
+                if (0..n).any(|i| y.float_at(i).unwrap().is_nan()) {
+                    return Err(Error::Unsupported("signum of NaN".into()));
+                }
+                Value::new(
+                    Shape::from(y.shape),
+                    Data::Int(CpuStorage::generate(n, |i| {
+                        let x = y.float_at(i).unwrap();
+                        if x > 0.0 {
+                            1
+                        } else if x < 0.0 {
+                            -1
+                        } else {
+                            0
+                        }
+                    })?),
+                )
+            } else if matches!(y.data, CpuView::Bool(_)) {
+                y.to_owned()
+            } else if matches!(y.data,CpuView::Int(v) if v.iter().all(|&x|x != i64::MIN)) {
+                Value::new(
+                    Shape::from(y.shape),
+                    Data::Int(CpuStorage::generate(n, |i| y.int_at(i).unwrap().abs())?),
+                )
+            } else {
+                Value::new(
+                    Shape::from(y.shape),
+                    Data::Float(CpuStorage::generate(n, |i| y.float_at(i).unwrap().abs())?),
+                )
+            }
+        }
+        // Identity/ravel need an owned output; i. uses its small dimension input.
+        _ => monad(verb, y.to_owned()?),
+    }
 }
 
 pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
@@ -414,7 +572,7 @@ pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
                 return Err(Error::Domain);
             }
         }
-        return Value::new(shape, Data::Char(Arc::new(out)));
+        return Value::new(shape, Data::Char(CpuStorage::new(out)));
     }
     if cells.iter().any(|x| matches!(x.data, Data::Float(_))) {
         let mut out = buffer(n)?;
@@ -423,7 +581,7 @@ pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
                 out.push(c.float_at(i)?);
             }
         }
-        Value::new(shape, Data::Float(Arc::new(out)))
+        Value::new(shape, Data::Float(CpuStorage::new(out)))
     } else if cells.iter().any(|x| matches!(x.data, Data::Int(_))) {
         let mut out = buffer(n)?;
         for c in cells {
@@ -439,8 +597,84 @@ pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
                 out.extend_from_slice(&v);
             }
         }
-        Value::new(shape, Data::Bool(Arc::new(out)))
+        Value::new(shape, Data::Bool(CpuStorage::new(out)))
     }
+}
+
+/// Apply a dyad to cells selected by a scalar rank. Shorter frames repeat
+/// across the unmatched suffix of the longer frame (J prefix agreement).
+/// Empty-frame prototypes and differently shaped result cells remain unsupported.
+pub fn ranked_dyad(verb: &str, rank: i64, a: Value, b: Value) -> Result<Value> {
+    ranked_dyad_ranks(verb, rank, rank, a, b)
+}
+
+/// Independent left and right cell ranks, with J prefix frame agreement.
+pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) -> Result<Value> {
+    let cell_rank = |r: usize, rank: i64| {
+        if rank < 0 {
+            r.saturating_sub(rank.unsigned_abs() as usize)
+        } else {
+            r.min(rank as usize)
+        }
+    };
+    let ar = cell_rank(a.shape.len(), left);
+    let br = cell_rank(b.shape.len(), right);
+    let af = &a.shape[..a.shape.len() - ar];
+    let bf = &b.shape[..b.shape.len() - br];
+    if af.is_empty() && bf.is_empty() {
+        return dyad(verb, a, b);
+    }
+    let (short, frame) = if af.len() <= bf.len() {
+        (af, bf)
+    } else {
+        (bf, af)
+    };
+    if !frame.starts_with(short) {
+        return Err(Error::Length);
+    }
+    let frames = count(frame)?;
+    if frames == 0 {
+        return Err(Error::Unsupported(
+            "dyadic rank over empty frame (prototype inference)".into(),
+        ));
+    }
+    let ad = count(&frame[af.len()..])?;
+    let bd = count(&frame[bf.len()..])?;
+    let evaluate = |i| {
+        let x = a.view().cell(ar, i / ad)?;
+        let y = b.view().cell(br, i / bd)?;
+        match verb {
+            "+" => arithmetic_views(Op::Add, x, y),
+            "-" => arithmetic_views(Op::Sub, x, y),
+            "*" => arithmetic_views(Op::Mul, x, y),
+            "%" => arithmetic_views(Op::Div, x, y),
+            _ => dyad(verb, x.to_owned()?, y.to_owned()?),
+        }
+    };
+    let first = evaluate(0)?;
+    let result_shape = first.shape.clone();
+    let mut shape = Shape::from(frame);
+    shape.extend_from_slice(&result_shape);
+    let mut out = crate::assembly::CellBuilder::new(&first, count(&shape)?)?;
+    drop(first);
+    let mut mismatch = false;
+    let mut error = None;
+    for i in 1..frames {
+        let cell = evaluate(i)?;
+        mismatch |= cell.shape != result_shape;
+        if !mismatch && error.is_none() {
+            if let Err(e) = out.push(&cell) {
+                error = Some(e);
+            }
+        }
+    }
+    if mismatch {
+        return Err(Error::Unsupported("rank result padding".into()));
+    }
+    if let Some(e) = error {
+        return Err(e);
+    }
+    Value::new(shape, out.finish())
 }
 
 pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value> {
@@ -467,21 +701,42 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
             "rank over empty frame (prototype inference)".into(),
         ));
     }
-    let cell_shape = y.shape[f..].to_vec();
-    let size = count(&cell_shape)?;
-    let mut cells = buffer(frames)?;
-    for i in 0..frames {
-        cells.push(call(
-            y.select(cell_shape.clone(), i * size..(i + 1) * size)?,
-        )?);
+    let evaluate_cell = |i| {
+        let cell = y.view().cell(r, i)?;
+        if reduction {
+            reduce_view(verb, cell)
+        } else {
+            monad_view(verb, cell)
+        }
+    };
+    let first = evaluate_cell(0)?;
+    let result_shape = first.shape.clone();
+    let mut shape = Shape::from(&y.shape[..f]);
+    shape.extend_from_slice(&result_shape);
+    let mut out = crate::assembly::CellBuilder::new(&first, count(&shape)?)?;
+    drop(first);
+    let mut shape_mismatch = false;
+    let mut assembly_error = None;
+    for i in 1..frames {
+        let cell = evaluate_cell(i)?;
+        if cell.shape != result_shape {
+            shape_mismatch = true;
+        }
+        // As before, evaluate every cell before reporting assembly errors.
+        // A later cell's domain error must not be masked by an earlier shape.
+        if !shape_mismatch && assembly_error.is_none() {
+            if let Err(error) = out.push(&cell) {
+                assembly_error = Some(error);
+            }
+        }
     }
-    let result_shape = cells[0].shape.clone();
-    if cells.iter().any(|v| v.shape != result_shape) {
+    if shape_mismatch {
         return Err(Error::Unsupported("rank result padding".into()));
     }
-    let mut shape = y.shape[..f].to_vec();
-    shape.extend(result_shape);
-    assemble(shape, cells)
+    if let Some(error) = assembly_error {
+        return Err(error);
+    }
+    Value::new(shape, out.finish())
 }
 
 #[cfg(test)]
@@ -497,6 +752,7 @@ mod tests {
             panic!()
         };
         assert_eq!(ptr, v.as_ptr());
+        let result = result.into_shared();
         let saved = result.clone();
         let changed = atomic(Op::Add, result, Value::scalar(10)).unwrap();
         assert_eq!(saved.display(), "4 5 6");

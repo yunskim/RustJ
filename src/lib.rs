@@ -1,11 +1,15 @@
 #![deny(unsafe_code)]
 
+mod assembly;
+
 pub mod error;
 pub mod kernels;
 mod numeric;
+mod pool;
 pub mod runtime;
 #[allow(unsafe_code)]
 mod simd;
+pub mod storage;
 pub mod syntax;
 pub mod value;
 

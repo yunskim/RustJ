@@ -1,0 +1,1597 @@
+{
+  "timestamp_utc": "2026-09-26T07:32:41.121835+00:00",
+  "baseline_commit": "7add0706c652cbc935931db40a257dd80f5727a4",
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "cpu_affinity": 0,
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "source_sha256": {
+    "src/assembly.rs": "b950ec59eb9e45f925e3a03f096f7acabaf52a018d94d4864a6a9269c94536ec",
+    "src/error.rs": "f5eea5cc3222c20ffa1b75bd23257b0ea907ab0b7f703c2a1a02eefa3796bb39",
+    "src/kernels.rs": "fa07efc6a1f75ca11cac0e1b3633cb2778506103682905a7b2175ea194c4721b",
+    "src/lib.rs": "7c9d19ba9918dc721e465ec82c4cab44fe4f97c7b3198c1632162bab3895112c",
+    "src/main.rs": "4ffdf051293090b29781b355d6fa9332dfabf6d0572d9a86d48641fb43d3615f",
+    "src/numeric.rs": "a94918d09333d0ba7b8fcff25c5111eedc99c545b4ff6ec8ef1b18472cee11ec",
+    "src/runtime.rs": "d86f40c2dec7520e73f411386ea22b1d3b2808fedf6a83fddf6e39bef072e24d",
+    "src/simd.rs": "f0b37e2ff5b58938b6e959c7c51637831eb774931b8138814d9aa32fa3136be8",
+    "src/storage.rs": "9661eee43eb991ede01978e767fc6983df4446cf066dbb4778948fba33633c94",
+    "src/syntax.rs": "1ed0f1eb6ff68a1fd7ae6b7d607255b1bfd77807df1347d1bd689fcd9b5bdeef",
+    "src/value.rs": "d6b3ff1988081bb25ca9b6fb87e93157645f6f22bdb2682e7ef24c2d4900ee41"
+  },
+  "harness_sha256": {
+    "baseline.rs": "03282e0b820e6c5827f62f1f73d2d4ba3a738a1d4982acf957e0b947c1c37f93",
+    "comparison.rs": "0daacfb33c8e9b53b4885aeeb3ad072ffd87414c140be602dfdaa7071f3f7d42",
+    "layout.rs": "4f72e5a588ff7b04554f59f16178c294a52a2a6b6f6f35f5bd3fbfbec7d32810"
+  },
+  "reference_sha256": "92b265fc83cd9bab40971378581e799764d4397a223c2dce4e41249cef83770f",
+  "notes": [
+    "layout/comparison timings uninstrumented; baseline timings use an allocation wrapper",
+    "Two passes in opposite version order; WSL2 load/frequency not fully controlled",
+    "One CPU; no CUDA measurements"
+  ],
+  "results": {
+    "before-layout-1": [
+      {
+        "workload": "scalar_add",
+        "n": 1,
+        "us": 0.1491672,
+        "min_us": 0.1420231,
+        "max_us": 0.1634242
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "us": 0.12911879999999998,
+        "min_us": 0.12154839999999999,
+        "max_us": 0.1404451
+      },
+      {
+        "workload": "owned_add",
+        "n": 4096,
+        "us": 1.4768000000000001,
+        "min_us": 1.4745,
+        "max_us": 2.0452
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "us": 848.2337,
+        "min_us": 763.7194666666667,
+        "max_us": 1302.9134666666666
+      },
+      {
+        "workload": "rank_tally",
+        "n": 16,
+        "us": 3.6804210000000004,
+        "min_us": 3.600412,
+        "max_us": 6.125081999999999
+      },
+      {
+        "workload": "rank_tally",
+        "n": 4096,
+        "us": 932.8227333333333,
+        "min_us": 871.7610333333334,
+        "max_us": 1095.4548333333332
+      },
+      {
+        "workload": "rank_sum",
+        "n": 16,
+        "us": 19.970506999999998,
+        "min_us": 17.785571,
+        "max_us": 21.896885
+      },
+      {
+        "workload": "rank_sum",
+        "n": 4096,
+        "us": 4833.7410666666665,
+        "min_us": 4378.2087,
+        "max_us": 5273.7064
+      }
+    ],
+    "after-layout-1": [
+      {
+        "workload": "scalar_add",
+        "n": 1,
+        "us": 0.1191517,
+        "min_us": 0.09382599999999999,
+        "max_us": 0.12360050000000002
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "us": 0.06262369999999999,
+        "min_us": 0.062152400000000003,
+        "max_us": 0.06713039999999999
+      },
+      {
+        "workload": "owned_add",
+        "n": 4096,
+        "us": 1.1407666666666667,
+        "min_us": 1.1350666666666667,
+        "max_us": 1.1446333333333334
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "us": 817.3504333333333,
+        "min_us": 749.6175666666667,
+        "max_us": 1006.3023333333333
+      },
+      {
+        "workload": "rank_tally",
+        "n": 16,
+        "us": 1.009878,
+        "min_us": 0.893933,
+        "max_us": 1.1635829999999998
+      },
+      {
+        "workload": "rank_tally",
+        "n": 4096,
+        "us": 227.33533333333335,
+        "min_us": 208.05566666666667,
+        "max_us": 240.10553333333334
+      },
+      {
+        "workload": "rank_sum",
+        "n": 16,
+        "us": 6.231755,
+        "min_us": 5.593236,
+        "max_us": 7.429748
+      },
+      {
+        "workload": "rank_sum",
+        "n": 4096,
+        "us": 1484.0941333333333,
+        "min_us": 1412.2109000000003,
+        "max_us": 1530.6314333333332
+      }
+    ],
+    "before-baseline-1": [
+      {
+        "workload": "bound_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.778,
+        "allocations": 17,
+        "allocated_bytes": 1031,
+        "peak_additional_bytes": 773
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.149,
+        "allocations": 4,
+        "allocated_bytes": 96,
+        "peak_additional_bytes": 56
+      },
+      {
+        "workload": "bound_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 60.304,
+        "allocations": 17,
+        "allocated_bytes": 800903,
+        "peak_additional_bytes": 800645
+      },
+      {
+        "workload": "owned_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 62.221,
+        "allocations": 4,
+        "allocated_bytes": 96,
+        "peak_additional_bytes": 56
+      },
+      {
+        "workload": "bound_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 1767.934,
+        "allocations": 17,
+        "allocated_bytes": 8000903,
+        "peak_additional_bytes": 8000645
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 818.829,
+        "allocations": 4,
+        "allocated_bytes": 96,
+        "peak_additional_bytes": 56
+      }
+    ],
+    "after-baseline-1": [
+      {
+        "workload": "bound_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.574,
+        "allocations": 6,
+        "allocated_bytes": 745,
+        "peak_additional_bytes": 609
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.091,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "peak_additional_bytes": 0
+      },
+      {
+        "workload": "bound_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 44.093,
+        "allocations": 6,
+        "allocated_bytes": 800617,
+        "peak_additional_bytes": 800481
+      },
+      {
+        "workload": "owned_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 31.42,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "peak_additional_bytes": 0
+      },
+      {
+        "workload": "bound_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 1551.611,
+        "allocations": 6,
+        "allocated_bytes": 8000617,
+        "peak_additional_bytes": 8000481
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 815.669,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "peak_additional_bytes": 0
+      }
+    ],
+    "before-comparison-1": [
+      {
+        "workload": "int_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.598,
+        "c_us": 0.36,
+        "rust_min_us": 0.57,
+        "rust_max_us": 1.37,
+        "c_min_us": 0.336,
+        "c_max_us": 0.431
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.623,
+        "c_us": 0.39,
+        "rust_min_us": 0.59,
+        "rust_max_us": 1.02,
+        "c_min_us": 0.378,
+        "c_max_us": 0.658
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.671,
+        "c_us": 0.384,
+        "rust_min_us": 0.535,
+        "rust_max_us": 1.178,
+        "c_min_us": 0.336,
+        "c_max_us": 0.437
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.588,
+        "c_us": 0.38,
+        "rust_min_us": 0.562,
+        "rust_max_us": 0.628,
+        "c_min_us": 0.338,
+        "c_max_us": 0.94
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.554,
+        "c_us": 0.646,
+        "rust_min_us": 0.542,
+        "rust_max_us": 0.595,
+        "c_min_us": 0.636,
+        "c_max_us": 1.346
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.3,
+        "c_us": 2.374,
+        "rust_min_us": 1.901,
+        "rust_max_us": 2.884,
+        "c_min_us": 2.06,
+        "c_max_us": 2.632
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.103,
+        "c_us": 2.846,
+        "rust_min_us": 1.902,
+        "rust_max_us": 3.009,
+        "c_min_us": 2.313,
+        "c_max_us": 4.184
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.569,
+        "c_us": 2.783,
+        "rust_min_us": 1.968,
+        "rust_max_us": 3.782,
+        "c_min_us": 2.564,
+        "c_max_us": 3.989
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 4.567,
+        "c_us": 4.096,
+        "rust_min_us": 4.501,
+        "rust_max_us": 6.536,
+        "c_min_us": 3.856,
+        "c_max_us": 4.973
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.132,
+        "c_us": 2.411,
+        "rust_min_us": 2.052,
+        "rust_max_us": 2.989,
+        "c_min_us": 2.347,
+        "c_max_us": 2.88
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 50.043,
+        "c_us": 59.506,
+        "rust_min_us": 43.43,
+        "rust_max_us": 69.307,
+        "c_min_us": 54.897,
+        "c_max_us": 84.619
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 86.039,
+        "c_us": 80.547,
+        "rust_min_us": 75.266,
+        "rust_max_us": 93.444,
+        "c_min_us": 74.118,
+        "c_max_us": 93.324
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 50.305,
+        "c_us": 58.85,
+        "rust_min_us": 48.553,
+        "rust_max_us": 64.757,
+        "c_min_us": 51.168,
+        "c_max_us": 68.362
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 92.451,
+        "c_us": 84.919,
+        "rust_min_us": 84.568,
+        "rust_max_us": 109.021,
+        "c_min_us": 76.051,
+        "c_max_us": 96.654
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 55.476,
+        "c_us": 51.976,
+        "rust_min_us": 52.106,
+        "rust_max_us": 71.971,
+        "c_min_us": 49.202,
+        "c_max_us": 72.136
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1355.55,
+        "c_us": 1480.915,
+        "rust_min_us": 1279.689,
+        "rust_max_us": 1476.473,
+        "c_min_us": 1290.423,
+        "c_max_us": 1572.815
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1685.666,
+        "c_us": 1629.229,
+        "rust_min_us": 1577.35,
+        "rust_max_us": 1820.029,
+        "c_min_us": 1572.895,
+        "c_max_us": 1801.839
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1260.963,
+        "c_us": 1257.193,
+        "rust_min_us": 1244.663,
+        "rust_max_us": 1446.22,
+        "c_min_us": 1236.806,
+        "c_max_us": 1466.381
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1458.288,
+        "c_us": 1407.298,
+        "rust_min_us": 1382.019,
+        "rust_max_us": 1539.477,
+        "c_min_us": 1358.088,
+        "c_max_us": 1543.597
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1289.224,
+        "c_us": 1280.21,
+        "rust_min_us": 1241.04,
+        "rust_max_us": 1412.26,
+        "c_min_us": 1212.5,
+        "c_max_us": 1890.171
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5753.52,
+        "c_us": 24308.092,
+        "rust_min_us": 5106.723,
+        "rust_max_us": 8241.556,
+        "c_min_us": 21844.538,
+        "c_max_us": 27756.266
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 6890.219,
+        "c_us": 23130.431,
+        "rust_min_us": 6159.919,
+        "rust_max_us": 8092.172,
+        "c_min_us": 22265.031,
+        "c_max_us": 25036.168
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 4984.644,
+        "c_us": 20918.143,
+        "rust_min_us": 4677.306,
+        "rust_max_us": 5262.713,
+        "c_min_us": 20574.29,
+        "c_max_us": 22064.656
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5490.684,
+        "c_us": 23069.956,
+        "rust_min_us": 5146.578,
+        "rust_max_us": 5663.874,
+        "c_min_us": 22080.317,
+        "c_max_us": 23612.296
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 4813.815,
+        "c_us": 21425.205,
+        "rust_min_us": 4621.937,
+        "rust_max_us": 4944.251,
+        "c_min_us": 21077.773,
+        "c_max_us": 23616.46
+      }
+    ],
+    "after-comparison-1": [
+      {
+        "workload": "int_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.425,
+        "c_us": 0.383,
+        "rust_min_us": 0.387,
+        "rust_max_us": 0.449,
+        "c_min_us": 0.331,
+        "c_max_us": 1.078
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.397,
+        "c_us": 0.379,
+        "rust_min_us": 0.378,
+        "rust_max_us": 0.416,
+        "c_min_us": 0.371,
+        "c_max_us": 0.441
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.405,
+        "c_us": 0.379,
+        "rust_min_us": 0.375,
+        "rust_max_us": 0.456,
+        "c_min_us": 0.334,
+        "c_max_us": 1.374
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.381,
+        "c_us": 0.366,
+        "rust_min_us": 0.355,
+        "rust_max_us": 0.489,
+        "c_min_us": 0.341,
+        "c_max_us": 0.534
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.363,
+        "c_us": 0.66,
+        "rust_min_us": 0.355,
+        "rust_max_us": 0.41,
+        "c_min_us": 0.607,
+        "c_max_us": 0.955
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 1.803,
+        "c_us": 2.759,
+        "rust_min_us": 1.715,
+        "rust_max_us": 2.026,
+        "c_min_us": 2.1,
+        "c_max_us": 2.924
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 1.84,
+        "c_us": 2.612,
+        "rust_min_us": 1.781,
+        "rust_max_us": 1.978,
+        "c_min_us": 2.231,
+        "c_max_us": 3.451
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 1.832,
+        "c_us": 2.113,
+        "rust_min_us": 1.635,
+        "rust_max_us": 2.931,
+        "c_min_us": 2.044,
+        "c_max_us": 16.921
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 3.693,
+        "c_us": 3.007,
+        "rust_min_us": 3.352,
+        "rust_max_us": 4.009,
+        "c_min_us": 2.927,
+        "c_max_us": 3.664
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.087,
+        "c_us": 1.861,
+        "rust_min_us": 1.455,
+        "rust_max_us": 2.638,
+        "c_min_us": 1.817,
+        "c_max_us": 2.194
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 63.546,
+        "c_us": 64.536,
+        "rust_min_us": 57.401,
+        "rust_max_us": 85.45,
+        "c_min_us": 41.756,
+        "c_max_us": 90.919
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 148.483,
+        "c_us": 123.839,
+        "rust_min_us": 106.841,
+        "rust_max_us": 184.561,
+        "c_min_us": 107.227,
+        "c_max_us": 172.085
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 168.532,
+        "c_us": 164.951,
+        "rust_min_us": 65.338,
+        "rust_max_us": 269.524,
+        "c_min_us": 65.025,
+        "c_max_us": 185.489
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 188.818,
+        "c_us": 168.344,
+        "rust_min_us": 92.98,
+        "rust_max_us": 300.06,
+        "c_min_us": 118.162,
+        "c_max_us": 184.907
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 86.978,
+        "c_us": 73.419,
+        "rust_min_us": 52.371,
+        "rust_max_us": 148.719,
+        "c_min_us": 54.864,
+        "c_max_us": 170.339
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1644.644,
+        "c_us": 1753.227,
+        "rust_min_us": 1599.173,
+        "rust_max_us": 1783.855,
+        "c_min_us": 1667.474,
+        "c_max_us": 2005.393
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1958.129,
+        "c_us": 2037.658,
+        "rust_min_us": 1732.024,
+        "rust_max_us": 2011.689,
+        "c_min_us": 1906.629,
+        "c_max_us": 2186.381
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1360.897,
+        "c_us": 1472.531,
+        "rust_min_us": 1223.729,
+        "rust_max_us": 1784.375,
+        "c_min_us": 1248.556,
+        "c_max_us": 1536.92
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1704.806,
+        "c_us": 1581.763,
+        "rust_min_us": 1421.944,
+        "rust_max_us": 2576.484,
+        "c_min_us": 1408.283,
+        "c_max_us": 2917.557
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1626.576,
+        "c_us": 1708.639,
+        "rust_min_us": 1422.684,
+        "rust_max_us": 2953.437,
+        "c_min_us": 1546.644,
+        "c_max_us": 3325.83
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5727.869,
+        "c_us": 22854.479,
+        "rust_min_us": 5095.725,
+        "rust_max_us": 6464.252,
+        "c_min_us": 22133.978,
+        "c_max_us": 30713.313
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 6498.479,
+        "c_us": 23853.452,
+        "rust_min_us": 6400.856,
+        "rust_max_us": 6767.297,
+        "c_min_us": 23405.101,
+        "c_max_us": 32215.511
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5147.944,
+        "c_us": 21589.525,
+        "rust_min_us": 4754.642,
+        "rust_max_us": 5633.12,
+        "c_min_us": 21264.405,
+        "c_max_us": 22766.464
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5433.057,
+        "c_us": 22384.182,
+        "rust_min_us": 5179.849,
+        "rust_max_us": 5607.473,
+        "c_min_us": 21939.961,
+        "c_max_us": 23187.188
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5062.044,
+        "c_us": 22624.313,
+        "rust_min_us": 4777.464,
+        "rust_max_us": 5343.575,
+        "c_min_us": 21220.638,
+        "c_max_us": 23694.284
+      }
+    ],
+    "after-layout-2": [
+      {
+        "workload": "scalar_add",
+        "n": 1,
+        "us": 0.0778567,
+        "min_us": 0.076221,
+        "max_us": 0.3039057
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "us": 0.0756596,
+        "min_us": 0.0732209,
+        "max_us": 0.08172639999999999
+      },
+      {
+        "workload": "owned_add",
+        "n": 4096,
+        "us": 1.2726666666666666,
+        "min_us": 1.2700999999999998,
+        "max_us": 2.6943333333333332
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "us": 738.6830666666667,
+        "min_us": 697.1625,
+        "max_us": 867.9473666666667
+      },
+      {
+        "workload": "rank_tally",
+        "n": 16,
+        "us": 0.912755,
+        "min_us": 0.863318,
+        "max_us": 2.073931
+      },
+      {
+        "workload": "rank_tally",
+        "n": 4096,
+        "us": 164.27793333333332,
+        "min_us": 137.52353333333335,
+        "max_us": 202.0425
+      },
+      {
+        "workload": "rank_sum",
+        "n": 16,
+        "us": 5.042663,
+        "min_us": 4.926083,
+        "max_us": 6.877180999999999
+      },
+      {
+        "workload": "rank_sum",
+        "n": 4096,
+        "us": 1490.7120666666667,
+        "min_us": 1332.4780666666668,
+        "max_us": 2630.0422666666664
+      }
+    ],
+    "before-layout-2": [
+      {
+        "workload": "scalar_add",
+        "n": 1,
+        "us": 0.1519491,
+        "min_us": 0.1380783,
+        "max_us": 0.30782000000000004
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "us": 0.1293205,
+        "min_us": 0.1212439,
+        "max_us": 0.14111880000000002
+      },
+      {
+        "workload": "owned_add",
+        "n": 4096,
+        "us": 1.4648333333333334,
+        "min_us": 1.4399333333333333,
+        "max_us": 2.0730333333333335
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "us": 803.6480666666666,
+        "min_us": 707.5154333333334,
+        "max_us": 1340.8024333333333
+      },
+      {
+        "workload": "rank_tally",
+        "n": 16,
+        "us": 2.8825589999999996,
+        "min_us": 2.848326,
+        "max_us": 4.342836
+      },
+      {
+        "workload": "rank_tally",
+        "n": 4096,
+        "us": 712.6576666666666,
+        "min_us": 689.8318666666668,
+        "max_us": 770.6006333333333
+      },
+      {
+        "workload": "rank_sum",
+        "n": 16,
+        "us": 15.951488999999999,
+        "min_us": 15.254981,
+        "max_us": 17.484223999999998
+      },
+      {
+        "workload": "rank_sum",
+        "n": 4096,
+        "us": 4069.1243666666664,
+        "min_us": 3902.3371666666667,
+        "max_us": 4182.9595
+      }
+    ],
+    "after-baseline-2": [
+      {
+        "workload": "bound_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.603,
+        "allocations": 6,
+        "allocated_bytes": 745,
+        "peak_additional_bytes": 609
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.091,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "peak_additional_bytes": 0
+      },
+      {
+        "workload": "bound_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 63.997,
+        "allocations": 6,
+        "allocated_bytes": 800617,
+        "peak_additional_bytes": 800481
+      },
+      {
+        "workload": "owned_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 46.015,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "peak_additional_bytes": 0
+      },
+      {
+        "workload": "bound_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 1378.863,
+        "allocations": 6,
+        "allocated_bytes": 8000617,
+        "peak_additional_bytes": 8000481
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 791.162,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "peak_additional_bytes": 0
+      }
+    ],
+    "before-baseline-2": [
+      {
+        "workload": "bound_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.752,
+        "allocations": 17,
+        "allocated_bytes": 1031,
+        "peak_additional_bytes": 773
+      },
+      {
+        "workload": "owned_add",
+        "n": 16,
+        "iterations": 10000,
+        "us": 0.144,
+        "allocations": 4,
+        "allocated_bytes": 96,
+        "peak_additional_bytes": 56
+      },
+      {
+        "workload": "bound_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 95.591,
+        "allocations": 17,
+        "allocated_bytes": 800903,
+        "peak_additional_bytes": 800645
+      },
+      {
+        "workload": "owned_add",
+        "n": 100000,
+        "iterations": 20,
+        "us": 30.245,
+        "allocations": 4,
+        "allocated_bytes": 96,
+        "peak_additional_bytes": 56
+      },
+      {
+        "workload": "bound_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 1445.831,
+        "allocations": 17,
+        "allocated_bytes": 8000903,
+        "peak_additional_bytes": 8000645
+      },
+      {
+        "workload": "owned_add",
+        "n": 1000000,
+        "iterations": 20,
+        "us": 776.381,
+        "allocations": 4,
+        "allocated_bytes": 96,
+        "peak_additional_bytes": 56
+      }
+    ],
+    "after-comparison-2": [
+      {
+        "workload": "int_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.419,
+        "c_us": 0.417,
+        "rust_min_us": 0.364,
+        "rust_max_us": 0.463,
+        "c_min_us": 0.33,
+        "c_max_us": 0.546
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.401,
+        "c_us": 0.412,
+        "rust_min_us": 0.367,
+        "rust_max_us": 0.567,
+        "c_min_us": 0.363,
+        "c_max_us": 0.57
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.401,
+        "c_us": 0.409,
+        "rust_min_us": 0.364,
+        "rust_max_us": 0.44,
+        "c_min_us": 0.323,
+        "c_max_us": 1.12
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.363,
+        "c_us": 0.336,
+        "rust_min_us": 0.35,
+        "rust_max_us": 0.37,
+        "c_min_us": 0.326,
+        "c_max_us": 0.378
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.381,
+        "c_us": 0.668,
+        "rust_min_us": 0.355,
+        "rust_max_us": 0.815,
+        "c_min_us": 0.591,
+        "c_max_us": 0.726
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 1.987,
+        "c_us": 2.139,
+        "rust_min_us": 1.696,
+        "rust_max_us": 2.579,
+        "c_min_us": 2.102,
+        "c_max_us": 2.286
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 1.905,
+        "c_us": 2.262,
+        "rust_min_us": 1.731,
+        "rust_max_us": 2.545,
+        "c_min_us": 2.181,
+        "c_max_us": 3.261
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.296,
+        "c_us": 1.985,
+        "rust_min_us": 1.576,
+        "rust_max_us": 3.358,
+        "c_min_us": 1.972,
+        "c_max_us": 2.078
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 3.585,
+        "c_us": 2.907,
+        "rust_min_us": 3.216,
+        "rust_max_us": 4.031,
+        "c_min_us": 2.854,
+        "c_max_us": 3.751
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.019,
+        "c_us": 2.27,
+        "rust_min_us": 1.672,
+        "rust_max_us": 2.476,
+        "c_min_us": 1.805,
+        "c_max_us": 2.944
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 30.886,
+        "c_us": 58.57,
+        "rust_min_us": 29.497,
+        "rust_max_us": 31.632,
+        "c_min_us": 40.724,
+        "c_max_us": 74.113
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 57.642,
+        "c_us": 64.97,
+        "rust_min_us": 52.729,
+        "rust_max_us": 95.915,
+        "c_min_us": 47.392,
+        "c_max_us": 82.537
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 33.252,
+        "c_us": 45.206,
+        "rust_min_us": 30.134,
+        "rust_max_us": 50.423,
+        "c_min_us": 40.228,
+        "c_max_us": 63.457
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 81.64,
+        "c_us": 69.7,
+        "rust_min_us": 73.017,
+        "rust_max_us": 110.42,
+        "c_min_us": 63.111,
+        "c_max_us": 95.37
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 46.994,
+        "c_us": 42.66,
+        "rust_min_us": 41.321,
+        "rust_max_us": 59.087,
+        "c_min_us": 40.985,
+        "c_max_us": 69.109
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1320.068,
+        "c_us": 1282.396,
+        "rust_min_us": 1230.232,
+        "rust_max_us": 1348.694,
+        "c_min_us": 1255.428,
+        "c_max_us": 1403.106
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1621.194,
+        "c_us": 1585.355,
+        "rust_min_us": 1540.721,
+        "rust_max_us": 1720.339,
+        "c_min_us": 1489.197,
+        "c_max_us": 1624.487
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1317.489,
+        "c_us": 1373.754,
+        "rust_min_us": 1202.309,
+        "rust_max_us": 1554.303,
+        "c_min_us": 1227.202,
+        "c_max_us": 1460.549
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1436.755,
+        "c_us": 1341.665,
+        "rust_min_us": 1335.36,
+        "rust_max_us": 1522.779,
+        "c_min_us": 1320.409,
+        "c_max_us": 1559.189
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1288.376,
+        "c_us": 1359.079,
+        "rust_min_us": 1213.515,
+        "rust_max_us": 1349.054,
+        "c_min_us": 1239.295,
+        "c_max_us": 1404.342
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5367.685,
+        "c_us": 22838.007,
+        "rust_min_us": 4972.85,
+        "rust_max_us": 5870.995,
+        "c_min_us": 20667.162,
+        "c_max_us": 25336.973
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 6156.644,
+        "c_us": 22602.717,
+        "rust_min_us": 5955.763,
+        "rust_max_us": 6625.796,
+        "c_min_us": 22265.145,
+        "c_max_us": 23194.013
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 4641.511,
+        "c_us": 21363.559,
+        "rust_min_us": 4538.675,
+        "rust_max_us": 5407.236,
+        "c_min_us": 20213.854,
+        "c_max_us": 23443.078
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5633.938,
+        "c_us": 23249.361,
+        "rust_min_us": 5370.366,
+        "rust_max_us": 7843.841,
+        "c_min_us": 21244.27,
+        "c_max_us": 48964.407
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5776.804,
+        "c_us": 23475.664,
+        "rust_min_us": 4728.298,
+        "rust_max_us": 11094.61,
+        "c_min_us": 22009.357,
+        "c_max_us": 31029.329
+      }
+    ],
+    "before-comparison-2": [
+      {
+        "workload": "int_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.64,
+        "c_us": 0.414,
+        "rust_min_us": 0.595,
+        "rust_max_us": 1.157,
+        "c_min_us": 0.366,
+        "c_max_us": 0.596
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.717,
+        "c_us": 0.532,
+        "rust_min_us": 0.619,
+        "rust_max_us": 0.837,
+        "c_min_us": 0.41,
+        "c_max_us": 0.632
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.632,
+        "c_us": 0.375,
+        "rust_min_us": 0.607,
+        "rust_max_us": 0.786,
+        "c_min_us": 0.366,
+        "c_max_us": 0.475
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.611,
+        "c_us": 0.383,
+        "rust_min_us": 0.6,
+        "rust_max_us": 0.726,
+        "c_min_us": 0.368,
+        "c_max_us": 0.415
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 16,
+        "iterations": 2000,
+        "rust_us": 0.668,
+        "c_us": 0.761,
+        "rust_min_us": 0.594,
+        "rust_max_us": 0.841,
+        "c_min_us": 0.681,
+        "c_max_us": 0.867
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.592,
+        "c_us": 2.359,
+        "rust_min_us": 2.222,
+        "rust_max_us": 3.656,
+        "c_min_us": 2.183,
+        "c_max_us": 2.99
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.345,
+        "c_us": 2.721,
+        "rust_min_us": 1.942,
+        "rust_max_us": 2.743,
+        "c_min_us": 2.332,
+        "c_max_us": 3.699
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.5,
+        "c_us": 2.688,
+        "rust_min_us": 1.902,
+        "rust_max_us": 2.912,
+        "c_min_us": 2.144,
+        "c_max_us": 3.036
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 5.347,
+        "c_us": 4.03,
+        "rust_min_us": 4.559,
+        "rust_max_us": 6.27,
+        "c_min_us": 3.59,
+        "c_max_us": 5.232
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4096,
+        "iterations": 2000,
+        "rust_us": 2.453,
+        "c_us": 2.712,
+        "rust_min_us": 2.214,
+        "rust_max_us": 3.958,
+        "c_min_us": 2.483,
+        "c_max_us": 3.019
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 63.35,
+        "c_us": 79.517,
+        "rust_min_us": 51.568,
+        "rust_max_us": 73.304,
+        "c_min_us": 60.767,
+        "c_max_us": 166.357
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 114.375,
+        "c_us": 102.966,
+        "rust_min_us": 91.694,
+        "rust_max_us": 140.296,
+        "c_min_us": 90.983,
+        "c_max_us": 160.305
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 70.856,
+        "c_us": 69.933,
+        "rust_min_us": 63.477,
+        "rust_max_us": 153.046,
+        "c_min_us": 58.539,
+        "c_max_us": 91.432
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 108.111,
+        "c_us": 90.327,
+        "rust_min_us": 95.348,
+        "rust_max_us": 451.795,
+        "c_min_us": 83.568,
+        "c_max_us": 102.25
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 100000,
+        "iterations": 100,
+        "rust_us": 91.305,
+        "c_us": 81.903,
+        "rust_min_us": 79.492,
+        "rust_max_us": 134.303,
+        "c_min_us": 64.133,
+        "c_max_us": 98.656
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1552.643,
+        "c_us": 1642.894,
+        "rust_min_us": 1389.437,
+        "rust_max_us": 2037.562,
+        "c_min_us": 1390.833,
+        "c_max_us": 2545.403
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 2582.429,
+        "c_us": 2479.194,
+        "rust_min_us": 2181.18,
+        "rust_max_us": 2980.95,
+        "c_min_us": 2285.428,
+        "c_max_us": 3186.754
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1951.281,
+        "c_us": 1933.713,
+        "rust_min_us": 1817.262,
+        "rust_max_us": 3548.648,
+        "c_min_us": 1588.411,
+        "c_max_us": 2614.091
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 2579.958,
+        "c_us": 2442.106,
+        "rust_min_us": 2094.976,
+        "rust_max_us": 2756.913,
+        "c_min_us": 1836.638,
+        "c_max_us": 3003.293
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 1000000,
+        "iterations": 15,
+        "rust_us": 1569.72,
+        "c_us": 1566.244,
+        "rust_min_us": 1498.493,
+        "rust_max_us": 1624.501,
+        "c_min_us": 1491.592,
+        "c_max_us": 1827.342
+      },
+      {
+        "workload": "int_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5712.835,
+        "c_us": 24277.759,
+        "rust_min_us": 5040.627,
+        "rust_max_us": 6476.268,
+        "c_min_us": 22406.979,
+        "c_max_us": 26936.897
+      },
+      {
+        "workload": "int_vector_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 7026.914,
+        "c_us": 24522.624,
+        "rust_min_us": 6020.843,
+        "rust_max_us": 10323.977,
+        "c_min_us": 21576.494,
+        "c_max_us": 32048.881
+      },
+      {
+        "workload": "int_scalar_sub",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 4851.745,
+        "c_us": 20892.952,
+        "rust_min_us": 4606.438,
+        "rust_max_us": 5152.724,
+        "c_min_us": 20222.537,
+        "c_max_us": 24618.249
+      },
+      {
+        "workload": "int_scalar_mul",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5979.396,
+        "c_us": 24583.373,
+        "rust_min_us": 4992.581,
+        "rust_max_us": 6956.671,
+        "c_min_us": 20866.85,
+        "c_max_us": 37368.477
+      },
+      {
+        "workload": "float_scalar_add",
+        "n": 4000000,
+        "iterations": 15,
+        "rust_us": 5254.329,
+        "c_us": 22372.877,
+        "rust_min_us": 4859.778,
+        "rust_max_us": 8169.648,
+        "c_min_us": 20368.159,
+        "c_max_us": 28200.647
+      }
+    ]
+  }
+}

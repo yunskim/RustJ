@@ -20,3 +20,11 @@ harness = false
 [[bench]]
 name = "comparison"
 harness = false
+
+[[bench]]
+name = "layout"
+harness = false
+
+[[bench]]
+name = "pool"
+harness = false

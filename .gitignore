@@ -2,7 +2,10 @@
 /dist/
 /.reference/
 /.baseline/
+/.m2-baseline/
 /reports/disassembly.txt
 /reports/*.json
 !/reports/comparison.json
+!/reports/m2-measurements.json
+!/reports/m2-review-measurements.json
 __pycache__/
