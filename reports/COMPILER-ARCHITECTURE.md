@@ -247,7 +247,109 @@ PrimitiveContract
 
 GPU-specific block 크기 같은 것은 primitive contract에 넣지 않는다.
 
-### 7.2 Unknown은 추측하지 않는다
+### 7.2 JAXA 확장 어휘와 `with` conjunction
+
+JAXA가 J에 없는 이름을 제공한다고 해서 모든 확장을 같은 종류의 primitive로 취급하지 않는다. RustJ/Jaxa에서는 다음 taxonomy를 사용한다.
+
+```text
+JAXA extensions
+├─ CustomComputationalPrimitive
+│    relu
+│    linear
+│    conv
+│    cast_f32
+│    user-registered verbs
+│
+├─ Effect / Storage Operation
+│    load
+│    store
+│    Write / Accumulate
+│    (source-level emit은 여기로 lowering 가능)
+│
+├─ Semantic Annotation
+│    CheckpointRequirement
+│    (source-level cp의 권장 lowering)
+│
+├─ Annotation / Binding Conjunction
+│    with
+│
+└─ Backend Intrinsic
+     explicit escape hatch only
+     (일반 semantic primitive와 구분)
+```
+
+#### `with`의 역할
+
+`with`는 computational primitive가 아니라 **J로 표현된 계산 구조와 JAXA가 추가하는 semantic metadata/contract를 연결하는 conjunction**으로 취급한다.
+
+예:
+
+```j
+D1 =: (10 20 1 dense) with adam`dense_xadj`dense_wadj
+```
+
+의 개념적 해석은 다음과 같다.
+
+```text
+With
+├─ subject: dense operation/specification
+└─ semantic annotations
+     ├─ optimizer: adam
+     ├─ input adjoint: dense_xadj
+     └─ weight adjoint: dense_wadj
+```
+
+Tokenizer가 `with` 오른쪽의 개별 이름을 GPU 설정값으로 해석해서는 안 된다. Parser는 J의 conjunction 구조와 source span을 보존하고, name resolution/registry binding 이후 structured annotation으로 정규화한다.
+
+`with`에 허용할 수 있는 정보의 기본 범주는 다음과 같다.
+
+- optimizer 또는 update semantics
+- adjoint / derivative definition
+- custom primitive의 semantic contract 선택
+- dtype requirement가 계산 의미의 일부인 경우 그 requirement
+- effect / logical-storage relationship
+- analyzer가 반드시 보존해야 하는 semantic obligation
+
+반대로 다음은 `with`의 semantic metadata로 넣지 않는 것을 기본으로 한다.
+
+- CUDA block/thread 수
+- tile 크기
+- shared-memory 크기
+- register budget
+- 특정 device 선택
+- backend-specific physical layout
+- stream/event 배치
+- 특정 CUDA kernel 이름
+
+이들은 Physical Planner/Backend Lowering의 책임이다.
+
+따라서 다음과 같은 평평한 annotation은 피한다.
+
+```text
+dense with adam`dense_xadj`dense_wadj`cuda_spec`fp16`tile128
+```
+
+여기에는 optimizer/adjoint와 backend/tile 정책이 섞여 계층 경계를 무너뜨린다. 필요하다면 `with` 자체의 오른쪽 값을 typed annotation record로 정규화하고, physical policy는 별도의 planner hint 또는 실행 정책 계층으로 분리한다.
+
+#### Backend-specific custom primitive
+
+`conv_cuda_`처럼 backend 이름이 semantic primitive identity에 들어간 형태는 일반 core vocabulary로 채택하지 않는다.
+
+권장 구조:
+
+```text
+semantic primitive: conv
+    ↓
+available lowerings
+    ├─ CPU
+    ├─ CUDA
+    ├─ Metal
+    └─ ...
+```
+
+backend-specific primitive가 꼭 필요하면 명시적인 `BackendIntrinsic`/escape-hatch 범주로 두고 portability와 optimization freedom이 제한된다는 점을 contract에 표시한다.
+
+### 7.3 Unknown은 추측하지 않는다
 
 shape, effect, alias, backend legality를 알 수 없으면 안전한 값으로 꾸며내지 않고 `Unknown`으로 남긴다.
 
