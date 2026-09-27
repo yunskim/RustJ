@@ -420,6 +420,337 @@ GPU3  rows 6144..8192
 
 J 사용자에게는 여전히 하나의 동일한 배열이다.
 
+## 10.5 기존 J/RustJ 배열과 GPU-friendly physical array의 차이
+
+이 설계에서 **J 배열의 언어적 의미는 바뀌지 않는다.** 달라지는 것은 그 값을 실행기에 전달하는 물리 표현의 자유도다.
+
+현재 RustJ의 CPU 구현은 대략 다음 구조다.
+
+```text
+Value
+├─ Shape
+└─ Data
+   ├─ Bool(CpuStorage<u8>)
+   ├─ Int(CpuStorage<i64>)
+   ├─ Float(CpuStorage<f64>)
+   └─ Char(CpuStorage<u8>)
+
+CpuStorage
+├─ Inline
+├─ Owned(Vec)
+└─ Shared(Arc<Vec>)
+
+ArrayView
+├─ shape
+└─ borrowed contiguous CPU slice
+```
+
+이 모델은 CPU dense array에는 단순하고 효율적이지만, physical view가 사실상 **연속 CPU slice**라는 가정을 갖는다. 현재 transpose/reverse/take/drop 같은 structural operation은 일반적으로 새 dense output을 만들어야 하고, rank cell도 contiguous suffix slice로 잘라 사용하는 구조다.
+
+목표 구조는 다음처럼 책임을 나눈다.
+
+```text
+J semantic value
+    JArray
+    ├─ type
+    ├─ shape
+    └─ ordered atoms / logical value
+
+            ↓ compiled representation
+
+PhysicalArray
+├─ StorageId / BufferId
+├─ shape
+├─ strides
+├─ offset
+├─ PhysicalLayout
+├─ Placement
+├─ optional Sharding
+└─ completion/lifetime state
+```
+
+차이는 다음과 같다.
+
+| 항목 | 현재 J/RustJ CPU 모델 | GPU-friendly 목표 모델 |
+|---|---|---|
+| J 의미 | type + shape + ordered atoms | **동일** |
+| rank/cell/frame/agreement | J 의미 및 CPU 실행에 직접 사용 | **동일한 J 의미**, Analyzer가 Logical Plan으로 명시 |
+| 저장 위치 | CPU | CPU / GPU / multi-device |
+| 기본 데이터 표현 | dense contiguous CPU buffer | dense contiguous를 기본 후보로 하되 strided/tiled 등 허용 |
+| view | shape + contiguous borrowed slice | storage + shape + strides + offset |
+| transpose | 대체로 새 dense 결과 | 우선 stride permutation view, 필요할 때만 materialize |
+| reverse | 대체로 새 dense 결과 | negative stride/offset view가 합법하면 view |
+| slice | contiguous slice 중심 | arbitrary strided view 가능 |
+| reshape | dense ordering에 직접 의존 | layout-compatible하면 metadata-only, 아니면 relayout |
+| agreement 반복 접근 | 직접 실행 규칙 | J agreement를 먼저 확정한 후 zero-stride 등의 physical lowering 허용 |
+| tile | 없음 | planner가 workload에 따라 선택 |
+| device | 없음 | Placement로 분리 |
+| sharding | 없음 | logical shape와 독립된 physical property |
+| 중간 값 | Value마다 배열이 생기기 쉬움 | ValueId와 BufferId를 분리해 materialization/fusion/reuse 계획 |
+| 실행 선택 | primitive가 CPU storage를 직접 처리 | Logical Plan → Physical Plan → codegen → Executor |
+
+따라서 새 `ArrayView`는 현재 차용 CPU slice의 단순 확장이 아니라, **논리 배열과 물리 저장소 사이의 일반적인 indexing mapping**이 된다.
+
+```rust
+pub struct ArrayView {
+    pub storage: StorageId,
+    pub shape: Shape,
+    pub strides: Strides,
+    pub offset: isize,
+}
+```
+
+CPU backend도 이 representation을 사용할 수 있으므로 GPU 지원을 위해 CPU를 별도 세계로 만들 필요가 없다. 다만 hot loop에서는 generic stride 계산을 매 atom마다 수행하지 않고 Planner/Codegen이 contiguous, fixed-stride, broadcast, reversed 등의 경우를 specialization해야 한다.
+
+### 10.5.1 현재 `CpuStorage`는 폐기 대상이 아니라 physical backend 구현의 시작점이다
+
+현재 `CpuStorage<T>`의 Inline / Owned / Shared 구분과 소유권 기반 재사용은 계속 가치가 있다. 다만 장기적으로는 J semantic `Value`와 직접 결합된 유일 저장소가 아니라 CPU physical storage 구현으로 위치를 명확히 한다.
+
+```text
+JArray / ValueId
+      ↓
+PhysicalArray
+      ↓
+StorageId
+      ├─ CpuStorage
+      ├─ CudaStorage
+      ├─ MetalStorage
+      └─ ...
+```
+
+즉 기존 CPU 최적화를 버리고 새 tensor runtime으로 갈아엎는 것이 아니라, **현재 CPU storage를 compiler backend의 한 physical implementation으로 재배치**한다.
+
+### 10.5.2 JArray에는 strides를 넣지 않는다
+
+NumPy 계열에서는 ndarray 객체 자체가 shape/strides/data를 사용자-facing 배열 정체성으로 갖지만 RustJ에서는 J noun의 의미와 backend representation을 더 강하게 분리한다.
+
+이유:
+
+1. 같은 J value가 CPU와 GPU에서 서로 다른 layout을 동시에 가질 수 있다.
+2. 같은 J value를 어떤 연산에서는 strided view로, 다른 연산에서는 tiled temporary로 사용할 수 있다.
+3. multi-GPU shard가 있어도 J의 logical shape는 바뀌지 않는다.
+4. optimizer가 physical transpose/materialization을 자유롭게 선택하려면 layout이 J value의 정체성에 고정되어서는 안 된다.
+
+따라서 `strides`, `offset`, `layout`, `placement`는 **compiled physical representation의 속성**이다.
+
+## 10.6 다른 배열/컴파일 프레임워크에서 받은 영향
+
+이 설계는 여러 기존 시스템에서 검증된 physical/runtime 아이디어를 가져오지만 J의 언어 의미를 그 프레임워크의 tensor semantics로 대체하지 않는다.
+
+| 출처 | 채택하는 결정 | RustJ에서의 위치 | 의도적으로 채택하지 않는 것 |
+|---|---|---|---|
+| **NumPy** | shape + strides + offset으로 같은 buffer의 여러 view를 표현 | PhysicalArray / ArrayView | NumPy broadcasting을 J agreement로 대체하지 않음 |
+| **CuPy** | NumPy식 strided array representation을 GPU device memory에도 적용 가능하다는 모델 | GPU physical storage/view | CuPy ndarray를 J noun의 사용자 의미 모델로 삼지 않음 |
+| **PyTorch** | logical dimensions와 physical memory format/layout을 분리 | PhysicalLayout / Planner | Tensor의 channels-last 등 특정 format을 J 언어 속성으로 노출하지 않음 |
+| **JAX** | logical/global array와 device placement, sharding, device-local layout을 분리 | Placement / Sharding / PhysicalLayout | JAX tracing·broadcasting·functional array semantics를 J 의미로 가져오지 않음 |
+| **ArrayFire** | expression을 바로 materialize하지 않고 fusion 가능한 graph로 유지 | Logical/Physical planning, codegen | 모든 J 연산을 무조건 lazy fusion하지 않음; J 오류·승격 의미가 우선 |
+| **Julia GPUArrays** | 공통 array/algorithm abstraction 아래 여러 GPU backend를 붙이는 구조 | backend trait / codegen / executor | 특정 Julia array API를 노출하지 않음 |
+| **J 자체** | rank/cell/frame/agreement와 ordered atom semantics | Semantic IR / Jaxa Analyzer / Logical Plan | 이 부분은 다른 tensor framework의 axis/broadcast 모델로 교체하지 않음 |
+
+### 10.6.1 NumPy / CuPy — physical view
+
+가장 직접적인 영향은 arbitrary strided view다.
+
+```text
+logical index (i,j,...)
+      ↓
+offset + Σ(index[k] * stride[k])
+      ↓
+physical storage location
+```
+
+이 모델 덕분에 transpose, reverse, slice, compatible reshape를 가능한 한 metadata operation으로 만들 수 있다.
+
+하지만 RustJ에서는 순서가 중요하다.
+
+```text
+J semantics
+   ↓
+logical operation 확정
+   ↓
+Physical Planner
+   ↓
+strided view를 사용할지 materialize할지 선택
+```
+
+즉 physical view가 J의 의미를 결정하지 않는다.
+
+### 10.6.2 PyTorch — memory format은 logical shape와 다르다
+
+PyTorch가 같은 논리 tensor를 서로 다른 memory format/stride로 표현할 수 있다는 점에서 영향을 받았다.
+
+RustJ의 대응은 더 일반적이다.
+
+```text
+Logical J shape
+     ≠
+PhysicalLayout
+```
+
+Planner는 연산별로 dense contiguous, transposed stride, tiled layout 등의 physical form을 선택할 수 있다.
+
+### 10.6.3 JAX — placement, sharding, local layout의 분리
+
+multi-device 확장성을 위해 가장 중요한 참고 중 하나다.
+
+```text
+logical global value
+     ↓
+placement / sharding
+     ↓
+device-local physical layout
+```
+
+이 구분을 채택하면 multi-GPU를 추가해도 JArray의 shape나 rank 의미를 수정할 필요가 없다.
+
+### 10.6.4 ArrayFire — lazy expression과 fusion
+
+J 표현식은 여러 array primitive를 연속으로 쓰는 경우가 많다. 중간 결과를 매 단계 materialize하면 GPU global-memory traffic과 kernel launch가 증가한다.
+
+따라서 logical value를 즉시 buffer와 동일시하지 않고, 분석 후 합법적인 범위에서 fusion한다.
+
+단, fusion의 legality는 성능보다 J semantics가 먼저다. 특히 다음은 barrier가 될 수 있다.
+
+- 전체 배열 단위 정수 overflow/promotion
+- 관찰 가능한 오류 순서
+- alias/state effect
+- floating-point reduction order
+- FMA/reassociation 허용 여부
+
+### 10.6.5 Julia GPUArrays — backend를 array semantics와 분리
+
+RustJ compiler는 CUDA compiler 하나로 고정하지 않는다.
+
+```text
+Logical Plan
+   ├─ CPU backend
+   ├─ CUDA backend
+   ├─ Metal backend
+   ├─ Vulkan/SPIR-V backend
+   └─ future backend
+```
+
+첫 GPU backend가 CUDA여도 frontend, Analyzer, Logical Plan은 CUDA API를 알지 않는다.
+
+## 10.7 RustJ 고유 결정: J rank calculus를 GPU parallel domain으로 사용
+
+다른 framework에서 가져온 physical 기술보다 더 중요한 것은 **J가 이미 갖고 있는 rank calculus를 병렬 decomposition의 출발점으로 사용하는 것**이다.
+
+예:
+
+```text
+argument shape = [64, 128, 256]
+verb rank      = 1
+
+J analysis:
+frame      = [64, 128]
+cell shape = [256]
+cell count = 8192
+```
+
+Jaxa Analyzer는 이 사실을 Logical Plan에 명시한다.
+
+```text
+RankMap
+  8192 independent cell applications
+  cell shape = [256]
+```
+
+Physical Planner는 그 다음에만 hardware mapping을 정한다.
+
+```text
+J frame cells
+    ↓
+GPU grid / workgroups
+
+one or more J cells
+    ↓
+block / workgroup
+
+atoms inside cell
+    ↓
+threads / lanes / SIMD
+```
+
+이 mapping은 고정 규칙이 아니다. cell이 작으면 block 하나가 여러 cell을 처리할 수 있고, cell이 크면 하나의 cell이 여러 block/단계로 나뉠 수도 있다. 중요한 점은 **parallel domain의 semantic origin이 generic tensor axis가 아니라 J의 frame/cell 분석**이라는 것이다.
+
+reduction과 scan도 같은 방식이다.
+
+```text
+Jaxa:
+  "1024 independent rank-1 cells, each 4096 atoms"
+
+GPU planner:
+  "1024 reduction domains"
+  → warp/block/hierarchical algorithm 선택
+```
+
+따라서 GPU backend가 J의 rank conjunction이나 agreement 규칙을 다시 구현하지 않는다.
+
+## 10.8 의도적으로 하지 않는 설계
+
+GPU 친화성 때문에 다음 방향으로 가지 않는다.
+
+1. **JArray를 PyTorch/JAX식 Tensor 언어 객체로 재정의하지 않는다.**
+2. **NumPy broadcasting을 J agreement 대신 사용하지 않는다.**
+3. **CUDA block/thread 정보를 primitive나 JArray에 저장하지 않는다.**
+4. **모든 배열을 처음부터 tiled storage로 강제하지 않는다.**
+5. **transpose/reshape를 항상 copy 또는 항상 view라고 고정하지 않는다. Planner가 선택한다.**
+6. **GPU에서 유리하다는 이유로 J의 overflow, promotion, error ordering, floating-point 의미를 자동 변경하지 않는다.**
+7. **CPU와 GPU용 semantic IR을 따로 만들지 않는다. 둘은 동일 Logical Plan에서 출발한다.**
+8. **GPU 지원 범위를 RustJ 언어 지원 범위와 동일시하지 않는다.**
+
+## 10.9 이 결정이 현재 구현에 주는 구체적 변경 방향
+
+현재 코드에서 단계적으로 다음 이동을 한다.
+
+```text
+현재
+Value(shape + Data<CpuStorage>)
+        +
+contiguous borrowed ArrayView
+        +
+primitive direct execution
+
+          ↓
+
+중간 단계
+Semantic Value / ValueId
+        +
+CPU PhysicalArray
+        +
+general ArrayView(shape/strides/offset)
+        +
+Logical Plan / Physical Plan
+        +
+기존 CPU kernel adapter
+
+          ↓
+
+목표
+J semantic value
+        +
+backend-independent Logical Plan
+        +
+planner-selected PhysicalArray
+        +
+CPU/GPU codegen
+        +
+Executor
+```
+
+첫 physical-view 구현에서는 다음을 검증한다.
+
+- contiguous dense view가 현재 CPU 성능을 회귀시키지 않는가
+- transpose/reverse/slice를 view로 만들었을 때 J semantics가 동일한가
+- unsupported stride를 만났을 때 planner가 안전하게 contiguous materialization을 삽입하는가
+- alias/lifetime 때문에 buffer reuse가 잘못 일어나지 않는가
+- rank cell 추출이 contiguous-only 가정을 하지 않아도 동일한 logical cell을 가리키는가
+- view optimization이 C reference와의 차등 결과를 바꾸지 않는가
+
+이 검증이 끝난 뒤 GPU storage를 추가한다. GPU가 general strided view를 모두 빠르게 처리할 것이라고 가정하지 않는다. planner는 kernel별 access pattern과 cost를 보고 view 유지와 relayout 사이에서 선택한다.
+
+
 ## 11. Physical Planner / Optimizer
 
 Logical Plan을 실제 하드웨어에서 어떻게 실행할지 결정한다.
