@@ -2,6 +2,66 @@
 
 검토 기준: [yunskim/jaxa-analyzer, 커밋 3eef39422ddb12183f8432f134cdc54a6419ef7e](https://github.com/yunskim/jaxa-analyzer/tree/3eef39422ddb12183f8432f134cdc54a6419ef7e). 해당 커밋의 문서와 Python 소스를 로컬에서 읽었다. 아래는 설계 채택 제안이며 JAXA 최적화기를 RustJ에 이식했다는 의미가 아니다.
 
+## 2026-09-27 채택된 RustJ/Jaxa 경계
+
+이 검토의 제안 중 의미/실행 분리를 RustJ의 공식 compiler architecture로 채택했다. 상세 기준은 [컴파일러 아키텍처](COMPILER-ARCHITECTURE.md)를 따른다.
+
+```text
+Semantic IR
+    ↓
+Jaxa Analyzer
+    ↓
+Logical Execution Plan
+    ↓
+Physical Planner / Optimizer
+    ↓
+Physical Execution Plan
+    ↓
+Backend Lowering / Codegen
+    ↓
+Executor
+```
+
+책임 경계를 다음처럼 고정한다.
+
+- **Jaxa Analyzer**: rank/cell/frame/agreement, dtype/shape, primitive contract, dependency/effect/alias, parallel domain을 해석해 Logical Plan 생성.
+- **Physical Planner**: strides/view, layout, tiling, device placement/sharding, transfer, fusion, materialization, buffer reuse, work partition 결정.
+- **Codegen**: CPU/GPU-specific compiled artifact 생성.
+- **Executor**: 이미 결정된 allocation/transfer/kernel/synchronization plan 수행. J 의미 재해석이나 최적화 판단을 하지 않음.
+
+### Array model
+
+J의 logical noun은 type + shape + ordered atoms/value로 유지한다. `strides`, `offset`, `layout`, `device`, `sharding`은 JArray의 semantic property가 아니라 physical representation이다.
+
+```text
+JArray / ValueId
+       ↓
+Logical Plan
+       ↓
+PhysicalArray
+  storage
+  shape
+  strides
+  offset
+  layout
+  placement
+  sharding
+```
+
+현재 RustJ의 `CpuStorage`와 contiguous borrowed `ArrayView`는 CPU physical implementation의 기반으로 재해석한다. general physical view는 NumPy/CuPy식 shape + strides + offset을 사용할 수 있지만, J의 agreement를 NumPy broadcasting으로 바꾸지는 않는다.
+
+참고한 설계의 범위:
+
+- NumPy/CuPy: physical strided view
+- PyTorch: logical shape와 memory format/layout 분리
+- JAX: logical/global value와 placement/sharding/local layout 분리
+- ArrayFire: lazy graph 및 합법적인 fusion
+- Julia GPUArrays: 복수 backend abstraction
+- J: rank/cell/frame/agreement를 parallel decomposition의 의미적 근거로 유지
+
+특히 GPU parallel domain은 generic tensor axis에서 새로 정의하지 않고 Jaxa가 해석한 frame/cell에서 출발한다. 예를 들어 rank-1 적용에서 frame이 8192개 cell을 만든다면 Planner는 이를 GPU work domain으로 사용할 수 있지만 block/thread mapping은 physical decision으로 남긴다.
+
+
 ## 확인한 실제 범위
 
 소스는 `tokens.py`, `tokenizer.py`, `jconsole_compare.py` 중심이다. Span을 보존하는 byte 기반 word formation과 J의 `;:` 결과 비교 도구가 있다. 독립 tokenizer 테스트 14개를 실행해 모두 통과했다. 이번 검토에서는 jconsole 차등 테스트를 실행하지 않았다.
