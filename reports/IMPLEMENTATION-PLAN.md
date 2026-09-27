@@ -1,23 +1,106 @@
 # RustJ 구현 계획
 
-## 현재 실행 순서 — 사용자 요청 반영
+## 채택된 목표 — compiler-first RustJ
 
-CUDA 구현은 당분간 **계획에만 남긴다**. M3·M4 및 M5의 GPU 작업은 보류하며, GPU 확보를 CPU 작업의 선행 조건으로 삼지 않는다. CUDA 코드는 GPU 없이 작성·빌드할 수 있지만 실제 정확성·성능 검증에는 지원 NVIDIA GPU가 필요하다. 재개 요청 전에는 CUDA 의존성이나 장치 코드를 추가하지 않는다.
+2026-09-27부터 RustJ의 최종 목표를 **독립 Rust J 인터프리터**가 아니라 다음 compiler architecture로 수정한다.
 
-현재 순서: M2 CPU 출력 풀 검증 → CPU rank/reduction 및 의미 확장 → 필요성이 측정된 scratch·실행 계획 개선.
+```text
+J Source
+  → Parser
+  → Semantic IR
+  → Jaxa Analyzer
+  → Logical Execution Plan
+  → Logical Optimizer
+  → Physical Planner / Optimizer
+  → Physical Execution Plan
+  → Backend Lowering / Code Generation
+  → Runtime / Executor
+```
+
+CPU와 GPU는 같은 Logical Plan에서 출발하는 동등한 backend다. 현재 직접 평가형 CPU 엔진은 폐기하지 않고 semantic reference, differential oracle, 기존 CPU kernel 자산, 명시적 fallback의 기반으로 유지하면서 compiler pipeline을 옆에 세운다.
+
+전체 설계 기준은 [RustJ 컴파일러 아키텍처](COMPILER-ARCHITECTURE.md)를 따른다.
+
+### Jaxa Analyzer의 책임
+
+Jaxa Analyzer는 Semantic IR을 **해석해서 Logical Execution Plan을 만드는 계층**이다. 실행하지 않는다.
+
+주요 출력 정보:
+
+- rank / cell / frame / agreement
+- dtype / shape
+- primitive contract
+- dependency / effect / alias
+- parallel domain
+- map / reduce / scan / gather / structural 분류
+- 합법적인 rewrite/fusion 후보
+- semantic materialization boundary
+
+Physical Planner는 이 Logical Plan을 받아 device, physical layout, strides/view, tiling, fusion group, transfer, buffer reuse, work partition을 결정한다. Codegen은 이를 backend artifact로 만들고 Executor는 정해진 계획을 수행한다.
+
+### GPU-friendly 배열에 대한 확정 결정
+
+J noun의 논리 모델은 계속 **type + shape + ordered atoms/value**다. GPU를 위해 JArray에 physical 속성을 추가하지 않는다.
+
+다음은 physical representation/planning에 둔다.
+
+- storage / BufferId
+- strides
+- offset
+- dense/tiled layout
+- alignment
+- CPU/GPU placement
+- sharding
+- device transfer
+- stream/event/completion
+- GPU block/thread/workgroup mapping
+
+현재의 `CpuStorage`와 contiguous `ArrayView`는 CPU physical backend의 출발점으로 본다. 목표 `ArrayView`는 `storage + shape + strides + offset`을 표현할 수 있도록 일반화한다.
+
+영향을 받은 결정:
+
+- NumPy: arbitrary strided view
+- CuPy: strided array representation의 GPU 적용
+- PyTorch: logical dimensions와 memory format/layout 분리
+- JAX: global logical array와 placement/sharding/local layout 분리
+- ArrayFire: lazy graph와 안전한 kernel fusion
+- Julia GPUArrays: backend abstraction
+- J: rank/cell/frame/agreement를 parallel domain의 semantic source로 사용
+
+가져오지 않는 결정:
+
+- NumPy broadcasting으로 J agreement 대체
+- PyTorch/JAX Tensor semantics로 J noun 재정의
+- CUDA-specific 정보를 JArray/primitive semantics에 삽입
+- 모든 배열을 tiled storage로 고정
+- GPU 성능을 위해 J의 overflow/promotion/error/floating semantics 변경
+
+### 현재 실행 순서
+
+GPU 구현 자체는 당분간 보류한다. 그러나 compiler architecture와 GPU-ready physical representation은 CPU compiler 경로를 만들 때부터 고려한다.
+
+현재 우선순위:
+
+1. 현재 CPU 의미/차등 검증 기준선 유지.
+2. Semantic IR과 primitive contract 도입.
+3. Jaxa Analyzer와 Logical Execution Plan 도입.
+4. general physical ArrayView(strides/offset)와 ValueId/BufferId 분리.
+5. Physical Planner와 CPU compiled-plan backend를 기본 실행 경로로 검증.
+6. 실제 GPU 구현 재개 시 device storage, GPU codegen, frame/cell 기반 work partition 추가.
+7. 이후 JIT specialization/cache와 multi-device 확장.
+
+GPU가 없다는 이유로 1~5를 미루지 않는다. GPU-specific correctness/performance 완료는 실제 지원 장치에서만 선언한다.
 
 ## 주요 목표와 현재 상태
 
-1. 기존 C J 커널에 의존하지 않는 독립적인 Rust J 엔진을 만든다.
-2. CPU 배열 연산에서 복사·할당·중간 배열을 줄이고 SIMD와 소유권 기반 재사용으로 성능을 확보한다.
-3. **CUDA GPU 실행을 주요 목표로 삼는다. 배열을 GPU에 유지하며 여러 연산을 실행하고 필요한 경계에서만 CPU와 데이터를 주고받는다.**
-4. CPU와 GPU에서 J의 타입·shape·평가·오류 의미를 유지하고, 차등 검증으로 지원 범위를 확장한다.
+1. C J 커널을 실행 fallback으로 사용하지 않는 독립 Rust J compiler/runtime를 만든다.
+2. J의 rank/cell/frame/agreement와 타입·shape·오류·승격 의미를 Semantic IR/Jaxa Analyzer에서 보존한다.
+3. 분석, 논리 계획, 물리 계획, codegen, execution을 분리한다.
+4. CPU 배열 연산에서 복사·할당·중간 배열을 줄이고 SIMD와 소유권 기반 재사용으로 성능을 확보한다.
+5. GPU에서는 동일 Logical Plan을 바탕으로 device placement, strided view, layout/tiling, fusion, transfer를 계획한다.
+6. CPU와 GPU에서 지원되는 J 의미를 차등 검증하고, backend 미지원과 언어 미구현을 구별한다.
 
-첫 대상은 Linux x86-64이며 GPU 백엔드는 CUDA로 한정한다. GPU 없는 환경의 CPU 빌드·실행을 유지한다. C J 커널을 사용하지 않는다는 목표는 CUDA 드라이버/API 사용을 금지한다는 뜻이 아니다. Rust 기반 GPU 커널 작성 도구의 적합성을 먼저 검증하고, 외부 수치 라이브러리 채택 여부는 별도로 명시한다.
-
-현재 구현은 제한된 CPU 인터프리터와 portable/AVX2 커널이다. M2의 inline scalar/shape, 단독·공유 CPU storage, 차용 rank-cell, compact token, rank 결과 순차 조립, 정수 add/sub reduction accumulator 재사용을 구현했다. 기본/portable 각각 25개 테스트와 수명 compile-fail 테스트, C AVX2 기준선 차등 680개 사례를 통과했다. [M2 재검토](M2-REVIEW.md)에 최신 성능과 남은 한계를 기록했다. 정수 출력에 한정된 엔진별 bounded output pool을 추가했다([검증 기록](M2-POOL.md)). 전용 scratch, 실수 출력 풀, CUDA 저장소·커널 및 async 완료 통지는 아직 없다. 아래 항목은 구현된 범위와 구별해 단계적으로 진행한다.
-
-스칼라 및 2·3개 목록 dyadic rank를 추가했다([범위와 한계](DYADIC-RANK.md)). 다음 CPU 의미 작업은 빈 frame prototype 및 결과 padding이다.
+현재 구현은 제한된 CPU 직접 평가 엔진과 portable/AVX2 커널이다. M2의 inline scalar/shape, 단독·공유 CPU storage, 차용 rank-cell, compact token, rank 결과 순차 조립, 정수 add/sub reduction accumulator 재사용과 bounded output pool 등이 구현되어 있다. 이 구현 상태를 compiler architecture가 이미 완료되었다는 뜻으로 해석하지 않는다.
 
 ## M2 — CPU/CUDA를 수용하는 배열 기반
 
