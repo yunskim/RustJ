@@ -62,6 +62,62 @@ PhysicalArray
 특히 GPU parallel domain은 generic tensor axis에서 새로 정의하지 않고 Jaxa가 해석한 frame/cell에서 출발한다. 예를 들어 rank-1 적용에서 frame이 8192개 cell을 만든다면 Planner는 이를 GPU work domain으로 사용할 수 있지만 block/thread mapping은 physical decision으로 남긴다.
 
 
+### JAXA 비표준 어휘 분류와 `with`
+
+JAXA가 J에 없는 어휘를 제공한다는 점을 RustJ compiler 구조에 맞춰 다음처럼 분류한다.
+
+| JAXA 어휘 | 분류 | RustJ/Jaxa 결정 |
+|---|---|---|
+| `relu` | custom computational primitive | 채택 |
+| `linear` | custom computational primitive | 채택 |
+| `conv` | custom computational primitive | 채택 |
+| `cast_f32` | explicit dtype semantic op | 채택. backend의 암묵적 downcast와 구분 |
+| user custom name, 예: `relu_custom_` | registered computational primitive | registry contract가 있으면 허용 |
+| `conv_cuda_` | backend-specific primitive | 일반 semantic vocabulary에서는 제외. 필요 시 BackendIntrinsic으로 격리 |
+| `load` | logical storage read intent | 채택 |
+| `store` | logical storage write intent | 채택 |
+| `emit` | side-output/storage effect | source sugar는 허용 가능. core IR에서는 Write/Accumulate로 일반화 |
+| `cp` | checkpoint/availability intent | materialize 명령으로 고정하지 않고 CheckpointRequirement로 해석하는 방향 |
+| **`with`** | **annotation/binding conjunction** | **채택** |
+
+`with`는 계산 leaf가 아니라 **J 표기와 JAXA semantic metadata의 경계**다.
+
+예:
+
+```j
+D1 =: (10 20 1 dense) with adam`dense_xadj`dense_wadj
+```
+
+Parser 단계에서는 `with`를 conjunction 구조로 보존하고, 오른쪽 이름들은 name resolution 및 registry binding 후 optimizer/adjoint/effect 등의 typed annotation으로 바꾼다.
+
+허용되는 기본 방향:
+
+```text
+with
+  ├─ optimizer/update semantics
+  ├─ adjoint definitions
+  ├─ primitive semantic contract selection
+  ├─ semantic dtype requirement
+  └─ effect/logical-storage relation
+```
+
+허용하지 않는 기본 방향:
+
+```text
+with
+  ✗ CUDA block/thread count
+  ✗ tile128 같은 physical tile policy
+  ✗ shared-memory/register budget
+  ✗ 특정 GPU/device 선택
+  ✗ backend-specific memory layout
+  ✗ stream/event schedule
+```
+
+후자의 정보는 Physical Planner/Backend Lowering에서 결정한다. `with` 하나에 optimizer, adjoint, CUDA spec, dtype, tile policy를 평평하게 섞지 않는다.
+
+이 분리는 custom primitive registry에도 적용한다. primitive identity는 `conv`처럼 semantic 이름으로 유지하고, CPU/CUDA/Metal 구현은 lowering set으로 연결한다. `conv_cuda_`처럼 backend 이름을 semantic identity에 박는 방식은 일반 vocabulary가 아니라 explicit intrinsic/escape hatch로만 허용한다.
+
+
 ## 확인한 실제 범위
 
 소스는 `tokens.py`, `tokenizer.py`, `jconsole_compare.py` 중심이다. Span을 보존하는 byte 기반 word formation과 J의 `;:` 결과 비교 도구가 있다. 독립 tokenizer 테스트 14개를 실행해 모두 통과했다. 이번 검토에서는 jconsole 차등 테스트를 실행하지 않았다.
