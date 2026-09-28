@@ -10,9 +10,14 @@ fn parse_is_execution_free_and_right_associative() {
     let Expr::Dyad { verb, left, right } = p.expression.unwrap().kind else {
         panic!()
     };
-    assert_eq!(verb.name, "+");
+    assert_eq!(
+        verb.target,
+        semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Add)
+    );
     assert!(matches!(left.kind,Expr::ReadName(ref name) if name=="missing"));
-    assert!(matches!(right.kind,Expr::Dyad{ref verb,..} if verb.name=="*"));
+    assert!(
+        matches!(right.kind,Expr::Dyad{ref verb,..} if verb.target==semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Multiply))
+    );
     // Shape-producing operation is represented, not run or allocated here.
     assert!(semantic::parse("i.9223372036854775807").is_ok());
     let p = semantic::parse("+/\"1 i.2 3").unwrap();

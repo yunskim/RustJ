@@ -143,12 +143,9 @@ impl Builder<'_> {
         id
     }
     fn callable(&mut self, verb: Verb) -> Callable {
-        let target = match verb.reference {
-            Some(name) => CallTarget::Dynamic(self.symbol(&name)),
-            None => CallTarget::Primitive(
-                crate::primitive::PrimitiveId::from_spelling(verb.name)
-                    .expect("parser primitive is registered"),
-            ),
+        let target = match verb.target {
+            crate::semantic::VerbTarget::Named(name) => CallTarget::Dynamic(self.symbol(&name)),
+            crate::semantic::VerbTarget::Primitive(id) => CallTarget::Primitive(id),
         };
         Callable {
             target,
@@ -170,7 +167,7 @@ impl Builder<'_> {
                 ..
             } => match callable.target {
                 CallTarget::Primitive(id) => crate::facts::infer_call(
-                    id.spelling(),
+                    id,
                     callable.reduce,
                     callable.rank,
                     left.map(|id| &self.nodes[id.0].facts),

@@ -1,5 +1,6 @@
 //! Facts about successful results, not permission to eliminate errors or guards.
-use crate::{Value, contracts::ShapeRule};
+use crate::primitive::PrimitiveId::*;
+use crate::{Value, contracts::ShapeRule, primitive::PrimitiveId};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DType {
     Bool,
@@ -44,7 +45,12 @@ fn agreement(left: &[usize], right: &[usize]) -> Option<Vec<usize>> {
     };
     long.starts_with(short).then(|| long.to_vec())
 }
-pub(crate) fn infer(name: &str, rule: ShapeRule, left: Option<&Facts>, right: &Facts) -> Facts {
+pub(crate) fn infer(
+    id: PrimitiveId,
+    rule: ShapeRule,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> Facts {
     let shape = match rule {
         ShapeRule::PreserveRight => right.shape.clone(),
         ShapeRule::PrefixAgreement => left
@@ -74,11 +80,11 @@ pub(crate) fn infer(name: &str, rule: ShapeRule, left: Option<&Facts>, right: &F
         ShapeRule::Tally => Some(0),
         _ => None,
     });
-    let dtype = match (name, left) {
-        ("=" | "<" | ">", Some(_)) => TypeFact::Exact(DType::Bool),
-        ("$" | "#" | "*", None) => TypeFact::Exact(DType::Int),
-        ("," | "|." | "|:" | "+", None) => right.dtype,
-        ("+" | "-" | "*", Some(x))
+    let dtype = match (id, left) {
+        (Equal | Less | Greater, Some(_)) => TypeFact::Exact(DType::Bool),
+        (Shape | Tally | Multiply, None) => TypeFact::Exact(DType::Int),
+        (Ravel | Reverse | Transpose | Add, None) => right.dtype,
+        (Add | Subtract | Multiply, Some(x))
             if x.dtype == TypeFact::Exact(DType::Int)
                 && right.dtype == TypeFact::Exact(DType::Int) =>
         {
@@ -119,8 +125,8 @@ fn cell(input: &Facts, shape: Vec<usize>) -> Facts {
         shape: Some(shape),
     }
 }
-fn reduction(name: &str, input: &Facts) -> Facts {
-    if !matches!(name, "+" | "-" | "*" | "%") {
+fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
+    if !matches!(id, Add | Subtract | Multiply | Divide) {
         return Facts::default();
     }
     let shape = input
@@ -130,8 +136,8 @@ fn reduction(name: &str, input: &Facts) -> Facts {
     let dtype = match input.shape.as_deref() {
         Some([]) => input.dtype,
         Some([1, ..]) => input.dtype,
-        Some([0, ..]) if matches!(name, "+" | "*") => TypeFact::Exact(DType::Bool),
-        Some(_) if name != "%" && input.dtype == TypeFact::Exact(DType::Int) => {
+        Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
+        Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
             TypeFact::IntOrFloat
         }
         _ => TypeFact::Unknown,
@@ -144,7 +150,7 @@ fn reduction(name: &str, input: &Facts) -> Facts {
 }
 
 pub(crate) fn infer_call(
-    name: &str,
+    id: PrimitiveId,
     reduce: bool,
     ranks: Option<[i64; 3]>,
     left: Option<&Facts>,
@@ -156,7 +162,7 @@ pub(crate) fn infer_call(
             if x.is_some() {
                 Facts::default()
             } else {
-                reduction(name, y)
+                reduction(id, y)
             }
         } else {
             let valence = if x.is_some() {
@@ -164,7 +170,7 @@ pub(crate) fn infer_call(
             } else {
                 Valence::Monad
             };
-            infer(name, contracts::lookup(name, valence).shape_rule, x, y)
+            infer(id, contracts::for_primitive(id, valence).shape_rule, x, y)
         }
     };
     let Some(ranks) = ranks else {

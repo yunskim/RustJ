@@ -15,6 +15,12 @@ enum SymbolValue {
     Verb(crate::semantic::Verb),
 }
 
+struct ResolvedVerb {
+    id: crate::primitive::PrimitiveId,
+    reduce: bool,
+    rank: Option<[i64; 3]>,
+}
+
 struct Binding {
     value: SymbolValue,
     version: crate::semantic::NameVersion,
@@ -129,10 +135,17 @@ impl Engine {
         }
     }
 
-    fn resolve_verb(&self, mut verb: crate::semantic::Verb) -> Result<crate::semantic::Verb> {
+    fn resolve_verb(&self, mut verb: crate::semantic::Verb) -> Result<ResolvedVerb> {
         for _ in 0..crate::semantic::MAX_EXPR_DEPTH {
-            let Some(name) = &verb.reference else {
-                return Ok(verb);
+            let name = match &verb.target {
+                crate::semantic::VerbTarget::Primitive(id) => {
+                    return Ok(ResolvedVerb {
+                        id: *id,
+                        reduce: verb.reduce,
+                        rank: verb.rank,
+                    });
+                }
+                crate::semantic::VerbTarget::Named(name) => name,
             };
             let binding = self
                 .names
@@ -180,11 +193,11 @@ impl Engine {
                 let y = self.interpret_ir(*argument, pooled, depth + 1)?;
                 let verb = self.resolve_verb(verb)?;
                 if let Some(rank) = verb.rank {
-                    kernels::ranked(verb.name, verb.reduce, rank[0], y)
+                    kernels::ranked(verb.id.spelling(), verb.reduce, rank[0], y)
                 } else if verb.reduce {
-                    kernels::reduce(verb.name, y)
+                    kernels::reduce(verb.id.spelling(), y)
                 } else {
-                    kernels::monad(verb.name, y)
+                    kernels::monad(verb.id.spelling(), y)
                 }
             }
             Expr::Dyad { verb, left, right } => {
@@ -192,16 +205,22 @@ impl Engine {
                 let x = self.interpret_ir(*left, pooled, depth + 1)?;
                 let verb = self.resolve_verb(verb)?;
                 if let Some(rank) = verb.rank {
-                    kernels::ranked_dyad_ranks(verb.name, rank[1], rank[2], x, y)
+                    kernels::ranked_dyad_ranks(verb.id.spelling(), rank[1], rank[2], x, y)
                 } else if pooled {
-                    match verb.name {
-                        "+" => kernels::atomic_with_pool(kernels::Op::Add, x, y, &mut self.pool),
-                        "-" => kernels::atomic_with_pool(kernels::Op::Sub, x, y, &mut self.pool),
-                        "*" => kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool),
-                        _ => kernels::dyad(verb.name, x, y),
+                    match verb.id {
+                        crate::primitive::PrimitiveId::Add => {
+                            kernels::atomic_with_pool(kernels::Op::Add, x, y, &mut self.pool)
+                        }
+                        crate::primitive::PrimitiveId::Subtract => {
+                            kernels::atomic_with_pool(kernels::Op::Sub, x, y, &mut self.pool)
+                        }
+                        crate::primitive::PrimitiveId::Multiply => {
+                            kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool)
+                        }
+                        _ => kernels::dyad(verb.id.spelling(), x, y),
                     }
                 } else {
-                    kernels::dyad(verb.name, x, y)
+                    kernels::dyad(verb.id.spelling(), x, y)
                 }
             }
         }

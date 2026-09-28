@@ -30,7 +30,7 @@ pub enum Token<'a> {
     Scalar(Scalar),
     Noun(Box<Value>),
     Name(&'a str),
-    Verb(&'static str),
+    Verb(crate::primitive::PrimitiveId),
     Assign,
     Open,
     Close,
@@ -98,8 +98,7 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
             ")" => Some(Token::Close),
             "/" => Some(Token::Slash),
             "\"" => Some(Token::Rank),
-            _ => crate::primitive::PrimitiveId::from_spelling(word)
-                .map(|id| Token::Verb(id.spelling())),
+            _ => crate::primitive::PrimitiveId::from_spelling(word).map(Token::Verb),
         };
         if let Some(token) = fixed {
             emit!(token);

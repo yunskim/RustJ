@@ -12,7 +12,12 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
     for &id in PrimitiveId::ALL {
         assert!(spellings.insert(id.spelling()));
         let tokens = syntax::lex(id.spelling()).unwrap();
-        assert!(matches!(tokens.as_slice(), [Token::Verb(s)] if *s == id.spelling()));
+        assert!(matches!(tokens.as_slice(), [Token::Verb(s)] if *s == id));
+        let parsed = rustj::semantic::parse(id.spelling()).unwrap();
+        let rustj::semantic::ExprKind::VerbValue(verb) = parsed.expression.unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(verb.target, rustj::semantic::VerbTarget::Primitive(id));
         let plan = Engine::new()
             .analyze(&format!("f=:{}", id.spelling()))
             .unwrap();

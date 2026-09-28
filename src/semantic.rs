@@ -8,11 +8,14 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct Verb {
     pub span: std::ops::Range<usize>,
-    pub name: &'static str,
-    /// Named verbs are resolved at call time; name is empty for this case.
-    pub reference: Option<String>,
+    pub target: VerbTarget,
     pub reduce: bool,
     pub rank: Option<[i64; 3]>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerbTarget {
+    Primitive(crate::primitive::PrimitiveId),
+    Named(String),
 }
 #[derive(Clone, Debug)]
 pub struct Expr {
@@ -192,15 +195,14 @@ fn expression(
                         continue;
                     }
                 }
-                let (name, reference) = match &tokens[*pos] {
-                    Token::Verb(n) => (*n, None),
-                    Token::Name(n) => ("", Some((*n).to_owned())),
+                let target = match &tokens[*pos] {
+                    Token::Verb(id) => VerbTarget::Primitive(*id),
+                    Token::Name(n) => VerbTarget::Named((*n).to_owned()),
                     _ => unreachable!(),
                 };
                 let mut verb = Verb {
                     span: spans[*pos].clone(),
-                    name,
-                    reference,
+                    target,
                     reduce: false,
                     rank: None,
                 };
@@ -340,7 +342,7 @@ pub(crate) fn bind(
             _ => None,
         };
         if let Some(Verb {
-            reference: Some(name),
+            target: VerbTarget::Named(name),
             span,
             ..
         }) = verb

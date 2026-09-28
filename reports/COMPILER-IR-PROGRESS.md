@@ -78,3 +78,11 @@ facts 변경 검증: Windows/WSL 기본·portable 각각 일반 테스트 47개 
 단항/이항은 같은 ID의 별도 계약이며 unsupported valence는 Unknown이다. named call은 여전히 Dynamic(SymbolId)이다. custom registry/with는 미완료이고 등록되지 않은 이름을 built-in으로 추측하지 않는다. 등록 spelling의 lexer→verb value→LogicalPlan 연결, 중복 spelling, valence 구분과 dynamic barrier를 테스트했다. 기존 API 사용자를 위해 보존한 문자열 adapter는 최종 compiler backend 설계 제약이 아니다.
 
 rank/PrimitiveId 변경을 합친 최신 검증: Linux 기본·portable 각각 일반 테스트 51개 + doctest 1개, fmt/clippy, Python harness 3개 통과. 새 release로 1,940문장 × 8조합 재검증: j64는 1,939 일치 + 기존 dtype 차이 1건, j64avx2는 1,940 일치. Windows에서는 환경 전환 뒤 Cargo PATH가 누락되었고, 절대 경로로 재시도한 호출도 완료 로그를 남기지 않아 이번 PrimitiveId 변경의 Windows 검증은 확인되지 않았다. 앞선 rank 단계의 Windows 테스트와 혼동하지 않는다. GitHub CI는 실행하지 않았다.
+
+## typed Semantic IR 후속 (2026-09-28)
+
+기존 결과를 `f1912dd`로 main에 push했다 (`[skip ci]`). 이후 token의 primitive, Semantic IR의 VerbTarget, LogicalPlan, dtype/shape/rank 분석까지 PrimitiveId를 유지하도록 연결했다. VerbTarget은 Primitive(ID) 또는 Named(String) 중 하나이며 빈 primitive 문자열 + optional reference 조합을 제거했다. 논리 계획 생성 시 spelling을 다시 해석하던 expect도 제거했다.
+
+참조 실행기의 named verb 해석 결과는 별도 ResolvedVerb로 만들어 primitive ID임을 보장한다. 출력 pool의 add/sub/mul 분기도 ID로 선택한다. 기존 CPU kernel API 호출 직전에는 아직 spelling adapter가 남아 있으며, kernel 자체의 문자열 dispatch를 전부 제거한 것은 아니다. 21개 등록 primitive 각각에 대해 lexer→Semantic IR→LogicalPlan ID 보존 검사를 추가했다. named verb의 지연 해석 및 기존 array 의미는 변경하지 않는다.
+
+typed IR 검증: Linux default/portable 각각 일반 테스트 51개 + doctest 1개, fmt/clippy, Python harness 3개 통과. 새 release의 C 차등 비교 1,940문장 × 8조합도 통과 범위 유지: j64 1,939 일치 + 기존 dtype 차이 1건, j64avx2 1,940 일치. Windows의 앞서 기록한 실행 환경 제한은 이번에도 해소됐다고 주장하지 않는다. CI 제외를 위해 후속 커밋도 [skip ci]를 사용한다.
