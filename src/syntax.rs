@@ -60,90 +60,73 @@ fn parse_float(s: &str) -> Result<f64> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct SpannedToken<'a> {
+    pub span: std::ops::Range<usize>,
+    pub token: Token<'a>,
+}
+
 pub fn lex(source: &str) -> Result<Vec<Token<'_>>> {
-    let b = source.as_bytes();
-    let mut i = 0;
+    Ok(lex_spanned(source)?.into_iter().map(|t| t.token).collect())
+}
+
+/// Word formation is complete before unsupported words are rejected here.
+pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
+    let spans = crate::scanner::scan(source.as_bytes())?;
     let mut out = Vec::new();
-    while i < b.len() {
-        if b[i].is_ascii_whitespace() {
-            i += 1;
-            continue;
-        }
-        if source[i..].starts_with("NB.") {
-            break;
-        }
-        if source[i..].starts_with("=:") {
-            out.push(Token::Assign);
-            i += 2;
-            continue;
-        }
-        if source[i..].starts_with("=.") {
-            return Err(Error::Unsupported("local assignment".into()));
-        }
-        if let Some(verb) = ["|.", "|:", "{.", "}.", "i:", "I.", "e.", "E."]
-            .into_iter()
-            .find(|verb| source[i..].starts_with(verb))
+    for span in spans {
+        let word = source
+            .get(span.clone())
+            .ok_or_else(|| Error::Unsupported("non-ASCII word".into()))?;
+        if word.starts_with("NB.")
+            && !word
+                .as_bytes()
+                .get(3)
+                .is_some_and(|b| matches!(b, b'.' | b':'))
         {
-            out.push(Token::Verb(verb));
-            i += 2;
             continue;
         }
-        if source[i..].starts_with("i.") {
-            out.push(Token::Verb("i."));
-            i += 2;
-            continue;
+        let token;
+        macro_rules! emit {
+            ($value:expr) => {
+                token = $value
+            };
         }
-        if b[i] == b'\'' {
-            i += 1;
-            let mut s = Vec::new();
-            let mut closed = false;
-            while i < b.len() {
-                if b[i] == b'\'' {
-                    i += 1;
-                    if i < b.len() && b[i] == b'\'' {
-                        s.push(b'\'');
-                        i += 1;
-                    } else {
-                        closed = true;
-                        break;
-                    }
-                } else {
-                    s.push(b[i]);
-                    i += 1;
-                }
+        let fixed = match word {
+            "=:" => Some(Token::Assign),
+            "(" => Some(Token::Open),
+            ")" => Some(Token::Close),
+            "/" => Some(Token::Slash),
+            "\"" => Some(Token::Rank),
+            _ => crate::primitive::PrimitiveId::from_spelling(word)
+                .map(|id| Token::Verb(id.spelling())),
+        };
+        if let Some(token) = fixed {
+            emit!(token);
+        } else if word.starts_with("NB..") || word.starts_with("NB.:") {
+            return Err(Error::Spelling);
+        } else if word.starts_with('\'') {
+            let bytes = word.as_bytes();
+            let mut value = Vec::new();
+            let mut i = 1;
+            while i + 1 < bytes.len() {
+                value.push(bytes[i]);
+                i += if bytes[i] == b'\'' { 2 } else { 1 };
             }
-            if !closed {
-                return Err(Error::Syntax("unterminated literal".into()));
-            }
-            if s.len() == 1 {
-                out.push(Token::Scalar(Scalar::Char(s[0])));
+            if value.len() == 1 {
+                emit!(Token::Scalar(Scalar::Char(value[0])));
             } else {
-                out.push(Token::Noun(Box::new(Value::new(
-                    Shape::from([s.len()]),
-                    Data::Char(CpuStorage::new(s)),
+                emit!(Token::Noun(Box::new(Value::new(
+                    [value.len()],
+                    Data::Char(CpuStorage::new(value)),
                 )?)));
             }
-            continue;
-        }
-        if b[i].is_ascii_digit() || b[i] == b'_' {
-            let literal_start = i;
-            let mut fields = 0;
-            let literal_end;
-            loop {
-                while i < b.len() && (b[i].is_ascii_alphanumeric() || b"_.".contains(&b[i])) {
-                    i += 1;
-                }
-                fields += 1;
-                let end = i;
-                while i < b.len() && b[i].is_ascii_whitespace() {
-                    i += 1;
-                }
-                if i == end || i == b.len() || !(b[i].is_ascii_digit() || b[i] == b'_') {
-                    literal_end = end;
-                    break;
-                }
+        } else if word.as_bytes()[0].is_ascii_digit() || word.starts_with('_') {
+            if word.ends_with(':') {
+                return Err(Error::Unsupported(format!("constant verb {word}")));
             }
-            let literal = &source[literal_start..literal_end];
+            let literal = word;
+            let fields = word.split_ascii_whitespace().count();
             let is_float = literal
                 .split_ascii_whitespace()
                 .any(|s| s.contains(['.', 'e', 'E']) || s == "_" || s == "__");
@@ -156,7 +139,7 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>> {
                         x => Scalar::Int(x),
                     }
                 };
-                out.push(Token::Scalar(value));
+                emit!(Token::Scalar(value));
             } else {
                 let data = if is_float {
                     Data::Float(CpuStorage::new(
@@ -176,46 +159,25 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>> {
                         Data::Int(CpuStorage::new(v))
                     }
                 };
-                out.push(Token::Noun(Box::new(Value::new(
+                emit!(Token::Noun(Box::new(Value::new(
                     Shape::from([fields]),
                     data,
                 )?)));
             }
-            continue;
-        }
-        if b[i].is_ascii_alphabetic() {
-            let start = i;
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
-                i += 1;
-            }
-            let name = &source[start..i];
-            if name.contains('_') {
+        } else if word.as_bytes()[0].is_ascii_alphabetic()
+            && word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            if word.contains('_') {
                 return Err(Error::Unsupported("locatives and underscore names".into()));
             }
-            out.push(Token::Name(name));
-            continue;
+            emit!(Token::Name(word));
+        } else {
+            return Err(Error::Unsupported(format!(
+                "word {word:?} at byte {}",
+                span.start
+            )));
         }
-        let t = match b[i] {
-            b'(' => Token::Open,
-            b')' => Token::Close,
-            b'/' => Token::Slash,
-            b'"' => Token::Rank,
-            b'+' => Token::Verb("+"),
-            b'-' => Token::Verb("-"),
-            b'*' => Token::Verb("*"),
-            b'%' => Token::Verb("%"),
-            b'$' => Token::Verb("$"),
-            b'#' => Token::Verb("#"),
-            b',' => Token::Verb(","),
-            b'=' => Token::Verb("="),
-            b'<' => Token::Verb("<"),
-            b'>' => Token::Verb(">"),
-            b'{' => Token::Verb("{"),
-            b'|' => Token::Verb("|"),
-            _ => return Err(Error::Unsupported(format!("token at byte {i}"))),
-        };
-        i += 1;
-        out.push(t);
+        out.push(SpannedToken { span, token });
     }
     Ok(out)
 }

@@ -14,7 +14,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def cases():
     fixed = [
-        '0', '1', '2', '_3', '1 0 1', '1 2 3', '1.5 2 3', '_', '__', '_.',
+        'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
+        'fn=:+', 'alias=:fn', 'alias 3', 'fn=:*', 'alias 3', '2 alias 3',
+        'deferred=:futureverb', 'deferred 3', 'futureverb=:-', 'deferred 3',
+        'fn=:7', 'alias 3', 'fn=:+', 'alias 3',
+        'summation=:+/', 'summation 1 2 3', 'fn/1 2 3',
+        'fn=:absentverb 3', 'alias 3',
+        'parenverb=:(+)', 'parenverb 3',
+        "('a'+1)+(1 2+1 2 3)", "(1 2+1 2 3)+('a'+1)",
+        'missing + (1 2+1 2 3)', 'missing + )',
+        'errorhold=:1 2 3', "errorhold=:('a'+1)+(1 2+1 2 3)",
+        'errorhold', "errorhold=:(1 2+1 2 3)+('a'+1)", 'errorhold',
+        '1 NB.. 2', '1 NB.: 2', '0', '1', '2', '_3', '1 0 1', '1 2 3', '1.5 2 3', '_', '__', '_.',
         "'a'", "'abc'", "''", "'it''s'", "'NB. text'",
         '10 - 3 - 2', '(10 - 3) - 2', '2 * 3 + 4', '- 1 2 3', '% 1 2 4',
         '| _2 0 3', '* _2 0 3', '0 % 0', '1 % 0', '_1 % 0', '0 * _',
@@ -129,6 +140,7 @@ def generated(seed, rounds):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--semantic-reference', action='store_true')
     parser.add_argument('--seed', type=int, default=20260926)
     parser.add_argument('--rounds', type=int, default=100)
     parser.add_argument('--binary', type=Path, default=ROOT / 'target/release/rustj')
@@ -139,7 +151,7 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     corpus = cases() + generated(args.seed, args.rounds)
     library = Path(os.environ.get('J_LIBRARY', str(ROOT / '.reference/bin/linux/j64/libj.so')))
-    report = {'seed': args.seed, 'rounds': args.rounds, 'cases': len(corpus),
+    report = {'rust_path': 'semantic-reference' if args.semantic_reference else 'direct', 'seed': args.seed, 'rounds': args.rounds, 'cases': len(corpus),
               'reference_library': str(library),
               'reference_sha256': hashlib.sha256(library.read_bytes()).hexdigest(),
               'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),
@@ -147,7 +159,7 @@ def main():
               'passed': 0, 'known_deviations': [], 'failures': []}
     try:
         oracle = subprocess.run([sys.executable, str(ROOT / 'tools/oracle.py')], input=''.join(json.dumps(s)+'\n' for s in corpus), text=True, capture_output=True, timeout=120)
-        rust = subprocess.run([str(args.binary), '--json'], input='\n'.join(corpus)+'\n', text=True, capture_output=True, timeout=120)
+        rust = subprocess.run([str(args.binary), '--json'] + (['--semantic-reference'] if args.semantic_reference else []), input='\n'.join(corpus)+'\n', text=True, capture_output=True, timeout=120)
         if oracle.returncode != 0 or rust.returncode not in (0,1):
             raise RuntimeError(f'process failure: oracle={oracle.returncode}, rust={rust.returncode}\n{oracle.stderr}\n{rust.stderr}')
         expected = [json.loads(s) for s in oracle.stdout.splitlines()]

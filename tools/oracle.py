@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-ERRORS = {3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
+ERRORS = {16: 'spelling error', 3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
           14: 'rank error', 19: 'syntax error', 21: 'value error'}
 
 class Oracle:

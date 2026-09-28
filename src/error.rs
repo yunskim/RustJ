@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     Syntax(String),
+    Spelling,
     Domain,
     Length,
     Rank,
@@ -16,6 +17,7 @@ impl Error {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Syntax(_) => "syntax error",
+            Self::Spelling => "spelling error",
             Self::Domain => "domain error",
             Self::Length => "length error",
             Self::Rank => "rank error",

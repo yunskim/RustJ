@@ -35,3 +35,42 @@ fn compact_tokens_borrow_names_and_keep_literal_semantics() {
     }
     assert_eq!(e.eval("+/\"_1 i. 2 3").unwrap().unwrap().display(), "3 12");
 }
+
+#[test]
+fn word_formation_states_and_spans() {
+    fn words(s: &str) -> Vec<&str> {
+        rustj::scanner::scan(s.as_bytes())
+            .unwrap()
+            .into_iter()
+            .map(|r| &s[r])
+            .collect()
+    }
+    assert_eq!(words("1 2: 3"), vec!["1", "2:", "3"]);
+    assert_eq!(words("1  2\t3"), vec!["1  2\t3"]);
+    assert_eq!(words("1\n2"), vec!["1", "\n", "2"]);
+    assert_eq!(
+        words("{{ y }} {{. }}:"),
+        vec!["{{", "y", "}}", "{", "{.", "}", "}:"]
+    );
+    assert_eq!(words("{}} }{{"), vec!["{", "}", "}", "}", "{", "{"]);
+    assert_eq!(
+        words("NB.. NB.: NB. rest"),
+        vec!["NB..", "NB.:", "NB. rest"]
+    );
+    assert_eq!(words("'it''s'"), vec!["'it''s'"]);
+    assert!(rustj::scanner::scan(b"'open").is_err());
+    let spanned = rustj::syntax::lex_spanned("  a + 2").unwrap();
+    assert_eq!(
+        spanned.iter().map(|s| s.span.clone()).collect::<Vec<_>>(),
+        vec![2..3, 4..5, 6..7]
+    );
+    let mut e = Engine::new();
+    for s in ["1 NB.. 2", "1 NB.: 2"] {
+        assert!(matches!(e.eval(s), Err(rustj::Error::Spelling)));
+        assert!(matches!(
+            e.eval_semantic_reference(s),
+            Err(rustj::Error::Spelling)
+        ));
+    }
+    assert!(e.eval("1\n2").is_err());
+}

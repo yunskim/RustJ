@@ -1,5 +1,7 @@
 # RustJ 구현 계획
 
+현재 작업 순서·완료 조건·확인 상태는 [실행 체크리스트](IMPLEMENTATION-CHECKLIST.md)를 따른다 (2026-09-28). GitHub CI는 생략하고 로컬에서 검증한다. CUDA 구현은 재개 요청까지 보류한다.
+
 ## 채택된 목표 — compiler-first RustJ
 
 2026-09-27부터 RustJ의 최종 목표를 **독립 Rust J 인터프리터**가 아니라 다음 compiler architecture로 수정한다.
@@ -212,3 +214,11 @@ JAXA의 fp32 우선 정책이나 자동 미분·학습 엔진 전체를 현재 �
 ## 변경마다 적용하는 검증
 
 [지속 검증 전략](VALIDATION-STRATEGY.md)을 각 단계의 완료 조건으로 적용한다. 의미 변경은 C 차등 사례, 메모리 변경은 소유권·실패 경로 검사, SIMD 변경은 경계·승격 검사를 추가한다. CI는 기본/portable × j64/j64avx2, 상태 기반 생성 검사, 일일 확대 검사를 수행한다. upstream 전체 테스트·Miri·sanitizer는 미완료 검증 과제로 추적한다.
+
+### C1 첫 구현 상태 (2026-09-27)
+
+실행 없는 Semantic IR 생성과 보수적 primitive contract, 명시적 IR reference evaluator를 추가했다. C1 전체 완료가 아니다. [진행 기록](C1-PROGRESS.md)의 순서대로 lexer/scanner·byte span, name/version binding, registry/with를 먼저 완성한 뒤 C2로 진행한다. 기존 GPU 보류 정책은 유지한다.
+
+### 컴파일러 IR 우선순위 수정 (2026-09-28)
+
+C 내부 실행 구조 대신 의미를 보존하는 심볼·값·호출 분석 IR을 먼저 구축한다. 검사 전용 LogicalPlan 기초를 추가했으며 세부 범위와 남은 작업은 [컴파일러 IR 진행 기록](COMPILER-IR-PROGRESS.md)을 따른다. 위의 C1 완료 후 C2 착수 순서를 엄격한 선행 조건으로 적용하지 않는다.

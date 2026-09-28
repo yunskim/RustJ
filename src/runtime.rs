@@ -1,25 +1,23 @@
 use crate::{
     error::{Error, Result},
     kernels,
-    syntax::{Token, lex},
     value::Value,
 };
 use std::collections::HashMap;
 
 pub struct Engine {
-    names: HashMap<String, Value>,
+    names: HashMap<String, Binding>,
     pool: crate::pool::OutputPool,
 }
 
-#[derive(Clone)]
-struct Verb {
-    name: &'static str,
-    reduce: bool,
-    rank: Option<[i64; 3]>,
-}
-enum Item {
+enum SymbolValue {
     Noun(Value),
-    Verb(Verb),
+    Verb(crate::semantic::Verb),
+}
+
+struct Binding {
+    value: SymbolValue,
+    version: crate::semantic::NameVersion,
 }
 
 impl Default for Engine {
@@ -47,153 +45,165 @@ impl Engine {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn eval(&mut self, source: &str) -> Result<Option<Value>> {
-        let mut tokens = lex(source)?;
-        if tokens.is_empty() {
-            return Ok(None);
-        }
-        let (name, expr) = if tokens.len() > 1 && matches!(tokens[1], Token::Assign) {
-            let Token::Name(name) = &tokens[0] else {
-                return Err(Error::Syntax("assignment target".into()));
-            };
-            (Some((*name).to_owned()), &mut tokens[2..])
-        } else {
-            (None, tokens.as_mut_slice())
+    /// Inspect bindings without execution or mutation. Versions are Engine-local.
+    pub fn prepare_semantic(&self, source: &str) -> Result<crate::semantic::BoundProgram> {
+        crate::semantic::bind(
+            crate::semantic::parse_analysis(source, &|name| match &self.names.get(name)?.value {
+                SymbolValue::Noun(value) => Some(value.clone()),
+                SymbolValue::Verb(_) => None,
+            })?,
+            |name| self.binding_version(name),
+        )
+    }
+
+    /// Build an inspection-only logical plan without running array kernels.
+    pub fn analyze(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
+        crate::analysis::lower(self.prepare_semantic(source)?, &|name| match self
+            .names
+            .get(name)
+            .map(|b| &b.value)
+        {
+            Some(SymbolValue::Noun(value)) => crate::facts::Facts::of(value),
+            _ => crate::facts::Facts::default(),
+        })
+    }
+
+    pub fn binding_version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
+        self.names.get(name).map(|binding| binding.version)
+    }
+
+    fn commit_binding(&mut self, name: String, value: SymbolValue) -> Result<()> {
+        let version = crate::semantic::NameVersion(
+            self.binding_version(&name)
+                .map_or(0, |v| v.0)
+                .checked_add(1)
+                .ok_or(Error::Limit)?,
+        );
+        let binding = Binding {
+            value: match value {
+                SymbolValue::Noun(v) => SymbolValue::Noun(v.into_shared()),
+                v => v,
+            },
+            version,
         };
-        let mut pos = 0;
-        let value = self.expression(expr, &mut pos, false, 0)?;
-        if pos != expr.len() {
-            return Err(Error::Syntax("trailing tokens".into()));
-        }
-        if let Some(name) = name {
-            if let Some(old) = self.names.insert(name, value.into_shared()) {
-                self.pool.retire(old);
+        if let Some(old) = self.names.insert(name, binding) {
+            if let SymbolValue::Noun(value) = old.value {
+                self.pool.retire(value);
             }
+        }
+        Ok(())
+    }
+
+    /// Diagnostic execution using the shared frontend, without output pooling.
+    pub fn eval_semantic_reference(&mut self, source: &str) -> Result<Option<Value>> {
+        self.eval_program(source, false)
+    }
+
+    pub fn eval(&mut self, source: &str) -> Result<Option<Value>> {
+        self.eval_program(source, true)
+    }
+
+    fn eval_program(&mut self, source: &str, pooled: bool) -> Result<Option<Value>> {
+        let program =
+            crate::semantic::parse_runtime(source, &|name| match &self.names.get(name)?.value {
+                SymbolValue::Noun(value) => Some(value.clone()),
+                SymbolValue::Verb(_) => None,
+            })?;
+        let Some(expr) = program.expression else {
+            return Ok(None);
+        };
+        // Static binding is an analysis API. Eager lookup here would reorder
+        // runtime errors relative to failures in right-hand arguments.
+        let value = match expr.kind {
+            crate::semantic::ExprKind::VerbValue(verb) => SymbolValue::Verb(verb),
+            _ => SymbolValue::Noun(self.interpret_ir(expr, pooled, 0)?),
+        };
+        if let Some(name) = program.assignment {
+            self.commit_binding(name, value)?;
             Ok(None)
         } else {
-            Ok(Some(value))
+            match value {
+                SymbolValue::Noun(value) => Ok(Some(value)),
+                SymbolValue::Verb(_) => Err(Error::Unsupported("verb result display".into())),
+            }
         }
     }
 
-    fn expression(
+    fn resolve_verb(&self, mut verb: crate::semantic::Verb) -> Result<crate::semantic::Verb> {
+        for _ in 0..crate::semantic::MAX_EXPR_DEPTH {
+            let Some(name) = &verb.reference else {
+                return Ok(verb);
+            };
+            let binding = self
+                .names
+                .get(name)
+                .ok_or_else(|| Error::Value(name.clone()))?;
+            let SymbolValue::Verb(target) = &binding.value else {
+                return Err(Error::Domain);
+            };
+            let mut resolved = target.clone();
+            if verb.reduce || verb.rank.is_some() {
+                if resolved.reduce || resolved.rank.is_some() {
+                    return Err(Error::Unsupported("nested named verb modifiers".into()));
+                }
+                resolved.reduce = verb.reduce;
+                resolved.rank = verb.rank;
+            }
+            verb = resolved;
+        }
+        Err(Error::Limit)
+    }
+
+    fn interpret_ir(
         &mut self,
-        tokens: &mut [Token<'_>],
-        pos: &mut usize,
-        nested: bool,
+        expr: crate::semantic::Expr,
+        pooled: bool,
         depth: usize,
     ) -> Result<Value> {
-        if depth > 128 {
+        use crate::semantic::ExprKind as Expr;
+        if depth > crate::semantic::MAX_EXPR_DEPTH {
             return Err(Error::Limit);
         }
-        let mut items = Vec::new();
-        while *pos < tokens.len() {
-            match &tokens[*pos] {
-                Token::Close => {
-                    if nested {
-                        break;
-                    } else {
-                        return Err(Error::Syntax("unexpected )".into()));
+        match expr.kind {
+            Expr::Group(inner) => self.interpret_ir(*inner, pooled, depth + 1),
+            Expr::Literal(v) => Ok(v),
+            Expr::VerbValue(_) => Err(Error::Domain),
+            Expr::ReadName(name) => match self.names.get(&name) {
+                Some(Binding {
+                    value: SymbolValue::Noun(value),
+                    ..
+                }) => Ok(value.clone()),
+                Some(_) => Err(Error::Domain),
+                None => Err(Error::Value(name)),
+            },
+            Expr::Monad { verb, argument } => {
+                let y = self.interpret_ir(*argument, pooled, depth + 1)?;
+                let verb = self.resolve_verb(verb)?;
+                if let Some(rank) = verb.rank {
+                    kernels::ranked(verb.name, verb.reduce, rank[0], y)
+                } else if verb.reduce {
+                    kernels::reduce(verb.name, y)
+                } else {
+                    kernels::monad(verb.name, y)
+                }
+            }
+            Expr::Dyad { verb, left, right } => {
+                let y = self.interpret_ir(*right, pooled, depth + 1)?;
+                let x = self.interpret_ir(*left, pooled, depth + 1)?;
+                let verb = self.resolve_verb(verb)?;
+                if let Some(rank) = verb.rank {
+                    kernels::ranked_dyad_ranks(verb.name, rank[1], rank[2], x, y)
+                } else if pooled {
+                    match verb.name {
+                        "+" => kernels::atomic_with_pool(kernels::Op::Add, x, y, &mut self.pool),
+                        "-" => kernels::atomic_with_pool(kernels::Op::Sub, x, y, &mut self.pool),
+                        "*" => kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool),
+                        _ => kernels::dyad(verb.name, x, y),
                     }
-                }
-                Token::Open => {
-                    *pos += 1;
-                    let v = self.expression(tokens, pos, true, depth + 1)?;
-                    if !matches!(tokens.get(*pos), Some(Token::Close)) {
-                        return Err(Error::Syntax("missing )".into()));
-                    }
-                    *pos += 1;
-                    items.push(Item::Noun(v));
-                }
-                Token::Scalar(v) => {
-                    items.push(Item::Noun(v.into_value()));
-                    *pos += 1;
-                }
-                Token::Noun(_) => {
-                    let Token::Noun(v) = std::mem::replace(&mut tokens[*pos], Token::Open) else {
-                        unreachable!()
-                    };
-                    items.push(Item::Noun(*v));
-                    *pos += 1;
-                }
-                Token::Name(n) => {
-                    items.push(Item::Noun(
-                        self.names
-                            .get(*n)
-                            .cloned()
-                            .ok_or_else(|| Error::Value((*n).to_owned()))?,
-                    ));
-                    *pos += 1;
-                }
-                Token::Verb(n) => {
-                    let mut verb = Verb {
-                        name: n,
-                        reduce: false,
-                        rank: None,
-                    };
-                    *pos += 1;
-                    if matches!(tokens.get(*pos), Some(Token::Slash)) {
-                        verb.reduce = true;
-                        *pos += 1;
-                    }
-                    if matches!(tokens.get(*pos), Some(Token::Rank)) {
-                        *pos += 1;
-                        let v = match tokens.get(*pos) {
-                            Some(Token::Scalar(v)) => v.into_value(),
-                            Some(Token::Noun(v)) => (**v).clone(),
-                            _ => return Err(Error::Syntax("rank needs a numeric literal".into())),
-                        };
-                        if v.is_empty() || v.len() > 3 {
-                            return Err(Error::Length);
-                        }
-                        let at = |i| v.int_at(i);
-                        verb.rank = Some(match v.len() {
-                            1 => [at(0)?, at(0)?, at(0)?],
-                            2 => [at(1)?, at(0)?, at(1)?],
-                            _ => [at(0)?, at(1)?, at(2)?],
-                        });
-                        *pos += 1;
-                    }
-                    items.push(Item::Verb(verb));
-                }
-                _ => {
-                    return Err(Error::Unsupported(
-                        "assignment/modifier in expression".into(),
-                    ));
+                } else {
+                    kernels::dyad(verb.name, x, y)
                 }
             }
         }
-        let Some(Item::Noun(mut rhs)) = items.pop() else {
-            return Err(Error::Syntax("expected right argument".into()));
-        };
-        while let Some(item) = items.pop() {
-            let Item::Verb(v) = item else {
-                return Err(Error::Syntax("adjacent nouns".into()));
-            };
-            if matches!(items.last(), Some(Item::Noun(_))) {
-                let Some(Item::Noun(lhs)) = items.pop() else {
-                    unreachable!()
-                };
-                if v.reduce {
-                    return Err(Error::Unsupported("dyadic derived verb".into()));
-                }
-                if let Some(rank) = v.rank {
-                    rhs = kernels::ranked_dyad_ranks(v.name, rank[1], rank[2], lhs, rhs)?;
-                    continue;
-                }
-                rhs = match v.name {
-                    "+" => kernels::atomic_with_pool(kernels::Op::Add, lhs, rhs, &mut self.pool)?,
-                    "-" => kernels::atomic_with_pool(kernels::Op::Sub, lhs, rhs, &mut self.pool)?,
-                    "*" => kernels::atomic_with_pool(kernels::Op::Mul, lhs, rhs, &mut self.pool)?,
-                    _ => kernels::dyad(v.name, lhs, rhs)?,
-                };
-            } else if let Some(rank) = v.rank {
-                rhs = kernels::ranked(v.name, v.reduce, rank[0], rhs)?;
-            } else if v.reduce {
-                rhs = kernels::reduce(v.name, rhs)?;
-            } else {
-                rhs = kernels::monad(v.name, rhs)?;
-            }
-        }
-        Ok(rhs)
     }
 }

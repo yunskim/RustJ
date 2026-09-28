@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Local word-formation oracle; does not evaluate the tested program."""
+import argparse, json, os, random, subprocess
+from pathlib import Path
+from oracle import Oracle
+ROOT=Path(__file__).resolve().parents[1]
+def main():
+    p=argparse.ArgumentParser()
+    p.add_argument('--binary',type=Path,default=ROOT/'target/release/examples/scan_words')
+    p.add_argument('--seed',type=int,default=20260927)
+    p.add_argument('--rounds',type=int,default=2000)
+    p.add_argument('--report',type=Path,default=Path('/tmp/rustj-words.json'))
+    args=p.parse_args()
+    prefixes=[b'',b' ',b'1 ',b'+',b'a',b'N',b'NB',b"''",b'1',b'1 2',b"'",b'NB.',b'NB. x',b'\n',b'{',b'}',b'{{',b'}}']
+    samples=[prefix+bytes([c]) for prefix in prefixes for c in range(256)]
+    samples += [b'1 NB.. 2',b'1 NB.: 2',b'1 2: 3',b'{{.',b'}}:',b'1\n2',b"'it''s'",b'foo_bar=:2',b'if. x do. y end.',b'1r2 2j3']
+    rng=random.Random(args.seed)
+    alphabet=b" NB09a_.'\t\n:{}+()"
+    samples += [bytes(rng.choice(alphabet) for _ in range(rng.randrange(50))) for _ in range(args.rounds)]
+    rust=subprocess.run([str(args.binary)],input=''.join(s.hex()+'\n' for s in samples),text=True,capture_output=True,timeout=120,check=True)
+    actual=[json.loads(s) for s in rust.stdout.splitlines()]
+    if len(actual)!=len(samples): raise RuntimeError('incomplete scanner output')
+    o=Oracle();failures=[];opened=0
+    try:
+        for source,got in zip(samples,actual):
+            chars=' '.join(map(str,source)) if source else 'i.0'
+            # Byte construction avoids quoting, newline, NUL and =: detection traps.
+            error=o.run('auditwords=: ;: a. {~ , ('+chars+')')
+            if error:
+                # C error 13 is open quote; do not swallow unrelated oracle errors.
+                if error['error'] != 'J error 13':
+                    raise RuntimeError((source.hex(),error))
+                opened+=1
+                if 'error' not in got: failures.append({'hex':source.hex(),'expected':'open quote','actual':got})
+                continue
+            sizes=o.eval('#&> auditwords')['data']
+            data=bytes(o.eval(';auditwords')['data'])
+            words=[];pos=0
+            for size in sizes:words.append(data[pos:pos+size]);pos+=size
+            expected=[];offset=0
+            for word in words:
+                start=source.index(word,offset);expected.append([start,start+len(word)]);offset=start+len(word)
+            if got.get('spans')!=expected: failures.append({'hex':source.hex(),'expected':expected,'actual':got})
+    finally:o.close()
+    report={'cases':len(samples),'seed':args.seed,'open_quotes':opened,'failed':len(failures),'failures':failures,'reference':os.environ.get('J_LIBRARY')}
+    args.report.write_text(json.dumps(report,indent=2))
+    print(json.dumps({k:v for k,v in report.items() if k!='failures'},indent=2))
+    return bool(failures)
+if __name__=='__main__':raise SystemExit(main())

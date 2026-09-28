@@ -5,8 +5,12 @@ use std::{
     process::ExitCode,
 };
 
-fn run(engine: &mut Engine, line: &str, json: bool) -> bool {
-    match engine.eval(line) {
+fn run(engine: &mut Engine, line: &str, json: bool, semantic: bool) -> bool {
+    match if semantic {
+        engine.eval_semantic_reference(line)
+    } else {
+        engine.eval(line)
+    } {
         Ok(Some(v)) => {
             println!("{}", if json { v.json() } else { v.display() });
             true
@@ -29,12 +33,14 @@ fn run(engine: &mut Engine, line: &str, json: bool) -> bool {
 }
 fn main() -> ExitCode {
     let mut json = false;
+    let mut semantic = false;
     let mut expr = None;
     let mut file = None;
     let mut args = env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--json" => json = true,
+            "--semantic-reference" => semantic = true,
             "-e" => {
                 expr = args.next();
                 if expr.is_none() {
@@ -44,7 +50,7 @@ fn main() -> ExitCode {
             }
             "--help" | "-h" => {
                 println!(
-                    "rustj [--json] [-e 'J sentence' | script.ijs]\nNo arguments: read one sentence per line from stdin.\nExperimental subset; no C engine fallback."
+                    "rustj [--json] [--semantic-reference] [-e 'J sentence' | script.ijs]\nNo arguments: read one sentence per line from stdin.\nExperimental subset; no C engine fallback."
                 );
                 return ExitCode::SUCCESS;
             }
@@ -61,7 +67,7 @@ fn main() -> ExitCode {
     }
     let mut engine = Engine::new();
     if let Some(s) = expr {
-        return if run(&mut engine, &s, json) {
+        return if run(&mut engine, &s, json, semantic) {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
@@ -76,7 +82,7 @@ fn main() -> ExitCode {
             }
         };
         for line in source.lines() {
-            if !run(&mut engine, line, json) {
+            if !run(&mut engine, line, json, semantic) {
                 return ExitCode::FAILURE;
             }
         }
@@ -91,7 +97,7 @@ fn main() -> ExitCode {
     let mut ok = true;
     for line in input.lock().lines() {
         match line {
-            Ok(line) => ok &= run(&mut engine, &line, json),
+            Ok(line) => ok &= run(&mut engine, &line, json, semantic),
             Err(e) => {
                 eprintln!("{e}");
                 return ExitCode::FAILURE;

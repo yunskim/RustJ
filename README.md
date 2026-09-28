@@ -181,3 +181,11 @@ python3 tools/compare.py
 정수·불리언 원소 검색은 해시 테이블을 사용합니다. 실수·문자·다차원 항목 검색은 현재 순차 비교하므로 큰 검색의 성능은 별도 개선 대상입니다. `i:` 배열 입력의 결과 padding, 복소 간격 지정, 고차원 `I.`, dyadic `I.` 구간 검색은 미지원입니다.
 
 `e.`와 `E.`도 검색 계열에 포함합니다. `x e. y`는 y에 x의 항목이 있는지 반환하고, `'ana' E. 'banana'`는 `0 1 0 1 0 0`처럼 패턴 시작 위치를 표시합니다. E.는 현재 스칼라/벡터/문자열만 지원하며 겹침을 허용하고 빈 패턴도 처리합니다. 다차원 E.와 KMP 등의 전용 검색 가속은 미구현입니다. e.는 index-of와 같은 항목 shape 및 수치 비교 규칙을 사용합니다.
+
+### C1 구현 상태
+
+`semantic::parse`가 실행 없이 Semantic IR를 생성하며, `--semantic-reference`로 IR 참조 평가를 실행할 수 있습니다. 이는 compiled backend가 아닙니다. 기본 경로도 같은 IR 파서를 사용하며 출력 버퍼를 재사용합니다. 참조 모드는 버퍼 재사용을 끕니다. source span과 name/version 기초를 구현했으며, [C1 진행 기록](reports/C1-PROGRESS.md)에 남은 registry·이름 해석·오류 순서 제약을 명시했습니다.
+
+단어 분리는 `scanner::scan`에서 처리하고 `syntax::lex_spanned`에서 지원 토큰으로 변환합니다. scanner는 미지원 primitive도 단어 단위로 보존하고 byte span을 제공합니다. C `;:`와의 로컬 비교 도구는 `tools/word_conformance.py`이며 실행 지원 범위와 분리해 검증합니다.
+
+`Engine::analyze`는 실행 없이 논리 계획을 생성합니다. 현재 literal/noun binding과 일부 직접 primitive에 dtype·shape·rank 정보를 전파합니다. 예: 이름 `a`가 `[2,3]` 배열이면 `|:a`의 shape는 `[3,2]`, `,a`는 `[6]`으로 분석합니다. 직접 primitive의 rank/cell/frame과 기본 reduction도 분석하며, 빈 frame의 prototype·동적 named call 등 미분석 정보는 Unknown으로 남깁니다. 결과 사실은 실행 성공을 가정하며 오류 검사 제거의 근거가 아닙니다. 코드 생성 및 계획 실행은 아직 미구현입니다.
