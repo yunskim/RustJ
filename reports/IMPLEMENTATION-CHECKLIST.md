@@ -158,3 +158,19 @@ Reproducible local validation: `powershell -File tools/check-windows.ps1`.
 - [ ] Native C differential verification remains blocked on a compatible Windows C compiler.
 
 See [BIT-STORAGE.md](BIT-STORAGE.md). No speedup claim without benchmarks.
+
+## Sparse runtime and definition audit — 2026-09-29
+
+- [x] Sparse Value, metadata-only serialization, element/layout facts.
+- [x] Basic `$.` conversion/construction and scalar component queries.
+- [x] Explicit rejection of sparse inputs in unsupported dense kernels.
+- [x] Audit direct/explicit definitions: parsing/execution remain unsupported.
+- [x] Contain stdin bug where rejected definitions ran body lines globally.
+- [ ] Definition input framing, AST, controls, local binding and IR execution.
+- [ ] Native Windows C verification; existing reference compiler blocker remains.
+
+See [DEFINITION-PARSING-AUDIT.md](DEFINITION-PARSING-AUDIT.md).
+
+Validation for the runtime/audit follow-up: Windows default and portable each
+75 + 1 tests; Clippy and Python harness (6) passed. Definition parsing remains
+a separate unimplemented milestone; the CLI change only prevents body leakage.

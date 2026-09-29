@@ -1,4 +1,4 @@
-//! Axis-sparse storage foundation. Not yet connected to J's `$.` verbs.
+//! Axis-sparse storage with a guarded subset of J's `$.` verbs.
 //! Coordinates are sorted unique rows; omitted cells have the scalar fill value.
 use crate::{
     Data, Error, Result, Value,
@@ -255,4 +255,100 @@ fn pack_cells<T: Copy>(
         }
     }
     Ok((coordinates, stored, output))
+}
+
+/// Runtime materialization guard. Storage API callers may pass their own limit.
+pub const DEFAULT_DENSE_LIMIT: usize = 16 * 1024 * 1024;
+
+pub(crate) fn monad(mut y: Value) -> Result<Value> {
+    if y.shape().is_empty() || y.is_sparse() {
+        return Ok(y);
+    }
+    let fill = match y.data() {
+        Data::Bool(_) => Value::new([], Data::Bool(CpuStorage::Inline(0)))?,
+        Data::Int(_) => Value::scalar(0),
+        Data::Float(v) => {
+            // J match treats both zero signs as the default fill.
+            if v.iter().any(|x| x.to_bits() == (-0.0f64).to_bits()) {
+                let mut normalized = buffer(v.len())?;
+                normalized.extend(v.iter().map(|&x| if x == 0.0 { 0.0 } else { x }));
+                y = Value::new(
+                    Shape::from(y.shape()),
+                    Data::Float(CpuStorage::new(normalized)),
+                )?;
+            }
+            Value::new([], Data::Float(CpuStorage::Inline(0.0)))?
+        }
+        _ => {
+            return Err(Error::Unsupported(
+                "sparse conversion of character/boxed arrays".into(),
+            ));
+        }
+    };
+    Value::from_sparse(SparseArray::from_dense(
+        &y,
+        (0..y.shape().len()).collect(),
+        fill,
+    )?)
+}
+
+pub(crate) fn dyad(a: Value, y: Value) -> Result<Value> {
+    if a.is_sparse() || matches!(a.data(), Data::Boxed(_)) {
+        return Err(Error::Unsupported("boxed/sparse $. controls".into()));
+    }
+    if !a.shape().is_empty() {
+        return Err(Error::Rank);
+    }
+    let control = a.int_at(0)?;
+    if control == 0 {
+        return match y.data() {
+            Data::Sparse(v) => v.to_dense(DEFAULT_DENSE_LIMIT),
+            _ => monad(y),
+        };
+    }
+    if control == 1 {
+        if y.is_sparse() || matches!(y.data(), Data::Boxed(_)) {
+            return Err(Error::Unsupported("$. constructor descriptor".into()));
+        }
+        if y.shape().len() > 1 {
+            return Err(Error::Rank);
+        }
+        if y.is_empty() {
+            return Err(Error::Length);
+        }
+        let shape = (0..y.len())
+            .map(|i| usize::try_from(y.int_at(i)?).map_err(|_| Error::Domain))
+            .collect::<Result<Vec<_>>>()?;
+        let axes = (0..shape.len()).collect();
+        let fill = Value::new([], Data::Float(CpuStorage::Inline(0.0)))?;
+        let values = Value::new([0], Data::Float(CpuStorage::new(vec![])))?;
+        return Value::from_sparse(SparseArray::new(shape, axes, vec![], fill, values)?);
+    }
+    if control == 2 && !y.is_sparse() {
+        if matches!(y.data(), Data::Boxed(_)) {
+            return Err(Error::Domain);
+        }
+        return Value::ints(
+            [y.shape().len()],
+            (0..y.shape().len()).map(|i| i as i64).collect(),
+        );
+    }
+    let Data::Sparse(v) = y.data() else {
+        return Err(Error::Domain);
+    };
+    match control {
+        2 => Value::ints(
+            [v.sparse_axes().len()],
+            v.sparse_axes().iter().map(|&i| i as i64).collect(),
+        ),
+        3 => Ok(v.fill().clone()),
+        4 => Value::ints(
+            [v.stored_rows(), v.sparse_axes().len()],
+            v.coordinates().iter().map(|&i| i as i64).collect(),
+        ),
+        5 => Ok(v.values().clone()),
+        7 => Ok(Value::scalar(v.stored_rows() as i64)),
+        -1 | 8 => Err(Error::Unsupported(format!("$. control {control}"))),
+        _ => Err(Error::Domain),
+    }
 }

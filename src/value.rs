@@ -11,6 +11,7 @@ pub enum Data {
     Float(CpuStorage<f64>),
     Char(CpuStorage<u8>),
     Boxed(CpuStorage<Arc<Value>>),
+    Sparse(Arc<crate::sparse::SparseArray>),
 }
 
 #[derive(Clone, Debug)]
@@ -72,6 +73,7 @@ impl Value {
             Data::Float(v) => Data::Float(v.into_shared()),
             Data::Char(v) => Data::Char(v.into_shared()),
             Data::Boxed(v) => Data::Boxed(v.into_shared()),
+            Data::Sparse(v) => Data::Sparse(v),
         };
         Self {
             shape: self.shape,
@@ -97,6 +99,7 @@ impl Value {
             Data::Float(v) => CpuView::Float(v),
             Data::Char(v) => CpuView::Char(v),
             Data::Boxed(v) => CpuView::Boxed(v),
+            Data::Sparse(v) => CpuView::Sparse(v),
         };
         ArrayView {
             shape: &self.shape,
@@ -110,6 +113,12 @@ impl Value {
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
             Data::Boxed(v) => v.len(),
+            Data::Sparse(v) => {
+                if v.shape() != &*shape {
+                    return Err(Error::Length);
+                }
+                count(v.shape())?
+            }
         };
         if count(&shape)? != n {
             return Err(Error::Length);
@@ -120,6 +129,13 @@ impl Value {
             }
         }
         Ok(Self { shape, data })
+    }
+    pub fn from_sparse(array: crate::sparse::SparseArray) -> Result<Self> {
+        let shape = Shape::from(array.shape());
+        Self::new(shape, Data::Sparse(Arc::new(array)))
+    }
+    pub fn is_sparse(&self) -> bool {
+        matches!(self.data, Data::Sparse(_))
     }
     pub fn ints(shape: impl Into<Shape>, data: Vec<i64>) -> Result<Self> {
         Self::new(shape, Data::Int(CpuStorage::new(data)))
@@ -149,6 +165,7 @@ impl Value {
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
             Data::Boxed(v) => v.len(),
+            Data::Sparse(v) => count(v.shape()).expect("validated sparse shape"),
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -161,6 +178,7 @@ impl Value {
             Data::Int(_) => 4,
             Data::Float(_) => 8,
             Data::Boxed(_) => 32,
+            Data::Sparse(ref v) => v.fill().type_code() << 10,
         }
     }
     pub fn int_at(&self, i: usize) -> Result<i64> {
@@ -208,10 +226,22 @@ impl Value {
             Data::Float(v) => select!(v, Float),
             Data::Char(v) => select!(v, Char),
             Data::Boxed(v) => select!(v, Boxed),
+            Data::Sparse(_) => return Err(Error::Unsupported("sparse selection".into())),
         };
         Self::new(shape, data)
     }
     pub fn json(&self) -> String {
+        if let Data::Sparse(v) = &self.data {
+            return format!(
+                "{{\"type\":{},\"shape\":{:?},\"sparse\":{{\"axes\":{:?},\"coordinates\":{:?},\"fill\":{},\"values\":{}}}}}",
+                self.type_code(),
+                self.shape(),
+                v.sparse_axes(),
+                v.coordinates(),
+                v.fill().json(),
+                v.values().json()
+            );
+        }
         let shape = self
             .shape
             .iter()
@@ -222,6 +252,7 @@ impl Value {
             Data::Bool(v) | Data::Char(v) => v.iter().map(u8::to_string).collect(),
             Data::Int(v) => v.iter().map(i64::to_string).collect(),
             Data::Boxed(v) => v.iter().map(|x| x.json()).collect(),
+            Data::Sparse(_) => unreachable!(),
             Data::Float(v) => v
                 .iter()
                 .map(|x| {
@@ -246,6 +277,12 @@ impl Value {
     }
     pub fn display(&self) -> String {
         match &self.data {
+            Data::Sparse(v) => format!(
+                "sparse(shape={:?}, axes={:?}, stored_rows={})",
+                self.shape(),
+                v.sparse_axes(),
+                v.stored_rows()
+            ),
             Data::Char(v) => String::from_utf8_lossy(v).into_owned(),
             Data::Boxed(v) => v
                 .iter()

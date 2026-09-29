@@ -129,6 +129,7 @@ pub enum CpuView<'a> {
     Float(&'a [f64]),
     Char(&'a [u8]),
     Boxed(&'a [Arc<crate::Value>]),
+    Sparse(&'a crate::sparse::SparseArray),
 }
 #[derive(Clone, Copy, Debug)]
 pub struct ArrayView<'a> {
@@ -139,6 +140,7 @@ impl<'a> ArrayView<'a> {
     pub fn to_owned(self) -> Result<crate::value::Value> {
         use crate::value::{Data, Value};
         let data = match self.data {
+            CpuView::Sparse(v) => return crate::Value::from_sparse(v.clone()),
             CpuView::Bool(v) => Data::Bool(CpuStorage::generate(v.len(), |i| v[i])?),
             CpuView::Int(v) => Data::Int(CpuStorage::generate(v.len(), |i| v[i])?),
             CpuView::Float(v) => Data::Float(CpuStorage::generate(v.len(), |i| v[i])?),
@@ -160,6 +162,7 @@ impl<'a> ArrayView<'a> {
             CpuView::Int(v) => v.len(),
             CpuView::Float(v) => v.len(),
             CpuView::Boxed(v) => v.len(),
+            CpuView::Sparse(v) => crate::value::count(v.shape()).expect("validated sparse view"),
         }
     }
     pub fn is_empty(self) -> bool {
@@ -194,6 +197,9 @@ impl<'a> ArrayView<'a> {
         }
     }
     pub fn cell(self, rank: usize, index: usize) -> Result<Self> {
+        if matches!(self.data, CpuView::Sparse(_)) {
+            return Err(Error::Unsupported("sparse rank cells".into()));
+        }
         if rank > self.shape.len() {
             return Err(Error::Rank);
         }
@@ -211,6 +217,7 @@ impl<'a> ArrayView<'a> {
             CpuView::Int(v) => CpuView::Int(v.get(start..end).ok_or(Error::Index)?),
             CpuView::Float(v) => CpuView::Float(v.get(start..end).ok_or(Error::Index)?),
             CpuView::Char(v) => CpuView::Char(v.get(start..end).ok_or(Error::Index)?),
+            CpuView::Sparse(_) => unreachable!(),
             CpuView::Boxed(v) => CpuView::Boxed(v.get(start..end).ok_or(Error::Index)?),
         };
         Ok(Self { shape, data })

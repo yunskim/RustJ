@@ -206,7 +206,7 @@ impl Engine {
                 let verb = self.resolve_verb(verb)?;
                 if let Some(rank) = verb.rank {
                     kernels::ranked_dyad_ranks(verb.id.spelling(), rank[1], rank[2], x, y)
-                } else if pooled {
+                } else if pooled && !x.is_sparse() && !y.is_sparse() {
                     match verb.id {
                         crate::primitive::PrimitiveId::Add => {
                             kernels::atomic_with_pool(kernels::Op::Add, x, y, &mut self.pool)

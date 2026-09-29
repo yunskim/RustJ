@@ -122,6 +122,18 @@ def cases():
         'boxsource=:boxsource+10', '>boxsaved',
         'boxopened=:>boxsaved', 'boxopened=:boxopened+20', '>boxsaved',
     ])
+    # Sparse results are inspected through dense component queries so the
+    # oracle need not interpret the C engine's private sparse headers.
+    fixed.extend([
+        'spcheck=:$.2 3$0 1 0 2 0 3', '$spcheck', '#spcheck',
+        '2$.spcheck', '3$.spcheck', '4$.spcheck', '5$.spcheck', '7$.spcheck',
+        '0$.spcheck', 'spalias=:spcheck', 'spvalues=:5$.spcheck',
+        'spvalues=:spvalues+10', '5$.spalias',
+        'spcheck=:1$.2 3', '2$.spcheck', '3$.spcheck', '4$.spcheck',
+        '5$.spcheck', '0$.spcheck', '$.42', '0$.$.0 1 0 1',
+        '0$.$.0.0 1.5 0.0', '0$.$.i.0', '3$.1 2', '6$.spcheck',
+        '1$._1 2', '1$.i.0',
+    ])
     return fixed
 
 def equal(a, b):

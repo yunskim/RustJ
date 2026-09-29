@@ -60,3 +60,43 @@ fn script_and_argument_failures_have_nonzero_status() {
             .ends_with("RustJ\n")
     );
 }
+
+#[test]
+fn unsupported_definitions_never_execute_following_body_lines() {
+    for source in [
+        "f=:{{\nleaked=:99\n}}\nleaked\n",
+        "f=:3 : 0\nleaked=:99\n)\nleaked\n",
+        "f=:{{ 'unfinished\nleaked=:99\n}}\nleaked\n",
+        "f=:verb define\nleaked=:99\n)\nleaked\n",
+    ] {
+        for semantic in [false, true] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_rustj"));
+            command.arg("--json");
+            if semantic {
+                command.arg("--semantic-reference");
+            }
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(source.as_bytes())
+                .unwrap();
+            let result = child.wait_with_output().unwrap();
+            assert_eq!(result.status.code(), Some(1));
+            let text = String::from_utf8(result.stdout).unwrap();
+            assert_eq!(text.lines().count(), 1, "{source}: {text}");
+            assert!(!text.contains("99"));
+            assert!(
+                String::from_utf8(result.stderr)
+                    .unwrap()
+                    .contains("stopping input")
+            );
+        }
+    }
+}

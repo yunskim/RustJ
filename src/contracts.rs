@@ -78,6 +78,7 @@ pub fn unknown() -> Contract {
 pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Contract {
     use crate::primitive::PrimitiveId::*;
     let class = match (id, valence) {
+        (Sparse, _) => OperationClass::Structural,
         (Add | Subtract | Multiply | Divide | Equal | Less | Greater, Valence::Dyad) => {
             OperationClass::Map
         }
@@ -98,7 +99,7 @@ pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Con
             (Add | Subtract | Multiply | Divide | Equal | Less | Greater, Valence::Dyad) => {
                 ShapeRule::PrefixAgreement
             }
-            (Add | Subtract | Multiply | Divide | Magnitude | Reverse, Valence::Monad) => {
+            (Add | Subtract | Multiply | Divide | Magnitude | Reverse | Sparse, Valence::Monad) => {
                 ShapeRule::PreserveRight
             }
             (Ravel, Valence::Monad) => ShapeRule::Ravel,

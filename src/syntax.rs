@@ -161,3 +161,11 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
     }
     Ok(out)
 }
+
+/// Stream safety guard, not a function-definition parser. Strings and comments
+/// remain single words, so delimiters inside them do not stop the CLI.
+pub fn has_definition_syntax(source: &str) -> bool {
+    crate::scanner::scan_unfinished(source.as_bytes())
+        .into_iter()
+        .any(|span| matches!(source.get(span), Some("{{" | "}}" | ":" | "define")))
+}

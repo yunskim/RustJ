@@ -21,6 +21,7 @@ primitives! {
     Multiply => "*",
     Divide => "%",
     Shape => "$",
+    Sparse => "$.",
     Tally => "#",
     Ravel => ",",
     Equal => "=",

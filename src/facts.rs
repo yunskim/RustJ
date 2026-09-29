@@ -9,23 +9,42 @@ pub enum TypeFact {
     Exact(DType),
     IntOrFloat,
 }
+/// Physical representation is independent of the logical atom type.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LayoutFact {
+    #[default]
+    Unknown,
+    Dense,
+    AxisSparse,
+}
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
     pub dtype: TypeFact,
+    pub layout: LayoutFact,
     pub shape: Option<Vec<usize>>,
     pub rank: Option<usize>,
 }
 impl Facts {
     pub fn of(value: &Value) -> Self {
+        if let crate::Data::Sparse(v) = value.data() {
+            return Self {
+                dtype: Self::of(v.fill()).dtype,
+                layout: LayoutFact::AxisSparse,
+                shape: Some(value.shape().to_vec()),
+                rank: Some(value.shape().len()),
+            };
+        }
         let dtype = match value.data() {
             crate::Data::Bool(_) => DType::Bool,
             crate::Data::Int(_) => DType::Int,
             crate::Data::Float(_) => DType::Float,
             crate::Data::Char(_) => DType::Char,
             crate::Data::Boxed(_) => DType::Boxed,
+            crate::Data::Sparse(_) => unreachable!(),
         };
         Self {
             dtype: TypeFact::Exact(dtype),
+            layout: LayoutFact::Dense,
             shape: Some(value.shape().to_vec()),
             rank: Some(value.shape().len()),
         }
@@ -79,7 +98,7 @@ pub(crate) fn infer(
         (Less, None) => TypeFact::Exact(DType::Boxed),
         (Equal | Less | Greater, Some(_)) => TypeFact::Exact(DType::Bool),
         (Shape | Tally | Multiply, None) => TypeFact::Exact(DType::Int),
-        (Ravel | Reverse | Transpose | Add, None) => right.dtype,
+        (Ravel | Reverse | Transpose | Add | Sparse, None) => right.dtype,
         (Add | Subtract | Multiply, Some(x))
             if x.dtype == TypeFact::Exact(DType::Int)
                 && right.dtype == TypeFact::Exact(DType::Int) =>
@@ -88,7 +107,18 @@ pub(crate) fn infer(
         }
         _ => TypeFact::Unknown,
     };
-    Facts { dtype, shape, rank }
+    let layout = match (id, left, right.rank) {
+        (Sparse, None, Some(0)) => right.layout,
+        (Sparse, None, Some(_)) => LayoutFact::AxisSparse,
+        (Shape | Tally, None, _) => LayoutFact::Dense,
+        _ => LayoutFact::Unknown,
+    };
+    Facts {
+        dtype,
+        layout,
+        shape,
+        rank,
+    }
 }
 
 /// Cell/frame decomposition, independent of physical layout and worker count.
@@ -117,6 +147,7 @@ fn split(shape: &[usize], requested: i64) -> (Vec<usize>, Vec<usize>) {
 fn cell(input: &Facts, shape: Vec<usize>) -> Facts {
     Facts {
         dtype: input.dtype,
+        layout: input.layout,
         rank: Some(shape.len()),
         shape: Some(shape),
     }
@@ -140,6 +171,7 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     };
     Facts {
         dtype,
+        layout: LayoutFact::Unknown,
         shape,
         rank: input.rank.map(|r| r.saturating_sub(1)),
     }
@@ -219,6 +251,7 @@ pub(crate) fn infer_call(
     (
         Facts {
             dtype: result.dtype,
+            layout: LayoutFact::Unknown,
             shape,
             rank,
         },

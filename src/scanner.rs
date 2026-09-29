@@ -167,6 +167,15 @@ fn transition(s: State, c: Class) -> (State, usize, bool) {
 /// Spans include comments and LF. They are byte offsets, including for UTF-8.
 /// Unsupported primitives remain whole words; this does not evaluate syntax.
 pub fn scan(source: &[u8]) -> Result<Vec<Range<usize>>> {
+    scan_impl(source, false)
+}
+
+/// Only for detecting unsupported definition boundaries before stopping input.
+/// An unfinished quoted word remains a single word; this is NOT syntax validation.
+pub(crate) fn scan_unfinished(source: &[u8]) -> Vec<Range<usize>> {
+    scan_impl(source, true).expect("unfinished quotes are permitted for input guards")
+}
+fn scan_impl(source: &[u8], unfinished: bool) -> Result<Vec<Range<usize>>> {
     let mut boundaries = Vec::new();
     let mut state = State::Space;
     for (i, &b) in source.iter().enumerate() {
@@ -191,7 +200,7 @@ pub fn scan(source: &[u8]) -> Result<Vec<Range<usize>>> {
         boundaries.extend(std::iter::repeat_n(i, emit));
         state = next;
     }
-    if state == State::Quote {
+    if state == State::Quote && !unfinished {
         return Err(Error::Syntax("unterminated literal".into()));
     }
     if state == State::MoreNumber {

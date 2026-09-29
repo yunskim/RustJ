@@ -88,6 +88,9 @@ pub(crate) fn atomic_with_pool(
     b: Value,
     pool: &mut crate::pool::OutputPool,
 ) -> Result<Value> {
+    if a.is_sparse() || b.is_sparse() {
+        return Err(Error::Unsupported("sparse atomic operation".into()));
+    }
     if matches!(a.data, Data::Boxed(_)) || matches!(b.data, Data::Boxed(_)) {
         return Err(Error::Unsupported("boxed atomic operation".into()));
     }
@@ -237,6 +240,12 @@ fn dimensions(v: &Value) -> Result<Vec<usize>> {
 }
 
 pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
+    if verb == "$." {
+        return crate::sparse::monad(y);
+    }
+    if y.is_sparse() && !matches!(verb, "$" | "#") {
+        return Err(Error::Unsupported(format!("sparse monad {verb}")));
+    }
     match verb {
         "<" => Ok(Value::boxed(y)),
         ">" => {
@@ -361,6 +370,12 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
 }
 
 pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
+    if verb == "$." {
+        return crate::sparse::dyad(a, b);
+    }
+    if a.is_sparse() || b.is_sparse() {
+        return Err(Error::Unsupported(format!("sparse dyad {verb}")));
+    }
     if matches!(verb, "i." | "i:" | "e." | "E.")
         && (matches!(a.data, Data::Boxed(_)) || matches!(b.data, Data::Boxed(_)))
     {
@@ -435,6 +450,9 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
 }
 
 pub fn reduce(verb: &str, y: Value) -> Result<Value> {
+    if y.is_sparse() {
+        return Err(Error::Unsupported("sparse reduction".into()));
+    }
     if !matches!(verb, "+" | "-" | "*" | "%") {
         return Err(Error::Unsupported(format!("reduction {verb}")));
     }
@@ -445,6 +463,9 @@ pub fn reduce(verb: &str, y: Value) -> Result<Value> {
 }
 
 fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
+    if matches!(y.data, CpuView::Sparse(_)) {
+        return Err(Error::Unsupported("sparse reduction".into()));
+    }
     if !matches!(verb, "+" | "-" | "*" | "%") {
         return Err(Error::Unsupported(format!("reduction {verb}")));
     }
@@ -501,9 +522,13 @@ fn reduction_step(op: Op, lhs: ArrayView<'_>, rhs: Value) -> Result<Value> {
 // Right-fold and rank read their inputs through lifetime-bound views. Output
 // storage is owned, so no borrowed cell can escape into the evaluator.
 fn arithmetic_views(op: Op, a: ArrayView<'_>, b: ArrayView<'_>) -> Result<Value> {
-    if matches!(a.data, CpuView::Char(_) | CpuView::Boxed(_))
-        || matches!(b.data, CpuView::Char(_) | CpuView::Boxed(_))
-    {
+    if matches!(
+        a.data,
+        CpuView::Char(_) | CpuView::Boxed(_) | CpuView::Sparse(_)
+    ) || matches!(
+        b.data,
+        CpuView::Char(_) | CpuView::Boxed(_) | CpuView::Sparse(_)
+    ) {
         return Err(Error::Domain);
     }
     let (short, shape) = if a.shape.len() <= b.shape.len() {
@@ -564,7 +589,10 @@ fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
             arithmetic_views(if verb == "-" { Op::Sub } else { Op::Div }, x.view(), y)
         }
         "*" | "|" => {
-            if matches!(y.data, CpuView::Char(_) | CpuView::Boxed(_)) {
+            if matches!(
+                y.data,
+                CpuView::Char(_) | CpuView::Boxed(_) | CpuView::Sparse(_)
+            ) {
                 return Err(Error::Domain);
             }
             let n = y.len();
@@ -605,6 +633,9 @@ fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
 }
 
 pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
+    if cells.iter().any(Value::is_sparse) {
+        return Err(Error::Unsupported("sparse assembly".into()));
+    }
     let n = count(&shape)?;
     if cells.iter().any(|x| matches!(x.data, Data::Boxed(_))) {
         let mut out = buffer(n)?;

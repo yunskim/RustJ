@@ -97,7 +97,16 @@ fn main() -> ExitCode {
     let mut ok = true;
     for line in input.lock().lines() {
         match line {
-            Ok(line) => ok &= run(&mut engine, &line, json, semantic),
+            Ok(line) => {
+                let succeeded = run(&mut engine, &line, json, semantic);
+                ok &= succeeded;
+                if !succeeded && rustj::syntax::has_definition_syntax(&line) {
+                    eprintln!(
+                        "definition syntax is not supported; stopping input before any body lines execute"
+                    );
+                    return ExitCode::FAILURE;
+                }
+            }
             Err(e) => {
                 eprintln!("{e}");
                 return ExitCode::FAILURE;
