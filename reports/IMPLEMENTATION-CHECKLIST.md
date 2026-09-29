@@ -147,3 +147,14 @@
 
 Details: [scalar types](SCALAR-TYPES.md), [sparse storage](SPARSE-ARRAYS.md).
 Reproducible local validation: `powershell -File tools/check-windows.ps1`.
+
+## Dense/sparse conversion and packed bits — 2026-09-29
+
+- [x] Dense-to-sparse conversion without dense-sized scratch/index arrays.
+- [x] Exact float bit round trips, including signed zero and NaN payloads.
+- [x] BitStorage: shared unaligned slices, tail masking, AND/OR/XOR/popcount.
+- [x] Windows default/portable: 67 tests + 1 doctest each; Clippy; Python: 6 tests.
+- [ ] Integrate sparse and bit layouts into Value/physical plans and J verbs.
+- [ ] Native C differential verification remains blocked on a compatible Windows C compiler.
+
+See [BIT-STORAGE.md](BIT-STORAGE.md). No speedup claim without benchmarks.

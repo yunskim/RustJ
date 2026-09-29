@@ -5,6 +5,7 @@ mod assembly;
 mod index_ops;
 
 pub mod analysis;
+pub mod bit_storage;
 pub mod contracts;
 pub mod error;
 pub mod facts;

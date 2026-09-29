@@ -16,6 +16,7 @@ foreach ($check in @(
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = "$toolBin\cargo.exe"
     $info.Arguments = $check.Args
+    $info.WorkingDirectory = (Get-Location).Path
     $info.UseShellExecute = $false
     $p = [System.Diagnostics.Process]::Start($info)
     $p.WaitForExit()

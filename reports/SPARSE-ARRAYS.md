@@ -12,8 +12,8 @@ Value buffers are explicitly frozen for sharing.
 Construction checks sorted unique valid sparse axes, coordinate row width,
 lexicographically sorted unique rows, index bounds, scalar fill, matching element
 types, and values shape `[stored_rows] + non_sparse_dimensions`. An empty sparse
-axis set is supported. Redundant stored fill cells are allowed; compaction is
-future work. Current supported payloads are Bool, Int, Float and byte Char.
+axis set is supported. The explicit constructor permits redundant fill cells. `from_dense` omits
+fill-only cells while retaining each non-fill dense block. Current supported payloads are Bool, Int, Float and byte Char.
 Complex needs its dense representation first. Boxed sparse payloads are rejected;
 C's SPARSABLE set likewise excludes BOX/XNUM/RAT in the inspected revision.
 
@@ -30,7 +30,8 @@ now makes the common shape product zero even when preceding dimensions overflow.
 - [x] Shared immutable buffers and explicit bounded dense materialization.
 - [ ] Runtime array representation and semantic/physical layout facts.
 - [ ] J `$.` construction, component queries and error behavior.
-- [ ] Dense-to-sparse conversion, canonical fill-cell removal and axis changes.
+- [x] Dense-to-sparse conversion, omitting fill-only cells without dense-sized scratch.
+- [ ] Existing sparse-array compaction and axis changes.
 - [ ] Elementwise scalar maps that transform both stored values and fill.
 - [ ] Sparse/sparse merges, duplicate policy during construction, reductions,
       indexing and shape verbs, with operation-specific density decisions.
@@ -38,6 +39,12 @@ now makes the common shape product zero even when preceding dimensions overflow.
       partially sparse axes. No C equivalence claim yet.
 - [ ] Storage/performance comparison against dense arrays; CUDA layouts deferred.
 
-Windows MSVC validation: default and portable suites each pass 62 tests plus one
-doctest (four sparse-specific tests). Clippy with denied warnings passes.
+Windows MSVC validation: default and portable suites each pass 67 tests plus one
+doctest (six sparse-specific tests). Clippy with denied warnings passes.
 GitHub CI is skipped. No Linux verification was run for this milestone.
+
+Dense conversion now round-trips every sparse-axis subset of a rank-three array.
+It scans cells without building a full array of mapped indices. Float fill checks
+use exact bits, preserving signed zero and NaN payloads: this is a storage
+conversion policy, not J's tolerant comparison semantics. Runtime `$.` conversion
+must be separately checked against C before claiming identical canonicalization.

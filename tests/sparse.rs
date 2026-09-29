@@ -132,3 +132,52 @@ fn zero_axes_and_non_integer_fills_preserve_types() {
         " x "
     );
 }
+
+#[test]
+fn dense_roundtrips_for_every_axis_subset_without_storing_fill_only_cells() {
+    let dense = Value::ints(
+        [2, 3, 4],
+        (0..24).map(|i| if i % 5 == 0 { i } else { 7 }).collect(),
+    )
+    .unwrap();
+    for mask in 0..8 {
+        let axes = (0..3).filter(|axis| mask & (1 << axis) != 0).collect();
+        let sparse = SparseArray::from_dense(&dense, axes, Value::scalar(7)).unwrap();
+        assert_eq!(sparse.to_dense(24).unwrap().json(), dense.json());
+    }
+    let fill = Value::ints([2, 3], vec![7; 6]).unwrap();
+    let sparse = SparseArray::from_dense(&fill, vec![0], Value::scalar(7)).unwrap();
+    assert_eq!(sparse.stored_rows(), 0);
+    assert_eq!(sparse.values().shape(), &[0, 3]);
+    let empty = Value::ints([2, 0, 3], vec![]).unwrap();
+    for axes in [vec![], vec![0], vec![1], vec![0, 1, 2]] {
+        assert_eq!(
+            SparseArray::from_dense(&empty, axes, Value::scalar(7))
+                .unwrap()
+                .to_dense(0)
+                .unwrap()
+                .json(),
+            empty.json()
+        );
+    }
+}
+
+#[test]
+fn floating_sparse_roundtrip_is_bit_exact_for_zero_and_nan() {
+    use rustj::{Data, storage::CpuStorage};
+    let nan = f64::from_bits(0x7ff8_0000_0000_0123);
+    let values = vec![0.0, -0.0, nan, 1.0, nan];
+    let dense = Value::new([5], Data::Float(CpuStorage::new(values.clone()))).unwrap();
+    for fill in [0.0, -0.0, nan] {
+        let sparse = SparseArray::from_dense(
+            &dense,
+            vec![0],
+            Value::new([], Data::Float(CpuStorage::Inline(fill))).unwrap(),
+        )
+        .unwrap();
+        let rebuilt = sparse.to_dense(5).unwrap();
+        for (i, value) in values.iter().enumerate() {
+            assert_eq!(rebuilt.float_at(i).unwrap().to_bits(), value.to_bits());
+        }
+    }
+}
