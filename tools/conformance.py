@@ -113,6 +113,15 @@ def cases():
             f'+/"1 (4 {cols} $ i. 17)',
             f'+/ (3 {cols} $ 0.5 2.5 4.5)',
         ])
+    fixed.extend([
+        '< 3', '< i.2 3', '< < 42', '> < i.2 3', '> > < < 42',
+        ">(<1 2),<'ab'", '(<1 2),<3 4', '>(<1 2),<3 4',
+        '>(<1 2),<3.5 4.5', '2 2$<1 2 3', '>2 2$<1 2 3',
+        '>2$<i.0', '>0$<3', '<"0 i.4', '>"0 <"0 i.4',
+        'boxsource=:i.4', 'boxsaved=:<boxsource',
+        'boxsource=:boxsource+10', '>boxsaved',
+        'boxopened=:>boxsaved', 'boxopened=:boxopened+20', '>boxsaved',
+    ])
     return fixed
 
 def equal(a, b):
@@ -122,6 +131,9 @@ def equal(a, b):
         return a == b
     if a['type'] != b['type'] or a['shape'] != b['shape'] or len(a['data']) != len(b['data']):
         return False
+    if a['type'] == 32:
+        return all(isinstance(x, dict) and isinstance(y, dict) and equal(x, y)
+                   for x, y in zip(a['data'], b['data']))
     return all((x == y and not (a['type'] == 8 and isinstance(x, (int,float)) and isinstance(y, (int,float)) and x == 0 and math.copysign(1,x) != math.copysign(1,y))) or (a['type'] == 8 and isinstance(x, (int,float)) and isinstance(y, (int,float)) and x != 0 and y != 0 and math.isclose(x, y, rel_tol=1e-14, abs_tol=0)) for x,y in zip(a['data'], b['data']))
 
 def generated(seed, rounds):

@@ -8,6 +8,14 @@ use crate::{
 fn mapped(y: &Value, shape: Shape, index: impl Fn(usize) -> Option<usize>) -> Result<Value> {
     let n = count(&shape)?;
     let data = match &y.data {
+        Data::Boxed(v) => {
+            let mut out = crate::value::buffer(n)?;
+            for i in 0..n {
+                let j = index(i).ok_or_else(|| Error::Unsupported("boxed fill".into()))?;
+                out.push(v[j].clone());
+            }
+            Data::Boxed(CpuStorage::new(out))
+        }
         Data::Bool(v) => Data::Bool(CpuStorage::generate(n, |i| index(i).map_or(0, |j| v[j]))?),
         Data::Int(v) => Data::Int(CpuStorage::generate(n, |i| index(i).map_or(0, |j| v[j]))?),
         Data::Float(v) => Data::Float(CpuStorage::generate(n, |i| index(i).map_or(0.0, |j| v[j]))?),

@@ -128,6 +128,7 @@ pub enum CpuView<'a> {
     Int(&'a [i64]),
     Float(&'a [f64]),
     Char(&'a [u8]),
+    Boxed(&'a [Arc<crate::Value>]),
 }
 #[derive(Clone, Copy, Debug)]
 pub struct ArrayView<'a> {
@@ -142,6 +143,11 @@ impl<'a> ArrayView<'a> {
             CpuView::Int(v) => Data::Int(CpuStorage::generate(v.len(), |i| v[i])?),
             CpuView::Float(v) => Data::Float(CpuStorage::generate(v.len(), |i| v[i])?),
             CpuView::Char(v) => Data::Char(CpuStorage::generate(v.len(), |i| v[i])?),
+            CpuView::Boxed(v) => {
+                let mut out = crate::value::buffer(v.len())?;
+                out.extend_from_slice(v);
+                Data::Boxed(CpuStorage::new(out))
+            }
         };
         Value::new(Shape::from(self.shape), data)
     }
@@ -153,6 +159,7 @@ impl<'a> ArrayView<'a> {
             CpuView::Bool(v) | CpuView::Char(v) => v.len(),
             CpuView::Int(v) => v.len(),
             CpuView::Float(v) => v.len(),
+            CpuView::Boxed(v) => v.len(),
         }
     }
     pub fn is_empty(self) -> bool {
@@ -204,6 +211,7 @@ impl<'a> ArrayView<'a> {
             CpuView::Int(v) => CpuView::Int(v.get(start..end).ok_or(Error::Index)?),
             CpuView::Float(v) => CpuView::Float(v.get(start..end).ok_or(Error::Index)?),
             CpuView::Char(v) => CpuView::Char(v.get(start..end).ok_or(Error::Index)?),
+            CpuView::Boxed(v) => CpuView::Boxed(v.get(start..end).ok_or(Error::Index)?),
         };
         Ok(Self { shape, data })
     }

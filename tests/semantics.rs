@@ -45,7 +45,7 @@ fn edge_cases() {
     );
     assert_eq!(Engine::new().eval("'abc' + 2").unwrap_err(), Error::Domain);
     assert!(Engine::new().eval("'unterminated").is_err());
-    assert!(Engine::new().eval("< 3").is_err());
+    assert_eq!(Engine::new().eval("< 3").unwrap().unwrap().type_code(), 32);
 }
 #[test]
 fn strings_and_comments() {

@@ -10,6 +10,7 @@ enum Output {
     Int(Vec<i64>),
     Float(Vec<f64>),
     Char(Vec<u8>),
+    Boxed(Vec<std::sync::Arc<Value>>),
 }
 pub(crate) struct CellBuilder {
     out: Output,
@@ -22,6 +23,7 @@ impl CellBuilder {
             Data::Int(_) => Output::Int(buffer(capacity)?),
             Data::Float(_) => Output::Float(buffer(capacity)?),
             Data::Char(_) => Output::Char(buffer(capacity)?),
+            Data::Boxed(_) => Output::Boxed(buffer(capacity)?),
         };
         let mut builder = Self { out, capacity };
         builder.push(first)?;
@@ -32,11 +34,15 @@ impl CellBuilder {
             Output::Bool(v) | Output::Char(v) => v.len(),
             Output::Int(v) => v.len(),
             Output::Float(v) => v.len(),
+            Output::Boxed(v) => v.len(),
         };
         if cell.len() > self.capacity - len {
             return Err(Error::Length);
         }
         if matches!(self.out, Output::Char(_)) != matches!(cell.data(), Data::Char(_)) {
+            return Err(Error::Domain);
+        }
+        if matches!(self.out, Output::Boxed(_)) != matches!(cell.data(), Data::Boxed(_)) {
             return Err(Error::Domain);
         }
         // Promotion includes every earlier cell, including empty cells' types.
@@ -60,6 +66,7 @@ impl CellBuilder {
             (Output::Bool(out), Data::Bool(v)) | (Output::Char(out), Data::Char(v)) => {
                 out.extend_from_slice(v)
             }
+            (Output::Boxed(out), Data::Boxed(v)) => out.extend_from_slice(v),
             (Output::Int(out), Data::Int(v)) => out.extend_from_slice(v),
             (Output::Float(out), Data::Float(v)) => out.extend_from_slice(v),
             (Output::Int(out), Data::Bool(v)) => out.extend(v.iter().map(|&x| x as i64)),
@@ -75,6 +82,7 @@ impl CellBuilder {
             Output::Int(v) => Data::Int(CpuStorage::new(v)),
             Output::Float(v) => Data::Float(CpuStorage::new(v)),
             Output::Char(v) => Data::Char(CpuStorage::new(v)),
+            Output::Boxed(v) => Data::Boxed(CpuStorage::new(v)),
         }
     }
 }

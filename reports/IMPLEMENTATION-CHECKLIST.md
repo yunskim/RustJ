@@ -133,3 +133,17 @@
 - [x] Shared Scalar/DType vocabulary and exact immutable payloads.
 - [x] Explicit unsupported CPU lowering for types without array storage.
 - [ ] New array storage, literals and verbs; see [SCALAR-TYPES.md](SCALAR-TYPES.md).
+
+## Boxed runtime and sparse storage — 2026-09-29
+
+- [x] Recursive boxed arrays; boxing and scalar/uniform opening.
+- [x] Shared storage, index/reshape/catenate/rank and alias regression tests.
+- [x] Axis-sparse validated storage and bounded explicit dense conversion.
+- [x] Windows-only default/portable (62 + 1 each), Clippy and Python comparator tests.
+- [ ] Build native Windows pinned C reference; execute new boxed differential cases.
+- [ ] Boxed padding/fill/empty prototypes/comparison/search.
+- [ ] Integrate sparse storage into compiler/runtime and implement `$.`.
+- [ ] Complex/extended/rational/symbol array storage and language execution.
+
+Details: [scalar types](SCALAR-TYPES.md), [sparse storage](SPARSE-ARRAYS.md).
+Reproducible local validation: `powershell -File tools/check-windows.ps1`.

@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::storage::{CpuStorage, Shape};
+use std::sync::Arc;
 
 // Intermediates own CPU buffers; name bindings explicitly freeze them for
 // sharing. Device storage will not expose this CPU-only slice interface.
@@ -9,6 +10,7 @@ pub enum Data {
     Int(CpuStorage<i64>),
     Float(CpuStorage<f64>),
     Char(CpuStorage<u8>),
+    Boxed(CpuStorage<Arc<Value>>),
 }
 
 #[derive(Clone, Debug)]
@@ -53,6 +55,9 @@ pub(crate) unsafe fn finish_initialized<T>(mut out: Vec<T>, n: usize) -> Vec<T> 
 }
 
 pub fn count(shape: &[usize]) -> Result<usize> {
+    if shape.contains(&0) {
+        return Ok(0);
+    }
     shape
         .iter()
         .try_fold(1usize, |n, &d| n.checked_mul(d).ok_or(Error::Limit))
@@ -66,6 +71,7 @@ impl Value {
             Data::Int(v) => Data::Int(v.into_shared()),
             Data::Float(v) => Data::Float(v.into_shared()),
             Data::Char(v) => Data::Char(v.into_shared()),
+            Data::Boxed(v) => Data::Boxed(v.into_shared()),
         };
         Self {
             shape: self.shape,
@@ -90,6 +96,7 @@ impl Value {
             Data::Int(v) => CpuView::Int(v),
             Data::Float(v) => CpuView::Float(v),
             Data::Char(v) => CpuView::Char(v),
+            Data::Boxed(v) => CpuView::Boxed(v),
         };
         ArrayView {
             shape: &self.shape,
@@ -102,6 +109,7 @@ impl Value {
             Data::Bool(v) | Data::Char(v) => v.len(),
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
+            Data::Boxed(v) => v.len(),
         };
         if count(&shape)? != n {
             return Err(Error::Length);
@@ -115,6 +123,13 @@ impl Value {
     }
     pub fn ints(shape: impl Into<Shape>, data: Vec<i64>) -> Result<Self> {
         Self::new(shape, Data::Int(CpuStorage::new(data)))
+    }
+    /// Box an entire noun, freezing buffers so subsequent opening can share them.
+    pub fn boxed(value: Value) -> Self {
+        Self {
+            shape: Shape::from([]),
+            data: Data::Boxed(CpuStorage::Inline(Arc::new(value.into_shared()))),
+        }
     }
     pub fn scalar(n: i64) -> Self {
         Self {
@@ -133,6 +148,7 @@ impl Value {
             Data::Bool(v) | Data::Char(v) => v.len(),
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
+            Data::Boxed(v) => v.len(),
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -144,6 +160,7 @@ impl Value {
             Data::Char(_) => 2,
             Data::Int(_) => 4,
             Data::Float(_) => 8,
+            Data::Boxed(_) => 32,
         }
     }
     pub fn int_at(&self, i: usize) -> Result<i64> {
@@ -180,7 +197,7 @@ impl Value {
             ($v:expr, $variant:ident) => {{
                 let mut out = buffer(n)?;
                 for i in indices {
-                    out.push(*$v.get(i).ok_or(Error::Index)?);
+                    out.push($v.get(i).ok_or(Error::Index)?.clone());
                 }
                 Data::$variant(CpuStorage::new(out))
             }};
@@ -190,6 +207,7 @@ impl Value {
             Data::Int(v) => select!(v, Int),
             Data::Float(v) => select!(v, Float),
             Data::Char(v) => select!(v, Char),
+            Data::Boxed(v) => select!(v, Boxed),
         };
         Self::new(shape, data)
     }
@@ -203,6 +221,7 @@ impl Value {
         let values: Vec<String> = match &self.data {
             Data::Bool(v) | Data::Char(v) => v.iter().map(u8::to_string).collect(),
             Data::Int(v) => v.iter().map(i64::to_string).collect(),
+            Data::Boxed(v) => v.iter().map(|x| x.json()).collect(),
             Data::Float(v) => v
                 .iter()
                 .map(|x| {
@@ -228,6 +247,11 @@ impl Value {
     pub fn display(&self) -> String {
         match &self.data {
             Data::Char(v) => String::from_utf8_lossy(v).into_owned(),
+            Data::Boxed(v) => v
+                .iter()
+                .map(|x| format!("<({})", x.display()))
+                .collect::<Vec<_>>()
+                .join(" "),
             _ => {
                 let parts: Vec<String> = match &self.data {
                     Data::Bool(v) => v.iter().map(u8::to_string).collect(),

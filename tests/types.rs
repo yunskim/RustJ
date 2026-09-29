@@ -33,7 +33,6 @@ fn exact_atoms_preserve_precision_and_share_large_payloads() {
 
 #[test]
 fn extended_types_cannot_silently_lower_to_existing_kernels() {
-    let boxed = Arc::new(Value::scalar(42));
     let atoms = [
         (
             Scalar::Complex(Complex { re: 1.0, im: 2.0 }),
@@ -45,13 +44,11 @@ fn extended_types_cannot_silently_lower_to_existing_kernels() {
             DType::Rational,
         ),
         (Scalar::Symbol(Symbol::new("alpha")), DType::Symbol),
-        (Scalar::Boxed(boxed.clone()), DType::Boxed),
     ];
     for (atom, dtype) in atoms {
         assert_eq!(atom.dtype(), dtype);
         assert!(matches!(atom.into_value(), Err(Error::Unsupported(_))));
     }
-    assert_eq!(boxed.shape(), &[]);
     assert_eq!(Symbol::new(String::from("alpha")), Symbol::new("alpha"));
     assert!(std::mem::size_of::<Token<'_>>() < std::mem::size_of::<Value>());
 }

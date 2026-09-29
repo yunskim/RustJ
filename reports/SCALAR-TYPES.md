@@ -13,9 +13,10 @@ Existing imports through `syntax::Scalar` and `facts::DType` remain available.
 | ExtendedInt | Arc<BigInt> | pending |
 | Rational | Arc<Rational>, reduced finite BigRational | pending |
 | Symbol | immutable shared text, equality by contents | pending |
-| Boxed | Arc<Value>, retains the enclosed noun's shape | pending |
+| Boxed | Arc<Value>, retains the enclosed noun's shape | basic runtime support |
 
-This is a representation milestone, not language support for new literals or verbs.
+Complex, extended integer, rational and symbol remain representation-only.
+Boxed runtime support is described in the follow-up below.
 `Scalar::into_value` now returns Result and explicitly rejects unavailable array
 representations. It cannot silently narrow exact numbers, drop an imaginary part,
 or open a box. Existing scalar tokens remain smaller than a full Value header.
@@ -38,10 +39,9 @@ A box is an atom whose payload is an entire noun, including its shape and type.
 For example, boxing a 2 by 3 array produces a scalar outer box; the enclosed
 noun still has shape 2 by 3. A boxed array needs its own outer shape and an
 array of shared noun references. It can contain heterogeneous shapes and types.
-The current Scalar representation only references the Value types already supported;
-recursive boxed arrays need a future Data::Boxed variant.
+Data::Boxed now supports recursive boxed arrays containing implemented Value types.
 
-A future Data::Boxed storage should use CpuStorage<Arc<Value>>, not Vec<Scalar>
+Data::Boxed uses CpuStorage<Arc<Value>>, not Vec<Scalar>
 for all numeric arrays. Homogeneous numeric buffers must remain contiguous for
 SIMD and future CUDA work. Boxing/opening should share buffers, with mutation
 using copy-on-write on both the noun and its buffer. No raw C pointers or C
@@ -68,3 +68,27 @@ Validation (2026-09-29): Windows MSVC default and portable each passed
 passed. On this computer all subsequent verification uses native Windows tools
 only. C differential verification of the new types remains pending because the
 CPU runtime cannot yet evaluate them. GitHub CI is skipped.
+
+## Boxed execution follow-up — 2026-09-29
+
+Implemented monadic `<`, scalar `>`, identity opening of empty boxed arrays, uniform-shape non-scalar `>` (including
+numeric promotion), nested boxes, catenate, reshape, select, rank cell assembly,
+and rearrangement without fill. Input buffers are frozen before boxing so opening
+shares rather than copies them. JSON recursively records each enclosed noun's
+type/shape/data. Text display is a compact diagnostic notation, not J box drawing.
+Semantic contracts distinguish monadic boxing's scalar result from dyadic less-than.
+
+Still unsupported: heterogeneous-cell padding on open,
+boxed fill, deep equality/order/search, and empty-frame rank prototypes. Unsupported
+atomic/search paths reject boxes before numeric code can unwrap a conversion error.
+Tests cover aliases, transaction failure, shape preservation, nested sharing and
+both evaluator paths. C source references are `jsrc/vo.c` jtbox and jtope.
+
+Windows default/portable each pass 62 tests plus one doctest; Clippy passes.
+Windows Python comparator tests: 4 pass. Oracle extraction and conformance cases
+now include nested boxes, but **actual new C differential cases are not run**:
+a native Windows reference DLL is not available in this checkout. The MSVC
+build attempt fails on GNU-style variadic macros in the pinned C headers;
+Windows clang-cl was not found in the checked installation paths. Do not reuse
+historical Linux differential counts as verification of these changes.
+See [SPARSE-ARRAYS.md](SPARSE-ARRAYS.md) for the separate sparse storage milestone.

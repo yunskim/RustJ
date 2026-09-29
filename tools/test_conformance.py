@@ -19,3 +19,11 @@ class ComparatorTests(unittest.TestCase):
         self.assertEqual(generated(17,10),generated(17,10))
         self.assertNotEqual(generated(17,10),generated(18,10))
         self.assertEqual(len(generated(17,10)),80)
+
+    def test_nested_boxes_preserve_type_shape_and_float_contract(self):
+        def box(v): return {'type':32, 'shape':[], 'data':[v]}
+        def number(x): return {'type':8, 'shape':[], 'data':[x]}
+        self.assertTrue(equal(box(box(number(1.0))),box(box(number(1.0+1e-15)))))
+        self.assertFalse(equal(box(number(0.0)),box(number(-0.0))))
+        self.assertFalse(equal(box(number(1.0)),box({'type':4,'shape':[],'data':[1]})))
+        self.assertFalse(equal(box(number(1.0)),box({'type':8,'shape':[1],'data':[1.0]})))

@@ -88,6 +88,9 @@ pub(crate) fn atomic_with_pool(
     b: Value,
     pool: &mut crate::pool::OutputPool,
 ) -> Result<Value> {
+    if matches!(a.data, Data::Boxed(_)) || matches!(b.data, Data::Boxed(_)) {
+        return Err(Error::Unsupported("boxed atomic operation".into()));
+    }
     let (shape, ad, bd) = agreement(&a, &b)?;
     let n = count(&shape)?;
     if n == 1 && matches!(op, Op::Add | Op::Sub | Op::Mul | Op::Div) {
@@ -148,7 +151,9 @@ pub(crate) fn atomic_with_pool(
         }
         return Value::new(shape, Data::Bool(CpuStorage::new(out)));
     }
-    if matches!(a.data, Data::Char(_)) || matches!(b.data, Data::Char(_)) {
+    if matches!(a.data, Data::Char(_) | Data::Boxed(_))
+        || matches!(b.data, Data::Char(_) | Data::Boxed(_))
+    {
         return Err(Error::Domain);
     }
     let float = matches!(a.data, Data::Float(_))
@@ -233,12 +238,36 @@ fn dimensions(v: &Value) -> Result<Vec<usize>> {
 
 pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
     match verb {
+        "<" => Ok(Value::boxed(y)),
+        ">" => {
+            if let Data::Boxed(v) = &y.data {
+                if y.shape.is_empty() {
+                    return Ok((*v[0]).clone());
+                }
+                let Some(first) = v.first() else {
+                    // C jtope returns an empty boxed noun unchanged.
+                    return Ok(y);
+                };
+                if v.iter().any(|cell| cell.shape() != first.shape()) {
+                    return Err(Error::Unsupported("open with cell padding".into()));
+                }
+                let mut shape = y.shape.to_vec();
+                shape.extend_from_slice(first.shape());
+                let n = count(&shape)?;
+                let mut builder = crate::assembly::CellBuilder::new(first, n)?;
+                for cell in &v[1..] {
+                    builder.push(cell)?;
+                }
+                return Value::new(shape, builder.finish());
+            }
+            Ok(y)
+        }
         "i:" => crate::index_ops::steps(y),
         "I." => crate::index_ops::indices(y),
         "|." => crate::array_ops::reverse(y),
         "|:" => crate::array_ops::transpose(y),
         "+" => {
-            if matches!(y.data, Data::Char(_)) {
+            if matches!(y.data, Data::Char(_) | Data::Boxed(_)) {
                 Err(Error::Domain)
             } else {
                 Ok(y)
@@ -247,7 +276,7 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
         "-" => atomic(Op::Sub, Value::scalar(0), y),
         "%" => atomic(Op::Div, Value::scalar(1), y),
         "*" | "|" => {
-            if matches!(y.data, Data::Char(_)) {
+            if matches!(y.data, Data::Char(_) | Data::Boxed(_)) {
                 return Err(Error::Domain);
             }
             if verb == "|" {
@@ -332,6 +361,11 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
 }
 
 pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
+    if matches!(verb, "i." | "i:" | "e." | "E.")
+        && (matches!(a.data, Data::Boxed(_)) || matches!(b.data, Data::Boxed(_)))
+    {
+        return Err(Error::Unsupported("boxed search".into()));
+    }
     let op = match verb {
         "+" => Some(Op::Add),
         "-" => Some(Op::Sub),
@@ -467,7 +501,9 @@ fn reduction_step(op: Op, lhs: ArrayView<'_>, rhs: Value) -> Result<Value> {
 // Right-fold and rank read their inputs through lifetime-bound views. Output
 // storage is owned, so no borrowed cell can escape into the evaluator.
 fn arithmetic_views(op: Op, a: ArrayView<'_>, b: ArrayView<'_>) -> Result<Value> {
-    if matches!(a.data, CpuView::Char(_)) || matches!(b.data, CpuView::Char(_)) {
+    if matches!(a.data, CpuView::Char(_) | CpuView::Boxed(_))
+        || matches!(b.data, CpuView::Char(_) | CpuView::Boxed(_))
+    {
         return Err(Error::Domain);
     }
     let (short, shape) = if a.shape.len() <= b.shape.len() {
@@ -528,7 +564,7 @@ fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
             arithmetic_views(if verb == "-" { Op::Sub } else { Op::Div }, x.view(), y)
         }
         "*" | "|" => {
-            if matches!(y.data, CpuView::Char(_)) {
+            if matches!(y.data, CpuView::Char(_) | CpuView::Boxed(_)) {
                 return Err(Error::Domain);
             }
             let n = y.len();
@@ -570,6 +606,17 @@ fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
 
 pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
     let n = count(&shape)?;
+    if cells.iter().any(|x| matches!(x.data, Data::Boxed(_))) {
+        let mut out = buffer(n)?;
+        for c in cells {
+            if let Data::Boxed(v) = c.data {
+                out.extend_from_slice(&v);
+            } else {
+                return Err(Error::Domain);
+            }
+        }
+        return Value::new(shape, Data::Boxed(CpuStorage::new(out)));
+    }
     let chars = cells.iter().any(|x| matches!(x.data, Data::Char(_)));
     if chars {
         let mut out = buffer(n)?;

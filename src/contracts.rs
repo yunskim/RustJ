@@ -39,6 +39,7 @@ pub enum ShapeRule {
     ReverseAxes,
     ShapeOf,
     Tally,
+    Scalar,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Contract {
@@ -85,7 +86,8 @@ pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Con
         (From, Valence::Dyad) => OperationClass::Gather,
         (Shape | Ravel | Reverse | Take | Drop, Valence::Dyad) => OperationClass::Structural,
         (
-            Shape | Tally | Ravel | IndexOf | Steps | Indices | Reverse | Transpose,
+            Shape | Tally | Ravel | IndexOf | Steps | Indices | Reverse | Transpose | Less
+            | Greater,
             Valence::Monad,
         ) => OperationClass::Structural,
         _ => OperationClass::Unknown,
@@ -103,6 +105,7 @@ pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Con
             (Transpose, Valence::Monad) => ShapeRule::ReverseAxes,
             (Shape, Valence::Monad) => ShapeRule::ShapeOf,
             (Tally, Valence::Monad) => ShapeRule::Tally,
+            (Less, Valence::Monad) => ShapeRule::Scalar,
             _ => ShapeRule::Unknown,
         },
         effect: if known { Effect::Pure } else { Effect::Unknown },

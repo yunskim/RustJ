@@ -40,12 +40,26 @@ class Oracle:
         error = self.run('rustjresult =: ' + source)
         if error:
             return error
+        return self.read_noun('rustjresult')
+
+    def read_noun(self, name, depth=0):
+        if depth > 128:
+            raise RuntimeError('Oracle boxed nesting limit')
         t, rank, shape_ptr, data_ptr = (C.c_int64() for _ in range(4))
-        err = self.lib.JGetM(self.jt, b'rustjresult', C.byref(t), C.byref(rank), C.byref(shape_ptr), C.byref(data_ptr))
+        err = self.lib.JGetM(self.jt, name.encode('ascii'), C.byref(t), C.byref(rank), C.byref(shape_ptr), C.byref(data_ptr))
         if err:
-            raise RuntimeError(f'JGetM: {err}, source={source!r}')
+            raise RuntimeError(f'JGetM: {err}, noun={name!r}')
         shape = list((C.c_int64 * rank.value).from_address(shape_ptr.value))
         n = math.prod(shape)
+        if t.value == 32:
+            data = []
+            child = f'rustjboxread{depth}'
+            for i in range(n):
+                error = self.run(f'{child} =: > {i} {{ , {name}')
+                if error:
+                    raise RuntimeError(f'Oracle box extraction: {error}')
+                data.append(self.read_noun(child, depth + 1))
+            return {'type': 32, 'shape': shape, 'data': data}
         elem = {1: C.c_uint8, 2: C.c_uint8, 4: C.c_int64, 8: C.c_double}.get(t.value)
         if elem is None:
             raise RuntimeError(f'Unexpected oracle type {t.value}')

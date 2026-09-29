@@ -22,6 +22,7 @@ impl Facts {
             crate::Data::Int(_) => DType::Int,
             crate::Data::Float(_) => DType::Float,
             crate::Data::Char(_) => DType::Char,
+            crate::Data::Boxed(_) => DType::Boxed,
         };
         Self {
             dtype: TypeFact::Exact(dtype),
@@ -65,16 +66,17 @@ pub(crate) fn infer(
             .as_ref()
             .map(|s| s.iter().copied().rev().collect()),
         ShapeRule::ShapeOf => right.rank.map(|r| vec![r]),
-        ShapeRule::Tally => Some(vec![]),
+        ShapeRule::Tally | ShapeRule::Scalar => Some(vec![]),
         ShapeRule::Unknown => None,
     };
     let rank = shape.as_ref().map(Vec::len).or(match rule {
         ShapeRule::PreserveRight | ShapeRule::ReverseAxes => right.rank,
         ShapeRule::Ravel | ShapeRule::ShapeOf => Some(1),
-        ShapeRule::Tally => Some(0),
+        ShapeRule::Tally | ShapeRule::Scalar => Some(0),
         _ => None,
     });
     let dtype = match (id, left) {
+        (Less, None) => TypeFact::Exact(DType::Boxed),
         (Equal | Less | Greater, Some(_)) => TypeFact::Exact(DType::Bool),
         (Shape | Tally | Multiply, None) => TypeFact::Exact(DType::Int),
         (Ravel | Reverse | Transpose | Add, None) => right.dtype,
