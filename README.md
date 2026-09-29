@@ -154,11 +154,11 @@ python3 tools/compare.py
 
 각 단계의 완료 기준과 CPU/GPU 검증 정책은 [구현 계획](reports/IMPLEMENTATION-PLAN.md)을 따릅니다.
 
-`.github/workflows/linux.yml`은 이 디렉터리를 저장소 루트로 게시했을 때 사용할 Linux CI 설정입니다. 로컬에서 검증했으며 원격 CI 실행은 아직 하지 않았습니다.
+GitHub CI는 사용자 요청에 따라 실행하지 않습니다. 이 컴퓨터에서는 Windows 네이티브 도구로만 테스트·검증합니다.
 
 ## 지속 검증
 
-변경마다 [검증 전략](reports/VALIDATION-STRATEGY.md)을 적용합니다. Linux CI는 C 두 빌드 × Rust 기본/portable을 비교하고, 고정 seed 상태 테스트 및 일일 확장 테스트를 실행합니다. 알려진 기준선 차이는 통과와 분리하며 실패 재현 이력과 보고서를 보관합니다. upstream 전체 테스트와 sanitizer/Miri는 아직 미실행입니다.
+변경마다 [검증 전략](reports/VALIDATION-STRATEGY.md)을 적용합니다. C 두 빌드 × Rust 기본/portable 비교와 고정 seed 상태 테스트가 검증 대상입니다. 이 컴퓨터에서는 Windows에서만 수행하며 GitHub CI는 생략합니다. 알려진 기준선 차이는 통과와 분리하며 실패 재현 이력과 보고서를 보관합니다. upstream 전체 테스트와 sanitizer/Miri는 아직 미실행입니다.
 
 ## 배열 조작 verb
 

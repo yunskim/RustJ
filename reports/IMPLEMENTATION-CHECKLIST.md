@@ -127,3 +127,9 @@
 - [x] token·Semantic IR VerbTarget·LogicalPlan·facts 분석까지 typed PrimitiveId 연결, named target과 primitive를 상호 배타적으로 표현.
 - [x] 참조 실행기의 resolved target과 출력 pool 산술 선택을 ID로 연결.
 - [ ] 기존 CPU kernel API 경계의 spelling adapter 및 kernel 내부 문자열 dispatch 정리.
+
+## Extended scalar types and boxed nouns
+
+- [x] Shared Scalar/DType vocabulary and exact immutable payloads.
+- [x] Explicit unsupported CPU lowering for types without array storage.
+- [ ] New array storage, literals and verbs; see [SCALAR-TYPES.md](SCALAR-TYPES.md).

@@ -152,7 +152,7 @@ fn expression(
                 items.push(Item::Noun(
                     Expr {
                         span: spans[*pos].clone(),
-                        kind: ExprKind::Literal(v.into_value()),
+                        kind: ExprKind::Literal(v.clone().into_value()?),
                     },
                     0,
                 ));
@@ -214,7 +214,7 @@ fn expression(
                 if matches!(tokens.get(*pos), Some(Token::Rank)) {
                     *pos += 1;
                     let v = match tokens.get(*pos) {
-                        Some(Token::Scalar(v)) => v.into_value(),
+                        Some(Token::Scalar(v)) => v.clone().into_value()?,
                         Some(Token::Noun(v)) => (**v).clone(),
                         _ => return Err(Error::Syntax("rank needs a numeric literal".into())),
                     };

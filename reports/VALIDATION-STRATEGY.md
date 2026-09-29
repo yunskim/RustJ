@@ -1,3 +1,8 @@
+> Current local policy (2026-09-28): on this computer, run all tests,
+> builds for validation, and static checks using native Windows tools only.
+> Do not substitute WSL/Linux test runs. GitHub CI is skipped by user request.
+> Earlier Linux results below are historical, not an instruction to run Linux CI.
+
 # 지속 검증 전략
 
 전체 C J 호환성은 아직 보장하지 않는다. 아래 검증은 구현된 부분집합의 회귀 방지 장치이며 upstream 전체 테스트 통과와 다르다.

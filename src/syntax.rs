@@ -5,26 +5,7 @@ use crate::{
 };
 use std::borrow::Cow;
 
-/// Compact scalar tokens avoid storing the full array header in every token.
-#[derive(Clone, Copy, Debug)]
-pub enum Scalar {
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Char(u8),
-}
-impl Scalar {
-    pub fn into_value(self) -> Value {
-        let data = match self {
-            Self::Bool(x) => Data::Bool(CpuStorage::Inline(x as u8)),
-            Self::Int(x) => Data::Int(CpuStorage::Inline(x)),
-            Self::Float(x) => Data::Float(CpuStorage::Inline(x)),
-            Self::Char(x) => Data::Char(CpuStorage::Inline(x)),
-        };
-        // The scalar variants guarantee exactly one valid element.
-        Value::new([], data).expect("valid scalar token")
-    }
-}
+pub use crate::types::Scalar;
 #[derive(Clone, Debug)]
 pub enum Token<'a> {
     Scalar(Scalar),

@@ -1,13 +1,7 @@
 //! Facts about successful results, not permission to eliminate errors or guards.
 use crate::primitive::PrimitiveId::*;
+pub use crate::types::DType;
 use crate::{Value, contracts::ShapeRule, primitive::PrimitiveId};
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DType {
-    Bool,
-    Int,
-    Float,
-    Char,
-}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TypeFact {
     #[default]

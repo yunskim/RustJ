@@ -19,6 +19,7 @@ pub mod semantic;
 mod simd;
 pub mod storage;
 pub mod syntax;
+pub mod types;
 pub mod value;
 
 pub use error::{Error, Result};
