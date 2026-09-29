@@ -100,3 +100,32 @@ fn unsupported_definitions_never_execute_following_body_lines() {
         }
     }
 }
+
+#[test]
+fn delimiter_text_in_a_failed_sentence_does_not_abort_later_sentences() {
+    for source in ["'{{ }} : define'+1\n42\n", "1 2+1 2 3 NB. {{\n42\n"] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rustj"))
+            .arg("--json")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(source.as_bytes())
+            .unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        let text = String::from_utf8(result.stdout).unwrap();
+        assert_eq!(text.lines().count(), 2, "{text}");
+        assert!(text.ends_with("{\"type\":4,\"shape\":[],\"data\":[42]}\n"));
+        assert!(
+            !String::from_utf8(result.stderr)
+                .unwrap()
+                .contains("stopping input")
+        );
+    }
+}

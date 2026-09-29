@@ -1,3 +1,5 @@
+param([switch]$DefinitionAcceptance)
+
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Run this validator on Windows.' }
 Set-Location (Split-Path $PSScriptRoot -Parent)
@@ -6,12 +8,17 @@ $env:Path = "$toolBin;$env:Path"
 $env:RUSTC = "$toolBin\rustc.exe"
 $env:RUSTDOC = "$toolBin\rustdoc.exe"
 $env:CARGO_TARGET_DIR = 'target\windows-validation'
-foreach ($check in @(
+$checks = @(
     @{Name='fmt'; Args='fmt --check'},
     @{Name='default'; Args='test --locked -q'},
     @{Name='portable'; Args='test --locked --features portable'},
     @{Name='clippy'; Args='clippy --locked --all-targets -- -D warnings'}
-)) {
+)
+if ($DefinitionAcceptance) {
+    # Include both activated and pending tests; never report zero ignored tests as success.
+    $checks = @(@{Name='definition-acceptance'; Args='test --locked --test definition_acceptance -- --include-ignored'})
+}
+foreach ($check in $checks) {
     Write-Output "START $($check.Name)"
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = "$toolBin\cargo.exe"

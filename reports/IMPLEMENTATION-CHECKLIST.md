@@ -174,3 +174,17 @@ See [DEFINITION-PARSING-AUDIT.md](DEFINITION-PARSING-AUDIT.md).
 Validation for the runtime/audit follow-up: Windows default and portable each
 75 + 1 tests; Clippy and Python harness (6) passed. Definition parsing remains
 a separate unimplemented milestone; the CLI change only prevents body leakage.
+
+## Definition implementation plan and acceptance contract — 2026-09-29
+
+- [x] [단계별 구현 계획](DEFINITION-IMPLEMENTATION-PLAN.md): DEF-1 input through DEF-6 compatibility.
+- [x] 17 positive acceptance tests compile, each explicitly ignored with its unimplemented milestone.
+- [x] Explicit acceptance run confirms 0 passed / 17 failed; no definition capability claimed.
+- [x] Active CLI regression: delimiter text in strings/comments does not abort following sentences.
+- [x] Windows default/portable: 76 active tests + 1 doctest each; Clippy passes.
+- [ ] DEF-1 source reader and DEF-2 definition AST implementation.
+- [ ] DEF-3 local binding and DEF-4/5 execution/control/recursion.
+- [ ] DEF-6 remaining forms and native Windows C verification.
+
+Full acceptance command: `powershell -File tools/check-windows.ps1 -DefinitionAcceptance`.
+It includes ignored tests, so it is expected to fail until the implementation is ready.
