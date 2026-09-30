@@ -1,8 +1,7 @@
 use rustj::{
     Engine,
     analysis::BasisKind,
-    contracts::Effect,
-    logical_ir::{CallOp, OpKind},
+    logical_ir::{CallOp, EffectSummary, OpKind, SpeculationSemantics},
     lowering::{LoweringRegistry, RealizationFamily, TargetCapabilities},
 };
 
@@ -32,9 +31,11 @@ fn registry_returns_reference_route_without_claiming_parallel_legality() {
 #[test]
 fn parallel_elementwise_route_opens_only_after_semantic_safety_is_proven() {
     let (basis, mut call) = result_basis_call("1+2");
-    call.contract.effect = Effect::Pure;
-    call.contract.may_error = false;
-    call.contract.preserve_evaluation_order = false;
+    call.effect = EffectSummary::Pure;
+    call.speculation = SpeculationSemantics {
+        may_raise_observable_error: false,
+        preserve_evaluation_order: false,
+    };
 
     let registry = LoweringRegistry::a3_v0();
     let cpu = registry.legal_candidates(basis, &call, &TargetCapabilities::cpu_simd());
@@ -58,9 +59,11 @@ fn tree_reduction_requires_reassociation_and_error_order_freedom() {
             .is_empty()
     );
 
-    call.contract.effect = Effect::Pure;
-    call.contract.may_error = false;
-    call.contract.preserve_evaluation_order = false;
+    call.effect = EffectSummary::Pure;
+    call.speculation = SpeculationSemantics {
+        may_raise_observable_error: false,
+        preserve_evaluation_order: false,
+    };
     assert!(
         registry
             .legal_candidates(basis, &call, &gpu)
@@ -102,9 +105,11 @@ fn gather_keeps_indexed_parallel_routes_closed_while_errors_are_observable() {
         vec![RealizationFamily::ReferenceSequential]
     );
 
-    call.contract.effect = Effect::Pure;
-    call.contract.may_error = false;
-    call.contract.preserve_evaluation_order = false;
+    call.effect = EffectSummary::Pure;
+    call.speculation = SpeculationSemantics {
+        may_raise_observable_error: false,
+        preserve_evaluation_order: false,
+    };
     assert_eq!(
         registry.legal_candidates(basis, &call, &TargetCapabilities::gpu_generic()),
         vec![RealizationFamily::GpuIndexed]
