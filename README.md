@@ -42,7 +42,7 @@ Route Partition
 - hook/fork/train/derived verb를 보존하는 J Semantic Array IR → Semantic Analyzer/Lowering 경계는 아직 완전 분리되지 않음
 - 실제 CUDA backend는 아직 미구현
 
-다음 compiler architecture 작업은 현재 Semantic IR이 J의 verb composition을 충분히 보존하는지 감사하고, `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` 경계를 코드에서 명시하는 것입니다.
+현재 compiler architecture 작업의 초점은 이미 들어간 shared FunctionEntity/hook/fork/rank-conjunction 구조를 바탕으로 valence별 innate rank contract와 logical `CellApply` planner를 추가하고, 동시에 `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` 경계를 코드에서 명시하는 것입니다.
 
 Logical Array IR 이후 실행 경로는 하나로 고정하지 않습니다. RustJ-native planner/executor 외에도 MLIR/LLVM 계열, StableHLO-compatible subset, SPIR-V/NVVM/ROCDL, 검증된 외부 library/kernel lowering을 사용할 수 있도록 설계합니다. RustJ는 J 의미·legality·lowering 조건을 책임지고, 이미 잘 만들어진 compiler IR과 optimizer를 가능한 범위에서 재사용합니다.
 
