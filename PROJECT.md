@@ -5503,26 +5503,37 @@ later / workload-driven
 
 later로 둔 operation도 language semantics를 later까지 금지한다는 뜻이 아니다. 해당 basis lowering이 없으면 기존 native/runtime semantic path 또는 structured-op fallback이 correctness를 담당한다.
 
-##### 현재 transition implementation seam
+##### 현재 A3 transition implementation seam
 
-2026-09-30 현재 src/analysis.rs의 기존 inspection LogicalPlan을 최종 A3 IR로 간주하지 않으면서 다음 seam을 먼저 추가했다.
+2026-10-01 현재 기존 src/analysis.rs::LogicalPlan은 compatibility/inspection plan으로 유지하고, 별도 src/logical_ir.rs에 A3-v0 single-block IR migration seam을 추가했다.
 
-- Node.basis: 현재 한 call을 **추가 graph expansion 없이 직접 분류할 수 있을 때만** provisional BasisKind를 기록한다.
-- ResolvedInstantiation: target/valence/input-output dtype·rank/requested rank boundary를 call instance metadata로 기록한다.
-- ValueRoleFacts: ShapeVector, IndexVector, CountVector, AxisPermutation 등 문맥상 value role을 noun type과 분리해 기록한다.
-- LogicalPlan::verify(): basis classification과 instantiation이 원 operation/result facts와 어긋나지 않는지 검증한다.
+transition plan 쪽:
+- Node.basis: 한 call을 추가 graph expansion 없이 직접 분류할 수 있을 때 provisional BasisKind를 기록한다.
+- ResolvedInstantiation: target/valence/input-output dtype·rank/requested rank boundary를 기록한다.
+- ValueRoleFacts: ShapeVector, IndexVector, CountVector, AxisPermutation 등 문맥상 role을 noun type과 분리한다.
 
-이 seam은 final LogicalBasisOp schema의 축소판이며 다음을 아직 구현하지 않는다.
+A3 logical_ir 쪽:
+- Operation과 SSA ValueData를 분리하여 zero-result operation을 표현할 수 있다.
+- SemanticCheck는 실제 zero-result ordered op이며 PrefixAgreement, CellFrameAgreement, IndicesInBounds constraint를 우선 지원한다.
+- ConstraintSet과 FactWitness로 static proof가 있는 check와 unresolved check를 구분한다.
+- basis node는 family-specific BasisPayload와 IterationDomain/axis role을 가진다.
+- EffectSummary와 SpeculationSemantics는 conservative PrimitiveContract에서 초기화되며 이후 proof-driven refinement가 가능하다.
+- src/lowering.rs의 BasisLoweringCapability registry는 legality만 판정하며 cost/preference와 분리된다.
+- native candidate가 없으면 RuntimeSemanticFallback으로 분류하며 invalid J로 취급하지 않는다.
+- src/expansion.rs는 원 semantic op를 지우지 않는 optional multi-node BasisExpansion sidecar를 제공한다.
+- 첫 실제 expansion은 dyadic E. 이며 J Dictionary의 x E. y ↔ ($x) x&-: ;.3 y identity를 근거로 WindowView → CellApply(Match) graph를 제공한다.
+  - reference: https://www.jsoftware.com/help/dictionary/decapdot.htm
 
-- multi-node BasisExpansion
-- full IterationDomain / AxisSemantics / AccessRelation payload
-- cell-rank까지 완성된 ResolvedInstantiation
-- first-class zero-result SemanticCheck
-- ConstraintSet/FactWitness 연결
-- BasisLoweringCapability registry
-- reference executor
+아직 구현하지 않은 핵심:
+- Function/Region/Block/Terminator explicit container
+- richer AccessRelation/AxisSemantics payload와 cell-rank가 완성된 ResolvedInstantiation
+- general ConstraintSet lattice / runtime Guard
+- SemanticCheck discharge/refinement witness가 SpeculationSemantics refinement로 이어지는 proof pass
+- WindowView/SegmentView/Contract 등 v1 basis의 executable lowering capability
+- CostProfile / preference ranking
+- reference executor와 optimized-lowering semantic equivalence harness
 
-특히 현재 transition Node가 ValueId와 1:1인 동안 SemanticCheck를 fake value로 추가하지 않는다. A3 op/result 분리에서 zero-result operation으로 추가한다.
+기존 transition Node에는 zero-result SemanticCheck를 역이식하지 않는다. 새로운 A3 op/result-separated IR에서만 표현한다.
 
 ##### basis contract 검증
 
@@ -6676,10 +6687,10 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
 - [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
 - [ ] 4.24.14의 공통 LogicalBasisOp contract를 정의하고 basis identity와 target-specific realization을 분리한다.
-- [ ] ResolvedInstantiation 최소 record를 정의하여 valence/dtype/rank/cell-rank/value-role/numeric-policy instance를 기록한다.
-- [ ] ValueRoleFacts 최소형(ShapeVector/AxisVector/Permutation/IndexVector/WindowSpec/SegmentDescriptor 등)을 fact layer에 추가한다.
-- [ ] J-visible predicate failure를 표현하는 first-class SemanticCheck를 정의하고 compiler assertion과 분리한다.
-- [ ] BasisExpansion에 applicability ConstraintSet + equivalence/provenance witness를 두고 original semantic/structured identity를 보존한다.
+- [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
+- [x] ValueRoleFacts 최소형을 추가했다. 현재 ShapeVector/AxisPermutation/IndexVector/CountVector를 실제 분석에서 생산하며 나머지 role enum은 후속 basis가 사용한다.
+- [x] J-visible predicate failure를 표현하는 first-class zero-result SemanticCheck를 A3 IR에 정의하고 compiler assertion과 분리했다.
+- [x] BasisExpansion sidecar에 applicability ConstraintSet + equivalence witness를 두고 original semantic/structured identity를 보존한다. 첫 rule은 E. → WindowView + CellApply(Match)다.
 - [ ] A3-v0 executable basis core를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck로 제한하고 나머지는 단계적으로 추가한다.
 - [ ] basis별 verifier + reference-equivalence + composition golden test scaffold를 만든다.
 - [ ] `ParameterizedLoweringRecipe` interface를 정의해 ResolvedCallFacts+TargetCapability로 multiple realization 후보를 만들 수 있게 한다.
