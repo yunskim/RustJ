@@ -288,7 +288,25 @@ RoutePartition
   └─ Region D → Unsupported
 ```
 
-partition 단위는 처음에는 **single-block contiguous subgraph**로 제한하고, 이후 Function/Region 단위로 확장한다.
+architecture 차원에서는 mixed route를 허용하지만, **첫 구현에서는 verified single-block Function/Region 전체를 하나의 route로 보낸다.** 이 단계에서는 boundary bridge가 없다.
+
+그 다음 단계에서만 **single-block contiguous subgraph** partition과 boundary value bridge를 추가하고, 이후 Function/Region 단위의 richer partition으로 확장한다.
+
+즉:
+
+```text
+Route-v0
+  one verified single-block region
+    → exactly one route
+    → Lowered | Unsupported
+
+Route-v1
+  one verified region
+    → contiguous subgraphs
+    → mixed route + explicit boundary bridge
+```
+
+mixed-route 가능성은 architecture invariant이지만 **A1/A3-v0를 증명하기 위한 선행 구현 요구사항은 아니다.**
 
 `RoutePartition`은 Logical IR의 semantic identity가 아니라 **compilation plan/view**다. 같은 verified Logical IR에 대해 target/backend availability나 cost model이 달라지면 다른 partition plan을 만들 수 있다. canonical Logical IR을 destructive하게 route-specific op로 덮어쓰지 않는다.
 
@@ -855,6 +873,23 @@ BindingFact
 - external route rejection
 - 재분석 조건
 
+특히 `AccessRelation`은 모든 valid J op가 v0부터 완전한 affine/index-map contract를 가져야 한다는 뜻이 아니다.
+
+```text
+AccessFact
+  Known(AccessRelation)
+  Opaque / Unknown
+```
+
+로 둘 수 있다.
+
+- `Known`: fusion, locality, vectorization, advanced scheduling 분석 가능
+- `Opaque/Unknown`: J semantics 자체는 valid할 수 있으며, access-sensitive optimization의 barrier가 됨
+- route가 full access contract를 요구할 때만 해당 route에서 reject/Unsupported
+- conservative/native/runtime semantic path가 있으면 실행 자체를 금지하지 않음
+
+따라서 **hardware-aware Logical IR은 hardware-relevant fact를 표현할 수 있어야 하지만, 모든 op가 v0부터 모든 fact를 Known으로 제공해야 한다는 뜻은 아니다.**
+
 중요하게, **J semantic error는 lattice element가 아니다.**
 
 ```text
@@ -1138,6 +1173,51 @@ InvalidExtensionRegistration
 ```
 
 이 구분은 후기 `jaxa-analyzer`의 Validator 오류 분류를 RustJ의 full-J 목표에 맞게 일반화한 것이다.
+
+#### 4.9.1 analyzable profile은 허용 목록/테스트로 고정한다
+
+`Analyzable Array Profile`을 설명 문구로만 두지 않는다. 구현에서는 source/derived form별 compilation disposition을 **명시적 coverage manifest + golden test**로 고정한다.
+
+개념적으로:
+
+```text
+CompilationCoverage
+  semantic_form
+  supported_valence/form constraints
+  disposition:
+    LowerToArrayLogical
+    LowerToRuntimeSemantic
+    KeepLateBound / RequiresGuard
+    UnsupportedImplementation
+  required_known_facts
+  supported_routes
+  reference/golden tests
+```
+
+v0 예:
+
+```text
+dyadic +
+  → LowerToArrayLogical
+  required: shape/type/agreement
+  access: known elementwise map
+  route: native-cpu
+
++/ on supported dense numeric cell
+  → LowerToArrayLogical
+  required: reduction/rank/numeric policy
+  route: native-cpu
+
+unknown dynamic named verb
+  → KeepLateBound / RuntimeSemantic
+
+system foreign / unsupported boxed-sparse form
+  → RuntimeSemantic or UnsupportedImplementation
+```
+
+새 기능을 추가할 때 “advanced route인가?”를 문서 토론으로 매번 다시 결정하지 않고 이 manifest와 test를 갱신한다.
+
+중요하게 이 목록은 **J 언어 validity 목록이 아니라 현재 compiler implementation/route eligibility 목록**이다.
 
 
 ### 4.10 PrimitiveSpec은 semantic record이고, realization은 별도 registry/interface다
@@ -2893,12 +2973,17 @@ GPU에서 특히 중요한 target facts는 SM/CU count, warp/wave/subgroup width
 처음부터 완전한 hardware database를 만들지 않는다.
 
 ```text
-H0 Logical hardware contract
-  IterationDomain
-  AxisSemantics
-  AccessRelation
-  NumericSemantics
-  DependencyRequirement
+H0-v0 Logical structural contract
+  shape / dtype / valence
+  IterationDomain: Map | Reduce 우선
+  AxisSemantics: 필요한 최소 subset
+  AccessFact: Known(simple AccessRelation) | Opaque
+  NumericSemantics: 최소 contract
+  DependencyRequirement: Independent | Reduction 우선
+
+H0-later
+  Window / Scan / Gather / Scatter / indirect access
+  richer AccessRelation / masks / invariance / constraints
 
 H1 generic TargetProfile MVP
   execution hierarchy
@@ -3834,6 +3919,25 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank 및 derived verb/adverb/conjunction의 의미 구조가 분석 입력에 남아 있다.
 ### A2 — Extension Primitive Registry와 analysis contract
 
+> **구현 주의:** 아래 목록 전체는 A2의 장기 architecture inventory다. A3-v0/첫 CPU vertical slice를 막는 하나의 거대한 선행 milestone로 취급하지 않는다.
+>
+> **A2-v0 blocking subset**
+> - built-in/extension이 공유하는 최소 semantic capability interface
+> - valence별 rank + shape/type/effect/error 최소 contract
+> - Map/Reduce 수준의 IterationDomain
+> - `AccessFact = Known(simple) | Opaque`
+> - lowering eligibility/coverage manifest
+> - 첫 실행 op에 필요한 native CPU lowering
+>
+> **A2-later**
+> - full TargetProfile/TargetQueries
+> - target locale chain
+> - ResourceEstimate/CostEstimate/CompiledResourceReport
+> - mixed RoutePartition boundary bridge
+> - richer Window/Scan/Gather/Scatter access/resource model
+
+
+
 - [ ] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다.
 - [ ] Enqueue는 extension도 ordinary NAME/lookup metadata로 처리하고, parser-time normal name lookup이 현재 binding의 품사를 결정하게 한다.
 - [ ] parameterized adverb(`conv`, `linear` 등)와 그 결과 derived computational verb/op identity를 분리한다.
@@ -3895,7 +3999,8 @@ A3-v0
   pure array ops
   SSA ValueId
   verifier
-  shape/axis/access/numeric contracts
+  shape/axis/numeric contracts
+  simple Known access or explicit Opaque access fact
   EffectSummary/Speculation interface
   ConstraintSet + compile-time Witness의 최소형
 
@@ -4497,7 +4602,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 1. **J semantic structure 보존** — hook/fork/train/derived verb/rank는 Semantic Analyzer가 보기 전에 불필요하게 소거하지 않는다.
 2. **Semantic Analyzer는 target-independent** — target capability, cost, tile/layout/device 선택은 analyzer 책임이 아니다.
-3. **Logical IR은 hardware-aware but schedule-free** — iteration/access/dependency/constraint fact는 갖지만 warp/tile/buffer id는 갖지 않는다.
+3. **Logical IR은 target-independent structural-fact rich, schedule-free** — iteration/access/dependency/constraint처럼 hardware planning에 유용한 구조적 fact를 표현하지만 특정 target/warp/tile/buffer id는 갖지 않는다. 기존 ‘hardware-aware’는 이 뜻의 약칭이다.
 4. **Primitive semantics와 realization 분리** — PrimitiveSpec/capability interface에 vendor resource 숫자를 넣지 않는다.
 5. **Storage requirement와 materialization 분리** — logical persistence 요구와 실제 buffer allocation/copy를 같은 개념으로 쓰지 않는다.
 6. **Schedule과 payload IR 분리** — fusion/tile/vectorization 선택은 native Schedule Plan이나 external compiler가 담당한다.
@@ -4553,6 +4658,9 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 56. **Forward equivalence is not full derived-verb equivalence** — `::`, `:.` 등 modifier가 붙인 error/inverse/latent semantics를 현재 forward dataflow가 같다는 이유로 소거하지 않는다.
 57. **Derived entity is not always a verb** — parser가 생성할 수 있는 derived adverb/conjunction의 result POS와 operands를 J Semantic IR에서 표현한다.
 58. **Gerund is contextual noun semantics** — boxed noun을 전역적으로 gerund type으로 바꾸지 않고 modifier가 요구할 때 gerund interpretation을 적용한다.
+59. **Architecture inventory is not a blocking milestone** — TargetProfile/resource/mixed-route의 장기 설계를 유지하되 A1→A3-v0→최소 CPU vertical slice를 먼저 증명한다.
+60. **Unknown access is an optimization barrier, not a semantic error** — AccessRelation이 Opaque여도 valid J semantics와 conservative/runtime lowering 가능성을 유지한다.
+61. **Mixed route is staged** — architecture는 mixed route를 허용하지만 첫 external implementation은 verified single-block region 전체를 한 route로 보낸다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4560,33 +4668,125 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 ## 16. 다음 작업
 
-현재 가장 먼저 해야 할 compiler architecture 작업은 **J semantic structure를 보존하는 IR과 verifier/interface 경계를 코드로 만든 뒤, 동일한 Logical IR을 native route와 external compiler route가 함께 소비하도록 하는 것**이다.
+현재 가장 먼저 증명해야 하는 것은 전체 compiler stack이 아니라 **J semantic structure → verified Logical IR → 최소 CPU 실행**의 얇은 수직 슬라이스다.
 
-순서:
+장기 architecture를 유지하되 구현 순서는 다음처럼 좁힌다.
 
-1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 책임을 다시 분류한다.
-2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb/adverb/conjunction, gerund interpretation, rank를 얼마나 보존하는지 감사한다.
-3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
-4. extension `PrimitiveSpec`을 semantic identity/version record로 정리하고 Shape/Axis/Access/Numeric/Effect/Alias/Speculation capability interface와 lowering registry를 분리한다.
-5. Logical IR core의 SSA `ValueId`, Function/Region/Block/Terminator를 정의한다.
-6. `IterationDomain`, `AxisSemantics`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`, `NumericSemantics`, `DependencyRequirement`를 정의한다.
-7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
-8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
-9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
-10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, fork/hook effect-order, adverse/obverse latent semantics, negative/infinite rank resolution과 prefix agreement, empty fill-cell과 empty-type semantics, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
-11. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
-12. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
-13. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
-14. MLIR/LLVM CPU 실행 결과를 RustJ-native/reference 결과와 differential test한다.
-15. `CompilationTarget` MVP를 BackendFamily / ArchitectureTarget / DeviceProfile / RuntimeProfile로 분리하고, compiler target locale chain을 통해 resolved `TargetProfile`을 만든다. `CostProfile`은 별도로 둔다.
-16. `TargetFacts + TargetQueries` interface와 target-locale provider/override resolution을 정의한다.
-17. RustJ-native `Schedule / Transform Plan`을 Logical IR과 분리하여 정의한다.
-18. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
-19. `ResourceEstimate` MVP와 별도 `CostEstimate`를 만들고, backend `CompiledResourceReport` 및 runtime `ExecutionMeasurement` feedback/re-plan interface를 만든다.
-20. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
-21. v0가 안정된 뒤 branch/loop/try-catch-throw exceptional CFG/effect token을 A3-v1로, async timepoint와 portable version migration을 필요한 시점에 단계적으로 추가한다.
-22. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
-23. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
+### 16.1 Proof Slice 0 — A1 semantic preservation
+
+1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 실제 책임과 목표 architecture의 차이를 표로 만든다.
+2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived entity, gerund interpretation, rank, nameref를 얼마나 보존하는지 감사한다.
+3. 첫 slice에 필요한 최소 `J Semantic Array IR`을 명시한다.
+4. 다음 semantic golden을 우선 고정한다.
+   - primitive valence
+   - reduction-derived verb
+   - fork/train 구조 보존
+   - rank form 보존
+   - noun snapshot vs function late binding
+   - assignment entity+effect / same-sentence lookup
+
+**성공 기준:** scanner/parser 없이 handcrafted J Semantic IR을 Semantic Analyzer에 넣어 테스트할 수 있고, 분석 전에는 J composition identity가 사라지지 않는다.
+
+### 16.2 Proof Slice 1 — A3-v0 verified Logical IR
+
+5. single Function / single Region / single Block의 SSA `ValueId` core와 verifier를 만든다.
+6. v0 fact는 다음으로 제한한다.
+
+```text
+shape / dtype / valence
+IterationDomain: Map | Reduce
+AxisSemantics: minimum required subset
+AccessFact: Known(simple relation) | Opaque
+NumericSemantics: minimum
+EffectSummary / SpeculationSemantics
+ConstraintSet + compile-time Witness: minimum
+```
+
+7. `Unknown/Opaque` access는 semantic failure가 아니라 access-sensitive optimization barrier로 처리한다.
+8. Semantic Analyzer가 target 정보 없이 J Semantic IR + minimal capability를 읽어 single-block Logical IR을 만들게 한다.
+9. operation verifier가 malformed IR, fact contradiction, illegal valence/input relation을 거부하게 한다.
+
+**첫 canonical proof example:**
+
+```j
+(+/ % #) y
+```
+
+```text
+J Semantic IR
+  Fork(Insert(+), %, #)
+        ↓ analyzer
+Logical IR
+  Reduce(+)
+  Tally
+  Divide
+```
+
+source/semantic provenance와 필요한 numeric/rank contract를 유지한다.
+
+### 16.3 Proof Slice 2 — 최소 CPU end-to-end
+
+10. A2 전체를 구현하지 말고 **A2-v0 capability subset**만 연결한다.
+11. 먼저 dyadic `+`와 dense numeric reduction 한 개를 native CPU lowering에 연결한다.
+12. 최소 RustJ-native execution path를 만든다.
+
+```text
+Source
+ → J Semantic IR
+ → Semantic Analyzer
+ → verified Logical IR
+ → minimal native CPU lowering/executor
+ → J Value
+```
+
+13. 기존 RustJ/reference execution과 differential test한다.
+14. 이 slice에 필요한 G3/G4 항목만 구현한다. full TargetProfile, ResourceEstimate, mixed route는 blocking requirement가 아니다.
+
+**성공 기준:** architecture diagram의 핵심 경계가 실제 코드에서 한 번 end-to-end로 통과한다.
+
+### 16.4 Semantic hard cases를 golden으로 잠근다
+
+15. 가능한 순서대로 다음을 differential/golden test로 추가한다.
+
+- prefix agreement
+- empty fill-cell / empty type semantics
+- rank result assembly
+- nameref expected-POS mismatch
+- assignment entity+effect와 right-to-left lookup sequencing
+- fork/hook observable effect order
+- adverse/obverse latent semantics
+- tolerance/`!.`
+- overflow retry/promotion + error precedence
+
+모든 항목을 첫 vertical slice 전에 완성할 필요는 없다. 다만 해당 semantic feature를 optimization/lowering 대상으로 열기 전에 대응 golden이 있어야 한다.
+
+### 16.5 그 다음 확장
+
+16. G2 structural view 또는 첫 external adapter 중 하나를 선택해 다음 proof slice로 진행한다.
+17. external route를 선택하면 처음에는 **verified single-block region 전체를 한 route**로 내린다. elementwise + reduction + static reindex 수준의 MLIR adapter와 MLIR verifier/differential test부터 시작한다.
+18. mixed contiguous-subgraph RoutePartition과 boundary bridge는 external 단일-route가 안정된 뒤 추가한다.
+19. `CompilationTarget` MVP, `TargetFacts + TargetQueries`, target locale chain은 실제 target-dependent planning이 필요해지는 시점에 구현한다.
+20. RustJ-native Schedule/Physical Plan의 richer tile/memory-space/synchronization 모델도 그 시점에 확장한다.
+21. `ResourceEstimate`, `CostEstimate`, `CompiledResourceReport`, runtime measurement feedback/re-plan은 실제 schedule 후보가 둘 이상 생긴 뒤 구현한다.
+22. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
+23. branch/loop/try-catch-throw exceptional CFG/effect token은 A3-v1에서 추가한다.
+24. portable serialization/version migration과 async timepoint는 필요 시 A3-v2/physical extension으로 추가한다.
+25. 기존 LogicalPlan 결과와 새 pipeline의 의미 동등성을 계속 비교한다.
+
+### 16.6 구현 단계와 장기 architecture를 혼동하지 않는다
+
+다음은 **장기 architecture invariant**이지 첫 proof slice의 완료 조건이 아니다.
+
+- CPU/GPU는 동일한 semantic/logical architecture의 peer target이다.
+- mixed route가 가능하다.
+- TargetProfile/TargetQueries와 resource/cost feedback 구조가 존재할 수 있다.
+- full J semantics와 analyzable compiler profile을 분리한다.
+
+반대로 현재 implementation claim은 보수적으로 쓴다.
+
+- G1 physical boundary foundation은 존재한다.
+- A1/A2/A3는 prototype 요소가 있으나 목표 architecture는 아직 미완성이다.
+- GPU 관련 절은 현재 **계약/확장 경계**이며 GPU end-to-end 완료를 뜻하지 않는다.
 
 특히 세 가지 shortcut을 금지한다.
 
