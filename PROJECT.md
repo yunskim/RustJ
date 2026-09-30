@@ -110,9 +110,10 @@ RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌�
 
 - **RustJ frontend**: source text를 읽고 J의 품사·결합·이름 의미를 보존한 `J Semantic Array IR`을 만든다.
 - **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
-- **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다.
-- **Physical Planner**: layout, placement, materialization, buffer, transfer, scheduling 같은 물리 실행 결정을 내린다.
-- **Backend/Runtime**: 계획을 backend code로 낮추고 실행한다.
+- **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다. 이 단계는 target-independent facts와 semantic legality를 만든다.
+- **Route Selection / Export**: Logical Array IR 이후에는 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등의 검증된 경로 중 하나를 선택할 수 있다.
+- **RustJ-native Physical Planner**: Route A에서만 layout, placement, materialization, buffer, transfer, scheduling 같은 물리 실행 결정을 내린다.
+- **Backend/Runtime**: 선택된 route의 lower-level IR 또는 Physical Plan을 실행 가능한 artifact로 낮추고 실행한다.
 
 이를 한 문장으로 정의하면:
 
@@ -139,9 +140,11 @@ Semantic Analyzer / Lowering
         ↓
 Logical Array IR / Plan
         ↓
-Physical Plan
-        ↓
-Backend / Runtime
+Route selection / export
+   ├─ RustJ Physical Plan
+   ├─ MLIR family
+   ├─ StableHLO-compatible subset
+   └─ verified library/custom backend
 ```
 
 금지하는 역방향 의존성은 source frontend 구현 세부에 대한 것이다.
@@ -444,17 +447,25 @@ Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Ar
 - monad / dyad valence 결정
 - primitive semantic contract 적용
 - dtype / shape / cell / frame / agreement fact 전파
-- dependency graph 생성
-- effect / alias 분석
-- parallel domain 식별
+- iteration domain / axis semantics / access relation 도출
+- control/data dependency graph 생성
+- effect / alias / speculation legality 분석
+- uniformity / symbolic constraint / mask fact 전파
 - map / reduce / scan / gather / structural pattern 식별
-- derived structure의 합법적인 normalization/lowering
-- fusion 가능성 분석
-- materialization 경계 판단
-- logical rewrite
-- backend capability 확인
-- cost-model input 생성
+- derived structure의 **target-independent** normalization/lowering
+- semantic storage/lifetime requirement 도출
+- target-independent rewrite legality와 fusion constraint 도출
 - Logical Array IR / Logical Execution Plan 생성
+
+다음은 이 단계의 책임이 아니다.
+
+- 특정 backend capability를 보고 schedule을 선택하는 일
+- fusion region을 실제로 확정하는 일
+- optional intermediate를 실제 buffer로 materialize하는 일
+- tile/vector/workgroup/layout/device를 고르는 일
+- target cost model로 후보를 ranking하는 일
+
+이 결정들은 Route Selection, 외부 compiler, 또는 RustJ-native Logical Optimizer/Physical Planner가 담당한다.
 
 ### 4.2 Semantic Analyzer / Lowering이 하지 않는 일
 
@@ -479,9 +490,13 @@ J Semantic Array IR
     ↓
 Semantic Analyzer / Lowering
     ↓
-Logical Array IR / Plan  ← generic boundary 후보
+Logical Array IR / Plan  ← generic compiler boundary
     ↓
-Physical Planner
+Route selection / export
+    ├─ RustJ-native optimizer/planner
+    ├─ MLIR
+    ├─ StableHLO-compatible subset
+    └─ library/custom backend
 ```
 
 향후 다른 array DSL frontend를 붙이고 싶다면 두 선택이 가능하다.
@@ -491,16 +506,43 @@ Physical Planner
 
 따라서 **middle-end를 generic tensor IR consumer처럼 만들기 위해 J의 구조를 일찍 버리지 않는다.**
 
-### 4.4 Unknown 원칙
+### 4.4 분석 fact는 typed lattice로 관리한다
 
-shape, effect, alias, backend legality, dynamic binding을 알 수 없으면 안전한 값으로 꾸며내지 않고 `Unknown`으로 유지한다.
+shape, alias, uniformity, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
 
-Unknown은 다음 중 하나가 된다.
+각 fact domain은 자기 lattice를 가진다.
+
+```text
+Fact<T>
+  Uninitialized
+  Known(T)
+  Overdefined / Unknown
+  Contradiction / Invalid   // 해당 domain에서 의미가 있을 때
+```
+
+control-flow merge나 여러 predecessor에서 fact가 합쳐질 때는 domain별 monotonic `join`을 사용한다. 이는 MLIR data-flow framework의 lattice 방식과 같은 원칙이다.
+
+예:
+
+```text
+ShapeFact
+AliasFact
+UniformityFact
+ConstraintFact
+EffectFact
+BindingFact
+LayoutFact
+```
+
+`Unknown`은 사실을 임의로 꾸며내지 않는다는 뜻이지 곧바로 실행 불가를 뜻하지 않는다. domain과 route에 따라 다음 중 하나가 된다.
 
 - optimization barrier
-- runtime guard
-- fallback to conservative plan
+- runtime guard / witness
+- conservative lowering
+- external route rejection
 - 재분석 조건
+
+반면 `Contradiction/Invalid`은 rank/shape/domain error처럼 semantic error가 증명된 경우와 구분한다.
 
 ### 4.5 Primitive contract
 
