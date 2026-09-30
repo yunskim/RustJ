@@ -2190,6 +2190,18 @@ plan_cell_application(callable, argument facts)
 11. dyad plan은 prefix agreement, common frame, residual frame, repeated side를 계산한다.
 12. explicit rank + underlying rank는 nested outer/inner CellApply로 표현한다.
 
+**2026-09-30 구현 상태 — IL1/IL2 첫 slice**
+
+- IL0의 현재 지원 subset은 `FunctionEntity` DAG에서 `"` conjunction 자체를 parent로 두고 left/right parser operand를 보존한다.
+- IL1은 **부분 구현**이다. `RankSpec::{Infinite, Absolute, Relative}`, jsource `jsrc/t.c`와 대조한 현재 built-in primitive의 valence별 innate rank, noun-form `"`의 1~3 rank 값, negative/infinite rank resolution을 구현했다.
+- nested noun-form `"`는 outermost → innermost 순서의 explicit boundary로 보존하며 primitive/현재 reduction-derived callable의 innate boundary를 별도 layer로 둔다. adjacent boundary를 자동 collapse하지 않는다.
+- `Verb " Verb`, gerund/noun-derived rank form 등 `jtqq`의 나머지 form은 아직 지원 완료로 표시하지 않는다.
+- reduction 바깥의 explicit rank(`+/"1`)와 reduction operand 내부의 rank(`(+"1)/`)를 구분한다. 후자는 current boolean reduction lowering으로 평탄화하면 의미가 달라지므로 structural reduction lowering 전까지 명시적으로 unsupported다.
+- IL2도 **부분 구현**이다. execution-free `plan_cell_application`과 `CellApplicationPlan`/`CellApplyLayer`를 추가했고, known-shape monad/dyad의 frame/cell split, prefix agreement, residual frame, repeated side, empty-prototype obligation을 계산한다.
+- Logical node의 이전 단일 `rank_plan` 관찰값은 nested semantics를 표현하는 `cell_application` plan으로 교체한다. explicit boundary와 innate boundary를 같은 plan 안에서 서로 다른 layer로 관찰할 수 있다.
+- shape/rank facts가 부족한 경우 planner는 계획을 추측하지 않고 runtime resolution을 남긴다. empty frame은 IL4 전까지 result facts를 보수적으로 unknown으로 두되 prototype obligation은 plan에 남긴다.
+- IL3 executor, dynamic J assembly, IRS/VIRS-style absorption은 아직 시작하지 않았다.
+
 **IL3 — correctness-first CPU generic executor**
 
 13. `CellApplyPlan`을 그대로 실행하는 reference-style CPU executor를 만든다.
