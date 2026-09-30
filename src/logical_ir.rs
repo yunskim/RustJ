@@ -72,6 +72,33 @@ pub enum SemanticErrorKind {
     Limit,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PossibleErrors {
+    pub known: Vec<SemanticErrorKind>,
+    pub unknown: bool,
+}
+
+impl PossibleErrors {
+    fn from_contract(contract: Contract) -> Self {
+        Self {
+            known: Vec::new(),
+            unknown: contract.may_error,
+        }
+    }
+
+    pub fn may_raise(&self) -> bool {
+        self.unknown || !self.known.is_empty()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DestinationRelation {
+    FreshResult,
+    MayReuse(ValueId),
+    EquivalentView(ValueId),
+    Unknown,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Constraint {
     PrefixAgreement {
@@ -274,6 +301,8 @@ pub struct CallOp {
     pub iteration_domain: IterationDomain,
     pub effect: EffectSummary,
     pub speculation: SpeculationSemantics,
+    pub possible_errors: PossibleErrors,
+    pub destination: DestinationRelation,
     pub instantiation: ResolvedInstantiation,
     pub rank_plan: Option<RankPlan>,
     pub access: AccessFact,
@@ -616,6 +645,8 @@ impl Plan {
                         iteration_domain: iteration_domain(node.basis, node, transition),
                         effect: EffectSummary::from_contract(*contract),
                         speculation: SpeculationSemantics::from_contract(*contract),
+                        possible_errors: PossibleErrors::from_contract(*contract),
+                        destination: DestinationRelation::Unknown,
                         instantiation,
                         rank_plan: node.rank_plan.clone(),
                         access: node.access,
