@@ -27,3 +27,6 @@ For every implementation change:
 - Require Logical IR verification at compiler boundaries; dynamic assumptions must be explicit witnesses/guards.
 - Model observable side-effect/error ordering explicitly; do not infer it only from source statement order.
 - Treat native fallback as optional capability, not a guaranteed catch-all for unsupported external lowering.
+
+- Keep semantic AccessRelation free of physical stride/alignment/address-space facts; those belong to downstream RepresentationFacts or guarded adapter preconditions.
+- Keep logical InvarianceFact target-independent; subgroup/lane uniformity, tail predication, and atomic realization are derived after schedule/target mapping.
