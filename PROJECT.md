@@ -3598,6 +3598,58 @@ Lowering candidates
 - 숫자 architecture 버전으로 암묵적 상속을 추론하지 않는다.
 - 단일-target MVP 이후 heterogeneous execution이 필요해지면 `CompilationSession`이 여러 `TargetContext`를 보유하고 RoutePartition이 region별 context를 선택하도록 확장한다. 이 경우에도 각 region의 built-in/extension은 선택된 동일 target locale chain을 사용한다.
 
+### 4.16.5.1 AOT와 JIT는 동일한 target selection contract를 사용한다
+
+AOT build와 향후 JIT compilation은 서로 다른 target-selection 시스템을 만들지 않는다. 둘 다 동일한 입력 contract를 사용한다.
+
+```text
+CompileOptions / JitOptions
+  target_selector
+  device_selector?
+  target_profile?
+  runtime_policy?
+        ↓
+TargetSelector::resolve(...)
+        ↓
+CompilationTargetLocale
+TargetContext
+        ↓
+LoweringRegistry lookup
+```
+
+차이는 **resolution 시점과 available evidence**뿐이다.
+
+- **AOT**: 명시적 CLI/config/default host target을 기준으로 target context를 만든다.
+- **JIT**: 동일한 option model을 사용하되 실제 runtime device, driver/runtime capability, currently available backend를 추가 evidence로 사용할 수 있다.
+- 사용자가 `--target`/동등 옵션을 명시하면 JIT도 그 constraint를 존중한다.
+- `auto`/unspecified일 때만 JIT가 runtime discovery를 이용해 concrete target/device를 선택한다.
+- JIT가 선택한 concrete target도 결국 동일한 compiler target locale/path로 normalize된다.
+- built-in/extension 구분 없이 모든 operation은 해당 active target locale을 통해 lowering capability를 조회한다.
+
+따라서:
+
+```text
+AOT:
+  rustj build --target sm90
+       ↓
+  TargetSelector
+       ↓
+  compiler.arch.nvidia.sm90
+
+JIT:
+  jit(options: target=auto)
+       ↓
+  runtime discovery = H100
+       ↓
+  TargetSelector
+       ↓
+  compiler.device.<H100>
+       -> compiler.arch.nvidia.sm90
+       -> ...
+```
+
+JIT 전용 primitive registry나 JIT 전용 hardware metadata 체계를 만들지 않는다. cache key에는 semantic/IR version과 함께 resolved target identity 및 lowering-relevant runtime capability version을 포함할 수 있다.
+
 ### 4.16.6 Target locale chain: J locale 방식을 compiler lookup에 재사용한다
 
 backend/architecture/device별 lowering과 capability override는 J의 **locale/path resolution 아이디어**를 compiler namespace에 재사용하면 단순하게 구현할 수 있다.
@@ -5361,6 +5413,8 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
 - [ ] `CompilationTarget = BackendFamily + ArchitectureTarget + DeviceProfile + RuntimeProfile`을 정의하고, 기존 `TargetProfile`은 resolved effective view로 사용한다.
 - [ ] compile invocation 시작 시 `CompilationTargetLocale` / `TargetContext`를 확정하고 lowering lookup의 root로 사용한다.
+- [ ] AOT CLI와 향후 JIT API가 동일한 `TargetSelector/TargetOptions` contract를 사용하게 한다. JIT는 runtime discovery를 추가 evidence로만 사용하고 별도 target-selection 체계를 만들지 않는다.
+- [ ] `target=auto`와 explicit target constraint의 precedence를 정의하고 AOT/JIT 양쪽에서 동일하게 테스트한다.
 - [ ] built-in primitive와 extension-derived op가 source identity와 무관하게 동일 active target locale/path에서 lowering/capability를 조회하는 테스트를 추가한다.
 - [ ] execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 architecture/device profile에 올바르게 분리한다.
 - [ ] compiler target locale chain(device → architecture → family → backend → cpu/gpu → generic)을 정의한다.
