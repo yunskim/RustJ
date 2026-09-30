@@ -5323,8 +5323,8 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### F0 — jsource word formation 이식
 
-- [ ] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. transition eligibility/action은 jsource table을 source of truth로 두고 별도 handwritten heuristic을 만들지 않는다.
-- [ ] 현재 handwritten `scanner::transition`과 jsource table의 모든 transition을 대조한다.
+- [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/scanner.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
+- [x] 기존 handwritten `scanner::transition`을 제거하고 lookup-only `TRANSITIONS[state][class]`로 교체했다. follow-on numeric rewind와 UNDD 처리는 `jtwordil`의 별도 boundary action으로 유지한다.
 - [ ] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다.
 - [ ] unmatched quote/error boundary를 jsource와 맞춘다.
 - [ ] source span은 byte offset으로 보존한다.
