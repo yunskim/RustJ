@@ -762,7 +762,7 @@ semantic 쪽에서 최소한 다음을 표현하거나 명시적으로 `Unknown`
 identity / part of speech / valence
 innate rank
 shape rule
-dtype / promotion rule
+type / promotion rule (shape/empty/fill context 의존 가능)
 axis-role / access-pattern rule
 error contract
   domain
@@ -1037,7 +1037,7 @@ PrimitiveSpec
 
 Primitive semantic interfaces
 ├─ ShapeInference
-├─ TypePromotion
+├─ TypeSemantics / TypePromotion
 ├─ AxisAndIterationSemantics
 ├─ AccessPattern
 ├─ NumericSemantics
@@ -1298,6 +1298,29 @@ FillAndEmptySemantics
 구현이 실제 scalar fill-cell execution을 하지 않아도 된다. static abstract evaluation이나 primitive-specific inference로 대체할 수 있지만 **jsource와 같은 observable result type/shape/error semantics**를 내야 한다.
 
 특히 optimizer가 zero-trip loop를 제거하기 전에 결과 prototype/type/shape가 이미 J 규칙에 따라 확정되어 있어야 한다.
+
+또한 type/domain inference를 dtype pair만의 함수로 만들지 않는다. current jsource의 atomic dyad에는 일반 argument-type 조합에 실행 routine이 없어도 operand가 empty이면 **notional safe type로 취급하여 empty execution이 domain error로 실패하지 않게 하는 경로**가 있다.
+
+따라서:
+
+```text
+TypeSemantics(
+  operand types,
+  shapes / emptiness,
+  rank/cell context,
+  fill/fit context,
+  primitive
+) -> result type / conversion / semantic error
+```
+
+처럼 context-sensitive할 수 있어야 한다.
+
+```text
+TypePromotion(left_dtype, right_dtype) -> dtype
+```
+
+하나만으로 J의 empty semantics를 정의하지 않는다. 일반 nonempty domain error와 empty/prototype evaluation에서의 type handling을 분리한다.
+
 
 #### 4.11.3 rank 결과 assembly는 고정-shape map보다 넓다
 
@@ -3496,6 +3519,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] uniform cell-result proof가 있을 때만 rank map을 고정-shape parallel output으로 낮춘다.
 - [ ] boxed와 sparse를 physical encoding이 아닌 J-visible semantic representation으로 보존한다.
 - [ ] comparison tolerance/`!.` fit context와 J error precedence를 semantic contract에 포함한다.
+- [ ] empty operand에서의 context-sensitive type/domain semantics를 dense atomic dyad golden test로 검증한다.
 - [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
 - [ ] Semantic Analyzer / Lowering이 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
 - [ ] fork branch 독립성, reduction derived verb, rank-derived verb를 대표 golden test로 둔다.
@@ -4141,6 +4165,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `result.h`는 rank/modifier의 cell results가 type/shape 불일치하면 homogeneous fast path에서 assembly path로 전환하고 type/shape join + framing fill을 수행한다 | rank map을 항상 static uniform tensor map으로 가정하지 않고 `RankAssemblySemantics`를 보존한다 |
 | `cv.c`의 `!.`는 comparison tolerance 또는 fill을 바꾸는 derived verb를 만든다 | tolerance/fill override를 semantic contract로 보존한다 |
 | `ar.c`는 일반 float reduction에 SIMD/multiple-accumulator 경로를 사용할 수 있고 `+/!.0`에는 compensated summation 경로가 있다 | exact source operation order를 blanket semantic invariant로 만들지 않고 primitive/fit별 numeric policy를 보존한다 |
+| `va2.c`는 unsupported argument-type pair라도 empty operand가 있으면 notional safe type로 재해석하는 경로를 가진다 | type/domain inference를 dtype pair만으로 고정하지 않고 emptiness/fill context를 입력으로 받는다 |
 | `va2.c`는 agreement/rank-shape 검사와 domain/type/value error의 precedence를 의도적으로 관리한다 | GPU parallel error reporting도 J error contract를 따른다 |
 | `va2.c`는 retryable overflow를 retry/repair하고 result type consistency를 유지한다 | primitive/type별 overflow promotion을 lane-local 임의 처리로 바꾸지 않는다 |
 | sparse가 AT/type 및 `$.`를 통해 J-visible하고 axes/element를 가진다 | sparse를 단순 physical compression format으로 보지 않는다 |
@@ -4200,6 +4225,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 45. **Sentence environment is not pre-snapshotted** — 우측→좌측 evaluation 중 name lookup/assignment/locale mutation의 observable sequencing을 보존한다.
 46. **Rank map is not always fixed-shape** — per-cell result type/shape uniformity를 증명하지 못하면 J의 result assembly/type join/framing fill semantics를 보존한다.
 47. **Assignment is value + effect** — `=.`/`=:`를 void statement로 낮추지 않고 binding mutation과 assigned-value result를 함께 보존한다.
+48. **Type semantics may depend on emptiness** — dtype pair만으로 domain/promotion을 확정하지 않고 J의 empty/fill/prototype context를 반영한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4220,7 +4246,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
-10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, prefix agreement, empty fill-cell, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
+10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, prefix agreement, empty fill-cell과 empty-type semantics, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
 11. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
 12. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
 13. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
