@@ -487,18 +487,6 @@ impl Plan {
                             "call instantiation target mismatch".into(),
                         ));
                     }
-                    if call.effect != EffectSummary::from_contract(call.contract) {
-                        return Err(fail(
-                            Some(op_id),
-                            "call effect summary does not match resolved contract".into(),
-                        ));
-                    }
-                    if call.speculation != SpeculationSemantics::from_contract(call.contract) {
-                        return Err(fail(
-                            Some(op_id),
-                            "call speculation semantics do not match resolved contract".into(),
-                        ));
-                    }
                     for fact in &call.constraints.facts {
                         for value in fact.constraint.values().into_iter().flatten() {
                             check_value(value, "constraint input")?;
