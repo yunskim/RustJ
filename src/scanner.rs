@@ -153,10 +153,17 @@ pub(crate) fn scan_unfinished(source: &[u8]) -> Vec<Range<usize>> {
 fn scan_impl(source: &[u8], unfinished: bool) -> Result<Vec<Range<usize>>> {
     let mut boundaries = Vec::new();
     let mut state = State::Space;
+    let mut quote_start = None;
 
     for (i, &byte) in source.iter().enumerate() {
         let class = class(byte);
         let tr = transition(state, class);
+
+        if class == Class::Quote && !matches!(state, State::Quote | State::ClosedQuote) {
+            quote_start = Some(i);
+        } else if state == State::ClosedQuote && class != Class::Quote {
+            quote_start = None;
+        }
 
         // jtwordil rewinds one start/end pair when leaving S99 through
         // CX/CS/CQ/CDD/CDDZ/CU.  Keep the same observable boundary rule.
@@ -185,7 +192,8 @@ fn scan_impl(source: &[u8], unfinished: bool) -> Result<Vec<Range<usize>>> {
     }
 
     if state == State::Quote && !unfinished {
-        return Err(Error::OpenQuote);
+        let start = quote_start.unwrap_or(source.len().saturating_sub(1));
+        return Err(Error::OpenQuote.at(start..start.saturating_add(1).min(source.len())));
     }
 
     // jtwordil performs the same S99 rewind before forcing the final EI.
