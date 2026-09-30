@@ -55,7 +55,11 @@ Jaxa physical plan → Physical Planner / Physical Plan
 J Source
    ↓
 ──────────────── RustJ frontend ────────────────
-Scanner / Lexer / Parser
+Word formation / tokenizer
+   ↓
+Enqueue / name + part-of-speech classification
+   ↓
+J parser / semantic binding
    ↓
 J Semantic Array IR
    │
@@ -114,7 +118,7 @@ route boundaries are bridged after representation requirements are known
 
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
 
-- **RustJ frontend**: source text를 읽고 J의 품사·결합·이름 의미를 보존한 `J Semantic Array IR`을 만든다.
+- **RustJ frontend**: source text를 J word로 나누고, enqueue/name environment에서 parser가 필요로 하는 품사를 분류한 뒤 J parsing/binding을 수행하여 `J Semantic Array IR`을 만든다. extension name도 keyword로 하드코딩하지 않고 ordinary name binding을 통해 같은 경로를 탄다.
 - **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
 - **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다. 이 단계는 target-independent facts와 semantic legality를 만든다.
 - **Route Partition / Export**: Logical Array IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
@@ -536,6 +540,18 @@ Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Ar
 
 이 결정들은 Route Partition/Export, 외부 compiler, 또는 RustJ-native Logical Optimizer/Physical Planner가 담당한다.
 
+과거 `jaxa-analyzer` 문서에서 “analyzer가 hardware profile을 받아 fusion/resource를 결정한다”고 한 표현과 충돌하지 않도록 용어를 재해석한다.
+
+```text
+old "JAXA analyzer"
+  ≈ current Semantic Analyzer
+    + native Logical Optimizer
+    + Schedule / Transform planning
+    + Physical Planner / Resource analysis
+```
+
+현행 RustJ에서 **Semantic Analyzer라는 좁은 단계만** target-independent다. 과거 analyzer의 hardware-dependent 기능을 버린 것이 아니라 downstream planning 단계로 분리한 것이다.
+
 ### 4.2 Semantic Analyzer / Lowering이 하지 않는 일
 
 - source text tokenization
@@ -653,17 +669,34 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 따라서 `PrimitiveContract`는 analyzer가 보는 공통 interface이고, `PrimitiveSpec`은 그 contract를 실제로 제공하는 versioned registry record라는 관계로 사용한다.
 
-### 4.6 과거 jaxa-analyzer 연구에서 가져오는 확장 어휘와 `with`
+### 4.6 과거 jaxa-analyzer 연구에서 가져오는 확장 어휘
 
-`jaxa-analyzer` 연구/prototype 저장소에서 검토한 확장 어휘는 RustJ에 흡수할 때 다음 원칙을 유지한다. `JAXA`는 여기서 역사적 연구명일 뿐 현재 RustJ 아키텍처의 별도 컴포넌트명이 아니다.
+`jaxa-analyzer` 연구/prototype 저장소에서 검토한 확장 어휘는 RustJ에 흡수할 때 **표면 품사와 derived structure를 먼저 보존**한다. `JAXA`는 여기서 역사적 연구명일 뿐 현재 RustJ 아키텍처의 별도 컴포넌트명이 아니다.
 
-- `relu`, `linear`, `conv`: custom computational primitive/verb
-- `cast_f32`: 품사와 결합 의미를 보존하여 분석
-- `load`, `store`: logical storage/effect operation 또는 derived semantic operation
-- `emit`, `cp`: 품사와 derived-verb 구조가 분석 의미를 가진다면 IR에 보존
-- `with`: 계산 primitive가 아니라 semantic annotation/binding 관계
+예:
+
+- `relu`, `flatten`, `softmax`: verb 후보
+- `conv`, `linear`, `bn`, `avgpool2d`, `cp`: 역사 prototype에서는 parameterized adverb
+- `cast_f32`: 실제 등록 품사와 결합 의미를 보존하여 분석
+- `load`, `store`, `emit`, `cp`: 채택 시 storage/effect semantics와 derived structure를 명시
+- `with`: **historical candidate**. 현재 RustJ의 확정 syntax/primitive가 아니다.
 
 중요한 원칙은 **확장 어휘도 품사와 composition structure가 분석 정보라면 너무 일찍 평평한 operation으로 만들지 않는 것**이다.
+
+특히 parameterized adverb와 그 결과 verb를 구분한다.
+
+```text
+source binding: conv          // Adverb
+parameter noun: 1 6 5 5
+        ↓ adverb application
+DerivedVerb(Conv, params)
+        ↓ semantic analysis
+LogicalOp::Conv2d(...)
+```
+
+즉 `PrimitiveId::Conv2d`는 source spelling `conv`의 품사 identity와 같은 것이 아니다.
+
+`with`는 과거 문서에서 semantic annotation과 optimizer/adjoint/hardware/dtype/tile 정보를 한곳에 담는 후보로 검토되었지만, 현행 층 분리와 충돌한다. 향후 다시 채택하려면 (1) ordinary J name/conjunction semantics와 충돌하지 않는지, (2) 어떤 종류의 semantic annotation만 허용할지 먼저 별도로 결정한다.
 
 반대로 다음 physical policy는 semantic annotation에 섞지 않는다.
 
@@ -696,38 +729,74 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 - dtype/precision, accumulator precision, layout, hardware resource는 rank 문법에 억지로 넣지 않고 각각 semantic contract와 planning 계층에 둔다.
 - 4월 prototype의 고정 `memory_layout`, `tiling_axis`, register 숫자는 최종 semantic identity가 아니다. 6~7월의 identity/realization 분리는 중요한 중간 단계였고, 현행 RustJ에서는 이를 더 분리하여 `PrimitiveSpec semantic record + capability interfaces + lowering registry + TargetProfile`로 사용한다.
 
-### 4.8 확장 primitive는 name binding + registry contract로 추가한다
+#### 4.7.1 역사 저장소와 현행 RustJ의 충돌 해소표
 
-NN/array extension primitive는 J의 새로운 keyword나 punctuation을 추가하지 않고 **name**으로 추가한다.
+과거 문서의 문장을 그대로 현재 설계로 읽지 않는다. 다음 항목은 명시적으로 재해석한다.
+
+| 과거 JAXA/Japchae 주장 | 현행 RustJ 결정 |
+|---|---|
+| JAXA graph는 **parse time에 완전히 확정**된다 | parser만으로 충분하지 않다. resolvable name/품사 binding과 Semantic Analyzer를 거쳐 verified Logical IR이 만들어진다. dynamic constraint는 witness/guard로 남을 수 있다. |
+| JAXA는 **J 전체가 아닌 제한된 vocabulary 언어**다 | RustJ의 언어 목표는 장기적으로 J 전체 의미다. 다만 hardware-aware Logical Array IR 및 advanced optimization route에 들어갈 수 있는 영역은 별도의 **analyzable array profile/subset**일 수 있다. |
+| custom primitive spelling을 enqueue에서 built-in 실패 후 직접 가로챈다 | extension spelling은 reserved keyword가 아니다. ordinary J name environment에 predeclared binding으로 등록하고, enqueue/name classification이 그 binding의 품사를 parser에 제공한다. registry 추가 때문에 tokenizer/parser 구현을 수정하지 않는다. |
+| `conv`, `linear`은 computational verb다 | 최신 prototype의 표면 품사는 parameterized **adverb**다. noun parameter를 받아 derived computational verb를 만든다. analyzer가 보는 Conv/Linear logical op identity는 이 derived verb에서 나온다. |
+| rank가 같으면 fusion 가능하고 rank 변화가 fusion boundary다 | rank/cell/frame은 중요한 입력이지만 fusion legality의 충분조건이 아니다. access/dependency/effect/storage/speculation과 schedule/target까지 함께 본다. |
+| flatten/reshape/transpose는 본질적으로 항상 stride remap이라 copy가 없다 | semantic level에서는 StaticReindex/view 후보일 뿐이다. 실제 view 유지, layout absorption, copy/materialization은 representation과 downstream consumer/target이 결정한다. |
+| primitive가 `memory_layout`, `tiling_axis`, register/shared-memory 숫자를 가진다 | semantic primitive에는 axis/access/numeric/effect contract만 둔다. target-dependent resource/layout은 lowering/resource model + TargetProfile + Schedule에서 결정한다. |
+| “JAXA analyzer”가 hardware profile을 받아 fusion/resource를 결정한다 | 옛 analyzer가 여러 단계를 한 이름으로 묶었다. 현행 RustJ의 **Semantic Analyzer는 target-independent**이고, hardware-dependent 부분은 RoutePartition 이후 native Schedule/Physical Planner/ResourceEstimate 또는 external compiler가 담당한다. |
+| `PrimitiveResourceSpec`에 temporary/register/shared/instruction cost를 함께 둔다 | semantic requirement와 realization/cost를 분리한다. accumulator/reduction/reuse 같은 구조는 capability에, concrete resource expression은 lowering/resource model에, empirical performance는 CostEstimate에 둔다. |
+| 모든 materialized array는 compile-time fixed offset을 가져야 정적 모델이 완성된다 | semantic resource identity/lifetime이 정적으로 알려질 수는 있지만 **physical offset은 semantic requirement가 아니다**. native late bufferization이나 external compiler가 실제 allocation/offset을 결정한다. |
+| single stream 순서가 region 간 dependency의 기본 보장이다 | 특정 stream 가정은 architecture invariant가 아니다. physical async dependency는 explicit token/timepoint/event 또는 backend dependency로 표현한다. |
+| fusion하지 않으면 중간값은 사실상 DRAM으로 간다 | 특정 GPU 구현의 직관일 뿐 architecture invariant가 아니다. cache, persistent kernel, producer-consumer scheduling, external backend가 다른 realization을 선택할 수 있다. 핵심은 logical value와 physical materialization을 분리하는 것이다. |
+| mutable optimizer state를 stateful verb 내부에 둘 수 있다 | 후기 Japchae 결정대로 **mutable array state는 verb/primitive 밖의 explicit resource로 드러낸다.** weight, grad, optimizer state, checkpoint는 역할이 아니라 lifetime/effect/storage requirement로 구분한다. |
+| `with`에 optimizer/adjoint/hardware/dtype/tile 정보를 모두 넣는다 | 채택하지 않는다. 서로 다른 semantic/planning 층을 평평한 annotation 하나에 섞지 않는다. `with` 자체도 현재는 historical candidate이며 정식 RustJ extension syntax로 확정하지 않았다. |
+
+이 표는 역사 저장소의 아이디어를 폐기한다는 뜻이 아니다. **어느 층에 속하는지를 현재 compiler architecture에 맞게 재배치**하는 기준이다.
+
+
+### 4.8 확장 primitive는 ordinary name binding + injected registry로 추가한다
+
+NN/array extension은 J의 새로운 keyword나 punctuation을 추가하지 않고 **ordinary name**으로 추가한다.
+
+J parser는 품사를 알아야 reduction rule을 적용할 수 있으므로, extension의 품사 해소를 parser 완료 뒤까지 미루면 안 된다.
 
 ```text
-source name "conv"
+source word "conv"
       ↓
-J word / NameRef
+Tokenizer: ordinary J NAME
       ↓
-name / extension resolution
+Enqueue / name classification
+      │ consult current J name environment
+      │ + injected extension registry/bindings
       ↓
-ExtensionPrimitiveRef(Conv)
-      │
-      └───────────────┐
-                      ↓
-              Primitive Registry
-                      ↓
-                 PrimitiveSpec
-                      ↓
-J Semantic Array IR + analysis contract
+resolved queue class: ADV
+canonical binding: ExtensionAdverb::Conv
+      ↓
+J Parser
+      ↓
+AdverbApply(parameter_noun, Conv)
+      ↓
+J Semantic Array IR
+      ↓
+Semantic Analyzer
+      ↓
+Derived computational identity / LogicalOp
 ```
 
 중요한 불변식:
 
-1. parser가 `conv`라는 문자열을 특별 취급하지 않는다.
-2. name이 primitive로 해소되면 문자열이 아니라 안정적인 `PrimitiveId`/entity identity를 가진다.
-3. `f =: conv`처럼 alias/binding을 거쳐도 같은 primitive identity와 spec이 보존되어야 한다.
-4. primitive registry는 spelling/identity/version을 해소하는 **canonical registry**다. 분석 의미는 등록된 semantic capability interfaces가 제공하고, target-specific lowering/realization은 별도 lowering registry가 제공한다.
-5. custom primitive 추가 때문에 scanner/parser 코드를 수정하지 않는다.
-6. J built-in primitive와 extension primitive는 출처는 달라도 analyzer에서는 공통 `PrimitiveContract` interface로 다룬다.
+1. Tokenizer는 `conv`를 특별 token으로 만들지 않는다.
+2. Parser code도 `conv` spelling을 hard-code하지 않는다.
+3. 그러나 parser가 품사를 필요로 하므로 **enqueue/name classification 단계는 현재 binding의 noun/verb/adverb/conjunction class를 제공해야 한다.**
+4. extension registry는 reserved-word table이 아니라 ordinary name environment에 등록할 canonical entity/spec을 제공한다.
+5. 사용자가 정상 J binding 규칙으로 그 name을 shadow/rebind할 수 있는 경우에는 그 binding semantics가 우선한다. extension spelling 자체에 영구 keyword 의미를 부여하지 않는다.
+6. name이 extension entity로 해소되면 spelling이 아니라 안정적인 `PrimitiveId`/builder identity를 가진다.
+7. `f =: conv`처럼 alias를 만들면 `f`는 conv의 **adverb identity**를 가리키며, parameter application 뒤에야 derived Conv verb/op가 생긴다.
+8. J built-in과 extension은 등록 출처가 달라도 semantic analyzer에서는 공통 capability interfaces를 통해 분석한다.
+9. 새 extension을 추가할 때 tokenizer/enqueuer/parser의 **코드**를 수정하지 않고 registry/binding data와 semantic/lowering capability를 추가한다.
 
-기존 `JAXA-complier` prototype은 built-in lookup 실패 후 custom registry를 검사했다. RustJ에서는 정확한 enqueue 시점 구현보다 **J name semantics를 보존하면서 semantic resolution 결과가 registry-backed primitive entity가 된다**는 점을 아키텍처 불변식으로 둔다.
+4월 `JAXA-complier` prototype은 built-in lookup 실패 뒤 spelling을 custom registry로 직접 가로챘다. 이는 prototype으로는 유용했지만 ordinary J rebinding과 extension-as-name 원칙을 약화시킬 수 있다. 현행 RustJ는 후기 `jaxa-analyzer` 방향대로 **generic Enqueuer에 vocabulary/name resolver를 주입**하는 모델을 기준으로 한다.
+
+resolvable name과 late-bound name도 구분한다. J semantics상 호출 시점 lookup이 필요한 name은 억지로 extension identity로 고정하지 않고 `NameRef`/binding guard를 보존한다.
 
 ### 4.9 Vocabulary는 이름 목록이 아니라 form + contract다
 
@@ -745,7 +814,28 @@ valid J semantics
 advanced optimization contract available
 ```
 
-J built-in의 resource contract가 Unknown이면 보수적인 plan으로 실행할 수 있다. 반면 RustJ 고유 extension primitive는 최소 semantic contract와 실행/lowering 경로가 없으면 등록 완료로 보지 않는다.
+J built-in이 valid J semantics를 가진다고 해서 반드시 hardware-aware Array Logical path에 들어갈 수 있는 것은 아니다.
+
+현행 RustJ는 두 범위를 구분한다.
+
+```text
+RustJ language semantic coverage
+  장기적으로 J 전체 의미
+
+Analyzable Array Profile
+  shape/rank/effect/access contract가 충분하여
+  hardware-aware Logical Array IR과 advanced route에 안전하게 낮출 수 있는 영역
+```
+
+따라서 J built-in의 advanced resource/lowering contract가 부족하면 다음 중 하나다.
+
+- semantic LogicalOp까지는 만들되 advanced optimization을 막고 conservative/native lowering 사용
+- compiled runtime/effect call 경로로 낮춤
+- 아직 구현되지 않은 feature라 명시적 Unsupported
+
+어느 경우든 “유효한 J가 아니다”로 오해하지 않는다.
+
+반면 RustJ 고유 extension primitive/adverb는 언어에 새 의미를 추가하는 것이므로 최소 semantic contract와 적어도 하나의 검증된 lowering/runtime 경로가 없으면 **등록 완료로 보지 않는다.**
 
 ### 4.10 PrimitiveSpec은 semantic record이고, realization은 별도 registry/interface다
 
@@ -1763,6 +1853,60 @@ DestinationRelation
 
 이 relation은 `BufferId`를 미리 배정하는 것이 아니다. native bufferization이나 MLIR One-Shot Bufferize 같은 후속 단계가 SSA use-def, liveness, conflict를 함께 보고 실제 in-place/out-of-place 결정을 내릴 수 있게 하는 contract다.
 
+#### 4.24.2 mutable state는 primitive 내부에 숨기지 않는다
+
+후기 `japchae` D-27/D-31의 결정은 현행 RustJ에서도 유지한다.
+
+weight, gradient, optimizer state, checkpoint, routing map처럼 실행 사이에 관찰·재사용·갱신되는 array state는 특별한 “layer-owned field”가 아니라 **명시적인 array/resource identity**로 표현한다.
+
+```text
+StateResource
+  logical array type/shape
+  lifetime requirement
+  access/effect permissions
+  initialization / persistence semantics
+  optional external visibility
+```
+
+역할 이름은 semantic kind를 결정하지 않는다.
+
+```text
+weight
+gradient
+optimizer m/v
+step counter (rank-0 array)
+checkpoint
+routing map
+```
+
+모두 J 관점에서는 array/value/resource이며, 차이는 lifetime과 Read/Write/Accumulate effect 및 storage requirement다.
+
+parameterized adverb가 stateful computation을 도출하더라도 mutable state를 derived verb 내부의 숨은 object field로 캡슐화하지 않는다.
+
+```text
+DerivedVerb
+  references StateResource ids
+  + pure/declared computation semantics
+
+StateResource
+  exists outside the verb
+```
+
+compile-time 고정 hyperparameter처럼 실행 중 변하지 않는 값은 immutable parameter/attribute로 derived verb에 캡처할 수 있다. **mutable runtime state와 compile-time constant를 구분**한다.
+
+과거 “materialized array”라는 용어는 다음 두 개념을 한 단어로 묶었다.
+
+```text
+semantic side:
+  StateResource / StorageRequirement / lifetime/effects
+
+physical side:
+  MaterializationDecision / BufferId / offset / memory space
+```
+
+현행 RustJ에서는 이를 분리한다. named state의 identity/lifetime이 compile time에 알려져도 physical fixed offset을 반드시 미리 정할 필요는 없다.
+
+
 
 ### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
 
@@ -2429,7 +2573,9 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank/derived verb의 의미 구조가 분석 입력에 남아 있다.
 ### A2 — Extension Primitive Registry와 analysis contract
 
-- [ ] extension name을 parser keyword로 만들지 않고 name resolution을 통해 `PrimitiveId`로 해소한다.
+- [ ] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다.
+- [ ] Enqueue/name classification이 injected registry/environment를 통해 extension의 J 품사(noun/verb/adverb/conjunction)를 parser 전에 제공한다.
+- [ ] parameterized adverb(`conv`, `linear` 등)와 그 결과 derived computational verb/op identity를 분리한다.
 - [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
 - [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
 - [ ] innate rank와 cell axis-role contract를 정의한다.
@@ -2448,7 +2594,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] StableHLO로 안전하게 내릴 수 있는 subset을 명시하고 unsupported semantics를 거부하는 규칙을 만든다.
 - [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
-- [ ] alias를 거쳐도 primitive identity/spec이 보존되는 테스트를 추가한다.
+- [ ] alias/shadow/rebind를 거쳐도 J name semantics와 extension identity가 올바르게 보존되는 테스트를 추가한다.
+- [ ] mutable extension state가 hidden verb field가 아니라 explicit StateResource로 나타나는 테스트를 추가한다.
 - [ ] standard-J reference definition이 가능한 extension은 차등 oracle test를 추가한다.
 
 완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, RustJ-native route에서는 별도 TargetProfile을 이용해 schedule/ResourceEstimate를 만들고 external route에서는 adapter가 같은 Logical IR contract를 검증해 lowering할 수 있다.
@@ -3063,6 +3210,10 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 20. **Route는 혼합 가능** — external/native route는 whole-program exclusive choice가 아니라 legal region/subgraph 단위로 partition할 수 있다.
 21. **Analysis state와 semantic error 분리** — lattice의 unknown/unreachable과 J의 domain/rank/length error를 같은 상태로 표현하지 않는다.
 22. **RoutePartition은 plan** — route 배정은 Logical IR semantic identity가 아니며 target/backend 조건에 따라 재계산 가능하다.
+23. **Extension name은 keyword가 아니다** — ordinary J binding/품사 해소를 사용하고 tokenizer/parser spelling special-case를 만들지 않는다.
+24. **Surface builder와 derived op를 구분** — parameterized adverb identity와 그 결과 computational verb/LogicalOp identity를 같은 것으로 취급하지 않는다.
+25. **Full J semantics와 analyzable array profile 분리** — advanced compiler contract가 없다는 이유만으로 valid J semantics를 부정하지 않는다.
+26. **Mutable state externalization** — weight/grad/optimizer/checkpoint 같은 mutable array state를 primitive/verb hidden field에 숨기지 않는다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
