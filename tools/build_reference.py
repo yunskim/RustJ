@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 
-PIN = 'e75016ca74b5e595dd323226e6a4990172f72ec6'
+PIN = '13994ffa1ed5f06f79fad6e9822a7ed2d29b1528'
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
 p.add_argument('--source', type=Path, default=ROOT.parent / 'jsource-inspection')
