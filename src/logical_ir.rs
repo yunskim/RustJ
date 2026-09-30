@@ -279,6 +279,26 @@ impl EffectSummary {
     }
 }
 
+fn resolved_effect_summary(callable: &Callable, left: Option<ValueId>, contract: Contract) -> EffectSummary {
+    if contract.effect == Effect::Pure {
+        return EffectSummary::Pure;
+    }
+
+    let analysis::CallTarget::Primitive(id) = callable.target else {
+        return EffectSummary::Unknown;
+    };
+    let base_valence = if callable.reduce && left.is_none() {
+        // u/ y applies the dyadic u between cells.
+        Valence::Dyad
+    } else if left.is_some() {
+        Valence::Dyad
+    } else {
+        Valence::Monad
+    };
+    let base = crate::contracts::for_primitive(id, base_valence);
+    EffectSummary::from_contract(base)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpeculationSemantics {
     pub may_raise_observable_error: bool,
@@ -655,7 +675,7 @@ impl Plan {
                         right,
                         contract: *contract,
                         iteration_domain: iteration_domain(node.basis, node, transition),
-                        effect: EffectSummary::from_contract(*contract),
+                        effect: resolved_effect_summary(callable, left, *contract),
                         speculation: SpeculationSemantics::from_contract(*contract),
                         possible_errors: PossibleErrors::from_contract(*contract),
                         destination: DestinationRelation::Unknown,
