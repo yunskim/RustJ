@@ -183,7 +183,8 @@ impl Engine {
         if depth > crate::semantic::MAX_EXPR_DEPTH {
             return Err(Error::Limit.at(span));
         }
-        let result = match expr.kind {
+        let result = (|| -> Result<Value> {
+            match expr.kind {
             Expr::Group(inner) => self.interpret_ir(*inner, pooled, depth + 1),
             Expr::Literal(v) => Ok(v),
             Expr::VerbValue(_) => Err(Error::Domain),
@@ -229,7 +230,8 @@ impl Engine {
                     kernels::dyad(verb.id.spelling(), x, y)
                 }
             }
-        };
+            }
+        })();
         result.map_err(|error| error.at(span))
     }
 }
