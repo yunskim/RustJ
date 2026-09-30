@@ -31,6 +31,7 @@ pub enum NodeKind {
         function: Arc<FunctionEntity>,
         form: GraphForm,
         hints: GraphHints,
+        rules: GraphRuleRefs,
         valence: Valence,
         left: Option<ValueId>,
         right: ValueId,
@@ -110,6 +111,65 @@ pub enum GraphHint {
     ReductionStructure,
     /// Rank syntax exposes repeated cell application / frame parallelism.
     CellParallelStructure,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphRuleRef {
+    /// Rule is owned by a primitive semantic specification.
+    Primitive(crate::primitive::PrimitiveId),
+    /// Rule is composed from J combinator/child-function semantics.
+    StructuralComposition,
+    /// Name/binding or unsupported construction prevents a static rule choice.
+    DynamicOrUnknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceRuleRef {
+    /// No symbolic resource model has been registered yet.  This is explicit,
+    /// not permission to assume zero cost.
+    Unknown,
+    /// Resource/liveness behavior must be composed from child operations.
+    StructuralComposition,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GraphRuleRefs {
+    pub shape: GraphRuleRef,
+    pub dtype: GraphRuleRef,
+    pub rank_cell: GraphRuleRef,
+    pub effect: GraphRuleRef,
+    pub resource: ResourceRuleRef,
+}
+
+fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
+    match &function.head {
+        FunctionHead::PrimitiveVerb(id) => GraphRuleRefs {
+            shape: GraphRuleRef::Primitive(*id),
+            dtype: GraphRuleRef::Primitive(*id),
+            rank_cell: GraphRuleRef::Primitive(*id),
+            effect: GraphRuleRef::Primitive(*id),
+            // Resource models deliberately remain explicit Unknown until the
+            // graph resource registry is implemented.
+            resource: ResourceRuleRef::Unknown,
+        },
+        FunctionHead::PrimitiveAdverb(_)
+        | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::Hook
+        | FunctionHead::Fork => GraphRuleRefs {
+            shape: GraphRuleRef::StructuralComposition,
+            dtype: GraphRuleRef::StructuralComposition,
+            rank_cell: GraphRuleRef::StructuralComposition,
+            effect: GraphRuleRef::StructuralComposition,
+            resource: ResourceRuleRef::StructuralComposition,
+        },
+        FunctionHead::NameRef(_) => GraphRuleRefs {
+            shape: GraphRuleRef::DynamicOrUnknown,
+            dtype: GraphRuleRef::DynamicOrUnknown,
+            rank_cell: GraphRuleRef::DynamicOrUnknown,
+            effect: GraphRuleRef::DynamicOrUnknown,
+            resource: ResourceRuleRef::Unknown,
+        },
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -331,12 +391,16 @@ impl Plan {
                 function,
                 form,
                 hints,
+                rules,
                 valence,
                 left,
                 right,
             } = &node.kind
             {
                 let (expected_form, expected_hints) = classify_function(function);
+                if *rules != rule_refs(function) {
+                    return Err(format!("node {index} graph rule refs do not match J function structure"));
+                }
                 if std::mem::discriminant(form) != std::mem::discriminant(&expected_form) {
                     return Err(format!("node {index} graph form does not match J function structure"));
                 }
@@ -398,11 +462,13 @@ impl Builder {
             ExprKind::Monad { verb, argument } => {
                 let right = self.expression(*argument)?;
                 let (form, hints) = classify_function(&verb.entity);
+                let rules = rule_refs(&verb.entity);
                 Ok(self.push(
                     NodeKind::Apply {
                         function: verb.entity,
                         form,
                         hints,
+                        rules,
                         valence: Valence::Monad,
                         left: None,
                         right,
@@ -415,11 +481,13 @@ impl Builder {
                 let right = self.expression(*right)?;
                 let left = self.expression(*left)?;
                 let (form, hints) = classify_function(&verb.entity);
+                let rules = rule_refs(&verb.entity);
                 Ok(self.push(
                     NodeKind::Apply {
                         function: verb.entity,
                         form,
                         hints,
+                        rules,
                         valence: Valence::Dyad,
                         left: Some(left),
                         right,
