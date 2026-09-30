@@ -93,6 +93,100 @@ pub struct SemanticCheck {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IterationAxisKind {
+    Parallel,
+    Reduction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AxisRole {
+    Output,
+    Frame,
+    Reduction,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IterationAxis {
+    pub position: usize,
+    pub extent: Option<usize>,
+    pub kind: IterationAxisKind,
+    pub role: AxisRole,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IterationDomain {
+    pub axes: Vec<IterationAxis>,
+}
+
+fn axes_from_shape(
+    shape: Option<&[usize]>,
+    rank: Option<usize>,
+    role: AxisRole,
+) -> Vec<IterationAxis> {
+    let rank = shape.map_or(rank.unwrap_or(0), <[usize]>::len);
+    (0..rank)
+        .map(|position| IterationAxis {
+            position,
+            extent: shape.and_then(|shape| shape.get(position).copied()),
+            kind: IterationAxisKind::Parallel,
+            role,
+        })
+        .collect()
+}
+
+fn iteration_domain(
+    kind: Option<BasisKind>,
+    node: &analysis::Node,
+    transition: &analysis::LogicalPlan,
+) -> IterationDomain {
+    if kind == Some(BasisKind::Reduce) {
+        let analysis::Operation::Call { right, .. } = node.operation else {
+            return IterationDomain::default();
+        };
+        let input = &transition.nodes[right.0].facts;
+        let rank = input.shape.as_ref().map_or(input.rank.unwrap_or(0), Vec::len);
+        let mut axes = Vec::with_capacity(rank);
+        for position in 0..rank {
+            axes.push(IterationAxis {
+                position,
+                extent: input
+                    .shape
+                    .as_ref()
+                    .and_then(|shape| shape.get(position).copied()),
+                kind: if position == 0 {
+                    IterationAxisKind::Reduction
+                } else {
+                    IterationAxisKind::Parallel
+                },
+                role: if position == 0 {
+                    AxisRole::Reduction
+                } else {
+                    AxisRole::Output
+                },
+            });
+        }
+        return IterationDomain { axes };
+    }
+
+    if kind == Some(BasisKind::CellApply) {
+        if let Some(plan) = &node.rank_plan {
+            let frame = plan.result_frame.as_deref();
+            return IterationDomain {
+                axes: axes_from_shape(frame, frame.map(<[usize]>::len), AxisRole::Frame),
+            };
+        }
+    }
+
+    IterationDomain {
+        axes: axes_from_shape(
+            node.facts.shape.as_deref(),
+            node.facts.rank,
+            AxisRole::Output,
+        ),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectSummary {
     Pure,
     Unknown,
@@ -136,6 +230,7 @@ pub struct CallOp {
     pub left: Option<ValueId>,
     pub right: ValueId,
     pub contract: Contract,
+    pub iteration_domain: IterationDomain,
     pub effect: EffectSummary,
     pub speculation: SpeculationSemantics,
     pub instantiation: ResolvedInstantiation,
@@ -446,6 +541,7 @@ impl Plan {
                         left,
                         right,
                         contract: *contract,
+                        iteration_domain: iteration_domain(node.basis, node, transition),
                         effect: EffectSummary::from_contract(*contract),
                         speculation: SpeculationSemantics::from_contract(*contract),
                         instantiation,
@@ -566,6 +662,22 @@ impl Plan {
                             "basis payload does not match basis identity/call".into(),
                         ));
                     }
+                    for (expected, axis) in call.iteration_domain.axes.iter().enumerate() {
+                        if axis.position != expected {
+                            return Err(fail(
+                                Some(op_id),
+                                "iteration-domain axis positions must be dense and ordered".into(),
+                            ));
+                        }
+                        if axis.kind == IterationAxisKind::Reduction
+                            && axis.role != AxisRole::Reduction
+                        {
+                            return Err(fail(
+                                Some(op_id),
+                                "reduction iteration axis must have reduction role".into(),
+                            ));
+                        }
+                    }
                     if let Some(left) = call.left {
                         check_value(left, "left input")?;
                     }
@@ -594,6 +706,14 @@ impl Plan {
                     }
                 }
                 OpKind::SemanticCall(call) => {
+                    for (expected, axis) in call.iteration_domain.axes.iter().enumerate() {
+                        if axis.position != expected {
+                            return Err(fail(
+                                Some(op_id),
+                                "iteration-domain axis positions must be dense and ordered".into(),
+                            ));
+                        }
+                    }
                     if let Some(left) = call.left {
                         check_value(left, "left input")?;
                     }
