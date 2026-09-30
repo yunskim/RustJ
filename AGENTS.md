@@ -45,6 +45,7 @@ For every implementation change:
 - Keep BackendFamily, ArchitectureTarget, DeviceProfile, RuntimeProfile, and empirical CostProfile distinct; do not collapse them into one target identity.
 - Resolve target-specific lowering/capability bindings through a compiler-only locale/path chain (device -> architecture -> family -> backend -> cpu/gpu -> generic), separate from user J locales.
 - Establish the active compiler TargetContext/target locale at compile-invocation start, but never let that target choice alter parser or J Semantic IR meaning. All hardware-lowerable built-ins and extensions must query the same selected target-locale chain.
+- Use one target-selection contract for both AOT and future JIT compilation. JIT may add runtime/device discovery when resolving `auto`, but must normalize to the same TargetContext/target-locale chain and honor the same explicit target constraints.
 - Do not infer architecture feature inheritance from numeric version ordering; use explicit locale paths and capability queries.
 - Locale lookup discovers lowering/capability candidates; legality/resource/cost analysis chooses the realization.
 
