@@ -10,7 +10,7 @@ use crate::{
         self, AccessFact, BasisKind, Callable, ResolvedInstantiation, Symbol,
         SymbolId,
     },
-    contracts::{Contract, Valence},
+    contracts::{Contract, Effect, Valence},
     facts::{Facts, RankPlan, ValueRoleFacts},
     semantic::NameVersion,
 };
@@ -92,12 +92,52 @@ pub struct SemanticCheck {
     pub origin: Range<usize>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EffectSummary {
+    Pure,
+    Unknown,
+}
+
+impl EffectSummary {
+    pub fn from_contract(contract: Contract) -> Self {
+        match contract.effect {
+            Effect::Pure => Self::Pure,
+            Effect::Unknown => Self::Unknown,
+        }
+    }
+
+    pub fn is_pure(self) -> bool {
+        self == Self::Pure
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpeculationSemantics {
+    pub may_raise_observable_error: bool,
+    pub preserve_evaluation_order: bool,
+}
+
+impl SpeculationSemantics {
+    pub fn from_contract(contract: Contract) -> Self {
+        Self {
+            may_raise_observable_error: contract.may_error,
+            preserve_evaluation_order: contract.preserve_evaluation_order,
+        }
+    }
+
+    pub fn freely_speculatable(self) -> bool {
+        !self.may_raise_observable_error && !self.preserve_evaluation_order
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CallOp {
     pub callable: Callable,
     pub left: Option<ValueId>,
     pub right: ValueId,
     pub contract: Contract,
+    pub effect: EffectSummary,
+    pub speculation: SpeculationSemantics,
     pub instantiation: ResolvedInstantiation,
     pub rank_plan: Option<RankPlan>,
     pub access: AccessFact,
@@ -323,6 +363,8 @@ impl Plan {
                         left,
                         right,
                         contract: *contract,
+                        effect: EffectSummary::from_contract(*contract),
+                        speculation: SpeculationSemantics::from_contract(*contract),
                         instantiation,
                         rank_plan: node.rank_plan.clone(),
                         access: node.access,
@@ -443,6 +485,18 @@ impl Plan {
                         return Err(fail(
                             Some(op_id),
                             "call instantiation target mismatch".into(),
+                        ));
+                    }
+                    if call.effect != EffectSummary::from_contract(call.contract) {
+                        return Err(fail(
+                            Some(op_id),
+                            "call effect summary does not match resolved contract".into(),
+                        ));
+                    }
+                    if call.speculation != SpeculationSemantics::from_contract(call.contract) {
+                        return Err(fail(
+                            Some(op_id),
+                            "call speculation semantics do not match resolved contract".into(),
                         ));
                     }
                     for fact in &call.constraints.facts {
