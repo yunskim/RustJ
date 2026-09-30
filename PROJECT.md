@@ -549,23 +549,23 @@ assignment도 구분한다.
 =:   locale/public assignment semantics
 ```
 
-두 copula 모두 namespace write effect만 있는 void statement로 모델링하지 않는다. J sentence 안에서 assignment는 **assigned value를 결과로 남겨 다른 표현과 결합될 수 있다.**
+두 copula 모두 namespace write effect만 있는 void statement로 모델링하지 않는다. J sentence 안에서 assignment는 noun/verb/adverb/conjunction 등 **assigned J entity를 결과로 남겨 다른 표현과 결합될 수 있다.**
 
 ```text
 AssignmentExpr
   target
   kind: Local (=.) | Public (=:)
-  value
+  rhs: JEntity
   effect: namespace write
-  result: assigned value
+  result: assigned JEntity
 ```
 
 따라서 assignment lowering은:
 
 ```text
-value = evaluate RHS
-write binding(target, value)
-return value
+entity = evaluate/derive RHS
+write binding(target, entity)
+return entity
 ```
 
 라는 value+effect 의미를 함께 보존한다. physical in-place assignment optimization은 이 semantic result를 바꾸면 안 된다.
@@ -610,7 +610,7 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 - pure subexpression은 dependency/effect proof 뒤 graph로 재배열 가능
 - name lookup, assignment, locale mutation, dynamic execute, I/O 등은 `EffectToken` 또는 동등한 semantic sequencing edge를 가져야 함
 - noun value snapshot과 function nameref late lookup의 시점 차이를 보존
-- assignment는 namespace write effect와 동시에 assigned value를 산출하므로 value-flow와 effect-flow 양쪽에 나타남
+- assignment는 namespace write effect와 동시에 assigned J entity를 산출하므로 entity/value-flow와 effect-flow 양쪽에 나타남
 - optimization이 name/effect boundary를 넘어갈 때 legality proof가 필요
 
 즉 **J의 우측→좌측 parser implementation을 복제하는 것이 목표가 아니라, 그 구현이 만들어내는 observable evaluation/binding order를 IR에 보존하는 것**이 목표다.
@@ -3532,7 +3532,7 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 - nameref는 생성 시 기대한 part of speech를 보존하고, 실행 시 current lookup 결과의 품사가 달라지면 J처럼 domain error가 되어야 한다.
 - name/version 정보를 IR과 plan guard에 반영해야 한다.
 - 한 sentence의 모든 name을 문장 시작 시점 environment로 일괄 resolve하지 않는다. 우측→좌측 evaluation/assignment가 만든 namespace mutation 시점을 보존한다.
-- `=.`/`=:`는 binding을 갱신하면서 assigned value도 반환하므로 statement-only IR로 축소하지 않는다.
+- `=.`/`=:`는 binding을 갱신하면서 assigned J entity(noun/verb/adverb/conjunction 등)도 반환하므로 statement-only IR로 축소하지 않는다.
 - parser가 깊은 식에서 임의의 작은 recursion/height 한계로 J 의미를 바꾸지 않도록 한다.
 
 ### 9.6 direct / explicit definition
@@ -3596,7 +3596,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] explicit definition의 DefinitionCode와 invocation CallFrame을 분리한다.
 - [ ] local slot hint와 실제 local binding을 구분하고 unbound local candidate의 locale fallback을 보존한다.
 - [ ] `=.` local assignment와 `=:` public/locale assignment를 구분한다.
-- [ ] assignment가 namespace write effect와 assigned-value result를 동시에 갖는지 테스트한다.
+- [ ] assignment가 namespace write effect와 assigned-entity result(noun/verb/adverb/conjunction)를 동시에 갖는지 테스트한다.
 - [ ] primitive contract를 semantic node에 연결한다.
 - [ ] J dyadic rank의 prefix frame agreement와 residual-frame repetition을 명시적으로 테스트한다.
 - [ ] zero-cell rank execution의 fill-cell/prototype result type·shape semantics를 테스트한다.
@@ -4244,7 +4244,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `p.c` parser가 NAME을 stack할 때 local/locale lookup하고 noun은 value, 일반 ACV는 nameref로 처리한다 | noun snapshot과 function-name late binding을 분리한다 |
 | `sc.c` nameref 실행은 현재 lookup value의 part of speech가 reference 생성 시 기대한 품사와 같은지 검사한다 | `NameRef.expected_part_of_speech`를 보존하고 mismatch는 domain error로 처리한다 |
 | `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
-| parser assignment reduction은 assigned value를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 value-producing effectful expression으로 모델링한다 |
+| parser assignment reduction은 assigned J entity를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 entity-producing effectful expression으로 모델링한다 |
 | `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
 | `cr.c::jtqq`는 `Verb"RankNoun` 외에도 right Verb rank extraction과 left Noun gerund/constant-verb form을 처리한다 | J Semantic IR의 rank node를 verb+integer pair로 제한하지 않고 original entity operands를 보존한다 |
 | `cr.c` rank dyad는 frame prefix agreement를 검사하고 residual frame에 cell을 반복한다 | NumPy broadcasting으로 대체하지 않는다 |
@@ -4311,7 +4311,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 44. **Nameref keeps expected POS** — late lookup은 허용하지만 reference 생성 시의 verb/adverb/conjunction 품사 계약을 버리지 않으며 mismatch는 J의 domain error semantics를 따른다.
 45. **Sentence environment is not pre-snapshotted** — 우측→좌측 evaluation 중 name lookup/assignment/locale mutation의 observable sequencing을 보존한다.
 46. **Rank map is not always fixed-shape** — per-cell result type/shape uniformity를 증명하지 못하면 J의 result assembly/type join/framing fill semantics를 보존한다.
-47. **Assignment is value + effect** — `=.`/`=:`를 void statement로 낮추지 않고 binding mutation과 assigned-value result를 함께 보존한다.
+47. **Assignment is entity + effect** — `=.`/`=:`를 void statement로 낮추지 않고 binding mutation과 assigned J entity result를 함께 보존한다.
 48. **Type semantics may depend on emptiness** — dtype pair만으로 domain/promotion을 확정하지 않고 J의 empty/fill/prototype context를 반영한다.
 49. **Rank is not just usize** — infinite rank와 argument-relative negative rank를 semantic RankSpec으로 보존하고 적용 시 effective cell rank를 resolve한다.
 50. **Rank conjunction is entity-based** — `"`의 left/right operand를 verb+integer로 가정하지 않고 J의 noun/gerund/verb-rank forms를 semantic analysis 전까지 보존한다.
