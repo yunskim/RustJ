@@ -2,7 +2,7 @@
 
 Use `PROJECT.md` as the single authoritative document for architecture, roadmap, support status, and validation policy.
 
-- Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering`, `Logical Optimizer`, and `Physical Planner` for the current stages. The `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` repositories are historical research/prototype material only; new design decisions belong in RustJ `PROJECT.md`.
+- Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering` for the target-independent middle-end; `Logical Optimizer`, `Schedule/Transform Plan`, and `Physical Planner` are RustJ-native-route stages, not mandatory stages for every execution route. The `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` repositories are historical research/prototype material only; new design decisions belong in RustJ `PROJECT.md`.
 
 For every implementation change:
 
@@ -21,3 +21,9 @@ For every implementation change:
 - Do not require every Logical Array IR program to pass through a RustJ-owned optimizer/code generator. Keep verified external lowering routes open (especially MLIR/LLVM and supported StableHLO subsets).
 - Do not weaken RustJ Logical IR semantics merely to match an external IR. External adapters must declare preconditions and reject or guard unsupported semantics.
 - Hardware planning must distinguish logical facts, TargetProfile hard facts, PhysicalSchedule decisions, ResourceEstimate, and backend CompiledResourceReport feedback.
+
+- Keep semantic StorageRequirement separate from physical MaterializationDecision/BufferId; bufferization stays downstream.
+- Keep schedule/transform choices out of Logical Array IR payload semantics.
+- Require Logical IR verification at compiler boundaries; dynamic assumptions must be explicit witnesses/guards.
+- Model observable side-effect/error ordering explicitly; do not infer it only from source statement order.
+- Treat native fallback as optional capability, not a guaranteed catch-all for unsupported external lowering.
