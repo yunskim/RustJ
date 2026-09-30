@@ -550,7 +550,7 @@ Semantic Analyzer / Lowering
     ↓
 Logical Array IR / Plan  ← generic compiler boundary
     ↓
-Route selection / export
+Route partition / export
     ├─ RustJ-native optimizer/planner
     ├─ MLIR
     ├─ StableHLO-compatible subset
@@ -911,7 +911,7 @@ LogicalOp
 ├─ AxisSemantics
 ├─ AccessRelations
 ├─ NumericSemantics
-├─ Dependency / SynchronizationRequirements
+├─ DependencyRequirements
 ├─ Effect / Alias
 └─ Storage / LifetimeRequirements
 ```
@@ -1010,7 +1010,7 @@ NumericSemantics
 
 CPU vector reduction이나 GPU tree reduction은 J의 관찰 가능한 floating-point 순서를 바꿀 수 있으므로, `reduction`이라는 사실만으로 재배치를 허용하지 않는다.
 
-#### 4.15.5 Dependency / synchronization requirement
+#### 4.15.5 Logical dependency requirement
 
 logical op은 CUDA barrier 자체를 갖지 않는다. 대신 어떤 범위의 dependency가 필요한지 표현한다.
 
@@ -1029,7 +1029,7 @@ DependencyRequirement
 
 Physical Planner 또는 외부 compiler가 target의 barrier/shuffle/atomic/multi-stage reduction/collective capability를 보고 구체적으로 실현한다. `ConflictingUpdate`가 있다고 해서 atomic instruction 사용을 미리 결정하지 않는다.
 
-#### 4.15.6 Logical invariance와 target uniformity를 분리한다
+#### 4.15.6 Logical invariance와 derived target uniformity를 분리한다
 
 `uniform/divergent`는 보통 SPMD execution mapping이 정해진 뒤 의미가 생긴다. 따라서 target-independent Logical IR의 기본 fact 이름은 `InvarianceFact`로 둔다.
 
@@ -1085,13 +1085,13 @@ else
   → conservative path
 ```
 
-#### 4.15.7a Representation facts는 Logical semantics와 분리한다
+#### 4.15.8 Representation facts는 Logical semantics와 분리한다
 
 stride, byte alignment, concrete contiguity, address space는 J logical value의 의미가 아니다.
 
 ```text
 RepresentationFacts
-  physical_shape_if_specialized
+  storage_extents_if_known
   strides
   base_offset
   byte_alignment
@@ -1099,6 +1099,8 @@ RepresentationFacts
   address_space / memory_space
   external_abi_layout
 ```
+
+`RepresentationFacts`는 canonical Logical IR의 semantic identity가 아니라 downstream planning/adapter가 Logical value에 대해 알고 있는 **representation-side analysis state**다.
 
 이 facts는 다음 출처에서만 생긴다.
 
@@ -1121,7 +1123,7 @@ TargetProfile
 representation assumption에 의존하는 fast path는 witness/guard 또는 adapter precondition으로 명시한다. MLIR에서도 byte alignment는 tensor semantic이 아니라 memref/alloc/load/store 수준의 representation property로 다뤄진다.
 
 
-#### 4.15.8 Semantic mask와 schedule predication을 분리한다
+#### 4.15.9 Semantic mask와 schedule predication을 분리한다
 
 Logical IR에는 **연산 의미 자체가 조건부 access/value를 요구할 때만** semantic mask를 둔다.
 
@@ -1155,7 +1157,7 @@ PredicationPlan
 
 따라서 CPU AVX mask나 GPU lane predicate는 downstream schedule/backend 결정이다. 같은 Logical IR이 target에 따라 masked instruction, scalar remainder loop, padded tile 중 다른 realization을 선택할 수 있다.
 
-#### 4.15.9 SSA, region/block, control flow
+#### 4.15.10 SSA, region/block, control flow
 
 현재 array dataflow만으로는 향후 direct/explicit definition의 조건분기·반복·호출을 충분히 표현할 수 없다.
 
@@ -1173,7 +1175,7 @@ value는 SSA `ValueId`로 표현한다. pure array graph는 single-block graph r
 
 J의 hook/fork/train을 이 CFG로 일찍 풀라는 뜻은 아니다. 그것들은 J Semantic Array IR에서 보존한 뒤 semantic lowering 결과로 필요한 control/dataflow만 만든다.
 
-#### 4.15.10 Constraint witness / runtime guard
+#### 4.15.11 Constraint witness / runtime guard
 
 `ConstraintSet`은 metadata 목록만으로 끝내지 않는다. 어떤 최적화가 특정 runtime assumption에 의존하는지 추적할 수 있어야 한다.
 
@@ -1194,7 +1196,7 @@ compile-time에 증명된 constraint는 witness 없이 fact로 정착할 수 있
 
 이는 MLIR Shape dialect의 witness/assuming 아이디어와 같은 목적을 가진다.
 
-#### 4.15.11 effect resource와 ordering token
+#### 4.15.12 effect resource와 ordering token
 
 SSA data dependency만으로는 I/O, mutable state, explicit storage update, runtime call의 관찰 가능한 순서를 모두 표현할 수 없다.
 
@@ -1214,7 +1216,7 @@ EffectToken
 
 StableHLO의 side-effecting op token과 MLIR MemoryEffect/Speculation interface를 참고하되, J의 error ordering까지 포함할 수 있도록 `SpeculationSemantics`를 별도로 둔다.
 
-#### 4.15.12 speculation / may-error semantics
+#### 4.15.13 speculation / may-error semantics
 
 J에서는 domain/rank/length/overflow 등의 오류 발생 순서도 관찰 가능할 수 있다. 따라서 “memory effect가 없다”와 “마음대로 speculative execution 가능”은 다르다.
 
@@ -1610,7 +1612,7 @@ hard fact는 versioned data로 보존하고, 복잡하거나 architecture-specif
 
 ### 4.20 CPU와 GPU에서 실제로 필요한 정보
 
-공통으로 shape/dtype, iteration/dependency axes, reduction/scan semantics, access relation, stride/alignment facts, alias/effect, working-set/reuse structure, vectorization/reassociation legality, memory hierarchy, register/vector capacity, parallel execution capacity, cost model이 필요하다.
+공통으로 logical shape/dtype, iteration/dependency axes, reduction/scan semantics, access relation, alias/effect, working-set/reuse structure, vectorization/reassociation legality가 필요하다. Downstream planning에서는 여기에 RepresentationFacts(stride/alignment 등), memory hierarchy, register/vector capacity, parallel execution capacity, cost model을 결합한다.
 
 CPU에서 특히 중요한 target facts는 core/hardware-thread topology, SIMD fixed/scalable widths, vector register classes, cache hierarchy/cache-line size, NUMA, gather/scatter/reduction cost, prefetch capability다.
 
@@ -1811,7 +1813,7 @@ Physical Plan
 
 
 
-여기서 `Logical Optimizer`는 target-independent canonicalization/DCE/CSE와, 필요하면 native route용 graph rewrite 후보 생성을 담당한다. 특정 tile/layout/device/resource를 선택하거나 target cost로 후보를 확정하는 일은 Schedule / Transform Plan 이후의 책임이다.
+여기서 `Logical Optimizer`는 target-independent canonicalization/DCE/CSE와 semantic-preserving graph rewrites를 담당한다. 특정 tile/layout/device/resource를 선택하거나 target cost로 후보를 확정하는 일은 Schedule / Transform Plan 이후의 책임이다.
 
 **Schedule / Transform Plan**은 payload semantics와 분리된 선택/변환 의도를 표현한다.
 
