@@ -121,10 +121,11 @@ route boundaries are bridged after representation requirements are known
 
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
 
-- **RustJ frontend**: source text를 J word로 나누고 enqueue에서는 glyph/control/name 및 lookup metadata를 준비한다. ordinary name의 실제 noun/verb/adverb/conjunction 품사는 **parser가 그 name을 사용할 때 현재 local/locale binding을 lookup하여 얻는다.** 그 결과와 J parsing/binding 의미를 보존한 `J Semantic Array IR`을 만든다. extension name도 keyword로 하드코딩하지 않고 ordinary name binding을 통해 같은 경로를 탄다.
-- **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
-- **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다. 이 단계는 target-independent facts와 semantic legality를 만든다.
-- **Route Partition / Export**: Logical Array IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
+- **RustJ frontend / J Semantic Construction IR**: source text를 J word로 나누고 J parsing/binding 의미를 보존한다. immutable `FunctionEntity` graph가 primitive, adverb/conjunction application, hook/fork/train, rank, `@:` 같은 **J 함수 구성 자체**를 표현한다. 이 층은 언어 의미의 canonical source다.
+- **J Graph IR / JAXA Array Operation Graph IR**: 완성된 J function을 실제 noun input에 적용한 **배열 연산 graph를 J 문법의 대수로 표현하는 compiler analysis surface**다. `@: → Pipeline`, hook/fork → Branch/Join, `/ → Reduce`, `" → CellParallel`처럼 parser/semantic construction에서 정적으로 유도되는 topology와 optimization hint를 first-class로 기록한다. JAXA의 주 관심사는 이 층이다.
+- **Graph Analyzer / Algebraic Optimizer**: J Graph IR에서 fusion topology, fan-out/fan-in, common-input reuse, retained-value lifetime, reduction/cell parallelism, materialization-elision, 이후 adjoint/VJP fan-out 등을 찾는다. 가능한 경우 basis/rewrite/equivalence rule로 동등한 J graph 후보를 만들 수 있다. 여기서 생성되는 것은 target-independent opportunity와 graph candidate이지 concrete kernel schedule이 아니다.
+- **Execution Semantic Lowering**: 선택된 J Graph IR을 explicit dataflow와 normalized array operation으로 이루어진 `Logical Execution IR / Logical Execution Plan`으로 낮춘다. 이 후자의 IR은 J observable semantics, facts/checks, basis operation, effect/error ordering, executable dependency를 정확히 표현한다. 여러 execution op가 하나의 J Graph node에서 나올 수 있으므로 모든 op는 J Graph origin을 보존한다.
+- **Route Partition / Export**: verified Logical Execution IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
 - **RustJ-native Schedule / Transform Plan**: Route A에서 fusion/grouping, tiling, vectorization, axis mapping 같은 schedule 선택을 payload Logical IR과 분리해 기록한다.
 - **RustJ-native Physical Planner / Bufferization**: 선택된 schedule을 바탕으로 placement, memory space, layout, concrete materialization/copy, buffer binding/reuse, transfer, synchronization을 구체화한다.
 - **Backend/Runtime**: 선택된 route의 lower-level IR 또는 Physical Plan을 실행 가능한 artifact로 낮추고 실행한다.
@@ -148,11 +149,15 @@ Semantic Analyzer / Lowering은 J source text나 tokenizer/parser mechanics에 �
 ```text
 RustJ source frontend
         ↓
-J Semantic Array IR
+J Semantic Construction IR / FunctionEntity
         ↓
-Semantic Analyzer / Lowering
+J Graph IR / Array Operation Graph IR
         ↓
-Logical Array IR / Plan
+Graph Analysis / J-algebra optimization
+        ↓
+Execution Semantic Lowering
+        ↓
+Logical Execution IR / Plan
         ↓
 Route partition / export
    ├─ RustJ native: Logical Optimizer → Schedule → Physical Plan
@@ -171,6 +176,111 @@ Semantic Analyzer ─X→ source-text reparsing
 ```
 
 반대로 parser-produced `Hook`/`Fork` parent, 이들의 중첩으로 이루어진 train, result POS를 가진 derived entity, 그리고 `"` conjunction application 같은 **semantic structure를 Semantic Analyzer가 아는 것은 의도된 설계**다. 이는 별도 `Train` 또는 `Rank(u,r)` special semantic node를 둔다는 뜻이 아니다.
+
+
+### 2.1.1 두 compiler IR은 목적이 다르며 둘 다 canonical boundary다
+
+RustJ/JAXA에는 서로 다른 질문에 답하는 두 graph IR이 필요하다.
+
+#### A. J Graph IR — “이 배열 계산은 J 대수로 어떤 graph인가?”
+
+이 IR은 **표기/결합 구조에서 optimization 정보를 최대한 정적으로 추출하는 것**이 목적이다.
+
+~~~text
+J source / FunctionEntity
+        ↓
+Applied J Graph
+
+@:          → Pipeline
+hook/fork   → Branch / Join
+/           → Reduction
+"           → Cell application / frame parallelism
+;. / window → neighborhood / segment topology   // 지원이 추가될 때
+u . v       → contraction topology              // 지원이 추가될 때
+adjoint     → reverse graph / fan-out            // 향후
+~~~
+
+node는 실제 argument ValueId와 함께 다음 종류의 intrinsic graph 정보를 가질 수 있다.
+
+- J combinator/function identity와 source provenance
+- graph form / topology
+- J observable evaluation order
+- shared/common inputs와 fan-out/fan-in
+- producer-consumer chain
+- syntactic reduction / rank-cell / window / contraction structure
+- intermediate materialization-elision 후보
+- retained-value / common-input reuse 후보
+- dependency상 parallel branch 후보
+- shape/dtype/rank/effect/resource **rule reference 또는 Unknown**
+- basis/rewrite/adjoint rule reference가 있을 경우 그 identity
+
+여기서 “hint”는 compiler에게 임의의 optimization을 권하는 pragma가 아니다. **J 문법으로부터 결정적으로 유도된 graph fact/opportunity**다. 다만 actual shape, runtime binding, J error order proof, target resource feasibility가 필요한 결론은 아직 내리지 않는다.
+
+J Graph IR은 일반 SSA DAG의 단순 복사본이 아니다. 예를 들어 fork를 세 call로 즉시 잃어버리지 않고 `Fork/BranchJoin`이라는 algebraic form을 보존하며, `@:` chain을 generic producer-consumer 검색 없이 Pipeline으로 안다.
+
+#### B. Logical Execution IR — “이 J graph를 정확히 실행하려면 어떤 operation/data dependency가 필요한가?”
+
+이 IR은 **J 실행 의미와 compiler lowering contract를 정확히 표현하는 것**이 목적이다.
+
+~~~text
+J Graph IR
+   ↓ lower/expand
+Logical Execution IR
+
+Pipeline
+  → op → op → op
+
+Fork
+  → right branch ops
+  → left branch ops
+  → join op
+
+Rank
+  → CellApply + frame/cell facts
+
+Insert
+  → Reduce + ordering/empty/error semantics
+~~~
+
+여기서는 다음이 중심이다.
+
+- explicit SSA-like data dependency
+- BasisKind/BasisPayload
+- ResolvedInstantiation / ValueFacts / ValueRoleFacts
+- ConstraintSet / FactWitness / SemanticCheck
+- EffectSummary / SpeculationSemantics
+- AccessFact / DestinationRelation
+- J observable error/evaluation ordering
+- route/lowering legality의 입력
+
+**한 J Graph node가 여러 Execution op로 펼쳐질 수 있으므로 1:1 대응을 가정하지 않는다.** `j_origin` provenance로 many-to-one 관계를 유지한다.
+
+#### 두 IR 사이의 최적화 책임
+
+~~~text
+J Graph IR
+  structural/algebraic optimization
+  - pipeline / branch-join discovery
+  - graph rewrite/equivalence
+  - fusion candidate boundaries
+  - common-input/lifetime opportunities
+  - AD graph construction
+        ↓
+Logical Execution IR
+  semantic/execution optimization
+  - checks/proofs
+  - basis expansion
+  - access composition
+  - legal fusion confirmation
+  - representation-aware transforms
+        ↓
+Physical/Schedule
+  target feasibility/profitability
+~~~
+
+따라서 RustJ는 “모든 최적화를 후자의 IR에서 한다”는 구조를 취하지 않는다. **JAXA가 주장하는 J 표기 대수의 이점은 전자의 IR에서 소비**하고, 후자는 그 결과를 정확히 실행 가능한 compiler contract로 만든다.
+
+현재 `StructuralOpportunity`는 이 두 층을 연결하는 bridge다. 앞으로는 J Graph IR의 `GraphForm/GraphHint`가 source이며, Execution lowering이 이를 실제 execution ValueId에 투영해 `StructuralOpportunity<ValueId>`를 만든다. 후자가 generic DAG를 다시 pattern-match해서 원래 J topology를 복원하는 경로는 보조 수단으로만 사용한다.
 
 ### 2.2 물리적으로 함께, 논리적으로 독립
 
@@ -5561,14 +5671,20 @@ J error가 있는 case는 값만 비교하지 않고 **error class와 observable
 
 > **J의 combinator syntax와 derived semantics가 계산 graph의 topology를 정적으로 드러내므로, compiler가 fusion·parallelism·materialization·lifetime 기회를 일반 DAG pattern matching보다 일찍 발견할 수 있다.**
 
-RustJ는 이 정보를 generic Logical DAG로 펼친 뒤 다시 복원하지 않는다. Semantic Analyzer가 아직 FunctionEntity의 J 구조를 보고 있을 때 **target-independent StructuralOpportunity**를 추출하고, 펼친 ValueId graph와 함께 보존한다.
+RustJ는 이 정보를 generic Logical DAG로 펼친 뒤 다시 복원하지 않는다. J Graph IR이 FunctionEntity의 J 구조를 실제 noun application과 결합해 **GraphForm/GraphHint**를 만들고, Execution lowering이 이를 concrete execution ValueId에 투영한 `StructuralOpportunity`를 만든다.
 
 이 원칙은 basis 분석과 다른 축이다.
 
 ~~~text
-                    ┌→ Basis analysis
-J Semantic IR ──────┤
-                    └→ Structural opportunity analysis
+J Semantic Construction IR
+          ↓
+      J Graph IR
+          ├→ graph algebra / rewrite analysis
+          └→ GraphForm / GraphHint
+                    ↓
+           Execution lowering
+                    ├→ Basis analysis
+                    └→ StructuralOpportunity projection
                               │
                               ▼
                     Logical optimization substrate
@@ -5809,6 +5925,9 @@ ExternalResource
 - @: chain은 recursive semantic tree를 execution-order pipeline으로 flatten하여 하나의 Pipeline record로 남긴다.
 - Hook/Fork는 J observable evaluation order를 유지한 branch result list와 live-across/shared input을 기록한다.
 - transition LogicalPlan과 A3 Logical IR 둘 다 opportunity sidecar를 운반하고 verifier가 value/span 무결성을 검사한다.
+- `src/j_graph_ir.rs`는 적용된 J graph를 독립 compiler IR로 제공하며 `GraphForm`과 `GraphHint`를 node 자체에 기록한다. 현재 `Pipeline/Hook/Fork/Reduce/Rank`가 first-class form이다.
+- execution `analysis::lower_graph()`는 이제 `BoundProgram`을 직접 해석하지 않고 J Graph IR을 소비한다. `Node.j_origin`이 graph node와 execution op의 many-to-one provenance를 보존한다.
+- `Engine::analyze_compilation()`은 `j_graph`와 `execution` 두 IR을 함께 반환한다.
 - ParallelFanOut은 type/schema만 먼저 정의했으며 실제 adjoint/VJP pass가 생길 때 producer를 연결한다.
 - 현재 opportunity extraction은 call site에서 직접 보이는 semantic function graph를 기준으로 한다. name-bound derived verb를 interprocedurally 열어 topology를 전파하는 summary/cache는 아직 없으며, 이후 SpecializationEngine/binding-version analysis와 연결한다.
 
@@ -6968,6 +7087,9 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] adjoint/VJP expansion이 생기면 data-adjoint/parameter-adjoint branch를 `ParallelFanOut` opportunity로 연결한다.
 - [ ] name-bound derived verb의 FunctionEntity/topology summary를 binding version + SpecializationKey로 전파해 `@:`/hook/fork opportunity가 call boundary에서 사라지지 않게 한다.
 - [ ] StructuralOpportunity와 use-def/GraphIndex를 결합해 pipeline intermediate materialization-elision 및 branch live-range 분석을 일반화한다.
+- [ ] J Graph IR의 GraphForm/GraphHint vocabulary를 Cut/Window, Dot/Contract, Power/Iteration, Key/GroupBy 등 J graph algebra 전반으로 확장한다.
+- [ ] primitive마다 J Graph IR용 shape/dtype/rank/effect/resource rule reference를 연결하고, 아직 모르는 항목은 명시적 Unknown으로 둔다.
+- [ ] basis verb 위 rewrite/equivalence rule을 J Graph IR에서 표현하여 동일 execution semantics를 갖는 여러 J graph 후보를 생성할 수 있게 한다.
 - [ ] target ResourceEstimate/register/shared-memory model을 opportunity별 feasibility query로 연결하되 Logical IR payload에는 concrete hardware allocation을 넣지 않는다.
 - [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
 - [x] ValueRoleFacts 최소형을 추가했다. 현재 ShapeVector/AxisPermutation/IndexVector/CountVector를 실제 분석에서 생산하며 나머지 role enum은 후속 basis가 사용한다.
