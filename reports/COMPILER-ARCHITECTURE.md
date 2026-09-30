@@ -428,6 +428,24 @@ pub struct ArrayView {
 
 이것은 JArray가 아니라 backend execution representation이다.
 
+### 9.2 구현 전 불변식 보완 (2026-09-30)
+
+위 구조 예시는 개념 모델이며 Rust object/device ABI 선언이 아니다.
+세 차례 분리 검토의 상세 근거는 [GPU 배열 설계 검토](GPU-ARRAY-DESIGN-AUDIT.md),
+현재 실행 범위는 [GPU 배열 체크리스트](GPU-FRIENDLY-ARRAY-PLAN.md)를 따른다.
+
+- 첫 physical mapping은 immutable checked `AffineDense`다. strides/offset은 이 mapping의 속성이다.
+- packed bit, tiled, sparse, boxed는 별도 encoding/mapping이며 affine byte-stride 모델로 강제하지 않는다.
+- BufferId는 주소와 allocation alias identity가 아니다. scoped/generation ID를 실제 owner에서 resolve하며 탈출 view는 owner lease/borrow를 보존한다.
+- inline 이동 및 registry 성장 중 raw pointer를 보관하지 않는다. slice lease 동안 backing 이동·교체를 금지한다.
+- CPU slice의 논리 순서 연속성과 메모리 연속성을 구분한다. 초기 mutable 경로는 독점 표준 연속 출력만 허용한다.
+- empty descriptor는 shape를 보존하고 offset/strides를 0으로 정규화한다. 주소 연산을 하지 않는다. singleton stride도 0으로 정규화한다.
+- 초기 encoding은 BoolByte/Int64/Float64/Char8이며 backing의 dtype·initialized length·span을 checked 검증한다.
+- representation record는 논리 값 identity와 layout/encoding/location/readiness를 연결한다. mutable binding version은 별도다.
+- GPU ABI lowering은 고정 폭 index/address와 target capability를 검증한다. host usize/isize/Arc layout을 그대로 넘기지 않는다.
+- 첫 CPU physical 실행은 fresh binding snapshot에 한정한다. reusable plan은 버전·dtype/shape·동적 verb guards 및 재분석을 요구한다.
+- 실제 CUDA 완료/수명 구현은 보류하며 제출 완료를 값 Ready나 버퍼 재사용 증명으로 쓰지 않는다.
+
 ## 10. GPU 친화적 배열 설계
 
 ### 10.1 stride/view

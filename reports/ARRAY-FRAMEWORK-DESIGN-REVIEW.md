@@ -90,3 +90,7 @@ NVIDIA library 사용 여부 및 Rust kernel 작성 목표와의 관계는 재�
 
 조회에서 일부 version URL은 실패해 Arrow latest 및 ndarray 실제 소스 링크로 확인했다.
 모든 framework의 모든 안전성/성능 조건을 확인한 것은 아니다. 구현 시 선택 API의 버전 고정과 추가 소스 확인을 계속한다.
+
+## 후속 설계 검토
+
+[세 관점 설계 검토](GPU-ARRAY-DESIGN-AUDIT.md)에서 D1~D5의 미정 정책을 구체화했다. empty/singleton 정규화, affine mapping 범위와 encoding 분리, owner lease, fresh-plan 실행과 GPU ABI 경계는 해당 수정 결정을 따른다. 구현 검증은 아직 미완료다.

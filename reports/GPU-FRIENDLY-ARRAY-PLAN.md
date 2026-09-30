@@ -26,6 +26,23 @@ Semantic IR, 보수적 primitive 계약, ValueId 기반 LogicalPlan과 rank fact
 G1은 mutable arbitrary view를 제공하지 않는다. G2 첫 reshape view는 표준 논리 순서의 연속 입력으로 제한한다.
 후속 JIT 실험은 G1~G4를 지연시키지 않으며 CUDA 보류도 유지한다.
 
+## 세 차례 설계 검토 반영 — 2026-09-30
+
+[독립 관점별 검토 기록](GPU-ARRAY-DESIGN-AUDIT.md)의 A/B/C 판단을 구현 승인 조건으로 추가한다.
+같은 검토자의 세 관점 검토이며 서로 다른 모델의 독립 심사는 아니다.
+
+- [x] 메모리/의미/compiler 경계를 별도로 검토하고 아래 설계 조건을 확정했다. 코드 검증은 미완료다.
+- [ ] G1/A1: scoped/generation BufferId, 실제 allocation alias identity, owning/borrowed lease를 분리하고 inline 이동·registry 성장을 검증한다.
+- [ ] G1/A2~A4: private immutable AffineDense, BoolByte/Int64/Float64/Char8 encoding 검증, empty offset/strides=0 및 singleton stride=0 정규화를 구현한다.
+- [ ] G2~G3/B1~B2: frame/cell agreement mapping, 비affine 진단, cell 오류 순서와 empty prototype 경계를 보존한다.
+- [ ] G4/B3: helper API뿐 아니라 실제 source structural→덧셈 경로의 view 유지와 materialization 경계를 계측한다.
+- [ ] G4/C1: fresh bound plan·입력 snapshot lease·성공 후 commit과 planning 진단/실행 오류 순서 보존을 연결한다. inspection plan을 guard 없는 reusable executable로 쓰지 않는다.
+- [ ] G1 설계/G5 확장 C2~C3: 논리 값 identity/representation readiness와 backend ABI 경계를 기록한다. CUDA 구현은 보류한다.
+- [ ] G3/G5 C4: 원소별 backend/dtype 분기 없이 stride 루프를 선택하고 index·metadata 비용을 따로 측정한다.
+
+G1 초기 표현은 AffineDense read-only다. bit/tiled/sparse/boxed mapping과 mutable 일반 view는 구현 범위 밖이다.
+BufferId가 달라도 같은 allocation을 alias할 수 있으며 span 검사만으로 non-overlap을 선언하지 않는다.
+
 ## G1 — 논리 값과 물리 표현의 경계 (바로 다음 작업)
 
 - [ ] ValueId와 별개의 BufferId 및 버퍼 소유자/등록 수명 모델을 정의한다. 논리 이름 버전과 버퍼 ID를 혼동하지 않는다.
@@ -35,7 +52,7 @@ G1은 mutable arbitrary view를 제공하지 않는다. G2 첫 reshape view는 �
 - [ ] 동일 논리 값의 여러 물리 표현을 허용하며 CpuStorage를 CPU backing으로 재사용하는 adapter를 만든다.
 - [ ] 단위 테스트: 유효/잘못된 descriptor, signed overflow, 빈 축, backing 경계, 공유 버퍼와 descriptor 수명.
 
-완료 조건: CPU slice를 얻는 API는 연속성 및 CPU backing을 증명한 경우에만 제공한다.
+완료 조건: 기존 dense kernel용 CPU slice는 표준 논리 순서의 연속성 및 CPU backing을 증명한 경우에만 제공한다. memory-contiguous slice는 별도 API/순서 proof를 요구한다.
 장치 포인터를 CPU slice로 변환하는 API나 가짜 CUDA 저장소는 추가하지 않는다.
 새 표현을 기존 Value에 연결하기 전부터 공개 생성 경계에서 불변식을 검사한다.
 
