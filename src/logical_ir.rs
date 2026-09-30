@@ -7,7 +7,7 @@
 use crate::{
     Value,
     analysis::{
-        self, AccessFact, BasisKind, CallTarget, Callable, ResolvedInstantiation, Symbol,
+        self, AccessFact, BasisKind, Callable, ResolvedInstantiation, Symbol,
         SymbolId,
     },
     contracts::{Contract, Valence},
