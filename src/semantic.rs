@@ -14,6 +14,10 @@ impl FunctionFormId {
     pub const INSERT: Self = Self(1);
     /// Built-in rank conjunction application.
     pub const RANK: Self = Self(2);
+    /// Two-entity train (hook) produced by J parser reduction.
+    pub const HOOK: Self = Self(3);
+    /// Three-entity train (fork) produced by J parser reduction.
+    pub const FORK: Self = Self(4);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,6 +90,94 @@ impl FunctionEntity {
     }
 }
 
+fn train_hook(f: Verb, g: Verb) -> Verb {
+    let span = f.span.start..g.span.end;
+    Verb {
+        span: span.clone(),
+        target: VerbTarget::Derived,
+        entity: FunctionEntity::derived(
+            FunctionFormId::HOOK,
+            FunctionPartOfSpeech::Verb,
+            span,
+            vec![
+                FunctionOperand::Function(f.entity),
+                FunctionOperand::Function(g.entity),
+            ],
+        ),
+        reduce: false,
+        rank: None,
+    }
+}
+
+fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
+    let span = f.span.start..h.span.end;
+    Verb {
+        span: span.clone(),
+        target: VerbTarget::Derived,
+        entity: FunctionEntity::derived(
+            FunctionFormId::FORK,
+            FunctionPartOfSpeech::Verb,
+            span,
+            vec![
+                FunctionOperand::Function(f.entity),
+                FunctionOperand::Function(g.entity),
+                FunctionOperand::Function(h.entity),
+            ],
+        ),
+        reduce: false,
+        rank: None,
+    }
+}
+
+/// Collapse one contiguous verb train using J's right-to-left hook/fork
+/// construction. The build is iterative so large trains do not recurse while
+/// being constructed, and each derived node only holds shared operand handles.
+fn make_verb_train(mut verbs: Vec<Verb>) -> Result<Verb> {
+    match verbs.len() {
+        0 => return Err(Error::Syntax("empty verb train".into())),
+        1 => return Ok(verbs.pop().expect("one verb")),
+        2 => {
+            let g = verbs.pop().expect("right hook verb");
+            let f = verbs.pop().expect("left hook verb");
+            return Ok(train_hook(f, g));
+        }
+        _ => {}
+    }
+
+    let h = verbs.pop().expect("fork h");
+    let g = verbs.pop().expect("fork g");
+    let f = verbs.pop().expect("fork f");
+    let mut tail = train_fork(f, g, h);
+    while verbs.len() >= 2 {
+        let g = verbs.pop().expect("train g");
+        let f = verbs.pop().expect("train f");
+        tail = train_fork(f, g, tail);
+    }
+    if let Some(f) = verbs.pop() {
+        tail = train_hook(f, tail);
+    }
+    Ok(tail)
+}
+
+fn collapse_verb_trains(items: Vec<Item>) -> Result<Vec<Item>> {
+    // A pure function phrase (for example `+/ % #` inside parentheses or on
+    // an assignment RHS) is a train. Do not collapse verb runs embedded in a
+    // mixed noun sentence yet: jsource's parse table may execute a V N / N V N
+    // fragment before hook/fork construction (e.g. `1 + - 2`).
+    if items.len() > 1 && items.iter().all(|item| matches!(item, Item::Verb(_))) {
+        let verbs = items
+            .into_iter()
+            .map(|item| match item {
+                Item::Verb(verb) => verb,
+                Item::Noun(..) => unreachable!(),
+            })
+            .collect();
+        Ok(vec![Item::Verb(make_verb_train(verbs)?)])
+    } else {
+        Ok(items)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Verb {
     pub span: std::ops::Range<usize>,
@@ -101,6 +193,9 @@ pub struct Verb {
 pub enum VerbTarget {
     Primitive(crate::primitive::PrimitiveId),
     Named(String),
+    /// Migration marker for a function whose executable identity is carried
+    /// by the shared FunctionEntity graph (hook/fork and later open forms).
+    Derived,
 }
 #[derive(Clone, Debug)]
 pub struct Expr {
@@ -291,6 +386,7 @@ fn expression(
                     VerbTarget::Named(name) => {
                         FunctionEntity::name_ref(name.clone(), verb_span.clone())
                     }
+                    VerbTarget::Derived => unreachable!("source token is not a derived target"),
                 };
                 let mut verb = Verb {
                     span: verb_span,
@@ -357,6 +453,8 @@ fn expression(
             }
         }
     }
+    let mut items = collapse_verb_trains(items)?;
+
     if items.len() == 1 && matches!(items.first(), Some(Item::Verb(_))) {
         let Some(Item::Verb(verb)) = items.pop() else {
             unreachable!()
@@ -459,13 +557,18 @@ pub(crate) fn bind(
             | ExprKind::Dyad { verb: v, .. } => Some(v),
             _ => None,
         };
-        if let Some(Verb {
-            target: VerbTarget::Named(name),
-            span,
-            ..
-        }) = verb
-        {
-            verb_references.push((name.clone(), span.clone()));
+        if let Some(verb) = verb {
+            let mut functions = vec![verb.entity.as_ref()];
+            while let Some(function) = functions.pop() {
+                if let FunctionHead::NameRef(name) = &function.head {
+                    verb_references.push((name.clone(), function.span.clone()));
+                }
+                for operand in function.operands.iter().rev() {
+                    if let FunctionOperand::Function(child) = operand {
+                        functions.push(child.as_ref());
+                    }
+                }
+            }
         }
         match &expr.kind {
             ExprKind::ReadName(name) => pending.push((name.clone(), expr.span.clone())),

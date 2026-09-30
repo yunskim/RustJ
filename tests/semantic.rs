@@ -318,3 +318,45 @@ fn large_derived_function_handles_share_the_semantic_graph() {
     let cloned_insert = insert.clone();
     assert!(std::sync::Arc::ptr_eq(insert, &cloned_insert));
 }
+
+#[test]
+fn verb_trains_build_shared_hook_fork_graphs_right_to_left() {
+    let p = semantic::parse("(+/ % #)").unwrap();
+    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
+    assert_eq!(verb.entity.head, FunctionHead::Derived(FunctionFormId::FORK));
+    let [
+        FunctionOperand::Function(f),
+        FunctionOperand::Function(g),
+        FunctionOperand::Function(h),
+    ] = verb.entity.operands.as_slice()
+    else {
+        panic!()
+    };
+    assert_eq!(f.head, FunctionHead::Derived(FunctionFormId::INSERT));
+    assert_eq!(g.head, FunctionHead::Primitive(rustj::primitive::PrimitiveId::Divide));
+    assert_eq!(h.head, FunctionHead::Primitive(rustj::primitive::PrimitiveId::Tally));
+
+    let p = semantic::parse("(+ - * %)").unwrap();
+    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else { panic!() };
+    assert_eq!(verb.entity.head, FunctionHead::Derived(FunctionFormId::HOOK));
+    let [FunctionOperand::Function(first), FunctionOperand::Function(tail)] =
+        verb.entity.operands.as_slice()
+    else { panic!() };
+    assert_eq!(first.head, FunctionHead::Primitive(rustj::primitive::PrimitiveId::Add));
+    assert_eq!(tail.head, FunctionHead::Derived(FunctionFormId::FORK));
+}
+
+#[test]
+fn mixed_noun_sentences_do_not_prematurely_collapse_verbs_into_trains() {
+    let p = semantic::parse("1 + - 2").unwrap();
+    let Some(Expr::Dyad { verb, right, .. }) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
+    assert_eq!(
+        verb.target,
+        semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Add)
+    );
+    assert!(matches!(right.kind, Expr::Monad { .. }));
+}

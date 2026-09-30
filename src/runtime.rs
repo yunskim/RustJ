@@ -146,6 +146,11 @@ impl Engine {
                     });
                 }
                 crate::semantic::VerbTarget::Named(name) => name,
+                crate::semantic::VerbTarget::Derived => {
+                    return Err(Error::Unsupported(
+                        "derived train runtime lowering not implemented".into(),
+                    ));
+                }
             };
             let binding = self
                 .names

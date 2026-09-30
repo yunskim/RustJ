@@ -5,7 +5,7 @@ use crate::{
     contracts::{self, Contract, Valence},
     semantic::{
         BoundProgram, Expr, ExprKind, FunctionEntity, FunctionFormId, FunctionHead,
-        FunctionPartOfSpeech, NameVersion, Verb,
+        FunctionOperand, FunctionPartOfSpeech, NameVersion, Verb,
     },
 };
 use std::{collections::HashMap, ops::Range, sync::Arc};
@@ -270,23 +270,64 @@ impl Builder<'_> {
         self.names.insert(name.into(), id);
         id
     }
-    fn callable(&mut self, verb: Verb) -> Callable {
-        let Verb {
-            target: semantic_target,
-            entity,
-            reduce,
-            rank,
-            ..
-        } = verb;
-        let target = match semantic_target {
-            crate::semantic::VerbTarget::Named(name) => CallTarget::Dynamic(self.symbol(&name)),
-            crate::semantic::VerbTarget::Primitive(id) => CallTarget::Primitive(id),
-        };
-        Callable {
-            target,
-            semantic: entity,
-            reduce,
-            rank,
+    fn callable(&mut self, verb: Verb) -> Result<Callable> {
+        self.callable_entity(verb.entity)
+    }
+
+    fn callable_entity(&mut self, semantic: Arc<FunctionEntity>) -> Result<Callable> {
+        let mut current = semantic.clone();
+        let mut reduce = false;
+        let mut rank = None;
+        loop {
+            match &current.head {
+                FunctionHead::Primitive(id) => {
+                    return Ok(Callable {
+                        target: CallTarget::Primitive(*id),
+                        semantic,
+                        reduce,
+                        rank,
+                    });
+                }
+                FunctionHead::NameRef(name) => {
+                    return Ok(Callable {
+                        target: CallTarget::Dynamic(self.symbol(name)),
+                        semantic,
+                        reduce,
+                        rank,
+                    });
+                }
+                FunctionHead::Derived(form) if *form == FunctionFormId::INSERT => {
+                    let [FunctionOperand::Function(base)] = current.operands.as_slice() else {
+                        return Err(Error::Unsupported("malformed insert semantic entity".into()));
+                    };
+                    reduce = true;
+                    current = base.clone();
+                }
+                FunctionHead::Derived(form) if *form == FunctionFormId::RANK => {
+                    let [
+                        FunctionOperand::Function(base),
+                        FunctionOperand::Noun { value, .. },
+                    ] = current.operands.as_slice()
+                    else {
+                        return Err(Error::Unsupported("malformed rank semantic entity".into()));
+                    };
+                    if value.is_empty() || value.len() > 3 {
+                        return Err(Error::Length);
+                    }
+                    let at = |i| value.int_at(i);
+                    rank = Some(match value.len() {
+                        1 => [at(0)?, at(0)?, at(0)?],
+                        2 => [at(1)?, at(0)?, at(1)?],
+                        _ => [at(0)?, at(1)?, at(2)?],
+                    });
+                    current = base.clone();
+                }
+                FunctionHead::Derived(_) => {
+                    return Err(Error::Unsupported(
+                        "semantic function requires structural lowering".into(),
+                    ));
+                }
+            }
         }
     }
     fn push(&mut self, operation: Operation, span: Range<usize>, ordered: bool) -> ValueId {
@@ -361,17 +402,17 @@ impl Builder<'_> {
                 Ok(self.push(Operation::ReadNoun { symbol, version }, span, true))
             }
             ExprKind::VerbValue(verb) => {
-                let callable = self.callable(verb);
+                let callable = self.callable(verb)?;
                 Ok(self.push(Operation::VerbReference(callable), span, false))
             }
             ExprKind::Monad { verb, argument } => {
                 let right = self.expression(*argument)?;
-                Ok(self.call(verb, None, right, span))
+                self.call(verb, None, right, span)
             }
             ExprKind::Dyad { verb, left, right } => {
                 let right = self.expression(*right)?;
                 let left = self.expression(*left)?;
-                Ok(self.call(verb, Some(left), right, span))
+                self.call(verb, Some(left), right, span)
             }
         }
     }
@@ -381,29 +422,75 @@ impl Builder<'_> {
         left: Option<ValueId>,
         right: ValueId,
         span: Range<usize>,
-    ) -> ValueId {
-        let callable = self.callable(verb);
-        let valence = if left.is_some() {
-            Valence::Dyad
-        } else {
-            Valence::Monad
-        };
-        // Base primitive contracts do not prove properties of derived verbs.
-        let contract = match callable.target {
-            CallTarget::Primitive(id) if !callable.reduce && callable.rank.is_none() => {
-                contracts::for_primitive(id, valence)
+    ) -> Result<ValueId> {
+        self.call_entity(verb.entity, left, right, span)
+    }
+
+    fn call_entity(
+        &mut self,
+        semantic: Arc<FunctionEntity>,
+        left: Option<ValueId>,
+        right: ValueId,
+        span: Range<usize>,
+    ) -> Result<ValueId> {
+        match &semantic.head {
+            FunctionHead::Derived(form) if *form == FunctionFormId::FORK => {
+                let [
+                    FunctionOperand::Function(f),
+                    FunctionOperand::Function(g),
+                    FunctionOperand::Function(h),
+                ] = semantic.operands.as_slice()
+                else {
+                    return Err(Error::Unsupported("malformed fork semantic entity".into()));
+                };
+                // jsource-compatible observable order for a general fork is h, f, g.
+                let h_result = self.call_entity(
+                    h.clone(),
+                    left,
+                    right,
+                    h.span.clone(),
+                )?;
+                let f_result = self.call_entity(
+                    f.clone(),
+                    left,
+                    right,
+                    f.span.clone(),
+                )?;
+                self.call_entity(
+                    g.clone(),
+                    Some(f_result),
+                    h_result,
+                    span,
+                )
             }
-            _ => contracts::lookup("", valence),
-        };
-        self.push(
-            Operation::Call {
-                callable,
-                left,
-                right,
-                contract,
-            },
-            span,
-            true,
-        )
+            FunctionHead::Derived(form) if *form == FunctionFormId::HOOK => Err(
+                Error::Unsupported("hook logical lowering not implemented yet".into()),
+            ),
+            _ => {
+                let callable = self.callable_entity(semantic)?;
+                let valence = if left.is_some() {
+                    Valence::Dyad
+                } else {
+                    Valence::Monad
+                };
+                // Base primitive contracts do not prove properties of derived verbs.
+                let contract = match callable.target {
+                    CallTarget::Primitive(id) if !callable.reduce && callable.rank.is_none() => {
+                        contracts::for_primitive(id, valence)
+                    }
+                    _ => contracts::lookup("", valence),
+                };
+                Ok(self.push(
+                    Operation::Call {
+                        callable,
+                        left,
+                        right,
+                        contract,
+                    },
+                    span,
+                    true,
+                ))
+            }
+        }
     }
 }

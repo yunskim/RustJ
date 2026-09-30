@@ -335,3 +335,29 @@ fn access_knowledge_is_explicit_and_opaque_is_not_a_semantic_error() {
     assert_eq!(p.nodes[p.result.unwrap().0].access, AccessFact::Opaque);
     p.verify().unwrap();
 }
+
+#[test]
+fn canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order() {
+    use rustj::primitive::PrimitiveId;
+    let mut e = Engine::new();
+    e.eval("y=:1 2 3 4").unwrap();
+    let p = e.analyze("(+/ % #) y").unwrap();
+    p.verify().unwrap();
+
+    let calls: Vec<_> = p
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| match &node.operation {
+            Operation::Call { callable, .. } => Some((ValueId(index), callable)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls.len(), 3);
+    assert!(matches!(calls[0].1.target, CallTarget::Primitive(PrimitiveId::Tally)));
+    assert!(matches!(calls[1].1.target, CallTarget::Primitive(PrimitiveId::Add)));
+    assert!(calls[1].1.reduce);
+    assert!(matches!(calls[2].1.target, CallTarget::Primitive(PrimitiveId::Divide)));
+    assert_eq!(p.nodes[calls[1].0.0].order_after, Some(calls[0].0));
+    assert_eq!(p.nodes[calls[2].0.0].order_after, Some(calls[1].0));
+}
