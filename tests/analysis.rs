@@ -327,6 +327,9 @@ fn access_knowledge_is_explicit_and_opaque_is_not_a_semantic_error() {
         AccessFact::Known(AccessRelation::ReduceLeadingAxis)
     );
     p.verify().unwrap();
+    let p = e.analyze("+/\"1 (1 2 3)").unwrap();
+    assert_eq!(p.nodes[p.result.unwrap().0].access, AccessFact::Opaque);
+    p.verify().unwrap();
 
     let p = e.analyze("|.1 2 3").unwrap();
     assert_eq!(p.nodes[p.result.unwrap().0].access, AccessFact::Opaque);

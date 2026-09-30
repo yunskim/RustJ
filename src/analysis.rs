@@ -3,7 +3,10 @@
 use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
-    semantic::{BoundProgram, Expr, ExprKind, FunctionEntity, NameVersion, Verb},
+    semantic::{
+        BoundProgram, Expr, ExprKind, FunctionEntity, FunctionFormId, FunctionHead,
+        FunctionPartOfSpeech, NameVersion, Verb,
+    },
 };
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
@@ -153,9 +156,14 @@ impl LogicalPlan {
                     .then_some(())
                     .ok_or_else(|| fail(Some(id), format!("{label} must reference an earlier value")))
             };
-            let check_callable = |callable: &Callable| match callable.target {
-                CallTarget::Primitive(_) => Ok(()),
-                CallTarget::Dynamic(symbol) => check_symbol(symbol),
+            let check_callable = |callable: &Callable| {
+                if callable.semantic.result_pos != FunctionPartOfSpeech::Verb {
+                    return Err(fail(Some(id), "callable semantic entity is not a verb".into()));
+                }
+                match callable.target {
+                    CallTarget::Primitive(_) => Ok(()),
+                    CallTarget::Dynamic(symbol) => check_symbol(symbol),
+                }
             };
 
             match &node.operation {
@@ -284,19 +292,20 @@ impl Builder<'_> {
     fn push(&mut self, operation: Operation, span: Range<usize>, ordered: bool) -> ValueId {
         let id = ValueId(self.nodes.len());
         let access = match &operation {
-            Operation::Call {
-                callable,
-                left,
-                ..
-            } if callable.reduce && left.is_none() && callable.rank.is_none() => {
+            Operation::Call { callable, left, .. }
+                if left.is_none()
+                    && matches!(
+                        callable.semantic.head,
+                        FunctionHead::Derived(FunctionFormId::INSERT)
+                    ) =>
+            {
                 AccessFact::Known(AccessRelation::ReduceLeadingAxis)
             }
             Operation::Call {
                 callable,
                 contract,
                 ..
-            } if !callable.reduce
-                && callable.rank.is_none()
+            } if matches!(callable.semantic.head, FunctionHead::Primitive(_))
                 && contract.class == crate::contracts::OperationClass::Map =>
             {
                 AccessFact::Known(AccessRelation::ElementwiseMap)

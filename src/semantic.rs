@@ -32,7 +32,7 @@ pub enum FunctionHead {
     Derived(FunctionFormId),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum FunctionOperand {
     Function(Arc<FunctionEntity>),
     Noun {
@@ -45,7 +45,7 @@ pub enum FunctionOperand {
 /// trains/derived functions form DAGs rather than recursively copied Rust values.
 /// This mirrors the structural role of jsource's common V block + f/g/h links,
 /// not its execution-function-pointer layout.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FunctionEntity {
     pub span: std::ops::Range<usize>,
     pub result_pos: FunctionPartOfSpeech,
