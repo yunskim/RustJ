@@ -44,6 +44,7 @@ For every implementation change:
 - Treat built-in J primitives and extension-derived operations uniformly for hardware lowering; existing primitives such as add/reduce/transpose must participate in the same lowering-capability architecture.
 - Keep BackendFamily, ArchitectureTarget, DeviceProfile, RuntimeProfile, and empirical CostProfile distinct; do not collapse them into one target identity.
 - Resolve target-specific lowering/capability bindings through a compiler-only locale/path chain (device -> architecture -> family -> backend -> cpu/gpu -> generic), separate from user J locales.
+- Establish the active compiler TargetContext/target locale at compile-invocation start, but never let that target choice alter parser or J Semantic IR meaning. All hardware-lowerable built-ins and extensions must query the same selected target-locale chain.
 - Do not infer architecture feature inheritance from numeric version ordering; use explicit locale paths and capability queries.
 - Locale lookup discovers lowering/capability candidates; legality/resource/cost analysis chooses the realization.
 
