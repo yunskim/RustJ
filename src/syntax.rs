@@ -1,6 +1,6 @@
 use crate::storage::{CpuStorage, Shape};
 use crate::{
-    error::{Error, Result},
+    error::{DiagnosticPhase, Error, ErrorContext, Result},
     value::{Data, Value},
 };
 use std::borrow::Cow;
@@ -44,6 +44,10 @@ fn parse_float(s: &str) -> Result<f64> {
 #[derive(Clone, Debug)]
 pub struct SpannedToken<'a> {
     pub span: std::ops::Range<usize>,
+    /// Original parse-visible word index.  The future jsource-style parser
+    /// stack carries this unchanged so error inference can blame source words
+    /// after reductions, just as p.c keeps the original token number.
+    pub word_index: usize,
     pub token: Token<'a>,
 }
 
@@ -53,9 +57,10 @@ pub fn lex(source: &str) -> Result<Vec<Token<'_>>> {
 
 /// Word formation is complete before unsupported words are rejected here.
 pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
-    let spans = crate::scanner::scan(source.as_bytes())?;
+    let spans = crate::scanner::scan(source.as_bytes())
+        .map_err(|error| error.in_phase(DiagnosticPhase::WordFormation))?;
     let mut out = Vec::new();
-    for span in spans {
+    for (word_index, span) in spans.into_iter().enumerate() {
         let word = source
             .get(span.clone())
             .ok_or_else(|| Error::Unsupported("non-ASCII word".into()).at(span.clone()))?;
@@ -162,9 +167,19 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
                 span.start
             )))
         })()
-        .map_err(|error| error.at(span.clone()))?;
+        .map_err(|error| {
+            error.with_context(
+                ErrorContext::phase(DiagnosticPhase::Enqueue)
+                    .with_span(span.clone())
+                    .with_blame_word(word_index),
+            )
+        })?;
 
-        out.push(SpannedToken { span, token });
+        out.push(SpannedToken {
+            span,
+            word_index,
+            token,
+        });
     }
     Ok(out)
 }
