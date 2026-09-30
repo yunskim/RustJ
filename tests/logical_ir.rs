@@ -286,3 +286,25 @@ fn semantic_capability_view_hides_storage_layout_of_call_metadata() {
     );
     assert!(view.destination_relation().is_some());
 }
+
+
+#[test]
+fn a3_preserves_structural_opportunities_after_flattening() {
+    use rustj::opportunity::{OpportunitySource, StructuralTopology};
+
+    let plan = Engine::new()
+        .analyze_a3("(|. @: , @: |.) 1 2 3")
+        .unwrap();
+    plan.verify().unwrap();
+
+    assert_eq!(plan.opportunities.len(), 1);
+    let opportunity = &plan.opportunities[0];
+    assert_eq!(opportunity.source, OpportunitySource::Atop);
+    let StructuralTopology::Pipeline { stage_results, .. } = &opportunity.topology else {
+        panic!("expected pipeline opportunity")
+    };
+    assert_eq!(stage_results.len(), 3);
+    for value in stage_results {
+        assert!(value.0 < plan.values.len());
+    }
+}
