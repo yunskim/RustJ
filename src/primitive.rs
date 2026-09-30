@@ -64,6 +64,7 @@ impl AdverbId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ConjunctionId {
     Rank,
+    Atop,
 }
 impl ConjunctionId {
     pub fn from_spelling(s: &str) -> Option<Self> {
