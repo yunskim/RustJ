@@ -16,3 +16,8 @@ For every implementation change:
 - For SIMD changes, cover tails, integer overflow/promotion, exceptional floating-point values, and portable fallback.
 - State which checks actually ran. Do not claim upstream suite, Miri, sanitizer, GPU, Linux CI, or remote CI coverage unless executed.
 - CUDA implementation remains deferred until the user requests resumption and a verifiable GPU environment is available.
+
+
+- Do not require every Logical Array IR program to pass through a RustJ-owned optimizer/code generator. Keep verified external lowering routes open (especially MLIR/LLVM and supported StableHLO subsets).
+- Do not weaken RustJ Logical IR semantics merely to match an external IR. External adapters must declare preconditions and reject or guard unsupported semantics.
+- Hardware planning must distinguish logical facts, TargetProfile hard facts, PhysicalSchedule decisions, ResourceEstimate, and backend CompiledResourceReport feedback.
