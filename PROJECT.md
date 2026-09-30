@@ -4842,7 +4842,7 @@ RustJ의 basis operation은 “더 이상 분해할 수 없는 최소 primitive�
 Iteration / application
   IndexSpace / Generate
   Elementwise / MapN
-  CellMap / FrameMap
+  CellApply
 
 Access / views / update
   RegularReindex
@@ -4916,7 +4916,7 @@ LinearSolve, Grade, GroupBy는 더 작은 operation으로 구현할 수 있어�
 | WindowView | Lift slide/pad, Accelerate stencil, LAILA pull-array/index-function 접근과 같은 neighborhood reuse 정보 | 유지 |
 | SegmentView | segmented fold/scan, NESL flatten/partition과 연결 | 유지 |
 | Contract | Linalg contract처럼 contraction identity가 GEMM/tensor/microkernel 선택에 유용 | 유지 |
-| CellMap/FrameMap | J rank/cell/frame를 explicit하게 보존해야 하며 nested/flat parallel lowering 선택 가능 | J-specific structured basis로 유지 |
+| CellApply | J rank/cell/frame와 result assembly를 explicit하게 보존해야 하며 uniform proof 뒤에만 MapCells/flat parallel form으로 낮출 수 있음 | J-specific structured basis로 유지 |
 | Grade | 다른 언어에서는 library/algorithm으로 구성 가능하지만 J primitive identity와 ordering algorithm 선택이 직접 중요 | 유지, refinement는 후속 |
 | Lookup/Classify/GroupBy | Futhark reduce_by_index/segmented routes와 유사한 hash/sort/atomic/segment 선택 공간 | 유지 |
 | NestedTraverse | NESL nested sequences가 보여 주듯 irregular nested traversal은 dense Map과 다른 구조 | 유지 |
@@ -4948,7 +4948,9 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | < | Box / Less Than | monad value Box; dyad Elementwise(Lt) | box/value type; comparison domain | Value/Rep + Direct |
 | <. <: >. >: | floor/min, decrement/≤, ceiling/max, increment/≥ | Elementwise | dtype/promotion/domain | Direct |
 | > | Open / Greater Than | monad value Open; dyad Elementwise(Gt) | boxed/open assembly; comparison domain | Value/Rep + Direct |
-| + +. +: * *. *: - -. -: % %: ^ ^. &#124; | scalar arithmetic/logical/transcendental families | Elementwise(MapN) with scalar payload | dtype, promotion, domain, overflow/FP/error policy | Direct; scalar payload는 target intrinsic/SIMD 후보 |
+| + +. +: * *. *: - % %: ^ ^. &#124; | scalar arithmetic/logical/transcendental families | Elementwise(MapN) with scalar payload | dtype, promotion, domain, overflow/FP/error policy | Direct; scalar payload는 target intrinsic/SIMD 후보 |
+| -. | Not / Less | monad Elementwise(Not); dyad Lookup(Membership in y) → Compact(items of x not present) | item-cell agreement, equality/tolerance, stable order | Compose; dyadic Less는 set/item exclusion이므로 scalar elementwise로 축소하지 않음 |
+| -: | Halve / Match | monad Elementwise(Halve); dyad CellApply(MatchKernel), optionally shape/box check + Equal + Reduce(And) | shape, boxing, tolerant equality, rank/cell | Cell kernel/Compose; whole-cell Match identity를 보존 |
 | %. | Matrix Inverse / Matrix Divide | LinearSolve or related structured linear-algebra kernel | rank/shape, singularity, numeric contract | Structured; LU/QR/SVD/library/sparse solver 선택을 보존 |
 | $ | Shape Of / Reshape | monad ShapeFact; dyad RegularReindex with periodic/fill policy | target shape values, item count, fill/error | Compose; copy를 피하는 view/index-map 최적화 |
 | $. | Sparse representation operations | same semantic basis op + RepresentationFacts::Sparse; explicit conversion/inspect is representation op | sparse axes/fill/index/value validity | Value/Rep; sparse는 별도 semantic basis가 아님 |
@@ -4956,7 +4958,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | ~: | Nub Sieve / Not-Equal | monad Classify → first-mask; dyad Elementwise(Ne) | equality/tolerance | Compose/Direct |
 | &#124;. | Reverse / Rotate | RegularReindex | axis/rank, shift normalization | Direct; no-copy/index-map path |
 | &#124;: | Transpose | RegularReindex(Permutation) | axis permutation validity | Direct; layout/coalescing optimization |
-| . | Determinant / Dot Product | monad CellMap(DeterminantKernel); dyad Contract(u,v) | rank, contraction axes, reducer/combine semantics | Cell kernel + Direct; contraction identity enables GEMM/tensor routes |
+| . | Determinant / Dot Product | monad CellApply(DeterminantKernel); dyad Contract(u,v) | rank, contraction axes, reducer/combine semantics | Cell kernel + Direct; contraction identity enables GEMM/tensor routes |
 | , | Ravel / Append | monad RegularReindex; dyad Concat/Assemble | shape agreement, dtype promotion | Direct |
 | ,. ,: | Ravel Items/Stitch, Itemize/Laminate | RegularReindex and/or Concat/Assemble | rank/shape agreement | Compose |
 | ; | Raze / Link | Open/boxed value traversal + Concat/Assemble | box/open validity, result assembly | Compose + Value/Rep |
@@ -4968,8 +4970,8 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | ! | Factorial / Out Of | Elementwise scalar/cell combinatorial kernel | integer/general numeric domain | Cell kernel; internal algorithm need not be array-basis-expanded |
 | !. | Fit | modifies semantic/numeric/error contract of operand graph | fit/tolerance/fill policy | Control/semantic annotation |
 | !: | Foreign | runtime/foreign semantic route | foreign id, effects/capability | Runtime |
-| / | Insert / Table | monad Reduce(u); dyad IndexSpace/FrameMap → CellMap(u) | reducer order/associativity/identity, rank/assembly | Direct/Compose; reduction identity retained even when non-reassociable |
-| /. | Oblique / Key | oblique SegmentView/Reindex → CellMap; key Classify/GroupBy → SegmentView → CellMap, optionally grouped reduction | grouping equality/order, segment descriptors, assembly | Compose; avoids materialized groups and opens reduce-by-index route |
+| / | Insert / Table | monad Reduce(u); dyad IndexSpace/FrameMap → CellApply(u) | reducer order/associativity/identity, rank/assembly | Direct/Compose; reduction identity retained even when non-reassociable |
+| /. | Oblique / Key | oblique SegmentView/Reindex → CellMap; key Classify/GroupBy → SegmentView → CellApply, optionally grouped reduction | grouping equality/order, segment descriptors, assembly | Compose; avoids materialized groups and opens reduce-by-index route |
 | /: \: | Grade Up/Down / Sort | Grade; sort result can be Grade → Gather | comparison order, stability/tolerance, dtype | Direct; radix/merge/small/GPU algorithm identity retained |
 | \ | Prefix / Infix | insert-compatible prefix Scan; general prefix SegmentView(prefix family) → CellMap; infix WindowView/SegmentView → CellMap | window length, order, boundaries, assembly | Direct/Compose |
 | \. | Suffix / Outfix | suffix Scan when legal or segment family; outfix SegmentView + Concat/Assemble → CellMap | same as above | Compose |
@@ -4978,7 +4980,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | {. {: }. }: | Head/Tail/Take/Drop/Behead/Curtail | RegularReindex or scalar Gather | bounds, fill, rank | Direct |
 | {:: | Map / Fetch | NestedTraverse to produce leaf paths; fetch = path-guided nested Gather/Open | path validity, boxed structure | Direct + Value/Rep |
 | } | Item Amend / Amend | Scatter/Amend, possibly ScatterCombine when combining update is explicit | bounds, overlap/update ordering, alias | Direct; in-place/atomic/scatter choices |
-| " | Rank | resolve rank/cell/frame then CellMap/FrameMap | RankSpec, frame agreement, fill/empty/result assembly, error order | Control → Direct basis; central J optimization boundary |
+| " | Rank | resolve rank/cell/frame then CellApply | RankSpec, frame agreement, fill/empty/result assembly, error order | Control → Direct basis; central J optimization boundary |
 | ". | Do / Numbers | parse/execute or numeric-conversion runtime semantic route | dynamic binding/parser state, numeric syntax | Runtime |
 | ": | Default Format / Format | formatting runtime/cell kernel | locale/format spec, dtype | Runtime/Cell kernel |
 | Tie/Evoke Gerund | gerund construction/selection | function/gerund semantic graph | POS/binding/gerund selection | Control |
@@ -4993,18 +4995,18 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | e. | Raze In / Member | monad value traversal/raze-in; dyad Lookup(Membership) | equality/tolerance, boxed semantics | Direct + Value |
 | E. | Member of Interval/pattern occurrence | WindowView → Elementwise(Match) → Reduce/Match as applicable | pattern shape, equality, boundaries | Compose; explicit windows expose fusion |
 | f. | Fix | function semantic specialization/fixing | binding versions | Control |
-| H. | Hypergeometric | CellMap specialized numeric kernel | parameter/domain/numeric policy | Cell kernel |
+| H. | Hypergeometric | CellApply specialized numeric kernel | parameter/domain/numeric policy | Cell kernel |
 | i. | Integers / Index Of | monad IndexSpace/Generate; dyad LookupFirst | shape/integer domain; equality/tolerance | Direct |
 | i: | Steps / Index Of Last | monad Generate; dyad LookupLast | same | Direct |
 | I. | Indices / Interval Index | monad Compact(IndexSpace,predicate); dyad ordered interval Lookup | ordering, bounds | Direct/Compose |
 | j. r. o. | complex/polar/circle families | Elementwise scalar payload | numeric/domain | Direct |
 | L. | Level Of | NestedTraverse/nested metadata computation | box tree shape | Direct; tree traversal distinct from dense map |
-| L: | Level At | NestedTraverse(level selector) → CellMap(u) → nested reconstruct | level selector, reconstruction, assembly | Direct/Compose |
+| L: | Level At | NestedTraverse(level selector) → CellApply(u) → nested reconstruct | level selector, reconstruction, assembly | Direct/Compose |
 | M. | Memo | memoization/cache around semantic function graph | key equality, effects/purity | Control/runtime |
 | p. p.. | Polynomial roots/evaluation/derivative/integral | specialized cell kernel; evaluation may use Contract/Reduce | coefficient dtype, numeric stability, output shape | Cell kernel; expand only when optimization pays |
-| p: q: | Primes / factorization | CellMap specialized variable-result kernel | integer domain, dynamic result assembly | Cell kernel |
+| p: q: | Primes / factorization | CellApply specialized variable-result kernel | integer domain, dynamic result assembly | Cell kernel |
 | s: u: x: | Symbol/Unicode/Extended Precision | representation/runtime conversion or Elementwise conversion | encoding/interning/numeric exactness | Value/Rep/Runtime |
-| S: | Spread | NestedTraverse(level selector) → CellMap(u) → FlatAssemble | level selector, heterogeneous result/assembly | Direct/Compose |
+| S: | Spread | NestedTraverse(level selector) → CellApply(u) → FlatAssemble | level selector, heterogeneous result/assembly | Direct/Compose |
 | t. t: T. | Taylor families | function transformation or specialized numeric graph/kernel | order/domain/precision | Control/Cell kernel |
 | constant functions | constant broadcast/Generate when array result required | Generate/constant | dtype/shape from call context | Direct/value |
 | ~ | Reflex/Passive/Evoke | function semantic transformation/name resolution | valence/binding | Control |
@@ -5024,14 +5026,14 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 |---|---|
 | +/ .* | Contract(combine=*, aggregate=+) |
 | $, 및 ravel-avoidance | RegularReindex/Reshape가 ravel materialization을 만들지 않음 |
-| f;.n | SegmentView 또는 WindowView + CellMap(f) |
+| f;.n | SegmentView 또는 WindowView + CellApply(f) |
 | f/;.n, +//., #/. | segment/group descriptors + Reduce/GroupBy; group cells를 만들지 않는 route |
 | /:, /:~ | Grade |
 | {/: | Grade → Gather의 fused candidate |
 | +/\, =/\, f/\. | Scan 또는 ordered segment/window reduction |
 | { | Gather |
 | } / indexed amend phrase | Scatter/Amend |
-| f"r | CellMap/FrameMap absorption/fusion candidate |
+| f"r | CellApply absorption/fusion candidate |
 | i., i:, e. | Lookup/Classify |
 | E. | WindowView + Match |
 | +/%# mean family | Reduce(Add) + Tally + Divide, candidate fusion |
@@ -5051,7 +5053,7 @@ Cell/Frame partition
   ↓
 Frame IndexSpace
   ↓
-CellMap(u)
+CellApply(u)
   ↓
 J result Assemble
 ~~~
@@ -5070,12 +5072,12 @@ Resolve left cells      Resolve right cells
                  ↓
           Frame IndexSpace
                  ↓
-             CellMap(u)
+             CellApply(u)
                  ↓
               Assemble
 ~~~
 
-CellMap(Elementwise), CellMap(Reduce), CellMap(Contract)는 각각 larger elementwise, batched/segmented reduction, batched contraction route로 흡수할 수 있다. semantic CellMap 자체는 optimization 전에도 보존한다.
+CellApply(Elementwise), CellApply(Reduce), CellApply(Contract)는 각각 larger elementwise, batched/segmented reduction, batched contraction route로 흡수할 수 있다. semantic CellApply 자체는 optimization 전에도 보존한다.
 
 ##### Cut
 
@@ -5086,7 +5088,7 @@ SegmentDescriptor
    ↓
 SegmentView(y)
    ↓
-CellMap(u)
+CellApply(u)
    ↓
 Assemble
 ~~~
@@ -5096,7 +5098,7 @@ window/tessellation spec
    ↓
 WindowView(y)
    ↓
-CellMap(u)
+CellApply(u)
    ↓
 Assemble
 ~~~
@@ -5114,7 +5116,7 @@ group descriptors ───── y
           \             /
            SegmentView
                 ↓
-            CellMap(u)
+            CellApply(u)
                 ↓
              Assemble
 ~~~
@@ -5149,7 +5151,7 @@ u L:n y
   ↓
 NestedTraverse(level=n)
   ↓
-CellMap(u)
+CellApply(u)
   ↓
 NestedReconstruct
 ~~~
@@ -5159,7 +5161,7 @@ u S:n y
   ↓
 NestedTraverse(level=n)
   ↓
-CellMap(u)
+CellApply(u)
   ↓
 FlatAssemble
 ~~~
@@ -5193,7 +5195,7 @@ sparse index/value permutation
 ~~~
 
 ~~~text
-CellMap(u)
+CellApply(u)
 + RepresentationFacts::Sparse
       ↓
 sparse cell route or conforming fallback
@@ -5206,7 +5208,7 @@ sparse cell route or conforming fallback
 Rank, Cut, Key/Oblique, Power, boxed Level/Spread/Fetch, sparse composition을 실제 graph로 내린 결과:
 
 1. v0.2에 없는 새 array-computation basis family는 발견되지 않았다.
-2. CellMap/FrameMap, WindowView, SegmentView, GroupBy/Classify, NestedTraverse의 필요성은 오히려 강화되었다.
+2. CellApply, WindowView, SegmentView, GroupBy/Classify, NestedTraverse의 필요성은 오히려 강화되었다.
 3. StateMachine만은 다른 array compiler와의 대응 근거가 약하므로 **provisional structured kernel**로 유지한다.
 4. basis를 더 작은 operation으로 refinement하는 작업은 이 closure의 선행조건이 아니다. 이후 benchmark/optimizer 구현에서 실질적 성능 이득이 확인되는 경우에만 BasisExpansion rule을 추가한다.
 
