@@ -1,7 +1,9 @@
 use rustj::{
     Engine,
     contracts::{self, Effect, Overflow, Valence},
-    semantic::{self, ExprKind as Expr, VerbModifier},
+    semantic::{
+        self, ExprKind as Expr, FunctionFormId, FunctionHead, FunctionOperand,
+    },
 };
 #[test]
 fn parse_is_execution_free_and_right_associative() {
@@ -26,9 +28,27 @@ fn parse_is_execution_free_and_right_associative() {
     };
     assert!(verb.reduce);
     assert_eq!(verb.rank, Some([1, 1, 1]));
+
+    let rank = verb.entity;
+    assert_eq!(rank.head, FunctionHead::Derived(FunctionFormId::RANK));
+    let [
+        FunctionOperand::Function(insert),
+        FunctionOperand::Noun { value: rank_value, .. },
+    ] = rank.operands.as_slice()
+    else {
+        panic!("rank should retain base function and rank noun");
+    };
+    assert_eq!(rank_value.int_at(0).unwrap(), 1);
     assert_eq!(
-        verb.modifiers,
-        vec![VerbModifier::Insert, VerbModifier::Rank([1, 1, 1])]
+        insert.head,
+        FunctionHead::Derived(FunctionFormId::INSERT)
+    );
+    let [FunctionOperand::Function(base)] = insert.operands.as_slice() else {
+        panic!("insert should retain its operand");
+    };
+    assert_eq!(
+        base.head,
+        FunctionHead::Primitive(rustj::primitive::PrimitiveId::Add)
     );
 }
 #[test]
@@ -280,4 +300,21 @@ fn analysis_separates_noun_versions_from_dynamic_verbs() {
         e.prepare_semantic("g=:future").unwrap().verb_references[0].0,
         "future"
     );
+}
+
+#[test]
+fn large_derived_function_handles_share_the_semantic_graph() {
+    let p = semantic::parse("+/\"1").unwrap();
+    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
+    let clone = verb.clone();
+    assert!(std::sync::Arc::ptr_eq(&verb.entity, &clone.entity));
+
+    let rank = verb.entity;
+    let [FunctionOperand::Function(insert), ..] = rank.operands.as_slice() else {
+        panic!()
+    };
+    let cloned_insert = insert.clone();
+    assert!(std::sync::Arc::ptr_eq(insert, &cloned_insert));
 }

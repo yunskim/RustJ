@@ -4,38 +4,98 @@ use crate::{
     Error, Result, Value,
     syntax::{Token, lex_spanned},
 };
+use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FunctionFormId(pub u32);
+impl FunctionFormId {
+    /// Built-in insert adverb application. Stable only inside the current
+    /// semantic-IR schema; it is not the jsource C id byte.
+    pub const INSERT: Self = Self(1);
+    /// Built-in rank conjunction application.
+    pub const RANK: Self = Self(2);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FunctionPartOfSpeech {
+    Verb,
+    Adverb,
+    Conjunction,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum VerbModifier {
-    /// J insert adverb, e.g. +/.
-    Insert,
-    /// Source rank conjunction payload in monad/left/right order.
-    Rank([i64; 3]),
+pub enum FunctionHead {
+    Primitive(crate::primitive::PrimitiveId),
+    NameRef(String),
+    /// Open-form derived identity. New J/extension forms should be registered
+    /// by form id rather than growing a closed DerivedVerb enum.
+    Derived(FunctionFormId),
+}
+
+#[derive(Clone, Debug)]
+pub enum FunctionOperand {
+    Function(Arc<FunctionEntity>),
+    Noun {
+        value: Value,
+        span: std::ops::Range<usize>,
+    },
+}
+
+/// Immutable semantic function object. Operands are shared references so large
+/// trains/derived functions form DAGs rather than recursively copied Rust values.
+/// This mirrors the structural role of jsource's common V block + f/g/h links,
+/// not its execution-function-pointer layout.
+#[derive(Clone, Debug)]
+pub struct FunctionEntity {
+    pub span: std::ops::Range<usize>,
+    pub result_pos: FunctionPartOfSpeech,
+    pub head: FunctionHead,
+    pub operands: Vec<FunctionOperand>,
+}
+impl FunctionEntity {
+    fn primitive(id: crate::primitive::PrimitiveId, span: std::ops::Range<usize>) -> Arc<Self> {
+        Arc::new(Self {
+            span,
+            result_pos: FunctionPartOfSpeech::Verb,
+            head: FunctionHead::Primitive(id),
+            operands: Vec::new(),
+        })
+    }
+
+    fn name_ref(name: String, span: std::ops::Range<usize>) -> Arc<Self> {
+        Arc::new(Self {
+            span,
+            result_pos: FunctionPartOfSpeech::Verb,
+            head: FunctionHead::NameRef(name),
+            operands: Vec::new(),
+        })
+    }
+
+    fn derived(
+        form: FunctionFormId,
+        result_pos: FunctionPartOfSpeech,
+        span: std::ops::Range<usize>,
+        operands: Vec<FunctionOperand>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            span,
+            result_pos,
+            head: FunctionHead::Derived(form),
+            operands,
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct Verb {
     pub span: std::ops::Range<usize>,
     pub target: VerbTarget,
-    /// Ordered source-level modifier applications. This is the migration path
-    /// toward first-class DerivedEntity nodes; legacy fields remain until the
-    /// runtime/analyzer stop depending on them.
-    pub modifiers: Vec<VerbModifier>,
+    /// Shared semantic identity/provenance graph.
+    pub entity: Arc<FunctionEntity>,
+    /// Legacy runtime compatibility fields. Do not add more modifier kinds here;
+    /// migrate runtime/analyzer consumers to the shared entity graph instead.
     pub reduce: bool,
     pub rank: Option<[i64; 3]>,
-}
-impl Verb {
-    pub fn has_insert(&self) -> bool {
-        self.modifiers
-            .iter()
-            .any(|m| matches!(m, VerbModifier::Insert))
-    }
-    pub fn modifier_rank(&self) -> Option<[i64; 3]> {
-        self.modifiers.iter().rev().find_map(|m| match m {
-            VerbModifier::Rank(ranks) => Some(*ranks),
-            VerbModifier::Insert => None,
-        })
-    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerbTarget {
@@ -225,16 +285,31 @@ fn expression(
                     Token::Name(n) => VerbTarget::Named((*n).to_owned()),
                     _ => unreachable!(),
                 };
+                let verb_span = spans[*pos].clone();
+                let entity = match &target {
+                    VerbTarget::Primitive(id) => FunctionEntity::primitive(*id, verb_span.clone()),
+                    VerbTarget::Named(name) => {
+                        FunctionEntity::name_ref(name.clone(), verb_span.clone())
+                    }
+                };
                 let mut verb = Verb {
-                    span: spans[*pos].clone(),
+                    span: verb_span,
                     target,
-                    modifiers: Vec::new(),
+                    entity,
                     reduce: false,
                     rank: None,
                 };
                 *pos += 1;
                 if matches!(tokens.get(*pos), Some(Token::Slash)) {
-                    verb.modifiers.push(VerbModifier::Insert);
+                    let slash_span = spans[*pos].clone();
+                    let derived_span = verb.span.start..slash_span.end;
+                    verb.entity = FunctionEntity::derived(
+                        FunctionFormId::INSERT,
+                        FunctionPartOfSpeech::Verb,
+                        derived_span.clone(),
+                        vec![FunctionOperand::Function(verb.entity.clone())],
+                    );
+                    verb.span = derived_span;
                     verb.reduce = true;
                     *pos += 1;
                 }
@@ -254,7 +329,21 @@ fn expression(
                         2 => [at(1)?, at(0)?, at(1)?],
                         _ => [at(0)?, at(1)?, at(2)?],
                     };
-                    verb.modifiers.push(VerbModifier::Rank(ranks));
+                    let rank_span = spans[*pos].clone();
+                    let derived_span = verb.span.start..rank_span.end;
+                    verb.entity = FunctionEntity::derived(
+                        FunctionFormId::RANK,
+                        FunctionPartOfSpeech::Verb,
+                        derived_span.clone(),
+                        vec![
+                            FunctionOperand::Function(verb.entity.clone()),
+                            FunctionOperand::Noun {
+                                value: v,
+                                span: rank_span,
+                            },
+                        ],
+                    );
+                    verb.span = derived_span;
                     verb.rank = Some(ranks);
                     *pos += 1;
                 }

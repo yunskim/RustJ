@@ -3,9 +3,9 @@
 use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
-    semantic::{BoundProgram, Expr, ExprKind, NameVersion, Verb, VerbModifier},
+    semantic::{BoundProgram, Expr, ExprKind, FunctionEntity, NameVersion, Verb},
 };
-use std::{collections::HashMap, ops::Range};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub usize);
@@ -32,8 +32,9 @@ pub enum CallTarget {
 #[derive(Clone, Debug)]
 pub struct Callable {
     pub target: CallTarget,
-    /// Ordered semantic modifier provenance from the J Semantic IR.
-    pub modifiers: Vec<VerbModifier>,
+    /// Shared semantic function graph; lowering may inspect this without
+    /// reparsing source or recursively copying a large derived function.
+    pub semantic: Arc<FunctionEntity>,
     pub reduce: bool,
     pub rank: Option<[i64; 3]>,
 }
@@ -262,15 +263,22 @@ impl Builder<'_> {
         id
     }
     fn callable(&mut self, verb: Verb) -> Callable {
-        let target = match verb.target {
+        let Verb {
+            target: semantic_target,
+            entity,
+            reduce,
+            rank,
+            ..
+        } = verb;
+        let target = match semantic_target {
             crate::semantic::VerbTarget::Named(name) => CallTarget::Dynamic(self.symbol(&name)),
             crate::semantic::VerbTarget::Primitive(id) => CallTarget::Primitive(id),
         };
         Callable {
             target,
-            modifiers: verb.modifiers,
-            reduce: verb.reduce,
-            rank: verb.rank,
+            semantic: entity,
+            reduce,
+            rank,
         }
     }
     fn push(&mut self, operation: Operation, span: Range<usize>, ordered: bool) -> ValueId {
