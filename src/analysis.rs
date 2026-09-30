@@ -365,6 +365,11 @@ impl Builder<'_> {
                 }
                 FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
                     if current.result_pos == FunctionPartOfSpeech::Verb => {
+                    if reduce {
+                        return Err(Error::Unsupported(
+                            "ranked reduction operand requires structural reduction lowering".into(),
+                        ));
+                    }
                     let [
                         FunctionOperand::Function(base),
                         FunctionOperand::Noun { value, .. },
@@ -431,7 +436,15 @@ impl Builder<'_> {
                     left.map(|id| &self.nodes[id.0].facts),
                     &self.nodes[right.0].facts,
                 ),
-                _ => (crate::facts::Facts::default(), None),
+                _ => (
+                    crate::facts::Facts::default(),
+                    crate::facts::plan_cell_application(
+                        &callable.explicit_ranks,
+                        callable.innate_rank,
+                        left.map(|id| &self.nodes[id.0].facts),
+                        &self.nodes[right.0].facts,
+                    ),
+                ),
             },
             _ => (crate::facts::Facts::default(), None),
         };
