@@ -67,39 +67,45 @@ J Semantic Array IR
    │ source span
    ↓
 ──────── Semantic Analyzer / Lowering ──────────
-Semantic analysis of array transformations
+target-independent semantic analysis
    ↓
-Logical Array IR / Logical Execution Plan
+Verified Logical Array IR / Logical Execution Plan
+   ↓
+target-independent canonicalization
+   ↓
+Route Partition / Export
    │
-   ├──────── Route A: RustJ-native planning/execution
+   ├──────── Region(s): RustJ-native
    │              ↓
    │       Logical Optimizer
    │              ↓
-   │       Physical Planner
+   │       Schedule / Transform Plan
+   │              ↓
+   │       Physical Planner / Bufferization
    │              ↓
    │       Physical Execution Plan
    │              ↓
-   │       RustJ CPU/GPU Runtime
+   │       RustJ Runtime / Executor
    │
-   ├──────── Route B: MLIR family
+   ├──────── Region(s): MLIR family
    │              ↓
    │       RustJ IR export adapter
    │              ↓
    │       tensor/linalg/scf/vector/gpu/...
    │              ↓
    │       LLVM / NVVM / ROCDL / SPIR-V
-   │              ↓
-   │       external/runtime execution
    │
-   ├──────── Route C: StableHLO/OpenXLA-compatible subset
+   ├──────── Region(s): StableHLO-compatible subset
    │              ↓
    │       StableHLO adapter
    │              ↓
-   │       XLA / IREE / other consumer
+   │       XLA / IREE / compatible consumer
    │
-   └──────── Route D: library / foreign backend call
+   └──────── Region(s): library / foreign backend
                   ↓
           BLAS / vendor library / custom kernel
+
+route boundaries are bridged after representation requirements are known
 ```
 
 핵심 원칙은 **J의 고수준 배열 변환 구조를 Semantic Analyzer가 보기 전에 없애지 않고, analyzer/lowering 단계가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
@@ -112,12 +118,13 @@ RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌�
 - **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
 - **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다. 이 단계는 target-independent facts와 semantic legality를 만든다.
 - **Route Partition / Export**: Logical Array IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
-- **RustJ-native Physical Planner**: Route A에서만 layout, placement, materialization, buffer, transfer, scheduling 같은 물리 실행 결정을 내린다.
+- **RustJ-native Schedule / Transform Plan**: Route A에서 fusion/grouping, tiling, vectorization, axis mapping 같은 schedule 선택을 payload Logical IR과 분리해 기록한다.
+- **RustJ-native Physical Planner / Bufferization**: 선택된 schedule을 바탕으로 placement, memory space, layout, concrete materialization/copy, buffer binding/reuse, transfer, synchronization을 구체화한다.
 - **Backend/Runtime**: 선택된 route의 lower-level IR 또는 Physical Plan을 실행 가능한 artifact로 낮추고 실행한다.
 
 이를 한 문장으로 정의하면:
 
-> **RustJ는 frontend부터 semantic analysis/lowering, logical optimization, physical planning, backend, runtime까지 포함하는 하나의 compiler system이다.**
+> **RustJ는 J semantics와 Logical IR을 소유하고, RustJ-native optimizer/planner/runtime 경로와 검증된 external lowering 경로를 함께 제공하는 compiler system이다.**
 
 Semantic Analyzer / Lowering은 J source text나 tokenizer/parser mechanics에 의존하지 않는다. 그러나 다음 J 의미 구조는 **분석 입력이며 제거 대상이 아니다.**
 
@@ -141,7 +148,7 @@ Semantic Analyzer / Lowering
 Logical Array IR / Plan
         ↓
 Route partition / export
-   ├─ RustJ Physical Plan
+   ├─ RustJ native: Logical Optimizer → Schedule → Physical Plan
    ├─ MLIR family
    ├─ StableHLO-compatible subset
    └─ verified library/custom backend
