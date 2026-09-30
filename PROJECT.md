@@ -4180,6 +4180,8 @@ CostProfile
   launch overhead
   transfer costs
   calibrated library/kernel costs
+  critical-path calibration/latency model
+  kernel-launch aggregation/fusion benefit model
 ```
 
 legality는 `TargetProfile` hard facts로 판단하고, 후보 ranking은 `TargetProfile + CostProfile`로 한다. CostProfile이 없어도 conservative heuristic으로 합법적인 plan을 만들 수 있어야 한다.
@@ -4230,9 +4232,11 @@ ResourceEstimate
   bank-conflict structure
   arithmetic intensity
   instruction/work count
+  critical-path depth / dependency-chain estimate
   synchronization count
   launch count
   transfer bytes
+  temporary bytes / avoided materialization bytes
   peak live memory
 ```
 
@@ -4602,6 +4606,215 @@ physical side:
 
 과거 Flow–Storage 연구의 “in-band memory vocabulary” 아이디어는 이 모델 위에 선택적으로 올릴 수 있다. `load/store/emit/cp` 같은 표기가 채택되더라도 그것은 physical buffer 명령이 아니라 **semantic resource/effect declaration**이어야 한다. external/native lowering이 이를 실제 load/store/copy/checkpoint로 어떻게 실현할지는 별개다.
 
+
+
+#### 4.24.3 APEX/Co-dfns/TAIL 연구를 반영한 middle-end substrate
+
+APEX, Aaron Hsu의 Co-dfns 연구, APL→TAIL→Futhark 연구를 비교한 결과, 현재 RustJ의 `Semantic IR → ResolvedCallFacts → Logical IR → Optimizer → Route/Schedule` 방향은 유지하되 **analysis substrate를 명시적으로 추가**한다.
+
+근거:
+- APEX source/research: https://gitlab.com/bernecky/apex , https://www.snakeisland.com/ms.pdf
+- Aaron W. Hsu, *The Key to a Data Parallel Compiler*, DOI 10.1145/2935323.2935331: https://dl.acm.org/doi/10.1145/2935323.2935331
+- Co-dfns source pin `4e6d3e3002f2109360d24278776c5b5a4f65db0d`: https://github.com/Co-dfns/Co-dfns
+- Dyalog'16: https://elsman.com/pdf/Dyalog16.pdf
+- Henriksen et al., FHPC'16: https://elsman.com/pdf/fhpc16futhark.pdf
+- 자세한 Source → Observation → RustJ Decision 매핑은 `FOUNDATIONS.md` Part XX를 따른다.
+
+권장 middle-end:
+
+```text
+J Semantic IR
+      ↓
+Binding / Effect Analysis
+      ↓
+Logical SSA
+      ↓
+GraphIndex / AnalysisIndex
+      ↓
+MorphologyEngine
+      ↓
+Interprocedural Fixed Point
+      ↓
+SpecializationEngine
+      ↓
+High-level Logical Parallel IR
+      ↓
+Optimization Proofs
+      ↓
+RoutePartition
+      ↓
+Schedule / Physical Plan
+```
+
+이 구조는 APEX/Co-dfns/TAIL을 복제하는 것이 아니다. 각 연구에서 검증된 array-compiler insight를 **full J semantics + jsource-compatible frontend**라는 RustJ 경계에 맞게 재배치한 것이다.
+
+#### 4.24.4 MorphologyEngine: ValueFacts를 lattice/fixpoint 분석으로 승격한다
+
+APEX의 array morphology에서 가져오는 핵심은 type inference가 아니라 **array property의 정식 data-flow analysis**다.
+
+```text
+ValueFacts
+  TypeFact
+  RankFact
+  ShapeFact
+  ItemCountFact
+  ConstantFact
+  ArrayPropertyFacts
+  ConstraintSet
+```
+
+각 fact domain은 최소한 Unknown/Proven 계층, join/merge, transfer/refinement를 가져야 하며 interprocedural summary와 specialization propagation을 worklist/fixpoint로 반복할 수 있어야 한다.
+
+`FunctionEntity`에는 actual argument-dependent morphology를 넣지 않는다. call/value/Logical node fact table이 소유한다.
+
+#### 4.24.5 ArrayPropertyFacts와 FactWitness
+
+APEX의 array predicates와 fact-origin 문제를 반영해 다음을 정식 분석 domain으로 둔다.
+
+```text
+ArrayPropertyFacts
+  IntegralValued
+  NonNegative
+  Unique
+  SortedAscending / SortedDescending
+  Permutation
+  KnownRange
+  AllEqual
+  ...
+```
+
+그리고 optimization에 사용되는 fact는 가능한 한 provenance를 갖는다.
+
+```text
+Fact<T>
+  abstract_value
+  witness
+
+FactWitness
+  Constant
+  SameAs(ValueId, relation)
+  DerivedFrom(NodeId, RuleId)
+  BindingVersion(...)
+  RuntimeGuard(GuardId)
+  CellApplyFrame(...)
+  ...
+```
+
+check elimination, fusion legality, route eligibility, specialization은 witness 없는 optimistic fact에 의존하지 않는다.
+
+#### 4.24.6 GraphIndex는 semantic DAG의 replacement가 아니라 derived analysis view다
+
+Hsu의 Node Coordinate Matrix와 현재 Co-dfns의 inverted-table AST는 parent/depth/type/kind/binding/source-range를 columnar form으로 보관해 subtree/group analysis를 batch operation으로 처리하는 장점을 보여 준다.
+
+RustJ canonical semantic representation은 계속 immutable shared DAG다. 다만 다음 sidecar를 만들 수 있다.
+
+```text
+GraphIndex
+  NodeId[]
+  parent[]
+  depth[]
+  preorder[]
+  subtree_end[]
+  opcode[]
+  entity_id[]
+  scope_id[]
+  def/use index
+  source-origin index
+```
+
+용도:
+- op/entity/scope/specialization key별 grouping
+- use-def/liveness
+- bottom-up/top-down summary
+- dependency-level parallel pass
+- CPU SIMD/멀티코어 batch analysis
+
+**금지:** semantic identity를 dense matrix/SoA 하나에 종속시키거나 모든 pass를 data-parallel form으로 강제하지 않는다.
+
+#### 4.24.7 SpecializationEngine: call-site clone 대신 cacheable SpecializationKey
+
+APEX의 call-site specialization과 TAIL의 explicit type/rank instantiation을 일반화한다.
+
+```text
+SpecializationKey
+  FunctionEntityId
+  binding version / guard
+  valence
+  relevant dtype classes
+  effective rank facts
+  relevant shape class
+  relevant ArrayPropertyFacts
+  fit/tolerance/rank policy
+```
+
+동일 key는 analyzed region/JIT artifact를 재사용한다.
+
+specialization explosion을 막기 위해 exact shape/constant/property는 **algorithm/lowering 선택에 실제로 영향을 줄 때만** key에 넣는다. 필요하면 abstract-state widening/merge를 허용한다.
+
+#### 4.24.8 High-level parallel structure를 Logical IR에 보존한다
+
+TAIL→Futhark 연구는 map/reduction nests를 explicit하게 유지해야 fusion, nested-parallelism flattening, coalesced access optimization을 수행할 수 있음을 보여 준다.
+
+따라서 다음은 early scalarization 금지 대상이다.
+
+```text
+CellApply
+MapCells
+Reduce
+Scan
+Window
+Gather / Scatter
+StaticReindex
+OuterProduct
+MatMul
+Conv
+Loop / Power
+```
+
+nested `CellApply(Reduce(...))`, `Reduce(CellApply(...))` 등은 Logical IR에서 보존한다. flattening/segmentation/thread mapping은 optimizer/schedule decision이다.
+
+#### 4.24.9 Pure region extraction과 route precondition
+
+TAIL/Futhark와 Co-dfns는 실제 compiler subset을 제한한다. RustJ는 그 제한을 J language restriction으로 채택하지 않는다.
+
+```text
+Full J semantic graph
+      ↓
+EffectAnalysis
+      ↓
+RegionPartition
+  PureArrayRegion
+  GuardedDynamicRegion
+  StatefulRegion
+  RuntimeSemanticRegion
+```
+
+external backend의 static scope/static rank/no-execute/pure-array requirement는 **route precondition**이다.
+
+```text
+route cannot lower X
+  ≠ X is invalid J
+```
+
+route가 실패하면 native route, guarded JIT, runtime semantic path를 선택한다.
+
+#### 4.24.10 Parameterized Lowering Recipe
+
+TAIL→Futhark가 static type/rank information에 따라 primitive code skeleton을 specialize하는 방식을 일반화한다.
+
+```text
+Resolved Semantic Op
++ ResolvedCallFacts
++ TargetCapability
+        ↓
+ParameterizedLoweringRecipe
+        ↓
+candidate realizations
+```
+
+예를 들어 `Take`는 sign/bounds/fill/view legality에 따라 ViewTake, DirectSlice, PadAndSlice, GenericTakeKernel, RuntimeSemanticFallback으로 분기할 수 있다.
+
+semantic op 하나가 kernel 하나라는 가정을 두지 않는다.
 
 
 ### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
@@ -5692,6 +5905,9 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
+- [ ] `ValueFacts`를 Type/Rank/Shape/ItemCount/Constant/ArrayProperty/Constraint의 abstract-domain 집합으로 정의한다.
+- [ ] `ArrayPropertyFacts` domain(IntegralValued/NonNegative/Unique/Sorted/Permutation/KnownRange 등)의 최소형과 primitive transfer rule interface를 정의한다.
+- [ ] optimizer가 사용하는 추론 fact에 `FactWitness`/provenance를 연결하는 최소 contract를 정의한다.
 - [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
 - [ ] `CompilationTarget = BackendFamily + ArchitectureTarget + DeviceProfile + RuntimeProfile`을 정의하고, 기존 `TargetProfile`은 resolved effective view로 사용한다.
 - [ ] compile invocation 시작 시 `CompilationTargetLocale` / `TargetContext`를 확정하고 lowering lookup의 root로 사용한다.
@@ -5724,6 +5940,15 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 ### A3 — Logical IR core, verification, scheduling boundary
 
 - [ ] SSA `ValueId`, Function/Region/Block/Terminator 최소 구조를 정의한다.
+- [ ] J Name / BindingVersion / SSA ValueId를 명시적으로 구분한다.
+- [ ] immutable semantic/Logical DAG에서 유도되는 `GraphIndex` / `AnalysisIndex` sidecar(parent/depth/preorder/subtree/op/entity/scope/use-def/source-origin)를 정의한다.
+- [ ] graph index는 derived analysis view이며 semantic DAG의 canonical identity를 대체하지 않는다는 verifier/invariant를 둔다.
+- [ ] morphology transfer를 worklist/fixpoint로 실행할 최소 `MorphologyEngine` interface를 정의한다.
+- [ ] interprocedural summary와 call-site specialization을 `SpecializationKey` + cache로 표현한다.
+- [ ] specialization key에 포함할 fact relevance 정책과 code-explosion merge/widening 정책을 정의한다.
+- [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
+- [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
+- [ ] `ParameterizedLoweringRecipe` interface를 정의해 ResolvedCallFacts+TargetCapability로 multiple realization 후보를 만들 수 있게 한다.
 - [ ] pure graph region과 CFG region을 구분한다.
 - [ ] v0에서는 `ConstraintSet + compile-time Witness`를 정의하고, runtime branching이 필요한 `Guard`는 v1로 미룬다.
 - [ ] v0에서는 `EffectSummary + SpeculationSemantics`의 interface만 정의하고, explicit `EffectToken`은 v1로 미룬다.
