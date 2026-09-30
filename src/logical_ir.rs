@@ -123,7 +123,7 @@ fn axes_from_shape(
     rank: Option<usize>,
     role: AxisRole,
 ) -> Vec<IterationAxis> {
-    let rank = shape.map_or(rank.unwrap_or(0), <[usize]>::len);
+    let rank = shape.map_or(rank.unwrap_or(0), |shape| shape.len());
     (0..rank)
         .map(|position| IterationAxis {
             position,
@@ -140,7 +140,7 @@ fn iteration_domain(
     transition: &analysis::LogicalPlan,
 ) -> IterationDomain {
     if kind == Some(BasisKind::Reduce) {
-        let analysis::Operation::Call { right, .. } = node.operation else {
+        let analysis::Operation::Call { right, .. } = &node.operation else {
             return IterationDomain::default();
         };
         let input = &transition.nodes[right.0].facts;
@@ -172,7 +172,7 @@ fn iteration_domain(
         if let Some(plan) = &node.rank_plan {
             let frame = plan.result_frame.as_deref();
             return IterationDomain {
-                axes: axes_from_shape(frame, frame.map(<[usize]>::len), AxisRole::Frame),
+                axes: axes_from_shape(frame, frame.map(|shape| shape.len()), AxisRole::Frame),
             };
         }
     }
