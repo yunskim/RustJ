@@ -75,7 +75,16 @@ impl Engine {
         Self::default()
     }
     /// Inspect bindings without execution or mutation. Versions are Engine-local.
+    /// Stable machine API: diagnostic wrappers are stripped before return.
     pub fn prepare_semantic(&self, source: &str) -> Result<crate::semantic::BoundProgram> {
+        self.prepare_semantic_diagnostic(source)
+            .map_err(Error::into_unlocated)
+    }
+
+    pub fn prepare_semantic_diagnostic(
+        &self,
+        source: &str,
+    ) -> Result<crate::semantic::BoundProgram> {
         crate::semantic::bind(
             crate::semantic::parse_analysis(source, &|name| match &self.names.get(name)?.value {
                 SymbolValue::Noun(value) => Some(value.clone()),
@@ -83,11 +92,19 @@ impl Engine {
             })?,
             |name| self.binding_version(name),
         )
+        .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
     }
 
     /// Build an inspection-only logical plan without running array kernels.
+    /// Stable machine API.
     pub fn analyze(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
-        crate::analysis::lower(self.prepare_semantic(source)?, &|name| match self
+        self.analyze_diagnostic(source).map_err(Error::into_unlocated)
+    }
+
+    /// Compiler-facing analysis path retaining the same structured diagnostic
+    /// context used by the interpreter and future JIT.
+    pub fn analyze_diagnostic(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
+        crate::analysis::lower(self.prepare_semantic_diagnostic(source)?, &|name| match self
             .names
             .get(name)
             .map(|b| &b.value)
@@ -95,6 +112,7 @@ impl Engine {
             Some(SymbolValue::Noun(value)) => crate::facts::Facts::of(value),
             _ => crate::facts::Facts::default(),
         })
+        .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
     }
 
     pub fn binding_version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
@@ -285,15 +303,13 @@ impl Engine {
                     kernels::dyad(verb.id.spelling(), x, y)
                 };
                 call.map_err(|error| {
-                    let mut context = ErrorContext::phase(DiagnosticPhase::Runtime)
-                        .with_span(verb_span)
-                        .executing(operation, DiagnosticValence::Dyad)
-                        .with_argument(x_summary)
-                        .with_argument(y_summary);
-                    if error.kind() == "length error" {
-                        context = context.with_note("argument shapes do not conform");
-                    }
-                    error.with_context(context)
+                    error.with_context(
+                        ErrorContext::phase(DiagnosticPhase::Runtime)
+                            .with_span(verb_span)
+                            .executing(operation, DiagnosticValence::Dyad)
+                            .with_argument(x_summary)
+                            .with_argument(y_summary),
+                    )
                 })
             }
             }
