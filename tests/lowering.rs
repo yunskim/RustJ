@@ -115,3 +115,53 @@ fn gather_keeps_indexed_parallel_routes_closed_while_errors_are_observable() {
         vec![RealizationFamily::GpuIndexed]
     );
 }
+
+
+#[test]
+fn route_partition_distinguishes_native_fallback_checks_and_value_ops() {
+    use rustj::lowering::RouteDecision;
+
+    let registry = LoweringRegistry::a3_v0();
+    let cpu = TargetCapabilities::cpu_baseline();
+    let gpu = TargetCapabilities::gpu_generic();
+
+    let plan = Engine::new().analyze_a3("1+2").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    assert_eq!(
+        registry.route_operation(&plan.operations[producer.0], &cpu),
+        RouteDecision::NativeBasis {
+            basis: BasisKind::Elementwise,
+            candidates: vec![RealizationFamily::ReferenceSequential],
+        }
+    );
+    assert_eq!(
+        registry.route_operation(&plan.operations[producer.0], &gpu),
+        RouteDecision::RuntimeSemanticFallback
+    );
+
+    let plan = Engine::new().analyze_a3("future 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    assert_eq!(
+        registry.route_operation(&plan.operations[producer.0], &cpu),
+        RouteDecision::RuntimeSemanticFallback
+    );
+
+    let plan = Engine::new().analyze_a3("1 2+1 2 3").unwrap();
+    let check = plan
+        .operations
+        .iter()
+        .find(|op| matches!(op.kind, OpKind::SemanticCheck(_)))
+        .expect("semantic check");
+    assert_eq!(
+        registry.route_operation(check, &cpu),
+        RouteDecision::SemanticCheck
+    );
+
+    let literal = &plan.operations[0];
+    assert_eq!(
+        registry.route_operation(literal, &cpu),
+        RouteDecision::NoKernel
+    );
+}
