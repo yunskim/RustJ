@@ -144,6 +144,29 @@ pub fn scan(source: &[u8]) -> Result<Vec<Range<usize>>> {
     scan_impl(source, false)
 }
 
+/// Parse-visible words, equivalent to applying J `;:` to one source string:
+/// the final NB. comment field is excluded while word boundaries come from
+/// the same jtwordil-compatible state machine.
+pub fn word_texts(source: &str) -> Result<Vec<&str>> {
+    let spans = scan(source.as_bytes())?;
+    let mut words = Vec::with_capacity(spans.len());
+    for span in spans {
+        let word = source
+            .get(span)
+            .ok_or_else(|| Error::Unsupported("non-UTF-8 word boundary".into()))?;
+        if word.starts_with("NB.")
+            && !word
+                .as_bytes()
+                .get(3)
+                .is_some_and(|b| matches!(b, b'.' | b':'))
+        {
+            break;
+        }
+        words.push(word);
+    }
+    Ok(words)
+}
+
 /// Only for detecting unsupported definition boundaries before stopping input.
 /// An unfinished quoted word remains a single word; this is NOT syntax validation.
 pub(crate) fn scan_unfinished(source: &[u8]) -> Vec<Range<usize>> {
