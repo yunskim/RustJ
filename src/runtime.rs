@@ -100,13 +100,30 @@ impl Engine {
         Ok(())
     }
 
-    /// Diagnostic execution using the shared frontend, without output pooling.
+    /// Reference execution with stable machine-readable J errors.
     pub fn eval_semantic_reference(&mut self, source: &str) -> Result<Option<Value>> {
         self.eval_program(source, false)
+            .map_err(Error::into_unlocated)
     }
 
+    /// Normal execution with stable machine-readable J errors.
     pub fn eval(&mut self, source: &str) -> Result<Option<Value>> {
         self.eval_program(source, true)
+            .map_err(Error::into_unlocated)
+    }
+
+    /// Same interpreter path as `eval`, retaining source provenance for
+    /// Python-style human diagnostics. Future JIT/interpreter frontends should
+    /// reuse this contract rather than invent a separate error path.
+    pub fn eval_diagnostic(&mut self, source: &str) -> Result<Option<Value>> {
+        self.eval_program(source, true)
+    }
+
+    pub fn eval_semantic_reference_diagnostic(
+        &mut self,
+        source: &str,
+    ) -> Result<Option<Value>> {
+        self.eval_program(source, false)
     }
 
     fn eval_program(&mut self, source: &str, pooled: bool) -> Result<Option<Value>> {
