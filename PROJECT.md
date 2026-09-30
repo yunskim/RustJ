@@ -463,7 +463,7 @@ Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Ar
 - iteration domain / axis semantics / access relation 도출
 - control/data dependency graph 생성
 - effect / alias / speculation legality 분석
-- uniformity / symbolic constraint / mask fact 전파
+- invariance / symbolic constraint / semantic-mask fact 전파
 - map / reduce / scan / gather / structural pattern 식별
 - derived structure의 **target-independent** normalization/lowering
 - semantic storage/lifetime requirement 도출
@@ -975,14 +975,14 @@ DependencyRequirement
   Reduction(axis_set)
   OrderedScan(axis_set)
   WindowDependency(axis_set)
-  AtomicUpdate(resource_or_value)
+  ConflictingUpdate(resource_or_value, combine_semantics)
   CrossValueOrdering(effect_or_resource)
   Collective(logical_participants)
 ```
 
 여기서 `Subgroup`, `Warp`, `Workgroup` 같은 execution scope는 Logical IR에 넣지 않는다. 이들은 Physical Schedule이 logical participants를 target execution hierarchy에 매핑한 뒤 생긴다.
 
-Physical Planner 또는 외부 compiler가 target의 barrier/shuffle/atomic/collective capability를 보고 구체적으로 실현한다.
+Physical Planner 또는 외부 compiler가 target의 barrier/shuffle/atomic/multi-stage reduction/collective capability를 보고 구체적으로 실현한다. `ConflictingUpdate`가 있다고 해서 atomic instruction 사용을 미리 결정하지 않는다.
 
 #### 4.15.6 Logical invariance와 target uniformity를 분리한다
 
@@ -1014,7 +1014,7 @@ InvarianceFact + AxisMapping
 
 즉 GPU subgroup uniformity를 Logical IR의 고정 의미로 저장하지 않는다. 이는 CPU vector lane invariance에도 같은 logical fact를 재사용할 수 있게 한다.
 
-#### 4.15.7 Symbolic shape / divisibility / alignment constraints
+#### 4.15.7 Symbolic shape / divisibility constraints
 
 dynamic extent는 단순 `Unknown`으로 버리지 않고 가능한 제약을 보존한다.
 
@@ -1076,21 +1076,39 @@ TargetProfile
 representation assumption에 의존하는 fast path는 witness/guard 또는 adapter precondition으로 명시한다. MLIR에서도 byte alignment는 tensor semantic이 아니라 memref/alloc/load/store 수준의 representation property로 다뤄진다.
 
 
-#### 4.15.8 Predication / masking semantics
+#### 4.15.8 Semantic mask와 schedule predication을 분리한다
 
-tail tile과 out-of-bounds window를 안전하게 다루려면 logical mask 의미가 필요하다.
+Logical IR에는 **연산 의미 자체가 조건부 access/value를 요구할 때만** semantic mask를 둔다.
 
 ```text
-MaskSemantics
+SemanticMaskSemantics
   predicate source
-  affected accesses
-  masked-load fill semantics
-  masked-store semantics
+  affected logical accesses/results
+  false-branch value semantics
   bounds relation
   side-effect suppression rule
 ```
 
-mask는 GPU-specific 개념이 아니다. CPU masked vector instruction이나 scalar fallback에도 동일한 logical fact를 사용할 수 있다.
+예:
+
+- data-dependent select/filter/gather safety
+- window/padding 의미 때문에 논리적으로 out-of-domain access를 구분해야 하는 연산
+- source semantics에 포함된 conditional effect
+
+반대로 vector tail, partial tile, workgroup 경계 때문에 생기는 mask는 Logical IR의 의미가 아니다.
+
+```text
+Logical shape/access facts
+        ↓
+Schedule / vectorization / tiling
+        ↓
+PredicationPlan
+  tail mask
+  masked load/store
+  boundary predicate
+```
+
+따라서 CPU AVX mask나 GPU lane predicate는 downstream schedule/backend 결정이다. 같은 Logical IR이 target에 따라 masked instruction, scalar remainder loop, padded tile 중 다른 realization을 선택할 수 있다.
 
 #### 4.15.9 SSA, region/block, control flow
 
@@ -1139,15 +1157,15 @@ Logical IR은 effect를 두 수준으로 표현한다.
 
 ```text
 EffectSummary
-  resource
-  Read | Write | Allocate | Free | IO | Unknown
+  semantic_or_external_resource
+  Read | Write | CreateResource | DestroyResource | IO | External | Unknown
   stage/order constraints
 
 EffectToken
   explicit ordering edge when data dependency alone is insufficient
 ```
 
-모든 pure op에 token을 붙이지 않는다. observable side effect나 external call처럼 순서가 의미에 포함되는 경우에만 explicit token/effect edge를 사용한다.
+모든 pure op에 token을 붙이지 않는다. observable side effect나 external call처럼 순서가 의미에 포함되는 경우에만 explicit token/effect edge를 사용한다. 여기의 Create/Destroy는 **언어 또는 external-resource semantics에 실제로 존재하는 resource**에 한정하며, downstream buffer allocation/free를 뜻하지 않는다.
 
 StableHLO의 side-effecting op token과 MLIR MemoryEffect/Speculation interface를 참고하되, J의 error ordering까지 포함할 수 있도록 `SpeculationSemantics`를 별도로 둔다.
 
@@ -1385,9 +1403,9 @@ CostProfile
 
 legality는 `TargetProfile` hard facts로 판단하고, 후보 ranking은 `TargetProfile + CostProfile`로 한다. CostProfile이 없어도 conservative heuristic으로 합법적인 plan을 만들 수 있어야 한다.
 
-### 4.18 Physical Plan이 결정해서 기록해야 하는 hardware mapping
+### 4.18 RustJ-native Physical Plan이 기록하는 hardware mapping
 
-TargetProfile의 정보를 Logical IR에 복사하지 않는다. Physical Planner가 선택한 결과를 Physical Plan에 기록한다.
+TargetProfile의 정보를 Logical IR에 복사하지 않는다. RustJ-native route에서는 Physical Planner가 선택한 결과를 Physical Plan에 기록한다. External route에서는 동등한 mapping을 해당 compiler의 lower-level IR/config가 소유할 수 있다.
 
 ```text
 PhysicalRegion
@@ -1677,7 +1695,7 @@ Logical Plan에서 보존할 정보:
 - symbolic constraints와 witness/guard
 - data dependency와 effect ordering token
 - effect / alias / speculation facts
-- uniformity / mask facts
+- invariance / semantic-mask facts
 - semantic StorageRequirement
 - target-independent rewrite/fusion constraints
 - source/semantic origin metadata
@@ -2297,7 +2315,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
 - [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
 - [ ] innate rank와 cell axis-role contract를 정의한다.
-- [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `MaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
+- [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
 - [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
@@ -2910,11 +2928,13 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 9. **Effect와 error ordering 명시** — pure data dependency만으로 표현되지 않는 ordering은 effect token/speculation contract로 보존한다.
 10. **Dynamic assumption은 witness/guard로 추적** — optimization이 암묵적 shape 또는 representation 가정에 기대지 않는다.
 11. **Logical constraint와 representation fact 분리** — divisibility/shape 관계와 stride/alignment/address-space를 같은 fact domain에 넣지 않는다.
-11. **External IR은 projection** — RustJ Logical IR을 MLIR/StableHLO의 표현력에 맞춰 축소하지 않는다.
-12. **Late bufferization** — alias/destination contract는 logical에 둘 수 있지만 BufferId/materialization은 downstream에서 정한다.
-13. **Verifier first** — 잘못된 IR을 downstream이 추측해서 복구하게 하지 않는다.
-14. **Version boundary 명시** — external interchange를 시작하면 IR schema와 registry/compiler provenance를 기록한다.
-15. **Async dependency는 explicit** — physical async execution에서 host statement order를 dependency로 암묵 사용하지 않는다.
+12. **Semantic mask와 predication 분리** — source/operation 의미의 mask만 Logical IR에 두고 tail/vector/workgroup mask는 schedule에서 만든다.
+13. **Conflict semantics와 atomic realization 분리** — conflicting update를 Logical IR에 표현하되 atomic instruction 사용은 downstream이 결정한다.
+14. **External IR은 projection** — RustJ Logical IR을 MLIR/StableHLO의 표현력에 맞춰 축소하지 않는다.
+15. **Late bufferization** — alias/destination contract는 logical에 둘 수 있지만 BufferId/materialization은 downstream에서 정한다.
+16. **Verifier first** — 잘못된 IR을 downstream이 추측해서 복구하게 하지 않는다.
+17. **Version boundary 명시** — external interchange를 시작하면 IR schema와 registry/compiler provenance를 기록한다.
+18. **Async dependency는 explicit** — physical async execution에서 host statement order를 dependency로 암묵 사용하지 않는다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -2931,7 +2951,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
 4. extension `PrimitiveSpec`을 semantic identity/version record로 정리하고 Shape/Axis/Access/Numeric/Effect/Alias/Speculation capability interface와 lowering registry를 분리한다.
 5. Logical IR core의 SSA `ValueId`, Function/Region/Block/Terminator를 정의한다.
-6. `IterationDomain`, `AxisSemantics`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `MaskSemantics`, `NumericSemantics`, `DependencyRequirement`를 정의한다.
+6. `IterationDomain`, `AxisSemantics`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`, `NumericSemantics`, `DependencyRequirement`를 정의한다.
 7. `Witness/Guard`, `StorageRequirement`, `DestinationRelation`의 최소 contract를 정의한다. `EffectToken`과 multi-block CFG 실행은 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
