@@ -667,47 +667,70 @@ advanced optimization contract available
 
 J built-in의 resource contract가 Unknown이면 보수적인 plan으로 실행할 수 있다. 반면 RustJ 고유 extension primitive는 최소 semantic contract와 실행/lowering 경로가 없으면 등록 완료로 보지 않는다.
 
-### 4.10 PrimitiveSpec은 정체성(identity)과 실현(realization)을 분리한다
+### 4.10 PrimitiveSpec은 semantic record이고, realization은 별도 registry/interface다
 
-4월 prototype에서는 rank, shape inference, memory layout, tiling axis, register/shared-memory function, synchronization, in-place 정보가 하나의 primitive 객체에 함께 있었다. 6월 이후 설계에서는 이를 분리한다.
+과거 prototype처럼 primitive 하나에 rank, shape, layout, register, tiling, backend implementation을 모두 넣지 않는다.
+
+현행 모델은 **semantic record + capability interfaces + lowering/realization registry**로 나눈다.
 
 ```text
 PrimitiveSpec
-├─ IdentityContract          hardware-independent
-│  ├─ identity / part of speech / valence
-│  ├─ innate rank
-│  ├─ parameter schema
-│  ├─ shape rule
-│  ├─ dtype rule
-│  ├─ axis-role contract
-│  ├─ access pattern
-│  ├─ error / promotion / observable-order contract
-│  ├─ effects
-│  ├─ alias / mutation legality
-│  ├─ safe rewrite / reassociation constraints
-│  └─ optional semantic reference definition
-│
-├─ AnalysisContract
-│  ├─ fusion legality / composition rule
-│  ├─ reduction / accumulator requirement
-│  ├─ materialization requirement
-│  ├─ synchronization requirement
-│  └─ explicit Unknown where not modeled
-│
-└─ RealizationFamily        hardware/fusion-context dependent
-   └─ realize(identity, fusion_context, target_profile)
-        → RealizationSpec | Unsupported
+├─ identity / part of speech / valence
+├─ innate rank
+├─ parameter schema
+├─ semantic reference definition (optional)
+└─ version / provenance
+
+Primitive semantic interfaces
+├─ ShapeInference
+├─ TypePromotion
+├─ AxisAndIterationSemantics
+├─ AccessPattern
+├─ NumericSemantics
+├─ EffectSemantics
+├─ AliasSemantics
+├─ SpeculationSemantics
+└─ RewriteLegality
+
+Lowering / realization interfaces
+├─ RustJNativeLowering
+├─ MlirLowering
+├─ StableHloLowering
+├─ LibraryLowering
+└─ TargetSpecificLowering
 ```
 
-`RealizationSpec`은 concrete accumulator dtype, register/shared-memory requirement, chosen layout, tiling strategy, backend/library intrinsic 후보, synchronization strategy, expected traffic/cost 등을 담을 수 있다.
+이 방식은 MLIR의 operation interface 원칙과 유사하다. 분석기와 변환기는 concrete op 이름을 일일이 special-case하기보다 필요한 capability interface를 질의한다.
 
-과거의 `register_fn`, `shared_memory_fn`, `accum_fn` 아이디어는 폐기하지 않는다. **고정 숫자가 아니라 realization function**으로 승격한다.
+예를 들어 conv extension이 등록될 때 semantic registry에는 다음이 들어갈 수 있다.
 
 ```text
-ResourceUsage = R(LogicalGraph, FusionContext, Schedule, TargetProfile)
+PrimitiveId::Conv2d
+  ShapeInference
+  AxisAndIterationSemantics
+  AccessPattern
+  NumericSemantics
+  EffectSemantics
 ```
 
-primitive 두 개의 register 숫자를 단순 합산하지 않는다. liveness, accumulator lifetime, shared memory, fusion으로 제거되는 intermediate, occupancy threshold를 함께 고려한다.
+반면 NVIDIA/AMD/CPU의 실제 구현 선택은 같은 record 안에 target 숫자로 박지 않고 lowering registry가 제공한다.
+
+```text
+LoweringRegistry.lookup(
+    primitive,
+    route,
+    target_capabilities
+) -> candidates
+```
+
+과거의 `register_fn`, `shared_memory_fn`, `accum_fn`은 semantic primitive property가 아니라 native planner용 realization/resource model 구현으로 옮긴다.
+
+```text
+ResourceUsage
+  = R(LogicalGraph, PhysicalSchedule, TargetProfile)
+```
+
+이렇게 하면 extension primitive를 추가해도 모든 분석/optimizer/backend가 그 이름을 직접 알 필요가 없다.
 
 ### 4.11 rank와 axis role은 서로 다른 정보다
 
@@ -939,15 +962,17 @@ logical op은 CUDA barrier 자체를 갖지 않는다. 대신 어떤 범위의 d
 ```text
 DependencyRequirement
   Independent
-  SubgroupCollective
-  WorkgroupLocalCollective
-  GlobalReduction
-  OrderedScan
-  AtomicUpdate
-  CrossValueOrdering
+  Reduction(axis_set)
+  OrderedScan(axis_set)
+  WindowDependency(axis_set)
+  AtomicUpdate(resource_or_value)
+  CrossValueOrdering(effect_or_resource)
+  Collective(logical_participants)
 ```
 
-Physical Planner가 target의 barrier/shuffle/atomic/collective capability를 보고 구체적으로 실현한다.
+여기서 `Subgroup`, `Warp`, `Workgroup` 같은 execution scope는 Logical IR에 넣지 않는다. 이들은 Physical Schedule이 logical participants를 target execution hierarchy에 매핑한 뒤 생긴다.
+
+Physical Planner 또는 외부 compiler가 target의 barrier/shuffle/atomic/collective capability를 보고 구체적으로 실현한다.
 
 #### 4.15.6 Uniformity / Divergence
 
@@ -955,8 +980,8 @@ SPMD target에서는 값과 control flow가 execution scope 안에서 uniform한
 
 ```text
 UniformityFact
-  Uniform(scope)
-  Varying(scope, axes)
+  Uniform(over_logical_axes)
+  Varying(over_logical_axes)
   Unknown
 ```
 
@@ -968,7 +993,7 @@ UniformityFact
 - mask
 - subgroup collective operand
 
-같은 expression이라도 subgroup 전체가 같은 address를 읽는 경우와 lane마다 다른 address를 읽는 경우는 memory transaction, divergence, broadcast 최적화 가능성이 다르다.
+Logical IR에서는 어떤 logical axes에 대해 값이 invariant인지 보존한다. Physical Schedule이 그 axes를 subgroup/lane에 매핑하면 backend가 실제 divergence와 broadcast/coalescing 가능성을 계산한다.
 
 #### 4.15.7 Symbolic shape / divisibility / alignment constraints
 
@@ -1013,6 +1038,81 @@ MaskSemantics
 ```
 
 mask는 GPU-specific 개념이 아니다. CPU masked vector instruction이나 scalar fallback에도 동일한 logical fact를 사용할 수 있다.
+
+#### 4.15.9 SSA, region/block, control flow
+
+현재 array dataflow만으로는 향후 direct/explicit definition의 조건분기·반복·호출을 충분히 표현할 수 없다.
+
+Logical Array IR은 장기적으로 최소한 다음 구조를 허용한다.
+
+```text
+Function
+  Region
+    Block(args...)
+      Op...
+      Terminator(successors / return)
+```
+
+value는 SSA `ValueId`로 표현한다. pure array graph는 single-block graph region으로 표현할 수 있고, control flow가 필요한 경우 CFG region/block을 사용한다.
+
+J의 hook/fork/train을 이 CFG로 일찍 풀라는 뜻은 아니다. 그것들은 J Semantic Array IR에서 보존한 뒤 semantic lowering 결과로 필요한 control/dataflow만 만든다.
+
+#### 4.15.10 Constraint witness / runtime guard
+
+`ConstraintSet`은 metadata 목록만으로 끝내지 않는다. 어떤 최적화가 특정 runtime assumption에 의존하는지 추적할 수 있어야 한다.
+
+개념 모델:
+
+```text
+WitnessId
+Assert(constraint) -> WitnessId
+Assume(witness) {
+  optimized region
+}
+Guard(constraint,
+      fast_region,
+      fallback_region)
+```
+
+compile-time에 증명된 constraint는 witness 없이 fact로 정착할 수 있다. 동적 constraint는 guard를 통해 specialization 경로와 fallback 경로를 동시에 보존한다.
+
+이는 MLIR Shape dialect의 witness/assuming 아이디어와 같은 목적을 가진다.
+
+#### 4.15.11 effect resource와 ordering token
+
+SSA data dependency만으로는 I/O, mutable state, explicit storage update, runtime call의 관찰 가능한 순서를 모두 표현할 수 없다.
+
+Logical IR은 effect를 두 수준으로 표현한다.
+
+```text
+EffectSummary
+  resource
+  Read | Write | Allocate | Free | IO | Unknown
+  stage/order constraints
+
+EffectToken
+  explicit ordering edge when data dependency alone is insufficient
+```
+
+모든 pure op에 token을 붙이지 않는다. observable side effect나 external call처럼 순서가 의미에 포함되는 경우에만 explicit token/effect edge를 사용한다.
+
+StableHLO의 side-effecting op token과 MLIR MemoryEffect/Speculation interface를 참고하되, J의 error ordering까지 포함할 수 있도록 `SpeculationSemantics`를 별도로 둔다.
+
+#### 4.15.12 speculation / may-error semantics
+
+J에서는 domain/rank/length/overflow 등의 오류 발생 순서도 관찰 가능할 수 있다. 따라서 “memory effect가 없다”와 “마음대로 speculative execution 가능”은 다르다.
+
+```text
+SpeculationSemantics
+  AlwaysSafe
+  SafeIf(constraints)
+  MayRaiseObservableError
+  MayNotTerminate
+  HasNonLocalControlEffect
+```
+
+optimizer와 external adapter는 이 contract를 보고 hoist, duplicate, eliminate, reassociate 가능성을 판단한다.
+
 
 
 ### 4.16 TargetProfile: 하드웨어 hard facts와 capabilities
