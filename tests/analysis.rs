@@ -267,6 +267,7 @@ fn rank_cell_frame_and_reduction_facts_match_execution() {
     assert_eq!(explicit.right_frame, vec![2, 3, 4]);
     assert_eq!(explicit.right_cell, Vec::<usize>::new());
     assert_eq!(explicit.result_frame, Some(vec![2, 3, 4]));
+    assert_eq!(explicit.iteration_count, Some(24));
     assert_eq!(explicit.repeated_side, Some(RepeatedSide::Left));
     assert_eq!(explicit.right_residual_frame, vec![3, 4]);
     assert_eq!(plan.layers[1].boundary, CellApplyBoundary::Innate);
@@ -359,6 +360,7 @@ fn implicit_and_explicit_cell_application_boundaries_remain_distinct() {
     assert_eq!(innate.right_frame, vec![2, 3]);
     assert_eq!(innate.repeated_side, Some(RepeatedSide::Left));
     assert_eq!(innate.right_residual_frame, vec![2, 3]);
+    assert_eq!(innate.iteration_count, Some(6));
     assert_eq!(node.facts.shape, Some(vec![2, 3]));
 
     let p = e.analyze("$a").unwrap();
@@ -369,6 +371,7 @@ fn implicit_and_explicit_cell_application_boundaries_remain_distinct() {
     assert_eq!(plan.layers[0].effective_monad_rank, Some(2));
     assert_eq!(plan.layers[0].right_frame, Vec::<usize>::new());
     assert_eq!(plan.layers[0].right_cell, vec![2, 3]);
+    assert_eq!(plan.layers[0].iteration_count, Some(1));
     assert_eq!(node.facts.shape, Some(vec![2]));
 
     let p = e.analyze("+\"1 a").unwrap();
@@ -378,9 +381,11 @@ fn implicit_and_explicit_cell_application_boundaries_remain_distinct() {
     assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Explicit);
     assert_eq!(plan.layers[0].right_frame, vec![2]);
     assert_eq!(plan.layers[0].right_cell, vec![3]);
+    assert_eq!(plan.layers[0].iteration_count, Some(2));
     assert_eq!(plan.layers[1].boundary, CellApplyBoundary::Innate);
     assert_eq!(plan.layers[1].right_frame, vec![3]);
     assert_eq!(plan.layers[1].right_cell, Vec::<usize>::new());
+    assert_eq!(plan.layers[1].iteration_count, Some(3));
     assert_eq!(node.facts.shape, Some(vec![2, 3]));
 
     let p = e.analyze("(+\"1)\"0 a").unwrap();
