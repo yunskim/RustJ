@@ -11,6 +11,21 @@ CPU에서 먼저 strides/offset view와 물리 계획을 검증한다. CUDA 하�
 현재 CpuStorage는 Inline/Owned/Shared를 지원하지만 Value가 저장소를 직접 갖고 ArrayView는 연속 CPU slice 중심이다.
 Semantic IR, 보수적 primitive 계약, ValueId 기반 LogicalPlan과 rank facts는 출발점이며 완성된 physical executor가 아니다.
 
+## 추가 조사 반영 — 2026-09-30
+
+설계 근거와 결정 D1~D5는 [배열 프레임워크 추가 조사](ARRAY-FRAMEWORK-DESIGN-REVIEW.md)를 따른다.
+조사와 문서 반영은 완료했지만 아래 구현·실측 항목은 모두 미완료다.
+
+- [x] ndarray/Arrow API·생성/소유권 소스와 OpenXLA/Burn/ArrayFire 공식 문서를 추가 확인하고 결정·검증 사례를 기록했다.
+- [ ] G1/D1: checked span·바이트 범위·dtype/backing 일치, empty/scalar 정책, stale BufferId와 read-only 기본 경계를 구현한다.
+- [ ] G1~G2/D2: logical-order contiguous와 memory-contiguous를 구분하고 transpose ravel·reshape 순서 테스트를 추가한다.
+- [ ] G3~G4/D3: 내부 겹침과 외부 live alias를 구분하고 부분/shared backing 회수와 조기 풀 반환을 차단한다.
+- [ ] G4~G5/D4: 여러 consumer의 layout 충돌·반복 읽기·retained bytes를 계획/비용 검사에 포함한다.
+- [ ] G4 이후/D5: 최소 CPU 실행 연결 뒤 제한된 JIT/fusion 실험과 bounded cache·guard·cold/warm 검증을 수행한다.
+
+G1은 mutable arbitrary view를 제공하지 않는다. G2 첫 reshape view는 표준 논리 순서의 연속 입력으로 제한한다.
+후속 JIT 실험은 G1~G4를 지연시키지 않으며 CUDA 보류도 유지한다.
+
 ## G1 — 논리 값과 물리 표현의 경계 (바로 다음 작업)
 
 - [ ] ValueId와 별개의 BufferId 및 버퍼 소유자/등록 수명 모델을 정의한다. 논리 이름 버전과 버퍼 ID를 혼동하지 않는다.

@@ -63,3 +63,7 @@ Polars의 `ChunkedArray`는 새 청크를 붙여 전체 데이터의 재할당 �
 배열 길이 0/1, SIMD lane 전후, 각 할당 크기 경계, 100만/400만 원소를 포함한다. 추가로 offset 1인 뷰, 작은 뷰가 큰 backer를 유지하는 경우, 부분 초기화 후 실패, 겹치는 입력, 공유 입력, 반복 크기 변경을 검증한다. 성능 비교는 같은 CPU·스레드 수·정수 승격 규칙·결과 소비 방식으로 수행하고 커널 자체와 파싱/할당 포함 실행을 나누어 기록한다.
 
 외부 라이브러리를 기본 런타임 의존성으로 즉시 추가하지 않는다. RustJ의 동적 타입·rank·승격 규칙에 맞는 작은 storage 계층을 먼저 설계하고, scratch 구현에는 dyn-stack, 후속 행렬 연산에는 faer를 실제 도입 후보로 평가한다. ndarray와 Arrow는 설계 참조 및 별도 비교 구현 후보로 활용한다. 이는 라이브러리 자체의 우열 판단이 아니라 현재 J 커널의 요구에 따른 범위 결정이다.
+
+## 2026-09-30 추가 조사
+
+[배열 프레임워크 추가 조사와 설계 결정](ARRAY-FRAMEWORK-DESIGN-REVIEW.md)에 ndarray/Arrow 생성·소유권, OpenXLA 버퍼 배정과 GPU lowering, Burn/ArrayFire fusion 및 JIT의 추가 확인을 기록했다. [최우선 GPU 배열 계획](GPU-FRIENDLY-ARRAY-PLAN.md)의 D1~D5 항목으로 구현과 검증을 추적한다. 문서 조사이며 비교 benchmark 완료가 아니다.

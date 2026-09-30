@@ -23,6 +23,8 @@
 - [ ] G4: 최소 PhysicalPlan 및 CPU executor 연결.
 - [ ] G5: Windows 회귀·성능·복사/할당 비용 판정 및 지원표.
 
+추가 설계 근거: [배열 프레임워크 조사](ARRAY-FRAMEWORK-DESIGN-REVIEW.md). D1~D5의 구체 검증 항목도 GPU 배열 체크리스트에서 추적한다.
+
 바로 다음 작업은 G1이다. CUDA 실행 구현은 계속 보류한다.
 아래 이전 단계의 체크 상태는 이력이며 실행 순서를 덮어쓰지 않는다.
 
