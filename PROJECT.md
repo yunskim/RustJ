@@ -1088,7 +1088,7 @@ DerivedPrimitive::Conv2d(params)
 
 ```text
 LoweringRegistry.lookup(
-    primitive,
+    resolved_semantic_operation,
     route,
     target_capabilities
 ) -> candidates
@@ -1129,13 +1129,15 @@ extension-derived operation
 예를 들어 dyadic `+`는 target-independent하게 다음 semantic capability를 제공한다.
 
 ```text
-PrimitiveId::Add
-  part_of_speech / valence
+PrimitiveId::Plus
+  part_of_speech = Verb
+  monad contract  = Conjugate/identity-for-supported-real-types semantics
+  dyad contract   = Add semantics
   rank / agreement
   ShapeInference
-  TypePromotion
+  TypeSemantics
   AxisAndIterationSemantics
-  AccessPattern = Map-like elementwise
+  AccessPattern
   NumericSemantics
   EffectSemantics
   RewriteLegality
@@ -1163,7 +1165,11 @@ Lowering bindings for Add
 개념 흐름:
 
 ```text
-PrimitiveId::Add
+ResolvedSemanticOp
+  source = PrimitiveId::Plus
+  valence = Dyad
+  semantic_op = Add
+  derived_policies = {...}
     │
     ├─ semantic capabilities
     │    iteration/access/numeric/effect
@@ -1176,6 +1182,34 @@ PrimitiveId::Add
            ↓
        Schedule / Physical realization
 ```
+
+
+
+lowering key는 raw spelling/primitive id 하나가 아니다.
+
+```text
+LoweringKey
+  source_entity_identity
+  resolved_valence
+  semantic_operation_kind
+  derived semantic policies
+    rank/cell context as needed
+    fit/tolerance/numeric mode
+    storage/effect mode
+  representation preconditions (separate)
+```
+
+예를 들어 같은 `+` glyph라도 monadic `+ y`와 dyadic `x + y`는 같은 lowering으로 가정하지 않는다. `+/`, `+!.0`, `+"r` 같은 derived form도 semantic analysis 뒤 각각 필요한 reduction/numeric/rank contract를 가진 resolved operation으로 lookup한다.
+
+locale binding은 여러 수준으로 등록할 수 있다.
+
+```text
+source primitive + valence handler
+semantic op-class handler (ElementwiseAdd, ReductionAdd, ...)
+specific derived-op specialization
+```
+
+가장 구체적인 binding만 의미가 맞는 경우에 사용한다.
 
 모든 primitive가 모든 architecture에 전용 implementation을 가질 필요는 없다.
 
@@ -2184,23 +2218,28 @@ compiler.device.<exact-device>
 
 ```text
 compiler.generic
-  Add -> GenericAddLowering
+  ElementwiseAdd(Dyad) -> GenericAddLowering
 
 compiler.gpu
-  Add -> GenericGpuElementwiseAdd
+  ElementwiseAdd(Dyad) -> GenericGpuElementwiseAdd
 
 compiler.backend.cuda
-  Add -> CudaElementwiseAdd
+  ElementwiseAdd(Dyad) -> CudaElementwiseAdd
 
 compiler.arch.nvidia.<arch>
-  Matmul -> ArchitectureSpecificMatmul
+  Matmul(...) -> ArchitectureSpecificMatmul
 ```
 
 lookup:
 
 ```text
 resolve_lowering(
-    op = PrimitiveId::Add,
+    key = ResolvedSemanticOp {
+      source = PrimitiveId::Plus,
+      valence = Dyad,
+      semantic_op = ElementwiseAdd,
+      derived_policies = ...
+    },
     locale_chain = target.locales
 )
 ```
@@ -3627,6 +3666,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 architecture/device profile에 올바르게 분리한다.
 - [ ] compiler target locale chain(device → architecture → family → backend → cpu/gpu → generic)을 정의한다.
 - [ ] built-in J primitive도 extension과 동일하게 target lowering binding을 locale chain에서 조회한다.
+- [ ] lowering lookup key에 primitive/source identity뿐 아니라 resolved valence와 derived rank/fit/numeric semantics를 포함한다.
 - [ ] hard target facts와 empirical `CostProfile`을 분리한다.
 - [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
 - [ ] `ResourceEstimate`를 graph + schedule + TargetProfile의 함수로 계산하고 `CostEstimate`를 별도 계층으로 둔다.
@@ -4315,6 +4355,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 48. **Type semantics may depend on emptiness** — dtype pair만으로 domain/promotion을 확정하지 않고 J의 empty/fill/prototype context를 반영한다.
 49. **Rank is not just usize** — infinite rank와 argument-relative negative rank를 semantic RankSpec으로 보존하고 적용 시 effective cell rank를 resolve한다.
 50. **Rank conjunction is entity-based** — `"`의 left/right operand를 verb+integer로 가정하지 않고 J의 noun/gerund/verb-rank forms를 semantic analysis 전까지 보존한다.
+51. **Lowering key includes semantic valence/context** — raw primitive id/spelling만으로 backend lowering을 선택하지 않고 resolved valence와 derived numeric/rank/effect semantics를 포함한 operation key를 사용한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
