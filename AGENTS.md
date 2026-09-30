@@ -77,7 +77,7 @@ For every implementation change:
 - Keep semantic function identity/operands separate from runtime/backend executor specialization; optimized handlers must not erase J-visible derived structure.
 
 - Treat jsource V/fgh as an execution-object cross-check, not as the authoritative source of semantic DAG edges; execution-only auxiliaries in f/g/h/local metadata must not become semantic children automatically.
-- In Semantic IR, keep the source operator as the parent identity: applied `/` has its operand, applied `"` has left/right operands. Normalize to Reduce/MapCells only in Semantic Analyzer -> Logical IR lowering.
+- In Semantic IR, keep the source operator as the parent identity: applied `/` has its operand, applied `"` has left/right operands. Normalize to Reduce/CellApply only in Semantic Analyzer -> Logical IR lowering; use fixed-shape MapCells only after uniform result/assembly proof.
 
 - Keep the rank conjunction (`"`) distinct from implicit cell iteration: `"` is a parent conjunction with left/right parser operands; implicit looping is common function-application semantics driven by callable rank and argument rank.
 - Preserve nested explicit/innate rank boundaries until fill/assembly/error equivalence proves they can be fused; never collapse them to one effective rank by default.
