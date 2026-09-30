@@ -82,3 +82,8 @@ cargo test --features portable
 - 실측/기계 원자료: `reports/*.json`, `reports/*.jsonl`
 
 과거 개별 Markdown 보고서의 세부 이력은 Git history에서 확인합니다.
+
+
+## 과거 설계 저장소
+
+과거 `JAXA`, `JAXA-complier`, `japchae`, `jaxa-analyzer`에 흩어져 있던 primitive vocabulary, resource model, materialized-array/Flow–Storage, analyzer 설계는 2026-09-30 기준으로 `PROJECT.md`에 통합했습니다. 앞으로 새 설계 결정은 RustJ의 `PROJECT.md`에 직접 기록합니다.
