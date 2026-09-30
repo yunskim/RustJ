@@ -5526,7 +5526,7 @@ A3 logical_ir 쪽:
   - reference: https://www.jsoftware.com/help/dictionary/decapdot.htm
 
 아직 구현하지 않은 핵심:
-- Function/Region/Block/Terminator explicit container
+- multi-block CFG와 branch/loop/exceptional control-flow (single Function/Region/Block/Return container는 구현됨)
 - richer AccessRelation/AxisSemantics payload와 cell-rank가 완성된 ResolvedInstantiation
 - general ConstraintSet lattice / runtime Guard
 - SemanticCheck discharge/refinement witness가 SpeculationSemantics refinement로 이어지는 proof pass
