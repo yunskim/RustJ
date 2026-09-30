@@ -279,7 +279,11 @@ impl EffectSummary {
     }
 }
 
-fn resolved_effect_summary(callable: &Callable, left: Option<ValueId>, contract: Contract) -> EffectSummary {
+fn resolved_effect_summary(
+    callable: &Callable,
+    left: Option<ValueId>,
+    contract: Contract,
+) -> EffectSummary {
     if contract.effect == Effect::Pure {
         return EffectSummary::Pure;
     }
