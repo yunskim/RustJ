@@ -807,6 +807,42 @@ RustJ
 
 따라서 frontend 단계에서 차이가 허용되는 것은 **representation과 implementation technique**뿐이다. J-visible word formation/classification/parsing behavior는 compatibility 대상이다.
 
+#### 3.3.2.2 Compiler/interpreter/JIT 공통 source diagnostics
+
+source provenance는 compiler 전용 부가기능이 아니라 frontend semantic infrastructure다. lexer/enqueuer/parser가 만든 byte span을 Semantic IR과 이후 IR origin에 유지하고, AOT compiler·interpreter·JIT가 동일한 diagnostic renderer를 사용한다.
+
+```text
+J error class + SourceSpan
+        ↓
+Diagnostic
+  source name
+  line / column
+  source line
+  caret/range marker
+  readable error class
+        ↓
+AOT / interpreter / JIT / REPL
+```
+
+machine-readable J error class(`syntax error`, `rank error`, `domain error` 등)은 바꾸지 않는다. human-facing renderer만 Python과 유사하게 표시한다.
+
+```text
+  File "model.ijs", line 12, column 9
+    mean =: (+/ % #) )
+                      ^
+SyntaxError: unexpected )
+```
+
+원칙:
+
+- 내부 provenance는 UTF-8 byte span을 canonical representation으로 사용한다.
+- 표시할 때 1-based line과 Unicode-scalar column으로 변환한다.
+- 가장 안쪽 단계가 붙인 정확한 span을 outer compiler/runtime layer가 덮어쓰지 않는다.
+- runtime kernel error도 실행 중인 semantic/logical operation의 source origin으로 돌아갈 수 있어야 한다.
+- JSON/conformance API의 J error kind는 기존 machine contract를 유지한다.
+- 향후 multi-file/import/definition이 생기면 `SourceId + byte span`으로 일반화한다.
+- interpreter/JIT용 별도 error system을 만들지 않는다.
+
 #### 3.3.3 Parser language rules are jsource-compatible
 
 RustJ는 parser 단계에서 별도의 언어 규칙을 발명하지 않는다. **token/word가 J parser에 들어온 뒤 어떤 fragment가 언제 reduction되고, 어떤 part of speech의 결과 entity가 다시 parser stack에 놓이는지는 current jsource의 parser 규칙을 기준으로 한다.**
@@ -5325,10 +5361,11 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 - [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/scanner.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
 - [x] 기존 handwritten `scanner::transition`을 제거하고 lookup-only `TRANSITIONS[state][class]`로 교체했다. follow-on numeric rewind와 UNDD 처리는 `jtwordil`의 별도 boundary action으로 유지한다.
-- [ ] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다.
-- [ ] unmatched quote/error boundary를 jsource와 맞춘다.
-- [ ] source span은 byte offset으로 보존한다.
-- [ ] `;:` 기반 word-formation oracle과 RustJ word spans를 비교하는 adapter를 만든다.
+- [x] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다. `tools/word_conformance.py`가 state-prefix × 256-byte sweep, 특수 사례, seeded random 2,000건을 포함한다.
+- [x] unmatched quote를 jsource `EVOPENQ`에 대응하는 `open quote`로 분류하고 시작 quote byte span을 보존한다.
+- [x] word/parser/runtime source span은 byte offset으로 보존하고 사용자 진단 시 Unicode line/column으로 변환한다.
+- [x] `;:` 기반 word-formation oracle과 RustJ parse-visible word spans를 byte 단위로 비교하는 adapter/probe를 만든다 (`tools/word_conformance.py`, `examples/scan_words.rs`).
+- [ ] pinned jsource reference에서 `python tools/word_conformance.py`를 실행해 **0 mismatch** 결과를 기록한다. CI quota와 무관하게 로컬 실행을 기준으로 한다.
 
 **F0 완료 조건:** supported source domain에서 word boundaries/comment cutoff/error가 pinned jsource `jtwordil`과 일치한다.
 
