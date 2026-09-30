@@ -46,6 +46,21 @@ pub enum ArgumentRole {
     Y,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FailureDetail {
+    ShapeMismatch {
+        x_shape: Vec<usize>,
+        y_shape: Vec<usize>,
+    },
+    InvalidValue {
+        role: ArgumentRole,
+        position: Option<usize>,
+        value: String,
+        requirement: String,
+    },
+    Message(String),
+}
+
 impl ArgumentRole {
     fn label(self) -> &'static str {
         match self {
@@ -106,7 +121,7 @@ pub struct ErrorContext {
     pub operation: Option<String>,
     pub valence: Option<DiagnosticValence>,
     pub arguments: Vec<ArgumentSummary>,
-    pub notes: Vec<String>,
+    pub details: Vec<FailureDetail>,
 }
 
 impl ErrorContext {
@@ -147,9 +162,13 @@ impl ErrorContext {
         self
     }
 
-    pub fn with_note(mut self, note: impl Into<String>) -> Self {
-        self.notes.push(note.into());
+    pub fn with_detail(mut self, detail: FailureDetail) -> Self {
+        self.details.push(detail);
         self
+    }
+
+    pub fn with_note(self, note: impl Into<String>) -> Self {
+        self.with_detail(FailureDetail::Message(note.into()))
     }
 
     fn merge_outer(&mut self, outer: ErrorContext) {
@@ -174,7 +193,7 @@ impl ErrorContext {
         if self.arguments.is_empty() {
             self.arguments = outer.arguments;
         }
-        self.notes.extend(outer.notes);
+        self.details.extend(outer.details);
     }
 }
 
@@ -214,6 +233,7 @@ pub struct Diagnostic {
     pub message: String,
     pub location: Option<SourceLocation>,
     pub context: ErrorContext,
+    pub explanations: Vec<String>,
 }
 
 impl Error {
@@ -372,8 +392,8 @@ impl Error {
                 argument.shape_text()
             ));
         }
-        for note in &diagnostic.context.notes {
-            out.push_str(&format!("\n  {note}"));
+        for explanation in &diagnostic.explanations {
+            out.push_str(&format!("\n  {explanation}"));
         }
         out
     }
@@ -387,17 +407,22 @@ pub struct DiagnosticAnalyzer;
 
 impl DiagnosticAnalyzer {
     pub fn analyze(error: &Error, source: &str) -> Diagnostic {
-        let mut context = error.context().cloned().unwrap_or_default();
+        let context = error.context().cloned().unwrap_or_default();
+        let mut explanations = context
+            .details
+            .iter()
+            .map(Self::explain_detail)
+            .collect::<Vec<_>>();
 
-        // Conservative generic explanations only. Primitive-specific
-        // analyzers may append more precise notes at the failure site.
+        // Conservative generic explanation only when the failure site did not
+        // provide a more precise structured detail.
         if error.kind() == "length error"
             && context.arguments.len() == 2
-            && context.notes.is_empty()
+            && explanations.is_empty()
         {
             let x = &context.arguments[0];
             let y = &context.arguments[1];
-            context.notes.push(format!(
+            explanations.push(format!(
                 "shapes {} and {} do not conform",
                 x.shape_text(),
                 y.shape_text()
@@ -413,7 +438,45 @@ impl DiagnosticAnalyzer {
                 .clone()
                 .map(|span| SourceLocation::from_span(source, span)),
             context,
+            explanations,
         }
+    }
+
+    fn explain_detail(detail: &FailureDetail) -> String {
+        match detail {
+            FailureDetail::ShapeMismatch { x_shape, y_shape } => format!(
+                "shapes {} and {} do not conform",
+                shape_text(x_shape),
+                shape_text(y_shape)
+            ),
+            FailureDetail::InvalidValue {
+                role,
+                position,
+                value,
+                requirement,
+            } => {
+                let where_at = position
+                    .map(|p| format!(" at position {p}"))
+                    .unwrap_or_default();
+                format!(
+                    "{} has invalid value ({value}){where_at}; {requirement}",
+                    role.label()
+                )
+            }
+            FailureDetail::Message(message) => message.clone(),
+        }
+    }
+}
+
+fn shape_text(shape: &[usize]) -> String {
+    if shape.is_empty() {
+        "scalar".into()
+    } else {
+        shape
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
