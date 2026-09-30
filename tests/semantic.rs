@@ -405,3 +405,32 @@ fn diagnostic_parser_retains_span_without_changing_machine_error_api() {
     assert!(rendered.contains("line 1, column 5"));
     assert!(rendered.contains("SyntaxError: unexpected )"));
 }
+
+
+#[test]
+fn atop_is_preserved_as_a_semantic_composition_graph() {
+    let p = semantic::parse("(|. @: , @: |.)").unwrap();
+    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
+
+    assert_eq!(
+        verb.entity.head,
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
+    );
+    let [
+        FunctionOperand::Function(outer),
+        FunctionOperand::Function(inner),
+    ] = verb.entity.operands.as_slice()
+    else {
+        panic!("atop should retain both function operands")
+    };
+    assert_eq!(
+        outer.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Reverse)
+    );
+    assert_eq!(
+        inner.head,
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
+    );
+}
