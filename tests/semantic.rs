@@ -1,7 +1,7 @@
 use rustj::{
     Engine,
     contracts::{self, Effect, Overflow, Valence},
-    semantic::{self, ExprKind as Expr},
+    semantic::{self, ExprKind as Expr, VerbModifier},
 };
 #[test]
 fn parse_is_execution_free_and_right_associative() {
@@ -21,8 +21,14 @@ fn parse_is_execution_free_and_right_associative() {
     // Shape-producing operation is represented, not run or allocated here.
     assert!(semantic::parse("i.9223372036854775807").is_ok());
     let p = semantic::parse("+/\"1 i.2 3").unwrap();
-    assert!(
-        matches!(p.expression.map(|e|e.kind),Some(Expr::Monad{ref verb,..}) if verb.reduce && verb.rank==Some([1,1,1]))
+    let Some(Expr::Monad { verb, .. }) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
+    assert!(verb.reduce);
+    assert_eq!(verb.rank, Some([1, 1, 1]));
+    assert_eq!(
+        verb.modifiers,
+        vec![VerbModifier::Insert, VerbModifier::Rank([1, 1, 1])]
     );
 }
 #[test]

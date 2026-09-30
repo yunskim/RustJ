@@ -5,12 +5,37 @@ use crate::{
     syntax::{Token, lex_spanned},
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerbModifier {
+    /// J insert adverb, e.g. +/.
+    Insert,
+    /// Source rank conjunction payload in monad/left/right order.
+    Rank([i64; 3]),
+}
+
 #[derive(Clone, Debug)]
 pub struct Verb {
     pub span: std::ops::Range<usize>,
     pub target: VerbTarget,
+    /// Ordered source-level modifier applications. This is the migration path
+    /// toward first-class DerivedEntity nodes; legacy fields remain until the
+    /// runtime/analyzer stop depending on them.
+    pub modifiers: Vec<VerbModifier>,
     pub reduce: bool,
     pub rank: Option<[i64; 3]>,
+}
+impl Verb {
+    pub fn has_insert(&self) -> bool {
+        self.modifiers
+            .iter()
+            .any(|m| matches!(m, VerbModifier::Insert))
+    }
+    pub fn modifier_rank(&self) -> Option<[i64; 3]> {
+        self.modifiers.iter().rev().find_map(|m| match m {
+            VerbModifier::Rank(ranks) => Some(*ranks),
+            VerbModifier::Insert => None,
+        })
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerbTarget {
@@ -203,11 +228,13 @@ fn expression(
                 let mut verb = Verb {
                     span: spans[*pos].clone(),
                     target,
+                    modifiers: Vec::new(),
                     reduce: false,
                     rank: None,
                 };
                 *pos += 1;
                 if matches!(tokens.get(*pos), Some(Token::Slash)) {
+                    verb.modifiers.push(VerbModifier::Insert);
                     verb.reduce = true;
                     *pos += 1;
                 }
@@ -222,11 +249,13 @@ fn expression(
                         return Err(Error::Length);
                     }
                     let at = |i| v.int_at(i);
-                    verb.rank = Some(match v.len() {
+                    let ranks = match v.len() {
                         1 => [at(0)?, at(0)?, at(0)?],
                         2 => [at(1)?, at(0)?, at(1)?],
                         _ => [at(0)?, at(1)?, at(2)?],
-                    });
+                    };
+                    verb.modifiers.push(VerbModifier::Rank(ranks));
+                    verb.rank = Some(ranks);
                     *pos += 1;
                 }
                 verb.span.end = spans[*pos - 1].end;

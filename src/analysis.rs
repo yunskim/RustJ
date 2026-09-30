@@ -3,7 +3,7 @@
 use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
-    semantic::{BoundProgram, Expr, ExprKind, NameVersion, Verb},
+    semantic::{BoundProgram, Expr, ExprKind, NameVersion, Verb, VerbModifier},
 };
 use std::{collections::HashMap, ops::Range};
 
@@ -32,6 +32,8 @@ pub enum CallTarget {
 #[derive(Clone, Debug)]
 pub struct Callable {
     pub target: CallTarget,
+    /// Ordered semantic modifier provenance from the J Semantic IR.
+    pub modifiers: Vec<VerbModifier>,
     pub reduce: bool,
     pub rank: Option<[i64; 3]>,
 }
@@ -149,6 +151,7 @@ impl Builder<'_> {
         };
         Callable {
             target,
+            modifiers: verb.modifiers,
             reduce: verb.reduce,
             rank: verb.rank,
         }

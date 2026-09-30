@@ -2,7 +2,7 @@ use rustj::{
     Engine,
     analysis::{CallTarget, Operation, Scope, ValueId},
     contracts::{Effect, Overflow},
-    semantic::NameVersion,
+    semantic::{NameVersion, VerbModifier},
 };
 
 #[test]
@@ -101,6 +101,11 @@ fn primitive_and_derived_contracts_are_conservative() {
         panic!()
     };
     assert_eq!(contract.overflow, Overflow::WholeResultPromotion);
+    let p = e.analyze("+/1 2").unwrap();
+    let Operation::Call { callable, .. } = &p.nodes[p.result.unwrap().0].operation else {
+        panic!()
+    };
+    assert_eq!(callable.modifiers, vec![VerbModifier::Insert]);
     for source in ["+/1 2", "+\"0 (1 2)", "future 3"] {
         let p = e.analyze(source).unwrap();
         let Operation::Call { contract, .. } = &p.nodes[p.result.unwrap().0].operation else {
