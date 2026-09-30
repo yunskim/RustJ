@@ -23,7 +23,7 @@ pub struct IrSchemaVersion {
     pub minor: u16,
 }
 
-pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 1 };
+pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 2 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrProvenance {
