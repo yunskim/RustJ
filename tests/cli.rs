@@ -143,3 +143,19 @@ fn human_errors_use_python_style_source_diagnostics() {
     assert!(stderr.contains("^"), "{stderr}");
     assert!(stderr.contains("SyntaxError: unexpected )"), "{stderr}");
 }
+
+
+#[test]
+fn human_length_errors_include_semantic_execution_context() {
+    let result = Command::new(env!("CARGO_BIN_EXE_rustj"))
+        .args(["-e", "2 3 + 4 5 6"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    assert!(stderr.contains("LengthError"), "{stderr}");
+    assert!(stderr.contains("while executing dyad +"), "{stderr}");
+    assert!(stderr.contains("x: type 4, rank 1, shape [2]"), "{stderr}");
+    assert!(stderr.contains("y: type 4, rank 1, shape [3]"), "{stderr}");
+    assert!(stderr.contains("argument shapes [2] and [3] do not conform"), "{stderr}");
+}
