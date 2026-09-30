@@ -6,7 +6,7 @@
 
 use crate::{
     analysis::{AccessFact, AccessRelation, BasisKind},
-    logical_ir::CallOp,
+    logical_ir::{CallOp, OpKind, Operation},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -125,6 +125,21 @@ impl BasisLoweringCapability {
             .copied()
             .all(|requirement| requirement.satisfied(call, target))
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RouteDecision {
+    /// Literal/read/function-reference bookkeeping: no array kernel route needed.
+    NoKernel,
+    /// J-visible check is kept as its own ordered operation.
+    SemanticCheck,
+    /// The native planner has one or more semantically legal realization families.
+    NativeBasis {
+        basis: BasisKind,
+        candidates: Vec<RealizationFamily>,
+    },
+    /// Lack of a native candidate is a route limitation, not invalid J.
+    RuntimeSemanticFallback,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -283,5 +298,30 @@ impl LoweringRegistry {
             .filter(|capability| capability.legal_for(call, target))
             .map(|capability| capability.realization)
             .collect()
+    }
+
+    pub fn route_operation(
+        &self,
+        operation: &Operation,
+        target: &TargetCapabilities,
+    ) -> RouteDecision {
+        match &operation.kind {
+            OpKind::Literal(_) | OpKind::ReadNoun { .. } | OpKind::VerbReference(_) => {
+                RouteDecision::NoKernel
+            }
+            OpKind::SemanticCheck(_) => RouteDecision::SemanticCheck,
+            OpKind::SemanticCall(_) => RouteDecision::RuntimeSemanticFallback,
+            OpKind::Basis { kind, call, .. } => {
+                let candidates = self.legal_candidates(*kind, call, target);
+                if candidates.is_empty() {
+                    RouteDecision::RuntimeSemanticFallback
+                } else {
+                    RouteDecision::NativeBasis {
+                        basis: *kind,
+                        candidates,
+                    }
+                }
+            }
+        }
     }
 }
