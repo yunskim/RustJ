@@ -671,7 +671,7 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 - 초기 `JAXA`의 complex rank/precision 표기 `"RjP`는 표준 J와 호환되지 않으므로 채택하지 않는다.
 - J의 rank conjunction `"`은 표준 J 의미 그대로 유지한다.
 - dtype/precision, accumulator precision, layout, hardware resource는 rank 문법에 억지로 넣지 않고 각각 semantic contract와 planning 계층에 둔다.
-- 4월 prototype의 고정 `memory_layout`, `tiling_axis`, register 숫자는 최종 semantic identity가 아니다. 6~7월 설계처럼 identity contract + realization function + target profile로 일반화한다.
+- 4월 prototype의 고정 `memory_layout`, `tiling_axis`, register 숫자는 최종 semantic identity가 아니다. 6~7월의 identity/realization 분리는 중요한 중간 단계였고, 현행 RustJ에서는 이를 더 분리하여 `PrimitiveSpec semantic record + capability interfaces + lowering registry + TargetProfile`로 사용한다.
 
 ### 4.8 확장 primitive는 name binding + registry contract로 추가한다
 
@@ -2508,7 +2508,7 @@ A3-v2
 - [ ] overflow/promotion/error order 보존
 - [ ] NaN/Inf/signed zero/empty 테스트
 
-### G4 — 최소 Physical Plan과 CPU Executor
+### G4 — RustJ-native 최소 Physical Plan과 CPU Executor
 
 - [ ] Buffer bind
 - [ ] View
@@ -2519,9 +2519,9 @@ A3-v2
 - [ ] buffer reuse proof
 - [ ] layout-compatible view 유지
 - [ ] CPU executor
-- [ ] source → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan → physical → CPU end-to-end
+- [ ] source → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan → RustJ-native Schedule/Physical Plan → CPU end-to-end
 
-### G5 — 성능 및 확장 경계
+### G5 — RustJ-native 성능 및 physical 확장 경계
 
 - [ ] structural view 생성 비용
 - [ ] copy/allocation/peak/retained bytes
@@ -2534,7 +2534,7 @@ A3-v2
 
 ### C — frontend / 언어 의미 확장
 
-GPU 배열과 compiler boundary의 정확성을 막는 frontend 결함은 즉시 수정한다. 그 외 확장은 G1~G5와 A1 뒤에 진행한다.
+Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 수정한다. 일반적인 언어 기능 확장은 A1~A3의 core IR 경계를 먼저 안정화한 뒤 진행하며, G2~G5와는 필요 의존성에 따라 병행한다.
 
 - [ ] primitive registry/binding contract 보완
 - [ ] direct/explicit definition
@@ -2661,6 +2661,9 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 - G2~G5는 미완료다.
 - 명시적인 `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` 경계는 아직 코드에서 완전히 분리되지 않았다.
 - 현재 `analysis.rs`가 Semantic IR에서 LogicalPlan을 직접 만들고 있어 semantic analysis와 lowering 경계를 재정리해야 한다.
+- 새로 정리한 SSA/Verifier/capability-interface 기반 Logical IR(A3)은 아직 구현되지 않았다.
+- RoutePartition, MLIR adapter, StableHLO adapter는 아직 구현되지 않았다.
+- TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 새 schema도 아직 문서 설계 단계다.
 - 실제 CUDA storage/kernel은 없다.
 - GitHub CI는 현재 사용하지 않는다.
 - 이 컴퓨터에서는 Windows 네이티브 검증을 기준으로 한다.
