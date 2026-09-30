@@ -569,8 +569,9 @@ impl Builder<'_> {
                     Valence::Monad
                 };
                 // Base primitive contracts do not prove properties of derived verbs.
+                let plain_primitive = !callable.reduce && callable.explicit_ranks.is_empty();
                 let contract = match callable.target {
-                    CallTarget::Primitive(id) if !callable.reduce && callable.explicit_ranks.is_empty() => {
+                    CallTarget::Primitive(id) if plain_primitive => {
                         contracts::for_primitive(id, valence)
                     }
                     _ => contracts::lookup("", valence),
