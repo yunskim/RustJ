@@ -418,7 +418,7 @@ JEntity
 │   │   ├─ Train
 │   │   ├─ AdverbDerived
 │   │   ├─ ConjunctionDerived
-│   │   ├─ RankDerived
+│   │   ├─ RankConjunctionDerived
 │   │   └─ other modifier-derived forms
 │   ├─ ExplicitVerb
 │   ├─ NameRef
@@ -434,6 +434,7 @@ JEntity
 3. modifier와 operand의 관계를 보존한다.
 4. monad/dyad valence를 보존한다.
 5. rank가 계산 의미에 미치는 정보를 Semantic Analyzer가 볼 수 있어야 한다.
+   `"`의 left/right operand가 verb/noun/gerund/verb-rank form 중 무엇인지 분석 전에 보존한다.
 6. name reference와 binding/version이 의미에 영향을 주면 분석 가능한 형태로 보존한다.
 7. source span은 진단을 위해 유지한다.
 
@@ -1286,6 +1287,40 @@ RankApplication
 `PrimitiveSpec.innate_rank`도 implementation integer sentinel과 동일시하지 않고 semantic `RankSpec`/resolved-rank abstraction을 사용한다.
 
 important: jsource 내부의 `RMAX` 같은 sentinel은 implementation representation이다. RustJ IR에서는 `Infinite`를 명시적으로 표현하고 backend integer sentinel에 의존하지 않는다.
+
+또한 source-level rank conjunction을 `RankDerived(verb, integer)`로 고정하지 않는다. current jsource의 `jtqq`는 operand form이 더 넓다.
+
+```text
+RankConjunctionApply
+  left_operand: JEntity
+  right_operand: JEntity
+```
+
+분석 가능한 대표 form:
+
+```text
+Verb " RankNoun
+Verb " Verb            // right verb의 monad/left/right ranks를 사용
+
+Noun " RankNoun
+  ├─ well-formed gerund + applicable rank → cyclic-gerund derived verb
+  └─ otherwise → noun-derived constant verb semantics
+```
+
+따라서 J Semantic Array IR에서는 **원래 left/right operand의 품사와 value/entity identity를 보존**하고, Semantic Analyzer가 J의 rank-conjunction form 규칙을 적용해 derived verb를 만든다.
+
+```text
+RankConjunctionApply(left, right)
+        ↓ J semantic analysis
+ResolvedRankDerivedVerb {
+  source_operands,
+  monad/left/right RankSpec,
+  execution/assembly semantics
+}
+```
+
+hardware-aware `MapCells`로 내리는 것은 이 resolution 이후이며, uniformity/assembly 조건이 증명된 subset에서만 한다.
+
 
 #### 4.11.1 J agreement는 prefix frame agreement다
 
@@ -3553,6 +3588,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] Hook / Fork / Train을 first-class semantic node로 표현한다.
 - [ ] adverb/conjunction application으로 생긴 DerivedVerb 구조를 보존한다.
 - [ ] rank-derived verb와 cell/frame 의미를 Semantic Analyzer가 분석할 수 있게 표현한다.
+- [ ] rank conjunction의 verb"rank-noun, verb"verb, noun/gerund"rank forms를 source operand 품사 손실 없이 표현한다.
+- [ ] Infinite/Absolute/Relative RankSpec과 monad/left/right rank triple을 보존한다.
 - [ ] name reference/binding/version과 source span을 필요한 범위에서 연결한다.
 - [ ] `NameRef.expected_part_of_speech`와 runtime lookup POS mismatch의 domain error를 모델링한다.
 - [ ] sentence 전체의 name environment를 선행 snapshot하지 않고 우측→좌측 assignment/name lookup sequencing을 보존한다.
@@ -4209,6 +4246,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
 | parser assignment reduction은 assigned value를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 value-producing effectful expression으로 모델링한다 |
 | `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
+| `cr.c::jtqq`는 `Verb"RankNoun` 외에도 right Verb rank extraction과 left Noun gerund/constant-verb form을 처리한다 | J Semantic IR의 rank node를 verb+integer pair로 제한하지 않고 original entity operands를 보존한다 |
 | `cr.c` rank dyad는 frame prefix agreement를 검사하고 residual frame에 cell을 반복한다 | NumPy broadcasting으로 대체하지 않는다 |
 | `cr.c`는 zero cells에서 fill-cell을 실행해 result cell type/shape를 정한다 | zero-trip elimination 전에 fill/prototype semantics를 해결한다 |
 | `result.h`는 rank/modifier의 cell results가 type/shape 불일치하면 homogeneous fast path에서 assembly path로 전환하고 type/shape join + framing fill을 수행한다 | rank map을 항상 static uniform tensor map으로 가정하지 않고 `RankAssemblySemantics`를 보존한다 |
@@ -4276,6 +4314,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 47. **Assignment is value + effect** — `=.`/`=:`를 void statement로 낮추지 않고 binding mutation과 assigned-value result를 함께 보존한다.
 48. **Type semantics may depend on emptiness** — dtype pair만으로 domain/promotion을 확정하지 않고 J의 empty/fill/prototype context를 반영한다.
 49. **Rank is not just usize** — infinite rank와 argument-relative negative rank를 semantic RankSpec으로 보존하고 적용 시 effective cell rank를 resolve한다.
+50. **Rank conjunction is entity-based** — `"`의 left/right operand를 verb+integer로 가정하지 않고 J의 noun/gerund/verb-rank forms를 semantic analysis 전까지 보존한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
