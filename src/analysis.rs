@@ -828,11 +828,16 @@ impl Builder<'_> {
                     source: OpportunitySource::Hook,
                     span: semantic.span.clone(),
                     topology: StructuralTopology::BranchJoin {
-                        shared_inputs: vec![f_left, right],
+                        // Only the monadic hook actually fans the same y into
+                        // the identity branch and g(y).  A dyadic hook instead
+                        // keeps x live while g(y) is computed.
+                        shared_inputs: if left.is_none() {
+                            vec![right]
+                        } else {
+                            Vec::new()
+                        },
                         branch_results: vec![f_left, g_result],
                         join_result,
-                        // In a monadic hook the original y must remain available
-                        // while g(y) is computed.  In the dyad, left plays that role.
                         live_across: vec![f_left],
                     },
                 });
