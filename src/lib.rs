@@ -8,6 +8,7 @@ pub mod analysis;
 pub mod bit_storage;
 pub mod contracts;
 pub mod error;
+pub mod expansion;
 pub mod facts;
 pub mod kernels;
 pub mod logical_ir;
