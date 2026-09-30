@@ -12,6 +12,7 @@ pub mod expansion;
 pub mod facts;
 pub mod kernels;
 pub mod logical_ir;
+pub mod logical_executor;
 pub mod lowering;
 mod numeric;
 pub mod physical;
