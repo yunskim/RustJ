@@ -4951,6 +4951,141 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [x] 문서를 `PROJECT.md`로 통합한다.
 - [ ] 실제 코드 dependency에서도 source frontend → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Plan 경계를 만든다.
 
+### A0.5 — jsource-compatible parser 이행 체크리스트
+
+이 항목은 **A1 이후 작업의 선행 게이트**다. parser 언어 규칙은 current jsource를 compatibility oracle로 삼고, RustJ 고유 정보는 parser 이후 Semantic Analyzer / Logical IR / lowering 단계에서 관리한다.
+
+기준 jsource: `jsoftware/jsource` master의 `jsrc/p.c::cases[]`, parser stack/reduction loop, `jsrc/cf.c` bident/trident construction, 각 modifier constructor. C의 bit-mask dispatch, reference counting, in-place flags, cached function pointer와 같은 실행 최적화는 이식 대상이 아니다.
+
+#### P0 — 기준선과 oracle 고정
+
+- [x] jsource 9-row parse table(row 0–8)의 eligibility와 역할을 확인한다.
+- [x] modifier application 결과가 완성된 J entity로 parser stack에 재삽입된 뒤 후속 reduction에 참여함을 확인한다.
+- [x] `+/ % #`에서 `+/`가 하나의 derived VERB entity로 만들어진 뒤 Fork의 `f` operand가 됨을 확인한다.
+- [x] 현재 RustJ parser가 `reduce_modifier_applications -> collapse_verb_trains -> noun/verb application`으로 분리된 과도기 구조임을 확인한다.
+- [x] parser와 Analyzer의 책임 경계를 고정한다: parser는 J reduction/entity/POS/name-resolution semantics, Analyzer는 rank/cell/type/shape/effect/access/canonical LogicalOp facts.
+- [ ] jsource parser differential test harness의 최소 입력/출력 contract를 정의한다.
+
+**P0 완료 조건:** 어떤 동작을 jsource에서 그대로 호환해야 하고 어떤 C 구현 세부를 버릴지 testable contract로 명시되어 있다.
+
+#### P1 — parser value/item model 정리
+
+- [ ] parser stack item을 J parsing class 기준으로 통일한다: `Noun | Verb | Adverb | Conjunction | Name | Assignment | LParen | RParen | Mark`.
+- [ ] source primitive와 completed derived entity가 동일한 Verb/Adverb/Conjunction parser item interface를 사용하게 한다.
+- [ ] `FunctionEntity.result_pos`를 parser result POS의 단일 근거로 만든다.
+- [ ] named Verb만 가정하는 현재 `FunctionEntity::name_ref` / `VerbTarget::Named` 구조를 감사하고, expected/current POS를 보존할 수 있게 전환 계획을 적용한다.
+- [ ] noun operand가 modifier에 참여할 때 literal-only restriction을 parser 자체의 syntax restriction으로 오인하지 않도록 representation을 정리한다.
+- [ ] source span/error-token provenance를 reduction 결과 entity에 보존한다.
+
+**P1 완료 조건:** parser item의 품사와 completed J entity의 result POS를 별도 ad-hoc boolean 없이 표현할 수 있다.
+
+#### P2 — 하나의 jsource-compatible reduction engine으로 전환
+
+- [ ] row 0 `EDGE VERB NOUN` monadic execution/reduction을 구현한다.
+- [ ] row 1 `EDGE+AVN VERB VERB NOUN` reduction을 구현한다.
+- [ ] row 2 `EDGE+AVN NOUN VERB NOUN` dyadic reduction을 구현한다.
+- [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV` adverb application을 구현한다.
+- [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)` conjunction application을 구현한다.
+- [ ] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB` fork construction을 구현한다.
+- [ ] row 6 `EDGE CAVN CAVN` hook/bident/trident construction을 jsource result-POS table과 함께 구현한다.
+- [ ] row 7 assignment reduction을 구현한다.
+- [ ] row 8 parenthesis reduction을 구현한다.
+- [ ] reduction 후 결과 item을 stack에 되돌려 놓고 **같은 parse table로 다시 scan/reduce**하도록 만든다.
+- [ ] 별도 `collapse_verb_trains` 알고리즘이 parser semantics를 결정하지 않도록 제거/축소한다.
+- [ ] right-to-left 결과가 우연히 같아 보이는 heuristic scan 대신 parse-table eligibility/order가 reduction을 결정하게 한다.
+
+**P2 완료 조건:** parser의 reduction 선택이 RustJ 전용 train/modifier heuristic이 아니라 jsource 9-row 규칙으로 설명된다.
+
+#### P3 — function construction/result POS 완전성
+
+- [ ] row 3의 `VERB ADV`뿐 아니라 합법적인 `NOUN ADV` form을 result-POS 규칙에 따라 처리한다.
+- [ ] row 4의 `VERB/NOUN CONJ VERB/NOUN` 전체 조합을 parser 수준에서 표현한다.
+- [ ] `cf.c::bidents[]`의 합법 bident 조합과 result POS를 RustJ table/test로 옮긴다.
+- [ ] `cf.c::tridents[]`의 합법 trident 조합과 result POS를 RustJ table/test로 옮긴다.
+- [ ] Hook/Fork를 source token이 없는 parser-production identity로 생성한다.
+- [ ] 긴 train이 row 5/6의 반복 reduction 결과로만 만들어지는지 검증한다.
+- [ ] modifier application마다 완성된 entity 하나가 생성되고 후속 reduction은 해당 entity ref만 보도록 검증한다.
+- [ ] parser semantic operand와 jsource execution auxiliary(`fgh` helper/localuse/cache)를 구분한다.
+
+**P3 완료 조건:** derived Verb뿐 아니라 derived Adverb/Conjunction까지 jsource와 같은 parser production/result POS로 표현된다.
+
+#### P4 — parser-time name resolution과 assignment 순서
+
+- [ ] enqueue 단계는 ordinary NAME을 그대로 전달하고 extension 이름을 keyword로 만들지 않는다.
+- [ ] parser가 name을 stack에 올릴 때 현재 binding을 조회해 noun/verb/adverb/conjunction parsing class를 얻도록 한다.
+- [ ] noun name의 value resolution과 function/modifier name의 nameref/late-binding semantics를 구분한다.
+- [ ] named adverb/conjunction이 primitive adverb/conjunction과 같은 row 3/4 경로에 참여하도록 한다.
+- [ ] sentence 시작 시 전체 binding snapshot을 만들지 않고 jsource와 같은 observable lookup/assignment sequencing을 보존한다.
+- [ ] `=.` / `=:` 및 assignment result entity semantics를 parser test에 포함한다.
+- [ ] lookup 당시 expected POS와 later binding POS mismatch의 J error semantics를 보존한다.
+- [ ] extension builder(`conv` 등)의 shadow/rebind가 ordinary J name semantics를 따르는지 검증한다.
+
+**P4 완료 조건:** parser 결과가 source spelling이 아니라 **그 시점의 J binding과 jsource parsing rule**에 의해 결정된다.
+
+#### P5 — parser에서 compiler-analysis 정보를 제거
+
+- [ ] `Verb.reduce` 사용처를 전수 조사하고 parser semantic identity에서 제거한다.
+- [ ] `Verb.rank` 사용처를 전수 조사하고 parser semantic identity에서 제거한다.
+- [ ] `Callable.reduce` / `Callable.rank` migration dependency를 Analyzer-owned representation으로 옮긴다.
+- [ ] applied `/`는 parser에서 `Derived Verb(head=/, operands=[u])`까지만 만든다.
+- [ ] applied `"`는 parser에서 conjunction identity와 좌/우 operand/result POS까지만 만든다.
+- [ ] `+/ -> Logical Reduce(Add)` canonicalization을 Semantic Analyzer / Lowering에서 수행한다.
+- [ ] `u"r -> RankBoundary/ResolvedRankContract` 해석을 derived-function analysis에서 수행한다.
+- [ ] innate rank, CellApply, agreement/repetition, effect/error/access facts가 parser struct에 들어가지 않는지 검사한다.
+- [ ] architecture/device/lowering/cost 정보가 parser/Semantic FunctionEntity에 들어가지 않는지 검사한다.
+
+**P5 완료 조건:** parser 출력만 보아서는 target이나 최적화 선택을 알 수 없고, J source entity/reduction semantics만 알 수 있다.
+
+#### P6 — differential/conformance test matrix
+
+- [ ] 9개 parse row 각각의 최소 positive test를 jsource와 differential 비교한다.
+- [ ] 각 row의 competing-pattern/reduction-order test를 추가한다.
+- [ ] `+/ % #`, 2-verb hook, 4개 이상 long train을 구조 golden으로 비교한다.
+- [ ] adverb/conjunction가 연속되는 derived modifier 사례를 추가한다.
+- [ ] Verb/Adverb/Conjunction을 name에 할당한 뒤 사용하는 사례를 추가한다.
+- [ ] parser 중간 assignment/name lookup이 뒤 reduction에 영향을 주는 사례를 추가한다.
+- [ ] parenthesis가 reduction boundary를 바꾸는 사례를 추가한다.
+- [ ] syntax/domain/value error의 분류와 가능한 범위에서 blame span/token을 비교한다.
+- [ ] 현재 지원 primitive subset에서는 differential suite를 CI 필수 gate로 만든다.
+- [ ] 아직 미지원인 합법 J form은 `UnsupportedImplementation`과 parser syntax error를 구분한다.
+
+**P6 완료 조건:** 지원 범위의 parser behavior 변경은 jsource differential test 없이는 merge되지 않는다.
+
+#### P7 — cutover와 legacy parser 제거
+
+- [ ] 새 parse-table engine이 기존 parser golden을 모두 통과한다.
+- [ ] Analyzer golden(`(+/ % #) y` 포함)이 새 parser output에서도 동일 semantic entity graph를 받는다.
+- [ ] old `reduce_modifier_applications`를 제거한다.
+- [ ] old `collapse_verb_trains`를 제거한다.
+- [ ] noun/verb application을 수동으로 조립하던 legacy loop를 제거한다.
+- [ ] parser-only migration field와 dead compatibility code를 제거한다.
+- [ ] `parse`, `parse_analysis`, `parse_runtime`의 parser semantics가 하나의 engine을 공유하게 한다.
+- [ ] parser 전환 후 전체 test/CI를 통과시킨다.
+
+**P7 완료 조건:** RustJ에 J parsing semantics를 정의하는 코드 경로가 하나뿐이며 그 경로가 jsource-compatible parse table을 따른다.
+
+#### P8 — parser 이후 IR 이행
+
+- [ ] PrimitiveSpec/ExtensionSpec에 target-independent semantic contract를 연결한다.
+- [ ] FunctionSummaryTable을 parser DAG와 분리된 side table로 연결한다.
+- [ ] ResolvedCallFacts에서 valence/rank/cell/frame/agreement/repetition/type/shape/effect/error/access를 계산한다.
+- [ ] `+/ % #` matrix golden에서 최종 `%`의 implicit CellApply2를 명시적으로 만든다.
+- [ ] Logical Optimizer가 semantic graph를 보존한 채 `FusionCandidate::Mean` 등을 별도 proof/candidate로 만든다.
+- [ ] built-in과 NN/array extension op 모두 동일한 LogicalOp/lowering interface로 진입하게 한다.
+- [ ] architecture-specific 구현 정보는 `LoweringRegistry × ArchitectureTarget`에서만 결합한다.
+- [ ] concrete GPU model 정보는 `DeviceProfile`, 후보 선택 성능 정보는 `CostProfile/RuntimeProfile`로 분리한다.
+
+**P8 완료 조건:** jsource-compatible parser를 유지하면서 RustJ의 compiler IR/CPU/GPU/NN 확장은 parser 변경 없이 진행할 수 있다.
+
+#### 진행 규칙
+
+- 이 체크리스트를 parser/semantic-boundary 이행의 **single source of truth**로 사용한다.
+- 구현을 시작하기 전에 해당 단계의 선행 조건을 확인하고, 완료 즉시 `[ ] -> [x]`로 갱신한다.
+- 부분 구현을 완료로 표시하지 않는다. 각 단계의 **완료 조건을 만족할 때만** phase를 완료로 본다.
+- jsource와 의도적으로 다르게 동작시키려는 항목이 생기면 구현 전에 이 문서에 rationale과 observable semantic impact를 기록한다.
+- parser migration 중 발견된 downstream IR 요구사항은 P8 또는 기존 A2/A3 checklist에 추가하고 parser에 임시 필드로 밀어 넣지 않는다.
+
+
 ### A1 — J Semantic Array IR와 Semantic Analyzer 경계
 
 - [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
