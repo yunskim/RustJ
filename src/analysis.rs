@@ -326,7 +326,10 @@ impl LogicalPlan {
                         Valence::Monad
                     };
                     if instantiation.valence != expected_valence {
-                        return Err(fail(Some(id), "instantiation valence does not match call".into()));
+                        return Err(fail(
+                            Some(id),
+                            "instantiation valence does not match call".into(),
+                        ));
                     }
                     if instantiation.result_dtype != node.facts.dtype
                         || instantiation.result_rank != node.facts.rank
