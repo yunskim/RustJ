@@ -445,6 +445,9 @@ pub enum OpKind {
 pub struct Operation {
     pub kind: OpKind,
     pub results: Vec<ValueId>,
+    /// Applied J-graph node that gave rise to this execution op. Several
+    /// execution ops may share one origin when a combinator is expanded.
+    pub j_origin: Option<crate::j_graph_ir::ValueId>,
     pub span: Range<usize>,
     /// Explicit observable ordering dependency.  Data dependencies are checked
     /// separately through value operands.
@@ -788,6 +791,7 @@ impl Plan {
                         origin: node.span.clone(),
                     }),
                     results: Vec::new(),
+                    j_origin: node.j_origin,
                     span: node.span.clone(),
                     order_after,
                 });
@@ -804,6 +808,7 @@ impl Plan {
             plan.operations.push(Operation {
                 kind: base_kind,
                 results: vec![value_id],
+                j_origin: node.j_origin,
                 span: node.span.clone(),
                 order_after,
             });
