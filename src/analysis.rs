@@ -4,6 +4,7 @@ use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
     facts::{TypeFact, ValueRole, ValueRoleFacts},
+    opportunity::{OpportunitySource, StructuralOpportunity, StructuralTopology},
     semantic::{
         BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand,
         FunctionPartOfSpeech, NameVersion, Verb,
@@ -237,6 +238,9 @@ pub struct LogicalPlan {
     pub source: String,
     pub symbols: Vec<Symbol>,
     pub nodes: Vec<Node>,
+    /// J syntax/derived semantics exposes topology before generic DAG analysis.
+    /// These are target-independent optimization opportunities, not legality proofs.
+    pub opportunities: Vec<StructuralOpportunity<ValueId>>,
     pub result: Option<ValueId>,
     pub write: Option<Write>,
 }
@@ -358,6 +362,41 @@ impl LogicalPlan {
             }
         }
 
+        for opportunity in &self.opportunities {
+            if opportunity.span.start > opportunity.span.end
+                || opportunity.span.end > source_len
+                || !self.source.is_char_boundary(opportunity.span.start)
+                || !self.source.is_char_boundary(opportunity.span.end)
+            {
+                return Err(fail(None, "invalid structural opportunity span".into()));
+            }
+            for value in opportunity.values() {
+                if value.0 >= self.nodes.len() {
+                    return Err(fail(
+                        None,
+                        "structural opportunity references an out-of-bounds value".into(),
+                    ));
+                }
+            }
+            match &opportunity.topology {
+                StructuralTopology::Pipeline { stage_results, .. } if stage_results.len() < 2 => {
+                    return Err(fail(
+                        None,
+                        "pipeline opportunity must contain at least two stages".into(),
+                    ));
+                }
+                StructuralTopology::BranchJoin {
+                    branch_results, ..
+                } if branch_results.len() < 2 => {
+                    return Err(fail(
+                        None,
+                        "branch/join opportunity must contain at least two branches".into(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+
         if let Some(result) = self.result {
             if result.0 >= self.nodes.len() {
                 return Err(fail(None, "result value id out of bounds".into()));
@@ -389,6 +428,7 @@ pub(crate) fn lower(
         symbols: Vec::new(),
         names: HashMap::new(),
         nodes: Vec::new(),
+        opportunities: Vec::new(),
         last_ordered: None,
         reads: bound
             .reads
@@ -417,6 +457,7 @@ pub(crate) fn lower(
         source: bound.program.source,
         symbols: builder.symbols,
         nodes: builder.nodes,
+        opportunities: builder.opportunities,
         result,
         write,
     })
@@ -427,9 +468,35 @@ struct Builder<'a> {
     symbols: Vec<Symbol>,
     names: HashMap<String, SymbolId>,
     nodes: Vec<Node>,
+    opportunities: Vec<StructuralOpportunity<ValueId>>,
     last_ordered: Option<ValueId>,
     reads: HashMap<(String, usize, usize), NameVersion>,
 }
+fn flatten_atop_execution(
+    semantic: &Arc<FunctionEntity>,
+    out: &mut Vec<Arc<FunctionEntity>>,
+) -> Result<()> {
+    if matches!(
+        semantic.head,
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
+    ) {
+        let [
+            FunctionOperand::Function(outer),
+            FunctionOperand::Function(inner),
+        ] = semantic.operands.as_slice()
+        else {
+            return Err(Error::Unsupported("malformed atop semantic entity".into()));
+        };
+        // f @: g executes g first, then f.  Recursively flatten both sides so
+        // an entire atop chain is recorded as one pipeline opportunity.
+        flatten_atop_execution(inner, out)?;
+        flatten_atop_execution(outer, out)?;
+    } else {
+        out.push(semantic.clone());
+    }
+    Ok(())
+}
+
 impl Builder<'_> {
     fn symbol(&mut self, name: &str) -> SymbolId {
         if let Some(id) = self.names.get(name) {
@@ -654,6 +721,40 @@ impl Builder<'_> {
         span: Range<usize>,
     ) -> Result<ValueId> {
         match &semantic.head {
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+                let mut stages = Vec::new();
+                flatten_atop_execution(&semantic, &mut stages)?;
+                if stages.len() < 2 {
+                    return Err(Error::Unsupported("malformed atop pipeline".into()));
+                }
+
+                let mut inputs = Vec::with_capacity(2);
+                if let Some(left) = left {
+                    inputs.push(left);
+                }
+                inputs.push(right);
+
+                let mut current = right;
+                let mut stage_results = Vec::with_capacity(stages.len());
+                for (index, stage) in stages.into_iter().enumerate() {
+                    current = self.call_entity(
+                        stage.clone(),
+                        if index == 0 { left } else { None },
+                        current,
+                        stage.span.clone(),
+                    )?;
+                    stage_results.push(current);
+                }
+                self.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Atop,
+                    span: semantic.span.clone(),
+                    topology: StructuralTopology::Pipeline {
+                        inputs,
+                        stage_results,
+                    },
+                });
+                Ok(current)
+            }
             FunctionHead::Fork => {
                 let [
                     FunctionOperand::Function(f),
@@ -676,12 +777,29 @@ impl Builder<'_> {
                     right,
                     f.span.clone(),
                 )?;
-                self.call_entity(
+                let join_result = self.call_entity(
                     g.clone(),
                     Some(f_result),
                     h_result,
-                    span,
-                )
+                    span.clone(),
+                )?;
+                let mut shared_inputs = Vec::with_capacity(2);
+                if let Some(left) = left {
+                    shared_inputs.push(left);
+                }
+                shared_inputs.push(right);
+                self.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Fork,
+                    span: semantic.span.clone(),
+                    topology: StructuralTopology::BranchJoin {
+                        shared_inputs: shared_inputs.clone(),
+                        // Preserve J's observable branch evaluation order: h, then f.
+                        branch_results: vec![h_result, f_result],
+                        join_result,
+                        live_across: shared_inputs,
+                    },
+                });
+                Ok(join_result)
             }
             FunctionHead::Hook => {
                 let [
@@ -700,12 +818,25 @@ impl Builder<'_> {
                     g.span.clone(),
                 )?;
                 let f_left = left.unwrap_or(right);
-                self.call_entity(
+                let join_result = self.call_entity(
                     f.clone(),
                     Some(f_left),
                     g_result,
-                    span,
-                )
+                    span.clone(),
+                )?;
+                self.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Hook,
+                    span: semantic.span.clone(),
+                    topology: StructuralTopology::BranchJoin {
+                        shared_inputs: vec![f_left, right],
+                        branch_results: vec![f_left, g_result],
+                        join_result,
+                        // In a monadic hook the original y must remain available
+                        // while g(y) is computed.  In the dyad, left plays that role.
+                        live_across: vec![f_left],
+                    },
+                });
+                Ok(join_result)
             }
             _ => {
                 let callable = self.callable_entity(semantic)?;
