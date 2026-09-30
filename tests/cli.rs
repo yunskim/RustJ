@@ -129,3 +129,17 @@ fn delimiter_text_in_a_failed_sentence_does_not_abort_later_sentences() {
         );
     }
 }
+
+#[test]
+fn human_errors_use_python_style_source_diagnostics() {
+    let result = Command::new(env!("CARGO_BIN_EXE_rustj"))
+        .args(["-e", "1 + )"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    assert!(stderr.contains("File \\"<command-line>\\", line 1, column 5"), "{stderr}");
+    assert!(stderr.contains("1 + )"), "{stderr}");
+    assert!(stderr.contains("^"), "{stderr}");
+    assert!(stderr.contains("SyntaxError: unexpected )"), "{stderr}");
+}
