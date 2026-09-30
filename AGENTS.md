@@ -1,8 +1,10 @@
 # RustJ change validation
 
-Use `PROJECT.md` as the single authoritative document for architecture, roadmap, support status, and validation policy.
+Use `PROJECT.md` as the single authoritative document for architecture, roadmap, support status, and validation policy. Use `FOUNDATIONS.md` as the mandatory rationale/guardrail document for deciding whether an architecture change preserves J or regresses into a compiler-convenience subset.
 
 - Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering` for the target-independent middle-end; `Logical Optimizer`, `Schedule/Transform Plan`, and `Physical Planner` are RustJ-native-route stages, not mandatory stages for every execution route. The `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` repositories are historical research/prototype material only; new design decisions belong in RustJ `PROJECT.md`.
+
+For architecture changes affecting frontend semantics, J Semantic IR, interpreter/JIT/AOT boundaries, rank/CellApply, dynamic-name behavior, optimizer legality, or target semantics, review `FOUNDATIONS.md` first. If a proposed change contradicts it, do not silently override the document: document the new evidence/rationale and update both `FOUNDATIONS.md` and `PROJECT.md` in the same design change.
 
 For every implementation change:
 
