@@ -332,6 +332,87 @@ ResolvedOp::Conv(...)
 
 `Attention`처럼 하나의 semantic op가 여러 primitive sequence 또는 fused kernel로 realization될 수 있으므로 **semantic op 하나 = kernel 하나**로 가정하지 않는다. fused realization은 lowering candidate이며 semantic identity가 아니다.
 
+### 2.4.2 J semantics 보존과 compiler fact 축적 원칙
+
+RustJ의 parser와 J Semantic IR은 **J language semantics를 보존하는 canonical layer**다. 이후 compiler 단계에서 필요한 정보를 얻기 위해 parser-produced entity를 target/optimization 친화적인 형태로 변형하지 않는다.
+
+기본 원칙:
+
+```text
+J source
+  ↓
+jsource-compatible parsing / semantic construction
+  ↓
+J Semantic IR                         // J meaning is authoritative here
+  │
+  ├─ ConstructionFacts               // modifier construction-time semantic facts
+  ├─ FunctionSummaryTable            // effect/name/self/rank/latent semantic summaries
+  ├─ ResolvedCallFacts               // actual arguments/valence dependent facts
+  ├─ OptimizationFacts               // recomputable proofs/candidates
+  └─ Lowering/Target facts           // architecture/device/backend dependent
+        ↓
+Logical IR
+        ↓
+Optimizer / Route / Schedule / Physical Plan
+```
+
+즉 **J semantic graph는 원본 의미의 기준**이고, 이후 IR에서 필요한 정보는 가능한 한 side table / resolved fact / proof 형태로 붙인다.
+
+정보를 다음 수명으로 분리한다.
+
+1. **SourceSemanticIdentity**
+   - parser result POS
+   - primitive/derived identity
+   - Hook/Fork construction
+   - modifier semantic operands
+   - name/binding semantics
+   - source span/provenance
+
+2. **ConstructionFacts**
+   - modifier application 시점에 J semantics가 확정한 정보
+   - 예: `u"r`의 validated requested-rank semantics
+   - parser-visible construction error/result POS
+   - target-independent
+
+3. **FunctionSummary**
+   - derived entity 전체에서 요약할 수 있는 target-independent semantics
+   - effect/name/self/error/rank/atomicity/latent policy
+   - parser entity에 중복 저장하지 않고 shared entity identity로 캐시
+
+4. **ResolvedCallFacts**
+   - 실제 valence와 argument facts가 있어야 결정되는 정보
+   - effective rank
+   - frame/cell split
+   - prefix agreement/repetition
+   - result type/shape constraints
+   - access/effect/error requirements
+
+5. **OptimizationFacts**
+   - 의미를 바꾸지 않고 다시 계산 가능한 proof/candidate
+   - uniform cell result
+   - fusion candidate
+   - CellApply absorption/fusion proof
+   - materialization-elision candidate
+
+6. **LoweringCapability / Target facts**
+   - backend/architecture/device별 realization 정보
+   - NN extension과 built-in primitive에 동일하게 적용
+   - semantic identity에 포함하지 않음
+
+7. **PhysicalDecision**
+   - schedule, tile, workgroup, layout, memory space, buffer reuse, synchronization
+
+중요한 불변조건:
+
+- J semantic entity를 LogicalOp으로 조기에 치환하여 원래 modifier/train 구조를 잃지 않는다.
+- `+/`는 semantic layer에서 `/`가 `+`에 적용된 completed J Verb로 남고, `Reduce(Add)`는 lowering 결과다.
+- `u"r`는 semantic layer에서 `"` conjunction application으로 남고, effective rank/CellApply는 call analysis 결과다.
+- `(+/ % #)`는 semantic layer에서 Fork graph를 유지하며, Mean fusion은 optimizer candidate/proof다.
+- semantic node가 hardware target에 따라 달라지지 않는다.
+- compiler fact가 필요하다는 이유로 parser에 migration boolean/target hint를 추가하지 않는다.
+- side fact를 잃어도 J Semantic IR 자체의 의미를 재구성할 수 있어야 한다.
+- 반대로 target-dependent fact만으로 J semantic identity를 추정하지 않는다.
+
 ### 2.5 Route partition은 whole-program exclusive choice가 아니다
 
 Route partition은 parser 직후나 J Semantic IR에서 하지 않는다. **Semantic Analyzer가 의미를 확정하고 Logical IR verifier를 통과한 뒤**, 최소 target-independent canonicalization을 거친 representation에 적용한다.
@@ -5051,6 +5132,8 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 **P4 완료 조건:** parser 결과가 spelling이 아니라 그 시점의 J binding, assignment state, parse row에 의해 결정된다.
 
 #### P5 — construction-time J semantics와 compiler-analysis facts 분리
+
+**구현 방향:** parser/J Semantic IR를 compiler-friendly form으로 rewrite하지 않는다. 이후 IR에서 필요한 정보는 `ConstructionFacts -> FunctionSummary -> ResolvedCallFacts -> OptimizationFacts -> LoweringCapability/TargetFacts -> PhysicalDecision`의 별도 계층으로 누적한다.
 
 parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifier application이 그 자리에서 검증하고 result entity를 만드는 의미는 그대로 수행한다. 제거 대상은 target/call-dependent compiler facts다.
 
