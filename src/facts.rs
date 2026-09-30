@@ -17,6 +17,43 @@ pub enum LayoutFact {
     Dense,
     AxisSparse,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ValueRole {
+    ShapeVector,
+    AxisVector,
+    AxisPermutation,
+    RankSpecifier,
+    IndexVector,
+    CountVector,
+    WindowSpec,
+    StrideSpec,
+    DilationSpec,
+    PaddingSpec,
+    SegmentDescriptor,
+    Permutation,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ValueRoleFacts {
+    roles: Vec<ValueRole>,
+}
+
+impl ValueRoleFacts {
+    pub fn contains(&self, role: ValueRole) -> bool {
+        self.roles.contains(&role)
+    }
+
+    pub fn insert(&mut self, role: ValueRole) {
+        if !self.contains(role) {
+            self.roles.push(role);
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = ValueRole> + '_ {
+        self.roles.iter().copied()
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
     pub dtype: TypeFact,
