@@ -6,6 +6,7 @@
 
 use crate::{
     analysis::{AccessFact, AccessRelation, BasisKind},
+    contracts::Effect,
     logical_ir::CallOp,
 };
 
@@ -86,6 +87,9 @@ pub enum Requirement {
     KnownReductionAccess,
     KnownResultRank,
     ReassociationAllowed,
+    Pure,
+    NoObservableError,
+    EvaluationOrderRelaxed,
 }
 
 impl Requirement {
@@ -101,6 +105,9 @@ impl Requirement {
             }
             Self::KnownResultRank => call.instantiation.result_rank.is_some(),
             Self::ReassociationAllowed => call.contract.allow_reassociation,
+            Self::Pure => call.contract.effect == Effect::Pure,
+            Self::NoObservableError => !call.contract.may_error,
+            Self::EvaluationOrderRelaxed => !call.contract.preserve_evaluation_order,
         }
     }
 }
@@ -147,7 +154,14 @@ impl LoweringRegistry {
         add(
             Elementwise,
             CpuSimd,
-            vec![Target(Cpu), Feature(Simd), KnownElementwiseAccess],
+            vec![
+                Target(Cpu),
+                Feature(Simd),
+                KnownElementwiseAccess,
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
+            ],
         );
         add(
             Elementwise,
@@ -157,6 +171,9 @@ impl LoweringRegistry {
                 Feature(Threads),
                 KnownElementwiseAccess,
                 KnownResultRank,
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
             ],
         );
 
@@ -164,20 +181,29 @@ impl LoweringRegistry {
         add(
             IndexSpace,
             CpuSimd,
-            vec![Target(Cpu), Feature(Simd), KnownResultRank],
+            vec![
+                Target(Cpu),
+                Feature(Simd),
+                KnownResultRank,
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
+            ],
         );
         add(
             IndexSpace,
             GpuDataParallel,
-            vec![Target(Gpu), Feature(Threads), KnownResultRank],
+            vec![
+                Target(Gpu),
+                Feature(Threads),
+                KnownResultRank,
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
+            ],
         );
 
         add(CellApply, GenericCellLoop, vec![Target(Cpu)]);
-        add(
-            CellApply,
-            GpuDataParallel,
-            vec![Target(Gpu), Feature(Threads), KnownResultRank],
-        );
 
         add(Reduce, OrderedReduction, vec![Target(Cpu)]);
         add(
@@ -188,6 +214,9 @@ impl LoweringRegistry {
                 Feature(Simd),
                 KnownReductionAccess,
                 ReassociationAllowed,
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
             ],
         );
         add(
@@ -198,6 +227,9 @@ impl LoweringRegistry {
                 Feature(SubgroupCollective),
                 KnownReductionAccess,
                 ReassociationAllowed,
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
             ],
         );
 
@@ -206,22 +238,29 @@ impl LoweringRegistry {
             MetadataOrIndexReindex,
             vec![Target(Cpu), KnownResultRank],
         );
-        add(
-            StaticReindex,
-            GpuDataParallel,
-            vec![Target(Gpu), Feature(Threads), KnownResultRank],
-        );
-
         add(Gather, ReferenceSequential, vec![Target(Cpu)]);
         add(
             Gather,
             CpuVectorGather,
-            vec![Target(Cpu), Feature(IndexedMemory)],
+            vec![
+                Target(Cpu),
+                Feature(IndexedMemory),
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
+            ],
         );
         add(
             Gather,
             GpuIndexed,
-            vec![Target(Gpu), Feature(IndexedMemory), Feature(Threads)],
+            vec![
+                Target(Gpu),
+                Feature(IndexedMemory),
+                Feature(Threads),
+                Pure,
+                NoObservableError,
+                EvaluationOrderRelaxed,
+            ],
         );
 
         registry
