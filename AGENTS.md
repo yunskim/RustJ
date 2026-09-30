@@ -71,3 +71,7 @@ For every implementation change:
 - Represent missing access knowledge explicitly as an Opaque/Unknown access fact; treat it as an optimization/route barrier, not automatically as a J semantic error.
 - Stage routing: the first external-route implementation should send one verified single-block region wholly to one route; add mixed contiguous-subgraph partition and boundary bridges only after that works.
 - Maintain an explicit compilation-coverage manifest/golden tests for which semantic forms lower to array Logical IR, runtime semantics, guarded late binding, or UnsupportedImplementation.
+
+- Model large J derived functions as shared immutable FunctionEntity/JEntityRef graphs (or an equivalent arena DAG), not recursively copied nested enum values.
+- Keep derived form identity open/registry-driven (FunctionFormId + operands + typed semantic attachments); do not grow a giant closed DerivedVerb enum for every modifier form.
+- Keep semantic function identity/operands separate from runtime/backend executor specialization; optimized handlers must not erase J-visible derived structure.
