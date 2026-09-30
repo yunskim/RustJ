@@ -155,7 +155,7 @@ fn human_length_errors_include_semantic_execution_context() {
     let stderr = String::from_utf8(result.stderr).unwrap();
     assert!(stderr.contains("LengthError"), "{stderr}");
     assert!(stderr.contains("while executing dyad +"), "{stderr}");
-    assert!(stderr.contains("x: type 4, rank 1, shape [2]"), "{stderr}");
-    assert!(stderr.contains("y: type 4, rank 1, shape [3]"), "{stderr}");
-    assert!(stderr.contains("argument shapes [2] and [3] do not conform"), "{stderr}");
+    assert!(stderr.contains("x: integer, rank 1, shape 2"), "{stderr}");
+    assert!(stderr.contains("y: integer, rank 1, shape 3"), "{stderr}");
+    assert!(stderr.contains("shapes 2 and 3 do not conform"), "{stderr}");
 }
