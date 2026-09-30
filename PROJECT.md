@@ -2200,6 +2200,7 @@ plan_cell_application(callable, argument facts)
 - IL2도 **부분 구현**이다. execution-free `plan_cell_application`과 `CellApplicationPlan`/`CellApplyLayer`를 추가했고, known-shape monad/dyad의 frame/cell split, logical iteration extent, prefix agreement, residual frame, repeated side, empty-prototype obligation을 계산한다.
 - Logical node의 이전 단일 `rank_plan` 관찰값은 nested semantics를 표현하는 `cell_application` plan으로 교체한다. explicit boundary와 innate boundary를 같은 plan 안에서 서로 다른 layer로 관찰할 수 있다.
 - shape/rank facts가 부족한 경우 planner는 계획을 추측하지 않고 runtime resolution을 남긴다. empty frame은 IL4 전까지 result facts를 보수적으로 unknown으로 두되 prototype obligation은 plan에 남긴다.
+- jsource `jsrc/cf.c`의 일반 hook/fork 생성은 둘 다 derived train rank를 `RMAX,RMAX,RMAX`로 둔다. 따라서 현재 train structural lowering은 train 바깥에서 별도 cell split을 만들지 않고 전체 argument를 component graph에 전달하며, 각 component call이 자신의 explicit/innate CellApply를 갖는 구조로 유지한다.
 - IL3 executor, dynamic J assembly, IRS/VIRS-style absorption은 아직 시작하지 않았다.
 
 **IL3 — correctness-first CPU generic executor**
