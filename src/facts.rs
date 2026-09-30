@@ -301,6 +301,85 @@ fn plan_layer(
     }
 }
 
+struct PlannedCellApplication {
+    plan: CellApplicationPlan,
+    left: Option<Facts>,
+    right: Facts,
+}
+
+fn build_cell_application(
+    explicit_ranks: &[crate::contracts::RankContract],
+    innate_rank: Option<crate::contracts::RankContract>,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> Option<PlannedCellApplication> {
+    if explicit_ranks.is_empty() && innate_rank.is_none() {
+        return None;
+    }
+
+    let mut current_left = left.cloned();
+    let mut current_right = right.clone();
+    let mut layers =
+        Vec::with_capacity(explicit_ranks.len() + if innate_rank.is_some() { 1 } else { 0 });
+
+    for requested in explicit_ranks.iter().copied() {
+        let (layer, next_left, next_right) = plan_layer(
+            CellApplyBoundary::Explicit,
+            requested,
+            current_left.as_ref(),
+            &current_right,
+        )?;
+        let agreed = layer.result_frame.is_some();
+        layers.push(layer);
+        current_left = next_left;
+        current_right = next_right;
+        if !agreed {
+            return Some(PlannedCellApplication {
+                plan: CellApplicationPlan { layers },
+                left: current_left,
+                right: current_right,
+            });
+        }
+    }
+
+    if let Some(requested) = innate_rank {
+        let (layer, next_left, next_right) = plan_layer(
+            CellApplyBoundary::Innate,
+            requested,
+            current_left.as_ref(),
+            &current_right,
+        )?;
+        let agreed = layer.result_frame.is_some();
+        layers.push(layer);
+        current_left = next_left;
+        current_right = next_right;
+        if !agreed {
+            return Some(PlannedCellApplication {
+                plan: CellApplicationPlan { layers },
+                left: current_left,
+                right: current_right,
+            });
+        }
+    }
+
+    Some(PlannedCellApplication {
+        plan: CellApplicationPlan { layers },
+        left: current_left,
+        right: current_right,
+    })
+}
+
+/// Pure, execution-free planner for J cell application. None means the current
+/// facts are insufficient and runtime resolution is still required.
+pub(crate) fn plan_cell_application(
+    explicit_ranks: &[crate::contracts::RankContract],
+    innate_rank: Option<crate::contracts::RankContract>,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> Option<CellApplicationPlan> {
+    build_cell_application(explicit_ranks, innate_rank, left, right).map(|planned| planned.plan)
+}
+
 pub(crate) fn infer_call(
     id: PrimitiveId,
     reduce: bool,
@@ -327,79 +406,43 @@ pub(crate) fn infer_call(
         }
     };
 
-    if explicit_ranks.is_empty() && innate_rank.is_none() {
-        return (base(left, right), None);
-    }
+    let Some(planned) = build_cell_application(explicit_ranks, innate_rank, left, right) else {
+        return (
+            if explicit_ranks.is_empty() {
+                base(left, right)
+            } else {
+                Facts::default()
+            },
+            None,
+        );
+    };
 
-    let mut current_left = left.cloned();
-    let mut current_right = right.clone();
-    let mut layers = Vec::with_capacity(explicit_ranks.len() + usize::from(innate_rank.is_some()));
-
-    for requested in explicit_ranks.iter().copied() {
-        let Some((layer, next_left, next_right)) = plan_layer(
-            CellApplyBoundary::Explicit,
-            requested,
-            current_left.as_ref(),
-            &current_right,
-        ) else {
-            return (
-                if explicit_ranks.is_empty() {
-                    base(left, right)
-                } else {
-                    Facts::default()
-                },
-                None,
-            );
-        };
-        let agreed = layer.result_frame.is_some();
-        layers.push(layer);
-        if !agreed {
-            return (Facts::default(), Some(CellApplicationPlan { layers }));
-        }
-        current_left = next_left;
-        current_right = next_right;
-    }
-
-    if let Some(requested) = innate_rank {
-        let Some((layer, next_left, next_right)) = plan_layer(
-            CellApplyBoundary::Innate,
-            requested,
-            current_left.as_ref(),
-            &current_right,
-        ) else {
-            return (
-                if explicit_ranks.is_empty() {
-                    base(left, right)
-                } else {
-                    Facts::default()
-                },
-                None,
-            );
-        };
-        let agreed = layer.result_frame.is_some();
-        layers.push(layer);
-        if !agreed {
-            return (Facts::default(), Some(CellApplicationPlan { layers }));
-        }
-        current_left = next_left;
-        current_right = next_right;
-    }
-
-    let has_empty_prototype = layers
+    if planned
+        .plan
+        .layers
         .iter()
-        .any(|layer| layer.requires_empty_frame_prototype);
-    let plan = CellApplicationPlan { layers };
-    if has_empty_prototype {
+        .any(|layer| layer.result_frame.is_none())
+    {
+        return (Facts::default(), Some(planned.plan));
+    }
+
+    if planned
+        .plan
+        .layers
+        .iter()
+        .any(|layer| layer.requires_empty_frame_prototype)
+    {
         // IL4 will replace this conservative unknown with J fill-cell/prototype
         // abstract evaluation. The obligation is explicit in the plan now.
-        return (Facts::default(), Some(plan));
+        return (Facts::default(), Some(planned.plan));
     }
 
-    let mut result = base(current_left.as_ref(), &current_right);
-    for layer in plan.layers.iter().rev() {
-        let Some(frame) = layer.result_frame.as_ref() else {
-            return (Facts::default(), Some(plan));
-        };
+    let mut result = base(planned.left.as_ref(), &planned.right);
+    for layer in planned.plan.layers.iter().rev() {
+        let frame = layer
+            .result_frame
+            .as_ref()
+            .expect("agreement checked before assembly");
         if !frame.is_empty() {
             result.layout = LayoutFact::Unknown;
         }
@@ -412,5 +455,5 @@ pub(crate) fn infer_call(
             .rank
             .and_then(|rank| rank.checked_add(frame.len()));
     }
-    (result, Some(plan))
+    (result, Some(planned.plan))
 }
