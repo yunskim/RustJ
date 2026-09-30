@@ -22,6 +22,15 @@ pub struct OpId(pub usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ValueId(pub usize);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FunctionId(pub usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct RegionId(pub usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BlockId(pub usize);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SemanticErrorKind {
     Domain,
@@ -367,10 +376,35 @@ pub struct Write {
     pub after: Option<OpId>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Terminator {
+    Return(Option<ValueId>),
+}
+
+#[derive(Clone, Debug)]
+pub struct Block {
+    pub operations: Range<usize>,
+    pub terminator: Terminator,
+}
+
+#[derive(Clone, Debug)]
+pub struct Region {
+    pub blocks: Vec<BlockId>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Function {
+    pub body: RegionId,
+}
+
 #[derive(Clone, Debug)]
 pub struct Plan {
     pub source: String,
     pub symbols: Vec<Symbol>,
+    pub functions: Vec<Function>,
+    pub regions: Vec<Region>,
+    pub blocks: Vec<Block>,
+    pub entry: FunctionId,
     pub operations: Vec<Operation>,
     pub values: Vec<ValueData>,
     pub result: Option<ValueId>,
@@ -495,6 +529,10 @@ impl Plan {
         let mut plan = Self {
             source: transition.source.clone(),
             symbols: transition.symbols.clone(),
+            functions: Vec::new(),
+            regions: Vec::new(),
+            blocks: Vec::new(),
+            entry: FunctionId(0),
             operations: Vec::new(),
             values: Vec::new(),
             result: None,
@@ -608,6 +646,17 @@ impl Plan {
                 .after
                 .and_then(|value| producer_map.get(value.0).copied()),
         });
+
+        let block = BlockId(0);
+        let region = RegionId(0);
+        plan.blocks.push(Block {
+            operations: 0..plan.operations.len(),
+            terminator: Terminator::Return(plan.result),
+        });
+        plan.regions.push(Region {
+            blocks: vec![block],
+        });
+        plan.functions.push(Function { body: region });
         plan
     }
 
@@ -617,6 +666,35 @@ impl Plan {
             message,
         };
         let source_len = self.source.len();
+
+        let Some(entry) = self.functions.get(self.entry.0) else {
+            return Err(fail(None, "entry function is out of bounds".into()));
+        };
+        let Some(region) = self.regions.get(entry.body.0) else {
+            return Err(fail(None, "entry region is out of bounds".into()));
+        };
+        if region.blocks.len() != 1 {
+            return Err(fail(
+                None,
+                "A3-v0 entry region must contain exactly one block".into(),
+            ));
+        }
+        let block_id = region.blocks[0];
+        let Some(block) = self.blocks.get(block_id.0) else {
+            return Err(fail(None, "entry block is out of bounds".into()));
+        };
+        if block.operations != (0..self.operations.len()) {
+            return Err(fail(
+                None,
+                "A3-v0 entry block must cover the complete operation sequence".into(),
+            ));
+        }
+        if block.terminator != Terminator::Return(self.result) {
+            return Err(fail(
+                None,
+                "entry block return does not match plan result".into(),
+            ));
+        }
 
         for (index, operation) in self.operations.iter().enumerate() {
             let op_id = OpId(index);
