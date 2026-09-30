@@ -195,6 +195,8 @@ Jaxa가 이 구조를 분석한 뒤에야 explicit dataflow로 낮춘다.
 
 ### 3.2 jsource에서 확인한 근거
 
+확인 기준: `jsoftware/jsource` master `ce65ed97ec57d95910e9bab4a652e2991d294626` (2026-09-30 확인), 특히 `jsrc/jtype.h`, `jsrc/cf.c`, `jsrc/jc.h`.
+
 현재 jsource의 내부 구현도 derived verb의 구조를 실행 전까지 보존한다.
 
 `jsrc/jtype.h`의 핵심 구조:
@@ -991,7 +993,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] buffer reuse proof
 - [ ] layout-compatible view 유지
 - [ ] CPU executor
-- [ ] source → semantic → array IR → Jaxa → physical → CPU end-to-end
+- [ ] source → J Semantic Array IR → Jaxa → Logical Array IR/Plan → physical → CPU end-to-end
 
 ### G5 — 성능 및 확장 경계
 
