@@ -27,6 +27,8 @@ Route Partition
 
 **상세 아키텍처, compiler stage 경계, IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.md](PROJECT.md)입니다.**
 
+**왜 RustJ가 compiler-oriented architecture를 택하면서도 J semantics를 그대로 보존해야 하는지에 대한 설계 근거와 회귀 판정 기준은 [FOUNDATIONS.md](FOUNDATIONS.md)입니다. frontend·Semantic IR·interpreter/JIT/AOT 경계·rank/CellApply·target architecture를 바꾸기 전 반드시 검토합니다.**
+
 ## 현재 상태
 
 현재 저장소는 목표 compiler pipeline으로 이동 중인 전환 단계입니다.
@@ -104,9 +106,10 @@ cargo test --features portable
 
 ## 문서 정책
 
-사람이 유지하는 설계·계획·진행 Markdown 문서를 더 늘리지 않습니다.
+사람이 유지하는 설계·계획·진행 Markdown 문서를 임의로 더 늘리지 않습니다. `FOUNDATIONS.md`는 사용자가 명시적으로 요청한 **설계 헌법/근거 문서**로서 예외이며, roadmap/checklist를 중복하지 않습니다.
 
-- 프로젝트 기준: `PROJECT.md`
+- 설계 근거와 회귀 판정 기준: `FOUNDATIONS.md`
+- 프로젝트 아키텍처·계획·체크리스트의 권위 문서: `PROJECT.md`
 - 사용 진입점: `README.md`
 - 실측/기계 원자료: `reports/*.json`, `reports/*.jsonl`
 
