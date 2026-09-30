@@ -521,7 +521,7 @@ Route selection / export
 
 ### 4.4 분석 fact는 typed lattice로 관리한다
 
-shape, alias, uniformity, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
+shape, alias, invariance, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
 
 각 fact domain은 자기 lattice를 가진다.
 
@@ -540,11 +540,10 @@ control-flow merge나 여러 predecessor에서 fact가 합쳐질 때는 domain�
 ```text
 ShapeFact
 AliasFact
-UniformityFact
+InvarianceFact
 ConstraintFact
 EffectFact
 BindingFact
-LayoutFact
 ```
 
 `Unknown`은 사실을 임의로 꾸며내지 않는다는 뜻이지 곧바로 실행 불가를 뜻하지 않는다. domain과 route에 따라 다음 중 하나가 된다.
@@ -561,7 +560,7 @@ LayoutFact
 
 semantic analysis에서 모든 primitive는 공통 `PrimitiveContract` interface를 통해 해석한다. built-in J primitive와 name 기반 extension primitive의 **등록 경로는 달라도 분석 interface는 같다.**
 
-이 절의 contract는 “분석기가 반드시 물어볼 수 있어야 하는 질문”을 정의하고, 구체적인 저장 구조는 4.10의 `PrimitiveSpec = Identity + Analysis + Realization` 분리를 따른다.
+이 절의 contract는 “분석기가 반드시 물어볼 수 있어야 하는 질문”을 정의한다. 구체적인 저장 구조는 4.10의 **PrimitiveSpec semantic record + capability interfaces + lowering registry** 분리를 따른다.
 
 semantic 쪽에서 최소한 다음을 표현하거나 명시적으로 `Unknown`으로 둘 수 있어야 한다.
 
@@ -582,7 +581,7 @@ safe rewrite / reassociation constraints
 semantic reference definition (optional)
 ```
 
-fusion cost, accumulator realization, register/shared-memory 양, concrete layout, tile 크기, device-specific intrinsic은 semantic identity 자체가 아니다. 이들은 AnalysisContract의 요구사항과 TargetProfile을 바탕으로 realization/physical planning에서 결정한다.
+fusion cost, accumulator realization, register/shared-memory 양, concrete layout, tile 크기, device-specific intrinsic은 semantic identity 자체가 아니다. target-independent semantic capability가 제공한 facts와 downstream TargetProfile/schedule을 바탕으로 native planner 또는 external compiler가 결정한다.
 
 따라서 `PrimitiveContract`는 analyzer가 보는 공통 interface이고, `PrimitiveSpec`은 그 contract를 실제로 제공하는 versioned registry record라는 관계로 사용한다.
 
@@ -934,8 +933,6 @@ AccessRelation
     Indirect
     DataDependent
   reuse_axes
-  known_stride_facts
-  known_alignment_facts
   bounds / masking requirement
 ```
 
@@ -947,7 +944,7 @@ X[ic, oh*stride_h + kh - pad_h, ow*stride_w + kw - pad_w]
 W[oc, ic, kh, kw]
 ```
 
-이 정보로 planner는 contiguous/vectorized access 후보, tile 내부 reuse, reduction/output parallelism, shared/LDS/cache staging, static reindex, gather/scatter 제약을 판단할 수 있다. 따라서 향후 `leading_axis`보다 더 일반적인 핵심 표현은 **axis-role + access relation**이다.
+이 정보로 planner는 tile 내부 reuse, reduction/output parallelism, static reindex, gather/scatter 구조를 판단할 수 있다. 실제 contiguous/vectorized access, memory transaction, alignment legality는 이후의 representation facts와 target mapping을 함께 봐야 한다. 따라서 향후 `leading_axis`보다 더 일반적인 핵심 표현은 **axis-role + semantic access relation**이다.
 
 #### 4.15.4 NumericSemantics
 
@@ -987,14 +984,14 @@ DependencyRequirement
 
 Physical Planner 또는 외부 compiler가 target의 barrier/shuffle/atomic/collective capability를 보고 구체적으로 실현한다.
 
-#### 4.15.6 Uniformity / Divergence
+#### 4.15.6 Logical invariance와 target uniformity를 분리한다
 
-SPMD target에서는 값과 control flow가 execution scope 안에서 uniform한지 varying한지가 중요한 hardware-relevant fact다.
+`uniform/divergent`는 보통 SPMD execution mapping이 정해진 뒤 의미가 생긴다. 따라서 target-independent Logical IR의 기본 fact 이름은 `InvarianceFact`로 둔다.
 
 ```text
-UniformityFact
-  Uniform(over_logical_axes)
-  Varying(over_logical_axes)
+InvarianceFact
+  InvariantOver(logical_axis_set)
+  KnownVariantAlong(logical_axis_set)
   Unknown
 ```
 
@@ -1002,11 +999,20 @@ UniformityFact
 
 - branch condition
 - indirect index
-- pointer/address calculation
+- logical address/index expression
 - mask
-- subgroup collective operand
+- collective operand
 
-Logical IR에서는 어떤 logical axes에 대해 값이 invariant인지 보존한다. Physical Schedule이 그 axes를 subgroup/lane에 매핑하면 backend가 실제 divergence와 broadcast/coalescing 가능성을 계산한다.
+Physical Schedule이 logical axes를 SIMD lane/subgroup/thread에 매핑한 뒤:
+
+```text
+InvarianceFact + AxisMapping
+  → TargetUniformity / DivergenceFact
+```
+
+를 파생한다.
+
+즉 GPU subgroup uniformity를 Logical IR의 고정 의미로 저장하지 않는다. 이는 CPU vector lane invariance에도 같은 logical fact를 재사용할 수 있게 한다.
 
 #### 4.15.7 Symbolic shape / divisibility / alignment constraints
 
@@ -1020,12 +1026,10 @@ ConstraintSet
   MultipleOf(x, n)
   DivisibleBy(x, n)
   PowerOfTwo(x)
-  Alignment(value, bytes)
-  ContiguousRun(axis, n)
   NonZero(x)
 ```
 
-이 정보는 vector width, tensor/matrix instruction, tile size, unrolling, memory transaction legality를 결정할 때 사용한다.
+이 정보는 tile size, unrolling, matrix/tensor shape legality와 runtime specialization을 결정할 때 사용한다. 주소 alignment나 physical contiguity는 logical shape constraint와 분리한다.
 
 제약이 compile-time에 증명되지 않더라도 runtime guard로 specialization할 수 있다.
 
@@ -1035,6 +1039,42 @@ if N % 16 == 0
 else
   → conservative path
 ```
+
+#### 4.15.7a Representation facts는 Logical semantics와 분리한다
+
+stride, byte alignment, concrete contiguity, address space는 J logical value의 의미가 아니다.
+
+```text
+RepresentationFacts
+  physical_shape_if_specialized
+  strides
+  base_offset
+  byte_alignment
+  contiguous_dimensions
+  address_space / memory_space
+  external_abi_layout
+```
+
+이 facts는 다음 출처에서만 생긴다.
+
+- 함수/FFI/external buffer ABI contract
+- 이미 존재하는 PhysicalArray/view
+- bufferization/physical planner의 결정
+- runtime guard로 검증한 representation assumption
+
+따라서 `AccessRelation`이나 semantic `ConstraintSet` 안에 stride/alignment를 섞지 않는다.
+
+```text
+LogicalOp + AccessRelation
+          +
+RepresentationFacts
+          +
+TargetProfile
+       → physical access legality/cost
+```
+
+representation assumption에 의존하는 fast path는 witness/guard 또는 adapter precondition으로 명시한다. MLIR에서도 byte alignment는 tensor semantic이 아니라 memref/alloc/load/store 수준의 representation property로 다뤄진다.
+
 
 #### 4.15.8 Predication / masking semantics
 
@@ -2257,9 +2297,10 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
 - [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
 - [ ] innate rank와 cell axis-role contract를 정의한다.
-- [ ] `IterationDomain`, `AccessRelation`, `UniformityFact`, `ConstraintSet`, `MaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
+- [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `MaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
+- [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
 - [ ] `TargetProfile`을 primitive registry와 분리하고 execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 최소 schema로 만든다.
 - [ ] hard target facts와 empirical `CostProfile`을 분리한다.
 - [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
@@ -2290,6 +2331,31 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] pure graph, branch, loop, effect token, dynamic guard를 각각 verifier golden test로 만든다.
 
 완료 조건: Logical IR이 RustJ-native planner와 external adapter 양쪽에서 동일한 verifier/interface contract를 통해 소비될 수 있고, buffer/layout/schedule을 넣지 않아도 control/effect/dynamic constraint semantics를 잃지 않는다.
+
+구현은 단계적으로 한다.
+
+```text
+A3-v0
+  single Function
+  single Region / single Block
+  pure array ops
+  SSA ValueId
+  verifier
+  shape/axis/access/numeric contracts
+  ConstraintSet/Witness의 최소형
+
+A3-v1
+  multi-block CFG
+  branch / loop
+  EffectToken / SpeculationSemantics
+  richer alias/destination analysis
+
+A3-v2
+  portable serialization/version migration
+  async/control-effect extensions as needed
+```
+
+즉 장기 IR이 Region/Block을 지원한다고 해서 첫 구현에서 전체 CFG framework를 완성할 필요는 없다.
 
 ### G1 — 논리 값과 물리 표현의 경계
 
@@ -2842,7 +2908,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 7. **Physical Planner는 Route A 전용** — external route가 RustJ Physical Plan을 반드시 거친다고 쓰지 않는다.
 8. **Native fallback은 보장 아님** — 지원되는 native path가 있을 때만 fallback이며, 없으면 Unsupported가 정상 결과다.
 9. **Effect와 error ordering 명시** — pure data dependency만으로 표현되지 않는 ordering은 effect token/speculation contract로 보존한다.
-10. **Dynamic assumption은 witness/guard로 추적** — optimization이 암묵적 shape/alignment 가정에 기대지 않는다.
+10. **Dynamic assumption은 witness/guard로 추적** — optimization이 암묵적 shape 또는 representation 가정에 기대지 않는다.
+11. **Logical constraint와 representation fact 분리** — divisibility/shape 관계와 stride/alignment/address-space를 같은 fact domain에 넣지 않는다.
 11. **External IR은 projection** — RustJ Logical IR을 MLIR/StableHLO의 표현력에 맞춰 축소하지 않는다.
 12. **Late bufferization** — alias/destination contract는 logical에 둘 수 있지만 BufferId/materialization은 downstream에서 정한다.
 13. **Verifier first** — 잘못된 IR을 downstream이 추측해서 복구하게 하지 않는다.
@@ -2864,10 +2931,10 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
 4. extension `PrimitiveSpec`을 semantic identity/version record로 정리하고 Shape/Axis/Access/Numeric/Effect/Alias/Speculation capability interface와 lowering registry를 분리한다.
 5. Logical IR core의 SSA `ValueId`, Function/Region/Block/Terminator를 정의한다.
-6. `IterationDomain`, `AxisSemantics`, `AccessRelation`, `UniformityFact`, `ConstraintSet`, `MaskSemantics`, `NumericSemantics`, `DependencyRequirement`를 정의한다.
-7. `Witness/Guard`, `EffectToken`, `StorageRequirement`, `DestinationRelation`을 정의한다.
-8. operation verifier와 typed-fact lattice framework를 만든다.
-9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent Logical IR을 생성하게 한다.
+6. `IterationDomain`, `AxisSemantics`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `MaskSemantics`, `NumericSemantics`, `DependencyRequirement`를 정의한다.
+7. `Witness/Guard`, `StorageRequirement`, `DestinationRelation`의 최소 contract를 정의한다. `EffectToken`과 multi-block CFG 실행은 v1로 미룬다.
+8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
+9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
 10. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
 11. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
 12. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
@@ -2878,7 +2945,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 17. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
 18. `ResourceEstimate` MVP와 backend `CompiledResourceReport` feedback/re-plan interface를 만든다.
 19. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
-20. branch/loop/effect token/dynamic guard/async timepoint/version header를 각각 verifier golden test로 추가한다.
+20. v0가 안정된 뒤 branch/loop/effect token을 A3-v1로, async timepoint와 portable version migration을 필요한 시점에 단계적으로 추가한다.
 21. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
 22. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
