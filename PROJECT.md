@@ -2469,10 +2469,16 @@ FactProvenance
 ```text
 Parser/Semantic IR
   Fork(
-    /(+) ,
-    % ,
-    #
+    +/ : derived Verb,
+    %  : Verb,
+    #  : Verb
   )
+
+where the first fork operand is one shared derived-function entity:
+
+  +/ : Verb
+    head = PrimitiveAdverb(Insert)   // /
+    operands = [ + : Verb ]
 
 PrimitiveSpec
   + dyad rank = 0 0
