@@ -57,9 +57,11 @@ J Source
 ──────────────── RustJ frontend ────────────────
 Word formation / tokenizer
    ↓
-Enqueue / name + part-of-speech classification
+Enqueue / glyph-control-name classification + lookup hints
    ↓
-J parser / semantic binding
+J parser-time name lookup / part-of-speech resolution
+   ↓
+semantic binding
    ↓
 J Semantic Array IR
    │
@@ -118,7 +120,7 @@ route boundaries are bridged after representation requirements are known
 
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
 
-- **RustJ frontend**: source text를 J word로 나누고, enqueue/name environment에서 parser가 필요로 하는 품사를 분류한 뒤 J parsing/binding을 수행하여 `J Semantic Array IR`을 만든다. extension name도 keyword로 하드코딩하지 않고 ordinary name binding을 통해 같은 경로를 탄다.
+- **RustJ frontend**: source text를 J word로 나누고 enqueue에서는 glyph/control/name 및 lookup metadata를 준비한다. ordinary name의 실제 noun/verb/adverb/conjunction 품사는 **parser가 그 name을 사용할 때 현재 local/locale binding을 lookup하여 얻는다.** 그 결과와 J parsing/binding 의미를 보존한 `J Semantic Array IR`을 만든다. extension name도 keyword로 하드코딩하지 않고 ordinary name binding을 통해 같은 경로를 탄다.
 - **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
 - **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다. 이 단계는 target-independent facts와 semantic legality를 만든다.
 - **Route Partition / Export**: Logical Array IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
@@ -732,7 +734,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 - `conv`, `linear`, `bn`, `avgpool2d`, `cp`: 역사 prototype에서는 parameterized adverb
 - `cast_f32`: 실제 등록 품사와 결합 의미를 보존하여 분석
 - `load`, `store`, `emit`, `cp`: 채택 시 storage/effect semantics와 derived structure를 명시
-- `with`: **historical candidate**. 현재 RustJ의 확정 syntax/primitive가 아니다.
+- `with`: **채택하는 ordinary-name conjunction extension**. base entity에 typed semantic annotation/contract를 결합한다.
 
 중요한 원칙은 **확장 어휘도 품사와 composition structure가 분석 정보라면 너무 일찍 평평한 operation으로 만들지 않는 것**이다.
 
@@ -749,7 +751,7 @@ LogicalOp::Conv2d(...)
 
 즉 `PrimitiveId::Conv2d`는 source spelling `conv`의 품사 identity와 같은 것이 아니다.
 
-`with`는 과거 문서에서 semantic annotation과 optimizer/adjoint/hardware/dtype/tile 정보를 한곳에 담는 후보로 검토되었지만, 현행 층 분리와 충돌한다. 향후 다시 채택하려면 (1) ordinary J name/conjunction semantics와 충돌하지 않는지, (2) 어떤 종류의 semantic annotation만 허용할지 먼저 별도로 결정한다.
+`with` 자체는 유지한다. 다만 ordinary J conjunction name이므로 parser spelling special-case를 만들지 않고 일반 name lookup/nameref 의미를 따른다. `with`의 오른쪽은 typed semantic annotation/contract로 제한한다. 예를 들면 adjoint relation, StateResource binding, numeric policy, checkpoint/storage semantic policy, extension-specific semantic constraint는 허용할 수 있다. CUDA block, tile, register budget, 특정 device, physical layout 같은 schedule/physical policy는 `with`에 넣지 않는다.
 
 반대로 다음 physical policy는 semantic annotation에 섞지 않는다.
 
@@ -790,7 +792,7 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 |---|---|
 | JAXA graph는 **parse time에 완전히 확정**된다 | parser만으로 충분하지 않다. resolvable name/품사 binding과 Semantic Analyzer를 거쳐 verified Logical IR이 만들어진다. dynamic constraint는 witness/guard로 남을 수 있다. |
 | JAXA는 **J 전체가 아닌 제한된 vocabulary 언어**다 | RustJ의 언어 목표는 장기적으로 J 전체 의미다. 다만 hardware-aware Logical Array IR 및 advanced optimization route에 들어갈 수 있는 영역은 별도의 **analyzable array profile/subset**일 수 있다. |
-| custom primitive spelling을 enqueue에서 built-in 실패 후 직접 가로챈다 | extension spelling은 reserved keyword가 아니다. ordinary J name environment에 predeclared binding으로 등록하고, enqueue/name classification이 그 binding의 품사를 parser에 제공한다. registry 추가 때문에 tokenizer/parser 구현을 수정하지 않는다. |
+| custom primitive spelling을 enqueue에서 built-in 실패 후 직접 가로챈다 | extension spelling은 reserved keyword가 아니다. ordinary J name environment에 binding으로 등록한다. enqueue는 ordinary NAME/lookup metadata만 만들고, parser가 정상 J name lookup을 통해 현재 binding과 품사를 얻는다. registry 추가 때문에 tokenizer/parser 구현을 수정하지 않는다. |
 | `conv`, `linear`은 computational verb다 | 최신 prototype의 표면 품사는 parameterized **adverb**다. noun parameter를 받아 derived computational verb를 만든다. analyzer가 보는 Conv/Linear logical op identity는 이 derived verb에서 나온다. |
 | prototype의 `rank_monad/rank_left/rank_right` 값을 builder의 영구 rank로 본다 | builder와 derived verb를 분리한다. rank는 parameter 적용 후 생성된 derived computational verb의 contract에서 확정한다. 예: derived `conv_kd`는 cell rank `k+1`. |
 | rank가 같으면 fusion 가능하고 rank 변화가 fusion boundary다 | rank/cell/frame은 중요한 입력이지만 fusion legality의 충분조건이 아니다. access/dependency/effect/storage/speculation과 schedule/target까지 함께 본다. |
@@ -803,7 +805,7 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 | fusion하지 않으면 중간값은 사실상 DRAM으로 간다 | 특정 GPU 구현의 직관일 뿐 architecture invariant가 아니다. cache, persistent kernel, producer-consumer scheduling, external backend가 다른 realization을 선택할 수 있다. 핵심은 logical value와 physical materialization을 분리하는 것이다. |
 | mutable optimizer state를 stateful verb 내부에 둘 수 있다 | 후기 Japchae 결정대로 **mutable array state는 verb/primitive 밖의 explicit resource로 드러낸다.** weight, grad, optimizer state, checkpoint는 역할이 아니라 lifetime/effect/storage requirement로 구분한다. |
 | weight/grad/activation을 모두 하나의 flat “materialized array object” 종류로 둔다 | J 의미상 모두 array라는 통찰은 유지하지만 IR identity는 분리한다. ephemeral computation result는 SSA `ValueId`, persistent/mutable named state는 `StateResource`, 실제 materialized storage는 downstream `BufferId`다. activation도 저장이 필요할 때만 StorageRequirement/BufferId를 얻는다. |
-| `with`에 optimizer/adjoint/hardware/dtype/tile 정보를 모두 넣는다 | 채택하지 않는다. 서로 다른 semantic/planning 층을 평평한 annotation 하나에 섞지 않는다. `with` 자체도 현재는 historical candidate이며 정식 RustJ extension syntax로 확정하지 않았다. |
+| `with`에 optimizer/adjoint/hardware/dtype/tile 정보를 모두 넣는다 | `with` **conjunction 자체는 채택**하되, 서로 다른 planning 층을 평평하게 섞는 방식은 채택하지 않는다. `with`는 ordinary J name에 binding된 conjunction으로 typed semantic annotation/contract만 결합하며 tile/device/register 같은 physical policy는 받지 않는다. |
 | parameterized layer/verb는 weight storage 때문에 반드시 source name을 가져야 한다 | 계산 entity의 이름과 state resource identity를 분리한다. derived verb는 익명일 수 있고, 필요한 mutable state는 explicit `StateResource` identity로 참조한다. |
 | graph를 남기려면 noun reduction/evaluation을 일반적으로 금지해야 한다 | RustJ 전체 J semantics에는 적용하지 않는다. J의 noun/value evaluation은 그대로 보존하고, compiler가 필요한 verb/adverb/conjunction composition을 `J Semantic Array IR`에서 별도로 first-class로 유지한다. |
 | `load/store/emit/cp`는 JAXA의 기본 in-band memory vocabulary다 | core J semantics로 자동 채택하지 않는다. 필요한 경우 ordinary name/adverb extension으로 등록하고 `EffectSemantics + StorageRequirement/StateResource` contract를 갖춘 analyzable profile 기능으로 다룬다. |
@@ -815,50 +817,68 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 이 표는 역사 저장소의 아이디어를 폐기한다는 뜻이 아니다. **어느 층에 속하는지를 현재 compiler architecture에 맞게 재배치**하는 기준이다.
 
 
-### 4.8 확장 primitive는 ordinary name binding + injected registry로 추가한다
+### 4.8 확장 primitive는 ordinary name binding으로 추가하고 parser-time lookup을 따른다
 
 NN/array extension은 J의 새로운 keyword나 punctuation을 추가하지 않고 **ordinary name**으로 추가한다.
 
-J parser는 품사를 알아야 reduction rule을 적용할 수 있으므로, extension의 품사 해소를 parser 완료 뒤까지 미루면 안 된다.
+current jsource(`p.c`, `w.c`)의 중요한 semantic 경계는 다음과 같다.
 
 ```text
 source word "conv"
       ↓
-Tokenizer: ordinary J NAME
-      ↓
-Enqueue / name classification
-      │ consult current J name environment
-      │ + injected extension registry/bindings
-      ↓
-resolved queue class: ADV
-canonical binding: ExtensionAdverb::Conv
+Tokenizer / Enqueue
+  ordinary NAME
+  source/name metadata
+  lookup-name flag / optional lookup hint
       ↓
 J Parser
+  name을 stack에 올릴 시점에
+  current local/locale environment에서 lookup
       ↓
-AdverbApply(parameter_noun, Conv)
+현재 binding의 실제 품사
+  noun | verb | adverb | conjunction
       ↓
-J Semantic Array IR
-      ↓
-Semantic Analyzer
-      ↓
-Derived computational identity / LogicalOp
+J reduction / derived entity construction
 ```
+
+즉 **enqueue가 ordinary name의 품사를 미리 고정하지 않는다.** parser가 문장을 처리하면서 현재 binding을 lookup하고 그 value/type class를 사용한다.
+
+extension registry의 역할은 reserved-word table이 아니라 **ordinary J name environment를 seed/register할 extension entity와 semantic/lowering metadata를 제공하는 것**이다.
+
+예를 들어 초기 environment에:
+
+```text
+conv  -> ExtensionAdverb::Conv
+with  -> ExtensionConjunction::With
+relu  -> ExtensionVerb::Relu
+```
+
+를 binding할 수 있다. 그 뒤 parser는 extension 여부를 알 필요 없이 정상 name lookup을 한다.
 
 중요한 불변식:
 
-1. Tokenizer는 `conv`를 특별 token으로 만들지 않는다.
-2. Parser code도 `conv` spelling을 hard-code하지 않는다.
-3. 그러나 parser가 품사를 필요로 하므로 **enqueue/name classification 단계는 현재 binding의 noun/verb/adverb/conjunction class를 제공해야 한다.**
-4. extension registry는 reserved-word table이 아니라 ordinary name environment에 등록할 canonical entity/spec을 제공한다.
-5. 사용자가 정상 J binding 규칙으로 그 name을 shadow/rebind할 수 있는 경우에는 그 binding semantics가 우선한다. extension spelling 자체에 영구 keyword 의미를 부여하지 않는다.
-6. name이 extension entity로 해소되면 spelling이 아니라 안정적인 `PrimitiveId`/builder identity를 가진다.
-7. `f =: conv`처럼 alias를 만들면 `f`는 conv의 **adverb identity**를 가리키며, parameter application 뒤에야 derived Conv verb/op가 생긴다.
-8. J built-in과 extension은 등록 출처가 달라도 semantic analyzer에서는 공통 capability interfaces를 통해 분석한다.
-9. 새 extension을 추가할 때 tokenizer/enqueuer/parser의 **코드**를 수정하지 않고 registry/binding data와 semantic/lowering capability를 추가한다.
+1. Tokenizer/Enqueuer는 `conv`, `with` 등의 spelling을 특별 token/POS로 hard-code하지 않는다.
+2. Enqueue는 ordinary NAME 및 lookup metadata/hint를 만들 뿐 semantic 품사를 확정하지 않는다.
+3. Parser가 해당 name을 사용할 때 **현재 local/locale binding을 lookup**하여 noun/verb/adverb/conjunction class를 얻는다.
+4. 사용자가 정상 J binding 규칙으로 extension name을 shadow/rebind하면 그 현재 binding semantics가 우선한다.
+5. noun name은 jsource처럼 value로 resolve될 수 있고, 일반 verb/adverb/conjunction name은 late binding을 보존하는 name-reference semantics가 필요하다.
+6. 따라서 `f =: conv`를 항상 “현재 Conv builder identity의 정적 복사”라고 가정하지 않는다. J의 name-reference semantics를 보존하고, static binding이 증명된 경우에만 stable extension identity로 specialize한다.
+7. parameterized adverb를 실제로 적용하여 derived verb가 만들어진 뒤에 그 derived computational entity의 semantic capability를 분석한다.
+8. 새 extension을 추가할 때 tokenizer/enqueuer/parser의 **코드**를 수정하지 않고 ordinary binding data + semantic/lowering capability를 추가한다.
 
-4월 `JAXA-complier` prototype은 built-in lookup 실패 뒤 spelling을 custom registry로 직접 가로챘다. 이는 prototype으로는 유용했지만 ordinary J rebinding과 extension-as-name 원칙을 약화시킬 수 있다. 현행 RustJ는 후기 `jaxa-analyzer` 방향대로 **generic Enqueuer에 vocabulary/name resolver를 주입**하는 모델을 기준으로 한다.
+4월 `JAXA-complier` prototype의 “built-in lookup 실패 후 custom registry를 검사” 방식은 사용하지 않는다. extension도 J의 normal name-resolution 경로에 참여한다.
 
-resolvable name과 late-bound name도 구분한다. J semantics상 호출 시점 lookup이 필요한 name은 억지로 extension identity로 고정하지 않고 `NameRef`/binding guard를 보존한다.
+static specialization이 유용할 경우:
+
+```text
+NameRef
+  + binding/version guard
+  + proven ExtensionAdverb::Conv
+      ↓
+specialized derived entity
+```
+
+처럼 guard/proof를 남긴다. name을 compile time에 봤다는 이유만으로 향후 rebinding 가능성을 제거하지 않는다.
 
 ### 4.9 Vocabulary는 이름 목록이 아니라 form + contract다
 
@@ -950,6 +970,8 @@ Primitive semantic interfaces
 ├─ AxisAndIterationSemantics
 ├─ AccessPattern
 ├─ NumericSemantics
+├─ FillAndEmptySemantics
+├─ ErrorSemantics
 ├─ EffectSemantics
 ├─ AliasSemantics
 ├─ SpeculationSemantics
@@ -1101,7 +1123,7 @@ otherwise
 
 예를 들어 `|:` transpose는 semantic capability에서 static permutation을 알려주고, target lowering은 consumer가 permutation을 absorb할지, view/layout으로 유지할지, 실제 transpose kernel/copy를 만들지를 결정한다.
 
-따라서 **J built-in vocabulary 전체도 extension과 동일한 capability/lowering architecture에 참여**한다.
+따라서 **컴파일 가능한 J built-in computational entity도 extension-derived entity와 동일한 capability/lowering architecture에 참여**한다. 다만 name/locale/control/system foreign처럼 runtime/effect semantics가 중심인 built-in을 억지로 pure array LogicalOp/GPU kernel로 만들지는 않는다.
 
 
 ### 4.11 rank와 axis role은 서로 다른 정보다
@@ -1145,6 +1167,67 @@ conv3d cell = [C, D, H, W] innate rank 4
 개념적인 `AxisRoleSpec`은 cell axis role, reduction axes, parallel axes, window axes, preserved axes, output-axis mapping을 가진다. `C/H/W` 같은 이름은 사람이 읽기 위한 label이고 analyzer는 reduction/parallel/window/static-reindex 같은 역할을 사용한다.
 
 가변 reduction인 표준 J `+/` 같은 연산은 rank/cell 구조에서 axis가 유도된다. 반대로 derived conv verb처럼 축 역할이 연산 정체성에 고정된 연산은 `AxisAndIterationSemantics` capability가 그 역할을 제공한다.
+
+#### 4.11.1 J agreement는 prefix frame agreement다
+
+J의 dyadic rank agreement를 NumPy-style trailing-dimension broadcasting으로 해석하지 않는다.
+
+current jsource의 rank/atomic dyad 경로는 shared frame prefix를 검사한다.
+
+개념적으로:
+
+```text
+left frame  = P ++ LA
+right frame = P ++ RA
+
+shared prefix P는 shape가 같아야 한다.
+한쪽 frame이 더 길면 짧은 쪽의 cell/frame을 residual frame에 대해 반복 적용한다.
+```
+
+explicit rank와 underlying verb rank가 함께 있으면 outer/inner frame 반복으로 세분되지만, 핵심 semantic invariant는 **prefix agreement + cell repetition**이다.
+
+따라서 `AgreementFact`에는 최소한 다음을 보존한다.
+
+```text
+AgreementFact
+  common_prefix_axes
+  left_residual_frame
+  right_residual_frame
+  repeated_operand / repeated_cell relation
+  agreement_error condition
+```
+
+zero stride는 이 agreement가 확정된 뒤의 physical realization일 뿐이다.
+
+#### 4.11.2 empty frame은 “아무 일도 하지 않음”이 아니다
+
+current jsource의 rank executor는 처리할 cell 수가 0이어도 단순히 verb 실행을 생략하지 않는다. **fill-cell을 만들어 verb를 의미적으로 실행**하여 결과 cell의 type/shape를 결정하는 경로가 있다.
+
+따라서:
+
+```text
+empty iteration domain
+  ≠ automatically return empty with guessed dtype/shape
+```
+
+이다.
+
+RustJ semantic contract에는 다음을 둘 수 있어야 한다.
+
+```text
+FillAndEmptySemantics
+  default_fill(type)
+  sparse_element_if_any
+  fit_fill_override_if_any
+  empty-cell/prototype evaluation rule
+  result-cell type/shape inference
+  J-defined suppressed-vs-propagated error behavior
+```
+
+구현이 실제 scalar fill-cell execution을 하지 않아도 된다. static abstract evaluation이나 primitive-specific inference로 대체할 수 있지만 **jsource와 같은 observable result type/shape/error semantics**를 내야 한다.
+
+특히 optimizer가 zero-trip loop를 제거하기 전에 결과 prototype/type/shape가 이미 J 규칙에 따라 확정되어 있어야 한다.
+
 
 ### 4.12 access pattern은 fusion 분석의 semantic lower bound다
 
@@ -1320,7 +1403,9 @@ NumericSemantics
   result dtype
   accumulator requirement
   widening / narrowing rules
-  exact overflow behavior
+  overflow retry / promotion behavior
+  comparison tolerance mode / context
+  fit (!.) numeric policy when applicable
   reassociation allowed?
   FMA contraction allowed?
   reduction order observable?
@@ -1328,6 +1413,54 @@ NumericSemantics
 ```
 
 CPU vector reduction이나 GPU tree reduction은 J의 관찰 가능한 floating-point 순서를 바꿀 수 있으므로, `reduction`이라는 사실만으로 재배치를 허용하지 않는다.
+
+#### 4.15.4a comparison tolerance와 `!.`는 semantic input이다
+
+J의 비교는 단순 IEEE bitwise comparison으로 고정되지 않는다. current jsource는 runtime comparison tolerance(`jt->cct`)를 사용하고, `u!.ct` derived verb는 자체 tolerance를 보존할 수 있다. `!.`는 일부 verb에서는 fill을 바꾸는 의미도 가진다.
+
+따라서 compiled/GPU lowering은:
+
+```text
+ComparisonSemantics
+  Exact
+  DefaultTolerance(context/versioned runtime state)
+  ExplicitTolerance(value)
+
+FitSemantics
+  numeric_tolerance_override
+  fill_override
+  primitive-specific fit behavior
+```
+
+를 잃지 않는다.
+
+tolerance가 runtime mutable state에 의존하면 다음 중 하나가 필요하다.
+
+- compile-time captured value + binding/runtime guard
+- explicit semantic input
+- runtime semantic lowering
+
+GPU kernel 안에서 임의의 exact comparison으로 바꾸면 안 된다.
+
+#### 4.15.4b overflow/promotion은 primitive contract의 retry semantics다
+
+current jsource의 atomic arithmetic은 retryable overflow를 별도 error class로 반환하고, 경우에 따라 wider result path로 전체 연산을 retry하거나 이미 계산한 결과를 일관된 widened representation으로 repair한다.
+
+따라서 “integer op이면 원소마다 overflow한 lane만 float로 바꾼다” 같은 realization은 허용하지 않는다.
+
+```text
+OverflowSemantics
+  primitive/type combination
+  retryable?
+  promoted result type/path
+  coherent-result requirement
+  reduction/prefix-specific behavior
+```
+
+를 contract로 둔다.
+
+“전체 배열 overflow promotion”이라는 기존 문구는 모든 primitive에 동일한 promotion 규칙이 있다는 뜻이 아니다. **해당 J primitive/type 조합이 정의하는 retry/promotion을 결과 array 전체의 일관된 J type semantics로 보존한다**는 뜻이다.
+
 
 #### 4.15.5 Logical dependency requirement
 
@@ -1549,6 +1682,33 @@ SpeculationSemantics
 ```
 
 optimizer와 external adapter는 이 contract를 보고 hoist, duplicate, eliminate, reassociate 가능성을 판단한다.
+
+#### 4.15.14 J error precedence와 internal semantic probes를 구분한다
+
+backend 병렬 실행이 “먼저 발견한 lane의 오류”를 임의로 사용자 오류로 선택하면 안 된다.
+
+current jsource의 atomic dyad 경로는 예를 들어 agreement/rank-shape 검사를 type/domain conversion보다 먼저 수행하며, source-level error class의 우선순위를 의도적으로 보존한다.
+
+```text
+ErrorSemantics
+  possible_errors
+  precedence / validation order where observable
+  retryable_internal_conditions
+  suppressed semantic-probe errors
+  externally observable error
+```
+
+를 primitive/derived-op contract가 표현할 수 있어야 한다.
+
+중요한 구분:
+
+- J가 사용자에게 보고하는 domain/rank/length/value/... error
+- overflow처럼 retry를 유도하는 internal condition
+- empty fill-cell/prototype 평가에서 J가 의도적으로 suppress하는 computational error
+- out-of-memory 같은 exigent error
+
+따라서 “오류 순서 보존”은 **jsource가 정의한 observable error precedence와 suppression/retry semantics를 보존한다**는 뜻이다. 내부적으로 발생한 모든 임시 오류를 그대로 노출한다는 뜻이 아니다.
+
 
 
 
@@ -2743,29 +2903,69 @@ MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable arti
 
 ## 6. 논리 배열과 물리 배열
 
-### 6.1 논리 J 배열과 verb
+### 6.1 논리 J noun, boxed, sparse와 verb
 
-J의 noun 의미는 다음으로 유지한다.
+dense noun의 extensional value는 기본적으로 다음으로 본다.
 
 ```text
-JArray
-  type
+DenseJArray
+  atom type
   shape
   ordered atoms / logical value
 ```
 
-verb는 이 noun array를 입력받아 noun array를 반환하는 array transformer이며, J Semantic Array IR에서 first-class semantic entity로 표현한다. verb의 hook/fork/train/modifier composition은 semantic analysis 전에 보존한다.
+그러나 current jsource와의 semantic compatibility를 위해 “모든 noun = type + shape + flat atoms뿐”이라고 고정하지 않는다.
 
-다음은 논리 JArray의 identity가 아니다.
+**boxed**는 physical encoding이 아니라 J의 semantic atom/type 구조다.
+
+```text
+BoxedJArray
+  shape
+  ordered boxed atoms
+    each atom -> J value
+```
+
+실제 backend가 box를 pointer, handle, arena index 등으로 표현하는 것은 physical 문제다.
+
+**sparse**도 단순한 backend compression format이 아니다. J의 `$.`와 sparse type/operations가 sparse representation을 관찰하며, sparse axes와 sparse element(fill)가 의미에 참여한다.
+
+```text
+SparseJArray
+  logical atom type
+  shape
+  sparse_axes
+  sparse_element
+  sparse index/value semantics
+```
+
+dense와 sparse가 같은 extensional mathematical array를 나타낼 수 있어도 J 프로그램이 sparse representation을 관찰할 수 있으므로 semantic representation class를 보존한다.
+
+따라서 noun semantic model은 개념적으로:
+
+```text
+JNoun
+  value/type/shape semantics
+  semantic representation:
+    Dense
+    Boxed
+    Sparse(SparseSemantics)
+    other J-visible noun kinds as implemented
+```
+
+이다.
+
+verb는 noun array를 입력받아 noun array를 반환하는 array transformer이며, J Semantic Array IR에서 first-class semantic entity로 표현한다. verb의 hook/fork/train/modifier composition은 semantic analysis 전에 보존한다.
+
+다음은 논리 J noun의 semantic identity가 아니다.
 
 - stride
 - offset
-- physical layout
+- physical tile layout
 - CPU/GPU device
-- tile shape
-- alignment
+- byte alignment
 - sharding
 - CUDA block/thread
+- concrete sparse backend format(CSR/COO 등)
 
 ### 6.2 ValueId와 BufferId
 
@@ -2872,20 +3072,28 @@ J agreement를 먼저 계산한다.
 
 zero stride가 J agreement 규칙을 정의하는 것은 아니다.
 
-### 7.4 dense / tiled / sparse / packed
+### 7.4 semantic representation과 physical encoding을 구분한다
 
-모든 표현을 affine byte-stride 모델 하나로 강제하지 않는다.
+모든 physical 표현을 affine byte-stride 모델 하나로 강제하지 않는다. 동시에 J-visible representation과 backend storage encoding도 섞지 않는다.
 
-구분한다.
+**Semantic/J-visible**
+
+- dense noun
+- boxed noun
+- sparse noun + sparse axes/element semantics
+
+**Physical/backend encoding**
 
 - affine dense
 - tiled
-- sparse
-- boxed
 - packed bit
-- backend-specific encoding
+- device/backend-specific encoding
+- sparse noun을 위한 concrete sparse format(COO/CSR/other)
+- boxed noun을 위한 pointer/handle/arena representation
 
-초기 G1은 read-only affine dense만 다룬다.
+즉 `SparseJArray`를 GPU에서 dense buffer로 임시 materialize할 수는 있어도, 그 때문에 J-visible sparse identity/metadata를 잃어서는 안 된다. 반대로 같은 sparse semantics를 여러 physical sparse format으로 실현할 수 있다.
+
+초기 G1은 read-only affine dense physical representation만 다룬다.
 
 ### 7.5 placement / sharding
 
@@ -2990,13 +3198,16 @@ GPU 재개 후에는 kernel 제출과 실제 device completion을 구분한다.
 
 최적화 때문에 다음을 바꾸지 않는다.
 
-- 전체 배열 overflow promotion
-- 오류 순서
-- binding의 이전 값 보존
+- primitive/type별 overflow retry와 coherent result promotion semantics
+- J가 정의한 error precedence, suppression, retry behavior
+- binding/name-reference의 late lookup semantics
 - side effect 순서
+- comparison tolerance와 `!.` fit semantics
+- empty/rank fill-cell 결과 type·shape semantics
+- sparse/boxed의 J-visible representation semantics
 - float 연산 순서
 
-FMA, reassociation, reduction 순서 변경은 별도 허용 조건 없이는 자동 적용하지 않는다.
+FMA, reassociation, reduction 순서 변경은 별도 허용 조건 없이는 자동 적용하지 않는다. GPU 병렬 오류 수집도 arbitrary first-lane error를 그대로 노출하지 않고 J의 observable error contract를 따른다.
 
 ---
 
@@ -3066,9 +3277,13 @@ FMA, reassociation, reduction 순서 변경은 별도 허용 조건 없이는 �
 
 중요한 J 의미 원칙:
 
-- undefined name이 항상 즉시 value error인 것은 아니다.
-- noun은 binding 시점 snapshot 의미가 필요하다.
-- verb 이름은 호출 시점 해석이 필요한 경우가 있다.
+- Enqueue는 ordinary name의 noun/verb/adverb/conjunction 품사를 최종 확정하지 않는다.
+- Parser가 name을 사용할 때 current local/locale binding을 lookup하여 실제 value/type class를 얻는다.
+- noun name은 현재 value로 resolve되는 반면, 일반 verb/adverb/conjunction name은 jsource의 `name~` reference와 같은 late lookup semantics가 필요할 수 있다.
+- undefined non-by-value function name은 즉시 value error가 아니라 nameref 형태로 남을 수 있는 jsource 경로가 있으므로, undefined name을 전부 frontend 즉시 오류로 만들지 않는다.
+- extension name도 이 규칙의 예외가 아니다.
+- static binding/version proof가 있을 때만 NameRef를 stable primitive/builder identity로 specialize한다.
+- `f.` 같은 J의 fix semantics는 late name reference를 실제 value로 고정하는 별도 의미이므로 일반 compilation specialization과 혼동하지 않는다.
 - name/version 정보를 IR과 plan guard에 반영해야 한다.
 - parser가 깊은 식에서 임의의 작은 recursion/height 한계로 J 의미를 바꾸지 않도록 한다.
 
@@ -3130,6 +3345,10 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] local slot hint와 실제 local binding을 구분하고 unbound local candidate의 locale fallback을 보존한다.
 - [ ] `=.` local assignment와 `=:` public/locale assignment를 구분한다.
 - [ ] primitive contract를 semantic node에 연결한다.
+- [ ] J dyadic rank의 prefix frame agreement와 residual-frame repetition을 명시적으로 테스트한다.
+- [ ] zero-cell rank execution의 fill-cell/prototype result type·shape semantics를 테스트한다.
+- [ ] boxed와 sparse를 physical encoding이 아닌 J-visible semantic representation으로 보존한다.
+- [ ] comparison tolerance/`!.` fit context와 J error precedence를 semantic contract에 포함한다.
 - [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
 - [ ] Semantic Analyzer / Lowering이 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
 - [ ] fork branch 독립성, reduction derived verb, rank-derived verb를 대표 golden test로 둔다.
@@ -3138,7 +3357,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 ### A2 — Extension Primitive Registry와 analysis contract
 
 - [ ] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다.
-- [ ] Enqueue/name classification이 injected registry/environment를 통해 extension의 J 품사(noun/verb/adverb/conjunction)를 parser 전에 제공한다.
+- [ ] Enqueue는 extension도 ordinary NAME/lookup metadata로 처리하고, parser-time normal name lookup이 현재 binding의 품사를 결정하게 한다.
 - [ ] parameterized adverb(`conv`, `linear` 등)와 그 결과 derived computational verb/op identity를 분리한다.
 - [ ] built-in과 extension-derived computational entity가 공유하는 semantic capability interface를 정의한다.
 - [ ] extension builder(adverb/conjunction/verb) identity와 derived computational entity identity를 분리한다.
@@ -3165,7 +3384,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] accumulator requirement(logical)와 accumulator realization(schedule/target)을 분리한다.
 - [ ] scratchpad/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
-- [ ] alias/shadow/rebind를 거쳐도 J name semantics와 extension identity가 올바르게 보존되는 테스트를 추가한다.
+- [ ] noun snapshot과 verb/adverb/conjunction nameref late lookup, alias/shadow/rebind, `f.` fix semantics를 구분하는 테스트를 추가한다.
 - [ ] mutable extension state가 hidden verb field가 아니라 explicit StateResource로 나타나는 테스트를 추가한다.
 - [ ] standard-J reference definition이 가능한 extension은 차등 oracle test를 추가한다.
 
@@ -3248,8 +3467,9 @@ A3-v2
 - [ ] SIMD contiguous fast path 유지
 - [ ] explicit cell mapping과 physical view 연결
 - [ ] alias proof 없는 write/reuse 금지
-- [ ] overflow/promotion/error order 보존
-- [ ] NaN/Inf/signed zero/empty 테스트
+- [ ] primitive-specific overflow/retry/promotion 및 error precedence 보존
+- [ ] comparison tolerance/`!.` contract 보존
+- [ ] NaN/Inf/signed zero/empty/fill-cell 테스트
 
 ### G4 — RustJ-native 최소 Physical Plan과 CPU Executor
 
@@ -3755,6 +3975,26 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 기존 저장소는 prototype 코드, 연구 이력, 참고 구현을 확인할 때만 사용한다.
 
+### 15.5.1 current jsource semantic cross-check (2026-09-30)
+
+기준 revision: `jsoftware/jsource@ce65ed97ec57d95910e9bab4a652e2991d294626`.
+
+구현 기법을 그대로 복제할 필요는 없지만 다음 source-level semantic facts는 RustJ 설계 제약으로 채택한다.
+
+| jsource 확인점 | RustJ 설계 결론 |
+|---|---|
+| `w.c` enqueue는 alphabetic word를 ordinary NAME으로 만들고 lookup flag/hint를 붙인다 | extension도 enqueue에서 ADV/VERB로 고정하지 않는다 |
+| `p.c` parser가 NAME을 stack할 때 local/locale lookup하고 noun은 value, 일반 ACV는 nameref로 처리한다 | noun snapshot과 function-name late binding을 분리한다 |
+| `cr.c` rank dyad는 frame prefix agreement를 검사하고 residual frame에 cell을 반복한다 | NumPy broadcasting으로 대체하지 않는다 |
+| `cr.c`는 zero cells에서 fill-cell을 실행해 result cell type/shape를 정한다 | zero-trip elimination 전에 fill/prototype semantics를 해결한다 |
+| `cv.c`의 `!.`는 comparison tolerance 또는 fill을 바꾸는 derived verb를 만든다 | tolerance/fill override를 semantic contract로 보존한다 |
+| `va2.c`는 agreement/rank-shape 검사와 domain/type/value error의 precedence를 의도적으로 관리한다 | GPU parallel error reporting도 J error contract를 따른다 |
+| `va2.c`는 retryable overflow를 retry/repair하고 result type consistency를 유지한다 | primitive/type별 overflow promotion을 lane-local 임의 처리로 바꾸지 않는다 |
+| sparse가 AT/type 및 `$.`를 통해 J-visible하고 axes/element를 가진다 | sparse를 단순 physical compression format으로 보지 않는다 |
+| BOX는 noun type이고 boxed atom이 J value를 담는다 | boxed를 physical encoding 목록에서 제외한다 |
+
+이 검토에서 발견된 차이는 **포기한 jsource implementation detail이 아니라 observable semantics에 영향을 주는 항목만** 반영했다.
+
 ### 15.6 설계 일관성 불변식
 
 앞으로 문서를 수정할 때 다음 불변식을 독립적으로 점검한다.
@@ -3795,6 +4035,13 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 34. **Backend/architecture/device 분리** — CUDA/ROCm 같은 backend, ISA/microarchitecture target, exact device capacity를 하나의 profile identity로 뭉개지 않는다.
 35. **Target locale path는 명시적** — device→architecture→family→backend→class→generic 순서는 compiler namespace의 explicit resolution path이며 숫자 버전 상속으로 추론하지 않는다.
 36. **Locale lookup과 candidate selection 분리** — locale은 lowering/capability 후보를 찾고, 실제 realization 선택은 legality/resource/cost 분석이 한다.
+37. **Ordinary name 품사는 parser-time lookup** — enqueue가 local/locale name의 noun/verb/adverb/conjunction class를 미리 고정하지 않는다.
+38. **Function names preserve late binding** — verb/adverb/conjunction NameRef를 static proof 없이 현재 value identity로 얼리지 않는다.
+39. **J agreement is prefix agreement** — NumPy trailing broadcasting으로 대체하지 않고 rank/cell/frame repetition 의미를 보존한다.
+40. **Empty execution has fill-cell semantics** — zero-trip이라는 이유로 prototype/type/shape/error 의미를 생략하지 않는다.
+41. **Boxed/sparse are J-visible semantics** — boxed hierarchy와 sparse axes/element를 단순 physical encoding으로 취급하지 않는다.
+42. **Tolerance/Fit are semantics** — comparison tolerance와 `!.`에 의한 numeric/fill variation을 backend optimization에서 잃지 않는다.
+43. **Error contract is observable semantics** — J가 정한 precedence/suppression/retry를 보존하고 parallel first-error를 임의로 노출하지 않는다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
