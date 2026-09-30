@@ -31,6 +31,10 @@ class OracleProtocolTests(unittest.TestCase):
         self.assertEqual(request['names'], ['f'])
         self.assertEqual(request['representations'], ['atomic', 'linear'])
 
+    def test_words_request_accepts_source_bytes_via_text(self):
+        request = normalize_request({'op': 'words', 'source': "1 NB. x"})
+        self.assertEqual(request, {'op': 'words', 'source': "1 NB. x"})
+
     def test_invalid_requests_fail_before_loading_j(self):
         bad = [
             3,
