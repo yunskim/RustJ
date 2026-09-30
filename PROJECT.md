@@ -1601,7 +1601,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] alias를 거쳐도 primitive identity/spec이 보존되는 테스트를 추가한다.
 - [ ] standard-J reference definition이 가능한 extension은 차등 oracle test를 추가한다.
 
-완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·axis role·shape·effect·resource requirement를 읽을 수 있다.
+완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, Physical Planner가 별도 TargetProfile을 이용해 schedule과 ResourceEstimate를 만들 수 있다.
 
 ### G1 — 논리 값과 물리 표현의 경계
 
@@ -2046,12 +2046,15 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb, rank를 얼마나 보존하는지 감사한다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
 4. extension primitive registry의 최소 schema를 Identity / Analysis / Realization로 정의한다.
-5. innate rank + cell axis-role을 이용해 `relu`, `linear`, `conv2d`를 먼저 옮긴다.
-6. Semantic Analyzer가 semantic IR과 PrimitiveSpec을 함께 읽어 composition/rank/shape/axis role을 분석하게 한다.
-7. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
-8. fork, reduction derived verb, rank-derived verb, extension name alias를 golden test로 검증한다.
-9. Logical Plan과 TargetProfile을 받아 Physical Planner가 fusion/materialization/layout/resource 결정을 내리는 최소 경계를 만든다.
-10. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
-11. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
+5. Logical IR의 `IterationDomain`, `AxisSemantics`, `AccessRelation`, `NumericSemantics`, `DependencyRequirement` 최소 타입을 정의한다.
+6. `TargetProfile` MVP를 execution hierarchy / register / memory / compute / synchronization / data-layout capability로 정의하고 `CostProfile`과 분리한다.
+7. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 logical contract를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 golden reference로 삼는다.
+8. Semantic Analyzer가 semantic IR과 PrimitiveSpec을 함께 읽어 composition/rank/shape/iteration/access/dependency facts를 생성하게 한다.
+9. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
+10. Physical Planner가 Logical Plan + TargetProfile을 받아 axis mapping, tiling, memory-space, layout, materialization, synchronization을 선택하는 최소 `PhysicalRegion`을 만든다.
+11. `ResourceEstimate` MVP로 register/scratchpad/concurrency/global-memory traffic/peak materialized bytes/launch count를 계산한다.
+12. fork, reduction derived verb, rank-derived verb, extension alias, conv2d access relation을 golden test로 검증한다.
+13. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
+14. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
 특히 hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하는 shortcut을 추가하지 않는다.
