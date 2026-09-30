@@ -481,3 +481,16 @@ fn verifier_checks_resolved_instantiation_consistency() {
     assert_eq!(error.node, Some(result));
     assert!(error.message.contains("instantiation result facts"));
 }
+
+#[test]
+fn verifier_checks_basis_metadata_consistency() {
+    use rustj::analysis::BasisKind;
+
+    let e = Engine::new();
+    let mut plan = e.analyze("1+2").unwrap();
+    let result = plan.result.unwrap();
+    plan.nodes[result.0].basis = Some(BasisKind::Reduce);
+    let error = plan.verify().unwrap_err();
+    assert_eq!(error.node, Some(result));
+    assert!(error.message.contains("basis metadata"));
+}
