@@ -73,5 +73,8 @@ For every implementation change:
 - Maintain an explicit compilation-coverage manifest/golden tests for which semantic forms lower to array Logical IR, runtime semantics, guarded late binding, or UnsupportedImplementation.
 
 - Model large J derived functions as shared immutable FunctionEntity/JEntityRef graphs (or an equivalent arena DAG), not recursively copied nested enum values.
-- Keep derived form identity open/registry-driven (FunctionFormId + operands + typed semantic attachments); do not grow a giant closed DerivedVerb enum for every modifier form.
+- Let J parser reduction rules define FunctionEntity DAG shape. ADV application, CONJ application, hook, and fork must follow jsource parse productions; do not invent modifier-specific semantic AST shapes such as Insert(base) or Rank(base,r).
 - Keep semantic function identity/operands separate from runtime/backend executor specialization; optimized handlers must not erase J-visible derived structure.
+
+- Treat jsource V/fgh as an execution-object cross-check, not as the authoritative source of semantic DAG edges; execution-only auxiliaries in f/g/h/local metadata must not become semantic children automatically.
+- In Semantic IR, keep the source operator as the parent identity: applied `/` has its operand, applied `"` has left/right operands. Normalize to Reduce/MapCells only in Semantic Analyzer -> Logical IR lowering.
