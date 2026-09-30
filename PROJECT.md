@@ -1957,7 +1957,8 @@ J에서는 domain/rank/length/overflow 등의 오류 발생 순서도 관찰 가
 SpeculationSemantics
   AlwaysSafe
   SafeIf(constraints)
-  MayRaiseObservableError
+  MayRaiseObservableError(error_set)
+  MayThrow
   MayNotTerminate
   HasNonLocalControlEffect
 ```
@@ -1989,6 +1990,51 @@ ErrorSemantics
 - out-of-memory 같은 exigent error
 
 따라서 “오류 순서 보존”은 **jsource가 정의한 observable error precedence와 suppression/retry semantics를 보존한다**는 뜻이다. 내부적으로 발생한 모든 임시 오류를 그대로 노출한다는 뜻이 아니다.
+
+#### 4.15.15 J error는 exceptional control flow가 될 수 있다
+
+explicit definition 안의 J error를 항상 process-level failure 또는 compile diagnostic으로 취급하지 않는다.
+
+current jsource(`cx.c`, `wc.c`)는 `try.`, `catch.`, `catchd.`, `catcht.`, `throw.`를 control-word graph로 만들고, 실행 중 발생한 error/throw에 따라 handler target으로 이동한다.
+
+따라서:
+
+```text
+JSemanticOutcome
+  Normal(JEntity)
+  Raise(JError)
+  Throw
+```
+
+와 같은 개념을 CFG semantics가 표현할 수 있어야 한다.
+
+장기 Logical/Control IR에서는:
+
+```text
+Op
+  normal_successor
+  exceptional_successor(s) when inside an active handler region
+
+TryRegion
+  body
+  handlers:
+    ordinary-error handler
+    debug/error-class-specific handler as required by J semantics
+    throw handler
+```
+
+형태 또는 동등한 runtime lowering을 허용한다.
+
+중요한 원칙:
+
+- `domain/rank/length/value/...` error는 handler가 없으면 외부로 전파되지만, active `try.` 안에서는 J control flow의 일부가 될 수 있다.
+- `throw.`는 일반 return이 아니라 explicit exceptional control effect다.
+- optimizer는 potentially-raising op를 catch boundary 밖으로 hoist하거나 handler를 건너 duplicate/eliminate하지 않는다. 그러려면 `SpeculationSemantics`/error proof가 필요하다.
+- GPU/external region 안에서 생긴 J-visible error도 surrounding J handler semantics를 보존할 수 있어야 한다. adapter/backend가 typed error outcome을 되돌릴 수 없다면 해당 region offload를 거부하거나 error-free proof가 필요하다.
+- retryable internal overflow/prototype probe error는 user-visible exceptional edge와 구분한다.
+
+A3-v0의 pure single-block subset에는 full exceptional CFG를 요구하지 않는다. `try/catch/throw` lowering은 A3-v1의 multi-block CFG와 함께 구현하되, v0 operation contract는 `MayRaise`/error set을 잃지 않아야 한다.
+
 
 
 
@@ -3486,6 +3532,7 @@ GPU 재개 후에는 kernel 제출과 실제 device completion을 구분한다.
 
 - primitive/type별 overflow retry와 coherent result promotion semantics
 - J가 정의한 error precedence, suppression, retry behavior
+- active `try./catch./catcht.`에 의한 J-visible error/throw control transfer
 - binding/name-reference의 late lookup semantics
 - side effect 순서
 - comparison tolerance와 `!.` fit semantics
@@ -3695,6 +3742,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] pure graph region과 CFG region을 구분한다.
 - [ ] v0에서는 `ConstraintSet + compile-time Witness`를 정의하고, runtime branching이 필요한 `Guard`는 v1로 미룬다.
 - [ ] v0에서는 `EffectSummary + SpeculationSemantics`의 interface만 정의하고, explicit `EffectToken`은 v1로 미룬다.
+- [ ] v0 op contract에 possible J error set / MayRaise를 보존하고, v1에서 try/catch/throw exceptional CFG edge를 구현한다.
 - [ ] `DestinationRelation`을 정의하여 bufferization contract와 BufferId를 분리한다.
 - [ ] op verifier framework를 만든다.
 - [ ] semantic capability interfaces(Shape/Axis/Access/Effect/Alias/Speculation)를 trait/API로 정의한다.
@@ -3721,6 +3769,7 @@ A3-v0
 A3-v1
   multi-block CFG
   branch / loop / runtime Guard
+  try/catch/throw exceptional edges
   EffectToken
   richer alias/destination analysis
 
@@ -4287,6 +4336,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `p.c` parser가 NAME을 stack할 때 local/locale lookup하고 noun은 value, 일반 ACV는 nameref로 처리한다 | noun snapshot과 function-name late binding을 분리한다 |
 | `sc.c` nameref 실행은 현재 lookup value의 part of speech가 reference 생성 시 기대한 품사와 같은지 검사한다 | `NameRef.expected_part_of_speech`를 보존하고 mismatch는 domain error로 처리한다 |
 | `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
+| `wc.c`/`cx.c`는 `try./catch./catchd./catcht./throw.`를 linked control flow로 실행하고 error/throw를 handler로 전달한다 | J-visible errors를 항상 fatal diagnostic으로 취급하지 않고 exceptional CFG/control effect로 보존한다 |
 | parser assignment reduction은 assigned J entity를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 entity-producing effectful expression으로 모델링한다 |
 | `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
 | `cr.c::jtqq`는 `Verb"RankNoun` 외에도 right Verb rank extraction과 left Noun gerund/constant-verb form을 처리한다 | J Semantic IR의 rank node를 verb+integer pair로 제한하지 않고 original entity operands를 보존한다 |
@@ -4360,6 +4410,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 50. **Rank conjunction is entity-based** — `"`의 left/right operand를 verb+integer로 가정하지 않고 J의 noun/gerund/verb-rank forms를 semantic analysis 전까지 보존한다.
 51. **Lowering key includes semantic valence/context** — raw primitive id/spelling만으로 backend lowering을 선택하지 않고 resolved valence와 derived numeric/rank/effect semantics를 포함한 operation key를 사용한다.
 52. **Innate rank is valence-specific** — primitive rank를 단일 값으로 두지 않고 monad와 dyadic left/right rank contract를 분리한다.
+53. **J errors may be control flow** — try/catch/throw 영역 안의 observable error를 fatal diagnostic으로 접지 않고 exceptional successor/동등 runtime semantics를 보존한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4391,7 +4442,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 18. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
 19. `ResourceEstimate` MVP와 별도 `CostEstimate`를 만들고, backend `CompiledResourceReport` 및 runtime `ExecutionMeasurement` feedback/re-plan interface를 만든다.
 20. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
-21. v0가 안정된 뒤 branch/loop/effect token을 A3-v1로, async timepoint와 portable version migration을 필요한 시점에 단계적으로 추가한다.
+21. v0가 안정된 뒤 branch/loop/try-catch-throw exceptional CFG/effect token을 A3-v1로, async timepoint와 portable version migration을 필요한 시점에 단계적으로 추가한다.
 22. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
 23. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
