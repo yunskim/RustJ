@@ -4702,7 +4702,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 ### 15.5.1 current jsource semantic cross-check (2026-09-30)
 
-기준 revision: `jsoftware/jsource@ce65ed97ec57d95910e9bab4a652e2991d294626`.
+기준 revision: `jsoftware/jsource@13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` (2026-09-30 current master at this review).
 
 구현 기법을 그대로 복제할 필요는 없지만 다음 source-level semantic facts는 RustJ 설계 제약으로 채택한다.
 
@@ -4717,6 +4717,9 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `c.c::ad12`의 `u::v`는 ordinary failure에서 fallback `v`를 실행/반환하지만 throw/exit는 전파한다 | adverse derived verb를 expression-level error-handler semantics로 보존한다 |
 | `c.c::jtobverse`와 inverse logic은 `u:.v`의 second operand를 inverse semantics에 사용한다 | forward dataflow가 같아 보여도 obverse metadata/operand를 dead-code로 제거하지 않는다 |
 | `cf.c`의 bident/trident tables는 noun/verb/adverb/conjunction 조합에서 verb 외에 derived adverb/conjunction도 생성한다 | Semantic IR을 DerivedVerb 중심으로 제한하지 않고 result POS를 가진 `DerivedEntity`로 일반화한다 |
+| `jtype.h`의 `V`는 VERB/ADV/CONJ이 공유하고 `fgh[3]` operand refs, valence entry points, rank, id, flags/local metadata를 가진다 | RustJ derived function도 공통 shared FunctionEntity graph로 표현하고 operand subtree deep-copy를 피한다 |
+| `ja.h::fdef/fdeffill`은 같은 function block에 form id/result POS/operands/executor/rank를 채우며, `cf.c` fork/hook는 operands를 유지한 채 specialized executor를 선택한다 | semantic form/operands와 runtime/backend specialization을 분리한다 |
+| `cr.c`, `ar.c`, `cv.c`, `cp.c`, `cu.c`의 rank/insert/fit/power/under는 동일한 function object shape를 재사용하며 작은 form-specific metadata만 추가한다 | modifier 종류마다 closed Rust enum payload를 늘리지 않고 FunctionFormId + operands + typed attachment로 확장한다 |
 | `cf.c`는 boxed noun을 특정 modifier 문맥에서 gerund로 해석한다 | gerund를 별도 전역 noun type으로 만들지 않고 boxed noun + contextual GerundSemantics로 보존한다 |
 | parser assignment reduction은 assigned J entity를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 entity-producing effectful expression으로 모델링한다 |
 | `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
