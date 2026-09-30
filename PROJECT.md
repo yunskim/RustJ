@@ -647,6 +647,25 @@ FunctionEntity
 
 같은 operator identity라도 operand가 없고 result POS가 ADV/CONJ이면 source operator entity이고, parser application 뒤에는 같은 operator identity가 operand를 가지며 result POS가 derived result의 품사가 된다.
 
+현재 구현은 이 parser table의 **부분집합**만 지원한다. 따라서 지원 여부를 production 단위로 관리한다.
+
+```text
+ParseConstructionCoverage (현재)
+  row 3: VERB ADV                  implemented
+         NOUN ADV                  pending
+
+  row 4: VERB CONJ NOUN            implemented for supported literal noun
+         VERB CONJ VERB            structurally representable; lowering partial
+         NOUN CONJ (VERB|NOUN)     pending
+
+  row 5/6:
+         edge-bounded pure verb phrase hook/fork
+                                      implemented
+         full mixed-sentence table   pending
+```
+
+미지원 production을 독자적인 다른 DAG로 대신 해석하지 않는다. 해당 production을 구현할 때 jsource parse rule과 result-POS rule을 추가한다.
+
 예:
 
 ```text
@@ -3371,6 +3390,37 @@ crossentropy
 
 이 계층은 Semantic Analyzer가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
 
+여기서 `Reduce`, `MapCells`, `StaticReindex` 같은 이름은 **Logical IR에서 처음 등장하는 normalized operation**이다. J Semantic IR의 parser-produced function graph에는 이 이름으로 modifier application을 대체하지 않는다.
+
+```text
+Semantic IR
+  / : Verb
+  └─ + : Verb
+
+       ↓ Semantic Analyzer
+
+Logical IR
+  Reduce(reducer=+)
+```
+
+마찬가지로:
+
+```text
+Semantic IR
+  " : Verb
+  ├─ u
+  └─ r
+
+       ↓ Semantic Analyzer
+
+Logical facts / op
+  resolved RankSpec
+  frame/cell mapping
+  optional MapCells-style normalized operation
+```
+
+현재 코드의 `Callable.reduce` / `Callable.rank`는 기존 analyzer/runtime와 연결하기 위한 **migration field**다. 최종 A3-v0 Logical IR에서는 parser-derived operator graph를 해석한 결과를 normalized logical operation/fact로 표현하고, 이 bool/array shortcut을 semantic identity로 사용하지 않는다.
+
 예를 들어 고수준의
 
 ```text
@@ -4854,6 +4904,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 61. **Mixed route is staged** — architecture는 mixed route를 허용하지만 첫 external implementation은 verified single-block region 전체를 한 route로 보낸다.
 62. **Parser rules define the Function DAG** — ADV/CONJ application과 hook/fork의 parent/operand shape는 jsource parser reduction 규칙을 따르며 modifier별 독자 AST shape를 발명하지 않는다.
 63. **Parse operands and executor auxiliaries are separate** — semantic DAG에는 parser operands/J semantics를 보존하고 jsource `fgh/localuse`의 실행 최적화 보조 객체를 자동 semantic child로 승격하지 않는다.
+64. **Semantic modifier syntax is not LogicalOp syntax** — `/`, `"` 등의 parser-produced operator DAG를 Semantic IR에서 `Reduce`/`MapCells`로 조기 치환하지 않는다. normalized op는 Semantic Analyzer 이후에만 만든다.
+65. **Parser production coverage is explicit** — 미지원 jsource parse row/form을 임의의 대체 AST로 해석하지 않고 coverage manifest에 pending으로 남긴다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4885,16 +4937,19 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 현재 코드에 다음 migration seam이 들어갔다.
 
 - [x] primitive/name function identity를 `Arc<FunctionEntity>` shared handle로 표현
-- [x] lexer가 `/`를 ADV, `"`를 CONJ로 분류하고 parser row 3/4 reduction이 operator-parent graph를 만든다
+- [x] lexer가 `/`를 ADV, `"`를 CONJ로 분류하고 parser row 3/4의 현재 지원 subset이 operator-parent graph를 만든다
 - [x] isolated pure verb train을 jsource 규칙대로 오른쪽부터 fork, 짝수 길이는 최종 hook으로 구성
 - [x] hook/fork graph가 큰 train에서 subtree deep-copy 없이 공유됨
-- [x] Semantic Analyzer가 canonical fork `(+/ % #) y`를 `Tally → Reduce(+) → Divide` logical calls로 낮추면서 jsource-compatible observable order edge를 보존
+- [x] Semantic Analyzer가 canonical fork `(+/ % #) y`를 Tally / reduction-semantics(+) / Divide dataflow로 낮추면서 jsource-compatible observable order edge를 보존
 - [x] nested hook/fork long train도 동일 graph lowering path를 사용
 - [x] A3-v0 `LogicalPlan::verify()` 기초와 `AccessFact::Known | Opaque` seam 존재
 
 아직 남은 A1 핵심:
 
 - [ ] ordinary name parser-time POS를 noun/verb/adverb/conjunction 전체로 일반화
+- [ ] jsource row 3/4의 NOUN operand forms와 full result-POS rule을 구현
+- [ ] row 5/6을 pure edge phrase helper가 아니라 일반 parser-stack production으로 확대하고 mixed-sentence precedence를 differential test로 고정
+- [ ] current `Callable.reduce/rank` migration fields를 normalized LogicalOp/Rank facts로 제거
 - [ ] derived adverb/conjunction 및 modifier train
 - [ ] built-in/extension ADV·CONJ operator identity/POS registry와 typed semantic contract interface
 - [ ] legacy `VerbTarget/reduce/rank` runtime compatibility field 제거
