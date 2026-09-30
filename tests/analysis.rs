@@ -407,10 +407,7 @@ fn analysis_diagnostics_share_structured_context() {
 
 #[test]
 fn provisional_basis_metadata_is_explicit() {
-    use rustj::{
-        analysis::BasisKind,
-        contracts::Valence,
-    };
+    use rustj::{analysis::BasisKind, contracts::Valence};
 
     let mut e = Engine::new();
     e.eval("a=:i.2 3").unwrap();
@@ -437,10 +434,7 @@ fn provisional_basis_metadata_is_explicit() {
 
 #[test]
 fn value_roles_are_contextual_facts_not_noun_types() {
-    use rustj::{
-        analysis::Operation,
-        facts::ValueRole,
-    };
+    use rustj::{analysis::Operation, facts::ValueRole};
 
     let e = Engine::new();
 
