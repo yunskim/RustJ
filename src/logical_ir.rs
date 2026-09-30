@@ -12,6 +12,7 @@ use crate::{
     },
     contracts::{Contract, Effect, Valence},
     facts::{Facts, RankPlan, ValueRoleFacts},
+    opportunity::{StructuralOpportunity, StructuralTopology},
     semantic::NameVersion,
 };
 use std::ops::Range;
@@ -499,6 +500,9 @@ pub struct Plan {
     pub entry: FunctionId,
     pub operations: Vec<Operation>,
     pub values: Vec<ValueData>,
+    /// Structural topology discovered directly from J semantic syntax before
+    /// flattening to generic SSA-like operations.
+    pub opportunities: Vec<StructuralOpportunity<ValueId>>,
     pub result: Option<ValueId>,
     pub write: Option<Write>,
 }
@@ -704,6 +708,7 @@ impl Plan {
             entry: FunctionId(0),
             operations: Vec::new(),
             values: Vec::new(),
+            opportunities: Vec::new(),
             result: None,
             write: None,
         };
@@ -806,6 +811,13 @@ impl Plan {
             producer_map.push(op_id);
         }
 
+        plan.opportunities = transition
+            .opportunities
+            .iter()
+            .cloned()
+            .map(|opportunity| opportunity.map_values(|value| value_map[value.0]))
+            .collect();
+
         plan.result = transition.result.map(|value| value_map[value.0]);
         plan.write = transition.write.as_ref().map(|write| Write {
             symbol: write.symbol,
@@ -848,6 +860,41 @@ impl Plan {
                 None,
                 "A3 IR primitive registry provenance does not match compiler".into(),
             ));
+        }
+
+        for opportunity in &self.opportunities {
+            if opportunity.span.start > opportunity.span.end
+                || opportunity.span.end > source_len
+                || !self.source.is_char_boundary(opportunity.span.start)
+                || !self.source.is_char_boundary(opportunity.span.end)
+            {
+                return Err(fail(None, "invalid structural opportunity span".into()));
+            }
+            for value in opportunity.values() {
+                if value.0 >= self.values.len() {
+                    return Err(fail(
+                        None,
+                        "structural opportunity references an out-of-bounds A3 value".into(),
+                    ));
+                }
+            }
+            match &opportunity.topology {
+                StructuralTopology::Pipeline { stage_results, .. } if stage_results.len() < 2 => {
+                    return Err(fail(
+                        None,
+                        "pipeline opportunity must contain at least two stages".into(),
+                    ));
+                }
+                StructuralTopology::BranchJoin {
+                    branch_results, ..
+                } if branch_results.len() < 2 => {
+                    return Err(fail(
+                        None,
+                        "branch/join opportunity must contain at least two branches".into(),
+                    ));
+                }
+                _ => {}
+            }
         }
 
         if self.functions.len() != 1 || self.regions.len() != 1 || self.blocks.len() != 1 {
