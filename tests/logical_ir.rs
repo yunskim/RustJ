@@ -259,3 +259,30 @@ fn verifier_rejects_an_unknown_a3_schema() {
     let error = plan.verify().unwrap_err();
     assert!(error.message.contains("schema version"));
 }
+
+
+#[test]
+fn semantic_capability_view_hides_storage_layout_of_call_metadata() {
+    use rustj::{
+        analysis::{AccessFact, AccessRelation},
+        logical_ir::{AxisRole, SemanticCapabilityView},
+    };
+
+    let plan = Engine::new().analyze_a3("+/1 2 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let view = plan.operation_view(producer).unwrap();
+
+    assert_eq!(view.result_facts().unwrap().shape, Some(vec![]));
+    assert_eq!(
+        view.access_fact(),
+        Some(AccessFact::Known(AccessRelation::ReduceLeadingAxis))
+    );
+    assert!(view.effect_summary().unwrap().is_pure());
+    assert!(view.possible_errors().may_raise());
+    assert_eq!(
+        view.iteration_domain().unwrap().axes[0].role,
+        AxisRole::Reduction
+    );
+    assert!(view.destination_relation().is_some());
+}
