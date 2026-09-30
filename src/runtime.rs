@@ -205,17 +205,25 @@ impl Engine {
                 }
                 crate::semantic::VerbTarget::Named(name) => name,
                 crate::semantic::VerbTarget::Derived => {
-                    return Err(Error::Unsupported(
-                        "derived train runtime lowering not implemented".into(),
-                    ));
+                    return Err(
+                        Error::Unsupported("derived train runtime lowering not implemented".into())
+                            .in_phase(DiagnosticPhase::Runtime),
+                    );
                 }
             };
-            let binding = self
-                .names
-                .get(name)
-                .ok_or_else(|| Error::Value(name.clone()))?;
+            let binding = self.names.get(name).ok_or_else(|| {
+                Error::Value(name.clone()).with_context(
+                    ErrorContext::phase(DiagnosticPhase::Runtime)
+                        .with_current_name(name.clone()),
+                )
+            })?;
             let SymbolValue::Verb(target) = &binding.value else {
-                return Err(Error::Domain);
+                return Err(
+                    Error::Domain.with_context(
+                        ErrorContext::phase(DiagnosticPhase::Runtime)
+                            .with_current_name(name.clone()),
+                    ),
+                );
             };
             let mut resolved = target.clone();
             if verb.reduce || verb.rank.is_some() {
