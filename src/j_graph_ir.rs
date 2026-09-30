@@ -29,6 +29,8 @@ pub enum NodeKind {
     },
     Apply {
         function: Arc<FunctionEntity>,
+        form: GraphForm,
+        hints: GraphHints,
         valence: Valence,
         left: Option<ValueId>,
         right: ValueId,
@@ -63,14 +65,10 @@ pub struct Plan {
 }
 
 #[derive(Clone, Debug)]
-pub enum SyntaxTopology {
+pub enum GraphForm {
     Atomic,
-    Modifier {
-        head: FunctionHead,
-        operands: Vec<Arc<FunctionEntity>>,
-    },
-    AtopPipeline {
-        /// Execution order: inner-most first, outer-most last.
+    /// J @: chain, stored in execution order (inner-most first).
+    Pipeline {
         stages: Vec<Arc<FunctionEntity>>,
     },
     Hook {
@@ -82,7 +80,55 @@ pub enum SyntaxTopology {
         g: Arc<FunctionEntity>,
         h: Arc<FunctionEntity>,
     },
+    Reduce {
+        operand: Arc<FunctionEntity>,
+    },
+    Rank {
+        operand: Arc<FunctionEntity>,
+        rank_spec: Option<Value>,
+    },
+    Modifier {
+        head: FunctionHead,
+        operands: Vec<Arc<FunctionEntity>>,
+    },
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GraphHint {
+    /// Adjacent producer-consumer stages are syntactically exposed by @:.
+    PipelineFusionCandidate,
+    /// Intermediate array values may be avoidable if later legality allows.
+    IntermediateMaterializationElision,
+    /// Hook/fork expose a fan-out/fan-in topology.
+    BranchJoinFusionCandidate,
+    /// A shared/original input remains live across another branch.
+    RetainedValueCandidate,
+    /// Branches are dependency-independent candidates; J observable order still
+    /// has to be proven relaxable before parallel execution.
+    ParallelBranchCandidate,
+    /// Insert/reduce syntax exposes a collective reduction.
+    ReductionStructure,
+    /// Rank syntax exposes repeated cell application / frame parallelism.
+    CellParallelStructure,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct GraphHints {
+    pub items: Vec<GraphHint>,
+}
+
+impl GraphHints {
+    fn push(&mut self, hint: GraphHint) {
+        if !self.items.contains(&hint) {
+            self.items.push(hint);
+        }
+    }
+
+    pub fn contains(&self, hint: GraphHint) -> bool {
+        self.items.contains(&hint)
+    }
+}
+
 
 fn function_operands(function: &FunctionEntity) -> Vec<Arc<FunctionEntity>> {
     function
@@ -111,6 +157,99 @@ fn flatten_atop(function: &Arc<FunctionEntity>, out: &mut Vec<Arc<FunctionEntity
         }
     }
     out.push(function.clone());
+}
+
+fn noun_operand_value(function: &FunctionEntity) -> Option<Value> {
+    function.operands.iter().find_map(|operand| match operand {
+        FunctionOperand::Noun { value, .. } => Some(value.clone()),
+        FunctionOperand::Function(_) => None,
+    })
+}
+
+fn classify(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHints) {
+    let mut hints = GraphHints::default();
+    let form = match &function.head {
+        FunctionHead::Hook => {
+            hints.push(GraphHint::BranchJoinFusionCandidate);
+            hints.push(GraphHint::RetainedValueCandidate);
+            hints.push(GraphHint::ParallelBranchCandidate);
+            let [
+                FunctionOperand::Function(f),
+                FunctionOperand::Function(g),
+            ] = function.operands.as_slice()
+            else {
+                return (
+                    GraphForm::Modifier {
+                        head: function.head.clone(),
+                        operands: function_operands(function),
+                    },
+                    hints,
+                );
+            };
+            GraphForm::Hook {
+                f: f.clone(),
+                g: g.clone(),
+            }
+        }
+        FunctionHead::Fork => {
+            hints.push(GraphHint::BranchJoinFusionCandidate);
+            hints.push(GraphHint::RetainedValueCandidate);
+            hints.push(GraphHint::ParallelBranchCandidate);
+            let [
+                FunctionOperand::Function(f),
+                FunctionOperand::Function(g),
+                FunctionOperand::Function(h),
+            ] = function.operands.as_slice()
+            else {
+                return (
+                    GraphForm::Modifier {
+                        head: function.head.clone(),
+                        operands: function_operands(function),
+                    },
+                    hints,
+                );
+            };
+            GraphForm::Fork {
+                f: f.clone(),
+                g: g.clone(),
+                h: h.clone(),
+            }
+        }
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+            hints.push(GraphHint::PipelineFusionCandidate);
+            hints.push(GraphHint::IntermediateMaterializationElision);
+            let mut stages = Vec::new();
+            flatten_atop(function, &mut stages);
+            GraphForm::Pipeline { stages }
+        }
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            hints.push(GraphHint::ReductionStructure);
+            let operand = function_operands(function)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| function.clone());
+            GraphForm::Reduce { operand }
+        }
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            hints.push(GraphHint::CellParallelStructure);
+            let operand = function_operands(function)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| function.clone());
+            GraphForm::Rank {
+                operand,
+                rank_spec: noun_operand_value(function),
+            }
+        }
+        FunctionHead::PrimitiveAdverb(_) | FunctionHead::PrimitiveConjunction(_) => {
+            GraphForm::Modifier {
+                head: function.head.clone(),
+                operands: function_operands(function),
+            }
+        }
+        FunctionHead::PrimitiveVerb(_) | FunctionHead::NameRef(_) => GraphForm::Atomic,
+    };
+    (form, hints)
 }
 
 impl Plan {
@@ -157,56 +296,18 @@ impl Plan {
         Ok(plan)
     }
 
-    pub fn syntax_topology(&self, value: ValueId) -> Option<SyntaxTopology> {
-        let NodeKind::Apply { function, .. } = &self.nodes.get(value.0)?.kind else {
+    pub fn graph_form(&self, value: ValueId) -> Option<&GraphForm> {
+        let NodeKind::Apply { form, .. } = &self.nodes.get(value.0)?.kind else {
             return None;
         };
-        Some(match &function.head {
-            FunctionHead::Hook => {
-                let [FunctionOperand::Function(f), FunctionOperand::Function(g)] =
-                    function.operands.as_slice()
-                else {
-                    return Some(SyntaxTopology::Modifier {
-                        head: function.head.clone(),
-                        operands: function_operands(function),
-                    });
-                };
-                SyntaxTopology::Hook {
-                    f: f.clone(),
-                    g: g.clone(),
-                }
-            }
-            FunctionHead::Fork => {
-                let [
-                    FunctionOperand::Function(f),
-                    FunctionOperand::Function(g),
-                    FunctionOperand::Function(h),
-                ] = function.operands.as_slice()
-                else {
-                    return Some(SyntaxTopology::Modifier {
-                        head: function.head.clone(),
-                        operands: function_operands(function),
-                    });
-                };
-                SyntaxTopology::Fork {
-                    f: f.clone(),
-                    g: g.clone(),
-                    h: h.clone(),
-                }
-            }
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
-                let mut stages = Vec::new();
-                flatten_atop(function, &mut stages);
-                SyntaxTopology::AtopPipeline { stages }
-            }
-            FunctionHead::PrimitiveAdverb(_) | FunctionHead::PrimitiveConjunction(_) => {
-                SyntaxTopology::Modifier {
-                    head: function.head.clone(),
-                    operands: function_operands(function),
-                }
-            }
-            FunctionHead::PrimitiveVerb(_) | FunctionHead::NameRef(_) => SyntaxTopology::Atomic,
-        })
+        Some(form)
+    }
+
+    pub fn graph_hints(&self, value: ValueId) -> Option<&GraphHints> {
+        let NodeKind::Apply { hints, .. } = &self.nodes.get(value.0)?.kind else {
+            return None;
+        };
+        Some(hints)
     }
 
     pub fn verify(&self) -> std::result::Result<(), String> {
@@ -227,12 +328,21 @@ impl Plan {
                 }
             };
             if let NodeKind::Apply {
+                function,
+                form,
+                hints,
                 valence,
                 left,
                 right,
-                ..
             } = &node.kind
             {
+                let (expected_form, expected_hints) = classify(function);
+                if std::mem::discriminant(form) != std::mem::discriminant(&expected_form) {
+                    return Err(format!("node {index} graph form does not match J function structure"));
+                }
+                if hints.items != expected_hints.items {
+                    return Err(format!("node {index} graph hints do not match J function structure"));
+                }
                 check(*right, "right input")?;
                 match (valence, left) {
                     (Valence::Monad, None) => {}
@@ -287,9 +397,12 @@ impl Builder {
             }
             ExprKind::Monad { verb, argument } => {
                 let right = self.expression(*argument)?;
+                let (form, hints) = classify(&verb.entity);
                 Ok(self.push(
                     NodeKind::Apply {
                         function: verb.entity,
+                        form,
+                        hints,
                         valence: Valence::Monad,
                         left: None,
                         right,
@@ -301,9 +414,12 @@ impl Builder {
                 // Preserve the existing J analysis order: right argument first.
                 let right = self.expression(*right)?;
                 let left = self.expression(*left)?;
+                let (form, hints) = classify(&verb.entity);
                 Ok(self.push(
                     NodeKind::Apply {
                         function: verb.entity,
+                        form,
+                        hints,
                         valence: Valence::Dyad,
                         left: Some(left),
                         right,
