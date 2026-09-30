@@ -423,6 +423,9 @@ fn implicit_and_explicit_cell_application_boundaries_remain_distinct() {
     assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Explicit);
     assert_eq!(plan.layers[0].requested.monad, RankSpec::Infinite);
     assert_eq!(plan.layers[0].effective_monad_rank, Some(2));
+
+    let err = e.analyze("(+\"1)/ a").unwrap_err();
+    assert!(matches!(err, rustj::Error::Unsupported(_)));
 }
 
 #[test]
