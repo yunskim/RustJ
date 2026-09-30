@@ -36,7 +36,7 @@ jobs:
         run: |
           git init /tmp/jsource
           git -C /tmp/jsource remote add origin https://github.com/jsoftware/jsource.git
-          git -C /tmp/jsource fetch --depth 1 origin e75016ca74b5e595dd323226e6a4990172f72ec6
+          git -C /tmp/jsource fetch --depth 1 origin 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
           git -C /tmp/jsource checkout --detach FETCH_HEAD
       - run: python3 tools/build_reference.py --source /tmp/jsource --variant ${{ matrix.variant }}
       - run: cargo build --release
