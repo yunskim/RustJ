@@ -6,7 +6,7 @@
 
 use crate::{
     analysis::{AccessFact, AccessRelation, BasisKind},
-    logical_ir::{CallOp, OpKind, Operation, Plan},
+    logical_ir::{BasisPayload, CallOp, IterationDomain, OpKind, Operation, Plan},
 };
 use std::ops::Range;
 
@@ -134,6 +134,14 @@ pub enum RouteRegionClass {
     PureArray,
     SemanticCheck,
     RuntimeSemantic,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParameterizedLoweringRecipe {
+    pub basis: BasisKind,
+    pub realization: RealizationFamily,
+    pub payload: BasisPayload,
+    pub iteration_domain: IterationDomain,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -338,6 +346,30 @@ impl LoweringRegistry {
                 }
             }
         }
+    }
+
+    pub fn recipes_for_operation(
+        &self,
+        operation: &Operation,
+        target: &TargetCapabilities,
+    ) -> Vec<ParameterizedLoweringRecipe> {
+        let OpKind::Basis {
+            kind,
+            payload,
+            call,
+        } = &operation.kind
+        else {
+            return Vec::new();
+        };
+        self.legal_candidates(*kind, call, target)
+            .into_iter()
+            .map(|realization| ParameterizedLoweringRecipe {
+                basis: *kind,
+                realization,
+                payload: payload.clone(),
+                iteration_domain: call.iteration_domain.clone(),
+            })
+            .collect()
     }
 
     pub fn partition_plan(
