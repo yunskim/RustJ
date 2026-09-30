@@ -423,7 +423,7 @@ ConcreteBufferId
 StreamEvent
 ```
 
-이들은 Physical Planner/Backend의 책임이다.
+이들은 downstream scheduling/bufferization/backend의 책임이다. RustJ-native route에서는 Physical Planner가 담당하고, external route에서는 해당 compiler의 lower-level IR/pass가 담당할 수 있다.
 
 ### 3.6 현재 구현과 목표 경계의 차이
 
@@ -2560,6 +2560,109 @@ RustJ 적용:
 
 - logical J noun과 physical placement 분리
 
+### MLIR core / interfaces / regions
+
+참고:
+
+- SSA value + Region/Block 구조로 pure graph와 control flow를 함께 표현
+- verifier를 operation contract의 일부로 둠
+- concrete op를 special-case하지 않고 operation/type/attribute interface를 통해 분석 capability를 질의
+- side effect와 speculation safety를 별도 interface로 모델링
+- data-flow analysis를 typed lattice와 monotonic join으로 구성
+
+RustJ 적용:
+
+- Logical IR에 SSA ValueId + Function/Region/Block/Terminator를 둔다.
+- Primitive/LogicalOp capability를 Shape/Axis/Access/Effect/Alias/Speculation interface로 분리한다.
+- 생성/변환 뒤 verifier를 필수 경계로 둔다.
+- fact domain마다 typed lattice를 사용한다.
+
+### MLIR Shape / dynamic constraints
+
+참고:
+
+- unknown shape와 invalid shape를 구분
+- compile-time constraint가 증명되지 않으면 witness/assuming 구조로 의존성을 명시
+- shape computation과 value computation을 분리하되 필요하면 runtime shape value로 reify
+
+RustJ 적용:
+
+- `ConstraintSet`만 metadata로 저장하지 않고 Witness/Guard를 둔다.
+- dynamic specialization은 fast/fallback region으로 표현한다.
+- semantic error가 증명된 Invalid와 단순 Unknown을 구분한다.
+
+### MLIR Linalg / Bufferization
+
+참고:
+
+- indexing map + iterator type으로 structured computation을 표현
+- tensor-level tiling/fusion/vectorization을 먼저 하고 bufferization을 늦춤
+- Destination-Passing Style과 alias relation을 buffer reuse 분석의 입력으로 사용
+- bufferization은 SSA use-def와 conflict 분석을 통해 실제 in-place/out-of-place를 결정
+
+RustJ 적용:
+
+- `IterationDomain + AccessRelation`을 Logical IR의 핵심 contract로 둔다.
+- `StorageRequirement`와 실제 `MaterializationDecision`을 분리한다.
+- `DestinationRelation`은 BufferId가 아니라 후속 bufferization hint/contract다.
+
+### MLIR Transform dialect / TVM TensorIR schedule
+
+참고:
+
+- payload IR과 transformation/schedule description을 분리
+- 같은 semantic computation에 여러 schedule을 적용 가능
+- TVM은 graph-level Relax와 lower-level TensorIR/schedule을 구분하고 external codegen도 허용
+
+RustJ 적용:
+
+- Logical IR에 tile/vector/workgroup 결정을 박지 않는다.
+- native route의 `Schedule / Transform Plan`을 별도 표현으로 둔다.
+- MLIR/TVM류 external optimizer를 재구현하지 않고 adapter를 통해 활용할 수 있게 한다.
+
+### IREE Flow / Stream / HAL
+
+참고:
+
+- tensor dataflow(Flow), async scheduling/resource lifetime(Stream), hardware abstraction(HAL)을 분리
+- resource size와 lifetime을 명시적으로 추적
+- async execution은 timepoint로 availability/order를 표현
+- allocation/reuse는 scheduling 뒤에 구체화
+
+RustJ 적용:
+
+- Logical ArrayValue와 physical resource를 분리한다.
+- native Physical Plan의 async dependency는 explicit Timepoint/AsyncToken으로 표현한다.
+- resource lifetime과 buffer reuse는 physical timeline을 기준으로 판단한다.
+
+### StableHLO / VHLO
+
+참고:
+
+- portable high-level op set과 명시적 specification/verifier/type inference
+- side-effecting op는 token으로 ordering 가능
+- custom_call/composite로 확장 가능하지만 semantic contract가 필요
+- portable artifact는 별도의 versioned VHLO/compatibility layer로 관리
+
+RustJ 적용:
+
+- StableHLO는 전체 J IR이 아니라 안전한 tensor/NN subset export target이다.
+- external effect mapping은 token/adapter contract로 검증한다.
+- RustJ Logical IR도 외부 interchange를 시작할 때 schema version과 migration 정책을 둔다.
+
+### Triton
+
+참고:
+
+- tensor/block program과 backend schedule configuration을 분리
+- block size, warp 수, pipeline stage, register limit은 semantic op가 아니라 compilation configuration
+- layout/access constraint가 codegen 품질에 직접 영향
+
+RustJ 적용:
+
+- tile/warp/stage/register cap은 Physical Schedule/TargetProfile 쪽에 둔다.
+- Logical IR에는 이를 선택할 수 있게 하는 axis/access/constraint fact만 유지한다.
+
 ### 중요한 비채택 사항
 
 - NumPy broadcasting을 J agreement로 대체하지 않는다.
@@ -2726,35 +2829,61 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 기존 저장소는 prototype 코드, 연구 이력, 참고 구현을 확인할 때만 사용한다.
 
+### 15.6 설계 일관성 불변식
+
+앞으로 문서를 수정할 때 다음 불변식을 독립적으로 점검한다.
+
+1. **J semantic structure 보존** — hook/fork/train/derived verb/rank는 Semantic Analyzer가 보기 전에 불필요하게 소거하지 않는다.
+2. **Semantic Analyzer는 target-independent** — target capability, cost, tile/layout/device 선택은 analyzer 책임이 아니다.
+3. **Logical IR은 hardware-aware but schedule-free** — iteration/access/dependency/constraint fact는 갖지만 warp/tile/buffer id는 갖지 않는다.
+4. **Primitive semantics와 realization 분리** — PrimitiveSpec/capability interface에 vendor resource 숫자를 넣지 않는다.
+5. **Storage requirement와 materialization 분리** — logical persistence 요구와 실제 buffer allocation/copy를 같은 개념으로 쓰지 않는다.
+6. **Schedule과 payload IR 분리** — fusion/tile/vectorization 선택은 native Schedule Plan이나 external compiler가 담당한다.
+7. **Physical Planner는 Route A 전용** — external route가 RustJ Physical Plan을 반드시 거친다고 쓰지 않는다.
+8. **Native fallback은 보장 아님** — 지원되는 native path가 있을 때만 fallback이며, 없으면 Unsupported가 정상 결과다.
+9. **Effect와 error ordering 명시** — pure data dependency만으로 표현되지 않는 ordering은 effect token/speculation contract로 보존한다.
+10. **Dynamic assumption은 witness/guard로 추적** — optimization이 암묵적 shape/alignment 가정에 기대지 않는다.
+11. **External IR은 projection** — RustJ Logical IR을 MLIR/StableHLO의 표현력에 맞춰 축소하지 않는다.
+12. **Late bufferization** — alias/destination contract는 logical에 둘 수 있지만 BufferId/materialization은 downstream에서 정한다.
+13. **Verifier first** — 잘못된 IR을 downstream이 추측해서 복구하게 하지 않는다.
+14. **Version boundary 명시** — external interchange를 시작하면 IR schema와 registry/compiler provenance를 기록한다.
+15. **Async dependency는 explicit** — physical async execution에서 host statement order를 dependency로 암묵 사용하지 않는다.
+
+이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
+
 ---
 
 ## 16. 다음 작업
 
-현재 가장 먼저 해야 할 compiler architecture 작업은 **J의 verb composition을 보존하는 semantic IR을 확정하고, hardware-aware Logical IR을 외부 compiler와도 공유 가능한 경계로 만드는 것**이다.
+현재 가장 먼저 해야 할 compiler architecture 작업은 **J semantic structure를 보존하는 IR과 verifier/interface 경계를 코드로 만든 뒤, 동일한 Logical IR을 native route와 external compiler route가 함께 소비하도록 하는 것**이다.
 
 순서:
 
 1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 책임을 다시 분류한다.
 2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb, rank를 얼마나 보존하는지 감사한다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
-4. extension primitive registry의 최소 schema를 Identity / Analysis / Realization로 정의한다.
-5. Logical IR의 `IterationDomain`, `AxisSemantics`, `AccessRelation`, `UniformityFact`, `ConstraintSet`, `MaskSemantics`, `NumericSemantics`, `DependencyRequirement` 최소 타입을 정의한다.
-6. `TargetProfile` MVP를 execution hierarchy, allocation granularity, resource coupling, register/memory/compute/sync/data-movement/execution-mode/data-layout capability로 정의하고 `CostProfile`과 분리한다.
-7. `TargetFacts + TargetQueries` interface를 정의한다.
-8. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 logical contract를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 golden reference로 삼는다.
-9. Semantic Analyzer가 semantic IR과 PrimitiveSpec을 함께 읽어 composition/rank/shape/iteration/access/uniformity/constraint/dependency facts를 생성하게 한다.
-10. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
-11. **첫 외부 경로로 MLIR adapter prototype**을 만든다. 최소 목표는 elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시키는 것이다.
-12. LLVM/MLIR ExecutionEngine을 이용한 CPU 실행 경로를 실험하여 RustJ-native CPU executor와 결과를 비교한다.
-13. Physical Planner가 Logical Plan + TargetProfile을 받아 axis mapping, tiling, memory-space, layout, materialization, synchronization을 선택하는 최소 `PhysicalRegion`을 만든다.
-14. `ResourceEstimate` MVP로 register/scratchpad/concurrency/global-memory traffic/peak materialized bytes/launch count를 계산한다.
-15. backend compile 결과를 `CompiledResourceReport`로 받아 accept/re-plan할 수 있는 interface를 만든다.
-16. StableHLO export는 `relu/linear/conv/reduction`처럼 의미가 명확히 맞는 subset부터 별도 adapter로 검토한다.
-17. fork, reduction derived verb, rank-derived verb, extension alias, conv2d access relation, MLIR roundtrip/verification을 golden test로 검증한다.
-18. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
-19. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
+4. extension `PrimitiveSpec`을 semantic identity/version record로 정리하고 Shape/Axis/Access/Numeric/Effect/Alias/Speculation capability interface와 lowering registry를 분리한다.
+5. Logical IR core의 SSA `ValueId`, Function/Region/Block/Terminator를 정의한다.
+6. `IterationDomain`, `AxisSemantics`, `AccessRelation`, `UniformityFact`, `ConstraintSet`, `MaskSemantics`, `NumericSemantics`, `DependencyRequirement`를 정의한다.
+7. `Witness/Guard`, `EffectToken`, `StorageRequirement`, `DestinationRelation`을 정의한다.
+8. operation verifier와 typed-fact lattice framework를 만든다.
+9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent Logical IR을 생성하게 한다.
+10. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
+11. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
+12. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
+13. MLIR/LLVM CPU 실행 결과를 RustJ-native/reference 결과와 differential test한다.
+14. `TargetProfile` MVP를 execution hierarchy, allocation granularity, resource coupling, register/memory/compute/sync/data-movement/execution-mode/data-layout capability로 정의하고 `CostProfile`과 분리한다.
+15. `TargetFacts + TargetQueries` interface를 정의한다.
+16. RustJ-native `Schedule / Transform Plan`을 Logical IR과 분리하여 정의한다.
+17. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
+18. `ResourceEstimate` MVP와 backend `CompiledResourceReport` feedback/re-plan interface를 만든다.
+19. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
+20. branch/loop/effect token/dynamic guard/async timepoint/version header를 각각 verifier golden test로 추가한다.
+21. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
+22. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
-특히 두 가지 shortcut을 금지한다.
+특히 세 가지 shortcut을 금지한다.
 
 - hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하지 않는다.
-- 외부 IR을 쓰기 쉽도록 RustJ Logical IR을 외부 IR의 표현력에 맞춰 축소하지 않는다. RustJ IR이 의미의 superset이고 adapter가 안전한 subset을 projection한다.
+- 외부 IR을 쓰기 쉽도록 RustJ Logical IR을 외부 IR의 표현력에 맞춰 축소하지 않는다.
+- optimization을 쉽게 하려고 semantic storage/effect/error ordering을 physical schedule 정보와 섞지 않는다.
