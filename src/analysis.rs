@@ -254,28 +254,14 @@ pub(crate) fn lower(
 
 fn rank_spec_at(value: &Value, index: usize) -> Result<RankSpec> {
     match value.data() {
-        crate::Data::Bool(values) => Ok(RankSpec::Absolute(values[index] as usize)),
-        crate::Data::Int(values) => Ok(RankSpec::from_integer(values[index])),
-        crate::Data::Float(values) => {
-            let value = values[index];
-            if value == f64::INFINITY {
-                Ok(RankSpec::Infinite)
-            } else if value == f64::NEG_INFINITY {
-                // jsource clamps the noun rank to -RMAX before resolving it
-                // relative to an argument; for any realizable array rank this
-                // is therefore rank 0.
-                Ok(RankSpec::Relative(i64::MIN))
-            } else if value.is_finite()
-                && value.fract() == 0.0
-                && value >= i64::MIN as f64
-                && value < -(i64::MIN as f64)
-            {
-                Ok(RankSpec::from_integer(value as i64))
-            } else {
-                Err(Error::Domain)
-            }
+        crate::Data::Float(values) if values[index] == f64::INFINITY => Ok(RankSpec::Infinite),
+        crate::Data::Float(values) if values[index] == f64::NEG_INFINITY => {
+            // jsource clamps the noun rank to -RMAX before resolving it
+            // relative to an argument; for any realizable array rank this
+            // is therefore rank 0.
+            Ok(RankSpec::Relative(i64::MIN))
         }
-        crate::Data::Char(_) | crate::Data::Boxed(_) | crate::Data::Sparse(_) => Err(Error::Domain),
+        _ => Ok(RankSpec::from_integer(value.int_at(index)?)),
     }
 }
 
