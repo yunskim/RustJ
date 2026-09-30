@@ -122,3 +122,93 @@ fn write_metadata_uses_a3_value_and_operation_ids() {
     assert!(write.after.is_some());
     assert!(write.after.unwrap().0 < plan.operations.len());
 }
+
+
+#[test]
+fn reduce_domain_marks_the_reduced_axis_explicitly() {
+    use rustj::logical_ir::{
+        AxisRole, BasisPayload, IterationAxisKind, ReductionAxis,
+    };
+
+    let plan = Engine::new().analyze_a3("+/1 2 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let OpKind::Basis {
+        kind,
+        payload,
+        call,
+    } = &plan.operations[producer.0].kind
+    else {
+        panic!("reduce basis op")
+    };
+
+    assert_eq!(*kind, BasisKind::Reduce);
+    assert_eq!(
+        *payload,
+        BasisPayload::Reduce {
+            axis: ReductionAxis::LeadingCellAxis
+        }
+    );
+    assert_eq!(call.iteration_domain.axes.len(), 1);
+    assert_eq!(call.iteration_domain.axes[0].extent, Some(3));
+    assert_eq!(
+        call.iteration_domain.axes[0].kind,
+        IterationAxisKind::Reduction
+    );
+    assert_eq!(call.iteration_domain.axes[0].role, AxisRole::Reduction);
+}
+
+#[test]
+fn cell_apply_domain_is_the_result_frame_not_the_cell() {
+    use rustj::logical_ir::{AxisRole, IterationAxisKind};
+
+    let mut engine = Engine::new();
+    engine.eval("a=:i.2 3").unwrap();
+    let plan = engine.analyze_a3("+/\"1 a").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let OpKind::Basis { kind, call, .. } = &plan.operations[producer.0].kind else {
+        panic!("cell apply basis op")
+    };
+
+    assert_eq!(*kind, BasisKind::CellApply);
+    assert_eq!(call.iteration_domain.axes.len(), 1);
+    assert_eq!(call.iteration_domain.axes[0].extent, Some(2));
+    assert_eq!(call.iteration_domain.axes[0].kind, IterationAxisKind::Parallel);
+    assert_eq!(call.iteration_domain.axes[0].role, AxisRole::Frame);
+}
+
+#[test]
+fn static_reindex_payload_preserves_the_reindex_family() {
+    use rustj::logical_ir::{BasisPayload, ReindexKind};
+
+    let plan = Engine::new().analyze_a3("|.1 2 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let OpKind::Basis { payload, .. } = &plan.operations[producer.0].kind else {
+        panic!("reindex basis op")
+    };
+    assert_eq!(
+        *payload,
+        BasisPayload::StaticReindex {
+            kind: ReindexKind::Reverse
+        }
+    );
+}
+
+#[test]
+fn verifier_rejects_a_basis_payload_that_no_longer_matches_the_call() {
+    use rustj::logical_ir::BasisPayload;
+
+    let mut plan = Engine::new().analyze_a3("|.1 2 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let OpKind::Basis { payload, .. } = &mut plan.operations[producer.0].kind else {
+        panic!("reindex basis op")
+    };
+    *payload = BasisPayload::Elementwise;
+
+    let error = plan.verify().unwrap_err();
+    assert_eq!(error.operation, Some(producer));
+    assert!(error.message.contains("basis payload"));
+}
