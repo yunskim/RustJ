@@ -26,7 +26,7 @@ pub struct Symbol {
     pub name: String,
     pub scope: Scope,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CallTarget {
     Primitive(crate::primitive::PrimitiveId),
     /// Do not freeze this target to its current definition without a proof/guard.
@@ -463,9 +463,30 @@ impl Builder<'_> {
                     span,
                 )
             }
-            FunctionHead::Derived(form) if *form == FunctionFormId::HOOK => Err(
-                Error::Unsupported("hook logical lowering not implemented yet".into()),
-            ),
+            FunctionHead::Derived(form) if *form == FunctionFormId::HOOK => {
+                let [
+                    FunctionOperand::Function(f),
+                    FunctionOperand::Function(g),
+                ] = semantic.operands.as_slice()
+                else {
+                    return Err(Error::Unsupported("malformed hook semantic entity".into()));
+                };
+                // (f g) y = y f (g y); x (f g) y = x f (g y).
+                // The right verb therefore executes before f.
+                let g_result = self.call_entity(
+                    g.clone(),
+                    None,
+                    right,
+                    g.span.clone(),
+                )?;
+                let f_left = left.unwrap_or(right);
+                self.call_entity(
+                    f.clone(),
+                    Some(f_left),
+                    g_result,
+                    span,
+                )
+            }
             _ => {
                 let callable = self.callable_entity(semantic)?;
                 let valence = if left.is_some() {

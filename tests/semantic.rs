@@ -360,3 +360,30 @@ fn mixed_noun_sentences_do_not_prematurely_collapse_verbs_into_trains() {
     );
     assert!(matches!(right.kind, Expr::Monad { .. }));
 }
+
+#[test]
+fn large_pure_verb_train_builds_iteratively_as_a_shared_graph() {
+    let source = std::iter::repeat("+").take(101).collect::<Vec<_>>().join(" ");
+    let p = semantic::parse(&source).unwrap();
+    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
+    assert_eq!(verb.entity.head, FunctionHead::Derived(FunctionFormId::FORK));
+
+    let root = verb.entity.clone();
+    let alias = root.clone();
+    assert!(std::sync::Arc::ptr_eq(&root, &alias));
+
+    let mut stack = vec![root];
+    let mut functions = 0usize;
+    while let Some(function) = stack.pop() {
+        functions += 1;
+        for operand in &function.operands {
+            if let FunctionOperand::Function(child) = operand {
+                stack.push(child.clone());
+            }
+        }
+    }
+    // 101 primitive leaves + 50 fork nodes.
+    assert_eq!(functions, 151);
+}
