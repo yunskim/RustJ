@@ -572,6 +572,91 @@ FusionRegion / ParallelSchedule
 
 # Part IV. 현재 jsource는 이미 “단순 interpreter”가 아니다
 
+## 9.2 J Graph IR과 Execution IR은 다른 질문에 답한다
+
+JAXA의 주 관심사는 실행 IR 자체보다 **J 표기를 계산 graph 대수로 사용하는 것**이다.
+
+따라서 RustJ는 다음 두 IR을 의도적으로 구분한다.
+
+~~~text
+J Semantic Construction IR
+  FunctionEntity / Hook / Fork / modifier / @:
+          ↓
+J Graph IR
+  J 표기로 표현된 applied array-operation graph
+  topology + static optimization hints
+          ↓
+Logical Execution IR
+  explicit execution dataflow + basis + checks/facts
+~~~
+
+### J Graph IR
+
+질문:
+
+> 이 식은 J의 결합 대수로 어떤 계산 graph이며, 문법만 보고 어떤 optimization opportunity를 알 수 있는가?
+
+여기서는 `@:` chain, hook/fork fan-out/fan-in, `/` reduction, `"` cell application 같은 구조를 **일반 SSA로 펼치기 전에** first-class로 본다.
+
+J 문법에서 결정적으로 알 수 있는 것은 가능한 한 여기에서 기록한다.
+
+- pipeline / branch / join
+- shared input / common subflow
+- syntactic reduction / cell application
+- intermediate materialization-elision 후보
+- retained-value lifetime 후보
+- dependency상 parallel branch 후보
+- observable J evaluation-order topology
+- 향후 window/segment/contraction/iteration/adjoint topology
+- primitive별 shape/dtype/rank/effect/resource rule identity 또는 Unknown
+
+이 층은 JAXA의 graph algebra, basis/rewrite/equivalence, fusion topology 연구의 주 표면이다.
+
+### Logical Execution IR
+
+질문:
+
+> 선택된 J graph를 J observable semantics를 보존하면서 정확히 실행하려면 어떤 operation과 dependency가 필요한가?
+
+여기서는 CellApply, Reduce, Gather, basis payload, ResolvedInstantiation, SemanticCheck, EffectSummary, AccessFact 같은 **실행 계약**이 중심이다.
+
+하나의 J Graph node가 여러 execution op로 펼쳐질 수 있다. 따라서 execution op는 `j_origin`을 보존하지만 J Graph IR을 대체하지 않는다.
+
+### 중요한 비대칭
+
+~~~text
+J Graph IR  →  Execution IR
+     자연스러운 lowering
+
+Execution IR  →  J Graph IR
+     일반적으로 원래 J 대수를 유일하게 복원할 수 없음
+~~~
+
+그러므로 pipeline/hook/fork 정보를 후자의 generic DAG에서 다시 pattern-match하는 것을 주 경로로 삼으면 안 된다. J 문법이 이미 준 정보를 전자에서 잃지 않는 것이 우선이다.
+
+StructuralOpportunity는 두 IR 사이의 bridge다. source는 J Graph IR의 GraphForm/GraphHint이고, execution lowering이 이를 concrete execution values에 투영하여 legality/resource analysis가 사용할 수 있게 한다.
+
+### 최적화도 두 층으로 나뉜다
+
+~~~text
+J Graph IR
+  graph algebra / rewrite / topology optimization
+  fusion candidate discovery
+  AD graph derivation
+        ↓
+Execution IR
+  semantic proof / check elimination
+  basis expansion / access composition
+  legal fusion confirmation
+        ↓
+Physical planner
+  target resource feasibility / cost / schedule
+~~~
+
+이 분리는 JAXA의 핵심 주장과 RustJ의 compiler correctness 목표를 동시에 보존한다.
+
+---
+
 ## 10. derived function은 실행 가능한 semantic object다
 
 예를 들어 /는 parser가 나중에 해석할 장식이 아니다.
