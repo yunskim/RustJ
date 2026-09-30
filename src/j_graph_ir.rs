@@ -166,7 +166,7 @@ fn noun_operand_value(function: &FunctionEntity) -> Option<Value> {
     })
 }
 
-fn classify(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHints) {
+pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHints) {
     let mut hints = GraphHints::default();
     let form = match &function.head {
         FunctionHead::Hook => {
@@ -336,7 +336,7 @@ impl Plan {
                 right,
             } = &node.kind
             {
-                let (expected_form, expected_hints) = classify(function);
+                let (expected_form, expected_hints) = classify_function(function);
                 if std::mem::discriminant(form) != std::mem::discriminant(&expected_form) {
                     return Err(format!("node {index} graph form does not match J function structure"));
                 }
@@ -397,7 +397,7 @@ impl Builder {
             }
             ExprKind::Monad { verb, argument } => {
                 let right = self.expression(*argument)?;
-                let (form, hints) = classify(&verb.entity);
+                let (form, hints) = classify_function(&verb.entity);
                 Ok(self.push(
                     NodeKind::Apply {
                         function: verb.entity,
@@ -414,7 +414,7 @@ impl Builder {
                 // Preserve the existing J analysis order: right argument first.
                 let right = self.expression(*right)?;
                 let left = self.expression(*left)?;
-                let (form, hints) = classify(&verb.entity);
+                let (form, hints) = classify_function(&verb.entity);
                 Ok(self.push(
                     NodeKind::Apply {
                         function: verb.entity,
