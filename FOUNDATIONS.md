@@ -612,6 +612,8 @@ J 문법에서 결정적으로 알 수 있는 것은 가능한 한 여기에서 
 
 이 층은 JAXA의 graph algebra, basis/rewrite/equivalence, fusion topology 연구의 주 표면이다.
 
+문법이 정보의 **근원**이라는 말과 parser node가 optimization metadata를 **소유**한다는 말은 다르다. parser/FunctionEntity는 J construction semantics를 정확히 보존하고, J Graph IR builder가 그 구조를 applied noun graph와 결합해 GraphForm/GraphHint를 결정적으로 유도한다. 이렇게 하면 JAXA의 정적 정보 이점을 살리면서 target/cost/pass-local fact가 parser 의미 객체로 역류하는 것을 막을 수 있다.
+
 ### Logical Execution IR
 
 질문:
