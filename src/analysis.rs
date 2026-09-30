@@ -4,6 +4,7 @@ use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
     facts::{TypeFact, ValueRole, ValueRoleFacts},
+    j_graph_ir,
     opportunity::{OpportunitySource, StructuralOpportunity, StructuralTopology},
     semantic::{
         BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand,
@@ -208,6 +209,9 @@ fn result_roles(operation: &Operation) -> ValueRoleFacts {
 #[derive(Clone, Debug)]
 pub struct Node {
     pub operation: Operation,
+    /// Originating applied J-graph node. One J combinator application may
+    /// expand to multiple execution-oriented logical operations.
+    pub j_origin: Option<j_graph_ir::ValueId>,
     pub facts: crate::facts::Facts,
     pub rank_plan: Option<crate::facts::RankPlan>,
     /// Direct basis identity when the current transition IR can classify the
@@ -238,6 +242,7 @@ pub struct LogicalPlan {
     pub source: String,
     pub symbols: Vec<Symbol>,
     pub nodes: Vec<Node>,
+    pub j_graph_node_count: usize,
     /// J syntax/derived semantics exposes topology before generic DAG analysis.
     /// These are target-independent optimization opportunities, not legality proofs.
     pub opportunities: Vec<StructuralOpportunity<ValueId>>,
@@ -274,6 +279,14 @@ impl LogicalPlan {
                 || !self.source.is_char_boundary(node.span.end)
             {
                 return Err(fail(Some(id), "invalid source span".into()));
+            }
+            if let Some(origin) = node.j_origin {
+                if origin.0 >= self.j_graph_node_count {
+                    return Err(fail(
+                        Some(id),
+                        "J graph origin is out of bounds".into(),
+                    ));
+                }
             }
             if let Some(rank) = node.facts.rank {
                 if let Some(shape) = &node.facts.shape {
@@ -423,6 +436,18 @@ pub(crate) fn lower(
     bound: BoundProgram,
     noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
 ) -> Result<LogicalPlan> {
+    lower_graph(crate::j_graph_ir::Plan::from_bound(bound)?, noun_facts)
+}
+
+pub(crate) fn lower_graph(
+    graph: crate::j_graph_ir::Plan,
+    noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
+) -> Result<LogicalPlan> {
+    let source = graph.source.clone();
+    let graph_node_count = graph.nodes.len();
+    let graph_result = graph.result;
+    let graph_write = graph.write.clone();
+
     let mut builder = Builder {
         noun_facts,
         symbols: Vec::new(),
@@ -430,21 +455,47 @@ pub(crate) fn lower(
         nodes: Vec::new(),
         opportunities: Vec::new(),
         last_ordered: None,
-        reads: bound
-            .reads
-            .into_iter()
-            .map(|r| ((r.name, r.span.start, r.span.end), r.version))
-            .collect(),
+        reads: HashMap::new(),
+        current_j_origin: None,
     };
-    let result = bound
-        .program
-        .expression
-        .map(|expr| builder.expression(expr))
-        .transpose()?;
-    let write = if let Some(write) = bound.write {
+    let mut value_map = Vec::with_capacity(graph.nodes.len());
+
+    for (index, node) in graph.nodes.into_iter().enumerate() {
+        let origin = crate::j_graph_ir::ValueId(index);
+        builder.current_j_origin = Some(origin);
+        let span = node.span;
+        let value = match node.kind {
+            crate::j_graph_ir::NodeKind::Literal(value) => {
+                builder.push(Operation::Literal(value), span, false)
+            }
+            crate::j_graph_ir::NodeKind::ReadNoun { name, version } => {
+                let symbol = builder.symbol(&name);
+                builder.push(Operation::ReadNoun { symbol, version }, span, true)
+            }
+            crate::j_graph_ir::NodeKind::VerbValue { function } => {
+                let callable = builder.callable_entity(function)?;
+                builder.push(Operation::VerbReference(callable), span, false)
+            }
+            crate::j_graph_ir::NodeKind::Apply {
+                function,
+                left,
+                right,
+                ..
+            } => {
+                let left = left.map(|value| value_map[value.0]);
+                let right = value_map[right.0];
+                builder.call_entity(function, left, right, span)?
+            }
+        };
+        value_map.push(value);
+    }
+    builder.current_j_origin = None;
+
+    let result = graph_result.map(|value| value_map[value.0]);
+    let write = if let Some(write) = graph_write {
         Some(Write {
             symbol: builder.symbol(&write.name),
-            value: result.ok_or_else(|| Error::Syntax("assignment without value".into()))?,
+            value: value_map[write.value.0],
             previous: write.previous,
             proposed: write.proposed,
             span: write.span,
@@ -453,10 +504,12 @@ pub(crate) fn lower(
     } else {
         None
     };
+
     Ok(LogicalPlan {
-        source: bound.program.source,
+        source,
         symbols: builder.symbols,
         nodes: builder.nodes,
+        j_graph_node_count: graph_node_count,
         opportunities: builder.opportunities,
         result,
         write,
@@ -471,6 +524,7 @@ struct Builder<'a> {
     opportunities: Vec<StructuralOpportunity<ValueId>>,
     last_ordered: Option<ValueId>,
     reads: HashMap<(String, usize, usize), NameVersion>,
+    current_j_origin: Option<j_graph_ir::ValueId>,
 }
 fn flatten_atop_execution(
     semantic: &Arc<FunctionEntity>,
@@ -628,6 +682,7 @@ impl Builder<'_> {
         let roles = result_roles(&operation);
         self.nodes.push(Node {
             rank_plan,
+            j_origin: self.current_j_origin,
             facts,
             basis,
             instantiation,
