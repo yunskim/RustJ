@@ -66,3 +66,8 @@ For every implementation change:
 - Treat gerunds as contextually interpreted boxed nouns, not as a new global noun type.
 - Key hardware lowering by resolved semantic operation, including valence and relevant rank/fit/numeric/effect policies; raw primitive spelling/id is insufficient.
 - Keep primitive innate rank contracts valence-specific (monad, dyad-left, dyad-right).
+
+- Prioritize implementation proof in this order: A1 semantic preservation -> A3-v0 verified single-block Logical IR -> minimal native CPU end-to-end slice. Do not make the full TargetProfile/resource/mixed-route architecture a blocking prerequisite.
+- Represent missing access knowledge explicitly as an Opaque/Unknown access fact; treat it as an optimization/route barrier, not automatically as a J semantic error.
+- Stage routing: the first external-route implementation should send one verified single-block region wholly to one route; add mixed contiguous-subgraph partition and boundary bridges only after that works.
+- Maintain an explicit compilation-coverage manifest/golden tests for which semantic forms lower to array Logical IR, runtime semantics, guarded late binding, or UnsupportedImplementation.
