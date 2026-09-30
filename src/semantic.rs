@@ -285,7 +285,13 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
                         .unwrap()
                         .into_function()
                         .expect("adverb class");
-                    items.insert(i, Item::verb(apply_adverb(left, operator)?));
+                    let span = left.span.start..operator.span.end;
+                    items.insert(
+                        i,
+                        Item::verb(
+                            apply_adverb(left, operator).map_err(|error| error.at(span))?,
+                        ),
+                    );
                     reduced = true;
                     break;
                 }
@@ -310,7 +316,14 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
                         .into_function()
                         .expect("conjunction class");
                     let right = triple.next().unwrap();
-                    items.insert(i, Item::verb(apply_conjunction(left, operator, right)?));
+                    let span = left.span.start..right.span().end;
+                    items.insert(
+                        i,
+                        Item::verb(
+                            apply_conjunction(left, operator, right)
+                                .map_err(|error| error.at(span))?,
+                        ),
+                    );
                     reduced = true;
                     break;
                 }
@@ -424,6 +437,14 @@ struct Item {
 }
 
 impl Item {
+    fn span(&self) -> std::ops::Range<usize> {
+        match &self.value {
+            ParseValue::Noun(expr, _) => expr.span.clone(),
+            ParseValue::Verb(verb) => verb.span.clone(),
+            ParseValue::Function(entity) => entity.span.clone(),
+        }
+    }
+
     fn noun(expr: Expr, height: usize) -> Self {
         Self {
             class: ParseClass::Noun,
@@ -502,7 +523,7 @@ fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Prog
     } else {
         let (expr, expr_spans) = if tokens.len() > 1 && matches!(tokens[1], Token::Assign) {
             let Token::Name(name) = &tokens[0] else {
-                return Err(Error::Syntax("assignment target".into()));
+                return Err(Error::Syntax("assignment target".into()).at(spans[0].clone()));
             };
             assignment = Some((*name).to_owned());
             assignment_span = Some(spans[0].clone());
@@ -511,9 +532,25 @@ fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Prog
             (tokens.as_mut_slice(), spans.as_slice())
         };
         let mut pos = 0;
-        let (result, _) = expression(expr, expr_spans, &mut pos, false, 0, noun, snapshot)?;
+        let (result, _) = expression(expr, expr_spans, &mut pos, false, 0, noun, snapshot)
+            .map_err(|error| {
+                if error.span().is_some() {
+                    error
+                } else {
+                    let fallback = expr_spans
+                        .get(pos)
+                        .cloned()
+                        .or_else(|| expr_spans.last().cloned())
+                        .unwrap_or(source.len()..source.len());
+                    error.at(fallback)
+                }
+            })?;
         if pos != expr.len() {
-            return Err(Error::Syntax("trailing tokens".into()));
+            let span = expr_spans
+                .get(pos)
+                .cloned()
+                .unwrap_or(source.len()..source.len());
+            return Err(Error::Syntax("trailing tokens".into()).at(span));
         }
         Some(result)
     };
@@ -543,7 +580,7 @@ fn expression(
                 if nested {
                     break;
                 } else {
-                    return Err(Error::Syntax("unexpected )".into()));
+                    return Err(Error::Syntax("unexpected )".into()).at(spans[*pos].clone()));
                 }
             }
             Token::Open => {
@@ -552,7 +589,7 @@ fn expression(
                 let (v, height) = expression(tokens, spans, pos, true, depth + 1, noun, snapshot)?;
                 let height = checked_height(height)?;
                 if !matches!(tokens.get(*pos), Some(Token::Close)) {
-                    return Err(Error::Syntax("missing )".into()));
+                    return Err(Error::Syntax("missing )".into()).at(start..start + 1));
                 }
                 let v = Expr {
                     span: start..spans[*pos].end,
@@ -573,7 +610,11 @@ fn expression(
                 items.push(Item::noun(
                     Expr {
                         span: spans[*pos].clone(),
-                        kind: ExprKind::Literal(v.clone().into_value()?),
+                        kind: ExprKind::Literal(
+                        v.clone()
+                            .into_value()
+                            .map_err(|error| error.at(spans[*pos].clone()))?,
+                    ),
                     },
                     0,
                 ));
@@ -654,9 +695,10 @@ fn expression(
                 *pos += 1;
             }
             _ => {
-                return Err(Error::Unsupported(
-                    "assignment/modifier in expression".into(),
-                ));
+                return Err(
+                    Error::Unsupported("assignment/modifier in expression".into())
+                        .at(spans[*pos].clone()),
+                );
             }
         }
     }
@@ -680,12 +722,20 @@ fn expression(
             0,
         ));
     }
+    let rhs_error_span = items
+        .last()
+        .map(Item::span)
+        .unwrap_or_else(|| spans.last().cloned().unwrap_or(0..0));
     let Some((mut rhs, mut height)) = items.pop().and_then(Item::into_noun) else {
-        return Err(Error::Syntax("expected right argument".into()));
+        return Err(Error::Syntax("expected right argument".into()).at(rhs_error_span));
     };
     while let Some(item) = items.pop() {
+        let item_span = item.span();
         let Some(v) = item.into_verb() else {
-            return Err(Error::Syntax("unreduced function modifier or adjacent nouns".into()));
+            return Err(
+                Error::Syntax("unreduced function modifier or adjacent nouns".into())
+                    .at(item_span),
+            );
         };
         if items
             .last()
@@ -696,7 +746,7 @@ fn expression(
                 .and_then(Item::into_noun)
                 .expect("noun class");
             if v.reduce {
-                return Err(Error::Unsupported("dyadic derived verb".into()));
+                return Err(Error::Unsupported("dyadic derived verb".into()).at(v.span.clone()));
             }
             height = checked_height(height.max(left_height))?;
             rhs = Expr {
