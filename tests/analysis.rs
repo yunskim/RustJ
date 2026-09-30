@@ -313,7 +313,6 @@ fn empty_frames_and_incompatible_frames_remain_unresolved() {
     );
 }
 
-
 #[test]
 fn jsource_innate_rank_contracts_are_semantic_not_runtime_sentinels() {
     use rustj::primitive::PrimitiveId;
