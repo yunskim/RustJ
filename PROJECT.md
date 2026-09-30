@@ -5810,6 +5810,7 @@ ExternalResource
 - Hook/Fork는 J observable evaluation order를 유지한 branch result list와 live-across/shared input을 기록한다.
 - transition LogicalPlan과 A3 Logical IR 둘 다 opportunity sidecar를 운반하고 verifier가 value/span 무결성을 검사한다.
 - ParallelFanOut은 type/schema만 먼저 정의했으며 실제 adjoint/VJP pass가 생길 때 producer를 연결한다.
+- 현재 opportunity extraction은 call site에서 직접 보이는 semantic function graph를 기준으로 한다. name-bound derived verb를 interprocedurally 열어 topology를 전파하는 summary/cache는 아직 없으며, 이후 SpecializationEngine/binding-version analysis와 연결한다.
 
 이 방식은 source semantics를 generic DAG로 펼치는 것과 J syntax가 제공한 optimization information을 보존하는 것을 동시에 만족한다.
 
@@ -6965,6 +6966,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [x] J syntax-derived `StructuralOpportunity` sidecar를 추가했다. `@:`는 Pipeline, hook/fork는 BranchJoin topology와 live-across/shared-input provenance를 analysis/A3 IR에 보존한다.
 - [x] StructuralOpportunity discovery와 semantic legality/target feasibility/physical fusion commitment을 서로 다른 단계로 분리했다.
 - [ ] adjoint/VJP expansion이 생기면 data-adjoint/parameter-adjoint branch를 `ParallelFanOut` opportunity로 연결한다.
+- [ ] name-bound derived verb의 FunctionEntity/topology summary를 binding version + SpecializationKey로 전파해 `@:`/hook/fork opportunity가 call boundary에서 사라지지 않게 한다.
 - [ ] StructuralOpportunity와 use-def/GraphIndex를 결합해 pipeline intermediate materialization-elision 및 branch live-range 분석을 일반화한다.
 - [ ] target ResourceEstimate/register/shared-memory model을 opportunity별 feasibility query로 연결하되 Logical IR payload에는 concrete hardware allocation을 넣지 않는다.
 - [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
