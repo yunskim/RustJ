@@ -688,6 +688,97 @@ ParseConstructionCoverage (현재)
 
 큰 derived expression은 immutable shared handle/`EntityId` DAG로 표현하여 assignment, alias, analysis plan 사이에서 subtree를 복사하지 않는다.
 
+#### 3.3.1 modifier reduction 결과는 다음 parser reduction에서 하나의 function entity다
+
+current jsource의 parser는 이 경계를 명확하게 가진다. `p.c`의 parser lines 3-4는 ADV/CONJ를 실제로 적용해 결과 `yy` function object를 만든 뒤 그 결과의 parsing type을 stack에 다시 기록한다. 따라서 이후 hook/fork/train reduction은 원래 modifier token과 operand token을 다시 보지 않고 **이미 만들어진 결과 entity 하나**를 operand로 받는다.
+
+예를 들어:
+
+```text
+source words
+  +  /  %  #
+
+parser modifier reduction
+  +  /
+   ↓
+  +/ : VERB entity E2
+
+remaining function phrase
+  E2  %  #
+
+fork reduction
+  ↓
+  Fork(E2, %, #)
+```
+
+jsource에서 `ar.c::jtslash`는 실제로 새 function block `z`를 할당하고:
+
+```text
+id      = CSLASH
+AT/type = VERB
+fgh[0]  = original operand verb u
+```
+
+를 설치한다. `+/ `의 경우 `fgh[0]`은 primitive `+` object다. `fgh[2]`에는 dyadic execution을 위한 precomputed rank compound가 들어가지만, 이것은 parser-derived semantic operand가 아니라 execution auxiliary이므로 RustJ Semantic IR child로 복제하지 않는다.
+
+그 뒤 `cf.c::jtfolk`는 `f`, `g`, `h`를 이미 완성된 J values/function objects로 받아 새 `CFORK/VERB` function block을 만들고 그대로 `fgh[0..2]`에 저장한다. `(+/%#)` specialization도 다음처럼 **f가 이미 CSLASH verb라는 전제**로 검사한다.
+
+```text
+f.id == CSLASH
+g.id == CDIV
+h.id == CPOUND
+f.fgh[0].id == CPLUS
+```
+
+따라서 RustJ의 parser/semantic invariant는 다음으로 고정한다.
+
+```text
+ModifierApplicationReduction
+  operands + modifier
+      ↓
+  new FunctionEntity(result_pos = ...)
+      ↓
+  one parser item / one J entity
+
+Hook/Fork reduction
+  operands = EntityRef to already-completed entities
+```
+
+즉 Fork 내부에 `AdverbApplication(/,+)`라는 아직 미완성 parser fragment가 들어가는 것이 아니라, **`+/`라는 완성된 derived Verb entity에 대한 reference가 들어간다.**
+
+RustJ의 `FunctionEntity`는 이 점에서는 jsource `V` function block의 semantic subset을 직접 따른다.
+
+```text
+jsource V/function block            RustJ FunctionEntity
+-------------------------           --------------------
+AT = VERB/ADV/CONJ                  result_pos
+id = CSLASH/CFORK/...               head / construction identity
+semantic f/g/h operand              EntityRef operands
+execution function pointer          제외: lowering/runtime registry
+localuse/cache/rank helper          제외 또는 별도 analysis/lowering metadata
+runtime memory flags                제외: downstream proof/physical state
+```
+
+이 구조에서:
+
+```text
+E1 = + : primitive Verb
+
+E2 = +/ : derived Verb
+     head = Insert(/)
+     operands = [E1]
+
+E3 = % : primitive Verb
+E4 = # : primitive Verb
+
+E5 = Fork : derived Verb
+     operands = [E2, E3, E4]
+```
+
+가 canonical semantic representation이다.
+
+이 원칙은 모든 modifier에 동일하게 적용한다. `u"r`, `u&v`, `u@v`, `u!.n` 등이 parser production을 완료하면 그 결과는 독립된 J function entity이고, 이후 train/modifier application은 그 entity reference를 operand로 사용한다. execution-only helper를 semantic operand로 승격시키지는 않는다.
+
 semantic function identity/operands와 execution specialization도 분리한다. jsource가 동일한 parser-derived function object에 specialized executor를 선택할 수 있듯 RustJ도:
 
 ```text
