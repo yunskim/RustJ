@@ -27,6 +27,24 @@ C J 엔진을 RustJ의 정상 실행 fallback으로 사용하지 않는다.
 
 현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, 초기 분석/LogicalPlan, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
 
+### 1.1 이름 정책
+
+현재 아키텍처에는 `Jaxa`라는 별도 compiler component 이름을 두지 않는다.
+
+과거 `jaxa-analyzer` 저장소와 문서에서 발전한 아이디어는 RustJ의 semantic analysis, logical lowering, resource/fusion planning 설계에 흡수한다. 그러나 현행 설계에서 별도 제품·crate·subsystem의 정체성을 뜻하지 않는다.
+
+현행 용어는 다음으로 통일한다.
+
+```text
+Jaxa Analyzer      → Semantic Analyzer
+Jaxa lowering      → Semantic / Logical Lowering
+Jaxa optimizer     → Logical Optimizer
+Jaxa physical plan → Physical Planner / Physical Plan
+```
+
+필요할 때만 `jaxa-analyzer`를 **historical research/prototype repository**라는 의미로 언급한다.
+
+
 ---
 
 ## 2. 최상위 아키텍처
@@ -48,7 +66,7 @@ J Semantic Array IR
    │ name/binding/version
    │ source span
    ↓
-──────────────────── Jaxa ──────────────────────
+──────── Semantic Analyzer / Lowering ──────────
 Semantic analysis of array transformations
    ↓
 Logical Array IR / Logical Execution Plan
@@ -76,23 +94,23 @@ Backend lowering / code generation
 Runtime / Executor
 ```
 
-핵심 원칙은 **J의 고수준 배열 변환 구조를 Jaxa 분석 전에 없애지 않고, Jaxa가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
+핵심 원칙은 **J의 고수준 배열 변환 구조를 Semantic Analyzer가 보기 전에 없애지 않고, analyzer/lowering 단계가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
 
-### 2.1 RustJ와 Jaxa의 위상
+### 2.1 RustJ compiler stage의 위상
 
-RustJ와 Jaxa는 개발상 같은 저장소·같은 Cargo workspace에서 함께 구현해도 된다. 그러나 논리적 책임은 분리한다.
+RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
 
 - **RustJ frontend**: source text를 읽고 J의 품사·결합·이름 의미를 보존한 `J Semantic Array IR`을 만든다.
 - **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
-- **Jaxa**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮추고 최적화한다.
+- **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다.
 - **Physical Planner**: layout, placement, materialization, buffer, transfer, scheduling 같은 물리 실행 결정을 내린다.
 - **Backend/Runtime**: 계획을 backend code로 낮추고 실행한다.
 
 이를 한 문장으로 정의하면:
 
-> **RustJ는 J source를 의미 보존 IR로 만드는 frontend이고, Jaxa는 J의 array-transformation semantics를 분석하여 backend-independent logical array plan으로 낮추는 compiler middle-end다.**
+> **RustJ는 frontend부터 semantic analysis/lowering, logical optimization, physical planning, backend, runtime까지 포함하는 하나의 compiler system이다.**
 
-Jaxa는 J source text나 tokenizer/parser mechanics에는 의존하지 않는다. 그러나 다음 J 의미 구조는 **Jaxa의 분석 입력이며 제거 대상이 아니다.**
+Semantic Analyzer / Lowering은 J source text나 tokenizer/parser mechanics에 의존하지 않는다. 그러나 다음 J 의미 구조는 **분석 입력이며 제거 대상이 아니다.**
 
 - noun / verb / adverb / conjunction
 - primitive와 derived verb
@@ -109,7 +127,7 @@ RustJ source frontend
         ↓
 J Semantic Array IR
         ↓
-       Jaxa
+Semantic Analyzer / Lowering
         ↓
 Logical Array IR / Plan
         ↓
@@ -121,13 +139,13 @@ Backend / Runtime
 금지하는 역방향 의존성은 source frontend 구현 세부에 대한 것이다.
 
 ```text
-Jaxa ─X→ scanner implementation
-Jaxa ─X→ token stream layout
-Jaxa ─X→ parser stack mechanics
-Jaxa ─X→ source-text reparsing
+Semantic Analyzer ─X→ scanner implementation
+Semantic Analyzer ─X→ token stream layout
+Semantic Analyzer ─X→ parser stack mechanics
+Semantic Analyzer ─X→ source-text reparsing
 ```
 
-반대로 `Hook`, `Fork`, `Train`, `DerivedVerb`, `Rank` 같은 **semantic IR node를 Jaxa가 아는 것은 의도된 설계**다.
+반대로 `Hook`, `Fork`, `Train`, `DerivedVerb`, `Rank` 같은 **semantic IR node를 Semantic Analyzer가 아는 것은 의도된 설계**다.
 
 ### 2.2 물리적으로 함께, 논리적으로 독립
 
@@ -139,7 +157,7 @@ Jaxa ─X→ source-text reparsing
 rustj/
   rustj-frontend
   j-semantic-ir
-  jaxa
+  semantic-analysis
   logical-array-ir
   backend-cpu
   backend-gpu
@@ -170,7 +188,7 @@ J의 계산은 배열 중심이다.
 (+/ % #) y
 ```
 
-를 Jaxa 전에 곧바로
+를 semantic analysis 전에 곧바로
 
 ```text
 Divide(Reduce(Add, y), Tally(y))
@@ -191,7 +209,7 @@ Apply
     y
 ```
 
-Jaxa가 이 구조를 분석한 뒤에야 explicit dataflow로 낮춘다.
+Semantic Analyzer가 이 구조를 분석한 뒤에야 explicit dataflow로 낮춘다.
 
 ### 3.2 jsource에서 확인한 근거
 
@@ -259,13 +277,13 @@ JEntity
 2. hook/fork/train의 operand 관계를 보존한다.
 3. modifier와 operand의 관계를 보존한다.
 4. monad/dyad valence를 보존한다.
-5. rank가 계산 의미에 미치는 정보를 Jaxa가 볼 수 있어야 한다.
+5. rank가 계산 의미에 미치는 정보를 Semantic Analyzer가 볼 수 있어야 한다.
 6. name reference와 binding/version이 의미에 영향을 주면 분석 가능한 형태로 보존한다.
 7. source span은 진단을 위해 유지한다.
 
 ### 3.4 너무 이른 정규화를 금지한다
 
-다음 변환은 **Jaxa 분석 전에 무조건 수행하지 않는다.**
+다음 변환은 **semantic analysis 전에 무조건 수행하지 않는다.**
 
 ```text
 Fork(f,g,h)
@@ -281,7 +299,7 @@ RankDerived(f, r)
     → generic MapCells only
 ```
 
-이런 정규화는 합법성과 분석 이득이 확인된 뒤 Jaxa의 lowering/rewrite 단계에서 수행한다.
+이런 정규화는 합법성과 분석 이득이 확인된 뒤 semantic lowering/rewrite 단계에서 수행한다.
 
 이유:
 
@@ -331,15 +349,15 @@ StreamEvent
 - `src/storage.rs`: CPU storage
 - `src/sparse.rs`, `src/bit_storage.rs`: 추가 storage 표현
 
-다음 compiler 구조 작업에서는 현재 `semantic.rs`의 표현이 **verb composition을 충분히 보존하는지** 먼저 점검하고, 필요하면 `J Semantic Array IR`을 명시한다. 그 다음 `analysis.rs`를 Jaxa 역할로 정리하여 이 IR을 직접 분석하게 한다.
+다음 compiler 구조 작업에서는 현재 `semantic.rs`의 표현이 **verb composition을 충분히 보존하는지** 먼저 점검하고, 필요하면 `J Semantic Array IR`을 명시한다. 그 다음 `analysis.rs`를 Semantic Analyzer / Lowering 역할로 정리하여 이 IR을 직접 분석하게 한다.
 
 ---
 
-## 4. Jaxa
+## 4. Semantic Analyzer / Lowering
 
-Jaxa는 **J Semantic Array IR을 분석하여 Logical Array IR / Logical Execution Plan으로 낮추는 compiler middle-end**다. Jaxa 자체는 실행기가 아니다.
+Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Array IR / Logical Execution Plan으로 낮추는 RustJ compiler middle-end**다. 이 단계 자체는 실행기가 아니다.
 
-### 4.1 Jaxa의 책임
+### 4.1 Semantic Analyzer / Lowering의 책임
 
 - noun/verb/adverb/conjunction 품사와 적용 관계 분석
 - primitive / derived verb 분석
@@ -360,7 +378,7 @@ Jaxa는 **J Semantic Array IR을 분석하여 Logical Array IR / Logical Executi
 - cost-model input 생성
 - Logical Array IR / Logical Execution Plan 생성
 
-### 4.2 Jaxa가 하지 않는 일
+### 4.2 Semantic Analyzer / Lowering이 하지 않는 일
 
 - source text tokenization
 - parser stack 규칙의 재실행
@@ -370,18 +388,18 @@ Jaxa는 **J Semantic Array IR을 분석하여 Logical Array IR / Logical Executi
 - Executor 단계에서 의미론을 다시 판단
 - 알 수 없는 정보를 임의로 추측
 
-즉 Jaxa는 **J syntax mechanics는 모르지만 J semantic structure는 안다.**
+즉 Semantic Analyzer는 **J syntax mechanics는 모르지만 J semantic structure는 안다.**
 
-### 4.3 Jaxa 이후의 generic 경계
+### 4.3 Semantic analysis 이후의 generic 경계
 
-다른 frontend와 공유할 가능성이 높은 지점은 Jaxa 입력 전이 아니라 **Jaxa가 고수준 J 구조를 분석한 뒤 생성하는 Logical Array IR / Plan**이다.
+다른 frontend와 공유할 가능성이 높은 지점은 semantic analysis 입력 전이 아니라 **고수준 J 구조를 분석한 뒤 생성하는 Logical Array IR / Plan**이다.
 
 ```text
 J frontend
     ↓
 J Semantic Array IR
     ↓
-   Jaxa
+Semantic Analyzer / Lowering
     ↓
 Logical Array IR / Plan  ← generic boundary 후보
     ↓
@@ -393,7 +411,7 @@ Physical Planner
 1. J semantic model을 의도적으로 공유하면 J Semantic Array IR을 생성한다.
 2. J와 무관한 frontend라면 자기 semantic analyzer를 거쳐 Logical Array IR / Plan에 합류한다.
 
-따라서 **Jaxa를 generic tensor IR consumer로 만들기 위해 J의 구조를 일찍 버리지 않는다.**
+따라서 **middle-end를 generic tensor IR consumer처럼 만들기 위해 J의 구조를 일찍 버리지 않는다.**
 
 ### 4.4 Unknown 원칙
 
@@ -408,7 +426,7 @@ Unknown은 다음 중 하나가 된다.
 
 ### 4.5 Primitive contract
 
-Jaxa 분석에서 primitive는 최소한 다음 의미 계약을 가진다.
+semantic analysis에서 primitive는 최소한 다음 의미 계약을 가진다.
 
 ```text
 PrimitiveContract
@@ -455,9 +473,9 @@ PrimitiveContract
 
 GPU block 크기나 tile 크기는 semantic primitive contract에 넣지 않는다.
 
-### 4.6 JAXA 확장 어휘와 `with`
+### 4.6 과거 jaxa-analyzer 연구에서 가져오는 확장 어휘와 `with`
 
-기존 jaxa-analyzer에서 검토한 확장 어휘는 다음 원칙을 유지한다.
+`jaxa-analyzer` 연구/prototype 저장소에서 검토한 확장 어휘는 RustJ에 흡수할 때 다음 원칙을 유지한다. `JAXA`는 여기서 역사적 연구명일 뿐 현재 RustJ 아키텍처의 별도 컴포넌트명이 아니다.
 
 - `relu`, `linear`, `conv`: custom computational primitive/verb
 - `cast_f32`: 품사와 결합 의미를 보존하여 분석
@@ -484,7 +502,7 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 
 ### 5.1 Logical Array IR / Logical Execution Plan
 
-이 계층은 Jaxa가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
+이 계층은 Semantic Analyzer가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
 
 예를 들어 고수준의
 
@@ -565,7 +583,7 @@ JArray
   ordered atoms / logical value
 ```
 
-verb는 이 noun array를 입력받아 noun array를 반환하는 array transformer이며, J Semantic Array IR에서 first-class semantic entity로 표현한다. verb의 hook/fork/train/modifier composition은 Jaxa 분석 전에 보존한다.
+verb는 이 noun array를 입력받아 noun array를 반환하는 array transformer이며, J Semantic Array IR에서 first-class semantic entity로 표현한다. verb의 hook/fork/train/modifier composition은 semantic analysis 전에 보존한다.
 
 다음은 논리 JArray의 identity가 아니다.
 
@@ -740,7 +758,7 @@ Apply(
 )
 ```
 
-Jaxa가 이를 분석하여 reduction이라는 logical operation을 식별한 뒤,
+Semantic Analyzer가 이를 분석하여 reduction이라는 logical operation을 식별한 뒤,
 
 ```text
 Reduce(Add, Map(Square, y))
@@ -922,27 +940,27 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 ### A0 — 문서/아키텍처 경계
 
-- [x] RustJ/Jaxa의 논리적 경계를 확정한다.
-- [x] Jaxa 입력 전에 hook/fork/train/derived verb/rank를 제거하지 않는 원칙을 확정한다.
+- [x] RustJ 내부 compiler stage의 논리적 경계를 확정한다.
+- [x] Semantic Analyzer 입력 전에 hook/fork/train/derived verb/rank를 제거하지 않는 원칙을 확정한다.
 - [x] `J Semantic Array IR`과 `Logical Array IR / Plan`을 구분한다.
-- [x] generic boundary 후보를 Jaxa 이후의 Logical Array IR로 이동한다.
+- [x] generic boundary 후보를 semantic analysis 이후의 Logical Array IR로 이동한다.
 - [x] 문서를 `PROJECT.md`로 통합한다.
-- [ ] 실제 코드 dependency에서도 source frontend → J Semantic Array IR → Jaxa → Logical Plan 경계를 만든다.
+- [ ] 실제 코드 dependency에서도 source frontend → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Plan 경계를 만든다.
 
-### A1 — J Semantic Array IR와 Jaxa 경계
+### A1 — J Semantic Array IR와 Semantic Analyzer 경계
 
 - [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
 - [ ] primitive verb identity와 monad/dyad valence를 명시한다.
 - [ ] Hook / Fork / Train을 first-class semantic node로 표현한다.
 - [ ] adverb/conjunction application으로 생긴 DerivedVerb 구조를 보존한다.
-- [ ] rank-derived verb와 cell/frame 의미를 Jaxa가 분석할 수 있게 표현한다.
+- [ ] rank-derived verb와 cell/frame 의미를 Semantic Analyzer가 분석할 수 있게 표현한다.
 - [ ] name reference/binding/version과 source span을 필요한 범위에서 연결한다.
 - [ ] primitive contract를 semantic node에 연결한다.
-- [ ] Jaxa가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
-- [ ] Jaxa가 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
+- [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
+- [ ] Semantic Analyzer / Lowering이 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
 - [ ] fork branch 독립성, reduction derived verb, rank-derived verb를 대표 golden test로 둔다.
 
-완료 조건: Jaxa를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank/derived verb의 의미 구조가 분석 입력에 남아 있다.
+완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank/derived verb의 의미 구조가 분석 입력에 남아 있다.
 
 ### G1 — 논리 값과 물리 표현의 경계
 
@@ -993,7 +1011,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] buffer reuse proof
 - [ ] layout-compatible view 유지
 - [ ] CPU executor
-- [ ] source → J Semantic Array IR → Jaxa → Logical Array IR/Plan → physical → CPU end-to-end
+- [ ] source → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan → physical → CPU end-to-end
 
 ### G5 — 성능 및 확장 경계
 
@@ -1133,8 +1151,8 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 - G1 read-only affine PhysicalArray가 구현되어 있다.
 - G1 Windows default/portable 회귀와 Clippy 기록이 있다.
 - G2~G5는 미완료다.
-- 명시적인 `J Semantic Array IR → Jaxa → Logical Array IR/Plan` 경계는 아직 코드에서 완전히 분리되지 않았다.
-- 현재 `analysis.rs`가 Semantic IR에서 LogicalPlan을 직접 만들고 있어 Jaxa 역할과 lowering 경계를 재정리해야 한다.
+- 명시적인 `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` 경계는 아직 코드에서 완전히 분리되지 않았다.
+- 현재 `analysis.rs`가 Semantic IR에서 LogicalPlan을 직접 만들고 있어 semantic analysis와 lowering 경계를 재정리해야 한다.
 - 실제 CUDA storage/kernel은 없다.
 - GitHub CI는 현재 사용하지 않는다.
 - 이 컴퓨터에서는 Windows 네이티브 검증을 기준으로 한다.
@@ -1250,7 +1268,7 @@ RustJ frontend
     ↓
   J Semantic Array IR
     ↓
-  Jaxa
+  Semantic Analyzer / Lowering
     ↓
   Logical Array IR / Plan
     ↓
@@ -1367,17 +1385,17 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 ## 16. 다음 작업
 
-현재 가장 먼저 해야 할 compiler architecture 작업은 **J의 verb composition을 보존하는 semantic IR과 Jaxa 분석 경계를 코드에서 명시하는 것**이다.
+현재 가장 먼저 해야 할 compiler architecture 작업은 **J의 verb composition을 보존하는 semantic IR과 Semantic Analyzer / Lowering 경계를 코드에서 명시하는 것**이다.
 
 순서:
 
 1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 책임을 다시 분류한다.
 2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb, rank를 얼마나 보존하는지 감사한다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
-4. Jaxa가 이 IR을 입력으로 받아 composition 구조를 분석하도록 `analysis.rs`를 재정리한다.
-5. Jaxa lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
-6. fork, reduction derived verb, rank-derived verb를 Jaxa 단독 golden test로 검증한다.
+4. Semantic Analyzer가 이 IR을 입력으로 받아 composition 구조를 분석하도록 `analysis.rs`를 재정리한다.
+5. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
+6. fork, reduction derived verb, rank-derived verb를 Semantic Analyzer 단독 golden test로 검증한다.
 7. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
 8. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
-특히 hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” Jaxa 이전에 소거하는 shortcut을 추가하지 않는다.
+특히 hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하는 shortcut을 추가하지 않는다.
