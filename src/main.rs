@@ -25,7 +25,7 @@ fn run(engine: &mut Engine, line: &str, json: bool, semantic: bool, source_name:
             if json {
                 println!("{{\"error\":\"{}\"}}", e.kind());
             } else {
-                eprintln!("{e}");
+                eprintln!("{}", e.render(source_name, line, line_number));
             }
             false
         }
