@@ -86,6 +86,16 @@ impl Error {
         }
     }
 
+    /// Remove presentation/provenance wrappers while preserving the original
+    /// J error variant. Stable machine APIs use this; diagnostic APIs keep the
+    /// location wrapper.
+    pub fn into_unlocated(self) -> Error {
+        match self {
+            Self::Located { error, .. } => error.into_unlocated(),
+            other => other,
+        }
+    }
+
     pub fn root(&self) -> &Error {
         match self {
             Self::Located { error, .. } => error.root(),
