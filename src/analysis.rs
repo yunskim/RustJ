@@ -2,7 +2,7 @@
 //! Plans are inspection snapshots; there is deliberately no execute-plan API.
 use crate::{
     Error, Result, Value,
-    contracts::{self, Contract, Valence},
+    contracts::{self, Contract, RankContract, RankSpec, Valence},
     semantic::{
         BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand,
         FunctionPartOfSpeech, NameVersion, Verb,
@@ -39,7 +39,10 @@ pub struct Callable {
     /// reparsing source or recursively copying a large derived function.
     pub semantic: Arc<FunctionEntity>,
     pub reduce: bool,
-    pub rank: Option<[i64; 3]>,
+    /// Explicit rank-conjunction boundaries, outermost first.
+    pub explicit_ranks: Vec<RankContract>,
+    /// Innate rank of the resolved callable. Dynamic names remain unknown.
+    pub innate_rank: Option<RankContract>,
 }
 #[derive(Clone, Debug)]
 pub enum Operation {
@@ -76,7 +79,7 @@ pub enum AccessFact {
 pub struct Node {
     pub operation: Operation,
     pub facts: crate::facts::Facts,
-    pub rank_plan: Option<crate::facts::RankPlan>,
+    pub cell_application: Option<crate::facts::CellApplicationPlan>,
     /// Missing access knowledge is explicit and is an optimization barrier,
     /// never by itself a J semantic error.
     pub access: AccessFact,
@@ -249,6 +252,52 @@ pub(crate) fn lower(
     })
 }
 
+fn rank_spec_at(value: &Value, index: usize) -> Result<RankSpec> {
+    match value.data() {
+        crate::Data::Bool(values) => Ok(RankSpec::Absolute(values[index] as usize)),
+        crate::Data::Int(values) => Ok(RankSpec::from_integer(values[index])),
+        crate::Data::Float(values) => {
+            let value = values[index];
+            if value == f64::INFINITY {
+                Ok(RankSpec::Infinite)
+            } else if value == f64::NEG_INFINITY {
+                // jsource clamps the noun rank to -RMAX before resolving it
+                // relative to an argument; for any realizable array rank this
+                // is therefore rank 0.
+                Ok(RankSpec::Relative(i64::MIN))
+            } else if value.is_finite()
+                && value.fract() == 0.0
+                && value >= i64::MIN as f64
+                && value < -(i64::MIN as f64)
+            {
+                Ok(RankSpec::from_integer(value as i64))
+            } else {
+                Err(Error::Domain)
+            }
+        }
+        crate::Data::Char(_) | crate::Data::Boxed(_) | crate::Data::Sparse(_) => Err(Error::Domain),
+    }
+}
+
+fn rank_contract_from_noun(value: &Value) -> Result<RankContract> {
+    if value.shape().len() > 1 {
+        return Err(Error::Rank);
+    }
+    if value.is_empty() || value.len() > 3 {
+        return Err(Error::Length);
+    }
+    let at = |index| rank_spec_at(value, index);
+    Ok(match value.len() {
+        1 => {
+            let rank = at(0)?;
+            RankContract::all(rank)
+        }
+        2 => RankContract::new(at(1)?, at(0)?, at(1)?),
+        3 => RankContract::new(at(0)?, at(1)?, at(2)?),
+        _ => unreachable!("rank noun length checked above"),
+    })
+}
+
 struct Builder<'a> {
     noun_facts: &'a dyn Fn(&str) -> crate::facts::Facts,
     symbols: Vec<Symbol>,
@@ -277,15 +326,24 @@ impl Builder<'_> {
     fn callable_entity(&mut self, semantic: Arc<FunctionEntity>) -> Result<Callable> {
         let mut current = semantic.clone();
         let mut reduce = false;
-        let mut rank = None;
+        let mut explicit_ranks = Vec::new();
         loop {
             match &current.head {
                 FunctionHead::PrimitiveVerb(id) => {
+                    let innate_rank = if reduce {
+                        // Insert is a derived monadic operation over its whole
+                        // argument cell. The operand primitive's scalar rank is
+                        // inside the reduction, not the rank of +/ itself.
+                        Some(RankContract::all(RankSpec::Infinite))
+                    } else {
+                        Some(contracts::innate_rank(*id))
+                    };
                     return Ok(Callable {
                         target: CallTarget::Primitive(*id),
                         semantic,
                         reduce,
-                        rank,
+                        explicit_ranks,
+                        innate_rank,
                     });
                 }
                 FunctionHead::NameRef(name) => {
@@ -293,7 +351,8 @@ impl Builder<'_> {
                         target: CallTarget::Dynamic(self.symbol(name)),
                         semantic,
                         reduce,
-                        rank,
+                        explicit_ranks,
+                        innate_rank: None,
                     });
                 }
                 FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
@@ -311,17 +370,12 @@ impl Builder<'_> {
                         FunctionOperand::Noun { value, .. },
                     ] = current.operands.as_slice()
                     else {
-                        return Err(Error::Unsupported("malformed rank semantic entity".into()));
+                        return Err(Error::Unsupported(
+                            "rank with non-noun right operand requires rank-contract resolution"
+                                .into(),
+                        ));
                     };
-                    if value.is_empty() || value.len() > 3 {
-                        return Err(Error::Length);
-                    }
-                    let at = |i| value.int_at(i);
-                    rank = Some(match value.len() {
-                        1 => [at(0)?, at(0)?, at(0)?],
-                        2 => [at(1)?, at(0)?, at(1)?],
-                        _ => [at(0)?, at(1)?, at(2)?],
-                    });
+                    explicit_ranks.push(rank_contract_from_noun(value)?);
                     current = base.clone();
                 }
                 FunctionHead::PrimitiveAdverb(_)
@@ -358,7 +412,7 @@ impl Builder<'_> {
             }
             _ => AccessFact::Opaque,
         };
-        let (facts, rank_plan) = match &operation {
+        let (facts, cell_application) = match &operation {
             Operation::Literal(value) => (crate::facts::Facts::of(value), None),
             Operation::ReadNoun { symbol, .. } => {
                 ((self.noun_facts)(&self.symbols[symbol.0].name), None)
@@ -372,7 +426,8 @@ impl Builder<'_> {
                 CallTarget::Primitive(id) => crate::facts::infer_call(
                     id,
                     callable.reduce,
-                    callable.rank,
+                    &callable.explicit_ranks,
+                    callable.innate_rank,
                     left.map(|id| &self.nodes[id.0].facts),
                     &self.nodes[right.0].facts,
                 ),
@@ -381,7 +436,7 @@ impl Builder<'_> {
             _ => (crate::facts::Facts::default(), None),
         };
         self.nodes.push(Node {
-            rank_plan,
+            cell_application,
             facts,
             access,
             operation,
@@ -501,7 +556,7 @@ impl Builder<'_> {
                 };
                 // Base primitive contracts do not prove properties of derived verbs.
                 let contract = match callable.target {
-                    CallTarget::Primitive(id) if !callable.reduce && callable.rank.is_none() => {
+                    CallTarget::Primitive(id) if !callable.reduce && callable.explicit_ranks.is_empty() => {
                         contracts::for_primitive(id, valence)
                     }
                     _ => contracts::lookup("", valence),
