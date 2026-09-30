@@ -376,9 +376,10 @@ Divide(Reduce(Add, y), Tally(y))
 Apply
 ├─ verb:
 │   Fork
-│   ├─ DerivedVerb(Insert, Add)
-│   ├─ Divide
-│   └─ Tally
+│   ├─ / : Verb
+│   │   └─ + : Verb
+│   ├─ % : Verb
+│   └─ # : Verb
 └─ argument:
     y
 ```
@@ -387,7 +388,7 @@ Semantic Analyzer가 이 구조를 분석한 뒤에야 explicit dataflow로 낮�
 
 ### 3.2 jsource에서 확인한 근거
 
-확인 기준: `jsoftware/jsource` master `ce65ed97ec57d95910e9bab4a652e2991d294626` (2026-09-30 확인), 특히 `jsrc/jtype.h`, `jsrc/cf.c`, `jsrc/jc.h`.
+확인 기준: `jsoftware/jsource` master `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` (2026-09-30 확인), 특히 `jsrc/jtype.h`, `jsrc/cf.c`, `jsrc/jc.h`.
 
 현재 jsource의 내부 구현도 derived verb의 구조를 실행 전까지 보존한다.
 
@@ -511,126 +512,172 @@ boxed noun 자체를 전역적으로 `Gerund`라는 별도 J type으로 바꾸�
 gerund 안의 name/function reference도 J의 fix/late-binding 규칙을 잃지 않아야 한다.
 
 
-#### 3.3.3 derived entity는 공통 function object + operand graph로 표현한다
+#### 3.3.3 Function DAG의 shape는 J parser reduction rule이 결정한다
 
-current jsource(`jtype.h`, `ja.h`, `cf.c`, `cr.c`, `ar.c`, `cv.c`, `cp.c`, `cu.c`)를 다시 확인하면 derived verb를 종류별 거대한 object hierarchy로 만들지 않는다.
+RustJ가 derived function의 DAG shape를 별도 IR 취향으로 새로 정의하지 않는다. **current jsource의 parser reduction table(`p.c::cases[]`)을 semantic DAG construction의 기준으로 삼는다.**
 
-jsource의 `V` block은 **verb/adverb/conjunction이 공유하는 공통 function representation**이다.
-
-개념적으로:
+현재 jsource parse table에서 function construction에 직접 대응하는 핵심 row는 다음과 같다.
 
 ```text
-V / FunctionObject
-  part of speech: VERB | ADV | CONJ
-  id / form identity
-  operands: f / g / h references
-  monad / dyad executor entry points
-  monad / dyad-left / dyad-right rank
-  flags
-  small form-specific local metadata
+row 3
+  (VERB | NOUN)  ADV
+    → adverb application
+
+row 4
+  (VERB | NOUN)  CONJ  (VERB | NOUN)
+    → conjunction application
+
+row 5
+  (VERB | NOUN)  VERB  VERB
+    → fork
+
+row 6
+  CAVN  CAVN
+    → hook / bident
 ```
 
-`fdef/fdeffill`은 같은 block 형식으로 primitive/derived function을 만든다. hook/fork/rank/insert/fit/power/under/adverse/obverse 등은 **같은 object shape를 사용하면서 form id, operand references, rank/flags, executor specialization만 다르게 채운다.**
+반면 row 0–2는 monad/dyad execution, row 7은 assignment, row 8은 parenthesis reduction이다.
 
-특히:
+따라서 semantic DAG에서 **modifier vocabulary별 node kind를 새로 발명하지 않는다.** source operator의 품사와 parser production이 parent/operand 관계를 결정한다.
 
-- fork는 `id=CFORK`, operands `f,g,h`를 그대로 보존하면서 pattern에 따라 specialized executor를 선택한다.
-- hook은 `id=CHOOK`, operands를 보존한다.
-- generic bident/trident는 결과 POS가 ADV/CONJ일 수도 있으며 같은 `V` block을 쓴다.
-- rank는 `id=CQQ`, original operands와 signed-rank metadata를 보존한다.
-- insert/reduction은 operand verb를 보존하면서 reduction-specialized metadata/executor를 붙인다.
-- fit/power/under는 operands 외에 필요한 작은 semantic/execution parameter를 별도 local metadata에 저장한다.
-
-RustJ는 C의 function pointer/localuse layout을 복제하지 않지만 **구조적 원칙은 채택**한다.
-
-장기 Semantic IR 개념형:
+예를 들어 insert는:
 
 ```text
-FunctionRef                 // cheap shared handle; tree copy 금지
+source:
+  + /
+
+parser row 3:
+  left operand = +
+  operator     = /
+
+Semantic Function DAG:
+
+/ : Verb                 // applied adverb result
+└─ + : Verb
+```
+
+이다.
+
+즉 `Insert(+)`라는 별도 semantic node를 만들지 않는다. `/` 자체가 ADV operator identity이며, operand를 가진 derived result의 parent가 된다.
+
+rank도 동일하다.
+
+```text
+source:
+  u " r
+
+parser row 4:
+  left operand  = u
+  operator      = "
+  right operand = r
+
+Semantic Function DAG:
+
+" : Verb                 // applied conjunction result
+├─ left:  u
+└─ right: r
+```
+
+따라서 `Rank(u,r)` 같은 unary-like special node를 만들지 않는다. **`"` conjunction이 parent이고 양쪽 parser operand를 그대로 가진다.**
+
+hook/fork는 source operator token이 따로 없으므로 parser production 자체가 parent identity다.
+
+```text
+Hook
+├─ f
+└─ g
+
+Fork
+├─ f
+├─ g
+└─ h
+```
+
+긴 train도 별도 `LongTrain` node를 만들지 않는다. jsource parser가 row 5/6 reduction을 반복해 hook/fork derived function을 만드는 것처럼 shared Hook/Fork node graph로 축약한다.
+
+#### 3.3.4 jsource `V.fgh`는 parse DAG의 oracle이 아니라 realization cross-check다
+
+jsource의 `V` block은 VERB/ADV/CONJ이 공유하는 execution/function representation이고 `fgh[3]`, valence entry points, rank, id, flags/local metadata를 가진다. 이는 RustJ가 **공통 shared function object**를 쓰고 subtree를 deep-copy하지 않아야 한다는 좋은 reference다.
+
+그러나 `fgh[3]`의 모든 slot을 곧바로 source semantic DAG child로 복제하지 않는다.
+
+이유는 일부 derived form에서 jsource가 parser operand 외에 **실행 최적화용 보조 function/object**도 `f/g/h` 또는 local metadata에 넣기 때문이다.
+
+예:
+
+- insert/reduction의 보조 rank/execution object
+- under의 inverse/optimized execution auxiliary
+- precomputed tables/hash/info 같은 realization metadata
+
+따라서 authoritative 관계는:
+
+```text
+source words
   ↓
+jsource parse reduction rule
+  ↓
+RustJ Semantic Function DAG       // semantic operands only
+  ↓
+Semantic Analyzer
+  ↓
+Logical IR
+  ↓
+runtime/backend specialization
+```
+
+이고, `V.fgh`는 **각 parse reduction 결과가 jsource에서 어떤 function object로 realization되는지 검증하는 자료**로 사용한다.
+
+RustJ의 현재 `FunctionEntity` 원칙:
+
+```text
 FunctionEntity
   result_part_of_speech
-  form_id
-  operands: JEntityRef...
-  rank_contract
+  head:
+    PrimitiveVerb
+    PrimitiveAdverb
+    PrimitiveConjunction
+    NameRef
+    Hook
+    Fork
+  operands:
+    shared FunctionEntity ref
+    semantic Noun operand
   source/provenance
-  semantic metadata
-
-FormRegistry[form_id]
-  source/operator identity
-  operand/POS constraints
-  derived-result POS rule
-  semantic analyzer interface
-  latent semantics interface
 ```
 
-중요한 점은 **derived 종류마다 Rust enum payload를 계속 추가하는 구조를 피하는 것**이다.
+같은 operator identity라도 operand가 없고 result POS가 ADV/CONJ이면 source operator entity이고, parser application 뒤에는 같은 operator identity가 operand를 가지며 result POS가 derived result의 품사가 된다.
+
+예:
 
 ```text
-피할 구조:
-enum DerivedVerb {
-  Insert(...),
-  Rank(...),
-  Hook(...),
-  Fork(...),
-  Power(...),
-  Under(...),
-  Fit(...),
-  Adverse(...),
-  Obverse(...),
-  ...
-}
+/ : Adverb
+  operands = []
+
+/ : Verb
+  operands = [+]
 ```
-
-이 방식은 J modifier vocabulary가 커지고 extension이 늘어날수록 semantic core가 거대한 closed-world enum이 된다.
-
-대신:
 
 ```text
-DerivedEntity {
-  form_id: FunctionFormId,
-  result_pos: PartOfSpeech,
-  operands: small vector of JEntityRef,
-  metadata: typed semantic attachment(s)
-}
+" : Conjunction
+  operands = []
+
+" : Verb
+  operands = [u, r]
 ```
 
-처럼 **registry-driven open form**을 사용한다.
+이 구조는 modifier 수가 늘어도 semantic core에 `Insert/Rank/Power/Under/Fit/...` 식의 거대한 closed enum을 추가하지 않는다. 새 built-in/extension operator는 자신의 identity/POS/semantic contract를 registry에 추가하고, **DAG application shape는 기존 J parser production을 따른다.**
 
-`FunctionFormId`는 jsource의 1-byte `id`를 그대로 복제할 필요는 없다. RustJ 내부의 stable/versioned form identity이며 built-in과 extension form을 모두 가리킬 수 있어야 한다.
+큰 derived expression은 immutable shared handle/`EntityId` DAG로 표현하여 assignment, alias, analysis plan 사이에서 subtree를 복사하지 않는다.
 
-operand 수를 물리적으로 정확히 3개로 제한하지 않는다. jsource의 `fgh[3]`는 매우 효율적인 implementation convention이지만 RustJ semantic model은 future extension/explicit metadata를 위해 small-vector/arena reference를 사용할 수 있다.
-
-**큰 derived expression은 recursive value tree로 복사하지 않는다.** jsource가 A block pointer/reference-count graph를 사용하는 것처럼 RustJ도 immutable shared handle 또는 arena `EntityId` 기반 DAG를 사용한다.
-
-```text
-Fork
-  operands -> EntityId(f), EntityId(g), EntityId(h)
-
-Rank
-  operands -> EntityId(base), EntityId(rank noun)
-
-Power
-  operands -> EntityId(base), EntityId(power operand), optional semantic auxiliary
-
-NameRef
-  name/locale identity
-  expected POS
-```
-
-이렇게 하면 큰 train/derived definition을 assignment/alias/analysis plan 사이에서 복사하지 않고 sharing할 수 있다.
-
-또한 **semantic function object와 execution specialization을 분리**한다.
-
-jsource는 같은 `f/g/h` semantic operands를 유지한 채 `valencefns[]`를 specialized implementation으로 바꿀 수 있다. RustJ에서도 동일하게:
+semantic function identity/operands와 execution specialization도 분리한다. jsource가 동일한 parser-derived function object에 specialized executor를 선택할 수 있듯 RustJ도:
 
 ```text
 Semantic FunctionEntity
-  identity + operands + J semantics
+  parser-derived identity + operands + J semantics
 
         ↓ analyze/lower
 
-Lowering / Runtime candidate
+Logical operation / lowering candidate
   generic implementation
   optimized native implementation
   external IR lowering
@@ -638,10 +685,6 @@ Lowering / Runtime candidate
 ```
 
 로 둔다.
-
-따라서 `FunctionEntity`에 CPU/GPU executor pointer, tile, register count 같은 physical/runtime specialization을 넣지 않는다.
-
-현재 코드의 `VerbModifier::{Insert, Rank}` 및 `reduce/rank` field는 **migration compatibility layer**일 뿐이다. 여기에 J modifier 종류를 계속 추가하지 않는다. 다음 A1 구현에서는 shared `FunctionEntity` graph를 추가하고 legacy fields는 runtime compatibility를 위해 잠시 유지한 뒤 제거한다.
 
 
 ### 3.4 너무 이른 정규화를 금지한다
@@ -655,10 +698,10 @@ Fork(f,g,h)
 Hook(f,g)
     → fully expanded expression
 
-AdverbApplication(/, +)
+AdverbApplication(operator=/, operand=+)
     → Reduce(Add)
 
-RankConjunctionApply(left_entity, right_entity)
+ConjunctionApplication(operator=", left_entity, right_entity)
     → generic MapCells only
 ```
 
@@ -776,7 +819,7 @@ StreamEvent
 - `src/storage.rs`: CPU storage
 - `src/sparse.rs`, `src/bit_storage.rs`: 추가 storage 표현
 
-current jsource의 공통 `V + f/g/h reference graph` 패턴을 확인한 결과, 다음 compiler 구조 작업에서는 현재 `semantic.rs`의 `Verb + modifier flags` 표현을 **shared FunctionEntity graph**로 옮긴다. `analysis.rs`는 이 graph를 직접 분석하고, runtime 호환을 위한 legacy `reduce/rank` field는 migration 기간에만 유지한다.
+current jsource의 **parse reduction table을 DAG shape의 기준**으로 삼고, `V/fgh`는 shared execution-object realization의 cross-check로 사용한다. 현재 `semantic.rs`는 `/`를 ADV, `"`를 CONJ로 token/POS 보존하고 parser row 3/4가 operator-parent FunctionEntity를 만들도록 이전한다. `analysis.rs`는 이 graph를 직접 분석하며 legacy `reduce/rank` field는 runtime compatibility 기간에만 유지한다.
 
 ### 3.7 name resolution과 explicit definition의 호출 의미
 
@@ -3331,7 +3374,14 @@ crossentropy
 예를 들어 고수준의
 
 ```text
-Apply(Fork(Insert(+), %, #), y)
+Apply(
+  Fork(
+    AdverbApplication(operator=/, operand=+),
+    %,
+    #
+  ),
+  y
+)
 ```
 
 는 분석 후 개념적으로 다음과 같은 dataflow가 될 수 있다.
@@ -3813,7 +3863,7 @@ square kernel
 
 ```text
 Apply(
-  DerivedVerb(Insert, Add),
+  AdverbApplication(operator=/, operand=+),
   Map(Square, y)
 )
 ```
@@ -4022,10 +4072,10 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 ### A1 — J Semantic Array IR와 Semantic Analyzer 경계
 
 - [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
-- [ ] jsource의 공통 V/fgh graph 원칙을 참고하여 immutable shared `FunctionEntity` / `JEntityRef` graph를 만든다.
-- [ ] derived form을 거대한 closed enum으로 만들지 않고 versioned `FunctionFormId + operands + typed metadata`로 표현한다.
-- [ ] 큰 derived function assignment/alias가 subtree deep-copy를 만들지 않는 sharing test를 추가한다.
-- [ ] semantic FunctionEntity와 runtime/backend executor specialization을 분리한다.
+- [x] jsource `p.c::cases[]`의 parser function-construction rows를 기준으로 immutable shared `FunctionEntity` graph를 만든다.
+- [x] `/` ADV와 `"` CONJ를 source operator identity로 보존하고 parser application 결과의 parent로 사용한다. modifier별 `Insert/Rank/...` semantic node enum을 만들지 않는다.
+- [x] 큰 derived function/train의 `Arc<FunctionEntity>` sharing test로 subtree deep-copy가 없음을 검증한다.
+- [x] semantic FunctionEntity와 runtime/backend executor specialization의 층을 분리한다.
 - [ ] primitive verb identity와 monad/dyad valence를 명시한다.
 - [ ] Hook / Fork / Train을 first-class semantic node로 표현한다.
 - [ ] adverb/conjunction/hook/trident application으로 생긴 DerivedEntity와 result part of speech(Verb/Adverb/Conjunction)를 보존한다.
@@ -4717,9 +4767,9 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `c.c::ad12`의 `u::v`는 ordinary failure에서 fallback `v`를 실행/반환하지만 throw/exit는 전파한다 | adverse derived verb를 expression-level error-handler semantics로 보존한다 |
 | `c.c::jtobverse`와 inverse logic은 `u:.v`의 second operand를 inverse semantics에 사용한다 | forward dataflow가 같아 보여도 obverse metadata/operand를 dead-code로 제거하지 않는다 |
 | `cf.c`의 bident/trident tables는 noun/verb/adverb/conjunction 조합에서 verb 외에 derived adverb/conjunction도 생성한다 | Semantic IR을 DerivedVerb 중심으로 제한하지 않고 result POS를 가진 `DerivedEntity`로 일반화한다 |
-| `jtype.h`의 `V`는 VERB/ADV/CONJ이 공유하고 `fgh[3]` operand refs, valence entry points, rank, id, flags/local metadata를 가진다 | RustJ derived function도 공통 shared FunctionEntity graph로 표현하고 operand subtree deep-copy를 피한다 |
-| `ja.h::fdef/fdeffill`은 같은 function block에 form id/result POS/operands/executor/rank를 채우며, `cf.c` fork/hook는 operands를 유지한 채 specialized executor를 선택한다 | semantic form/operands와 runtime/backend specialization을 분리한다 |
-| `cr.c`, `ar.c`, `cv.c`, `cp.c`, `cu.c`의 rank/insert/fit/power/under는 동일한 function object shape를 재사용하며 작은 form-specific metadata만 추가한다 | modifier 종류마다 closed Rust enum payload를 늘리지 않고 FunctionFormId + operands + typed attachment로 확장한다 |
+| `p.c::cases[]` row 3/4/5/6은 adverb application, conjunction application, fork, hook의 parser reduction shape를 정의한다 | RustJ Semantic Function DAG의 parent/operand shape도 이 parse production을 기준으로 만든다 |
+| `jtype.h`/`ja.h`의 `V` + `fdef/fdeffill`은 parser reduction 결과를 shared function block으로 realization하고 specialized executor를 선택한다 | shared graph 원칙과 semantic/executor 분리는 채택하되, `fgh`의 execution auxiliary를 source DAG child로 자동 복제하지 않는다 |
+| rank/insert/fit/power/under 등은 parser의 ADV/CONJ application production을 통해 derived function이 되고, jsource execution object는 form별 auxiliary metadata를 추가할 수 있다 | RustJ semantic DAG는 operator identity + parser operands를 보존하고 execution-only auxiliary는 downstream attachment로 분리한다 |
 | `cf.c`는 boxed noun을 특정 modifier 문맥에서 gerund로 해석한다 | gerund를 별도 전역 noun type으로 만들지 않고 boxed noun + contextual GerundSemantics로 보존한다 |
 | parser assignment reduction은 assigned J entity를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 entity-producing effectful expression으로 모델링한다 |
 | `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
@@ -4802,8 +4852,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 59. **Architecture inventory is not a blocking milestone** — TargetProfile/resource/mixed-route의 장기 설계를 유지하되 A1→A3-v0→최소 CPU vertical slice를 먼저 증명한다.
 60. **Unknown access is an optimization barrier, not a semantic error** — AccessRelation이 Opaque여도 valid J semantics와 conservative/runtime lowering 가능성을 유지한다.
 61. **Mixed route is staged** — architecture는 mixed route를 허용하지만 첫 external implementation은 verified single-block region 전체를 한 route로 보낸다.
-62. **Derived functions are graph nodes, not giant enum trees** — large hook/fork/modifier compositions are shared FunctionEntity/JEntityRef DAG nodes keyed by open `FunctionFormId`.
-63. **Semantic form and executor specialization are separate** — a derived function's operands/latent J semantics survive even when native/external lowering selects a specialized executor.
+62. **Parser rules define the Function DAG** — ADV/CONJ application과 hook/fork의 parent/operand shape는 jsource parser reduction 규칙을 따르며 modifier별 독자 AST shape를 발명하지 않는다.
+63. **Parse operands and executor auxiliaries are separate** — semantic DAG에는 parser operands/J semantics를 보존하고 jsource `fgh/localuse`의 실행 최적화 보조 객체를 자동 semantic child로 승격하지 않는다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4819,7 +4869,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 실제 책임과 목표 architecture의 차이를 표로 만든다.
 2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived entity, gerund interpretation, rank, nameref를 얼마나 보존하는지 감사한다.
-3. 첫 slice에 필요한 최소 `J Semantic Array IR`을 `FunctionEntity/JEntityRef` shared graph로 명시한다. current `VerbModifier` enum은 더 확장하지 않는다.
+3. 첫 slice의 `J Semantic Array IR`은 jsource parser row 3/4/5/6가 만든 shared `FunctionEntity` graph로 명시한다. modifier별 special semantic node를 추가하지 않는다.
 4. 다음 semantic golden을 우선 고정한다.
    - primitive valence
    - reduction-derived verb
@@ -4835,7 +4885,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 현재 코드에 다음 migration seam이 들어갔다.
 
 - [x] primitive/name function identity를 `Arc<FunctionEntity>` shared handle로 표현
-- [x] insert(`/`)와 rank(`"`)가 operand function/noun을 graph로 보존
+- [x] lexer가 `/`를 ADV, `"`를 CONJ로 분류하고 parser row 3/4 reduction이 operator-parent graph를 만든다
 - [x] isolated pure verb train을 jsource 규칙대로 오른쪽부터 fork, 짝수 길이는 최종 hook으로 구성
 - [x] hook/fork graph가 큰 train에서 subtree deep-copy 없이 공유됨
 - [x] Semantic Analyzer가 canonical fork `(+/ % #) y`를 `Tally → Reduce(+) → Divide` logical calls로 낮추면서 jsource-compatible observable order edge를 보존
@@ -4846,12 +4896,12 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 - [ ] ordinary name parser-time POS를 noun/verb/adverb/conjunction 전체로 일반화
 - [ ] derived adverb/conjunction 및 modifier train
-- [ ] `FunctionFormId` registry/typed metadata interface
+- [ ] built-in/extension ADV·CONJ operator identity/POS registry와 typed semantic contract interface
 - [ ] legacy `VerbTarget/reduce/rank` runtime compatibility field 제거
 - [ ] function graph 안의 rank/fit/adverse/obverse 등 더 많은 J form을 registry-driven analysis로 이전
 - [ ] explicit definition/locale/gerund 전체 의미
 
-현재 `FunctionEntity.operands`는 v0 단순성을 위해 `Vec`를 사용한다. jsource의 inline `fgh[3]`처럼 대부분의 J form이 3개 이하 operand라는 사실을 이용한 **inline-3 + rare spill** 최적화는 large-train memory profile을 측정한 뒤 적용한다. semantic interface는 operand storage representation에 의존하지 않는다.
+현재 `FunctionEntity.operands`는 v0 단순성을 위해 `Vec`를 사용한다. 대부분 parser productions가 1–3 semantic operand를 갖지만, jsource `fgh[3]`의 slot layout 자체를 semantic ABI로 채택하지 않는다. **inline-small-vector + rare spill** 같은 저장 최적화는 large-train memory profile을 측정한 뒤 적용할 수 있다.
 
 ### 16.2 Proof Slice 1 — A3-v0 verified Logical IR
 
@@ -4880,8 +4930,12 @@ ConstraintSet + compile-time Witness: minimum
 
 ```text
 J Semantic IR
-  Fork(Insert(+), %, #)
-        ↓ analyzer
+  Fork
+  ├─ / : Verb
+  │   └─ + : Verb
+  ├─ % : Verb
+  └─ # : Verb
+        ↓ Semantic Analyzer
 Logical IR
   Reduce(+)
   Tally
