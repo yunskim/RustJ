@@ -179,10 +179,11 @@ impl Engine {
         depth: usize,
     ) -> Result<Value> {
         use crate::semantic::ExprKind as Expr;
+        let span = expr.span.clone();
         if depth > crate::semantic::MAX_EXPR_DEPTH {
-            return Err(Error::Limit);
+            return Err(Error::Limit.at(span));
         }
-        match expr.kind {
+        let result = match expr.kind {
             Expr::Group(inner) => self.interpret_ir(*inner, pooled, depth + 1),
             Expr::Literal(v) => Ok(v),
             Expr::VerbValue(_) => Err(Error::Domain),
@@ -228,6 +229,7 @@ impl Engine {
                     kernels::dyad(verb.id.spelling(), x, y)
                 }
             }
-        }
+        };
+        result.map_err(|error| error.at(span))
     }
 }
