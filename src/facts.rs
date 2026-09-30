@@ -153,6 +153,8 @@ pub struct CellApplyLayer {
     pub repeated_side: Option<RepeatedSide>,
     /// None means the known dyadic frames fail J prefix agreement.
     pub result_frame: Option<Vec<usize>>,
+    /// Logical number of frame iterations. None means agreement/size is unresolved.
+    pub iteration_count: Option<usize>,
     pub requires_empty_frame_prototype: bool,
 }
 
@@ -242,6 +244,10 @@ fn dyad_frame_details(
     }
 }
 
+fn iteration_count(frame: Option<&[usize]>) -> Option<usize> {
+    frame?.iter().try_fold(1usize, |count, &extent| count.checked_mul(extent))
+}
+
 fn plan_layer(
     boundary: CellApplyBoundary,
     requested: crate::contracts::RankContract,
@@ -258,6 +264,7 @@ fn plan_layer(
         let (common, left_residual, right_residual, repeated_side, result_frame) =
             dyad_frame_details(&left_frame, &right_frame);
         let empty = result_frame.as_ref().is_some_and(|frame| frame.contains(&0));
+        let count = iteration_count(result_frame.as_deref());
         let layer = CellApplyLayer {
             boundary,
             requested,
@@ -273,6 +280,7 @@ fn plan_layer(
             right_residual_frame: right_residual,
             repeated_side,
             result_frame,
+            iteration_count: count,
             requires_empty_frame_prototype: empty,
         };
         Some((layer, Some(cell(left, left_cell)), cell(right, right_cell)))
@@ -294,6 +302,7 @@ fn plan_layer(
             left_residual_frame: Vec::new(),
             right_residual_frame: Vec::new(),
             repeated_side: None,
+            iteration_count: iteration_count(Some(&right_frame)),
             result_frame: Some(right_frame),
             requires_empty_frame_prototype: empty,
         };
