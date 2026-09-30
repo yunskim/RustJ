@@ -548,6 +548,27 @@ assignment도 구분한다.
 =:   locale/public assignment semantics
 ```
 
+두 copula 모두 namespace write effect만 있는 void statement로 모델링하지 않는다. J sentence 안에서 assignment는 **assigned value를 결과로 남겨 다른 표현과 결합될 수 있다.**
+
+```text
+AssignmentExpr
+  target
+  kind: Local (=.) | Public (=:)
+  value
+  effect: namespace write
+  result: assigned value
+```
+
+따라서 assignment lowering은:
+
+```text
+value = evaluate RHS
+write binding(target, value)
+return value
+```
+
+라는 value+effect 의미를 함께 보존한다. physical in-place assignment optimization은 이 semantic result를 바꾸면 안 된다.
+
 direct/explicit definition의 structured control flow는 장기 Logical IR의 Region/Block으로 낮출 수 있지만, 이 lowering 때문에 다음 의미를 잃으면 안 된다.
 
 - monad/dyad body 구분
@@ -588,6 +609,7 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 - pure subexpression은 dependency/effect proof 뒤 graph로 재배열 가능
 - name lookup, assignment, locale mutation, dynamic execute, I/O 등은 `EffectToken` 또는 동등한 semantic sequencing edge를 가져야 함
 - noun value snapshot과 function nameref late lookup의 시점 차이를 보존
+- assignment는 namespace write effect와 동시에 assigned value를 산출하므로 value-flow와 effect-flow 양쪽에 나타남
 - optimization이 name/effect boundary를 넘어갈 때 legality proof가 필요
 
 즉 **J의 우측→좌측 parser implementation을 복제하는 것이 목표가 아니라, 그 구현이 만들어내는 observable evaluation/binding order를 IR에 보존하는 것**이 목표다.
@@ -3404,6 +3426,7 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 - nameref는 생성 시 기대한 part of speech를 보존하고, 실행 시 current lookup 결과의 품사가 달라지면 J처럼 domain error가 되어야 한다.
 - name/version 정보를 IR과 plan guard에 반영해야 한다.
 - 한 sentence의 모든 name을 문장 시작 시점 environment로 일괄 resolve하지 않는다. 우측→좌측 evaluation/assignment가 만든 namespace mutation 시점을 보존한다.
+- `=.`/`=:`는 binding을 갱신하면서 assigned value도 반환하므로 statement-only IR로 축소하지 않는다.
 - parser가 깊은 식에서 임의의 작은 recursion/height 한계로 J 의미를 바꾸지 않도록 한다.
 
 ### 9.6 direct / explicit definition
@@ -3465,6 +3488,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] explicit definition의 DefinitionCode와 invocation CallFrame을 분리한다.
 - [ ] local slot hint와 실제 local binding을 구분하고 unbound local candidate의 locale fallback을 보존한다.
 - [ ] `=.` local assignment와 `=:` public/locale assignment를 구분한다.
+- [ ] assignment가 namespace write effect와 assigned-value result를 동시에 갖는지 테스트한다.
 - [ ] primitive contract를 semantic node에 연결한다.
 - [ ] J dyadic rank의 prefix frame agreement와 residual-frame repetition을 명시적으로 테스트한다.
 - [ ] zero-cell rank execution의 fill-cell/prototype result type·shape semantics를 테스트한다.
@@ -4111,6 +4135,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `p.c` parser가 NAME을 stack할 때 local/locale lookup하고 noun은 value, 일반 ACV는 nameref로 처리한다 | noun snapshot과 function-name late binding을 분리한다 |
 | `sc.c` nameref 실행은 현재 lookup value의 part of speech가 reference 생성 시 기대한 품사와 같은지 검사한다 | `NameRef.expected_part_of_speech`를 보존하고 mismatch는 domain error로 처리한다 |
 | `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
+| parser assignment reduction은 assigned value를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 value-producing effectful expression으로 모델링한다 |
 | `cr.c` rank dyad는 frame prefix agreement를 검사하고 residual frame에 cell을 반복한다 | NumPy broadcasting으로 대체하지 않는다 |
 | `cr.c`는 zero cells에서 fill-cell을 실행해 result cell type/shape를 정한다 | zero-trip elimination 전에 fill/prototype semantics를 해결한다 |
 | `result.h`는 rank/modifier의 cell results가 type/shape 불일치하면 homogeneous fast path에서 assembly path로 전환하고 type/shape join + framing fill을 수행한다 | rank map을 항상 static uniform tensor map으로 가정하지 않고 `RankAssemblySemantics`를 보존한다 |
@@ -4174,6 +4199,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 44. **Nameref keeps expected POS** — late lookup은 허용하지만 reference 생성 시의 verb/adverb/conjunction 품사 계약을 버리지 않으며 mismatch는 J의 domain error semantics를 따른다.
 45. **Sentence environment is not pre-snapshotted** — 우측→좌측 evaluation 중 name lookup/assignment/locale mutation의 observable sequencing을 보존한다.
 46. **Rank map is not always fixed-shape** — per-cell result type/shape uniformity를 증명하지 못하면 J의 result assembly/type join/framing fill semantics를 보존한다.
+47. **Assignment is value + effect** — `=.`/`=:`를 void statement로 낮추지 않고 binding mutation과 assigned-value result를 함께 보존한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4194,7 +4220,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
-10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, same-sentence assignment/name lookup sequencing, prefix agreement, empty fill-cell, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
+10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, prefix agreement, empty fill-cell, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
 11. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
 12. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
 13. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
