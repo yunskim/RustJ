@@ -58,3 +58,11 @@ For every implementation change:
 - Preserve the expected part of speech carried by a J nameref; late lookup that resolves to a different noun/verb/adverb/conjunction class must follow J's domain-error semantics.
 - Do not pre-snapshot all name bindings at sentence start; preserve observable right-to-left name lookup, assignment, locale mutation, and effect sequencing.
 - Do not lower ranked cell application to a fixed-shape parallel map unless uniform result-cell type/shape is proven; otherwise preserve J rank-result assembly, type/shape joining, framing fill, and assembly-error semantics.
+
+- Preserve J-visible errors as potential control flow: try/catch/throw and adverse (`::`) semantics must not be collapsed into fatal diagnostics when a handler can observe them.
+- Preserve hook/fork/train observable name/effect/error ordering until purity/speculation proof permits reordering or parallelization.
+- Do not erase latent derived semantics such as adverse error fallback or obverse (`:.`) inverse metadata merely because forward dataflow appears equivalent.
+- Model derived J entities with their resulting part of speech; parser construction can yield derived verbs, adverbs, or conjunctions.
+- Treat gerunds as contextually interpreted boxed nouns, not as a new global noun type.
+- Key hardware lowering by resolved semantic operation, including valence and relevant rank/fit/numeric/effect policies; raw primitive spelling/id is insufficient.
+- Keep primitive innate rank contracts valence-specific (monad, dyad-left, dyad-right).
