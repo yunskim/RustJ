@@ -58,7 +58,7 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
     for span in spans {
         let word = source
             .get(span.clone())
-            .ok_or_else(|| Error::Unsupported("non-ASCII word".into()))?;
+            .ok_or_else(|| Error::Unsupported("non-ASCII word".into()).at(span.clone()))?;
         if word.starts_with("NB.")
             && !word
                 .as_bytes()
@@ -67,63 +67,63 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
         {
             continue;
         }
-        let token;
-        macro_rules! emit {
-            ($value:expr) => {
-                token = $value
+
+        let token = (|| -> Result<Token<'_>> {
+            let fixed = match word {
+                "=:" => Some(Token::Assign),
+                "(" => Some(Token::Open),
+                ")" => Some(Token::Close),
+                _ => crate::primitive::PrimitiveId::from_spelling(word)
+                    .map(Token::Verb)
+                    .or_else(|| crate::primitive::AdverbId::from_spelling(word).map(Token::Adverb))
+                    .or_else(|| {
+                        crate::primitive::ConjunctionId::from_spelling(word).map(Token::Conjunction)
+                    }),
             };
-        }
-        let fixed = match word {
-            "=:" => Some(Token::Assign),
-            "(" => Some(Token::Open),
-            ")" => Some(Token::Close),
-            _ => crate::primitive::PrimitiveId::from_spelling(word)
-                .map(Token::Verb)
-                .or_else(|| crate::primitive::AdverbId::from_spelling(word).map(Token::Adverb))
-                .or_else(|| {
-                    crate::primitive::ConjunctionId::from_spelling(word).map(Token::Conjunction)
-                }),
-        };
-        if let Some(token) = fixed {
-            emit!(token);
-        } else if word.starts_with("NB..") || word.starts_with("NB.:") {
-            return Err(Error::Spelling);
-        } else if word.starts_with('\'') {
-            let bytes = word.as_bytes();
-            let mut value = Vec::new();
-            let mut i = 1;
-            while i + 1 < bytes.len() {
-                value.push(bytes[i]);
-                i += if bytes[i] == b'\'' { 2 } else { 1 };
+            if let Some(token) = fixed {
+                return Ok(token);
             }
-            if value.len() == 1 {
-                emit!(Token::Scalar(Scalar::Char(value[0])));
-            } else {
-                emit!(Token::Noun(Box::new(Value::new(
+            if word.starts_with("NB..") || word.starts_with("NB.:") {
+                return Err(Error::Spelling);
+            }
+            if word.starts_with('\'') {
+                let bytes = word.as_bytes();
+                let mut value = Vec::new();
+                let mut i = 1;
+                while i + 1 < bytes.len() {
+                    value.push(bytes[i]);
+                    i += if bytes[i] == b'\'' { 2 } else { 1 };
+                }
+                if value.len() == 1 {
+                    return Ok(Token::Scalar(Scalar::Char(value[0])));
+                }
+                return Ok(Token::Noun(Box::new(Value::new(
                     [value.len()],
                     Data::Char(CpuStorage::new(value)),
                 )?)));
             }
-        } else if word.as_bytes()[0].is_ascii_digit() || word.starts_with('_') {
-            if word.ends_with(':') {
-                return Err(Error::Unsupported(format!("constant verb {word}")));
-            }
-            let literal = word;
-            let fields = word.split_ascii_whitespace().count();
-            let is_float = literal
-                .split_ascii_whitespace()
-                .any(|s| s.contains(['.', 'e', 'E']) || s == "_" || s == "__");
-            if fields == 1 {
-                let value = if is_float {
-                    Scalar::Float(parse_float(literal)?)
-                } else {
-                    match parse_int(literal)? {
-                        x @ (0 | 1) => Scalar::Bool(x != 0),
-                        x => Scalar::Int(x),
-                    }
-                };
-                emit!(Token::Scalar(value));
-            } else {
+            if word.as_bytes()[0].is_ascii_digit() || word.starts_with('_') {
+                if word.ends_with(':') {
+                    return Err(Error::Unsupported(format!("constant verb {word}")));
+                }
+                let literal = word;
+                let fields = word.split_ascii_whitespace().count();
+                let is_float = literal
+                    .split_ascii_whitespace()
+                    .any(|part| {
+                        part.contains(['.', 'e', 'E']) || part == "_" || part == "__"
+                    });
+                if fields == 1 {
+                    let value = if is_float {
+                        Scalar::Float(parse_float(literal)?)
+                    } else {
+                        match parse_int(literal)? {
+                            x @ (0 | 1) => Scalar::Bool(x != 0),
+                            x => Scalar::Int(x),
+                        }
+                    };
+                    return Ok(Token::Scalar(value));
+                }
                 let data = if is_float {
                     Data::Float(CpuStorage::new(
                         literal
@@ -132,34 +132,38 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
                             .collect::<Result<Vec<_>>>()?,
                     ))
                 } else {
-                    let v = literal
+                    let values = literal
                         .split_ascii_whitespace()
                         .map(parse_int)
                         .collect::<Result<Vec<_>>>()?;
-                    if v.iter().all(|&n| n == 0 || n == 1) {
-                        Data::Bool(CpuStorage::new(v.into_iter().map(|n| n as u8).collect()))
+                    if values.iter().all(|&n| n == 0 || n == 1) {
+                        Data::Bool(CpuStorage::new(
+                            values.into_iter().map(|n| n as u8).collect(),
+                        ))
                     } else {
-                        Data::Int(CpuStorage::new(v))
+                        Data::Int(CpuStorage::new(values))
                     }
                 };
-                emit!(Token::Noun(Box::new(Value::new(
+                return Ok(Token::Noun(Box::new(Value::new(
                     Shape::from([fields]),
                     data,
                 )?)));
             }
-        } else if word.as_bytes()[0].is_ascii_alphabetic()
-            && word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        {
-            if word.contains('_') {
-                return Err(Error::Unsupported("locatives and underscore names".into()));
+            if word.as_bytes()[0].is_ascii_alphabetic()
+                && word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                if word.contains('_') {
+                    return Err(Error::Unsupported("locatives and underscore names".into()));
+                }
+                return Ok(Token::Name(word));
             }
-            emit!(Token::Name(word));
-        } else {
-            return Err(Error::Unsupported(format!(
+            Err(Error::Unsupported(format!(
                 "word {word:?} at byte {}",
                 span.start
-            )));
-        }
+            )))
+        })()
+        .map_err(|error| error.at(span.clone()))?;
+
         out.push(SpannedToken { span, token });
     }
     Ok(out)
