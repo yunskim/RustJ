@@ -365,8 +365,6 @@ Logical IR Node
        └─ constraints
         ↓
 Optimizer / Route / Schedule / Physical Plan
-        ↓
-Optimizer / Route / Schedule / Physical Plan
 ```
 
 즉 **J semantic graph는 원본 의미의 기준**이고, 각 stage의 node가 그 stage에서 안정적인 정보를 직접 소유한다. side table은 비싸거나 재계산 가능한 보조 분석의 cache로만 사용하며, 재귀적 semantic 분석에 필요한 intrinsic 정보의 주 저장소로 삼지 않는다.
@@ -807,39 +805,77 @@ RustJ
 
 따라서 frontend 단계에서 차이가 허용되는 것은 **representation과 implementation technique**뿐이다. J-visible word formation/classification/parsing behavior는 compatibility 대상이다.
 
-#### 3.3.2.2 Compiler/interpreter/JIT 공통 source diagnostics
+#### 3.3.2.2 Compiler/interpreter/JIT 공통 structured diagnostics
 
-source provenance는 compiler 전용 부가기능이 아니라 frontend semantic infrastructure다. lexer/enqueuer/parser가 만든 byte span을 Semantic IR과 이후 IR origin에 유지하고, AOT compiler·interpreter·JIT가 동일한 diagnostic renderer를 사용한다.
+source provenance는 compiler 전용 부가기능이 아니라 frontend semantic infrastructure다. 최신 J의 `d.c` + `eformat_j_` 구조를 참고해 **J error class와 실패 당시의 semantic context를 분리하여 보존한 뒤, 별도 DiagnosticAnalyzer가 설명을 생성**한다. parser conformance 기준 revision은 그대로 유지하고, diagnostic design은 2026-09-30 current jsource master(`1d43f4eb7e43c8243f64dc4e6f31afde4e19d6a9`)의 error-context/eformat 구조도 참고한다.
 
 ```text
-J error class + SourceSpan
+J-compatible ErrorKind
+  syntax / domain / length / rank / ...
+        +
+ErrorContext
+  phase
+  SourceSpan
+  original word index
+  current name
+  executing semantic operation
+  valence
+  small x/y summaries
+  structured notes/cause
+        ↓
+DiagnosticAnalyzer
+  generic semantic explanation
+  primitive-specific analyzer
+  parser/enqueue explanation
         ↓
 Diagnostic
-  source name
-  line / column
-  source line
-  caret/range marker
-  readable error class
         ↓
-AOT / interpreter / JIT / REPL
+Python-style Renderer
+  File / line / column
+  source excerpt
+  caret/range
+  readable class
+  executing fragment
+  argument facts
+  semantic explanation
+        ↓
+AOT compiler / interpreter / JIT / REPL
 ```
 
-machine-readable J error class(`syntax error`, `rank error`, `domain error` 등)은 바꾸지 않는다. human-facing renderer만 Python과 유사하게 표시한다.
+예:
 
 ```text
-  File "model.ijs", line 12, column 9
-    mean =: (+/ % #) )
-                      ^
-SyntaxError: unexpected )
+  File "model.ijs", line 27, column 14
+    z =: x +"1 y
+             ^~~
+
+LengthError: length error
+  during execution
+  while executing dyad +"1
+  x: type 4, rank 2, shape [2, 3]
+  y: type 4, rank 2, shape [4, 3]
+  argument shapes [2, 3] and [4, 3] do not conform
 ```
 
-원칙:
+최신 J에서 가져올 핵심은 표시 모양 자체보다 다음 구조다.
 
-- 내부 provenance는 UTF-8 byte span을 canonical representation으로 사용한다.
+- parser stack이 original token number를 유지하고 오류 시 blame token을 추론한다.
+- enqueue/parse/execution/assembly 등 **실패 phase**를 구분한다.
+- 실행 중인 entity와 monad/dyad valence를 보존한다.
+- rank/shape/type/value/index 같은 실제 argument context를 이용해 terse error보다 구체적인 설명을 만든다.
+- error formatter가 큰 noun을 복사하거나 hash table을 만들지 않도록 한다.
+- formatting/analyzer 오류가 원래 J error를 덮어쓰지 않는다.
+
+RustJ 원칙:
+
+- 내부 provenance는 UTF-8 byte span을 canonical representation으로 사용하고 original enqueue-word index를 별도로 보존한다.
 - 표시할 때 1-based line과 Unicode-scalar column으로 변환한다.
-- 가장 안쪽 단계가 붙인 정확한 span을 outer compiler/runtime layer가 덮어쓰지 않는다.
-- runtime kernel error도 실행 중인 semantic/logical operation의 source origin으로 돌아갈 수 있어야 한다.
-- JSON/conformance API의 J error kind는 기존 machine contract를 유지한다.
+- 가장 안쪽 단계가 붙인 정확한 context를 outer compiler/runtime layer가 덮어쓰지 않는다.
+- `ErrorContext.arguments`에는 전체 array가 아니라 type/shape/rank 등 작은 summary만 둔다.
+- primitive-specific analyzer가 필요한 경우 structured failure detail을 추가하되 J machine error class는 바꾸지 않는다.
+- JSON/conformance API와 기존 `eval()/analyze()`는 wrapper를 제거한 J-compatible machine error를 반환한다.
+- `parse_diagnostic()/eval_diagnostic()/analyze_diagnostic()`은 같은 semantics를 실행하면서 context를 유지한다.
+- runtime kernel error와 향후 physical backend error도 semantic/logical operation의 source origin으로 돌아갈 수 있어야 한다.
 - 향후 multi-file/import/definition이 생기면 `SourceId + byte span`으로 일반화한다.
 - interpreter/JIT용 별도 error system을 만들지 않는다.
 
@@ -5564,6 +5600,29 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - jsource와 의도적으로 다른 observable parser behavior가 필요해지면 구현 전에 rationale과 semantic impact를 이 문서에 기록한다.
 - downstream IR 요구사항은 P8/A1/A2/A3에 추가하고 parser entity에 임시 compiler field로 밀어 넣지 않는다.
 
+
+### A0.6 — Structured diagnostic context
+
+- [x] J-compatible machine error와 diagnostic provenance/context를 분리한다.
+- [x] `ErrorContext`에 phase/span/original word index/current name/operation/valence/argument summary/notes를 표현할 수 있게 한다.
+- [x] inner context 우선 merge 규칙을 만들어 outer stage가 더 정확한 span/blame/context를 덮어쓰지 않게 한다.
+- [x] `DiagnosticAnalyzer`와 Python-style renderer를 분리한다.
+- [x] enqueue word에 original word index를 보존하고 parser diagnostic으로 전달하기 시작한다.
+- [x] runtime monad/dyad failure에 executing primitive, valence, x/y type/shape/rank summary를 붙인다.
+- [x] interpreter execution과 compiler `analyze_diagnostic`이 동일 context/error infrastructure를 사용한다.
+- [x] stable `eval()/analyze()/parse()` machine API는 context wrapper를 제거하고 기존 J error variant/kind를 유지한다.
+- [ ] F1 `EnqueuedWord`가 span과 original word index를 canonical provenance로 직접 소유하게 한다.
+- [ ] F2 parser stack entry가 original word index를 모든 reduction 동안 보존하고 jsource `infererrtok`에 대응하는 blame inference를 구현한다.
+- [ ] Hook/Fork/derived modifier 실행 시 failing semantic entity의 compact linear representation을 diagnostic context에 넣는다.
+- [ ] rank/agreement failure analyzer가 effective cell/frame facts를 사용해 J처럼 어느 frame/shape가 불일치하는지 구조적으로 설명한다.
+- [ ] index error analyzer가 offending selector/index/path를 작은 structured detail로 보존하고 설명한다.
+- [ ] domain error analyzer가 primitive contract와 argument dtype/value summary를 이용해 구체적 원인을 설명한다.
+- [ ] assembly error analyzer가 cell-result type/shape join failure 위치를 설명한다.
+- [ ] lowering/backend failure도 Logical IR source origin + semantic operation context로 동일 renderer에 연결한다.
+- [ ] diagnostic context가 큰 noun payload를 소유/복사하지 않는지 테스트한다.
+- [ ] 최신 J error corpus의 대표 사례를 RustJ diagnostic golden으로 추가하되 문구 자체보다 semantic information completeness를 검증한다.
+
+**완료 조건:** AOT/interpreter/JIT/backend 어느 경로에서 실패해도 J error class는 안정적으로 유지되고, 동일한 structured context → analyzer → renderer 경로로 source 위치와 semantic 원인을 설명할 수 있다.
 
 ### A1 — J Semantic Array IR와 Semantic Analyzer 경계
 
