@@ -1720,6 +1720,74 @@ CostEstimate
 
 따라서 primitive registry에 `registers=32`처럼 넣지 않는다. primitive/capability는 `output마다 accumulator가 필요`, `이 축은 reduction`, `이 input tile은 재사용됨`, `logical collective가 필요` 같은 구조만 제공한다.
 
+#### 4.19.0 ResourceEstimate derivation invariants
+
+과거 `primitive_blackbox_resource_composition.md`의 핵심 원칙을 현행 resource model에 유지한다.
+
+**register pressure는 primitive별 register 숫자의 합이 아니다.**
+
+```text
+register pressure
+  = max over scheduled execution points(
+      simultaneously-live register-class values
+    )
+```
+
+따라서 다음이 필요하다.
+
+- scheduled def/use와 last-use
+- fused producer value의 lifetime
+- branch/join에서 동시에 살아 있는 값
+- reduction accumulator lifetime
+- vector/tile temporaries
+- backend lowering이 추가하는 temporary
+
+두 primitive가 각각 register 10개를 쓴다고 해도 lifetime이 겹치지 않으면 peak는 20이 아니라 10에 가까울 수 있고, 반대로 producer value를 오래 유지하면 20을 넘을 수도 있다.
+
+**accumulator requirement도 primitive 고정 숫자가 아니다.**
+
+```text
+AccumulatorRequirement
+  logical reduction/output relation
+  accumulator dtype constraints
+  partial-reduction semantics
+
+AccumulatorRealization
+  outputs per lane/thread
+  partial sums per output
+  vector/matrix instruction choice
+  register vs scratchpad staging
+```
+
+**scratchpad/shared/LDS requirement도 tile/staging의 함수**다.
+
+```text
+ScratchpadUsage
+  = S(access reuse,
+      tile shape,
+      pipeline stages,
+      buffering strategy,
+      target allocation rules)
+```
+
+**memory traffic은 materialized logical edge와 physical representation을 함께 본다.** fused-away intermediate는 독립 external-memory write/read가 없을 수 있지만, cache/L2 hit 여부와 실제 DRAM transaction은 CostEstimate/measurement 영역이다.
+
+따라서 resource model은 하나의 scalar `resource_cost`로 너무 일찍 축약하지 않는다.
+
+```text
+ResourceEstimate
+  register classes
+  scratchpad/shared
+  live materialized bytes
+  external-memory traffic amount
+  synchronization/work counts
+  occupancy/concurrency bounds
+  ...
+```
+
+후보 ranking에서만 CostEstimate가 이 여러 축을 target-dependent performance metric으로 결합한다.
+
+
 #### 4.19.1 Backend compiled-resource feedback
 
 register allocation과 spill은 최종 backend lowering의 영향을 크게 받으므로 planner의 사전 추정만으로 완전히 확정할 수 없다.
@@ -1981,9 +2049,35 @@ physical side:
 
 ### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
 
-`JAXA-complier`의 마지막 prototype registry에는 `conv`, `depthwise_conv`, `linear`, `bn`, `ln`, `adam`, `cp`, `flatten`, `relu`, `gelu`, `softmax`, `scaled_dot_product_attn`, `crossentropy`, `avgpool2d`, `maxpool2d`, `dropout`이 있었다.
+`JAXA-complier`의 마지막 prototype registry는 source-level 품사까지 가지고 있었다.
 
-이 목록을 그대로 RustJ의 확정 vocabulary로 간주하지 않는다. **역사적 candidate inventory**다.
+**Parameterized adverb 후보**
+
+```text
+conv
+depthwise_conv
+linear
+bn
+ln
+adam
+cp
+avgpool2d
+maxpool2d
+dropout
+```
+
+**Verb 후보**
+
+```text
+flatten
+relu
+gelu
+softmax
+scaled_dot_product_attn
+crossentropy
+```
+
+이 목록과 당시 rank field를 그대로 RustJ의 확정 vocabulary/contract로 간주하지 않는다. **역사적 candidate inventory**다. 중요한 것은 source-level J 품사를 보존하고, parameterized adverb가 실제 parameter noun을 받은 뒤 derived computational contract를 생성한다는 구조다.
 
 새 RustJ registry에 들어가려면 최소한 part of speech/valence, innate rank, parameter schema, shape/dtype/numeric rule, iteration domain, axis semantics, access relations, dependency/effect/alias contract, semantic reference 또는 충분한 semantic specification, conservative execution/lowering path, 필요한 realization/resource requirement model을 갖춰야 한다.
 
@@ -2668,6 +2762,9 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] whole-program route 선택이 아니라 subgraph/region 단위 `RoutePartition`과 boundary value bridge를 정의한다.
 - [ ] StableHLO로 안전하게 내릴 수 있는 subset을 명시하고 unsupported semantics를 거부하는 규칙을 만든다.
 - [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
+- [ ] register estimate는 primitive별 합이 아니라 scheduled liveness peak로 계산한다.
+- [ ] accumulator requirement(logical)와 accumulator realization(schedule/target)을 분리한다.
+- [ ] scratchpad/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
 - [ ] alias/shadow/rebind를 거쳐도 J name semantics와 extension identity가 올바르게 보존되는 테스트를 추가한다.
 - [ ] mutable extension state가 hidden verb field가 아니라 explicit StateResource로 나타나는 테스트를 추가한다.
