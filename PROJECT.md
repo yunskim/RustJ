@@ -409,34 +409,88 @@ jsource 주석은 `fgh[3]`의 `h`가 fork에 사용된다고 명시한다. `jtfo
 ```text
 JEntity
 ├─ Noun
-│   └─ ArrayValue
+│   ├─ Dense / Boxed / Sparse / ...
+│   └─ GerundInterpretation when a modifier context requires it
 ├─ Verb
 │   ├─ PrimitiveVerb
-│   ├─ DerivedVerb
-│   │   ├─ Hook
-│   │   ├─ Fork
-│   │   ├─ Train
-│   │   ├─ AdverbDerived
-│   │   ├─ ConjunctionDerived
-│   │   ├─ RankConjunctionDerived
-│   │   └─ other modifier-derived forms
 │   ├─ ExplicitVerb
-│   ├─ NameRef
-│   └─ CustomVerb
+│   └─ extension/custom verb
 ├─ Adverb
-└─ Conjunction
+│   ├─ PrimitiveAdverb
+│   └─ extension/custom adverb
+├─ Conjunction
+│   ├─ PrimitiveConjunction
+│   └─ extension/custom conjunction
+├─ NameRef(expected_part_of_speech)
+└─ DerivedEntity
+    ├─ result_part_of_speech
+    ├─ Hook / Fork / Train
+    ├─ AdverbApplication
+    ├─ ConjunctionApplication
+    ├─ RankConjunctionApplication
+    ├─ Adverse / Obverse / Power / Agenda / Under / ...
+    └─ operands: JEntity...
 ```
 
 실제 Rust enum을 이 모양 그대로 만들라는 뜻은 아니다. 중요한 것은 다음 invariants다.
 
-1. primitive와 derived verb의 identity를 보존한다.
+1. primitive와 **derived entity(verb/adverb/conjunction)**의 identity와 result part of speech를 보존한다.
 2. hook/fork/train의 operand 관계를 보존한다.
-3. modifier와 operand의 관계를 보존한다.
+3. modifier와 operand의 관계를 보존하고, modifier application 결과가 항상 verb라고 가정하지 않는다.
 4. monad/dyad valence를 보존한다.
 5. rank가 계산 의미에 미치는 정보를 Semantic Analyzer가 볼 수 있어야 한다.
    `"`의 left/right operand가 verb/noun/gerund/verb-rank form 중 무엇인지 분석 전에 보존한다.
 6. name reference와 binding/version이 의미에 영향을 주면 분석 가능한 형태로 보존한다.
 7. source span은 진단을 위해 유지한다.
+
+#### 3.3.1 derived entity는 verb로 한정하지 않는다
+
+current jsource의 hook/bident/trident construction(`cf.c`)은 input part-of-speech 조합에 따라 결과로 verb뿐 아니라 adverb/conjunction도 만든다.
+
+따라서:
+
+```text
+derive(form, operands)
+  -> JEntity {
+       result_part_of_speech,
+       form,
+       operands
+     }
+```
+
+가 기본 모델이고, `DerivedVerb`는 그중 result POS가 Verb인 경우의 convenience view로 본다.
+
+예를 들어 semantic frontend가:
+
+```text
+ADV + ADV + VERB
+CONJ + VERB + CONJ
+NOUN + CONJ + ADV
+...
+```
+
+같은 합법 조합을 parser 규칙에 따라 처리했을 때 그 구조와 결과 POS를 표현할 수 있어야 한다. 특정 compiler optimization이 지원하지 않는다고 해서 parser/semantic IR 단계에서 syntax-invalid로 축소하지 않는다.
+
+#### 3.3.2 gerund는 새 atom type이 아니라 contextually interpreted noun이다
+
+J gerund는 일반적으로 boxed noun 표현이며 특정 modifier(`@.`, `^:`, grave 계열, rank의 noun form 등)가 그 noun을 function/entity sequence로 해석한다.
+
+따라서:
+
+```text
+Boxed Noun
+  + modifier-specific gerund interpretation
+      ↓
+GerundView / GerundSemantics
+  referenced entities / names
+  ordering / selection semantics
+```
+
+로 다룬다.
+
+boxed noun 자체를 전역적으로 `Gerund`라는 별도 J type으로 바꾸지 않는다. 같은 boxed value가 ordinary data로 쓰이는 문맥과 gerund로 해석되는 문맥을 구분한다.
+
+gerund 안의 name/function reference도 J의 fix/late-binding 규칙을 잃지 않아야 한다.
 
 ### 3.4 너무 이른 정규화를 금지한다
 
@@ -689,7 +743,7 @@ Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Ar
 ### 4.1 Semantic Analyzer / Lowering의 책임
 
 - noun/verb/adverb/conjunction 품사와 적용 관계 분석
-- primitive / derived verb 분석
+- primitive / derived entity(verb/adverb/conjunction) 분석
 - hook / fork / train 구조 분석
 - modifier application과 rank semantics 분석
 - monad / dyad valence 결정
@@ -700,7 +754,7 @@ Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Ar
 - effect / alias / speculation legality 분석
 - invariance / symbolic constraint / semantic-mask fact 전파
 - map / reduce / scan / gather / structural pattern 식별
-- derived structure의 **target-independent** normalization/lowering
+- derived entity structure의 **target-independent** normalization/lowering
 - semantic storage/lifetime requirement 도출
 - target-independent rewrite legality와 fusion constraint 도출
 - Logical Array IR / Logical Execution Plan 생성
@@ -3751,7 +3805,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
 - [ ] primitive verb identity와 monad/dyad valence를 명시한다.
 - [ ] Hook / Fork / Train을 first-class semantic node로 표현한다.
-- [ ] adverb/conjunction application으로 생긴 DerivedVerb 구조를 보존한다.
+- [ ] adverb/conjunction/hook/trident application으로 생긴 DerivedEntity와 result part of speech(Verb/Adverb/Conjunction)를 보존한다.
+- [ ] boxed noun의 ordinary-data 사용과 modifier-context gerund interpretation을 구분한다.
 - [ ] `::` adverse와 `:.` obverse처럼 forward graph 밖의 latent error/inverse semantics를 보존한다.
 - [ ] rank-derived verb와 cell/frame 의미를 Semantic Analyzer가 분석할 수 있게 표현한다.
 - [ ] rank conjunction의 verb"rank-noun, verb"verb, noun/gerund"rank forms를 source operand 품사 손실 없이 표현한다.
@@ -3776,7 +3831,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] fork/hook의 J-compatible observable execution order를 보존하고 pure/speculatable proof가 있을 때만 branch 병렬화를 허용하는 golden test를 둔다.
 - [ ] reduction derived verb와 rank-conjunction-derived verb를 대표 golden test로 둔다.
 
-완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank/derived verb의 의미 구조가 분석 입력에 남아 있다.
+완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank 및 derived verb/adverb/conjunction의 의미 구조가 분석 입력에 남아 있다.
 ### A2 — Extension Primitive Registry와 analysis contract
 
 - [ ] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다.
@@ -4418,6 +4473,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `wc.c`/`cx.c`는 `try./catch./catchd./catcht./throw.`를 linked control flow로 실행하고 error/throw를 handler로 전달한다 | J-visible errors를 항상 fatal diagnostic으로 취급하지 않고 exceptional CFG/control effect로 보존한다 |
 | `c.c::ad12`의 `u::v`는 ordinary failure에서 fallback `v`를 실행/반환하지만 throw/exit는 전파한다 | adverse derived verb를 expression-level error-handler semantics로 보존한다 |
 | `c.c::jtobverse`와 inverse logic은 `u:.v`의 second operand를 inverse semantics에 사용한다 | forward dataflow가 같아 보여도 obverse metadata/operand를 dead-code로 제거하지 않는다 |
+| `cf.c`의 bident/trident tables는 noun/verb/adverb/conjunction 조합에서 verb 외에 derived adverb/conjunction도 생성한다 | Semantic IR을 DerivedVerb 중심으로 제한하지 않고 result POS를 가진 `DerivedEntity`로 일반화한다 |
+| `cf.c`는 boxed noun을 특정 modifier 문맥에서 gerund로 해석한다 | gerund를 별도 전역 noun type으로 만들지 않고 boxed noun + contextual GerundSemantics로 보존한다 |
 | parser assignment reduction은 assigned J entity를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 entity-producing effectful expression으로 모델링한다 |
 | `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
 | `cr.c::jtqq`는 `Verb"RankNoun` 외에도 right Verb rank extraction과 left Noun gerund/constant-verb form을 처리한다 | J Semantic IR의 rank node를 verb+integer pair로 제한하지 않고 original entity operands를 보존한다 |
@@ -4494,6 +4551,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 53. **J errors may be control flow** — try/catch/throw 영역 안의 observable error를 fatal diagnostic으로 접지 않고 exceptional successor/동등 runtime semantics를 보존한다.
 54. **Train graph does not imply branch independence** — hook/fork/train의 value graph가 병렬 가능해 보여도 J의 name/effect/error execution order를 proof 없이 제거하지 않는다.
 55. **Forward equivalence is not full derived-verb equivalence** — `::`, `:.` 등 modifier가 붙인 error/inverse/latent semantics를 현재 forward dataflow가 같다는 이유로 소거하지 않는다.
+56. **Derived entity is not always a verb** — parser가 생성할 수 있는 derived adverb/conjunction의 result POS와 operands를 J Semantic IR에서 표현한다.
+57. **Gerund is contextual noun semantics** — boxed noun을 전역적으로 gerund type으로 바꾸지 않고 modifier가 요구할 때 gerund interpretation을 적용한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4506,7 +4565,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 순서:
 
 1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 책임을 다시 분류한다.
-2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb, rank를 얼마나 보존하는지 감사한다.
+2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb/adverb/conjunction, gerund interpretation, rank를 얼마나 보존하는지 감사한다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
 4. extension `PrimitiveSpec`을 semantic identity/version record로 정리하고 Shape/Axis/Access/Numeric/Effect/Alias/Speculation capability interface와 lowering registry를 분리한다.
 5. Logical IR core의 SSA `ValueId`, Function/Region/Block/Terminator를 정의한다.
