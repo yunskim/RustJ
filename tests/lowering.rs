@@ -171,3 +171,66 @@ fn route_partition_distinguishes_native_fallback_checks_and_value_ops() {
         RouteDecision::NoKernel
     );
 }
+
+
+#[test]
+fn route_partition_forms_contiguous_semantic_regions() {
+    use rustj::lowering::RouteRegionClass;
+
+    let registry = LoweringRegistry::a3_v0();
+    let cpu = TargetCapabilities::cpu_baseline();
+
+    let plan = Engine::new().analyze_a3("1 2+1 2 3").unwrap();
+    let regions = registry.partition_plan(&plan, &cpu);
+    assert_eq!(
+        regions.iter().map(|region| region.class).collect::<Vec<_>>(),
+        vec![
+            RouteRegionClass::ValueOnly,
+            RouteRegionClass::SemanticCheck,
+            RouteRegionClass::PureArray,
+        ]
+    );
+
+    let plan = Engine::new().analyze_a3("future 3").unwrap();
+    let regions = registry.partition_plan(&plan, &cpu);
+    assert_eq!(
+        regions.iter().map(|region| region.class).collect::<Vec<_>>(),
+        vec![
+            RouteRegionClass::ValueOnly,
+            RouteRegionClass::RuntimeSemantic,
+        ]
+    );
+}
+
+#[test]
+fn rank_and_reduce_can_use_native_reference_routes_after_purity_resolution() {
+    use rustj::lowering::RouteDecision;
+
+    let registry = LoweringRegistry::a3_v0();
+    let cpu = TargetCapabilities::cpu_baseline();
+
+    for (source, expected_basis, expected_realization) in [
+        (
+            "+/1 2 3",
+            BasisKind::Reduce,
+            RealizationFamily::OrderedReduction,
+        ),
+        (
+            "+/\"1 (2 3$ i.6)",
+            BasisKind::CellApply,
+            RealizationFamily::GenericCellLoop,
+        ),
+    ] {
+        let plan = Engine::new().analyze_a3(source).unwrap();
+        let result = plan.result.unwrap();
+        let producer = plan.values[result.0].producer;
+        assert_eq!(
+            registry.route_operation(&plan.operations[producer.0], &cpu),
+            RouteDecision::NativeBasis {
+                basis: expected_basis,
+                candidates: vec![expected_realization],
+            },
+            "{source}"
+        );
+    }
+}
