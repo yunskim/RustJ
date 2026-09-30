@@ -3537,6 +3537,67 @@ TargetProfile =
 
 TargetProfile은 logical IR에 복사하지 않는다. compile invocation, route partition, schedule/physical planner, external adapter가 질의한다.
 
+### 4.16.5 Compilation 시작 시 active target locale을 확정한다
+
+각 compile invocation은 parser/J Semantic IR의 의미와 독립적으로 **active compiler target context**를 가진다. 단일-target MVP에서는 compile 시작 시 하나의 `CompilationTargetLocale`을 확정한다.
+
+```text
+CompilationSession
+  semantic_context        // user J locale/binding semantics
+  target_context:
+    active_target_locale
+    CompilationTarget
+    DeviceProfile?
+    RuntimeProfile?
+```
+
+`active_target_locale`은 user J locale과 절대 섞지 않는다. parser와 J Semantic IR은 target을 몰라도 동일한 의미를 만들어야 한다.
+
+예:
+
+```text
+active target:
+  compiler.device.h100_0
+
+resolution path:
+  compiler.device.h100_0
+    -> compiler.arch.nvidia.sm90
+    -> compiler.family.nvidia
+    -> compiler.backend.cuda
+    -> compiler.gpu
+    -> compiler.generic
+```
+
+모든 hardware-lowerable semantic operation은 source가 built-in인지 extension인지와 무관하게 **같은 active target locale/path**에서 capability/lowering을 조회한다.
+
+```text
++/          -> ResolvedOp::Reduce(Add) ----┐
+conv2d ext  -> ResolvedOp::Conv2d ---------+-> same TargetLocale lookup
+attention   -> ResolvedOp::Attention ------┘
+```
+
+따라서 primitive 자체가 architecture 정보를 갖는 것이 아니라:
+
+```text
+Resolved Semantic Op
+  + active TargetLocale
+  + resolved target/device facts
+       ↓
+Lowering candidates
+```
+
+가 된다.
+
+중요한 규칙:
+
+- target locale 선택은 **J parse/semantic validity에 영향을 주지 않는다**.
+- target locale은 lowering/capability discovery의 시작점이다.
+- built-in J primitive와 extension-derived op는 동일한 lookup protocol을 사용한다.
+- locale lookup은 후보를 찾을 뿐 최종 kernel을 고르지 않는다. legality/resource/cost 분석이 후보 중 realization을 선택한다.
+- device-specific locale에 binding이 없으면 explicit parent path를 따라 architecture/family/backend/class/generic으로 fallback한다.
+- 숫자 architecture 버전으로 암묵적 상속을 추론하지 않는다.
+- 단일-target MVP 이후 heterogeneous execution이 필요해지면 `CompilationSession`이 여러 `TargetContext`를 보유하고 RoutePartition이 region별 context를 선택하도록 확장한다. 이 경우에도 각 region의 built-in/extension은 선택된 동일 target locale chain을 사용한다.
+
 ### 4.16.6 Target locale chain: J locale 방식을 compiler lookup에 재사용한다
 
 backend/architecture/device별 lowering과 capability override는 J의 **locale/path resolution 아이디어**를 compiler namespace에 재사용하면 단순하게 구현할 수 있다.
@@ -5299,6 +5360,8 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
 - [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
 - [ ] `CompilationTarget = BackendFamily + ArchitectureTarget + DeviceProfile + RuntimeProfile`을 정의하고, 기존 `TargetProfile`은 resolved effective view로 사용한다.
+- [ ] compile invocation 시작 시 `CompilationTargetLocale` / `TargetContext`를 확정하고 lowering lookup의 root로 사용한다.
+- [ ] built-in primitive와 extension-derived op가 source identity와 무관하게 동일 active target locale/path에서 lowering/capability를 조회하는 테스트를 추가한다.
 - [ ] execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 architecture/device profile에 올바르게 분리한다.
 - [ ] compiler target locale chain(device → architecture → family → backend → cpu/gpu → generic)을 정의한다.
 - [ ] built-in J primitive도 extension과 동일하게 target lowering binding을 locale chain에서 조회한다.
