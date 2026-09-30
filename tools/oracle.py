@@ -104,19 +104,27 @@ class Oracle:
         return {'kind': kind, 'value': observed}
 
     def words(self, source):
-        literal = "'" + source.replace("'", "''") + "'"
-        error = self.run('rustjwords =: ;: ' + literal)
+        # Reconstruct the exact UTF-8 byte string as a J literal noun instead
+        # of interpolating source text into J code. This keeps quotes, LF and
+        # other word-forming bytes observable by ;: exactly as supplied.
+        raw = source.encode('utf-8')
+        indexes = ' '.join(str(b) for b in raw)
+        expression = "''" if not raw else f'({indexes}) {{ a.'
+        error = self.run('rustjsource =: ' + expression)
+        if error:
+            return error
+        error = self.run('rustjwords =: ;: rustjsource')
         if error:
             return error
         observed = self.read_noun('rustjwords')
         if observed.get('type') != 32:
             raise RuntimeError(f'unexpected ;: result: {observed!r}')
-        words = []
+        words_hex = []
         for item in observed['data']:
             if item.get('type') != 2 or len(item.get('shape', [])) != 1:
                 raise RuntimeError(f'unexpected ;: word: {item!r}')
-            words.append(bytes(item['data']).decode('latin1'))
-        return {'words': words}
+            words_hex.append(bytes(item['data']).hex())
+        return {'words_hex': words_hex}
 
     def observe(self, request):
         request = normalize_request(request)
