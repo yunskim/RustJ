@@ -191,7 +191,7 @@ RustJ의 목표는 J 의미를 정확히 분석하여 **좋은 IR과 정확한 �
 4. StableHLO로 의미 보존이 가능한 subset은 StableHLO export를 허용하여 XLA/IREE 같은 외부 compiler를 사용할 수 있다.
 5. matmul/conv/FFT 같은 연산은 경우에 따라 최적화된 library/custom-call 경로가 더 적절할 수 있다.
 6. 어느 외부 IR도 J 전체 semantics를 자동으로 표현한다고 가정하지 않는다. boxed array, J-specific rank semantics, observable error ordering, effects처럼 표현력이 부족한 부분은 lowering 전에 명시적으로 해소하거나 해당 route를 사용하지 않는다.
-7. 외부 route가 불가능하거나 의미 보존을 증명하지 못하면 RustJ-native conservative path가 fallback이 된다.
+7. 외부 route가 불가능하거나 의미 보존을 증명하지 못하면 해당 route를 거부한다. RustJ-native conservative path가 실제로 해당 op를 지원할 때만 fallback으로 사용할 수 있으며, 어떤 route도 지원하지 않으면 명시적인 unsupported 결과를 낸다.
 
 즉:
 
@@ -1517,32 +1517,50 @@ H3 ResourceEstimate MVP
 
 `japchae`의 analyzer output schema v0.1은 중요한 prototype이지만 logical 정보와 target-dependent resource 정보가 한 객체에 섞여 있었다.
 
-**Logical Array IR / Plan**에는 op identity, logical shape, rank/cell/frame, dtype/numeric constraints, iteration domain, axis semantics, access relations, effect/alias, dependency/synchronization requirements, provenance, materialization/lifetime requirement, fusion legality/candidate를 둔다.
+**Logical Array IR / Plan**에는 op identity, logical shape, rank/cell/frame, dtype/numeric constraints, iteration domain, axis semantics, access relations, effect/alias/speculation, control-flow, constraint witness, semantic storage/lifetime requirement, target-independent rewrite/fusion constraints, provenance를 둔다.
 
-**Physical Planner 입력**은 Logical Array IR + TargetProfile + optional CostProfile + backend/library capabilities다.
+**Route Selection 입력**은 Logical Array IR과 adapter/backend capabilities다. RustJ-native route를 선택한 경우에만 Physical Planner가 Logical Array IR + TargetProfile + optional CostProfile + backend/library capabilities를 입력으로 받는다.
 
 **Physical Plan / Planning Report**에는 fusion/kernel region, materialization boundary, target placement, axis/thread/vector mapping, chosen layout, tiling, memory-space staging, pipeline stages, synchronization, accumulator realization, placement/transfer, buffer lifetime/reuse, backend strategy, derived ResourceEstimate를 둔다.
 
 compile artifact에는 source revision, PrimitiveSpec registry version, input facts/spec, TargetProfile version, optional CostProfile version, compiler version을 provenance로 기록한다.
 
-### 4.24 Flow–Storage와 materialized array 개념의 통합
+### 4.24 Flow–Storage: semantic storage requirement와 physical materialization을 분리한다
 
 과거 `japchae`와 `jaxa-analyzer`에서 발전한 Flow–Storage 아이디어는 현재 RustJ의 `ValueId` / `BufferId` 분리와 결합한다.
 
 > **Logical ArrayValue가 존재한다는 사실은 별도의 memory buffer가 존재한다는 뜻이 아니다.**
 
-fusion 내부 중간값은 register 등에서 잠깐 존재하고 독립 storage를 갖지 않을 수 있다.
+Logical IR에는 “반드시 독립적으로 관찰·보존되어야 하는가”라는 **semantic storage requirement**만 둔다.
 
 ```text
-ArrayValue
-  ├─ fused consumer가 즉시 소비 → no independent materialization
-  ├─ explicit/persistent storage requirement → materialize
-  └─ physical planner가 필요하다고 판단 → materialize
+StorageRequirement
+  EphemeralAllowed
+  MustSurvive(region_or_effect_boundary)
+  Persistent(resource_id)
+  ExternalVisible
+  ExplicitCheckpoint
 ```
 
-materialized array는 weight/activation/gradient라는 역할보다 **지속되는 storage identity가 필요한가**를 중심으로 이해한다. persistent state를 primitive 내부 hidden state로 숨기지 않으며 scalar state도 J 의미상 rank-0 array로 취급한다.
+반면 다음은 physical/backend 결정이다.
 
-Logical 단계에서는 `Read`, `Write`, `Accumulate`, `Materialize`, `Load`, `Alias/View` 같은 effect를 표현하고 실제 register/shared/device/host buffer, offset, reuse는 Physical Planner에서 정한다.
+```text
+MaterializationDecision
+  KeepVirtual
+  FuseAway
+  RegisterResident
+  ScratchpadResident
+  Bufferize(memory_space)
+  ExternalResource
+```
+
+따라서 Logical IR에서 `Materialize`를 일반적인 실행 op처럼 남발하지 않는다. explicit checkpoint처럼 **J/RustJ semantics 자체가 저장을 요구하는 경우**에만 semantic storage op/requirement가 존재한다.
+
+persistent state는 primitive 내부 hidden state로 숨기지 않는다. scalar state도 J 의미상 rank-0 array로 취급한다.
+
+Logical 단계에서는 `Read`, `Write`, `Accumulate`, `Load`, `Alias/View` 및 `StorageRequirement`를 표현하고, 실제 register/shared/device/host buffer, allocation, offset, reuse, copy는 bufferization/physical planning 또는 외부 compiler가 정한다.
+
+이 원칙은 MLIR이 tensor-level optimization 뒤에 bufferization을 늦추는 구조와 IREE Stream이 tensor computation 뒤에 resource lifetime/allocation을 명시화하는 구조를 따른다.
 
 ### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
 
@@ -1582,40 +1600,73 @@ Apply(Fork(Insert(+), %, #), y)
 
 Logical Plan에서 보존할 정보:
 
-- ValueId
+- SSA ValueId와 region/block/control-flow 구조
 - normalized array operation
-- dtype/shape facts
-- explicit cell/frame mapping
-- dependency
-- effect boundary
-- alias facts
-- materialization requirement
-- fusion candidate
-- backend support facts
+- dtype/shape/rank/cell/frame facts
+- iteration domain / axis semantics / access relation
+- symbolic constraints와 witness/guard
+- data dependency와 effect ordering token
+- effect / alias / speculation facts
+- uniformity / mask facts
+- semantic StorageRequirement
+- target-independent rewrite/fusion constraints
 - source/semantic origin metadata
+
+특정 backend support 여부, concrete fusion region, buffer allocation, tile/layout/device 결정은 Logical IR의 본질적 fact가 아니다.
 
 아직 특정 device buffer 주소나 CUDA launch parameter는 없다.
 
-### 5.2 Physical Plan
+### 5.2 Schedule / Transform Plan과 Physical Plan을 구분한다
 
-Physical Plan은 “어떻게 실행할 것인가”를 결정한다.
+RustJ-native route에서는 Logical IR을 바로 buffer plan으로 덮어쓰지 않는다.
+
+```text
+Logical Array IR
+   ↓
+Logical Optimizer
+   ↓
+Schedule / Transform Plan
+   ↓
+Physical Planner / Bufferization
+   ↓
+Physical Plan
+```
+
+**Schedule / Transform Plan**은 payload semantics와 분리된 선택/변환 의도를 표현한다.
+
+- fusion/grouping
+- tile hierarchy
+- loop/axis mapping
+- vectorization
+- unrolling
+- tensorization/intrinsic selection 후보
+- layout transform 요청
+- memory-space staging 요청
+- software pipeline/prefetch 전략
+
+이는 MLIR Transform dialect나 TVM TensorIR schedule처럼 “무엇을 계산하는가”와 “어떻게 변환할 것인가”를 분리하는 역할이다.
+
+Schedule Plan은 여러 후보를 가질 수 있고 CostProfile/autotuning/backend feedback에 의해 바뀔 수 있다. 따라서 Logical IR의 semantic identity가 아니다.
+
+**Physical Plan**은 선택된 schedule을 실제 resource/buffer/execution 객체로 구체화한다.
 
 - CPU/GPU placement
-- buffer binding
-- view
-- materialize
+- buffer binding / ownership
+- physical view
+- concrete materialization/copy
 - contiguous/fixed/general stride specialization
-- layout
-- tiling
+- physical layout / padding / alignment
+- memory-space assignment
 - transfer
-- synchronization
+- synchronization/timepoint
 - buffer reuse
 - work partition
 - backend kernel/library 선택
+- async lifetime/resource information
 
-### 5.3 Executor
+### 5.3 RustJ-native Executor
 
-Executor는 이미 정해진 Physical Plan을 수행한다.
+이 절은 Route A에만 적용한다. RustJ-native Executor는 이미 정해진 Physical Plan을 수행한다. 외부 compiler/runtime route는 각 시스템의 executor/runtime가 자체 lower-level scheduling을 수행할 수 있다.
 
 Executor가 다음을 다시 판단해서는 안 된다.
 
@@ -1625,6 +1676,8 @@ Executor가 다음을 다시 판단해서는 안 된다.
 - layout 선택
 - device 선택
 - buffer reuse legality
+
+Physical Plan에서 비동기 실행을 허용할 경우 dependency는 implicit host order에 기대지 않고 `AsyncToken/Timepoint` 또는 동등한 explicit edge로 표현한다. resource의 사용 가능 시점과 lifetime은 이 timeline과 연결한다. IREE Stream의 timepoint/resource model과 MLIR Async의 explicit dependency token이 참고 모델이다.
 
 ### 5.4 실행 경로는 하나가 아니다
 
@@ -2442,7 +2495,11 @@ RustJ frontend
     ↓
   Logical Array IR / Plan
     ↓
-  CPU / GPU physical plans
+  route selection
+    ├─ RustJ native Physical Plan
+    ├─ MLIR / LLVM / GPU dialects
+    ├─ StableHLO-compatible route
+    └─ verified library/custom backend
 ```
 
 jsource에서 적극적으로 가져올 것:
