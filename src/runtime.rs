@@ -95,6 +95,22 @@ impl Engine {
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
     }
 
+    /// Build the J-grammar-preserving applied computation graph.
+    /// This IR keeps Hook/Fork/@:/modifier identity and noun dependencies,
+    /// but does not yet normalize them into execution/basis operations.
+    pub fn analyze_j_graph(&self, source: &str) -> Result<crate::j_graph_ir::Plan> {
+        self.analyze_j_graph_diagnostic(source)
+            .map_err(Error::into_unlocated)
+    }
+
+    pub fn analyze_j_graph_diagnostic(
+        &self,
+        source: &str,
+    ) -> Result<crate::j_graph_ir::Plan> {
+        crate::j_graph_ir::Plan::from_bound(self.prepare_semantic_diagnostic(source)?)
+            .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
+    }
+
     /// Build an inspection-only logical plan without running array kernels.
     /// Stable machine API.
     pub fn analyze(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
@@ -114,7 +130,7 @@ impl Engine {
     /// Compiler-facing analysis path retaining the same structured diagnostic
     /// context used by the interpreter and future JIT.
     pub fn analyze_diagnostic(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
-        crate::analysis::lower(self.prepare_semantic_diagnostic(source)?, &|name| match self
+        crate::analysis::lower_graph(self.analyze_j_graph_diagnostic(source)?, &|name| match self
             .names
             .get(name)
             .map(|b| &b.value)
