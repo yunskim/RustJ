@@ -767,6 +767,46 @@ Extension(Conv) --------------+--> semantic_id / lowering_key
 - portable extension은 target implementation이 없더라도 semantic resolution 자체는 가능하며, lowering 단계에서 unsupported/fallback을 판단할 수 있다.
 - 명시적으로 target-gated인 extension을 향후 지원하더라도 그 gating은 compile profile의 명시적 정책이어야 하며 core J semantics를 변경해서는 안 된다.
 
+#### 3.3.2.1 Frontend compatibility invariant
+
+`word formation -> enqueue -> parse` 구간은 RustJ가 새 문법을 설계하는 곳이 아니다. 이 세 단계는 **jsource frontend semantics를 충실히 이식**한다.
+
+1. **Word formation / lexer**
+   - `w.c::state` state machine을 기준으로 한다.
+   - character class, state transition, word boundary emission, follow-on numeric 처리, quote/comment/DD(`{{ }}`) 처리까지 같은 규칙을 사용한다.
+   - Rust enum/table로 표현은 바꿀 수 있지만 handwritten heuristic으로 별도 규칙을 만들지 않는다.
+
+2. **Enqueue**
+   - `jtenqueue`의 classification order를 기준으로 한다.
+   - primitive lookup, constant construction, name validation, assignment classification, lookup-name marking, result parser class/POS를 같은 semantic 순서로 결정한다.
+   - jsource의 pointer low-bit QC tagging은 Rust의 explicit enum/flags로 바꾸되 의미는 보존한다.
+   - extension primitive는 이 단계의 primitive resolver를 확장해 넣는다. parser grammar에는 extension 전용 production을 추가하지 않는다.
+
+3. **Parser**
+   - `p.c::cases[]`와 runtime `ptcol` dispatch의 9-row rule을 기준으로 한다.
+   - eligibility, precedence, reduction extent, result POS, reduction 후 stack 재삽입/rescan을 같은 규칙으로 구현한다.
+   - Hook/Fork/bident/trident와 modifier construction도 jsource constructor semantics를 따른다.
+
+```text
+jsource
+  wordil state machine
+        ↓
+  enqueue classification
+        ↓
+  9-row parser reduction
+        ↓
+  J semantic result
+
+RustJ
+  same frontend semantics
+        ↓
+  J Semantic IR
+        ↓
+  RustJ-specific analyzer / logical / target / physical IR
+```
+
+따라서 frontend 단계에서 차이가 허용되는 것은 **representation과 implementation technique**뿐이다. J-visible word formation/classification/parsing behavior는 compatibility 대상이다.
+
 #### 3.3.3 Parser language rules are jsource-compatible
 
 RustJ는 parser 단계에서 별도의 언어 규칙을 발명하지 않는다. **token/word가 J parser에 들어온 뒤 어떤 fragment가 언제 reduction되고, 어떤 part of speech의 결과 entity가 다시 parser stack에 놓이는지는 current jsource의 parser 규칙을 기준으로 한다.**
@@ -5283,7 +5323,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### F0 — jsource word formation 이식
 
-- [ ] `w.c::state`의 character-class × state transition table을 Rust enum/table로 옮긴다.
+- [ ] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. transition eligibility/action은 jsource table을 source of truth로 두고 별도 handwritten heuristic을 만들지 않는다.
 - [ ] 현재 handwritten `scanner::transition`과 jsource table의 모든 transition을 대조한다.
 - [ ] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다.
 - [ ] unmatched quote/error boundary를 jsource와 맞춘다.
@@ -5296,6 +5336,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 - [ ] 현재 `syntax::lex_spanned`가 수행하는 word interpretation을 별도 `enqueuer` 단계로 이동한다.
 - [ ] `EnqueuedWord { class, payload, span, flags }`를 정의해 jsource QC pointer tagging을 명시적 Rust enum/flags로 표현한다.
+- [ ] enqueue의 classification order와 parser class/POS 결정 순서를 `jtenqueue`와 동일하게 유지한다. RustJ convenience lexer가 먼저 품사를 확정하지 않게 한다.
 - [ ] core J primitive lookup을 jsource `spellin -> ds`와 같은 위치와 precedence로 구현한다.
 - [ ] `PrimitiveResolver`가 core J primitive와 compile profile에서 enabled된 extension primitive를 동일 interface로 반환하게 한다.
 - [ ] `PrimitiveHandle { semantic_id, source_origin, result_pos, semantic_info, lowering_key }`를 정의한다.
@@ -5318,6 +5359,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [ ] jsource Mark/Edge sentinel을 명시적으로 표현한다.
 - [ ] ordinary lookup NAME은 queue flag에 따라 parser stack 진입 직전에 resolve한다.
 - [ ] 9-row matcher는 queue/result parser class만으로 eligibility/precedence를 결정한다.
+- [ ] matcher row ordering/reduction extent/result reinsertion을 `cases[]`/runtime `ptcol` behavior와 동일하게 구현하고 별도 train/modifier heuristic을 제거한다.
 - [ ] reduction result를 동일 queue/stack representation으로 재삽입한다.
 - [ ] current `ParseClass` refactor를 F2 queue class의 기반으로 흡수한다.
 
