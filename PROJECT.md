@@ -426,52 +426,32 @@ Unknown은 다음 중 하나가 된다.
 
 ### 4.5 Primitive contract
 
-semantic analysis에서 primitive는 최소한 다음 의미 계약을 가진다.
+semantic analysis에서 모든 primitive는 공통 `PrimitiveContract` interface를 통해 해석한다. built-in J primitive와 name 기반 extension primitive의 **등록 경로는 달라도 분석 interface는 같다.**
+
+이 절의 contract는 “분석기가 반드시 물어볼 수 있어야 하는 질문”을 정의하고, 구체적인 저장 구조는 4.10의 `PrimitiveSpec = Identity + Analysis + Realization` 분리를 따른다.
+
+semantic 쪽에서 최소한 다음을 표현하거나 명시적으로 `Unknown`으로 둘 수 있어야 한다.
 
 ```text
-PrimitiveContract
-  identity / valence
-  value:
-    dtype_rule
-    shape_rule
-    rank_rule
-
-  errors:
-    domain
-    rank/shape
-    overflow/promotion
-    observable ordering
-
-  effects:
-    pure
-    read state
-    write state
-    I/O
-    unknown
-
-  alias:
-    overlap
-    in-place legality
-
-  rewrites:
-    fusion
-    reordering
-    recomputation
-    reassociation
-
-  parallel:
-    map
-    reduce
-    scan
-    gather
-    scatter
-    structural
-
-  lowering:
-    supported backend classes
+identity / part of speech / valence
+innate rank
+shape rule
+dtype / promotion rule
+axis-role / access-pattern rule
+error contract
+  domain
+  rank / shape
+  overflow / promotion
+  observable error ordering
+effect contract
+alias / mutation legality
+safe rewrite / reassociation constraints
+semantic reference definition (optional)
 ```
 
-GPU block 크기나 tile 크기는 semantic primitive contract에 넣지 않는다.
+fusion cost, accumulator realization, register/shared-memory 양, concrete layout, tile 크기, device-specific intrinsic은 semantic identity 자체가 아니다. 이들은 AnalysisContract의 요구사항과 TargetProfile을 바탕으로 realization/physical planning에서 결정한다.
+
+따라서 `PrimitiveContract`는 analyzer가 보는 공통 interface이고, `PrimitiveSpec`은 그 contract를 실제로 제공하는 versioned registry record라는 관계로 사용한다.
 
 ### 4.6 과거 jaxa-analyzer 연구에서 가져오는 확장 어휘와 `with`
 
@@ -581,8 +561,10 @@ PrimitiveSpec
 │  ├─ dtype rule
 │  ├─ axis-role contract
 │  ├─ access pattern
+│  ├─ error / promotion / observable-order contract
 │  ├─ effects
 │  ├─ alias / mutation legality
+│  ├─ safe rewrite / reassociation constraints
 │  └─ optional semantic reference definition
 │
 ├─ AnalysisContract
