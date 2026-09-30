@@ -1,5 +1,8 @@
 use crate::{
-    error::{Error, Result},
+    error::{
+        ArgumentRole, ArgumentSummary, DiagnosticPhase, DiagnosticValence, Error, ErrorContext,
+        Result,
+    },
     kernels,
     value::Value,
 };
