@@ -84,3 +84,7 @@ For every implementation change:
 - Model implicit rank execution as logical CellApply/CellApplicationPlan semantics, not as an early physical for-loop or GPU thread mapping.
 - Treat jsource IRS/VIRS behavior as a lowering optimization that absorbs CellApply; it must remain semantically equivalent to the generic cell loop.
 - Keep empty fill-cell/prototype behavior and heterogeneous result assembly in the CellApply contract, not hidden inside primitive kernels.
+- Do not copy jsource execution flags wholesale into Semantic/Logical IR. Classify each datum as source semantic identity, static semantic contract, resolved analysis fact, optimizer proof, lowering capability, representation fact, or physical decision, and introduce it at the earliest stage where it is semantically justified.
+- Keep parser-produced FunctionEntity graphs minimal and immutable; cache derived name/self/effect/error/rank summaries in analysis side tables keyed by shared entity identity rather than recursively copying summaries into every derived node.
+- Treat jsource WILLOPEN/USESITEMCOUNT/in-place/pristine/zappable style metadata as inspiration for use-def/liveness/materialization analyses; do not encode those runtime-memory-management bits as J semantic properties.
+
