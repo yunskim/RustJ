@@ -446,7 +446,7 @@ fn value_roles_are_contextual_facts_not_noun_types() {
 
     let plan = e.analyze("i.2 3").unwrap();
     let result = plan.result.unwrap();
-    let Operation::Call { right, .. } = plan.nodes[result.0].operation else {
+    let Operation::Call { right, .. } = &plan.nodes[result.0].operation else {
         panic!()
     };
     assert!(plan.nodes[right.0].roles.contains(ValueRole::ShapeVector));
@@ -460,14 +460,14 @@ fn value_roles_are_contextual_facts_not_noun_types() {
 
     let plan = e.analyze("1 { 10 20 30").unwrap();
     let result = plan.result.unwrap();
-    let Operation::Call { left: Some(left), .. } = plan.nodes[result.0].operation else {
+    let Operation::Call { left: Some(left), .. } = &plan.nodes[result.0].operation else {
         panic!()
     };
     assert!(plan.nodes[left.0].roles.contains(ValueRole::IndexVector));
 
     let plan = e.analyze("2 {. 10 20 30").unwrap();
     let result = plan.result.unwrap();
-    let Operation::Call { left: Some(left), .. } = plan.nodes[result.0].operation else {
+    let Operation::Call { left: Some(left), .. } = &plan.nodes[result.0].operation else {
         panic!()
     };
     assert!(plan.nodes[left.0].roles.contains(ValueRole::CountVector));
