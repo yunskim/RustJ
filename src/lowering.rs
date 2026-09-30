@@ -6,7 +6,6 @@
 
 use crate::{
     analysis::{AccessFact, AccessRelation, BasisKind},
-    contracts::Effect,
     logical_ir::CallOp,
 };
 
@@ -105,9 +104,9 @@ impl Requirement {
             }
             Self::KnownResultRank => call.instantiation.result_rank.is_some(),
             Self::ReassociationAllowed => call.contract.allow_reassociation,
-            Self::Pure => call.contract.effect == Effect::Pure,
-            Self::NoObservableError => !call.contract.may_error,
-            Self::EvaluationOrderRelaxed => !call.contract.preserve_evaluation_order,
+            Self::Pure => call.effect.is_pure(),
+            Self::NoObservableError => !call.speculation.may_raise_observable_error,
+            Self::EvaluationOrderRelaxed => !call.speculation.preserve_evaluation_order,
         }
     }
 }
