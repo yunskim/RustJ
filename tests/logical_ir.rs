@@ -212,3 +212,28 @@ fn verifier_rejects_a_basis_payload_that_no_longer_matches_the_call() {
     assert_eq!(error.operation, Some(producer));
     assert!(error.message.contains("basis payload"));
 }
+
+
+#[test]
+fn a3_v0_has_explicit_single_function_region_block_and_return() {
+    use rustj::logical_ir::{BlockId, FunctionId, RegionId, Terminator};
+
+    let plan = Engine::new().analyze_a3("1+2").unwrap();
+    assert_eq!(plan.entry, FunctionId(0));
+    assert_eq!(plan.functions.len(), 1);
+    assert_eq!(plan.functions[0].body, RegionId(0));
+    assert_eq!(plan.regions.len(), 1);
+    assert_eq!(plan.regions[0].blocks, vec![BlockId(0)]);
+    assert_eq!(plan.blocks.len(), 1);
+    assert_eq!(plan.blocks[0].operations, 0..plan.operations.len());
+    assert_eq!(plan.blocks[0].terminator, Terminator::Return(plan.result));
+    plan.verify().unwrap();
+}
+
+#[test]
+fn verifier_rejects_an_entry_block_that_does_not_cover_the_operation_sequence() {
+    let mut plan = Engine::new().analyze_a3("1+2").unwrap();
+    plan.blocks[0].operations = 0..1;
+    let error = plan.verify().unwrap_err();
+    assert!(error.message.contains("complete operation sequence"));
+}
