@@ -496,6 +496,271 @@ GPU block 크기나 tile 크기는 semantic primitive contract에 넣지 않는�
 
 backend-specific implementation identity와 semantic verb identity도 분리한다.
 
+### 4.7 과거 JAXA/Japchae 저장소 통합 기준
+
+2026-09-30에 다음 네 저장소의 최신 내용을 다시 대조했다.
+
+| 저장소 | 검토 기준 | 이 문서에 흡수하는 핵심 |
+|---|---|---|
+| `yunskim/JAXA` | main `12bc0659`, 2026-03-24 | 정적 graph, fusion, J 조합 구조를 이용한 NN 표현이라는 초기 문제의식 |
+| `yunskim/JAXA-complier` | main `ceba0589`, 2026-04-26 | custom primitive registry prototype, rank/shape/analyzer metadata의 실제 자료구조 |
+| `yunskim/japchae` | main `510c31b5`, 2026-06-19 | primitive identity/realization 2층 모델, resource function, materialized arrays, analyzer output schema |
+| `yunskim/jaxa-analyzer` | substantive baseline `3eef3942`, 2026-07-28; 2026-09-30에는 RustJ 이관 상태 주석 추가 | J frontend/vocabulary/name extension, semantic AST, primitive contract, Flow–Storage/resource 분석의 최신 정리 |
+
+앞으로 위 저장소들은 **historical research/prototype source**다. 설계 결정을 수정할 때 원본을 다시 고쳐 여러 갈래를 유지하지 않고 이 `PROJECT.md`를 갱신한다.
+
+결정 충돌 시 단순한 repository 날짜보다 **같은 주제에 대한 후속 결정**을 우선한다. 대표적인 예:
+
+- 초기 `JAXA`의 complex rank/precision 표기 `"RjP`는 표준 J와 호환되지 않으므로 채택하지 않는다.
+- J의 rank conjunction `"`은 표준 J 의미 그대로 유지한다.
+- dtype/precision, accumulator precision, layout, hardware resource는 rank 문법에 억지로 넣지 않고 각각 semantic contract와 planning 계층에 둔다.
+- 4월 prototype의 고정 `memory_layout`, `tiling_axis`, register 숫자는 최종 semantic identity가 아니다. 6~7월 설계처럼 identity contract + realization function + target profile로 일반화한다.
+
+### 4.8 확장 primitive는 name binding + registry contract로 추가한다
+
+NN/array extension primitive는 J의 새로운 keyword나 punctuation을 추가하지 않고 **name**으로 추가한다.
+
+```text
+source name "conv"
+      ↓
+J word / NameRef
+      ↓
+name / extension resolution
+      ↓
+ExtensionPrimitiveRef(Conv)
+      │
+      └───────────────┐
+                      ↓
+              Primitive Registry
+                      ↓
+                 PrimitiveSpec
+                      ↓
+J Semantic Array IR + analysis contract
+```
+
+중요한 불변식:
+
+1. parser가 `conv`라는 문자열을 특별 취급하지 않는다.
+2. name이 primitive로 해소되면 문자열이 아니라 안정적인 `PrimitiveId`/entity identity를 가진다.
+3. `f =: conv`처럼 alias/binding을 거쳐도 같은 primitive identity와 spec이 보존되어야 한다.
+4. registry는 spelling table이 아니라 **분석 계약의 single source of truth**다.
+5. custom primitive 추가 때문에 scanner/parser 코드를 수정하지 않는다.
+6. J built-in primitive와 extension primitive는 출처는 달라도 analyzer에서는 공통 `PrimitiveContract` interface로 다룬다.
+
+기존 `JAXA-complier` prototype은 built-in lookup 실패 후 custom registry를 검사했다. RustJ에서는 정확한 enqueue 시점 구현보다 **J name semantics를 보존하면서 semantic resolution 결과가 registry-backed primitive entity가 된다**는 점을 아키텍처 불변식으로 둔다.
+
+### 4.9 Vocabulary는 이름 목록이 아니라 form + contract다
+
+과거 연구의 중요한 결론은 primitive vocabulary가 단순 whitelist가 아니라는 점이다.
+
+Structural vocabulary에는 primitive verb/adverb/conjunction, hook/fork/train, `@:`, `@`, `&`, rank `"`, insert/reduce `/`, scan `\` 및 기타 derived-verb builder가 포함된다.
+
+Computational vocabulary에는 표준 J primitive와 name 기반 extension primitive(`conv`, `linear`, `relu` 등)가 포함된다.
+
+Structural form에는 필요하면 operand/result 품사와 semantic constraint를 둔다. RustJ 자체는 장기적으로 J 전체 의미를 구현하므로 다음을 구분한다.
+
+```text
+valid J semantics
+    ≠
+advanced optimization contract available
+```
+
+J built-in의 resource contract가 Unknown이면 보수적인 plan으로 실행할 수 있다. 반면 RustJ 고유 extension primitive는 최소 semantic contract와 실행/lowering 경로가 없으면 등록 완료로 보지 않는다.
+
+### 4.10 PrimitiveSpec은 정체성(identity)과 실현(realization)을 분리한다
+
+4월 prototype에서는 rank, shape inference, memory layout, tiling axis, register/shared-memory function, synchronization, in-place 정보가 하나의 primitive 객체에 함께 있었다. 6월 이후 설계에서는 이를 분리한다.
+
+```text
+PrimitiveSpec
+├─ IdentityContract          hardware-independent
+│  ├─ identity / part of speech / valence
+│  ├─ innate rank
+│  ├─ parameter schema
+│  ├─ shape rule
+│  ├─ dtype rule
+│  ├─ axis-role contract
+│  ├─ access pattern
+│  ├─ effects
+│  ├─ alias / mutation legality
+│  └─ optional semantic reference definition
+│
+├─ AnalysisContract
+│  ├─ fusion legality / composition rule
+│  ├─ reduction / accumulator requirement
+│  ├─ materialization requirement
+│  ├─ synchronization requirement
+│  └─ explicit Unknown where not modeled
+│
+└─ RealizationFamily        hardware/fusion-context dependent
+   └─ realize(identity, fusion_context, target_profile)
+        → RealizationSpec | Unsupported
+```
+
+`RealizationSpec`은 concrete accumulator dtype, register/shared-memory requirement, chosen layout, tiling strategy, backend/library intrinsic 후보, synchronization strategy, expected traffic/cost 등을 담을 수 있다.
+
+과거의 `register_fn`, `shared_memory_fn`, `accum_fn` 아이디어는 폐기하지 않는다. **고정 숫자가 아니라 realization function**으로 승격한다.
+
+```text
+ResourceUsage = R(LogicalGraph, FusionContext, Schedule, TargetProfile)
+```
+
+primitive 두 개의 register 숫자를 단순 합산하지 않는다. liveness, accumulator lifetime, shared memory, fusion으로 제거되는 intermediate, occupancy threshold를 함께 고려한다.
+
+### 4.11 rank와 axis role은 서로 다른 정보다
+
+J rank가 알려주는 것은 argument를 frame과 cell로 어떻게 나누어 verb를 적용하는가이다. PrimitiveSpec의 axis-role contract는 그 cell 내부의 각 축이 연산에서 어떤 역할을 하는가를 알려준다.
+
+```text
+full argument shape
+        ↓ J rank semantics
+frame axes | cell axes
+             ↓ PrimitiveSpec.axis_roles
+       semantic axis roles
+```
+
+예를 들어 conv2d:
+
+```text
+full shape: [B, C, H, W]
+innate cell rank: 3
+
+frame: [B]
+cell : [C, H, W]
+
+cell axis 0 = channel / reduction input
+cell axis 1 = spatial H
+cell axis 2 = spatial W
+```
+
+따라서 흔히 말하는 **leading axis**도 전체 배열의 고정된 의미로 하드코딩하지 않는다. full array의 leading axis가 frame일 수 있고, primitive가 분석에 사용하는 것은 cell 내부 axis role이다. 필요하면 `cell axis 0`이 channel/reduction이라는 사실을 spec에 명시한다.
+
+conv 계열의 innate rank는 다음처럼 정리한다.
+
+```text
+conv1d cell = [C, W]       innate rank 2
+conv2d cell = [C, H, W]    innate rank 3
+conv3d cell = [C, D, H, W] innate rank 4
+```
+
+일반적으로 `conv_kd innate rank = k + 1`이다. 공간 차원 외에 channel 축이 cell 안에 있어야 channel accumulation을 표현할 수 있기 때문이다.
+
+개념적인 `AxisRoleSpec`은 cell axis role, reduction axes, parallel axes, window axes, preserved axes, output-axis mapping을 가진다. `C/H/W` 같은 이름은 사람이 읽기 위한 label이고 analyzer는 reduction/parallel/window/static-reindex 같은 역할을 사용한다.
+
+가변 reduction인 표준 J `+/` 같은 연산은 rank/cell 구조에서 axis가 유도된다. 반대로 conv처럼 축 역할이 연산 정체성에 고정된 primitive는 registry spec이 그 역할을 제공한다.
+
+### 4.12 access pattern은 fusion 분석의 semantic lower bound다
+
+`japchae` D-24에서 primitive를 scalar arithmetic까지 지나치게 분해하면 matmul/conv 구조 정보가 사라져 다시 pattern recognition을 해야 한다는 문제가 확인되었다. fusion/array planning 관점의 유용한 lower bound는 **memory/access pattern**이다.
+
+초기 분류:
+
+```text
+Map
+Reduce
+WindowReduce
+Scan
+StaticReindex
+DynamicGather
+Scatter
+```
+
+`StaticReindex`는 reshape/transpose/flatten/broadcast처럼 index mapping이 compile-time known인 경우다. 기본적으로 materialization이 아니라 view/remap 후보다. 실제 copy 여부는 downstream layout과 target을 본 physical planning에서 결정한다.
+
+### 4.13 semantic reference definition과 implementation을 분리한다
+
+name 기반 custom primitive의 구현은 black box여도 되지만 의미까지 black box여서는 안 된다. 표준 J로 표현 가능한 extension primitive는 가능하면 **기존 J primitive만으로 reference definition**을 제공한다.
+
+reference definition은 execution implementation도 resource model도 아니며 optimization decomposition을 강제하지 않는다. 원래 J 엔진을 semantic oracle로 사용할 수 있게 하는 명세다.
+
+```text
+semantic validation
+  extension result == reference J result
+
+resource validation
+  predicted resource/cost ~= measured backend behavior
+```
+
+reference definition을 실제 lowering으로 사용하는 것은 별도 검증을 통과한 뒤에만 허용한다.
+
+### 4.14 hardware profile은 primitive와 분리된 데이터다
+
+하드웨어 용량은 primitive별로 복제하지 않는다.
+
+```text
+TargetProfile
+  register capacity
+  shared-memory / scratchpad capacity
+  warp/wave/subgroup properties
+  supported numeric modes
+  relevant alignment / memory hierarchy facts
+  backend capability facts
+```
+
+Primitive identity는 어떤 접근 패턴과 축 역할을 요구하는가를 말하고, TargetProfile은 이 하드웨어가 무엇을 제공하는가를 말한다. TargetProfile은 가능한 한 versioned data로 관리한다.
+
+### 4.15 old analyzer output schema는 Logical/Physical 계층으로 분해해 흡수한다
+
+`japchae`의 analyzer output schema v0.1은 중요한 prototype이지만 logical 정보와 target-dependent resource 정보가 한 객체에 섞여 있었다. RustJ에서는 다음처럼 나눈다.
+
+**Logical Array IR / Plan**: op identity, logical shape, rank/cell/frame, dtype facts, axis roles, access pattern, effects/alias, provenance, materialization requirement, fusion legality/candidate.
+
+**Physical Planner 입력**: Logical Array IR + TargetProfile + backend capabilities.
+
+**Physical Plan / Planning Report**: fusion region, materialization boundary, chosen layout, tiling, register/shared-memory estimate, accumulator realization, synchronization, placement/transfer, predicted traffic, buffer lifetime/reuse, backend strategy.
+
+재현 가능한 compile artifact에는 source revision, PrimitiveSpec registry version, input facts/spec, TargetProfile version, compiler version을 기록한다.
+
+### 4.16 Flow–Storage와 materialized array 개념의 통합
+
+과거 `japchae`와 `jaxa-analyzer`에서 발전한 Flow–Storage 아이디어는 현재 RustJ의 `ValueId` / `BufferId` 분리와 결합한다.
+
+> **Logical ArrayValue가 존재한다는 사실은 별도의 memory buffer가 존재한다는 뜻이 아니다.**
+
+fusion 내부 중간값은 register 등에서 잠깐 존재하고 독립 storage를 갖지 않을 수 있다.
+
+```text
+ArrayValue
+  ├─ fused consumer가 즉시 소비 → no independent materialization
+  ├─ explicit/persistent storage requirement → materialize
+  └─ physical planner가 필요하다고 판단 → materialize
+```
+
+materialized array는 weight/activation/gradient라는 역할보다 **지속되는 storage identity가 필요한가**를 중심으로 이해한다. model parameter, optimizer state, explicit checkpoint, 외부 출력, effectful write/accumulate target, fusion region을 넘어 살아야 하는 value가 대표적이다.
+
+persistent state를 primitive 내부 hidden state로 숨기지 않는다. scalar state도 J 의미상 rank-0 array이므로 별도 scalar memory universe를 만들지 않는다.
+
+Logical 단계에서는 `Read`, `Write`, `Accumulate`, `Materialize`, `Load`, `Alias/View` 같은 effect를 표현할 수 있고, 실제 register/shared/device/host buffer, offset, reuse는 Physical Planner에서 정한다.
+
+### 4.17 과거 custom primitive inventory는 후보 목록으로 보존한다
+
+`JAXA-complier`의 마지막 prototype registry에는 다음 이름이 있었다.
+
+```text
+conv
+depthwise_conv
+linear
+bn
+ln
+adam
+cp
+flatten
+relu
+gelu
+softmax
+scaled_dot_product_attn
+crossentropy
+avgpool2d
+maxpool2d
+dropout
+```
+
+이 목록을 그대로 RustJ의 확정 vocabulary로 간주하지 않는다. **역사적 candidate inventory**다.
+
+새 RustJ registry에 들어가려면 최소한 part of speech/valence, innate rank, parameter schema, shape/dtype rule, axis-role/access-pattern contract, effect contract, semantic reference 또는 충분한 semantic specification, conservative execution/lowering path, 필요한 realization/resource model을 갖춰야 한다.
+
+초기 구현 우선순위는 가장 작은 end-to-end 검증이 가능한 `relu`, `linear`, `conv2d`, `flatten/static-reindex`, `avgpool2d` 또는 단순 reduction으로 둔다. attention, optimizer, checkpoint/training-specific extension은 core registry 구조가 검증된 뒤 단계적으로 옮긴다.
+
 ---
 
 ## 5. Logical Plan, Physical Plan, Executor
@@ -961,6 +1226,21 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] fork branch 독립성, reduction derived verb, rank-derived verb를 대표 golden test로 둔다.
 
 완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank/derived verb의 의미 구조가 분석 입력에 남아 있다.
+### A2 — Extension Primitive Registry와 analysis contract
+
+- [ ] extension name을 parser keyword로 만들지 않고 name resolution을 통해 `PrimitiveId`로 해소한다.
+- [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
+- [ ] `PrimitiveSpec`을 Identity / Analysis / Realization 층으로 분리한다.
+- [ ] innate rank와 cell axis-role contract를 정의한다.
+- [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
+- [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
+- [ ] TargetProfile을 primitive registry와 분리한다.
+- [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
+- [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
+- [ ] alias를 거쳐도 primitive identity/spec이 보존되는 테스트를 추가한다.
+- [ ] standard-J reference definition이 가능한 extension은 차등 oracle test를 추가한다.
+
+완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·axis role·shape·effect·resource requirement를 읽을 수 있다.
 
 ### G1 — 논리 값과 물리 표현의 경계
 
@@ -1380,6 +1660,18 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 - PHYSICAL-ARRAY-G1
 
 세부 역사 원문은 Git history에서 계속 조회할 수 있고, 측정 원자료는 `reports/`에 남긴다.
+### 15.5 외부 역사 저장소
+
+다음 저장소의 설계 내용은 2026-09-30 기준으로 이 문서에 흡수했다.
+
+- `yunskim/JAXA`
+- `yunskim/JAXA-complier`
+- `yunskim/japchae`
+- `yunskim/jaxa-analyzer`
+
+앞으로 새 설계 결정을 이 네 저장소 중 하나에 먼저 기록하고 나중에 RustJ로 옮기는 workflow를 사용하지 않는다. **RustJ `PROJECT.md`가 최초 기록 장소이자 최종 권위 문서**다.
+
+기존 저장소는 prototype 코드, 연구 이력, 참고 구현을 확인할 때만 사용한다.
 
 ---
 
@@ -1392,10 +1684,13 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 책임을 다시 분류한다.
 2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb, rank를 얼마나 보존하는지 감사한다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
-4. Semantic Analyzer가 이 IR을 입력으로 받아 composition 구조를 분석하도록 `analysis.rs`를 재정리한다.
-5. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
-6. fork, reduction derived verb, rank-derived verb를 Semantic Analyzer 단독 golden test로 검증한다.
-7. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
-8. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
+4. extension primitive registry의 최소 schema를 Identity / Analysis / Realization로 정의한다.
+5. innate rank + cell axis-role을 이용해 `relu`, `linear`, `conv2d`를 먼저 옮긴다.
+6. Semantic Analyzer가 semantic IR과 PrimitiveSpec을 함께 읽어 composition/rank/shape/axis role을 분석하게 한다.
+7. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
+8. fork, reduction derived verb, rank-derived verb, extension name alias를 golden test로 검증한다.
+9. Logical Plan과 TargetProfile을 받아 Physical Planner가 fusion/materialization/layout/resource 결정을 내리는 최소 경계를 만든다.
+10. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
+11. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
 특히 hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하는 shortcut을 추가하지 않는다.
