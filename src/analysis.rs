@@ -3,6 +3,7 @@
 use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
+    facts::{TypeFact, ValueRole, ValueRoleFacts},
     semantic::{
         BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand,
         FunctionPartOfSpeech, NameVersion, Verb,
@@ -72,11 +73,145 @@ pub enum AccessFact {
     Known(AccessRelation),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BasisKind {
+    IndexSpace,
+    Elementwise,
+    CellApply,
+    StaticReindex,
+    Gather,
+    Scatter,
+    ScatterCombine,
+    WindowView,
+    SegmentView,
+    Permute,
+    Reduce,
+    Scan,
+    Contract,
+    ConcatAssemble,
+    ReplicateCompactExpand,
+    Grade,
+    LookupClassify,
+    GroupBy,
+    NestedTraverse,
+    LinearSolve,
+    StateMachine,
+}
+
+/// Actual call instance facts.  This is analysis metadata, not semantic identity
+/// and not a physical implementation choice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedInstantiation {
+    pub target: CallTarget,
+    pub valence: Valence,
+    pub left_dtype: Option<TypeFact>,
+    pub left_rank: Option<usize>,
+    pub right_dtype: TypeFact,
+    pub right_rank: Option<usize>,
+    pub result_dtype: TypeFact,
+    pub result_rank: Option<usize>,
+    pub rank_boundary: Option<[i64; 3]>,
+}
+
+fn direct_basis(operation: &Operation) -> Option<BasisKind> {
+    use crate::primitive::PrimitiveId::*;
+
+    let Operation::Call {
+        callable,
+        left,
+        contract,
+        ..
+    } = operation
+    else {
+        return None;
+    };
+
+    if callable.rank.is_some() {
+        return Some(BasisKind::CellApply);
+    }
+    if callable.reduce {
+        return Some(BasisKind::Reduce);
+    }
+
+    let CallTarget::Primitive(id) = callable.target else {
+        return None;
+    };
+    let dyad = left.is_some();
+    match (id, dyad) {
+        (IndexOf, false) => Some(BasisKind::IndexSpace),
+        (Shape, true)
+        | (Ravel, false)
+        | (Reverse, _)
+        | (Transpose, _)
+        | (Take, _)
+        | (Drop, _) => Some(BasisKind::StaticReindex),
+        (Ravel, true) => Some(BasisKind::ConcatAssemble),
+        (From, true) => Some(BasisKind::Gather),
+        (IndexOf | Steps | Member, true) => Some(BasisKind::LookupClassify),
+        _ if contract.class == crate::contracts::OperationClass::Map => {
+            Some(BasisKind::Elementwise)
+        }
+        _ => None,
+    }
+}
+
+fn input_roles(operation: &Operation) -> Vec<(ValueId, ValueRole)> {
+    use crate::primitive::PrimitiveId::*;
+
+    let Operation::Call {
+        callable,
+        left,
+        right,
+        ..
+    } = operation
+    else {
+        return Vec::new();
+    };
+    let CallTarget::Primitive(id) = callable.target else {
+        return Vec::new();
+    };
+    match (id, *left) {
+        (IndexOf, None) => vec![(*right, ValueRole::ShapeVector)],
+        (Shape, Some(left)) => vec![(left, ValueRole::ShapeVector)],
+        (From, Some(left)) => vec![(left, ValueRole::IndexVector)],
+        (Take | Drop, Some(left)) => vec![(left, ValueRole::CountVector)],
+        (Transpose, Some(left)) => vec![(left, ValueRole::AxisPermutation)],
+        _ => Vec::new(),
+    }
+}
+
+fn result_roles(operation: &Operation) -> ValueRoleFacts {
+    use crate::primitive::PrimitiveId::*;
+
+    let mut roles = ValueRoleFacts::default();
+    let Operation::Call {
+        callable, left, ..
+    } = operation
+    else {
+        return roles;
+    };
+    let CallTarget::Primitive(id) = callable.target else {
+        return roles;
+    };
+    match (id, left.is_some()) {
+        (Shape, false) => roles.insert(ValueRole::ShapeVector),
+        (Indices, false) | (IndexOf | Steps, true) => roles.insert(ValueRole::IndexVector),
+        _ => {}
+    }
+    roles
+}
+
 #[derive(Clone, Debug)]
 pub struct Node {
     pub operation: Operation,
     pub facts: crate::facts::Facts,
     pub rank_plan: Option<crate::facts::RankPlan>,
+    /// Direct basis identity when the current transition IR can classify the
+    /// operation without inventing a multi-node expansion.
+    pub basis: Option<BasisKind>,
+    pub instantiation: Option<ResolvedInstantiation>,
+    /// Roles describe how this value is used/produced, not a new J noun type.
+    pub roles: ValueRoleFacts,
     /// Missing access knowledge is explicit and is an optimization barrier,
     /// never by itself a J semantic error.
     pub access: AccessFact,
@@ -181,6 +316,26 @@ impl LogicalPlan {
                         check_value(*left, "left input")?;
                     }
                     check_value(*right, "right input")?;
+
+                    let Some(instantiation) = &node.instantiation else {
+                        return Err(fail(Some(id), "call is missing resolved instantiation".into()));
+                    };
+                    let expected_valence = if left.is_some() {
+                        Valence::Dyad
+                    } else {
+                        Valence::Monad
+                    };
+                    if instantiation.valence != expected_valence {
+                        return Err(fail(Some(id), "instantiation valence does not match call".into()));
+                    }
+                    if instantiation.result_dtype != node.facts.dtype
+                        || instantiation.result_rank != node.facts.rank
+                    {
+                        return Err(fail(
+                            Some(id),
+                            "instantiation result facts do not match node facts".into(),
+                        ));
+                    }
                 }
             }
         }
@@ -380,9 +535,18 @@ impl Builder<'_> {
             },
             _ => (crate::facts::Facts::default(), None),
         };
+        let basis = direct_basis(&operation);
+        let instantiation = self.resolved_instantiation(&operation, &facts);
+        for (value, role) in input_roles(&operation) {
+            self.nodes[value.0].roles.insert(role);
+        }
+        let roles = result_roles(&operation);
         self.nodes.push(Node {
             rank_plan,
             facts,
+            basis,
+            instantiation,
+            roles,
             access,
             operation,
             span,
@@ -393,6 +557,39 @@ impl Builder<'_> {
         }
         id
     }
+    fn resolved_instantiation(
+        &self,
+        operation: &Operation,
+        result: &crate::facts::Facts,
+    ) -> Option<ResolvedInstantiation> {
+        let Operation::Call {
+            callable,
+            left,
+            right,
+            ..
+        } = operation
+        else {
+            return None;
+        };
+        let left_facts = left.map(|id| &self.nodes[id.0].facts);
+        let right_facts = &self.nodes[right.0].facts;
+        Some(ResolvedInstantiation {
+            target: callable.target,
+            valence: if left.is_some() {
+                Valence::Dyad
+            } else {
+                Valence::Monad
+            },
+            left_dtype: left_facts.map(|facts| facts.dtype),
+            left_rank: left_facts.and_then(|facts| facts.rank),
+            right_dtype: right_facts.dtype,
+            right_rank: right_facts.rank,
+            result_dtype: result.dtype,
+            result_rank: result.rank,
+            rank_boundary: callable.rank,
+        })
+    }
+
     fn expression(&mut self, expr: Expr) -> Result<ValueId> {
         let span = expr.span;
         match expr.kind {
