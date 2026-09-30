@@ -5,7 +5,7 @@ use std::{
     process::ExitCode,
 };
 
-fn run(engine: &mut Engine, line: &str, json: bool, semantic: bool) -> bool {
+fn run(engine: &mut Engine, line: &str, json: bool, semantic: bool, source_name: &str, line_number: usize) -> bool {
     match if semantic {
         engine.eval_semantic_reference(line)
     } else {
@@ -67,7 +67,7 @@ fn main() -> ExitCode {
     }
     let mut engine = Engine::new();
     if let Some(s) = expr {
-        return if run(&mut engine, &s, json, semantic) {
+        return if run(&mut engine, &s, json, semantic, "<command-line>", 1) {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
@@ -81,8 +81,8 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        for line in source.lines() {
-            if !run(&mut engine, line, json, semantic) {
+        for (index, line) in source.lines().enumerate() {
+            if !run(&mut engine, line, json, semantic, &path, index + 1) {
                 return ExitCode::FAILURE;
             }
         }
@@ -95,10 +95,10 @@ fn main() -> ExitCode {
         let _ = io::stderr().flush();
     }
     let mut ok = true;
-    for line in input.lock().lines() {
+    for (index, line) in input.lock().lines().enumerate() {
         match line {
             Ok(line) => {
-                let succeeded = run(&mut engine, &line, json, semantic);
+                let succeeded = run(&mut engine, &line, json, semantic, "<stdin>", index + 1);
                 ok &= succeeded;
                 if !succeeded && rustj::syntax::has_definition_syntax(&line) {
                     eprintln!(
