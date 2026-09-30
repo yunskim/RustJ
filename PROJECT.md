@@ -452,7 +452,7 @@ Hook(f,g)
 DerivedVerb(/, +)
     → Reduce(Add)
 
-RankDerived(f, r)
+RankConjunctionApply(left_entity, right_entity)
     → generic MapCells only
 ```
 
@@ -470,6 +470,44 @@ RankDerived(f, r)
 - name/binding semantics
 
 을 분석에 사용할 수 있기 때문이다.
+
+#### 3.4.1 train dataflow와 observable execution order를 분리한다
+
+current jsource의 fork/hook 실행(`j.h`의 `FORK1/FORK2`)은 일반 fork에서 **오른쪽 tine `h`를 먼저 실행하고, 그 다음 왼쪽 tine `f`, 마지막에 middle verb `g`**를 실행한다. hook/composition 계열도 해당 derived-verb 의미에 따른 실행 순서를 가진다.
+
+pure computation만 보면:
+
+```text
+h(y) ─┐
+      g
+f(y) ─┘
+```
+
+라는 dataflow가 보이지만 이것만으로 `f`와 `h`가 semantic하게 병렬 독립이라는 뜻은 아니다.
+
+다음이 있으면 observable-order edge를 보존한다.
+
+- name/locale lookup 또는 mutation
+- I/O / system foreign
+- mutable `StateResource` effect
+- catch 가능한 J error / throw
+- runtime semantic context mutation
+- 그 밖의 non-pure / non-speculatable behavior
+
+개념적으로:
+
+```text
+ValueDependency
+  h_result -> g.right
+  f_result -> g.left
+
+ObservableOrder
+  h -> f -> g       // effectful/general fork compatibility order
+```
+
+두 tine이 pure하고, relevant late-bound name/effect/error dependency가 없으며, `SpeculationSemantics`가 허용한다고 증명된 경우에는 optimizer가 order edge를 제거하여 병렬 실행/fusion할 수 있다.
+
+즉 source-level J 실행 순서를 physical serial schedule로 영구 고정하지는 않지만, **dataflow graph만 보고 순서 제약을 자동 폐기하지 않는다.**
 
 ### 3.5 물리 정보는 넣지 않는다
 
@@ -3696,7 +3734,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] empty operand에서의 context-sensitive type/domain semantics를 dense atomic dyad golden test로 검증한다.
 - [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
 - [ ] Semantic Analyzer / Lowering이 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
-- [ ] fork branch 독립성, reduction derived verb, rank-derived verb를 대표 golden test로 둔다.
+- [ ] fork/hook의 J-compatible observable execution order를 보존하고 pure/speculatable proof가 있을 때만 branch 병렬화를 허용하는 golden test를 둔다.
+- [ ] reduction derived verb와 rank-conjunction-derived verb를 대표 golden test로 둔다.
 
 완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank/derived verb의 의미 구조가 분석 입력에 남아 있다.
 ### A2 — Extension Primitive Registry와 analysis contract
@@ -4336,6 +4375,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `p.c` parser가 NAME을 stack할 때 local/locale lookup하고 noun은 value, 일반 ACV는 nameref로 처리한다 | noun snapshot과 function-name late binding을 분리한다 |
 | `sc.c` nameref 실행은 현재 lookup value의 part of speech가 reference 생성 시 기대한 품사와 같은지 검사한다 | `NameRef.expected_part_of_speech`를 보존하고 mismatch는 domain error로 처리한다 |
 | `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
+| `j.h::FORK1/FORK2`는 일반 fork에서 right tine을 먼저 실행하고 이후 left tine, middle verb 순으로 실행한다 | train value graph를 자동 병렬 독립으로 보지 않고 effect/name/error order edge를 proof 전까지 보존한다 |
 | `wc.c`/`cx.c`는 `try./catch./catchd./catcht./throw.`를 linked control flow로 실행하고 error/throw를 handler로 전달한다 | J-visible errors를 항상 fatal diagnostic으로 취급하지 않고 exceptional CFG/control effect로 보존한다 |
 | parser assignment reduction은 assigned J entity를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 entity-producing effectful expression으로 모델링한다 |
 | `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
@@ -4411,6 +4451,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 51. **Lowering key includes semantic valence/context** — raw primitive id/spelling만으로 backend lowering을 선택하지 않고 resolved valence와 derived numeric/rank/effect semantics를 포함한 operation key를 사용한다.
 52. **Innate rank is valence-specific** — primitive rank를 단일 값으로 두지 않고 monad와 dyadic left/right rank contract를 분리한다.
 53. **J errors may be control flow** — try/catch/throw 영역 안의 observable error를 fatal diagnostic으로 접지 않고 exceptional successor/동등 runtime semantics를 보존한다.
+54. **Train graph does not imply branch independence** — hook/fork/train의 value graph가 병렬 가능해 보여도 J의 name/effect/error execution order를 proof 없이 제거하지 않는다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4431,7 +4472,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
-10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, negative/infinite rank resolution과 prefix agreement, empty fill-cell과 empty-type semantics, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
+10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, fork/hook effect-order, negative/infinite rank resolution과 prefix agreement, empty fill-cell과 empty-type semantics, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
 11. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
 12. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
 13. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
