@@ -17,6 +17,38 @@ use crate::{
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct IrSchemaVersion {
+    pub major: u16,
+    pub minor: u16,
+}
+
+pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 1 };
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IrProvenance {
+    pub compiler_version: String,
+    pub primitive_registry_version: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IrHeader {
+    pub schema: IrSchemaVersion,
+    pub provenance: IrProvenance,
+}
+
+impl IrHeader {
+    fn current() -> Self {
+        Self {
+            schema: A3_SCHEMA_VERSION,
+            provenance: IrProvenance {
+                compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
+                primitive_registry_version: crate::primitive::REGISTRY_VERSION,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OpId(pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -399,6 +431,7 @@ pub struct Function {
 
 #[derive(Clone, Debug)]
 pub struct Plan {
+    pub header: IrHeader,
     pub source: String,
     pub symbols: Vec<Symbol>,
     pub functions: Vec<Function>,
@@ -527,6 +560,7 @@ impl Plan {
     /// the compatibility API while migration proceeds.
     pub fn from_transition(transition: &analysis::LogicalPlan) -> Self {
         let mut plan = Self {
+            header: IrHeader::current(),
             source: transition.source.clone(),
             symbols: transition.symbols.clone(),
             functions: Vec::new(),
@@ -666,6 +700,18 @@ impl Plan {
             message,
         };
         let source_len = self.source.len();
+
+        if self.header.schema != A3_SCHEMA_VERSION {
+            return Err(fail(None, "unsupported A3 IR schema version".into()));
+        }
+        if self.header.provenance.primitive_registry_version
+            != crate::primitive::REGISTRY_VERSION
+        {
+            return Err(fail(
+                None,
+                "A3 IR primitive registry provenance does not match compiler".into(),
+            ));
+        }
 
         if self.functions.len() != 1 || self.regions.len() != 1 || self.blocks.len() != 1 {
             return Err(fail(
