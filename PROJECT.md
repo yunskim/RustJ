@@ -170,6 +170,10 @@ rustj/
   j-semantic-ir
   semantic-analysis
   logical-array-ir
+  ir-verify
+  ir-adapters
+  native-schedule
+  native-physical
   backend-cpu
   backend-gpu
   runtime
@@ -199,9 +203,14 @@ RustJ의 목표는 J 의미를 정확히 분석하여 **좋은 IR과 정확한 �
 RustJ owns:
   J semantics
   semantic contracts
-  legality
-  lowering preconditions
+  semantic rewrite/lowering legality
+  external-route preconditions
   provenance
+
+External/native lower backends own:
+  lower-level target legality
+  instruction/resource legality
+  backend-specific verification
 
 RustJ may delegate:
   loop optimization
@@ -239,7 +248,11 @@ adapter는 다음 중 하나를 반환한다.
 ```text
 Lowered(external_ir)
 Unsupported(reason)
-RequiresGuard(runtime_predicate, lowered_ir)
+Guarded {
+  predicate,
+  fast_route,
+  fallback_route | Unsupported
+}
 ```
 
 외부 IR로 내릴 때 J semantic origin과 source span을 가능한 범위에서 metadata/provenance로 유지한다.
@@ -1562,6 +1575,23 @@ Logical 단계에서는 `Read`, `Write`, `Accumulate`, `Load`, `Alias/View` 및 
 
 이 원칙은 MLIR이 tensor-level optimization 뒤에 bufferization을 늦추는 구조와 IREE Stream이 tensor computation 뒤에 resource lifetime/allocation을 명시화하는 구조를 따른다.
 
+#### 4.24.1 destination / alias relation은 buffer identity와 분리한다
+
+late bufferization을 잘 지원하려면 op가 결과와 operand 사이의 **semantic alias/destination 가능성**을 설명할 수 있어야 한다.
+
+```text
+DestinationRelation
+  FreshResult
+  MayReuse(operand)
+  EquivalentView(operand, mapping)
+  OverlappingView(operand, relation)
+  MustAlias(resource)
+  Unknown
+```
+
+이 relation은 `BufferId`를 미리 배정하는 것이 아니다. native bufferization이나 MLIR One-Shot Bufferize 같은 후속 단계가 SSA use-def, liveness, conflict를 함께 보고 실제 in-place/out-of-place 결정을 내릴 수 있게 하는 contract다.
+
+
 ### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
 
 `JAXA-complier`의 마지막 prototype registry에는 `conv`, `depthwise_conv`, `linear`, `bn`, `ln`, `adam`, `cp`, `flatten`, `relu`, `gelu`, `softmax`, `scaled_dot_product_attn`, `crossentropy`, `avgpool2d`, `maxpool2d`, `dropout`이 있었다.
@@ -1724,9 +1754,9 @@ Logical Array IR subset
   → XLA / IREE / compatible compiler
 ```
 
-StableHLO가 표현하지 못하는 J-specific entity, boxed semantics, dynamic effect, unusual numeric/error semantics는 이 route에 억지로 넣지 않는다.
+StableHLO에는 token 기반 side-effect ordering, send/recv, side-effecting `custom_call` 같은 기능이 존재한다. 그러나 이것이 arbitrary J state/effect/error semantics 전체를 표현한다는 뜻은 아니다. J-specific entity, boxed semantics, unusual numeric/error ordering, 지원되지 않는 effect/resource model은 이 route에 억지로 넣지 않는다.
 
-필요하면 StableHLO `composite`나 `custom_call` 계열 escape hatch를 사용할 수 있지만, 그것이 semantic contract를 숨기는 수단이 되어서는 안 된다.
+필요하면 StableHLO `composite`나 `custom_call` 계열 escape hatch를 사용할 수 있지만, 그것이 semantic contract를 숨기는 수단이 되어서는 안 된다. adapter는 effect/token mapping을 명시적으로 검증한다.
 
 #### Route D — Direct external library/kernel
 
@@ -1767,6 +1797,66 @@ library call은 하나의 backend realization이며 primitive identity와 분리
 
 external route의 존재 때문에 RustJ Logical IR을 외부 IR의 최소공배수로 축소하지 않는다. **RustJ IR이 더 풍부하고, adapter가 필요한 subset을 projection하는 구조**를 유지한다.
 
+
+
+### 5.7 Logical IR은 verifier·interface·version 경계를 가진다
+
+Logical Array IR이 여러 route의 compiler boundary라면 단순 Rust struct 집합으로 끝내지 않는다.
+
+#### 5.7.1 Verifier
+
+각 operation은 생성/변환 후 최소 다음을 검증할 수 있어야 한다.
+
+```text
+structural verifier
+type/dtype verifier
+rank/shape verifier
+region/block/terminator verifier
+effect/token verifier
+constraint/witness verifier
+op-specific semantic verifier
+```
+
+invalid IR을 downstream optimizer가 추측해서 고치게 하지 않는다.
+
+#### 5.7.2 Capability interfaces
+
+분석/변환은 concrete op 이름의 거대한 switch보다 capability interface를 우선한다.
+
+```text
+ShapeInference
+AxisAndIterationSemantics
+AccessPattern
+EffectSemantics
+AliasSemantics
+SpeculationSemantics
+TilingCapability
+BufferizationCapability
+ExternalLoweringCapability
+```
+
+모든 op가 모든 interface를 구현할 필요는 없다. interface가 없으면 해당 optimization/route가 conservative하게 거부되거나 fallback 후보를 찾는다.
+
+#### 5.7.3 Canonicalization과 rewrite provenance
+
+canonicalization은 semantic-preserving rewrite만 포함한다. J-specific structure를 없애는 rewrite와 target-specific optimization을 같은 canonicalization 단계로 섞지 않는다.
+
+각 nontrivial lowering/rewrite는 가능하면 source/semantic origin을 추적하여 differential debugging이 가능하게 한다.
+
+#### 5.7.4 IR serialization/versioning
+
+현재 개발 단계에서는 RustJ Logical IR의 장기 binary compatibility를 약속하지 않는다. 그러나 외부 tool/process와 IR을 교환하기 시작하면 schema version을 명시한다.
+
+```text
+IrSchemaVersion
+PrimitiveRegistryVersion
+producer/compiler version
+feature set
+```
+
+portable artifact를 만들 경우 text/debug syntax와 portable serialization contract를 분리하고, version upgrade/downgrade 또는 unsupported-version 진단을 제공한다.
+
+MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable artifact 방식이 참고 모델이다. compatibility를 약속하기 전에도 **version field와 verifier를 처음부터 두는 것**이 migration 비용을 줄인다.
 
 ---
 
@@ -2165,7 +2255,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 - [ ] extension name을 parser keyword로 만들지 않고 name resolution을 통해 `PrimitiveId`로 해소한다.
 - [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
-- [ ] `PrimitiveSpec`을 Identity / Analysis / Realization 층으로 분리한다.
+- [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
 - [ ] innate rank와 cell axis-role contract를 정의한다.
 - [ ] `IterationDomain`, `AccessRelation`, `UniformityFact`, `ConstraintSet`, `MaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
@@ -2183,7 +2273,23 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] alias를 거쳐도 primitive identity/spec이 보존되는 테스트를 추가한다.
 - [ ] standard-J reference definition이 가능한 extension은 차등 oracle test를 추가한다.
 
-완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, Physical Planner가 별도 TargetProfile을 이용해 schedule과 ResourceEstimate를 만들 수 있다.
+완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, RustJ-native route에서는 별도 TargetProfile을 이용해 schedule/ResourceEstimate를 만들고 external route에서는 adapter가 같은 Logical IR contract를 검증해 lowering할 수 있다.
+
+### A3 — Logical IR core, verification, scheduling boundary
+
+- [ ] SSA `ValueId`, Function/Region/Block/Terminator 최소 구조를 정의한다.
+- [ ] pure graph region과 CFG region을 구분한다.
+- [ ] `ConstraintSet + Witness/Guard`를 정의한다.
+- [ ] `EffectSummary + EffectToken + SpeculationSemantics`를 정의한다.
+- [ ] `DestinationRelation`을 정의하여 bufferization contract와 BufferId를 분리한다.
+- [ ] op verifier framework를 만든다.
+- [ ] semantic capability interfaces(Shape/Axis/Access/Effect/Alias/Speculation)를 trait/API로 정의한다.
+- [ ] schedule/transform representation을 Logical payload IR과 분리한다.
+- [ ] external adapter capability negotiation과 guarded lowering을 정의한다.
+- [ ] `IrSchemaVersion`과 registry/compiler provenance를 IR header에 둔다.
+- [ ] pure graph, branch, loop, effect token, dynamic guard를 각각 verifier golden test로 만든다.
+
+완료 조건: Logical IR이 RustJ-native planner와 external adapter 양쪽에서 동일한 verifier/interface contract를 통해 소비될 수 있고, buffer/layout/schedule을 넣지 않아도 control/effect/dynamic constraint semantics를 잃지 않는다.
 
 ### G1 — 논리 값과 물리 표현의 경계
 
