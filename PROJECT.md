@@ -821,7 +821,7 @@ ErrorContext
   executing semantic operation
   valence
   small x/y summaries
-  structured notes/cause
+  structured FailureDetail
         ↓
 DiagnosticAnalyzer
   generic semantic explanation
@@ -872,7 +872,7 @@ RustJ 원칙:
 - 표시할 때 1-based line과 Unicode-scalar column으로 변환한다.
 - 가장 안쪽 단계가 붙인 정확한 context를 outer compiler/runtime layer가 덮어쓰지 않는다.
 - `ErrorContext.arguments`에는 전체 array가 아니라 type/shape/rank 등 작은 summary만 둔다.
-- primitive-specific analyzer가 필요한 경우 structured failure detail을 추가하되 J machine error class는 바꾸지 않는다.
+- primitive-specific analyzer가 필요한 경우 문자열 메시지를 즉석에서 조립하지 않고 `FailureDetail` 같은 structured failure detail을 추가한다. `DiagnosticAnalyzer`가 이를 human explanation으로 변환하되 J machine error class는 바꾸지 않는다.
 - JSON/conformance API와 기존 `eval()/analyze()`는 wrapper를 제거한 J-compatible machine error를 반환한다.
 - `parse_diagnostic()/eval_diagnostic()/analyze_diagnostic()`은 같은 semantics를 실행하면서 context를 유지한다.
 - runtime kernel error와 향후 physical backend error도 semantic/logical operation의 source origin으로 돌아갈 수 있어야 한다.
