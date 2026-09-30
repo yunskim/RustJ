@@ -274,7 +274,7 @@ Guarded {
 
 J built-in primitive와 NN/array extension primitive는 **semantic operation 계층에서는 동일한 원칙**으로 관리한다.
 
-예를 들어 `+`, `Reduce(+)`, `MatMul`, `Conv`, `Softmax`, `LayerNorm`, `Attention`은 모두 parser/semantic analysis 이후 target-independent operation으로 표현될 수 있다. NN extension 이름은 tokenizer/parser keyword로 하드코딩하지 않고 ordinary J binding을 통해 verb/adverb/conjunction 등으로 해석한다.
+예를 들어 `+`, `Reduce(+)`, `MatMul`, `Conv`, `Softmax`, `LayerNorm`, `Attention`은 모두 parser/semantic analysis 이후 target-independent operation으로 표현될 수 있다. RustJ extension primitive는 parser grammar에 하드코딩하지 않는다. **jsource `jtenqueue`가 `spellin(...) -> ds(e)`로 primitive를 가져오는 지점을 일반화한 `PrimitiveResolver`에서 core J primitive와 enabled extension primitive를 함께 resolve한다.** 해당 compile profile에서 primitive로 resolve되지 않은 valid spelling은 기존 J 규칙대로 name/noun/string 등 다음 enqueue classification으로 진행한다.
 
 하드웨어별 정보는 semantic primitive 정의에 넣지 않는다.
 
@@ -665,6 +665,107 @@ boxed noun 자체를 전역적으로 `Gerund`라는 별도 J type으로 바꾸�
 
 gerund 안의 name/function reference도 J의 fix/late-binding 규칙을 잃지 않아야 한다.
 
+
+### 3.3.2 Frontend 전체를 jsource-compatible pipeline으로 유지한다
+
+RustJ는 적어도 **word formation -> enqueue -> parser까지 current jsource를 구현 명세에 가깝게 따른다.** 이 구간에서 compiler-friendly 문법을 새로 만들지 않는다.
+
+```text
+source bytes
+  ↓
+Word Formation
+  jsource: jtwordil / w.c state table
+  RustJ:   word_former
+  ↓
+Enqueue
+  jsource: jtenqueue
+  RustJ:   enqueuer
+       ├─ spelling / primitive resolution
+       ├─ numeric & string construction
+       ├─ name validation / lookup flags
+       └─ assignment classification
+  ↓
+Parse Queue
+  ↓
+Parser
+  jsource: p.c 9-row reduction behavior
+  RustJ:   same language/reduction semantics
+  ↓
+J semantic values / completed function entities
+  ↓
+RustJ Semantic IR / Analyzer
+  ↓
+Logical / Optimization / Target / Physical IR
+```
+
+RustJ가 달리 구현해도 되는 것은 포인터 low-bit tagging, refcount, in-place bookkeeping, cache layout, branch-prediction tricks 같은 C implementation detail이다. 반대로 **word boundary, enqueue classification, primitive/name distinction, parser lookup timing, parse reduction, result POS/error semantics**은 jsource compatibility 대상이다.
+
+##### Enqueuer의 primitive-resolution hook
+
+jsource `jtenqueue`는 word spelling을 `spellin`으로 primitive id에 대응시킨 뒤 `ds(e)`로 canonical primitive object를 가져온다. RustJ는 이 지점을 다음처럼 일반화한다.
+
+```text
+Enqueued source word
+       ↓
+PrimitiveResolver::resolve(word, CompilePrimitiveContext)
+       │
+       ├─ Core J primitive catalog
+       │    // jsource spellin + ds equivalent
+       │
+       └─ Enabled extension primitive catalog
+            // NN/array/compiler extensions
+       ↓
+PrimitiveHandle {
+    semantic_id,
+    source_origin,
+    result_pos,
+    semantic_info,
+    lowering_key
+}
+```
+
+`PrimitiveHandle`의 **semantic 정보는 target-independent**다. `lowering_key`는 hardware metadata 자체가 아니라 이후 active `TargetContext`에서 implementation/capability를 찾기 위한 안정적인 key다.
+
+따라서 compile invocation 시작 시 두 가지를 함께 고정한다.
+
+```text
+CompilationSession
+  primitive_context:
+    core_j_revision
+    enabled_extension_sets
+    primitive_locale/path
+  target_context:
+    active_target_locale/path
+    architecture/device/runtime facts
+```
+
+Enqueuer는 `primitive_context`를 사용해 source word를 semantic primitive로 resolve하고, 이후 lowering은 **같은 session의 `target_context`**에서 그 primitive의 `lowering_key`를 조회한다. 이 때문에 original J primitive와 extension primitive가 동일한 target/hardware specification 체계를 사용한다.
+
+```text
+source "+"
+   ↓ enqueue PrimitiveResolver
+Core(Add) --------------------┐
+
+source "conv"
+   ↓ enqueue PrimitiveResolver│
+Extension(Conv) --------------+--> semantic_id / lowering_key
+                              │
+                              ↓
+                       active TargetContext
+                              ↓
+                    target-specific lowering
+```
+
+중요한 규칙:
+
+- Core J primitive의 spelling/POS/semantic contract는 jsource와 호환되어야 한다.
+- Extension primitive는 parser production을 추가하지 않는다. enqueue 결과가 Verb/Adverb/Conjunction/Noun 중 하나이면 기존 parser row에 그대로 참여한다.
+- extension primitive visibility는 compile primitive profile/locale이 결정한다.
+- target hardware 정보 자체는 primitive semantic entity에 복사하지 않는다.
+- enqueuer에서 target-specific kernel을 선택하지 않는다.
+- semantic primitive handle의 `lowering_key`만 이후 target locale lookup에 사용한다.
+- portable extension은 target implementation이 없더라도 semantic resolution 자체는 가능하며, lowering 단계에서 unsupported/fallback을 판단할 수 있다.
+- 명시적으로 target-gated인 extension을 향후 지원하더라도 그 gating은 compile profile의 명시적 정책이어야 하며 core J semantics를 변경해서는 안 된다.
 
 #### 3.3.3 Parser language rules are jsource-compatible
 
@@ -5167,7 +5268,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 ### A0.5 — jsource-compatible parser 이행 체크리스트
 
-이 절의 **P0–P7이 parser migration의 authoritative checklist**다. P8은 parser 완료 후 A1/A2/A3로 넘기는 integration handoff이며 A1의 선행조건이 아니다.
+이 절의 **F0–F2 + P0–P7이 frontend/parser migration의 authoritative checklist**다. F0은 word formation, F1은 enqueue/primitive resolution, F2는 parse-queue skeleton을 담당한다. 그 뒤 P 단계에서 parser semantic construction/name-resolution/cutover를 완성한다. P8은 A1/A2/A3로 넘기는 integration handoff다.
 
 검토 기준은 2026-09-30의 `jsoftware/jsource` master(`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`)이다. 특히 다음을 함께 oracle로 본다.
 
@@ -5179,6 +5280,48 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 RustJ가 그대로 맞춰야 하는 것은 **word/class resolution timing, row eligibility와 precedence, reduction extent, result parser class/POS, construction-time J errors, assignment/parenthesis/name-resolution semantics**다. C의 bit packing, refcount, in-place bookkeeping, cached function pointer, `localuse` 최적화는 이식 대상이 아니다.
 
 RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST parser가 아니라는 점을 보존해야 한다. rows 0–2의 verb application은 **parser-visible effect/value dependency가 없다는 것이 증명된 경우에만** Noun-producing semantic application으로 defer할 수 있다. 그 실행이 이후 name/locale lookup, assignment state, modifier operand value, result POS 또는 construction-time error에 영향을 줄 수 있으면 정적 parser가 효과를 무시한 채 진행해서는 안 된다. v0 correctness baseline은 동일한 9-row engine의 runtime semantic action/fallback을 사용하고, 이후 guard/multiversion으로 정적 범위를 넓힌다. rows 3–4 역시 modifier application 시점에 필요한 J construction semantics를 수행하여 completed entity/POS/error를 결정해야 한다.
+
+#### F0 — jsource word formation 이식
+
+- [ ] `w.c::state`의 character-class × state transition table을 Rust enum/table로 옮긴다.
+- [ ] 현재 handwritten `scanner::transition`과 jsource table의 모든 transition을 대조한다.
+- [ ] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다.
+- [ ] unmatched quote/error boundary를 jsource와 맞춘다.
+- [ ] source span은 byte offset으로 보존한다.
+- [ ] `;:` 기반 word-formation oracle과 RustJ word spans를 비교하는 adapter를 만든다.
+
+**F0 완료 조건:** supported source domain에서 word boundaries/comment cutoff/error가 pinned jsource `jtwordil`과 일치한다.
+
+#### F1 — jsource enqueue + PrimitiveResolver 이식
+
+- [ ] 현재 `syntax::lex_spanned`가 수행하는 word interpretation을 별도 `enqueuer` 단계로 이동한다.
+- [ ] `EnqueuedWord { class, payload, span, flags }`를 정의해 jsource QC pointer tagging을 명시적 Rust enum/flags로 표현한다.
+- [ ] core J primitive lookup을 jsource `spellin -> ds`와 같은 위치와 precedence로 구현한다.
+- [ ] `PrimitiveResolver`가 core J primitive와 compile profile에서 enabled된 extension primitive를 동일 interface로 반환하게 한다.
+- [ ] `PrimitiveHandle { semantic_id, source_origin, result_pos, semantic_info, lowering_key }`를 정의한다.
+- [ ] compile 시작 시 `PrimitiveContext`와 `TargetContext`를 함께 확정하되 enqueuer는 semantic primitive resolution에 `PrimitiveContext`만 사용한다.
+- [ ] built-in과 extension 모두 동일 `lowering_key -> active TargetContext` lookup protocol을 사용하게 한다.
+- [ ] primitive로 resolve되지 않은 valid extension-like spelling은 ordinary NAME classification으로 진행한다.
+- [ ] numeric/string construction, name validation, assignment/copula classification을 jsource `jtenqueue` 순서대로 이식한다.
+- [ ] ordinary NAME과 lookup NAME의 enqueue flags를 jsource와 같은 위치 규칙으로 구분한다.
+- [ ] assignment local/global/to-name semantic flags를 보존한다.
+- [ ] one-word sentence legality를 enqueue 단계에서 검사한다.
+- [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
+- [ ] extension primitive가 Verb/Adverb/Conjunction을 반환할 때 core primitive와 같은 parser row에 참여하는 테스트를 만든다.
+
+**F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
+
+#### F2 — jsource parse queue skeleton
+
+- [ ] parser 입력을 raw `Token`이 아니라 F1의 `EnqueuedWord` queue로 바꾼다.
+- [ ] queue parser class와 semantic payload를 분리한다.
+- [ ] jsource Mark/Edge sentinel을 명시적으로 표현한다.
+- [ ] ordinary lookup NAME은 queue flag에 따라 parser stack 진입 직전에 resolve한다.
+- [ ] 9-row matcher는 queue/result parser class만으로 eligibility/precedence를 결정한다.
+- [ ] reduction result를 동일 queue/stack representation으로 재삽입한다.
+- [ ] current `ParseClass` refactor를 F2 queue class의 기반으로 흡수한다.
+
+**F2 완료 조건:** parser는 jsource-compatible enqueue queue를 유일한 입력으로 받아 9-row engine으로 넘길 수 있다.
 
 #### P0 — 기준선과 differential oracle 고정
 
@@ -5335,8 +5478,8 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 #### 진행 규칙
 
-- P0–P7을 parser migration의 **single source of truth**로 사용한다. P8은 기존 A1/A2/A3 체크리스트와 함께 추적한다.
-- parser 구현은 원칙적으로 P1 → P2 → P3 → P4 → P5 → P6 → P7 순으로 진행하되, 앞 phase의 interface를 깨지 않는 test/harness 작업은 병행할 수 있다.
+- F0–F2 + P0–P7을 frontend/parser migration의 **single source of truth**로 사용한다. P8은 기존 A1/A2/A3 체크리스트와 함께 추적한다.
+- frontend 구현은 원칙적으로 F0 → F1 → F2 → P1 → P2 → P3 → P4 → P5 → P6 → P7 순으로 진행하되, 앞 phase interface를 깨지 않는 oracle/test 작업은 병행할 수 있다.
 - 완료 즉시 같은 변경에서 `[ ] -> [x]`로 갱신한다.
 - 부분 구현을 완료로 표시하지 않는다. 각 phase의 완료 조건을 만족해야 phase 완료로 본다.
 - jsource와 의도적으로 다른 observable parser behavior가 필요해지면 구현 전에 rationale과 semantic impact를 이 문서에 기록한다.
