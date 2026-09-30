@@ -810,7 +810,7 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 | semantic/resource contract는 Python registry가 제공한다 | Python은 역사 prototype 구현 선택이다. 현행 RustJ architecture는 Rust capability interfaces, versioned data profiles, external adapter/registry를 사용하며 Python runtime dependency를 요구하지 않는다. |
 | `requires_sync=true`가 primitive semantic property다 | logical contract에는 dependency/collective/conflicting-update 요구만 둔다. barrier/event/atomic 등 구체 synchronization은 schedule/target 이후 정한다. |
 | `in_place=true`가 primitive의 고정 실행 property다 | semantic 쪽에는 alias/destination legality(`DestinationRelation`)만 둔다. 실제 in-place reuse는 liveness/conflict/bufferization 이후 결정한다. |
-| `cuda_family`가 primitive identity 일부다 | backend family는 lowering registry/candidate metadata다. source/semantic primitive identity와 분리한다. |
+| `cuda_family`가 primitive identity 일부다 | backend/architecture 정보는 target lowering locale/registry의 metadata다. source/semantic primitive identity와 분리하고, BackendFamily/ArchitectureTarget/DeviceProfile을 각각 구분한다. |
 
 이 표는 역사 저장소의 아이디어를 폐기한다는 뜻이 아니다. **어느 층에 속하는지를 현재 compiler architecture에 맞게 재배치**하는 기준이다.
 
@@ -1009,6 +1009,101 @@ ResourceUsage
 
 이렇게 하면 extension primitive를 추가해도 모든 분석/optimizer/backend가 그 이름을 직접 알 필요가 없다.
 
+#### 4.10.1 기존 J primitive도 hardware lowering의 주체다
+
+hardware-aware capability/lowering 체계는 extension primitive에만 적용하지 않는다.
+
+```text
+J built-in
+  +
+  *
+  %
+  +/
+  |:
+  {
+  $
+  ...
+
+extension-derived operation
+  Conv2d
+  Linear
+  ...
+```
+
+모두 동일한 원칙을 따른다.
+
+예를 들어 dyadic `+`는 target-independent하게 다음 semantic capability를 제공한다.
+
+```text
+PrimitiveId::Add
+  part_of_speech / valence
+  rank / agreement
+  ShapeInference
+  TypePromotion
+  AxisAndIterationSemantics
+  AccessPattern = Map-like elementwise
+  NumericSemantics
+  EffectSemantics
+  RewriteLegality
+```
+
+그러나 GPU에서 실제로 실행하려면 별도의 lowering capability가 필요하다.
+
+```text
+Lowering bindings for Add
+  generic
+  CPU family
+  GPU family
+  CUDA
+  ROCm
+  architecture-specific override
+  MLIR
+  StableHLO-compatible lowering
+  ...
+```
+
+즉:
+
+> **primitive가 hardware-relevant information을 가져야 한다**는 말은 semantic record 안에 특정 GPU의 warp/tile/register 숫자를 넣는다는 뜻이 아니다. primitive identity를 key로 하여 (1) target-independent hardware-relevant semantic capability와 (2) target/backend/architecture별 lowering capability를 조회할 수 있어야 한다는 뜻이다.
+
+개념 흐름:
+
+```text
+PrimitiveId::Add
+    │
+    ├─ semantic capabilities
+    │    iteration/access/numeric/effect
+    │
+    └─ target lowering lookup
+           +
+       CompilationTarget
+           ↓
+       legal lowering candidates
+           ↓
+       Schedule / Physical realization
+```
+
+모든 primitive가 모든 architecture에 전용 implementation을 가질 필요는 없다.
+
+```text
+architecture-specific binding exists
+      → use/consider specialized lowering
+
+otherwise backend-family binding exists
+      → use generic backend lowering
+
+otherwise generic/external lowering exists
+      → use it if legal
+
+otherwise
+      → UnsupportedImplementation for that route/target
+```
+
+예를 들어 `|:` transpose는 semantic capability에서 static permutation을 알려주고, target lowering은 consumer가 permutation을 absorb할지, view/layout으로 유지할지, 실제 transpose kernel/copy를 만들지를 결정한다.
+
+따라서 **J built-in vocabulary 전체도 extension과 동일한 capability/lowering architecture에 참여**한다.
+
+
 ### 4.11 rank와 axis role은 서로 다른 정보다
 
 J rank가 알려주는 것은 argument를 frame과 cell로 어떻게 나누어 verb를 적용하는가이다. `AxisAndIterationSemantics` capability는 그 cell 내부의 각 축이 연산에서 어떤 역할을 하는가를 알려준다.
@@ -1108,8 +1203,9 @@ RustJ에서는 이를 네 층으로 나눈다.
 A. Hardware-relevant semantic/logical facts
    "이 계산은 어떤 구조인가?"
 
-B. TargetProfile
-   "이 하드웨어는 무엇을 제공하고 무엇을 제한하는가?"
+B. CompilationTarget / resolved TargetProfile
+   BackendFamily + ArchitectureTarget + DeviceProfile + RuntimeProfile
+   "이 target은 무엇을 제공하고 무엇을 제한하는가?"
 
 C. Physical Schedule / Realization
    "이 계산을 이 target에 어떻게 매핑할 것인가?"
@@ -1120,7 +1216,7 @@ D. Resource / Cost Estimate
 
 이 네 층을 하나의 `PrimitiveSpec` 또는 하나의 거대한 IR node에 섞지 않는다.
 
-예를 들면 `leading axis`, `reduction axis`, `access relation`, `iteration dependency`는 A에 속하고, `warp/wave width`, register-file capacity, shared/LDS capacity, supported matrix instruction은 B에 속한다. `tile=64x128`, `num_warps=4`, `vector_width=8`, memory-space 선택은 C이며, `registers/thread=72`, occupancy, HBM bytes, spill risk는 D다.
+예를 들면 `leading axis`, `reduction axis`, `access relation`, `iteration dependency`는 A에 속한다. architecture instruction/subgroup/register-allocation rule과 exact device의 register/shared/LDS/cache capacity는 B에 속하되, ArchitectureTarget과 DeviceProfile 중 어디의 사실인지 구분한다. `tile=64x128`, `num_warps=4`, `vector_width=8`, memory-space 선택은 C이며, `registers/thread=72`, occupancy, HBM bytes, spill risk는 D다.
 
 ### 4.15 Logical Array IR이 가져야 하는 hardware-relevant contract
 
@@ -1456,36 +1552,332 @@ optimizer와 external adapter는 이 contract를 보고 hoist, duplicate, elimin
 
 
 
-### 4.16 TargetProfile: 하드웨어 hard facts와 capabilities
+### 4.16 CompilationTarget은 backend / architecture / device를 분리한다
 
-`TargetProfile`은 logical IR 밖의 **versioned target description**이다. compile invocation/plan에 연결되지만 J semantic value의 일부는 아니다. MLIR TargetSystemSpec처럼 여러 device를 기술할 수 있는 방향을 지향한다.
+기존의 하나짜리 `TargetProfile`은 역할이 너무 넓다. 같은 CUDA/ROCm backend에서도 architecture가 다르면 instruction, register organization, subgroup/wave behavior, scratchpad 기능 등이 달라지고, 같은 architecture를 쓰는 device끼리도 compute-unit 수, memory/cache capacity 등이 다를 수 있다.
+
+현행 모델은 다음을 구분한다.
 
 ```text
-TargetProfile
-├─ TargetIdentity
-├─ ExecutionHierarchy
-├─ RegisterResources
-├─ MemoryHierarchy
-├─ ComputeCapabilities
-├─ SynchronizationCapabilities
-├─ LaunchAndSchedulingLimits
-├─ TransferAndTopology
-└─ ABI / DataLayout
+CompilationTarget
+├─ BackendFamily
+├─ ArchitectureTarget
+├─ DeviceProfile
+├─ RuntimeProfile
+└─ resolved TargetProfile view
 ```
 
-#### 4.16.1 TargetIdentity
+의미:
 
-`vendor`, architecture, device family/feature set, backend target triple 또는 equivalent, driver/runtime capability version, profile schema version을 둔다. product name보다 capability query를 우선한다.
+```text
+BackendFamily
+  어떤 compiler/runtime ecosystem인가?
+  CUDA / ROCm / LLVM-CPU / SPIR-V / Metal / ...
 
-#### 4.16.2 ExecutionHierarchy
+ArchitectureTarget
+  어떤 ISA/microarchitecture capability에 맞춰 code를 만들 수 있는가?
+  architecture family + concrete compiler/ISA target + feature set
+
+DeviceProfile
+  그 architecture를 구현한 실제 device가 얼마만큼의 자원을 제공하는가?
+
+RuntimeProfile
+  현재 driver/runtime/toolchain에서 실제 사용할 수 있는 기능은 무엇인가?
+
+TargetProfile
+  위 profile fragments와 query providers를 resolution한
+  compile invocation용 effective view
+```
+
+`CostProfile`은 여전히 별도다. 동일 device라도 runtime/clock/workload/calibration에 따라 달라지는 empirical 성능값이기 때문이다.
+
+#### 4.16.1 BackendFamily
+
+backend family는 source primitive identity가 아니라 lowering ecosystem이다.
+
+예:
+
+```text
+generic
+cpu
+gpu
+cuda
+rocm
+spirv
+metal
+llvm_cpu
+```
+
+BackendFamily가 제공할 수 있는 것:
+
+- 공통 lowering interfaces
+- ABI/data-layout family
+- memory/execution model의 공통 query
+- generic kernel/library strategy
+- architecture target naming/selection 규칙
+
+`CUDA`, `ROCm` 같은 이름만으로 concrete instruction legality를 전부 판단하지 않는다.
+
+#### 4.16.2 ArchitectureTarget
+
+architecture target은 **code-generation legality와 architecture-specific capability**의 핵심 단위다.
+
+```text
+ArchitectureTarget
+  vendor
+  architecture_family
+  compiler_or_isa_target
+  feature_set
+  execution_hierarchy_rules
+  register_model
+  memory/scratchpad model
+  instruction capabilities
+  synchronization/memory-ordering capabilities
+  allocation rules
+```
+
+예시적인 naming:
+
+```text
+nvidia family / sm target
+amd family / gfx target
+intel GPU family / target
+cpu ISA + microarchitecture feature set
+```
+
+중요한 원칙:
+
+- architecture version 숫자의 대소만으로 feature inheritance를 가정하지 않는다.
+- capability는 명시적인 feature/query로 판정한다.
+- family-level 공통 정보와 concrete architecture override를 둘 수 있다.
+- architecture-specific instruction lowering은 이 수준에서 등록할 수 있다.
+
+#### 4.16.3 DeviceProfile
+
+DeviceProfile은 architecture identity가 아니라 **concrete capacity/topology**를 제공한다.
+
+```text
+DeviceProfile
+  architecture_target
+  compute-unit / SM / core count
+  register capacities
+  scratchpad/shared/LDS capacities
+  cache capacities/topology
+  memory capacity
+  supported configurable resource modes
+  link/topology facts
+  launch/concurrency hard limits that are device-specific
+```
+
+같은 ArchitectureTarget을 공유하는 device라도 DeviceProfile은 다를 수 있다.
+
+구분:
+
+```text
+ArchitectureTarget
+  "어떤 code/instruction이 legal한가?"
+
+DeviceProfile
+  "이 legal code를 이 장치에서 어떻게 schedule하는 것이 가능한가?"
+```
+
+#### 4.16.4 RuntimeProfile
+
+일부 capability는 silicon만으로 결정되지 않고 driver/runtime/compiler stack의 지원에도 의존한다.
+
+```text
+RuntimeProfile
+  backend/runtime version
+  driver capability
+  compiler/toolchain feature availability
+  library availability/version
+  runtime launch/interop capability
+```
+
+ArchitectureTarget이 지원하는 instruction/feature라도 현재 toolchain/runtime route가 노출하지 않으면 해당 lowering candidate는 사용할 수 없다.
+
+#### 4.16.5 resolved TargetProfile
+
+기존 문서의 `TargetProfile`이라는 이름은 삭제하지 않고 **resolved effective target view**라는 뜻으로 좁힌다.
+
+```text
+TargetProfile =
+  resolve(
+    BackendFamily profile,
+    ArchitectureTarget profile,
+    DeviceProfile,
+    RuntimeProfile,
+    target query providers
+  )
+```
+
+TargetProfile은 logical IR에 복사하지 않는다. compile invocation, route partition, schedule/physical planner, external adapter가 질의한다.
+
+### 4.16.6 Target locale chain: J locale 방식을 compiler lookup에 재사용한다
+
+backend/architecture/device별 lowering과 capability override는 J의 **locale/path resolution 아이디어**를 compiler namespace에 재사용하면 단순하게 구현할 수 있다.
+
+중요하게, **사용자 J locale과 compiler target locale은 namespace를 분리**한다. 의미와 lookup 방식은 재사용하지만 서로 binding을 섞지 않는다.
+
+개념:
+
+```text
+User J Namespace
+  base
+  myapp
+  ...
+
+Compiler Target Namespace
+  compiler.generic
+  compiler.gpu
+  compiler.backend.cuda
+  compiler.family.nvidia.<family>
+  compiler.arch.nvidia.<arch-target>
+  compiler.device.<device-id>
+```
+
+target이 정해지면 explicit locale path를 구성한다.
+
+예:
+
+```text
+TargetLocaleChain
+  device-specific
+    → concrete architecture
+    → architecture family
+    → backend family
+    → device class (gpu/cpu)
+    → generic
+```
+
+예시적인 형태:
+
+```text
+compiler.device.<exact-device>
+  → compiler.arch.nvidia.<sm-target>
+  → compiler.family.nvidia.<family>
+  → compiler.backend.cuda
+  → compiler.gpu
+  → compiler.generic
+```
+
+또는:
+
+```text
+compiler.device.<exact-device>
+  → compiler.arch.amd.<gfx-target>
+  → compiler.family.amd.<family>
+  → compiler.backend.rocm
+  → compiler.gpu
+  → compiler.generic
+```
+
+이 path는 **숫자 버전의 자동 상속이 아니라 명시적으로 구성한 resolution path**다.
+
+#### 4.16.7 Lowering lookup도 locale resolution을 사용한다
+
+각 target locale은 primitive/op에 대한 lowering binding을 가질 수 있다.
+
+```text
+compiler.generic
+  Add -> GenericAddLowering
+
+compiler.gpu
+  Add -> GenericGpuElementwiseAdd
+
+compiler.backend.cuda
+  Add -> CudaElementwiseAdd
+
+compiler.arch.nvidia.<arch>
+  Matmul -> ArchitectureSpecificMatmul
+```
+
+lookup:
+
+```text
+resolve_lowering(
+    op = PrimitiveId::Add,
+    locale_chain = target.locales
+)
+```
+
+검색 순서:
+
+```text
+most-specific device
+  ↓
+architecture
+  ↓
+family
+  ↓
+backend
+  ↓
+cpu/gpu class
+  ↓
+generic
+```
+
+가장 구체적인 legal binding이 우선하지만, 후보는 하나로 즉시 확정하지 않아도 된다. locale lookup은 **candidate discovery**를 담당하고, 실제 선택은 legality/resource/cost 평가가 한다.
+
+```text
+locale lookup
+  → lowering candidates
+  → capability/precondition verification
+  → ResourceEstimate
+  → optional CostEstimate
+  → choose schedule/realization
+```
+
+device-specific lowering override는 허용하지만 남발하지 않는다. exact device locale은 주로 capacities/cost/profile override에 사용하고, code-generation 차이가 architecture에서 설명 가능하면 architecture locale에 둔다.
+
+#### 4.16.8 Capability lookup도 locale fragment를 합성한다
+
+lowering뿐 아니라 target information도 같은 mechanism을 사용할 수 있다.
+
+```text
+compiler.generic
+  common ABI/query defaults
+
+compiler.gpu
+  generic subgroup/workgroup concepts
+
+compiler.backend.cuda
+  CUDA execution/memory model
+
+compiler.arch...
+  architecture instruction/register/allocation rules
+
+compiler.device...
+  exact capacities/topology
+```
+
+단순 key override로 표현하기 어려운 규칙은 `TargetQueries` provider binding을 locale에 등록한다.
+
+```text
+TargetFacts
+  stable values / capacities / identities
+
+TargetQueries
+  legal_vector_access(...)
+  memory_transaction_structure(...)
+  occupancy_bound(...)
+  matrix_instruction_candidates(...)
+  atomic_support(...)
+  async_copy_candidates(...)
+  preferred_layout(...)
+```
+
+query resolution 역시 most-specific locale provider가 override하거나, 명시적인 composition rule을 통해 상위 provider를 호출할 수 있다.
+
+#### 4.16.9 ExecutionHierarchy
 
 GPU 예는 `Device → ComputeUnit/SM → Workgroup/CTA → Subgroup/Warp/Wave → Lane/Thread`, CPU 예는 `Machine/NUMA → Core → Hardware thread → SIMD lanes`로 본다.
 
 필요 후보는 compute-unit count, supported subgroup widths, resident subgroup/workgroup limits, threads/lanes per workgroup, workgroup/grid dimension limits, CPU SMT/NUMA facts다.
 
-NVIDIA에서는 warp width뿐 아니라 register/shared-memory/thread-block 한도가 occupancy와 launch 가능성을 제한한다. AMD에서는 wavefront, VGPR/SGPR, LDS, wave slot과 block size가 함께 occupancy를 제한한다. 따라서 `warp_size` 하나만으로 GPU resource model을 만들지 않는다.
+이 정보의 일부는 architecture rule이고 일부는 exact device capacity다. 어느 profile fragment에 속하는지 구분해 저장한다.
 
-#### 4.16.3 RegisterResources
+#### 4.16.10 RegisterResources
 
 register를 단일 숫자로 가정하지 않는다.
 
@@ -1505,9 +1897,7 @@ RegisterResource
   allocation_granularity
 ```
 
-CPU에서는 scalar/fixed/scalable vector register width와 register class가 중요하고, AMD 계열에서는 VGPR/SGPR/accumulator class의 차이가 중요할 수 있다.
-
-register/resource allocation은 연속적인 실수값이 아니라 target별 allocation granularity를 가진다. 따라서 capacity와 별도로 다음을 모델링한다.
+register class/width/allocation rule은 주로 ArchitectureTarget에, concrete capacity/limit override는 DeviceProfile에 둘 수 있다.
 
 ```text
 AllocationRule
@@ -1522,8 +1912,7 @@ AllocationRule
 
 occupancy/concurrency 계산은 단순 `capacity / usage`가 아니라 allocation rule을 적용한 뒤 계산한다.
 
-
-#### 4.16.4 MemoryHierarchy
+#### 4.16.11 MemoryHierarchy
 
 memory space를 `global/shared` 두 종류로 고정하지 않는다.
 
@@ -1541,9 +1930,9 @@ MemorySpace
   async-copy support
 ```
 
-cache levels, cache-line size/capacity, scratchpad/shared/LDS capacity, HBM/DRAM capacity, host/device address spaces, constant/read-only spaces도 필요에 따라 profile에 둔다. OpenXLA처럼 logical shape와 physical memory space/layout을 분리한다.
+memory-space semantics/transaction/bank rules은 architecture/backend profile에, concrete cache/scratchpad/HBM capacity는 device profile에 두는 식으로 분리한다.
 
-일부 target에서는 cache와 scratchpad/shared memory가 동일한 physical resource를 partition하거나 configurable mode를 가진다. 따라서 독립 capacity만 저장하지 않고 resource coupling도 표현할 수 있어야 한다.
+일부 target에서는 cache와 scratchpad/shared memory가 같은 physical resource를 partition한다.
 
 ```text
 ResourceCoupling
@@ -1553,19 +1942,7 @@ ResourceCoupling
   selection_scope
 ```
 
-또한 coalescing/vector-load legality를 위해 모든 memory transaction 규칙을 거대한 static table로 복사하기보다 target query interface를 허용한다.
-
-```text
-TargetMemoryQueries
-  legal_vector_access(access, width)
-  transaction_estimate(access_distribution)
-  preferred_alignment(type, space)
-  bank_conflict_estimate(access_pattern)
-  cache_line_or_transaction_granularity(space)
-```
-
-
-#### 4.16.5 ComputeCapabilities
+#### 4.16.12 ComputeCapabilities
 
 ```text
 supported scalar dtypes
@@ -1578,31 +1955,15 @@ matrix/tensor/MMA instruction families
   result dtype
   legal tile shapes
   layout constraints
+  execution scope
 special instructions
 ```
 
-`tensor_core=true` 같은 boolean 하나보다 지원되는 operation signature 집합이 낫다.
+`tensor_core=true` 같은 boolean 하나보다 operation signature/capability query가 낫다.
 
-각 특수 instruction capability에는 **execution scope**를 포함한다.
+#### 4.16.13 Synchronization / memory ordering / data movement
 
-```text
-ExecutionScope
-  Lane
-  SIMDGroup
-  Subgroup
-  WarpGroup
-  Workgroup
-  ComputeUnit
-```
-
-예를 들어 matrix/tensor instruction은 tile shape와 dtype뿐 아니라 몇 lane이 협력하는지, 어떤 operand layout과 accumulator register class를 요구하는지까지 capability로 질의할 수 있어야 한다.
-
-
-#### 4.16.6 SynchronizationCapabilities
-
-barrier scopes, subgroup shuffle/reduce, workgroup barrier, cross-workgroup synchronization, atomic scopes/dtypes, async barrier/pipeline support를 capability로 둔다.
-
-atomic/memory model은 operation 지원 여부뿐 아니라 scope와 ordering을 포함한다.
+architecture/backend profile은 다음 capability를 제공할 수 있다.
 
 ```text
 MemoryOrderingCapability
@@ -1611,16 +1972,7 @@ MemoryOrderingCapability
   atomic_ops_by_dtype
   fence_capabilities
   coherent_spaces
-```
 
-
-#### 4.16.7 LaunchAndSchedulingLimits
-
-max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic scratchpad/shared-memory limits, cluster/cooperative launch capabilities 등을 둔다.
-
-비동기 data movement는 boolean 하나가 아니라 capability family로 둔다.
-
-```text
 DataMovementCapability
   source_space
   destination_space
@@ -1632,35 +1984,38 @@ DataMovementCapability
   optional transform/reduction support
 ```
 
-CPU scalable-vector/SME 같은 target을 막지 않도록 execution mode도 확장 가능하게 둔다.
+구체적인 barrier/event/atomic/copy 선택은 schedule/physical lowering에서 한다.
 
-```text
-ExecutionModeCapability
-  feature state
-  fixed_or_scalable_vector
-  vector_length_range
-  special matrix/register state
-  legal mode transitions
-```
+#### 4.16.14 LaunchAndSchedulingLimits
 
+max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic scratchpad limits, cluster/cooperative launch capability 등을 표현한다.
 
-#### 4.16.8 TransferAndTopology
+rule 자체가 architecture에 속하는지, exact numeric capacity가 device에 속하는지 분리한다.
 
-장기적으로 device memory capacity, host-device links, peer-to-peer connectivity, NUMA relation, collective capability, concurrent copy/compute capability를 표현한다. single-device MVP에는 필수가 아니지만 Placement/Sharding 확장을 막지 않도록 위치를 예약한다.
+#### 4.16.15 TransferAndTopology
 
-#### 4.16.9 ABI / DataLayout
+device memory capacity, host-device links, peer-to-peer connectivity, NUMA relation, collective capability, concurrent copy/compute capability를 표현한다.
+
+single-device MVP에는 필수가 아니지만 Placement/Sharding 확장을 막지 않도록 schema 위치를 예약한다.
+
+#### 4.16.16 ABI / DataLayout
 
 endianness, type size/alignment, pointer/address-space width, vector alignment 같은 정보다. J logical dtype 의미가 아니라 backend representation constraint다.
+
+architecture/backend family의 ABI rule과 runtime/external ABI requirement를 분리할 수 있어야 한다.
 
 ### 4.17 CostProfile: hard limit와 측정 성능을 분리한다
 
 effective memory bandwidth, instruction throughput, cache hit rate, launch overhead, interconnect bandwidth/latency, library-call overhead는 driver, clock, power state, workload, runtime version에 따라 바뀔 수 있다.
 
-따라서 `TargetProfile`과 별도로 optional `CostProfile`을 둔다.
+따라서 `CompilationTarget`의 hard facts와 별도로 optional `CostProfile`을 둔다.
 
 ```text
 CostProfile
-  target_profile_id
+  backend_family
+  architecture_target
+  device_profile_id
+  target_profile_resolution_id
   runtime/driver/compiler version
   measurement provenance
   bandwidth estimates
@@ -1727,7 +2082,7 @@ ResourceEstimate
 
 ```text
 ResourceEstimate
-  = R(LogicalGraph, PhysicalSchedule, TargetProfile)
+  = R(LogicalGraph, PhysicalSchedule, resolved TargetProfile)
 ```
 
 #### CostEstimate
@@ -2793,7 +3148,10 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
 - [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
-- [ ] `TargetProfile`을 primitive registry와 분리하고 execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 최소 schema로 만든다.
+- [ ] `CompilationTarget = BackendFamily + ArchitectureTarget + DeviceProfile + RuntimeProfile`을 정의하고, 기존 `TargetProfile`은 resolved effective view로 사용한다.
+- [ ] execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 architecture/device profile에 올바르게 분리한다.
+- [ ] compiler target locale chain(device → architecture → family → backend → cpu/gpu → generic)을 정의한다.
+- [ ] built-in J primitive도 extension과 동일하게 target lowering binding을 locale chain에서 조회한다.
 - [ ] hard target facts와 empirical `CostProfile`을 분리한다.
 - [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
 - [ ] `ResourceEstimate`를 graph + schedule + TargetProfile의 함수로 계산하고 `CostEstimate`를 별도 계층으로 둔다.
@@ -3419,7 +3777,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 16. **Verifier first** — 잘못된 IR을 downstream이 추측해서 복구하게 하지 않는다.
 17. **Version boundary 명시** — external interchange를 시작하면 IR schema와 registry/compiler provenance를 기록한다.
 18. **Async dependency는 explicit** — physical async execution에서 host statement order를 dependency로 암묵 사용하지 않는다.
-19. **Resource와 cost 분리** — ResourceEstimate는 TargetProfile hard facts에 의존하고, empirical CostProfile은 CostEstimate/ranking에만 사용한다.
+19. **Resource와 cost 분리** — ResourceEstimate는 resolved TargetProfile hard facts에 의존하고, empirical CostProfile은 CostEstimate/ranking에만 사용한다.
 20. **Route는 혼합 가능** — external/native route는 whole-program exclusive choice가 아니라 legal region/subgraph 단위로 partition할 수 있다.
 21. **Analysis state와 semantic error 분리** — lattice의 unknown/unreachable과 J의 domain/rank/length error를 같은 상태로 표현하지 않는다.
 22. **RoutePartition은 plan** — route 배정은 Logical IR semantic identity가 아니며 target/backend 조건에 따라 재계산 가능하다.
@@ -3433,6 +3791,10 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 30. **Prototype implementation language는 architecture가 아니다** — Python registry/CUDA-family field 같은 역사 구현 선택을 RustJ semantic boundary로 승격하지 않는다.
 31. **Alias legality와 in-place realization 분리** — `MayReuse` 가능성과 실제 buffer reuse 결정을 같은 bool로 표현하지 않는다.
 32. **Array value와 storage identity 분리** — 모든 J 데이터가 array라는 의미론과 SSA ValueId/StateResource/BufferId의 compiler identity를 혼동하지 않는다.
+33. **Built-in도 hardware lowering 대상** — 기존 J primitive와 extension-derived op를 같은 lowering/capability architecture에서 다룬다.
+34. **Backend/architecture/device 분리** — CUDA/ROCm 같은 backend, ISA/microarchitecture target, exact device capacity를 하나의 profile identity로 뭉개지 않는다.
+35. **Target locale path는 명시적** — device→architecture→family→backend→class→generic 순서는 compiler namespace의 explicit resolution path이며 숫자 버전 상속으로 추론하지 않는다.
+36. **Locale lookup과 candidate selection 분리** — locale은 lowering/capability 후보를 찾고, 실제 realization 선택은 legality/resource/cost 분석이 한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -3457,8 +3819,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 11. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
 12. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
 13. MLIR/LLVM CPU 실행 결과를 RustJ-native/reference 결과와 differential test한다.
-14. `TargetProfile` MVP를 execution hierarchy, allocation granularity, resource coupling, register/memory/compute/sync/data-movement/execution-mode/data-layout capability로 정의하고 `CostProfile`과 분리한다.
-15. `TargetFacts + TargetQueries` interface를 정의한다.
+14. `CompilationTarget` MVP를 BackendFamily / ArchitectureTarget / DeviceProfile / RuntimeProfile로 분리하고, compiler target locale chain을 통해 resolved `TargetProfile`을 만든다. `CostProfile`은 별도로 둔다.
+15. `TargetFacts + TargetQueries` interface와 target-locale provider/override resolution을 정의한다.
 16. RustJ-native `Schedule / Transform Plan`을 Logical IR과 분리하여 정의한다.
 17. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
 18. `ResourceEstimate` MVP와 별도 `CostEstimate`를 만들고, backend `CompiledResourceReport` 및 runtime `ExecutionMeasurement` feedback/re-plan interface를 만든다.
