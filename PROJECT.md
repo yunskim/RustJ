@@ -270,6 +270,68 @@ Guarded {
 
 외부 IR로 내릴 때 J semantic origin과 source span을 가능한 범위에서 metadata/provenance로 유지한다.
 
+### 2.4.1 Semantic operation과 architecture-specific realization을 분리한다
+
+J built-in primitive와 NN/array extension primitive는 **semantic operation 계층에서는 동일한 원칙**으로 관리한다.
+
+예를 들어 `+`, `Reduce(+)`, `MatMul`, `Conv`, `Softmax`, `LayerNorm`, `Attention`은 모두 parser/semantic analysis 이후 target-independent operation으로 표현될 수 있다. NN extension 이름은 tokenizer/parser keyword로 하드코딩하지 않고 ordinary J binding을 통해 verb/adverb/conjunction 등으로 해석한다.
+
+하드웨어별 정보는 semantic primitive 정의에 넣지 않는다.
+
+```text
+Primitive / Extension Semantic Contract
+  - valence
+  - rank/cell semantics
+  - dtype / promotion / overflow
+  - shape / axis semantics
+  - fill / error / effect semantics
+  - op-specific parameters
+        ↓
+Resolved Logical Operation
+        ↓
+LoweringRegistry × ArchitectureTarget
+        ↓
+DeviceProfile
+        ↓
+CostProfile / RuntimeProfile
+        ↓
+Schedule / Physical Plan
+```
+
+역할을 다음처럼 분리한다.
+
+- **Semantic contract**: J-visible 또는 extension-visible 의미. hardware-independent.
+- **ArchitectureTarget**: ISA/subgroup/warp-wave/memory hierarchy/synchronization/special-instruction 등 architecture family의 비교적 안정적인 capability.
+- **LoweringCapability / LoweringRegistry**: 특정 resolved semantic operation을 특정 architecture에서 어떤 kernel/library/fused implementation으로 합법적으로 실현할 수 있는지.
+- **DeviceProfile**: 같은 architecture 안에서도 device마다 다른 SM/CU 수, memory capacity/bandwidth, cache/resource limits 등.
+- **CostProfile / RuntimeProfile**: 동일한 legal lowering 후보 사이의 실측 또는 추정 성능 정보.
+- **Schedule / Physical Plan**: tile, vector width, workgroup/thread mapping, memory space, concrete layout/buffer/reuse/device placement.
+
+따라서 같은 primitive라도 architecture에 따라 서로 다른 hardware metadata와 lowering 후보를 가질 수 있다.
+
+```text
+ResolvedOp::Reduce(Add, f32, axis=0)
+  ├─ NVIDIA_SM100
+  │    ├─ subgroup/warp reduction
+  │    ├─ block reduction
+  │    └─ library/custom kernel
+  └─ AMD_CDNA4
+       ├─ wave reduction
+       ├─ LDS reduction
+       └─ library/custom kernel
+```
+
+NN primitive도 동일하다.
+
+```text
+ResolvedOp::Conv(...)
+  ├─ CPU        -> direct / im2col / library
+  ├─ NVIDIA     -> tensor-core/custom/vendor library
+  └─ AMD        -> MFMA/custom/vendor library
+```
+
+`Attention`처럼 하나의 semantic op가 여러 primitive sequence 또는 fused kernel로 realization될 수 있으므로 **semantic op 하나 = kernel 하나**로 가정하지 않는다. fused realization은 lowering candidate이며 semantic identity가 아니다.
+
 ### 2.5 Route partition은 whole-program exclusive choice가 아니다
 
 Route partition은 parser 직후나 J Semantic IR에서 하지 않는다. **Semantic Analyzer가 의미를 확정하고 Logical IR verifier를 통과한 뒤**, 최소 target-independent canonicalization을 거친 representation에 적용한다.
@@ -512,7 +574,38 @@ boxed noun 자체를 전역적으로 `Gerund`라는 별도 J type으로 바꾸�
 gerund 안의 name/function reference도 J의 fix/late-binding 규칙을 잃지 않아야 한다.
 
 
-#### 3.3.3 Function DAG의 shape는 J parser reduction rule이 결정한다
+#### 3.3.3 Parser language rules are jsource-compatible
+
+RustJ는 parser 단계에서 별도의 언어 규칙을 발명하지 않는다. **token/word가 J parser에 들어온 뒤 어떤 fragment가 언제 reduction되고, 어떤 part of speech의 결과 entity가 다시 parser stack에 놓이는지는 current jsource의 parser 규칙을 기준으로 한다.**
+
+즉 RustJ와 jsource의 차이는 parser language semantics가 아니라 **parser 이후의 representation/analysis/lowering**에서 만든다.
+
+```text
+J words / names
+  ↓
+jsource-compatible parser reductions
+  - row 0: monad
+  - row 1: monad after verb phrase
+  - row 2: dyad
+  - row 3: adverb application
+  - row 4: conjunction application
+  - row 5: fork
+  - row 6: hook / bident / trident
+  - row 7: assignment
+  - row 8: parentheses
+  ↓
+J values / completed function entities
+  ↓
+RustJ Semantic Analyzer
+  ↓
+RustJ Logical IR / compiler facts
+```
+
+RustJ는 jsource의 C parser implementation details(bit-packed parse masks, refcount/inplacing mechanics, function pointers, cache tricks)를 복제할 필요는 없다. 그러나 **reduction eligibility, reduction ordering, result POS, parser-time name lookup semantics, completed modifier entity boundaries**는 호환되어야 한다.
+
+현재의 `reduce_modifier_applications -> collapse_verb_trains -> noun/verb application` 식 staged helper는 구현 과도기이며, 최종 parser semantic model로 간주하지 않는다. 장기적으로는 jsource의 9-row parse behavior를 하나의 parser reduction engine에서 재현하고 differential tests로 검증한다.
+
+#### 3.3.4 Function DAG의 shape는 J parser reduction rule이 결정한다
 
 RustJ가 derived function의 DAG shape를 별도 IR 취향으로 새로 정의하지 않는다. **current jsource의 parser reduction table(`p.c::cases[]`)을 semantic DAG construction의 기준으로 삼는다.**
 
@@ -595,7 +688,7 @@ Fork
 
 긴 train도 별도 `LongTrain` node를 만들지 않는다. jsource parser가 row 5/6 reduction을 반복해 hook/fork derived function을 만드는 것처럼 shared Hook/Fork node graph로 축약한다.
 
-#### 3.3.4 jsource `V.fgh`는 parse DAG의 oracle이 아니라 realization cross-check다
+#### 3.3.5 jsource `V.fgh`는 parse DAG의 oracle이 아니라 realization cross-check다
 
 jsource의 `V` block은 VERB/ADV/CONJ이 공유하는 execution/function representation이고 `fgh[3]`, valence entry points, rank, id, flags/local metadata를 가진다. 이는 RustJ가 **공통 shared function object**를 쓰고 subtree를 deep-copy하지 않아야 한다는 좋은 reference다.
 
@@ -688,7 +781,7 @@ ParseConstructionCoverage (현재)
 
 큰 derived expression은 immutable shared handle/`EntityId` DAG로 표현하여 assignment, alias, analysis plan 사이에서 subtree를 복사하지 않는다.
 
-#### 3.3.1 modifier reduction 결과는 다음 parser reduction에서 하나의 function entity다
+#### 3.3.6 modifier reduction 결과는 다음 parser reduction에서 하나의 function entity다
 
 current jsource의 parser는 이 경계를 명확하게 가진다. `p.c`의 parser lines 3-4는 ADV/CONJ를 실제로 적용해 결과 `yy` function object를 만든 뒤 그 결과의 parsing type을 stack에 다시 기록한다. 따라서 이후 hook/fork/train reduction은 원래 modifier token과 operand token을 다시 보지 않고 **이미 만들어진 결과 entity 하나**를 operand로 받는다.
 
