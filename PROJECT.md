@@ -169,7 +169,7 @@ Semantic Analyzer ─X→ parser stack mechanics
 Semantic Analyzer ─X→ source-text reparsing
 ```
 
-반대로 `Hook`, `Fork`, `Train`, `DerivedVerb`, `Rank` 같은 **semantic IR node를 Semantic Analyzer가 아는 것은 의도된 설계**다.
+반대로 parser-produced `Hook`/`Fork` parent, 이들의 중첩으로 이루어진 train, result POS를 가진 derived entity, 그리고 `"` conjunction application 같은 **semantic structure를 Semantic Analyzer가 아는 것은 의도된 설계**다. 이는 별도 `Train` 또는 `Rank(u,r)` special semantic node를 둔다는 뜻이 아니다.
 
 ### 2.2 물리적으로 함께, 논리적으로 독립
 
@@ -721,7 +721,8 @@ AdverbApplication(operator=/, operand=+)
     → Reduce(Add)
 
 ConjunctionApplication(operator=", left_entity, right_entity)
-    → generic MapCells only
+    → logical CellApply after rank resolution
+      (uniform result proof 전에는 fixed-shape MapCells로 축소하지 않음)
 ```
 
 이런 정규화는 합법성과 분석 이득이 확인된 뒤 semantic lowering/rewrite 단계에서 수행한다.
@@ -1706,14 +1707,16 @@ resolve_rank(RankSpec, argument_rank)
   → whole argument / infinite-rank semantics
 ```
 
-monad/dyad rank list도 semantic entity에 원형을 보존한다.
+monad/dyad rank list의 **source 원형은 `"` conjunction의 original operand에 보존**한다. Semantic Analyzer가 이를 해석한 뒤 별도의 analysis result로 resolved rank contract를 만들 수 있다.
 
 ```text
-RankApplication
+ResolvedRankContract
   monad_rank
   left_rank
   right_rank
 ```
+
+`ResolvedRankContract`는 parser-produced Semantic IR node가 아니라 analysis 결과다.
 
 `PrimitiveSpec`의 innate rank는 단수값이 아니라 **monad / dyad-left / dyad-right**별 `RankSpec`이다. implementation integer sentinel과 동일시하지 않고 semantic `RankSpec`/resolved-rank abstraction을 사용한다.
 
@@ -1722,9 +1725,10 @@ important: jsource 내부의 `RMAX` 같은 sentinel은 implementation representa
 또한 source-level rank conjunction을 `RankDerived(verb, integer)`로 고정하지 않는다. current jsource의 `jtqq`는 operand form이 더 넓다.
 
 ```text
-RankConjunctionApply
-  left_operand: JEntity
-  right_operand: JEntity
+FunctionEntity
+  head = PrimitiveConjunction(Rank)   // source operator identity = "
+  operands = [left_operand, right_operand]
+  result_pos = parser/operator semantics가 정한 POS
 ```
 
 분석 가능한 대표 form:
@@ -1741,16 +1745,18 @@ Noun " RankNoun
 따라서 J Semantic Array IR에서는 **원래 left/right operand의 품사와 value/entity identity를 보존**하고, Semantic Analyzer가 J의 rank-conjunction form 규칙을 적용해 derived verb를 만든다.
 
 ```text
-RankConjunctionApply(left, right)
+FunctionEntity(head=", operands=[left, right])
         ↓ J semantic analysis
-ResolvedRankDerivedVerb {
-  source_operands,
+ResolvedRankDerived {
+  source_entity,
   monad/left/right RankSpec,
   execution/assembly semantics
 }
+        ↓ function application
+Logical CellApply
 ```
 
-hardware-aware `MapCells`로 내리는 것은 이 resolution 이후이며, uniformity/assembly 조건이 증명된 subset에서만 한다.
+`MapCells` 같은 fixed-shape parallel form으로 더 낮추는 것은 `CellApply`의 uniformity/assembly 조건이 증명된 subset에서만 한다.
 
 
 #### 4.11.1 J agreement는 prefix frame agreement다
@@ -2165,7 +2171,7 @@ sparse를 dense CellView로 강제하거나 sparse axes/element 의미를 잃지
 1. `"`를 special unary Rank node로 만들지 않는다.
 2. parser row 4에 따라 `ConjunctionApplication(operator=", left, right)`를 만든다.
 3. `"` parent와 양쪽 operand를 shared FunctionEntity DAG에 그대로 보존한다.
-4. current `FunctionFormId::RANK` compatibility 표현은 generic conjunction application으로 교체한다.
+4. semantic parser graph의 legacy special-rank 표현은 generic conjunction application으로 교체한다. `Verb.rank`/`Callable.rank` 같은 남은 필드는 semantic identity가 아닌 downstream migration field로만 취급하고 제거한다.
 
 **IL1 — rank contract**
 
@@ -3738,7 +3744,7 @@ crossentropy
 
 이 계층은 Semantic Analyzer가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
 
-여기서 `Reduce`, `MapCells`, `StaticReindex` 같은 이름은 **Logical IR에서 처음 등장하는 normalized operation**이다. J Semantic IR의 parser-produced function graph에는 이 이름으로 modifier application을 대체하지 않는다.
+여기서 `Reduce`, `CellApply`, `StaticReindex` 같은 이름은 **Logical IR에서 처음 등장하는 normalized operation**이다. J Semantic IR의 parser-produced function graph에는 이 이름으로 modifier application을 대체하지 않는다. `MapCells`는 `CellApply`의 uniform result/assembly 조건이 증명된 뒤 사용할 수 있는 더 제한적인 lowering form이다.
 
 ```text
 Semantic IR
@@ -3764,7 +3770,8 @@ Semantic IR
 Logical facts / op
   resolved RankSpec
   frame/cell mapping
-  optional MapCells-style normalized operation
+  CellApply
+    └─ optional later MapCells-style lowering when UniformProven
 ```
 
 현재 코드의 `Callable.reduce` / `Callable.rank`는 기존 analyzer/runtime와 연결하기 위한 **migration field**다. 최종 A3-v0 Logical IR에서는 parser-derived operator graph를 해석한 결과를 normalized logical operation/fact로 표현하고, 이 bool/array shortcut을 semantic identity로 사용하지 않는다.
@@ -4475,7 +4482,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [x] 큰 derived function/train의 `Arc<FunctionEntity>` sharing test로 subtree deep-copy가 없음을 검증한다.
 - [x] semantic FunctionEntity와 runtime/backend executor specialization의 층을 분리한다.
 - [ ] primitive verb identity와 monad/dyad valence를 명시한다.
-- [ ] Hook / Fork / Train을 first-class semantic node로 표현한다.
+- [x] Hook / Fork parser-production parent를 first-class semantic identity로 표현하고, train은 별도 `Train` node 없이 shared Hook/Fork graph로 구성한다.
 - [ ] adverb/conjunction/hook/trident application으로 생긴 DerivedEntity와 result part of speech(Verb/Adverb/Conjunction)를 보존한다.
 - [ ] boxed noun의 ordinary-data 사용과 modifier-context gerund interpretation을 구분한다.
 - [ ] `::` adverse와 `:.` obverse처럼 forward graph 밖의 latent error/inverse semantics를 보존한다.
@@ -4801,7 +4808,7 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 - RoutePartition, MLIR adapter, StableHLO adapter는 아직 구현되지 않았다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 새 schema도 아직 문서 설계 단계다.
 - 실제 CUDA storage/kernel은 없다.
-- GitHub CI는 현재 사용하지 않는다.
+- GitHub Actions의 `Linux milestone` CI를 사용한다. 2026-09-30 main 최신 run은 failure 상태이므로 CI 존재와 통과 여부를 구분해 기록한다.
 - 이 컴퓨터에서는 Windows 네이티브 검증을 기준으로 한다.
 
 기계 측정 원자료는 `reports/*.json`, `reports/*.jsonl`에 보존한다.
@@ -5252,7 +5259,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 61. **Mixed route is staged** — architecture는 mixed route를 허용하지만 첫 external implementation은 verified single-block region 전체를 한 route로 보낸다.
 62. **Parser rules define the Function DAG** — ADV/CONJ application과 hook/fork의 parent/operand shape는 jsource parser reduction 규칙을 따르며 modifier별 독자 AST shape를 발명하지 않는다.
 63. **Parse operands and executor auxiliaries are separate** — semantic DAG에는 parser operands/J semantics를 보존하고 jsource `fgh/localuse`의 실행 최적화 보조 객체를 자동 semantic child로 승격하지 않는다.
-64. **Semantic modifier syntax is not LogicalOp syntax** — `/`, `"` 등의 parser-produced operator DAG를 Semantic IR에서 `Reduce`/`MapCells`로 조기 치환하지 않는다. normalized op는 Semantic Analyzer 이후에만 만든다.
+64. **Semantic modifier syntax is not LogicalOp syntax** — `/`, `"` 등의 parser-produced operator DAG를 Semantic IR에서 `Reduce`/`CellApply`로 조기 치환하지 않는다. normalized op는 Semantic Analyzer 이후에만 만들며, `MapCells`는 uniform-result proof 뒤의 제한된 lowering form이다.
 65. **Parser production coverage is explicit** — 미지원 jsource parse row/form을 임의의 대체 AST로 해석하지 않고 coverage manifest에 pending으로 남긴다.
 66. **Rank conjunction and implicit loop are distinct** — `"`는 parent conjunction + two operands로 derived function을 만들고, cell iteration은 function application의 공통 semantics다.
 67. **Rank boundaries are semantic until proven fusible** — nested explicit/innate rank boundaries를 effective rank 하나로 early collapse하지 않는다.
