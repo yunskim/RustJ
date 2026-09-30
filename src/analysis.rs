@@ -280,6 +280,12 @@ impl LogicalPlan {
                     return Err(fail(Some(id), "order edge must reference an earlier value".into()));
                 }
             }
+            if node.basis != direct_basis(&node.operation) {
+                return Err(fail(
+                    Some(id),
+                    "basis metadata does not match the logical operation".into(),
+                ));
+            }
 
             let check_symbol = |symbol: SymbolId| {
                 (symbol.0 < self.symbols.len())
@@ -329,6 +335,12 @@ impl LogicalPlan {
                         return Err(fail(
                             Some(id),
                             "instantiation valence does not match call".into(),
+                        ));
+                    }
+                    if instantiation.target != callable.target {
+                        return Err(fail(
+                            Some(id),
+                            "instantiation target does not match call".into(),
                         ));
                     }
                     if instantiation.result_dtype != node.facts.dtype
