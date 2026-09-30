@@ -1,16 +1,30 @@
 # RustJ 실행 계획 및 완료 체크리스트
 
-기준일: 2026-09-28. 구현 계획의 진행 상태는 이 문서에서 관리한다.
+기준일: 2026-09-30. 구현 계획의 진행 상태는 이 문서에서 관리한다.
 설계 기준: [구현 계획](IMPLEMENTATION-PLAN.md), [컴파일러 아키텍처](COMPILER-ARCHITECTURE.md).
 
 ## 운영 원칙
 
 - C 커널을 실행 fallback으로 사용하지 않는 Rust compiler/runtime가 최종 목표다. C는 의미·성능 비교 기준으로만 사용한다.
-- Windows를 우선 대상으로 한다. Linux 검증은 WSL에서도 유지한다. WSL C 비교를 Windows C 검증으로 보고하지 않는다.
+- 이 컴퓨터에서는 Windows 네이티브 도구로만 테스트·검증한다. 과거 WSL 기록은 현재 검증과 구분한다.
 - GitHub CI는 실행·추가하지 않는다. 로컬 검증을 단계별 완료 조건으로 삼는다.
 - CUDA는 주요 목표이지만 구현은 재개 요청까지 보류한다. CPU 설계에서 논리 배열과 장치·물리 저장 표현을 분리한다.
 - `[x]`는 구현과 기록된 검증 근거가 있는 항목이다. 일부만 구현되었으면 큰 항목을 완료 처리하지 않는다.
 - 각 작업 종료 시 체크 상태, 변경 파일, 테스트 명령·환경·결과, 남은 실패를 갱신한다. 계획 변경만으로 구현 완료 표시를 하지 않는다.
+
+## 최우선 작업 — GPU 친화적 배열 설계 (2026-09-30)
+
+사용자 요청에 따라 아래 순서가 이전 P0~P5와 함수 정의 DEF 계획보다 우선한다.
+세부 항목과 검증 근거는 [GPU 배열 계획·체크리스트](GPU-FRIENDLY-ARRAY-PLAN.md)에서 관리한다.
+
+- [ ] G1: 논리 값/물리 버퍼 분리와 checked PhysicalArray descriptor.
+- [ ] G2: transpose/reverse/slice/compatible reshape의 strided view와 materialization.
+- [ ] G3: CPU kernel 및 rank 실행에 연결, SIMD·alias·승격 검증.
+- [ ] G4: 최소 PhysicalPlan 및 CPU executor 연결.
+- [ ] G5: Windows 회귀·성능·복사/할당 비용 판정 및 지원표.
+
+바로 다음 작업은 G1이다. CUDA 실행 구현은 계속 보류한다.
+아래 이전 단계의 체크 상태는 이력이며 실행 순서를 덮어쓰지 않는다.
 
 ## 확인된 완료 항목
 
@@ -25,7 +39,7 @@
 
 마지막 기록: 각 Rust 구성에서 일반 테스트 38개 + doctest 1개, Python 3개. C 2종 × Rust 2종 × 평가 모드 2종에서 조합당 1,915문장. j64는 1,914 일치와 기존 dtype 차이 1건, j64avx2는 1,915 일치. 이는 이전 실행 기록이며 이번 문서 작성 중 테스트를 재실행한 결과가 아니다. 두 평가 모드는 parser/evaluator를 공유하므로 독립 의미 검증이 아니다.
 
-## P0 — 알려진 프런트엔드 결함 해결 (바로 다음 작업)
+## P0 — 알려진 프런트엔드 결함 해결 (GPU 배열 단계 이후)
 
 - [ ] `(1 2+1 2 3)+missing`의 C length error / Rust value error 차이를 최소 회귀 사례로 고정한다.
 - [x] C parser의 이름 해석·품사 판정·오류 우선순위를 조사하고 noun/verb/unresolved name의 지원 경계를 정했다. 근거: NAME-SEMANTICS-AUDIT.md와 audit_name_semantics.py. 함수값 구현은 아직 미완료다.
@@ -88,7 +102,7 @@
 ## 변경마다 적용할 로컬 완료 관문
 
 - [ ] 의미 변경의 최소 재현 및 실패한 대입 이후 상태 확인 테스트 추가.
-- [ ] Windows 기본/portable Rust 테스트, fmt, clippy 실행. Linux 관련 변경은 WSL에서도 검증.
+- [ ] Windows 기본/portable Rust 테스트, fmt, clippy 실행. 이 컴퓨터에서는 Linux/WSL 검증을 실행하지 않는다.
 - [ ] Python 검증기 테스트 실행.
 - [ ] 의미/kernel 변경 시 C j64/j64avx2 × Rust 기본/portable × 필요한 실행 모드 차등 검증.
 - [ ] storage/SIMD 변경 시 alias·재사용·메모리 상한·tail·overflow·특수 실수 검증.

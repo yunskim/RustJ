@@ -111,11 +111,11 @@ powershell -File tools/check-windows.ps1 -DefinitionAcceptance
 구현할 동작의 계약이며 C 실행으로 확인된 호환성 증명이 아니다. DEF-6 완료 전까지
 직접/참조 Rust 경로 간 일치도 C와의 일치로 보고하지 않는다.
 
-## 우선 작업
+## 우선 작업 — 2026-09-30 변경
 
-다음 구현 단위는 DEF-1 SourceReader와 DEF-2의 제어문 없는 verb definition AST다.
-이 단위를 마친 뒤 monad/dyad 호출과 local assignment에 집중한다. 새 일반 verb나
-GPU 기능보다 함수 정의의 입력·binding 경계를 먼저 완성한다.
+사용자 요청에 따라 [GPU 배열 계획·체크리스트](GPU-FRIENDLY-ARRAY-PLAN.md)의 G1~G5를 먼저 진행한다.
+DEF-1~6과 기존 양성 수용 테스트는 보존하고 후순위로 둔다.
+배열 단계 이후 DEF-1 SourceReader와 DEF-2의 제어문 없는 verb definition AST부터 재개한다.
 
 ## 작성 직후 검증 기록
 

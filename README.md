@@ -146,15 +146,17 @@ python3 tools/compare.py
 
 ## 다음 구현 우선순위
 
-1. **Semantic IR과 primitive contract**: parser와 직접 실행을 분리하고 source span, name/version, dtype/shape/rank/error/effect/alias 계약을 명시합니다.
-2. **Jaxa Analyzer와 Logical Plan**: rank/cell/frame/agreement를 해석해 `RankMap`, Map, Reduce, Scan, Gather, Structural operation으로 구성된 실행 계획을 만듭니다. Analyzer는 실행하지 않습니다.
-3. **Physical Planner와 CPU compiler backend**: logical ValueId와 physical BufferId를 분리하고 strides/view, liveness, materialization, layout, fusion을 계획합니다. 먼저 CPU를 통해 compiler pipeline을 기본 실행 경로로 검증합니다.
-4. **GPU backend**: device placement, transfer, dense/tiled layout, frame/cell 기반 GPU work partition, kernel codegen과 GPU 상주 실행을 추가합니다. 실제 CUDA 구현은 재개 요청과 검증 가능한 GPU 환경이 마련될 때 진행합니다.
-5. **JIT specialization/cache와 multi-device**: dtype/rank/shape-layout class/backend capability를 이용한 specialization, compiled artifact cache, multi-GPU sharding을 확장합니다.
+2026-09-30부터 **GPU 친화적 배열 설계**를 다른 기능 확장보다 우선합니다.
 
-각 단계의 완료 기준과 CPU/GPU 검증 정책은 [구현 계획](reports/IMPLEMENTATION-PLAN.md)을 따릅니다.
+1. 논리 ValueId와 물리 BufferId를 분리하고 검증 가능한 PhysicalArray를 구현합니다.
+2. strides/offset view로 transpose·reverse·slice·호환 reshape의 복사를 줄입니다.
+3. CPU kernel과 rank 실행에 연결하고 contiguous SIMD·alias·승격 의미를 검증합니다.
+4. 최소 PhysicalPlan과 CPU executor를 연결합니다.
+5. Windows에서 회귀와 성능·복사·할당 비용을 검증합니다.
 
-GitHub CI는 사용자 요청에 따라 실행하지 않습니다. 이 컴퓨터에서는 Windows 네이티브 도구로만 테스트·검증합니다.
+세부 완료 조건과 진행 상태는 [GPU 배열 계획·체크리스트](reports/GPU-FRIENDLY-ARRAY-PLAN.md)를 따릅니다.
+함수 정의와 추가 언어 기능은 이후 진행합니다. 실제 CUDA 구현은 재개 요청과 검증 환경 확보까지 보류합니다.
+GitHub CI는 생략하며 이 컴퓨터에서는 Windows 네이티브 도구로만 테스트·검증합니다.
 
 ## 지속 검증
 

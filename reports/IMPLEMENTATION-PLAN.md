@@ -78,21 +78,21 @@ J noun의 논리 모델은 계속 **type + shape + ordered atoms/value**다. GPU
 - 모든 배열을 tiled storage로 고정
 - GPU 성능을 위해 J의 overflow/promotion/error/floating semantics 변경
 
-### 현재 실행 순서
+### 현재 실행 순서 — 2026-09-30 변경
 
-GPU 구현 자체는 당분간 보류한다. 그러나 compiler architecture와 GPU-ready physical representation은 CPU compiler 경로를 만들 때부터 고려한다.
+사용자 요청에 따라 GPU 친화적 배열 설계를 다른 기능 확장보다 우선한다.
+기존 Semantic IR/LogicalPlan을 출발점으로 다음 순서를 실행한다.
 
-현재 우선순위:
+1. G1: 논리 ValueId/물리 BufferId 분리와 checked PhysicalArray descriptor.
+2. G2: strides/offset 기반 structural view와 명시적 materialization.
+3. G3: CPU kernel·rank 실행 연결과 contiguous SIMD 경로 유지.
+4. G4: 최소 PhysicalPlan과 CPU executor 연결.
+5. G5: Windows correctness·성능·복사/할당 비용 검증.
+6. 이후 함수 정의와 추가 언어 기능, registry/with, 전체 codegen/JIT 확장을 재개한다.
 
-1. 현재 CPU 의미/차등 검증 기준선 유지.
-2. Semantic IR과 primitive contract 도입.
-3. Jaxa Analyzer와 Logical Execution Plan 도입.
-4. general physical ArrayView(strides/offset)와 ValueId/BufferId 분리.
-5. Physical Planner와 CPU compiled-plan backend를 기본 실행 경로로 검증.
-6. 실제 GPU 구현 재개 시 device storage, GPU codegen, frame/cell 기반 work partition 추가.
-7. 이후 JIT specialization/cache와 multi-device 확장.
-
-GPU가 없다는 이유로 1~5를 미루지 않는다. GPU-specific correctness/performance 완료는 실제 지원 장치에서만 선언한다.
+세부 실행 및 완료 판정은 [GPU 배열 계획·체크리스트](GPU-FRIENDLY-ARRAY-PLAN.md)를 따른다.
+실제 CUDA 구현은 계속 보류한다. 이 컴퓨터에서는 Windows 네이티브 검증만 수행하고 GitHub CI는 생략한다.
+이 순서가 아래의 과거 마일스톤 순서보다 우선하며, 배열 구현을 막는 최소 결함 수정만 병행한다.
 
 ## 주요 목표와 현재 상태
 
