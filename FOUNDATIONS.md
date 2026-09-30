@@ -1365,6 +1365,155 @@ JIT
 
 을 통해 compiler coverage를 넓힌다.
 
+### 33.1 사례 A — name rebinding
+
+J에서는 이름이 같은 종류의 값에 영원히 고정된다고 가정하면 안 된다.
+
+~~~text
+f =: +
+...
+f =: *
+~~~
+
+어떤 compiled region이 f를 +로 specialize했다면 다음 중 하나가 필요하다.
+
+~~~text
+binding/version proof
+or
+runtime guard
+or
+JIT recompilation
+or
+dynamic call
+~~~
+
+잘못된 해결책은 “compiled code에서는 f를 다시 bind할 수 없다”라고 언어를 제한하는 것이다.
+
+RustJ에서는 name/binding/version을 semantic provenance로 보존하고, specialization은 별도의 proof로 둔다.
+
+### 33.2 사례 B — runtime part of speech
+
+J name은 상황에 따라 noun, verb, adverb, conjunction 등 서로 다른 J entity class를 가리킬 수 있다.
+
+따라서 compiler가 name spelling만 보고 다음을 영구 확정하면 안 된다.
+
+~~~text
+name "g"
+   ↓
+always Verb
+~~~
+
+올바른 구조는:
+
+~~~text
+name use
+  ↓
+J-compatible parser-time lookup
+  ↓
+current POS
+  ↓
+semantic entity / nameref
+  ↓
+compiler specialization only with stability proof
+~~~
+
+이다.
+
+이 원칙은 parser를 일반적인 symbol-resolution AST parser로 단순화하지 말아야 하는 이유와 직접 연결된다.
+
+### 33.3 사례 C — execute
+
+문자열 실행은 AOT compiler가 가장 불편해하는 기능 중 하나다.
+
+하지만 다음 결론은 허용되지 않는다.
+
+~~~text
+execute가 dynamic하다
+    ↓
+J에서 execute를 제거
+~~~
+
+대신 단계적으로 생각한다.
+
+~~~text
+compile-time constant string
+    → parse/analyze/compile 가능
+
+runtime string with stable cache key
+    → JIT/cache 가능
+
+arbitrary runtime string
+    → shared runtime semantic frontend
+~~~
+
+즉 execute는 compiler architecture를 부정하는 기능이 아니라, **AOT/JIT/runtime semantic path의 경계를 시험하는 기능**이다.
+
+### 33.4 사례 D — u"r와 implicit rank execution
+
+u"r에서 parser가 만드는 것은 completed J derived entity다.
+
+actual argument가 들어오기 전에는 다음을 모두 알 수 없다.
+
+- effective cell rank
+- frame extent
+- repetition
+- result assembly details
+
+따라서:
+
+~~~text
+FunctionEntity(u"r)
+  owns requested-rank construction semantics
+
+Call node
+  owns actual effective-rank/frame/cell facts
+~~~
+
+로 나눈다.
+
+compiler는 call facts가 충분할 때 fixed parallel map/fused kernel로 낮출 수 있고, 그렇지 않으면 generic CellApply semantics를 유지한다.
+
+### 33.5 사례 E — hook/fork와 speculative parallelism
+
+fork의 두 branch가 계산상 독립적으로 보인다고 해서 자동으로 병렬 실행하면 안 된다.
+
+다음이 관찰 가능할 수 있기 때문이다.
+
+- name lookup
+- assignment/effect
+- error order
+- dynamic execution
+
+따라서 branch parallelization은:
+
+~~~text
+semantic fork
+   ↓
+effect/error analysis
+   ↓
+purity/speculation proof
+   ↓
+parallel candidate
+~~~
+
+순서로만 가능하다.
+
+### 33.6 사례 F — heterogeneous rank result assembly
+
+cell application 결과가 항상 동일 dtype/shape이라고 가정하면 GPU map으로 쉽게 낮출 수 있다.
+
+하지만 J semantics가 heterogeneous result의 type/shape join, fill, boxing 또는 assembly error를 허용/요구하는 경우에는 이 가정이 잘못될 수 있다.
+
+따라서 fixed-shape parallel output은:
+
+~~~text
+UniformCellResultProof
+~~~
+
+가 있을 때만 허용한다.
+
+이 사례는 “compiler가 처리하기 어려운 J semantics를 없애지 말고, proof가 있는 경우에만 더 좁은 physical form으로 specialization한다”는 전체 원칙의 대표 사례다.
+
 ---
 
 # Part XIII. 역사에서 얻는 더 깊은 교훈
@@ -1389,6 +1538,33 @@ RustJ는 이를 존중해야 한다.
 ---
 
 ## 35. 하지만 그 역사에서 “영원히 interpreter여야 한다”는 결론은 나오지 않는다
+
+### 35.1 역사 자료가 증명하지 않는 것
+
+역사 자료를 설계 교리로 과도하게 읽으면 안 된다.
+
+[H1]이 보여 주는 것은:
+
+- interpreter가 당시 합리적이었다.
+- array granularity가 interpreter overhead를 amortize할 수 있었다.
+- language design을 machine convenience에 종속시키고 싶지 않았다.
+
+하지만 이것만으로 다음은 증명되지 않는다.
+
+- 모든 J workload에서 interpreter가 compiler보다 빠르다.
+- GPU에서도 primitive-at-a-time execution이 최적이다.
+- whole-graph optimization의 가치가 없다.
+- dynamic semantics와 compilation이 양립할 수 없다.
+- JIT가 J 철학에 어긋난다.
+- 미래에도 implementation strategy가 같아야 한다.
+
+반대로 compiler 연구가 존재했다는 사실도 “compiler가 언제나 interpreter보다 우월하다”는 뜻은 아니다.
+
+RustJ는 역사적 권위를 어느 한 execution strategy의 영구적 승리 선언으로 사용하지 않는다.
+
+사용해야 할 역사적 원칙은 더 추상적이다.
+
+> **언어의 의미와 표현력을 implementation convenience보다 우선한다.**
 
 환경은 달라졌다.
 
