@@ -4773,6 +4773,8 @@ Loop / Power
 
 nested `CellApply(Reduce(...))`, `Reduce(CellApply(...))` 등은 Logical IR에서 보존한다. flattening/segmentation/thread mapping은 optimizer/schedule decision이다.
 
+이 절의 `MatMul`, `Conv`, `OuterProduct` 같은 named high-level op 보존 원칙과 4.24.11의 basis vocabulary는 경쟁 관계가 아니다. named op는 algorithm/library/tensor realization 선택에 유용한 semantic/structured identity로 남을 수 있고, 동시에 증명된 `BasisExpansion`을 통해 `WindowView + Contract` 같은 더 compositional한 graph를 optimizer에 제공할 수 있다. 더 작은 expansion은 실제 성능상 이득이 있을 때만 추가한다.
+
 #### 4.24.9 Pure region extraction과 route precondition
 
 TAIL/Futhark와 Co-dfns는 실제 compiler subset을 제한한다. RustJ는 그 제한을 J language restriction으로 채택하지 않는다.
@@ -4940,7 +4942,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 - **Control**: function/control IR이 basis graph의 조합/반복을 결정
 - **Value/Rep**: value construction 또는 representation axis
 - **Runtime**: stateful/dynamic/runtime semantic route
-- **Cell kernel**: array traversal은 CellMap/Elementwise가 담당하고 내부 scalar/cell algorithm은 opaque 가능
+- **Cell kernel**: array traversal은 CellApply/Elementwise가 담당하고 내부 scalar/cell algorithm은 opaque 가능
 
 | J primitive/form | 의미 요약 | provisional basis expansion | 필요한 facts/checks | 분류 / 성능상 이유 |
 |---|---|---|---|---|
@@ -4962,7 +4964,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | , | Ravel / Append | monad RegularReindex; dyad Concat/Assemble | shape agreement, dtype promotion | Direct |
 | ,. ,: | Ravel Items/Stitch, Itemize/Laminate | RegularReindex and/or Concat/Assemble | rank/shape agreement | Compose |
 | ; | Raze / Link | Open/boxed value traversal + Concat/Assemble | box/open validity, result assembly | Compose + Value/Rep |
-| ;. | Cut | fret cuts SegmentView → CellMap; tessellation WindowView → CellMap | fret/window spec, boundaries, fill, assembly/errors | Compose; avoids building cut cells and exposes segment/window parallelism |
+| ;. | Cut | fret cuts SegmentView → CellApply; tessellation WindowView → CellApply | fret/window spec, boundaries, fill, assembly/errors | Compose; avoids building cut cells and exposes segment/window parallelism |
 | ;: | Words / Sequential Machine | monad configured StateMachine; dyad general StateMachine | transition/input tables, state, emission, errors | Structured provisional; future SIMD/transition-composition possible |
 | # | Tally / Copy | monad shape/item-count fact; dyad Replicate/Compact/Expand | counts nonnegative/integral, result size | Direct; prefix/compaction implementation 선택 가능 |
 | #. | Base 2 / Base | Scan/Generate weights → Elementwise(Mul) → Reduce(Add) or preserved base kernel | radix/value domain, overflow | Compose; keep specialized kernel if cheaper |
@@ -4973,8 +4975,8 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | / | Insert / Table | monad Reduce(u); dyad IndexSpace/FrameMap → CellApply(u) | reducer order/associativity/identity, rank/assembly | Direct/Compose; reduction identity retained even when non-reassociable |
 | /. | Oblique / Key | oblique SegmentView/Reindex → CellMap; key Classify/GroupBy → SegmentView → CellApply, optionally grouped reduction | grouping equality/order, segment descriptors, assembly | Compose; avoids materialized groups and opens reduce-by-index route |
 | /: \: | Grade Up/Down / Sort | Grade; sort result can be Grade → Gather | comparison order, stability/tolerance, dtype | Direct; radix/merge/small/GPU algorithm identity retained |
-| \ | Prefix / Infix | insert-compatible prefix Scan; general prefix SegmentView(prefix family) → CellMap; infix WindowView/SegmentView → CellMap | window length, order, boundaries, assembly | Direct/Compose |
-| \. | Suffix / Outfix | suffix Scan when legal or segment family; outfix SegmentView + Concat/Assemble → CellMap | same as above | Compose |
+| \ | Prefix / Infix | insert-compatible prefix Scan; general prefix SegmentView(prefix family) → CellMap; infix WindowView/SegmentView → CellApply | window length, order, boundaries, assembly | Direct/Compose |
+| \. | Suffix / Outfix | suffix Scan when legal or segment family; outfix SegmentView + Concat/Assemble → CellApply | same as above | Compose |
 | [ ] [: | Same/Left, Same/Right, Cap | value projection / function-graph semantics | valence, provenance | Control/value; no new compute basis |
 | { | Catalogue / From | monad Cartesian IndexSpace + Gather + Assemble; dyad Gather | index bounds, boxed catalogue shapes | Direct/Compose |
 | {. {: }. }: | Head/Tail/Take/Drop/Behead/Curtail | RegularReindex or scalar Gather | bounds, fill, rank | Direct |
@@ -5201,7 +5203,7 @@ CellApply(u)
 sparse cell route or conforming fallback
 ~~~
 
-따라서 SparseReduce, SparseTranspose, SparseCellMap 같은 별도 semantic basis family를 만들지 않는다. sparse axes/fill/index/value는 representation facts이며 같은 J observable semantics를 다른 physical realization으로 실행한다.
+따라서 SparseReduce, SparseTranspose, SparseCellApply 같은 별도 semantic basis family를 만들지 않는다. sparse axes/fill/index/value는 representation facts이며 같은 J observable semantics를 다른 physical realization으로 실행한다.
 
 ##### closure 판정
 
