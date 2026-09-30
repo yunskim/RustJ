@@ -1,0 +1,63 @@
+use rustj::{Engine, Error, logical_executor::execute_closed};
+
+fn compare(source: &str) {
+    let mut runtime = Engine::new();
+    let expected = runtime.eval(source);
+    let plan = Engine::new().analyze_a3(source).unwrap();
+    let actual = execute_closed(&plan);
+    assert_eq!(actual, expected, "{source}");
+}
+
+#[test]
+fn closed_a3_reference_executor_matches_runtime_for_v0_basis_core() {
+    for source in [
+        "1+2",
+        "1 2+3 4",
+        "+/1 2 3",
+        "|.1 2 3",
+        ",2 3$ i.6",
+        "i.2 3",
+        "$1 2 3",
+        "#1 2 3",
+        "'a'='a'",
+        "'co' E. 'cocoa'",
+    ] {
+        compare(source);
+    }
+}
+
+#[test]
+fn reference_executor_preserves_prefix_agreement_error() {
+    let source = "1 2+1 2 3";
+    assert!(matches!(Engine::new().eval(source), Err(Error::Length)));
+    let plan = Engine::new().analyze_a3(source).unwrap();
+    assert!(matches!(execute_closed(&plan), Err(Error::Length)));
+}
+
+#[test]
+fn reference_executor_preserves_gather_index_semantics_including_negative_indices() {
+    for source in [
+        "1 { 10 20 30",
+        "_1 { 10 20 30",
+    ] {
+        compare(source);
+    }
+
+    let source = "3 { 10 20 30";
+    assert!(matches!(Engine::new().eval(source), Err(Error::Index)));
+    let plan = Engine::new().analyze_a3(source).unwrap();
+    assert!(matches!(execute_closed(&plan), Err(Error::Index)));
+}
+
+#[test]
+fn reference_executor_runs_valid_cell_apply_without_flattening_it() {
+    compare("+/\"1 (2 3$ i.6)");
+}
+
+#[test]
+fn reference_executor_rejects_environment_dependent_name_reads() {
+    let mut engine = Engine::new();
+    engine.eval("a=:1 2 3").unwrap();
+    let plan = engine.analyze_a3("a").unwrap();
+    assert!(matches!(execute_closed(&plan), Err(Error::Unsupported(_))));
+}
