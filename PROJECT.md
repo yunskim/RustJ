@@ -760,8 +760,8 @@ semantic analysis에서 모든 primitive는 공통 `PrimitiveContract` interface
 semantic 쪽에서 최소한 다음을 표현하거나 명시적으로 `Unknown`으로 둘 수 있어야 한다.
 
 ```text
-identity / part of speech / valence
-innate rank
+identity / part of speech / supported valences
+innate ranks (monad / dyad-left / dyad-right)
 shape rule
 type / promotion rule (shape/empty/fill context 의존 가능)
 axis-role / access-pattern rule
@@ -1030,8 +1030,11 @@ InvalidExtensionRegistration
 
 ```text
 PrimitiveSpec
-├─ identity / part of speech / valence
-├─ innate rank / RankSpec
+├─ identity / part of speech / supported valences
+├─ innate ranks
+│   ├─ monad: RankSpec
+│   ├─ dyad-left: RankSpec
+│   └─ dyad-right: RankSpec
 ├─ parameter schema
 ├─ semantic reference definition (optional)
 └─ version / provenance
@@ -1318,7 +1321,7 @@ RankApplication
   right_rank
 ```
 
-`PrimitiveSpec.innate_rank`도 implementation integer sentinel과 동일시하지 않고 semantic `RankSpec`/resolved-rank abstraction을 사용한다.
+`PrimitiveSpec`의 innate rank는 단수값이 아니라 **monad / dyad-left / dyad-right**별 `RankSpec`이다. implementation integer sentinel과 동일시하지 않고 semantic `RankSpec`/resolved-rank abstraction을 사용한다.
 
 important: jsource 내부의 `RMAX` 같은 sentinel은 implementation representation이다. RustJ IR에서는 `Infinite`를 명시적으로 표현하고 backend integer sentinel에 의존하지 않는다.
 
@@ -3657,7 +3660,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] built-in과 extension-derived computational entity가 공유하는 semantic capability interface를 정의한다.
 - [ ] extension builder(adverb/conjunction/verb) identity와 derived computational entity identity를 분리한다.
 - [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
-- [ ] innate rank와 cell axis-role contract를 정의한다.
+- [ ] monad / dyad-left / dyad-right별 innate RankSpec과 cell axis-role contract를 정의한다.
 - [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
@@ -4356,6 +4359,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 49. **Rank is not just usize** — infinite rank와 argument-relative negative rank를 semantic RankSpec으로 보존하고 적용 시 effective cell rank를 resolve한다.
 50. **Rank conjunction is entity-based** — `"`의 left/right operand를 verb+integer로 가정하지 않고 J의 noun/gerund/verb-rank forms를 semantic analysis 전까지 보존한다.
 51. **Lowering key includes semantic valence/context** — raw primitive id/spelling만으로 backend lowering을 선택하지 않고 resolved valence와 derived numeric/rank/effect semantics를 포함한 operation key를 사용한다.
+52. **Innate rank is valence-specific** — primitive rank를 단일 값으로 두지 않고 monad와 dyadic left/right rank contract를 분리한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
