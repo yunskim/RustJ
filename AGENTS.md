@@ -75,6 +75,7 @@ For every implementation change:
 - Model large J derived functions as shared immutable FunctionEntity/JEntityRef graphs (or an equivalent arena DAG), not recursively copied nested enum values.
 - Let J parser reduction rules define FunctionEntity DAG shape. ADV application, CONJ application, hook, and fork must follow jsource parse productions; do not invent modifier-specific semantic AST shapes such as Insert(base) or Rank(base,r).
 - Treat current jsource parser language behavior as the compatibility oracle: preserve its parse-row eligibility/order, parser-time name/POS resolution, result POS, assignment/parenthesis behavior, and completed modifier-entity boundaries. RustJ may replace jsource's C parser mechanics, but not invent a different J grammar/reduction model.
+- Use PROJECT.md section A0.5 as the parser-migration execution checklist. Do not start a later parser phase before its prerequisite phase is satisfied; update checklist boxes in the same change that completes an item.
 - Treat every completed modifier reduction as one first-class J function entity before any later hook/fork/train reduction. A fork operand referring to `+/`, for example, must reference the completed derived Verb entity `+/`, not retain separate `+` and `/` parser items or an unfinished modifier fragment.
 - Keep semantic function identity/operands separate from runtime/backend executor specialization; optimized handlers must not erase J-visible derived structure.
 
