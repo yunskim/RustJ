@@ -403,3 +403,87 @@ fn analysis_diagnostics_share_structured_context() {
     assert_eq!(context.span.clone(), Some(4..5));
     assert_eq!(context.blame_word_index, Some(2));
 }
+
+
+#[test]
+fn provisional_basis_metadata_is_explicit() {
+    use rustj::{
+        analysis::BasisKind,
+        contracts::Valence,
+    };
+
+    let mut e = Engine::new();
+    e.eval("a=:i.2 3").unwrap();
+
+    for (source, expected_basis, expected_valence) in [
+        ("1+2", BasisKind::Elementwise, Valence::Dyad),
+        ("+/1 2 3", BasisKind::Reduce, Valence::Monad),
+        ("|.1 2 3", BasisKind::StaticReindex, Valence::Monad),
+        ("i.2 3", BasisKind::IndexSpace, Valence::Monad),
+        ("1 { 10 20 30", BasisKind::Gather, Valence::Dyad),
+        ("10 20 i. 20", BasisKind::LookupClassify, Valence::Dyad),
+        ("+/\"1 a", BasisKind::CellApply, Valence::Monad),
+    ] {
+        let plan = e.analyze(source).unwrap();
+        let node = &plan.nodes[plan.result.unwrap().0];
+        assert_eq!(node.basis, Some(expected_basis), "{source}");
+        let instantiation = node.instantiation.as_ref().expect("call instantiation");
+        assert_eq!(instantiation.valence, expected_valence, "{source}");
+        assert_eq!(instantiation.result_dtype, node.facts.dtype, "{source}");
+        assert_eq!(instantiation.result_rank, node.facts.rank, "{source}");
+        plan.verify().unwrap();
+    }
+}
+
+#[test]
+fn value_roles_are_contextual_facts_not_noun_types() {
+    use rustj::{
+        analysis::Operation,
+        facts::ValueRole,
+    };
+
+    let e = Engine::new();
+
+    let plan = e.analyze("i.2 3").unwrap();
+    let result = plan.result.unwrap();
+    let Operation::Call { right, .. } = plan.nodes[result.0].operation else {
+        panic!()
+    };
+    assert!(plan.nodes[right.0].roles.contains(ValueRole::ShapeVector));
+
+    let plan = e.analyze("$1 2 3").unwrap();
+    assert!(
+        plan.nodes[plan.result.unwrap().0]
+            .roles
+            .contains(ValueRole::ShapeVector)
+    );
+
+    let plan = e.analyze("1 { 10 20 30").unwrap();
+    let result = plan.result.unwrap();
+    let Operation::Call { left: Some(left), .. } = plan.nodes[result.0].operation else {
+        panic!()
+    };
+    assert!(plan.nodes[left.0].roles.contains(ValueRole::IndexVector));
+
+    let plan = e.analyze("2 {. 10 20 30").unwrap();
+    let result = plan.result.unwrap();
+    let Operation::Call { left: Some(left), .. } = plan.nodes[result.0].operation else {
+        panic!()
+    };
+    assert!(plan.nodes[left.0].roles.contains(ValueRole::CountVector));
+}
+
+#[test]
+fn verifier_checks_resolved_instantiation_consistency() {
+    let e = Engine::new();
+    let mut plan = e.analyze("1+2").unwrap();
+    let result = plan.result.unwrap();
+    plan.nodes[result.0]
+        .instantiation
+        .as_mut()
+        .expect("call instantiation")
+        .result_rank = Some(1);
+    let error = plan.verify().unwrap_err();
+    assert_eq!(error.node, Some(result));
+    assert!(error.message.contains("instantiation result facts"));
+}
