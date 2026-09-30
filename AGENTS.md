@@ -20,7 +20,7 @@ For every implementation change:
 
 - Do not require every Logical Array IR program to pass through a RustJ-owned optimizer/code generator. Keep verified external lowering routes open (especially MLIR/LLVM and supported StableHLO subsets).
 - Do not weaken RustJ Logical IR semantics merely to match an external IR. External adapters must declare preconditions and reject or guard unsupported semantics.
-- Hardware planning must distinguish logical facts, TargetProfile hard facts, PhysicalSchedule decisions, ResourceEstimate, and backend CompiledResourceReport feedback.
+- Hardware planning must distinguish logical facts, CompilationTarget layers (BackendFamily / ArchitectureTarget / DeviceProfile / RuntimeProfile), the resolved TargetProfile view, PhysicalSchedule decisions, ResourceEstimate, and backend CompiledResourceReport feedback.
 
 - Keep semantic StorageRequirement separate from physical MaterializationDecision/BufferId; bufferization stays downstream.
 - Keep schedule/transform choices out of Logical Array IR payload semantics.
@@ -40,3 +40,9 @@ For every implementation change:
 - Keep full J semantic validity separate from eligibility for the hardware-aware analyzable array profile.
 - Keep mutable weights/gradients/optimizer/checkpoint state outside primitive hidden fields as explicit StateResource identities.
 - Keep ephemeral SSA ValueId, semantic StateResource, and physical BufferId distinct even though all user-visible data obey J array semantics.
+
+- Treat built-in J primitives and extension-derived operations uniformly for hardware lowering; existing primitives such as add/reduce/transpose must participate in the same lowering-capability architecture.
+- Keep BackendFamily, ArchitectureTarget, DeviceProfile, RuntimeProfile, and empirical CostProfile distinct; do not collapse them into one target identity.
+- Resolve target-specific lowering/capability bindings through a compiler-only locale/path chain (device -> architecture -> family -> backend -> cpu/gpu -> generic), separate from user J locales.
+- Do not infer architecture feature inheritance from numeric version ordering; use explicit locale paths and capability queries.
+- Locale lookup discovers lowering/capability candidates; legality/resource/cost analysis chooses the realization.
