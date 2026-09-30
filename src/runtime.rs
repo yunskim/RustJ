@@ -101,6 +101,16 @@ impl Engine {
         self.analyze_diagnostic(source).map_err(Error::into_unlocated)
     }
 
+    /// Build the A3-v0 operation/value-separated single-block logical IR.
+    /// This is still inspection-only and does not execute kernels.
+    pub fn analyze_a3(&self, source: &str) -> Result<crate::logical_ir::Plan> {
+        let transition = self.analyze(source)?;
+        let plan = crate::logical_ir::Plan::from_transition(&transition);
+        plan.verify()
+            .map_err(|error| Error::Unsupported(error.to_string()))?;
+        Ok(plan)
+    }
+
     /// Compiler-facing analysis path retaining the same structured diagnostic
     /// context used by the interpreter and future JIT.
     pub fn analyze_diagnostic(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
