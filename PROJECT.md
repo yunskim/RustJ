@@ -345,18 +345,31 @@ jsource-compatible parsing / semantic construction
   ↓
 J Semantic IR                         // J meaning is authoritative here
   │
-  ├─ ConstructionFacts               // modifier construction-time semantic facts
-  ├─ FunctionSummaryTable            // effect/name/self/rank/latent semantic summaries
-  ├─ ResolvedCallFacts               // actual arguments/valence dependent facts
-  ├─ OptimizationFacts               // recomputable proofs/candidates
-  └─ Lowering/Target facts           // architecture/device/backend dependent
+  └─ FunctionEntity
+       ├─ identity / POS / operands / span
+       └─ semantic_info               // intrinsic, recursively reusable J semantics
+            ├─ construction facts
+            ├─ valence/rank contract
+            ├─ effect/error summary
+            ├─ binding/self dependency
+            ├─ atomicity/latent policy
+            └─ other target-independent intrinsic semantics
         ↓
-Logical IR
+Logical IR Node
+  ├─ origin: FunctionEntityRef
+  └─ resolved_facts                   // actual call/argument dependent
+       ├─ type/shape
+       ├─ effective rank / CellApply
+       ├─ agreement/repetition
+       ├─ access/effect/error requirements
+       └─ constraints
+        ↓
+Optimizer / Route / Schedule / Physical Plan
         ↓
 Optimizer / Route / Schedule / Physical Plan
 ```
 
-즉 **J semantic graph는 원본 의미의 기준**이고, 이후 IR에서 필요한 정보는 가능한 한 side table / resolved fact / proof 형태로 붙인다.
+즉 **J semantic graph는 원본 의미의 기준**이고, 각 stage의 node가 그 stage에서 안정적인 정보를 직접 소유한다. side table은 비싸거나 재계산 가능한 보조 분석의 cache로만 사용하며, 재귀적 semantic 분석에 필요한 intrinsic 정보의 주 저장소로 삼지 않는다.
 
 정보를 다음 수명으로 분리한다.
 
@@ -368,18 +381,16 @@ Optimizer / Route / Schedule / Physical Plan
    - name/binding semantics
    - source span/provenance
 
-2. **ConstructionFacts**
-   - modifier application 시점에 J semantics가 확정한 정보
-   - 예: `u"r`의 validated requested-rank semantics
-   - parser-visible construction error/result POS
+2. **FunctionSemanticInfo**
+   - 각 `FunctionEntity`가 직접 소유하는 immutable intrinsic semantic information
+   - modifier construction-time facts
+   - valence/rank contract
+   - effect/name/self/error/atomicity/latent policy summary
+   - derived entity를 만들 때 이미 완성된 child node의 `semantic_info`를 재귀적으로 참조하여 bottom-up으로 계산
+   - primitive는 `PrimitiveSpec`을 참조/요약하고, named/late-bound entity는 필요한 항목을 `Unknown/May...` 상태로 보존
    - target-independent
 
-3. **FunctionSummary**
-   - derived entity 전체에서 요약할 수 있는 target-independent semantics
-   - effect/name/self/error/rank/atomicity/latent policy
-   - parser entity에 중복 저장하지 않고 shared entity identity로 캐시
-
-4. **ResolvedCallFacts**
+3. **ResolvedCallFacts**
    - 실제 valence와 argument facts가 있어야 결정되는 정보
    - effective rank
    - frame/cell split
@@ -387,19 +398,19 @@ Optimizer / Route / Schedule / Physical Plan
    - result type/shape constraints
    - access/effect/error requirements
 
-5. **OptimizationFacts**
+4. **OptimizationFacts**
    - 의미를 바꾸지 않고 다시 계산 가능한 proof/candidate
    - uniform cell result
    - fusion candidate
    - CellApply absorption/fusion proof
    - materialization-elision candidate
 
-6. **LoweringCapability / Target facts**
+5. **LoweringCapability / Target facts**
    - backend/architecture/device별 realization 정보
    - NN extension과 built-in primitive에 동일하게 적용
    - semantic identity에 포함하지 않음
 
-7. **PhysicalDecision**
+6. **PhysicalDecision**
    - schedule, tile, workgroup, layout, memory space, buffer reuse, synchronization
 
 중요한 불변조건:
@@ -410,7 +421,7 @@ Optimizer / Route / Schedule / Physical Plan
 - `(+/ % #)`는 semantic layer에서 Fork graph를 유지하며, Mean fusion은 optimizer candidate/proof다.
 - semantic node가 hardware target에 따라 달라지지 않는다.
 - compiler fact가 필요하다는 이유로 parser에 migration boolean/target hint를 추가하지 않는다.
-- side fact를 잃어도 J Semantic IR 자체의 의미를 재구성할 수 있어야 한다.
+- 각 `FunctionEntity`를 따라 재귀적으로 내려가면 그 entity의 intrinsic J semantic contract/summary를 다시 외부 lookup 없이 참조할 수 있어야 한다.
 - 반대로 target-dependent fact만으로 J semantic identity를 추정하지 않는다.
 
 ### 2.5 Route partition은 whole-program exclusive choice가 아니다
@@ -2617,26 +2628,35 @@ G. PhysicalDecision
 | tile/vector/workgroup mapping | implementation fast path | `PhysicalSchedule` | **Schedule stage** | codegen |
 | resource/cost estimate | implementation-specific | `ResourceEstimate/CostEstimate` | **schedule + target 이후** | candidate ranking |
 
-###### Semantic IR은 작게 유지하고 summary는 side table로 둔다
+###### Semantic node는 intrinsic summary를 직접 소유한다
 
-Parser-produced `FunctionEntity`에 위 표의 모든 정보를 필드로 누적하지 않는다. immutable shared semantic DAG는 source identity와 operand 관계를 보존하고, 파생 정보는 analyzer가 `EntityId`/shared handle 기준 side table에 캐시한다.
+Parser-produced `FunctionEntity`는 source identity/operand 관계뿐 아니라 **그 entity 자체에 안정적으로 귀속되는 semantic summary를 직접 소유**한다. derived entity는 이미 완성된 child entity의 `semantic_info`를 재귀적으로 참조해 bottom-up으로 summary를 만든다.
 
 ```text
-FunctionEntity                     // parser-owned, immutable
+FunctionEntity                      // parser-owned, immutable, shared by Arc/EntityRef
+  id
   identity / POS / operands / span
-        │
-        ├─ PrimitiveSpec lookup
-        │
-        └─ FunctionSummaryTable[EntityId]
-             binding_dependency
-             effect_summary
-             error_summary
-             innate/derived rank summary
-             atomicity
-             latent modifier semantics
+  semantic_info:
+    construction
+    valence_contract
+    rank_contract
+    binding_dependency
+    effect_summary
+    error_summary
+    atomicity
+    latent_semantics
 ```
 
-이렇게 해야 큰 derived verb가 있어도 같은 subtree에 effect/rank/name summary를 반복 복사하지 않는다.
+primitive의 상세 규칙은 `PrimitiveSpec`을 authoritative source로 두되 node의 `semantic_info`는 이후 재귀 분석에 필요한 안정적인 contract/summary를 제공한다. 큰 derived function에서도 child subtree 자체는 shared reference이므로 복사되지 않으며, parent에는 **parent 자신의 summary 한 벌만** 저장된다.
+
+side table/cache는 다음에만 사용한다.
+
+- 비용이 큰 재계산 가능 분석
+- 특정 pass에서만 유효한 proof
+- use-def 전체를 봐야 하는 정보
+- target/device/cost dependent 정보
+
+즉 semantic traversal에서 매번 전역 table을 조회해야만 child의 의미를 알 수 있는 구조는 기본 모델로 삼지 않는다.
 
 ###### call-time에만 알 수 있는 정보는 ResolvedCallFacts로 모은다
 
@@ -2793,7 +2813,7 @@ Schedule/Physical
 IL1/IL2 구현과 함께 다음 infrastructure를 추가한다.
 
 1. `PrimitiveSpec`에 현재 지원 primitive의 valence별 innate rank/atomicity/effect/error/fill 핵심 contract를 넣는다.
-2. `FunctionSummaryTable`을 추가하여 shared `FunctionEntity` DAG의 name/self/effect/error/rank-related summary를 memoize한다.
+2. `FunctionEntity.semantic_info`를 추가하여 shared DAG의 각 node가 자신의 name/self/effect/error/rank/atomicity/latent semantic summary를 직접 소유하게 한다. construction 시 child summary를 bottom-up으로 조합하고, pass-local 재계산 proof만 별도 cache/table로 둔다.
 3. current `Node.facts + rank_plan + access`를 점진적으로 `ResolvedCallFacts / LogicalFacts` 구조로 모으되 한 번에 거대한 enum/struct로 바꾸지 않는다.
 4. `CellApplicationPlanner`가 effective rank, frame/cell, agreement, repetition, empty policy를 생산하게 한다.
 5. `LogicalPlan::verify`가 must-preserve fact의 정합성을 검증한다.
@@ -5133,21 +5153,21 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### P5 — construction-time J semantics와 compiler-analysis facts 분리
 
-**구현 방향:** parser/J Semantic IR를 compiler-friendly form으로 rewrite하지 않는다. 이후 IR에서 필요한 정보는 `ConstructionFacts -> FunctionSummary -> ResolvedCallFacts -> OptimizationFacts -> LoweringCapability/TargetFacts -> PhysicalDecision`의 별도 계층으로 누적한다.
+**구현 방향:** parser/J Semantic IR를 compiler-friendly form으로 rewrite하지 않는다. 각 `FunctionEntity`는 자기 intrinsic `semantic_info`를 직접 소유하고 child의 정보를 재귀적으로 참조할 수 있게 한다. 그 다음 call-dependent 정보는 Logical IR node의 `ResolvedCallFacts`, pass-dependent 정보는 `OptimizationFacts`, target 이후 정보는 `LoweringCapability/TargetFacts -> PhysicalDecision`에 둔다.
 
 parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifier application이 그 자리에서 검증하고 result entity를 만드는 의미는 그대로 수행한다. 제거 대상은 target/call-dependent compiler facts다.
 
 - [ ] pure/semantic `ModifierSemanticConstructor` interface를 두어 parser row 3/4가 J-defined construction validation과 result POS/entity 생성을 요청하게 한다. operand value가 runtime-dependent하면 같은 action을 runtime semantic parser에서 수행할 수 있어야 한다.
-- [ ] parser-produced `FunctionEntity`는 identity/result POS/source operands/span을 최소 구조로 유지한다.
-- [ ] 원 source operands와 별도로, 필요하면 target-independent `ConstructionFacts[EntityId]` side table을 둔다.
+- [ ] parser-produced `FunctionEntity`는 identity/result POS/source operands/span과 **intrinsic `FunctionSemanticInfo`**를 immutable하게 소유한다.
+- [ ] modifier construction facts는 해당 completed `FunctionEntity.semantic_info.construction`에 보존하여 재귀 traversal에서 바로 참조할 수 있게 한다.
 - [ ] `"` constructor는 jsource `jtqq`와 동일한 noun/verb operand legality, rank/length/domain validation 및 requested-rank normalization을 **modifier application 시점의 construction semantics**로 처리한다. 이는 반드시 compile-time이라는 뜻은 아니며 runtime parser fallback에서도 같은 규칙을 사용한다.
-- [ ] normalized requested rank 같은 construction fact와 **actual argument rank를 이용한 effective rank/cell/frame 계산**을 분리한다.
+- [ ] normalized requested rank 같은 node-intrinsic construction fact와 **actual argument rank를 이용한 effective rank/cell/frame 계산**을 분리한다. 후자는 call/Logical IR node의 `ResolvedCallFacts`에 둔다.
 - [ ] applied `/`는 completed derived entity로 만들되 `Verb.reduce` 같은 compiler migration boolean을 semantic identity로 두지 않는다.
 - [ ] `Verb.reduce` 사용처를 제거하고 `+/ -> Logical Reduce(Add)` canonicalization을 Semantic Analyzer/Lowering으로 옮긴다.
 - [ ] `Verb.rank` 사용처를 제거하고 requested-rank semantic fact와 call-time `ResolvedRankContract/CellApply`를 분리한다.
 - [ ] `Callable.reduce` / `Callable.rank` migration dependency를 Analyzer-owned representation으로 옮긴다.
 - [ ] innate rank, effective rank, frame/cell split, agreement/repetition, access, optimizer proofs가 parser entity 필드에 들어가지 않게 한다.
-- [ ] architecture/device/lowering/cost metadata가 parser/FunctionEntity/ConstructionFacts에 들어가지 않게 한다.
+- [ ] architecture/device/lowering/cost metadata가 parser/`FunctionEntity.semantic_info`에 들어가지 않게 한다.
 
 **P5 완료 조건:** parser는 J entity construction의 성공/실패와 completed semantic identity를 정확히 결정하지만, call-dependent 및 target-dependent compiler facts는 소유하지 않는다.
 
@@ -5190,7 +5210,7 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 clean parser output을 기존 compiler milestones가 소비하도록 연결하는 후속 작업이다.
 
 - [ ] PrimitiveSpec/ExtensionSpec의 target-independent semantic contract와 parser entity identity를 연결한다.
-- [ ] `ConstructionFacts`와 `FunctionSummaryTable`의 책임을 분리한다.
+- [ ] `FunctionEntity.semantic_info`의 intrinsic facts와 Logical IR node의 `ResolvedCallFacts` 책임을 분리한다.
 - [ ] `ResolvedCallFacts`에서 valence/effective-rank/cell/frame/agreement/repetition/type/shape/effect/error/access를 계산한다.
 - [ ] `+/ % #` matrix golden에서 최종 `%`의 implicit CellApply2를 명시적으로 만든다.
 - [ ] Logical Optimizer가 semantic graph를 보존한 채 `FusionCandidate::Mean` 등을 별도 proof/candidate로 만든다.
