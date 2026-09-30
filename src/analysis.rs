@@ -535,31 +535,6 @@ struct Builder<'a> {
     reads: HashMap<(String, usize, usize), NameVersion>,
     current_j_origin: Option<j_graph_ir::ValueId>,
 }
-fn flatten_atop_execution(
-    semantic: &Arc<FunctionEntity>,
-    out: &mut Vec<Arc<FunctionEntity>>,
-) -> Result<()> {
-    if matches!(
-        semantic.head,
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
-    ) {
-        let [
-            FunctionOperand::Function(outer),
-            FunctionOperand::Function(inner),
-        ] = semantic.operands.as_slice()
-        else {
-            return Err(Error::Unsupported("malformed atop semantic entity".into()));
-        };
-        // f @: g executes g first, then f.  Recursively flatten both sides so
-        // an entire atop chain is recorded as one pipeline opportunity.
-        flatten_atop_execution(inner, out)?;
-        flatten_atop_execution(outer, out)?;
-    } else {
-        out.push(semantic.clone());
-    }
-    Ok(())
-}
-
 impl Builder<'_> {
     fn symbol(&mut self, name: &str) -> SymbolId {
         if let Some(id) = self.names.get(name) {
@@ -891,127 +866,11 @@ impl Builder<'_> {
         span: Range<usize>,
     ) -> Result<ValueId> {
         match &semantic.head {
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
-                let mut stages = Vec::new();
-                flatten_atop_execution(&semantic, &mut stages)?;
-                if stages.len() < 2 {
-                    return Err(Error::Unsupported("malformed atop pipeline".into()));
-                }
-
-                let mut inputs = Vec::with_capacity(2);
-                if let Some(left) = left {
-                    inputs.push(left);
-                }
-                inputs.push(right);
-
-                let mut current = right;
-                let mut stage_results = Vec::with_capacity(stages.len());
-                for (index, stage) in stages.into_iter().enumerate() {
-                    current = self.call_entity(
-                        stage.clone(),
-                        if index == 0 { left } else { None },
-                        current,
-                        stage.span.clone(),
-                    )?;
-                    stage_results.push(current);
-                }
-                self.opportunities.push(StructuralOpportunity {
-                    source: OpportunitySource::Atop,
-                    span: semantic.span.clone(),
-                    topology: StructuralTopology::Pipeline {
-                        inputs,
-                        stage_results,
-                    },
-                });
-                Ok(current)
-            }
-            FunctionHead::Fork => {
-                let [
-                    FunctionOperand::Function(f),
-                    FunctionOperand::Function(g),
-                    FunctionOperand::Function(h),
-                ] = semantic.operands.as_slice()
-                else {
-                    return Err(Error::Unsupported("malformed fork semantic entity".into()));
-                };
-                // jsource-compatible observable order for a general fork is h, f, g.
-                let h_result = self.call_entity(
-                    h.clone(),
-                    left,
-                    right,
-                    h.span.clone(),
-                )?;
-                let f_result = self.call_entity(
-                    f.clone(),
-                    left,
-                    right,
-                    f.span.clone(),
-                )?;
-                let join_result = self.call_entity(
-                    g.clone(),
-                    Some(f_result),
-                    h_result,
-                    span.clone(),
-                )?;
-                let mut shared_inputs = Vec::with_capacity(2);
-                if let Some(left) = left {
-                    shared_inputs.push(left);
-                }
-                shared_inputs.push(right);
-                self.opportunities.push(StructuralOpportunity {
-                    source: OpportunitySource::Fork,
-                    span: semantic.span.clone(),
-                    topology: StructuralTopology::BranchJoin {
-                        shared_inputs: shared_inputs.clone(),
-                        // Preserve J's observable branch evaluation order: h, then f.
-                        branch_results: vec![h_result, f_result],
-                        join_result,
-                        live_across: shared_inputs,
-                    },
-                });
-                Ok(join_result)
-            }
-            FunctionHead::Hook => {
-                let [
-                    FunctionOperand::Function(f),
-                    FunctionOperand::Function(g),
-                ] = semantic.operands.as_slice()
-                else {
-                    return Err(Error::Unsupported("malformed hook semantic entity".into()));
-                };
-                // (f g) y = y f (g y); x (f g) y = x f (g y).
-                // The right verb therefore executes before f.
-                let g_result = self.call_entity(
-                    g.clone(),
-                    None,
-                    right,
-                    g.span.clone(),
-                )?;
-                let f_left = left.unwrap_or(right);
-                let join_result = self.call_entity(
-                    f.clone(),
-                    Some(f_left),
-                    g_result,
-                    span.clone(),
-                )?;
-                self.opportunities.push(StructuralOpportunity {
-                    source: OpportunitySource::Hook,
-                    span: semantic.span.clone(),
-                    topology: StructuralTopology::BranchJoin {
-                        // Only the monadic hook actually fans the same y into
-                        // the identity branch and g(y).  A dyadic hook instead
-                        // keeps x live while g(y) is computed.
-                        shared_inputs: if left.is_none() {
-                            vec![right]
-                        } else {
-                            Vec::new()
-                        },
-                        branch_results: vec![f_left, g_result],
-                        join_result,
-                        live_across: vec![f_left],
-                    },
-                });
-                Ok(join_result)
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
+            | FunctionHead::Hook
+            | FunctionHead::Fork => {
+                let (form, _) = crate::j_graph_ir::classify_function(&semantic);
+                self.call_graph_apply(semantic, form, left, right, span)
             }
             _ => {
                 let callable = self.callable_entity(semantic)?;
