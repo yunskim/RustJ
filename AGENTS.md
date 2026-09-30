@@ -44,6 +44,23 @@ For every implementation change:
 - Keep ephemeral SSA ValueId, semantic StateResource, and physical BufferId distinct even though all user-visible data obey J array semantics.
 
 - Treat built-in J primitives and extension-derived operations uniformly for hardware lowering; existing primitives such as add/reduce/transpose must participate in the same lowering-capability architecture.
+
+### APEX/Co-dfns/TAIL-Futhark middle-end invariants
+
+- Treat `ValueFacts` as an extensible abstract-analysis domain, not a bag of optional metadata. Type/rank/shape/item-count/constant/array-property facts must support explicit merge/refinement semantics and may participate in worklist/fixpoint analysis.
+- Keep `ArrayPropertyFacts` (for example IntegralValued, NonNegative, Unique, Sorted, Permutation, KnownRange) on values/call analysis, never as immutable FunctionEntity identity unless the property is truly intrinsic to the entity.
+- When an inferred fact is used to remove a J-visible check, specialize a call, or choose a narrower route, retain a `FactWitness`/provenance or an explicit runtime guard. Never base legality on optimistic unknown facts.
+- Distinguish J Name, BindingVersion, and Logical SSA ValueId. SSA is a post-semantic dataflow representation; it must not erase J namespace/locale/POS semantics.
+- Represent call specialization with a cacheable `SpecializationKey` derived from only **relevant** argument facts. Do not put exact shape/constants into every key by default; define merge/widening policy to prevent specialization explosion.
+- The canonical semantic/logical graph remains the source of truth. A columnar `GraphIndex`/`AnalysisIndex` inspired by Co-dfns Node Coordinate Matrix/inverted-table AST may be derived for batch passes, but must not replace semantic identity or force every pass into a matrix representation.
+- Prefer small composable analysis/transform passes (nanopass style) while avoiding whole-IR cloning when fact tables/sidecars suffice.
+- Preserve high-level parallel structure such as CellApply/Map/Reduce/Scan/Reindex/Loop until optimizer/scheduling. Do not scalarize these merely to simplify lowering; nested-parallel flattening is an optimization/schedule decision.
+- Separate full-J semantic validity from external-route eligibility. Static-scope/static-rank/no-execute/pure-array restrictions from APEX/Co-dfns/TAIL/Futhark are route preconditions, not RustJ language restrictions.
+- Extract `PureArrayRegion`, `GuardedDynamicRegion`, `StatefulRegion`, and `RuntimeSemanticRegion` through effect analysis rather than rejecting whole programs because one external backend is pure/static.
+- Model target realization as a `ParameterizedLoweringRecipe` when implementation depends on resolved rank/type/shape/property facts. One semantic op may yield view, fused, library, custom-kernel, or runtime fallback candidates.
+- Evaluate optimization profitability with critical-path, kernel-launch, memory-traffic, temporary-materialization, transfer, and synchronization estimates in addition to arithmetic work.
+- Do not remove conformability/bounds/domain/error checks merely to enable fusion. Eliminate or hoist checks only with proof/witness/guard while preserving J error semantics.
+
 - Keep BackendFamily, ArchitectureTarget, DeviceProfile, RuntimeProfile, and empirical CostProfile distinct; do not collapse them into one target identity.
 - Resolve target-specific lowering/capability bindings through a compiler-only locale/path chain (device -> architecture -> family -> backend -> cpu/gpu -> generic), separate from user J locales.
 - Establish the active compiler TargetContext/target locale at compile-invocation start, but never let that target choice alter parser or J Semantic IR meaning. All hardware-lowerable built-ins and extensions must query the same selected target-locale chain.
