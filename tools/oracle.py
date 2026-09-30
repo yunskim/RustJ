@@ -9,9 +9,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 ERRORS = {16: 'spelling error', 3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
-          14: 'rank error', 19: 'syntax error', 21: 'value error'}
+          13: 'open quote', 14: 'rank error', 19: 'syntax error', 21: 'value error'}
 
-PARSER_OBSERVE_OPS = {'eval', 'sentence', 'name_class', 'representation'}
+PARSER_OBSERVE_OPS = {'eval', 'sentence', 'name_class', 'representation', 'words'}
 
 def normalize_request(request):
     """Normalize one JSON-lines oracle request.
@@ -28,7 +28,7 @@ def normalize_request(request):
     if op not in PARSER_OBSERVE_OPS:
         raise ValueError(f'unsupported oracle op: {op!r}')
     out = dict(request)
-    if op in {'eval', 'sentence'}:
+    if op in {'eval', 'sentence', 'words'}:
         if not isinstance(out.get('source'), str):
             raise ValueError(f'{op} requires string source')
     if op in {'name_class', 'representation'}:
@@ -103,6 +103,21 @@ class Oracle:
             return observed
         return {'kind': kind, 'value': observed}
 
+    def words(self, source):
+        literal = "'" + source.replace("'", "''") + "'"
+        error = self.run('rustjwords =: ;: ' + literal)
+        if error:
+            return error
+        observed = self.read_noun('rustjwords')
+        if observed.get('type') != 32:
+            raise RuntimeError(f'unexpected ;: result: {observed!r}')
+        words = []
+        for item in observed['data']:
+            if item.get('type') != 2 or len(item.get('shape', [])) != 1:
+                raise RuntimeError(f'unexpected ;: word: {item!r}')
+            words.append(bytes(item['data']).decode('latin1'))
+        return {'words': words}
+
     def observe(self, request):
         request = normalize_request(request)
         op = request['op']
@@ -112,6 +127,8 @@ class Oracle:
             return self.name_class(request['name'])
         if op == 'representation':
             return self.representation(request['name'], request['kind'])
+        if op == 'words':
+            return self.words(request['source'])
 
         outcome = self.eval(request['source'])
         names = {}
