@@ -1891,6 +1891,354 @@ GPU에서 각 cell을 병렬 실행하더라도 이 assembly 의미가 없어지
 
 
 
+#### 4.11.4 Implicit loop는 모든 function application의 cell semantics다
+
+J의 implicit loop를 `"` conjunction의 구현으로 한정하지 않는다.
+
+current jsource의 구조는 다음 두 개념을 분리한다.
+
+```text
+explicit rank conjunction
+  u " r
+  → CQQ derived function
+  → parent operator = "
+  → left operand = u
+  → right operand = r
+
+implicit cell execution
+  function application
+  → callable rank contract + actual argument ranks
+  → frame/cell split
+  → repeated cell execution
+  → result assembly
+```
+
+즉 `"`는 새 function을 만드는 conjunction이고, implicit loop는 primitive/derived function을 실제 noun argument에 적용할 때 공통으로 필요한 semantics다.
+
+jsource에서 각 function block은 monad / dyad-left / dyad-right rank를 가지며, generic path는 `rank1ex/rank2ex`가 frame을 cell로 나누어 원래 function을 반복 호출한다.
+
+##### 4.11.4.1 jsource generic rank loop의 semantic 단계
+
+monad:
+
+```text
+argument rank
+  ↓ resolve effective cell rank
+frame = leading axes before cell
+  ↓
+if no frame:
+    invoke once
+else:
+    iterate frame cells
+      → logical cell view
+      → invoke function
+      → assemble results
+```
+
+dyad:
+
+```text
+left argument  → left frame + left cell
+right argument → right frame + right cell
+                     ↓
+              prefix agreement
+                     ↓
+   shorter residual frame causes repetition
+                     ↓
+             invoke on cell pairs
+                     ↓
+               result assembly
+```
+
+current `rank2ex`는 explicit `"` rank와 underlying function rank가 함께 있을 때 **outer frame / inner frame을 따로 계산하고 residual repetition을 각각 보존**한다.
+
+```text
+argument
+├─ outer frame        // explicit rank boundary 밖
+└─ explicit-rank cell
+   ├─ inner frame     // underlying action rank 밖
+   └─ action cell
+```
+
+dyad에서는 left/right에 각각 이 구조가 존재하므로:
+
+```text
+outer common prefix
+outer residual repeat
+inner common prefix
+inner residual repeat
+action cell pair
+```
+
+가 생길 수 있다.
+
+##### 4.11.4.2 nested rank boundary를 early collapse하지 않는다
+
+jsource `cr.c`는 explicit rank와 underlying verb rank를 단순히 하나의 effective rank로 합치지 않는다. 중간 rank boundary의 fill/assembly가 결과를 바꿀 수 있기 때문이다.
+
+따라서:
+
+```text
+(u " r1) " r2
+```
+
+를 곧바로 `min(r1,r2,innate_rank)` 같은 하나의 rank로 바꾸지 않는다.
+
+semantic lowering은 nested cell-application boundary를 유지한다.
+
+```text
+CellApply(r2)
+  body:
+    CellApply(r1)
+      body:
+        Invoke(u)
+```
+
+`u` 자체의 innate rank가 더 낮아 별도 implicit application이 필요하면 내부에 또 CellApply가 생긴다.
+
+```text
+CellApply(explicit outer rank)
+  ↓
+CellApply(explicit inner rank)
+  ↓
+CellApply(innate action rank)
+  ↓
+InvokeCore(u)
+```
+
+인접 CellApply를 합치는 것은 허용하지만 다음 proof가 필요하다.
+
+```text
+RankLoopFusionLegality
+  no intermediate fill distinction
+  no dynamic assembly boundary
+  no observable error/order difference
+  same agreement/repetition semantics
+```
+
+##### 4.11.4.3 Logical IR에는 physical for-loop가 아니라 CellApply를 둔다
+
+v0에서 implicit loop를 CFG loop나 GPU thread loop로 바로 낮추지 않는다.
+
+```text
+CellApply
+  valence
+  arguments
+  requested/effective cell ranks
+  frame semantics
+  agreement/repetition plan
+  body region:
+    cell parameters
+    semantic invoke
+  empty/prototype policy
+  assembly policy
+```
+
+monad:
+
+```text
+CellApply1
+  frame_axes
+  cell_axes
+  body(cell) -> JValue
+  assembly
+```
+
+dyad:
+
+```text
+CellApply2
+  left_frame / left_cell
+  right_frame / right_cell
+  common_prefix
+  left_residual / right_residual
+  repeated_side
+  body(left_cell, right_cell) -> JValue
+  assembly
+```
+
+이것은 logical iteration semantics다. downstream은 같은 CellApply를 scalar CPU loop, SIMD, CPU thread-parallel loop, GPU grid/workgroup/lane mapping, primitive-integrated kernel, external compiler lowering 중 하나로 실현할 수 있다.
+
+##### 4.11.4.4 cell projection은 copy가 아니라 view semantics다
+
+jsource generic rank loop는 virtual A block을 만들어 backing array의 cell을 복사하지 않고 순회한다.
+
+RustJ의 semantic/logical 표현:
+
+```text
+Argument Value
+  ↓ Frame/Cell projection
+CellView
+  base ValueId
+  logical cell shape
+  logical index mapping
+```
+
+이 단계에서는 BufferId/byte offset을 확정하지 않는다. physical lowering에서 dense affine representation이 알려지면 offset/stride view가 될 수 있고, sparse/boxed는 각 representation에 맞는 cell projection을 사용한다.
+
+##### 4.11.4.5 empty/prototype와 result assembly는 CellApply가 소유한다
+
+jsource `rank1ex/rank2ex`는 cell count가 0이면 loop를 단순히 건너뛰지 않고 fill cell을 만들어 body를 의미적으로 실행해 result-cell type/shape를 정한다.
+
+```text
+zero result cells
+  ↓
+fill cell(s)
+  ↓
+prototype body invocation
+  ↓
+J-defined error suppression/propagation
+  ↓
+result-cell type/shape
+  ↓
+empty assembled result
+```
+
+따라서:
+
+```text
+CellApply.empty_policy = JFillCellPrototype
+```
+
+이다.
+
+jsource `result.h`처럼 result assembly도 CellApply contract다.
+
+```text
+AssemblyPolicy
+  UniformProven
+  DynamicJAssembly
+```
+
+`UniformProven`이면 output을 미리 배치하고 병렬/GPU map으로 낮추기 쉽다.
+
+`DynamicJAssembly`이면 type join, shape join, framing fill, sparse/boxed interaction, assembly error를 보존한다.
+
+초기 GPU route는 `UniformProven` subset만 지원해도 된다.
+
+##### 4.11.4.6 jsource IRS는 semantic feature가 아니라 loop absorption optimization이다
+
+jsource의 `VIRS1/VIRS2` 및 `IRS1/IRS2`는 generic rank semantics와 다른 언어 기능이 아니다. rank 정보를 호출 linkage에 전달해 primitive/derived function이 implicit loop 일부를 내부에서 처리하는 fast path다.
+
+RustJ는 pointer/rank encoding을 복제하지 않고 lowering capability로 일반화한다.
+
+```text
+CellApplyLoweringCapability
+  GenericCellLoop
+  CanAbsorbCellApply {
+    valence
+    supported rank forms
+    agreement capability
+    empty/prototype capability
+    assembly guarantees
+    representation constraints
+  }
+```
+
+```text
+Logical CellApply
+  ├─ generic loop around core operation
+  ├─ operation/kernel absorbs cell iteration
+  └─ external compiler lowering
+```
+
+primitive가 loop를 흡수한다고 해서 Semantic IR/Logical semantics에서 implicit CellApply의 의미를 삭제하지 않는다. GPU에서 frame axes를 grid에 자연스럽게 흡수하는 것도 같은 종류의 lowering optimization이다.
+
+##### 4.11.4.7 sparse path는 별도 lowering이어도 semantic CellApply는 같다
+
+jsource가 dense generic rank loop와 `sprank1/sprank2`를 분리하듯 RustJ도 구현은 분리할 수 있다.
+
+```text
+CellApply semantics
+  ├─ DenseAffine lowering
+  ├─ Sparse lowering
+  ├─ Boxed/runtime lowering
+  └─ External lowering
+```
+
+sparse를 dense CellView로 강제하거나 sparse axes/element 의미를 잃지 않는다.
+
+##### 4.11.4.8 구현 계획
+
+**IL0 — parser/semantic boundary**
+
+1. `"`를 special unary Rank node로 만들지 않는다.
+2. parser row 4에 따라 `ConjunctionApplication(operator=", left, right)`를 만든다.
+3. `"` parent와 양쪽 operand를 shared FunctionEntity DAG에 그대로 보존한다.
+4. current `FunctionFormId::RANK` compatibility 표현은 generic conjunction application으로 교체한다.
+
+**IL1 — rank contract**
+
+5. 모든 callable에 valence별 innate `RankSpec` contract를 제공한다.
+6. `"` derived function analysis가 right operand를 검증하고 requested rank contract를 만든다.
+7. negative/infinite rank는 actual argument rank가 알려지는 call analysis에서 jsource `efr` 동등 규칙으로 effective cell rank를 resolve한다.
+8. nested `"` boundary를 하나의 rank triple로 평탄화하지 않는다.
+
+**IL2 — pure CellApplication planner**
+
+9. runtime/executor와 독립적인 planner를 만든다.
+
+```text
+plan_cell_application(callable, argument facts)
+  -> DirectInvoke
+   | CellApplyPlan
+   | SemanticError
+   | Unknown/RequiresRuntime
+```
+
+10. monad plan은 frame/cell split과 iteration extent를 계산한다.
+11. dyad plan은 prefix agreement, common frame, residual frame, repeated side를 계산한다.
+12. explicit rank + underlying rank는 nested outer/inner CellApply로 표현한다.
+
+**IL3 — correctness-first CPU generic executor**
+
+13. `CellApplyPlan`을 그대로 실행하는 reference-style CPU executor를 만든다.
+14. dense cell은 copy하지 않고 view로 전달한다.
+15. no-frame case는 direct invoke한다.
+16. 먼저 optimization 없이 jsource differential result를 맞춘다.
+
+**IL4 — empty/prototype + assembly**
+
+17. zero-cell fill/prototype semantics를 추가한다.
+18. homogeneous result fast path를 추가한다.
+19. heterogeneous type/shape `DynamicJAssembly`를 추가한다.
+20. sparse/boxed result와 assembly error를 golden test로 고정한다.
+
+**IL5 — loop absorption**
+
+21. generic CellApply와 의미 동등성이 확인된 primitive부터 `CanAbsorbCellApply`를 연다.
+22. 첫 대상은 dense elementwise dyad와 단순 reduction으로 제한한다.
+23. generic executor vs absorbed executor를 differential test한다.
+24. nested CellApply fusion은 fill/assembly/error proof가 있을 때만 허용한다.
+
+**IL6 — parallel/GPU lowering**
+
+25. 첫 GPU route는 `UniformProven` CellApply로 제한한다.
+26. frame iteration axes를 grid/workgroup/lane에 매핑한다.
+27. agreement residual repetition은 logical index map/zero-stride equivalent로 lowering한다.
+28. cell body reduction axis와 frame parallel axes를 구분한다.
+29. dynamic assembly, catchable per-cell error, unsupported sparse/boxed는 GPU route barrier로 둔다.
+30. architecture-specific locale lowering이 CellApply absorption/schedule 후보를 제공한다.
+
+##### 4.11.4.9 첫 differential test matrix
+
+```text
+A. direct/no-frame
+B. monadic frame iteration
+C. dyadic equal-frame cells
+D. dyadic prefix agreement + left repeat
+E. dyadic prefix agreement + right repeat
+F. explicit " rank
+G. negative rank
+H. nested " boundaries
+I. empty frame fill/prototype
+J. heterogeneous result-cell assembly
+K. sparse argument
+L. generic CellApply vs absorbed path equivalence
+```
+
+특히 nested rank는 jsource `cr.c`가 명시한 intermediate fill-boundary 사례를 포함한다. 이 테스트가 통과하기 전에는 adjacent rank boundaries를 자동 collapse하지 않는다.
+
 ### 4.12 access pattern은 fusion 분석의 semantic lower bound다
 
 `japchae` D-24에서 primitive를 scalar arithmetic까지 지나치게 분해하면 matmul/conv 구조 정보가 사라져 다시 pattern recognition을 해야 한다는 문제가 확인되었다. fusion/array planning 관점의 유용한 lower bound는 **memory/access pattern**이다.
@@ -4906,6 +5254,11 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 63. **Parse operands and executor auxiliaries are separate** — semantic DAG에는 parser operands/J semantics를 보존하고 jsource `fgh/localuse`의 실행 최적화 보조 객체를 자동 semantic child로 승격하지 않는다.
 64. **Semantic modifier syntax is not LogicalOp syntax** — `/`, `"` 등의 parser-produced operator DAG를 Semantic IR에서 `Reduce`/`MapCells`로 조기 치환하지 않는다. normalized op는 Semantic Analyzer 이후에만 만든다.
 65. **Parser production coverage is explicit** — 미지원 jsource parse row/form을 임의의 대체 AST로 해석하지 않고 coverage manifest에 pending으로 남긴다.
+66. **Rank conjunction and implicit loop are distinct** — `"`는 parent conjunction + two operands로 derived function을 만들고, cell iteration은 function application의 공통 semantics다.
+67. **Rank boundaries are semantic until proven fusible** — nested explicit/innate rank boundaries를 effective rank 하나로 early collapse하지 않는다.
+68. **CellApply is logical, not physical** — frame iteration/repetition/assembly를 logical CellApply로 표현하고 CPU/GPU loop/thread mapping은 downstream이 선택한다.
+69. **IRS means loop absorption, not different semantics** — jsource IRS와 같은 fast path는 generic CellApply와 동등해야 하며 lowering capability로 표현한다.
+70. **Implicit loop owns empty and assembly semantics** — fill-cell prototype과 heterogeneous result assembly는 primitive kernel의 우연한 동작이 아니라 CellApply contract다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4959,6 +5312,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 현재 `FunctionEntity.operands`는 v0 단순성을 위해 `Vec`를 사용한다. 대부분 parser productions가 1–3 semantic operand를 갖지만, jsource `fgh[3]`의 slot layout 자체를 semantic ABI로 채택하지 않는다. **inline-small-vector + rare spill** 같은 저장 최적화는 large-train memory profile을 측정한 뒤 적용할 수 있다.
 
 ### 16.2 Proof Slice 1 — A3-v0 verified Logical IR
+
+Implicit loop는 이 단계에서 backend loop로 만들지 않고 `CellApplyPlan`/logical `CellApply` seam을 먼저 추가한다. explicit `"` parent-conjunction 구조와 callable innate rank가 같은 planner를 사용해야 한다.
 
 5. single Function / single Region / single Block의 SSA `ValueId` core와 verifier를 만든다.
 6. v0 fact는 다음으로 제한한다.
