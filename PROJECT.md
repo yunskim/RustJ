@@ -665,35 +665,431 @@ resource validation
 
 reference definition을 실제 lowering으로 사용하는 것은 별도 검증을 통과한 뒤에만 허용한다.
 
-### 4.14 hardware profile은 primitive와 분리된 데이터다
+### 4.14 Hardware-aware IR 설계 원칙: 네 층을 분리한다
 
-하드웨어 용량은 primitive별로 복제하지 않는다.
+leading axis, reduction axis, contiguity 같은 정보는 중요하지만 **하드웨어 분석에 필요한 전체 정보의 일부**다.
+
+2026-09-30에 MLIR DataLayout/TargetSystemSpec, LLVM TargetTransformInfo, OpenXLA GPU pipeline, TVM TensorIR scheduling, Triton kernel configuration, NVIDIA CUDA, AMD ROCm/HIP 문서를 다시 검토했다.
+
+공통적으로 확인되는 구조는 다음과 같다.
+
+1. 고수준 연산 의미와 target hardware의 고정 사양을 분리한다.
+2. logical computation에는 planner가 병렬화·locality·reduction·layout 가능성을 추론할 수 있는 정보가 있어야 한다.
+3. tile size, thread/workgroup mapping, memory-space 배치 같은 값은 target을 본 뒤 schedule/physical 단계에서 결정한다.
+4. register 사용량, occupancy, memory traffic 같은 값은 primitive의 고정 상수가 아니라 **graph + schedule + target**의 함수다.
+5. hardware의 hard limit와 측정 기반 performance cost를 같은 것으로 취급하지 않는다.
+
+RustJ에서는 이를 네 층으로 나눈다.
+
+```text
+A. Hardware-relevant semantic/logical facts
+   "이 계산은 어떤 구조인가?"
+
+B. TargetProfile
+   "이 하드웨어는 무엇을 제공하고 무엇을 제한하는가?"
+
+C. Physical Schedule / Realization
+   "이 계산을 이 target에 어떻게 매핑할 것인가?"
+
+D. Resource / Cost Estimate
+   "그 매핑의 자원 사용량과 예상 비용은 얼마인가?"
+```
+
+이 네 층을 하나의 `PrimitiveSpec` 또는 하나의 거대한 IR node에 섞지 않는다.
+
+예를 들면 `leading axis`, `reduction axis`, `access relation`, `iteration dependency`는 A에 속하고, `warp/wave width`, register-file capacity, shared/LDS capacity, supported matrix instruction은 B에 속한다. `tile=64x128`, `num_warps=4`, `vector_width=8`, memory-space 선택은 C이며, `registers/thread=72`, occupancy, HBM bytes, spill risk는 D다.
+
+### 4.15 Logical Array IR이 가져야 하는 hardware-relevant contract
+
+Logical Array IR은 hardware-independent여야 하지만 **hardware-blind여서는 안 된다.** CUDA의 `threadIdx.x`를 몰라도 planner가 어떤 logical axis를 thread/lane/vector에 배치할 수 있는지는 알아야 한다.
+
+최소 모델:
+
+```text
+LogicalOp
+├─ IterationDomain
+├─ AxisSemantics
+├─ AccessRelations
+├─ NumericSemantics
+├─ Dependency / SynchronizationRequirements
+├─ Effect / Alias
+└─ Materialization / LifetimeRequirements
+```
+
+#### 4.15.1 IterationDomain
+
+연산이 어떤 index 공간 위에서 정의되는지를 표현한다.
+
+```text
+IterationAxis
+  id
+  extent
+  kind:
+    Parallel
+    Reduction
+    Scan
+    Window
+    SerialDependency
+    Broadcast
+    StaticReindex
+    Gather
+    Scatter
+```
+
+이것은 GPU thread axis가 아니다. logical iteration axis다. 이후 planner가 CPU thread, SIMD lane, GPU workgroup/subgroup/lane 등에 매핑한다.
+
+#### 4.15.2 AxisSemantics
+
+J rank가 frame/cell을 정하고, primitive contract가 cell 내부 axis role을 정한다. 필요한 정보는 단순한 `leading_axis` 하나보다 넓다.
+
+```text
+AxisSemantics
+  frame_axes
+  cell_axes
+  input_axis_roles
+  output_axis_roles
+  reduction_axes
+  preserved_axes
+  introduced_axes
+  contracted_axes
+  window_axes
+  broadcast_axes
+  scan_axes
+  output_axis_mapping
+```
+
+conv2d라면 input cell `[C_in,H,W]`, weight `[C_out,C_in,KH,KW]`, output cell `[C_out,OH,OW]`이고 output/parallel axes는 `[C_out,OH,OW]`, reduction axes는 `[C_in,KH,KW]`, window axes는 `[KH,KW]`다.
+
+`leading axis`가 필요하다면 이 구조 안에서 `cell axis 0` 또는 특정 access map의 major/minor logical axis로 표현한다. standalone 특별 규칙으로 두지 않는다.
+
+#### 4.15.3 AccessRelations
+
+성능 분석에는 axis 이름보다 **실제로 각 operand를 어떤 index로 읽고 쓰는가**가 더 중요하다. 따라서 가능한 범위에서 input/output index relation을 표현한다.
+
+```text
+AccessRelation
+  operand
+  mode: Read | Write | ReadWrite
+  index_map(iteration_axes, reduction_axes) -> operand_indices
+  regularity:
+    Affine
+    StaticPermutation
+    Windowed
+    Indirect
+    DataDependent
+  reuse_axes
+  known_stride_facts
+  known_alignment_facts
+  bounds / masking requirement
+```
+
+conv2d의 개념적 관계:
+
+```text
+Y[oc, oh, ow]
+X[ic, oh*stride_h + kh - pad_h, ow*stride_w + kw - pad_w]
+W[oc, ic, kh, kw]
+```
+
+이 정보로 planner는 contiguous/vectorized access 후보, tile 내부 reuse, reduction/output parallelism, shared/LDS/cache staging, static reindex, gather/scatter 제약을 판단할 수 있다. 따라서 향후 `leading_axis`보다 더 일반적인 핵심 표현은 **axis-role + access relation**이다.
+
+#### 4.15.4 NumericSemantics
+
+하드웨어 mapping을 결정하려면 dtype만으로 부족하다.
+
+```text
+NumericSemantics
+  input dtypes
+  result dtype
+  accumulator requirement
+  widening / narrowing rules
+  exact overflow behavior
+  reassociation allowed?
+  FMA contraction allowed?
+  reduction order observable?
+  NaN / signed-zero constraints
+```
+
+CPU vector reduction이나 GPU tree reduction은 J의 관찰 가능한 floating-point 순서를 바꿀 수 있으므로, `reduction`이라는 사실만으로 재배치를 허용하지 않는다.
+
+#### 4.15.5 Dependency / synchronization requirement
+
+logical op은 CUDA barrier 자체를 갖지 않는다. 대신 어떤 범위의 dependency가 필요한지 표현한다.
+
+```text
+DependencyRequirement
+  Independent
+  SubgroupCollective
+  WorkgroupLocalCollective
+  GlobalReduction
+  OrderedScan
+  AtomicUpdate
+  CrossValueOrdering
+```
+
+Physical Planner가 target의 barrier/shuffle/atomic/collective capability를 보고 구체적으로 실현한다.
+
+### 4.16 TargetProfile: 하드웨어 hard facts와 capabilities
+
+`TargetProfile`은 logical IR 밖의 **versioned target description**이다. compile invocation/plan에 연결되지만 J semantic value의 일부는 아니다. MLIR TargetSystemSpec처럼 여러 device를 기술할 수 있는 방향을 지향한다.
 
 ```text
 TargetProfile
-  register capacity
-  shared-memory / scratchpad capacity
-  warp/wave/subgroup properties
-  supported numeric modes
-  relevant alignment / memory hierarchy facts
-  backend capability facts
+├─ TargetIdentity
+├─ ExecutionHierarchy
+├─ RegisterResources
+├─ MemoryHierarchy
+├─ ComputeCapabilities
+├─ SynchronizationCapabilities
+├─ LaunchAndSchedulingLimits
+├─ TransferAndTopology
+└─ ABI / DataLayout
 ```
 
-Primitive identity는 어떤 접근 패턴과 축 역할을 요구하는가를 말하고, TargetProfile은 이 하드웨어가 무엇을 제공하는가를 말한다. TargetProfile은 가능한 한 versioned data로 관리한다.
+#### 4.16.1 TargetIdentity
 
-### 4.15 old analyzer output schema는 Logical/Physical 계층으로 분해해 흡수한다
+`vendor`, architecture, device family/feature set, backend target triple 또는 equivalent, driver/runtime capability version, profile schema version을 둔다. product name보다 capability query를 우선한다.
 
-`japchae`의 analyzer output schema v0.1은 중요한 prototype이지만 logical 정보와 target-dependent resource 정보가 한 객체에 섞여 있었다. RustJ에서는 다음처럼 나눈다.
+#### 4.16.2 ExecutionHierarchy
 
-**Logical Array IR / Plan**: op identity, logical shape, rank/cell/frame, dtype facts, axis roles, access pattern, effects/alias, provenance, materialization requirement, fusion legality/candidate.
+GPU 예는 `Device → ComputeUnit/SM → Workgroup/CTA → Subgroup/Warp/Wave → Lane/Thread`, CPU 예는 `Machine/NUMA → Core → Hardware thread → SIMD lanes`로 본다.
 
-**Physical Planner 입력**: Logical Array IR + TargetProfile + backend capabilities.
+필요 후보는 compute-unit count, supported subgroup widths, resident subgroup/workgroup limits, threads/lanes per workgroup, workgroup/grid dimension limits, CPU SMT/NUMA facts다.
 
-**Physical Plan / Planning Report**: fusion region, materialization boundary, chosen layout, tiling, register/shared-memory estimate, accumulator realization, synchronization, placement/transfer, predicted traffic, buffer lifetime/reuse, backend strategy.
+NVIDIA에서는 warp width뿐 아니라 register/shared-memory/thread-block 한도가 occupancy와 launch 가능성을 제한한다. AMD에서는 wavefront, VGPR/SGPR, LDS, wave slot과 block size가 함께 occupancy를 제한한다. 따라서 `warp_size` 하나만으로 GPU resource model을 만들지 않는다.
 
-재현 가능한 compile artifact에는 source revision, PrimitiveSpec registry version, input facts/spec, TargetProfile version, compiler version을 기록한다.
+#### 4.16.3 RegisterResources
 
-### 4.16 Flow–Storage와 materialized array 개념의 통합
+register를 단일 숫자로 가정하지 않는다.
+
+```text
+RegisterResource
+  class:
+    Scalar
+    Vector
+    Predicate
+    Accumulator
+    General
+    TargetSpecific
+  width_bits
+  capacity_per_execution_unit
+  max_per_lane_or_thread
+  max_per_workgroup if applicable
+  allocation_granularity
+```
+
+CPU에서는 scalar/fixed/scalable vector register width와 register class가 중요하고, AMD 계열에서는 VGPR/SGPR/accumulator class의 차이가 중요할 수 있다.
+
+#### 4.16.4 MemoryHierarchy
+
+memory space를 `global/shared` 두 종류로 고정하지 않는다.
+
+```text
+MemorySpace
+  id
+  scope / visibility
+  capacity
+  addressability
+  allocation granularity
+  alignment requirements
+  transaction granularity
+  bank structure if explicit
+  coherence / consistency facts
+  async-copy support
+```
+
+cache levels, cache-line size/capacity, scratchpad/shared/LDS capacity, HBM/DRAM capacity, host/device address spaces, constant/read-only spaces도 필요에 따라 profile에 둔다. OpenXLA처럼 logical shape와 physical memory space/layout을 분리한다.
+
+#### 4.16.5 ComputeCapabilities
+
+```text
+supported scalar dtypes
+supported vector widths / scalable-vector support
+native arithmetic/reduction/shuffle/permute
+atomic operation signatures
+matrix/tensor/MMA instruction families
+  input dtype combinations
+  accumulator dtype
+  result dtype
+  legal tile shapes
+  layout constraints
+special instructions
+```
+
+`tensor_core=true` 같은 boolean 하나보다 지원되는 operation signature 집합이 낫다.
+
+#### 4.16.6 SynchronizationCapabilities
+
+barrier scopes, subgroup shuffle/reduce, workgroup barrier, cross-workgroup synchronization, atomic scopes/dtypes, async barrier/pipeline support를 capability로 둔다.
+
+#### 4.16.7 LaunchAndSchedulingLimits
+
+max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic scratchpad/shared-memory limits, cluster/cooperative launch capabilities 등을 둔다.
+
+#### 4.16.8 TransferAndTopology
+
+장기적으로 device memory capacity, host-device links, peer-to-peer connectivity, NUMA relation, collective capability, concurrent copy/compute capability를 표현한다. single-device MVP에는 필수가 아니지만 Placement/Sharding 확장을 막지 않도록 위치를 예약한다.
+
+#### 4.16.9 ABI / DataLayout
+
+endianness, type size/alignment, pointer/address-space width, vector alignment 같은 정보다. J logical dtype 의미가 아니라 backend representation constraint다.
+
+### 4.17 CostProfile: hard limit와 측정 성능을 분리한다
+
+effective memory bandwidth, instruction throughput, cache hit rate, launch overhead, interconnect bandwidth/latency, library-call overhead는 driver, clock, power state, workload, runtime version에 따라 바뀔 수 있다.
+
+따라서 `TargetProfile`과 별도로 optional `CostProfile`을 둔다.
+
+```text
+CostProfile
+  target_profile_id
+  runtime/driver/compiler version
+  measurement provenance
+  bandwidth estimates
+  latency estimates
+  instruction throughput estimates
+  launch overhead
+  transfer costs
+  calibrated library/kernel costs
+```
+
+legality는 `TargetProfile` hard facts로 판단하고, 후보 ranking은 `TargetProfile + CostProfile`로 한다. CostProfile이 없어도 conservative heuristic으로 합법적인 plan을 만들 수 있어야 한다.
+
+### 4.18 Physical Plan이 결정해서 기록해야 하는 hardware mapping
+
+TargetProfile의 정보를 Logical IR에 복사하지 않는다. Physical Planner가 선택한 결과를 Physical Plan에 기록한다.
+
+```text
+PhysicalRegion
+├─ target device
+├─ kernel / library boundary
+├─ logical-axis mapping
+├─ tile hierarchy
+├─ vector/subgroup/workgroup mapping
+├─ memory-space assignment
+├─ physical layout / strides / padding / alignment
+├─ async-copy / software-pipeline stages
+├─ synchronization
+├─ accumulator realization
+├─ materialization points
+├─ buffer bindings
+└─ transfer / collective actions
+```
+
+대표적으로 `AxisMapping(logical_axis -> execution_level)`, tile sizes, vector/subgroup width, workgroup/grid shape, `ValueId -> MemorySpace`, layout/strides/padding/alignment, prefetch distance, async-copy stages, double/multi buffering 등을 기록한다.
+
+Triton의 `BLOCK_SIZE_*`, `num_warps`, `num_stages`, `maxnreg`와 OpenXLA fusion backend config의 tile/warp/stage 설정은 이 계층의 사례다.
+
+### 4.19 ResourceEstimate는 plan의 결과이지 primitive property가 아니다
+
+다음은 Physical Plan 후보를 TargetProfile/CostProfile과 결합해 계산하는 derived information이다.
+
+```text
+ResourceEstimate
+  register usage by class
+  shared/LDS/scratchpad bytes
+  spill risk
+  resident workgroups/subgroups
+  theoretical occupancy/concurrency
+  global-memory bytes
+  cache/scratchpad traffic estimate
+  transaction/coalescing estimate
+  bank-conflict estimate
+  arithmetic intensity
+  instruction/compute estimate
+  synchronization count/cost
+  launch count
+  transfer bytes/cost
+  peak live memory
+```
+
+핵심 식:
+
+```text
+ResourceEstimate
+  = R(LogicalGraph, PhysicalSchedule, TargetProfile, optional CostProfile)
+```
+
+따라서 primitive registry에 `registers=32`처럼 넣지 않는다. primitive는 `output마다 accumulator가 필요`, `이 축은 reduction`, `이 input tile은 재사용됨`, `workgroup-local collective 필요` 같은 요구/구조를 제공한다.
+
+### 4.20 CPU와 GPU에서 실제로 필요한 정보
+
+공통으로 shape/dtype, iteration/dependency axes, reduction/scan semantics, access relation, stride/alignment facts, alias/effect, working-set/reuse structure, vectorization/reassociation legality, memory hierarchy, register/vector capacity, parallel execution capacity, cost model이 필요하다.
+
+CPU에서 특히 중요한 target facts는 core/hardware-thread topology, SIMD fixed/scalable widths, vector register classes, cache hierarchy/cache-line size, NUMA, gather/scatter/reduction cost, prefetch capability다.
+
+GPU에서 특히 중요한 target facts는 SM/CU count, warp/wave/subgroup widths, workgroup limits, resident workgroup/subgroup limits, register classes/capacity, shared/LDS, coalescing/transaction rules, bank organization, subgroup collectives, barriers/atomics, matrix/tensor instruction signatures, async copy/pipeline, grid/cluster limits다.
+
+이 차이 때문에 target schema를 NVIDIA의 `SM/register/shared-memory` 세 필드에 맞춰 고정하지 않는다.
+
+### 4.21 현재 RustJ에 권장하는 최소 구현 범위
+
+처음부터 완전한 hardware database를 만들지 않는다.
+
+```text
+H0 Logical hardware contract
+  IterationDomain
+  AxisSemantics
+  AccessRelation
+  NumericSemantics
+  DependencyRequirement
+
+H1 generic TargetProfile MVP
+  execution hierarchy
+  subgroup/vector width
+  parallelism limits
+  register resource summary
+  scratchpad/shared-memory summary
+  memory spaces/alignment
+  supported dtypes/operations
+  ABI/data-layout
+
+H2 Physical Schedule MVP
+  target placement
+  axis mapping
+  tile size
+  vector/subgroup/workgroup mapping
+  memory-space choice
+  layout/stride
+  materialization
+  synchronization
+
+H3 ResourceEstimate MVP
+  register estimate
+  scratchpad/shared estimate
+  occupancy/concurrency bound
+  global-memory traffic
+  peak materialized bytes
+  launch count
+```
+
+그 다음 empirical `CostProfile`과 richer cache/topology model을 추가한다.
+
+### 4.22 외부 compiler 조사에서 얻은 직접적인 설계 근거
+
+- **MLIR DataLayout / TargetSystemSpec**: type layout과 heterogeneous device properties를 별도 target specification으로 둔다.
+- **LLVM TargetTransformInfo**: vector register width와 instruction/reduction cost 같은 target-specific 정보를 IR 의미와 분리된 query interface로 제공한다.
+- **OpenXLA GPU**: logical shape와 physical layout을 분리하고, layout conflict는 copy로 materialize하며, fusion 뒤 tile/warp/stage 같은 구체 schedule을 backend config로 둔다.
+- **TVM TensorIR**: logical loop/block 위에 bind, vectorize, cache/storage scope, tensorize 같은 schedule을 별도로 적용한다.
+- **Triton**: block shape, warps, pipeline stages, register cap을 kernel configuration으로 다루고 shape/stride/alignment를 memory access의 전제로 사용한다.
+- **CUDA**: warp width 외에도 register file, per-thread/block register limit, shared-memory capacity, resident block/warp/thread limits가 함께 launch/occupancy를 결정한다.
+- **ROCm/HIP**: VGPR/SGPR, LDS, wave slots, block size가 occupancy를 공동 제한하며 architecture에 따라 wavefront와 register organization이 달라진다.
+
+따라서 RustJ hardware-aware IR의 중심은 특정 vendor 필드 복제가 아니라 **logical access/dependency structure + generic target capabilities + explicit physical schedule + derived resource model**이다.
+
+### 4.23 old analyzer output schema는 Logical/Physical 계층으로 분해해 흡수한다
+
+`japchae`의 analyzer output schema v0.1은 중요한 prototype이지만 logical 정보와 target-dependent resource 정보가 한 객체에 섞여 있었다.
+
+**Logical Array IR / Plan**에는 op identity, logical shape, rank/cell/frame, dtype/numeric constraints, iteration domain, axis semantics, access relations, effect/alias, dependency/synchronization requirements, provenance, materialization/lifetime requirement, fusion legality/candidate를 둔다.
+
+**Physical Planner 입력**은 Logical Array IR + TargetProfile + optional CostProfile + backend/library capabilities다.
+
+**Physical Plan / Planning Report**에는 fusion/kernel region, materialization boundary, target placement, axis/thread/vector mapping, chosen layout, tiling, memory-space staging, pipeline stages, synchronization, accumulator realization, placement/transfer, buffer lifetime/reuse, backend strategy, derived ResourceEstimate를 둔다.
+
+compile artifact에는 source revision, PrimitiveSpec registry version, input facts/spec, TargetProfile version, optional CostProfile version, compiler version을 provenance로 기록한다.
+
+### 4.24 Flow–Storage와 materialized array 개념의 통합
 
 과거 `japchae`와 `jaxa-analyzer`에서 발전한 Flow–Storage 아이디어는 현재 RustJ의 `ValueId` / `BufferId` 분리와 결합한다.
 
@@ -708,38 +1104,17 @@ ArrayValue
   └─ physical planner가 필요하다고 판단 → materialize
 ```
 
-materialized array는 weight/activation/gradient라는 역할보다 **지속되는 storage identity가 필요한가**를 중심으로 이해한다. model parameter, optimizer state, explicit checkpoint, 외부 출력, effectful write/accumulate target, fusion region을 넘어 살아야 하는 value가 대표적이다.
+materialized array는 weight/activation/gradient라는 역할보다 **지속되는 storage identity가 필요한가**를 중심으로 이해한다. persistent state를 primitive 내부 hidden state로 숨기지 않으며 scalar state도 J 의미상 rank-0 array로 취급한다.
 
-persistent state를 primitive 내부 hidden state로 숨기지 않는다. scalar state도 J 의미상 rank-0 array이므로 별도 scalar memory universe를 만들지 않는다.
+Logical 단계에서는 `Read`, `Write`, `Accumulate`, `Materialize`, `Load`, `Alias/View` 같은 effect를 표현하고 실제 register/shared/device/host buffer, offset, reuse는 Physical Planner에서 정한다.
 
-Logical 단계에서는 `Read`, `Write`, `Accumulate`, `Materialize`, `Load`, `Alias/View` 같은 effect를 표현할 수 있고, 실제 register/shared/device/host buffer, offset, reuse는 Physical Planner에서 정한다.
+### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
 
-### 4.17 과거 custom primitive inventory는 후보 목록으로 보존한다
-
-`JAXA-complier`의 마지막 prototype registry에는 다음 이름이 있었다.
-
-```text
-conv
-depthwise_conv
-linear
-bn
-ln
-adam
-cp
-flatten
-relu
-gelu
-softmax
-scaled_dot_product_attn
-crossentropy
-avgpool2d
-maxpool2d
-dropout
-```
+`JAXA-complier`의 마지막 prototype registry에는 `conv`, `depthwise_conv`, `linear`, `bn`, `ln`, `adam`, `cp`, `flatten`, `relu`, `gelu`, `softmax`, `scaled_dot_product_attn`, `crossentropy`, `avgpool2d`, `maxpool2d`, `dropout`이 있었다.
 
 이 목록을 그대로 RustJ의 확정 vocabulary로 간주하지 않는다. **역사적 candidate inventory**다.
 
-새 RustJ registry에 들어가려면 최소한 part of speech/valence, innate rank, parameter schema, shape/dtype rule, axis-role/access-pattern contract, effect contract, semantic reference 또는 충분한 semantic specification, conservative execution/lowering path, 필요한 realization/resource model을 갖춰야 한다.
+새 RustJ registry에 들어가려면 최소한 part of speech/valence, innate rank, parameter schema, shape/dtype/numeric rule, iteration domain, axis semantics, access relations, dependency/effect/alias contract, semantic reference 또는 충분한 semantic specification, conservative execution/lowering path, 필요한 realization/resource requirement model을 갖춰야 한다.
 
 초기 구현 우선순위는 가장 작은 end-to-end 검증이 가능한 `relu`, `linear`, `conv2d`, `flatten/static-reindex`, `avgpool2d` 또는 단순 reduction으로 둔다. attention, optimizer, checkpoint/training-specific extension은 core registry 구조가 검증된 뒤 단계적으로 옮긴다.
 
@@ -1214,9 +1589,13 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
 - [ ] `PrimitiveSpec`을 Identity / Analysis / Realization 층으로 분리한다.
 - [ ] innate rank와 cell axis-role contract를 정의한다.
+- [ ] `IterationDomain`과 `AccessRelation`을 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
-- [ ] TargetProfile을 primitive registry와 분리한다.
+- [ ] `TargetProfile`을 primitive registry와 분리하고 execution hierarchy/register/memory/compute/sync/ABI capability를 최소 schema로 만든다.
+- [ ] hard target facts와 empirical `CostProfile`을 분리한다.
+- [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
+- [ ] `ResourceEstimate`를 graph + schedule + target의 함수로 계산한다.
 - [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
 - [ ] alias를 거쳐도 primitive identity/spec이 보존되는 테스트를 추가한다.
