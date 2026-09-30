@@ -1030,7 +1030,7 @@ InvalidExtensionRegistration
 ```text
 PrimitiveSpec
 ├─ identity / part of speech / valence
-├─ innate rank
+├─ innate rank / RankSpec
 ├─ parameter schema
 ├─ semantic reference definition (optional)
 └─ version / provenance
@@ -1238,6 +1238,54 @@ conv3d cell = [C, D, H, W] innate rank 4
 개념적인 `AxisRoleSpec`은 cell axis role, reduction axes, parallel axes, window axes, preserved axes, output-axis mapping을 가진다. `C/H/W` 같은 이름은 사람이 읽기 위한 label이고 analyzer는 reduction/parallel/window/static-reindex 같은 역할을 사용한다.
 
 가변 reduction인 표준 J `+/` 같은 연산은 rank/cell 구조에서 axis가 유도된다. 반대로 derived conv verb처럼 축 역할이 연산 정체성에 고정된 연산은 `AxisAndIterationSemantics` capability가 그 역할을 제공한다.
+
+#### 4.11.0 RankSpec은 absolute/infinite/relative rank를 표현한다
+
+J의 rank를 단순 nonnegative `usize`로 모델링하지 않는다.
+
+current jsource의 rank conjunction은 noun rank argument를 1~3개 값으로 해석하고, 음수 rank를 argument rank에 상대적으로 해석한다. infinite rank(`_`)도 별도 의미가 있다.
+
+개념적으로:
+
+```text
+RankSpec
+  Infinite
+  Absolute(n)
+  Relative(delta)   // negative rank: max(0, argument_rank + delta)
+```
+
+적용 시점:
+
+```text
+resolve_rank(RankSpec, argument_rank)
+  → EffectiveCellRank
+```
+
+예:
+
+```text
+"_1 applied to rank-3 argument
+  → effective cell rank 2
+
+"_5 applied to rank-3 argument
+  → clamp to 0
+
+"_ applied to any argument
+  → whole argument / infinite-rank semantics
+```
+
+monad/dyad rank list도 semantic entity에 원형을 보존한다.
+
+```text
+RankApplication
+  monad_rank
+  left_rank
+  right_rank
+```
+
+`PrimitiveSpec.innate_rank`도 implementation integer sentinel과 동일시하지 않고 semantic `RankSpec`/resolved-rank abstraction을 사용한다.
+
+important: jsource 내부의 `RMAX` 같은 sentinel은 implementation representation이다. RustJ IR에서는 `Infinite`를 명시적으로 표현하고 backend integer sentinel에 의존하지 않는다.
 
 #### 4.11.1 J agreement는 prefix frame agreement다
 
@@ -4160,6 +4208,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `sc.c` nameref 실행은 현재 lookup value의 part of speech가 reference 생성 시 기대한 품사와 같은지 검사한다 | `NameRef.expected_part_of_speech`를 보존하고 mismatch는 domain error로 처리한다 |
 | `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
 | parser assignment reduction은 assigned value를 parse stack/result에 남기면서 symbol table을 갱신한다 | assignment를 value-producing effectful expression으로 모델링한다 |
+| `cr.c`/rank conjunction은 negative requested rank를 argument rank에 상대적으로 resolve하고 infinite rank를 별도로 다룬다 | rank IR을 nonnegative integer 하나로 축소하지 않고 Infinite/Absolute/Relative `RankSpec`을 둔다 |
 | `cr.c` rank dyad는 frame prefix agreement를 검사하고 residual frame에 cell을 반복한다 | NumPy broadcasting으로 대체하지 않는다 |
 | `cr.c`는 zero cells에서 fill-cell을 실행해 result cell type/shape를 정한다 | zero-trip elimination 전에 fill/prototype semantics를 해결한다 |
 | `result.h`는 rank/modifier의 cell results가 type/shape 불일치하면 homogeneous fast path에서 assembly path로 전환하고 type/shape join + framing fill을 수행한다 | rank map을 항상 static uniform tensor map으로 가정하지 않고 `RankAssemblySemantics`를 보존한다 |
@@ -4226,6 +4275,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 46. **Rank map is not always fixed-shape** — per-cell result type/shape uniformity를 증명하지 못하면 J의 result assembly/type join/framing fill semantics를 보존한다.
 47. **Assignment is value + effect** — `=.`/`=:`를 void statement로 낮추지 않고 binding mutation과 assigned-value result를 함께 보존한다.
 48. **Type semantics may depend on emptiness** — dtype pair만으로 domain/promotion을 확정하지 않고 J의 empty/fill/prototype context를 반영한다.
+49. **Rank is not just usize** — infinite rank와 argument-relative negative rank를 semantic RankSpec으로 보존하고 적용 시 effective cell rank를 resolve한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4246,7 +4296,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
-10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, prefix agreement, empty fill-cell과 empty-type semantics, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
+10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, assignment value+effect와 same-sentence name lookup sequencing, negative/infinite rank resolution과 prefix agreement, empty fill-cell과 empty-type semantics, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
 11. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
 12. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
 13. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
