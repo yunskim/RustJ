@@ -388,3 +388,18 @@ fn longer_train_analysis_uses_nested_hook_and_fork_graphs() {
     assert_eq!(p.nodes[calls[2].0.0].order_after, Some(calls[1].0));
     assert_eq!(p.nodes[calls[3].0.0].order_after, Some(calls[2].0));
 }
+
+
+#[test]
+fn analysis_diagnostics_share_structured_context() {
+    let engine = Engine::new();
+    let error = engine.analyze_diagnostic("1 + )").unwrap_err();
+    assert_eq!(error.kind(), "syntax error");
+    let context = error.context().expect("diagnostic context");
+    assert_eq!(
+        context.phase,
+        Some(rustj::error::DiagnosticPhase::Parse)
+    );
+    assert_eq!(context.span.clone(), Some(4..5));
+    assert_eq!(context.blame_word_index, Some(2));
+}
