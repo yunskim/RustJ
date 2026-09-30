@@ -2175,10 +2175,10 @@ sparse를 dense CellView로 강제하거나 sparse axes/element 의미를 잃지
 
 **IL1 — rank contract**
 
-5. 모든 callable에 valence별 innate `RankSpec` contract를 제공한다.
-6. `"` derived function analysis가 right operand를 검증하고 requested rank contract를 만든다.
-7. negative/infinite rank는 actual argument rank가 알려지는 call analysis에서 jsource `efr` 동등 규칙으로 effective cell rank를 resolve한다.
-8. nested `"` boundary를 하나의 rank triple로 평탄화하지 않는다.
+5. 모든 callable에 valence별 innate `RankSpec` contract를 제공한다. primitive의 innate rank는 jsource primitive table처럼 nonnegative absolute rank 또는 infinite rank이며, source `"`의 negative requested rank와 같은 종류의 상태로 취급하지 않는다.
+6. `"` derived function analysis가 right operand를 검증하고 별도 `RankBoundary`의 requested `RankSpec`을 만든다. 이 requested rank만 `Absolute / Relative / Infinite`를 가질 수 있다.
+7. negative/infinite requested rank는 actual argument rank가 알려지는 call analysis에서 jsource `efr` 동등 규칙으로 effective cell rank를 resolve한 뒤 underlying callable의 innate rank와 별도 boundary로 적용한다.
+8. jsource `rank2ex`처럼 explicit requested rank와 underlying innate rank의 outer/inner frame을 구분하고, nested `"` boundary를 하나의 rank triple로 평탄화하지 않는다.
 
 **IL2 — pure CellApplication planner**
 
@@ -2244,6 +2244,292 @@ L. generic CellApply vs absorbed path equivalence
 ```
 
 특히 nested rank는 jsource `cr.c`가 명시한 intermediate fill-boundary 사례를 포함한다. 이 테스트가 통과하기 전에는 adjacent rank boundaries를 자동 collapse하지 않는다.
+
+##### 4.11.4.10 jsource 구현에서 가져올 구조적 아이디어
+
+2026-09-30 current jsource master `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`의 `t.c`, `cr.c`, `ar.c`, `cf.c`, `result.h`, `jtype.h`를 기준으로 검토한다.
+
+RustJ는 jsource의 C object layout, pointer/rank bit encoding, function-pointer dispatch를 복제하지 않는다. 대신 오랜 기간 검증된 다음 구조를 compiler architecture로 가져온다.
+
+1. **primitive rank는 semantic contract다.** `t.c`의 monad / dyad-left / dyad-right rank table을 RustJ `PrimitiveSpec`의 기준 자료로 사용한다.
+2. **explicit rank와 innate rank는 별도 boundary다.** `jtqq`가 source requested rank를 보존하고 `rank2ex`가 underlying rank와 outer/inner frame을 따로 처리하는 구조를 따른다.
+3. **generic cell execution이 correctness baseline이다.** `rank1ex/rank2ex`에 대응하는 generic `CellApply`가 먼저 존재하고 IRS류는 loop-absorption optimization으로 취급한다.
+4. **cell projection은 view다.** jsource virtual block처럼 logical cell을 복사하지 않고 projection/view로 표현한다.
+5. **result assembly는 독립 semantics다.** `result.h`의 homogeneous fast path, type promotion, dynamic shape/fill, sparse/boxed, assembly error를 `CellApply` assembly contract로 옮긴다.
+6. **empty frame은 zero-trip이 아니다.** fill cell/prototype invocation으로 result cell의 type/shape를 결정한다.
+7. **reduce identity와 optimized reducer를 분리한다.** `jtslash`가 `u/` identity를 보존하면서 type/primitive별 reducer를 선택하는 것처럼, RustJ는 semantic `/(u)`에서 Logical `Reduce(u)`로 낮춘 뒤 realization을 선택한다.
+8. **structural specialization은 원래 graph를 지우지 않는다.** `cf.c`가 `(+/ % #)`를 `jtmean`으로 specialize해도 `CFORK`와 f/g/h를 보존하는 방식을 따른다.
+9. **sparse는 같은 semantics의 다른 realization이다.** dense와 sparse의 Logical `CellApply/Reduce` 의미는 공유하고 lowering/assembly 구현을 분리한다.
+10. **jsource optimization flag는 의미를 재분류한 뒤에만 사용한다.** `VIRS*`, `VFUSEDOK2`, `WILLOPEN`, in-place/pristine flag를 그대로 Semantic IR bit로 가져오지 않는다.
+
+대표 대응은 다음과 같다.
+
+| jsource 개념 | RustJ에서의 의미 |
+|---|---|
+| primitive `mr/lr/rr` | `PrimitiveSpec.innate_rank` |
+| `u"n` saved requested ranks | `RankBoundary` / requested `RankSpec` |
+| `rank1ex/rank2ex` | Logical `CellApply` + generic CPU reference executor |
+| `VIRS1/VIRS2` | `CanAbsorbCellApply` lowering capability |
+| `VISATOMIC1/2` | atomic/cell semantic fact + realization capability |
+| `VFUSEDOK2` | native lowering/kernel capability |
+| `VNOLOCCHG` | effect summary의 `NoLocaleMutation` 증거 |
+| `VNONAME/VNOSELF` | binding/self dependency summary의 참고 증거 |
+| `VF2RANKATOP/RANKONLY` | Logical IR 이후 `CellApply` fusion candidate/proof |
+| `VF2BOXATOP/ATOPOPEN/WILLOPEN` | explicit box/open semantics + use-def 기반 materialization-elision candidate |
+| `VF2USESITEMCOUNT*` | shape/item-count fact 소비 capability |
+| in-place/pristine/zappable flags | liveness/alias/bufferization 이후 physical reuse legality |
+| pointer/rank bit encoding | 가져오지 않음 |
+
+##### 4.11.4.11 이후 IR에서 사용할 정보의 provenance와 삽입 시점
+
+jsource 조사에서 얻은 정보는 **가능한 한 이른 시점**이 아니라 **의미를 정확히 알 수 있는 가장 이른 시점**에 넣는다. Parser가 알 수 없는 fact를 Parser IR에 미리 넣거나, target-dependent hint를 Logical IR semantic payload에 박지 않는다.
+
+정보 수명은 다음 일곱 종류로 구분한다.
+
+```text
+A. SourceSemanticIdentity
+   parser가 직접 만든 J entity/operand/binding 구조
+
+B. StaticSemanticContract
+   primitive/extension registry가 제공하는 target-independent 의미
+
+C. ResolvedSemanticFact
+   actual valence/argument facts와 결합한 뒤 Analyzer가 계산한 의미
+
+D. OptimizationProof
+   graph/use-def 분석으로 얻는 재계산 가능한 proof/candidate
+
+E. LoweringCapability
+   어떤 backend/kernel이 어떤 semantic form을 직접 처리할 수 있는가
+
+F. RepresentationFact
+   선택된 representation/layout에 대해 알려진 사실
+
+G. PhysicalDecision
+   concrete schedule/buffer/device realization
+```
+
+핵심 규칙:
+
+> **A/B/C는 의미 보존에 관여하므로 optimization 전에 존재해야 하고, D는 invalidation 가능한 분석 결과이며, E는 IR 의미가 아니라 registry 정보이고, F/G는 route/schedule 이후에만 생긴다.**
+
+구체적인 정보와 최초 삽입 시점은 다음과 같다.
+
+| 정보 | jsource에서 보이는 근거 | RustJ 표현 | 최초 생성 단계 | 이후 활용 |
+|---|---|---|---|---|
+| operator identity, POS, operands, Hook/Fork 구조, source span | parser reduction / `fgh` cross-check | `FunctionEntity` | **Parser → Semantic IR** | derived analysis, pattern matching, diagnostics |
+| NameRef와 binding/version identity | nameref/cache/fix machinery | `NameRef + BindingVersion/Guard` | **semantic binding** | specialization legality, deopt/guard, observable lookup order |
+| name/self dependency | `VNONAME`, `VNOSELF`, `VXOPR` | `BindingDependencySummary` | **Function summary pass** | fix/specialization, hoisting, parallelization barrier |
+| locale/path mutation 가능성 | `VNOLOCCHG` | `EffectSummary::LocaleMutation` | **PrimitiveSpec + Function summary** | order-edge 제거, CSE, speculation |
+| try/catch/adverse/error behavior | `VTRY1/2`, adverse/runtime paths | `ErrorSemantics`, `Catchability` | **Semantic Analyzer** | observable order, fusion/speculation legality |
+| supported valence | primitive table/action routine | `ValenceContract` | **PrimitiveSpec registry** | call legality, lowering key |
+| innate monad/l/r rank | `t.c mr/lr/rr` | valence별 `RankSpec` | **PrimitiveSpec registry** | CellApply planning |
+| explicit requested rank | `jtqq` saved rank noun/verb | `RankBoundary` | **derived-function analysis** | nested CellApply |
+| effective rank | `efr`, argument rank | `EffectiveCellRank` | **call analysis** | frame/cell split |
+| frame/cell split | `rank1ex/rank2ex` | `CellApplicationPlan` | **call analysis** | Logical CellApply, schedule axes |
+| prefix agreement/common frame | `ASSERTAGREE` | `AgreementFact` | **CellApplicationPlanner** | legality, repetition/index maps |
+| residual repeated side | rank loop repeat state | `RepetitionFact` | **CellApplicationPlanner** | zero-stride/index-map lowering |
+| atomic/cellwise semantics | `VISATOMIC1/2` | `AtomicitySemantics` | **PrimitiveSpec / derived summary** | access relation, absorption/fusion proof |
+| result shape/rank | primitive semantics + cell assembly | `ValueFacts.shape/rank` | **Analyzer dataflow** | verifier, route, schedule |
+| result dtype/type classes | type dispatch/promotion tables | `TypeSemantics + TypeFact` | **PrimitiveSpec + Analyzer** | kernel selection, conversion insertion |
+| overflow retry/promotion | `EWOV*` retry paths | `OverflowSemantics` | **PrimitiveSpec / resolved op** | vector/reduction legality |
+| comparison tolerance / fit | runtime cct, `!.` | `NumericSemantics` | **derived-function analysis / call resolution** | comparison kernel, guard/runtime input |
+| neutral/fill/empty behavior | `red0`, filler paths | `FillAndEmptySemantics` | **PrimitiveSpec + derived policy** | empty CellApply/Reduce |
+| result-cell assembly policy | `result.h` | `AssemblyFact` | **Analyzer**, proof refined by optimizer | fixed output allocation vs dynamic assembly |
+| uniform result-cell proof | homogeneous `result.h` fast path analog | `UniformCellResultProof` | **Analyzer/Logical Optimizer** | MapCells/GPU eligibility |
+| semantic axis roles | primitive/derived operation meaning | `AxisSemantics` | **resolved-op analysis** | reduction/parallel/window mapping |
+| logical access relation | atomic/reduce/reindex/gather semantics | `AccessRelation` | **resolved-op analysis** | fusion/locality/route planning |
+| shape constraints, item count, nonempty/divisibility | shape/value facts | `ConstraintSet`, item-count fact | **Analyzer** | specialization, loop bounds, allocation |
+| dense/sparse/boxed semantic representation | sparse/boxed branches | `Layout/RepresentationFact` | **value analysis** | route/lowering selection |
+| `BoxAtop/Open/Raze` producer-consumer opportunity | `VF2BOXATOP/ATOPOPEN/WILLOPEN` | explicit ops + `MaterializationElisionCandidate` | semantic ops은 **Analyzer**, candidate는 **Logical Optimizer use-def pass** | box/open elimination, producer-consumer fusion |
+| item-count propagation opportunity | `VF2USESITEMCOUNT*` | `CanConsumeItemCountFact` | **lowering capability registry + use-def analysis** | avoid materializing producer result |
+| rank-loop absorption | `VIRS1/VIRS2` | `CanAbsorbCellApply` | **lowering registry** | native/external lowering choice |
+| special fused executor | `VFUSEDOK2`, `jtmean`, composition special cases | `FusionCandidate + LoweringCapability` | candidate는 **Logical Optimizer**, capability는 **registry** | fused kernel selection |
+| cell-loop fusion | `RANKATOP/RANKONLY` subsumption | `CellApplyFusionProof` | **Logical Optimizer** | remove nested loop boundary only if legal |
+| actual alias/in-place reuse | in-place/pristine/zappable | `Liveness/AliasProof` + `MaterializationDecision` | **Physical Planner / Bufferization** | buffer reuse |
+| actual offset/stride/alignment | virtual/physical array layout | `RepresentationFacts` | **representation/physical lowering** | vectorization, coalescing, view realization |
+| address space/device placement | 없음/CPU implementation detail | physical placement facts | **Physical Planner** | transfer/synchronization |
+| tile/vector/workgroup mapping | implementation fast path | `PhysicalSchedule` | **Schedule stage** | codegen |
+| resource/cost estimate | implementation-specific | `ResourceEstimate/CostEstimate` | **schedule + target 이후** | candidate ranking |
+
+###### Semantic IR은 작게 유지하고 summary는 side table로 둔다
+
+Parser-produced `FunctionEntity`에 위 표의 모든 정보를 필드로 누적하지 않는다. immutable shared semantic DAG는 source identity와 operand 관계를 보존하고, 파생 정보는 analyzer가 `EntityId`/shared handle 기준 side table에 캐시한다.
+
+```text
+FunctionEntity                     // parser-owned, immutable
+  identity / POS / operands / span
+        │
+        ├─ PrimitiveSpec lookup
+        │
+        └─ FunctionSummaryTable[EntityId]
+             binding_dependency
+             effect_summary
+             error_summary
+             innate/derived rank summary
+             atomicity
+             latent modifier semantics
+```
+
+이렇게 해야 큰 derived verb가 있어도 같은 subtree에 effect/rank/name summary를 반복 복사하지 않는다.
+
+###### call-time에만 알 수 있는 정보는 ResolvedCallFacts로 모은다
+
+rank agreement, actual frame/cell, repeated side, output constraints는 function 자체의 속성이 아니라 **function + valence + actual argument facts**의 속성이다.
+
+```text
+ResolvedCallFacts
+  valence
+  effective_cell_ranks
+  CellApplicationPlan
+  AgreementFact
+  RepetitionFact
+  AxisSemantics
+  AccessRelations
+  NumericSemantics
+  FillAndEmptySemantics
+  AssemblyFact
+  Effect/Error/Alias requirements
+  result ValueFacts
+```
+
+Semantic Analyzer가 이를 만든 뒤 필요한 부분을 verified Logical IR payload/annotation으로 내린다.
+
+###### Logical IR payload와 재계산 가능한 analysis fact를 구분한다
+
+다음은 semantic correctness를 위해 Logical IR에 남아야 한다.
+
+```text
+must-preserve
+  operation kind / operands / valence
+  CellApply boundary and agreement/repetition semantics
+  rank/fit/tolerance/fill policy
+  dynamic assembly requirement
+  observable effect/error/order requirements
+  storage/state-resource identity
+```
+
+반면 다음은 side analysis로 두고 graph rewrite 후 재계산 가능하게 한다.
+
+```text
+recomputable
+  UniformCellResultProof
+  FusionCandidate::Mean
+  CellApplyFusionProof
+  MaterializationElisionCandidate
+  invariance
+  item-count propagation opportunity
+  route eligibility
+```
+
+외부 IR adapter가 correctness를 위해 필요한 fact는 adapter precondition/witness로 승격하며, 단순 optimizer hint는 export semantics에 포함하지 않는다.
+
+###### jsource의 memory-management flags는 Physical IR로 바로 복사하지 않는다
+
+`WILLOPEN`, in-place, pristine, zappable은 jsource의 reference-counted runtime에서 매우 중요한 정보지만 RustJ에서는 대부분 **use graph + liveness + ownership/alias + representation**으로 다시 유도하는 편이 낫다.
+
+예를 들어:
+
+```text
+producer -> Box -> consumer Open
+```
+
+이 semantic graph가 있으면 Logical Optimizer가:
+
+```text
+MaterializationElisionCandidate
+  producer result does not escape
+  box/open semantics cancel under proof
+```
+
+를 만들고, 실제 buffer reuse 여부는 Physical Planner가 결정한다.
+
+즉 jsource의 `WILLOPEN` bit를 parser/LogicalOp에 복사하지 않는다.
+
+###### verifier는 fact의 출처와 가정을 구분한다
+
+향후 analysis fact에는 필요하면 다음 provenance를 둔다.
+
+```text
+FactProvenance
+  SourceSemantic
+  PrimitiveSpec
+  DerivedSummary
+  InferredFrom(ValueId...)
+  ProvenBy(pass)
+  GuardedAssumption(GuardId)
+```
+
+특히 dynamic shape/rank/name binding을 compile-time fact로 사용했다면 `GuardedAssumption` 또는 runtime semantic dependency가 있어야 한다. 근거 없는 `Known` fact는 verifier가 허용하지 않는다.
+
+###### 이 설계를 `(+/ % #) y`에 적용하면
+
+`y =: i. 2 3`에서:
+
+```text
+Parser/Semantic IR
+  Fork(
+    /(+) ,
+    % ,
+    #
+  )
+
+PrimitiveSpec
+  + dyad rank = 0 0
+  % dyad rank = 0 0
+  # monad rank = Infinite
+
+Function summary
+  fork structure preserved
+  pure/no-locale-change subset proven where applicable
+
+Call analysis
+  +/ y:
+    Reduce(Add)
+    reduction axis = leading axis of current cell
+    result shape = [3]
+
+  # y:
+    Tally
+    result shape = []
+
+  (3 5 7) % 2:
+    effective ranks = 0 / 0
+    left frame = [3]
+    right frame = []
+    repeat right cell
+    Logical CellApply2
+    output shape = [3]
+
+Logical Optimizer
+  generic graph remains correctness form
+  recognize FusionCandidate::Mean
+  prove UniformCellResult if facts suffice
+
+Route/lowering
+  generic Reduce + Tally + CellApply(Divide)
+  or verified fused mean kernel
+
+Schedule/Physical
+  choose SIMD/thread/GPU mapping
+  choose buffers/views/reuse
+```
+
+따라서 `(+/ % #)` 예제에서 **mean이라는 정보는 Parser가 넣는 정보가 아니다.** Parser는 Fork를 보존하고, Analyzer는 rank/cell/access semantics를 넣고, Logical Optimizer가 mean pattern을 발견하며, target lowering이 실제 fused mean implementation을 선택한다.
+
+###### 구현 순서에 반영
+
+IL1/IL2 구현과 함께 다음 infrastructure를 추가한다.
+
+1. `PrimitiveSpec`에 현재 지원 primitive의 valence별 innate rank/atomicity/effect/error/fill 핵심 contract를 넣는다.
+2. `FunctionSummaryTable`을 추가하여 shared `FunctionEntity` DAG의 name/self/effect/error/rank-related summary를 memoize한다.
+3. current `Node.facts + rank_plan + access`를 점진적으로 `ResolvedCallFacts / LogicalFacts` 구조로 모으되 한 번에 거대한 enum/struct로 바꾸지 않는다.
+4. `CellApplicationPlanner`가 effective rank, frame/cell, agreement, repetition, empty policy를 생산하게 한다.
+5. `LogicalPlan::verify`가 must-preserve fact의 정합성을 검증한다.
+6. use-def 기반 `OptimizationFacts` pass를 추가하여 uniform-result, mean/fusion, CellApply fusion, materialization-elision candidate를 만든다.
+7. `LoweringRegistry`에는 IRS/FUSEDOK에 대응하는 capability만 등록하고 semantic fact와 섞지 않는다.
+8. 실제 stride/alignment/in-place/buffer reuse는 Logical IR 구현보다 뒤의 representation/physical 단계에서만 추가한다.
+
 
 ### 4.12 access pattern은 fusion 분석의 semantic lower bound다
 
