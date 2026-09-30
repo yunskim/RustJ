@@ -284,6 +284,8 @@ RoutePartition
 
 partition 단위는 처음에는 **single-block contiguous subgraph**로 제한하고, 이후 Function/Region 단위로 확장한다.
 
+`RoutePartition`은 Logical IR의 semantic identity가 아니라 **compilation plan/view**다. 같은 verified Logical IR에 대해 target/backend availability나 cost model이 달라지면 다른 partition plan을 만들 수 있다. canonical Logical IR을 destructive하게 route-specific op로 덮어쓰지 않는다.
+
 각 route region은 다음을 가진다.
 
 ```text
@@ -309,7 +311,9 @@ partition legality는 단순 op coverage가 아니라 shape/numeric constraint, 
 TVM BYOC처럼 external codegen 대상 subgraph를 partition하고 나머지 graph를 기본 pipeline에 남기는 구조를 참고한다. MLIR의 mixed-dialect module도 여러 abstraction/lowering state가 동시에 존재할 수 있다는 점에서 같은 방향을 지원한다.
 
 
-MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 dialect conversion으로 점진적으로 lowering할 수 있으므로 RustJ의 multi-level IR 구조와 특히 잘 맞는다. StableHLO는 ML framework/compiler 사이의 portability layer를 목표로 하는 high-level op set이므로 NN/tensor subset의 선택적 export 대상으로 본다. LLVM IR/SPIR-V는 더 낮은 execution target으로 사용한다.
+MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 dialect conversion으로 점진적으로 lowering할 수 있으므로 RustJ의 multi-level IR 구조와 특히 잘 맞는다.
+
+향후 RustJ Logical IR 전체를 MLIR tooling 안에서 보존할 필요가 생기면 **RustJ-specific MLIR dialect**를 fidelity-preserving bridge로 둘 수 있다. 다만 v0의 필수 구현은 아니다. 초기 adapter는 안전하게 표현 가능한 op만 기존 `tensor/linalg/arith/scf` 등으로 직접 lowering하고, 의미 손실이 생기는 op는 거부한다. StableHLO는 ML framework/compiler 사이의 portability layer를 목표로 하는 high-level op set이므로 NN/tensor subset의 선택적 export 대상으로 본다. LLVM IR/SPIR-V는 더 낮은 execution target으로 사용한다.
 
 
 ---
@@ -571,21 +575,21 @@ Route partition / export
 
 따라서 **middle-end를 generic tensor IR consumer처럼 만들기 위해 J의 구조를 일찍 버리지 않는다.**
 
-### 4.4 분석 fact는 typed lattice로 관리한다
+### 4.4 분석 fact는 typed lattice로 관리하고 semantic error와 분리한다
 
 shape, alias, invariance, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
 
-각 fact domain은 자기 lattice를 가진다.
+각 fact domain은 자기 lattice를 정의한다. 모든 domain이 동일한 enum을 강제로 공유할 필요는 없지만 공통적으로 다음 개념을 갖는다.
 
 ```text
-Fact<T>
+analysis state
   Uninitialized
   Known(T)
   Overdefined / Unknown
-  Contradiction / Invalid   // 해당 domain에서 의미가 있을 때
+  domain-specific bottom/unreachable if needed
 ```
 
-control-flow merge나 여러 predecessor에서 fact가 합쳐질 때는 domain별 monotonic `join`을 사용한다. 이는 MLIR data-flow framework의 lattice 방식과 같은 원칙이다.
+control-flow merge나 여러 predecessor에서 fact가 합쳐질 때는 domain별 monotonic `join`을 사용한다. MLIR data-flow framework처럼 lattice state는 **분석 지식의 상태**를 나타낸다.
 
 예:
 
@@ -601,12 +605,24 @@ BindingFact
 `Unknown`은 사실을 임의로 꾸며내지 않는다는 뜻이지 곧바로 실행 불가를 뜻하지 않는다. domain과 route에 따라 다음 중 하나가 된다.
 
 - optimization barrier
-- runtime guard / witness
+- runtime witness/guard 필요
 - conservative lowering
 - external route rejection
 - 재분석 조건
 
-반면 `Contradiction/Invalid`은 rank/shape/domain error처럼 semantic error가 증명된 경우와 구분한다.
+중요하게, **J semantic error는 lattice element가 아니다.**
+
+```text
+UnreachablePath / UnsatisfiableConstraint
+        ≠
+JSemanticError(domain/rank/length/value/...)
+```
+
+- `UnreachablePath`는 control-flow/constraint 분석 결과다.
+- `JSemanticError`는 source semantics에 따라 진단하거나 runtime error behavior로 보존해야 하는 프로그램 의미다.
+- 어떤 path에서 반드시 error가 발생한다고 증명되더라도 optimizer는 그 error의 관찰 가능한 순서를 `SpeculationSemantics`와 effect ordering에 따라 보존해야 한다.
+
+따라서 분석 lattice의 bottom/top 개념과 사용자-visible error contract를 같은 `Invalid` 상태로 합치지 않는다.
 
 ### 4.5 Primitive contract
 
@@ -3045,6 +3061,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 18. **Async dependency는 explicit** — physical async execution에서 host statement order를 dependency로 암묵 사용하지 않는다.
 19. **Resource와 cost 분리** — ResourceEstimate는 TargetProfile hard facts에 의존하고, empirical CostProfile은 CostEstimate/ranking에만 사용한다.
 20. **Route는 혼합 가능** — external/native route는 whole-program exclusive choice가 아니라 legal region/subgraph 단위로 partition할 수 있다.
+21. **Analysis state와 semantic error 분리** — lattice의 unknown/unreachable과 J의 domain/rank/length error를 같은 상태로 표현하지 않는다.
+22. **RoutePartition은 plan** — route 배정은 Logical IR semantic identity가 아니며 target/backend 조건에 따라 재계산 가능하다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
