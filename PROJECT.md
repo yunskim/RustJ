@@ -5195,9 +5195,9 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
   - assignment 후 name class(`4!:0`),
   - constructed function/modifier의 atomic/linear representation(`5!:1`, `5!:5`)이 유용한 경우,
   - RustJ 내부에서는 row id/input classes/span/result class를 기록하는 optional ParseTrace.
-- [ ] 위 contract를 실제 test harness API로 만든다.
+- [x] 위 contract를 실제 test harness API로 만든다. `tools/oracle.py` JSON-lines protocol이 `eval`, `sentence`, `name_class`, `representation(atomic|linear)`을 제공하며 기존 string eval 요청과 호환된다.
 
-**P0 완료 조건:** 위 observable contract를 사용하는 differential harness API까지 존재하고 기준 jsource revision을 고정해 재현할 수 있다.
+**P0 완료 조건:** **완료.** observable contract를 사용하는 oracle API가 존재하고, CI/reference build는 parser 검토 기준 jsource revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`을 고정한다.
 
 #### P1 — parser stack model과 semantic value model 분리
 
