@@ -21,6 +21,26 @@ struct ResolvedVerb {
     rank: Option<[i64; 3]>,
 }
 
+fn argument_summary(role: ArgumentRole, value: &Value) -> ArgumentSummary {
+    ArgumentSummary {
+        role,
+        type_code: value.type_code(),
+        shape: value.shape().to_vec(),
+    }
+}
+
+fn operation_label(verb: &ResolvedVerb) -> String {
+    let base = verb.id.spelling();
+    if verb.reduce {
+        format!("{base}/")
+    } else if let Some(rank) = verb.rank {
+        format!("{base}\"{} {} {}", rank[0], rank[1], rank[2])
+    } else {
+        base.to_owned()
+    }
+}
+
+
 struct Binding {
     value: SymbolValue,
     version: crate::semantic::NameVersion,
@@ -214,21 +234,36 @@ impl Engine {
                 None => Err(Error::Value(name)),
             },
             Expr::Monad { verb, argument } => {
+                let verb_span = verb.span.clone();
                 let y = self.interpret_ir(*argument, pooled, depth + 1)?;
+                let y_summary = argument_summary(ArgumentRole::Y, &y);
                 let verb = self.resolve_verb(verb)?;
-                if let Some(rank) = verb.rank {
+                let operation = operation_label(&verb);
+                let call = if let Some(rank) = verb.rank {
                     kernels::ranked(verb.id.spelling(), verb.reduce, rank[0], y)
                 } else if verb.reduce {
                     kernels::reduce(verb.id.spelling(), y)
                 } else {
                     kernels::monad(verb.id.spelling(), y)
-                }
+                };
+                call.map_err(|error| {
+                    error.with_context(
+                        ErrorContext::phase(DiagnosticPhase::Runtime)
+                            .with_span(verb_span)
+                            .executing(operation, DiagnosticValence::Monad)
+                            .with_argument(y_summary),
+                    )
+                })
             }
             Expr::Dyad { verb, left, right } => {
+                let verb_span = verb.span.clone();
                 let y = self.interpret_ir(*right, pooled, depth + 1)?;
                 let x = self.interpret_ir(*left, pooled, depth + 1)?;
+                let x_summary = argument_summary(ArgumentRole::X, &x);
+                let y_summary = argument_summary(ArgumentRole::Y, &y);
                 let verb = self.resolve_verb(verb)?;
-                if let Some(rank) = verb.rank {
+                let operation = operation_label(&verb);
+                let call = if let Some(rank) = verb.rank {
                     kernels::ranked_dyad_ranks(verb.id.spelling(), rank[1], rank[2], x, y)
                 } else if pooled && !x.is_sparse() && !y.is_sparse() {
                     match verb.id {
@@ -245,7 +280,18 @@ impl Engine {
                     }
                 } else {
                     kernels::dyad(verb.id.spelling(), x, y)
-                }
+                };
+                call.map_err(|error| {
+                    let mut context = ErrorContext::phase(DiagnosticPhase::Runtime)
+                        .with_span(verb_span)
+                        .executing(operation, DiagnosticValence::Dyad)
+                        .with_argument(x_summary)
+                        .with_argument(y_summary);
+                    if error.kind() == "length error" {
+                        context = context.with_note("argument shapes do not conform");
+                    }
+                    error.with_context(context)
+                })
             }
             }
         })();
