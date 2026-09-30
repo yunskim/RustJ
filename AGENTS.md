@@ -54,3 +54,7 @@ For every implementation change:
 - Preserve comparison tolerance and !. fit semantics as semantic inputs/contracts, including fill override where applicable.
 - Preserve primitive-specific overflow retry/promotion and J error precedence; do not expose arbitrary first-lane GPU errors.
 - Keep `with` as an ordinary-name conjunction extension for typed semantic contracts only; physical schedule/device policy remains outside it.
+
+- Preserve the expected part of speech carried by a J nameref; late lookup that resolves to a different noun/verb/adverb/conjunction class must follow J's domain-error semantics.
+- Do not pre-snapshot all name bindings at sentence start; preserve observable right-to-left name lookup, assignment, locale mutation, and effect sequencing.
+- Do not lower ranked cell application to a fixed-shape parallel map unless uniform result-cell type/shape is proven; otherwise preserve J rank-result assembly, type/shape joining, framing fill, and assembly-error semantics.
