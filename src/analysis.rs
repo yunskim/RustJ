@@ -478,13 +478,14 @@ pub(crate) fn lower_graph(
             }
             crate::j_graph_ir::NodeKind::Apply {
                 function,
+                form,
                 left,
                 right,
                 ..
             } => {
                 let left = left.map(|value| value_map[value.0]);
                 let right = value_map[right.0];
-                builder.call_entity(function, left, right, span)?
+                builder.call_graph_apply(function, form, left, right, span)?
             }
         };
         value_map.push(value);
@@ -766,6 +767,112 @@ impl Builder<'_> {
         span: Range<usize>,
     ) -> Result<ValueId> {
         self.call_entity(verb.entity, left, right, span)
+    }
+
+    fn call_graph_apply(
+        &mut self,
+        semantic: Arc<FunctionEntity>,
+        form: crate::j_graph_ir::GraphForm,
+        left: Option<ValueId>,
+        right: ValueId,
+        span: Range<usize>,
+    ) -> Result<ValueId> {
+        match form {
+            crate::j_graph_ir::GraphForm::Pipeline { stages } => {
+                if stages.len() < 2 {
+                    return Err(Error::Unsupported("malformed J graph pipeline".into()));
+                }
+                let mut inputs = Vec::with_capacity(2);
+                if let Some(left) = left {
+                    inputs.push(left);
+                }
+                inputs.push(right);
+
+                let mut current = right;
+                let mut stage_results = Vec::with_capacity(stages.len());
+                for (index, stage) in stages.into_iter().enumerate() {
+                    current = self.call_entity(
+                        stage.clone(),
+                        if index == 0 { left } else { None },
+                        current,
+                        stage.span.clone(),
+                    )?;
+                    stage_results.push(current);
+                }
+                self.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Atop,
+                    span: semantic.span.clone(),
+                    topology: StructuralTopology::Pipeline {
+                        inputs,
+                        stage_results,
+                    },
+                });
+                Ok(current)
+            }
+            crate::j_graph_ir::GraphForm::Fork { f, g, h } => {
+                // J's observable order for a general fork is h, f, then g.
+                let h_result =
+                    self.call_entity(h.clone(), left, right, h.span.clone())?;
+                let f_result =
+                    self.call_entity(f.clone(), left, right, f.span.clone())?;
+                let join_result = self.call_entity(
+                    g,
+                    Some(f_result),
+                    h_result,
+                    span,
+                )?;
+                let mut shared_inputs = Vec::with_capacity(2);
+                if let Some(left) = left {
+                    shared_inputs.push(left);
+                }
+                shared_inputs.push(right);
+                self.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Fork,
+                    span: semantic.span.clone(),
+                    topology: StructuralTopology::BranchJoin {
+                        shared_inputs: shared_inputs.clone(),
+                        branch_results: vec![h_result, f_result],
+                        join_result,
+                        live_across: shared_inputs,
+                    },
+                });
+                Ok(join_result)
+            }
+            crate::j_graph_ir::GraphForm::Hook { f, g } => {
+                let g_result =
+                    self.call_entity(g.clone(), None, right, g.span.clone())?;
+                let f_left = left.unwrap_or(right);
+                let join_result = self.call_entity(
+                    f,
+                    Some(f_left),
+                    g_result,
+                    span,
+                )?;
+                self.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Hook,
+                    span: semantic.span.clone(),
+                    topology: StructuralTopology::BranchJoin {
+                        shared_inputs: if left.is_none() {
+                            vec![right]
+                        } else {
+                            Vec::new()
+                        },
+                        branch_results: vec![f_left, g_result],
+                        join_result,
+                        live_across: vec![f_left],
+                    },
+                });
+                Ok(join_result)
+            }
+            // Reduce/Rank/other modifiers keep J graph identity in the upstream
+            // IR; execution lowering interprets their semantic FunctionEntity.
+            crate::j_graph_ir::GraphForm::Atomic
+            | crate::j_graph_ir::GraphForm::Reduce { .. }
+            | crate::j_graph_ir::GraphForm::Rank { .. }
+            | crate::j_graph_ir::GraphForm::Modifier { .. } => {
+                self.call_entity(semantic, left, right, span)
+            }
+        }
     }
 
     fn call_entity(
