@@ -74,7 +74,7 @@ fn main() -> ExitCode {
         };
     }
     if let Some(path) = file {
-        let source = match fs::read_to_string(path) {
+        let source = match fs::read_to_string(&path) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{e}");
