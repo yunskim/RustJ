@@ -4830,6 +4830,29 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 **성공 기준:** scanner/parser 없이 handcrafted J Semantic IR을 Semantic Analyzer에 넣어 테스트할 수 있고, 분석 전에는 J composition identity가 사라지지 않는다.
 
+### 16.1.1 현재 Proof Slice 0 진행 상태
+
+현재 코드에 다음 migration seam이 들어갔다.
+
+- [x] primitive/name function identity를 `Arc<FunctionEntity>` shared handle로 표현
+- [x] insert(`/`)와 rank(`"`)가 operand function/noun을 graph로 보존
+- [x] isolated pure verb train을 jsource 규칙대로 오른쪽부터 fork, 짝수 길이는 최종 hook으로 구성
+- [x] hook/fork graph가 큰 train에서 subtree deep-copy 없이 공유됨
+- [x] Semantic Analyzer가 canonical fork `(+/ % #) y`를 `Tally → Reduce(+) → Divide` logical calls로 낮추면서 jsource-compatible observable order edge를 보존
+- [x] nested hook/fork long train도 동일 graph lowering path를 사용
+- [x] A3-v0 `LogicalPlan::verify()` 기초와 `AccessFact::Known | Opaque` seam 존재
+
+아직 남은 A1 핵심:
+
+- [ ] ordinary name parser-time POS를 noun/verb/adverb/conjunction 전체로 일반화
+- [ ] derived adverb/conjunction 및 modifier train
+- [ ] `FunctionFormId` registry/typed metadata interface
+- [ ] legacy `VerbTarget/reduce/rank` runtime compatibility field 제거
+- [ ] function graph 안의 rank/fit/adverse/obverse 등 더 많은 J form을 registry-driven analysis로 이전
+- [ ] explicit definition/locale/gerund 전체 의미
+
+현재 `FunctionEntity.operands`는 v0 단순성을 위해 `Vec`를 사용한다. jsource의 inline `fgh[3]`처럼 대부분의 J form이 3개 이하 operand라는 사실을 이용한 **inline-3 + rare spill** 최적화는 large-train memory profile을 측정한 뒤 적용한다. semantic interface는 operand storage representation에 의존하지 않는다.
+
 ### 16.2 Proof Slice 1 — A3-v0 verified Logical IR
 
 5. single Function / single Region / single Block의 SSA `ValueId` core와 verifier를 만든다.
