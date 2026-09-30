@@ -2,6 +2,8 @@
 
 Use `PROJECT.md` as the single authoritative document for architecture, roadmap, support status, and validation policy.
 
+- Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering`, `Logical Optimizer`, and `Physical Planner` for the current stages. The `jaxa-analyzer` repository is historical research/prototype material only.
+
 For every implementation change:
 
 - Update `PROJECT.md` when architecture, boundaries, roadmap, checklist, supported semantics, or validation status changes.
