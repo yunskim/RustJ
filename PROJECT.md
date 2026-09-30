@@ -37,9 +37,9 @@ C J 엔진을 RustJ의 정상 실행 fallback으로 사용하지 않는다.
 현행 용어는 다음으로 통일한다.
 
 ```text
-Jaxa Analyzer      → Semantic Analyzer
-Jaxa lowering      → Semantic / Logical Lowering
-Jaxa optimizer     → Logical Optimizer
+Jaxa Analyzer      → J Graph Analyzer + Execution Semantic Lowering + downstream legality/resource analysis
+Jaxa lowering      → J Graph IR → Logical Execution IR lowering
+Jaxa optimizer     → J Graph algebraic optimizer + Execution Logical Optimizer
 Jaxa physical plan → Physical Planner / Physical Plan
 ```
 
@@ -64,21 +64,26 @@ J parser-time name lookup / part-of-speech resolution
    ↓
 semantic binding
    ↓
-J Semantic Array IR
+J Semantic Construction IR / FunctionEntity
    │
    │ noun / verb / adverb / conjunction
    │ primitive / derived verb
-   │ hook / fork / train
+   │ hook / fork / train / @:
    │ rank and other modifier applications
    │ name/binding/version
    │ source span
    ↓
-──────── Semantic Analyzer / Lowering ──────────
-target-independent semantic analysis
+──────────── J Graph IR / Graph Analyzer ────────────
+applied J operation graph + syntax-derived graph hints
+   │ Pipeline / BranchJoin / Reduce / Rank / ...
+   │ graph algebra / rewrite / fusion opportunity
    ↓
-Verified Logical Array IR / Logical Execution Plan
+────────── Execution Semantic Lowering ──────────
+explicit executable dataflow + J semantic facts/checks
    ↓
-target-independent canonicalization
+Verified Logical Execution IR / Plan
+   ↓
+target-independent execution canonicalization
    ↓
 Route Partition / Export
    │
@@ -6953,6 +6958,9 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 clean parser output을 기존 compiler milestones가 소비하도록 연결하는 후속 작업이다.
 
 - [ ] PrimitiveSpec/ExtensionSpec의 target-independent semantic contract와 parser entity identity를 연결한다.
+- [x] P8에서 J Graph IR을 parser output과 execution IR 사이의 명시적 compiler boundary로 추가한다.
+- [x] `GraphForm/GraphHint`에서 J syntax-derived topology를 기록하고 execution lowering이 이를 소비하도록 한다.
+- [ ] `GraphRuleRefs`를 PrimitiveSpec/derived-composition rule registry와 연결한다.
 - [ ] `FunctionEntity.semantic_info`의 intrinsic facts와 Logical IR node의 `ResolvedCallFacts` 책임을 분리한다.
 - [ ] `ResolvedCallFacts`에서 valence/effective-rank/cell/frame/agreement/repetition/type/shape/effect/error/access를 계산한다.
 - [ ] `+/ % #` matrix golden에서 최종 `%`의 implicit CellApply2를 명시적으로 만든다.
@@ -6996,7 +7004,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **완료 조건:** AOT/interpreter/JIT/backend 어느 경로에서 실패해도 J error class는 안정적으로 유지되고, 동일한 structured context → analyzer → renderer 경로로 source 위치와 semantic 원인을 설명할 수 있다.
 
-### A1 — J Semantic Array IR와 Semantic Analyzer 경계
+### A1 — J Semantic Construction IR / FunctionEntity 경계
 
 - [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
 - [x] jsource `p.c::cases[]`의 parser function-construction rows를 기준으로 immutable shared `FunctionEntity` graph를 만든다.
@@ -7032,6 +7040,31 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] reduction derived verb와 rank-conjunction-derived verb를 대표 golden test로 둔다.
 
 완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank 및 derived verb/adverb/conjunction의 의미 구조가 분석 입력에 남아 있다.
+
+### A1.5 — J Graph IR / JAXA Array Operation Graph IR
+
+**목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
+
+- [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
+- [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / Rank(`"`) / generic Modifier를 구분한다.
+- [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / CellParallelStructure를 기록한다.
+- [x] `GraphRuleRefs`로 shape/dtype/rank-cell/effect rule source와 resource rule의 StructuralComposition/Unknown을 명시한다.
+- [x] `Engine::analyze_compilation()`이 `j_graph`와 `execution` 두 IR을 함께 반환한다.
+- [x] execution lowering은 BoundProgram을 직접 canonicalize하지 않고 J Graph IR을 소비한다.
+- [x] execution node/A3 op가 `j_origin`으로 originating J Graph node를 보존한다.
+- [x] Hook/Fork/@: topology 분류의 단일 소스를 `j_graph_ir::classify_function()`으로 두고 execution analyzer의 독립 pattern rediscovery를 제거한다.
+- [ ] Cut/Window, Dot/Contract, Power/Iteration, Key/GroupBy, Scan/Infix 등 J graph algebra vocabulary를 GraphForm/GraphHint로 확장한다.
+- [ ] primitive/derived operation마다 실제 shape/dtype/rank/effect rule registry를 `GraphRuleRefs`와 연결한다.
+- [ ] symbolic resource rule registry를 추가하여 primitive resource model 또는 explicit Unknown을 J Graph IR에서 질의할 수 있게 한다. concrete target 수치는 넣지 않는다.
+- [ ] graph-level use-def와 common-input/liveness analysis를 J Graph IR 자체에 추가한다.
+- [ ] basis verb의 algebraic rewrite/equivalence rule을 J Graph IR에 표현하고 후보 graph를 생성할 수 있게 한다.
+- [ ] graph candidate마다 semantic-equivalence witness/provenance를 유지한다.
+- [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
+- [ ] name-bound derived verb의 graph summary를 binding version + SpecializationKey로 interprocedurally 전파한다.
+- [ ] resource-aware pruning/partition이 J Graph 후보를 소비하고 Physical Planner의 target feasibility와 연결되도록 한다.
+
+**완료 조건:** 대표 J expressions(`@:`, Hook, Fork, Reduce, Rank, 이후 Window/Contract/Key/Power)가 generic execution DAG를 만들기 전에 J Graph IR에서 구조적으로 식별되고, graph optimizer가 source reparsing이나 execution-DAG pattern recovery 없이 fusion/lifetime/parallel/rewrite 후보를 만들 수 있다.
+
 ### A2 — Extension Primitive Registry와 analysis contract
 
 > **구현 주의:** 아래 목록 전체는 A2의 장기 architecture inventory다. A3-v0/첫 CPU vertical slice를 막는 하나의 거대한 선행 milestone로 취급하지 않는다.
@@ -7099,7 +7132,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, RustJ-native route에서는 별도 TargetProfile을 이용해 schedule/ResourceEstimate를 만들고 external route에서는 adapter가 같은 Logical IR contract를 검증해 lowering할 수 있다.
 
-### A3 — Logical IR core, verification, scheduling boundary
+### A3 — Logical Execution IR core, verification, scheduling boundary
 
 > **단계화:** APEX/Co-dfns/TAIL 반영 항목은 단계적으로 도입한다. 첫 verified single-block Logical IR(A3-v0)은 SSA ValueId + 최소 Type/Rank/Shape/Witness + verifier를 우선한다. full GraphIndex, full morphology fixpoint, interprocedural SpecializationKey cache, richer ArrayPropertyFacts는 A3-v0의 선행조건이 아니며 v1/later에서 추가한다.
 >
