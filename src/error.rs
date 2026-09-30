@@ -10,6 +10,7 @@ pub enum Error {
     Index,
     Value(String),
     Limit,
+    OpenQuote,
     Unsupported(String),
 }
 
@@ -24,6 +25,7 @@ impl Error {
             Self::Index => "index error",
             Self::Value(_) => "value error",
             Self::Limit => "limit error",
+            Self::OpenQuote => "open quote",
             Self::Unsupported(_) => "unsupported",
         }
     }
