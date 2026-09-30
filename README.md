@@ -15,12 +15,14 @@ J Semantic Array IR
   ↓
 Semantic Analyzer / Lowering
   ↓
-Logical Array IR / Execution Plan
+Verified Logical Array IR / Execution Plan
+  ↓
+Route Partition
   │
-  ├─ RustJ native: Logical Optimizer → Schedule → Physical Plan → Executor
-  ├─ MLIR family → LLVM/NVVM/ROCDL/SPIR-V
-  ├─ StableHLO-compatible subset → external compiler
-  └─ verified library/custom-kernel route
+  ├─ region(s): RustJ native → Logical Optimizer → Schedule → Physical Plan → Executor
+  ├─ region(s): MLIR family → LLVM/NVVM/ROCDL/SPIR-V
+  ├─ region(s): StableHLO-compatible subset → external compiler
+  └─ region(s): verified library/custom-kernel route
 ```
 
 **상세 아키텍처, compiler stage 경계, IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.md](PROJECT.md)입니다.**
