@@ -105,7 +105,7 @@ impl Requirement {
             Self::KnownResultRank => call.instantiation.result_rank.is_some(),
             Self::ReassociationAllowed => call.contract.allow_reassociation,
             Self::Pure => call.effect.is_pure(),
-            Self::NoObservableError => !call.speculation.may_raise_observable_error,
+            Self::NoObservableError => !call.possible_errors.may_raise(),
             Self::EvaluationOrderRelaxed => !call.speculation.preserve_evaluation_order,
         }
     }
