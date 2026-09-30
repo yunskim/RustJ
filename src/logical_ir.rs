@@ -144,6 +144,88 @@ pub struct CallOp {
     pub constraints: ConstraintSet,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReindexKind {
+    Reshape,
+    Ravel,
+    Reverse,
+    Transpose,
+    Take,
+    Drop,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReductionAxis {
+    LeadingCellAxis,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BasisPayload {
+    IndexSpace {
+        shape_spec: ValueId,
+    },
+    Elementwise,
+    CellApply,
+    StaticReindex {
+        kind: ReindexKind,
+    },
+    Gather {
+        indices: ValueId,
+        source: ValueId,
+    },
+    Reduce {
+        axis: ReductionAxis,
+    },
+    ConcatAssemble,
+    ReplicateCompactExpand,
+    LookupClassify,
+    /// Later basis families can retain their identity before their richer
+    /// family-specific payload is implemented.
+    Deferred,
+}
+
+fn basis_payload(kind: BasisKind, call: &CallOp) -> BasisPayload {
+    use crate::primitive::PrimitiveId;
+
+    match kind {
+        BasisKind::IndexSpace => BasisPayload::IndexSpace {
+            shape_spec: call.right,
+        },
+        BasisKind::Elementwise => BasisPayload::Elementwise,
+        BasisKind::CellApply => BasisPayload::CellApply,
+        BasisKind::Reduce => BasisPayload::Reduce {
+            axis: ReductionAxis::LeadingCellAxis,
+        },
+        BasisKind::StaticReindex => {
+            let reindex = match call.callable.target {
+                analysis::CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
+                analysis::CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
+                analysis::CallTarget::Primitive(PrimitiveId::Reverse) => ReindexKind::Reverse,
+                analysis::CallTarget::Primitive(PrimitiveId::Transpose) => {
+                    ReindexKind::Transpose
+                }
+                analysis::CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
+                analysis::CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
+                _ => return BasisPayload::Deferred,
+            };
+            BasisPayload::StaticReindex { kind: reindex }
+        }
+        BasisKind::Gather => {
+            let Some(indices) = call.left else {
+                return BasisPayload::Deferred;
+            };
+            BasisPayload::Gather {
+                indices,
+                source: call.right,
+            }
+        }
+        BasisKind::ConcatAssemble => BasisPayload::ConcatAssemble,
+        BasisKind::ReplicateCompactExpand => BasisPayload::ReplicateCompactExpand,
+        BasisKind::LookupClassify => BasisPayload::LookupClassify,
+        _ => BasisPayload::Deferred,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum OpKind {
     Literal(Value),
@@ -154,6 +236,7 @@ pub enum OpKind {
     VerbReference(Callable),
     Basis {
         kind: BasisKind,
+        payload: BasisPayload,
         call: CallOp,
     },
     /// Correctness-preserving fallback for calls not normalized to a basis op.
@@ -371,7 +454,14 @@ impl Plan {
                         constraints: constraints.clone(),
                     };
                     let kind = match node.basis {
-                        Some(kind) => OpKind::Basis { kind, call },
+                        Some(kind) => {
+                            let payload = basis_payload(kind, &call);
+                            OpKind::Basis {
+                                kind,
+                                payload,
+                                call,
+                            }
+                        }
                         None => OpKind::SemanticCall(call),
                     };
                     (kind, constraints)
@@ -465,7 +555,45 @@ impl Plan {
 
             match &operation.kind {
                 OpKind::Literal(_) | OpKind::ReadNoun { .. } | OpKind::VerbReference(_) => {}
-                OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
+                OpKind::Basis {
+                    kind,
+                    payload,
+                    call,
+                } => {
+                    if *payload != basis_payload(*kind, call) {
+                        return Err(fail(
+                            Some(op_id),
+                            "basis payload does not match basis identity/call".into(),
+                        ));
+                    }
+                    if let Some(left) = call.left {
+                        check_value(left, "left input")?;
+                    }
+                    check_value(call.right, "right input")?;
+                    let expected_valence = if call.left.is_some() {
+                        Valence::Dyad
+                    } else {
+                        Valence::Monad
+                    };
+                    if call.instantiation.valence != expected_valence {
+                        return Err(fail(
+                            Some(op_id),
+                            "call instantiation valence mismatch".into(),
+                        ));
+                    }
+                    if call.instantiation.target != call.callable.target {
+                        return Err(fail(
+                            Some(op_id),
+                            "call instantiation target mismatch".into(),
+                        ));
+                    }
+                    for fact in &call.constraints.facts {
+                        for value in fact.constraint.values().into_iter().flatten() {
+                            check_value(value, "constraint input")?;
+                        }
+                    }
+                }
+                OpKind::SemanticCall(call) => {
                     if let Some(left) = call.left {
                         check_value(left, "left input")?;
                     }
