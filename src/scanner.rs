@@ -185,7 +185,7 @@ fn scan_impl(source: &[u8], unfinished: bool) -> Result<Vec<Range<usize>>> {
     }
 
     if state == State::Quote && !unfinished {
-        return Err(Error::Syntax("unterminated literal".into()));
+        return Err(Error::OpenQuote);
     }
 
     // jtwordil performs the same S99 rewind before forcing the final EI.
