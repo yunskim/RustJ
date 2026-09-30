@@ -204,8 +204,9 @@ fn apply_conjunction(
     let mut operands = vec![FunctionOperand::Function(left.entity)];
     let mut rank = left.rank;
     let right_end;
-    match right {
-        Item::Noun(expr, _) => {
+    let Item { class, value: right } = right;
+    match (class, right) {
+        (ParseClass::Noun, ParseValue::Noun(expr, _)) => {
             right_end = expr.span.end;
             let value = match expr.kind {
                 ExprKind::Literal(value) => value,
@@ -239,16 +240,14 @@ fn apply_conjunction(
                 value,
             });
         }
-        Item::Verb(verb) => {
+        (ParseClass::Verb, ParseValue::Verb(verb)) => {
             right_end = verb.span.end;
             operands.push(FunctionOperand::Function(verb.entity));
             if matches!(id, crate::primitive::ConjunctionId::Rank) {
                 rank = None;
             }
         }
-        Item::Adverb(_) | Item::Conjunction(_) => {
-            return Err(Error::Syntax("invalid conjunction right operand".into()))
-        }
+        _ => return Err(Error::Syntax("invalid conjunction right operand".into())),
     }
     let span = left.span.start..right_end;
     Ok(Verb {
@@ -275,12 +274,18 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 2 {
             for i in (0..items.len() - 1).rev() {
-                if matches!(&items[i], Item::Verb(_)) && matches!(&items[i + 1], Item::Adverb(_)) {
+                if items[i].class == ParseClass::Verb
+                    && items[i + 1].class == ParseClass::Adverb
+                {
                     let pair: Vec<_> = items.drain(i..i + 2).collect();
                     let mut pair = pair.into_iter();
-                    let Item::Verb(left) = pair.next().unwrap() else { unreachable!() };
-                    let Item::Adverb(operator) = pair.next().unwrap() else { unreachable!() };
-                    items.insert(i, Item::Verb(apply_adverb(left, operator)?));
+                    let left = pair.next().unwrap().into_verb().expect("verb class");
+                    let operator = pair
+                        .next()
+                        .unwrap()
+                        .into_function()
+                        .expect("adverb class");
+                    items.insert(i, Item::verb(apply_adverb(left, operator)?));
                     reduced = true;
                     break;
                 }
@@ -292,16 +297,20 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 3 {
             for i in (0..items.len() - 2).rev() {
-                if matches!(&items[i], Item::Verb(_))
-                    && matches!(&items[i + 1], Item::Conjunction(_))
-                    && matches!(&items[i + 2], Item::Verb(_) | Item::Noun(_, _))
+                if items[i].class == ParseClass::Verb
+                    && items[i + 1].class == ParseClass::Conjunction
+                    && matches!(items[i + 2].class, ParseClass::Verb | ParseClass::Noun)
                 {
                     let triple: Vec<_> = items.drain(i..i + 3).collect();
                     let mut triple = triple.into_iter();
-                    let Item::Verb(left) = triple.next().unwrap() else { unreachable!() };
-                    let Item::Conjunction(operator) = triple.next().unwrap() else { unreachable!() };
+                    let left = triple.next().unwrap().into_verb().expect("verb class");
+                    let operator = triple
+                        .next()
+                        .unwrap()
+                        .into_function()
+                        .expect("conjunction class");
                     let right = triple.next().unwrap();
-                    items.insert(i, Item::Verb(apply_conjunction(left, operator, right)?));
+                    items.insert(i, Item::verb(apply_conjunction(left, operator, right)?));
                     reduced = true;
                     break;
                 }
@@ -319,15 +328,12 @@ fn collapse_verb_trains(items: Vec<Item>) -> Result<Vec<Item>> {
     // an assignment RHS) is a train. Do not collapse verb runs embedded in a
     // mixed noun sentence yet: jsource's parse table may execute a V N / N V N
     // fragment before hook/fork construction (e.g. `1 + - 2`).
-    if items.len() > 1 && items.iter().all(|item| matches!(item, Item::Verb(_))) {
+    if items.len() > 1 && items.iter().all(|item| item.class == ParseClass::Verb) {
         let verbs = items
             .into_iter()
-            .map(|item| match item {
-                Item::Verb(verb) => verb,
-                Item::Noun(..) | Item::Adverb(_) | Item::Conjunction(_) => unreachable!(),
-            })
+            .map(|item| item.into_verb().expect("verb class"))
             .collect();
-        Ok(vec![Item::Verb(make_verb_train(verbs)?)])
+        Ok(vec![Item::verb(make_verb_train(verbs)?)])
     } else {
         Ok(items)
     }
@@ -657,10 +663,15 @@ fn expression(
     let items = reduce_modifier_applications(items)?;
     let mut items = collapse_verb_trains(items)?;
 
-    if items.len() == 1 && matches!(items.first(), Some(Item::Verb(_))) {
-        let Some(Item::Verb(verb)) = items.pop() else {
-            unreachable!()
-        };
+    if items.len() == 1
+        && items
+            .first()
+            .is_some_and(|item| item.class == ParseClass::Verb)
+    {
+        let verb = items
+            .pop()
+            .and_then(Item::into_verb)
+            .expect("verb class");
         return Ok((
             Expr {
                 span: verb.span.clone(),
@@ -669,17 +680,21 @@ fn expression(
             0,
         ));
     }
-    let Some(Item::Noun(mut rhs, mut height)) = items.pop() else {
+    let Some((mut rhs, mut height)) = items.pop().and_then(Item::into_noun) else {
         return Err(Error::Syntax("expected right argument".into()));
     };
     while let Some(item) = items.pop() {
-        let Item::Verb(v) = item else {
+        let Some(v) = item.into_verb() else {
             return Err(Error::Syntax("unreduced function modifier or adjacent nouns".into()));
         };
-        if matches!(items.last(), Some(Item::Noun(_, _))) {
-            let Some(Item::Noun(lhs, left_height)) = items.pop() else {
-                unreachable!()
-            };
+        if items
+            .last()
+            .is_some_and(|item| item.class == ParseClass::Noun)
+        {
+            let (lhs, left_height) = items
+                .pop()
+                .and_then(Item::into_noun)
+                .expect("noun class");
             if v.reduce {
                 return Err(Error::Unsupported("dyadic derived verb".into()));
             }
