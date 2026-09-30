@@ -317,9 +317,9 @@ impl Builder<'_> {
             match &current.head {
                 FunctionHead::PrimitiveVerb(id) => {
                     let innate_rank = if reduce {
-                        // Insert is a derived monadic operation over its whole
-                        // argument cell. The operand primitive's scalar rank is
-                        // inside the reduction, not the rank of +/ itself.
+                        // jsource ar.c::jtslash stores u/ itself at
+                        // RMAX,RMAX,RMAX. The operand primitive's rank belongs
+                        // inside reduction semantics, not to the outer call.
                         Some(RankContract::all(RankSpec::Infinite))
                     } else {
                         Some(contracts::innate_rank(*id))
