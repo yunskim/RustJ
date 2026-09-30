@@ -560,6 +560,39 @@ direct/explicit definition의 structured control flow는 장기 Logical IR의 Re
 
 따라서 SSA `ValueId`는 J namespace 자체의 대체물이 아니다. static binding이 증명된 경우에는 SSA value로 낮출 수 있지만, runtime name lookup/assignment semantics가 필요한 곳은 명시적인 name/resource/effect operation 또는 runtime lowering으로 보존한다.
 
+### 3.8 sentence evaluation order와 namespace mutation
+
+J의 parser는 conventional frontend처럼 “문장 전체 AST를 만든 뒤 모든 name을 한 번에 resolve”하는 것으로 의미를 모델링하면 안 된다. current jsource의 `p.c`는 queue를 stack하면서 name lookup, parse reduction, verb execution, assignment를 한 sentence 안에서 진행하며 J의 **우측→좌측 평가 의미**를 실현한다.
+
+따라서 RustJ가 parser/evaluator 구현 방식 자체는 바꾸더라도 다음 observable order를 보존한다.
+
+```text
+sentence
+  semantic right-to-left evaluation / reduction order
+  + name lookup at the point required by J semantics
+  + assignment/locale mutation at its semantic execution point
+```
+
+특히 다음 shortcut을 금지한다.
+
+```text
+문장 시작 환경을 snapshot
+→ 모든 NameRef를 그 snapshot으로 resolve
+→ 이후 assignment를 한꺼번에 commit
+```
+
+이 방식은 같은 sentence 안의 assignment, expunge, locale change, dynamic execution, side effect가 이후/이전 subexpression의 lookup에 미치는 의미를 바꿀 수 있다.
+
+compiler IR에서는 이를 반드시 source-order instruction list로 복제할 필요는 없다. 대신:
+
+- pure subexpression은 dependency/effect proof 뒤 graph로 재배열 가능
+- name lookup, assignment, locale mutation, dynamic execute, I/O 등은 `EffectToken` 또는 동등한 semantic sequencing edge를 가져야 함
+- noun value snapshot과 function nameref late lookup의 시점 차이를 보존
+- optimization이 name/effect boundary를 넘어갈 때 legality proof가 필요
+
+즉 **J의 우측→좌측 parser implementation을 복제하는 것이 목표가 아니라, 그 구현이 만들어내는 observable evaluation/binding order를 IR에 보존하는 것**이 목표다.
+
+
 ---
 
 ## 4. Semantic Analyzer / Lowering
@@ -872,13 +905,29 @@ static specialization이 유용할 경우:
 
 ```text
 NameRef
-  + binding/version guard
-  + proven ExtensionAdverb::Conv
+  name / locative semantics
+  expected_part_of_speech
+  + optional binding/version guard
+  + optional proven ExtensionAdverb::Conv
       ↓
 specialized derived entity
 ```
 
 처럼 guard/proof를 남긴다. name을 compile time에 봤다는 이유만으로 향후 rebinding 가능성을 제거하지 않는다.
+
+current jsource의 nameref execution(`sc.c`)은 lookup된 현재 value가 nameref 생성 시 기대한 품사와 같은지 검사하고, 달라졌으면 domain error를 낸다.
+
+따라서:
+
+```text
+NameRef(expected = Verb)
+  runtime lookup -> Verb        OK
+  runtime lookup -> Adverb      DomainError
+  runtime lookup -> Noun        DomainError
+  runtime lookup -> undefined   ValueError when invoked/resolved as required
+```
+
+처럼 **late binding과 expected part-of-speech contract를 동시에 보존**한다.
 
 ### 4.9 Vocabulary는 이름 목록이 아니라 form + contract다
 
@@ -3284,7 +3333,9 @@ FMA, reassociation, reduction 순서 변경은 별도 허용 조건 없이는 �
 - extension name도 이 규칙의 예외가 아니다.
 - static binding/version proof가 있을 때만 NameRef를 stable primitive/builder identity로 specialize한다.
 - `f.` 같은 J의 fix semantics는 late name reference를 실제 value로 고정하는 별도 의미이므로 일반 compilation specialization과 혼동하지 않는다.
+- nameref는 생성 시 기대한 part of speech를 보존하고, 실행 시 current lookup 결과의 품사가 달라지면 J처럼 domain error가 되어야 한다.
 - name/version 정보를 IR과 plan guard에 반영해야 한다.
+- 한 sentence의 모든 name을 문장 시작 시점 environment로 일괄 resolve하지 않는다. 우측→좌측 evaluation/assignment가 만든 namespace mutation 시점을 보존한다.
 - parser가 깊은 식에서 임의의 작은 recursion/height 한계로 J 의미를 바꾸지 않도록 한다.
 
 ### 9.6 direct / explicit definition
@@ -3341,6 +3392,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] adverb/conjunction application으로 생긴 DerivedVerb 구조를 보존한다.
 - [ ] rank-derived verb와 cell/frame 의미를 Semantic Analyzer가 분석할 수 있게 표현한다.
 - [ ] name reference/binding/version과 source span을 필요한 범위에서 연결한다.
+- [ ] `NameRef.expected_part_of_speech`와 runtime lookup POS mismatch의 domain error를 모델링한다.
+- [ ] sentence 전체의 name environment를 선행 snapshot하지 않고 우측→좌측 assignment/name lookup sequencing을 보존한다.
 - [ ] explicit definition의 DefinitionCode와 invocation CallFrame을 분리한다.
 - [ ] local slot hint와 실제 local binding을 구분하고 unbound local candidate의 locale fallback을 보존한다.
 - [ ] `=.` local assignment와 `=:` public/locale assignment를 구분한다.
@@ -3985,6 +4038,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 |---|---|
 | `w.c` enqueue는 alphabetic word를 ordinary NAME으로 만들고 lookup flag/hint를 붙인다 | extension도 enqueue에서 ADV/VERB로 고정하지 않는다 |
 | `p.c` parser가 NAME을 stack할 때 local/locale lookup하고 noun은 value, 일반 ACV는 nameref로 처리한다 | noun snapshot과 function-name late binding을 분리한다 |
+| `sc.c` nameref 실행은 현재 lookup value의 part of speech가 reference 생성 시 기대한 품사와 같은지 검사한다 | `NameRef.expected_part_of_speech`를 보존하고 mismatch는 domain error로 처리한다 |
+| `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
 | `cr.c` rank dyad는 frame prefix agreement를 검사하고 residual frame에 cell을 반복한다 | NumPy broadcasting으로 대체하지 않는다 |
 | `cr.c`는 zero cells에서 fill-cell을 실행해 result cell type/shape를 정한다 | zero-trip elimination 전에 fill/prototype semantics를 해결한다 |
 | `cv.c`의 `!.`는 comparison tolerance 또는 fill을 바꾸는 derived verb를 만든다 | tolerance/fill override를 semantic contract로 보존한다 |
@@ -4042,6 +4097,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 41. **Boxed/sparse are J-visible semantics** — boxed hierarchy와 sparse axes/element를 단순 physical encoding으로 취급하지 않는다.
 42. **Tolerance/Fit are semantics** — comparison tolerance와 `!.`에 의한 numeric/fill variation을 backend optimization에서 잃지 않는다.
 43. **Error contract is observable semantics** — J가 정한 precedence/suppression/retry를 보존하고 parallel first-error를 임의로 노출하지 않는다.
+44. **Nameref keeps expected POS** — late lookup은 허용하지만 reference 생성 시의 verb/adverb/conjunction 품사 계약을 버리지 않으며 mismatch는 J의 domain error semantics를 따른다.
+45. **Sentence environment is not pre-snapshotted** — 우측→좌측 evaluation 중 name lookup/assignment/locale mutation의 observable sequencing을 보존한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4062,19 +4119,20 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
-10. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
-11. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
-12. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
-13. MLIR/LLVM CPU 실행 결과를 RustJ-native/reference 결과와 differential test한다.
-14. `CompilationTarget` MVP를 BackendFamily / ArchitectureTarget / DeviceProfile / RuntimeProfile로 분리하고, compiler target locale chain을 통해 resolved `TargetProfile`을 만든다. `CostProfile`은 별도로 둔다.
-15. `TargetFacts + TargetQueries` interface와 target-locale provider/override resolution을 정의한다.
-16. RustJ-native `Schedule / Transform Plan`을 Logical IR과 분리하여 정의한다.
-17. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
-18. `ResourceEstimate` MVP와 별도 `CostEstimate`를 만들고, backend `CompiledResourceReport` 및 runtime `ExecutionMeasurement` feedback/re-plan interface를 만든다.
-19. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
-20. v0가 안정된 뒤 branch/loop/effect token을 A3-v1로, async timepoint와 portable version migration을 필요한 시점에 단계적으로 추가한다.
-21. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
-22. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
+10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, same-sentence assignment/name lookup sequencing, prefix agreement, empty fill-cell, tolerance/`!.`, overflow/error precedence를 추가한다.
+11. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
+12. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
+13. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
+14. MLIR/LLVM CPU 실행 결과를 RustJ-native/reference 결과와 differential test한다.
+15. `CompilationTarget` MVP를 BackendFamily / ArchitectureTarget / DeviceProfile / RuntimeProfile로 분리하고, compiler target locale chain을 통해 resolved `TargetProfile`을 만든다. `CostProfile`은 별도로 둔다.
+16. `TargetFacts + TargetQueries` interface와 target-locale provider/override resolution을 정의한다.
+17. RustJ-native `Schedule / Transform Plan`을 Logical IR과 분리하여 정의한다.
+18. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
+19. `ResourceEstimate` MVP와 별도 `CostEstimate`를 만들고, backend `CompiledResourceReport` 및 runtime `ExecutionMeasurement` feedback/re-plan interface를 만든다.
+20. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
+21. v0가 안정된 뒤 branch/loop/effect token을 A3-v1로, async timepoint와 portable version migration을 필요한 시점에 단계적으로 추가한다.
+22. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
+23. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
 특히 세 가지 shortcut을 금지한다.
 
