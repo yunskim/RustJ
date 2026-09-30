@@ -208,6 +208,9 @@ fn apply_conjunction(
     let Item { class, value: right } = right;
     match (class, right) {
         (ParseClass::Noun, ParseValue::Noun(expr, _)) => {
+            if matches!(id, crate::primitive::ConjunctionId::Atop) {
+                return Err(Error::Syntax("atop requires a verb right operand".into()));
+            }
             right_end = expr.span.end;
             let value = match expr.kind {
                 ExprKind::Literal(value) => value,
@@ -244,7 +247,12 @@ fn apply_conjunction(
         (ParseClass::Verb, ParseValue::Verb(verb)) => {
             right_end = verb.span.end;
             operands.push(FunctionOperand::Function(verb.entity));
-            if matches!(id, crate::primitive::ConjunctionId::Rank) {
+            if matches!(
+                id,
+                crate::primitive::ConjunctionId::Rank | crate::primitive::ConjunctionId::Atop
+            ) {
+                // Atop's effective rank is derived from the inner/right function
+                // and call valence; do not pretend it is the left verb's rank.
                 rank = None;
             }
         }
@@ -260,7 +268,11 @@ fn apply_conjunction(
             span,
             operands,
         ),
-        reduce: left.reduce,
+        reduce: if matches!(id, crate::primitive::ConjunctionId::Atop) {
+            false
+        } else {
+            left.reduce
+        },
         rank,
     })
 }
