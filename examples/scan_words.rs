@@ -7,7 +7,7 @@ fn main() {
             .step_by(2)
             .map(|i| u8::from_str_radix(&line[i..i + 2], 16).unwrap())
             .collect();
-        match rustj::scanner::scan(&bytes) {
+        match rustj::scanner::parse_word_spans(&bytes) {
             Ok(spans) => println!(
                 "{{\"spans\":[{}]}}",
                 spans
