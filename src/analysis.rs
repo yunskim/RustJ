@@ -295,8 +295,8 @@ impl Builder<'_> {
             Operation::Call { callable, left, .. }
                 if left.is_none()
                     && matches!(
-                        callable.semantic.head,
-                        FunctionHead::Derived(FunctionFormId::INSERT)
+                        &callable.semantic.head,
+                        FunctionHead::Derived(id) if *id == FunctionFormId::INSERT
                     ) =>
             {
                 AccessFact::Known(AccessRelation::ReduceLeadingAxis)
@@ -305,7 +305,7 @@ impl Builder<'_> {
                 callable,
                 contract,
                 ..
-            } if matches!(callable.semantic.head, FunctionHead::Primitive(_))
+            } if matches!(&callable.semantic.head, FunctionHead::Primitive(_))
                 && contract.class == crate::contracts::OperationClass::Map =>
             {
                 AccessFact::Known(AccessRelation::ElementwiseMap)
