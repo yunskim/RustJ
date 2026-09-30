@@ -34,3 +34,9 @@ For every implementation change:
 - Keep ResourceEstimate independent of empirical CostProfile; use a separate CostEstimate for performance ranking.
 - Treat RoutePartition as a recomputable compilation plan and allow mixed native/external regions within one program.
 - Keep analysis-lattice states (unknown/unreachable) separate from user-visible J semantic errors.
+
+- Treat extension names as ordinary J bindings, not reserved keywords; enqueue/name classification may resolve their part of speech through injected registry/environment data, but tokenizer/parser code must not hard-code spellings.
+- Keep parameterized extension builders (for example a conv adverb) distinct from the derived computational verb/LogicalOp produced after parameters are applied.
+- Keep full J semantic validity separate from eligibility for the hardware-aware analyzable array profile.
+- Keep mutable weights/gradients/optimizer/checkpoint state outside primitive hidden fields as explicit StateResource identities.
+- Keep ephemeral SSA ValueId, semantic StateResource, and physical BufferId distinct even though all user-visible data obey J array semantics.
