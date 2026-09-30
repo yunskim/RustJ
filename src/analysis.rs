@@ -138,7 +138,9 @@ fn direct_basis(operation: &Operation) -> Option<BasisKind> {
     };
     let dyad = left.is_some();
     match (id, dyad) {
-        (IndexOf, false) => Some(BasisKind::IndexSpace),
+        (IndexOf | Steps, false) => Some(BasisKind::IndexSpace),
+        (Equal, false) => Some(BasisKind::LookupClassify),
+        (Indices, false) => Some(BasisKind::ReplicateCompactExpand),
         (Shape, true)
         | (Ravel, false)
         | (Reverse, _)
@@ -147,7 +149,8 @@ fn direct_basis(operation: &Operation) -> Option<BasisKind> {
         | (Drop, _) => Some(BasisKind::StaticReindex),
         (Ravel, true) => Some(BasisKind::ConcatAssemble),
         (From, true) => Some(BasisKind::Gather),
-        (IndexOf | Steps | Member, true) => Some(BasisKind::LookupClassify),
+        (IndexOf | Steps | Indices | Member, true) => Some(BasisKind::LookupClassify),
+        (Magnitude, true) => Some(BasisKind::Elementwise),
         _ if contract.class == crate::contracts::OperationClass::Map => {
             Some(BasisKind::Elementwise)
         }
