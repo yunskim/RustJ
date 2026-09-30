@@ -74,6 +74,7 @@ For every implementation change:
 
 - Model large J derived functions as shared immutable FunctionEntity/JEntityRef graphs (or an equivalent arena DAG), not recursively copied nested enum values.
 - Let J parser reduction rules define FunctionEntity DAG shape. ADV application, CONJ application, hook, and fork must follow jsource parse productions; do not invent modifier-specific semantic AST shapes such as Insert(base) or Rank(base,r).
+- Treat current jsource parser language behavior as the compatibility oracle: preserve its parse-row eligibility/order, parser-time name/POS resolution, result POS, assignment/parenthesis behavior, and completed modifier-entity boundaries. RustJ may replace jsource's C parser mechanics, but not invent a different J grammar/reduction model.
 - Treat every completed modifier reduction as one first-class J function entity before any later hook/fork/train reduction. A fork operand referring to `+/`, for example, must reference the completed derived Verb entity `+/`, not retain separate `+` and `/` parser items or an unfinished modifier fragment.
 - Keep semantic function identity/operands separate from runtime/backend executor specialization; optimized handlers must not erase J-visible derived structure.
 
@@ -86,6 +87,8 @@ For every implementation change:
 - Treat jsource IRS/VIRS behavior as a lowering optimization that absorbs CellApply; it must remain semantically equivalent to the generic cell loop.
 - Keep empty fill-cell/prototype behavior and heterogeneous result assembly in the CellApply contract, not hidden inside primitive kernels.
 - Do not copy jsource execution flags wholesale into Semantic/Logical IR. Classify each datum as source semantic identity, static semantic contract, resolved analysis fact, optimizer proof, lowering capability, representation fact, or physical decision, and introduce it at the earliest stage where it is semantically justified.
+- Keep architecture-specific primitive/NN implementation metadata out of semantic contracts. Bind resolved LogicalOps to hardware through LoweringRegistry × ArchitectureTarget; use DeviceProfile for concrete device resources and CostProfile/RuntimeProfile for implementation selection.
+- Treat NN/array extension operations and built-in J primitives uniformly at hardware-lowering time. Extension names remain ordinary J bindings, and a semantic op may have multiple decomposed, fused, library, or custom-kernel realizations per target.
 - Keep parser-produced FunctionEntity graphs minimal and immutable; cache derived name/self/effect/error/rank summaries in analysis side tables keyed by shared entity identity rather than recursively copying summaries into every derived node.
 - Treat jsource WILLOPEN/USESITEMCOUNT/in-place/pristine/zappable style metadata as inspiration for use-def/liveness/materialization analyses; do not encode those runtime-memory-management bits as J semantic properties.
 
