@@ -494,3 +494,66 @@ fn verifier_checks_basis_metadata_consistency() {
     assert_eq!(error.node, Some(result));
     assert!(error.message.contains("basis metadata"));
 }
+
+
+#[test]
+fn J_syntax_records_structural_optimization_opportunities() {
+    use rustj::opportunity::{OpportunitySource, StructuralTopology};
+
+    let e = Engine::new();
+
+    let p = e.analyze("(|. @: , @: |.) 1 2 3").unwrap();
+    p.verify().unwrap();
+    assert_eq!(p.opportunities.len(), 1);
+    let pipeline = &p.opportunities[0];
+    assert_eq!(pipeline.source, OpportunitySource::Atop);
+    let StructuralTopology::Pipeline {
+        inputs,
+        stage_results,
+    } = &pipeline.topology
+    else {
+        panic!("atop should expose pipeline topology")
+    };
+    assert_eq!(inputs.len(), 1);
+    assert_eq!(stage_results.len(), 3);
+
+    let p = e.analyze("(+ -) 3").unwrap();
+    p.verify().unwrap();
+    let hook = p
+        .opportunities
+        .iter()
+        .find(|opportunity| opportunity.source == OpportunitySource::Hook)
+        .expect("hook opportunity");
+    let StructuralTopology::BranchJoin {
+        shared_inputs,
+        branch_results,
+        live_across,
+        ..
+    } = &hook.topology
+    else {
+        panic!("hook should expose branch/join topology")
+    };
+    assert_eq!(branch_results.len(), 2);
+    assert_eq!(live_across.len(), 1);
+    assert!(shared_inputs.contains(&live_across[0]));
+
+    let p = e.analyze("(+/ % #) 1 2 3 4").unwrap();
+    p.verify().unwrap();
+    let fork = p
+        .opportunities
+        .iter()
+        .find(|opportunity| opportunity.source == OpportunitySource::Fork)
+        .expect("fork opportunity");
+    let StructuralTopology::BranchJoin {
+        shared_inputs,
+        branch_results,
+        live_across,
+        ..
+    } = &fork.topology
+    else {
+        panic!("fork should expose branch/join topology")
+    };
+    assert_eq!(shared_inputs.len(), 1);
+    assert_eq!(branch_results.len(), 2);
+    assert_eq!(live_across, shared_inputs);
+}
