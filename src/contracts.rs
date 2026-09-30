@@ -4,6 +4,76 @@ pub enum Valence {
     Monad,
     Dyad,
 }
+
+/// Semantic J rank, independent of jsource's integer RMAX sentinel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RankSpec {
+    Infinite,
+    Absolute(usize),
+    /// Negative source rank resolved relative to the actual argument rank.
+    Relative(i64),
+}
+impl RankSpec {
+    pub fn from_integer(value: i64) -> Self {
+        if value < 0 {
+            Self::Relative(value)
+        } else {
+            Self::Absolute(usize::try_from(value).unwrap_or(usize::MAX))
+        }
+    }
+
+    pub fn resolve(self, argument_rank: usize) -> usize {
+        match self {
+            Self::Infinite => argument_rank,
+            Self::Absolute(rank) => rank.min(argument_rank),
+            Self::Relative(delta) => {
+                let raw = argument_rank as i128 + delta as i128;
+                if raw <= 0 {
+                    0
+                } else {
+                    usize::try_from(raw).unwrap_or(usize::MAX).min(argument_rank)
+                }
+            }
+        }
+    }
+}
+
+/// Monad / dyad-left / dyad-right rank contract carried by a callable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RankContract {
+    pub monad: RankSpec,
+    pub left: RankSpec,
+    pub right: RankSpec,
+}
+impl RankContract {
+    pub const fn new(monad: RankSpec, left: RankSpec, right: RankSpec) -> Self {
+        Self { monad, left, right }
+    }
+
+    pub const fn all(rank: RankSpec) -> Self {
+        Self::new(rank, rank, rank)
+    }
+}
+
+/// Innate ranks cross-checked against jsource's primitive table (jsrc/t.c).
+pub const fn innate_rank(id: crate::primitive::PrimitiveId) -> RankContract {
+    use crate::primitive::PrimitiveId::*;
+    use RankSpec::{Absolute as A, Infinite as I};
+    match id {
+        Add | Subtract | Multiply | Divide | Magnitude => RankContract::all(A(0)),
+        Shape => RankContract::new(I, A(1), I),
+        Sparse | Ravel | Member => RankContract::all(I),
+        Tally => RankContract::new(I, A(1), I),
+        Equal | Less => RankContract::new(I, A(0), A(0)),
+        Greater => RankContract::all(A(0)),
+        From => RankContract::new(A(1), A(0), I),
+        IndexOf => RankContract::new(A(1), I, I),
+        Reverse | Transpose | Take | Drop => RankContract::new(I, A(1), I),
+        Steps => RankContract::new(A(0), I, I),
+        Indices => RankContract::new(A(1), I, I),
+        Find => RankContract::new(A(0), I, I),
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
     Pure,

@@ -192,6 +192,14 @@ fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
     })
 }
 
+fn compatibility_rank_at(value: &Value, index: usize) -> Result<i64> {
+    match value.data() {
+        crate::Data::Float(values) if values[index] == f64::INFINITY => Ok(i64::MAX),
+        crate::Data::Float(values) if values[index] == f64::NEG_INFINITY => Ok(i64::MIN),
+        _ => value.int_at(index),
+    }
+}
+
 fn apply_conjunction(
     left: Verb,
     operator: Arc<FunctionEntity>,
@@ -227,7 +235,7 @@ fn apply_conjunction(
                 if value.is_empty() || value.len() > 3 {
                     return Err(Error::Length);
                 }
-                let at = |i| value.int_at(i);
+                let at = |i| compatibility_rank_at(&value, i);
                 rank = Some(match value.len() {
                     1 => [at(0)?, at(0)?, at(0)?],
                     2 => [at(1)?, at(0)?, at(1)?],

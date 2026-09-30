@@ -1,7 +1,8 @@
 use rustj::{
     Engine,
     analysis::{AccessFact, AccessRelation, CallTarget, Operation, Scope, ValueId},
-    contracts::{Effect, Overflow},
+    contracts::{self, Effect, Overflow, RankContract, RankSpec},
+    facts::{CellApplyBoundary, RepeatedSide},
     semantic::{FunctionHead, NameVersion},
 };
 
@@ -254,12 +255,22 @@ fn rank_cell_frame_and_reduction_facts_match_execution() {
         }
     }
     let p = e.analyze("a+\"1 0 b").unwrap();
-    let layout = p.nodes[p.result.unwrap().0].rank_plan.as_ref().unwrap();
-    assert_eq!(layout.left_frame, Some(vec![2]));
-    assert_eq!(layout.left_cell, Some(vec![3]));
-    assert_eq!(layout.right_frame, vec![2, 3, 4]);
-    assert_eq!(layout.right_cell, Vec::<usize>::new());
-    assert_eq!(layout.result_frame, Some(vec![2, 3, 4]));
+    let plan = p.nodes[p.result.unwrap().0]
+        .cell_application
+        .as_ref()
+        .unwrap();
+    assert_eq!(plan.layers.len(), 2);
+    let explicit = &plan.layers[0];
+    assert_eq!(explicit.boundary, CellApplyBoundary::Explicit);
+    assert_eq!(explicit.left_frame, Some(vec![2]));
+    assert_eq!(explicit.left_cell, Some(vec![3]));
+    assert_eq!(explicit.right_frame, vec![2, 3, 4]);
+    assert_eq!(explicit.right_cell, Vec::<usize>::new());
+    assert_eq!(explicit.result_frame, Some(vec![2, 3, 4]));
+    assert_eq!(explicit.iteration_count, Some(24));
+    assert_eq!(explicit.repeated_side, Some(RepeatedSide::Left));
+    assert_eq!(explicit.right_residual_frame, vec![3, 4]);
+    assert_eq!(plan.layers[1].boundary, CellApplyBoundary::Innate);
 }
 
 #[test]
@@ -274,27 +285,152 @@ fn empty_frames_and_incompatible_frames_remain_unresolved() {
         let node = &p.nodes[p.result.unwrap().0];
         assert_eq!(node.facts, Facts::default());
         assert!(
-            node.rank_plan
+            node.cell_application
                 .as_ref()
                 .unwrap()
-                .requires_empty_frame_prototype
+                .layers
+                .iter()
+                .any(|layer| layer.requires_empty_frame_prototype)
         );
         assert!(matches!(e.eval(s), Err(rustj::Error::Unsupported(_))));
     }
     let p = e.analyze("a+\"1 b").unwrap();
     let node = &p.nodes[p.result.unwrap().0];
     assert_eq!(node.facts, Facts::default());
-    assert_eq!(node.rank_plan.as_ref().unwrap().result_frame, None);
+    assert_eq!(
+        node.cell_application.as_ref().unwrap().layers[0].result_frame,
+        None
+    );
     assert!(matches!(e.eval("a+\"1 b"), Err(rustj::Error::Length)));
     assert!(
         !node
-            .rank_plan
+            .cell_application
             .as_ref()
             .unwrap()
-            .requires_empty_frame_prototype
+            .layers
+            .iter()
+            .any(|layer| layer.requires_empty_frame_prototype)
     );
 }
 
+#[test]
+fn jsource_innate_rank_contracts_are_semantic_not_runtime_sentinels() {
+    use rustj::primitive::PrimitiveId;
+
+    assert_eq!(
+        contracts::innate_rank(PrimitiveId::Add),
+        RankContract::all(RankSpec::Absolute(0))
+    );
+    assert_eq!(
+        contracts::innate_rank(PrimitiveId::Shape),
+        RankContract::new(
+            RankSpec::Infinite,
+            RankSpec::Absolute(1),
+            RankSpec::Infinite,
+        )
+    );
+    assert_eq!(
+        contracts::innate_rank(PrimitiveId::From),
+        RankContract::new(
+            RankSpec::Absolute(1),
+            RankSpec::Absolute(0),
+            RankSpec::Infinite,
+        )
+    );
+    assert_eq!(RankSpec::Relative(-1).resolve(3), 2);
+    assert_eq!(RankSpec::Relative(-99).resolve(3), 0);
+    assert_eq!(RankSpec::Infinite.resolve(3), 3);
+}
+
+#[test]
+fn implicit_and_explicit_cell_application_boundaries_remain_distinct() {
+    let mut e = Engine::new();
+    e.eval("a=:i.2 3").unwrap();
+
+    let p = e.analyze("1+a").unwrap();
+    let node = &p.nodes[p.result.unwrap().0];
+    let plan = node.cell_application.as_ref().unwrap();
+    assert_eq!(plan.layers.len(), 1);
+    let innate = &plan.layers[0];
+    assert_eq!(innate.boundary, CellApplyBoundary::Innate);
+    assert_eq!(innate.effective_left_rank, Some(0));
+    assert_eq!(innate.effective_right_rank, Some(0));
+    assert_eq!(innate.left_frame, Some(vec![]));
+    assert_eq!(innate.right_frame, vec![2, 3]);
+    assert_eq!(innate.repeated_side, Some(RepeatedSide::Left));
+    assert_eq!(innate.right_residual_frame, vec![2, 3]);
+    assert_eq!(innate.iteration_count, Some(6));
+    assert_eq!(node.facts.shape, Some(vec![2, 3]));
+
+    let p = e.analyze("$a").unwrap();
+    let node = &p.nodes[p.result.unwrap().0];
+    let plan = node.cell_application.as_ref().unwrap();
+    assert_eq!(plan.layers.len(), 1);
+    assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Innate);
+    assert_eq!(plan.layers[0].effective_monad_rank, Some(2));
+    assert_eq!(plan.layers[0].right_frame, Vec::<usize>::new());
+    assert_eq!(plan.layers[0].right_cell, vec![2, 3]);
+    assert_eq!(plan.layers[0].iteration_count, Some(1));
+    assert_eq!(node.facts.shape, Some(vec![2]));
+
+    let p = e.analyze("+\"1 a").unwrap();
+    let node = &p.nodes[p.result.unwrap().0];
+    let plan = node.cell_application.as_ref().unwrap();
+    assert_eq!(plan.layers.len(), 2);
+    assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Explicit);
+    assert_eq!(plan.layers[0].right_frame, vec![2]);
+    assert_eq!(plan.layers[0].right_cell, vec![3]);
+    assert_eq!(plan.layers[0].iteration_count, Some(2));
+    assert_eq!(plan.layers[1].boundary, CellApplyBoundary::Innate);
+    assert_eq!(plan.layers[1].right_frame, vec![3]);
+    assert_eq!(plan.layers[1].right_cell, Vec::<usize>::new());
+    assert_eq!(plan.layers[1].iteration_count, Some(3));
+    assert_eq!(node.facts.shape, Some(vec![2, 3]));
+
+    let p = e.analyze("(+\"1)\"0 a").unwrap();
+    let plan = p.nodes[p.result.unwrap().0]
+        .cell_application
+        .as_ref()
+        .unwrap();
+    assert_eq!(plan.layers.len(), 3);
+    assert_eq!(
+        plan.layers
+            .iter()
+            .map(|layer| layer.boundary)
+            .collect::<Vec<_>>(),
+        vec![
+            CellApplyBoundary::Explicit,
+            CellApplyBoundary::Explicit,
+            CellApplyBoundary::Innate,
+        ]
+    );
+    assert_eq!(plan.layers[0].effective_monad_rank, Some(0));
+    assert_eq!(plan.layers[1].effective_monad_rank, Some(0));
+    assert_eq!(plan.layers[2].effective_monad_rank, Some(0));
+
+    let p = e.analyze("+/\"1 a").unwrap();
+    let plan = p.nodes[p.result.unwrap().0]
+        .cell_application
+        .as_ref()
+        .unwrap();
+    assert_eq!(plan.layers.len(), 2);
+    assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Explicit);
+    assert_eq!(plan.layers[1].boundary, CellApplyBoundary::Innate);
+    assert_eq!(plan.layers[1].requested.monad, RankSpec::Infinite);
+
+    let p = e.analyze("$\"_ a").unwrap();
+    let plan = p.nodes[p.result.unwrap().0]
+        .cell_application
+        .as_ref()
+        .unwrap();
+    assert_eq!(plan.layers.len(), 2);
+    assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Explicit);
+    assert_eq!(plan.layers[0].requested.monad, RankSpec::Infinite);
+    assert_eq!(plan.layers[0].effective_monad_rank, Some(2));
+
+    let err = e.analyze("(+\"1)/ a").unwrap_err();
+    assert!(matches!(err, rustj::Error::Unsupported(_)));
+}
 
 #[test]
 fn verifier_rejects_malformed_dependencies_but_accepts_current_plans() {

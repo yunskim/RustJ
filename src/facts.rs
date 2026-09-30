@@ -121,29 +121,56 @@ pub(crate) fn infer(
     }
 }
 
-/// Cell/frame decomposition, independent of physical layout and worker count.
+/// One semantic cell-application boundary. Layers are ordered outermost to
+/// innermost; explicit rank conjunction boundaries remain distinct from the
+/// callable's innate rank boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellApplyBoundary {
+    Explicit,
+    Innate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepeatedSide {
+    Left,
+    Right,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RankPlan {
+pub struct CellApplyLayer {
+    pub boundary: CellApplyBoundary,
+    pub requested: crate::contracts::RankContract,
+    pub effective_monad_rank: Option<usize>,
+    pub effective_left_rank: Option<usize>,
+    pub effective_right_rank: Option<usize>,
     pub left_frame: Option<Vec<usize>>,
     pub left_cell: Option<Vec<usize>>,
     pub right_frame: Vec<usize>,
     pub right_cell: Vec<usize>,
+    pub common_frame_prefix: Option<Vec<usize>>,
+    pub left_residual_frame: Vec<usize>,
+    pub right_residual_frame: Vec<usize>,
+    pub repeated_side: Option<RepeatedSide>,
+    /// None means the known dyadic frames fail J prefix agreement.
     pub result_frame: Option<Vec<usize>>,
+    /// Logical number of frame iterations. None means agreement/size is unresolved.
+    pub iteration_count: Option<usize>,
     pub requires_empty_frame_prototype: bool,
 }
-fn split(shape: &[usize], requested: i64) -> (Vec<usize>, Vec<usize>) {
-    let cell_rank = if requested < 0 {
-        shape
-            .len()
-            .saturating_sub(usize::try_from(requested.unsigned_abs()).unwrap_or(usize::MAX))
-    } else {
-        shape
-            .len()
-            .min(usize::try_from(requested).unwrap_or(usize::MAX))
-    };
+
+/// Logical iteration semantics only. This is deliberately not a physical loop
+/// or a GPU mapping.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellApplicationPlan {
+    pub layers: Vec<CellApplyLayer>,
+}
+
+fn split_effective(shape: &[usize], cell_rank: usize) -> (Vec<usize>, Vec<usize>) {
+    let cell_rank = cell_rank.min(shape.len());
     let frame_rank = shape.len() - cell_rank;
     (shape[..frame_rank].to_vec(), shape[frame_rank..].to_vec())
 }
+
 fn cell(input: &Facts, shape: Vec<usize>) -> Facts {
     Facts {
         dtype: input.dtype,
@@ -152,6 +179,7 @@ fn cell(input: &Facts, shape: Vec<usize>) -> Facts {
         shape: Some(shape),
     }
 }
+
 fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     if !matches!(id, Add | Subtract | Multiply | Divide) {
         return Facts::default();
@@ -177,13 +205,198 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     }
 }
 
+fn dyad_frame_details(
+    left: &[usize],
+    right: &[usize],
+) -> (
+    Option<Vec<usize>>,
+    Vec<usize>,
+    Vec<usize>,
+    Option<RepeatedSide>,
+    Option<Vec<usize>>,
+) {
+    if left.len() <= right.len() {
+        if !right.starts_with(left) {
+            return (None, Vec::new(), Vec::new(), None, None);
+        }
+        let right_residual = right[left.len()..].to_vec();
+        let repeated = (!right_residual.is_empty()).then_some(RepeatedSide::Left);
+        (
+            Some(left.to_vec()),
+            Vec::new(),
+            right_residual,
+            repeated,
+            Some(right.to_vec()),
+        )
+    } else {
+        if !left.starts_with(right) {
+            return (None, Vec::new(), Vec::new(), None, None);
+        }
+        let left_residual = left[right.len()..].to_vec();
+        let repeated = (!left_residual.is_empty()).then_some(RepeatedSide::Right);
+        (
+            Some(right.to_vec()),
+            left_residual,
+            Vec::new(),
+            repeated,
+            Some(left.to_vec()),
+        )
+    }
+}
+
+fn iteration_count(frame: Option<&[usize]>) -> Option<usize> {
+    frame?.iter().try_fold(1usize, |count, &extent| count.checked_mul(extent))
+}
+
+fn plan_layer(
+    boundary: CellApplyBoundary,
+    requested: crate::contracts::RankContract,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> Option<(CellApplyLayer, Option<Facts>, Facts)> {
+    let right_shape = right.shape.as_ref()?;
+    if let Some(left) = left {
+        let left_shape = left.shape.as_ref()?;
+        let effective_left = requested.left.resolve(left_shape.len());
+        let effective_right = requested.right.resolve(right_shape.len());
+        let (left_frame, left_cell) = split_effective(left_shape, effective_left);
+        let (right_frame, right_cell) = split_effective(right_shape, effective_right);
+        let (common, left_residual, right_residual, repeated_side, result_frame) =
+            dyad_frame_details(&left_frame, &right_frame);
+        let empty = result_frame.as_ref().is_some_and(|frame| frame.contains(&0));
+        let count = iteration_count(result_frame.as_deref());
+        let layer = CellApplyLayer {
+            boundary,
+            requested,
+            effective_monad_rank: None,
+            effective_left_rank: Some(effective_left),
+            effective_right_rank: Some(effective_right),
+            left_frame: Some(left_frame),
+            left_cell: Some(left_cell.clone()),
+            right_frame,
+            right_cell: right_cell.clone(),
+            common_frame_prefix: common,
+            left_residual_frame: left_residual,
+            right_residual_frame: right_residual,
+            repeated_side,
+            result_frame,
+            iteration_count: count,
+            requires_empty_frame_prototype: empty,
+        };
+        Some((layer, Some(cell(left, left_cell)), cell(right, right_cell)))
+    } else {
+        let effective = requested.monad.resolve(right_shape.len());
+        let (right_frame, right_cell) = split_effective(right_shape, effective);
+        let empty = right_frame.contains(&0);
+        let layer = CellApplyLayer {
+            boundary,
+            requested,
+            effective_monad_rank: Some(effective),
+            effective_left_rank: None,
+            effective_right_rank: None,
+            left_frame: None,
+            left_cell: None,
+            right_frame: right_frame.clone(),
+            right_cell: right_cell.clone(),
+            common_frame_prefix: None,
+            left_residual_frame: Vec::new(),
+            right_residual_frame: Vec::new(),
+            repeated_side: None,
+            iteration_count: iteration_count(Some(right_frame.as_slice())),
+            result_frame: Some(right_frame),
+            requires_empty_frame_prototype: empty,
+        };
+        Some((layer, None, cell(right, right_cell)))
+    }
+}
+
+struct PlannedCellApplication {
+    plan: CellApplicationPlan,
+    left: Option<Facts>,
+    right: Facts,
+}
+
+fn build_cell_application(
+    explicit_ranks: &[crate::contracts::RankContract],
+    innate_rank: Option<crate::contracts::RankContract>,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> Option<PlannedCellApplication> {
+    if explicit_ranks.is_empty() && innate_rank.is_none() {
+        return None;
+    }
+
+    let mut current_left = left.cloned();
+    let mut current_right = right.clone();
+    let mut layers =
+        Vec::with_capacity(explicit_ranks.len() + if innate_rank.is_some() { 1 } else { 0 });
+
+    for requested in explicit_ranks.iter().copied() {
+        let (layer, next_left, next_right) = plan_layer(
+            CellApplyBoundary::Explicit,
+            requested,
+            current_left.as_ref(),
+            &current_right,
+        )?;
+        let agreed = layer.result_frame.is_some();
+        layers.push(layer);
+        current_left = next_left;
+        current_right = next_right;
+        if !agreed {
+            return Some(PlannedCellApplication {
+                plan: CellApplicationPlan { layers },
+                left: current_left,
+                right: current_right,
+            });
+        }
+    }
+
+    if let Some(requested) = innate_rank {
+        let (layer, next_left, next_right) = plan_layer(
+            CellApplyBoundary::Innate,
+            requested,
+            current_left.as_ref(),
+            &current_right,
+        )?;
+        let agreed = layer.result_frame.is_some();
+        layers.push(layer);
+        current_left = next_left;
+        current_right = next_right;
+        if !agreed {
+            return Some(PlannedCellApplication {
+                plan: CellApplicationPlan { layers },
+                left: current_left,
+                right: current_right,
+            });
+        }
+    }
+
+    Some(PlannedCellApplication {
+        plan: CellApplicationPlan { layers },
+        left: current_left,
+        right: current_right,
+    })
+}
+
+/// Pure, execution-free planner for J cell application. None means the current
+/// facts are insufficient and runtime resolution is still required.
+pub(crate) fn plan_cell_application(
+    explicit_ranks: &[crate::contracts::RankContract],
+    innate_rank: Option<crate::contracts::RankContract>,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> Option<CellApplicationPlan> {
+    build_cell_application(explicit_ranks, innate_rank, left, right).map(|planned| planned.plan)
+}
+
 pub(crate) fn infer_call(
     id: PrimitiveId,
     reduce: bool,
-    ranks: Option<[i64; 3]>,
+    explicit_ranks: &[crate::contracts::RankContract],
+    innate_rank: Option<crate::contracts::RankContract>,
     left: Option<&Facts>,
     right: &Facts,
-) -> (Facts, Option<RankPlan>) {
+) -> (Facts, Option<CellApplicationPlan>) {
     use crate::contracts::{self, Valence};
     let base = |x: Option<&Facts>, y: &Facts| {
         if reduce {
@@ -201,60 +414,55 @@ pub(crate) fn infer_call(
             infer(id, contracts::for_primitive(id, valence).shape_rule, x, y)
         }
     };
-    let Some(ranks) = ranks else {
-        return (base(left, right), None);
+
+    let Some(planned) = build_cell_application(explicit_ranks, innate_rank, left, right) else {
+        return (
+            if explicit_ranks.is_empty() {
+                base(left, right)
+            } else {
+                Facts::default()
+            },
+            None,
+        );
     };
-    let Some(right_shape) = &right.shape else {
-        return (Facts::default(), None);
-    };
-    let (rf, rc) = split(
-        right_shape,
-        if left.is_some() { ranks[2] } else { ranks[0] },
-    );
-    let (lf, lc) = if let Some(left) = left {
-        let Some(shape) = &left.shape else {
-            return (Facts::default(), None);
-        };
-        let (frame, cell) = split(shape, ranks[1]);
-        (Some(frame), Some(cell))
-    } else {
-        (None, None)
-    };
-    let result_frame = match &lf {
-        Some(lf) => agreement(lf, &rf),
-        None => Some(rf.clone()),
-    };
-    let empty = result_frame.as_ref().is_some_and(|f| f.contains(&0));
-    let plan = RankPlan {
-        left_frame: lf,
-        left_cell: lc.clone(),
-        right_frame: rf,
-        right_cell: rc.clone(),
-        result_frame: result_frame.clone(),
-        requires_empty_frame_prototype: empty,
-    };
-    let Some(mut frame) = result_frame else {
-        return (Facts::default(), Some(plan));
-    };
-    if empty {
-        return (Facts::default(), Some(plan));
+
+    if planned
+        .plan
+        .layers
+        .iter()
+        .any(|layer| layer.result_frame.is_none())
+    {
+        return (Facts::default(), Some(planned.plan));
     }
-    let right_cell = cell(right, rc);
-    let left_cell = left.zip(lc).map(|(x, s)| cell(x, s));
-    let result = base(left_cell.as_ref(), &right_cell);
-    let shape = result.shape.map(|s| {
-        frame.extend(s);
-        frame
-    });
-    let frame_rank = plan.result_frame.as_ref().unwrap().len();
-    let rank = result.rank.and_then(|r| r.checked_add(frame_rank));
-    (
-        Facts {
-            dtype: result.dtype,
-            layout: LayoutFact::Unknown,
-            shape,
-            rank,
-        },
-        Some(plan),
-    )
+
+    if planned
+        .plan
+        .layers
+        .iter()
+        .any(|layer| layer.requires_empty_frame_prototype)
+    {
+        // IL4 will replace this conservative unknown with J fill-cell/prototype
+        // abstract evaluation. The obligation is explicit in the plan now.
+        return (Facts::default(), Some(planned.plan));
+    }
+
+    let mut result = base(planned.left.as_ref(), &planned.right);
+    for layer in planned.plan.layers.iter().rev() {
+        let frame = layer
+            .result_frame
+            .as_ref()
+            .expect("agreement checked before assembly");
+        if !frame.is_empty() {
+            result.layout = LayoutFact::Unknown;
+        }
+        if let Some(shape) = result.shape.take() {
+            let mut assembled = frame.clone();
+            assembled.extend(shape);
+            result.shape = Some(assembled);
+        }
+        result.rank = result
+            .rank
+            .and_then(|rank| rank.checked_add(frame.len()));
+    }
+    (result, Some(planned.plan))
 }
