@@ -68,6 +68,30 @@ impl ArgumentSummary {
     pub fn rank(&self) -> usize {
         self.shape.len()
     }
+
+    pub fn type_name(&self) -> &'static str {
+        match self.type_code {
+            1 => "boolean",
+            2 => "character",
+            4 => "integer",
+            8 => "floating",
+            32 => "boxed",
+            code if code >= 1024 => "sparse",
+            _ => "unknown",
+        }
+    }
+
+    fn shape_text(&self) -> String {
+        if self.shape.is_empty() {
+            "scalar".into()
+        } else {
+            self.shape
+                .iter()
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -339,16 +363,13 @@ impl Error {
         if let Some(name) = &diagnostic.context.current_name {
             out.push_str(&format!("\n  in {name}"));
         }
-        if let Some(word) = diagnostic.context.blame_word_index {
-            out.push_str(&format!("\n  word in error: {word}"));
-        }
         for argument in &diagnostic.context.arguments {
             out.push_str(&format!(
-                "\n  {}: type {}, rank {}, shape {:?}",
+                "\n  {}: {}, rank {}, shape {}",
                 argument.role.label(),
-                argument.type_code,
+                argument.type_name(),
                 argument.rank(),
-                argument.shape
+                argument.shape_text()
             ));
         }
         for note in &diagnostic.context.notes {
@@ -377,8 +398,9 @@ impl DiagnosticAnalyzer {
             let x = &context.arguments[0];
             let y = &context.arguments[1];
             context.notes.push(format!(
-                "argument shapes {:?} and {:?} do not conform",
-                x.shape, y.shape
+                "shapes {} and {} do not conform",
+                x.shape_text(),
+                y.shape_text()
             ));
         }
 
@@ -508,8 +530,8 @@ mod tests {
         let rendered = error.render("<test>", source, 1);
         assert!(rendered.contains("LengthError"));
         assert!(rendered.contains("while executing dyad +"));
-        assert!(rendered.contains("x: type 4, rank 1, shape [2]"));
-        assert!(rendered.contains("shapes [2] and [3] do not conform"));
+        assert!(rendered.contains("x: integer, rank 1, shape 2"));
+        assert!(rendered.contains("shapes 2 and 3 do not conform"));
     }
 
     #[test]
