@@ -32,6 +32,8 @@ fn registry_returns_reference_route_without_claiming_parallel_legality() {
 fn parallel_elementwise_route_opens_only_after_semantic_safety_is_proven() {
     let (basis, mut call) = result_basis_call("1+2");
     call.effect = EffectSummary::Pure;
+    call.possible_errors.unknown = false;
+    call.possible_errors.known.clear();
     call.speculation = SpeculationSemantics {
         may_raise_observable_error: false,
         preserve_evaluation_order: false,
@@ -60,6 +62,8 @@ fn tree_reduction_requires_reassociation_and_error_order_freedom() {
     );
 
     call.effect = EffectSummary::Pure;
+    call.possible_errors.unknown = false;
+    call.possible_errors.known.clear();
     call.speculation = SpeculationSemantics {
         may_raise_observable_error: false,
         preserve_evaluation_order: false,
@@ -106,6 +110,8 @@ fn gather_keeps_indexed_parallel_routes_closed_while_errors_are_observable() {
     );
 
     call.effect = EffectSummary::Pure;
+    call.possible_errors.unknown = false;
+    call.possible_errors.known.clear();
     call.speculation = SpeculationSemantics {
         may_raise_observable_error: false,
         preserve_evaluation_order: false,
