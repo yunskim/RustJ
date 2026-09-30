@@ -5362,6 +5362,84 @@ Logical IR
 
 source/semantic provenance와 필요한 numeric/rank contract를 유지한다.
 
+### 16.2.1 Canonical E2E audit — `(+/ % #) y`
+
+이 표현을 compiler pipeline의 고정 추적 표본으로 사용한다. 단순 vector 입력만 사용하면 implicit cell application이 드러나지 않으므로 두 입력을 구분한다.
+
+```j
+y =: 1 2 3 4
+(+/ % #) y
+```
+
+은 parser/train/lowering smoke test로 사용한다. 더 강한 E2E semantic test는 다음이다.
+
+```j
+y =: i. 2 3
+(+/ % #) y
+```
+
+J 의미상:
+
+```text
++/ y  -> 3 5 7
+#  y  -> 2
+3 5 7 % 2 -> 1.5 2.5 3.5
+```
+
+current jsource는 이 source structure를 fork로 유지한다. `cf.c::jtfolk`는 `f=+/`, `g=%`, `h=#`인 fork를 인식해 monadic executor를 `jtmean`으로 specialize하지만, derived entity 자체는 `CFORK`와 원래 f/g/h operands를 유지한다. `ar.c::jtslash`가 만든 `+/`의 monadic rank는 infinite(`RMAX`)이고, primitive table에서 `#`의 monadic rank도 infinite, `%`의 dyadic left/right rank는 `0 0`이다. 따라서 matrix 입력에서는 마지막 `%`가 다음 implicit cell application을 요구한다.
+
+```text
+left  = +/ y : shape [3], dyad cell rank 0
+right = #  y : shape [],  dyad cell rank 0
+
+CellApply2
+  left_frame  = [3]
+  left_cell   = []
+  right_frame = []
+  right_cell  = []
+  agreement   = prefix
+  repetition  = repeat right scalar over left residual frame
+  result      = shape [3]
+```
+
+2026-09-30 current RustJ의 실제 단계별 상태:
+
+| 단계 | 현재 표본에서의 상태 | 실제 표현 / 문제 |
+|---|---|---|
+| scanner / word formation | 연결됨 | `+`, `/`, `%`, `#`를 별도 J word로 형성 |
+| token/POS classification | 연결됨 | `+`/ `%`/ `#` = Verb, `/` = Adverb |
+| modifier parser reduction | 연결됨 | `+ /` -> applied adverb FunctionEntity, parent identity는 `/` |
+| train construction | 이 표본에서 연결됨 | `+/ % #` -> shared `Fork(f=+/, g=%, h=#)` graph |
+| noun binding | 연결됨 | analysis path에서 `y`는 `ReadName + NameVersion` |
+| Semantic Analyzer structural lowering | 연결됨 | fork 실행 의미를 h -> f -> g 순으로 `Tally`, reduction `+`, `Divide` call dataflow로 생성 |
+| fact inference | 부분 연결 | shape/dtype 일부와 `ReduceLeadingAxis`/elementwise access를 계산 |
+| innate rank contract | **미구현** | primitive/derived callable의 monad/dyad-left/dyad-right `RankSpec`이 contract에 없음 |
+| implicit CellApply | **미구현** | matrix case의 `Divide([3], scalar)`가 logical `CellApply2`로 나타나지 않음 |
+| current rank fact | migration-only | `facts::RankPlan`은 explicit `Callable.rank`가 있을 때만 생김; plain `%`의 innate rank-0 iteration은 기록하지 않음 |
+| normalized LogicalOp | 부분 구현 | 아직 `Operation::Call + Callable.reduce` 중심이며 canonical `Reduce` / `CellApply` payload op로 분리되지 않음 |
+| LogicalPlan verifier | 기초만 존재 | ID/span/fact-shape/order 참조를 검증하지만 valence/rank/CellApply/agreement semantic legality verifier는 아직 없음 |
+| target-independent canonicalization | 미구현 | mean pattern 같은 rewrite가 없음 |
+| RoutePartition | 미구현 | 실제 route module/plan 없음 |
+| native Schedule / Physical Plan | 미연결 | `physical.rs`의 G1 affine representation은 존재하지만 LogicalPlan에서 생성되지 않음 |
+| LogicalPlan executor | **없음** | `analysis.rs`가 inspection-only이며 execute-plan API가 없음 |
+| legacy direct runtime | 별도 경로 | Semantic Analyzer/LogicalPlan을 우회하며 current `resolve_verb`는 `VerbTarget::Derived` fork를 실행하지 못함 |
+| true compiler E2E | **아직 성립하지 않음** | source -> verified Logical IR까지가 현재 연결된 compiler slice |
+
+특히 현재 analyzer는 matrix case에서도 `ShapeRule::PrefixAgreement`만으로 마지막 `Divide`의 result shape `[3]`을 추론할 수 있다. 그러나 **shape가 맞는 것과 J cell-iteration semantics를 표현한 것은 다르다.** 현재 `rank_plan=None`인 채 elementwise map으로 보이는 것은 최종 설계에서 허용할 수 없는 migration 상태다.
+
+따라서 이 표본의 첫 실제 compiler E2E proof 순서는 다음으로 고정한다.
+
+1. primitive/derived callable에 valence별 innate `RankSpec`을 연결한다.
+2. explicit `"`와 innate rank가 함께 사용하는 pure `CellApplicationPlanner`를 만든다.
+3. matrix `(+/ % #) y`의 마지막 `%`가 위의 `CellApply2`를 생성하는 golden test를 추가한다.
+4. `+/`를 migration bool이 아닌 normalized `Reduce(+)`로 내리고 `#`/ `%`와 함께 verified Logical IR을 만든다.
+5. verifier가 CellApply의 frame/cell split, prefix agreement, repetition relation, input/result fact consistency를 검증하게 한다.
+6. 이 single-region Logical IR을 기존 CPU kernels에 연결하는 최소 native executor를 만든다.
+7. generic `Reduce + Tally + CellApply(Divide)` 결과를 jsource와 differential test한다.
+8. 그 뒤에만 `(+/ % #)` -> fused Mean 후보를 Logical Optimizer/native lowering에 추가한다. 이 specialization은 semantic Fork graph를 대체하지 않고 generic path와 의미 동등성이 검증되어야 한다.
+
+기존 `tests/analysis.rs::canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order`는 parser/analyzer ordering smoke test로 유지하되, **compiler end-to-end 성공 증거로 간주하지 않는다.** 그 테스트는 `analyze + verify`까지만 호출하며 실행 경로를 통과하지 않는다.
+
 ### 16.3 Proof Slice 2 — 최소 CPU end-to-end
 
 10. A2 전체를 구현하지 말고 **A2-v0 capability subset**만 연결한다.
