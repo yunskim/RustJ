@@ -111,10 +111,37 @@ impl Engine {
             .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
     }
 
-    /// Build an inspection-only logical plan without running array kernels.
-    /// Stable machine API.
+    /// Analyze both compiler IR views: the J-grammar graph and the
+    /// execution-oriented logical plan derived from it.
+    pub fn analyze_compilation(
+        &self,
+        source: &str,
+    ) -> Result<crate::analysis::CompilationAnalysis> {
+        self.analyze_compilation_diagnostic(source)
+            .map_err(Error::into_unlocated)
+    }
+
+    pub fn analyze_compilation_diagnostic(
+        &self,
+        source: &str,
+    ) -> Result<crate::analysis::CompilationAnalysis> {
+        let j_graph = self.analyze_j_graph_diagnostic(source)?;
+        let execution = crate::analysis::lower_graph(j_graph.clone(), &|name| match self
+            .names
+            .get(name)
+            .map(|b| &b.value)
+        {
+            Some(SymbolValue::Noun(value)) => crate::facts::Facts::of(value),
+            _ => crate::facts::Facts::default(),
+        })
+        .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))?;
+        Ok(crate::analysis::CompilationAnalysis { j_graph, execution })
+    }
+
+    /// Backward-compatible projection of analyze_compilation() returning only
+    /// the execution-oriented logical plan.
     pub fn analyze(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
-        self.analyze_diagnostic(source).map_err(Error::into_unlocated)
+        self.analyze_compilation(source).map(|analysis| analysis.execution)
     }
 
     /// Build the A3-v0 operation/value-separated single-block logical IR.
@@ -130,15 +157,8 @@ impl Engine {
     /// Compiler-facing analysis path retaining the same structured diagnostic
     /// context used by the interpreter and future JIT.
     pub fn analyze_diagnostic(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
-        crate::analysis::lower_graph(self.analyze_j_graph_diagnostic(source)?, &|name| match self
-            .names
-            .get(name)
-            .map(|b| &b.value)
-        {
-            Some(SymbolValue::Noun(value)) => crate::facts::Facts::of(value),
-            _ => crate::facts::Facts::default(),
-        })
-        .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
+        self.analyze_compilation_diagnostic(source)
+            .map(|analysis| analysis.execution)
     }
 
     pub fn binding_version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
