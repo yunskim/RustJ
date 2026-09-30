@@ -12,20 +12,15 @@ J Source
 Frontend
   ↓
 J Semantic Array IR
-  │  noun / verb / adverb / conjunction
-  │  hook / fork / train / derived verb / rank
   ↓
 Semantic Analyzer / Lowering
   ↓
 Logical Array IR / Execution Plan
-  ↓
-Logical Optimizer
-  ↓
-Physical Planner / Physical Plan
-  ↓
-CPU / GPU Backend
-  ↓
-Runtime / Executor
+  │
+  ├─ RustJ native: Logical Optimizer → Schedule → Physical Plan → Executor
+  ├─ MLIR family → LLVM/NVVM/ROCDL/SPIR-V
+  ├─ StableHLO-compatible subset → external compiler
+  └─ verified library/custom-kernel route
 ```
 
 **상세 아키텍처, compiler stage 경계, IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.md](PROJECT.md)입니다.**
