@@ -3761,9 +3761,10 @@ Logical IR
 
 ```text
 Semantic IR
-  " : Verb
-  ├─ u
-  └─ r
+  " : Verb                 // derived result POS
+  head = PrimitiveConjunction(Rank)
+  ├─ left:  u
+  └─ right: r
 
        ↓ Semantic Analyzer
 
@@ -4808,7 +4809,7 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 - RoutePartition, MLIR adapter, StableHLO adapter는 아직 구현되지 않았다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 새 schema도 아직 문서 설계 단계다.
 - 실제 CUDA storage/kernel은 없다.
-- GitHub Actions의 `Linux milestone` CI를 사용한다. 2026-09-30 main 최신 run은 failure 상태이므로 CI 존재와 통과 여부를 구분해 기록한다.
+- GitHub Actions의 `Linux milestone` CI를 사용한다. workflow의 존재/사용 여부와 개별 run의 pass/fail은 구분하며, 검증 결과를 기록할 때는 해당 run의 실제 상태를 명시한다.
 - 이 컴퓨터에서는 Windows 네이티브 검증을 기준으로 한다.
 
 기계 측정 원자료는 `reports/*.json`, `reports/*.jsonl`에 보존한다.
