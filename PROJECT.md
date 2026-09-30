@@ -5881,12 +5881,16 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 > **A2-v0 blocking subset**
 > - built-in/extension이 공유하는 최소 semantic capability interface
 > - valence별 rank + shape/type/effect/error 최소 contract
+> - `ValueFacts`의 최소 Type/Rank/Shape domain + compile-time Witness
 > - Map/Reduce 수준의 IterationDomain
 > - `AccessFact = Known(simple) | Opaque`
 > - lowering eligibility/coverage manifest
 > - 첫 실행 op에 필요한 native CPU lowering
 >
 > **A2-later**
+> - richer ArrayPropertyFacts + full morphology worklist/fixpoint
+> - interprocedural morphology/specialization cache
+> - GraphIndex/AnalysisIndex batch-analysis view
 > - full TargetProfile/TargetQueries
 > - target locale chain
 > - ResourceEstimate/CostEstimate/CompiledResourceReport
@@ -5939,6 +5943,8 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 ### A3 — Logical IR core, verification, scheduling boundary
 
+> **단계화:** APEX/Co-dfns/TAIL 반영 항목은 단계적으로 도입한다. 첫 verified single-block Logical IR(A3-v0)은 SSA ValueId + 최소 Type/Rank/Shape/Witness + verifier를 우선한다. full GraphIndex, full morphology fixpoint, interprocedural SpecializationKey cache, richer ArrayPropertyFacts는 A3-v0의 선행조건이 아니며 v1/later에서 추가한다.
+>
 - [ ] SSA `ValueId`, Function/Region/Block/Terminator 최소 구조를 정의한다.
 - [ ] J Name / BindingVersion / SSA ValueId를 명시적으로 구분한다.
 - [ ] immutable semantic/Logical DAG에서 유도되는 `GraphIndex` / `AnalysisIndex` sidecar(parent/depth/preorder/subtree/op/entity/scope/use-def/source-origin)를 정의한다.
