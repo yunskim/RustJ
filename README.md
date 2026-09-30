@@ -2,29 +2,33 @@
 
 RustJ는 J의 언어·배열 의미론을 보존하면서 CPU와 GPU를 동등한 실행 대상으로 삼는 Rust 기반 배열 컴파일러를 목표로 합니다.
 
-`jsource`를 줄 단위로 번역하는 프로젝트가 아니라, J frontend와 배열 컴파일러 middle-end를 분리합니다.
+`jsource`를 줄 단위로 번역하는 프로젝트가 아니라, J frontend·semantic analysis·logical/physical planning·backend를 분리한 하나의 compiler system으로 설계합니다.
+
+`Jaxa`는 현재 아키텍처의 별도 컴포넌트명이 아닙니다. 과거 `jaxa-analyzer` 연구 저장소의 아이디어는 RustJ middle-end 설계에 흡수합니다.
 
 ```text
 J Source
   ↓
-RustJ frontend
+Frontend
   ↓
 J Semantic Array IR
   │  noun / verb / adverb / conjunction
   │  hook / fork / train / derived verb / rank
   ↓
-Jaxa
+Semantic Analyzer / Lowering
   ↓
 Logical Array IR / Execution Plan
   ↓
-Physical Plan
+Logical Optimizer
   ↓
-CPU / GPU backend
+Physical Planner / Physical Plan
+  ↓
+CPU / GPU Backend
   ↓
 Runtime / Executor
 ```
 
-**상세 아키텍처, RustJ/Jaxa 경계, Array IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.md](PROJECT.md)입니다.**
+**상세 아키텍처, compiler stage 경계, IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.md](PROJECT.md)입니다.**
 
 ## 현재 상태
 
@@ -38,10 +42,10 @@ Runtime / Executor
 - runtime AVX2 + portable fallback
 - sparse/boxed/packed-bit 기반 일부
 - read-only affine PhysicalArray(G1)
-- hook/fork/train/derived verb를 보존하는 J Semantic Array IR → Jaxa 경계는 아직 완전 분리되지 않음
+- hook/fork/train/derived verb를 보존하는 J Semantic Array IR → Semantic Analyzer/Lowering 경계는 아직 완전 분리되지 않음
 - 실제 CUDA backend는 아직 미구현
 
-다음 compiler architecture 작업은 현재 Semantic IR이 J의 verb composition을 충분히 보존하는지 감사하고, `J Semantic Array IR → Jaxa → Logical Array IR/Plan` 경계를 코드에서 명시하는 것입니다.
+다음 compiler architecture 작업은 현재 Semantic IR이 J의 verb composition을 충분히 보존하는지 감사하고, `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` 경계를 코드에서 명시하는 것입니다.
 
 ## 빌드와 실행
 
