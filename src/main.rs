@@ -7,9 +7,9 @@ use std::{
 
 fn run(engine: &mut Engine, line: &str, json: bool, semantic: bool, source_name: &str, line_number: usize) -> bool {
     match if semantic {
-        engine.eval_semantic_reference(line)
+        engine.eval_semantic_reference_diagnostic(line)
     } else {
-        engine.eval(line)
+        engine.eval_diagnostic(line)
     } {
         Ok(Some(v)) => {
             println!("{}", if json { v.json() } else { v.display() });
