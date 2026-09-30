@@ -108,6 +108,8 @@ pub enum Constraint {
     CellFrameAgreement {
         left: ValueId,
         right: ValueId,
+        left_rank: i64,
+        right_rank: i64,
     },
     IndicesInBounds {
         indices: ValueId,
@@ -119,7 +121,11 @@ impl Constraint {
     fn values(&self) -> [Option<ValueId>; 2] {
         match *self {
             Self::PrefixAgreement { left, right }
-            | Self::CellFrameAgreement { left, right } => [Some(left), Some(right)],
+            | Self::CellFrameAgreement {
+                left,
+                right,
+                ..
+            } => [Some(left), Some(right)],
             Self::IndicesInBounds { indices, source } => [Some(indices), Some(source)],
         }
     }
@@ -523,10 +529,16 @@ fn call_constraints(
                     .clone()
                     .map(|result_frame| FactWitness::CellFrameAgreement { result_frame })
             });
+            let ranks = match &node.operation {
+                analysis::Operation::Call { callable, .. } => callable.rank.unwrap_or([0, 0, 0]),
+                _ => [0, 0, 0],
+            };
             set.facts.push(ConstraintFact {
                 constraint: Constraint::CellFrameAgreement {
                     left: left_value,
                     right,
+                    left_rank: ranks[1],
+                    right_rank: ranks[2],
                 },
                 witness,
             });
