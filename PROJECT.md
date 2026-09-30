@@ -4626,6 +4626,7 @@ APEX, Aaron Hsu의 Co-dfns 연구, APL→TAIL→Futhark 연구를 비교한 결�
 J Semantic IR
       ↓
 Binding / Effect Analysis
+      ├─→ StructuralOpportunity extraction
       ↓
 Logical SSA
       ↓
@@ -5552,6 +5553,277 @@ A3 logical_ir 쪽:
 J error가 있는 case는 값만 비교하지 않고 **error class와 observable ordering**까지 비교한다.
 
 
+
+
+#### 4.24.15 J syntax-derived Structural Opportunity IR: 문법을 optimization information source로 사용한다
+
+과거 JAXA의 핵심 주장은 “J를 컴파일한다”보다 더 강했다.
+
+> **J의 combinator syntax와 derived semantics가 계산 graph의 topology를 정적으로 드러내므로, compiler가 fusion·parallelism·materialization·lifetime 기회를 일반 DAG pattern matching보다 일찍 발견할 수 있다.**
+
+RustJ는 이 정보를 generic Logical DAG로 펼친 뒤 다시 복원하지 않는다. Semantic Analyzer가 아직 FunctionEntity의 J 구조를 보고 있을 때 **target-independent StructuralOpportunity**를 추출하고, 펼친 ValueId graph와 함께 보존한다.
+
+이 원칙은 basis 분석과 다른 축이다.
+
+~~~text
+                    ┌→ Basis analysis
+J Semantic IR ──────┤
+                    └→ Structural opportunity analysis
+                              │
+                              ▼
+                    Logical optimization substrate
+                              │
+                    semantic legality / proof
+                              │
+                    target/resource feasibility
+                              │
+                    schedule / physical plan
+~~~
+
+Basis는 “무슨 배열 연산인가”를 설명한다.
+
+~~~text
++/      → Reduce
+{       → Gather
+;.3     → WindowView
+u . v   → Contract
+~~~
+
+Structural opportunity는 “연산들이 어떤 topology로 연결되었는가”를 설명한다.
+
+~~~text
+@:          → Pipeline
+hook/fork   → Branch / Join
+adjoint/VJP → Parallel Fan-out
+^:          → Iteration topology
+"           → Cell-level parallel application topology
+~~~
+
+두 정보는 합쳐져야 한다.
+
+~~~text
+operation kind × graph topology × semantic facts
+~~~
+
+##### JAXA에서 계승하는 첫 세 topology
+
+**1. @: — Pipeline fusion opportunity**
+
+~~~j
+f @: g @: h
+~~~
+
+J 결합 규칙만으로 실행 흐름을 다음처럼 알 수 있다.
+
+~~~text
+h → g → f
+~~~
+
+따라서 Semantic Analyzer는 일반 DAG optimizer가 나중에 producer-consumer chain을 재발견하기 전에 다음 정보를 기록한다.
+
+~~~text
+PipelineOpportunity
+  source = Atop
+  inputs
+  ordered stage results
+  intermediate values that may avoid materialization
+  source span / semantic provenance
+~~~
+
+이 record는 “반드시 하나의 kernel로 fuse한다”는 뜻이 아니다.
+
+**2. hook/fork — Branch/Join fusion + retained-value opportunity**
+
+monadic hook:
+
+~~~j
+(+ F) y
+~~~
+
+~~~text
+y ─────────────────┐
+                   +
+F(y) ───────────────┘
+~~~
+
+fork:
+
+~~~j
+f g h
+~~~
+
+~~~text
+        f(y) ──┐
+y ─────┤       g → result
+        h(y) ──┘
+~~~
+
+따라서 analyzer는 다음을 알고 있다.
+
+~~~text
+BranchJoinOpportunity
+  shared_inputs
+  branch_results
+  join_result
+  values live across branch computation
+  J observable branch evaluation order
+  source = Hook | Fork
+~~~
+
+과거 JAXA 문서의 “input y를 register에 유지”는 현행 RustJ Logical IR에서는 더 일반적으로 다음처럼 해석한다.
+
+> **shared/live-across value를 fusion region 안에서 materialize하지 않고 join까지 유지할 가능성이 있다.**
+
+register/shared memory/reload/recompute/global materialization 중 무엇을 쓸지는 Physical Planner가 결정한다.
+
+**3. adjoint/VJP — Parallel fan-out opportunity**
+
+Flow–Storage 연구의 backward 그림:
+
+~~~text
+dy + saved values
+       │
+       ├─ data adjoint       → dx → previous layer
+       ├─ parameter adjoint  → grad_W → emit/accumulate
+       └─ parameter adjoint  → grad_b → emit/accumulate
+~~~
+
+은 data dependency가 없는 여러 branch를 만들 수 있다. 따라서 향후 adjoint/VJP expansion은 다음 record를 생성한다.
+
+~~~text
+ParallelFanOutOpportunity
+  inputs
+  branch_results
+  continuing flow value
+  emitted parameter-adjoint values
+  source = AdjointVjp
+~~~
+
+이 또한 실제 concurrent kernel 실행을 의미하지 않는다. effect/accumulation ordering과 target bandwidth/resource analysis가 뒤따른다.
+
+##### opportunity와 legality를 분리한다
+
+StructuralOpportunity는 **후보 발견**이다.
+
+~~~text
+J syntax / derived semantics
+        ↓
+StructuralOpportunity
+        ↓
+SemanticFusion/ParallelLegality
+        ↓
+TargetFusion/ParallelFeasibility
+        ↓
+Cost/Schedule decision
+        ↓
+Physical fusion / parallel execution
+~~~
+
+semantic legality는 다음을 본다.
+
+- EffectSummary
+- SpeculationSemantics
+- J error ordering
+- ConstraintSet / FactWitness
+- numeric semantics
+- rank/cell/frame assembly
+- access/dependency relation
+- alias/destination relation
+- representation compatibility
+
+target/resource feasibility는 그 뒤에 다음을 본다.
+
+- register pressure / live-value pressure
+- shared/local memory
+- synchronization
+- subgroup/warp/SIMD constraints
+- memory bandwidth and coalescing
+- launch overhead
+- library/tensor-core realization constraints
+- tiling feasibility
+
+따라서 하드웨어 정보는 Semantic IR에 넣지 않지만 **fusion region을 확정하기 전에는 반드시 들어온다**.
+
+~~~text
+early:
+  "여기는 fusion/parallel opportunity다"
+
+middle:
+  "J semantics상 합법하다"
+
+later:
+  "이 target에서 실제로 realizable/profitable하다"
+
+commit:
+  chosen FusionRegion / ParallelSchedule
+~~~
+
+##### Flow–Storage와의 연결
+
+StructuralOpportunity는 4.24 Flow–Storage의 storage 결정을 앞당겨 확정하지 않는다.
+
+Pipeline 내부 intermediate:
+
+~~~text
+Logical ArrayValue
+  → materialization elision candidate
+~~~
+
+Hook/Fork의 live-across value:
+
+~~~text
+Logical ArrayValue
+  → retain/reload/recompute/materialize choice
+~~~
+
+Adjoint parameter branch:
+
+~~~text
+Logical ArrayValue
+  → continuing flow가 아니라 semantic emit/accumulate destination을 가질 수 있음
+~~~
+
+Physical planner가 다음 중 하나를 고른다.
+
+~~~text
+KeepVirtual
+FuseAway
+RegisterResident
+ScratchpadResident
+Recompute
+Bufferize
+ExternalResource
+~~~
+
+즉 **syntax가 lifetime/topology 힌트를 주고, Flow–Storage가 semantic obligation을 설명하며, hardware planner가 실제 storage를 선택한다.**
+
+##### 현재 구현 seam
+
+2026-10-01 현재 코드에는 첫 migration seam을 추가했다.
+
+- ConjunctionId::Atop (@:)을 frontend registry에 추가했다.
+- FunctionEntity는 @: derived verb를 PrimitiveConjunction(Atop) + 두 function operand로 보존한다.
+- src/opportunity.rs에 target-independent StructuralOpportunity<V>를 추가했다.
+- Pipeline, BranchJoin, ParallelFanOut topology를 정의했다.
+- analysis::call_entity()가 Atop/Hook/Fork를 실제 call DAG로 펼칠 때 **동시에 opportunity record를 생성**한다.
+- @: chain은 recursive semantic tree를 execution-order pipeline으로 flatten하여 하나의 Pipeline record로 남긴다.
+- Hook/Fork는 J observable evaluation order를 유지한 branch result list와 live-across/shared input을 기록한다.
+- transition LogicalPlan과 A3 Logical IR 둘 다 opportunity sidecar를 운반하고 verifier가 value/span 무결성을 검사한다.
+- ParallelFanOut은 type/schema만 먼저 정의했으며 실제 adjoint/VJP pass가 생길 때 producer를 연결한다.
+
+이 방식은 source semantics를 generic DAG로 펼치는 것과 J syntax가 제공한 optimization information을 보존하는 것을 동시에 만족한다.
+
+##### 중요한 불변조건
+
+1. StructuralOpportunity는 optimization hint보다 강한 **semantic-topology provenance**지만, physical schedule은 아니다.
+2. Opportunity가 존재한다고 fusion/parallelization legality가 자동 성립하지 않는다.
+3. J observable evaluation order는 opportunity 안에서도 잃지 않는다. 병렬 실행은 별도 proof가 있어야 한다.
+4. basis normalization 때문에 Atop/Hook/Fork provenance를 버리지 않는다.
+5. generic DAG pattern matching은 추가 기회를 찾는 보조 수단일 수 있지만, J 문법이 이미 준 topology를 다시 찾는 주 경로가 되어서는 안 된다.
+6. hardware resource 정보는 opportunity discovery에 필요하지 않지만, 실제 fusion/parallel region 확정에는 필요하다.
+7. 이 층의 목적은 J 문법의 표현을 미학적으로 보존하는 것이 아니라 **optimizer search space를 줄이고 materialization/lifetime/parallel 후보를 일찍 제공하는 것**이다.
+
+
 ### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
 
 `JAXA-complier`의 마지막 prototype registry는 source-level 품사까지 가지고 있었다.
@@ -5652,7 +5924,7 @@ Apply(
              Divide
 ```
 
-여기서부터는 원래 source가 fork였다는 사실이 실행에 불필요할 수 있다. 다만 진단·debug·rewrite provenance가 필요하면 origin metadata로 연결할 수 있다.
+여기서 일반 dataflow 실행 의미는 fork 표기 없이도 표현할 수 있지만, **원래 source가 fork/hook/@:였다는 topology provenance는 optimization 정보로 계속 보존한다.** 4.24.15의 StructuralOpportunity sidecar가 pipeline/branch-join/live-across 정보를 명시적으로 운반하므로 optimizer가 generic DAG에서 이를 다시 pattern-match할 필요가 없다. 진단·debug provenance이기도 하지만 그것에 한정되지 않는다.
 
 Logical Plan에서 보존할 정보:
 
@@ -6690,6 +6962,11 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
 - [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
 - [x] A3 `CallOp + BasisPayload` 공통 contract와 `BasisKind` identity를 정의하고, target-specific realization은 `BasisLoweringCapability` registry로 분리했다.
+- [x] J syntax-derived `StructuralOpportunity` sidecar를 추가했다. `@:`는 Pipeline, hook/fork는 BranchJoin topology와 live-across/shared-input provenance를 analysis/A3 IR에 보존한다.
+- [x] StructuralOpportunity discovery와 semantic legality/target feasibility/physical fusion commitment을 서로 다른 단계로 분리했다.
+- [ ] adjoint/VJP expansion이 생기면 data-adjoint/parameter-adjoint branch를 `ParallelFanOut` opportunity로 연결한다.
+- [ ] StructuralOpportunity와 use-def/GraphIndex를 결합해 pipeline intermediate materialization-elision 및 branch live-range 분석을 일반화한다.
+- [ ] target ResourceEstimate/register/shared-memory model을 opportunity별 feasibility query로 연결하되 Logical IR payload에는 concrete hardware allocation을 넣지 않는다.
 - [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
 - [x] ValueRoleFacts 최소형을 추가했다. 현재 ShapeVector/AxisPermutation/IndexVector/CountVector를 실제 분석에서 생산하며 나머지 role enum은 후속 basis가 사용한다.
 - [x] J-visible predicate failure를 표현하는 first-class zero-result SemanticCheck를 A3 IR에 정의하고 compiler assertion과 분리했다.
