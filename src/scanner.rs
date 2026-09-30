@@ -144,27 +144,35 @@ pub fn scan(source: &[u8]) -> Result<Vec<Range<usize>>> {
     scan_impl(source, false)
 }
 
-/// Parse-visible words, equivalent to applying J `;:` to one source string:
-/// the final NB. comment field is excluded while word boundaries come from
-/// the same jtwordil-compatible state machine.
-pub fn word_texts(source: &str) -> Result<Vec<&str>> {
-    let spans = scan(source.as_bytes())?;
-    let mut words = Vec::with_capacity(spans.len());
-    for span in spans {
-        let word = source
-            .get(span)
-            .ok_or_else(|| Error::Unsupported("non-UTF-8 word boundary".into()))?;
-        if word.starts_with("NB.")
+/// Parse-visible spans, equivalent to the words returned by J `;:`.
+/// `jtwordil` keeps the trailing NB. field in its raw boundary buffer but
+/// records a smaller parse-word count in AM; `;:` exposes that parse-visible
+/// count. This helper mirrors that distinction without requiring UTF-8.
+pub fn parse_word_spans(source: &[u8]) -> Result<Vec<Range<usize>>> {
+    let mut spans = scan(source)?;
+    if let Some(last) = spans.last() {
+        let word = &source[last.clone()];
+        if word.starts_with(b"NB.")
             && !word
-                .as_bytes()
                 .get(3)
                 .is_some_and(|b| matches!(b, b'.' | b':'))
         {
-            break;
+            spans.pop();
         }
-        words.push(word);
     }
-    Ok(words)
+    Ok(spans)
+}
+
+/// UTF-8 convenience view over `parse_word_spans`.
+pub fn word_texts(source: &str) -> Result<Vec<&str>> {
+    parse_word_spans(source.as_bytes())?
+        .into_iter()
+        .map(|span| {
+            source
+                .get(span)
+                .ok_or_else(|| Error::Unsupported("non-UTF-8 word boundary".into()))
+        })
+        .collect()
 }
 
 /// Only for detecting unsupported definition boundaries before stopping input.
