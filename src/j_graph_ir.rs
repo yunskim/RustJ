@@ -17,6 +17,21 @@ use std::{collections::HashMap, ops::Range, sync::Arc};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ValueId(pub usize);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GraphSchemaVersion {
+    pub major: u16,
+    pub minor: u16,
+}
+
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion =
+    GraphSchemaVersion { major: 0, minor: 1 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GraphIrHeader {
+    pub schema: GraphSchemaVersion,
+    pub primitive_registry_version: u32,
+}
+
 #[derive(Clone, Debug)]
 pub enum NodeKind {
     Literal(Value),
@@ -55,6 +70,7 @@ pub struct Write {
 
 #[derive(Clone, Debug)]
 pub struct Plan {
+    pub header: GraphIrHeader,
     pub source: String,
     pub nodes: Vec<Node>,
     pub result: Option<ValueId>,
@@ -345,6 +361,10 @@ impl Plan {
         }).transpose()?;
 
         let plan = Self {
+            header: GraphIrHeader {
+                schema: J_GRAPH_SCHEMA_VERSION,
+                primitive_registry_version: crate::primitive::REGISTRY_VERSION,
+            },
             source: bound.program.source,
             nodes: builder.nodes,
             result,
@@ -371,6 +391,12 @@ impl Plan {
     }
 
     pub fn verify(&self) -> std::result::Result<(), String> {
+        if self.header.schema != J_GRAPH_SCHEMA_VERSION {
+            return Err("unsupported J Graph IR schema version".into());
+        }
+        if self.header.primitive_registry_version != crate::primitive::REGISTRY_VERSION {
+            return Err("J Graph IR primitive registry provenance mismatch".into());
+        }
         let source_len = self.source.len();
         for (index, node) in self.nodes.iter().enumerate() {
             if node.span.start > node.span.end
