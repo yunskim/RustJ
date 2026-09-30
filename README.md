@@ -29,6 +29,33 @@ Route Partition
 
 **왜 RustJ가 compiler-oriented architecture를 택하면서도 J semantics를 그대로 보존해야 하는지에 대한 설계 근거와 회귀 판정 기준은 [FOUNDATIONS.md](FOUNDATIONS.md)입니다. frontend·Semantic IR·interpreter/JIT/AOT 경계·rank/CellApply·target architecture를 바꾸기 전 반드시 검토합니다.**
 
+## 설계 연구 기반
+
+RustJ middle-end는 jsource compatibility 외에도 기존 array-language compiler 연구를 근거로 설계합니다.
+
+- **APEX — The APL Parallel Executor**: array morphology, SSA, interprocedural specialization, array property/data-flow 분석.  
+  Source: https://gitlab.com/bernecky/apex , https://www.snakeisland.com/ms.pdf
+- **Aaron W. Hsu / Co-dfns**: Node Coordinate Matrix, columnar/inverted-table AST, data-parallel/nanopass compiler pass, GPU critical-path/kernel-count/memory-traffic 관점.  
+  Paper: https://dl.acm.org/doi/10.1145/2935323.2935331  
+  Source pin: https://github.com/Co-dfns/Co-dfns/tree/4e6d3e3002f2109360d24278776c5b5a4f65db0d
+- **APL → TAIL → Futhark**: typed/rank-aware array IR, explicit map/reduction nests, loop fusion, nested-parallelism flattening, GPU lowering.  
+  Dyalog'16: https://elsman.com/pdf/Dyalog16.pdf  
+  FHPC'16: https://elsman.com/pdf/fhpc16futhark.pdf
+
+이 연구를 그대로 복제하지 않습니다. RustJ는 **full J semantics를 먼저 보존**하고 다음 요소만 middle-end에 흡수합니다.
+
+```text
+GraphIndex / AnalysisIndex
+MorphologyEngine
+ArrayPropertyFacts + FactWitness
+SpecializationKey/cache
+High-level Logical Parallel IR
+Pure/effect region partition
+ParameterizedLoweringRecipe
+```
+
+각 연구 compiler의 static-rank/static-scope/no-execute/pure-subset 제한은 RustJ language restriction이 아니라 **특정 compiler route의 precondition**으로만 취급합니다. 상세 근거와 거부 항목은 [FOUNDATIONS.md](FOUNDATIONS.md) Part XX, 구현 계약과 체크리스트는 [PROJECT.md](PROJECT.md) 4.24.3–4.24.10/A2/A3를 따릅니다.
+
 ## 현재 상태
 
 현재 저장소는 목표 compiler pipeline으로 이동 중인 전환 단계입니다.
