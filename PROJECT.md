@@ -1509,13 +1509,14 @@ NumericSemantics
   overflow retry / promotion behavior
   comparison tolerance mode / context
   fit (!.) numeric policy when applicable
+  reduction algorithm / accuracy mode when specified
   reassociation allowed?
   FMA contraction allowed?
-  reduction order observable?
+  reduction order/rounding constraints when specified
   NaN / signed-zero constraints
 ```
 
-CPU vector reduction이나 GPU tree reduction은 J의 관찰 가능한 floating-point 순서를 바꿀 수 있으므로, `reduction`이라는 사실만으로 재배치를 허용하지 않는다.
+CPU vector reduction이나 GPU tree reduction을 무조건 금지하지 않는다. current jsource 자체도 일반 floating reduction에 SIMD/여러 accumulator를 사용할 수 있다. 대신 각 primitive/derived verb가 요구하는 **numeric accuracy/order contract**를 표현하고, 그 contract가 허용하는 범위에서만 reassociation/vector/tree reduction을 선택한다.
 
 #### 4.15.4a comparison tolerance와 `!.`는 semantic input이다
 
@@ -1544,6 +1545,18 @@ tolerance가 runtime mutable state에 의존하면 다음 중 하나가 필요�
 - runtime semantic lowering
 
 GPU kernel 안에서 임의의 exact comparison으로 바꾸면 안 된다.
+
+또한 current jsource는 일반 `+/`와 `+/!.0`를 같은 reduction algorithm으로 취급하지 않는다. `+/!.0`에는 compensated summation 경로가 있으므로, `!.`를 단순 optimizer hint로 버리면 안 된다.
+
+```text
+ReductionNumericPolicy
+  DefaultJReduction
+  Compensated
+  ExactOrExtended
+  PrimitiveSpecific(...)
+```
+
+처럼 derived verb의 numeric policy가 lowering까지 전달되어야 한다.
 
 #### 4.15.4b overflow/promotion은 primitive contract의 retry semantics다
 
@@ -3309,9 +3322,9 @@ GPU 재개 후에는 kernel 제출과 실제 device completion을 구분한다.
 - empty/rank fill-cell 결과 type·shape semantics
 - rank/modifier result-cell assembly(type/shape join, framing fill, assembly error) semantics
 - sparse/boxed의 J-visible representation semantics
-- float 연산 순서
+- primitive/derived-verb가 요구하는 floating numeric contract(허용된 reassociation, compensated/exact mode, tolerance 등)
 
-FMA, reassociation, reduction 순서 변경은 별도 허용 조건 없이는 자동 적용하지 않는다. GPU 병렬 오류 수집도 arbitrary first-lane error를 그대로 노출하지 않고 J의 observable error contract를 따른다.
+FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조건 허용하지도 않는다.** `NumericSemantics`/`FitSemantics`가 허용한 경우에만 적용한다. GPU 병렬 오류 수집도 arbitrary first-lane error를 그대로 노출하지 않고 J의 observable error contract를 따른다.
 
 ---
 
@@ -3579,6 +3592,7 @@ A3-v2
 - [ ] alias proof 없는 write/reuse 금지
 - [ ] primitive-specific overflow/retry/promotion 및 error precedence 보존
 - [ ] comparison tolerance/`!.` contract 보존
+- [ ] 일반 float reduction과 compensated `+/!.0` 같은 derived numeric policy를 구분한다.
 - [ ] NaN/Inf/signed zero/empty/fill-cell 테스트
 
 ### G4 — RustJ-native 최소 Physical Plan과 CPU Executor
@@ -4101,6 +4115,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `cr.c`는 zero cells에서 fill-cell을 실행해 result cell type/shape를 정한다 | zero-trip elimination 전에 fill/prototype semantics를 해결한다 |
 | `result.h`는 rank/modifier의 cell results가 type/shape 불일치하면 homogeneous fast path에서 assembly path로 전환하고 type/shape join + framing fill을 수행한다 | rank map을 항상 static uniform tensor map으로 가정하지 않고 `RankAssemblySemantics`를 보존한다 |
 | `cv.c`의 `!.`는 comparison tolerance 또는 fill을 바꾸는 derived verb를 만든다 | tolerance/fill override를 semantic contract로 보존한다 |
+| `ar.c`는 일반 float reduction에 SIMD/multiple-accumulator 경로를 사용할 수 있고 `+/!.0`에는 compensated summation 경로가 있다 | exact source operation order를 blanket semantic invariant로 만들지 않고 primitive/fit별 numeric policy를 보존한다 |
 | `va2.c`는 agreement/rank-shape 검사와 domain/type/value error의 precedence를 의도적으로 관리한다 | GPU parallel error reporting도 J error contract를 따른다 |
 | `va2.c`는 retryable overflow를 retry/repair하고 result type consistency를 유지한다 | primitive/type별 overflow promotion을 lane-local 임의 처리로 바꾸지 않는다 |
 | sparse가 AT/type 및 `$.`를 통해 J-visible하고 axes/element를 가진다 | sparse를 단순 physical compression format으로 보지 않는다 |
@@ -4154,6 +4169,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 40. **Empty execution has fill-cell semantics** — zero-trip이라는 이유로 prototype/type/shape/error 의미를 생략하지 않는다.
 41. **Boxed/sparse are J-visible semantics** — boxed hierarchy와 sparse axes/element를 단순 physical encoding으로 취급하지 않는다.
 42. **Tolerance/Fit are semantics** — comparison tolerance와 `!.`에 의한 numeric/fill variation을 backend optimization에서 잃지 않는다.
+42a. **Floating order is contract-driven** — 일반 J float 연산의 exact scalar execution order를 전역 불변식으로 가정하지 않고, primitive/derived verb의 reassociation·accuracy·compensated semantics를 따른다.
 43. **Error contract is observable semantics** — J가 정한 precedence/suppression/retry를 보존하고 parallel first-error를 임의로 노출하지 않는다.
 44. **Nameref keeps expected POS** — late lookup은 허용하지만 reference 생성 시의 verb/adverb/conjunction 품사 계약을 버리지 않으며 mismatch는 J의 domain error semantics를 따른다.
 45. **Sentence environment is not pre-snapshotted** — 우측→좌측 evaluation 중 name lookup/assignment/locale mutation의 observable sequencing을 보존한다.
