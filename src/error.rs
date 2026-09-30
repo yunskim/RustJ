@@ -525,7 +525,7 @@ mod tests {
                     type_code: 4,
                     shape: vec![3],
                 })
-                .with_note("shapes [2] and [3] do not conform"),
+                .with_note("shapes 2 and 3 do not conform"),
         );
         let rendered = error.render("<test>", source, 1);
         assert!(rendered.contains("LengthError"));
