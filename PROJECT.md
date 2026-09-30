@@ -39,22 +39,24 @@ J Source
 ──────────────── RustJ frontend ────────────────
 Scanner / Lexer / Parser
    ↓
-J Semantic IR
-   ↓
-J semantic lowering
-   - verb/adverb/conjunction
-   - hook/fork/train
-   - rank/cell/frame/agreement
-   - J name/binding semantics
-   - J error/promotion semantics
-   ↓
-Array IR
-──────────────── architectural boundary ───────
+J Semantic Array IR
+   │
+   │ noun / verb / adverb / conjunction
+   │ primitive / derived verb
+   │ hook / fork / train
+   │ rank and other modifier applications
+   │ name/binding/version
+   │ source span
    ↓
 ──────────────────── Jaxa ──────────────────────
-Array analysis
+Semantic analysis of array transformations
    ↓
-Logical Execution Plan
+Logical Array IR / Logical Execution Plan
+   │
+   │ explicit dataflow
+   │ cell/frame mapping
+   │ map / reduce / scan / gather / structural
+   │ dependency / effects / alias facts
    ↓
 Logical optimization
    ↓
@@ -74,42 +76,58 @@ Backend lowering / code generation
 Runtime / Executor
 ```
 
-핵심 원칙은 **J의 의미, 배열 계산, 물리 실행을 서로 다른 계층으로 분리하는 것**이다.
+핵심 원칙은 **J의 고수준 배열 변환 구조를 Jaxa 분석 전에 없애지 않고, Jaxa가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
 
 ### 2.1 RustJ와 Jaxa의 위상
 
 RustJ와 Jaxa는 개발상 같은 저장소·같은 Cargo workspace에서 함께 구현해도 된다. 그러나 논리적 책임은 분리한다.
 
-- **RustJ**: J 언어를 이해한다.
-- **Array IR**: J 고유 표기를 제거한 배열 계산을 표현한다.
-- **Jaxa**: 배열 계산을 분석·최적화하고 논리/물리 실행 계획으로 변환한다.
+- **RustJ frontend**: source text를 읽고 J의 품사·결합·이름 의미를 보존한 `J Semantic Array IR`을 만든다.
+- **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
+- **Jaxa**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮추고 최적화한다.
+- **Physical Planner**: layout, placement, materialization, buffer, transfer, scheduling 같은 물리 실행 결정을 내린다.
 - **Backend/Runtime**: 계획을 backend code로 낮추고 실행한다.
 
 이를 한 문장으로 정의하면:
 
-> **RustJ는 J 언어 구현이고, Jaxa는 Array IR을 입력으로 받는 배열 컴파일러 middle-end다.**
+> **RustJ는 J source를 의미 보존 IR로 만드는 frontend이고, Jaxa는 J의 array-transformation semantics를 분석하여 backend-independent logical array plan으로 낮추는 compiler middle-end다.**
 
-Jaxa가 RustJ parser, J token, hook/fork, adverb/conjunction 같은 J frontend 구조에 의존해서는 안 된다.
+Jaxa는 J source text나 tokenizer/parser mechanics에는 의존하지 않는다. 그러나 다음 J 의미 구조는 **Jaxa의 분석 입력이며 제거 대상이 아니다.**
+
+- noun / verb / adverb / conjunction
+- primitive와 derived verb
+- hook / fork / train
+- rank 및 modifier application
+- monad / dyad valence
+- name/binding/version이 의미에 영향을 주는 경우의 metadata
+- primitive semantic contract
 
 의존성 방향은 다음을 지향한다.
 
 ```text
-RustJ frontend
-      ↓
-   Array IR
-      ↓
-     Jaxa
-      ↓
+RustJ source frontend
+        ↓
+J Semantic Array IR
+        ↓
+       Jaxa
+        ↓
+Logical Array IR / Plan
+        ↓
+Physical Plan
+        ↓
 Backend / Runtime
 ```
 
-역방향 의존성은 허용하지 않는다.
+금지하는 역방향 의존성은 source frontend 구현 세부에 대한 것이다.
 
 ```text
-Jaxa ─X→ RustJ parser
-Jaxa ─X→ J token
-Jaxa ─X→ hook/fork/adverb/conjunction
+Jaxa ─X→ scanner implementation
+Jaxa ─X→ token stream layout
+Jaxa ─X→ parser stack mechanics
+Jaxa ─X→ source-text reparsing
 ```
+
+반대로 `Hook`, `Fork`, `Train`, `DerivedVerb`, `Rank` 같은 **semantic IR node를 Jaxa가 아는 것은 의도된 설계**다.
 
 ### 2.2 물리적으로 함께, 논리적으로 독립
 
@@ -120,8 +138,9 @@ Jaxa ─X→ hook/fork/adverb/conjunction
 ```text
 rustj/
   rustj-frontend
-  array-ir
+  j-semantic-ir
   jaxa
+  logical-array-ir
   backend-cpu
   backend-gpu
   runtime
@@ -131,115 +150,176 @@ rustj/
 
 ---
 
-## 3. J Semantic IR과 Array IR
+## 3. J Semantic Array IR
 
-### 3.1 J Semantic IR
+### 3.1 J의 계산 모델
 
-J Semantic IR은 “이 J 프로그램이 무엇을 의미하는가”를 표현한다.
+J의 계산은 배열 중심이다.
 
-여기에는 J 고유 의미가 남을 수 있다.
+- noun은 array value다.
+- monadic verb는 개념적으로 `Array → Array`다.
+- dyadic verb는 개념적으로 `Array × Array → Array`다.
+- adverb와 conjunction은 verb 등 J entity를 받아 새로운 derived entity를 만든다.
+- hook/fork/train은 verb를 합성하여 새로운 verb를 만든다.
 
-- verb / adverb / conjunction
-- hook / fork / train
-- rank
-- cell / frame
-- agreement
-- name binding/version
-- J의 오류 순서
-- J의 승격 규칙
-- source span
+따라서 compiler가 보존해야 하는 것은 단순한 배열 값뿐 아니라 **array transformer의 합성 구조**다.
 
-반대로 아직 다음 물리 정보는 없어야 한다.
-
-- physical stride
-- physical offset
-- device placement
-- tile size
-- CUDA block/thread
-- shared memory
-- stream/event
-- concrete buffer allocation
-
-### 3.2 Array IR
-
-Array IR은 RustJ frontend와 Jaxa 사이의 **정식 컴파일러 경계**다.
-
-Array IR의 목표는 다음과 같다.
-
-1. J의 구문을 제거한다.
-2. 배열 계산의 의미는 보존한다.
-3. backend의 물리적 선택은 포함하지 않는다.
-4. J 이외의 frontend도 이론적으로 생성할 수 있는 형태를 유지한다.
-
-대표 operation 예:
-
-```text
-Map
-Zip / Elementwise
-MapCells
-Reduce
-Scan
-Reshape
-Transpose
-Reverse
-Slice
-Take / Drop
-Concatenate
-Gather
-Scatter
-Iota
-Structural
-CallCustomPrimitive
-ReadState / WriteState
-```
-
-예를 들어 J의
+예를 들어:
 
 ```j
-+/ *: y
+(+/ % #) y
 ```
 
-는 J semantic lowering 이후 개념적으로
+를 Jaxa 전에 곧바로
 
 ```text
-Reduce(
-  op = Add,
-  input = Map(op = Square, y)
-)
+Divide(Reduce(Add, y), Tally(y))
 ```
 
-처럼 표현할 수 있다.
+로만 바꾸면 최종 데이터 의존성은 남지만, 원래의 fork 구조가 가진 분석 정보를 잃는다.
 
-J의 rank 계산은 Array IR에 “J rank 문법”으로 남기기보다, frontend에서 계산한 명시적 cell/frame mapping을 `MapCells` 같은 일반 배열 연산으로 낮추는 것을 기본 방향으로 한다.
-
-Array IR에 다음과 같은 J 구문 전용 operation을 넣지 않는다.
+고수준 IR에서는 개념적으로 다음처럼 보존할 수 있다.
 
 ```text
-JHook
-JFork
-JAdverbSlash
-JConjunction
+Apply
+├─ verb:
+│   Fork
+│   ├─ DerivedVerb(Insert, Add)
+│   ├─ Divide
+│   └─ Tally
+└─ argument:
+    y
 ```
 
-또한 다음 물리 정보도 넣지 않는다.
+Jaxa가 이 구조를 분석한 뒤에야 explicit dataflow로 낮춘다.
+
+### 3.2 jsource에서 확인한 근거
+
+현재 jsource의 내부 구현도 derived verb의 구조를 실행 전까지 보존한다.
+
+`jsrc/jtype.h`의 핵심 구조:
+
+```c
+typedef struct AD AD;
+typedef AD *A;
+```
+
+noun, verb, adverb, conjunction 등 J entity는 공통 `A` block 체계에 존재하고 type bit로 품사를 구별한다.
+
+```text
+NOUN = numeric + character + box
+FUNC = VERB + ADV + CONJ
+```
+
+verb/adverb/conjunction의 payload는 `FAV(x)`로 `V` 구조를 읽는다. `V`에는 개념적으로 다음이 있다.
+
+```text
+V
+├─ fgh[3]          operands / components
+├─ valencefns[2]   monad / dyad entry
+├─ monad/dyad rank
+├─ id
+└─ optimization / execution metadata
+```
+
+jsource 주석은 `fgh[3]`의 `h`가 fork에 사용된다고 명시한다. `jtfolk`는 “derived verb for a fork”를 만들고 `jthook`도 hook/trident 구조를 derived verb로 만든다. `CFORK`, `CHOOK`, `CADVF` 같은 identity도 유지된다.
+
+또한 function block의 `AN`, `AR` field는 사용하지 않는다고 명시되어 있다. 즉 **noun array와 verb는 같은 J entity allocation 체계를 공유하지만 동일한 noun representation은 아니다.** RustJ는 이 물리 표현을 복제할 필요는 없지만, **derived verb composition을 first-class semantic structure로 보존한다는 점은 중요한 reference**다.
+
+### 3.3 IR이 보존해야 하는 구조
+
+개념 모델:
+
+```text
+JEntity
+├─ Noun
+│   └─ ArrayValue
+├─ Verb
+│   ├─ PrimitiveVerb
+│   ├─ DerivedVerb
+│   │   ├─ Hook
+│   │   ├─ Fork
+│   │   ├─ Train
+│   │   ├─ AdverbDerived
+│   │   ├─ ConjunctionDerived
+│   │   ├─ RankDerived
+│   │   └─ other modifier-derived forms
+│   ├─ ExplicitVerb
+│   ├─ NameRef
+│   └─ CustomVerb
+├─ Adverb
+└─ Conjunction
+```
+
+실제 Rust enum을 이 모양 그대로 만들라는 뜻은 아니다. 중요한 것은 다음 invariants다.
+
+1. primitive와 derived verb의 identity를 보존한다.
+2. hook/fork/train의 operand 관계를 보존한다.
+3. modifier와 operand의 관계를 보존한다.
+4. monad/dyad valence를 보존한다.
+5. rank가 계산 의미에 미치는 정보를 Jaxa가 볼 수 있어야 한다.
+6. name reference와 binding/version이 의미에 영향을 주면 분석 가능한 형태로 보존한다.
+7. source span은 진단을 위해 유지한다.
+
+### 3.4 너무 이른 정규화를 금지한다
+
+다음 변환은 **Jaxa 분석 전에 무조건 수행하지 않는다.**
+
+```text
+Fork(f,g,h)
+    → g(f(y), h(y))
+
+Hook(f,g)
+    → fully expanded expression
+
+DerivedVerb(/, +)
+    → Reduce(Add)
+
+RankDerived(f, r)
+    → generic MapCells only
+```
+
+이런 정규화는 합법성과 분석 이득이 확인된 뒤 Jaxa의 lowering/rewrite 단계에서 수행한다.
+
+이유:
+
+- fork branch의 독립성
+- 공통 argument 사용
+- derived verb identity
+- primitive composition
+- rank propagation
+- fusion 후보
+- custom semantic annotation
+- name/binding semantics
+
+을 분석에 사용할 수 있기 때문이다.
+
+### 3.5 물리 정보는 넣지 않는다
+
+고수준 semantic IR에 다음 physical decision은 넣지 않는다.
 
 ```text
 CudaBlockSize
 Tile128
 GpuSharedMemory
 PhysicalStride
+PhysicalOffset
 DeviceTransfer
+ConcreteBufferId
+StreamEvent
 ```
 
-### 3.3 현재 구현과 목표 경계의 차이
+이들은 Physical Planner/Backend의 책임이다.
 
-현재 코드는 아직 이 경계를 완전히 물리적으로 구현하지 않았다.
+### 3.6 현재 구현과 목표 경계의 차이
+
+현재 코드는 아직 이 구조를 완성하지 않았다.
 
 현재 주요 모듈:
 
 - `src/scanner.rs`: word formation
 - `src/syntax.rs`: token 변환
-- `src/semantic.rs`: Semantic IR과 binding 기초
+- `src/semantic.rs`: 현재 Semantic IR과 binding 기초
 - `src/contracts.rs`: primitive contract
 - `src/facts.rs`: dtype/shape/rank facts
 - `src/analysis.rs`: 현재 Semantic IR에서 LogicalPlan을 직접 생성하는 초기 분석기
@@ -249,41 +329,71 @@ DeviceTransfer
 - `src/storage.rs`: CPU storage
 - `src/sparse.rs`, `src/bit_storage.rs`: 추가 storage 표현
 
-따라서 다음 compiler 구조 작업에서 `Semantic IR → Array IR → Jaxa` 경계를 명시적으로 만들고, 현재 `analysis.rs`의 J-specific lowering과 generic array planning 책임을 분리한다.
+다음 compiler 구조 작업에서는 현재 `semantic.rs`의 표현이 **verb composition을 충분히 보존하는지** 먼저 점검하고, 필요하면 `J Semantic Array IR`을 명시한다. 그 다음 `analysis.rs`를 Jaxa 역할로 정리하여 이 IR을 직접 분석하게 한다.
 
 ---
 
 ## 4. Jaxa
 
-Jaxa는 **Array IR을 받아 실행 가능한 논리·물리 계획으로 바꾸는 배열 컴파일러 middle-end**다. Jaxa 자체는 실행기가 아니다.
+Jaxa는 **J Semantic Array IR을 분석하여 Logical Array IR / Logical Execution Plan으로 낮추는 compiler middle-end**다. Jaxa 자체는 실행기가 아니다.
 
 ### 4.1 Jaxa의 책임
 
-- Array IR 검증
-- dtype / shape / rank fact 전파
-- dependency graph
+- noun/verb/adverb/conjunction 품사와 적용 관계 분석
+- primitive / derived verb 분석
+- hook / fork / train 구조 분석
+- modifier application과 rank semantics 분석
+- monad / dyad valence 결정
+- primitive semantic contract 적용
+- dtype / shape / cell / frame / agreement fact 전파
+- dependency graph 생성
 - effect / alias 분석
 - parallel domain 식별
-- map / reduce / scan / gather / structural 분류
+- map / reduce / scan / gather / structural pattern 식별
+- derived structure의 합법적인 normalization/lowering
 - fusion 가능성 분석
 - materialization 경계 판단
 - logical rewrite
 - backend capability 확인
-- cost input 생성
-- Logical Execution Plan 생성
-- Physical Planner와 함께 layout/placement/buffer 계획 수립
+- cost-model input 생성
+- Logical Array IR / Logical Execution Plan 생성
 
 ### 4.2 Jaxa가 하지 않는 일
 
-- J source parsing
-- J hook/fork/adverb/conjunction 해석
-- J syntax 재해석
+- source text tokenization
+- parser stack 규칙의 재실행
+- source를 다시 parse하여 의미를 복원
 - 직접 CPU loop 실행
 - 직접 CUDA kernel 실행
 - Executor 단계에서 의미론을 다시 판단
 - 알 수 없는 정보를 임의로 추측
 
-### 4.3 Unknown 원칙
+즉 Jaxa는 **J syntax mechanics는 모르지만 J semantic structure는 안다.**
+
+### 4.3 Jaxa 이후의 generic 경계
+
+다른 frontend와 공유할 가능성이 높은 지점은 Jaxa 입력 전이 아니라 **Jaxa가 고수준 J 구조를 분석한 뒤 생성하는 Logical Array IR / Plan**이다.
+
+```text
+J frontend
+    ↓
+J Semantic Array IR
+    ↓
+   Jaxa
+    ↓
+Logical Array IR / Plan  ← generic boundary 후보
+    ↓
+Physical Planner
+```
+
+향후 다른 array DSL frontend를 붙이고 싶다면 두 선택이 가능하다.
+
+1. J semantic model을 의도적으로 공유하면 J Semantic Array IR을 생성한다.
+2. J와 무관한 frontend라면 자기 semantic analyzer를 거쳐 Logical Array IR / Plan에 합류한다.
+
+따라서 **Jaxa를 generic tensor IR consumer로 만들기 위해 J의 구조를 일찍 버리지 않는다.**
+
+### 4.4 Unknown 원칙
 
 shape, effect, alias, backend legality, dynamic binding을 알 수 없으면 안전한 값으로 꾸며내지 않고 `Unknown`으로 유지한다.
 
@@ -294,16 +404,17 @@ Unknown은 다음 중 하나가 된다.
 - fallback to conservative plan
 - 재분석 조건
 
-### 4.4 Primitive contract
+### 4.5 Primitive contract
 
-Array IR/Jaxa 경계에서 primitive는 최소한 다음 의미 계약을 가져야 한다.
+Jaxa 분석에서 primitive는 최소한 다음 의미 계약을 가진다.
 
 ```text
 PrimitiveContract
+  identity / valence
   value:
     dtype_rule
     shape_rule
-    cell/map rule
+    rank_rule
 
   errors:
     domain
@@ -342,18 +453,19 @@ PrimitiveContract
 
 GPU block 크기나 tile 크기는 semantic primitive contract에 넣지 않는다.
 
-### 4.5 JAXA 확장 어휘와 `with`
+### 4.6 JAXA 확장 어휘와 `with`
 
 기존 jaxa-analyzer에서 검토한 확장 어휘는 다음 원칙을 유지한다.
 
-- `relu`, `linear`, `conv`: custom computational primitive
-- `cast_f32`: explicit semantic dtype operation
-- `load`, `store`: logical storage/effect operation
-- `emit`: core IR에서는 일반적인 side effect/write로 정규화
-- `cp`: 강제 materialize가 아니라 checkpoint/availability requirement로 해석하는 방향
-- `with`: computational primitive가 아니라 semantic annotation/binding conjunction
+- `relu`, `linear`, `conv`: custom computational primitive/verb
+- `cast_f32`: 품사와 결합 의미를 보존하여 분석
+- `load`, `store`: logical storage/effect operation 또는 derived semantic operation
+- `emit`, `cp`: 품사와 derived-verb 구조가 분석 의미를 가진다면 IR에 보존
+- `with`: 계산 primitive가 아니라 semantic annotation/binding 관계
 
-`with`에 optimizer, adjoint, semantic dtype requirement, effect contract 같은 의미 정보는 연결할 수 있지만 다음 물리 정책은 넣지 않는다.
+중요한 원칙은 **확장 어휘도 품사와 composition structure가 분석 정보라면 너무 일찍 평평한 operation으로 만들지 않는 것**이다.
+
+반대로 다음 physical policy는 semantic annotation에 섞지 않는다.
 
 - CUDA block/thread
 - tile 크기
@@ -362,39 +474,49 @@ GPU block 크기나 tile 크기는 semantic primitive contract에 넣지 않는�
 - backend-specific layout
 - stream/event 배치
 
-backend 이름을 primitive identity에 박는 `conv_cuda_` 같은 방식은 일반 vocabulary로 사용하지 않는다. 필요하면 명시적 `BackendIntrinsic` escape hatch로 격리한다.
+backend-specific implementation identity와 semantic verb identity도 분리한다.
 
 ---
 
 ## 5. Logical Plan, Physical Plan, Executor
 
-### 5.1 Logical Execution Plan
+### 5.1 Logical Array IR / Logical Execution Plan
 
-Logical Plan은 어떤 배열 계산을 어떤 의존관계로 수행해야 하는지를 나타낸다.
+이 계층은 Jaxa가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
 
-예:
+예를 들어 고수준의
 
 ```text
-Input y
-  ↓
-Map Square
-  ↓
-Reduce Add
+Apply(Fork(Insert(+), %, #), y)
 ```
 
-아직 특정 device buffer 주소나 CUDA launch parameter는 없다.
+는 분석 후 개념적으로 다음과 같은 dataflow가 될 수 있다.
 
-Logical Plan에서 보존할 수 있는 정보:
+```text
+            Input y
+           /       \
+  Reduce(Add)      Tally
+           \       /
+             Divide
+```
+
+여기서부터는 원래 source가 fork였다는 사실이 실행에 불필요할 수 있다. 다만 진단·debug·rewrite provenance가 필요하면 origin metadata로 연결할 수 있다.
+
+Logical Plan에서 보존할 정보:
 
 - ValueId
-- operation
+- normalized array operation
 - dtype/shape facts
-- explicit cell mapping
+- explicit cell/frame mapping
 - dependency
 - effect boundary
+- alias facts
 - materialization requirement
 - fusion candidate
 - backend support facts
+- source/semantic origin metadata
+
+아직 특정 device buffer 주소나 CUDA launch parameter는 없다.
 
 ### 5.2 Physical Plan
 
@@ -430,7 +552,7 @@ Executor가 다음을 다시 판단해서는 안 된다.
 
 ## 6. 논리 배열과 물리 배열
 
-### 6.1 논리 J 배열
+### 6.1 논리 J 배열과 verb
 
 J의 noun 의미는 다음으로 유지한다.
 
@@ -440,6 +562,8 @@ JArray
   shape
   ordered atoms / logical value
 ```
+
+verb는 이 noun array를 입력받아 noun array를 반환하는 array transformer이며, J Semantic Array IR에서 first-class semantic entity로 표현한다. verb의 hook/fork/train/modifier composition은 Jaxa 분석 전에 보존한다.
 
 다음은 논리 JArray의 identity가 아니다.
 
@@ -605,7 +729,16 @@ square kernel
 
 로 고정하지 않는다.
 
-가능하면
+고수준 IR에서는 먼저 derived-verb 구조를 보존한다.
+
+```text
+Apply(
+  DerivedVerb(Insert, Add),
+  Map(Square, y)
+)
+```
+
+Jaxa가 이를 분석하여 reduction이라는 logical operation을 식별한 뒤,
 
 ```text
 Reduce(Add, Map(Square, y))
@@ -615,7 +748,7 @@ legal fusion analysis
 fused map-reduction kernel
 ```
 
-처럼 계획한다.
+처럼 계획할 수 있다.
 
 CUDA 실제 구현은 현재 보류 상태다. CPU에서 physical representation과 plan/executor 경계를 먼저 검증한다.
 
@@ -788,23 +921,26 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 ### A0 — 문서/아키텍처 경계
 
 - [x] RustJ/Jaxa의 논리적 경계를 확정한다.
-- [x] J Semantic IR과 Array IR을 구분한다.
-- [x] Jaxa를 generic array compiler middle-end로 정의한다.
+- [x] Jaxa 입력 전에 hook/fork/train/derived verb/rank를 제거하지 않는 원칙을 확정한다.
+- [x] `J Semantic Array IR`과 `Logical Array IR / Plan`을 구분한다.
+- [x] generic boundary 후보를 Jaxa 이후의 Logical Array IR로 이동한다.
 - [x] 문서를 `PROJECT.md`로 통합한다.
-- [ ] 실제 코드 dependency에서도 RustJ frontend → Array IR → Jaxa 경계를 만든다.
+- [ ] 실제 코드 dependency에서도 source frontend → J Semantic Array IR → Jaxa → Logical Plan 경계를 만든다.
 
-### A1 — 명시적 Array IR
+### A1 — J Semantic Array IR와 Jaxa 경계
 
-- [ ] 최소 `ArrayProgram` / `ArrayOp` / `ArrayValueId`를 정의한다.
-- [ ] J syntax 타입에 의존하지 않는 operation 집합을 정의한다.
-- [ ] dtype/shape/effect/error contract를 연결한다.
-- [ ] `semantic.rs`에서 Array IR lowering을 구현한다.
-- [ ] rank/cell/frame/agreement를 explicit mapping으로 낮춘다.
-- [ ] 현재 `analysis.rs`의 J-specific responsibility를 frontend lowering으로 옮긴다.
-- [ ] Jaxa 분석 코드는 Array IR만 입력받게 한다.
-- [ ] Array IR을 직접 구성한 단위 테스트로 Jaxa를 독립 검증한다.
+- [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
+- [ ] primitive verb identity와 monad/dyad valence를 명시한다.
+- [ ] Hook / Fork / Train을 first-class semantic node로 표현한다.
+- [ ] adverb/conjunction application으로 생긴 DerivedVerb 구조를 보존한다.
+- [ ] rank-derived verb와 cell/frame 의미를 Jaxa가 분석할 수 있게 표현한다.
+- [ ] name reference/binding/version과 source span을 필요한 범위에서 연결한다.
+- [ ] primitive contract를 semantic node에 연결한다.
+- [ ] Jaxa가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
+- [ ] Jaxa가 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
+- [ ] fork branch 독립성, reduction derived verb, rank-derived verb를 대표 golden test로 둔다.
 
-완료 조건: Jaxa 모듈을 J parser/semantic AST 없이 테스트할 수 있다.
+완료 조건: Jaxa를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank/derived verb의 의미 구조가 분석 입력에 남아 있다.
 
 ### G1 — 논리 값과 물리 표현의 경계
 
@@ -995,8 +1131,8 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 - G1 read-only affine PhysicalArray가 구현되어 있다.
 - G1 Windows default/portable 회귀와 Clippy 기록이 있다.
 - G2~G5는 미완료다.
-- 명시적 Array IR 경계는 아직 코드에 없다.
-- Jaxa가 Array IR만 소비하는 dependency 경계도 아직 코드에 없다.
+- 명시적인 `J Semantic Array IR → Jaxa → Logical Array IR/Plan` 경계는 아직 코드에서 완전히 분리되지 않았다.
+- 현재 `analysis.rs`가 Semantic IR에서 LogicalPlan을 직접 만들고 있어 Jaxa 역할과 lowering 경계를 재정리해야 한다.
 - 실제 CUDA storage/kernel은 없다.
 - GitHub CI는 현재 사용하지 않는다.
 - 이 컴퓨터에서는 Windows 네이티브 검증을 기준으로 한다.
@@ -1061,7 +1197,7 @@ RustJ 적용:
 
 RustJ 적용:
 
-- Array IR graph
+- 고수준 semantic graph를 분석한 뒤 logical dataflow 생성
 - 합법적인 fusion
 - materialization 최소화
 
@@ -1107,14 +1243,16 @@ RustJ의 목표는 다르다.
 jsource
   → semantic/reference oracle
 
-RustJ
-  J semantics
+RustJ frontend
+  J source
     ↓
-  Array IR
+  J Semantic Array IR
     ↓
   Jaxa
     ↓
-  CPU / GPU plans
+  Logical Array IR / Plan
+    ↓
+  CPU / GPU physical plans
 ```
 
 jsource에서 적극적으로 가져올 것:
@@ -1227,16 +1365,17 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 ## 16. 다음 작업
 
-현재 가장 먼저 해야 할 compiler architecture 작업은 **명시적 Array IR 경계를 코드에 만드는 것**이다.
+현재 가장 먼저 해야 할 compiler architecture 작업은 **J의 verb composition을 보존하는 semantic IR과 Jaxa 분석 경계를 코드에서 명시하는 것**이다.
 
 순서:
 
 1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 책임을 다시 분류한다.
-2. 최소 Array IR 자료구조를 정의한다.
-3. J Semantic IR → Array IR lowering을 구현한다.
-4. Jaxa 분석기가 Array IR만 읽게 한다.
-5. Jaxa 단독 unit test를 추가한다.
-6. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
-7. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
+2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb, rank를 얼마나 보존하는지 감사한다.
+3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
+4. Jaxa가 이 IR을 입력으로 받아 composition 구조를 분석하도록 `analysis.rs`를 재정리한다.
+5. Jaxa lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
+6. fork, reduction derived verb, rank-derived verb를 Jaxa 단독 golden test로 검증한다.
+7. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
+8. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
-이 원칙을 깨는 임시 shortcut을 추가하지 않는다.
+특히 hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” Jaxa 이전에 소거하는 shortcut을 추가하지 않는다.
