@@ -352,7 +352,8 @@ impl Builder<'_> {
                         semantic,
                         reduce,
                         explicit_ranks,
-                        innate_rank: None,
+                        innate_rank: reduce
+                            .then_some(RankContract::all(RankSpec::Infinite)),
                     });
                 }
                 FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
