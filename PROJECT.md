@@ -607,7 +607,7 @@ Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Ar
 - modifier application과 rank semantics 분석
 - monad / dyad valence 결정
 - primitive semantic contract 적용
-- dtype / shape / cell / frame / agreement fact 전파
+- dtype / shape / cell / frame / agreement / rank-result-assembly fact 전파
 - iteration domain / axis semantics / access relation 도출
 - control/data dependency graph 생성
 - effect / alias / speculation legality 분석
@@ -1276,6 +1276,60 @@ FillAndEmptySemantics
 구현이 실제 scalar fill-cell execution을 하지 않아도 된다. static abstract evaluation이나 primitive-specific inference로 대체할 수 있지만 **jsource와 같은 observable result type/shape/error semantics**를 내야 한다.
 
 특히 optimizer가 zero-trip loop를 제거하기 전에 결과 prototype/type/shape가 이미 J 규칙에 따라 확정되어 있어야 한다.
+
+#### 4.11.3 rank 결과 assembly는 고정-shape map보다 넓다
+
+current jsource의 `result.h`는 rank/modifier가 여러 cell 결과를 모을 때 **모든 result cell의 type/shape가 첫 cell과 동일하다고 가정하지 않는다.**
+
+정상 fast path는 homogeneous result cell이다.
+
+```text
+frame cells
+  → f(cell_0) : type T, shape S
+  → f(cell_1) : type T, shape S
+  → ...
+  → result shape = frame ++ S
+```
+
+하지만 뒤 cell의 type/shape가 달라지면 jsource는 assembly path로 전환한다.
+
+관찰된 핵심 의미:
+
+- compatible numeric/type 차이는 공통 type priority/promotion으로 assemble할 수 있다.
+- result-cell rank/shape가 달라지면 common result-cell shape를 계산하고 필요한 framing fill을 사용한다.
+- sparse result가 섞이면 별도 boxed/open assembly 경로가 필요할 수 있다.
+- 서로 assemble할 수 없는 type/shape 조합은 assembly error가 된다.
+- empty result cell의 type priority도 assembly 결과에 영향을 줄 수 있다.
+
+따라서 RustJ의 rank lowering은 다음을 구분한다.
+
+```text
+UniformCellResult
+  statically proven same result type/shape
+  → regular MapCells / parallel map lowering 가능
+
+DynamicCellResult
+  type/shape may differ between cells
+  → RankAssemble semantics를 보존
+  → runtime semantic lowering 또는
+     verifier가 보장된 dedicated assembly lowering 필요
+```
+
+개념 contract:
+
+```text
+RankAssemblySemantics
+  frame
+  per-cell result
+  compatible-type join
+  result-cell shape join
+  framing-fill rule
+  sparse/boxed interaction
+  assembly-error condition
+```
+
+GPU에서 각 cell을 병렬 실행하더라도 이 assembly 의미가 없어지지 않는다. backend가 regular dense output을 직접 쓰려면 **cell result type/shape가 uniform하다는 proof**가 선행되어야 한다.
+
 
 
 ### 4.12 access pattern은 fusion 분석의 semantic lower bound다
@@ -3253,6 +3307,7 @@ GPU 재개 후에는 kernel 제출과 실제 device completion을 구분한다.
 - side effect 순서
 - comparison tolerance와 `!.` fit semantics
 - empty/rank fill-cell 결과 type·shape semantics
+- rank/modifier result-cell assembly(type/shape join, framing fill, assembly error) semantics
 - sparse/boxed의 J-visible representation semantics
 - float 연산 순서
 
@@ -3400,6 +3455,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] primitive contract를 semantic node에 연결한다.
 - [ ] J dyadic rank의 prefix frame agreement와 residual-frame repetition을 명시적으로 테스트한다.
 - [ ] zero-cell rank execution의 fill-cell/prototype result type·shape semantics를 테스트한다.
+- [ ] rank cell 결과의 type/shape가 다른 경우 J result assembly(type join, shape join, framing fill, assembly error)를 테스트한다.
+- [ ] uniform cell-result proof가 있을 때만 rank map을 고정-shape parallel output으로 낮춘다.
 - [ ] boxed와 sparse를 physical encoding이 아닌 J-visible semantic representation으로 보존한다.
 - [ ] comparison tolerance/`!.` fit context와 J error precedence를 semantic contract에 포함한다.
 - [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
@@ -4042,6 +4099,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 | `p.c`는 parse reduction 중 name lookup/verb execution/assignment를 수행한다 | 문장 전체 name snapshot을 만들지 않고 J의 우측→좌측 observable sequencing을 effect/name dependency로 보존한다 |
 | `cr.c` rank dyad는 frame prefix agreement를 검사하고 residual frame에 cell을 반복한다 | NumPy broadcasting으로 대체하지 않는다 |
 | `cr.c`는 zero cells에서 fill-cell을 실행해 result cell type/shape를 정한다 | zero-trip elimination 전에 fill/prototype semantics를 해결한다 |
+| `result.h`는 rank/modifier의 cell results가 type/shape 불일치하면 homogeneous fast path에서 assembly path로 전환하고 type/shape join + framing fill을 수행한다 | rank map을 항상 static uniform tensor map으로 가정하지 않고 `RankAssemblySemantics`를 보존한다 |
 | `cv.c`의 `!.`는 comparison tolerance 또는 fill을 바꾸는 derived verb를 만든다 | tolerance/fill override를 semantic contract로 보존한다 |
 | `va2.c`는 agreement/rank-shape 검사와 domain/type/value error의 precedence를 의도적으로 관리한다 | GPU parallel error reporting도 J error contract를 따른다 |
 | `va2.c`는 retryable overflow를 retry/repair하고 result type consistency를 유지한다 | primitive/type별 overflow promotion을 lane-local 임의 처리로 바꾸지 않는다 |
@@ -4099,6 +4157,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 43. **Error contract is observable semantics** — J가 정한 precedence/suppression/retry를 보존하고 parallel first-error를 임의로 노출하지 않는다.
 44. **Nameref keeps expected POS** — late lookup은 허용하지만 reference 생성 시의 verb/adverb/conjunction 품사 계약을 버리지 않으며 mismatch는 J의 domain error semantics를 따른다.
 45. **Sentence environment is not pre-snapshotted** — 우측→좌측 evaluation 중 name lookup/assignment/locale mutation의 observable sequencing을 보존한다.
+46. **Rank map is not always fixed-shape** — per-cell result type/shape uniformity를 증명하지 못하면 J의 result assembly/type join/framing fill semantics를 보존한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -4119,7 +4178,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
-10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, same-sentence assignment/name lookup sequencing, prefix agreement, empty fill-cell, tolerance/`!.`, overflow/error precedence를 추가한다.
+10. frontend/semantic golden test에 nameref POS mismatch, noun snapshot vs function late binding, same-sentence assignment/name lookup sequencing, prefix agreement, empty fill-cell, rank result assembly, tolerance/`!.`, overflow/error precedence를 추가한다.
 11. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
 12. external adapter가 쓰기 전에 Logical IR verifier를 통과하도록 한다.
 13. **첫 external route로 MLIR adapter prototype**을 만든다. elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시킨다.
