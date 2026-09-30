@@ -1,6 +1,6 @@
 use rustj::{
     Engine,
-    analysis::{CallTarget, Operation, Scope, ValueId},
+    analysis::{AccessFact, AccessRelation, CallTarget, Operation, Scope, ValueId},
     contracts::{Effect, Overflow},
     semantic::{NameVersion, VerbModifier},
 };
@@ -290,4 +290,42 @@ fn empty_frames_and_incompatible_frames_remain_unresolved() {
             .unwrap()
             .requires_empty_frame_prototype
     );
+}
+
+
+#[test]
+fn verifier_rejects_malformed_dependencies_but_accepts_current_plans() {
+    let mut e = Engine::new();
+    e.eval("a=:1 2 3").unwrap();
+    let mut p = e.analyze("a+1").unwrap();
+    p.verify().unwrap();
+
+    let result = p.result.unwrap();
+    p.nodes[result.0].order_after = Some(result);
+    let err = p.verify().unwrap_err();
+    assert_eq!(err.node, Some(result));
+    assert!(err.message.contains("earlier value"));
+}
+
+#[test]
+fn access_knowledge_is_explicit_and_opaque_is_not_a_semantic_error() {
+    let e = Engine::new();
+
+    let p = e.analyze("1+2").unwrap();
+    assert_eq!(
+        p.nodes[p.result.unwrap().0].access,
+        AccessFact::Known(AccessRelation::ElementwiseMap)
+    );
+    p.verify().unwrap();
+
+    let p = e.analyze("+/1 2 3").unwrap();
+    assert_eq!(
+        p.nodes[p.result.unwrap().0].access,
+        AccessFact::Known(AccessRelation::ReduceLeadingAxis)
+    );
+    p.verify().unwrap();
+
+    let p = e.analyze("|.1 2 3").unwrap();
+    assert_eq!(p.nodes[p.result.unwrap().0].access, AccessFact::Opaque);
+    p.verify().unwrap();
 }

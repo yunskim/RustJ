@@ -53,11 +53,29 @@ pub enum Operation {
         contract: Contract,
     },
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccessRelation {
+    /// One result element depends on the corresponding logical input element(s).
+    ElementwiseMap,
+    /// Monadic reduction over the leading logical cell axis in the current v0 model.
+    ReduceLeadingAxis,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AccessFact {
+    #[default]
+    Opaque,
+    Known(AccessRelation),
+}
+
 #[derive(Clone, Debug)]
 pub struct Node {
     pub operation: Operation,
     pub facts: crate::facts::Facts,
     pub rank_plan: Option<crate::facts::RankPlan>,
+    /// Missing access knowledge is explicit and is an optimization barrier,
+    /// never by itself a J semantic error.
+    pub access: AccessFact,
     pub span: Range<usize>,
     /// Conservative order edge for potential errors, reads and effects.
     pub order_after: Option<ValueId>,
@@ -79,6 +97,105 @@ pub struct LogicalPlan {
     pub nodes: Vec<Node>,
     pub result: Option<ValueId>,
     pub write: Option<Write>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifyError {
+    pub node: Option<ValueId>,
+    pub message: String,
+}
+impl std::fmt::Display for VerifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(node) = self.node {
+            write!(f, "logical IR verification failed at value {}: {}", node.0, self.message)
+        } else {
+            write!(f, "logical IR verification failed: {}", self.message)
+        }
+    }
+}
+impl std::error::Error for VerifyError {}
+
+impl LogicalPlan {
+    pub fn verify(&self) -> std::result::Result<(), VerifyError> {
+        let fail = |node: Option<ValueId>, message: String| VerifyError { node, message };
+        let source_len = self.source.len();
+
+        for (index, node) in self.nodes.iter().enumerate() {
+            let id = ValueId(index);
+            if node.span.start > node.span.end
+                || node.span.end > source_len
+                || !self.source.is_char_boundary(node.span.start)
+                || !self.source.is_char_boundary(node.span.end)
+            {
+                return Err(fail(Some(id), "invalid source span".into()));
+            }
+            if let Some(rank) = node.facts.rank {
+                if let Some(shape) = &node.facts.shape {
+                    if rank != shape.len() {
+                        return Err(fail(Some(id), "fact rank does not match shape".into()));
+                    }
+                }
+            }
+            if let Some(before) = node.order_after {
+                if before.0 >= index {
+                    return Err(fail(Some(id), "order edge must reference an earlier value".into()));
+                }
+            }
+
+            let check_symbol = |symbol: SymbolId| {
+                (symbol.0 < self.symbols.len())
+                    .then_some(())
+                    .ok_or_else(|| fail(Some(id), "symbol id out of bounds".into()))
+            };
+            let check_value = |value: ValueId, label: &str| {
+                (value.0 < index)
+                    .then_some(())
+                    .ok_or_else(|| fail(Some(id), format!("{label} must reference an earlier value")))
+            };
+            let check_callable = |callable: &Callable| match callable.target {
+                CallTarget::Primitive(_) => Ok(()),
+                CallTarget::Dynamic(symbol) => check_symbol(symbol),
+            };
+
+            match &node.operation {
+                Operation::Literal(_) => {}
+                Operation::ReadNoun { symbol, .. } => check_symbol(*symbol)?,
+                Operation::VerbReference(callable) => check_callable(callable)?,
+                Operation::Call {
+                    callable,
+                    left,
+                    right,
+                    ..
+                } => {
+                    check_callable(callable)?;
+                    if let Some(left) = left {
+                        check_value(*left, "left input")?;
+                    }
+                    check_value(*right, "right input")?;
+                }
+            }
+        }
+
+        if let Some(result) = self.result {
+            if result.0 >= self.nodes.len() {
+                return Err(fail(None, "result value id out of bounds".into()));
+            }
+        }
+        if let Some(write) = &self.write {
+            if write.symbol.0 >= self.symbols.len() {
+                return Err(fail(None, "write symbol id out of bounds".into()));
+            }
+            if write.value.0 >= self.nodes.len() {
+                return Err(fail(None, "write value id out of bounds".into()));
+            }
+            if let Some(after) = write.after {
+                if after.0 >= self.nodes.len() {
+                    return Err(fail(None, "write order dependency out of bounds".into()));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn lower(
@@ -158,6 +275,26 @@ impl Builder<'_> {
     }
     fn push(&mut self, operation: Operation, span: Range<usize>, ordered: bool) -> ValueId {
         let id = ValueId(self.nodes.len());
+        let access = match &operation {
+            Operation::Call {
+                callable,
+                left,
+                ..
+            } if callable.reduce && left.is_none() && callable.rank.is_none() => {
+                AccessFact::Known(AccessRelation::ReduceLeadingAxis)
+            }
+            Operation::Call {
+                callable,
+                contract,
+                ..
+            } if !callable.reduce
+                && callable.rank.is_none()
+                && contract.class == crate::contracts::OperationClass::Map =>
+            {
+                AccessFact::Known(AccessRelation::ElementwiseMap)
+            }
+            _ => AccessFact::Opaque,
+        };
         let (facts, rank_plan) = match &operation {
             Operation::Literal(value) => (crate::facts::Facts::of(value), None),
             Operation::ReadNoun { symbol, .. } => {
@@ -183,6 +320,7 @@ impl Builder<'_> {
         self.nodes.push(Node {
             rank_plan,
             facts,
+            access,
             operation,
             span,
             order_after: if ordered { self.last_ordered } else { None },
