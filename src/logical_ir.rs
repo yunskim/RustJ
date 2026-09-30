@@ -503,6 +503,67 @@ pub struct Plan {
     pub write: Option<Write>,
 }
 
+pub struct LogicalOpView<'a> {
+    pub operation: &'a Operation,
+    pub result: Option<&'a ValueData>,
+}
+
+pub trait SemanticCapabilityView {
+    fn result_facts(&self) -> Option<&Facts>;
+    fn iteration_domain(&self) -> Option<&IterationDomain>;
+    fn access_fact(&self) -> Option<AccessFact>;
+    fn effect_summary(&self) -> Option<EffectSummary>;
+    fn speculation_semantics(&self) -> Option<SpeculationSemantics>;
+    fn possible_errors(&self) -> PossibleErrors;
+    fn destination_relation(&self) -> Option<DestinationRelation>;
+}
+
+fn call_from_kind(kind: &OpKind) -> Option<&CallOp> {
+    match kind {
+        OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => Some(call),
+        _ => None,
+    }
+}
+
+impl SemanticCapabilityView for LogicalOpView<'_> {
+    fn result_facts(&self) -> Option<&Facts> {
+        self.result.map(|result| &result.facts)
+    }
+
+    fn iteration_domain(&self) -> Option<&IterationDomain> {
+        call_from_kind(&self.operation.kind).map(|call| &call.iteration_domain)
+    }
+
+    fn access_fact(&self) -> Option<AccessFact> {
+        call_from_kind(&self.operation.kind).map(|call| call.access)
+    }
+
+    fn effect_summary(&self) -> Option<EffectSummary> {
+        call_from_kind(&self.operation.kind).map(|call| call.effect)
+    }
+
+    fn speculation_semantics(&self) -> Option<SpeculationSemantics> {
+        call_from_kind(&self.operation.kind).map(|call| call.speculation)
+    }
+
+    fn possible_errors(&self) -> PossibleErrors {
+        match &self.operation.kind {
+            OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
+                call.possible_errors.clone()
+            }
+            OpKind::SemanticCheck(check) => PossibleErrors {
+                known: vec![check.error],
+                unknown: false,
+            },
+            _ => PossibleErrors::default(),
+        }
+    }
+
+    fn destination_relation(&self) -> Option<DestinationRelation> {
+        call_from_kind(&self.operation.kind).map(|call| call.destination)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyError {
     pub operation: Option<OpId>,
@@ -620,6 +681,15 @@ fn error_for(constraint: &Constraint) -> SemanticErrorKind {
 }
 
 impl Plan {
+    pub fn operation_view(&self, id: OpId) -> Option<LogicalOpView<'_>> {
+        let operation = self.operations.get(id.0)?;
+        let result = operation
+            .results
+            .first()
+            .and_then(|value| self.values.get(value.0));
+        Some(LogicalOpView { operation, result })
+    }
+
     /// Convert the current inspection plan into the A3-v0 op/value-separated
     /// single-block representation.  The transition plan remains available as
     /// the compatibility API while migration proceeds.
