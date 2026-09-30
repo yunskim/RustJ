@@ -234,3 +234,31 @@ fn rank_and_reduce_can_use_native_reference_routes_after_purity_resolution() {
         );
     }
 }
+
+
+#[test]
+fn lowering_recipe_keeps_semantic_parameters_but_not_schedule_choices() {
+    use rustj::logical_ir::{BasisPayload, ReductionAxis};
+
+    let registry = LoweringRegistry::a3_v0();
+    let cpu = TargetCapabilities::cpu_baseline();
+    let plan = Engine::new().analyze_a3("+/1 2 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+
+    let recipes = registry.recipes_for_operation(&plan.operations[producer.0], &cpu);
+    assert_eq!(recipes.len(), 1);
+    assert_eq!(recipes[0].basis, BasisKind::Reduce);
+    assert_eq!(
+        recipes[0].realization,
+        RealizationFamily::OrderedReduction
+    );
+    assert_eq!(
+        recipes[0].payload,
+        BasisPayload::Reduce {
+            axis: ReductionAxis::LeadingCellAxis
+        }
+    );
+    assert_eq!(recipes[0].iteration_domain.axes.len(), 1);
+    assert_eq!(recipes[0].iteration_domain.axes[0].extent, Some(3));
+}
