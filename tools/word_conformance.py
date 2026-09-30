@@ -28,7 +28,7 @@ def main():
             error=o.run('auditwords=: ;: a. {~ , ('+chars+')')
             if error:
                 # C error 13 is open quote; do not swallow unrelated oracle errors.
-                if error['error'] != 'J error 13':
+                if error['error'] != 'open quote':
                     raise RuntimeError((source.hex(),error))
                 opened+=1
                 if 'error' not in got: failures.append({'hex':source.hex(),'expected':'open quote','actual':got})
@@ -42,7 +42,7 @@ def main():
                 start=source.index(word,offset);expected.append([start,start+len(word)]);offset=start+len(word)
             if got.get('spans')!=expected: failures.append({'hex':source.hex(),'expected':expected,'actual':got})
     finally:o.close()
-    report={'cases':len(samples),'seed':args.seed,'open_quotes':opened,'failed':len(failures),'failures':failures,'reference':os.environ.get('J_LIBRARY')}
+    report={'jsource_revision':'13994ffa1ed5f06f79fad6e9822a7ed2d29b1528','cases':len(samples),'seed':args.seed,'open_quotes':opened,'failed':len(failures),'failures':failures,'reference':os.environ.get('J_LIBRARY')}
     args.report.write_text(json.dumps(report,indent=2))
     print(json.dumps({k:v for k,v in report.items() if k!='failures'},indent=2))
     return bool(failures)
