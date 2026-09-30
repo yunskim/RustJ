@@ -508,6 +508,66 @@ J source
 
 단, **그 정보를 너무 빨리 없애지 않는 것**이 전제다.
 
+### 9.1 J 문법은 operation identity뿐 아니라 graph topology도 제공한다
+
+과거 JAXA / jaxa-analyzer 설계에서 더 강하게 제기했던 주장은 여기서 한 단계 더 나간다.
+
+~~~text
+J syntax
+  → operation kind를 알려 줌
+  + graph topology를 알려 줌
+  → optimization opportunity를 정적으로 노출
+~~~
+
+대표적으로:
+
+~~~text
+f @: g @: h
+  → ordered Pipeline
+  → producer-consumer intermediate의 materialization-elision/fusion 후보
+
+hook / fork
+  → Branch / Join
+  → shared input, live-across value, join lifetime 후보
+
+adjoint/VJP expansion
+  → Fan-out
+  → data adjoint와 parameter adjoint의 parallel execution 후보
+~~~
+
+이 정보는 일반 SSA DAG로 모두 표현 가능하지만, **표현 가능하다는 것과 source가 이미 알려 준 구조를 버려도 된다는 것은 다르다.**
+
+일반 DAG로 먼저 평탄화한 뒤 pipeline/branch/join을 다시 pattern-match하면 J 문법이 제공한 정보를 버렸다가 복원하는 셈이다. RustJ는 따라서 semantic structure를 펼칠 때 target-independent StructuralOpportunity sidecar를 동시에 생성한다.
+
+중요한 구분:
+
+~~~text
+syntax-derived opportunity
+  ≠ semantic legality proof
+  ≠ target feasibility
+  ≠ chosen physical schedule
+~~~
+
+예를 들어 hook/fork branch가 계산 의존성만 보면 독립이어도 J error/effect order 때문에 병렬화할 수 없을 수 있다. 반대로 semantic상 합법이어도 register pressure, bandwidth, synchronization 비용 때문에 실제 target에서는 직렬 schedule이 더 나을 수 있다.
+
+따라서 RustJ의 단계는:
+
+~~~text
+J combinator structure
+  ↓
+StructuralOpportunity
+  ↓
+Effect / error / numeric / access proof
+  ↓
+Target/resource feasibility
+  ↓
+FusionRegion / ParallelSchedule
+~~~
+
+이다.
+
+이 구조는 과거 JAXA의 “J 표기가 fusion 구조를 정적으로 보이게 한다”는 장점을 유지하면서, register/shared memory/tile 같은 구체 hardware 결정을 Physical Planner에 늦추는 현행 RustJ 계층화와 양립한다.
+
 ---
 
 # Part IV. 현재 jsource는 이미 “단순 interpreter”가 아니다
