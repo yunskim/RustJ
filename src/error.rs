@@ -113,6 +113,11 @@ impl ErrorContext {
         self
     }
 
+    pub fn with_current_name(mut self, name: impl Into<String>) -> Self {
+        self.current_name = Some(name.into());
+        self
+    }
+
     pub fn with_argument(mut self, argument: ArgumentSummary) -> Self {
         self.arguments.push(argument);
         self
@@ -274,17 +279,7 @@ impl Error {
     }
 
     pub fn diagnostic(&self, source: &str) -> Diagnostic {
-        let context = self.context().cloned().unwrap_or_default();
-        Diagnostic {
-            class_name: self.class_name(),
-            kind: self.kind(),
-            message: self.detail_message(),
-            location: context
-                .span
-                .clone()
-                .map(|span| SourceLocation::from_span(source, span)),
-            context,
-        }
+        DiagnosticAnalyzer::analyze(self, source)
     }
 
     fn detail_message(&self) -> String {
@@ -360,6 +355,43 @@ impl Error {
             out.push_str(&format!("\n  {note}"));
         }
         out
+    }
+}
+
+/// Converts a J-compatible error plus structured execution context into a
+/// human-oriented explanation.  Keep this separate from the renderer so new
+/// J/eformat-style semantic analyzers can be added without changing error
+/// propagation or UI formatting.
+pub struct DiagnosticAnalyzer;
+
+impl DiagnosticAnalyzer {
+    pub fn analyze(error: &Error, source: &str) -> Diagnostic {
+        let mut context = error.context().cloned().unwrap_or_default();
+
+        // Conservative generic explanations only. Primitive-specific
+        // analyzers may append more precise notes at the failure site.
+        if error.kind() == "length error"
+            && context.arguments.len() == 2
+            && context.notes.is_empty()
+        {
+            let x = &context.arguments[0];
+            let y = &context.arguments[1];
+            context.notes.push(format!(
+                "argument shapes {:?} and {:?} do not conform",
+                x.shape, y.shape
+            ));
+        }
+
+        Diagnostic {
+            class_name: error.class_name(),
+            kind: error.kind(),
+            message: error.detail_message(),
+            location: context
+                .span
+                .clone()
+                .map(|span| SourceLocation::from_span(source, span)),
+            context,
+        }
     }
 }
 
