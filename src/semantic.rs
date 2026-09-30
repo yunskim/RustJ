@@ -497,6 +497,12 @@ impl Item {
 
 /// Parse without reading bindings, changing state, or invoking any kernels.
 pub fn parse(source: &str) -> Result<Program> {
+    parse_with(source, None, false).map_err(Error::into_unlocated)
+}
+
+/// Diagnostic frontend entry point. It uses the same parser semantics as
+/// `parse` but retains source spans on errors for compiler/interpreter/JIT UI.
+pub fn parse_diagnostic(source: &str) -> Result<Program> {
     parse_with(source, None, false)
 }
 
