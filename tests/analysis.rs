@@ -413,6 +413,16 @@ fn implicit_and_explicit_cell_application_boundaries_remain_distinct() {
     assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Explicit);
     assert_eq!(plan.layers[1].boundary, CellApplyBoundary::Innate);
     assert_eq!(plan.layers[1].requested.monad, RankSpec::Infinite);
+
+    let p = e.analyze("$\"_ a").unwrap();
+    let plan = p.nodes[p.result.unwrap().0]
+        .cell_application
+        .as_ref()
+        .unwrap();
+    assert_eq!(plan.layers.len(), 2);
+    assert_eq!(plan.layers[0].boundary, CellApplyBoundary::Explicit);
+    assert_eq!(plan.layers[0].requested.monad, RankSpec::Infinite);
+    assert_eq!(plan.layers[0].effective_monad_rank, Some(2));
 }
 
 #[test]
