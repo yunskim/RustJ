@@ -2,7 +2,7 @@ use rustj::{
     Engine,
     contracts::{self, Effect, Overflow, Valence},
     semantic::{
-        self, ExprKind as Expr, FunctionFormId, FunctionHead, FunctionOperand,
+        self, ExprKind as Expr, FunctionHead, FunctionOperand,
     },
 };
 #[test]
@@ -30,7 +30,10 @@ fn parse_is_execution_free_and_right_associative() {
     assert_eq!(verb.rank, Some([1, 1, 1]));
 
     let rank = verb.entity;
-    assert_eq!(rank.head, FunctionHead::Derived(FunctionFormId::RANK));
+    assert_eq!(
+        rank.head,
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank)
+    );
     let [
         FunctionOperand::Function(insert),
         FunctionOperand::Noun { value: rank_value, .. },
@@ -41,14 +44,14 @@ fn parse_is_execution_free_and_right_associative() {
     assert_eq!(rank_value.int_at(0).unwrap(), 1);
     assert_eq!(
         insert.head,
-        FunctionHead::Derived(FunctionFormId::INSERT)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
     );
     let [FunctionOperand::Function(base)] = insert.operands.as_slice() else {
         panic!("insert should retain its operand");
     };
     assert_eq!(
         base.head,
-        FunctionHead::Primitive(rustj::primitive::PrimitiveId::Add)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
     );
 }
 #[test]
@@ -325,7 +328,7 @@ fn verb_trains_build_shared_hook_fork_graphs_right_to_left() {
     let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
         panic!()
     };
-    assert_eq!(verb.entity.head, FunctionHead::Derived(FunctionFormId::FORK));
+    assert_eq!(verb.entity.head, FunctionHead::Fork);
     let [
         FunctionOperand::Function(f),
         FunctionOperand::Function(g),
@@ -334,18 +337,21 @@ fn verb_trains_build_shared_hook_fork_graphs_right_to_left() {
     else {
         panic!()
     };
-    assert_eq!(f.head, FunctionHead::Derived(FunctionFormId::INSERT));
-    assert_eq!(g.head, FunctionHead::Primitive(rustj::primitive::PrimitiveId::Divide));
-    assert_eq!(h.head, FunctionHead::Primitive(rustj::primitive::PrimitiveId::Tally));
+    assert_eq!(
+        f.head,
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+    );
+    assert_eq!(g.head, FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Divide));
+    assert_eq!(h.head, FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Tally));
 
     let p = semantic::parse("(+ - * %)").unwrap();
     let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else { panic!() };
-    assert_eq!(verb.entity.head, FunctionHead::Derived(FunctionFormId::HOOK));
+    assert_eq!(verb.entity.head, FunctionHead::Hook);
     let [FunctionOperand::Function(first), FunctionOperand::Function(tail)] =
         verb.entity.operands.as_slice()
     else { panic!() };
-    assert_eq!(first.head, FunctionHead::Primitive(rustj::primitive::PrimitiveId::Add));
-    assert_eq!(tail.head, FunctionHead::Derived(FunctionFormId::FORK));
+    assert_eq!(first.head, FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add));
+    assert_eq!(tail.head, FunctionHead::Fork);
 }
 
 #[test]
@@ -368,7 +374,7 @@ fn large_pure_verb_train_builds_iteratively_as_a_shared_graph() {
     let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
         panic!()
     };
-    assert_eq!(verb.entity.head, FunctionHead::Derived(FunctionFormId::FORK));
+    assert_eq!(verb.entity.head, FunctionHead::Fork);
 
     let root = verb.entity.clone();
     let alias = root.clone();

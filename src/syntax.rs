@@ -12,11 +12,11 @@ pub enum Token<'a> {
     Noun(Box<Value>),
     Name(&'a str),
     Verb(crate::primitive::PrimitiveId),
+    Adverb(crate::primitive::AdverbId),
+    Conjunction(crate::primitive::ConjunctionId),
     Assign,
     Open,
     Close,
-    Slash,
-    Rank,
 }
 fn numeric_text(s: &str) -> Cow<'_, str> {
     if s.contains('_') {
@@ -77,9 +77,12 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
             "=:" => Some(Token::Assign),
             "(" => Some(Token::Open),
             ")" => Some(Token::Close),
-            "/" => Some(Token::Slash),
-            "\"" => Some(Token::Rank),
-            _ => crate::primitive::PrimitiveId::from_spelling(word).map(Token::Verb),
+            _ => crate::primitive::PrimitiveId::from_spelling(word)
+                .map(Token::Verb)
+                .or_else(|| crate::primitive::AdverbId::from_spelling(word).map(Token::Adverb))
+                .or_else(|| {
+                    crate::primitive::ConjunctionId::from_spelling(word).map(Token::Conjunction)
+                }),
         };
         if let Some(token) = fixed {
             emit!(token);

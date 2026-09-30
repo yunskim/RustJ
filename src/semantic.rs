@@ -7,20 +7,6 @@ use crate::{
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct FunctionFormId(pub u32);
-impl FunctionFormId {
-    /// Built-in insert adverb application. Stable only inside the current
-    /// semantic-IR schema; it is not the jsource C id byte.
-    pub const INSERT: Self = Self(1);
-    /// Built-in rank conjunction application.
-    pub const RANK: Self = Self(2);
-    /// Two-entity train (hook) produced by J parser reduction.
-    pub const HOOK: Self = Self(3);
-    /// Three-entity train (fork) produced by J parser reduction.
-    pub const FORK: Self = Self(4);
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FunctionPartOfSpeech {
     Verb,
     Adverb,
@@ -29,11 +15,13 @@ pub enum FunctionPartOfSpeech {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FunctionHead {
-    Primitive(crate::primitive::PrimitiveId),
+    PrimitiveVerb(crate::primitive::PrimitiveId),
+    PrimitiveAdverb(crate::primitive::AdverbId),
+    PrimitiveConjunction(crate::primitive::ConjunctionId),
     NameRef(String),
-    /// Open-form derived identity. New J/extension forms should be registered
-    /// by form id rather than growing a closed DerivedVerb enum.
-    Derived(FunctionFormId),
+    /// Parser-production identities with no source operator token.
+    Hook,
+    Fork,
 }
 
 #[derive(Debug)]
@@ -61,7 +49,7 @@ impl FunctionEntity {
         Arc::new(Self {
             span,
             result_pos: FunctionPartOfSpeech::Verb,
-            head: FunctionHead::Primitive(id),
+            head: FunctionHead::PrimitiveVerb(id),
             operands: Vec::new(),
         })
     }
@@ -75,8 +63,32 @@ impl FunctionEntity {
         })
     }
 
+    fn primitive_adverb(
+        id: crate::primitive::AdverbId,
+        span: std::ops::Range<usize>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            span,
+            result_pos: FunctionPartOfSpeech::Adverb,
+            head: FunctionHead::PrimitiveAdverb(id),
+            operands: Vec::new(),
+        })
+    }
+
+    fn primitive_conjunction(
+        id: crate::primitive::ConjunctionId,
+        span: std::ops::Range<usize>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            span,
+            result_pos: FunctionPartOfSpeech::Conjunction,
+            head: FunctionHead::PrimitiveConjunction(id),
+            operands: Vec::new(),
+        })
+    }
+
     fn derived(
-        form: FunctionFormId,
+        head: FunctionHead,
         result_pos: FunctionPartOfSpeech,
         span: std::ops::Range<usize>,
         operands: Vec<FunctionOperand>,
@@ -84,7 +96,7 @@ impl FunctionEntity {
         Arc::new(Self {
             span,
             result_pos,
-            head: FunctionHead::Derived(form),
+            head,
             operands,
         })
     }
@@ -96,7 +108,7 @@ fn train_hook(f: Verb, g: Verb) -> Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
         entity: FunctionEntity::derived(
-            FunctionFormId::HOOK,
+            FunctionHead::Hook,
             FunctionPartOfSpeech::Verb,
             span,
             vec![
@@ -115,7 +127,7 @@ fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
         entity: FunctionEntity::derived(
-            FunctionFormId::FORK,
+            FunctionHead::Fork,
             FunctionPartOfSpeech::Verb,
             span,
             vec![
@@ -159,6 +171,149 @@ fn make_verb_train(mut verbs: Vec<Verb>) -> Result<Verb> {
     Ok(tail)
 }
 
+fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
+    let FunctionHead::PrimitiveAdverb(id) = &operator.head else {
+        return Err(Error::Unsupported("named/derived adverb application".into()));
+    };
+    let id = *id;
+    let span = left.span.start..operator.span.end;
+    let reduce = matches!(id, crate::primitive::AdverbId::Insert);
+    Ok(Verb {
+        span: span.clone(),
+        target: VerbTarget::Derived,
+        entity: FunctionEntity::derived(
+            FunctionHead::PrimitiveAdverb(id),
+            FunctionPartOfSpeech::Verb,
+            span,
+            vec![FunctionOperand::Function(left.entity)],
+        ),
+        reduce,
+        rank: left.rank,
+    })
+}
+
+fn apply_conjunction(
+    left: Verb,
+    operator: Arc<FunctionEntity>,
+    right: Item,
+) -> Result<Verb> {
+    let FunctionHead::PrimitiveConjunction(id) = &operator.head else {
+        return Err(Error::Unsupported("named/derived conjunction application".into()));
+    };
+    let id = *id;
+    let mut operands = vec![FunctionOperand::Function(left.entity)];
+    let mut rank = left.rank;
+    let right_end;
+    match right {
+        Item::Noun(expr, _) => {
+            right_end = expr.span.end;
+            let value = match expr.kind {
+                ExprKind::Literal(value) => value,
+                ExprKind::Group(inner) => match inner.kind {
+                    ExprKind::Literal(value) => value,
+                    _ => {
+                        return Err(Error::Unsupported(
+                            "non-literal conjunction noun operand".into(),
+                        ))
+                    }
+                },
+                _ => {
+                    return Err(Error::Unsupported(
+                        "non-literal conjunction noun operand".into(),
+                    ))
+                }
+            };
+            if matches!(id, crate::primitive::ConjunctionId::Rank) {
+                if value.is_empty() || value.len() > 3 {
+                    return Err(Error::Length);
+                }
+                let at = |i| value.int_at(i);
+                rank = Some(match value.len() {
+                    1 => [at(0)?, at(0)?, at(0)?],
+                    2 => [at(1)?, at(0)?, at(1)?],
+                    _ => [at(0)?, at(1)?, at(2)?],
+                });
+            }
+            operands.push(FunctionOperand::Noun {
+                span: expr.span,
+                value,
+            });
+        }
+        Item::Verb(verb) => {
+            right_end = verb.span.end;
+            operands.push(FunctionOperand::Function(verb.entity));
+            if matches!(id, crate::primitive::ConjunctionId::Rank) {
+                rank = None;
+            }
+        }
+        Item::Adverb(_) | Item::Conjunction(_) => {
+            return Err(Error::Syntax("invalid conjunction right operand".into()))
+        }
+    }
+    let span = left.span.start..right_end;
+    Ok(Verb {
+        span: span.clone(),
+        target: VerbTarget::Derived,
+        entity: FunctionEntity::derived(
+            FunctionHead::PrimitiveConjunction(id),
+            FunctionPartOfSpeech::Verb,
+            span,
+            operands,
+        ),
+        reduce: left.reduce,
+        rank,
+    })
+}
+
+/// Apply the jsource parser's function-construction rows for the subset currently
+/// represented by this frontend: AVN ADV (row 3) and AVN CONJ AVN (row 4).
+/// We select the rightmost reducible phrase to match the parser's right-to-left
+/// queue/stack discipline. Hook/fork reduction is performed separately below.
+fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
+    loop {
+        let mut reduced = false;
+
+        if items.len() >= 2 {
+            for i in (0..items.len() - 1).rev() {
+                if matches!(&items[i], Item::Verb(_)) && matches!(&items[i + 1], Item::Adverb(_)) {
+                    let pair: Vec<_> = items.drain(i..i + 2).collect();
+                    let mut pair = pair.into_iter();
+                    let Item::Verb(left) = pair.next().unwrap() else { unreachable!() };
+                    let Item::Adverb(operator) = pair.next().unwrap() else { unreachable!() };
+                    items.insert(i, Item::Verb(apply_adverb(left, operator)?));
+                    reduced = true;
+                    break;
+                }
+            }
+        }
+        if reduced {
+            continue;
+        }
+
+        if items.len() >= 3 {
+            for i in (0..items.len() - 2).rev() {
+                if matches!(&items[i], Item::Verb(_))
+                    && matches!(&items[i + 1], Item::Conjunction(_))
+                    && matches!(&items[i + 2], Item::Verb(_) | Item::Noun(_, _))
+                {
+                    let triple: Vec<_> = items.drain(i..i + 3).collect();
+                    let mut triple = triple.into_iter();
+                    let Item::Verb(left) = triple.next().unwrap() else { unreachable!() };
+                    let Item::Conjunction(operator) = triple.next().unwrap() else { unreachable!() };
+                    let right = triple.next().unwrap();
+                    items.insert(i, Item::Verb(apply_conjunction(left, operator, right)?));
+                    reduced = true;
+                    break;
+                }
+            }
+        }
+
+        if !reduced {
+            return Ok(items);
+        }
+    }
+}
+
 fn collapse_verb_trains(items: Vec<Item>) -> Result<Vec<Item>> {
     // A pure function phrase (for example `+/ % #` inside parentheses or on
     // an assignment RHS) is a train. Do not collapse verb runs embedded in a
@@ -169,7 +324,7 @@ fn collapse_verb_trains(items: Vec<Item>) -> Result<Vec<Item>> {
             .into_iter()
             .map(|item| match item {
                 Item::Verb(verb) => verb,
-                Item::Noun(..) => unreachable!(),
+                Item::Noun(..) | Item::Adverb(_) | Item::Conjunction(_) => unreachable!(),
             })
             .collect();
         Ok(vec![Item::Verb(make_verb_train(verbs)?)])
@@ -231,6 +386,8 @@ pub const MAX_EXPR_DEPTH: usize = 128;
 enum Item {
     Noun(Expr, usize),
     Verb(Verb),
+    Adverb(Arc<FunctionEntity>),
+    Conjunction(Arc<FunctionEntity>),
 }
 
 /// Parse without reading bindings, changing state, or invoking any kernels.
@@ -388,7 +545,7 @@ fn expression(
                     }
                     VerbTarget::Derived => unreachable!("source token is not a derived target"),
                 };
-                let mut verb = Verb {
+                let verb = Verb {
                     span: verb_span,
                     target,
                     entity,
@@ -396,55 +553,21 @@ fn expression(
                     rank: None,
                 };
                 *pos += 1;
-                if matches!(tokens.get(*pos), Some(Token::Slash)) {
-                    let slash_span = spans[*pos].clone();
-                    let derived_span = verb.span.start..slash_span.end;
-                    verb.entity = FunctionEntity::derived(
-                        FunctionFormId::INSERT,
-                        FunctionPartOfSpeech::Verb,
-                        derived_span.clone(),
-                        vec![FunctionOperand::Function(verb.entity.clone())],
-                    );
-                    verb.span = derived_span;
-                    verb.reduce = true;
-                    *pos += 1;
-                }
-                if matches!(tokens.get(*pos), Some(Token::Rank)) {
-                    *pos += 1;
-                    let v = match tokens.get(*pos) {
-                        Some(Token::Scalar(v)) => v.clone().into_value()?,
-                        Some(Token::Noun(v)) => (**v).clone(),
-                        _ => return Err(Error::Syntax("rank needs a numeric literal".into())),
-                    };
-                    if v.is_empty() || v.len() > 3 {
-                        return Err(Error::Length);
-                    }
-                    let at = |i| v.int_at(i);
-                    let ranks = match v.len() {
-                        1 => [at(0)?, at(0)?, at(0)?],
-                        2 => [at(1)?, at(0)?, at(1)?],
-                        _ => [at(0)?, at(1)?, at(2)?],
-                    };
-                    let rank_span = spans[*pos].clone();
-                    let derived_span = verb.span.start..rank_span.end;
-                    verb.entity = FunctionEntity::derived(
-                        FunctionFormId::RANK,
-                        FunctionPartOfSpeech::Verb,
-                        derived_span.clone(),
-                        vec![
-                            FunctionOperand::Function(verb.entity.clone()),
-                            FunctionOperand::Noun {
-                                value: v,
-                                span: rank_span,
-                            },
-                        ],
-                    );
-                    verb.span = derived_span;
-                    verb.rank = Some(ranks);
-                    *pos += 1;
-                }
-                verb.span.end = spans[*pos - 1].end;
                 items.push(Item::Verb(verb));
+            }
+            Token::Adverb(id) => {
+                items.push(Item::Adverb(FunctionEntity::primitive_adverb(
+                    *id,
+                    spans[*pos].clone(),
+                )));
+                *pos += 1;
+            }
+            Token::Conjunction(id) => {
+                items.push(Item::Conjunction(FunctionEntity::primitive_conjunction(
+                    *id,
+                    spans[*pos].clone(),
+                )));
+                *pos += 1;
             }
             _ => {
                 return Err(Error::Unsupported(
@@ -453,6 +576,7 @@ fn expression(
             }
         }
     }
+    let items = reduce_modifier_applications(items)?;
     let mut items = collapse_verb_trains(items)?;
 
     if items.len() == 1 && matches!(items.first(), Some(Item::Verb(_))) {
@@ -472,7 +596,7 @@ fn expression(
     };
     while let Some(item) = items.pop() {
         let Item::Verb(v) = item else {
-            return Err(Error::Syntax("adjacent nouns".into()));
+            return Err(Error::Syntax("unreduced function modifier or adjacent nouns".into()));
         };
         if matches!(items.last(), Some(Item::Noun(_, _))) {
             let Some(Item::Noun(lhs, left_height)) = items.pop() else {

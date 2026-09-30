@@ -2,7 +2,7 @@ use rustj::{
     Engine,
     analysis::{AccessFact, AccessRelation, CallTarget, Operation, Scope, ValueId},
     contracts::{Effect, Overflow},
-    semantic::{FunctionFormId, FunctionHead, NameVersion},
+    semantic::{FunctionHead, NameVersion},
 };
 
 #[test]
@@ -107,7 +107,7 @@ fn primitive_and_derived_contracts_are_conservative() {
     };
     assert_eq!(
         callable.semantic.head,
-        FunctionHead::Derived(FunctionFormId::INSERT)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
     );
     for source in ["+/1 2", "+\"0 (1 2)", "future 3"] {
         let p = e.analyze(source).unwrap();

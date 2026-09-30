@@ -4,8 +4,8 @@ use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
     semantic::{
-        BoundProgram, Expr, ExprKind, FunctionEntity, FunctionFormId, FunctionHead,
-        FunctionOperand, FunctionPartOfSpeech, NameVersion, Verb,
+        BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand,
+        FunctionPartOfSpeech, NameVersion, Verb,
     },
 };
 use std::{collections::HashMap, ops::Range, sync::Arc};
@@ -280,7 +280,7 @@ impl Builder<'_> {
         let mut rank = None;
         loop {
             match &current.head {
-                FunctionHead::Primitive(id) => {
+                FunctionHead::PrimitiveVerb(id) => {
                     return Ok(Callable {
                         target: CallTarget::Primitive(*id),
                         semantic,
@@ -296,14 +296,16 @@ impl Builder<'_> {
                         rank,
                     });
                 }
-                FunctionHead::Derived(form) if *form == FunctionFormId::INSERT => {
+                FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+                    if current.result_pos == FunctionPartOfSpeech::Verb => {
                     let [FunctionOperand::Function(base)] = current.operands.as_slice() else {
                         return Err(Error::Unsupported("malformed insert semantic entity".into()));
                     };
                     reduce = true;
                     current = base.clone();
                 }
-                FunctionHead::Derived(form) if *form == FunctionFormId::RANK => {
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+                    if current.result_pos == FunctionPartOfSpeech::Verb => {
                     let [
                         FunctionOperand::Function(base),
                         FunctionOperand::Noun { value, .. },
@@ -322,7 +324,10 @@ impl Builder<'_> {
                     });
                     current = base.clone();
                 }
-                FunctionHead::Derived(_) => {
+                FunctionHead::PrimitiveAdverb(_)
+                | FunctionHead::PrimitiveConjunction(_)
+                | FunctionHead::Hook
+                | FunctionHead::Fork => {
                     return Err(Error::Unsupported(
                         "semantic function requires structural lowering".into(),
                     ));
@@ -337,7 +342,7 @@ impl Builder<'_> {
                 if left.is_none()
                     && matches!(
                         &callable.semantic.head,
-                        FunctionHead::Derived(id) if *id == FunctionFormId::INSERT
+                        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
                     ) =>
             {
                 AccessFact::Known(AccessRelation::ReduceLeadingAxis)
@@ -346,7 +351,7 @@ impl Builder<'_> {
                 callable,
                 contract,
                 ..
-            } if matches!(&callable.semantic.head, FunctionHead::Primitive(_))
+            } if matches!(&callable.semantic.head, FunctionHead::PrimitiveVerb(_))
                 && contract.class == crate::contracts::OperationClass::Map =>
             {
                 AccessFact::Known(AccessRelation::ElementwiseMap)
@@ -434,7 +439,7 @@ impl Builder<'_> {
         span: Range<usize>,
     ) -> Result<ValueId> {
         match &semantic.head {
-            FunctionHead::Derived(form) if *form == FunctionFormId::FORK => {
+            FunctionHead::Fork => {
                 let [
                     FunctionOperand::Function(f),
                     FunctionOperand::Function(g),
@@ -463,7 +468,7 @@ impl Builder<'_> {
                     span,
                 )
             }
-            FunctionHead::Derived(form) if *form == FunctionFormId::HOOK => {
+            FunctionHead::Hook => {
                 let [
                     FunctionOperand::Function(f),
                     FunctionOperand::Function(g),

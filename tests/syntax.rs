@@ -13,6 +13,19 @@ fn compact_tokens_borrow_names_and_keep_literal_semantics() {
     };
     assert_eq!(name.as_ptr(), source.as_ptr());
     assert!(matches!(tokens[2], Token::Scalar(_)));
+    let modifier_tokens = lex("+/\"1").unwrap();
+    assert!(matches!(
+        modifier_tokens[0],
+        Token::Verb(rustj::primitive::PrimitiveId::Add)
+    ));
+    assert!(matches!(
+        modifier_tokens[1],
+        Token::Adverb(rustj::primitive::AdverbId::Insert)
+    ));
+    assert!(matches!(
+        modifier_tokens[2],
+        Token::Conjunction(rustj::primitive::ConjunctionId::Rank)
+    ));
     let mut e = Engine::new();
     for (s, kind, shape) in [
         ("0", 1, vec![]),

@@ -39,3 +39,40 @@ primitives! {
     Member => "e.",
     Find => "E.",
 }
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AdverbId {
+    Insert,
+}
+impl AdverbId {
+    pub fn from_spelling(s: &str) -> Option<Self> {
+        match s {
+            "/" => Some(Self::Insert),
+            _ => None,
+        }
+    }
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Self::Insert => "/",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ConjunctionId {
+    Rank,
+}
+impl ConjunctionId {
+    pub fn from_spelling(s: &str) -> Option<Self> {
+        match s {
+            "\"" => Some(Self::Rank),
+            _ => None,
+        }
+    }
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Self::Rank => "\"",
+        }
+    }
+}
