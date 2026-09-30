@@ -69,7 +69,7 @@ impl Error {
     }
 
     pub fn at(self, span: Range<usize>) -> Self {
-        if matches!(self, Self::Located { .. }) {
+        if matches!(&self, Self::Located { .. }) {
             self
         } else {
             Self::Located {
