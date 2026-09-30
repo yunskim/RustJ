@@ -11,6 +11,7 @@ pub mod error;
 pub mod facts;
 pub mod kernels;
 pub mod logical_ir;
+pub mod lowering;
 mod numeric;
 pub mod physical;
 mod pool;
