@@ -5215,6 +5215,306 @@ Rank, Cut, Key/Oblique, Power, boxed Level/Spread/Fetch, sparse composition을 �
 4. basis를 더 작은 operation으로 refinement하는 작업은 이 closure의 선행조건이 아니다. 이후 benchmark/optimizer 구현에서 실질적 성능 이득이 확인되는 경우에만 BasisExpansion rule을 추가한다.
 
 
+
+
+#### 4.24.14 Basis Logical IR node contract와 최소 analysis/lowering interface
+
+4.24.11–4.24.13의 v0.2 vocabulary를 실제 A3 Logical IR로 옮길 때 basis 이름마다 임의의 struct를 따로 만들지 않는다. 모든 basis node는 공통 contract를 공유하고, 각 operation family가 필요한 추가 payload/fact/check를 명시한다.
+
+핵심 경계:
+
+~~~text
+J Semantic entity / Resolved semantic op
+        │
+        ├─ original semantic identity
+        ├─ ResolvedInstantiation
+        └─ ResolvedCallFacts
+                 │
+                 ▼
+        optional BasisExpansion
+                 │
+                 ▼
+           Logical basis graph
+                 │
+                 ├─ ValueFacts / ValueRoleFacts
+                 ├─ IterationDomain / AxisSemantics
+                 ├─ AccessFact
+                 ├─ ConstraintSet / FactWitness
+                 ├─ SemanticCheck
+                 ├─ EffectSummary / SpeculationSemantics
+                 ├─ DestinationRelation / StorageRequirement
+                 └─ provenance
+                         │
+                         ▼
+                LoweringRegistry query
+                         │
+                         ▼
+              legal realization candidates
+~~~
+
+basis op는 target-independent다. warp width, SIMD width, tile, workgroup, shared memory, register budget, concrete layout, library handle 같은 것은 basis node payload에 넣지 않는다.
+
+##### ResolvedInstantiation
+
+polymorphic primitive/derived verb가 실제 call에서 어떤 instance가 되었는지를 ResolvedCallFacts와 specialization 사이에 명시적으로 기록한다.
+
+~~~text
+ResolvedInstantiation
+  semantic_operation_id
+  valence
+  input dtype/rank/cell-rank instances
+  output dtype/rank instance if known
+  explicit/innate rank boundary
+  relevant ValueRoleFacts
+  numeric/fit policy identity
+  source/binding provenance
+~~~
+
+이 구조는 semantic identity 자체가 아니다. 동일 FunctionEntity도 actual arguments에 따라 여러 instantiation을 가질 수 있다.
+
+용도:
+- IR dump/diagnostics
+- differential test provenance
+- SpecializationKey material 추출
+- lowering lookup
+- cache provenance
+
+SpecializationKey에는 이 전체를 복사하지 않고 algorithm/lowering 선택에 실제 영향을 주는 field만 추출한다.
+
+##### ValueRoleFacts
+
+ValueFacts.shape는 “이 value 자체의 shape”다. 반대로 어떤 noun의 값이 다른 operation의 shape/axis/index/window specification으로 사용된다는 사실은 별도 role이다.
+
+~~~text
+ValueRoleFacts
+  ShapeVector
+  AxisVector
+  AxisPermutation
+  RankSpecifier
+  IndexVector
+  CountVector
+  WindowSpec
+  StrideSpec
+  DilationSpec
+  PaddingSpec
+  SegmentDescriptor
+  Permutation
+  StateIdLike
+  Unknown
+~~~
+
+ValueRoleFacts는 J type system에 새로운 nominal type을 추가하지 않는다. 같은 integer vector가 문맥에 따라 ordinary data 또는 ShapeVector가 될 수 있다. role은 call/basis analysis가 만든 fact이며 witness를 가질 수 있다.
+
+##### first-class SemanticCheck
+
+J-visible error condition을 compiler assertion과 구분한다.
+
+~~~text
+SemanticCheck
+  predicate / required constraint
+  J error kind
+  semantic origin
+  observable ordering dependency
+  witness if already proven
+~~~
+
+예:
+- shape agreement → length error
+- index range → index error
+- domain predicate → domain error
+- permutation validity → index/domain error as defined by source primitive
+- solver shape/singularity condition → corresponding J error contract
+
+규칙:
+1. compiler 내부 invariant assertion과 SemanticCheck를 같은 것으로 취급하지 않는다.
+2. FactWitness가 predicate를 증명하면 check를 제거할 수 있다.
+3. hoist/fuse/reorder는 SpeculationSemantics와 observable error order를 보존할 때만 허용한다.
+4. A3-v0 single-block IR에서도 check는 MayRaise operation으로 존재할 수 있다. runtime branch/deoptimization이 필요한 Guard는 A3-v1의 책임이다.
+
+##### BasisExpansion
+
+큰 semantic/structured op가 basis graph와 동등하다고 알려져도 원래 identity를 삭제하지 않는다.
+
+~~~text
+BasisExpansion
+  source semantic/logical op
+  applicability constraints
+  expansion region/graph
+  equivalence witness/rule id
+  preserved numeric/error/order contract
+  provenance
+~~~
+
+예:
+
+~~~text
+Conv
+  ↔ WindowView + Contract
+
+Pooling
+  ↔ WindowView + Reduce
+
+MatMul
+  ↔ Contract
+
+Mean
+  ↔ Reduce(Add) + Tally + Divide
+~~~
+
+expansion은 mandatory lowering이 아니다. planner/optimizer는 original identity와 expansion 양쪽을 이용할 수 있다. refinement는 4.24.11의 성능 기준을 만족할 때 추가한다.
+
+##### 공통 LogicalBasisOp contract
+
+모든 basis operation은 conceptually 최소한 다음 query가 가능해야 한다.
+
+~~~text
+LogicalBasisOp
+  identity
+  operands / results
+  ResolvedInstantiation
+  IterationDomain
+  AxisSemantics
+  AccessFact[]                  // Known(...) | Opaque
+  NumericSemantics
+  ConstraintSet
+  possible J error set / MayRaise
+  EffectSummary
+  SpeculationSemantics
+  DestinationRelation
+  StorageRequirement
+  semantic/basis provenance
+~~~
+
+모든 field가 항상 Known일 필요는 없다. Unknown/Opaque는 language invalidity가 아니라 해당 optimization/route의 정보 부족이다.
+
+##### lowering capability 공통 형태
+
+basis node는 implementation을 내장하지 않는다. registry가 다음 형태의 후보를 제공한다.
+
+~~~text
+BasisLoweringCapability
+  basis/op family
+  applicability predicate over:
+    ResolvedInstantiation
+    ResolvedCallFacts
+    ValueFacts / ArrayPropertyFacts
+    RepresentationFacts
+    TargetCapability
+  semantic guarantees:
+    exact numeric/error/order behavior
+    supported representation
+    supported access/alias form
+  realization family id
+  optional ResourceEstimate model
+~~~
+
+candidate legality와 candidate preference를 분리한다.
+
+~~~text
+legal(candidate, facts, target)
+        ≠
+preferred(candidate, CostProfile)
+~~~
+
+library가 존재하거나 specialized kernel이라는 이유만으로 자동 선택하지 않는다.
+
+##### basis별 최소 node contract
+
+| Basis family | 최소 logical payload | 최소 facts / SemanticCheck | 최소 lowering capability family |
+|---|---|---|---|
+| IndexSpace / Generate | output shape/domain, index-to-value payload | shape extents nonnegative/representable, dtype/result shape | scalar loop, SIMD/SIMT index generation, constant/iota intrinsic, fused producer |
+| Elementwise / MapN | scalar/cell payload, input access maps, output domain | dtype/promotion/domain, J agreement already resolved or wrapped by CellApply, error-order policy | scalar, SIMD, SIMT, fused elementwise, target intrinsic |
+| CellApply | operand function graph, frame/cell split, valence, assembly policy | EffectiveCellRank, AgreementFact, RepetitionFact, FillAndEmptySemantics, AssemblyFact, length/domain/error order | GenericCellLoop, CanAbsorbCellApply, uniform MapCells/flat GPU route, batched structured op |
+| RegularReindex / StaticReindex | output shape and result-index → source-index relation, fill/boundary policy | shape/item-count relation, index-map validity, view equivalence witness | metadata/view, consumer index-map fusion, layout absorption, materializing copy |
+| Gather | source, index value, output domain, indexed axes | IndexVector role, bounds/rank checks, duplicate-read harmlessness, source representation | scalar/indirect gather, vector gather, GPU indexed read, fused consumer |
+| Scatter / Amend | source/destination value, indices, updates, collision/order policy | bounds, alias/destination legality, duplicate-index ordering, J error order | out-of-place update, legal in-place update, GPU scatter, sorted/index-grouped route |
+| ScatterCombine | destination/index/update plus combine op | combine algebraic facts, collision semantics, identity if required, bounds | atomic combine, privatized histogram, sort+segment reduce, sequential exact-order fallback |
+| WindowView | source, output shape, window shape, stride/dilation/padding/fill, index relation | WindowSpec/Stride/Dilation/Padding roles, result shape, boundary/fill checks | virtual/index-only view, composed reindex, tiled/shared-local window, fused stencil/consumer |
+| SegmentView | source plus offsets/lengths/flags descriptor and segment order | SegmentDescriptor validity, monotonic/range/coverage facts as applicable | virtual segmented view, offset/CSR-style traversal, segmented map/reduce/scan, materialized segment fallback |
+| Permute | source plus permutation or permutation mapping | Permutation/Unique/KnownRange facts, validity check | view when representable, gather permutation, in-place cycle algorithm, out-of-place permutation |
+| Reduce | reducer, axes, identity/empty policy, order/reassociation contract | reduced axes, dtype/accumulator, associativity/commutativity only when proven, FillAndEmptySemantics, MayRaise | serial ordered, SIMD tree, thread/tree, warp/subgroup, multi-stage, library reduction |
+| Scan | operator, axis, direction, inclusive/exclusive/J prefix policy, identity if applicable | same numeric/algebraic facts as reduction plus exact prefix order contract | serial scan, parallel prefix, segmented scan when combined with SegmentView |
+| Contract | input access maps, parallel axes, contraction axes, combine op, aggregate op | shape/axis compatibility, accumulator/numeric policy, reducer algebraic facts, empty contract | generic nested reduction, tiled CPU, GEMM/microkernel, tensor instruction, external library |
+| Concat / Assemble | ordered inputs/cell results, assembly axis/policy | shape agreement, dtype promotion, heterogeneous/boxed assembly, FillAndEmptySemantics | virtual concat where legal, direct destination writes, memcpy/copy chain, producer-to-destination fusion |
+| Replicate / Compact / Expand | source, counts/mask/positions, output-order policy | CountVector/boolean mask, nonnegative/integral counts, output-size overflow, stable order contract | serial expand, prefix-sum + scatter, GPU compaction, fused consumer |
+| Grade | input, direction/order comparator contract, output permutation semantics | ordering/tolerance/fit, dtype/comparator legality, tie/order semantics | comparison sort, radix/key sort, small-array network, GPU sort, library route |
+| Lookup / Classify | haystack/domain, query/items, mode(first/last/member/interval/self-classify), equality/order contract | equality/tolerance, sortedness/uniqueness/range facts when available | linear probe, hash table, direct-address/bitset, binary search, sort/merge lookup |
+| GroupBy | keys, payload reference, group-order contract, descriptor result | equality/tolerance, group ordering semantics, key range/sortedness if known | hash grouping, sort grouping, direct bucket, reduce-by-index/atomic route, sequential stable fallback |
+| NestedTraverse | boxed/nested source, traversal selector/path/level, visit function, reconstruction policy | nesting/box facts, path/level validity, heterogeneous assembly and errors | recursive/reference traversal, flattened leaves + offsets/segments, level-specialized traversal |
+| LinearSolve | A/B operands, problem kind, transpose/least-squares/inverse semantic contract | rank/shape compatibility, numeric dtype, singularity/rank-deficiency/error semantics | generic reference solver, LU/QR/SVD family, dense CPU/GPU library, sparse solver route |
+| StateMachine | transition table, input classifier, initial state, emission/output policy | table shape/type, state/input-class bounds, output assembly, error semantics | scalar sequential reference, table-specialized loop, transition composition/vector route when proven legal |
+
+##### basis 간 composition rule
+
+basis가 커졌다고 해서 nested structure를 즉시 평탄화하지 않는다.
+
+~~~text
+CellApply(Reduce(...))
+WindowView → Contract
+GroupBy → SegmentView → Reduce
+NestedTraverse → CellApply(...)
+~~~
+
+는 유효한 Logical IR이다. optimizer는 다음 proof가 있을 때만 더 큰 realization으로 흡수한다.
+
+- CellApply absorption / uniform assembly
+- index-map composition
+- reduction reassociation legality
+- grouped-update collision semantics
+- numeric/error-order equivalence
+- representation compatibility
+
+반대로 named high-level op를 basis graph로 열었더라도 optimizer가 library/tensor/solver route를 위해 original semantic identity를 이용할 수 있어야 한다.
+
+##### A3-v0 / v1 구현 범위
+
+basis vocabulary 전체를 A3-v0의 선행조건으로 만들지 않는다.
+
+~~~text
+A3-v0 required executable core
+  Elementwise
+  CellApply
+  Reduce
+  RegularReindex/StaticReindex
+  IndexSpace/Generate
+  SemanticCheck
+  + Opaque/Unknown access fallback
+
+A3-v1 priority expansion
+  Scan
+  Gather / Scatter
+  WindowView
+  SegmentView
+  Contract
+  Concat / Assemble
+  Replicate / Compact / Expand
+
+later / workload-driven
+  Grade
+  Lookup / Classify
+  GroupBy
+  NestedTraverse
+  LinearSolve
+  StateMachine
+  specialized BasisExpansion rules
+~~~
+
+later로 둔 operation도 language semantics를 later까지 금지한다는 뜻이 아니다. 해당 basis lowering이 없으면 기존 native/runtime semantic path 또는 structured-op fallback이 correctness를 담당한다.
+
+##### basis contract 검증
+
+각 basis op에는 최소 세 종류의 test가 필요하다.
+
+1. verifier negative tests
+   - 잘못된 axis/index/shape/role/descriptor를 reject
+2. semantic/reference equivalence tests
+   - generic/reference path와 optimized lowering의 result/error equivalence
+3. composition tests
+   - CellApply+Reduce, Window+Contract, GroupBy+Reduce, sparse representation 조합처럼 실제 fusion boundary를 포함
+
+J error가 있는 case는 값만 비교하지 않고 **error class와 observable ordering**까지 비교한다.
+
+
 ### 4.25 과거 custom primitive inventory는 후보 목록으로 보존한다
 
 `JAXA-complier`의 마지막 prototype registry는 source-level 품사까지 가지고 있었다.
@@ -6352,6 +6652,13 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] specialization key에 포함할 fact relevance 정책과 code-explosion merge/widening 정책을 정의한다.
 - [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
 - [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
+- [ ] 4.24.14의 공통 LogicalBasisOp contract를 정의하고 basis identity와 target-specific realization을 분리한다.
+- [ ] ResolvedInstantiation 최소 record를 정의하여 valence/dtype/rank/cell-rank/value-role/numeric-policy instance를 기록한다.
+- [ ] ValueRoleFacts 최소형(ShapeVector/AxisVector/Permutation/IndexVector/WindowSpec/SegmentDescriptor 등)을 fact layer에 추가한다.
+- [ ] J-visible predicate failure를 표현하는 first-class SemanticCheck를 정의하고 compiler assertion과 분리한다.
+- [ ] BasisExpansion에 applicability ConstraintSet + equivalence/provenance witness를 두고 original semantic/structured identity를 보존한다.
+- [ ] A3-v0 executable basis core를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck로 제한하고 나머지는 단계적으로 추가한다.
+- [ ] basis별 verifier + reference-equivalence + composition golden test scaffold를 만든다.
 - [ ] `ParameterizedLoweringRecipe` interface를 정의해 ResolvedCallFacts+TargetCapability로 multiple realization 후보를 만들 수 있게 한다.
 - [ ] pure graph region과 CFG region을 구분한다.
 - [ ] v0에서는 `ConstraintSet + compile-time Witness`를 정의하고, runtime branching이 필요한 `Guard`는 v1로 미룬다.
@@ -6380,6 +6687,8 @@ A3-v0
   simple Known access or explicit Opaque access fact
   EffectSummary/Speculation interface
   ConstraintSet + compile-time Witness의 최소형
+  Basis core: Elementwise / CellApply / Reduce / StaticReindex / IndexSpace
+  first-class SemanticCheck + possible J error set
 
 A3-v1
   multi-block CFG
