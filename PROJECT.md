@@ -7045,6 +7045,50 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
+> **현재 위상:** 구현된 `j_graph_ir` v0.1은 **topology/provenance shell**이다. 과거 JAXA Array Operation IR 연구가 목표로 한 shape/resource propagation, symbolic resource composition, fusion partition 계산까지 완성한 상태가 아니다.
+
+#### A1.5.1 과거 JAXA 역대조 감사
+
+2026-10-01 `yunskim/JAXA`, `yunskim/jaxa-analyzer`, `yunskim/JAXA-complier`를 현행 RustJ J Graph IR과 다시 대조했다.
+
+| 과거 JAXA 개념 | 현행 RustJ 상태 | 판정 |
+|---|---|---|
+| Semantic AST와 Array Operation IR 분리 | `FunctionEntity`와 `j_graph_ir::Plan`을 별도 boundary로 둠 | 반영 |
+| J syntax에서 static graph 직접 유도 | `@:`, Hook/Fork, `/`, `"`를 `GraphForm`으로 분류 | 반영 |
+| `@:` pipeline / Hook/Fork branch-join | `Pipeline`, `Hook`, `Fork` + GraphHint | 반영 |
+| applied graph stage별 shape 전파 | stage가 아직 `Arc<FunctionEntity>` payload이며 stage별 Value/Facts가 없음 | **미흡** |
+| primitive shape/dtype/rank/effect contract | `GraphRuleRefs`는 rule source만 가리키며 실제 rule evaluation은 없음 | **부분 반영** |
+| primitive symbolic resource contract | resource가 `Unknown/StructuralComposition` placeholder뿐 | **미구현** |
+| iteration/reduction/access pattern contract | Execution IR에는 일부 있으나 J Graph IR primitive contract에는 연결 안 됨 | **미흡** |
+| pipeline/reduction/branch/join별 resource composition | 없음 | **미구현** |
+| intermediate edge materialization/traffic 분석 | GraphHint만 있고 edge-level traffic/materialization model 없음 | **미구현** |
+| register/live-value pressure 분석 | live-across hint만 있고 symbolic liveness/resource composition 없음 | **미구현** |
+| target profile과 graph resource demand 결합 | downstream TargetProfile/ResourceEstimate 설계는 있으나 J Graph와 연결 안 됨 | **부분 반영** |
+| fusion partition 산출 | candidate/opportunity까지만 있고 partition/feasibility 계산 없음 | **미구현** |
+| reshape/flatten/transpose를 virtual view로 취급 | Execution IR의 StaticReindex/Flow–Storage 설계에는 있으나 J Graph hint/contract에는 없음 | **부분 반영** |
+| Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
+| checkpoint/rematerialization/reversible recovery | 문서 설계는 있으나 J Graph/Planner 구현은 없음 | 연구/후속 |
+| adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
+| basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
+| resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
+| static-analyzable subset / validation boundary | `DynamicOrUnknown` rule ref는 있으나 node/plan eligibility 판정 없음 | **미흡** |
+| jsource-style graph normalization(capped fork→atop, tine simplification) | 현 `j_graph_ir`에는 별도 normalization pass 없음 | **미구현/확인 필요** |
+| multi-device static partition | 없음 | future work |
+
+**핵심 판정:** 현재 IR은 JAXA의 가장 중요한 **“표기에서 graph topology를 직접 얻는다”**는 주장을 복구했다. 그러나 과거 연구에서 `Array Operation IR`이라는 말은 topology만이 아니라 **shape/flow/fusion/resource 분석을 수행할 수 있는 stage-level operation graph**를 의미했다. 현행 v0.1은 아직 그 수준까지 가지 않았다.
+
+가장 큰 구조적 부족은 다음이다.
+
+1. `Pipeline { stages: Vec<FunctionEntity> }`가 stage identity는 보존하지만 **각 stage를 독립 graph operation/value로 만들지 않는다.**
+2. 따라서 J Graph 단계에서 stage별 shape/dtype/rank/access/resource fact를 전파하기 어렵다.
+3. Hook/Fork도 branch function identity는 있지만 branch output과 join input이 J Graph `ValueId` edge로 명시되지 않는다.
+4. 결과적으로 과거 analyzer의 `propagate_shape`, `compose_pipeline`, `compose_reduction`, `compose_branch`, `compose_join`에 해당하는 분석은 아직 Execution lowering 이후에야 가능한 구조다.
+5. 이것은 JAXA의 “graph가 표기에서 이미 주어진다”는 이점을 일부만 사용하는 상태다.
+
+따라서 J Graph IR v0.2의 우선 목표는 **compressed syntax form을 보존하면서 동시에 stage/branch를 explicit applied graph nodes/edges로 노출하는 것**이다. 일반 SSA로 의미를 잃는 flattening이 아니라, J combinator region/provenance를 유지한 applied operation graph여야 한다.
+
+**목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
+
 - [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
 - [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / Rank(`"`) / generic Modifier를 구분한다.
 - [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / CellParallelStructure를 기록한다.
