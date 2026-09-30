@@ -667,6 +667,12 @@ impl Plan {
         };
         let source_len = self.source.len();
 
+        if self.functions.len() != 1 || self.regions.len() != 1 || self.blocks.len() != 1 {
+            return Err(fail(
+                None,
+                "A3-v0 plan must contain exactly one function, region and block".into(),
+            ));
+        }
         let Some(entry) = self.functions.get(self.entry.0) else {
             return Err(fail(None, "entry function is out of bounds".into()));
         };
