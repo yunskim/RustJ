@@ -9,13 +9,15 @@ J Source
   ↓
 RustJ frontend
   ↓
-J Semantic IR
-  ↓
-Array IR
+J Semantic Array IR
+  │  noun / verb / adverb / conjunction
+  │  hook / fork / train / derived verb / rank
   ↓
 Jaxa
   ↓
-Logical / Physical Plan
+Logical Array IR / Execution Plan
+  ↓
+Physical Plan
   ↓
 CPU / GPU backend
   ↓
@@ -29,17 +31,17 @@ Runtime / Executor
 현재 저장소는 목표 compiler pipeline으로 이동 중인 전환 단계입니다.
 
 - 제한된 J frontend와 CPU 직접 실행 경로
-- Semantic IR
+- J Semantic IR 기초
 - primitive contract와 dtype/shape/rank fact
 - 초기 LogicalPlan
 - CPU Inline/Owned/Shared storage
 - runtime AVX2 + portable fallback
 - sparse/boxed/packed-bit 기반 일부
 - read-only affine PhysicalArray(G1)
-- 명시적 Array IR 경계는 아직 미구현
+- hook/fork/train/derived verb를 보존하는 J Semantic Array IR → Jaxa 경계는 아직 완전 분리되지 않음
 - 실제 CUDA backend는 아직 미구현
 
-다음 compiler architecture 작업은 `J Semantic IR → Array IR → Jaxa` 경계를 코드에서 명시적으로 만드는 것입니다.
+다음 compiler architecture 작업은 현재 Semantic IR이 J의 verb composition을 충분히 보존하는지 감사하고, `J Semantic Array IR → Jaxa → Logical Array IR/Plan` 경계를 코드에서 명시하는 것입니다.
 
 ## 빌드와 실행
 
