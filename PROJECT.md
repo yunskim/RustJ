@@ -5503,6 +5503,27 @@ later / workload-driven
 
 later로 둔 operation도 language semantics를 later까지 금지한다는 뜻이 아니다. 해당 basis lowering이 없으면 기존 native/runtime semantic path 또는 structured-op fallback이 correctness를 담당한다.
 
+##### 현재 transition implementation seam
+
+2026-09-30 현재 src/analysis.rs의 기존 inspection LogicalPlan을 최종 A3 IR로 간주하지 않으면서 다음 seam을 먼저 추가했다.
+
+- Node.basis: 현재 한 call을 **추가 graph expansion 없이 직접 분류할 수 있을 때만** provisional BasisKind를 기록한다.
+- ResolvedInstantiation: target/valence/input-output dtype·rank/requested rank boundary를 call instance metadata로 기록한다.
+- ValueRoleFacts: ShapeVector, IndexVector, CountVector, AxisPermutation 등 문맥상 value role을 noun type과 분리해 기록한다.
+- LogicalPlan::verify(): basis classification과 instantiation이 원 operation/result facts와 어긋나지 않는지 검증한다.
+
+이 seam은 final LogicalBasisOp schema의 축소판이며 다음을 아직 구현하지 않는다.
+
+- multi-node BasisExpansion
+- full IterationDomain / AxisSemantics / AccessRelation payload
+- cell-rank까지 완성된 ResolvedInstantiation
+- first-class zero-result SemanticCheck
+- ConstraintSet/FactWitness 연결
+- BasisLoweringCapability registry
+- reference executor
+
+특히 현재 transition Node가 ValueId와 1:1인 동안 SemanticCheck를 fake value로 추가하지 않는다. A3 op/result 분리에서 zero-result operation으로 추가한다.
+
 ##### basis contract 검증
 
 각 basis op에는 최소 세 종류의 test가 필요하다.
