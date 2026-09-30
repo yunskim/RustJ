@@ -505,6 +505,59 @@ StreamEvent
 
 다음 compiler 구조 작업에서는 현재 `semantic.rs`의 표현이 **verb composition을 충분히 보존하는지** 먼저 점검하고, 필요하면 `J Semantic Array IR`을 명시한다. 그 다음 `analysis.rs`를 Semantic Analyzer / Lowering 역할로 정리하여 이 IR을 직접 분석하게 한다.
 
+### 3.7 name resolution과 explicit definition의 호출 의미
+
+과거 `jaxa-analyzer`의 jsource 조사에서 확인한 name/local-frame 의미를 현행 IR에서도 보존한다.
+
+핵심 분리:
+
+```text
+DefinitionCode
+  body / valence / local-layout hints / source
+
+Invocation
+  fresh CallFrame
+  x/y/u/v/m/n bindings
+  runtime local values
+  current locale context
+```
+
+동일 definition의 재귀 호출은 code를 공유할 수 있지만 **local value frame은 호출마다 독립**이어야 한다.
+
+J의 simple name lookup은 Python의 정적 LOCAL/GLOBAL 이분법과 다르다.
+
+```text
+simple name lookup:
+  current invocation local table
+    ↓ if no bound value
+  current locale
+    ↓
+  locale path
+    ↓
+  value error
+```
+
+definition-time에 local slot/search hint가 존재한다는 사실은 그 name이 항상 local binding이라는 뜻이 아니다. slot이 아직 unbound이면 locale lookup으로 fallback할 수 있다.
+
+assignment도 구분한다.
+
+```text
+=.   current invocation/local semantics
+=:   locale/public assignment semantics
+```
+
+direct/explicit definition의 structured control flow는 장기 Logical IR의 Region/Block으로 낮출 수 있지만, 이 lowering 때문에 다음 의미를 잃으면 안 된다.
+
+- monad/dyad body 구분
+- `x y u v m n`의 valence/definition-kind별 binding
+- 호출별 local frame 독립성
+- local-first + locale fallback lookup
+- direct/indirect locative semantics
+- recursive call의 독립 frame
+- source/control-flow diagnostics
+
+따라서 SSA `ValueId`는 J namespace 자체의 대체물이 아니다. static binding이 증명된 경우에는 SSA value로 낮출 수 있지만, runtime name lookup/assignment semantics가 필요한 곳은 명시적인 name/resource/effect operation 또는 runtime lowering으로 보존한다.
+
 ---
 
 ## 4. Semantic Analyzer / Lowering
@@ -739,6 +792,7 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 | JAXA는 **J 전체가 아닌 제한된 vocabulary 언어**다 | RustJ의 언어 목표는 장기적으로 J 전체 의미다. 다만 hardware-aware Logical Array IR 및 advanced optimization route에 들어갈 수 있는 영역은 별도의 **analyzable array profile/subset**일 수 있다. |
 | custom primitive spelling을 enqueue에서 built-in 실패 후 직접 가로챈다 | extension spelling은 reserved keyword가 아니다. ordinary J name environment에 predeclared binding으로 등록하고, enqueue/name classification이 그 binding의 품사를 parser에 제공한다. registry 추가 때문에 tokenizer/parser 구현을 수정하지 않는다. |
 | `conv`, `linear`은 computational verb다 | 최신 prototype의 표면 품사는 parameterized **adverb**다. noun parameter를 받아 derived computational verb를 만든다. analyzer가 보는 Conv/Linear logical op identity는 이 derived verb에서 나온다. |
+| prototype의 `rank_monad/rank_left/rank_right` 값을 builder의 영구 rank로 본다 | builder와 derived verb를 분리한다. rank는 parameter 적용 후 생성된 derived computational verb의 contract에서 확정한다. 예: derived `conv_kd`는 cell rank `k+1`. |
 | rank가 같으면 fusion 가능하고 rank 변화가 fusion boundary다 | rank/cell/frame은 중요한 입력이지만 fusion legality의 충분조건이 아니다. access/dependency/effect/storage/speculation과 schedule/target까지 함께 본다. |
 | flatten/reshape/transpose는 본질적으로 항상 stride remap이라 copy가 없다 | semantic level에서는 StaticReindex/view 후보일 뿐이다. 실제 view 유지, layout absorption, copy/materialization은 representation과 downstream consumer/target이 결정한다. |
 | primitive가 `memory_layout`, `tiling_axis`, register/shared-memory 숫자를 가진다 | semantic primitive에는 axis/access/numeric/effect contract만 둔다. target-dependent resource/layout은 lowering/resource model + TargetProfile + Schedule에서 결정한다. |
@@ -872,16 +926,30 @@ Lowering / realization interfaces
 
 이 방식은 MLIR의 operation interface 원칙과 유사하다. 분석기와 변환기는 concrete op 이름을 일일이 special-case하기보다 필요한 capability interface를 질의한다.
 
-예를 들어 conv extension이 등록될 때 semantic registry에는 다음이 들어갈 수 있다.
+parameterized extension은 **surface builder와 derived computational entity를 분리**한다.
+
+예를 들어 source의 `conv` binding은 adverb builder다.
 
 ```text
-PrimitiveId::Conv2d
+ExtensionBuilderId::Conv
+  part_of_speech = Adverb
+  parameter_schema = ...
+  derive(parameter_noun) -> DerivedPrimitive
+```
+
+parameter가 적용된 뒤의 derived entity가 실제 computational contract를 가진다.
+
+```text
+DerivedPrimitive::Conv2d(params)
+  innate_rank = 3
   ShapeInference
   AxisAndIterationSemantics
   AccessPattern
   NumericSemantics
   EffectSemantics
 ```
+
+따라서 source-level `conv`와 LogicalOp `Conv2d`를 같은 `PrimitiveId` 하나로 뭉개지 않는다.
 
 반면 NVIDIA/AMD/CPU의 실제 구현 선택은 같은 record 안에 target 숫자로 박지 않고 lowering registry가 제공한다.
 
@@ -930,7 +998,7 @@ cell axis 2 = spatial W
 
 따라서 흔히 말하는 **leading axis**도 전체 배열의 고정된 의미로 하드코딩하지 않는다. full array의 leading axis가 frame일 수 있고, primitive가 분석에 사용하는 것은 cell 내부 axis role이다. 필요하면 `cell axis 0`이 channel/reduction이라는 사실을 spec에 명시한다.
 
-conv 계열의 innate rank는 다음처럼 정리한다.
+conv builder가 parameter noun을 받아 공간 차원을 확정한 뒤 생성하는 **derived conv verb**의 innate rank는 다음처럼 정리한다.
 
 ```text
 conv1d cell = [C, W]       innate rank 2
@@ -938,11 +1006,11 @@ conv2d cell = [C, H, W]    innate rank 3
 conv3d cell = [C, D, H, W] innate rank 4
 ```
 
-일반적으로 `conv_kd innate rank = k + 1`이다. 공간 차원 외에 channel 축이 cell 안에 있어야 channel accumulation을 표현할 수 있기 때문이다.
+일반적으로 derived `conv_kd` verb의 innate rank는 `k + 1`이다. 공간 차원 외에 channel 축이 cell 안에 있어야 channel accumulation을 표현할 수 있기 때문이다. source adverb builder `conv` 자체에 하나의 고정 innate rank가 있다고 가정하지 않는다.
 
 개념적인 `AxisRoleSpec`은 cell axis role, reduction axes, parallel axes, window axes, preserved axes, output-axis mapping을 가진다. `C/H/W` 같은 이름은 사람이 읽기 위한 label이고 analyzer는 reduction/parallel/window/static-reindex 같은 역할을 사용한다.
 
-가변 reduction인 표준 J `+/` 같은 연산은 rank/cell 구조에서 axis가 유도된다. 반대로 conv처럼 축 역할이 연산 정체성에 고정된 primitive는 registry spec이 그 역할을 제공한다.
+가변 reduction인 표준 J `+/` 같은 연산은 rank/cell 구조에서 axis가 유도된다. 반대로 derived conv verb처럼 축 역할이 연산 정체성에 고정된 연산은 `AxisAndIterationSemantics` capability가 그 역할을 제공한다.
 
 ### 4.12 access pattern은 fusion 분석의 semantic lower bound다
 
@@ -973,7 +1041,10 @@ semantic validation
   extension result == reference J result
 
 resource validation
-  predicted resource/cost ~= measured backend behavior
+  ResourceEstimate ~= compiled resource report
+
+performance validation
+  CostEstimate ~= measured backend behavior
 ```
 
 reference definition을 실제 lowering으로 사용하는 것은 별도 검증을 통과한 뒤에만 허용한다.
@@ -2565,6 +2636,9 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] adverb/conjunction application으로 생긴 DerivedVerb 구조를 보존한다.
 - [ ] rank-derived verb와 cell/frame 의미를 Semantic Analyzer가 분석할 수 있게 표현한다.
 - [ ] name reference/binding/version과 source span을 필요한 범위에서 연결한다.
+- [ ] explicit definition의 DefinitionCode와 invocation CallFrame을 분리한다.
+- [ ] local slot hint와 실제 local binding을 구분하고 unbound local candidate의 locale fallback을 보존한다.
+- [ ] `=.` local assignment와 `=:` public/locale assignment를 구분한다.
 - [ ] primitive contract를 semantic node에 연결한다.
 - [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
 - [ ] Semantic Analyzer / Lowering이 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
@@ -2576,7 +2650,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다.
 - [ ] Enqueue/name classification이 injected registry/environment를 통해 extension의 J 품사(noun/verb/adverb/conjunction)를 parser 전에 제공한다.
 - [ ] parameterized adverb(`conv`, `linear` 등)와 그 결과 derived computational verb/op identity를 분리한다.
-- [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
+- [ ] built-in과 extension-derived computational entity가 공유하는 semantic capability interface를 정의한다.
+- [ ] extension builder(adverb/conjunction/verb) identity와 derived computational entity identity를 분리한다.
 - [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
 - [ ] innate rank와 cell axis-role contract를 정의한다.
 - [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
@@ -3214,6 +3289,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 24. **Surface builder와 derived op를 구분** — parameterized adverb identity와 그 결과 computational verb/LogicalOp identity를 같은 것으로 취급하지 않는다.
 25. **Full J semantics와 analyzable array profile 분리** — advanced compiler contract가 없다는 이유만으로 valid J semantics를 부정하지 않는다.
 26. **Mutable state externalization** — weight/grad/optimizer/checkpoint 같은 mutable array state를 primitive/verb hidden field에 숨기지 않는다.
+27. **SSA는 namespace의 대체물이 아니다** — runtime J name lookup/assignment가 필요한 곳을 무리하게 SSA binding으로 고정하지 않는다.
+28. **Definition code와 invocation frame 분리** — 재귀/동시 호출이 local values를 공유하지 않게 한다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
