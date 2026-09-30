@@ -71,27 +71,35 @@ Semantic analysis of array transformations
    ↓
 Logical Array IR / Logical Execution Plan
    │
-   │ explicit dataflow
-   │ cell/frame mapping
-   │ map / reduce / scan / gather / structural
-   │ dependency / effects / alias facts
-   ↓
-Logical optimization
-   ↓
-Physical Planner / Optimizer
-   ↓
-Physical Execution Plan
-──────────────── architectural boundary ───────
-   ↓
-────────────── Backend / Runtime ───────────────
-Backend lowering / code generation
-   ├─ CPU
-   ├─ CUDA
-   ├─ Metal
-   ├─ Vulkan / SPIR-V
-   └─ future backends
-   ↓
-Runtime / Executor
+   ├──────── Route A: RustJ-native planning/execution
+   │              ↓
+   │       Logical Optimizer
+   │              ↓
+   │       Physical Planner
+   │              ↓
+   │       Physical Execution Plan
+   │              ↓
+   │       RustJ CPU/GPU Runtime
+   │
+   ├──────── Route B: MLIR family
+   │              ↓
+   │       RustJ IR export adapter
+   │              ↓
+   │       tensor/linalg/scf/vector/gpu/...
+   │              ↓
+   │       LLVM / NVVM / ROCDL / SPIR-V
+   │              ↓
+   │       external/runtime execution
+   │
+   ├──────── Route C: StableHLO/OpenXLA-compatible subset
+   │              ↓
+   │       StableHLO adapter
+   │              ↓
+   │       XLA / IREE / other consumer
+   │
+   └──────── Route D: library / foreign backend call
+                  ↓
+          BLAS / vendor library / custom kernel
 ```
 
 핵심 원칙은 **J의 고수준 배열 변환 구조를 Semantic Analyzer가 보기 전에 없애지 않고, analyzer/lowering 단계가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
@@ -165,6 +173,76 @@ rustj/
 ```
 
 실제 crate 분리는 인터페이스가 안정된 뒤 진행한다. **repository 분리보다 dependency 방향과 API 경계가 우선**이다.
+
+### 2.3 Logical IR은 실행 backend를 강제하지 않는다
+
+RustJ의 목표는 J 의미를 정확히 분석하여 **좋은 IR과 정확한 계약을 만드는 것**이지, 모든 최적화와 code generation을 직접 다시 구현하는 것이 아니다.
+
+따라서 `Logical Array IR`은 RustJ-native planner만의 내부 자료구조가 아니라 **여러 실행 경로가 소비할 수 있는 compiler boundary**로 설계한다.
+
+원칙:
+
+1. RustJ 자체 Physical Planner/Executor 경로를 유지한다. 이는 bootstrap, differential validation, target-specific 실험에 유용하다.
+2. 지원 가능한 연산은 MLIR의 `tensor`/`linalg`/`scf`/`vector`/`gpu` 계층으로 낮출 수 있게 한다.
+3. 더 낮은 단계에서는 LLVM IR, NVVM, ROCDL, SPIR-V 같은 성숙한 IR/backend를 활용할 수 있다.
+4. StableHLO로 의미 보존이 가능한 subset은 StableHLO export를 허용하여 XLA/IREE 같은 외부 compiler를 사용할 수 있다.
+5. matmul/conv/FFT 같은 연산은 경우에 따라 최적화된 library/custom-call 경로가 더 적절할 수 있다.
+6. 어느 외부 IR도 J 전체 semantics를 자동으로 표현한다고 가정하지 않는다. boxed array, J-specific rank semantics, observable error ordering, effects처럼 표현력이 부족한 부분은 lowering 전에 명시적으로 해소하거나 해당 route를 사용하지 않는다.
+7. 외부 route가 불가능하거나 의미 보존을 증명하지 못하면 RustJ-native conservative path가 fallback이 된다.
+
+즉:
+
+```text
+RustJ owns:
+  J semantics
+  semantic contracts
+  legality
+  lowering preconditions
+  provenance
+
+RustJ may delegate:
+  loop optimization
+  vectorization
+  tiling
+  register allocation
+  instruction selection
+  GPU kernel lowering
+  machine-code generation
+```
+
+이 원칙은 compiler의 책임을 포기하는 것이 아니라 **의미와 legality는 RustJ가 책임지고, 검증된 외부 최적화 infrastructure는 재사용한다**는 뜻이다.
+
+### 2.4 IR export adapter의 계약
+
+외부 IR로 내보내는 adapter는 단순 pretty-printer가 아니다.
+
+각 adapter는 다음을 명시해야 한다.
+
+```text
+IrExportAdapter
+  accepted_logical_ops
+  required_shape_constraints
+  required_numeric_relaxations
+  required_effect_conditions
+  required_alias_conditions
+  dynamic-shape support
+  custom-call / library escape hatch
+  target capability requirements
+  provenance mapping
+```
+
+adapter는 다음 중 하나를 반환한다.
+
+```text
+Lowered(external_ir)
+Unsupported(reason)
+RequiresGuard(runtime_predicate, lowered_ir)
+```
+
+외부 IR로 내릴 때 J semantic origin과 source span을 가능한 범위에서 metadata/provenance로 유지한다.
+
+MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 dialect conversion으로 점진적으로 lowering할 수 있으므로 RustJ의 multi-level IR 구조와 특히 잘 맞는다. StableHLO는 ML framework/compiler 사이의 portability layer를 목표로 하는 high-level op set이므로 NN/tensor subset의 선택적 export 대상으로 본다. LLVM IR/SPIR-V는 더 낮은 execution target으로 사용한다.
+
 
 ---
 
@@ -829,6 +907,72 @@ DependencyRequirement
 
 Physical Planner가 target의 barrier/shuffle/atomic/collective capability를 보고 구체적으로 실현한다.
 
+#### 4.15.6 Uniformity / Divergence
+
+SPMD target에서는 값과 control flow가 execution scope 안에서 uniform한지 varying한지가 중요한 hardware-relevant fact다.
+
+```text
+UniformityFact
+  Uniform(scope)
+  Varying(scope, axes)
+  Unknown
+```
+
+적용 대상:
+
+- branch condition
+- indirect index
+- pointer/address calculation
+- mask
+- subgroup collective operand
+
+같은 expression이라도 subgroup 전체가 같은 address를 읽는 경우와 lane마다 다른 address를 읽는 경우는 memory transaction, divergence, broadcast 최적화 가능성이 다르다.
+
+#### 4.15.7 Symbolic shape / divisibility / alignment constraints
+
+dynamic extent는 단순 `Unknown`으로 버리지 않고 가능한 제약을 보존한다.
+
+```text
+ConstraintSet
+  Equal(a, b)
+  UpperBound(x, n)
+  LowerBound(x, n)
+  MultipleOf(x, n)
+  DivisibleBy(x, n)
+  PowerOfTwo(x)
+  Alignment(value, bytes)
+  ContiguousRun(axis, n)
+  NonZero(x)
+```
+
+이 정보는 vector width, tensor/matrix instruction, tile size, unrolling, memory transaction legality를 결정할 때 사용한다.
+
+제약이 compile-time에 증명되지 않더라도 runtime guard로 specialization할 수 있다.
+
+```text
+if N % 16 == 0
+  → vectorized/tensor path
+else
+  → conservative path
+```
+
+#### 4.15.8 Predication / masking semantics
+
+tail tile과 out-of-bounds window를 안전하게 다루려면 logical mask 의미가 필요하다.
+
+```text
+MaskSemantics
+  predicate source
+  affected accesses
+  masked-load fill semantics
+  masked-store semantics
+  bounds relation
+  side-effect suppression rule
+```
+
+mask는 GPU-specific 개념이 아니다. CPU masked vector instruction이나 scalar fallback에도 동일한 logical fact를 사용할 수 있다.
+
+
 ### 4.16 TargetProfile: 하드웨어 hard facts와 capabilities
 
 `TargetProfile`은 logical IR 밖의 **versioned target description**이다. compile invocation/plan에 연결되지만 J semantic value의 일부는 아니다. MLIR TargetSystemSpec처럼 여러 device를 기술할 수 있는 방향을 지향한다.
@@ -880,6 +1024,22 @@ RegisterResource
 
 CPU에서는 scalar/fixed/scalable vector register width와 register class가 중요하고, AMD 계열에서는 VGPR/SGPR/accumulator class의 차이가 중요할 수 있다.
 
+register/resource allocation은 연속적인 실수값이 아니라 target별 allocation granularity를 가진다. 따라서 capacity와 별도로 다음을 모델링한다.
+
+```text
+AllocationRule
+  resource_class
+  allocation_scope
+  allocation_granularity
+  rounding_rule
+  max_per_lane_or_thread
+  max_per_workgroup
+  max_per_compute_unit
+```
+
+occupancy/concurrency 계산은 단순 `capacity / usage`가 아니라 allocation rule을 적용한 뒤 계산한다.
+
+
 #### 4.16.4 MemoryHierarchy
 
 memory space를 `global/shared` 두 종류로 고정하지 않는다.
@@ -900,6 +1060,28 @@ MemorySpace
 
 cache levels, cache-line size/capacity, scratchpad/shared/LDS capacity, HBM/DRAM capacity, host/device address spaces, constant/read-only spaces도 필요에 따라 profile에 둔다. OpenXLA처럼 logical shape와 physical memory space/layout을 분리한다.
 
+일부 target에서는 cache와 scratchpad/shared memory가 동일한 physical resource를 partition하거나 configurable mode를 가진다. 따라서 독립 capacity만 저장하지 않고 resource coupling도 표현할 수 있어야 한다.
+
+```text
+ResourceCoupling
+  participants
+  valid_configuration_modes
+  capacity_relation
+  selection_scope
+```
+
+또한 coalescing/vector-load legality를 위해 모든 memory transaction 규칙을 거대한 static table로 복사하기보다 target query interface를 허용한다.
+
+```text
+TargetMemoryQueries
+  legal_vector_access(access, width)
+  transaction_estimate(access_distribution)
+  preferred_alignment(type, space)
+  bank_conflict_estimate(access_pattern)
+  cache_line_or_transaction_granularity(space)
+```
+
+
 #### 4.16.5 ComputeCapabilities
 
 ```text
@@ -918,13 +1100,66 @@ special instructions
 
 `tensor_core=true` 같은 boolean 하나보다 지원되는 operation signature 집합이 낫다.
 
+각 특수 instruction capability에는 **execution scope**를 포함한다.
+
+```text
+ExecutionScope
+  Lane
+  SIMDGroup
+  Subgroup
+  WarpGroup
+  Workgroup
+  ComputeUnit
+```
+
+예를 들어 matrix/tensor instruction은 tile shape와 dtype뿐 아니라 몇 lane이 협력하는지, 어떤 operand layout과 accumulator register class를 요구하는지까지 capability로 질의할 수 있어야 한다.
+
+
 #### 4.16.6 SynchronizationCapabilities
 
 barrier scopes, subgroup shuffle/reduce, workgroup barrier, cross-workgroup synchronization, atomic scopes/dtypes, async barrier/pipeline support를 capability로 둔다.
 
+atomic/memory model은 operation 지원 여부뿐 아니라 scope와 ordering을 포함한다.
+
+```text
+MemoryOrderingCapability
+  supported_scopes
+  supported_orderings
+  atomic_ops_by_dtype
+  fence_capabilities
+  coherent_spaces
+```
+
+
 #### 4.16.7 LaunchAndSchedulingLimits
 
 max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic scratchpad/shared-memory limits, cluster/cooperative launch capabilities 등을 둔다.
+
+비동기 data movement는 boolean 하나가 아니라 capability family로 둔다.
+
+```text
+DataMovementCapability
+  source_space
+  destination_space
+  dimensionality
+  alignment / granularity
+  execution_scope
+  async
+  synchronization mechanism
+  optional transform/reduction support
+```
+
+CPU scalable-vector/SME 같은 target을 막지 않도록 execution mode도 확장 가능하게 둔다.
+
+```text
+ExecutionModeCapability
+  feature state
+  fixed_or_scalable_vector
+  vector_length_range
+  special matrix/register state
+  legal mode transitions
+```
+
 
 #### 4.16.8 TransferAndTopology
 
@@ -1011,6 +1246,65 @@ ResourceEstimate
 ```
 
 따라서 primitive registry에 `registers=32`처럼 넣지 않는다. primitive는 `output마다 accumulator가 필요`, `이 축은 reduction`, `이 input tile은 재사용됨`, `workgroup-local collective 필요` 같은 요구/구조를 제공한다.
+
+#### 4.19.1 Backend compiled-resource feedback
+
+register allocation과 spill은 최종 backend lowering의 영향을 크게 받으므로 planner의 사전 추정만으로 완전히 확정할 수 없다.
+
+따라서 backend는 선택적으로 실제 compile 결과를 다시 planner에 제공한다.
+
+```text
+CompiledResourceReport
+  target
+  kernel/artifact id
+  register usage by class
+  spills / local-memory bytes
+  static + dynamic scratchpad/shared bytes
+  stack frame
+  generated instruction summary
+  launch attributes
+  backend diagnostics
+```
+
+흐름:
+
+```text
+Logical Plan
+  ↓
+Physical candidate
+  ↓
+estimated ResourceEstimate
+  ↓
+backend lowering / codegen
+  ↓
+CompiledResourceReport
+  ↓
+accept
+or re-plan / choose another schedule
+```
+
+즉 RustJ planner는 backend compiler와 한 번만 대화하는 구조로 고정하지 않는다.
+
+#### 4.19.2 TargetProfile은 data + query interface다
+
+TargetProfile을 모든 vendor 규칙을 정적으로 열거한 거대한 struct로 만들지 않는다.
+
+```text
+TargetFacts
+  stable capacities / limits / identities
+
+TargetQueries
+  vectorization_legal(...)
+  memory_transactions(...)
+  occupancy_bound(...)
+  matrix_instruction_candidates(...)
+  atomic_support(...)
+  async_copy_candidates(...)
+  preferred_layout(...)
+```
+
+hard fact는 versioned data로 보존하고, 복잡하거나 architecture-specific한 규칙은 query implementation으로 캡슐화한다.
+
 
 ### 4.20 CPU와 GPU에서 실제로 필요한 정보
 
@@ -1189,6 +1483,95 @@ Executor가 다음을 다시 판단해서는 안 된다.
 - layout 선택
 - device 선택
 - buffer reuse legality
+
+### 5.4 실행 경로는 하나가 아니다
+
+`Logical Array IR`을 만든 이후 반드시 RustJ의 Physical Planner를 거쳐야 하는 것은 아니다.
+
+#### Route A — RustJ native
+
+```text
+Logical Array IR
+  → RustJ Logical Optimizer
+  → RustJ Physical Planner
+  → Physical Plan
+  → RustJ Executor
+```
+
+장점:
+
+- J-specific semantics와 실험적 hardware model을 가장 직접적으로 제어
+- reference/bootstrap path
+- external compiler와 결과 비교 가능
+
+#### Route B — MLIR
+
+```text
+Logical Array IR
+  → RustJ-to-MLIR adapter
+  → tensor/linalg/arith/scf
+  → vector/gpu/memref
+  → LLVM / NVVM / ROCDL / SPIR-V
+  → execution
+```
+
+MLIR Linalg는 generic indexing map/iterator semantics를 이용해 tiling, fusion, vectorization, loop lowering, library/intrinsic lowering을 제공하도록 설계되어 있다. RustJ의 `IterationDomain + AccessRelation`은 이 계층으로 내리기 좋은 형태를 목표로 한다.
+
+RustJ가 MLIR의 최적화 passes를 재구현할 이유가 없다. 다만 J의 observable semantics를 위반할 수 있는 reassociation, error-order 변경 등의 lowering은 adapter가 막거나 필요한 attributes/guards를 제공해야 한다.
+
+#### Route C — StableHLO / OpenXLA-compatible subset
+
+NN/tensor 중심의 일부 LogicalOp은 StableHLO로 자연스럽게 표현될 수 있다.
+
+```text
+Logical Array IR subset
+  → StableHLO
+  → XLA / IREE / compatible compiler
+```
+
+StableHLO가 표현하지 못하는 J-specific entity, boxed semantics, dynamic effect, unusual numeric/error semantics는 이 route에 억지로 넣지 않는다.
+
+필요하면 StableHLO `composite`나 `custom_call` 계열 escape hatch를 사용할 수 있지만, 그것이 semantic contract를 숨기는 수단이 되어서는 안 된다.
+
+#### Route D — Direct external library/kernel
+
+```text
+LogicalOp / PhysicalRegion
+  → verified library mapping
+  → BLAS / FFT / vendor NN library / custom kernel
+```
+
+library call은 하나의 backend realization이며 primitive identity와 분리한다.
+
+### 5.5 외부 IR을 사용할 때 RustJ가 끝까지 책임지는 것
+
+외부 compiler에 넘긴다고 해도 다음 책임은 RustJ에 남는다.
+
+- J source semantics
+- rank/cell/frame/agreement
+- primitive/derived-verb identity의 올바른 해석
+- dtype/promotion/error contract
+- effects/alias legality
+- numeric relaxation/reassociation 허용 여부
+- dynamic shape guard
+- external lowering precondition
+- unsupported case detection
+- provenance와 differential validation
+
+반대로 register allocation, instruction selection, generic tiling/vectorization, machine-code generation처럼 이미 성숙한 외부 compiler가 더 잘하는 부분은 위임할 수 있다.
+
+### 5.6 외부 IR 선택 원칙
+
+하나의 외부 IR에 전체 RustJ를 맞추지 않는다.
+
+- **MLIR**: 가장 일반적인 multi-level lowering 후보. custom dialect도 가능하고 Linalg/Vector/GPU/LLVM/SPIR-V 등으로 점진 lowering 가능.
+- **LLVM IR**: CPU 및 low-level codegen target. J의 high-level array semantics를 직접 담는 주 IR로 사용하지 않는다.
+- **SPIR-V**: Vulkan/OpenCL 계열 compute target용 low-level portable binary IR.
+- **NVVM / ROCDL**: NVIDIA/AMD-specific LLVM-level GPU lowering.
+- **StableHLO**: ML/tensor op subset의 portable high-level interchange. J 전체 semantic IR의 대체재로 보지 않는다.
+
+external route의 존재 때문에 RustJ Logical IR을 외부 IR의 최소공배수로 축소하지 않는다. **RustJ IR이 더 풍부하고, adapter가 필요한 subset을 projection하는 구조**를 유지한다.
+
 
 ---
 
@@ -1589,13 +1972,17 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] built-in과 extension이 공유하는 `PrimitiveContract` interface를 정의한다.
 - [ ] `PrimitiveSpec`을 Identity / Analysis / Realization 층으로 분리한다.
 - [ ] innate rank와 cell axis-role contract를 정의한다.
-- [ ] `IterationDomain`과 `AccessRelation`을 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
+- [ ] `IterationDomain`, `AccessRelation`, `UniformityFact`, `ConstraintSet`, `MaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
 - [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
 - [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
-- [ ] `TargetProfile`을 primitive registry와 분리하고 execution hierarchy/register/memory/compute/sync/ABI capability를 최소 schema로 만든다.
+- [ ] `TargetProfile`을 primitive registry와 분리하고 execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 최소 schema로 만든다.
 - [ ] hard target facts와 empirical `CostProfile`을 분리한다.
 - [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
 - [ ] `ResourceEstimate`를 graph + schedule + target의 함수로 계산한다.
+- [ ] backend가 실제 register/spill/shared-memory 결과를 돌려주는 `CompiledResourceReport`와 re-plan 경로를 정의한다.
+- [ ] `TargetProfile`을 stable facts와 architecture-specific `TargetQueries`로 분리한다.
+- [ ] Logical Array IR → MLIR export adapter의 최소 contract를 설계한다.
+- [ ] StableHLO로 안전하게 내릴 수 있는 subset을 명시하고 unsupported semantics를 거부하는 규칙을 만든다.
 - [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
 - [ ] alias를 거쳐도 primitive identity/spec이 보존되는 테스트를 추가한다.
@@ -2038,7 +2425,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 ## 16. 다음 작업
 
-현재 가장 먼저 해야 할 compiler architecture 작업은 **J의 verb composition을 보존하는 semantic IR과 Semantic Analyzer / Lowering 경계를 코드에서 명시하는 것**이다.
+현재 가장 먼저 해야 할 compiler architecture 작업은 **J의 verb composition을 보존하는 semantic IR을 확정하고, hardware-aware Logical IR을 외부 compiler와도 공유 가능한 경계로 만드는 것**이다.
 
 순서:
 
@@ -2046,15 +2433,23 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived verb, rank를 얼마나 보존하는지 감사한다.
 3. 부족한 구조를 `J Semantic Array IR`로 명시한다.
 4. extension primitive registry의 최소 schema를 Identity / Analysis / Realization로 정의한다.
-5. Logical IR의 `IterationDomain`, `AxisSemantics`, `AccessRelation`, `NumericSemantics`, `DependencyRequirement` 최소 타입을 정의한다.
-6. `TargetProfile` MVP를 execution hierarchy / register / memory / compute / synchronization / data-layout capability로 정의하고 `CostProfile`과 분리한다.
-7. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 logical contract를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 golden reference로 삼는다.
-8. Semantic Analyzer가 semantic IR과 PrimitiveSpec을 함께 읽어 composition/rank/shape/iteration/access/dependency facts를 생성하게 한다.
-9. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
-10. Physical Planner가 Logical Plan + TargetProfile을 받아 axis mapping, tiling, memory-space, layout, materialization, synchronization을 선택하는 최소 `PhysicalRegion`을 만든다.
-11. `ResourceEstimate` MVP로 register/scratchpad/concurrency/global-memory traffic/peak materialized bytes/launch count를 계산한다.
-12. fork, reduction derived verb, rank-derived verb, extension alias, conv2d access relation을 golden test로 검증한다.
-13. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
-14. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
+5. Logical IR의 `IterationDomain`, `AxisSemantics`, `AccessRelation`, `UniformityFact`, `ConstraintSet`, `MaskSemantics`, `NumericSemantics`, `DependencyRequirement` 최소 타입을 정의한다.
+6. `TargetProfile` MVP를 execution hierarchy, allocation granularity, resource coupling, register/memory/compute/sync/data-movement/execution-mode/data-layout capability로 정의하고 `CostProfile`과 분리한다.
+7. `TargetFacts + TargetQueries` interface를 정의한다.
+8. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 logical contract를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 golden reference로 삼는다.
+9. Semantic Analyzer가 semantic IR과 PrimitiveSpec을 함께 읽어 composition/rank/shape/iteration/access/uniformity/constraint/dependency facts를 생성하게 한다.
+10. semantic lowering 결과로 `Logical Array IR / Logical Execution Plan`을 만든다.
+11. **첫 외부 경로로 MLIR adapter prototype**을 만든다. 최소 목표는 elementwise + reduction + static reindex를 `tensor/linalg/scf` 계층으로 내리고 MLIR verifier를 통과시키는 것이다.
+12. LLVM/MLIR ExecutionEngine을 이용한 CPU 실행 경로를 실험하여 RustJ-native CPU executor와 결과를 비교한다.
+13. Physical Planner가 Logical Plan + TargetProfile을 받아 axis mapping, tiling, memory-space, layout, materialization, synchronization을 선택하는 최소 `PhysicalRegion`을 만든다.
+14. `ResourceEstimate` MVP로 register/scratchpad/concurrency/global-memory traffic/peak materialized bytes/launch count를 계산한다.
+15. backend compile 결과를 `CompiledResourceReport`로 받아 accept/re-plan할 수 있는 interface를 만든다.
+16. StableHLO export는 `relu/linear/conv/reduction`처럼 의미가 명확히 맞는 subset부터 별도 adapter로 검토한다.
+17. fork, reduction derived verb, rank-derived verb, extension alias, conv2d access relation, MLIR roundtrip/verification을 golden test로 검증한다.
+18. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
+19. 그 경계를 유지하면서 G2 structural view 작업을 계속한다.
 
-특히 hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하는 shortcut을 추가하지 않는다.
+특히 두 가지 shortcut을 금지한다.
+
+- hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하지 않는다.
+- 외부 IR을 쓰기 쉽도록 RustJ Logical IR을 외부 IR의 표현력에 맞춰 축소하지 않는다. RustJ IR이 의미의 superset이고 adapter가 안전한 subset을 projection한다.
