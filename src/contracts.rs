@@ -18,7 +18,7 @@ impl RankSpec {
         if value < 0 {
             Self::Relative(value)
         } else {
-            Self::Absolute(value as usize)
+            Self::Absolute(usize::try_from(value).unwrap_or(usize::MAX))
         }
     }
 
