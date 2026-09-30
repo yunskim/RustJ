@@ -393,3 +393,15 @@ fn large_pure_verb_train_builds_iteratively_as_a_shared_graph() {
     // 101 primitive leaves + 50 fork nodes.
     assert_eq!(functions, 151);
 }
+
+#[test]
+fn diagnostic_parser_retains_span_without_changing_machine_error_api() {
+    let source = "1 + )";
+    assert!(matches!(semantic::parse(source), Err(rustj::Error::Syntax(_))));
+    let error = semantic::parse_diagnostic(source).unwrap_err();
+    assert_eq!(error.kind(), "syntax error");
+    assert_eq!(error.span(), Some(&(4..5)));
+    let rendered = error.render("<test>", source, 1);
+    assert!(rendered.contains("line 1, column 5"));
+    assert!(rendered.contains("SyntaxError: unexpected )"));
+}
