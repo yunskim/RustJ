@@ -5531,7 +5531,10 @@ A3 logical_ir 쪽:
 - SemanticCheck discharge/refinement witness가 SpeculationSemantics refinement로 이어지는 proof pass
 - WindowView/SegmentView/Contract 등 v1 basis의 executable lowering capability
 - CostProfile / preference ranking
-- reference executor와 optimized-lowering semantic equivalence harness
+- optimized native lowering과 reference executor 사이의 broad semantic equivalence corpus
+- environment/state를 받는 general A3 executor
+
+현재 correctness oracle로 src/logical_executor.rs의 closed-plan reference executor를 추가했다. 이 경로는 기존 semantic kernels를 재사용하며 physical schedule/bufferization을 하지 않는다. A3의 operation order, zero-result SemanticCheck, SSA wiring, basis payload가 기존 runtime과 같은 결과/error class를 내는지 검증하는 용도다.
 
 기존 transition Node에는 zero-result SemanticCheck를 역이식하지 않는다. 새로운 A3 op/result-separated IR에서만 표현한다.
 
@@ -6677,8 +6680,8 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 > **단계화:** APEX/Co-dfns/TAIL 반영 항목은 단계적으로 도입한다. 첫 verified single-block Logical IR(A3-v0)은 SSA ValueId + 최소 Type/Rank/Shape/Witness + verifier를 우선한다. full GraphIndex, full morphology fixpoint, interprocedural SpecializationKey cache, richer ArrayPropertyFacts는 A3-v0의 선행조건이 아니며 v1/later에서 추가한다.
 >
-- [ ] SSA `ValueId`, Function/Region/Block/Terminator 최소 구조를 정의한다.
-- [ ] J Name / BindingVersion / SSA ValueId를 명시적으로 구분한다.
+- [x] A3-v0에 SSA `ValueId`와 explicit single Function/Region/Block/`Return` Terminator 최소 구조를 정의했다.
+- [x] J name/symbol identity, `BindingVersion`, A3 SSA `ValueId`를 서로 다른 타입/field로 구분한다.
 - [ ] immutable semantic/Logical DAG에서 유도되는 `GraphIndex` / `AnalysisIndex` sidecar(parent/depth/preorder/subtree/op/entity/scope/use-def/source-origin)를 정의한다.
 - [ ] graph index는 derived analysis view이며 semantic DAG의 canonical identity를 대체하지 않는다는 verifier/invariant를 둔다.
 - [ ] morphology transfer를 worklist/fixpoint로 실행할 최소 `MorphologyEngine` interface를 정의한다.
@@ -6686,25 +6689,25 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] specialization key에 포함할 fact relevance 정책과 code-explosion merge/widening 정책을 정의한다.
 - [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
 - [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
-- [ ] 4.24.14의 공통 LogicalBasisOp contract를 정의하고 basis identity와 target-specific realization을 분리한다.
+- [x] A3 `CallOp + BasisPayload` 공통 contract와 `BasisKind` identity를 정의하고, target-specific realization은 `BasisLoweringCapability` registry로 분리했다.
 - [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
 - [x] ValueRoleFacts 최소형을 추가했다. 현재 ShapeVector/AxisPermutation/IndexVector/CountVector를 실제 분석에서 생산하며 나머지 role enum은 후속 basis가 사용한다.
 - [x] J-visible predicate failure를 표현하는 first-class zero-result SemanticCheck를 A3 IR에 정의하고 compiler assertion과 분리했다.
 - [x] BasisExpansion sidecar에 applicability ConstraintSet + equivalence witness를 두고 original semantic/structured identity를 보존한다. 첫 rule은 E. → WindowView + CellApply(Match)다.
-- [ ] A3-v0 executable basis core를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck로 제한하고 나머지는 단계적으로 추가한다.
-- [ ] basis별 verifier + reference-equivalence + composition golden test scaffold를 만든다.
+- [x] A3-v0 correctness executor 범위를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck 중심으로 제한했다. `logical_executor::execute_closed`는 closed expression reference path이며 native Physical Executor와는 별개다.
+- [x] A3 verifier negative tests, runtime/reference-equivalence tests, Rank/Reduce 및 E. expansion composition tests의 golden scaffold를 추가했다.
 - [ ] `ParameterizedLoweringRecipe` interface를 정의해 ResolvedCallFacts+TargetCapability로 multiple realization 후보를 만들 수 있게 한다.
 - [ ] pure graph region과 CFG region을 구분한다.
-- [ ] v0에서는 `ConstraintSet + compile-time Witness`를 정의하고, runtime branching이 필요한 `Guard`는 v1로 미룬다.
-- [ ] v0에서는 `EffectSummary + SpeculationSemantics`의 interface만 정의하고, explicit `EffectToken`은 v1로 미룬다.
-- [ ] v0 op contract에 possible J error set / MayRaise를 보존하고, v1에서 try/catch/throw exceptional CFG edge를 구현한다.
-- [ ] `DestinationRelation`을 정의하여 bufferization contract와 BufferId를 분리한다.
-- [ ] op verifier framework를 만든다.
+- [x] v0 `ConstraintSet + FactWitness`를 정의하고 PrefixAgreement/CellFrameAgreement/IndicesInBounds를 우선 연결했다. runtime branching `Guard`는 v1로 유지한다.
+- [x] v0 `EffectSummary + SpeculationSemantics` resolved-call interface를 정의했다. explicit `EffectToken`은 v1로 유지한다.
+- [x] v0 `PossibleErrors { known, unknown }`와 first-class `SemanticCheck`로 MayRaise를 보존한다. primitive별 완전한 error-set refinement와 exceptional CFG edge는 후속이다.
+- [x] A3 `DestinationRelation`을 정의해 logical alias/reuse legality seam과 physical `BufferId`를 분리했다. 현재 call 기본값은 보수적으로 `Unknown`이다.
+- [x] A3 verifier가 schema/container/op-value producer/order/basis payload/instantiation/constraint/zero-result check invariants를 검증한다.
 - [ ] semantic capability interfaces(Shape/Axis/Access/Effect/Alias/Speculation)를 trait/API로 정의한다.
 - [ ] schedule/transform representation을 Logical payload IR과 분리한다.
 - [ ] external adapter capability negotiation과 guarded lowering을 정의한다.
-- [ ] `IrSchemaVersion`과 registry/compiler provenance를 IR header에 둔다.
-- [ ] v0는 pure graph/witness verifier golden test를 만들고, branch/loop/effect-token/dynamic-guard test는 v1에서 추가한다.
+- [x] A3 `IrSchemaVersion`과 compiler version/primitive registry version provenance를 IR header에 추가했다.
+- [x] v0 single-block graph/check/witness/verifier/reference-executor golden tests를 추가했다. branch/loop/effect-token/dynamic-guard tests는 v1로 유지한다.
 
 완료 조건: Logical IR이 RustJ-native planner와 external adapter 양쪽에서 동일한 verifier/interface contract를 통해 소비될 수 있고, buffer/layout/schedule을 넣지 않아도 control/effect/dynamic constraint semantics를 잃지 않는다.
 
