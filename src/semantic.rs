@@ -383,11 +383,89 @@ pub struct Program {
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
 
-enum Item {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ParseClass {
+    Noun,
+    Verb,
+    Adverb,
+    Conjunction,
+    Name,
+    Assignment,
+    LParen,
+    RParen,
+    Mark,
+}
+
+impl From<FunctionPartOfSpeech> for ParseClass {
+    fn from(pos: FunctionPartOfSpeech) -> Self {
+        match pos {
+            FunctionPartOfSpeech::Verb => Self::Verb,
+            FunctionPartOfSpeech::Adverb => Self::Adverb,
+            FunctionPartOfSpeech::Conjunction => Self::Conjunction,
+        }
+    }
+}
+
+enum ParseValue {
     Noun(Expr, usize),
     Verb(Verb),
-    Adverb(Arc<FunctionEntity>),
-    Conjunction(Arc<FunctionEntity>),
+    Function(Arc<FunctionEntity>),
+}
+
+struct Item {
+    class: ParseClass,
+    value: ParseValue,
+}
+
+impl Item {
+    fn noun(expr: Expr, height: usize) -> Self {
+        Self {
+            class: ParseClass::Noun,
+            value: ParseValue::Noun(expr, height),
+        }
+    }
+
+    fn verb(verb: Verb) -> Self {
+        debug_assert_eq!(verb.entity.result_pos, FunctionPartOfSpeech::Verb);
+        Self {
+            class: ParseClass::Verb,
+            value: ParseValue::Verb(verb),
+        }
+    }
+
+    fn function(entity: Arc<FunctionEntity>) -> Self {
+        Self {
+            class: entity.result_pos.into(),
+            value: ParseValue::Function(entity),
+        }
+    }
+
+    fn into_noun(self) -> Option<(Expr, usize)> {
+        match self.value {
+            ParseValue::Noun(expr, height) if self.class == ParseClass::Noun => {
+                Some((expr, height))
+            }
+            _ => None,
+        }
+    }
+
+    fn into_verb(self) -> Option<Verb> {
+        match self.value {
+            ParseValue::Verb(verb) if self.class == ParseClass::Verb => Some(verb),
+            _ => None,
+        }
+    }
+
+    fn into_function(self) -> Option<Arc<FunctionEntity>> {
+        match self.value {
+            ParseValue::Function(entity)
+                if matches!(self.class, ParseClass::Adverb | ParseClass::Conjunction) =>
+            {
+                Some(entity)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Parse without reading bindings, changing state, or invoking any kernels.
@@ -479,14 +557,14 @@ fn expression(
                     if let ExprKind::VerbValue(verb) = &inner.kind {
                         let mut verb = verb.clone();
                         verb.span = v.span;
-                        items.push(Item::Verb(verb));
+                        items.push(Item::verb(verb));
                         continue;
                     }
                 }
-                items.push(Item::Noun(v, height));
+                items.push(Item::noun(v, height));
             }
             Token::Scalar(v) => {
-                items.push(Item::Noun(
+                items.push(Item::noun(
                     Expr {
                         span: spans[*pos].clone(),
                         kind: ExprKind::Literal(v.clone().into_value()?),
@@ -499,7 +577,7 @@ fn expression(
                 let Token::Noun(v) = std::mem::replace(&mut tokens[*pos], Token::Open) else {
                     unreachable!()
                 };
-                items.push(Item::Noun(
+                items.push(Item::noun(
                     Expr {
                         span: spans[*pos].clone(),
                         kind: ExprKind::Literal(*v),
@@ -521,7 +599,7 @@ fn expression(
                         }),
                     };
                     if let Some(kind) = kind {
-                        items.push(Item::Noun(
+                        items.push(Item::noun(
                             Expr {
                                 span: spans[*pos].clone(),
                                 kind,
@@ -553,17 +631,17 @@ fn expression(
                     rank: None,
                 };
                 *pos += 1;
-                items.push(Item::Verb(verb));
+                items.push(Item::verb(verb));
             }
             Token::Adverb(id) => {
-                items.push(Item::Adverb(FunctionEntity::primitive_adverb(
+                items.push(Item::function(FunctionEntity::primitive_adverb(
                     *id,
                     spans[*pos].clone(),
                 )));
                 *pos += 1;
             }
             Token::Conjunction(id) => {
-                items.push(Item::Conjunction(FunctionEntity::primitive_conjunction(
+                items.push(Item::function(FunctionEntity::primitive_conjunction(
                     *id,
                     spans[*pos].clone(),
                 )));
