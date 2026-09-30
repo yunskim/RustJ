@@ -1551,28 +1551,59 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 
 ---
 
-## 4. Semantic Analyzer / Lowering
+## 4. J Graph Analyzer와 Execution Semantic Lowering
 
-Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Array IR / Logical Execution Plan으로 낮추는 RustJ compiler middle-end**다. 이 단계 자체는 실행기가 아니다.
+RustJ middle-end는 하나의 Analyzer가 모든 일을 하는 구조가 아니라 **두 서로 다른 IR과 두 분석 단계**를 가진다.
 
-### 4.1 Semantic Analyzer / Lowering의 책임
+~~~text
+J Semantic Construction IR
+        ↓
+J Graph IR
+        ↓
+J Graph Analyzer / Algebraic Optimizer
+        ↓
+Execution Semantic Lowering
+        ↓
+Logical Execution IR
+~~~
 
-- noun/verb/adverb/conjunction 품사와 적용 관계 분석
-- primitive / derived entity(verb/adverb/conjunction) 분석
-- hook / fork / train 구조 분석
-- modifier application과 rank semantics 분석
-- monad / dyad valence 결정
+JAXA의 핵심 연구 대상은 첫 번째 middle-end인 **J Graph Analyzer**다. Execution Semantic Lowering은 J 전체를 정확히 실행 가능한 compiler IR로 옮기기 위해 RustJ에서 강화된 두 번째 단계다.
+
+### 4.1 J Graph Analyzer의 책임
+
+- completed FunctionEntity를 실제 noun application과 결합하여 J Graph IR 생성
+- primitive / derived verb / adverb / conjunction의 J graph form 분석
+- `@:` chain을 Pipeline으로 식별
+- hook / fork / train의 branch/fan-out/join topology 식별
+- `/`, `"`, 이후 Cut/Dot/Key/Power 같은 J combinator의 graph structure 식별
+- shared/common input, producer-consumer chain, retained-value lifetime 후보 도출
+- intermediate materialization-elision / fusion / parallel branch 후보 도출
+- J observable evaluation-order topology 보존
+- primitive별 shape/dtype/rank/effect/resource rule reference 연결 또는 명시적 Unknown
+- basis/rewrite/equivalence/adjoint rule을 사용할 수 있는 graph algebra surface 제공
+- 동등한 J graph rewrite candidate 생성 및 target-independent graph-level legality 전처리
+
+이 단계에서 **하지 않는 일**:
+
+- actual target의 register/shared memory/tile 수치를 보고 fusion region 확정
+- J-visible dynamic check를 제거했다고 가정
+- generic execution SSA로 먼저 평탄화한 뒤 J topology를 다시 추측
+- concrete bufferization/schedule 선택
+
+### 4.2 Execution Semantic Lowering의 책임
+
+- J Graph node를 explicit execution dataflow로 전개
+- monad/dyad valence와 actual call instantiation 확정
 - primitive semantic contract 적용
 - dtype / shape / cell / frame / agreement / rank-result-assembly fact 전파
 - iteration domain / axis semantics / access relation 도출
-- control/data dependency graph 생성
+- CellApply / Reduce / Gather / Contract 등 normalized execution/basis operation 생성
+- ConstraintSet / FactWitness / SemanticCheck 생성
 - effect / alias / speculation legality 분석
-- invariance / symbolic constraint / semantic-mask fact 전파
-- map / reduce / scan / gather / structural pattern 식별
-- derived entity structure의 **target-independent** normalization/lowering
-- semantic storage/lifetime requirement 도출
-- target-independent rewrite legality와 fusion constraint 도출
-- Logical Array IR / Logical Execution Plan 생성
+- invariance / semantic storage requirement / representation-side fact의 경계 설정
+- J observable error/evaluation ordering 보존
+- J Graph node → execution op provenance(`j_origin`) 유지
+- verified Logical Execution IR 생성
 
 다음은 이 단계의 책임이 아니다.
 
@@ -1596,7 +1627,7 @@ old "JAXA analyzer"
 
 현행 RustJ에서 **Semantic Analyzer라는 좁은 단계만** target-independent다. 과거 analyzer의 hardware-dependent 기능을 버린 것이 아니라 downstream planning 단계로 분리한 것이다.
 
-### 4.2 Semantic Analyzer / Lowering이 하지 않는 일
+### 4.3 두 middle-end가 공통으로 하지 않는 일
 
 - source text tokenization
 - parser stack 규칙의 재실행
@@ -1606,20 +1637,20 @@ old "JAXA analyzer"
 - Executor 단계에서 의미론을 다시 판단
 - 알 수 없는 정보를 임의로 추측
 
-즉 Semantic Analyzer는 **J syntax mechanics는 모르지만 J semantic structure는 안다.**
+즉 Graph Analyzer와 Execution Lowering은 scanner/parser stack mechanics를 재실행하지 않는다. 대신 parser가 완성한 FunctionEntity와 J Graph IR의 구조를 정식 compiler input으로 사용한다.
 
-### 4.3 Semantic analysis 이후의 generic 경계
+### 4.4 Execution semantic lowering 이후의 generic 경계
 
-다른 frontend와 공유할 가능성이 높은 지점은 semantic analysis 입력 전이 아니라 **고수준 J 구조를 분석한 뒤 생성하는 Logical Array IR / Plan**이다.
+다른 frontend와 공유할 가능성이 높은 지점은 J Graph IR 이전이 아니라 **J graph analysis와 execution semantic lowering을 마친 뒤의 Logical Execution IR / Plan**이다. J Graph IR은 의도적으로 J-specific하다.
 
 ```text
-J frontend
+J frontend / FunctionEntity
     ↓
-J Semantic Array IR
+J Graph IR + Graph Analyzer      ← intentionally J-specific
     ↓
-Semantic Analyzer / Lowering
+Execution Semantic Lowering
     ↓
-Logical Array IR / Plan  ← generic compiler boundary
+Logical Execution IR / Plan     ← generic compiler boundary
     ↓
 Route partition / export
     ├─ RustJ-native optimizer/planner
@@ -6865,7 +6896,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### P5 — construction-time J semantics와 compiler-analysis facts 분리
 
-**구현 방향:** parser/J Semantic IR를 compiler-friendly form으로 rewrite하지 않는다. 각 `FunctionEntity`는 자기 intrinsic `semantic_info`를 직접 소유하고 child의 정보를 재귀적으로 참조할 수 있게 한다. 그 다음 call-dependent 정보는 Logical IR node의 `ResolvedCallFacts`, pass-dependent 정보는 `OptimizationFacts`, target 이후 정보는 `LoweringCapability/TargetFacts -> PhysicalDecision`에 둔다.
+**구현 방향:** parser/J Semantic Construction IR의 `FunctionEntity` 자체를 compiler convenience를 위해 변형하지 않는다. 대신 그 immutable graph에서 **별도 J Graph IR을 파생**하여 applied topology와 syntax-derived optimization hint를 표현한다. actual shape/rank/frame 같은 call-dependent semantic fact는 Logical Execution IR의 `ResolvedCallFacts`가 소유하고, J Graph IR의 pass-dependent graph fact는 `GraphHint/GraphAnalysisFacts`, target 이후 정보는 `LoweringCapability/TargetFacts -> PhysicalDecision`에 둔다.
 
 parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifier application이 그 자리에서 검증하고 result entity를 만드는 의미는 그대로 수행한다. 제거 대상은 target/call-dependent compiler facts다.
 
