@@ -23,7 +23,7 @@ pub enum TargetFeature {
     IndexedMemory,
     SubgroupCollective,
     TensorContract,
-    ExternalLibrary,
+    ExternalCall,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
