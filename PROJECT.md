@@ -259,6 +259,8 @@ Guarded {
 
 ### 2.5 Route partition은 whole-program exclusive choice가 아니다
 
+Route partition은 parser 직후나 J Semantic IR에서 하지 않는다. **Semantic Analyzer가 의미를 확정하고 Logical IR verifier를 통과한 뒤**, 최소 target-independent canonicalization을 거친 representation에 적용한다.
+
 한 프로그램의 모든 op를 같은 backend/IR로 보내야 한다고 가정하지 않는다.
 
 개념 모델:
@@ -286,6 +288,8 @@ RouteRegion
   boundary inputs/outputs
   semantic provenance
 ```
+
+partition legality는 단순 op coverage가 아니라 shape/numeric constraint, effect ordering, alias/storage requirement, speculation safety를 함께 본다. effect/token/witness edge를 안전하게 보존할 수 없는 경계에서는 partition하지 않는다.
 
 중요한 원칙:
 
@@ -1805,6 +1809,10 @@ Physical Planner / Bufferization
 Physical Plan
 ```
 
+
+
+여기서 `Logical Optimizer`는 target-independent canonicalization/DCE/CSE와, 필요하면 native route용 graph rewrite 후보 생성을 담당한다. 특정 tile/layout/device/resource를 선택하거나 target cost로 후보를 확정하는 일은 Schedule / Transform Plan 이후의 책임이다.
+
 **Schedule / Transform Plan**은 payload semantics와 분리된 선택/변환 의도를 표현한다.
 
 - fusion/grouping
@@ -2424,15 +2432,15 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 - [ ] SSA `ValueId`, Function/Region/Block/Terminator 최소 구조를 정의한다.
 - [ ] pure graph region과 CFG region을 구분한다.
-- [ ] `ConstraintSet + Witness/Guard`를 정의한다.
-- [ ] `EffectSummary + EffectToken + SpeculationSemantics`를 정의한다.
+- [ ] v0에서는 `ConstraintSet + compile-time Witness`를 정의하고, runtime branching이 필요한 `Guard`는 v1로 미룬다.
+- [ ] v0에서는 `EffectSummary + SpeculationSemantics`의 interface만 정의하고, explicit `EffectToken`은 v1로 미룬다.
 - [ ] `DestinationRelation`을 정의하여 bufferization contract와 BufferId를 분리한다.
 - [ ] op verifier framework를 만든다.
 - [ ] semantic capability interfaces(Shape/Axis/Access/Effect/Alias/Speculation)를 trait/API로 정의한다.
 - [ ] schedule/transform representation을 Logical payload IR과 분리한다.
 - [ ] external adapter capability negotiation과 guarded lowering을 정의한다.
 - [ ] `IrSchemaVersion`과 registry/compiler provenance를 IR header에 둔다.
-- [ ] pure graph, branch, loop, effect token, dynamic guard를 각각 verifier golden test로 만든다.
+- [ ] v0는 pure graph/witness verifier golden test를 만들고, branch/loop/effect-token/dynamic-guard test는 v1에서 추가한다.
 
 완료 조건: Logical IR이 RustJ-native planner와 external adapter 양쪽에서 동일한 verifier/interface contract를 통해 소비될 수 있고, buffer/layout/schedule을 넣지 않아도 control/effect/dynamic constraint semantics를 잃지 않는다.
 
@@ -2446,12 +2454,13 @@ A3-v0
   SSA ValueId
   verifier
   shape/axis/access/numeric contracts
-  ConstraintSet/Witness의 최소형
+  EffectSummary/Speculation interface
+  ConstraintSet + compile-time Witness의 최소형
 
 A3-v1
   multi-block CFG
-  branch / loop
-  EffectToken / SpeculationSemantics
+  branch / loop / runtime Guard
+  EffectToken
   richer alias/destination analysis
 
 A3-v2
@@ -3041,7 +3050,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 4. extension `PrimitiveSpec`을 semantic identity/version record로 정리하고 Shape/Axis/Access/Numeric/Effect/Alias/Speculation capability interface와 lowering registry를 분리한다.
 5. Logical IR core의 SSA `ValueId`, Function/Region/Block/Terminator를 정의한다.
 6. `IterationDomain`, `AxisSemantics`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`, `NumericSemantics`, `DependencyRequirement`를 정의한다.
-7. `Witness/Guard`, `StorageRequirement`, `DestinationRelation`의 최소 contract를 정의한다. `EffectToken`과 multi-block CFG 실행은 v1로 미룬다.
+7. v0에서는 compile-time `Witness`, `StorageRequirement`, `DestinationRelation`, `EffectSummary/SpeculationSemantics`의 최소 contract를 정의한다. runtime `Guard`, `EffectToken`, multi-block CFG는 v1로 미룬다.
 8. operation verifier와 typed-fact lattice framework의 v0를 만든다.
 9. Semantic Analyzer가 semantic IR과 primitive capability를 읽어 target-independent single-block Logical IR을 생성하게 한다.
 10. `relu`, 단순 reduction, `linear`, `conv2d` 순으로 contract/golden test를 작성한다. conv2d에서는 output/reduction/window axes와 X/W/Y access relation을 기준으로 삼는다.
