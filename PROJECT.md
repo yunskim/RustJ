@@ -111,7 +111,7 @@ RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌�
 - **RustJ frontend**: source text를 읽고 J의 품사·결합·이름 의미를 보존한 `J Semantic Array IR`을 만든다.
 - **J Semantic Array IR**: J의 배열 계산을 고수준에서 표현한다. hook/fork/train, adverb/conjunction으로 만든 derived verb, rank 같은 의미 구조를 보존한다.
 - **Semantic Analyzer / Lowering**: 이 고수준 IR을 분석하여 explicit dataflow와 array operation으로 이루어진 `Logical Array IR / Logical Execution Plan`으로 낮춘다. 이 단계는 target-independent facts와 semantic legality를 만든다.
-- **Route Selection / Export**: Logical Array IR 이후에는 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등의 검증된 경로 중 하나를 선택할 수 있다.
+- **Route Partition / Export**: Logical Array IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
 - **RustJ-native Physical Planner**: Route A에서만 layout, placement, materialization, buffer, transfer, scheduling 같은 물리 실행 결정을 내린다.
 - **Backend/Runtime**: 선택된 route의 lower-level IR 또는 Physical Plan을 실행 가능한 artifact로 낮추고 실행한다.
 
@@ -140,7 +140,7 @@ Semantic Analyzer / Lowering
         ↓
 Logical Array IR / Plan
         ↓
-Route selection / export
+Route partition / export
    ├─ RustJ Physical Plan
    ├─ MLIR family
    ├─ StableHLO-compatible subset
@@ -256,6 +256,47 @@ Guarded {
 ```
 
 외부 IR로 내릴 때 J semantic origin과 source span을 가능한 범위에서 metadata/provenance로 유지한다.
+
+### 2.5 Route partition은 whole-program exclusive choice가 아니다
+
+한 프로그램의 모든 op를 같은 backend/IR로 보내야 한다고 가정하지 않는다.
+
+개념 모델:
+
+```text
+Logical Module
+  ↓ capability matching / legality
+RoutePartition
+  ├─ Region A → MLIR
+  ├─ Region B → verified library
+  ├─ Region C → RustJ native
+  └─ Region D → Unsupported
+```
+
+partition 단위는 처음에는 **single-block contiguous subgraph**로 제한하고, 이후 Function/Region 단위로 확장한다.
+
+각 route region은 다음을 가진다.
+
+```text
+RouteRegion
+  ops / values
+  chosen route
+  adapter preconditions
+  required witnesses/guards
+  boundary inputs/outputs
+  semantic provenance
+```
+
+중요한 원칙:
+
+- route partition 자체는 physical buffer/layout/transfer를 확정하지 않는다.
+- 서로 다른 route 사이의 value bridge는 semantic value boundary로 먼저 표현한다.
+- 실제 host/device transfer, layout conversion, buffer copy는 각 lower-level route가 필요한 representation을 정한 뒤 bridge lowering에서 구체화한다.
+- adapter가 일부 op만 지원하면 지원되는 maximal legal region만 offload할 수 있다.
+- unsupported region은 다른 route가 지원하면 그 route로 갈 수 있고, 아무 route도 지원하지 않으면 명시적 `Unsupported`다.
+
+TVM BYOC처럼 external codegen 대상 subgraph를 partition하고 나머지 graph를 기본 pipeline에 남기는 구조를 참고한다. MLIR의 mixed-dialect module도 여러 abstraction/lowering state가 동시에 존재할 수 있다는 점에서 같은 방향을 지원한다.
+
 
 MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 dialect conversion으로 점진적으로 lowering할 수 있으므로 RustJ의 multi-level IR 구조와 특히 잘 맞는다. StableHLO는 ML framework/compiler 사이의 portability layer를 목표로 하는 high-level op set이므로 NN/tensor subset의 선택적 export 대상으로 본다. LLVM IR/SPIR-V는 더 낮은 execution target으로 사용한다.
 
@@ -478,7 +519,7 @@ Semantic Analyzer / Lowering은 **J Semantic Array IR을 분석하여 Logical Ar
 - tile/vector/workgroup/layout/device를 고르는 일
 - target cost model로 후보를 ranking하는 일
 
-이 결정들은 Route Selection, 외부 compiler, 또는 RustJ-native Logical Optimizer/Physical Planner가 담당한다.
+이 결정들은 Route Partition/Export, 외부 compiler, 또는 RustJ-native Logical Optimizer/Physical Planner가 담당한다.
 
 ### 4.2 Semantic Analyzer / Lowering이 하지 않는 일
 
@@ -655,7 +696,7 @@ J Semantic Array IR + analysis contract
 1. parser가 `conv`라는 문자열을 특별 취급하지 않는다.
 2. name이 primitive로 해소되면 문자열이 아니라 안정적인 `PrimitiveId`/entity identity를 가진다.
 3. `f =: conv`처럼 alias/binding을 거쳐도 같은 primitive identity와 spec이 보존되어야 한다.
-4. registry는 spelling table이 아니라 **분석 계약의 single source of truth**다.
+4. primitive registry는 spelling/identity/version을 해소하는 **canonical registry**다. 분석 의미는 등록된 semantic capability interfaces가 제공하고, target-specific lowering/realization은 별도 lowering registry가 제공한다.
 5. custom primitive 추가 때문에 scanner/parser 코드를 수정하지 않는다.
 6. J built-in primitive와 extension primitive는 출처는 달라도 analyzer에서는 공통 `PrimitiveContract` interface로 다룬다.
 
@@ -746,13 +787,13 @@ ResourceUsage
 
 ### 4.11 rank와 axis role은 서로 다른 정보다
 
-J rank가 알려주는 것은 argument를 frame과 cell로 어떻게 나누어 verb를 적용하는가이다. PrimitiveSpec의 axis-role contract는 그 cell 내부의 각 축이 연산에서 어떤 역할을 하는가를 알려준다.
+J rank가 알려주는 것은 argument를 frame과 cell로 어떻게 나누어 verb를 적용하는가이다. `AxisAndIterationSemantics` capability는 그 cell 내부의 각 축이 연산에서 어떤 역할을 하는가를 알려준다.
 
 ```text
 full argument shape
         ↓ J rank semantics
 frame axes | cell axes
-             ↓ PrimitiveSpec.axis_roles
+             ↓ AxisAndIterationSemantics
        semantic axis roles
 ```
 
@@ -868,7 +909,7 @@ LogicalOp
 ├─ NumericSemantics
 ├─ Dependency / SynchronizationRequirements
 ├─ Effect / Alias
-└─ Materialization / LifetimeRequirements
+└─ Storage / LifetimeRequirements
 ```
 
 #### 4.15.1 IterationDomain
@@ -1428,37 +1469,66 @@ PhysicalRegion
 
 Triton의 `BLOCK_SIZE_*`, `num_warps`, `num_stages`, `maxnreg`와 OpenXLA fusion backend config의 tile/warp/stage 설정은 이 계층의 사례다.
 
-### 4.19 ResourceEstimate는 plan의 결과이지 primitive property가 아니다
+### 4.19 ResourceEstimate와 CostEstimate를 분리한다
 
-다음은 Physical Plan 후보를 TargetProfile/CostProfile과 결합해 계산하는 derived information이다.
+`TargetProfile`의 hard facts와 `CostProfile`의 경험적 성능치를 분리했으므로, plan 평가 결과도 두 종류로 나눈다.
+
+#### ResourceEstimate
+
+schedule과 target hard facts로부터 계산 가능한 자원/구조 추정이다.
 
 ```text
 ResourceEstimate
   register usage by class
   shared/LDS/scratchpad bytes
-  spill risk
-  resident workgroups/subgroups
-  theoretical occupancy/concurrency
+  spill/local-memory risk
+  resident workgroups/subgroups bound
+  theoretical occupancy/concurrency bound
   global-memory bytes
-  cache/scratchpad traffic estimate
-  transaction/coalescing estimate
-  bank-conflict estimate
+  cache/scratchpad traffic amount
+  transaction/coalescing count estimate
+  bank-conflict structure
   arithmetic intensity
-  instruction/compute estimate
-  synchronization count/cost
+  instruction/work count
+  synchronization count
   launch count
-  transfer bytes/cost
+  transfer bytes
   peak live memory
 ```
 
-핵심 식:
-
 ```text
 ResourceEstimate
-  = R(LogicalGraph, PhysicalSchedule, TargetProfile, optional CostProfile)
+  = R(LogicalGraph, PhysicalSchedule, TargetProfile)
 ```
 
-따라서 primitive registry에 `registers=32`처럼 넣지 않는다. primitive는 `output마다 accumulator가 필요`, `이 축은 reduction`, `이 input tile은 재사용됨`, `workgroup-local collective 필요` 같은 요구/구조를 제공한다.
+#### CostEstimate
+
+실제 시간/성능 ranking에 필요한 추정이다.
+
+```text
+CostEstimate
+  predicted latency
+  predicted throughput
+  launch overhead
+  synchronization latency
+  transfer time
+  memory-service cost
+  compute cost
+  calibrated library/kernel cost
+  confidence / provenance
+```
+
+```text
+CostEstimate
+  = C(ResourceEstimate,
+      PhysicalSchedule,
+      TargetProfile,
+      optional CostProfile)
+```
+
+`CostProfile`이 없으면 CostEstimate를 생략하거나 conservative heuristic으로 후보를 ranking할 수 있다. **legality와 ResourceEstimate는 CostProfile이 없어도 계산 가능해야 한다.**
+
+따라서 primitive registry에 `registers=32`처럼 넣지 않는다. primitive/capability는 `output마다 accumulator가 필요`, `이 축은 reduction`, `이 input tile은 재사용됨`, `logical collective가 필요` 같은 구조만 제공한다.
 
 #### 4.19.1 Backend compiled-resource feedback
 
@@ -1498,6 +1568,21 @@ or re-plan / choose another schedule
 
 즉 RustJ planner는 backend compiler와 한 번만 대화하는 구조로 고정하지 않는다.
 
+실제 runtime measurement는 `CompiledResourceReport`와 분리한다.
+
+```text
+ExecutionMeasurement
+  artifact id
+  input/workload signature
+  elapsed time / throughput
+  transfer time
+  counters if available
+  runtime/driver/clock provenance
+```
+
+측정값은 `CostProfile` calibration이나 autotuning database에 반영할 수 있지만, TargetProfile hard fact를 덮어쓰지 않는다.
+
+
 #### 4.19.2 TargetProfile은 data + query interface다
 
 TargetProfile을 모든 vendor 규칙을 정적으로 열거한 거대한 struct로 만들지 않는다.
@@ -1508,7 +1593,7 @@ TargetFacts
 
 TargetQueries
   vectorization_legal(...)
-  memory_transactions(...)
+  memory_transaction_structure(...)
   occupancy_bound(...)
   matrix_instruction_candidates(...)
   atomic_support(...)
@@ -1590,9 +1675,9 @@ H3 ResourceEstimate MVP
 
 **Logical Array IR / Plan**에는 op identity, logical shape, rank/cell/frame, dtype/numeric constraints, iteration domain, axis semantics, access relations, effect/alias/speculation, control-flow, constraint witness, semantic storage/lifetime requirement, target-independent rewrite/fusion constraints, provenance를 둔다.
 
-**Route Selection 입력**은 Logical Array IR과 adapter/backend capabilities다. RustJ-native route를 선택한 경우에만 Physical Planner가 Logical Array IR + TargetProfile + optional CostProfile + backend/library capabilities를 입력으로 받는다.
+**Route Partition 입력**은 Logical Array IR과 adapter/backend capabilities다. RustJ-native route를 선택한 경우에만 Physical Planner가 Logical Array IR + TargetProfile + optional CostProfile + backend/library capabilities를 입력으로 받는다.
 
-**Physical Plan / Planning Report**에는 fusion/kernel region, materialization boundary, target placement, axis/thread/vector mapping, chosen layout, tiling, memory-space staging, pipeline stages, synchronization, accumulator realization, placement/transfer, buffer lifetime/reuse, backend strategy, derived ResourceEstimate를 둔다.
+**RustJ-native Physical Plan / Planning Report**에는 fusion/kernel region, materialization boundary, target placement, axis/thread/vector mapping, chosen layout, tiling, memory-space staging, pipeline stages, synchronization, accumulator realization, placement/transfer, buffer lifetime/reuse, backend strategy, derived ResourceEstimate와 optional CostEstimate를 둔다.
 
 compile artifact에는 source revision, PrimitiveSpec registry version, input facts/spec, TargetProfile version, optional CostProfile version, compiler version을 provenance로 기록한다.
 
@@ -2322,10 +2407,11 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] `TargetProfile`을 primitive registry와 분리하고 execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 최소 schema로 만든다.
 - [ ] hard target facts와 empirical `CostProfile`을 분리한다.
 - [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
-- [ ] `ResourceEstimate`를 graph + schedule + target의 함수로 계산한다.
+- [ ] `ResourceEstimate`를 graph + schedule + TargetProfile의 함수로 계산하고 `CostEstimate`를 별도 계층으로 둔다.
 - [ ] backend가 실제 register/spill/shared-memory 결과를 돌려주는 `CompiledResourceReport`와 re-plan 경로를 정의한다.
 - [ ] `TargetProfile`을 stable facts와 architecture-specific `TargetQueries`로 분리한다.
 - [ ] Logical Array IR → MLIR export adapter의 최소 contract를 설계한다.
+- [ ] whole-program route 선택이 아니라 subgraph/region 단위 `RoutePartition`과 boundary value bridge를 정의한다.
 - [ ] StableHLO로 안전하게 내릴 수 있는 subset을 명시하고 unsupported semantics를 거부하는 규칙을 만든다.
 - [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
@@ -2703,6 +2789,7 @@ RustJ 적용:
 - Logical IR에 tile/vector/workgroup 결정을 박지 않는다.
 - native route의 `Schedule / Transform Plan`을 별도 표현으로 둔다.
 - MLIR/TVM류 external optimizer를 재구현하지 않고 adapter를 통해 활용할 수 있게 한다.
+- external backend는 whole-program 선택이 아니라 legal subgraph/region partition으로 적용할 수 있게 한다.
 
 ### IREE Flow / Stream / HAL
 
@@ -2935,6 +3022,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 16. **Verifier first** — 잘못된 IR을 downstream이 추측해서 복구하게 하지 않는다.
 17. **Version boundary 명시** — external interchange를 시작하면 IR schema와 registry/compiler provenance를 기록한다.
 18. **Async dependency는 explicit** — physical async execution에서 host statement order를 dependency로 암묵 사용하지 않는다.
+19. **Resource와 cost 분리** — ResourceEstimate는 TargetProfile hard facts에 의존하고, empirical CostProfile은 CostEstimate/ranking에만 사용한다.
+20. **Route는 혼합 가능** — external/native route는 whole-program exclusive choice가 아니라 legal region/subgraph 단위로 partition할 수 있다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
@@ -2963,7 +3052,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 15. `TargetFacts + TargetQueries` interface를 정의한다.
 16. RustJ-native `Schedule / Transform Plan`을 Logical IR과 분리하여 정의한다.
 17. native Physical Planner가 schedule + TargetProfile을 받아 memory-space/layout/materialization/synchronization/buffer plan을 생성하게 한다.
-18. `ResourceEstimate` MVP와 backend `CompiledResourceReport` feedback/re-plan interface를 만든다.
+18. `ResourceEstimate` MVP와 별도 `CostEstimate`를 만들고, backend `CompiledResourceReport` 및 runtime `ExecutionMeasurement` feedback/re-plan interface를 만든다.
 19. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
 20. v0가 안정된 뒤 branch/loop/effect token을 A3-v1로, async timepoint와 portable version migration을 필요한 시점에 단계적으로 추가한다.
 21. 기존 LogicalPlan 결과와 의미 동등성을 비교한다.
