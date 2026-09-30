@@ -17,7 +17,7 @@
 사용자 요청에 따라 아래 순서가 이전 P0~P5와 함수 정의 DEF 계획보다 우선한다.
 세부 항목과 검증 근거는 [GPU 배열 계획·체크리스트](GPU-FRIENDLY-ARRAY-PLAN.md)에서 관리한다.
 
-- [ ] G1: 논리 값/물리 버퍼 분리와 checked PhysicalArray descriptor.
+- [x] G1: 논리 값/물리 버퍼 분리와 checked PhysicalArray descriptor. [Windows 검증 기록](PHYSICAL-ARRAY-G1.md).
 - [ ] G2: transpose/reverse/slice/compatible reshape의 strided view와 materialization.
 - [ ] G3: CPU kernel 및 rank 실행에 연결, SIMD·alias·승격 검증.
 - [ ] G4: 최소 PhysicalPlan 및 CPU executor 연결.
@@ -25,9 +25,9 @@
 
 추가 설계 근거: [배열 프레임워크 조사](ARRAY-FRAMEWORK-DESIGN-REVIEW.md). D1~D5의 구체 검증 항목도 GPU 배열 체크리스트에서 추적한다.
 
-[세 관점 설계 검토](GPU-ARRAY-DESIGN-AUDIT.md)의 A1~C4 수정 결정을 G1~G5에 반영했다. 코드 구현과 검증은 아직 미완료다.
+[세 관점 설계 검토](GPU-ARRAY-DESIGN-AUDIT.md)의 A1~C4 수정 결정을 G1~G5에 반영했다. G1은 CPU standalone API와 Windows 검증을 완료했고 연산·물리 실행기 연결은 미완료다.
 
-바로 다음 작업은 G1이다. CUDA 실행 구현은 계속 보류한다.
+바로 다음 작업은 G2다. CUDA 실행 구현은 계속 보류한다.
 아래 이전 단계의 체크 상태는 이력이며 실행 순서를 덮어쓰지 않는다.
 
 ## 확인된 완료 항목

@@ -17,7 +17,7 @@ Semantic IR, 보수적 primitive 계약, ValueId 기반 LogicalPlan과 rank fact
 조사와 문서 반영은 완료했지만 아래 구현·실측 항목은 모두 미완료다.
 
 - [x] ndarray/Arrow API·생성/소유권 소스와 OpenXLA/Burn/ArrayFire 공식 문서를 추가 확인하고 결정·검증 사례를 기록했다.
-- [ ] G1/D1: checked span·바이트 범위·dtype/backing 일치, empty/scalar 정책, stale BufferId와 read-only 기본 경계를 구현한다.
+- [x] G1/D1: checked span·바이트 범위·dtype/backing 일치, empty/scalar 정책, stale BufferId와 read-only 기본 경계를 구현한다.
 - [ ] G1~G2/D2: logical-order contiguous와 memory-contiguous를 구분하고 transpose ravel·reshape 순서 테스트를 추가한다.
 - [ ] G3~G4/D3: 내부 겹침과 외부 live alias를 구분하고 부분/shared backing 회수와 조기 풀 반환을 차단한다.
 - [ ] G4~G5/D4: 여러 consumer의 layout 충돌·반복 읽기·retained bytes를 계획/비용 검사에 포함한다.
@@ -32,8 +32,8 @@ G1은 mutable arbitrary view를 제공하지 않는다. G2 첫 reshape view는 �
 같은 검토자의 세 관점 검토이며 서로 다른 모델의 독립 심사는 아니다.
 
 - [x] 메모리/의미/compiler 경계를 별도로 검토하고 아래 설계 조건을 확정했다. 코드 검증은 미완료다.
-- [ ] G1/A1: scoped/generation BufferId, 실제 allocation alias identity, owning/borrowed lease를 분리하고 inline 이동·registry 성장을 검증한다.
-- [ ] G1/A2~A4: private immutable AffineDense, BoolByte/Int64/Float64/Char8 encoding 검증, empty offset/strides=0 및 singleton stride=0 정규화를 구현한다.
+- [x] G1/A1: scoped/generation BufferId, 실제 allocation alias identity, owning/borrowed lease를 분리하고 inline 이동·registry 성장을 검증한다.
+- [x] G1/A2~A4: private immutable AffineDense, BoolByte/Int64/Float64/Char8 encoding 검증, empty offset/strides=0 및 singleton stride=0 정규화를 구현한다.
 - [ ] G2~G3/B1~B2: frame/cell agreement mapping, 비affine 진단, cell 오류 순서와 empty prototype 경계를 보존한다.
 - [ ] G4/B3: helper API뿐 아니라 실제 source structural→덧셈 경로의 view 유지와 materialization 경계를 계측한다.
 - [ ] G4/C1: fresh bound plan·입력 snapshot lease·성공 후 commit과 planning 진단/실행 오류 순서 보존을 연결한다. inspection plan을 guard 없는 reusable executable로 쓰지 않는다.
@@ -43,18 +43,20 @@ G1은 mutable arbitrary view를 제공하지 않는다. G2 첫 reshape view는 �
 G1 초기 표현은 AffineDense read-only다. bit/tiled/sparse/boxed mapping과 mutable 일반 view는 구현 범위 밖이다.
 BufferId가 달라도 같은 allocation을 alias할 수 있으며 span 검사만으로 non-overlap을 선언하지 않는다.
 
-## G1 — 논리 값과 물리 표현의 경계 (바로 다음 작업)
+## G1 — 논리 값과 물리 표현의 경계 (완료: 2026-09-30)
 
-- [ ] ValueId와 별개의 BufferId 및 버퍼 소유자/등록 수명 모델을 정의한다. 논리 이름 버전과 버퍼 ID를 혼동하지 않는다.
-- [ ] PhysicalArray descriptor: 버퍼 참조, shape, 원소 단위 signed strides, 원소 단위 offset, 논리 dtype를 구현한다.
-- [ ] CPU 버퍼 길이/실제 정렬과 descriptor의 접근 범위를 검증한다. 정렬은 가정이 아니라 backing allocation에서 얻는다.
-- [ ] rank/stride 길이 일치, 음수 stride, 0 stride, 빈 배열, scalar, checked 주소 계산을 검증한다.
-- [ ] 동일 논리 값의 여러 물리 표현을 허용하며 CpuStorage를 CPU backing으로 재사용하는 adapter를 만든다.
-- [ ] 단위 테스트: 유효/잘못된 descriptor, signed overflow, 빈 축, backing 경계, 공유 버퍼와 descriptor 수명.
+- [x] ValueId와 별개의 BufferId 및 버퍼 소유자/등록 수명 모델을 정의한다. 논리 이름 버전과 버퍼 ID를 혼동하지 않는다.
+- [x] PhysicalArray descriptor: 버퍼 참조, shape, 원소 단위 signed strides, 원소 단위 offset, 논리 dtype를 구현한다.
+- [x] CPU 버퍼 길이/실제 정렬과 descriptor의 접근 범위를 검증한다. 정렬은 가정이 아니라 backing allocation에서 얻는다.
+- [x] rank/stride 길이 일치, 음수 stride, 0 stride, 빈 배열, scalar, checked 주소 계산을 검증한다.
+- [x] 동일 논리 값의 여러 물리 표현을 허용하며 CpuStorage를 CPU backing으로 재사용하는 adapter를 만든다.
+- [x] 단위 테스트: 유효/잘못된 descriptor, signed overflow, 빈 축, backing 경계, 공유 버퍼와 descriptor 수명.
 
 완료 조건: 기존 dense kernel용 CPU slice는 표준 논리 순서의 연속성 및 CPU backing을 증명한 경우에만 제공한다. memory-contiguous slice는 별도 API/순서 proof를 요구한다.
 장치 포인터를 CPU slice로 변환하는 API나 가짜 CUDA 저장소는 추가하지 않는다.
 새 표현을 기존 Value에 연결하기 전부터 공개 생성 경계에서 불변식을 검사한다.
+
+근거: [G1 구현·Windows 검증 기록](PHYSICAL-ARRAY-G1.md). 아직 evaluator 연결은 없다.
 
 ## G2 — 복사 없는 structural view
 
@@ -118,6 +120,6 @@ boxed/sparse/확장 scalar는 별도 표현으로 유지하며 dense strided pay
 - 매 변경 후 변경 파일, Windows 검증 명령/결과, 활성·보류 테스트, 지원 범위와 남은 실패를 기록한다.
 - 함수 정의의 기존 ignored 수용 테스트 17개는 유지하며 GPU 배열 구현의 통과 증거로 계산하지 않는다.
 - Python harness 변경 시에만 해당 Windows Python 테스트도 수행한다. Linux 테스트와 GitHub CI는 실행하지 않는다.
-- 바로 다음 작업은 G1 descriptor와 불변식 테스트다. 다음 단계 진입 전에 해당 완료 조건을 확인한다.
+- 바로 다음 작업은 G2 checked structural view와 materialization 테스트다. 다음 단계 진입 전에 해당 완료 조건을 확인한다.
 
-작성 시 상태: G1~G5 모두 미완료. 이번 변경은 우선순위와 완료 조건을 확정한 문서 변경이며 테스트를 재실행하지 않았다.
+현재 상태(2026-09-30): G1 완료, G2~G5 미완료. G1 Windows 기본/portable 회귀·doctest·Clippy를 통과했다. 성능/GPU/C 검증은 미실행이다.

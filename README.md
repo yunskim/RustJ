@@ -154,6 +154,8 @@ python3 tools/compare.py
 4. 최소 PhysicalPlan과 CPU executor를 연결합니다.
 5. Windows에서 회귀와 성능·복사·할당 비용을 검증합니다.
 
+G1의 읽기 전용 CPU affine 배열·버퍼 lease·주소 검증은 구현했고 Windows 회귀를 통과했습니다. 연산 실행 경로와 CUDA 연결은 후속입니다. [G1 검증 기록](reports/PHYSICAL-ARRAY-G1.md)을 참고하세요.
+
 세부 완료 조건과 진행 상태는 [GPU 배열 계획·체크리스트](reports/GPU-FRIENDLY-ARRAY-PLAN.md)를 따릅니다.
 함수 정의와 추가 언어 기능은 이후 진행합니다. 실제 CUDA 구현은 재개 요청과 검증 환경 확보까지 보류합니다.
 GitHub CI는 생략하며 이 컴퓨터에서는 Windows 네이티브 도구로만 테스트·검증합니다.

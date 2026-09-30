@@ -100,3 +100,7 @@ metadata inline storage는 G5 실측에 따라 도입하며 매 atom div/mod와 
 
 최종 판정: 위 불변식을 포함한 G1 구현에 착수할 수 있다. 전체 구조의 안전성·성능·GPU 실행이 검증된 것은 아니다.
 이번 변경은 문서만 수정했고 Windows 실행 테스트·C 차등·CUDA·CI를 수행하지 않았다.
+
+## G1 구현 후 상태 (2026-09-30)
+
+위 내용은 11fd190 설계 검토 당시 기록이다. 이후 A1~A4에 해당하는 CPU owning lease·immutable affine descriptor·encoding/empty 정책을 구현하고 [G1 Windows 검증](PHYSICAL-ARRAY-G1.md)을 완료했다. B/C의 연산·실행기·CUDA 항목은 여전히 후속이다.

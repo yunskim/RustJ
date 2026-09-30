@@ -11,6 +11,7 @@ pub mod error;
 pub mod facts;
 pub mod kernels;
 mod numeric;
+pub mod physical;
 mod pool;
 pub mod primitive;
 pub mod runtime;
