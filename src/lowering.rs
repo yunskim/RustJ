@@ -164,7 +164,7 @@ impl LoweringRegistry {
             });
         };
 
-        add(Elementwise, ReferenceSequential, vec![Target(Cpu)]);
+        add(Elementwise, ReferenceSequential, vec![Target(Cpu), Pure]);
         add(
             Elementwise,
             CpuSimd,
@@ -191,7 +191,7 @@ impl LoweringRegistry {
             ],
         );
 
-        add(IndexSpace, ReferenceSequential, vec![Target(Cpu)]);
+        add(IndexSpace, ReferenceSequential, vec![Target(Cpu), Pure]);
         add(
             IndexSpace,
             CpuSimd,
@@ -217,9 +217,9 @@ impl LoweringRegistry {
             ],
         );
 
-        add(CellApply, GenericCellLoop, vec![Target(Cpu)]);
+        add(CellApply, GenericCellLoop, vec![Target(Cpu), Pure]);
 
-        add(Reduce, OrderedReduction, vec![Target(Cpu)]);
+        add(Reduce, OrderedReduction, vec![Target(Cpu), Pure]);
         add(
             Reduce,
             CpuSimd,
@@ -250,9 +250,9 @@ impl LoweringRegistry {
         add(
             StaticReindex,
             MetadataOrIndexReindex,
-            vec![Target(Cpu), KnownResultRank],
+            vec![Target(Cpu), KnownResultRank, Pure],
         );
-        add(Gather, ReferenceSequential, vec![Target(Cpu)]);
+        add(Gather, ReferenceSequential, vec![Target(Cpu), Pure]);
         add(
             Gather,
             CpuVectorGather,
