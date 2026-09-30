@@ -30,3 +30,7 @@ For every implementation change:
 
 - Keep semantic AccessRelation free of physical stride/alignment/address-space facts; those belong to downstream RepresentationFacts or guarded adapter preconditions.
 - Keep logical InvarianceFact target-independent; subgroup/lane uniformity, tail predication, and atomic realization are derived after schedule/target mapping.
+
+- Keep ResourceEstimate independent of empirical CostProfile; use a separate CostEstimate for performance ranking.
+- Treat RoutePartition as a recomputable compilation plan and allow mixed native/external regions within one program.
+- Keep analysis-lattice states (unknown/unreachable) separate from user-visible J semantic errors.
