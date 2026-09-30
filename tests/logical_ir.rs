@@ -237,3 +237,25 @@ fn verifier_rejects_an_entry_block_that_does_not_cover_the_operation_sequence() 
     let error = plan.verify().unwrap_err();
     assert!(error.message.contains("complete operation sequence"));
 }
+
+
+#[test]
+fn a3_header_records_schema_and_registry_provenance() {
+    use rustj::logical_ir::A3_SCHEMA_VERSION;
+
+    let plan = Engine::new().analyze_a3("1+2").unwrap();
+    assert_eq!(plan.header.schema, A3_SCHEMA_VERSION);
+    assert_eq!(
+        plan.header.provenance.primitive_registry_version,
+        rustj::primitive::REGISTRY_VERSION
+    );
+    assert!(!plan.header.provenance.compiler_version.is_empty());
+}
+
+#[test]
+fn verifier_rejects_an_unknown_a3_schema() {
+    let mut plan = Engine::new().analyze_a3("1+2").unwrap();
+    plan.header.schema.major = plan.header.schema.major.saturating_add(1);
+    let error = plan.verify().unwrap_err();
+    assert!(error.message.contains("schema version"));
+}
