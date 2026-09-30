@@ -6,11 +6,15 @@ from oracle import Oracle
 ROOT=Path(__file__).resolve().parents[1]
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument('--binary',type=Path,default=ROOT/'target/release/examples/scan_words')
+    suffix='.exe' if os.name=='nt' else ''
+    p.add_argument('--binary',type=Path,default=ROOT/f'target/release/examples/scan_words{suffix}')
     p.add_argument('--seed',type=int,default=20260927)
     p.add_argument('--rounds',type=int,default=2000)
     p.add_argument('--report',type=Path,default=Path('/tmp/rustj-words.json'))
     args=p.parse_args()
+    if not args.binary.exists():
+        build=subprocess.run(['cargo','build','--quiet','--release','--example','scan_words'],cwd=ROOT,text=True,capture_output=True)
+        if build.returncode: raise RuntimeError('scan_words build failed:\n'+build.stdout+'\n'+build.stderr)
     prefixes=[b'',b' ',b'1 ',b'+',b'a',b'N',b'NB',b"''",b'1',b'1 2',b"'",b'NB.',b'NB. x',b'\n',b'{',b'}',b'{{',b'}}']
     samples=[prefix+bytes([c]) for prefix in prefixes for c in range(256)]
     samples += [b'1 NB.. 2',b'1 NB.: 2',b'1 2: 3',b'{{.',b'}}:',b'1\n2',b"'it''s'",b'foo_bar=:2',b'if. x do. y end.',b'1r2 2j3']
