@@ -108,3 +108,40 @@ fn J_graph_and_execution_IR_answer_different_questions() {
     );
     assert!(!analysis.execution.opportunities.is_empty());
 }
+
+
+#[test]
+fn J_graph_header_and_rule_provenance_are_explicit() {
+    use rustj::{
+        j_graph_ir::{
+            GraphRuleRef, J_GRAPH_SCHEMA_VERSION, ResourceRuleRef,
+        },
+        primitive::{PrimitiveId, REGISTRY_VERSION},
+    };
+
+    let graph = Engine::new().analyze_j_graph("+/1 2 3").unwrap();
+    assert_eq!(graph.header.schema, J_GRAPH_SCHEMA_VERSION);
+    assert_eq!(graph.header.primitive_registry_version, REGISTRY_VERSION);
+
+    let result = graph.result.unwrap();
+    let NodeKind::Apply { rules, .. } = &graph.nodes[result.0].kind else {
+        panic!()
+    };
+    assert_eq!(rules.resource, ResourceRuleRef::StructuralComposition);
+
+    let graph = Engine::new().analyze_j_graph("+ 1").unwrap();
+    let result = graph.result.unwrap();
+    let NodeKind::Apply { rules, .. } = &graph.nodes[result.0].kind else {
+        panic!()
+    };
+    assert_eq!(rules.shape, GraphRuleRef::Primitive(PrimitiveId::Add));
+    assert_eq!(rules.resource, ResourceRuleRef::Unknown);
+}
+
+#[test]
+fn J_graph_verifier_rejects_unknown_schema() {
+    let mut graph = Engine::new().analyze_j_graph("1+2").unwrap();
+    graph.header.schema.minor = graph.header.schema.minor.saturating_add(1);
+    let error = graph.verify().unwrap_err();
+    assert!(error.contains("schema version"));
+}
