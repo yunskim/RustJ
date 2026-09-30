@@ -9,7 +9,7 @@ fn result_basis_call(source: &str) -> (BasisKind, CallOp) {
     let plan = Engine::new().analyze_a3(source).unwrap();
     let result = plan.result.unwrap();
     let producer = plan.values[result.0].producer;
-    let OpKind::Basis { kind, call } = &plan.operations[producer.0].kind else {
+    let OpKind::Basis { kind, call, .. } = &plan.operations[producer.0].kind else {
         panic!("result is not a basis op: {source}")
     };
     (*kind, call.clone())
