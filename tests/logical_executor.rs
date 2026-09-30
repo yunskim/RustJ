@@ -1,11 +1,38 @@
-use rustj::{Engine, Error, logical_executor::execute_closed};
+use rustj::{Data, Engine, Error, Value, logical_executor::execute_closed};
+
+fn assert_value_eq(actual: &Value, expected: &Value, source: &str) {
+    assert_eq!(actual.shape(), expected.shape(), "{source}: shape");
+    assert_eq!(actual.type_code(), expected.type_code(), "{source}: type");
+    match (actual.data(), expected.data()) {
+        (Data::Bool(actual), Data::Bool(expected))
+        | (Data::Char(actual), Data::Char(expected)) => {
+            assert!(actual.iter().eq(expected.iter()), "{source}: byte atoms");
+        }
+        (Data::Int(actual), Data::Int(expected)) => {
+            assert!(actual.iter().eq(expected.iter()), "{source}: integer atoms");
+        }
+        (Data::Float(actual), Data::Float(expected)) => {
+            assert!(actual.iter().eq(expected.iter()), "{source}: float atoms");
+        }
+        _ => panic!("{source}: unsupported comparison representation"),
+    }
+}
 
 fn compare(source: &str) {
     let mut runtime = Engine::new();
     let expected = runtime.eval(source);
     let plan = Engine::new().analyze_a3(source).unwrap();
     let actual = execute_closed(&plan);
-    assert_eq!(actual, expected, "{source}");
+    match (actual, expected) {
+        (Ok(Some(actual)), Ok(Some(expected))) => {
+            assert_value_eq(&actual, &expected, source);
+        }
+        (Ok(None), Ok(None)) => {}
+        (Err(actual), Err(expected)) => {
+            assert_eq!(actual.kind(), expected.kind(), "{source}: error class");
+        }
+        _ => panic!("{source}: reference/runtime result mismatch"),
+    }
 }
 
 #[test]
