@@ -6,8 +6,9 @@
 
 use crate::{
     analysis::{AccessFact, AccessRelation, BasisKind},
-    logical_ir::{CallOp, OpKind, Operation},
+    logical_ir::{CallOp, OpKind, Operation, Plan},
 };
+use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TargetFamily {
@@ -125,6 +126,20 @@ impl BasisLoweringCapability {
             .copied()
             .all(|requirement| requirement.satisfied(call, target))
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteRegionClass {
+    ValueOnly,
+    PureArray,
+    SemanticCheck,
+    RuntimeSemantic,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RouteRegion {
+    pub class: RouteRegionClass,
+    pub operations: Range<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -323,5 +338,37 @@ impl LoweringRegistry {
                 }
             }
         }
+    }
+
+    pub fn partition_plan(
+        &self,
+        plan: &Plan,
+        target: &TargetCapabilities,
+    ) -> Vec<RouteRegion> {
+        fn class(decision: &RouteDecision) -> RouteRegionClass {
+            match decision {
+                RouteDecision::NoKernel => RouteRegionClass::ValueOnly,
+                RouteDecision::SemanticCheck => RouteRegionClass::SemanticCheck,
+                RouteDecision::NativeBasis { .. } => RouteRegionClass::PureArray,
+                RouteDecision::RuntimeSemanticFallback => RouteRegionClass::RuntimeSemantic,
+            }
+        }
+
+        let mut regions: Vec<RouteRegion> = Vec::new();
+        for (index, operation) in plan.operations.iter().enumerate() {
+            let decision = self.route_operation(operation, target);
+            let next_class = class(&decision);
+            if let Some(last) = regions.last_mut() {
+                if last.class == next_class && last.operations.end == index {
+                    last.operations.end += 1;
+                    continue;
+                }
+            }
+            regions.push(RouteRegion {
+                class: next_class,
+                operations: index..index + 1,
+            });
+        }
+        regions
     }
 }
