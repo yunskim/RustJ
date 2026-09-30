@@ -138,7 +138,7 @@ fn human_errors_use_python_style_source_diagnostics() {
         .unwrap();
     assert!(!result.status.success());
     let stderr = String::from_utf8(result.stderr).unwrap();
-    assert!(stderr.contains("File \\"<command-line>\\", line 1, column 5"), "{stderr}");
+    assert!(stderr.contains("File \"<command-line>\", line 1, column 5"), "{stderr}");
     assert!(stderr.contains("1 + )"), "{stderr}");
     assert!(stderr.contains("^"), "{stderr}");
     assert!(stderr.contains("SyntaxError: unexpected )"), "{stderr}");
