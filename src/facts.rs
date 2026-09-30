@@ -302,7 +302,7 @@ fn plan_layer(
             left_residual_frame: Vec::new(),
             right_residual_frame: Vec::new(),
             repeated_side: None,
-            iteration_count: iteration_count(Some(&right_frame)),
+            iteration_count: iteration_count(Some(right_frame.as_slice())),
             result_frame: Some(right_frame),
             requires_empty_frame_prototype: empty,
         };
