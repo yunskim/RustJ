@@ -2,6 +2,7 @@
 //! Nodes retain byte spans; binding and execution remain separate phases.
 use crate::{
     Error, Result, Value,
+    error::{DiagnosticPhase, ErrorContext},
     syntax::{Token, lex_spanned},
 };
 use std::sync::Arc;
@@ -521,42 +522,58 @@ type NounLookup<'a> = Option<&'a dyn Fn(&str) -> Option<Value>>;
 fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Program> {
     let spanned = lex_spanned(source)?;
     let spans: Vec<_> = spanned.iter().map(|t| t.span.clone()).collect();
+    let word_indices: Vec<_> = spanned.iter().map(|t| t.word_index).collect();
     let mut tokens: Vec<_> = spanned.into_iter().map(|t| t.token).collect();
     let mut assignment_span = None;
     let mut assignment = None;
     let expression = if tokens.is_empty() {
         None
     } else {
-        let (expr, expr_spans) = if tokens.len() > 1 && matches!(tokens[1], Token::Assign) {
+        let (expr, expr_spans, expr_words) = if tokens.len() > 1 && matches!(tokens[1], Token::Assign) {
             let Token::Name(name) = &tokens[0] else {
-                return Err(Error::Syntax("assignment target".into()).at(spans[0].clone()));
+                return Err(
+                    Error::Syntax("assignment target".into()).with_context(
+                        ErrorContext::phase(DiagnosticPhase::Parse)
+                            .with_span(spans[0].clone())
+                            .with_blame_word(word_indices[0]),
+                    ),
+                );
             };
             assignment = Some((*name).to_owned());
             assignment_span = Some(spans[0].clone());
-            (&mut tokens[2..], &spans[2..])
+            (&mut tokens[2..], &spans[2..], &word_indices[2..])
         } else {
-            (tokens.as_mut_slice(), spans.as_slice())
+            (tokens.as_mut_slice(), spans.as_slice(), word_indices.as_slice())
         };
         let mut pos = 0;
         let (result, _) = expression(expr, expr_spans, &mut pos, false, 0, noun, snapshot)
             .map_err(|error| {
-                if error.span().is_some() {
-                    error
-                } else {
-                    let fallback = expr_spans
-                        .get(pos)
-                        .cloned()
-                        .or_else(|| expr_spans.last().cloned())
-                        .unwrap_or(source.len()..source.len());
-                    error.at(fallback)
+                let fallback_span = expr_spans
+                    .get(pos)
+                    .cloned()
+                    .or_else(|| expr_spans.last().cloned())
+                    .unwrap_or(source.len()..source.len());
+                let mut context = ErrorContext::phase(DiagnosticPhase::Parse)
+                    .with_span(fallback_span);
+                if let Some(word_index) = expr_words
+                    .get(pos)
+                    .copied()
+                    .or_else(|| expr_words.last().copied())
+                {
+                    context = context.with_blame_word(word_index);
                 }
+                error.with_context(context)
             })?;
         if pos != expr.len() {
             let span = expr_spans
                 .get(pos)
                 .cloned()
                 .unwrap_or(source.len()..source.len());
-            return Err(Error::Syntax("trailing tokens".into()).at(span));
+            let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(span);
+            if let Some(word_index) = expr_words.get(pos).copied() {
+                context = context.with_blame_word(word_index);
+            }
+            return Err(Error::Syntax("trailing tokens".into()).with_context(context));
         }
         Some(result)
     };
