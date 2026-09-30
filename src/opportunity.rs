@@ -1,7 +1,9 @@
-//! Structural optimization opportunities exposed directly by J semantic syntax.
+//! Execution-value projection of structural opportunities exposed by J Graph IR.
 //!
-//! These records are target-independent.  They preserve topology and provenance
-//! that would otherwise have to be rediscovered from a flattened dataflow DAG.
+//! J Graph IR is the source of truth for syntax-derived topology/hints.  During
+//! execution lowering those graph facts are mapped onto concrete logical ValueIds
+//! so semantic legality and later target/resource analysis can use them without
+//! rediscovering J structure from a flattened DAG.
 //! They are opportunities, not proofs that fusion/parallel execution is legal.
 
 use std::ops::Range;
