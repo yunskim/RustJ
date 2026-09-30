@@ -35,7 +35,7 @@ For every implementation change:
 - Treat RoutePartition as a recomputable compilation plan and allow mixed native/external regions within one program.
 - Keep analysis-lattice states (unknown/unreachable) separate from user-visible J semantic errors.
 
-- Treat extension names as ordinary J bindings, not reserved keywords; enqueue/name classification may resolve their part of speech through injected registry/environment data, but tokenizer/parser code must not hard-code spellings.
+- Treat extension names as ordinary J bindings, not reserved keywords. Enqueue keeps them as ordinary NAMEs with lookup metadata; parser-time normal J name lookup obtains the current noun/verb/adverb/conjunction class. Tokenizer/enqueuer/parser code must not hard-code extension spellings.
 - Keep parameterized extension builders (for example a conv adverb) distinct from the derived computational verb/LogicalOp produced after parameters are applied.
 - Keep full J semantic validity separate from eligibility for the hardware-aware analyzable array profile.
 - Keep mutable weights/gradients/optimizer/checkpoint state outside primitive hidden fields as explicit StateResource identities.
@@ -46,3 +46,11 @@ For every implementation change:
 - Resolve target-specific lowering/capability bindings through a compiler-only locale/path chain (device -> architecture -> family -> backend -> cpu/gpu -> generic), separate from user J locales.
 - Do not infer architecture feature inheritance from numeric version ordering; use explicit locale paths and capability queries.
 - Locale lookup discovers lowering/capability candidates; legality/resource/cost analysis chooses the realization.
+
+- Preserve ordinary function-name late binding/nameref semantics; only specialize a NameRef to a stable primitive/builder identity when binding/version proof or a guard makes that legal.
+- Preserve J prefix frame agreement and residual-frame cell repetition; never substitute NumPy-style trailing broadcasting.
+- Preserve zero-cell rank fill-cell/prototype semantics, including result type/shape and J-defined error suppression/propagation.
+- Treat boxed and sparse as J-visible semantic representations; physical boxed/sparse encodings are separate backend choices.
+- Preserve comparison tolerance and !. fit semantics as semantic inputs/contracts, including fill override where applicable.
+- Preserve primitive-specific overflow retry/promotion and J error precedence; do not expose arbitrary first-lane GPU errors.
+- Keep `with` as an ordinary-name conjunction extension for typed semantic contracts only; physical schedule/device policy remains outside it.
