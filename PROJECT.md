@@ -4964,7 +4964,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 RustJ가 그대로 맞춰야 하는 것은 **word/class resolution timing, row eligibility와 precedence, reduction extent, result parser class/POS, construction-time J errors, assignment/parenthesis/name-resolution semantics**다. C의 bit packing, refcount, in-place bookkeeping, cached function pointer, `localuse` 최적화는 이식 대상이 아니다.
 
-RustJ는 compiler이므로 rows 0–2에서 CPU/GPU kernel을 parser가 실제 실행할 필요는 없다. 대신 jsource와 같은 row가 같은 fragment를 소비하고 **Noun-producing semantic application**을 만들어 다음 parser reduction에 같은 class로 참여하게 한다. 반대로 rows 3–4의 modifier application은 completed function/modifier entity의 POS와 construction-time error를 결정해야 하므로 J semantic constructor를 parser reduction 중 호출한다.
+RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST parser가 아니라는 점을 보존해야 한다. rows 0–2의 verb application은 **parser-visible effect/value dependency가 없다는 것이 증명된 경우에만** Noun-producing semantic application으로 defer할 수 있다. 그 실행이 이후 name/locale lookup, assignment state, modifier operand value, result POS 또는 construction-time error에 영향을 줄 수 있으면 정적 parser가 효과를 무시한 채 진행해서는 안 된다. v0 correctness baseline은 동일한 9-row engine의 runtime semantic action/fallback을 사용하고, 이후 guard/multiversion으로 정적 범위를 넓힌다. rows 3–4 역시 modifier application 시점에 필요한 J construction semantics를 수행하여 completed entity/POS/error를 결정해야 한다.
 
 #### P0 — 기준선과 differential oracle 고정
 
@@ -4983,7 +4983,7 @@ RustJ는 compiler이므로 rows 0–2에서 CPU/GPU kernel을 parser가 실제 �
   - RustJ 내부에서는 row id/input classes/span/result class를 기록하는 optional ParseTrace.
 - [ ] 위 contract를 실제 test harness API로 만든다.
 
-**P0 완료 조건:** 완료. 구현 가능한 oracle이 정의되었으며 남은 것은 harness 코드화다.
+**P0 완료 조건:** 위 observable contract를 사용하는 differential harness API까지 존재하고 기준 jsource revision을 고정해 재현할 수 있다.
 
 #### P1 — parser stack model과 semantic value model 분리
 
@@ -5000,9 +5000,9 @@ RustJ는 compiler이므로 rows 0–2에서 CPU/GPU kernel을 parser가 실제 �
 
 #### P2 — 하나의 9-row reduction engine으로 전환
 
-- [ ] row 0 `EDGE VERB NOUN ANY`의 reduction extent/precedence를 구현하고 Noun-producing monadic application을 만든다.
+- [ ] row 0 `EDGE VERB NOUN ANY`의 reduction extent/precedence를 구현한다. parser-visible effect/value dependency가 없을 때만 Noun-producing monadic semantic application으로 defer한다.
 - [ ] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 reduction extent/precedence를 구현한다.
-- [ ] row 2 `EDGE+AVN NOUN VERB NOUN`의 정확한 reduction extent/precedence를 구현하고 Noun-producing dyadic application을 만든다.
+- [ ] row 2 `EDGE+AVN NOUN VERB NOUN`의 정확한 reduction extent/precedence를 구현한다. parser-visible effect/value dependency가 없을 때만 Noun-producing dyadic semantic application으로 defer한다.
 - [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV ANY`를 modifier semantic constructor 호출로 구현한다.
 - [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다.
 - [ ] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 Fork construction을 구현한다.
@@ -5010,10 +5010,12 @@ RustJ는 compiler이므로 rows 0–2에서 CPU/GPU kernel을 parser가 실제 �
 - [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다.
 - [ ] row 8 `LPAR CAVN RPAR ANY` parenthesis reduction을 구현한다.
 - [ ] 각 reduction 결과를 같은 parser stack에 되돌리고 다시 **동일한 row matcher**로 scan/reduce한다.
+- [ ] row action abstraction이 `ReadyParseValue`와 `RequiresRuntimeSemanticParse`를 구분할 수 있게 하여, 정적 compiler path가 parser-visible runtime dependency를 숨기지 않게 한다.
+- [ ] runtime semantic fallback도 별도 grammar/parser를 만들지 않고 동일한 9-row matcher를 사용하게 한다.
 - [ ] row precedence가 vector scan 순서나 별도 train heuristic에 우연히 의존하지 않게 한다.
 - [ ] one-word sentence의 별도 jsource path와 관찰 가능한 결과가 동일하도록 테스트한다.
 
-**P2 완료 조건:** 모든 parser reduction 선택을 jsource row 번호와 input class 조합으로 설명할 수 있다. rows 0–2의 실행 realization은 semantic node 생성일 수 있지만 parser reduction behavior는 동일하다.
+**P2 완료 조건:** 모든 parser reduction 선택을 jsource row 번호와 input class 조합으로 설명할 수 있고, deferred semantic action과 runtime semantic action이 동일한 parser engine을 공유한다. parser-visible effect/value dependency를 무시한 정적 진행 경로가 없다.
 
 #### P3 — modifier/Hook/Fork/bident/trident construction semantics
 
@@ -5041,6 +5043,10 @@ RustJ는 compiler이므로 rows 0–2에서 CPU/GPU kernel을 parser가 실제 �
 - [ ] `=.` / `=:`의 symbol-table 선택과 assignment result semantics를 테스트한다.
 - [ ] current POS를 가진 nameref가 later resolution 시 다른 POS로 바뀐 경우의 J-compatible error contract를 보존한다.
 - [ ] extension builder(`conv` 등)의 shadow/rebind도 ordinary J name semantics를 따르게 한다.
+- [ ] row 0–2 실행이 같은 sentence의 이후 parser-time name/locale/POS lookup에 영향을 주는 사례를 식별하고 parser-visible effect로 분류한다.
+- [ ] deferred noun value가 뒤 row 3/4 modifier construction의 실제 operand value로 필요한 경우 정적 placeholder로 construction을 완료하지 않는다.
+- [ ] v0에서는 이러한 dynamic parse dependency를 `RuntimeSemanticParse`/coverage fallback으로 보내고, 정적 compile 성공으로 오인하지 않는다.
+- [ ] 추후 guard/multiversion을 추가하더라도 observable reduction/order/error semantics가 runtime semantic baseline과 같음을 요구한다.
 
 **P4 완료 조건:** parser 결과가 spelling이 아니라 그 시점의 J binding, assignment state, parse row에 의해 결정된다.
 
@@ -5048,10 +5054,10 @@ RustJ는 compiler이므로 rows 0–2에서 CPU/GPU kernel을 parser가 실제 �
 
 parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifier application이 그 자리에서 검증하고 result entity를 만드는 의미는 그대로 수행한다. 제거 대상은 target/call-dependent compiler facts다.
 
-- [ ] pure `ModifierSemanticConstructor` interface를 두어 parser row 3/4가 J-defined construction validation과 result POS/entity 생성을 요청하게 한다.
+- [ ] pure/semantic `ModifierSemanticConstructor` interface를 두어 parser row 3/4가 J-defined construction validation과 result POS/entity 생성을 요청하게 한다. operand value가 runtime-dependent하면 같은 action을 runtime semantic parser에서 수행할 수 있어야 한다.
 - [ ] parser-produced `FunctionEntity`는 identity/result POS/source operands/span을 최소 구조로 유지한다.
 - [ ] 원 source operands와 별도로, 필요하면 target-independent `ConstructionFacts[EntityId]` side table을 둔다.
-- [ ] `"` constructor는 jsource `jtqq`와 동일한 noun/verb operand legality, rank/length/domain validation 및 requested-rank normalization을 construction-time semantics로 처리한다.
+- [ ] `"` constructor는 jsource `jtqq`와 동일한 noun/verb operand legality, rank/length/domain validation 및 requested-rank normalization을 **modifier application 시점의 construction semantics**로 처리한다. 이는 반드시 compile-time이라는 뜻은 아니며 runtime parser fallback에서도 같은 규칙을 사용한다.
 - [ ] normalized requested rank 같은 construction fact와 **actual argument rank를 이용한 effective rank/cell/frame 계산**을 분리한다.
 - [ ] applied `/`는 completed derived entity로 만들되 `Verb.reduce` 같은 compiler migration boolean을 semantic identity로 두지 않는다.
 - [ ] `Verb.reduce` 사용처를 제거하고 `+/ -> Logical Reduce(Add)` canonicalization을 Semantic Analyzer/Lowering으로 옮긴다.
@@ -5071,6 +5077,8 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 - [ ] modifier constructor의 construction-time rank/length/domain error를 jsource와 비교한다.
 - [ ] Verb/Adverb/Conjunction을 name에 할당한 뒤 사용하는 사례를 추가한다.
 - [ ] sentence 중간 assignment/name lookup이 뒤 reduction의 class에 영향을 주는 사례를 추가한다.
+- [ ] row 0–2의 effectful 실행이 왼쪽의 name/locale/POS resolution을 바꾸는 문장을 differential corpus에 포함한다.
+- [ ] runtime-dependent noun이 modifier operand가 되어 construction success/error/POS가 runtime에 결정되는 사례를 포함한다.
 - [ ] parentheses가 reduction boundary를 바꾸는 사례를 추가한다.
 - [ ] one-word sentence path를 별도 regression으로 둔다.
 - [ ] deterministic noun result와 J error class를 비교한다.
@@ -5107,7 +5115,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] architecture-specific 구현 정보는 `LoweringRegistry × ArchitectureTarget`에서만 결합한다.
 - [ ] concrete GPU model 정보는 `DeviceProfile`, 후보 선택 성능 정보는 `CostProfile/RuntimeProfile`로 분리한다.
 
-**P8 완료 조건:** parser를 다시 변경하지 않고 A1/A2/A3의 semantic analysis, CPU/GPU lowering, NN extension을 확장할 수 있다.
+**P8 완료 조건:** parser를 다시 변경하지 않고 A1/A2/A3의 semantic analysis, CPU/GPU lowering, NN extension을 확장할 수 있다. dynamic J parsing이 필요한 form은 compiler coverage와 runtime semantic fallback의 명시적 경계로 남는다.
 
 #### 진행 규칙
 
