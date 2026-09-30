@@ -1,5 +1,8 @@
-//! Execution-free lowering. IDs are local to one plan, not runtime addresses.
-//! Plans are inspection snapshots; there is deliberately no execute-plan API.
+//! Execution-oriented semantic lowering from J Graph IR.
+//!
+//! J grammar/topology discovery belongs to `j_graph_ir`; this module expands
+//! the selected graph into explicit execution dataflow, facts, checks and basis
+//! identities. IDs are local to one plan, not runtime addresses.
 use crate::{
     Error, Result, Value,
     contracts::{self, Contract, Valence},
