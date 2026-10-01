@@ -161,8 +161,10 @@ fn graph_basis_is_distinct_from_execution_basis_and_preserves_graph_granularity(
     // decision even where the vocabulary happens to use similar names.
     let analysis = Engine::new().analyze_compilation("1+2").unwrap();
     assert_eq!(
-        analysis.execution.nodes[analysis.execution.result.unwrap().0].basis,
-        Some(rustj::analysis::ExecutionBasisKind::Elementwise)
+        analysis.execution.nodes[analysis.execution.result.unwrap().0]
+            .basis
+            .layers,
+        vec![rustj::analysis::ExecutionBasisKind::Elementwise]
     );
 }
 
