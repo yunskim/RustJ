@@ -89,7 +89,6 @@ const fn undd(next: State) -> Transition {
     }
 }
 
-use Class as C;
 use State as S;
 
 /// Direct semantic port of jsource `w.c::state[SDDD+1][16]`.
