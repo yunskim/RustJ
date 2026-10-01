@@ -1,6 +1,7 @@
 use rustj::{
     Engine,
     analysis::ExecutionBasisKind,
+    facts::RepresentationClassFact,
     logical_ir::{Constraint, OpKind, SemanticErrorKind},
 };
 
@@ -20,6 +21,19 @@ fn a3_separates_operations_from_values() {
             ..
         }
     ));
+}
+
+
+#[test]
+fn logical_facts_use_semantic_representation_class_not_physical_layout() {
+    let plan = Engine::new().analyze_a3("1 2 3").unwrap();
+    plan.verify().unwrap();
+
+    let result = plan.result.unwrap();
+    assert_eq!(
+        plan.values[result.0].facts.representation_class,
+        RepresentationClassFact::Dense
+    );
 }
 
 #[test]
