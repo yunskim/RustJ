@@ -659,6 +659,51 @@ Physical planner
 
 ---
 
+## 9.3 JAXA의 static-memory 주장은 logical extent와 physical allocation을 구분한다
+
+JAXA가 J를 배열 연산 DSL로 사용할 때 얻는 장점 중 하나는 **graph를 실행하기 전에 배열 값의 shape, 크기, dependency와 lifetime을 상당 부분 정적으로 알 수 있다**는 점이다.
+
+RustJ는 이 주장을 다음 두 층으로 해석한다.
+
+~~~text
+J Graph IR
+  logical array extents
+  atom counts
+  use-def / fan-out
+  live ranges
+  materialization opportunities
+  accumulator/temporary symbolic requirements
+        ↓
+Representation + Schedule + Target
+        ↓
+Physical resource planning
+  register allocation
+  shared/LDS/scratchpad bytes
+  packed/layout/alignment
+  tile-local storage
+  physical buffers/offsets
+  spill/occupancy
+~~~
+
+따라서 “메모리를 정적으로 결정한다”는 말은 **모든 J Graph value마다 즉시 GPU address와 register number가 정해진다**는 뜻이 아니다.
+
+정적으로 결정 가능한 핵심은:
+
+- 어떤 logical array value가 존재하는가
+- shape가 알려지면 atom count가 얼마인가
+- 어떤 value가 어느 consumer까지 살아 있어야 하는가
+- 어떤 intermediate가 fusion으로 materialization을 피할 수 있는가
+- 어떤 branch input이 join까지 retained되어야 하는가
+- 어떤 reduction이 accumulator state를 요구하는가
+- 선택한 representation을 주면 logical extent가 몇 bytes인지
+
+반면 register/shared-memory/physical buffer는 `ResourceUsage = R(Graph, Schedule, Hardware)` 원칙에 따라 뒤에서 정한다.
+
+이 분리를 지키면 JAXA의 static analyzability 이점을 유지하면서도 CPU/GPU/기타 backend에 공통인 compiler architecture를 보존할 수 있다.
+
+현재 RustJ 구현에서 `j_graph_memory`가 logical extent/liveness/materialization 분석을, `j_graph_resource`가 topology-aware symbolic composition의 최소형을 담당한다.
+
+---
 ## 10. derived function은 실행 가능한 semantic object다
 
 예를 들어 /는 parser가 나중에 해석할 장식이 아니다.
