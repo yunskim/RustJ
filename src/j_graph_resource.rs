@@ -129,9 +129,9 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                     contract.working_state,
                 ),
                 _ => (
-                    SymbolicResourceExpr::Unknown,
-                    SymbolicResourceExpr::Unknown,
-                    SymbolicResourceExpr::Unknown,
+                    SymbolicResourceExpr::None,
+                    SymbolicResourceExpr::None,
+                    SymbolicResourceExpr::None,
                 ),
             };
             NodeResourceSummary {
@@ -180,6 +180,9 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
             for value in &region_values {
                 if *value != region.result && !region.inputs.contains(value) {
                     internal_atoms.add(extent_atoms(memory, *value));
+                }
+                if region.inputs.contains(value) {
+                    continue;
                 }
                 if let Some(contract) = node_contract(plan, *value) {
                     has_accumulator |=
