@@ -7061,7 +7061,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node이며 `Facts`를 보유, 현재 primitive/rank/reduce 범위에서 전파 | **초기 구현** |
 | primitive shape/dtype/rank/effect contract | `GraphRuleRefs` + current `Facts::infer_call` transfer를 J Graph build에서 적용 | **초기 구현** |
 | primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/working_state symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
-| iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionCapability`를 J Graph op에 연결 | **초기 구현** |
+| iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionStructure`를 J Graph op에 연결 | **초기 구현** |
 | pipeline/reduction/branch/join별 resource composition | `ResourceCompositionRule`로 Pipeline/BranchJoin/Reduction/CellMap 정책 identity를 표현. 실제 symbolic composition evaluator는 후속 | **부분 반영** |
 | intermediate edge materialization/traffic 분석 | `j_graph_memory`가 pipeline/branch/view materialization opportunity와 logical extent를 계산. traffic/selected materialization plan은 후속 | **초기 구현** |
 | register/live-value pressure 분석 | J Graph use-def/live-range를 계산하고 branch `live_across`가 join까지 lifetime을 확장. register pressure로의 target mapping은 후속 | **초기 구현** |
