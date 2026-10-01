@@ -117,8 +117,6 @@ fn train_hook(f: Verb, g: Verb) -> Verb {
                 FunctionOperand::Function(g.entity),
             ],
         ),
-        reduce: false,
-        rank: None,
     }
 }
 
@@ -137,8 +135,6 @@ fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
                 FunctionOperand::Function(h.entity),
             ],
         ),
-        reduce: false,
-        rank: None,
     }
 }
 
@@ -188,8 +184,7 @@ fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
             span,
             vec![FunctionOperand::Function(left.entity)],
         ),
-        reduce,
-        rank: left.rank,
+
     })
 }
 
@@ -203,7 +198,6 @@ fn apply_conjunction(
     };
     let id = *id;
     let mut operands = vec![FunctionOperand::Function(left.entity)];
-    let mut rank = left.rank;
     let right_end;
     let Item { class, value: right } = right;
     match (class, right) {
@@ -232,12 +226,9 @@ fn apply_conjunction(
                 if value.is_empty() || value.len() > 3 {
                     return Err(Error::Length);
                 }
-                let at = |i| value.int_at(i);
-                rank = Some(match value.len() {
-                    1 => [at(0)?, at(0)?, at(0)?],
-                    2 => [at(1)?, at(0)?, at(1)?],
-                    _ => [at(0)?, at(1)?, at(2)?],
-                });
+                for i in 0..value.len() {
+                    value.int_at(i)?;
+                }
             }
             operands.push(FunctionOperand::Noun {
                 span: expr.span,
@@ -247,14 +238,6 @@ fn apply_conjunction(
         (ParseClass::Verb, ParseValue::Verb(verb)) => {
             right_end = verb.span.end;
             operands.push(FunctionOperand::Function(verb.entity));
-            if matches!(
-                id,
-                crate::primitive::ConjunctionId::Rank | crate::primitive::ConjunctionId::Atop
-            ) {
-                // Atop's effective rank is derived from the inner/right function
-                // and call valence; do not pretend it is the left verb's rank.
-                rank = None;
-            }
         }
         _ => return Err(Error::Syntax("invalid conjunction right operand".into())),
     }
@@ -268,12 +251,6 @@ fn apply_conjunction(
             span,
             operands,
         ),
-        reduce: if matches!(id, crate::primitive::ConjunctionId::Atop) {
-            false
-        } else {
-            left.reduce
-        },
-        rank,
     })
 }
 
@@ -371,10 +348,6 @@ pub struct Verb {
     pub target: VerbTarget,
     /// Shared semantic identity/provenance graph.
     pub entity: Arc<FunctionEntity>,
-    /// Legacy runtime compatibility fields. Do not add more modifier kinds here;
-    /// migrate runtime/analyzer consumers to the shared entity graph instead.
-    pub reduce: bool,
-    pub rank: Option<[i64; 3]>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerbTarget {
@@ -709,8 +682,6 @@ fn expression(
                     span: verb_span,
                     target,
                     entity,
-                    reduce: false,
-                    rank: None,
                 };
                 *pos += 1;
                 items.push(Item::verb(verb));
@@ -780,9 +751,6 @@ fn expression(
                 .pop()
                 .and_then(Item::into_noun)
                 .expect("noun class");
-            if v.reduce {
-                return Err(Error::Unsupported("dyadic derived verb".into()).at(v.span.clone()));
-            }
             height = checked_height(height.max(left_height))?;
             rhs = Expr {
                 span: lhs.span.start..rhs.span.end,
