@@ -6,7 +6,6 @@
 
 use crate::{
     Value,
-    transition_ir as transition,
     execution_semantics::{
         AccessFact, CallTarget, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation,
         Symbol, SymbolId,
@@ -642,10 +641,6 @@ fn prefix_agrees(left: &[usize], right: &[usize]) -> bool {
     long.starts_with(short)
 }
 
-fn map_value(id: transition::ValueId, values: &[ValueId]) -> ValueId {
-    values[id.0]
-}
-
 fn call_constraints(
     basis: &ExecutionBasis,
     rank_plan: Option<&RankPlan>,
@@ -726,13 +721,12 @@ fn error_for(constraint: &Constraint) -> SemanticErrorKind {
 ///
 /// The input record type remains temporary. Once compatibility `LogicalPlan`
 /// is removed, this builder will be fed directly by execution semantic lowering.
-pub(crate) struct TransitionProjection {
+pub(crate) struct PlanBuilder {
     plan: Plan,
-    value_map: Vec<ValueId>,
-    producer_map: Vec<OpId>,
+    last_ordered: Option<OpId>,
 }
 
-impl TransitionProjection {
+impl PlanBuilder {
     pub(crate) fn new(
         source: String,
         j_graph_node_count: usize,
@@ -755,108 +749,44 @@ impl TransitionProjection {
                 result: None,
                 write: None,
             },
-            value_map: Vec::with_capacity(j_graph_node_count),
-            producer_map: Vec::with_capacity(j_graph_node_count),
+            last_ordered: None,
         }
     }
 
-    pub(crate) fn push_node(
+    pub(crate) fn facts(&self, value: ValueId) -> &Facts {
+        &self.plan.values[value.0].facts
+    }
+
+    pub(crate) fn insert_role(&mut self, value: ValueId, role: crate::facts::ValueRole) {
+        self.plan.values[value.0].roles.insert(role);
+    }
+
+    pub(crate) fn last_ordered(&self) -> Option<OpId> {
+        self.last_ordered
+    }
+
+    fn push_value(
         &mut self,
-        node: &transition::Node,
-        lowered_nodes: &[transition::Node],
-    ) {
-        let old_order = node
-            .order_after
-            .and_then(|value| self.producer_map.get(value.0).copied());
-
-        let (base_kind, constraints) = match &node.operation {
-            transition::Operation::Literal(value) => {
-                (OpKind::Literal(value.clone()), ConstraintSet::default())
-            }
-            transition::Operation::ReadNoun { symbol, version } => (
-                OpKind::ReadNoun {
-                    symbol: *symbol,
-                    version: *version,
-                },
-                ConstraintSet::default(),
-            ),
-            transition::Operation::VerbReference(callable) => (
-                OpKind::VerbReference(callable.clone()),
-                ConstraintSet::default(),
-            ),
-            transition::Operation::Call {
-                callable,
-                left,
-                right,
-                contract,
-            } => {
-                let old_left = *left;
-                let old_right = *right;
-                let left_facts = old_left.map(|value| &lowered_nodes[value.0].facts);
-                let right_facts = &lowered_nodes[old_right.0].facts;
-                let left = old_left.map(|value| map_value(value, &self.value_map));
-                let right = map_value(old_right, &self.value_map);
-                let instantiation = node
-                    .instantiation
-                    .clone()
-                    .expect("verified transition call must have instantiation");
-                let constraints = call_constraints(
-                    &node.basis,
-                    node.rank_plan.as_ref(),
-                    &instantiation,
-                    left,
-                    right,
-                    left_facts,
-                    right_facts,
-                );
-                let call = CallOp {
-                    callable: callable.clone(),
-                    execution_basis: node.basis.clone(),
-                    left,
-                    right,
-                    contract: *contract,
-                    iteration_domain: iteration_domain(
-                        node.basis.outer(),
-                        &node.facts,
-                        node.rank_plan.as_ref(),
-                        right_facts,
-                    ),
-                    effect: resolved_effect_summary(callable, left, *contract),
-                    speculation: SpeculationSemantics::from_contract(*contract),
-                    possible_errors: PossibleErrors::from_contract(*contract),
-                    destination: DestinationRelation::Unknown,
-                    instantiation,
-                    rank_plan: node.rank_plan.clone(),
-                    access: node.access,
-                    constraints: constraints.clone(),
-                };
-                let kind = match node.basis.outer() {
-                    Some(kind) => {
-                        let payload = basis_payload(kind, &call);
-                        OpKind::Basis {
-                            kind,
-                            payload,
-                            call,
-                        }
-                    }
-                    None => OpKind::SemanticCall(call),
-                };
-                (kind, constraints)
-            }
-        };
-
-        let mut order_after = old_order;
+        kind: OpKind,
+        facts: Facts,
+        roles: ValueRoleFacts,
+        constraints: &ConstraintSet,
+        j_origin: Option<crate::j_graph_ir::ValueId>,
+        span: Range<usize>,
+        ordered: bool,
+    ) -> ValueId {
+        let mut order_after = if ordered { self.last_ordered } else { None };
         for fact in constraints.unresolved() {
             let check_id = OpId(self.plan.operations.len());
             self.plan.operations.push(Operation {
                 kind: OpKind::SemanticCheck(SemanticCheck {
                     constraint: fact.constraint.clone(),
                     error: error_for(&fact.constraint),
-                    origin: node.span.clone(),
+                    origin: span.clone(),
                 }),
                 results: Vec::new(),
-                j_origin: node.j_origin,
-                span: node.span.clone(),
+                j_origin,
+                span: span.clone(),
                 order_after,
             });
             order_after = Some(check_id);
@@ -866,55 +796,163 @@ impl TransitionProjection {
         let value_id = ValueId(self.plan.values.len());
         self.plan.values.push(ValueData {
             producer: op_id,
-            facts: node.facts.clone(),
-            roles: node.roles.clone(),
+            facts,
+            roles,
         });
         self.plan.operations.push(Operation {
-            kind: base_kind,
+            kind,
             results: vec![value_id],
-            j_origin: node.j_origin,
-            span: node.span.clone(),
+            j_origin,
+            span,
             order_after,
         });
-        self.value_map.push(value_id);
-        self.producer_map.push(op_id);
+        if ordered {
+            self.last_ordered = Some(op_id);
+        }
+        value_id
+    }
+
+    pub(crate) fn push_literal(
+        &mut self,
+        value: Value,
+        facts: Facts,
+        j_origin: Option<crate::j_graph_ir::ValueId>,
+        span: Range<usize>,
+    ) -> ValueId {
+        self.push_value(
+            OpKind::Literal(value),
+            facts,
+            ValueRoleFacts::default(),
+            &ConstraintSet::default(),
+            j_origin,
+            span,
+            false,
+        )
+    }
+
+    pub(crate) fn push_read_noun(
+        &mut self,
+        symbol: SymbolId,
+        version: NameVersion,
+        facts: Facts,
+        j_origin: Option<crate::j_graph_ir::ValueId>,
+        span: Range<usize>,
+    ) -> ValueId {
+        self.push_value(
+            OpKind::ReadNoun { symbol, version },
+            facts,
+            ValueRoleFacts::default(),
+            &ConstraintSet::default(),
+            j_origin,
+            span,
+            true,
+        )
+    }
+
+    pub(crate) fn push_verb_reference(
+        &mut self,
+        callable: Callable,
+        j_origin: Option<crate::j_graph_ir::ValueId>,
+        span: Range<usize>,
+    ) -> ValueId {
+        self.push_value(
+            OpKind::VerbReference(callable),
+            Facts::default(),
+            ValueRoleFacts::default(),
+            &ConstraintSet::default(),
+            j_origin,
+            span,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn push_call(
+        &mut self,
+        callable: Callable,
+        execution_basis: ExecutionBasis,
+        left: Option<ValueId>,
+        right: ValueId,
+        contract: Contract,
+        result_facts: Facts,
+        rank_plan: Option<RankPlan>,
+        access: AccessFact,
+        instantiation: ResolvedInstantiation,
+        roles: ValueRoleFacts,
+        j_origin: Option<crate::j_graph_ir::ValueId>,
+        span: Range<usize>,
+    ) -> ValueId {
+        let left_facts = left.map(|value| self.facts(value).clone());
+        let right_facts = self.facts(right).clone();
+        let constraints = call_constraints(
+            &execution_basis,
+            rank_plan.as_ref(),
+            &instantiation,
+            left,
+            right,
+            left_facts.as_ref(),
+            &right_facts,
+        );
+        let call = CallOp {
+            callable,
+            execution_basis,
+            left,
+            right,
+            contract,
+            iteration_domain: iteration_domain(
+                instantiation_basis_outer(&constraints, &rank_plan, &result_facts, &instantiation),
+                &result_facts,
+                rank_plan.as_ref(),
+                &right_facts,
+            ),
+            effect: EffectSummary::Unknown,
+            speculation: SpeculationSemantics::from_contract(contract),
+            possible_errors: PossibleErrors::from_contract(contract),
+            destination: DestinationRelation::Unknown,
+            instantiation,
+            rank_plan,
+            access,
+            constraints: constraints.clone(),
+        };
+
+        // Effect depends on semantic callable identity and valence, so fill it
+        // after constructing the common call record.
+        let mut call = call;
+        call.effect = resolved_effect_summary(&call.callable, call.left, call.contract);
+
+        let kind = match call.execution_basis.outer() {
+            Some(kind) => {
+                let payload = basis_payload(kind, &call);
+                OpKind::Basis {
+                    kind,
+                    payload,
+                    call,
+                }
+            }
+            None => OpKind::SemanticCall(call),
+        };
+        self.push_value(
+            kind,
+            result_facts,
+            roles,
+            &constraints,
+            j_origin,
+            span,
+            true,
+        )
     }
 
     pub(crate) fn finish(
         mut self,
         symbols: Vec<Symbol>,
-        lowered_nodes: &[transition::Node],
-        opportunities: &[StructuralOpportunity<transition::ValueId>],
-        result: Option<transition::ValueId>,
-        write: Option<&transition::Write>,
+        opportunities: Vec<StructuralOpportunity<ValueId>>,
+        result: Option<ValueId>,
+        write: Option<Write>,
     ) -> Plan {
-        // Value roles can be discovered by later consumers. Synchronize those
-        // monotonic facts after graph lowering has seen every use.
-        for (index, node) in lowered_nodes.iter().enumerate() {
-            let value = self.value_map[index];
-            self.plan.values[value.0].roles = node.roles.clone();
-        }
-
         self.plan.symbols = symbols;
-        self.plan.opportunities = opportunities
-            .iter()
-            .cloned()
-            .map(|opportunity| {
-                opportunity.map_values(|value| self.value_map[value.0])
-            })
-            .collect();
-
-        self.plan.result = result.map(|value| self.value_map[value.0]);
-        self.plan.write = write.map(|write| Write {
-            symbol: write.symbol,
-            value: self.value_map[write.value.0],
-            previous: write.previous,
-            proposed: write.proposed,
-            span: write.span.clone(),
-            after: write
-                .after
-                .and_then(|value| self.producer_map.get(value.0).copied()),
-        });
+        self.plan.opportunities = opportunities;
+        self.plan.result = result;
+        self.plan.write = write;
 
         let block = BlockId(0);
         let region = RegionId(0);
@@ -928,6 +966,17 @@ impl TransitionProjection {
         self.plan.functions.push(Function { body: region });
         self.plan
     }
+}
+
+// The basis is already present in the caller-provided ExecutionBasis. Keep the
+// iteration-domain selection explicit rather than deriving it from constraints.
+fn instantiation_basis_outer(
+    _constraints: &ConstraintSet,
+    _rank_plan: &Option<RankPlan>,
+    _result_facts: &Facts,
+    _instantiation: &ResolvedInstantiation,
+) -> Option<ExecutionBasisKind> {
+    None
 }
 
 impl Plan {
