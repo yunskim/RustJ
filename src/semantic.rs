@@ -276,6 +276,170 @@ fn apply_conjunction(
 /// represented by this frontend: AVN ADV (row 3) and AVN CONJ AVN (row 4).
 /// We select the rightmost reducible phrase to match the parser's right-to-left
 /// queue/stack discipline. Hook/fork reduction is performed separately below.
+fn reduce_parse_stack_subset(mut queue: Vec<Item>) -> Result<Vec<Item>> {
+    let mut stack = Vec::<Item>::new();
+
+    while let Some(item) = queue.pop() {
+        stack.insert(0, item);
+        reduce_stack_prefix(&mut stack)?;
+    }
+
+    // jsource realizes the virtual FRONT MARK only after the queue is empty.
+    stack.insert(0, Item::mark(0));
+    reduce_stack_prefix(&mut stack)?;
+
+    if stack.first().is_some_and(|item| item.class == ParseClass::Mark) {
+        stack.remove(0);
+    }
+    Ok(stack)
+}
+
+fn stack_prefix_classes(stack: &[Item]) -> [ParseClass; 4] {
+    let class = |index: usize| {
+        stack
+            .get(index)
+            .map_or(ParseClass::Mark, |item| item.class)
+    };
+    [class(0), class(1), class(2), class(3)]
+}
+
+fn reduce_stack_prefix(stack: &mut Vec<Item>) -> Result<()> {
+    loop {
+        let Some(row) = match_parse_row(stack_prefix_classes(stack)) else {
+            return Ok(());
+        };
+
+        let reduced = match row {
+            ParseRow::MonadEdge => {
+                let mut phrase: Vec<_> = stack.drain(1..3).collect();
+                let verb = phrase.remove(0).into_verb().expect("row 0 verb");
+                let (argument, height) = phrase.remove(0).into_noun().expect("row 0 noun");
+                let expr = Expr {
+                    span: verb.span.start..argument.span.end,
+                    kind: ExprKind::Monad {
+                        verb,
+                        argument: Box::new(argument),
+                    },
+                };
+                stack.insert(1, Item::noun(expr, checked_height(height)?));
+                true
+            }
+            ParseRow::MonadVVN => {
+                let mut phrase: Vec<_> = stack.drain(2..4).collect();
+                let verb = phrase.remove(0).into_verb().expect("row 1 verb");
+                let (argument, height) = phrase.remove(0).into_noun().expect("row 1 noun");
+                let expr = Expr {
+                    span: verb.span.start..argument.span.end,
+                    kind: ExprKind::Monad {
+                        verb,
+                        argument: Box::new(argument),
+                    },
+                };
+                stack.insert(2, Item::noun(expr, checked_height(height)?));
+                true
+            }
+            ParseRow::DyadNVN => {
+                let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                let (left, left_height) = phrase.remove(0).into_noun().expect("row 2 left noun");
+                let verb = phrase.remove(0).into_verb().expect("row 2 verb");
+                let (right, right_height) = phrase.remove(0).into_noun().expect("row 2 right noun");
+                let expr = Expr {
+                    span: left.span.start..right.span.end,
+                    kind: ExprKind::Dyad {
+                        verb,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                };
+                stack.insert(
+                    1,
+                    Item::noun(expr, checked_height(left_height.max(right_height))?),
+                );
+                true
+            }
+            ParseRow::Adverb => {
+                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb) {
+                    let mut phrase: Vec<_> = stack.drain(1..3).collect();
+                    let left = phrase.remove(0).into_verb().expect("row 3 verb");
+                    let operator = phrase
+                        .remove(0)
+                        .into_function()
+                        .expect("row 3 adverb");
+                    let span = left.span.start..operator.span.end;
+                    stack.insert(
+                        1,
+                        Item::verb(
+                            apply_adverb(left, operator)
+                                .map_err(|error| error.at(span))?,
+                        ),
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+            ParseRow::Conjunction => {
+                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb) {
+                    let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                    let left = phrase.remove(0).into_verb().expect("row 4 left verb");
+                    let operator = phrase
+                        .remove(0)
+                        .into_function()
+                        .expect("row 4 conjunction");
+                    let right = phrase.remove(0);
+                    let span = left.span.start..right.span().end;
+                    stack.insert(
+                        1,
+                        Item::verb(
+                            apply_conjunction(left, operator, right)
+                                .map_err(|error| error.at(span))?,
+                        ),
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+            ParseRow::Fork => {
+                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb)
+                    && stack.get(2).is_some_and(|item| item.class == ParseClass::Verb)
+                    && stack.get(3).is_some_and(|item| item.class == ParseClass::Verb)
+                {
+                    let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                    let f = phrase.remove(0).into_verb().expect("row 5 f");
+                    let g = phrase.remove(0).into_verb().expect("row 5 g");
+                    let h = phrase.remove(0).into_verb().expect("row 5 h");
+                    stack.insert(1, Item::verb(train_fork(f, g, h)));
+                    true
+                } else {
+                    false
+                }
+            }
+            ParseRow::Hook => {
+                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb)
+                    && stack.get(2).is_some_and(|item| item.class == ParseClass::Verb)
+                {
+                    let mut phrase: Vec<_> = stack.drain(1..3).collect();
+                    let f = phrase.remove(0).into_verb().expect("row 6 f");
+                    let g = phrase.remove(0).into_verb().expect("row 6 g");
+                    stack.insert(1, Item::verb(train_hook(f, g)));
+                    true
+                } else {
+                    false
+                }
+            }
+            ParseRow::Assignment | ParseRow::Parenthesis => false,
+        };
+
+        // The table matched a jsource row whose semantic action has not yet
+        // migrated into this subset engine. Leave it for the existing outer
+        // assignment/grouping path rather than applying a different row.
+        if !reduced {
+            return Ok(());
+        }
+    }
+}
+
 fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
     loop {
         let mut reduced = false;
@@ -538,6 +702,7 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
     .find_map(|(row, matched)| matched.then_some(row))
 }
 
+#[derive(Clone)]
 enum ParseValue {
     Noun(Expr, usize),
     Verb(Verb),
@@ -547,6 +712,7 @@ enum ParseValue {
     },
 }
 
+#[derive(Clone)]
 struct Item {
     class: ParseClass,
     value: ParseValue,
