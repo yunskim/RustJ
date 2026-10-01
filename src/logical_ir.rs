@@ -884,6 +884,7 @@ impl PlanBuilder {
     ) -> ValueId {
         let left_facts = left.map(|value| self.facts(value).clone());
         let right_facts = self.facts(right).clone();
+        let outer_basis = execution_basis.outer();
         let constraints = call_constraints(
             &execution_basis,
             rank_plan.as_ref(),
@@ -893,6 +894,7 @@ impl PlanBuilder {
             left_facts.as_ref(),
             &right_facts,
         );
+        let effect = resolved_effect_summary(&callable, left, contract);
         let call = CallOp {
             callable,
             execution_basis,
@@ -900,12 +902,12 @@ impl PlanBuilder {
             right,
             contract,
             iteration_domain: iteration_domain(
-                instantiation_basis_outer(&constraints, &rank_plan, &result_facts, &instantiation),
+                outer_basis,
                 &result_facts,
                 rank_plan.as_ref(),
                 &right_facts,
             ),
-            effect: EffectSummary::Unknown,
+            effect,
             speculation: SpeculationSemantics::from_contract(contract),
             possible_errors: PossibleErrors::from_contract(contract),
             destination: DestinationRelation::Unknown,
@@ -915,12 +917,7 @@ impl PlanBuilder {
             constraints: constraints.clone(),
         };
 
-        // Effect depends on semantic callable identity and valence, so fill it
-        // after constructing the common call record.
-        let mut call = call;
-        call.effect = resolved_effect_summary(&call.callable, call.left, call.contract);
-
-        let kind = match call.execution_basis.outer() {
+        let kind = match outer_basis {
             Some(kind) => {
                 let payload = basis_payload(kind, &call);
                 OpKind::Basis {
@@ -966,17 +963,6 @@ impl PlanBuilder {
         self.plan.functions.push(Function { body: region });
         self.plan
     }
-}
-
-// The basis is already present in the caller-provided ExecutionBasis. Keep the
-// iteration-domain selection explicit rather than deriving it from constraints.
-fn instantiation_basis_outer(
-    _constraints: &ConstraintSet,
-    _rank_plan: &Option<RankPlan>,
-    _result_facts: &Facts,
-    _instantiation: &ResolvedInstantiation,
-) -> Option<ExecutionBasisKind> {
-    None
 }
 
 impl Plan {
