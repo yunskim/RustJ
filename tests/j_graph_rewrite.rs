@@ -101,6 +101,22 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
 
     assert_eq!(candidate.replacement.nodes.len(), 2);
     assert_eq!(
+        candidate.replacement.nodes[1].facts,
+        analysis.j_graph.nodes[candidate.provenance.source_value.0].facts
+    );
+    let RewriteInput::Source(window_source) =
+        candidate.replacement.nodes[0].inputs[0]
+    else {
+        panic!("window should read the original right argument")
+    };
+    assert_eq!(
+        candidate.replacement.nodes[0].facts.dtype,
+        analysis.j_graph.nodes[window_source.0].facts.dtype
+    );
+    assert!(candidate.replacement.nodes[0].facts.shape.is_none());
+    assert!(candidate.replacement.nodes[0].facts.rank.is_none());
+
+    assert_eq!(
         candidate.replacement.nodes[0].basis,
         GraphBasisKind::Window
     );
