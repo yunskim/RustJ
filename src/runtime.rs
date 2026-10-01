@@ -158,7 +158,7 @@ impl Engine {
             j_graph,
             graph_rewrites,
             graph_rewrite_resources,
-            execution,
+            transition: execution,
             logical,
         })
     }
@@ -166,7 +166,7 @@ impl Engine {
     /// Backward-compatible projection of analyze_compilation() returning only
     /// the execution-oriented logical plan.
     pub fn analyze(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
-        self.analyze_compilation(source).map(|analysis| analysis.execution)
+        self.analyze_compilation(source).map(|analysis| analysis.transition)
     }
 
     /// Build the canonical A3-v0 operation/value-separated logical IR.
@@ -179,7 +179,7 @@ impl Engine {
     /// context used by the interpreter and future JIT.
     pub fn analyze_diagnostic(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
         self.analyze_compilation_diagnostic(source)
-            .map(|analysis| analysis.execution)
+            .map(|analysis| analysis.transition)
     }
 
     pub fn binding_version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
