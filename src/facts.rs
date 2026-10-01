@@ -1,7 +1,13 @@
 //! Facts about successful results, not permission to eliminate errors or guards.
 use crate::primitive::PrimitiveId::*;
 pub use crate::types::DType;
-use crate::{Value, contracts::ShapeRule, primitive::PrimitiveId};
+use crate::{
+    Value,
+    contracts::{ShapeRule, Valence},
+    primitive::PrimitiveId,
+    semantic::{FunctionEntity, FunctionHead, FunctionOperand},
+};
+use std::sync::Arc;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TypeFact {
     #[default]
@@ -211,6 +217,181 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
         layout: LayoutFact::Unknown,
         shape,
         rank: input.rank.map(|r| r.saturating_sub(1)),
+    }
+}
+
+
+fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
+    let value = function.operands.iter().find_map(|operand| match operand {
+        FunctionOperand::Noun { value, .. } => Some(value),
+        FunctionOperand::Function(_) => None,
+    })?;
+    if value.is_empty() || value.len() > 3 {
+        return None;
+    }
+    let at = |i| value.int_at(i).ok();
+    match value.len() {
+        1 => {
+            let r = at(0)?;
+            Some([r, r, r])
+        }
+        2 => Some([at(1)?, at(0)?, at(1)?]),
+        3 => Some([at(0)?, at(1)?, at(2)?]),
+        _ => None,
+    }
+}
+
+fn function_operand(function: &FunctionEntity) -> Option<&Arc<FunctionEntity>> {
+    function.operands.iter().find_map(|operand| match operand {
+        FunctionOperand::Function(function) => Some(function),
+        FunctionOperand::Noun { .. } => None,
+    })
+}
+
+fn infer_derived_reduction(function: &Arc<FunctionEntity>, input: &Facts) -> Facts {
+    if let FunctionHead::PrimitiveVerb(id) = function.head {
+        return reduction(id, input);
+    }
+
+    let Some(shape) = input.shape.as_ref() else {
+        return Facts::default();
+    };
+    if shape.is_empty() {
+        return input.clone();
+    }
+
+    let items = shape[0];
+    if items == 0 {
+        return Facts::default();
+    }
+
+    let item_shape = shape[1..].to_vec();
+    let item = cell(input, item_shape.clone());
+    if items == 1 {
+        return item;
+    }
+
+    let (step, _) = infer_semantic_call(function, Some(&item), &item);
+    if items == 2 {
+        return step;
+    }
+
+    // For a longer fold, one-step inference is stable only when feeding the
+    // result back into the reducer preserves the logical cell shape/rank.
+    if step.shape.as_deref() == Some(item_shape.as_slice())
+        && step.rank == Some(item_shape.len())
+    {
+        step
+    } else {
+        Facts::default()
+    }
+}
+
+fn infer_ranked_semantic_call(
+    function: &Arc<FunctionEntity>,
+    ranks: [i64; 3],
+    left: Option<&Facts>,
+    right: &Facts,
+) -> (Facts, Option<RankPlan>) {
+    let Some(right_shape) = &right.shape else {
+        return (Facts::default(), None);
+    };
+    let (rf, rc) = split(
+        right_shape,
+        if left.is_some() { ranks[2] } else { ranks[0] },
+    );
+    let (lf, lc) = if let Some(left) = left {
+        let Some(shape) = &left.shape else {
+            return (Facts::default(), None);
+        };
+        let (frame, cell) = split(shape, ranks[1]);
+        (Some(frame), Some(cell))
+    } else {
+        (None, None)
+    };
+    let result_frame = match &lf {
+        Some(lf) => agreement(lf, &rf),
+        None => Some(rf.clone()),
+    };
+    let empty = result_frame.as_ref().is_some_and(|f| f.contains(&0));
+    let plan = RankPlan {
+        left_frame: lf,
+        left_cell: lc.clone(),
+        right_frame: rf,
+        right_cell: rc.clone(),
+        result_frame: result_frame.clone(),
+        requires_empty_frame_prototype: empty,
+    };
+    let Some(mut frame) = result_frame else {
+        return (Facts::default(), Some(plan));
+    };
+    if empty {
+        return (Facts::default(), Some(plan));
+    }
+
+    let right_cell = cell(right, rc);
+    let left_cell = left.zip(lc).map(|(x, s)| cell(x, s));
+    let (result, _) = infer_semantic_call(function, left_cell.as_ref(), &right_cell);
+    let shape = result.shape.map(|s| {
+        frame.extend(s);
+        frame
+    });
+    let frame_rank = plan.result_frame.as_ref().unwrap().len();
+    let rank = result.rank.and_then(|r| r.checked_add(frame_rank));
+    (
+        Facts {
+            dtype: result.dtype,
+            layout: LayoutFact::Unknown,
+            shape,
+            rank,
+        },
+        Some(plan),
+    )
+}
+
+/// Infer result facts from the semantic FunctionEntity rather than flattened
+/// reduce/rank flags. Modifier nesting is semantically significant:
+/// Rank(Insert(u)) and Insert(Rank(u)) must not share an inference path.
+pub(crate) fn infer_semantic_call(
+    function: &Arc<FunctionEntity>,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> (Facts, Option<RankPlan>) {
+    match &function.head {
+        FunctionHead::PrimitiveVerb(id) => {
+            let valence = if left.is_some() {
+                Valence::Dyad
+            } else {
+                Valence::Monad
+            };
+            (
+                infer(*id, crate::contracts::for_primitive(*id, valence).shape_rule, left, right),
+                None,
+            )
+        }
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            if left.is_some() {
+                return (Facts::default(), None);
+            }
+            let Some(operand) = function_operand(function) else {
+                return (Facts::default(), None);
+            };
+            (infer_derived_reduction(operand, right), None)
+        }
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            let Some(operand) = function_operand(function) else {
+                return (Facts::default(), None);
+            };
+            let Some(ranks) = semantic_rank_triplet(function) else {
+                return (Facts::default(), None);
+            };
+            infer_ranked_semantic_call(operand, ranks, left, right)
+        }
+        FunctionHead::NameRef(_)
+        | FunctionHead::PrimitiveAdverb(_)
+        | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::Hook
+        | FunctionHead::Fork => (Facts::default(), None),
     }
 }
 
