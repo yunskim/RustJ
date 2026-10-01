@@ -225,6 +225,11 @@ pub struct GraphFacts {
 }
 
 impl GraphFacts {
+    pub(crate) fn of(value: &Value) -> Self {
+        let semantic = SemanticFacts::of(value);
+        Self::from_semantic_facts(&semantic)
+    }
+
     fn from_semantic_facts(facts: &SemanticFacts) -> Self {
         Self {
             dtype: facts.dtype,
