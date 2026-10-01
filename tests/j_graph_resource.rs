@@ -20,6 +20,28 @@ fn pipeline_resource_composition_counts_internal_and_elidable_atoms() {
     assert!(!region.has_reduction_accumulator);
     assert!(!region.has_unknown_resource_requirement);
     assert!(region.graph_order_peak_live_atoms.known >= 3);
+
+    let memory = graph.static_memory_analysis();
+    resources.expressions.verify(&graph).unwrap();
+    let formula = &resources.region_formulas[0];
+    assert_eq!(
+        resources
+            .expressions
+            .evaluate_atoms(formula.internal_atoms, &memory),
+        region.internal_atoms
+    );
+    assert_eq!(
+        resources
+            .expressions
+            .evaluate_atoms(formula.elidable_materialization_atoms, &memory),
+        region.elidable_materialization_atoms
+    );
+    assert_eq!(
+        resources
+            .expressions
+            .evaluate_atoms(formula.graph_order_peak_live_atoms, &memory),
+        region.graph_order_peak_live_atoms
+    );
 }
 
 #[test]
@@ -87,6 +109,22 @@ fn window_resource_contract_composes_reuse_and_inner_reduction_state() {
     assert!(matches!(
         summary.working_state,
         rustj::j_graph_ir::SymbolicResourceExpr::WindowWorkingSet
+    ));
+
+    let formula = resources.node_formulas[result.0];
+    assert!(matches!(
+        resources.expressions.nodes[formula.accumulator.0],
+        rustj::j_graph_resource::ResourceExprNode::Requirement {
+            kind: rustj::j_graph_ir::SymbolicResourceExpr::ReductionAccumulator,
+            ..
+        }
+    ));
+    assert!(matches!(
+        resources.expressions.nodes[formula.working_state.0],
+        rustj::j_graph_resource::ResourceExprNode::Requirement {
+            kind: rustj::j_graph_ir::SymbolicResourceExpr::WindowWorkingSet,
+            ..
+        }
     ));
 }
 
