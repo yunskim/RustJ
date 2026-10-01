@@ -1024,3 +1024,43 @@ pub(crate) fn bind(
         write,
     })
 }
+
+
+#[cfg(test)]
+mod parser_table_tests {
+    use super::{match_parse_row, ParseClass::*, ParseRow};
+
+    #[test]
+    fn pinned_jsource_rows_and_precedence_are_exact() {
+        let cases = [
+            ([Mark, Verb, Noun, Noun], ParseRow::MonadEdge),
+            ([Mark, Verb, Verb, Noun], ParseRow::MonadVVN),
+            ([Mark, Noun, Verb, Noun], ParseRow::DyadNVN),
+            ([Mark, Verb, Adverb, Noun], ParseRow::Adverb),
+            ([Mark, Verb, Conjunction, Noun], ParseRow::Conjunction),
+            ([Mark, Verb, Verb, Verb], ParseRow::Fork),
+            ([Mark, Verb, Noun, Verb], ParseRow::Hook),
+            ([Name, Assignment, Verb, Noun], ParseRow::Assignment),
+            ([LParen, Verb, RParen, Noun], ParseRow::Parenthesis),
+        ];
+        for (classes, expected) in cases {
+            assert_eq!(match_parse_row(classes), Some(expected), "{classes:?}");
+        }
+    }
+
+    #[test]
+    fn fourth_stack_class_is_part_of_row_eligibility() {
+        assert_ne!(
+            match_parse_row([Mark, Verb, Verb, Verb]),
+            Some(ParseRow::MonadVVN)
+        );
+        assert_ne!(
+            match_parse_row([Mark, Noun, Verb, Verb]),
+            Some(ParseRow::DyadNVN)
+        );
+        assert_ne!(
+            match_parse_row([Mark, Verb, Conjunction, Adverb]),
+            Some(ParseRow::Conjunction)
+        );
+    }
+}
