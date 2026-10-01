@@ -393,7 +393,7 @@ fn mixed_noun_sentences_do_not_prematurely_collapse_verbs_into_trains() {
 
 #[test]
 fn large_pure_verb_train_builds_iteratively_as_a_shared_graph() {
-    let source = std::iter::repeat("+").take(101).collect::<Vec<_>>().join(" ");
+    let source = std::iter::repeat_n("+", 101).collect::<Vec<_>>().join(" ");
     let p = semantic::parse(&source).unwrap();
     let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
         panic!()
