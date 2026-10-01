@@ -8,8 +8,8 @@ use crate::{
     Value,
     transition_ir as transition,
     execution_semantics::{
-        AccessFact, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation, Symbol,
-        SymbolId,
+        AccessFact, CallTarget, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation,
+        Symbol, SymbolId,
     },
     contracts::{Contract, Effect, Valence},
     facts::{Facts, RankPlan, ValueRoleFacts},
@@ -212,20 +212,20 @@ fn axes_from_shape(
 
 fn iteration_domain(
     kind: Option<ExecutionBasisKind>,
-    node: &transition::Node,
-    transition: &transition::LogicalPlan,
+    result_facts: &Facts,
+    rank_plan: Option<&RankPlan>,
+    right_input_facts: &Facts,
 ) -> IterationDomain {
     if kind == Some(ExecutionBasisKind::Reduce) {
-        let transition::Operation::Call { right, .. } = &node.operation else {
-            return IterationDomain::default();
-        };
-        let input = &transition.nodes[right.0].facts;
-        let rank = input.shape.as_ref().map_or(input.rank.unwrap_or(0), Vec::len);
+        let rank = right_input_facts
+            .shape
+            .as_ref()
+            .map_or(right_input_facts.rank.unwrap_or(0), Vec::len);
         let mut axes = Vec::with_capacity(rank);
         for position in 0..rank {
             axes.push(IterationAxis {
                 position,
-                extent: input
+                extent: right_input_facts
                     .shape
                     .as_ref()
                     .and_then(|shape| shape.get(position).copied()),
@@ -245,7 +245,7 @@ fn iteration_domain(
     }
 
     if kind == Some(ExecutionBasisKind::CellApply) {
-        if let Some(plan) = &node.rank_plan {
+        if let Some(plan) = rank_plan {
             let frame = plan.result_frame.as_deref();
             return IterationDomain {
                 axes: axes_from_shape(frame, frame.map(|shape| shape.len()), AxisRole::Frame),
@@ -255,8 +255,8 @@ fn iteration_domain(
 
     IterationDomain {
         axes: axes_from_shape(
-            node.facts.shape.as_deref(),
-            node.facts.rank,
+            result_facts.shape.as_deref(),
+            result_facts.rank,
             AxisRole::Output,
         ),
     }
@@ -432,14 +432,14 @@ fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPaylo
         },
         ExecutionBasisKind::StaticReindex => {
             let reindex = match call.callable.target {
-                transition::CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
-                transition::CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
-                transition::CallTarget::Primitive(PrimitiveId::Reverse) => ReindexKind::Reverse,
-                transition::CallTarget::Primitive(PrimitiveId::Transpose) => {
+                CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
+                CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
+                CallTarget::Primitive(PrimitiveId::Reverse) => ReindexKind::Reverse,
+                CallTarget::Primitive(PrimitiveId::Transpose) => {
                     ReindexKind::Transpose
                 }
-                transition::CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
-                transition::CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
+                CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
+                CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
                 _ => return ExecutionBasisPayload::Deferred,
             };
             ExecutionBasisPayload::StaticReindex { kind: reindex }
@@ -647,25 +647,24 @@ fn map_value(id: transition::ValueId, values: &[ValueId]) -> ValueId {
 }
 
 fn call_constraints(
-    node: &transition::Node,
+    basis: &ExecutionBasis,
+    rank_plan: Option<&RankPlan>,
+    instantiation: &ResolvedInstantiation,
     left: Option<ValueId>,
     right: ValueId,
-    transition: &transition::LogicalPlan,
+    left_facts: Option<&Facts>,
+    right_facts: &Facts,
 ) -> ConstraintSet {
     let mut set = ConstraintSet::default();
 
     if let Some(left_value) = left {
-        if node.basis.outer() == Some(ExecutionBasisKind::CellApply) {
-            let witness = node.rank_plan.as_ref().and_then(|plan| {
+        if basis.outer() == Some(ExecutionBasisKind::CellApply) {
+            let witness = rank_plan.and_then(|plan| {
                 plan.result_frame
                     .clone()
                     .map(|result_frame| FactWitness::CellFrameAgreement { result_frame })
             });
-            let ranks = node
-                .instantiation
-                .as_ref()
-                .and_then(|instantiation| instantiation.rank_boundary)
-                .unwrap_or([0, 0, 0]);
+            let ranks = instantiation.rank_boundary.unwrap_or([0, 0, 0]);
             set.facts.push(ConstraintFact {
                 constraint: Constraint::CellFrameAgreement {
                     left: left_value,
@@ -675,25 +674,18 @@ fn call_constraints(
                 },
                 witness,
             });
-        } else if node.basis.outer() == Some(ExecutionBasisKind::Elementwise) {
-            let transition::Operation::Call {
-                left: Some(old_left),
-                right: old_right,
-                ..
-            } = &node.operation
-            else {
-                unreachable!("dyadic elementwise call must have two operands")
-            };
-            let left_shape = transition.nodes[old_left.0].facts.shape.clone();
-            let right_shape = transition.nodes[old_right.0].facts.shape.clone();
-            let witness = left_shape.zip(right_shape).and_then(|(left_shape, right_shape)| {
-                prefix_agrees(&left_shape, &right_shape).then_some(
-                    FactWitness::PrefixAgreement {
-                        left_shape,
-                        right_shape,
-                    },
-                )
-            });
+        } else if basis.outer() == Some(ExecutionBasisKind::Elementwise) {
+            let witness = left_facts
+                .and_then(|facts| facts.shape.clone())
+                .zip(right_facts.shape.clone())
+                .and_then(|(left_shape, right_shape)| {
+                    prefix_agrees(&left_shape, &right_shape).then_some(
+                        FactWitness::PrefixAgreement {
+                            left_shape,
+                            right_shape,
+                        },
+                    )
+                });
             set.facts.push(ConstraintFact {
                 constraint: Constraint::PrefixAgreement {
                     left: left_value,
@@ -704,7 +696,7 @@ fn call_constraints(
         }
     }
 
-    if node.basis.outer() == Some(ExecutionBasisKind::Gather) {
+    if basis.outer() == Some(ExecutionBasisKind::Gather) {
         if let Some(indices) = left {
             set.facts.push(ConstraintFact {
                 constraint: Constraint::IndicesInBounds {
@@ -788,20 +780,37 @@ impl Plan {
                     right,
                     contract,
                 } => {
-                    let left = left.map(|value| map_value(value, &value_map));
-                    let right = map_value(*right, &value_map);
-                    let constraints = call_constraints(node, left, right, transition);
+                    let old_left = *left;
+                    let old_right = *right;
+                    let left_facts = old_left.map(|value| &transition.nodes[value.0].facts);
+                    let right_facts = &transition.nodes[old_right.0].facts;
+                    let left = old_left.map(|value| map_value(value, &value_map));
+                    let right = map_value(old_right, &value_map);
                     let instantiation = node
                         .instantiation
                         .clone()
                         .expect("verified transition call must have instantiation");
+                    let constraints = call_constraints(
+                        &node.basis,
+                        node.rank_plan.as_ref(),
+                        &instantiation,
+                        left,
+                        right,
+                        left_facts,
+                        right_facts,
+                    );
                     let call = CallOp {
                         callable: callable.clone(),
                         execution_basis: node.basis.clone(),
                         left,
                         right,
                         contract: *contract,
-                        iteration_domain: iteration_domain(node.basis.outer(), node, transition),
+                        iteration_domain: iteration_domain(
+                            node.basis.outer(),
+                            &node.facts,
+                            node.rank_plan.as_ref(),
+                            right_facts,
+                        ),
                         effect: resolved_effect_summary(callable, left, *contract),
                         speculation: SpeculationSemantics::from_contract(*contract),
                         possible_errors: PossibleErrors::from_contract(*contract),
