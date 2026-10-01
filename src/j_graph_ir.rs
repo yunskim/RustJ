@@ -200,7 +200,17 @@ impl GraphFacts {
     }
 
     pub fn agrees_with_execution(&self, facts: &Facts) -> bool {
-        (matches!(self.dtype, TypeFact::Unknown) || self.dtype == facts.dtype)
+        let dtype_agrees = match self.dtype {
+            TypeFact::Unknown => true,
+            TypeFact::Exact(expected) => facts.dtype == TypeFact::Exact(expected),
+            TypeFact::IntOrFloat => matches!(
+                facts.dtype,
+                TypeFact::IntOrFloat
+                    | TypeFact::Exact(crate::types::DType::Int)
+                    | TypeFact::Exact(crate::types::DType::Float)
+            ),
+        };
+        dtype_agrees
             && self
                 .shape
                 .as_ref()
@@ -560,7 +570,6 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         FunctionHead::Hook => {
             hints.push(GraphHint::BranchJoinFusionCandidate);
             hints.push(GraphHint::RetainedValueCandidate);
-            hints.push(GraphHint::ParallelBranchCandidate);
             let [
                 FunctionOperand::Function(f),
                 FunctionOperand::Function(g),
