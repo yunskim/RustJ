@@ -7178,9 +7178,9 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [ ] built-in과 extension 모두 동일 `lowering_key -> active TargetContext` lookup protocol을 사용하게 한다.
 - [x] extension-like spelling은 enabled extension catalog에 있어도 enqueue에서는 ordinary NAME + lookup metadata로 진행한다.
 - [ ] numeric/string construction, name validation, assignment/copula classification을 jsource `jtenqueue` 순서대로 이식한다.
-- [ ] ordinary NAME과 lookup NAME의 enqueue flags를 jsource와 같은 위치 규칙으로 구분한다.
-- [ ] assignment local/global/to-name semantic flags를 보존한다.
-- [ ] one-word sentence legality를 enqueue 단계에서 검사한다.
+- [x] ordinary NAME은 처음 non-lookup으로 두고, trailing NAME/뒤에 non-assignment가 오는 NAME만 lookup으로 전환하며 copula 직전 assignment target NAME은 non-lookup으로 유지한다.
+- [x] `EnqueueFlags`에 `global_assignment/local_assignment/assignment_to_name`을 분리했다. 현재 지원 copula `=:`는 global이며 NAME 직후 copula는 to-name flag를 보존한다.
+- [x] one-word sentence는 Noun/Name/Verb/Adverb/Conjunction만 결과 가능 class로 허용하고 copula/괄호 단독 문장을 enqueue 단계에서 거부한다.
 - [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
 - [ ] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 parser row에 참여하는 테스트를 만든다.
 
@@ -7188,8 +7188,8 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### F2 — jsource parse queue skeleton
 
-- [ ] parser 입력을 raw `Token`이 아니라 F1의 `EnqueuedWord` queue로 바꾼다.
-- [ ] queue parser class와 semantic payload를 분리한다.
+- [x] semantic parser 입력을 legacy `Token`에서 `EnqueuedWord` queue로 바꾸고 span/word-index/flags를 parser 진입까지 보존한다.
+- [x] `EnqueueClass`와 `EnqueuedPayload`를 분리하고 parser가 동일 `EnqueuedWord` carrier에서 둘을 함께 운반한다.
 - [ ] jsource Mark/Edge sentinel을 명시적으로 표현한다.
 - [ ] ordinary lookup NAME은 queue flag에 따라 parser stack 진입 직전에 resolve한다.
 - [ ] 9-row matcher는 queue/result parser class만으로 eligibility/precedence를 결정한다.
