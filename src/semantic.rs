@@ -411,6 +411,16 @@ impl From<FunctionPartOfSpeech> for ParseClass {
     }
 }
 
+impl From<crate::primitive::PrimitivePartOfSpeech> for FunctionPartOfSpeech {
+    fn from(pos: crate::primitive::PrimitivePartOfSpeech) -> Self {
+        match pos {
+            crate::primitive::PrimitivePartOfSpeech::Verb => Self::Verb,
+            crate::primitive::PrimitivePartOfSpeech::Adverb => Self::Adverb,
+            crate::primitive::PrimitivePartOfSpeech::Conjunction => Self::Conjunction,
+        }
+    }
+}
+
 enum ParseValue {
     Noun(Expr, usize),
     Verb(Verb),
