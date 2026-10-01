@@ -264,8 +264,21 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 2 {
             for i in (0..items.len() - 1).rev() {
+                let edge = if i == 0 {
+                    ParseClass::Mark
+                } else {
+                    items[i - 1].class
+                };
+                let after = items
+                    .get(i + 2)
+                    .map_or(ParseClass::Mark, |item| item.class);
                 if items[i].class == ParseClass::Verb
-                    && items[i + 1].class == ParseClass::Adverb
+                    && match_parse_row([
+                        edge,
+                        items[i].class,
+                        items[i + 1].class,
+                        after,
+                    ]) == Some(ParseRow::Adverb)
                 {
                     let pair: Vec<_> = items.drain(i..i + 2).collect();
                     let mut pair = pair.into_iter();
@@ -293,9 +306,18 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 3 {
             for i in (0..items.len() - 2).rev() {
+                let edge = if i == 0 {
+                    ParseClass::Mark
+                } else {
+                    items[i - 1].class
+                };
                 if items[i].class == ParseClass::Verb
-                    && items[i + 1].class == ParseClass::Conjunction
-                    && matches!(items[i + 2].class, ParseClass::Verb | ParseClass::Noun)
+                    && match_parse_row([
+                        edge,
+                        items[i].class,
+                        items[i + 1].class,
+                        items[i + 2].class,
+                    ]) == Some(ParseRow::Conjunction)
                 {
                     let triple: Vec<_> = items.drain(i..i + 3).collect();
                     let mut triple = triple.into_iter();
