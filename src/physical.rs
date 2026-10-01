@@ -170,8 +170,9 @@ pub struct BufferRegistry {
 }
 impl BufferRegistry {
     pub fn new() -> Result<Self> {
+        #[allow(deprecated)] // try_update requires Rust 1.95; preserve the 1.85 MSRV.
         let identity = NEXT_REGISTRY
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| Error::Limit)?;
         Ok(Self {
             identity,
