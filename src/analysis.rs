@@ -350,6 +350,10 @@ pub struct CompilationAnalysis {
     /// Target-independent algebraic alternatives discovered from J Graph IR.
     /// Candidates retain explicit equivalence witnesses and do not mutate j_graph.
     pub graph_rewrites: Vec<crate::j_graph_rewrite::GraphRewriteCandidate>,
+    /// Source-vs-replacement resource views in the same target-independent
+    /// logical-atom/symbolic-state domain. This is evaluation, not selection.
+    pub graph_rewrite_resources:
+        Vec<crate::j_graph_resource::RewriteResourceEvaluation>,
     /// Execution-oriented logical dataflow derived from j_graph.
     pub execution: LogicalPlan,
 }
