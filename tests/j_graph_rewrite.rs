@@ -138,6 +138,18 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
     ));
 }
 
+
+#[test]
+fn rewrite_verifier_rejects_stale_rule_derived_facts() {
+    let graph = Engine::new()
+        .analyze_j_graph("'ana' E. 'banana'")
+        .unwrap();
+    let mut candidate = graph.rewrite_candidates().pop().unwrap();
+    candidate.replacement.nodes[0].facts.rank = Some(99);
+    let error = candidate.verify(&graph).unwrap_err();
+    assert!(error.contains("facts"));
+}
+
 #[test]
 fn rewrite_registry_is_a_rule_registry_not_a_profitability_ranking() {
     assert_eq!(RULES.len(), 1);
