@@ -6,7 +6,7 @@
 
 use crate::{
     Value,
-    analysis,
+    transition_ir as transition,
     execution_semantics::{
         AccessFact, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation, Symbol,
         SymbolId,
@@ -212,11 +212,11 @@ fn axes_from_shape(
 
 fn iteration_domain(
     kind: Option<ExecutionBasisKind>,
-    node: &analysis::Node,
-    transition: &analysis::LogicalPlan,
+    node: &transition::Node,
+    transition: &transition::LogicalPlan,
 ) -> IterationDomain {
     if kind == Some(ExecutionBasisKind::Reduce) {
-        let analysis::Operation::Call { right, .. } = &node.operation else {
+        let transition::Operation::Call { right, .. } = &node.operation else {
             return IterationDomain::default();
         };
         let input = &transition.nodes[right.0].facts;
@@ -432,14 +432,14 @@ fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPaylo
         },
         ExecutionBasisKind::StaticReindex => {
             let reindex = match call.callable.target {
-                analysis::CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
-                analysis::CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
-                analysis::CallTarget::Primitive(PrimitiveId::Reverse) => ReindexKind::Reverse,
-                analysis::CallTarget::Primitive(PrimitiveId::Transpose) => {
+                transition::CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
+                transition::CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
+                transition::CallTarget::Primitive(PrimitiveId::Reverse) => ReindexKind::Reverse,
+                transition::CallTarget::Primitive(PrimitiveId::Transpose) => {
                     ReindexKind::Transpose
                 }
-                analysis::CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
-                analysis::CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
+                transition::CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
+                transition::CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
                 _ => return ExecutionBasisPayload::Deferred,
             };
             ExecutionBasisPayload::StaticReindex { kind: reindex }
@@ -642,15 +642,15 @@ fn prefix_agrees(left: &[usize], right: &[usize]) -> bool {
     long.starts_with(short)
 }
 
-fn map_value(id: analysis::ValueId, values: &[ValueId]) -> ValueId {
+fn map_value(id: transition::ValueId, values: &[ValueId]) -> ValueId {
     values[id.0]
 }
 
 fn call_constraints(
-    node: &analysis::Node,
+    node: &transition::Node,
     left: Option<ValueId>,
     right: ValueId,
-    transition: &analysis::LogicalPlan,
+    transition: &transition::LogicalPlan,
 ) -> ConstraintSet {
     let mut set = ConstraintSet::default();
 
@@ -676,7 +676,7 @@ fn call_constraints(
                 witness,
             });
         } else if node.basis.outer() == Some(ExecutionBasisKind::Elementwise) {
-            let analysis::Operation::Call {
+            let transition::Operation::Call {
                 left: Some(old_left),
                 right: old_right,
                 ..
@@ -742,7 +742,7 @@ impl Plan {
     /// canonical A3 op/value-separated representation. New compiler consumers
     /// must not depend on this conversion; it disappears when direct J Graph
     /// lowering lands.
-    pub(crate) fn from_transition(transition: &analysis::LogicalPlan) -> Self {
+    pub(crate) fn from_transition(transition: &transition::LogicalPlan) -> Self {
         let mut plan = Self {
             header: IrHeader::current(),
             source: transition.source.clone(),
@@ -768,21 +768,21 @@ impl Plan {
                 .and_then(|value| producer_map.get(value.0).copied());
 
             let (base_kind, constraints) = match &node.operation {
-                analysis::Operation::Literal(value) => {
+                transition::Operation::Literal(value) => {
                     (OpKind::Literal(value.clone()), ConstraintSet::default())
                 }
-                analysis::Operation::ReadNoun { symbol, version } => (
+                transition::Operation::ReadNoun { symbol, version } => (
                     OpKind::ReadNoun {
                         symbol: *symbol,
                         version: *version,
                     },
                     ConstraintSet::default(),
                 ),
-                analysis::Operation::VerbReference(callable) => (
+                transition::Operation::VerbReference(callable) => (
                     OpKind::VerbReference(callable.clone()),
                     ConstraintSet::default(),
                 ),
-                analysis::Operation::Call {
+                transition::Operation::Call {
                     callable,
                     left,
                     right,
