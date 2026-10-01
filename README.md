@@ -8,44 +8,38 @@ It is not a line-by-line translation of `jsource`. RustJ is designed as a compil
 
 `Jaxa` is not the name of a separate component in the current architecture. Ideas developed in the historical `jaxa-analyzer` research repository are incorporated into RustJ's middle-end design.
 
-## Long-term vision — “SQL for neural networks”
+## JAXA design influence — “SQL for neural networks”
 
-JAXA's original slogan and long-term goal was **“SQL for neural networks.”**
+Earlier JAXA documents used phrases such as **“SQL for neural networks”** and **“SQL for array operations.”**
 
-The SQL analogy is about **separation of concerns**, not SQL syntax.
+The important point was not SQL syntax or a claim to build a universal neural-network platform. It was a **separation of concerns**:
 
-```text
-user / model author
-    ↓
-declare what should be computed
-    ↓
-logical array / NN graph and algebra
-    ↓
-rewrite / equivalence / resource reasoning
-    ↓
-alternative physical execution plans
-    ↓
-target/resource/cost-based selection
-    ↓
-CPU / GPU / library / accelerator execution
-```
+> **Separate logical array intent from physical execution strategy.**
 
-Just as a database user normally does not hand-write join order, index access strategy, or buffer placement, the JAXA vision is that **array and neural-network authors describe the computation while the compiler chooses how to execute it**.
+Just as a database user normally does not prescribe join order or index access, an array program should express **what is being computed** as far as possible, while the analyzer/compiler/backend decides how to realize it.
 
-RustJ revives that vision on top of a compiler architecture that first preserves J accurately. This is why RustJ keeps J's compact array algebra intact long enough to build `Graph Basis → rewrite/equivalence → symbolic resource analysis → execution/physical planning`.
+Earlier JAXA documents repeatedly emphasized ideas such as:
 
-The two goals are complementary:
+- describe logical array intent rather than physical execution procedure;
+- fusion is performed by the compiler, not by the language surface;
+- the same logical computation should remain usable across different execution strategies;
+- when several equivalent forms or plans exist, legality and resource/cost analysis should guide the choice.
+
+RustJ inherits this as a **design principle**:
 
 ```text
-direct goal
-    a modern J compiler/runtime preserving full J semantics
-
-long-term vision
-    a declarative array-computing compiler core
-    capable of realizing JAXA's “SQL for neural networks” idea
+J computation semantics
+    ↓
+J Graph IR / Graph Basis
+    ↓
+equivalent-form and executability analysis
+    ↓
+resource / cost-aware planning
+    ↓
+execution
 ```
 
-Other array/NN frontends may eventually be able to target the same compiler core, but the current priority remains **faithful J semantics**. “SQL for neural networks” is a north star for the Graph IR, optimizer, resource model, and planner—not a claim that RustJ is already a finished NN framework or SQL-like DSL.
+RustJ's immediate goal remains **an accurate J compiler/runtime**. “SQL for neural networks” is therefore historical context for why Graph IR, rewrite, resource analysis, and planning are separated this way—not a claim that RustJ is already an NN framework or a general-purpose compiler platform.
 
 ```text
 J Source
