@@ -1073,37 +1073,48 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 ## 16. Completed or substantially implemented
 
 - shared immutable FunctionEntity semantic DAG;
-- removal of legacy reduce/rank semantic summary fields;
-- recursive derived-function fact inference;
-- J Graph IR explicit operation graph;
+- J Graph IR as a separate analysis surface;
 - Graph Basis / Execution Basis separation;
-- Prefix/Infix Window Graph Basis;
-- GraphFacts separated from execution-layout container;
-- initial symbolic graph resource model;
-- state/liveness and traffic expression provenance;
-- witnessed graph rewrite registry;
-- Find Search → Window + CellApply(Match) candidate;
-- rewrite-specific fact rules and verifier;
-- conservative source-vs-replacement resource evaluation;
-- soundness contract for resource pruning;
-- target-only rewrite feasibility bridge;
-- planning readiness reports;
-- WindowView execution payload;
-- CPU reference composite realization for current Find rewrite subset;
-- provenance bridge from J Graph rewrite to A3 execution expansion.
+- structural opportunities plus initial graph rewrite/resource analysis;
+- A3-v0 SSA Logical IR with Function/Region/Block/Return;
+- Execution Basis payloads, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation;
+- A3 verifier and closed-plan correctness/reference executor;
+- SemanticCapabilityView;
+- ParameterizedLoweringRecipe + LoweringRegistry legality/candidate generation;
+- prototype contiguous route partitioning;
+- logical/physical array separation as an architectural invariant;
+- G1 read-only CPU affine PhysicalArray, BufferId and BufferLease.
 
-## 16.1 In progress
+## 16.1 Transitional structure that must be removed
 
-- jsource-faithful frontend migration;
-- enqueuer separation;
-- unified parser reduction engine;
-- richer Graph Basis vocabulary;
-- standalone/general WindowView lowering;
-- rewrite-specific resource/shape inference;
-- fusion-candidate lifetime extension;
-- full TargetProfile / ResourceEstimate / CostEstimate model;
-- candidate selection/partition;
-- wider primitive coverage.
+The main architectural debt is now **duplicate execution IR** rather than a missing architecture:
+
+```text
+J Graph IR
+   ↓
+analysis::LogicalPlan        // transitional
+   ↓
+logical_ir::Plan             // A3 canonical target
+```
+
+The intended structure is:
+
+```text
+J Graph IR
+   ↓
+Execution Semantic Lowering
+   ↓
+logical_ir::Plan
+```
+
+Other transitional points:
+
+- Value still owns dense CpuStorage directly;
+- physical.rs is a representation foundation, not yet a Physical Planner;
+- runtime.rs still contains interpreter-oriented flattening such as ResolvedVerb { reduce, rank, ... };
+- the frontend still uses modifier/train heuristics rather than the completed jsource-compatible Enqueue + 9-row parser;
+- RouteRegion is still a class + operation-range prototype;
+- Schedule/Transform Plan, Physical Plan, native CPU physical executor, MLIR/StableHLO/ArrayFire routes are not yet complete.
 
 ## 16.2 Deferred / later
 
@@ -1113,50 +1124,64 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 - mature multi-route partitioning;
 - complete full-J implementation.
 
-AD/VJP should not leap ahead of Basis/Rewrite/Equivalence foundations.
+Linux/GitHub Actions CI is not a default architectural progress gate unless explicitly requested.
 
 ---
 
-# Part XIV — Near-term roadmap
+# Part XIV — Architecture convergence roadmap
 
-## 17. Priority order
+## 17. Active migration checklist
 
-Current preferred order:
-
-```text
-1. Finish jsource-faithful frontend migration
-2. Continue Graph Basis vocabulary / graph facts
-3. Extend witnessed rewrite rules conservatively
-4. Improve rewrite-specific resource facts
-5. Add executable lowering families only with semantic proof
-6. Connect full TargetProfile / ResourceEstimate
-7. Add CostProfile and candidate ranking
-8. Add sound pruning where proofs exist
-9. Expand backend realizations
-10. Later graph transforms such as AD/VJP
-```
-
-For the current Find rewrite specifically:
+The Korean canonical document contains the authoritative detailed M0–M6 checklist. The English mirror follows the same order:
 
 ```text
-Search source
-  ↓
-witnessed Window + CellApply(Match) candidate
-  ↓
-known result facts
-  ↓
-known rank≤1 logical window extent
-  ↓
-partial symbolic resource profile
-  ↓
-CPU ReferenceRewriteComposite available
-  ↓
-remaining:
-  - richer state/resource size inference
-  - general standalone WindowView route
-  - full cost model
-  - GPU realization
+M0  Freeze module ownership and dependency boundaries
+ ↓
+M1  Make logical_ir::Plan the sole canonical execution IR
+    Remove analysis::LogicalPlan transition layer
+ ↓
+M2  Cut over to the jsource-compatible
+    Word Formation → Enqueue → 9-row Parser frontend
+ ↓
+M3  Finish code-level Logical/Physical Array separation
+    and remove misleading representation/layout seams
+ ↓
+M4  Build the first compiler-native CPU vertical slice
+    Logical IR → Schedule → Physical Plan → Executor
+ ↓
+M5  Add route/schedule/resource/cost selection
+ ↓
+M6  Add verified external routes such as ArrayFire/MLIR/StableHLO;
+    production GPU work remains deferred until explicitly resumed
 ```
+
+The ordering is intentional. Do not grow the optimizer or GPU backend while duplicate canonical IRs and frontend semantic uncertainty remain.
+
+## 17.1 M1 completion gate
+
+M1 is complete only when:
+
+- J Graph IR lowers directly to logical_ir::Plan;
+- Plan::from_transition is gone;
+- analysis::LogicalPlan and its duplicate ValueId/Node/Write/verifier are gone;
+- CompilationAnalysis contains the J graph/rewrite/resource views plus the canonical logical plan;
+- graph origin, source span, name/version, semantic checks and observable ordering survive the cutover.
+
+## 17.2 M4 first vertical slice
+
+The first native planner is deliberately simple:
+
+```text
+verified logical_ir::Plan
+  ↓
+deterministic all-CPU schedule
+  ↓
+Bind / View / Materialize / Kernel / Return
+  ↓
+CPU Physical Executor
+```
+
+Correctness and boundary ownership come before a sophisticated cost model.
 
 ---
 
