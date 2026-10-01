@@ -720,6 +720,208 @@ fn error_for(constraint: &Constraint) -> SemanticErrorKind {
     }
 }
 
+/// M1-only incremental projection from execution-semantic lowering records
+/// into canonical A3. It accepts one freshly lowered value at a time, so the
+/// compiler no longer needs a completed transition plan before A3 construction.
+///
+/// The input record type remains temporary. Once compatibility `LogicalPlan`
+/// is removed, this builder will be fed directly by execution semantic lowering.
+pub(crate) struct TransitionProjection {
+    plan: Plan,
+    value_map: Vec<ValueId>,
+    producer_map: Vec<OpId>,
+}
+
+impl TransitionProjection {
+    pub(crate) fn new(
+        source: String,
+        j_graph_node_count: usize,
+        j_graph_region_count: usize,
+    ) -> Self {
+        Self {
+            plan: Plan {
+                header: IrHeader::current(),
+                source,
+                symbols: Vec::new(),
+                functions: Vec::new(),
+                regions: Vec::new(),
+                blocks: Vec::new(),
+                entry: FunctionId(0),
+                operations: Vec::new(),
+                values: Vec::new(),
+                j_graph_node_count,
+                j_graph_region_count,
+                opportunities: Vec::new(),
+                result: None,
+                write: None,
+            },
+            value_map: Vec::with_capacity(j_graph_node_count),
+            producer_map: Vec::with_capacity(j_graph_node_count),
+        }
+    }
+
+    pub(crate) fn push_node(
+        &mut self,
+        node: &transition::Node,
+        lowered_nodes: &[transition::Node],
+    ) {
+        let old_order = node
+            .order_after
+            .and_then(|value| self.producer_map.get(value.0).copied());
+
+        let (base_kind, constraints) = match &node.operation {
+            transition::Operation::Literal(value) => {
+                (OpKind::Literal(value.clone()), ConstraintSet::default())
+            }
+            transition::Operation::ReadNoun { symbol, version } => (
+                OpKind::ReadNoun {
+                    symbol: *symbol,
+                    version: *version,
+                },
+                ConstraintSet::default(),
+            ),
+            transition::Operation::VerbReference(callable) => (
+                OpKind::VerbReference(callable.clone()),
+                ConstraintSet::default(),
+            ),
+            transition::Operation::Call {
+                callable,
+                left,
+                right,
+                contract,
+            } => {
+                let old_left = *left;
+                let old_right = *right;
+                let left_facts = old_left.map(|value| &lowered_nodes[value.0].facts);
+                let right_facts = &lowered_nodes[old_right.0].facts;
+                let left = old_left.map(|value| map_value(value, &self.value_map));
+                let right = map_value(old_right, &self.value_map);
+                let instantiation = node
+                    .instantiation
+                    .clone()
+                    .expect("verified transition call must have instantiation");
+                let constraints = call_constraints(
+                    &node.basis,
+                    node.rank_plan.as_ref(),
+                    &instantiation,
+                    left,
+                    right,
+                    left_facts,
+                    right_facts,
+                );
+                let call = CallOp {
+                    callable: callable.clone(),
+                    execution_basis: node.basis.clone(),
+                    left,
+                    right,
+                    contract: *contract,
+                    iteration_domain: iteration_domain(
+                        node.basis.outer(),
+                        &node.facts,
+                        node.rank_plan.as_ref(),
+                        right_facts,
+                    ),
+                    effect: resolved_effect_summary(callable, left, *contract),
+                    speculation: SpeculationSemantics::from_contract(*contract),
+                    possible_errors: PossibleErrors::from_contract(*contract),
+                    destination: DestinationRelation::Unknown,
+                    instantiation,
+                    rank_plan: node.rank_plan.clone(),
+                    access: node.access,
+                    constraints: constraints.clone(),
+                };
+                let kind = match node.basis.outer() {
+                    Some(kind) => {
+                        let payload = basis_payload(kind, &call);
+                        OpKind::Basis {
+                            kind,
+                            payload,
+                            call,
+                        }
+                    }
+                    None => OpKind::SemanticCall(call),
+                };
+                (kind, constraints)
+            }
+        };
+
+        let mut order_after = old_order;
+        for fact in constraints.unresolved() {
+            let check_id = OpId(self.plan.operations.len());
+            self.plan.operations.push(Operation {
+                kind: OpKind::SemanticCheck(SemanticCheck {
+                    constraint: fact.constraint.clone(),
+                    error: error_for(&fact.constraint),
+                    origin: node.span.clone(),
+                }),
+                results: Vec::new(),
+                j_origin: node.j_origin,
+                span: node.span.clone(),
+                order_after,
+            });
+            order_after = Some(check_id);
+        }
+
+        let op_id = OpId(self.plan.operations.len());
+        let value_id = ValueId(self.plan.values.len());
+        self.plan.values.push(ValueData {
+            producer: op_id,
+            facts: node.facts.clone(),
+            roles: node.roles.clone(),
+        });
+        self.plan.operations.push(Operation {
+            kind: base_kind,
+            results: vec![value_id],
+            j_origin: node.j_origin,
+            span: node.span.clone(),
+            order_after,
+        });
+        self.value_map.push(value_id);
+        self.producer_map.push(op_id);
+    }
+
+    pub(crate) fn finish(
+        mut self,
+        symbols: Vec<Symbol>,
+        opportunities: &[StructuralOpportunity<transition::ValueId>],
+        result: Option<transition::ValueId>,
+        write: Option<&transition::Write>,
+    ) -> Plan {
+        self.plan.symbols = symbols;
+        self.plan.opportunities = opportunities
+            .iter()
+            .cloned()
+            .map(|opportunity| {
+                opportunity.map_values(|value| self.value_map[value.0])
+            })
+            .collect();
+
+        self.plan.result = result.map(|value| self.value_map[value.0]);
+        self.plan.write = write.map(|write| Write {
+            symbol: write.symbol,
+            value: self.value_map[write.value.0],
+            previous: write.previous,
+            proposed: write.proposed,
+            span: write.span.clone(),
+            after: write
+                .after
+                .and_then(|value| self.producer_map.get(value.0).copied()),
+        });
+
+        let block = BlockId(0);
+        let region = RegionId(0);
+        self.plan.blocks.push(Block {
+            operations: 0..self.plan.operations.len(),
+            terminator: Terminator::Return(self.plan.result),
+        });
+        self.plan.regions.push(Region {
+            blocks: vec![block],
+        });
+        self.plan.functions.push(Function { body: region });
+        self.plan
+    }
+}
+
 impl Plan {
     pub fn operation_view(&self, id: OpId) -> Option<LogicalOpView<'_>> {
         let operation = self.operations.get(id.0)?;
@@ -730,176 +932,24 @@ impl Plan {
         Some(LogicalOpView { operation, result })
     }
 
-    /// Internal M1 migration seam from the legacy transition plan into the
-    /// canonical A3 op/value-separated representation. New compiler consumers
-    /// must not depend on this conversion; it disappears when direct J Graph
-    /// lowering lands.
+    /// Compatibility projection for tests/tools that still own a completed
+    /// transition plan. Normal compiler construction now uses the same
+    /// incremental projector during graph lowering.
     pub(crate) fn from_transition(transition: &transition::LogicalPlan) -> Self {
-        let mut plan = Self {
-            header: IrHeader::current(),
-            source: transition.source.clone(),
-            symbols: transition.symbols.clone(),
-            functions: Vec::new(),
-            regions: Vec::new(),
-            blocks: Vec::new(),
-            entry: FunctionId(0),
-            operations: Vec::new(),
-            values: Vec::new(),
-            j_graph_node_count: transition.j_graph_node_count,
-            j_graph_region_count: transition.j_graph_region_count,
-            opportunities: Vec::new(),
-            result: None,
-            write: None,
-        };
-        let mut value_map = Vec::with_capacity(transition.nodes.len());
-        let mut producer_map = Vec::with_capacity(transition.nodes.len());
-
+        let mut projection = TransitionProjection::new(
+            transition.source.clone(),
+            transition.j_graph_node_count,
+            transition.j_graph_region_count,
+        );
         for node in &transition.nodes {
-            let old_order = node
-                .order_after
-                .and_then(|value| producer_map.get(value.0).copied());
-
-            let (base_kind, constraints) = match &node.operation {
-                transition::Operation::Literal(value) => {
-                    (OpKind::Literal(value.clone()), ConstraintSet::default())
-                }
-                transition::Operation::ReadNoun { symbol, version } => (
-                    OpKind::ReadNoun {
-                        symbol: *symbol,
-                        version: *version,
-                    },
-                    ConstraintSet::default(),
-                ),
-                transition::Operation::VerbReference(callable) => (
-                    OpKind::VerbReference(callable.clone()),
-                    ConstraintSet::default(),
-                ),
-                transition::Operation::Call {
-                    callable,
-                    left,
-                    right,
-                    contract,
-                } => {
-                    let old_left = *left;
-                    let old_right = *right;
-                    let left_facts = old_left.map(|value| &transition.nodes[value.0].facts);
-                    let right_facts = &transition.nodes[old_right.0].facts;
-                    let left = old_left.map(|value| map_value(value, &value_map));
-                    let right = map_value(old_right, &value_map);
-                    let instantiation = node
-                        .instantiation
-                        .clone()
-                        .expect("verified transition call must have instantiation");
-                    let constraints = call_constraints(
-                        &node.basis,
-                        node.rank_plan.as_ref(),
-                        &instantiation,
-                        left,
-                        right,
-                        left_facts,
-                        right_facts,
-                    );
-                    let call = CallOp {
-                        callable: callable.clone(),
-                        execution_basis: node.basis.clone(),
-                        left,
-                        right,
-                        contract: *contract,
-                        iteration_domain: iteration_domain(
-                            node.basis.outer(),
-                            &node.facts,
-                            node.rank_plan.as_ref(),
-                            right_facts,
-                        ),
-                        effect: resolved_effect_summary(callable, left, *contract),
-                        speculation: SpeculationSemantics::from_contract(*contract),
-                        possible_errors: PossibleErrors::from_contract(*contract),
-                        destination: DestinationRelation::Unknown,
-                        instantiation,
-                        rank_plan: node.rank_plan.clone(),
-                        access: node.access,
-                        constraints: constraints.clone(),
-                    };
-                    let kind = match node.basis.outer() {
-                        Some(kind) => {
-                            let payload = basis_payload(kind, &call);
-                            OpKind::Basis {
-                                kind,
-                                payload,
-                                call,
-                            }
-                        }
-                        None => OpKind::SemanticCall(call),
-                    };
-                    (kind, constraints)
-                }
-            };
-
-            let mut order_after = old_order;
-            for fact in constraints.unresolved() {
-                let check_id = OpId(plan.operations.len());
-                plan.operations.push(Operation {
-                    kind: OpKind::SemanticCheck(SemanticCheck {
-                        constraint: fact.constraint.clone(),
-                        error: error_for(&fact.constraint),
-                        origin: node.span.clone(),
-                    }),
-                    results: Vec::new(),
-                    j_origin: node.j_origin,
-                    span: node.span.clone(),
-                    order_after,
-                });
-                order_after = Some(check_id);
-            }
-
-            let op_id = OpId(plan.operations.len());
-            let value_id = ValueId(plan.values.len());
-            plan.values.push(ValueData {
-                producer: op_id,
-                facts: node.facts.clone(),
-                roles: node.roles.clone(),
-            });
-            plan.operations.push(Operation {
-                kind: base_kind,
-                results: vec![value_id],
-                j_origin: node.j_origin,
-                span: node.span.clone(),
-                order_after,
-            });
-            value_map.push(value_id);
-            producer_map.push(op_id);
+            projection.push_node(node, &transition.nodes);
         }
-
-        plan.opportunities = transition
-            .opportunities
-            .iter()
-            .cloned()
-            .map(|opportunity| opportunity.map_values(|value| value_map[value.0]))
-            .collect();
-
-        plan.result = transition.result.map(|value| value_map[value.0]);
-        plan.write = transition.write.as_ref().map(|write| Write {
-            symbol: write.symbol,
-            value: value_map[write.value.0],
-            previous: write.previous,
-            proposed: write.proposed,
-            span: write.span.clone(),
-            after: write
-                .after
-                .and_then(|value| producer_map.get(value.0).copied()),
-        });
-
-        let block = BlockId(0);
-        let region = RegionId(0);
-        plan.blocks.push(Block {
-            operations: 0..plan.operations.len(),
-            terminator: Terminator::Return(plan.result),
-        });
-        plan.regions.push(Region {
-            blocks: vec![block],
-        });
-        plan.functions.push(Function { body: region });
-        plan
+        projection.finish(
+            transition.symbols.clone(),
+            &transition.opportunities,
+            transition.result,
+            transition.write.as_ref(),
+        )
     }
 
     pub fn verify(&self) -> std::result::Result<(), VerifyError> {
