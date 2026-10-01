@@ -163,8 +163,8 @@ impl Engine {
         })
     }
 
-    /// Backward-compatible projection of analyze_compilation() returning only
-    /// the execution-oriented logical plan.
+    /// M1 compatibility API returning the legacy transition plan.
+    /// New compiler consumers should use `analyze_a3` or `analyze_compilation`.
     pub fn analyze(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
         self.analyze_compilation(source).map(|analysis| analysis.transition)
     }
@@ -175,11 +175,11 @@ impl Engine {
         self.analyze_compilation(source).map(|analysis| analysis.logical)
     }
 
-    /// Compiler-facing analysis path retaining the same structured diagnostic
-    /// context used by the interpreter and future JIT.
-    pub fn analyze_diagnostic(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
+    /// Compiler-facing canonical Logical IR path retaining the same structured
+    /// diagnostic context used by the interpreter and future JIT.
+    pub fn analyze_diagnostic(&self, source: &str) -> Result<crate::logical_ir::Plan> {
         self.analyze_compilation_diagnostic(source)
-            .map(|analysis| analysis.transition)
+            .map(|analysis| analysis.logical)
     }
 
     pub fn binding_version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
