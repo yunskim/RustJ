@@ -64,6 +64,30 @@ impl ExpansionGraph {
                     }
                 }
             }
+
+            match (node.semantics, &node.payload, node.inputs.as_slice()) {
+                (
+                    ExpansionNodeSemantics::WindowByPatternShape,
+                    ExecutionBasisPayload::WindowView {
+                        source,
+                        shape: WindowShapeSpec::PatternShape { pattern },
+                    },
+                    [
+                        ExpansionInput::Source(input_source),
+                        ExpansionInput::Source(input_pattern),
+                    ],
+                ) if source == input_source && pattern == input_pattern => {}
+                (
+                    ExpansionNodeSemantics::MatchPatternCell,
+                    ExecutionBasisPayload::CellApply,
+                    [ExpansionInput::Source(_), ExpansionInput::Node(_)],
+                ) => {}
+                _ => {
+                    return Err(
+                        "expansion node semantic payload does not match its inputs",
+                    );
+                }
+            }
         }
         Ok(())
     }
