@@ -245,23 +245,7 @@ pub struct LogicalPlan {
     pub write: Option<Write>,
 }
 
-#[derive(Clone, Debug)]
-pub struct CompilationAnalysis {
-    /// JAXA-style graph algebra: J grammar/combinators + static graph hints.
-    pub j_graph: crate::j_graph_ir::Plan,
-    /// Target-independent algebraic alternatives discovered from J Graph IR.
-    /// Candidates retain explicit equivalence witnesses and do not mutate j_graph.
-    pub graph_rewrites: Vec<crate::j_graph_rewrite::GraphRewriteCandidate>,
-    /// Source-vs-replacement resource views in the same target-independent
-    /// logical-atom/symbolic-state domain. This is evaluation, not selection.
-    pub graph_rewrite_resources:
-        Vec<crate::j_graph_resource::RewriteResourceEvaluation>,
-    /// Transitional plan retained only for compatibility while M1 removes the
-    /// duplicate public IR. New compiler consumers must use `logical`.
-    pub transition: LogicalPlan,
-    /// Canonical A3 Logical Execution IR consumed by route/planner layers.
-    pub logical: crate::logical_ir::Plan,
-}
+pub use crate::compilation::CompilationAnalysis;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyError {
