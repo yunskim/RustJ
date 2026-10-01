@@ -587,7 +587,7 @@ J Graph IR
   topology + static optimization hints
           ↓
 Logical Execution IR
-  explicit execution dataflow + basis + checks/facts
+  explicit execution dataflow + execution basis + checks/facts
 ~~~
 
 ### J Graph IR
@@ -610,7 +610,36 @@ J 문법에서 결정적으로 알 수 있는 것은 가능한 한 여기에서 
 - 향후 window/segment/contraction/iteration/adjoint topology
 - primitive별 shape/dtype/rank/effect/resource rule identity 또는 Unknown
 
-이 층은 JAXA의 graph algebra, basis/rewrite/equivalence, fusion topology 연구의 주 표면이다.
+이 층은 JAXA의 graph algebra, **graph basis / rewrite / equivalence**, fusion topology 연구의 주 표면이다.
+
+### Basis도 두 층이다
+
+JAXA의 역사적 연구에서 말한 `basis verb`는 주로 **J Graph IR의 graph basis**를 뜻한다. 이것은 “실행기가 직접 제공해야 하는 최소 instruction 집합”이 아니라, J 식을 동등한 graph로 재작성하고 access/fusion/resource 구조를 분석할 때 사용하는 **대수적 생성원/구조 단위**다.
+
+반면 Logical Execution IR에는 별도의 **execution basis**가 있다. 이것은 선택된 J graph를 정확히 실행하기 위해 normalized dataflow로 낮춘 뒤의 operation vocabulary다. 두 basis는 이름이 일부 겹칠 수 있어도 같은 타입이나 같은 최소성 조건을 공유하지 않는다.
+
+~~~text
+J Function / Derived Verb
+        ↓
+GraphBasis composition
+        ↓
+Logical Execution lowering
+        ↓
+ExecutionBasis composition
+        ↓
+backend / library / custom kernel
+~~~
+
+예를 들어 `conv`를 graph level에서 black box로 남긴다는 과거 결정은 **GraphBasis에서 convolution의 구조적 정체성을 보존한다**는 뜻이다. 이것은 execution lowering에서 convolution을 더 작은 operation으로 분해하지 말라는 뜻이 아니다.
+
+~~~text
+GraphBasis::Conv
+  → ExecutionBasis::WindowView + Contract
+  → ExecutionBasis::Reindex + Elementwise + Reduce
+  → library/custom fused realization
+~~~
+
+어느 경로를 택하더라도 Graph IR의 원래 Conv identity와 equivalence/provenance를 잃지 않는다. 즉 **graph black-box 보존과 execution decomposition은 서로 모순되지 않는다.**
 
 문법이 정보의 **근원**이라는 말과 parser node가 optimization metadata를 **소유**한다는 말은 다르다. parser/FunctionEntity는 J construction semantics를 정확히 보존하고, J Graph IR builder가 그 구조를 applied noun graph와 결합해 GraphForm/GraphHint를 결정적으로 유도한다. 이렇게 하면 JAXA의 정적 정보 이점을 살리면서 target/cost/pass-local fact가 parser 의미 객체로 역류하는 것을 막을 수 있다.
 
@@ -620,7 +649,7 @@ J 문법에서 결정적으로 알 수 있는 것은 가능한 한 여기에서 
 
 > 선택된 J graph를 J observable semantics를 보존하면서 정확히 실행하려면 어떤 operation과 dependency가 필요한가?
 
-여기서는 CellApply, Reduce, Gather, basis payload, ResolvedInstantiation, SemanticCheck, EffectSummary, AccessFact 같은 **실행 계약**이 중심이다.
+여기서는 CellApply, Reduce, Gather, `ExecutionBasisKind` / `ExecutionBasisPayload`, ResolvedInstantiation, SemanticCheck, EffectSummary, AccessFact 같은 **실행 계약**이 중심이다.
 
 하나의 J Graph node가 여러 execution op로 펼쳐질 수 있다. 따라서 execution op는 `j_origin`을 보존하지만 J Graph IR을 대체하지 않는다.
 
@@ -642,13 +671,13 @@ StructuralOpportunity는 두 IR 사이의 bridge다. source는 J Graph IR의 Gra
 
 ~~~text
 J Graph IR
-  graph algebra / rewrite / topology optimization
+  graph-basis algebra / rewrite / topology optimization
   fusion candidate discovery
   AD graph derivation
         ↓
 Execution IR
   semantic proof / check elimination
-  basis expansion / access composition
+  execution-basis expansion / access composition
   legal fusion confirmation
         ↓
 Physical planner

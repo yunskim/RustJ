@@ -127,9 +127,9 @@ route boundaries are bridged after representation requirements are known
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
 
 - **RustJ frontend / J Semantic Construction IR**: source text를 J word로 나누고 J parsing/binding 의미를 보존한다. immutable `FunctionEntity` graph가 primitive, adverb/conjunction application, hook/fork/train, rank, `@:` 같은 **J 함수 구성 자체**를 표현한다. 이 층은 언어 의미의 canonical source다.
-- **J Graph IR / JAXA Array Operation Graph IR**: 완성된 J function을 실제 noun input에 적용한 **배열 연산 graph를 J 문법의 대수로 표현하는 compiler analysis surface**다. `@: → Pipeline`, hook/fork → Branch/Join, `/ → Reduce`, `" → CellParallel`처럼 parser/semantic construction에서 정적으로 유도되는 topology와 optimization hint를 first-class로 기록한다. JAXA의 주 관심사는 이 층이다.
-- **Graph Analyzer / Algebraic Optimizer**: J Graph IR에서 fusion topology, fan-out/fan-in, common-input reuse, retained-value lifetime, reduction/cell parallelism, materialization-elision, 이후 adjoint/VJP fan-out 등을 찾는다. 가능한 경우 basis/rewrite/equivalence rule로 동등한 J graph 후보를 만들 수 있다. 여기서 생성되는 것은 target-independent opportunity와 graph candidate이지 concrete kernel schedule이 아니다.
-- **Execution Semantic Lowering**: 선택된 J Graph IR을 explicit dataflow와 normalized array operation으로 이루어진 `Logical Execution IR / Logical Execution Plan`으로 낮춘다. 이 후자의 IR은 J observable semantics, facts/checks, basis operation, effect/error ordering, executable dependency를 정확히 표현한다. 여러 execution op가 하나의 J Graph node에서 나올 수 있으므로 모든 op는 J Graph origin을 보존한다.
+- **J Graph IR / JAXA Array Operation Graph IR**: 완성된 J function을 실제 noun input에 적용한 **배열 연산 graph를 J 문법의 대수로 표현하는 compiler analysis surface**다. `@: → Pipeline`, hook/fork → Branch/Join, `/ → Reduce`, `" → CellParallel`처럼 parser/semantic construction에서 정적으로 유도되는 topology와 optimization hint를 first-class로 기록한다. JAXA의 주 관심사는 이 층이며, 역사적 JAXA의 `basis verb`도 주로 이 층의 **Graph Basis**를 뜻한다.
+- **Graph Analyzer / Algebraic Optimizer**: J Graph IR에서 fusion topology, fan-out/fan-in, common-input reuse, retained-value lifetime, reduction/cell parallelism, materialization-elision, 이후 adjoint/VJP fan-out 등을 찾는다. 가능한 경우 **GraphBasis** / rewrite / equivalence rule로 동등한 J graph 후보를 만들 수 있다. 여기서 생성되는 것은 target-independent opportunity와 graph candidate이지 concrete kernel schedule이 아니다.
+- **Execution Semantic Lowering**: 선택된 J Graph IR을 explicit dataflow와 normalized array operation으로 이루어진 `Logical Execution IR / Logical Execution Plan`으로 낮춘다. 이 후자의 IR은 J observable semantics, facts/checks, **ExecutionBasis** operation, effect/error ordering, executable dependency를 정확히 표현한다. 여러 execution op가 하나의 J Graph node에서 나올 수 있으므로 모든 op는 J Graph origin을 보존한다.
 - **Route Partition / Export**: verified Logical Execution IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
 - **RustJ-native Schedule / Transform Plan**: Route A에서 fusion/grouping, tiling, vectorization, axis mapping 같은 schedule 선택을 payload Logical IR과 분리해 기록한다.
 - **RustJ-native Physical Planner / Bufferization**: 선택된 schedule을 바탕으로 placement, memory space, layout, concrete materialization/copy, buffer binding/reuse, transfer, synchronization을 구체화한다.
@@ -250,7 +250,7 @@ Insert
 여기서는 다음이 중심이다.
 
 - explicit SSA-like data dependency
-- BasisKind/BasisPayload
+- ExecutionBasisKind/ExecutionBasisPayload
 - ResolvedInstantiation / ValueFacts / ValueRoleFacts
 - ConstraintSet / FactWitness / SemanticCheck
 - EffectSummary / SpeculationSemantics
@@ -4922,7 +4922,7 @@ Loop / Power
 
 nested `CellApply(Reduce(...))`, `Reduce(CellApply(...))` 등은 Logical IR에서 보존한다. flattening/segmentation/thread mapping은 optimizer/schedule decision이다.
 
-이 절의 `MatMul`, `Conv`, `OuterProduct` 같은 named high-level op 보존 원칙과 4.24.11의 basis vocabulary는 경쟁 관계가 아니다. named op는 algorithm/library/tensor realization 선택에 유용한 semantic/structured identity로 남을 수 있고, 동시에 증명된 `BasisExpansion`을 통해 `WindowView + Contract` 같은 더 compositional한 graph를 optimizer에 제공할 수 있다. 더 작은 expansion은 실제 성능상 이득이 있을 때만 추가한다.
+이 절의 `MatMul`, `Conv`, `OuterProduct` 같은 named high-level op 보존 원칙은 **Graph Basis identity 보존** 문제다. 4.24.11의 Execution basis vocabulary와 경쟁 관계가 아니다. named op는 Graph IR에서 algorithm/access/resource identity를 black box로 유지할 수 있고, execution lowering은 필요하면 `ExecutionBasisExpansion`을 통해 `WindowView + Contract` 같은 더 compositional한 실행 graph를 제공할 수 있다. 더 작은 expansion은 실제 성능상 이득이 있을 때만 추가한다.
 
 #### 4.24.9 Pure region extraction과 route precondition
 
@@ -4970,9 +4970,63 @@ semantic op 하나가 kernel 하나라는 가정을 두지 않는다.
 
 
 
-#### 4.24.11 Basis vocabulary v0.2: 최소성이 아니라 성능상 유효한 최적화 경계
+#### 4.24.10a Graph Basis와 Execution Basis를 분리한다
 
-RustJ의 basis operation은 “더 이상 분해할 수 없는 최소 primitive”를 뜻하지 않는다. **현재 수준의 semantic/array identity를 보존했을 때 optimizer와 planner가 실제 성능상 이득을 얻는 연산 단위**를 뜻한다.
+`basis`는 하나의 계층을 뜻하지 않는다. RustJ에서는 최소한 두 개를 명시적으로 구분한다.
+
+~~~text
+J Semantic Function / Derived Verb
+        ↓
+J Graph IR
+  GraphBasis / graph algebra / rewrite
+        ↓
+Execution Semantic Lowering
+        ↓
+Logical Execution IR
+  ExecutionBasisKind / ExecutionBasisPayload
+        ↓
+target lowering / library / custom kernel / physical schedule
+~~~
+
+**Graph Basis**는 역사적 JAXA의 basis-verb 연구에 가까운 개념이다. 목적은 J 표기가 제공한 계산 구조를 대수적으로 다루고, rewrite/equivalence/resource/fusion 분석에 사용할 생성원과 구조 단위를 보존하는 것이다. 이 층의 granularity는 hardware instruction이나 실행 loop의 최소성으로 정하지 않는다.
+
+특히 과거에 `conv`를 black box로 남기기로 한 판단은 **Graph IR에서 convolution identity를 성급하게 더 작은 graph primitive로 쪼개지 않는다**는 뜻이다. convolution이라는 algorithm/access/resource 구조를 Graph Basis에서 그대로 보존하면 rewrite, equivalence, fusion boundary, symbolic resource reasoning이 원래 identity를 이용할 수 있다.
+
+이 결정은 Execution IR의 분해를 금지하지 않는다.
+
+~~~text
+GraphBasis::Structured(Conv)
+   ├→ ExecutionBasis(WindowView → Contract)
+   ├→ ExecutionBasis(StaticReindex → Elementwise → Reduce)
+   ├→ library call
+   └→ custom fused kernel
+~~~
+
+즉 **graph-level black box와 execution-level decomposition은 독립적인 결정**이다. lowering은 원 GraphBasis identity와 equivalence/provenance를 유지한 채 하나 이상의 ExecutionBasis op로 펼칠 수 있다.
+
+Derived verb도 같은 순서를 따른다.
+
+~~~text
+Derived Verb
+  → GraphBasis composition
+  → ExecutionBasis composition
+  → realization
+~~~
+
+예를 들어 ranked reduction은 Graph IR에서 outer-to-inner `CellApply → Reduce` 구조를 보존할 수 있다. 이를 하나의 effective execution primitive로 일찍 평탄화하지 않는다. 이후 Execution Semantic Lowering이 J의 fill/assembly/error semantics를 증명한 범위에서 별도의 `ExecutionBasisKind::CellApply`, `ExecutionBasisKind::Reduce` 또는 흡수된 realization으로 내린다.
+
+코드에서는 두 층의 이름을 공유하지 않는다.
+
+- J Graph IR: `GraphBasis`, `GraphBasisKind`
+- Logical Execution IR: `ExecutionBasisKind`, `ExecutionBasisPayload`
+- Execution lowering registry: `ExecutionBasisLoweringCapability`
+- optional Execution-IR refinement: `ExecutionBasisExpansion`
+
+같은 단어인 Map/Reduce/Reindex가 양쪽에 나타날 수 있지만 **타입, 소유 fact, rewrite 법칙, granularity 조건이 다르다.**
+
+#### 4.24.11 Execution basis vocabulary v0.2: 최소성이 아니라 성능상 유효한 실행 최적화 경계
+
+이 절의 **Execution basis operation**은 “더 이상 분해할 수 없는 최소 primitive”를 뜻하지 않는다. Graph Basis의 최소성/생성원 문제와도 별개다. **현재 수준의 semantic/array identity를 보존했을 때 optimizer와 planner가 실제 성능상 이득을 얻는 연산 단위**를 뜻한다.
 
 따라서 어떤 basis op A가 더 작은 B + C + ... 로 표현 가능하다는 사실만으로 A를 제거하지 않는다. refinement는 다음 중 하나 이상의 이득이 입증되거나 강하게 예상될 때만 채택한다.
 
@@ -5076,7 +5130,7 @@ LinearSolve, Grade, GroupBy는 더 작은 operation으로 구현할 수 있어�
 
 Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimization basis가 다르다**는 점이다. 많은 연산을 map+iota+scatter 류로 재구성할 수 있어도 reduce 같은 identity를 지우면 fusion/parallel implementation 선택을 잃을 수 있다. RustJ는 따라서 “분해 가능”을 refinement 이유로 사용하지 않는다.
 
-#### 4.24.12 J primitive → provisional basis coverage matrix
+#### 4.24.12 J primitive → provisional execution-basis coverage matrix
 
 검토 기준:
 - J 공식 Vocabulary: https://www.jsoftware.com/help/dictionary/vocabul.htm
@@ -5191,7 +5245,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 
 jsource가 phrase-by-phrase special code로 얻는 여러 이득을 RustJ에서는 **basis graph + capability/lowering rule**로 일반화할 수 있다.
 
-#### 4.24.13 Derived forms closure check: 실제 basis graph
+#### 4.24.13 Derived forms closure check: 실제 execution-basis graph
 
 primitive 한 개만 매핑해서는 J semantics coverage를 검증할 수 없다. modifier/derived form이 만들어 내는 implicit traversal과 control을 실제 basis graph로 내려 보아야 한다.
 
@@ -5361,12 +5415,12 @@ Rank, Cut, Key/Oblique, Power, boxed Level/Spread/Fetch, sparse composition을 �
 1. v0.2에 없는 새 array-computation basis family는 발견되지 않았다.
 2. CellApply, WindowView, SegmentView, GroupBy/Classify, NestedTraverse의 필요성은 오히려 강화되었다.
 3. StateMachine만은 다른 array compiler와의 대응 근거가 약하므로 **provisional structured kernel**로 유지한다.
-4. basis를 더 작은 operation으로 refinement하는 작업은 이 closure의 선행조건이 아니다. 이후 benchmark/optimizer 구현에서 실질적 성능 이득이 확인되는 경우에만 BasisExpansion rule을 추가한다.
+4. basis를 더 작은 operation으로 refinement하는 작업은 이 closure의 선행조건이 아니다. 이후 benchmark/optimizer 구현에서 실질적 성능 이득이 확인되는 경우에만 ExecutionBasisExpansion rule을 추가한다.
 
 
 
 
-#### 4.24.14 Basis Logical IR node contract와 최소 analysis/lowering interface
+#### 4.24.14 Execution-basis Logical IR node contract와 최소 analysis/lowering interface
 
 4.24.11–4.24.13의 v0.2 vocabulary를 실제 A3 Logical IR로 옮길 때 basis 이름마다 임의의 struct를 따로 만들지 않는다. 모든 basis node는 공통 contract를 공유하고, 각 operation family가 필요한 추가 payload/fact/check를 명시한다.
 
@@ -5380,7 +5434,7 @@ J Semantic entity / Resolved semantic op
         └─ ResolvedCallFacts
                  │
                  ▼
-        optional BasisExpansion
+        optional ExecutionBasisExpansion
                  │
                  ▼
            Logical basis graph
@@ -5480,14 +5534,14 @@ SemanticCheck
 3. hoist/fuse/reorder는 SpeculationSemantics와 observable error order를 보존할 때만 허용한다.
 4. A3-v0 single-block IR에서도 check는 MayRaise operation으로 존재할 수 있다. runtime branch/deoptimization이 필요한 Guard는 A3-v1의 책임이다.
 
-현재 transition 구현의 src/analysis.rs::Node는 아직 “node 하나 = ValueId 하나”인 inspection snapshot이다. 따라서 이 구조에 zero-result SemanticCheck를 가짜 value-producing node로 억지로 넣지 않는다. 현재 단계에서는 direct BasisKind, ResolvedInstantiation, ValueRoleFacts seam만 추가하고, first-class SemanticCheck는 A3의 operation/result 분리에서 zero-result operation으로 구현한다. 이것은 SemanticCheck를 후순위 의미로 낮추는 것이 아니라 잘못된 migration representation을 만들지 않기 위한 단계화다.
+현재 transition 구현의 src/analysis.rs::Node는 아직 “node 하나 = ValueId 하나”인 inspection snapshot이다. 따라서 이 구조에 zero-result SemanticCheck를 가짜 value-producing node로 억지로 넣지 않는다. 현재 단계에서는 direct ExecutionBasisKind, ResolvedInstantiation, ValueRoleFacts seam만 추가하고, first-class SemanticCheck는 A3의 operation/result 분리에서 zero-result operation으로 구현한다. 이것은 SemanticCheck를 후순위 의미로 낮추는 것이 아니라 잘못된 migration representation을 만들지 않기 위한 단계화다.
 
-##### BasisExpansion
+##### ExecutionBasisExpansion
 
 큰 semantic/structured op가 basis graph와 동등하다고 알려져도 원래 identity를 삭제하지 않는다.
 
 ~~~text
-BasisExpansion
+ExecutionBasisExpansion
   source semantic/logical op
   applicability constraints
   expansion region/graph
@@ -5543,7 +5597,7 @@ LogicalBasisOp
 basis node는 implementation을 내장하지 않는다. registry가 다음 형태의 후보를 제공한다.
 
 ~~~text
-BasisLoweringCapability
+ExecutionBasisLoweringCapability
   basis/op family
   applicability predicate over:
     ResolvedInstantiation
@@ -5569,7 +5623,7 @@ preferred(candidate, CostProfile)
 
 library가 존재하거나 specialized kernel이라는 이유만으로 자동 선택하지 않는다.
 
-##### basis별 최소 node contract
+##### execution basis별 최소 node contract
 
 | Basis family | 최소 logical payload | 최소 facts / SemanticCheck | 최소 lowering capability family |
 |---|---|---|---|
@@ -5595,7 +5649,7 @@ library가 존재하거나 specialized kernel이라는 이유만으로 자동 �
 | LinearSolve | A/B operands, problem kind, transpose/least-squares/inverse semantic contract | rank/shape compatibility, numeric dtype, singularity/rank-deficiency/error semantics | generic reference solver, LU/QR/SVD family, dense CPU/GPU library, sparse solver route |
 | StateMachine | transition table, input classifier, initial state, emission/output policy | table shape/type, state/input-class bounds, output assembly, error semantics | scalar sequential reference, table-specialized loop, transition composition/vector route when proven legal |
 
-##### basis 간 composition rule
+##### execution basis 간 composition rule
 
 basis가 커졌다고 해서 nested structure를 즉시 평탄화하지 않는다.
 
@@ -5647,7 +5701,7 @@ later / workload-driven
   NestedTraverse
   LinearSolve
   StateMachine
-  specialized BasisExpansion rules
+  specialized ExecutionBasisExpansion rules
 ~~~
 
 later로 둔 operation도 language semantics를 later까지 금지한다는 뜻이 아니다. 해당 basis lowering이 없으면 기존 native/runtime semantic path 또는 structured-op fallback이 correctness를 담당한다.
@@ -5657,7 +5711,7 @@ later로 둔 operation도 language semantics를 later까지 금지한다는 뜻�
 2026-10-01 현재 기존 src/analysis.rs::LogicalPlan은 compatibility/inspection plan으로 유지하고, 별도 src/logical_ir.rs에 A3-v0 single-block IR migration seam을 추가했다.
 
 transition plan 쪽:
-- Node.basis: 한 call을 추가 graph expansion 없이 직접 분류할 수 있을 때 provisional BasisKind를 기록한다.
+- Node.basis: 한 call을 추가 graph expansion 없이 직접 분류할 수 있을 때 provisional ExecutionBasisKind를 기록한다.
 - ResolvedInstantiation: target/valence/input-output dtype·rank/requested rank boundary를 기록한다.
 - ValueRoleFacts: ShapeVector, IndexVector, CountVector, AxisPermutation 등 문맥상 role을 noun type과 분리한다.
 
@@ -5665,11 +5719,11 @@ A3 logical_ir 쪽:
 - Operation과 SSA ValueData를 분리하여 zero-result operation을 표현할 수 있다.
 - SemanticCheck는 실제 zero-result ordered op이며 PrefixAgreement, CellFrameAgreement, IndicesInBounds constraint를 우선 지원한다.
 - ConstraintSet과 FactWitness로 static proof가 있는 check와 unresolved check를 구분한다.
-- basis node는 family-specific BasisPayload와 IterationDomain/axis role을 가진다.
+- basis node는 family-specific ExecutionBasisPayload와 IterationDomain/axis role을 가진다.
 - EffectSummary와 SpeculationSemantics는 conservative PrimitiveContract에서 초기화되며 이후 proof-driven refinement가 가능하다.
-- src/lowering.rs의 BasisLoweringCapability registry는 legality만 판정하며 cost/preference와 분리된다.
+- src/lowering.rs의 ExecutionBasisLoweringCapability registry는 legality만 판정하며 cost/preference와 분리된다.
 - native candidate가 없으면 RuntimeSemanticFallback으로 분류하며 invalid J로 취급하지 않는다.
-- src/expansion.rs는 원 semantic op를 지우지 않는 optional multi-node BasisExpansion sidecar를 제공한다.
+- src/expansion.rs는 원 semantic op를 지우지 않는 optional multi-node ExecutionBasisExpansion sidecar를 제공한다.
 - 첫 실제 expansion은 dyadic E. 이며 J Dictionary의 x E. y ↔ ($x) x&-: ;.3 y identity를 근거로 WindowView → CellApply(Match) graph를 제공한다.
   - reference: https://www.jsoftware.com/help/dictionary/decapdot.htm
 
@@ -7071,7 +7125,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
 | checkpoint/rematerialization/reversible recovery | 문서 설계는 있으나 J Graph/Planner 구현은 없음 | 연구/후속 |
 | adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
-| basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
+| Graph basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
 | resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
 | static-analyzable subset / validation boundary | `GraphAnalyzability`로 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback을 구분 | **초기 구현** |
 | jsource-style graph normalization(capped fork→atop, tine simplification) | 현 `j_graph_ir`에는 별도 normalization pass 없음 | **미구현/확인 필요** |
@@ -7091,6 +7145,7 @@ v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
 - [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
+- [x] `GraphBasis` / `GraphBasisKind`를 Execution basis 타입과 분리하고, derived rank/reduction처럼 outer→inner graph-basis composition을 보존하는 최소 seam을 추가했다.
 - [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / Rank(`"`) / generic Modifier를 구분한다.
 - [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / CellParallelStructure를 기록한다.
 - [x] `GraphRuleRefs`로 shape/dtype/rank-cell/effect rule source와 resource rule의 StructuralComposition/Unknown을 명시한다.
@@ -7105,7 +7160,7 @@ v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
 - [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
 - [x] `j_graph_resource`에서 Pipeline/BranchJoin의 internal/elidable/retained/peak-live atom volume과 reduction accumulator requirement를 합성하는 최소 evaluator를 구현했다. Reduction/CellMap 단독-region 및 traffic 식은 계속 확장한다.
 - [ ] representation/schedule/TargetProfile을 결합해 graph-level logical memory 분석을 downstream `ResourceEstimate`로 연결한다.
-- [ ] basis verb의 algebraic rewrite/equivalence rule을 J Graph IR에 표현하고 후보 graph를 생성할 수 있게 한다.
+- [ ] Graph basis verb의 algebraic rewrite/equivalence rule을 J Graph IR에 표현하고 후보 graph를 생성할 수 있게 한다.
 - [ ] graph candidate마다 semantic-equivalence witness/provenance를 유지한다.
 - [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
 - [ ] name-bound derived verb의 graph summary를 binding version + SpecializationKey로 interprocedurally 전파한다.
@@ -7258,7 +7313,7 @@ ResourceEstimate / bufferization
 - [ ] specialization key에 포함할 fact relevance 정책과 code-explosion merge/widening 정책을 정의한다.
 - [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
 - [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
-- [x] A3 `CallOp + BasisPayload` 공통 contract와 `BasisKind` identity를 정의하고, target-specific realization은 `BasisLoweringCapability` registry로 분리했다.
+- [x] A3 `CallOp + ExecutionBasisPayload` 공통 contract와 `ExecutionBasisKind` identity를 정의하고, target-specific realization은 `ExecutionBasisLoweringCapability` registry로 분리했다. 이 vocabulary는 GraphBasis와 별도 계층이다.
 - [x] J syntax-derived `StructuralOpportunity` sidecar를 추가했다. `@:`는 Pipeline, hook/fork는 BranchJoin topology와 live-across/shared-input provenance를 analysis/A3 IR에 보존한다.
 - [x] StructuralOpportunity discovery와 semantic legality/target feasibility/physical fusion commitment을 서로 다른 단계로 분리했다.
 - [ ] adjoint/VJP expansion이 생기면 data-adjoint/parameter-adjoint branch를 `ParallelFanOut` opportunity로 연결한다.
@@ -7266,12 +7321,12 @@ ResourceEstimate / bufferization
 - [ ] StructuralOpportunity와 use-def/GraphIndex를 결합해 pipeline intermediate materialization-elision 및 branch live-range 분석을 일반화한다.
 - [ ] J Graph IR의 GraphForm/GraphHint vocabulary를 Cut/Window, Dot/Contract, Power/Iteration, Key/GroupBy 등 J graph algebra 전반으로 확장한다.
 - [ ] primitive마다 J Graph IR용 shape/dtype/rank/effect/resource rule reference를 연결하고, 아직 모르는 항목은 명시적 Unknown으로 둔다.
-- [ ] basis verb 위 rewrite/equivalence rule을 J Graph IR에서 표현하여 동일 execution semantics를 갖는 여러 J graph 후보를 생성할 수 있게 한다.
+- [ ] Graph basis verb 위 rewrite/equivalence rule을 J Graph IR에서 표현하여 동일 execution semantics를 갖는 여러 J graph 후보를 생성할 수 있게 한다.
 - [ ] target ResourceEstimate/register/shared-memory model을 opportunity별 feasibility query로 연결하되 Logical IR payload에는 concrete hardware allocation을 넣지 않는다.
 - [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
 - [x] ValueRoleFacts 최소형을 추가했다. 현재 ShapeVector/AxisPermutation/IndexVector/CountVector를 실제 분석에서 생산하며 나머지 role enum은 후속 basis가 사용한다.
 - [x] J-visible predicate failure를 표현하는 first-class zero-result SemanticCheck를 A3 IR에 정의하고 compiler assertion과 분리했다.
-- [x] BasisExpansion sidecar에 applicability ConstraintSet + equivalence witness를 두고 original semantic/structured identity를 보존한다. 첫 rule은 E. → WindowView + CellApply(Match)다.
+- [x] ExecutionBasisExpansion sidecar에 applicability ConstraintSet + equivalence witness를 두고 original semantic/structured identity를 보존한다. 첫 rule은 E. → WindowView + CellApply(Match)다.
 - [x] A3-v0 correctness executor 범위를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck 중심으로 제한했다. `logical_executor::execute_closed`는 closed expression reference path이며 native Physical Executor와는 별개다.
 - [x] A3 verifier negative tests, runtime/reference-equivalence tests, Rank/Reduce 및 E. expansion composition tests의 golden scaffold를 추가했다.
 - [ ] `ParameterizedLoweringRecipe` interface를 정의해 ResolvedCallFacts+TargetCapability로 multiple realization 후보를 만들 수 있게 한다.

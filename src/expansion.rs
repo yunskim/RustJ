@@ -1,4 +1,4 @@
-//! Optional basis expansions for structured/semantic operations.
+//! Optional execution-basis expansions for structured/semantic operations.
 //!
 //! Expansions are sidecar candidates: the original semantic operation remains
 //! in the A3 plan until an optimizer explicitly chooses and proves an expansion.
@@ -71,7 +71,7 @@ pub enum EquivalenceWitness {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BasisExpansion {
+pub struct ExecutionBasisExpansion {
     pub source_op: OpId,
     pub source_result: ValueId,
     pub rule: ExpansionRuleId,
@@ -85,10 +85,10 @@ fn find_expansion(
     source_result: ValueId,
     left: ValueId,
     right: ValueId,
-) -> BasisExpansion {
+) -> ExecutionBasisExpansion {
     let window = ExpansionNodeId(0);
     let matched = ExpansionNodeId(1);
-    BasisExpansion {
+    ExecutionBasisExpansion {
         source_op,
         source_result,
         rule: ExpansionRuleId::FindViaWindowMatch,
@@ -122,7 +122,7 @@ fn find_expansion(
 ///
 /// The source operation/result identity remains available for a direct native
 /// implementation, a specialized library route, or runtime fallback.
-pub fn discover(plan: &Plan) -> Vec<BasisExpansion> {
+pub fn discover(plan: &Plan) -> Vec<ExecutionBasisExpansion> {
     let mut expansions = Vec::new();
 
     for (index, operation) in plan.operations.iter().enumerate() {
