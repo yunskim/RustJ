@@ -67,6 +67,62 @@ depending on available proof/capability
     └─ verified library/custom-kernel route
 ```
 
+### 1.1 Core invariant — Logical Array is not Physical Array
+
+One of the boundaries this document protects is the separation between **the array semantics observed by J** and **the physical representation used by a backend**.
+
+```text
+Logical Array
+    J-visible type/value
+    shape
+    ordered atoms
+    boxed/sparse and other J-visible semantics
+
+        ≠
+
+Physical Array / Representation
+    buffer/storage
+    strides
+    offset
+    layout/tiling
+    alignment
+    memory space
+    device placement
+    sharding/transfer
+```
+
+The reason is fundamental:
+
+**J semantics are not defined by a particular memory layout or device.**
+
+For example, transpose is a logical axis/order transformation. Whether it remains a stride-only view, is absorbed into a consumer index map, or is materialized as a copy depends on representation, schedule, and target. Making that choice part of J noun identity would leak implementation details back into language semantics.
+
+Therefore:
+
+- do not equate logical shape/order/type with physical stride/layout;
+- do not equate `ValueId` with `BufferId`;
+- do not equate existence of a logical value with existence of a materialized buffer;
+- do not make CPU/GPU placement part of J value identity;
+- do not replace J agreement/rank semantics with backend broadcasting/layout semantics;
+- distinguish J-visible sparse/boxed semantics from concrete CSR/COO or pointer/handle encodings;
+- changing physical realization must preserve the same logical array semantics.
+
+This separation is what gives the compiler freedom to optimize safely:
+
+```text
+J logical semantics
+        ↓
+analysis / legality
+        ↓
+representation choice
+        ↓
+physical planning
+        ↓
+buffer / layout / device
+```
+
+If RustJ reverses this order and starts adapting J semantics to a preselected physical representation, that is an architectural regression.
+
 ---
 
 # Part II — Why APL was interpretive
@@ -327,9 +383,9 @@ But diagnostics must not replace the original J-compatible error kind.
 
 ---
 
-# Part IX — Array semantics vs representation
+# Part IX — Logical vs physical array semantics
 
-## 9. A J noun is logical, not physical
+## 9. Logical Array is not Physical Array
 
 The logical noun is:
 
