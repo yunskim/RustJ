@@ -118,6 +118,51 @@ fn transpose_and_prefix_repeat_preserve_j_logical_mapping() {
     assert!(repeated.logical_slice().is_none());
 }
 
+
+#[test]
+fn equivalent_logical_array_can_use_different_physical_layouts() {
+    let mut registry = BufferRegistry::new().unwrap();
+
+    let standard_buffer = registry
+        .register(ints(&[2, 3], vec![0, 1, 2, 3, 4, 5]))
+        .unwrap();
+    let standard = PhysicalArray::new(
+        standard_buffer,
+        [2, 3],
+        vec![3, 1],
+        0,
+    )
+    .unwrap();
+
+    let reversed_backing = registry
+        .register(ints(&[2, 3], vec![5, 4, 3, 2, 1, 0]))
+        .unwrap();
+    let reversed_layout = PhysicalArray::new(
+        reversed_backing,
+        [2, 3],
+        vec![-3, -1],
+        5,
+    )
+    .unwrap();
+
+    let standard_logical = (0..2)
+        .flat_map(|i| (0..3).map(move |j| [i, j]))
+        .map(|index| int(&standard, &index))
+        .collect::<Vec<_>>();
+    let reversed_logical = (0..2)
+        .flat_map(|i| (0..3).map(move |j| [i, j]))
+        .map(|index| int(&reversed_layout, &index))
+        .collect::<Vec<_>>();
+
+    assert_eq!(standard.shape(), reversed_layout.shape());
+    assert_ne!(standard.strides(), reversed_layout.strides());
+    assert_ne!(standard.offset(), reversed_layout.offset());
+    assert_eq!(standard_logical, vec![0, 1, 2, 3, 4, 5]);
+    assert_eq!(reversed_logical, standard_logical);
+    assert!(standard.logical_slice().is_some());
+    assert!(reversed_layout.logical_slice().is_none());
+}
+
 #[test]
 fn empty_and_singleton_axes_have_canonical_metadata() {
     let mut registry = BufferRegistry::new().unwrap();
