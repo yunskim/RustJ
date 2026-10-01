@@ -250,3 +250,45 @@ fn graph_verifier_rejects_unknown_schema() {
     let error = graph.verify().unwrap_err();
     assert!(error.contains("schema version"));
 }
+
+
+#[test]
+fn hook_keeps_retained_value_without_claiming_parallel_siblings() {
+    let graph = Engine::new().analyze_j_graph("(+ -) 3").unwrap();
+    let result = graph.result.unwrap();
+    let (_, region) = graph.region_for_result(result).expect("hook region");
+
+    assert!(matches!(region.kind, RegionKind::Hook { .. }));
+    assert!(region.hints.contains(GraphHint::RetainedValueCandidate));
+    assert!(region.hints.contains(GraphHint::BranchJoinFusionCandidate));
+    assert!(!region.hints.contains(GraphHint::ParallelBranchCandidate));
+}
+
+#[test]
+fn graph_facts_are_early_semantic_facts_not_representation_facts() {
+    let graph = Engine::new().analyze_j_graph("|. 1 2 3").unwrap();
+    let result = graph.result.unwrap();
+    let facts = &graph.nodes[result.0].facts;
+
+    assert_eq!(facts.shape.as_deref(), Some(&[3][..]));
+    assert_eq!(facts.rank, Some(1));
+    // GraphFacts intentionally has no layout/representation field.  Execution
+    // lowering is responsible for resolved representation-side facts.
+}
+
+#[test]
+fn nested_regions_do_not_assume_unique_result_ownership() {
+    let graph = Engine::new()
+        .analyze_j_graph("((+/ % #) @: |.) 1 2 3 4")
+        .unwrap();
+    graph.verify().unwrap();
+
+    let result = graph.result.unwrap();
+    let regions = graph.regions_for_result(result).collect::<Vec<_>>();
+    assert!(
+        regions.len() >= 1,
+        "a result may be owned by one or more nested J combinator regions"
+    );
+    let (_, outermost) = graph.region_for_result(result).expect("outer region");
+    assert!(matches!(outermost.kind, RegionKind::Pipeline { .. }));
+}
