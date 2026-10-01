@@ -1101,37 +1101,74 @@ impl Plan {
                         return Err(format!("region {index} pipeline analyzability is stale"));
                     }
 
+                    let GraphForm::Pipeline { stages } = form else {
+                        unreachable!("matched pipeline form")
+                    };
+                    if stages.len() != stage_results.len() {
+                        return Err(format!("region {index} pipeline stage/function count mismatch"));
+                    }
+
                     let mut previous = *region
                         .inputs
                         .last()
                         .ok_or_else(|| format!("region {index} pipeline has no input"))?;
-                    for (stage_index, stage_result) in stage_results.iter().copied().enumerate() {
-                        let NodeKind::Apply {
-                            left,
-                            right,
-                            valence,
-                            ..
-                        } = &self.nodes[stage_result.0].kind
-                        else {
-                            return Err(format!(
-                                "region {index} pipeline stage {stage_index} is not an Apply node"
-                            ));
+                    for (stage_index, (stage, stage_result)) in stages
+                        .iter()
+                        .zip(stage_results.iter().copied())
+                        .enumerate()
+                    {
+                        let expected_inputs = if stage_index == 0 && region.inputs.len() == 2 {
+                            vec![region.inputs[0], previous]
+                        } else {
+                            vec![previous]
                         };
-                        if *right != previous {
-                            return Err(format!(
-                                "region {index} pipeline stage {stage_index} is not chained"
-                            ));
-                        }
-                        if stage_index == 0 && region.inputs.len() == 2 {
-                            if *valence != Valence::Dyad || *left != Some(region.inputs[0]) {
+                        let (stage_form, _) = classify_function(stage);
+                        if matches!(
+                            stage_form,
+                            GraphForm::Pipeline { .. } | GraphForm::Hook { .. } | GraphForm::Fork { .. }
+                        ) {
+                            let nested = self.regions.iter().find(|candidate| {
+                                candidate.result == stage_result
+                                    && Arc::ptr_eq(&candidate.function, stage)
+                            });
+                            let Some(nested) = nested else {
                                 return Err(format!(
-                                    "region {index} dyadic pipeline first stage mismatch"
+                                    "region {index} pipeline stage {stage_index} has no matching nested region"
+                                ));
+                            };
+                            if nested.inputs != expected_inputs {
+                                return Err(format!(
+                                    "region {index} pipeline stage {stage_index} nested inputs are not chained"
                                 ));
                             }
-                        } else if *left != None {
-                            return Err(format!(
-                                "region {index} pipeline stage {stage_index} must be monadic"
-                            ));
+                        } else {
+                            let NodeKind::Apply {
+                                left,
+                                right,
+                                valence,
+                                ..
+                            } = &self.nodes[stage_result.0].kind
+                            else {
+                                return Err(format!(
+                                    "region {index} pipeline stage {stage_index} is not an Apply node"
+                                ));
+                            };
+                            if *right != previous {
+                                return Err(format!(
+                                    "region {index} pipeline stage {stage_index} is not chained"
+                                ));
+                            }
+                            if stage_index == 0 && region.inputs.len() == 2 {
+                                if *valence != Valence::Dyad || *left != Some(region.inputs[0]) {
+                                    return Err(format!(
+                                        "region {index} dyadic pipeline first stage mismatch"
+                                    ));
+                                }
+                            } else if *left != None {
+                                return Err(format!(
+                                    "region {index} pipeline stage {stage_index} must be monadic"
+                                ));
+                            }
                         }
                         previous = stage_result;
                     }
