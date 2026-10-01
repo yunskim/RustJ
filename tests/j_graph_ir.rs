@@ -141,6 +141,41 @@ fn modifiers_expose_collective_and_cell_parallel_contracts_before_execution_lowe
     assert_eq!(graph.nodes[result.0].facts.shape.as_deref(), Some(&[2][..]));
 }
 
+
+#[test]
+fn prefix_infix_exposes_window_graph_basis_without_collapsing_inner_reduction() {
+    let graph = Engine::new().analyze_j_graph("(+/)\\ 1 2 3 4").unwrap();
+    let result = graph.result.unwrap();
+    let NodeKind::Apply {
+        form,
+        basis,
+        hints,
+        contract,
+        ..
+    } = &graph.nodes[result.0].kind
+    else {
+        panic!()
+    };
+
+    assert!(matches!(form, GraphForm::PrefixInfix { .. }));
+    assert_eq!(
+        basis.layers,
+        vec![GraphBasisKind::Window, GraphBasisKind::Reduce]
+    );
+    assert!(hints.contains(GraphHint::WindowStructure));
+    assert_eq!(contract.iteration, IterationContract::WindowFamily);
+    assert_eq!(contract.access, AccessContract::WindowRelative);
+    assert_eq!(contract.fusion_structure, FusionStructure::WindowAware);
+    assert_eq!(
+        contract.working_state,
+        SymbolicResourceExpr::StructuralComposition
+    );
+
+    // Scan is intentionally not asserted as a separate Graph Basis yet.
+    // Historical JAXA treated that as an open basis-taxonomy question.
+    graph.verify().unwrap();
+}
+
 #[test]
 fn graph_basis_is_distinct_from_execution_basis_and_preserves_graph_granularity() {
     let graph = Engine::new().analyze_j_graph("1+2").unwrap();
