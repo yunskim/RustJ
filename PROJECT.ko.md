@@ -28,6 +28,39 @@ RustJ는 `jsource`의 C 구현을 줄 단위로 Rust로 번역하는 프로젝�
 
 C J 엔진을 RustJ의 정상 실행 fallback으로 사용하지 않는다.
 
+### 참고 구현(reference implementations)
+
+RustJ는 외부 구현을 하나의 동일한 권위로 취급하지 않고 **역할별 reference implementation**으로 구분한다.
+
+- **`jsoftware/jsource` — J semantic reference / oracle**
+  - 언어 의미, parser/name semantics, primitive corner case, rank/agreement, 오류·타입 의미의 기준이다.
+  - RustJ의 semantic correctness와 differential test에서 최우선 reference다.
+
+- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
+  - lazy expression graph, evaluation boundary, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend 선택, device memory·stream·synchronization 관리의 참고 구현이다.
+  - RustJ의 Graph/Execution optimization, Physical Planner, external-library route, cost model을 설계할 때 비교한다.
+  - **J 언어 의미의 oracle은 아니다.**
+
+- **`jsoftware/math_arrayfire` — J ↔ GPU library adapter/offload reference**
+  - J array를 ArrayFire handle로 넘기는 실제 adapter 구현이다.
+  - row-major J와 column-major ArrayFire 사이의 layout conversion, backend capability/rank 제한, external handle lifetime과 release/GC 경계를 검토하는 참고 구현으로 사용한다.
+  - J의 일반 rank/adverb/derived verb 전체를 GPU compiler로 구현한 사례로 해석하지 않는다.
+
+- **APEX / Co-dfns / TAIL→Futhark 계열 — array-compiler research implementation**
+  - morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion·GPU lowering을 비교하는 연구 구현이다.
+  - 이들의 제한된 APL subset을 RustJ의 J semantics 제한으로 가져오지 않는다.
+
+따라서 reference 우선순위는 목적별로 다르다.
+
+```text
+J semantic correctness       → jsource
+array graph/JIT fusion       → ArrayFire
+J↔external GPU adapter       → jsoftware/math_arrayfire
+array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
+```
+
+ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택 사항은 §13의 **ArrayFire / J ArrayFire add-on / fusion systems** 절을 따른다.
+
 현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, 초기 분석/LogicalPlan, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
 
 ### 1.1 JAXA에서 이어받은 설계 원칙 — “NN의 SQL”
