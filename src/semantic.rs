@@ -288,20 +288,15 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 2 {
             for i in (0..items.len() - 1).rev() {
-                let edge = if i == 0 {
-                    ParseClass::Mark
-                } else {
-                    items[i - 1].class
-                };
-                let after = items
+                let right_context = items
                     .get(i + 2)
                     .map_or(ParseClass::Mark, |item| item.class);
                 if items[i].class == ParseClass::Verb
                     && match_parse_row([
-                        edge,
+                        right_context,
                         items[i].class,
                         items[i + 1].class,
-                        after,
+                        ParseClass::Mark,
                     ]) == Some(ParseRow::Adverb)
                 {
                     let pair: Vec<_> = items.drain(i..i + 2).collect();
@@ -330,14 +325,12 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 3 {
             for i in (0..items.len() - 2).rev() {
-                let edge = if i == 0 {
-                    ParseClass::Mark
-                } else {
-                    items[i - 1].class
-                };
+                let right_context = items
+                    .get(i + 3)
+                    .map_or(ParseClass::Mark, |item| item.class);
                 if items[i].class == ParseClass::Verb
                     && match_parse_row([
-                        edge,
+                        right_context,
                         items[i].class,
                         items[i + 1].class,
                         items[i + 2].class,
