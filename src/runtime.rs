@@ -135,6 +135,12 @@ impl Engine {
     ) -> Result<crate::analysis::CompilationAnalysis> {
         let j_graph = self.analyze_j_graph_diagnostic(source)?;
         let graph_rewrites = j_graph.rewrite_candidates();
+        let graph_rewrite_resources =
+            crate::j_graph_resource::evaluate_rewrite_candidates(&j_graph, &graph_rewrites)
+                .map_err(|message| {
+                    Error::Unsupported(message.into())
+                        .in_phase(DiagnosticPhase::SemanticAnalysis)
+                })?;
         let execution = crate::analysis::lower_graph(j_graph.clone(), &|name| match self
             .names
             .get(name)
@@ -147,6 +153,7 @@ impl Engine {
         Ok(crate::analysis::CompilationAnalysis {
             j_graph,
             graph_rewrites,
+            graph_rewrite_resources,
             execution,
         })
     }
