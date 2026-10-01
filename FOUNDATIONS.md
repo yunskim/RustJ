@@ -678,7 +678,7 @@ Representation + Schedule + Target
         ↓
 Physical resource planning
   register allocation
-  shared/LDS/working_state bytes
+  shared/LDS/scratchpad bytes
   packed/layout/alignment
   tile-local storage
   physical buffers/offsets
