@@ -117,6 +117,9 @@ pub enum SymbolicResourceExpr {
     StructuralComposition,
     /// Reduction requires accumulator state; exact size depends on shape/schedule.
     ReductionAccumulator,
+    /// Prefix/window reuse requires a logical working set. Exact residency and
+    /// size are schedule/target decisions.
+    WindowWorkingSet,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -555,13 +558,17 @@ fn base_operation_contract(
             accumulator: SymbolicResourceExpr::ReductionAccumulator,
             working_state: SymbolicResourceExpr::None,
         },
-        GraphForm::PrefixInfix { .. } => GraphOperationContract {
-            iteration: IterationContract::WindowFamily,
-            access: AccessContract::WindowRelative,
-            fusion_structure: FusionStructure::WindowAware,
-            temporary: SymbolicResourceExpr::StructuralComposition,
-            accumulator: SymbolicResourceExpr::StructuralComposition,
-            working_state: SymbolicResourceExpr::StructuralComposition,
+        GraphForm::PrefixInfix { operand } => {
+            let (inner_form, _) = classify_function(operand);
+            let inner = base_operation_contract(operand, Valence::Monad, &inner_form);
+            GraphOperationContract {
+                iteration: IterationContract::WindowFamily,
+                access: AccessContract::WindowRelative,
+                fusion_structure: FusionStructure::WindowAware,
+                temporary: inner.temporary,
+                accumulator: inner.accumulator,
+                working_state: SymbolicResourceExpr::WindowWorkingSet,
+            }
         },
         GraphForm::Rank { .. } => GraphOperationContract {
             iteration: IterationContract::CellMap,
