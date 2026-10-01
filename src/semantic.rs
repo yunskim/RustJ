@@ -2,7 +2,7 @@
 //! Nodes retain byte spans; binding and execution remain separate phases.
 use crate::{
     Error, Result, Value,
-    enqueuer::{EnqueuedPayload, enqueue},
+    enqueuer::{EnqueueClass, EnqueuedPayload, EnqueuedWord, enqueue},
     error::{DiagnosticPhase, ErrorContext},
 };
 use std::sync::Arc;
@@ -503,58 +503,55 @@ pub(crate) fn parse_analysis(
 
 type NounLookup<'a> = Option<&'a dyn Fn(&str) -> Option<Value>>;
 fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Program> {
-    let enqueued = enqueue(source)?;
-    let spans: Vec<_> = enqueued.iter().map(|word| word.span.clone()).collect();
-    let word_indices: Vec<_> = enqueued.iter().map(|word| word.word_index).collect();
-    let mut tokens: Vec<_> = enqueued.into_iter().map(|word| word.payload).collect();
+    let mut queue = enqueue(source)?;
     let mut assignment_span = None;
     let mut assignment = None;
-    let expression = if tokens.is_empty() {
+    let expression = if queue.is_empty() {
         None
     } else {
-        let (expr, expr_spans, expr_words) = if tokens.len() > 1 && matches!(tokens[1], EnqueuedPayload::Assign) {
-            let EnqueuedPayload::Name(name) = &tokens[0] else {
+        let expr = if queue.len() > 1 && queue[1].class == EnqueueClass::Assignment {
+            if queue[0].class != EnqueueClass::Name || queue[0].flags.lookup_name {
                 return Err(
                     Error::Syntax("assignment target".into()).with_context(
                         ErrorContext::phase(DiagnosticPhase::Parse)
-                            .with_span(spans[0].clone())
-                            .with_blame_word(word_indices[0]),
+                            .with_span(queue[0].span.clone())
+                            .with_blame_word(queue[0].word_index),
                     ),
                 );
+            }
+            let EnqueuedPayload::Name(name) = &queue[0].payload else {
+                return Err(Error::Syntax("assignment target".into()));
             };
             assignment = Some((*name).to_owned());
-            assignment_span = Some(spans[0].clone());
-            (&mut tokens[2..], &spans[2..], &word_indices[2..])
+            assignment_span = Some(queue[0].span.clone());
+            &mut queue[2..]
         } else {
-            (tokens.as_mut_slice(), spans.as_slice(), word_indices.as_slice())
+            queue.as_mut_slice()
         };
         let mut pos = 0;
-        let (result, _) = expression(expr, expr_spans, &mut pos, false, 0, noun, snapshot)
+        let (result, _) = expression(expr, &mut pos, false, 0, noun, snapshot)
             .map_err(|error| {
-                let fallback_span = expr_spans
+                let fallback = expr
                     .get(pos)
-                    .cloned()
-                    .or_else(|| expr_spans.last().cloned())
+                    .or_else(|| expr.last());
+                let fallback_span = fallback
+                    .map(|word| word.span.clone())
                     .unwrap_or(source.len()..source.len());
-                let mut context = ErrorContext::phase(DiagnosticPhase::Parse)
-                    .with_span(fallback_span);
-                if let Some(word_index) = expr_words
-                    .get(pos)
-                    .copied()
-                    .or_else(|| expr_words.last().copied())
-                {
-                    context = context.with_blame_word(word_index);
+                let mut context =
+                    ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
+                if let Some(word) = fallback {
+                    context = context.with_blame_word(word.word_index);
                 }
                 error.with_context(context)
             })?;
         if pos != expr.len() {
-            let span = expr_spans
-                .get(pos)
-                .cloned()
+            let fallback = expr.get(pos).or_else(|| expr.last());
+            let span = fallback
+                .map(|word| word.span.clone())
                 .unwrap_or(source.len()..source.len());
             let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(span);
-            if let Some(word_index) = expr_words.get(pos).copied() {
-                context = context.with_blame_word(word_index);
+            if let Some(word) = fallback {
+                context = context.with_blame_word(word.word_index);
             }
             return Err(Error::Syntax("trailing tokens".into()).with_context(context));
         }
@@ -568,8 +565,7 @@ fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Prog
     })
 }
 fn expression(
-    tokens: &mut [EnqueuedPayload<'_>],
-    spans: &[std::ops::Range<usize>],
+    tokens: &mut [EnqueuedWord<'_>],
     pos: &mut usize,
     nested: bool,
     depth: usize,
@@ -581,24 +577,24 @@ fn expression(
     }
     let mut items = Vec::new();
     while *pos < tokens.len() {
-        match &tokens[*pos] {
+        match &tokens[*pos].payload {
             EnqueuedPayload::Close => {
                 if nested {
                     break;
                 } else {
-                    return Err(Error::Syntax("unexpected )".into()).at(spans[*pos].clone()));
+                    return Err(Error::Syntax("unexpected )".into()).at(tokens[*pos].span.clone()));
                 }
             }
             EnqueuedPayload::Open => {
-                let start = spans[*pos].start;
+                let start = tokens[*pos].span.start;
                 *pos += 1;
-                let (v, height) = expression(tokens, spans, pos, true, depth + 1, noun, snapshot)?;
+                let (v, height) = expression(tokens, pos, true, depth + 1, noun, snapshot)?;
                 let height = checked_height(height)?;
-                if !matches!(tokens.get(*pos), Some(EnqueuedPayload::Close)) {
+                if !tokens.get(*pos).is_some_and(|word| matches!(word.payload, EnqueuedPayload::Close)) {
                     return Err(Error::Syntax("missing )".into()).at(start..start + 1));
                 }
                 let v = Expr {
-                    span: start..spans[*pos].end,
+                    span: start..tokens[*pos].span.end,
                     kind: ExprKind::Group(Box::new(v)),
                 };
                 *pos += 1;
@@ -615,11 +611,11 @@ fn expression(
             EnqueuedPayload::Scalar(v) => {
                 items.push(Item::noun(
                     Expr {
-                        span: spans[*pos].clone(),
+                        span: tokens[*pos].span.clone(),
                         kind: ExprKind::Literal(
                         v.clone()
                             .into_value()
-                            .map_err(|error| error.at(spans[*pos].clone()))?,
+                            .map_err(|error| error.at(tokens[*pos].span.clone()))?,
                     ),
                     },
                     0,
@@ -627,12 +623,12 @@ fn expression(
                 *pos += 1;
             }
             EnqueuedPayload::Noun(_) => {
-                let EnqueuedPayload::Noun(v) = std::mem::replace(&mut tokens[*pos], EnqueuedPayload::Open) else {
+                let EnqueuedPayload::Noun(v) = std::mem::replace(&mut tokens[*pos].payload, EnqueuedPayload::Open) else {
                     unreachable!()
                 };
                 items.push(Item::noun(
                     Expr {
-                        span: spans[*pos].clone(),
+                        span: tokens[*pos].span.clone(),
                         kind: ExprKind::Literal(*v),
                     },
                     0,
@@ -640,7 +636,7 @@ fn expression(
                 *pos += 1;
             }
             EnqueuedPayload::Verb(_) | EnqueuedPayload::Name(_) => {
-                if let EnqueuedPayload::Name(n) = &tokens[*pos] {
+                if let EnqueuedPayload::Name(n) = &tokens[*pos].payload {
                     let kind = match noun {
                         None => Some(ExprKind::ReadName((*n).to_owned())),
                         Some(lookup) => lookup(n).map(|v| {
@@ -654,7 +650,7 @@ fn expression(
                     if let Some(kind) = kind {
                         items.push(Item::noun(
                             Expr {
-                                span: spans[*pos].clone(),
+                                span: tokens[*pos].span.clone(),
                                 kind,
                             },
                             0,
@@ -663,12 +659,12 @@ fn expression(
                         continue;
                     }
                 }
-                let target = match &tokens[*pos] {
+                let target = match &tokens[*pos].payload {
                     EnqueuedPayload::Verb(id) => VerbTarget::Primitive(*id),
                     EnqueuedPayload::Name(n) => VerbTarget::Named((*n).to_owned()),
                     _ => unreachable!(),
                 };
-                let verb_span = spans[*pos].clone();
+                let verb_span = tokens[*pos].span.clone();
                 let entity = match &target {
                     VerbTarget::Primitive(id) => FunctionEntity::primitive(*id, verb_span.clone()),
                     VerbTarget::Named(name) => {
@@ -687,21 +683,21 @@ fn expression(
             EnqueuedPayload::Adverb(id) => {
                 items.push(Item::function(FunctionEntity::primitive_adverb(
                     *id,
-                    spans[*pos].clone(),
+                    tokens[*pos].span.clone(),
                 )));
                 *pos += 1;
             }
             EnqueuedPayload::Conjunction(id) => {
                 items.push(Item::function(FunctionEntity::primitive_conjunction(
                     *id,
-                    spans[*pos].clone(),
+                    tokens[*pos].span.clone(),
                 )));
                 *pos += 1;
             }
             _ => {
                 return Err(
                     Error::Unsupported("assignment/modifier in expression".into())
-                        .at(spans[*pos].clone()),
+                        .at(tokens[*pos].span.clone()),
                 );
             }
         }
@@ -729,7 +725,7 @@ fn expression(
     let rhs_error_span = items
         .last()
         .map(Item::span)
-        .unwrap_or_else(|| spans.last().cloned().unwrap_or(0..0));
+        .unwrap_or_else(|| tokens.last().map(|word| word.span.clone()).unwrap_or(0..0));
     let Some((mut rhs, mut height)) = items.pop().and_then(Item::into_noun) else {
         return Err(Error::Syntax("expected right argument".into()).at(rhs_error_span));
     };
