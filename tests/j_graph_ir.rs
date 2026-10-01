@@ -364,7 +364,7 @@ fn nested_regions_do_not_assume_unique_result_ownership() {
     let result = graph.result.unwrap();
     let regions = graph.regions_for_result(result).collect::<Vec<_>>();
     assert!(
-        regions.len() >= 1,
+        !regions.is_empty(),
         "a result may be owned by one or more nested J combinator regions"
     );
     let (_, outermost) = graph.region_for_result(result).expect("outer region");
