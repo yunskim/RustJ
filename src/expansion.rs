@@ -6,7 +6,10 @@
 use crate::{
     analysis::{ExecutionBasisKind, CallTarget},
     j_graph_rewrite::{GraphEquivalenceWitness, GraphRewriteRuleId},
-    logical_ir::{ConstraintSet, OpId, OpKind, Plan, ValueId},
+    logical_ir::{
+        ConstraintSet, ExecutionBasisPayload, OpId, OpKind, Plan, ValueId,
+        WindowShapeSpec,
+    },
     primitive::PrimitiveId,
 };
 
@@ -38,6 +41,8 @@ pub struct ExpansionNode {
     pub basis: ExecutionBasisKind,
     pub inputs: Vec<ExpansionInput>,
     pub semantics: ExpansionNodeSemantics,
+    /// Exact execution-basis semantics required by any later lowering.
+    pub payload: ExecutionBasisPayload,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,6 +100,10 @@ fn find_expansion(
                         ExpansionInput::Source(left),
                     ],
                     semantics: ExpansionNodeSemantics::WindowByPatternShape,
+                    payload: ExecutionBasisPayload::WindowView {
+                        source: right,
+                        shape: WindowShapeSpec::PatternShape { pattern: left },
+                    },
                 },
                 ExpansionNode {
                     basis: ExecutionBasisKind::CellApply,
@@ -103,6 +112,7 @@ fn find_expansion(
                         ExpansionInput::Node(window),
                     ],
                     semantics: ExpansionNodeSemantics::MatchPatternCell,
+                    payload: ExecutionBasisPayload::CellApply,
                 },
             ],
             output: matched,
