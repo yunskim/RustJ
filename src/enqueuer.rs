@@ -82,7 +82,11 @@ fn parse_float(s: &str) -> Result<f64> {
     }
 }
 
-fn interpret_word<'a>(word: &'a str, span: &Range<usize>) -> Result<(EnqueueClass, EnqueuedPayload<'a>, EnqueueFlags)> {
+fn interpret_word<'a>(
+    word: &'a str,
+    span: &Range<usize>,
+    primitives: &crate::primitive::PrimitiveContext,
+) -> Result<(EnqueueClass, EnqueuedPayload<'a>, EnqueueFlags)> {
     let fixed = match word {
         "=:" => Some((
             EnqueueClass::Assignment,
@@ -102,22 +106,23 @@ fn interpret_word<'a>(word: &'a str, span: &Range<usize>) -> Result<(EnqueueClas
             EnqueuedPayload::Close,
             EnqueueFlags::default(),
         )),
-        _ => crate::primitive::PrimitiveId::from_spelling(word)
-            .map(|id| (EnqueueClass::Verb, EnqueuedPayload::Verb(id), EnqueueFlags::default()))
-            .or_else(|| {
-                crate::primitive::AdverbId::from_spelling(word).map(|id| {
-                    (EnqueueClass::Adverb, EnqueuedPayload::Adverb(id), EnqueueFlags::default())
-                })
-            })
-            .or_else(|| {
-                crate::primitive::ConjunctionId::from_spelling(word).map(|id| {
-                    (
-                        EnqueueClass::Conjunction,
-                        EnqueuedPayload::Conjunction(id),
-                        EnqueueFlags::default(),
-                    )
-                })
-            }),
+        _ => primitives.resolve(word).map(|handle| {
+            use crate::primitive::{PrimitivePartOfSpeech, PrimitiveSemanticId};
+            let (class, payload) = match (handle.result_pos, handle.semantic_id) {
+                (PrimitivePartOfSpeech::Verb, PrimitiveSemanticId::Verb(id)) => {
+                    (EnqueueClass::Verb, EnqueuedPayload::Verb(id))
+                }
+                (PrimitivePartOfSpeech::Adverb, PrimitiveSemanticId::Adverb(id)) => {
+                    (EnqueueClass::Adverb, EnqueuedPayload::Adverb(id))
+                }
+                (
+                    PrimitivePartOfSpeech::Conjunction,
+                    PrimitiveSemanticId::Conjunction(id),
+                ) => (EnqueueClass::Conjunction, EnqueuedPayload::Conjunction(id)),
+                _ => unreachable!("primitive handle POS must match semantic ID"),
+            };
+            (class, payload, EnqueueFlags::default())
+        }),
     };
     if let Some(fixed) = fixed {
         return Ok(fixed);
@@ -232,6 +237,13 @@ fn interpret_word<'a>(word: &'a str, span: &Range<usize>) -> Result<(EnqueueClas
 /// than reclassifying raw spelling.  Full jsource name-resolution timing and
 /// modifier result-POS semantics are subsequent F1/P-stage work.
 pub fn enqueue(source: &str) -> Result<Vec<EnqueuedWord<'_>>> {
+    enqueue_with_context(source, &crate::primitive::PrimitiveContext::core())
+}
+
+pub fn enqueue_with_context<'a>(
+    source: &'a str,
+    primitives: &crate::primitive::PrimitiveContext,
+) -> Result<Vec<EnqueuedWord<'a>>> {
     let spans = crate::scanner::parse_word_spans(source.as_bytes())
         .map_err(|error| error.in_phase(DiagnosticPhase::WordFormation))?;
     let mut out = Vec::with_capacity(spans.len());
@@ -239,7 +251,7 @@ pub fn enqueue(source: &str) -> Result<Vec<EnqueuedWord<'_>>> {
         let word = source
             .get(span.clone())
             .ok_or_else(|| Error::Unsupported("non-UTF-8 word".into()).at(span.clone()))?;
-        let (class, payload, flags) = interpret_word(word, &span).map_err(|error| {
+        let (class, payload, flags) = interpret_word(word, &span, primitives).map_err(|error| {
             error.with_context(
                 ErrorContext::phase(DiagnosticPhase::Enqueue)
                     .with_span(span.clone())
