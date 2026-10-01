@@ -8,6 +8,45 @@ RustJ는 J의 언어·배열 의미론을 보존하면서 CPU와 GPU를 동등�
 
 `Jaxa`는 현재 아키텍처의 별도 컴포넌트명이 아닙니다. 과거 `jaxa-analyzer` 연구 저장소의 아이디어는 RustJ middle-end 설계에 흡수합니다.
 
+## 장기 비전 — “NN의 SQL”
+
+JAXA의 원래 슬로건과 장기 목표는 **“NN의 SQL”**이었습니다.
+
+여기서 SQL은 문법을 뜻하는 것이 아니라 **역할 분리**를 뜻합니다.
+
+```text
+사용자 / 모델 작성자
+    ↓
+무엇을 계산할지 선언
+    ↓
+배열·NN 계산의 logical graph / algebra
+    ↓
+rewrite / equivalence / resource reasoning
+    ↓
+여러 physical execution plan 후보
+    ↓
+target·resource·cost에 따른 선택
+    ↓
+CPU / GPU / library / accelerator 실행
+```
+
+관계형 데이터베이스에서 사용자가 join 순서, index access, buffer 배치 같은 physical plan을 직접 지정하지 않아도 되는 것처럼, JAXA의 비전은 **신경망·배열 계산에서도 사용자가 계산의 의미를 표현하고 compiler가 실행 전략을 선택하게 하는 것**입니다.
+
+RustJ는 이 비전을 J를 정확히 구현하는 compiler architecture 위에서 다시 살립니다. J의 압축된 array algebra를 loss 없이 보존하고, 그 위에 `Graph Basis → rewrite/equivalence → symbolic resource analysis → execution/physical planning`을 구축하는 이유도 여기에 있습니다.
+
+따라서 RustJ의 두 목표는 경쟁하지 않습니다.
+
+```text
+직접 목표
+    full-J semantics를 보존하는 현대적인 J compiler/runtime
+
+장기 비전
+    JAXA의 “NN의 SQL”을 가능하게 하는
+    declarative array-computing compiler core
+```
+
+장기적으로 이 compiler core에 J 외의 array/NN frontend를 붙일 가능성도 열어두지만, 현재 단계에서는 **J 의미론을 정확하게 보존하는 것이 우선**입니다. “NN의 SQL”은 현재 구현 완료를 의미하는 제품 설명이 아니라, Graph IR·optimizer·resource/planner 설계가 향하는 **north star**입니다.
+
 ```text
 J Source
   ↓
