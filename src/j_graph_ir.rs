@@ -117,7 +117,7 @@ pub struct GraphOperationContract {
     pub fusion: FusionCapability,
     pub temporary: SymbolicResourceExpr,
     pub accumulator: SymbolicResourceExpr,
-    pub scratchpad: SymbolicResourceExpr,
+    pub working_state: SymbolicResourceExpr,
 }
 
 impl Default for GraphOperationContract {
@@ -128,7 +128,7 @@ impl Default for GraphOperationContract {
             fusion: FusionCapability::Unknown,
             temporary: SymbolicResourceExpr::Unknown,
             accumulator: SymbolicResourceExpr::Unknown,
-            scratchpad: SymbolicResourceExpr::Unknown,
+            working_state: SymbolicResourceExpr::Unknown,
         }
     }
 }
@@ -462,14 +462,14 @@ fn base_operation_contract(
             fusion: FusionCapability::ReductionAware,
             temporary: SymbolicResourceExpr::None,
             accumulator: SymbolicResourceExpr::ReductionAccumulator,
-            scratchpad: SymbolicResourceExpr::None,
+            working_state: SymbolicResourceExpr::None,
         },
         GraphForm::Rank { .. } => GraphOperationContract {
             iteration: IterationContract::CellMap,
             access: AccessContract::CellRelative,
             fusion: FusionCapability::SemanticProofRequired,
             temporary: SymbolicResourceExpr::StructuralComposition,
-            scratchpad: SymbolicResourceExpr::StructuralComposition,
+            working_state: SymbolicResourceExpr::StructuralComposition,
             ..GraphOperationContract::default()
         },
         GraphForm::Atomic => {
@@ -483,7 +483,7 @@ fn base_operation_contract(
                     fusion: FusionCapability::Composable,
                     temporary: SymbolicResourceExpr::None,
                     accumulator: SymbolicResourceExpr::None,
-                    scratchpad: SymbolicResourceExpr::None,
+                    working_state: SymbolicResourceExpr::None,
                 },
                 OperationClass::Structural => GraphOperationContract {
                     iteration: IterationContract::Structural,
@@ -491,7 +491,7 @@ fn base_operation_contract(
                     fusion: FusionCapability::AccessCompatibilityRequired,
                     temporary: SymbolicResourceExpr::None,
                     accumulator: SymbolicResourceExpr::None,
-                    scratchpad: SymbolicResourceExpr::None,
+                    working_state: SymbolicResourceExpr::None,
                 },
                 OperationClass::Gather => GraphOperationContract {
                     iteration: IterationContract::Gather,
@@ -510,7 +510,7 @@ fn base_operation_contract(
         }
         GraphForm::Modifier { .. } => GraphOperationContract {
             temporary: SymbolicResourceExpr::StructuralComposition,
-            scratchpad: SymbolicResourceExpr::StructuralComposition,
+            working_state: SymbolicResourceExpr::StructuralComposition,
             fusion: FusionCapability::SemanticProofRequired,
             ..GraphOperationContract::default()
         },
@@ -519,7 +519,7 @@ fn base_operation_contract(
         GraphForm::Pipeline { .. } | GraphForm::Hook { .. } | GraphForm::Fork { .. } => {
             GraphOperationContract {
                 temporary: SymbolicResourceExpr::StructuralComposition,
-                scratchpad: SymbolicResourceExpr::StructuralComposition,
+                working_state: SymbolicResourceExpr::StructuralComposition,
                 fusion: FusionCapability::SemanticProofRequired,
                 ..GraphOperationContract::default()
             }
