@@ -445,6 +445,56 @@ fn provisional_basis_metadata_is_explicit() {
 }
 
 #[test]
+fn modifier_nesting_order_is_preserved_in_basis_and_fact_inference() {
+    use rustj::analysis::ExecutionBasisKind;
+
+    let mut e = Engine::new();
+    e.eval("a=:i.2 3").unwrap();
+
+    // Rank(Insert(+)): rank splits a into two rank-1 cells, then each cell is reduced.
+    let outer_rank = e.analyze("+/\"1 a").unwrap();
+    let outer = &outer_rank.nodes[outer_rank.result.unwrap().0];
+    assert_eq!(
+        outer.basis.layers,
+        vec![ExecutionBasisKind::CellApply, ExecutionBasisKind::Reduce]
+    );
+    assert_eq!(outer.facts.shape.as_deref(), Some(&[2][..]));
+    assert_eq!(
+        outer
+            .instantiation
+            .as_ref()
+            .expect("resolved call")
+            .rank_boundary,
+        Some([1, 1, 1])
+    );
+
+    // Insert(Rank(+)): reduction happens first; its dyadic reducer applies + at rank 1.
+    // This is not equivalent to moving the rank boundary outside the reduction.
+    let inner_rank = e.analyze("(+\"1)/ a").unwrap();
+    let inner = &inner_rank.nodes[inner_rank.result.unwrap().0];
+    assert_eq!(
+        inner.basis.layers,
+        vec![
+            ExecutionBasisKind::Reduce,
+            ExecutionBasisKind::CellApply,
+            ExecutionBasisKind::Elementwise,
+        ]
+    );
+    assert_eq!(inner.facts.shape.as_deref(), Some(&[3][..]));
+    assert_eq!(
+        inner
+            .instantiation
+            .as_ref()
+            .expect("resolved call")
+            .rank_boundary,
+        None
+    );
+
+    outer_rank.verify().unwrap();
+    inner_rank.verify().unwrap();
+}
+
+#[test]
 fn value_roles_are_contextual_facts_not_noun_types() {
     use rustj::{analysis::Operation, facts::ValueRole};
 
