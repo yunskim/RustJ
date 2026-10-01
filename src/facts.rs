@@ -215,7 +215,7 @@ pub(crate) fn infer(
         left_semantic.as_ref(),
         &right_semantic,
     );
-    let layout = match (id, left, right.rank) {
+    let representation_class = match (id, left, right.rank) {
         (Sparse, None, Some(0)) => right.representation_class,
         (Sparse, None, Some(_)) => RepresentationClassFact::AxisSparse,
         (Shape | Tally, None, _) => RepresentationClassFact::Dense,
@@ -223,7 +223,7 @@ pub(crate) fn infer(
     };
     Facts {
         dtype: semantic.dtype,
-        layout,
+        representation_class,
         shape: semantic.shape,
         rank: semantic.rank,
     }
