@@ -96,8 +96,9 @@ impl Engine {
     }
 
     /// Build the J-grammar-preserving applied computation graph.
-    /// This IR keeps Hook/Fork/@:/modifier identity and noun dependencies,
-    /// but does not yet normalize them into execution/basis operations.
+    /// This IR keeps Hook/Fork/@:/modifier identity while also exposing their
+    /// applied stage/branch graph, propagated static facts and graph-analysis
+    /// contracts before execution/basis lowering.
     pub fn analyze_j_graph(&self, source: &str) -> Result<crate::j_graph_ir::Plan> {
         self.analyze_j_graph_diagnostic(source)
             .map_err(Error::into_unlocated)
@@ -107,8 +108,14 @@ impl Engine {
         &self,
         source: &str,
     ) -> Result<crate::j_graph_ir::Plan> {
-        crate::j_graph_ir::Plan::from_bound(self.prepare_semantic_diagnostic(source)?)
-            .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
+        crate::j_graph_ir::Plan::from_bound_with_facts(
+            self.prepare_semantic_diagnostic(source)?,
+            &|name| match self.names.get(name).map(|binding| &binding.value) {
+                Some(SymbolValue::Noun(value)) => crate::facts::Facts::of(value),
+                _ => crate::facts::Facts::default(),
+            },
+        )
+        .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
     }
 
     /// Analyze both compiler IR views: the J-grammar graph and the
