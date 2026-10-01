@@ -883,10 +883,18 @@ impl TransitionProjection {
     pub(crate) fn finish(
         mut self,
         symbols: Vec<Symbol>,
+        lowered_nodes: &[transition::Node],
         opportunities: &[StructuralOpportunity<transition::ValueId>],
         result: Option<transition::ValueId>,
         write: Option<&transition::Write>,
     ) -> Plan {
+        // Value roles can be discovered by later consumers. Synchronize those
+        // monotonic facts after graph lowering has seen every use.
+        for (index, node) in lowered_nodes.iter().enumerate() {
+            let value = self.value_map[index];
+            self.plan.values[value.0].roles = node.roles.clone();
+        }
+
         self.plan.symbols = symbols;
         self.plan.opportunities = opportunities
             .iter()
