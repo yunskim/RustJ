@@ -958,6 +958,14 @@ impl Plan {
             {
                 return Err(fail(Some(op_id), "invalid source span".into()));
             }
+            if let Some(origin) = operation.j_origin {
+                if origin.0 >= self.j_graph_node_count {
+                    return Err(fail(
+                        Some(op_id),
+                        "J graph operation origin is out of bounds".into(),
+                    ));
+                }
+            }
             if let Some(before) = operation.order_after {
                 if before.0 >= index {
                     return Err(fail(
