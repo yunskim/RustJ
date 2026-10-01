@@ -99,6 +99,9 @@ pub enum FusionCapability {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SymbolicResourceExpr {
+    /// This logical operation has no requirement of this resource kind.
+    /// Physical lowering may still introduce target-local temporaries.
+    None,
     /// No symbolic model registered yet. Never interpret as zero.
     Unknown,
     /// The enclosing combinator composes child resource expressions.
@@ -422,8 +425,9 @@ fn base_operation_contract(
             iteration: IterationContract::Reduction,
             access: AccessContract::ReductionAxis,
             fusion: FusionCapability::ReductionAware,
+            temporary: SymbolicResourceExpr::None,
             accumulator: SymbolicResourceExpr::ReductionAccumulator,
-            ..GraphOperationContract::default()
+            scratchpad: SymbolicResourceExpr::None,
         },
         GraphForm::Rank { .. } => GraphOperationContract {
             iteration: IterationContract::CellMap,
@@ -442,13 +446,17 @@ fn base_operation_contract(
                     iteration: IterationContract::Elementwise,
                     access: AccessContract::CorrespondingElements,
                     fusion: FusionCapability::Composable,
-                    ..GraphOperationContract::default()
+                    temporary: SymbolicResourceExpr::None,
+                    accumulator: SymbolicResourceExpr::None,
+                    scratchpad: SymbolicResourceExpr::None,
                 },
                 OperationClass::Structural => GraphOperationContract {
                     iteration: IterationContract::Structural,
                     access: AccessContract::IndexTransform,
                     fusion: FusionCapability::AccessCompatibilityRequired,
-                    ..GraphOperationContract::default()
+                    temporary: SymbolicResourceExpr::None,
+                    accumulator: SymbolicResourceExpr::None,
+                    scratchpad: SymbolicResourceExpr::None,
                 },
                 OperationClass::Gather => GraphOperationContract {
                     iteration: IterationContract::Gather,
