@@ -492,6 +492,11 @@ impl LoweringRegistry {
         analysis: &CompilationAnalysis,
         target: &TargetCapabilities,
     ) -> Vec<RewritePlanningReport> {
+        debug_assert_eq!(
+            analysis.graph_rewrites.len(),
+            analysis.graph_rewrite_resources.len(),
+            "every graph rewrite must have exactly one resource evaluation"
+        );
         analysis
             .graph_rewrites
             .iter()
