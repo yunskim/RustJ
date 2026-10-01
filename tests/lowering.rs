@@ -4,7 +4,7 @@ use rustj::{
     logical_ir::{CallOp, EffectSummary, OpKind, SpeculationSemantics},
     lowering::{
         BasisTargetFeasibility, LoweringRegistry, RealizationFamily,
-        RewriteTargetFeasibilityKind, TargetCapabilities,
+        RewritePlanningState, RewriteTargetFeasibilityKind, TargetCapabilities,
     },
 };
 
@@ -158,6 +158,33 @@ fn graph_rewrite_target_feasibility_does_not_confuse_equivalence_with_lowerabili
     assert!(gpu.nodes.iter().all(|node| {
         matches!(node.feasibility, BasisTargetFeasibility::Unsupported)
     }));
+}
+
+
+#[test]
+fn rewrite_planning_report_defers_selection_until_target_and_resource_facts_exist() {
+    let analysis = Engine::new()
+        .analyze_compilation("'ana' E. 'banana'")
+        .unwrap();
+    let registry = LoweringRegistry::a3_v0();
+    let reports = registry.rewrite_planning_reports(
+        &analysis,
+        &TargetCapabilities::cpu_baseline(),
+    );
+
+    assert_eq!(reports.len(), 1);
+    let report = &reports[0];
+    assert_eq!(report.candidate_index, 0);
+    assert_eq!(report.state, RewritePlanningState::TargetUnsupported);
+    assert!(!report.early_pruning_allowed);
+    assert_eq!(
+        report.target_feasibility.overall,
+        RewriteTargetFeasibilityKind::Unsupported
+    );
+    assert_eq!(
+        report.resource_evaluation.source_value,
+        analysis.graph_rewrites[0].provenance.source_value
+    );
 }
 
 #[test]
