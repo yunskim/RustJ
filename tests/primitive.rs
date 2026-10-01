@@ -1,6 +1,7 @@
 use rustj::{
     Engine,
-    analysis::{CallTarget, Operation},
+    analysis::CallTarget,
+    logical_ir::OpKind,
     contracts::{self, Effect, Valence},
     primitive::{AdverbId, PrimitiveId},
     syntax::{self, Token},
@@ -19,10 +20,11 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
         };
         assert_eq!(verb.target, rustj::semantic::VerbTarget::Primitive(id));
         let plan = Engine::new()
-            .analyze(&format!("f=:{}", id.spelling()))
+            .analyze_a3(&format!("f=:{}", id.spelling()))
             .unwrap();
-        let Operation::VerbReference(callable) = &plan.nodes[plan.result.unwrap().0].operation
-        else {
+        let result = plan.result.unwrap();
+        let producer = plan.values[result.0].producer;
+        let OpKind::VerbReference(callable) = &plan.operations[producer.0].kind else {
             panic!()
         };
         assert_eq!(callable.target, CallTarget::Primitive(id));
@@ -65,13 +67,12 @@ fn valence_and_dynamic_names_do_not_get_conflated() {
             Effect::Unknown
         );
     }
-    let plan = Engine::new().analyze("custom 3").unwrap();
-    let Operation::Call {
-        callable, contract, ..
-    } = &plan.nodes[plan.result.unwrap().0].operation
-    else {
+    let plan = Engine::new().analyze_a3("custom 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let OpKind::SemanticCall(call) = &plan.operations[producer.0].kind else {
         panic!()
     };
-    assert!(matches!(callable.target, CallTarget::Dynamic(_)));
-    assert_eq!(contract.effect, Effect::Unknown);
+    assert!(matches!(call.callable.target, CallTarget::Dynamic(_)));
+    assert_eq!(call.contract.effect, Effect::Unknown);
 }
