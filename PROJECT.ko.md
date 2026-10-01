@@ -6976,6 +6976,136 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 이 절이 앞으로 유일한 구현 체크리스트다.
 
+### M — 현재 구조 수렴 실행 순서
+
+이 상위 체크리스트는 **지금 어떤 순서로 구조를 수렴시킬지**를 추적한다. 세부 완료 조건은 아래 A/F/P/G 체크리스트를 그대로 사용하며, 같은 일을 중복 정의하지 않는다.
+
+핵심 목표는 새 계층을 더 만드는 것이 아니라 현재 공존하는 과도기 경계를 제거해 다음 canonical pipeline으로 수렴하는 것이다.
+
+```text
+J source
+  → jsource-compatible frontend
+  → FunctionEntity / J Semantic Construction IR
+  → J Graph IR / Graph Basis
+  → Execution Semantic Lowering
+  → canonical logical_ir::Plan / Execution Basis
+  → Route Partition
+  → Schedule / Transform
+  → Physical Planner / Bufferization
+  → Physical Execution Plan
+  → Executor
+```
+
+Logical J value와 physical representation의 분리는 이 전체 pipeline에 교차하는 불변식으로 유지한다.
+
+#### M0 — 구조 기준선 고정
+
+- [x] 목표 compiler stage와 각 stage의 책임을 문서에서 확정했다.
+- [x] Graph Basis와 Execution Basis를 별도 계층으로 분리했다.
+- [x] Logical Array/J noun과 Physical Array/representation을 별도 계층으로 분리했다.
+- [x] 현재 코드의 중복 execution IR 경계(`analysis::LogicalPlan` → `logical_ir::Plan`)를 구조 부채로 식별했다.
+- [x] `physical.rs`가 아직 Physical Planner가 아니라 read-only CPU affine representation foundation임을 명시했다.
+- [x] `runtime.rs`의 `ResolvedVerb { reduce, rank, ... }` flattening은 과도기 runtime 구현이며 canonical semantic/compiler model이 아님을 확인했다.
+- [x] ArrayFire와 `math_arrayfire`를 semantic oracle이 아니라 execution/fusion/adapter 참고 구현으로 배치했다.
+- [ ] compiler module ownership/dependency 표를 코드 구조와 맞춰 확정하고 reverse dependency 금지선을 문서화한다.
+
+**M0 완료 조건:** 새 구현이 어느 stage에 속하는지 한 곳으로 결정할 수 있고, 과도기 compatibility bridge를 새 canonical interface로 오인하지 않는다.
+
+#### M1 — canonical Logical Execution IR로 cutover
+
+목표: `logical_ir::Plan`을 유일한 canonical execution IR로 만들고 `analysis::LogicalPlan` 과도기 계층을 제거한다.
+
+- [ ] `ExecutionBasisKind`, `ExecutionBasis`, `AccessFact`, resolved-call facts처럼 계속 필요한 execution-semantic contract를 `analysis.rs`의 과도기 plan 타입과 분리한다.
+- [ ] J Graph IR에서 `logical_ir::Plan`으로 **직접** lowering하는 경로를 만든다.
+- [ ] `logical_ir::Plan::from_transition(&analysis::LogicalPlan)`을 제거할 수 있도록 모든 필수 fact/check/order/provenance 생성 책임을 direct lowering으로 이동한다.
+- [ ] `Engine::analyze_a3` 계열을 canonical Logical IR 생성 API로 만들고, compiler-facing API가 더 이상 구형 LogicalPlan을 정상 경로로 반환하지 않게 한다.
+- [ ] `CompilationAnalysis`는 `j_graph + rewrite candidates/resource evaluation + canonical logical plan`을 묶는 analysis result로 재정의한다.
+- [ ] `analysis::LogicalPlan`, 구형 `analysis::ValueId/Node/Write` 및 중복 verifier를 제거한다.
+- [ ] A3 verifier/reference executor/lowering tests를 direct-lowering 경로로 전환한다.
+- [ ] Graph origin, source span, name/version, semantic checks, effect/error order가 cutover 전후 동일함을 regression test로 고정한다.
+- [ ] `analysis.rs`에서 canonical IR container 책임이 사라졌는지 dependency audit를 한다.
+
+**M1 완료 조건:** `J Graph IR → logical_ir::Plan`이 직접 연결되고 `analysis::LogicalPlan`이 코드에서 사라진다.
+
+#### M2 — jsource-compatible frontend/parser cutover
+
+목표: 현재 heuristic parser를 jsource-compatible Word Formation → Enqueue → 9-row Parser pipeline으로 교체한다.
+
+- [ ] F0 differential 0-mismatch 기록을 완료한다.
+- [ ] F1 Enqueuer/PrimitiveResolver를 완료한다.
+- [ ] F2 Parse Queue를 완료한다.
+- [ ] P1 parser control class와 semantic entity/value를 분리한다.
+- [ ] P2 하나의 9-row reduction engine으로 전환한다.
+- [ ] P3 modifier/Hook/Fork/bident/trident construction semantics를 연결한다.
+- [ ] P4 parser-time name resolution/assignment sequencing을 연결한다.
+- [ ] P5 construction semantics와 compiler facts 경계를 완료한다.
+- [ ] P6 differential/conformance gate를 통과한다.
+- [ ] P7 legacy parser heuristic(`reduce_modifier_applications`, `collapse_verb_trains` 중심 경로)을 제거한다.
+- [ ] P8에서 canonical FunctionEntity → J Graph IR → Logical IR handoff를 재검증한다.
+
+**M2 완료 조건:** supported frontend domain의 parser reduction을 jsource row/semantic action으로 설명할 수 있고 compiler가 별도 언어 문법을 갖지 않는다.
+
+#### M3 — Logical/Physical Array 경계의 코드 수렴
+
+목표: logical value identity에 CPU/GPU/layout identity가 역류하지 않게 하고 representation 선택을 physical planning으로 이동한다.
+
+- [ ] `LayoutFact`를 physical layout으로 오해되지 않는 `RepresentationClassFact` 계열 이름으로 바꾼다.
+- [ ] Dense/Boxed/Sparse처럼 J-visible representation semantics와 row-major/column-major/stride/tile/device 같은 physical representation을 타입/API에서도 구분한다.
+- [ ] 현재 `Value::Data`의 dense `CpuStorage` 직접 소유를 migration artifact로 한정하고, canonical compiler value identity가 CPU backing을 요구하지 않게 한다.
+- [ ] sparse의 J-visible axes/fill/semantic representation과 concrete coordinate/value buffer encoding의 경계를 점검한다.
+- [ ] `PhysicalArray`는 BufferId/lease/shape mapping/stride/offset/encoding 같은 representation-only 책임만 갖게 유지한다.
+- [ ] 같은 logical value의 복수 physical representation과 여러 logical value의 safe buffer reuse를 표현할 planner-side identity를 정의한다.
+- [ ] G2 structural view 작업을 이 경계 위에서 구현한다.
+
+**M3 완료 조건:** Logical IR/semantic facts에는 stride/offset/device/buffer가 없고, physical representation 변경이 J value identity를 바꾸지 않는다.
+
+#### M4 — 최소 RustJ-native CPU vertical slice
+
+목표: optimizer가 똑똑하지 않아도 canonical compiler pipeline이 end-to-end로 실제 실행되게 한다.
+
+- [ ] Logical payload와 분리된 최소 `Schedule/TransformPlan`을 정의한다.
+- [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
+- [ ] 최소 Physical Plan op를 `Bind/View/Materialize/Kernel/Return` 수준으로 정의한다.
+- [ ] logical ValueId → physical representation/BufferId binding을 구현한다.
+- [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
+- [ ] G3의 첫 kernel로 contiguous/fixed/general-stride add를 연결한다.
+- [ ] G3 cell mapping과 ExecutionBasis `CellApply`를 physical view iteration에 연결한다.
+- [ ] G4 CPU Physical Executor를 구현한다.
+- [ ] `source → FunctionEntity → J Graph → logical_ir::Plan → Physical Plan → CPU Executor` vertical test를 만든다.
+- [ ] 기존 semantic/reference executor와 결과/error contract를 비교한다.
+
+**M4 완료 조건:** 기존 interpreter 직접 실행을 거치지 않는 최소 compiler-native CPU 경로가 하나 이상 동작한다.
+
+#### M5 — Route/Schedule/Cost 확장
+
+M4 이후에만 optimizer 선택 문제를 키운다.
+
+- [ ] `RouteRegion`에 boundary inputs/outputs, chosen route, preconditions/witnesses, semantic provenance를 추가한다.
+- [ ] legality와 profitability를 계속 분리한다.
+- [ ] StructuralOpportunity/use-def를 schedule candidate와 연결한다.
+- [ ] materialize/view/fuse 후보의 physical feasibility를 계산한다.
+- [ ] TargetProfile/ResourceEstimate/CostEstimate 최소 schema를 구현한다.
+- [ ] cold compile, warm execution, copy, layout conversion, transfer, synchronization 비용을 분리한다.
+- [ ] simple CPU cost model로 multiple legal realization 중 하나를 선택한다.
+
+**M5 완료 조건:** planner가 단순 고정 policy가 아니라 여러 합법 physical plan 중 cost/resource 근거로 선택할 수 있다.
+
+#### M6 — External/ArrayFire/GPU route
+
+M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 진행한다.
+
+- [ ] Graph/Execution Basis ↔ ArrayFire capability matrix를 만든다.
+- [ ] ArrayFire route의 dtype/rank/shape/layout/J-semantic precondition을 명시한다.
+- [ ] J row-major ↔ ArrayFire column-major mismatch를 view/copy/consumer-absorption 선택 문제로 physical planner에 연결한다.
+- [ ] external handle lifetime/lock/release/sync를 Physical Plan resource/token 경계로 모델링한다.
+- [ ] MLIR adapter와 StableHLO-safe subset adapter의 공통 negotiation interface를 정의한다.
+- [ ] external route failure가 J semantic failure가 아니라 route unsupported/fallback으로 처리되는 테스트를 만든다.
+- [ ] 실제 GPU storage/kernel은 별도 요청과 검증 가능한 환경이 있을 때 재개한다.
+
+**M6 완료 조건:** external library/backend가 J semantics를 정의하지 않고, verified Logical IR의 합법적인 realization route 중 하나로만 동작한다.
+
+### A0 — 문서/아키텍처 경계
+
 ### A0 — 문서/아키텍처 경계
 
 - [x] RustJ 내부 compiler stage의 논리적 경계를 확정한다.
@@ -7535,14 +7665,14 @@ ResourceEstimate / bufferization
 - [x] ExecutionBasisExpansion sidecar에 applicability ConstraintSet + equivalence witness를 두고 original semantic/structured identity를 보존한다. 첫 rule은 E. → WindowView + CellApply(Match)다.
 - [x] A3-v0 correctness executor 범위를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck 중심으로 제한했다. `logical_executor::execute_closed`는 closed expression reference path이며 native Physical Executor와는 별개다.
 - [x] A3 verifier negative tests, runtime/reference-equivalence tests, Rank/Reduce 및 E. expansion composition tests의 golden scaffold를 추가했다.
-- [ ] `ParameterizedLoweringRecipe` interface를 정의해 ResolvedCallFacts+TargetCapability로 multiple realization 후보를 만들 수 있게 한다.
+- [x] `ParameterizedLoweringRecipe` interface와 `LoweringRegistry` 후보 생성 경로를 정의해 resolved call facts + target capability에서 multiple realization 후보를 만들 수 있게 했다. cost ranking/schedule 선택은 아직 downstream 과제다.
 - [ ] pure graph region과 CFG region을 구분한다.
 - [x] v0 `ConstraintSet + FactWitness`를 정의하고 PrefixAgreement/CellFrameAgreement/IndicesInBounds를 우선 연결했다. runtime branching `Guard`는 v1로 유지한다.
 - [x] v0 `EffectSummary + SpeculationSemantics` resolved-call interface를 정의했다. explicit `EffectToken`은 v1로 유지한다.
 - [x] v0 `PossibleErrors { known, unknown }`와 first-class `SemanticCheck`로 MayRaise를 보존한다. primitive별 완전한 error-set refinement와 exceptional CFG edge는 후속이다.
 - [x] A3 `DestinationRelation`을 정의해 logical alias/reuse legality seam과 physical `BufferId`를 분리했다. 현재 call 기본값은 보수적으로 `Unknown`이다.
 - [x] A3 verifier가 schema/container/op-value producer/order/basis payload/instantiation/constraint/zero-result check invariants를 검증한다.
-- [ ] semantic capability interfaces(Shape/Axis/Access/Effect/Alias/Speculation)를 trait/API로 정의한다.
+- [x] A3-v0 `SemanticCapabilityView`를 정의해 result facts(shape/type/rank 포함), iteration/axis domain, access, effect, speculation, possible errors, destination/alias seam을 공통 API로 노출한다. richer property/alias interface는 후속 확장한다.
 - [ ] schedule/transform representation을 Logical payload IR과 분리한다.
 - [ ] external adapter capability negotiation과 guarded lowering을 정의한다.
 - [x] A3 `IrSchemaVersion`과 compiler version/primitive registry version provenance를 IR header에 추가했다.
@@ -7724,10 +7854,10 @@ cargo test --features portable
 - upstream 전체 J suite
 - Miri
 - sanitizer
-- Linux CI
-- GitHub Actions CI
 - GPU test
 - CUDA benchmark
+
+Linux CI/GitHub Actions는 **별도 요청이 있을 때만 확인**하며, 기본 구조 진행/체크리스트의 완료 gate로 사용하지 않는다.
 
 ### 11.6 C reference
 
@@ -7758,27 +7888,27 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 
 ## 12. 현재 검증·구현 상태 요약
 
-기준일: 2026-09-30.
+기준일: 2026-10-01.
 
-- 제한된 CPU J 실행 경로가 동작한다.
-- Semantic IR parser가 존재한다.
-- source span과 name/version 기초가 있다.
-- primitive contract와 dtype/shape/rank facts 기초가 있다.
-- 초기 LogicalPlan 생성이 있다.
-- CPU storage Inline/Owned/Shared가 있다.
-- AVX2 runtime dispatch와 portable fallback이 있다.
-- sparse/boxed/packed-bit 관련 기반 구현이 일부 있다.
-- G1 read-only affine PhysicalArray가 구현되어 있다.
-- G1 Windows default/portable 회귀와 Clippy 기록이 있다.
-- G2~G5는 미완료다.
-- 명시적인 `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` 경계는 아직 코드에서 완전히 분리되지 않았다.
-- 현재 `analysis.rs`가 Semantic IR에서 LogicalPlan을 직접 만들고 있어 semantic analysis와 lowering 경계를 재정리해야 한다.
-- 새로 정리한 SSA/Verifier/capability-interface 기반 Logical IR(A3)은 아직 구현되지 않았다.
-- RoutePartition, MLIR adapter, StableHLO adapter는 아직 구현되지 않았다.
-- TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 새 schema도 아직 문서 설계 단계다.
+- 제한된 CPU J interpreter/runtime 경로가 동작한다.
+- state-table word formation과 transitional Semantic IR parser가 존재한다.
+- parser-produced shared `FunctionEntity`가 primitive, modifier application, hook/fork/train, rank/@: 구조를 보존한다.
+- J Graph IR이 별도 canonical analysis surface로 존재하고 Graph Basis, structural opportunity, graph rewrite/resource analysis 기초가 구현되어 있다.
+- `analysis.rs`의 transitional `LogicalPlan`과 `logical_ir.rs`의 A3 SSA `Plan`이 동시에 존재한다. **M1의 최우선 과제는 이 이중 IR을 canonical A3 하나로 수렴시키는 것이다.**
+- A3-v0에는 SSA ValueId, Function/Region/Block/Return, Execution Basis payload, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation, verifier가 구현되어 있다.
+- `SemanticCapabilityView`, `ParameterizedLoweringRecipe`, `LoweringRegistry`, 기본 target legality/candidate generation과 contiguous route partition prototype이 구현되어 있다.
+- 현재 RoutePartition은 class + operation range 중심의 prototype이며 boundary values/preconditions/chosen external route/bridge representation은 아직 없다.
+- `logical_executor::execute_closed`는 A3 correctness/reference executor이며 native Physical Executor는 아니다.
+- Logical/Physical Array 분리 원칙은 문서와 테스트로 고정되어 있고, G1 read-only CPU affine `PhysicalArray`/BufferId/BufferLease가 구현되어 있다.
+- `Value`의 dense payload가 아직 `CpuStorage`를 직접 소유하므로 runtime carrier는 완전한 logical/physical 분리 이전의 migration state다.
+- `facts::LayoutFact`는 실제 physical layout이 아니라 Dense/AxisSparse J-visible representation class이므로 M3에서 이름/API를 정리한다.
+- sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
+- G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
+- F1/F2/P1~P7의 jsource-compatible Enqueue/9-row parser cutover는 미완료이며 현재 modifier/train heuristic parser는 transitional implementation이다.
+- MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
+- TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.
-- GitHub Actions의 `Linux milestone` CI를 사용한다. workflow의 존재/사용 여부와 개별 run의 pass/fail은 구분하며, 검증 결과를 기록할 때는 해당 run의 실제 상태를 명시한다.
-- 이 컴퓨터에서는 Windows 네이티브 검증을 기준으로 한다.
+- **Linux CI/GitHub Actions 결과는 별도 요청이 없으면 구조 진행 판단과 완료 gate에서 생략한다.** 로컬/명시적으로 실행한 검증만 완료 기록에 사용한다.
 
 기계 측정 원자료는 `reports/*.json`, `reports/*.jsonl`에 보존한다.
 
