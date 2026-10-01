@@ -216,7 +216,7 @@ fn registered_cpu_rewrite_composite_dispatches_to_reference_expansion() {
     let analysis = Engine::new()
         .analyze_compilation("'co' E. 'cocoa'")
         .unwrap();
-    let plan = rustj::logical_ir::Plan::from_transition(&analysis.execution);
+    let plan = analysis.logical.clone();
     plan.verify().unwrap();
     let values = literal_source_values(&plan);
 
