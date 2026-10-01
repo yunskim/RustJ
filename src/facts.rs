@@ -545,16 +545,12 @@ fn infer_ranked_semantic_projection(
     let right_cell = semantic_cell(right, rc);
     let left_cell = left.zip(lc).map(|(x, s)| semantic_cell(x, s));
     let result = infer_semantic_projection(function, left_cell.as_ref(), &right_cell);
+    let frame_rank = frame.len();
     let shape = result.shape.map(|s| {
         frame.extend(s);
         frame
     });
-    let rank = result.rank.and_then(|r| {
-        shape
-            .as_ref()
-            .map(|full| full.len().saturating_sub(r))
-            .and_then(|frame_rank| r.checked_add(frame_rank))
-    });
+    let rank = result.rank.and_then(|r| r.checked_add(frame_rank));
     SemanticFacts {
         dtype: result.dtype,
         shape,
