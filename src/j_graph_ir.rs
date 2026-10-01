@@ -898,8 +898,19 @@ impl Plan {
                 check(*input, "input")?;
             }
             check(region.result, "result")?;
-            match &region.kind {
-                RegionKind::Pipeline { stage_results } => {
+            let (expected_form, expected_hints) = classify_function(&region.function);
+            if region.hints != expected_hints {
+                return Err(format!("region {index} hints are stale"));
+            }
+
+            match (&region.kind, expected_form) {
+                (
+                    RegionKind::Pipeline { stage_results },
+                    GraphForm::Pipeline { .. },
+                ) => {
+                    if region.resource_composition != ResourceCompositionRule::Pipeline {
+                        return Err(format!("region {index} pipeline composition mismatch"));
+                    }
                     if stage_results.len() < 2 {
                         return Err(format!("region {index} pipeline has fewer than two stages"));
                     }
@@ -909,35 +920,127 @@ impl Plan {
                     if stage_results.last().copied() != Some(region.result) {
                         return Err(format!("region {index} pipeline result mismatch"));
                     }
+
+                    let mut previous = *region
+                        .inputs
+                        .last()
+                        .ok_or_else(|| format!("region {index} pipeline has no input"))?;
+                    for (stage_index, stage_result) in stage_results.iter().copied().enumerate() {
+                        let NodeKind::Apply {
+                            left,
+                            right,
+                            valence,
+                            ..
+                        } = &self.nodes[stage_result.0].kind
+                        else {
+                            return Err(format!(
+                                "region {index} pipeline stage {stage_index} is not an Apply node"
+                            ));
+                        };
+                        if *right != previous {
+                            return Err(format!(
+                                "region {index} pipeline stage {stage_index} is not chained"
+                            ));
+                        }
+                        if stage_index == 0 && region.inputs.len() == 2 {
+                            if *valence != Valence::Dyad || *left != Some(region.inputs[0]) {
+                                return Err(format!(
+                                    "region {index} dyadic pipeline first stage mismatch"
+                                ));
+                            }
+                        } else if *left != None {
+                            return Err(format!(
+                                "region {index} pipeline stage {stage_index} must be monadic"
+                            ));
+                        }
+                        previous = stage_result;
+                    }
                 }
-                RegionKind::Hook {
-                    branch_results,
-                    join_result,
-                    live_across,
-                }
-                | RegionKind::Fork {
-                    branch_results,
-                    join_result,
-                    live_across,
-                } => {
-                    if branch_results.len() < 2 {
-                        return Err(format!("region {index} branch/join has fewer than two branches"));
+                (
+                    RegionKind::Hook {
+                        branch_results,
+                        join_result,
+                        live_across,
+                    },
+                    GraphForm::Hook { .. },
+                ) => {
+                    if region.resource_composition != ResourceCompositionRule::BranchJoin {
+                        return Err(format!("region {index} hook composition mismatch"));
                     }
-                    for result in branch_results {
-                        check(*result, "branch result")?;
+                    if branch_results.len() != 2 || live_across.len() != 1 {
+                        return Err(format!("region {index} malformed hook topology"));
                     }
-                    for value in live_across {
-                        check(*value, "live-across value")?;
+                    let retained = branch_results[0];
+                    if live_across[0] != retained || !region.inputs.contains(&retained) {
+                        return Err(format!("region {index} hook retained-value mismatch"));
                     }
-                    check(*join_result, "join result")?;
+                    let NodeKind::Apply {
+                        left,
+                        right,
+                        valence,
+                        ..
+                    } = &self.nodes[join_result.0].kind
+                    else {
+                        return Err(format!("region {index} hook join is not Apply"));
+                    };
+                    if *valence != Valence::Dyad
+                        || *left != Some(retained)
+                        || *right != branch_results[1]
+                    {
+                        return Err(format!("region {index} hook join wiring mismatch"));
+                    }
                     if *join_result != region.result {
                         return Err(format!("region {index} join/result mismatch"));
                     }
                 }
+                (
+                    RegionKind::Fork {
+                        branch_results,
+                        join_result,
+                        live_across,
+                    },
+                    GraphForm::Fork { .. },
+                ) => {
+                    if region.resource_composition != ResourceCompositionRule::BranchJoin {
+                        return Err(format!("region {index} fork composition mismatch"));
+                    }
+                    if branch_results.len() != 2 {
+                        return Err(format!("region {index} malformed fork topology"));
+                    }
+                    for input in &region.inputs {
+                        if !live_across.contains(input) {
+                            return Err(format!("region {index} fork live-across mismatch"));
+                        }
+                    }
+                    let NodeKind::Apply {
+                        left,
+                        right,
+                        valence,
+                        ..
+                    } = &self.nodes[join_result.0].kind
+                    else {
+                        return Err(format!("region {index} fork join is not Apply"));
+                    };
+                    // branch_results preserve J observable branch order: h, then f.
+                    if *valence != Valence::Dyad
+                        || *left != Some(branch_results[1])
+                        || *right != branch_results[0]
+                    {
+                        return Err(format!("region {index} fork join wiring mismatch"));
+                    }
+                    if *join_result != region.result {
+                        return Err(format!("region {index} join/result mismatch"));
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "region {index} kind does not match originating J combinator"
+                    ));
+                }
             }
         }
 
-        if let Some(result) = self.result {
+        if let Some(result) = self.result {        if let Some(result) = self.result {
             if result.0 >= self.nodes.len() {
                 return Err("result is out of bounds".into());
             }
