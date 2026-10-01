@@ -830,6 +830,11 @@ impl Plan {
                     Ok(())
                 }
             };
+            if let (Some(rank), Some(shape)) = (node.facts.rank, node.facts.shape.as_ref()) {
+                if rank != shape.len() {
+                    return Err(format!("node {index} GraphFacts rank/shape mismatch"));
+                }
+            }
             if let NodeKind::Apply {
                 function,
                 form,
@@ -878,6 +883,9 @@ impl Plan {
                     return Err(format!(
                         "node {index} graph operation contract does not match J function structure"
                     ));
+                }
+                if node.analyzability != analyzability_for(function, &node.facts, contract) {
+                    return Err(format!("node {index} graph analyzability is stale"));
                 }
                 check(*right, "right input")?;
                 match (valence, left) {
@@ -928,6 +936,13 @@ impl Plan {
                     }
                     if stage_results.last().copied() != Some(region.result) {
                         return Err(format!("region {index} pipeline result mismatch"));
+                    }
+                    let expected_analyzability = stage_results.iter().fold(
+                        GraphAnalyzability::Static,
+                        |state, value| state.combine(self.nodes[value.0].analyzability),
+                    );
+                    if region.analyzability != expected_analyzability {
+                        return Err(format!("region {index} pipeline analyzability is stale"));
                     }
 
                     let mut previous = *region
@@ -1001,6 +1016,12 @@ impl Plan {
                     if *join_result != region.result {
                         return Err(format!("region {index} join/result mismatch"));
                     }
+                    let expected_analyzability = self.nodes[branch_results[1].0]
+                        .analyzability
+                        .combine(self.nodes[join_result.0].analyzability);
+                    if region.analyzability != expected_analyzability {
+                        return Err(format!("region {index} hook analyzability is stale"));
+                    }
                 }
                 (
                     RegionKind::Fork {
@@ -1039,6 +1060,13 @@ impl Plan {
                     }
                     if *join_result != region.result {
                         return Err(format!("region {index} join/result mismatch"));
+                    }
+                    let expected_analyzability = self.nodes[branch_results[0].0]
+                        .analyzability
+                        .combine(self.nodes[branch_results[1].0].analyzability)
+                        .combine(self.nodes[join_result.0].analyzability);
+                    if region.analyzability != expected_analyzability {
+                        return Err(format!("region {index} fork analyzability is stale"));
                     }
                 }
                 _ => {
