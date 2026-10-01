@@ -171,7 +171,7 @@ pub struct BufferRegistry {
 impl BufferRegistry {
     pub fn new() -> Result<Self> {
         let identity = NEXT_REGISTRY
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| Error::Limit)?;
         Ok(Self {
             identity,
