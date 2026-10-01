@@ -11,6 +11,9 @@ use crate::{
         SymbolicResourceExpr, ValueId,
     },
     j_graph_memory::{MaterializationOpportunity, StaticMemoryAnalysis},
+    j_graph_rewrite::{
+        GraphRewriteCandidate, RewriteInput, RewriteNodeSemantics,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -293,6 +296,91 @@ pub struct GraphResourceSummary {
     pub state_live_ranges: Vec<ResourceStateLiveRange>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewriteAlternativeResourceProfile {
+    /// Semantic output extent. Equivalence lets the replacement reuse the
+    /// source-result extent even when internal candidate extents remain symbolic.
+    pub output_atoms: Option<usize>,
+    /// Candidate-local intermediates which would be materialized by an unfused
+    /// realization. Unknown is explicit when the rewrite graph does not yet
+    /// carry enough shape facts.
+    pub internal_materialization_atoms: KnownAtoms,
+    /// Baseline read+write traffic for those internal materialized values.
+    pub unfused_internal_traffic_atoms: KnownAtoms,
+    /// Portion of internal traffic which may disappear when the candidate is
+    /// realized virtually/fused.
+    pub elidable_internal_traffic_atoms: KnownAtoms,
+    /// Target-independent operation-state requirements exposed by this
+    /// alternative. Concrete size/placement remains downstream.
+    pub state_requirements: Vec<SymbolicResourceExpr>,
+    pub has_unknown_state_requirement: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewriteResourceEvaluation {
+    pub source_value: ValueId,
+    pub source: RewriteAlternativeResourceProfile,
+    pub replacement: RewriteAlternativeResourceProfile,
+    /// This merely reports the rule contract. Resource comparison never grants
+    /// pruning permission by itself.
+    pub early_pruning_allowed: bool,
+}
+
+
+fn profile_state_requirements(
+    temporary: SymbolicResourceExpr,
+    accumulator: SymbolicResourceExpr,
+    working_state: SymbolicResourceExpr,
+) -> (Vec<SymbolicResourceExpr>, bool) {
+    let mut out = Vec::new();
+    let mut has_unknown = false;
+    for kind in [temporary, accumulator, working_state] {
+        match kind {
+            SymbolicResourceExpr::None => {}
+            SymbolicResourceExpr::Unknown => has_unknown = true,
+            other => out.push(other),
+        }
+    }
+    (out, has_unknown)
+}
+
+fn merge_state_requirement(
+    requirements: &mut Vec<SymbolicResourceExpr>,
+    has_unknown: &mut bool,
+    kind: SymbolicResourceExpr,
+) {
+    match kind {
+        SymbolicResourceExpr::None => {}
+        SymbolicResourceExpr::Unknown => *has_unknown = true,
+        other => {
+            if !requirements.contains(&other) {
+                requirements.push(other);
+            }
+        }
+    }
+}
+
+fn rewrite_node_resource_requirements(
+    semantics: RewriteNodeSemantics,
+) -> (
+    SymbolicResourceExpr,
+    SymbolicResourceExpr,
+    SymbolicResourceExpr,
+) {
+    match semantics {
+        RewriteNodeSemantics::WindowByPatternShape => (
+            SymbolicResourceExpr::None,
+            SymbolicResourceExpr::None,
+            SymbolicResourceExpr::WindowWorkingSet,
+        ),
+        RewriteNodeSemantics::MatchPatternCell => (
+            SymbolicResourceExpr::StructuralComposition,
+            SymbolicResourceExpr::None,
+            SymbolicResourceExpr::None,
+        ),
+    }
+}
+
 fn extent_atoms(memory: &StaticMemoryAnalysis, value: ValueId) -> Option<usize> {
     memory.extent(value).map(|extent| extent.atoms)
 }
@@ -441,6 +529,117 @@ fn region_graph_order_peak_live_atoms(
         peak.has_unknown |= live.has_unknown;
     }
     peak
+}
+
+
+pub fn evaluate_rewrite_candidate(
+    plan: &Plan,
+    memory: &StaticMemoryAnalysis,
+    summary: &GraphResourceSummary,
+    candidate: &GraphRewriteCandidate,
+) -> Result<RewriteResourceEvaluation, &'static str> {
+    candidate.verify(plan)?;
+    let source_value = candidate.provenance.source_value;
+    let source_summary = summary
+        .nodes
+        .get(source_value.0)
+        .ok_or("rewrite source resource summary is missing")?;
+    let (source_state_requirements, source_unknown_state) = profile_state_requirements(
+        source_summary.temporary,
+        source_summary.accumulator,
+        source_summary.working_state,
+    );
+    let source = RewriteAlternativeResourceProfile {
+        output_atoms: source_summary.output_atoms,
+        internal_materialization_atoms: KnownAtoms::default(),
+        unfused_internal_traffic_atoms: KnownAtoms::default(),
+        elidable_internal_traffic_atoms: KnownAtoms::default(),
+        state_requirements: source_state_requirements,
+        has_unknown_state_requirement: source_unknown_state,
+    };
+
+    let mut internal = KnownAtoms::default();
+    let mut elidable = KnownAtoms::default();
+    let mut state_requirements = Vec::new();
+    let mut has_unknown_state = false;
+
+    for (index, node) in candidate.replacement.nodes.iter().enumerate() {
+        let (temporary, accumulator, working_state) =
+            rewrite_node_resource_requirements(node.semantics);
+        merge_state_requirement(
+            &mut state_requirements,
+            &mut has_unknown_state,
+            temporary,
+        );
+        merge_state_requirement(
+            &mut state_requirements,
+            &mut has_unknown_state,
+            accumulator,
+        );
+        merge_state_requirement(
+            &mut state_requirements,
+            &mut has_unknown_state,
+            working_state,
+        );
+
+        if index == candidate.replacement.output.0 {
+            continue;
+        }
+
+        // A candidate-local intermediate has no canonical J Graph ValueId yet.
+        // Keep its extent symbolic unless a rewrite-specific derivation exists.
+        // WindowByPatternShape is intentionally virtualizable, so the same
+        // unknown volume is also tracked as elidable rather than forced materialization.
+        let mut atoms = KnownAtoms::default();
+        match node.semantics {
+            RewriteNodeSemantics::WindowByPatternShape => {
+                atoms.has_unknown = true;
+                internal.known = internal.known.saturating_add(atoms.known);
+                internal.has_unknown |= atoms.has_unknown;
+                elidable.known = elidable.known.saturating_add(atoms.known);
+                elidable.has_unknown |= atoms.has_unknown;
+            }
+            RewriteNodeSemantics::MatchPatternCell => {
+                // Non-output match intermediates are not expected in the current
+                // rule; retain conservative unknown handling if a future rule does.
+                atoms.has_unknown = true;
+                internal.has_unknown = true;
+            }
+        }
+    }
+
+    let replacement = RewriteAlternativeResourceProfile {
+        output_atoms: extent_atoms(memory, source_value),
+        internal_materialization_atoms: internal,
+        unfused_internal_traffic_atoms: scale_known_atoms(internal, 2),
+        elidable_internal_traffic_atoms: scale_known_atoms(elidable, 2),
+        state_requirements,
+        has_unknown_state_requirement: has_unknown_state,
+    };
+
+    let rule = crate::j_graph_rewrite::RULES
+        .iter()
+        .find(|rule| rule.id == candidate.rule)
+        .ok_or("rewrite rule is not registered")?;
+
+    Ok(RewriteResourceEvaluation {
+        source_value,
+        source,
+        replacement,
+        early_pruning_allowed: rule.pruning.sound_for_early_pruning(),
+    })
+}
+
+pub fn evaluate_rewrite_candidates(
+    plan: &Plan,
+    candidates: &[GraphRewriteCandidate],
+) -> Result<Vec<RewriteResourceEvaluation>, &'static str> {
+    let memory = plan.static_memory_analysis();
+    let summary = analyze(plan, &memory);
+    candidates
+        .iter()
+        .map(|candidate| evaluate_rewrite_candidate(plan, &memory, &summary, candidate))
+        .collect()
 }
 
 pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSummary {
