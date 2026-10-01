@@ -101,5 +101,5 @@ fn byte_accounting_requires_an_explicit_representation_model() {
 
     assert_eq!(memory.extent(result).unwrap().atoms, 3);
     assert_eq!(memory.represented_bytes(result, &Dense64), Some(24));
-    assert!(memory.conservative_peak_materialized_bytes(&Dense64).is_some());
+    assert!(memory.graph_order_peak_materialized_bytes(&Dense64).is_some());
 }
