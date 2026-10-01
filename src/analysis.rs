@@ -140,33 +140,14 @@ pub struct ResolvedInstantiation {
     pub rank_boundary: Option<[i64; 3]>,
 }
 
-fn execution_basis(operation: &Operation) -> ExecutionBasis {
+fn primitive_execution_basis(
+    id: crate::primitive::PrimitiveId,
+    valence: Valence,
+) -> Option<ExecutionBasisKind> {
     use crate::primitive::PrimitiveId::*;
 
-    let Operation::Call {
-        callable,
-        left,
-        contract,
-        ..
-    } = operation
-    else {
-        return ExecutionBasis::default();
-    };
-
-    let mut layers = Vec::new();
-    if callable.rank.is_some() {
-        layers.push(ExecutionBasisKind::CellApply);
-    }
-    if callable.reduce {
-        layers.push(ExecutionBasisKind::Reduce);
-        return ExecutionBasis { layers };
-    }
-
-    let CallTarget::Primitive(id) = callable.target else {
-        return ExecutionBasis { layers };
-    };
-    let dyad = left.is_some();
-    let inner = match (id, dyad) {
+    let dyad = valence == Valence::Dyad;
+    match (id, dyad) {
         (IndexOf | Steps, false) => Some(ExecutionBasisKind::IndexSpace),
         (Equal, false) => Some(ExecutionBasisKind::LookupClassify),
         (Indices, false) => Some(ExecutionBasisKind::ReplicateCompactExpand),
@@ -180,14 +161,66 @@ fn execution_basis(operation: &Operation) -> ExecutionBasis {
         (From, true) => Some(ExecutionBasisKind::Gather),
         (IndexOf | Steps | Indices | Member, true) => Some(ExecutionBasisKind::LookupClassify),
         (Magnitude, true) => Some(ExecutionBasisKind::Elementwise),
-        _ if contract.class == crate::contracts::OperationClass::Map => {
+        _ if contracts::for_primitive(id, valence).class
+            == crate::contracts::OperationClass::Map =>
+        {
             Some(ExecutionBasisKind::Elementwise)
         }
         _ => None,
-    };
-    if let Some(inner) = inner {
-        layers.push(inner);
     }
+}
+
+fn append_execution_basis(
+    function: &Arc<FunctionEntity>,
+    valence: Valence,
+    layers: &mut Vec<ExecutionBasisKind>,
+) {
+    match &function.head {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            layers.push(ExecutionBasisKind::CellApply);
+            if let Some(FunctionOperand::Function(operand)) = function.operands.first() {
+                append_execution_basis(operand, valence, layers);
+            }
+        }
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            layers.push(ExecutionBasisKind::Reduce);
+            // The reducer leaf identity is carried by the semantic FunctionEntity.
+            // Recurse only when the reducer itself is structurally derived so that
+            // Insert(Rank(u)) remains distinct from Rank(Insert(u)).
+            if let Some(FunctionOperand::Function(operand)) = function.operands.first() {
+                if matches!(
+                    operand.head,
+                    FunctionHead::PrimitiveAdverb(_) | FunctionHead::PrimitiveConjunction(_)
+                ) {
+                    append_execution_basis(operand, Valence::Dyad, layers);
+                }
+            }
+        }
+        FunctionHead::PrimitiveVerb(id) => {
+            if let Some(kind) = primitive_execution_basis(*id, valence) {
+                layers.push(kind);
+            }
+        }
+        FunctionHead::NameRef(_) => {}
+        FunctionHead::PrimitiveAdverb(_)
+        | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::Hook
+        | FunctionHead::Fork => {}
+    }
+}
+
+fn execution_basis(operation: &Operation) -> ExecutionBasis {
+    let Operation::Call { callable, left, .. } = operation else {
+        return ExecutionBasis::default();
+    };
+
+    let valence = if left.is_some() {
+        Valence::Dyad
+    } else {
+        Valence::Monad
+    };
+    let mut layers = Vec::new();
+    append_execution_basis(&callable.semantic, valence, &mut layers);
     ExecutionBasis { layers }
 }
 
