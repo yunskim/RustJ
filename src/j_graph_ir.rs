@@ -43,7 +43,9 @@ pub struct GraphIrHeader {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GraphAnalyzability {
-    /// Graph structure and current semantic facts are known.
+    /// Graph topology and the graph-level abstract facts required by current
+    /// JAXA analyses are known. This does NOT mean error-free, reorderable,
+    /// fusible, or physically schedulable.
     Static,
     /// Topology is static, but one or more shape/type/resource facts are unknown.
     StaticWithUnknownFacts,
@@ -170,6 +172,9 @@ pub enum NodeKind {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Early abstract facts used by J-graph analysis.  This intentionally excludes
+/// layout/representation, guards, effects, error ordering and resolved call
+/// instantiation.  Those belong to Execution IR.
 pub struct GraphFacts {
     pub dtype: TypeFact,
     pub shape: Option<Vec<usize>>,
@@ -199,8 +204,8 @@ impl GraphFacts {
             && self
                 .shape
                 .as_ref()
-                .is_none_or(|shape| Some(shape) == facts.shape.as_ref())
-            && self.rank.is_none_or(|rank| Some(rank) == facts.rank)
+                .map_or(true, |shape| Some(shape) == facts.shape.as_ref())
+            && self.rank.map_or(true, |rank| Some(rank) == facts.rank)
     }
 }
 
