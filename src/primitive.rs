@@ -1,7 +1,7 @@
 //! Canonical IDs for the currently recognized primitive spellings.
 //! IDs denote a J symbol, not a valence or a physical kernel.
 
-pub const REGISTRY_VERSION: u32 = 2;
+pub const REGISTRY_VERSION: u32 = 3;
 macro_rules! primitives {
     ($($id:ident => $spelling:literal),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -46,17 +46,22 @@ primitives! {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AdverbId {
     Insert,
+    /// J prefix/infix adverb `\`. The derived verb keeps the adverb
+    /// identity; monadic prefix vs dyadic infix is resolved at application.
+    PrefixInfix,
 }
 impl AdverbId {
     pub fn from_spelling(s: &str) -> Option<Self> {
         match s {
             "/" => Some(Self::Insert),
+            "\\" => Some(Self::PrefixInfix),
             _ => None,
         }
     }
     pub const fn spelling(self) -> &'static str {
         match self {
             Self::Insert => "/",
+            Self::PrefixInfix => "\\",
         }
     }
 }
