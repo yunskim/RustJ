@@ -734,26 +734,41 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         }
         FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
             hints.push(GraphHint::ReductionStructure);
-            let operand = function_operands(function)
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| function.clone());
+            let Some(operand) = function_operands(function).into_iter().next() else {
+                return (
+                    GraphForm::Modifier {
+                        head: function.head.clone(),
+                        operands: function_operands(function),
+                    },
+                    hints,
+                );
+            };
             GraphForm::Reduce { operand }
         }
         FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
             hints.push(GraphHint::WindowStructure);
-            let operand = function_operands(function)
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| function.clone());
+            let Some(operand) = function_operands(function).into_iter().next() else {
+                return (
+                    GraphForm::Modifier {
+                        head: function.head.clone(),
+                        operands: function_operands(function),
+                    },
+                    hints,
+                );
+            };
             GraphForm::PrefixInfix { operand }
         }
         FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
             hints.push(GraphHint::CellParallelStructure);
-            let operand = function_operands(function)
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| function.clone());
+            let Some(operand) = function_operands(function).into_iter().next() else {
+                return (
+                    GraphForm::Modifier {
+                        head: function.head.clone(),
+                        operands: function_operands(function),
+                    },
+                    hints,
+                );
+            };
             GraphForm::Rank {
                 operand,
                 rank_spec: noun_operand_value(function),
