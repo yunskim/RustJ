@@ -17,6 +17,8 @@ fn pipeline_resource_composition_counts_internal_and_elidable_atoms() {
     assert!(!region.internal_atoms.has_unknown);
     assert_eq!(region.elidable_materialization_atoms.known, 6);
     assert_eq!(region.retained_live_atoms.known, 0);
+    assert_eq!(region.unfused_internal_traffic_atoms.known, 12);
+    assert_eq!(region.elidable_traffic_atoms.known, 12);
     assert!(!region.has_reduction_accumulator);
     assert!(!region.has_unknown_resource_requirement);
     assert!(region.graph_order_peak_live_atoms.known >= 3);
@@ -42,6 +44,18 @@ fn pipeline_resource_composition_counts_internal_and_elidable_atoms() {
             .evaluate_atoms(formula.graph_order_peak_live_atoms, &memory),
         region.graph_order_peak_live_atoms
     );
+    assert_eq!(
+        resources
+            .expressions
+            .evaluate_atoms(formula.unfused_internal_traffic_atoms, &memory),
+        region.unfused_internal_traffic_atoms
+    );
+    assert_eq!(
+        resources
+            .expressions
+            .evaluate_atoms(formula.elidable_traffic_atoms, &memory),
+        region.elidable_traffic_atoms
+    );
 }
 
 #[test]
@@ -66,6 +80,15 @@ fn fork_resource_composition_exposes_retained_input_and_reduction_state() {
     // +/ branch exposes a symbolic accumulator requirement before a concrete
     // target decides register/shared-memory realization.
     assert!(region.has_reduction_accumulator);
+    let formula = &resources.region_formulas[0];
+    let memory = graph.static_memory_analysis();
+    let state = resources
+        .expressions
+        .evaluate_atoms(formula.operation_state_requirements, &memory);
+    assert!(
+        state.has_unknown,
+        "accumulator state must remain symbolic rather than silently becoming zero"
+    );
 }
 
 
