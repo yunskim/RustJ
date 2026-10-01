@@ -2,7 +2,10 @@ use rustj::{
     Engine,
     analysis::ExecutionBasisKind,
     logical_ir::{CallOp, EffectSummary, OpKind, SpeculationSemantics},
-    lowering::{LoweringRegistry, RealizationFamily, TargetCapabilities},
+    lowering::{
+        BasisTargetFeasibility, LoweringRegistry, RealizationFamily,
+        RewriteTargetFeasibilityKind, TargetCapabilities,
+    },
 };
 
 fn result_basis_call(source: &str) -> (ExecutionBasisKind, CallOp) {
@@ -122,6 +125,40 @@ fn gather_keeps_indexed_parallel_routes_closed_while_errors_are_observable() {
     );
 }
 
+
+
+#[test]
+fn graph_rewrite_target_feasibility_does_not_confuse_equivalence_with_lowerability() {
+    let analysis = Engine::new()
+        .analyze_compilation("'ana' E. 'banana'")
+        .unwrap();
+    let candidate = &analysis.graph_rewrites[0];
+    let registry = LoweringRegistry::a3_v0();
+
+    let cpu = registry.rewrite_candidate_target_feasibility(
+        candidate,
+        &TargetCapabilities::cpu_baseline(),
+    );
+    assert_eq!(cpu.overall, RewriteTargetFeasibilityKind::Unsupported);
+    assert_eq!(cpu.nodes.len(), 2);
+    assert!(matches!(
+        cpu.nodes[0].feasibility,
+        BasisTargetFeasibility::Unsupported
+    ));
+    assert!(matches!(
+        cpu.nodes[1].feasibility,
+        BasisTargetFeasibility::RequiresCallFacts
+    ));
+
+    let gpu = registry.rewrite_candidate_target_feasibility(
+        candidate,
+        &TargetCapabilities::gpu_generic(),
+    );
+    assert_eq!(gpu.overall, RewriteTargetFeasibilityKind::Unsupported);
+    assert!(gpu.nodes.iter().all(|node| {
+        matches!(node.feasibility, BasisTargetFeasibility::Unsupported)
+    }));
+}
 
 #[test]
 fn route_partition_distinguishes_native_fallback_checks_and_value_ops() {
