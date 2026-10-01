@@ -145,6 +145,7 @@ Maintained user-facing Markdown follows a Korean-canonical / English-mirror poli
 - Korean canonical entry point: `README.ko.md`
 - English entry point: `README.md`
 - Internal maintainer/agent guidance: `AGENTS.md` (English-only)
+- Contributor License Agreement: `CLA.ko.md` (canonical) / `CLA.md` (English mirror)
 - Machine-generated measurements: `reports/*.json`, `reports/*.jsonl`
 
 Design and implementation work is authored in the Korean `*.ko.md` canonical documents first. English `*.md` files are mirrors for readers who prefer English. If the two versions disagree, the Korean canonical document governs.
