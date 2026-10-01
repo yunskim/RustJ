@@ -33,7 +33,6 @@ mod simd;
 pub mod sparse;
 pub mod storage;
 pub mod syntax;
-mod transition_ir;
 pub mod types;
 pub mod value;
 
