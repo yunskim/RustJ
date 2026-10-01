@@ -705,6 +705,10 @@ impl Plan {
     /// Graph-level use counts are available before execution lowering.  This is
     /// enough to identify common inputs and seed later liveness/materialization
     /// analysis without reconstructing J topology from the execution DAG.
+    pub fn static_memory_analysis(&self) -> crate::j_graph_memory::StaticMemoryAnalysis {
+        crate::j_graph_memory::analyze(self)
+    }
+
     pub fn use_counts(&self) -> Vec<usize> {
         let mut counts = vec![0usize; self.nodes.len()];
         for node in &self.nodes {
