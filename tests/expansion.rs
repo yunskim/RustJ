@@ -3,7 +3,7 @@ use rustj::{
     analysis::ExecutionBasisKind,
     expansion::{
         EquivalenceWitness, ExpansionInput, ExpansionNodeSemantics, ExpansionRuleId,
-        discover, execute_reference,
+        discover, execute_reference, for_graph_rewrite,
     },
     logical_ir::{ExecutionBasisPayload, OpKind, WindowShapeSpec},
 };
@@ -105,6 +105,34 @@ fn find_window_match_reference_realization_matches_current_find_subset() {
     let expanded = execute_reference(&expansion, &values).unwrap_err();
     let direct = Engine::new().eval(source).unwrap_err();
     assert_eq!(expanded.kind(), direct.kind());
+}
+
+
+#[test]
+fn graph_rewrite_links_to_execution_expansion_by_j_origin() {
+    let analysis = Engine::new()
+        .analyze_compilation("'co' E. 'cocoa'")
+        .unwrap();
+    let candidate = &analysis.graph_rewrites[0];
+    let plan = rustj::logical_ir::Plan::from_transition(&analysis.execution);
+    plan.verify().unwrap();
+
+    let expansion = for_graph_rewrite(&plan, candidate).unwrap();
+    assert_eq!(
+        plan.operations[expansion.source_op.0].j_origin,
+        Some(candidate.provenance.source_value)
+    );
+    assert_eq!(expansion.rule, candidate.rule);
+    assert_eq!(expansion.witness, candidate.witness);
+
+    let values = literal_source_values(&plan);
+    let expanded = execute_reference(&expansion, &values).unwrap().json();
+    let direct = Engine::new()
+        .eval("'co' E. 'cocoa'")
+        .unwrap()
+        .unwrap()
+        .json();
+    assert_eq!(expanded, direct);
 }
 
 #[test]
