@@ -112,6 +112,21 @@ impl Requirement {
     }
 }
 
+    fn target_only_satisfied(self, target: &TargetCapabilities) -> Option<bool> {
+        match self {
+            Self::Target(family) => Some(target.family == family),
+            Self::Feature(feature) => Some(target.has(feature)),
+            Self::KnownElementwiseAccess
+            | Self::KnownReductionAccess
+            | Self::KnownResultRank
+            | Self::ReassociationAllowed
+            | Self::Pure
+            | Self::NoObservableError
+            | Self::EvaluationOrderRelaxed => None,
+        }
+    }
+
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecutionBasisLoweringCapability {
     pub basis: ExecutionBasisKind,
@@ -148,6 +163,61 @@ pub struct ParameterizedLoweringRecipe {
 pub struct RouteRegion {
     pub class: RouteRegionClass,
     pub operations: Range<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BasisTargetFeasibility {
+    /// At least one registered realization needs only target/feature facts and
+    /// those facts are satisfied. Full operation legality may still add checks
+    /// once a concrete CallOp exists.
+    Supported {
+        candidates: Vec<RealizationFamily>,
+    },
+    /// Matching target families exist, but all surviving capabilities require
+    /// call-dependent semantic facts (purity, access, rank, error order, ...).
+    RequiresCallFacts,
+    /// No registered capability survives target/feature filtering.
+    Unsupported,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewriteNodeTargetFeasibility {
+    pub node: crate::j_graph_rewrite::RewriteNodeId,
+    pub graph_basis: crate::j_graph_ir::GraphBasisKind,
+    pub execution_basis: Option<ExecutionBasisKind>,
+    pub feasibility: BasisTargetFeasibility,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RewriteTargetFeasibilityKind {
+    Supported,
+    RequiresCallFacts,
+    Unsupported,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewriteTargetFeasibility {
+    pub rule: crate::j_graph_rewrite::GraphRewriteRuleId,
+    pub target: TargetCapabilities,
+    pub nodes: Vec<RewriteNodeTargetFeasibility>,
+    pub overall: RewriteTargetFeasibilityKind,
+}
+
+fn execution_basis_for_graph_basis(
+    basis: crate::j_graph_ir::GraphBasisKind,
+) -> Option<ExecutionBasisKind> {
+    use crate::j_graph_ir::GraphBasisKind as G;
+    use ExecutionBasisKind as E;
+    match basis {
+        G::Elementwise => Some(E::Elementwise),
+        G::CellApply => Some(E::CellApply),
+        G::Reduce => Some(E::Reduce),
+        G::Window => Some(E::WindowView),
+        G::StaticReindex => Some(E::StaticReindex),
+        G::DynamicGather => Some(E::Gather),
+        G::Search => Some(E::LookupClassify),
+        G::Structured => None,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -305,6 +375,95 @@ impl LoweringRegistry {
 
     pub fn capabilities(&self) -> &[ExecutionBasisLoweringCapability] {
         &self.capabilities
+    }
+
+    pub fn basis_target_feasibility(
+        &self,
+        basis: ExecutionBasisKind,
+        target: &TargetCapabilities,
+    ) -> BasisTargetFeasibility {
+        let mut supported = Vec::new();
+        let mut requires_call_facts = false;
+
+        for capability in self.capabilities.iter().filter(|capability| capability.basis == basis) {
+            let mut target_rejected = false;
+            let mut unresolved = false;
+            for requirement in &capability.requirements {
+                match requirement.target_only_satisfied(target) {
+                    Some(true) => {}
+                    Some(false) => {
+                        target_rejected = true;
+                        break;
+                    }
+                    None => unresolved = true,
+                }
+            }
+            if target_rejected {
+                continue;
+            }
+            if unresolved {
+                requires_call_facts = true;
+            } else if !supported.contains(&capability.realization) {
+                supported.push(capability.realization);
+            }
+        }
+
+        if !supported.is_empty() {
+            BasisTargetFeasibility::Supported {
+                candidates: supported,
+            }
+        } else if requires_call_facts {
+            BasisTargetFeasibility::RequiresCallFacts
+        } else {
+            BasisTargetFeasibility::Unsupported
+        }
+    }
+
+    pub fn rewrite_candidate_target_feasibility(
+        &self,
+        candidate: &crate::j_graph_rewrite::GraphRewriteCandidate,
+        target: &TargetCapabilities,
+    ) -> RewriteTargetFeasibility {
+        let mut nodes = Vec::with_capacity(candidate.replacement.nodes.len());
+        let mut overall = RewriteTargetFeasibilityKind::Supported;
+
+        for (index, node) in candidate.replacement.nodes.iter().enumerate() {
+            let execution_basis = execution_basis_for_graph_basis(node.basis);
+            let feasibility = match execution_basis {
+                Some(basis) => self.basis_target_feasibility(basis, target),
+                None => BasisTargetFeasibility::Unsupported,
+            };
+            overall = match (&feasibility, overall) {
+                (BasisTargetFeasibility::Unsupported, _) => {
+                    RewriteTargetFeasibilityKind::Unsupported
+                }
+                (_, RewriteTargetFeasibilityKind::Unsupported) => {
+                    RewriteTargetFeasibilityKind::Unsupported
+                }
+                (BasisTargetFeasibility::RequiresCallFacts, _) => {
+                    RewriteTargetFeasibilityKind::RequiresCallFacts
+                }
+                (_, RewriteTargetFeasibilityKind::RequiresCallFacts) => {
+                    RewriteTargetFeasibilityKind::RequiresCallFacts
+                }
+                (BasisTargetFeasibility::Supported { .. }, _) => {
+                    RewriteTargetFeasibilityKind::Supported
+                }
+            };
+            nodes.push(RewriteNodeTargetFeasibility {
+                node: crate::j_graph_rewrite::RewriteNodeId(index),
+                graph_basis: node.basis,
+                execution_basis,
+                feasibility,
+            });
+        }
+
+        RewriteTargetFeasibility {
+            rule: candidate.rule,
+            target: target.clone(),
+            nodes,
+            overall,
+        }
     }
 
     /// Return all legal candidates.  This function intentionally does not rank
