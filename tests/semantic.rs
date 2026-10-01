@@ -51,6 +51,33 @@ fn parse_is_execution_free_and_right_associative() {
         FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
     );
 }
+
+#[test]
+fn prefix_infix_adverb_is_preserved_as_a_derived_function_entity() {
+    let p = semantic::parse("(+/)\\").unwrap();
+    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
+    assert_eq!(
+        verb.entity.head,
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::PrefixInfix)
+    );
+    let [FunctionOperand::Function(reducer)] = verb.entity.operands.as_slice() else {
+        panic!("prefix/infix should retain its operand function")
+    };
+    assert_eq!(
+        reducer.head,
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+    );
+    let [FunctionOperand::Function(base)] = reducer.operands.as_slice() else {
+        panic!("insert should retain +")
+    };
+    assert_eq!(
+        base.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+    );
+}
+
 #[test]
 fn semantic_reference_preserves_values_and_transactions() {
     let mut direct = Engine::new();
