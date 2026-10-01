@@ -7017,8 +7017,10 @@ Logical J value와 physical representation의 분리는 이 전체 pipeline에 �
 | enqueue/word interpretation | 현재 `syntax.rs`에 혼재 | 향후 `enqueuer` | target/backend 정보를 enqueue가 읽지 않음 |
 | parser + semantic construction | `semantic.rs` | frontend/parser + immutable `FunctionEntity` | Graph/Logical/Physical 선택을 parser가 소유하지 않음 |
 | J graph algebra | `j_graph_ir.rs`, `j_graph_rewrite.rs`, `j_graph_resource.rs`, `j_graph_memory.rs` | J Graph IR / Graph Analyzer | Logical/Physical plan을 다시 semantic identity로 역주입하지 않음 |
-| execution semantic contract | 현재 `analysis.rs`에 일부 혼재 | 독립 execution-semantics contract | schedule/buffer/device를 포함하지 않음 |
+| execution semantic contract | `execution_semantics.rs` | 독립 target-independent execution-semantics contract | schedule/buffer/device를 포함하지 않음 |
+| transitional execution IR | `transition_ir.rs` (crate-private) | M1 중 삭제 대상 | 새 기능/새 semantic fact를 추가하지 않음 |
 | canonical Logical Execution IR | `logical_ir.rs` | `logical_ir::Plan` | `physical.rs`, kernel/runtime concrete storage에 의존하지 않음 |
+| compilation aggregate | `compilation.rs` | cross-stage analysis bundle | lowering semantics 자체를 소유하지 않음 |
 | route legality/capability | `lowering.rs` | verified Logical IR 이후 lowering/route layer | semantic/parser를 target 편의에 맞게 변경하지 않음 |
 | schedule/transform | 아직 없음 | 별도 planner-side representation | canonical Logical IR을 destructive하게 schedule-specific IR로 덮지 않음 |
 | physical representation | `physical.rs`, `storage.rs` | representation layer | semantic facts를 physical layout으로 정의하지 않음 |
@@ -7068,13 +7070,16 @@ backend / executor
 
 - [x] `ExecutionBasisKind`, `ExecutionBasis`, `AccessFact`, `AccessRelation`, `CallTarget/Callable`, `ResolvedInstantiation`, symbol/scope처럼 계속 필요한 target-independent execution-semantic contract를 `execution_semantics.rs`로 분리했다. `analysis` re-export는 compatibility만 담당한다.
 - [ ] J Graph IR에서 `logical_ir::Plan`으로 **직접** lowering하는 경로를 만든다.
+  - [x] legacy container 타입을 `analysis.rs`에서 crate-private `transition_ir.rs`로 격리해 direct lowerer가 제거해야 할 seam을 한 모듈로 축소했다.
+  - [x] A3 iteration-domain/constraint helper가 `transition::Node` 전체가 아니라 `Facts/RankPlan/ExecutionBasis/ResolvedInstantiation`을 받도록 분리했다.
+  - [ ] graph-node lowering builder가 이 helper를 직접 호출해 A3 op/value를 생성하도록 전환한다.
 - [ ] `logical_ir::Plan::from_transition(&analysis::LogicalPlan)`을 제거할 수 있도록 모든 필수 fact/check/order/provenance 생성 책임을 direct lowering으로 이동한다.
   - [x] 모든 외부 consumer를 `CompilationAnalysis.logical`로 전환하고 `Plan::from_transition`을 `pub(crate)` migration seam으로 축소했다.
   - [ ] graph lowering 중 A3 op/value/check를 직접 생성하도록 builder를 전환한 뒤 migration seam 자체를 삭제한다.
 - [ ] `Engine::analyze_a3` 계열을 canonical Logical IR 생성 API로 만들고, compiler-facing API가 더 이상 구형 LogicalPlan을 정상 경로로 반환하지 않게 한다.
 - [ ] `CompilationAnalysis`는 `j_graph + rewrite candidates/resource evaluation + canonical logical plan`을 묶는 analysis result로 재정의한다.
   - [x] canonical A3 `logical: logical_ir::Plan`을 추가하고 `Engine::analyze_a3`, route/expansion test consumers를 이 필드로 전환했다.
-  - [ ] compatibility `transition: analysis::LogicalPlan` field를 제거한다. (`execution`이라는 canonical-looking 이름은 제거 완료.)
+  - [ ] compatibility `transition` field를 제거한다. 타입은 이미 crate-private `transition_ir::LogicalPlan`으로 격리했다. (`execution`이라는 canonical-looking 이름은 제거 완료.)
 - [ ] `analysis::LogicalPlan`, 구형 `analysis::ValueId/Node/Write` 및 중복 verifier를 제거한다.
 - [ ] A3 verifier/reference executor/lowering tests를 direct-lowering 경로로 전환한다.
 - [ ] Graph origin, source span, name/version, semantic checks, effect/error order가 cutover 전후 동일함을 regression test로 고정한다.
@@ -7949,7 +7954,7 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
 - parser-produced shared `FunctionEntity`가 primitive, modifier application, hook/fork/train, rank/@: 구조를 보존한다.
 - J Graph IR이 별도 canonical analysis surface로 존재하고 Graph Basis, structural opportunity, graph rewrite/resource analysis 기초가 구현되어 있다.
-- `analysis.rs`의 transitional `LogicalPlan`과 `logical_ir.rs`의 A3 SSA `Plan`이 동시에 존재한다. **M1의 최우선 과제는 이 이중 IR을 canonical A3 하나로 수렴시키는 것이다.**
+- crate-private `transition_ir::LogicalPlan`과 `logical_ir.rs`의 A3 SSA `Plan`이 아직 동시에 존재한다. legacy container와 shared execution contracts는 `analysis.rs` 밖으로 격리했으며, **M1의 남은 핵심은 lowering builder가 A3를 직접 생성하게 해 transition IR 자체를 삭제하는 것**이다.
 - A3-v0에는 SSA ValueId, Function/Region/Block/Return, Execution Basis payload, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation, verifier가 구현되어 있다.
 - `SemanticCapabilityView`, `ParameterizedLoweringRecipe`, `LoweringRegistry`, 기본 target legality/candidate generation과 contiguous route partition prototype이 구현되어 있다.
 - 현재 RoutePartition은 class + operation range 중심의 prototype이며 boundary values/preconditions/chosen external route/bridge representation은 아직 없다.
