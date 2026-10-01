@@ -7,8 +7,8 @@
 use crate::{
     Value,
     analysis::{
-        self, AccessFact, ExecutionBasisKind, Callable, ResolvedInstantiation, Symbol,
-        SymbolId,
+        self, AccessFact, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation,
+        Symbol, SymbolId,
     },
     contracts::{Contract, Effect, Valence},
     facts::{Facts, RankPlan, ValueRoleFacts},
@@ -326,6 +326,9 @@ impl SpeculationSemantics {
 #[derive(Clone, Debug)]
 pub struct CallOp {
     pub callable: Callable,
+    /// Full outer-to-inner execution-basis composition retained from semantic
+    /// lowering. OpKind::Basis uses the outer layer as its current routing key.
+    pub execution_basis: ExecutionBasis,
     pub left: Option<ValueId>,
     pub right: ValueId,
     pub contract: Contract,
@@ -617,7 +620,7 @@ fn call_constraints(
     let mut set = ConstraintSet::default();
 
     if let Some(left_value) = left {
-        if node.basis == Some(ExecutionBasisKind::CellApply) {
+        if node.basis.outer() == Some(ExecutionBasisKind::CellApply) {
             let witness = node.rank_plan.as_ref().and_then(|plan| {
                 plan.result_frame
                     .clone()
@@ -636,7 +639,7 @@ fn call_constraints(
                 },
                 witness,
             });
-        } else if node.basis == Some(ExecutionBasisKind::Elementwise) {
+        } else if node.basis.outer() == Some(ExecutionBasisKind::Elementwise) {
             let analysis::Operation::Call {
                 left: Some(old_left),
                 right: old_right,
@@ -665,7 +668,7 @@ fn call_constraints(
         }
     }
 
-    if node.basis == Some(ExecutionBasisKind::Gather) {
+    if node.basis.outer() == Some(ExecutionBasisKind::Gather) {
         if let Some(indices) = left {
             set.facts.push(ConstraintFact {
                 constraint: Constraint::IndicesInBounds {
@@ -757,10 +760,11 @@ impl Plan {
                         .expect("verified transition call must have instantiation");
                     let call = CallOp {
                         callable: callable.clone(),
+                        execution_basis: node.basis.clone(),
                         left,
                         right,
                         contract: *contract,
-                        iteration_domain: iteration_domain(node.basis, node, transition),
+                        iteration_domain: iteration_domain(node.basis.outer(), node, transition),
                         effect: resolved_effect_summary(callable, left, *contract),
                         speculation: SpeculationSemantics::from_contract(*contract),
                         possible_errors: PossibleErrors::from_contract(*contract),
@@ -770,7 +774,7 @@ impl Plan {
                         access: node.access,
                         constraints: constraints.clone(),
                     };
-                    let kind = match node.basis {
+                    let kind = match node.basis.outer() {
                         Some(kind) => {
                             let payload = basis_payload(kind, &call);
                             OpKind::Basis {
@@ -995,6 +999,12 @@ impl Plan {
                     payload,
                     call,
                 } => {
+                    if call.execution_basis.outer() != Some(*kind) {
+                        return Err(fail(
+                            Some(op_id),
+                            "outer execution basis does not match basis operation identity".into(),
+                        ));
+                    }
                     if *payload != basis_payload(*kind, call) {
                         return Err(fail(
                             Some(op_id),
@@ -1045,6 +1055,12 @@ impl Plan {
                     }
                 }
                 OpKind::SemanticCall(call) => {
+                    if !call.execution_basis.is_empty() {
+                        return Err(fail(
+                            Some(op_id),
+                            "semantic fallback unexpectedly retains an execution basis".into(),
+                        ));
+                    }
                     for (expected, axis) in call.iteration_domain.axes.iter().enumerate() {
                         if axis.position != expected {
                             return Err(fail(

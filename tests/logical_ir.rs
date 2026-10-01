@@ -172,6 +172,10 @@ fn cell_apply_domain_is_the_result_frame_not_the_cell() {
     };
 
     assert_eq!(*kind, ExecutionBasisKind::CellApply);
+    assert_eq!(
+        call.execution_basis.layers,
+        vec![ExecutionBasisKind::CellApply, ExecutionBasisKind::Reduce]
+    );
     assert_eq!(call.iteration_domain.axes.len(), 1);
     assert_eq!(call.iteration_domain.axes[0].extent, Some(2));
     assert_eq!(call.iteration_domain.axes[0].kind, IterationAxisKind::Parallel);

@@ -103,6 +103,28 @@ pub enum ExecutionBasisKind {
     StateMachine,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExecutionBasis {
+    /// Outer-to-inner execution-basis structure. A ranked reduction, for
+    /// example, remains [CellApply, Reduce] even when A3 keeps it as one
+    /// structured call for now.
+    pub layers: Vec<ExecutionBasisKind>,
+}
+
+impl ExecutionBasis {
+    pub fn outer(&self) -> Option<ExecutionBasisKind> {
+        self.layers.first().copied()
+    }
+
+    pub fn contains(&self, kind: ExecutionBasisKind) -> bool {
+        self.layers.contains(&kind)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.layers.is_empty()
+    }
+}
+
 /// Actual call instance facts.  This is analysis metadata, not semantic identity
 /// and not a physical implementation choice.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,7 +140,7 @@ pub struct ResolvedInstantiation {
     pub rank_boundary: Option<[i64; 3]>,
 }
 
-fn direct_basis(operation: &Operation) -> Option<ExecutionBasisKind> {
+fn execution_basis(operation: &Operation) -> ExecutionBasis {
     use crate::primitive::PrimitiveId::*;
 
     let Operation::Call {
@@ -128,21 +150,23 @@ fn direct_basis(operation: &Operation) -> Option<ExecutionBasisKind> {
         ..
     } = operation
     else {
-        return None;
+        return ExecutionBasis::default();
     };
 
+    let mut layers = Vec::new();
     if callable.rank.is_some() {
-        return Some(ExecutionBasisKind::CellApply);
+        layers.push(ExecutionBasisKind::CellApply);
     }
     if callable.reduce {
-        return Some(ExecutionBasisKind::Reduce);
+        layers.push(ExecutionBasisKind::Reduce);
+        return ExecutionBasis { layers };
     }
 
     let CallTarget::Primitive(id) = callable.target else {
-        return None;
+        return ExecutionBasis { layers };
     };
     let dyad = left.is_some();
-    match (id, dyad) {
+    let inner = match (id, dyad) {
         (IndexOf | Steps, false) => Some(ExecutionBasisKind::IndexSpace),
         (Equal, false) => Some(ExecutionBasisKind::LookupClassify),
         (Indices, false) => Some(ExecutionBasisKind::ReplicateCompactExpand),
@@ -160,7 +184,11 @@ fn direct_basis(operation: &Operation) -> Option<ExecutionBasisKind> {
             Some(ExecutionBasisKind::Elementwise)
         }
         _ => None,
+    };
+    if let Some(inner) = inner {
+        layers.push(inner);
     }
+    ExecutionBasis { layers }
 }
 
 fn input_roles(operation: &Operation) -> Vec<(ValueId, ValueRole)> {
@@ -217,9 +245,10 @@ pub struct Node {
     pub j_origin: Option<j_graph_ir::ValueId>,
     pub facts: crate::facts::Facts,
     pub rank_plan: Option<crate::facts::RankPlan>,
-    /// Direct basis identity when the current transition IR can classify the
-    /// operation without inventing a multi-node expansion.
-    pub basis: Option<ExecutionBasisKind>,
+    /// Outer-to-inner execution-basis structure. This may retain nested
+    /// CellApply/Reduce/etc. identity even when the transition IR keeps one
+    /// structured call rather than inventing a multi-node expansion.
+    pub basis: ExecutionBasis,
     pub instantiation: Option<ResolvedInstantiation>,
     /// Roles describe how this value is used/produced, not a new J noun type.
     pub roles: ValueRoleFacts,
@@ -312,7 +341,7 @@ impl LogicalPlan {
                     return Err(fail(Some(id), "order edge must reference an earlier value".into()));
                 }
             }
-            if node.basis != direct_basis(&node.operation) {
+            if node.basis != execution_basis(&node.operation) {
                 return Err(fail(
                     Some(id),
                     "basis metadata does not match the logical operation".into(),
@@ -745,7 +774,7 @@ impl Builder<'_> {
             },
             _ => (crate::facts::Facts::default(), None),
         };
-        let basis = direct_basis(&operation);
+        let basis = execution_basis(&operation);
         let instantiation = self.resolved_instantiation(&operation, &facts);
         for (value, role) in input_roles(&operation) {
             self.nodes[value.0].roles.insert(role);

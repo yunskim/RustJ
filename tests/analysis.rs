@@ -413,17 +413,29 @@ fn provisional_basis_metadata_is_explicit() {
     e.eval("a=:i.2 3").unwrap();
 
     for (source, expected_basis, expected_valence) in [
-        ("1+2", ExecutionBasisKind::Elementwise, Valence::Dyad),
-        ("+/1 2 3", ExecutionBasisKind::Reduce, Valence::Monad),
-        ("|.1 2 3", ExecutionBasisKind::StaticReindex, Valence::Monad),
-        ("i.2 3", ExecutionBasisKind::IndexSpace, Valence::Monad),
-        ("1 { 10 20 30", ExecutionBasisKind::Gather, Valence::Dyad),
-        ("10 20 i. 20", ExecutionBasisKind::LookupClassify, Valence::Dyad),
-        ("+/\"1 a", ExecutionBasisKind::CellApply, Valence::Monad),
+        ("1+2", vec![ExecutionBasisKind::Elementwise], Valence::Dyad),
+        ("+/1 2 3", vec![ExecutionBasisKind::Reduce], Valence::Monad),
+        (
+            "|.1 2 3",
+            vec![ExecutionBasisKind::StaticReindex],
+            Valence::Monad,
+        ),
+        ("i.2 3", vec![ExecutionBasisKind::IndexSpace], Valence::Monad),
+        ("1 { 10 20 30", vec![ExecutionBasisKind::Gather], Valence::Dyad),
+        (
+            "10 20 i. 20",
+            vec![ExecutionBasisKind::LookupClassify],
+            Valence::Dyad,
+        ),
+        (
+            "+/\"1 a",
+            vec![ExecutionBasisKind::CellApply, ExecutionBasisKind::Reduce],
+            Valence::Monad,
+        ),
     ] {
         let plan = e.analyze(source).unwrap();
         let node = &plan.nodes[plan.result.unwrap().0];
-        assert_eq!(node.basis, Some(expected_basis), "{source}");
+        assert_eq!(node.basis.layers, expected_basis, "{source}");
         let instantiation = node.instantiation.as_ref().expect("call instantiation");
         assert_eq!(instantiation.valence, expected_valence, "{source}");
         assert_eq!(instantiation.result_dtype, node.facts.dtype, "{source}");
@@ -489,7 +501,7 @@ fn verifier_checks_basis_metadata_consistency() {
     let e = Engine::new();
     let mut plan = e.analyze("1+2").unwrap();
     let result = plan.result.unwrap();
-    plan.nodes[result.0].basis = Some(ExecutionBasisKind::Reduce);
+    plan.nodes[result.0].basis.layers = vec![ExecutionBasisKind::Reduce];
     let error = plan.verify().unwrap_err();
     assert_eq!(error.node, Some(result));
     assert!(error.message.contains("basis metadata"));
