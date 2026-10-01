@@ -4,6 +4,7 @@ use crate::{
         Result,
     },
     kernels,
+    semantic::{FunctionEntity, FunctionHead, FunctionOperand},
     value::Value,
 };
 use std::collections::HashMap;
@@ -248,49 +249,88 @@ impl Engine {
         }
     }
 
-    fn resolve_verb(&self, mut verb: crate::semantic::Verb) -> Result<ResolvedVerb> {
-        for _ in 0..crate::semantic::MAX_EXPR_DEPTH {
-            let name = match &verb.target {
-                crate::semantic::VerbTarget::Primitive(id) => {
-                    return Ok(ResolvedVerb {
-                        id: *id,
-                        reduce: verb.reduce,
-                        rank: verb.rank,
-                    });
-                }
-                crate::semantic::VerbTarget::Named(name) => name,
-                crate::semantic::VerbTarget::Derived => {
-                    return Err(
-                        Error::Unsupported("derived train runtime lowering not implemented".into())
-                            .in_phase(DiagnosticPhase::Runtime),
-                    );
-                }
-            };
-            let binding = self.names.get(name).ok_or_else(|| {
-                Error::Value(name.clone()).with_context(
-                    ErrorContext::phase(DiagnosticPhase::Runtime)
-                        .with_current_name(name.clone()),
-                )
-            })?;
-            let SymbolValue::Verb(target) = &binding.value else {
-                return Err(
-                    Error::Domain.with_context(
+    fn resolve_verb(&self, verb: crate::semantic::Verb) -> Result<ResolvedVerb> {
+        self.resolve_function_entity(&verb.entity, 0)
+    }
+
+    fn resolve_function_entity(
+        &self,
+        function: &FunctionEntity,
+        depth: usize,
+    ) -> Result<ResolvedVerb> {
+        if depth > crate::semantic::MAX_EXPR_DEPTH {
+            return Err(Error::Limit);
+        }
+
+        match &function.head {
+            FunctionHead::PrimitiveVerb(id) => Ok(ResolvedVerb {
+                id: *id,
+                reduce: false,
+                rank: None,
+            }),
+            FunctionHead::NameRef(name) => {
+                let binding = self.names.get(name).ok_or_else(|| {
+                    Error::Value(name.clone()).with_context(
                         ErrorContext::phase(DiagnosticPhase::Runtime)
                             .with_current_name(name.clone()),
-                    ),
-                );
-            };
-            let mut resolved = target.clone();
-            if verb.reduce || verb.rank.is_some() {
-                if resolved.reduce || resolved.rank.is_some() {
-                    return Err(Error::Unsupported("nested named verb modifiers".into()));
-                }
-                resolved.reduce = verb.reduce;
-                resolved.rank = verb.rank;
+                    )
+                })?;
+                let SymbolValue::Verb(target) = &binding.value else {
+                    return Err(
+                        Error::Domain.with_context(
+                            ErrorContext::phase(DiagnosticPhase::Runtime)
+                                .with_current_name(name.clone()),
+                        ),
+                    );
+                };
+                self.resolve_function_entity(&target.entity, depth + 1)
             }
-            verb = resolved;
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+                let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
+                    return Err(Error::Unsupported("malformed insert semantic entity".into()));
+                };
+                let mut resolved = self.resolve_function_entity(operand, depth + 1)?;
+                if resolved.reduce || resolved.rank.is_some() {
+                    return Err(Error::Unsupported(
+                        "runtime subset cannot flatten insert over a derived modifier".into(),
+                    ));
+                }
+                resolved.reduce = true;
+                Ok(resolved)
+            }
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+                let [
+                    FunctionOperand::Function(operand),
+                    FunctionOperand::Noun { value, .. },
+                ] = function.operands.as_slice()
+                else {
+                    return Err(Error::Unsupported("malformed rank semantic entity".into()));
+                };
+                let mut resolved = self.resolve_function_entity(operand, depth + 1)?;
+                if resolved.rank.is_some() {
+                    return Err(Error::Unsupported(
+                        "runtime subset cannot flatten nested rank modifiers".into(),
+                    ));
+                }
+                if value.is_empty() || value.len() > 3 {
+                    return Err(Error::Length);
+                }
+                let at = |i| value.int_at(i);
+                resolved.rank = Some(match value.len() {
+                    1 => [at(0)?, at(0)?, at(0)?],
+                    2 => [at(1)?, at(0)?, at(1)?],
+                    _ => [at(0)?, at(1)?, at(2)?],
+                });
+                Ok(resolved)
+            }
+            FunctionHead::PrimitiveAdverb(_)
+            | FunctionHead::PrimitiveConjunction(_)
+            | FunctionHead::Hook
+            | FunctionHead::Fork => Err(
+                Error::Unsupported("derived train runtime lowering not implemented".into())
+                    .in_phase(DiagnosticPhase::Runtime),
+            ),
         }
-        Err(Error::Limit)
     }
 
     fn interpret_ir(
