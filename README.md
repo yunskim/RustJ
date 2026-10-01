@@ -154,3 +154,15 @@ Historical details from earlier individual Markdown reports remain available thr
 ## Historical design repositories
 
 The primitive vocabulary, resource model, materialized-array/Flow–Storage model, and analyzer research previously spread across `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` were consolidated into the RustJ project documents as of 2026-09-30. New design decisions now belong in RustJ's Korean canonical project document, `PROJECT.ko.md`.
+
+
+## License
+
+RustJ follows the same **dual-license structure** as current `jsource`:
+
+- use under a separate **commercial license** obtained from the applicable RustJ copyright holder(s), in which case that commercial license applies; **or**
+- use under **GNU General Public License version 3 (GPL-3.0-only)**.
+
+See [LICENSE](LICENSE) for the governing notice and [COPYING](COPYING) for the full GNU GPL v3 text.
+
+Cargo metadata uses `GPL-3.0-only` to describe the public open-source option. The separate commercial-license alternative is stated in `LICENSE` rather than encoded as an SPDX expression.
