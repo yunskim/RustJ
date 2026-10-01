@@ -966,6 +966,47 @@ Do not regress to superseded prototype assumptions such as:
 
 Current jsource remains the frontend semantic oracle.
 
+## 14.2 ArrayFire and the J ArrayFire add-on
+
+Checked: 2026-10-01.
+
+Primary references:
+
+- ArrayFire JIT: https://arrayfire.org/docs/jit.htm
+- Unified Backend: https://arrayfire.org/docs/unifiedbackend.htm
+- CUDA interoperability: https://arrayfire.org/docs/interop_cuda.htm
+- Memory manager API: https://arrayfire.org/docs/group__memory__manager.htm
+- Jsoftware `math_arrayfire`, pinned at `b0543c8278fe7a50e0ac9f938a936b4a84ee239b`:
+  https://github.com/jsoftware/math_arrayfire/tree/b0543c8278fe7a50e0ac9f938a936b4a84ee239b
+- J add-on manual:
+  https://github.com/jsoftware/math_arrayfire/blob/b0543c8278fe7a50e0ac9f938a936b4a84ee239b/man.txt
+- Alex Shroyer's historical J/ArrayFire GPU prototype:
+  https://alexshroyer.com/papers/matmul_j_gpu.pdf
+
+The useful ArrayFire lessons are narrower than "use ArrayFire as the RustJ GPU backend":
+
+1. ArrayFire accumulates supported elementwise operations in a lazy AST and JIT-fuses them at evaluation boundaries. RustJ should compare this with its later Logical/Physical planning, not collapse J Semantic IR into an ArrayFire-like expression tree.
+2. `eval` and `sync` separate evaluation/submission from completion. This is useful for future RustJ async-token/timepoint, lifetime, transfer, and external-library-call semantics.
+3. ArrayFire's unified API hides CPU/CUDA/OpenCL/oneAPI backends without making backend placement part of array-language meaning. RustJ should preserve the same semantic/physical separation.
+4. Device-pointer, stream, lock/unlock, and custom-memory-manager APIs are useful references for external-library ownership and synchronization boundaries.
+
+The Jsoftware add-on is especially valuable as a concrete **library-adapter/offload case study**:
+
+- J arrays are row-major while ArrayFire arrays are column-major, so the add-on performs an `rcc` conversion. RustJ should use this as a test case for keeping logical atom order separate from physical layout and choosing view/copy/consumer absorption only during physical planning.
+- `families.ijs` maps concrete functions such as `af_add`, `af_mul`, and `af_sum`. It does not make arbitrary J adverbs, rank, or derived verbs automatically equivalent to ArrayFire operations. RustJ external routes therefore need explicit capability/precondition checks.
+- The add-on tracks `af_array` handles and release/hold/device-GC state separately from J values. This supports RustJ's ValueId vs external buffer/handle separation.
+- The add-on effectively inherits ArrayFire's `dim4` rank boundary. That is a backend capability limit, not a valid restriction on J semantics.
+
+Do not inherit ArrayFire's physical limits upstream:
+
+- do not identify `af::array` with a RustJ Logical Array/J noun;
+- do not inherit rank<=4, column-major layout, or ArrayFire dtype coverage as J-language constraints;
+- do not treat fixed ArrayFire reductions as the semantics of J's general `/` or `\\`;
+- do not treat ArrayFire JIT fusibility as proof of RustJ graph-rewrite/fusion legality;
+- do not treat the J add-on's FFI mapping as RustJ's compiler architecture.
+
+For later adapter work, build a Graph Basis ↔ ArrayFire capability matrix for Elementwise, Reduce, Scan, Gather/Index, MatMul, Conv, Sparse, layout conversion, synchronization, and fallback. Benchmark cold JIT compile cost separately from warm cached execution, transfer, layout conversion, and materialization cost.
+
 ---
 
 # Part XII — Validation policy
