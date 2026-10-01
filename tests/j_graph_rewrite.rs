@@ -2,7 +2,9 @@ use rustj::{
     Engine,
     j_graph_ir::{GraphBasisKind, NodeKind},
     j_graph_rewrite::{
-        GraphEquivalenceWitness, GraphRewriteRuleId, RewriteInput, RewriteNodeSemantics, RULES,
+        GraphEquivalenceWitness, GraphOptimizationPhase, GraphRewriteRuleId,
+        PruningMonotonicity, ResourceBoundLocality, RewriteInput, RewriteNodeSemantics,
+        GRAPH_OPTIMIZATION_ORDER, RULES,
     },
     primitive::PrimitiveId,
     semantic::FunctionHead,
@@ -70,6 +72,26 @@ fn rewrite_registry_is_a_rule_registry_not_a_profitability_ranking() {
     assert_eq!(RULES[0].id, GraphRewriteRuleId::FindViaWindowMatch);
     assert_eq!(RULES[0].source_outer_basis, GraphBasisKind::Search);
     assert_eq!(RULES[0].replacement_outer_basis, GraphBasisKind::Window);
+    assert_eq!(
+        RULES[0].pruning.locality,
+        ResourceBoundLocality::GlobalContextDependent
+    );
+    assert_eq!(
+        RULES[0].pruning.monotonicity,
+        PruningMonotonicity::Unproven
+    );
+    assert!(!RULES[0].pruning.sound_for_early_pruning());
+
+    assert_eq!(
+        GRAPH_OPTIMIZATION_ORDER,
+        &[
+            GraphOptimizationPhase::BasisDiscovery,
+            GraphOptimizationPhase::RewriteCandidateGeneration,
+            GraphOptimizationPhase::EquivalenceValidation,
+            GraphOptimizationPhase::CandidateResourceEvaluation,
+            GraphOptimizationPhase::SoundResourcePruning,
+        ]
+    );
 }
 
 #[test]
