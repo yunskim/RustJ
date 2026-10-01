@@ -1,0 +1,42 @@
+name: Word formation oracle
+
+on:
+  push:
+    paths:
+      - 'src/scanner.rs'
+      - 'tools/word_conformance.py'
+      - 'examples/scan_words.rs'
+      - '.github/workflows/word-formation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  differential:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Fetch pinned jsource
+        run: |
+          git init /tmp/jsource
+          git -C /tmp/jsource remote add origin https://github.com/jsoftware/jsource.git
+          git -C /tmp/jsource fetch --depth 1 origin 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
+          git -C /tmp/jsource checkout --detach FETCH_HEAD
+      - name: Build pinned J reference
+        run: python3 tools/build_reference.py --source /tmp/jsource --variant j64
+      - name: Run word-formation differential
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/j64/libj.so
+        run: |
+          mkdir -p reports
+          python3 tools/word_conformance.py --report reports/word-conformance-j64.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: word-formation-conformance
+          path: |
+            reports/word-conformance-j64.json
+            .reference/manifest*.json
+            .reference/build.log
