@@ -478,6 +478,7 @@ pub(crate) fn lower_graph(
     for (index, node) in graph.nodes.into_iter().enumerate() {
         let origin = crate::j_graph_ir::ValueId(index);
         builder.current_j_origin = Some(origin);
+        let graph_facts = node.facts.clone();
         let span = node.span;
         let value = match node.kind {
             crate::j_graph_ir::NodeKind::Literal(value) => {
@@ -502,6 +503,12 @@ pub(crate) fn lower_graph(
                 builder.call_entity(function, left, right, span)?
             }
         };
+        if !graph_facts.agrees_with_execution(&builder.nodes[value.0].facts) {
+            return Err(Error::Unsupported(format!(
+                "J Graph/Execution fact drift at graph value {}",
+                index
+            )));
+        }
         value_map.push(value);
     }
     builder.current_j_origin = None;
