@@ -7182,7 +7182,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [x] `EnqueueFlags`에 `global_assignment/local_assignment/assignment_to_name`을 분리했다. 현재 지원 copula `=:`는 global이며 NAME 직후 copula는 to-name flag를 보존한다.
 - [x] one-word sentence는 Noun/Name/Verb/Adverb/Conjunction만 결과 가능 class로 허용하고 copula/괄호 단독 문장을 enqueue 단계에서 거부한다.
 - [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
-- [ ] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 parser row에 참여하는 테스트를 만든다.
+- [x] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 modifier/parser class 경로에 참여하는 테스트를 만들었다.
 
 **F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
 
@@ -7191,11 +7191,11 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [x] semantic parser 입력을 legacy `Token`에서 `EnqueuedWord` queue로 바꾸고 span/word-index/flags를 parser 진입까지 보존한다.
 - [x] `EnqueueClass`와 `EnqueuedPayload`를 분리하고 parser가 동일 `EnqueuedWord` carrier에서 둘을 함께 운반한다.
 - [ ] jsource Mark/Edge sentinel을 명시적으로 표현한다.
-- [ ] ordinary lookup NAME은 queue flag에 따라 parser stack 진입 직전에 resolve한다.
-- [ ] 9-row matcher는 queue/result parser class만으로 eligibility/precedence를 결정한다.
+- [x] ordinary lookup NAME은 `EnqueueFlags.lookup_name`을 확인한 뒤 parser item 생성 전에 `ParserNameBinding`으로 resolve한다.
+- [x] pinned `cases[]`를 옮긴 `match_parse_row([ParseClass; 4])`가 semantic payload를 보지 않고 parser class만으로 eligibility와 first-match precedence를 결정한다.
 - [ ] matcher row ordering/reduction extent/result reinsertion을 `cases[]`/runtime `ptcol` behavior와 동일하게 구현하고 별도 train/modifier heuristic을 제거한다.
 - [ ] reduction result를 동일 queue/stack representation으로 재삽입한다.
-- [ ] current `ParseClass` refactor를 F2 queue class의 기반으로 흡수한다.
+- [x] `ParseClass`를 F2 row matcher와 application/modifier reduction의 공통 class domain으로 사용한다.
 
 **F2 완료 조건:** parser는 jsource-compatible enqueue queue를 유일한 입력으로 받아 9-row engine으로 넘길 수 있다.
 
@@ -7377,7 +7377,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [x] runtime monad/dyad failure에 executing primitive, valence, x/y type/shape/rank summary를 붙인다.
 - [x] interpreter execution과 compiler `analyze_diagnostic`이 동일 context/error infrastructure를 사용한다.
 - [x] stable `eval()/analyze()/parse()` machine API는 context wrapper를 제거하고 기존 J error variant/kind를 유지한다.
-- [ ] F1 `EnqueuedWord`가 span과 original word index를 canonical provenance로 직접 소유하게 한다.
+- [x] F1 `EnqueuedWord`가 byte span과 original word index를 canonical provenance로 직접 소유한다.
 - [ ] F2 parser stack entry가 original word index를 모든 reduction 동안 보존하고 jsource `infererrtok`에 대응하는 blame inference를 구현한다.
 - [ ] Hook/Fork/derived modifier 실행 시 failing semantic entity의 compact linear representation을 diagnostic context에 넣는다.
 - [ ] rank/agreement failure analyzer가 effective cell/frame facts를 사용해 J처럼 어느 frame/shape가 불일치하는지 구조적으로 설명한다.
