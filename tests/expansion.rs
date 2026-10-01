@@ -2,10 +2,25 @@ use rustj::{
     Engine,
     analysis::ExecutionBasisKind,
     expansion::{
-        EquivalenceWitness, ExpansionInput, ExpansionNodeSemantics, ExpansionRuleId, discover,
+        EquivalenceWitness, ExpansionInput, ExpansionNodeSemantics, ExpansionRuleId,
+        discover, execute_reference,
     },
     logical_ir::{ExecutionBasisPayload, OpKind, WindowShapeSpec},
 };
+
+
+fn literal_source_values(plan: &rustj::logical_ir::Plan) -> Vec<Option<rustj::Value>> {
+    let mut values = vec![None; plan.values.len()];
+    for operation in &plan.operations {
+        if let OpKind::Literal(value) = &operation.kind {
+            let [result] = operation.results.as_slice() else {
+                panic!("literal should have exactly one result")
+            };
+            values[result.0] = Some(value.clone());
+        }
+    }
+    values
+}
 
 #[test]
 fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
@@ -58,6 +73,38 @@ fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
         expansion.graph.nodes[1].inputs[1],
         ExpansionInput::Node(rustj::expansion::ExpansionNodeId(0))
     );
+}
+
+
+#[test]
+fn find_window_match_reference_realization_matches_current_find_subset() {
+    for source in [
+        "'co' E. 'cocoa'",
+        "'ana' E. 'banana'",
+        "2 3 E. 1 2 3 2 3",
+        "'' E. 'abc'",
+    ] {
+        let plan = Engine::new().analyze_a3(source).unwrap();
+        let expansion = discover(&plan).pop().expect("find expansion");
+        let values = literal_source_values(&plan);
+        let expanded = execute_reference(&expansion, &values)
+            .unwrap()
+            .json();
+        let direct = Engine::new()
+            .eval(source)
+            .unwrap()
+            .unwrap()
+            .json();
+        assert_eq!(expanded, direct, "{source}");
+    }
+
+    let source = "1 2 E. 1";
+    let plan = Engine::new().analyze_a3(source).unwrap();
+    let expansion = discover(&plan).pop().expect("find expansion");
+    let values = literal_source_values(&plan);
+    let expanded = execute_reference(&expansion, &values).unwrap_err();
+    let direct = Engine::new().eval(source).unwrap_err();
+    assert_eq!(expanded.kind(), direct.kind());
 }
 
 #[test]
