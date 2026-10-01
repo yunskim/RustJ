@@ -44,7 +44,7 @@ fn legacy_syntax_tokens_are_only_an_adapter_over_enqueue_payloads() {
 
 
 #[test]
-fn primitive_resolver_keeps_core_precedence_and_extension_parser_pos() {
+fn primitive_resolver_keeps_extensions_as_names_until_parser_binding() {
     use rustj::primitive::{
         ExtensionPrimitive, LoweringKey, PrimitiveContext, PrimitiveHandle,
         PrimitivePartOfSpeech, PrimitiveResolver, PrimitiveSemanticId,
@@ -52,7 +52,7 @@ fn primitive_resolver_keeps_core_precedence_and_extension_parser_pos() {
     };
 
     let extension = PrimitiveHandle {
-        semantic_id: PrimitiveSemanticId::Verb(rustj::primitive::PrimitiveId::Add),
+        semantic_id: PrimitiveSemanticId::Extension("test.addx"),
         source_origin: PrimitiveSourceOrigin::Extension,
         result_pos: PrimitivePartOfSpeech::Verb,
         semantic_info: PrimitiveSemanticInfo {
@@ -65,23 +65,21 @@ fn primitive_resolver_keeps_core_precedence_and_extension_parser_pos() {
             spelling: "addx",
             handle: extension,
         },
-        ExtensionPrimitive {
-            spelling: "+",
-            handle: extension,
-        },
     ]));
 
     let words = enqueuer::enqueue_with_context("addx +", &context).unwrap();
     assert_eq!(
         words.iter().map(|word| word.class).collect::<Vec<_>>(),
-        vec![EnqueueClass::Verb, EnqueueClass::Verb]
+        vec![EnqueueClass::Name, EnqueueClass::Verb]
     );
-    assert!(matches!(
-        words[0].payload,
-        EnqueuedPayload::Verb(rustj::primitive::PrimitiveId::Add)
-    ));
+    assert!(words[0].flags.lookup_name);
+    assert!(matches!(words[0].payload, EnqueuedPayload::Name("addx")));
 
-    let core = context.resolve("+").unwrap();
+    let binding = context.resolve_extension_binding("addx").unwrap();
+    assert_eq!(binding.source_origin, PrimitiveSourceOrigin::Extension);
+    assert_eq!(binding.result_pos, PrimitivePartOfSpeech::Verb);
+
+    let core = context.resolve_core_for_enqueue("+").unwrap();
     assert_eq!(core.source_origin, PrimitiveSourceOrigin::Core);
     assert!(matches!(core.lowering_key, LoweringKey::Core(_)));
 }
