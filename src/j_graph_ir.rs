@@ -585,13 +585,17 @@ fn base_operation_contract(
                 working_state: SymbolicResourceExpr::WindowWorkingSet,
             }
         },
-        GraphForm::Rank { .. } => GraphOperationContract {
-            iteration: IterationContract::CellMap,
-            access: AccessContract::CellRelative,
-            fusion_structure: FusionStructure::RequiresSemanticProof,
-            temporary: SymbolicResourceExpr::StructuralComposition,
-            working_state: SymbolicResourceExpr::StructuralComposition,
-            ..GraphOperationContract::default()
+        GraphForm::Rank { operand, .. } => {
+            let (inner_form, _) = classify_function(operand);
+            let inner = base_operation_contract(operand, valence, &inner_form);
+            GraphOperationContract {
+                iteration: IterationContract::CellMap,
+                access: AccessContract::CellRelative,
+                fusion_structure: FusionStructure::RequiresSemanticProof,
+                temporary: inner.temporary,
+                accumulator: inner.accumulator,
+                working_state: inner.working_state,
+            }
         },
         GraphForm::Atomic => {
             let FunctionHead::PrimitiveVerb(id) = &function.head else {
