@@ -1071,7 +1071,7 @@ impl Plan {
             match (&region.kind, expected_form) {
                 (
                     RegionKind::Pipeline { stage_results },
-                    GraphForm::Pipeline { .. },
+                    GraphForm::Pipeline { stages },
                 ) => {
                     if region.resource_composition != ResourceCompositionRule::Pipeline {
                         return Err(format!("region {index} pipeline composition mismatch"));
@@ -1093,9 +1093,6 @@ impl Plan {
                         return Err(format!("region {index} pipeline analyzability is stale"));
                     }
 
-                    let GraphForm::Pipeline { stages } = form else {
-                        unreachable!("matched pipeline form")
-                    };
                     if stages.len() != stage_results.len() {
                         return Err(format!("region {index} pipeline stage/function count mismatch"));
                     }
