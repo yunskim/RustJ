@@ -237,7 +237,7 @@ fn execution_ir_is_derived_from_explicit_j_graph_stages() {
     for stage in stage_results {
         assert!(
             analysis
-                .execution
+                .transition
                 .nodes
                 .iter()
                 .any(|node| node.j_origin == Some(*stage)),
@@ -272,7 +272,7 @@ fn graph_and_execution_ir_answer_different_questions_without_recovering_topology
     {
         assert!(
             analysis
-                .execution
+                .transition
                 .nodes
                 .iter()
                 .any(|node| node.j_origin == Some(value))
