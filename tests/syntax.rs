@@ -87,3 +87,18 @@ fn word_formation_states_and_spans() {
     }
     assert!(e.eval("1\n2").is_err());
 }
+
+
+#[test]
+fn raw_word_formation_keeps_trailing_comment_while_parser_words_exclude_it() {
+    let source = b"1 + 2 NB. trailing comment";
+    let raw = rustj::scanner::scan(source).unwrap();
+    let parse = rustj::scanner::parse_word_spans(source).unwrap();
+
+    assert_eq!(&source[raw.last().unwrap().clone()], b"NB. trailing comment");
+    assert_eq!(raw.len(), parse.len() + 1);
+    assert_eq!(
+        parse.iter().map(|span| &source[span.clone()]).collect::<Vec<_>>(),
+        vec![b"1".as_slice(), b"+".as_slice(), b"2".as_slice()]
+    );
+}
