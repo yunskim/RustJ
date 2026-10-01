@@ -6,7 +6,8 @@
 
 use crate::{
     Error, Value,
-    analysis::{AccessFact, AccessRelation, CompilationAnalysis, ExecutionBasisKind},
+    analysis::CompilationAnalysis,
+    execution_semantics::{AccessFact, AccessRelation, ExecutionBasisKind},
     logical_ir::{ExecutionBasisPayload, CallOp, IterationDomain, OpKind, Operation, Plan},
 };
 use std::ops::Range;
