@@ -911,14 +911,29 @@ fn expression(
                     .at(item_span),
             );
         };
-        if items
+
+        let rhs_class = ParseClass::Noun;
+
+        // Row 2: (EDGE+AVN) NOUN VERB NOUN.  The context is the
+        // item immediately to the left of the candidate lhs, or MARK.
+        let dyad_row = if items
             .last()
             .is_some_and(|item| item.class == ParseClass::Noun)
         {
+            let context = items
+                .get(items.len().saturating_sub(2))
+                .map_or(ParseClass::Mark, |item| item.class);
+            match_parse_row([context, ParseClass::Noun, ParseClass::Verb, rhs_class])
+                == Some(ParseRow::DyadNVN)
+        } else {
+            false
+        };
+
+        if dyad_row {
             let (lhs, left_height) = items
                 .pop()
                 .and_then(Item::into_noun)
-                .expect("noun class");
+                .expect("row 2 lhs noun");
             height = checked_height(height.max(left_height))?;
             rhs = Expr {
                 span: lhs.span.start..rhs.span.end,
@@ -928,16 +943,43 @@ fn expression(
                     right: Box::new(rhs),
                 },
             };
-        } else {
-            height = checked_height(height)?;
-            rhs = Expr {
-                span: v.span.start..rhs.span.end,
-                kind: ExprKind::Monad {
-                    verb: v,
-                    argument: Box::new(rhs),
-                },
-            };
+            continue;
         }
+
+        // Row 1 executes the right verb in V V N, leaving the left
+        // verb on the parser stack.  Row 0 handles EDGE V N.
+        let monad_row = if items
+            .last()
+            .is_some_and(|item| item.class == ParseClass::Verb)
+        {
+            let context = items
+                .get(items.len().saturating_sub(2))
+                .map_or(ParseClass::Mark, |item| item.class);
+            match_parse_row([context, ParseClass::Verb, ParseClass::Verb, rhs_class])
+                == Some(ParseRow::MonadVVN)
+        } else {
+            let context = items
+                .last()
+                .map_or(ParseClass::Mark, |item| item.class);
+            match_parse_row([context, ParseClass::Verb, rhs_class, ParseClass::Mark])
+                == Some(ParseRow::MonadEdge)
+        };
+
+        if !monad_row {
+            return Err(
+                Error::Syntax("no jsource row 0-2 application matches".into())
+                    .at(item_span),
+            );
+        }
+
+        height = checked_height(height)?;
+        rhs = Expr {
+            span: v.span.start..rhs.span.end,
+            kind: ExprKind::Monad {
+                verb: v,
+                argument: Box::new(rhs),
+            },
+        };
     }
 
     Ok((rhs, height))
