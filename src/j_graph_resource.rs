@@ -29,13 +29,6 @@ impl KnownAtoms {
             None => self.has_unknown = true,
         }
     }
-
-    fn max_with(&mut self, atoms: Option<usize>) {
-        match atoms {
-            Some(atoms) => self.known = self.known.max(atoms),
-            None => self.has_unknown = true,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
