@@ -197,10 +197,35 @@ fn infer_rewrite_facts(
                     return Err("window rewrite node has no source input");
                 };
                 let right = input_graph_facts(plan, &facts, source_input)?;
+                let pattern = node
+                    .inputs
+                    .get(1)
+                    .copied()
+                    .map(|input| input_graph_facts(plan, &facts, input))
+                    .transpose()?;
+
+                // Current RustJ E. reference semantics are rank <= 1.  In that
+                // supported subset the logical window family has one window per
+                // right-argument position, with cell shape equal to the pattern
+                // shape.  Trailing non-fitting windows remain logical positions
+                // whose Match result is false; they do not disappear.
+                let shape = match (&right.shape, pattern.as_ref().and_then(|x| x.shape.as_ref())) {
+                    (Some(right_shape), Some(pattern_shape))
+                        if right_shape.len() <= 1
+                            && pattern_shape.len() <= right_shape.len()
+                            && pattern_shape.len() <= 1 =>
+                    {
+                        let mut shape = right_shape.clone();
+                        shape.extend_from_slice(pattern_shape);
+                        Some(shape)
+                    }
+                    _ => None,
+                };
+                let rank = shape.as_ref().map(Vec::len);
                 GraphFacts {
                     dtype: right.dtype,
-                    shape: None,
-                    rank: None,
+                    shape,
+                    rank,
                 }
             }
             (
