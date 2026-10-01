@@ -156,14 +156,8 @@ fn make_verb_train(mut verbs: Vec<Verb>) -> Result<Verb> {
     // jsource's stack runs right-to-left.  Repeated row 5 reductions consume
     // the rightmost V V V and reinsert the completed verb.
     while verbs.len() >= 3 {
-        let n = verbs.len();
-        let edge = if n == 3 {
-            ParseClass::Mark
-        } else {
-            ParseClass::Verb
-        };
         if match_parse_row([
-            edge,
+            ParseClass::Mark,
             ParseClass::Verb,
             ParseClass::Verb,
             ParseClass::Verb,
