@@ -98,53 +98,67 @@ The semantic meaning of a J program must not depend on the selected backend.
 
 ---
 
-## 3. Original JAXA vision — “SQL for neural networks”
+## 3. JAXA design principle — “SQL for neural networks”
 
-JAXA's original slogan was **“SQL for neural networks.”**
+Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”**
 
-This did not mean writing neural networks in SQL syntax. It meant bringing the same separation of concerns that relational systems provide to neural-network and array computation:
+The point was not to imitate SQL syntax or to declare a universal neural-network platform. The recurring idea was:
+
+> **JAXA specifies logical array intent, not physical execution procedure.**
+
+The SQL analogy concerns the separation between **logical intent** and **physical execution plans**.
 
 ```text
-declarative computation intent
+logical array intent
         ↓
-logical array / NN graph
+legal logical / physical plans
         ↓
-algebraic rewrite / equivalence
+resource / cost evaluation
         ↓
-resource / locality / materialization analysis
-        ↓
-alternative physical plans
-        ↓
-target / resource / cost based selection
-        ↓
-CPU / GPU / library / accelerator execution
+selected execution plan
 ```
 
-The user should express **what should be computed and which semantic constraints matter**, while the compiler decides how to realize that computation physically rather than requiring the user to prescribe kernels, tiles, devices, and schedules manually.
+Users should express the computation and the semantic/storage obligations that matter, while the analyzer/compiler/backend decides matters such as:
 
-The database analogy is intentional:
+- which equivalent graph form to use;
+- whether to fuse or materialize;
+- which execution basis and route to use;
+- which memory/schedule strategy to use;
+- which target-specific realization to select.
 
-| Database system | RustJ / JAXA vision |
-|---|---|
-| SQL query | declarative J/array/NN computation |
-| relational algebra | J Graph IR / Graph Basis |
-| logical rewrite | graph rewrite / equivalence |
-| statistics/cardinality | shape/rank/access/resource facts |
-| alternative query plans | alternative execution graphs/routes |
-| cost model | ResourceEstimate / CostEstimate |
-| physical operator selection | Execution Basis / backend realization |
-| query executor | RustJ executor / external backend |
+Another useful line from the earlier JAXA documents was:
 
-RustJ therefore has two complementary goals:
+> **JAXA does not execute fusion — the compiler does.**
 
-- **Direct goal:** a modern J compiler/runtime that preserves full J semantics.
-- **Long-term research/product vision:** a declarative array-computing compiler core capable of realizing JAXA's “SQL for neural networks” idea.
+RustJ inherits that separation in the following form:
 
-This long-term vision does not turn RustJ into an NN framework or SQL-like DSL today. The immediate priority remains faithful J semantics and preserving J's high-level array algebra losslessly into compiler graphs. However, Graph Basis, rewrite/equivalence, resource analysis, and physical planning should be designed so that other array/NN frontends could eventually target the same compiler core.
+```text
+J semantics / FunctionEntity
+        ↓
+J Graph IR / Graph Basis
+        ↓
+rewrite / equivalence
+        ↓
+symbolic resource reasoning
+        ↓
+Logical Execution IR / Execution Basis
+        ↓
+physical planning / backend realization
+```
 
-This section preserves the original JAXA product/research north star: users describe declarative computation; the compiler generates and chooses physical plans.
+This analogy is not intended to broaden RustJ's current product scope. RustJ's immediate goal remains **a J compiler/runtime that preserves full J semantics**.
 
-## 4. Naming policy
+“SQL for neural networks” is used here as historical design context for a few concrete principles:
+
+1. Do not unnecessarily encode physical procedure in the source language.
+2. When several semantically equivalent realizations exist, leave room for the compiler to choose.
+3. Establish legality before cost.
+4. Use resource/cost models to choose among legal plans, not to redefine semantics.
+5. Keep logical intent reusable as optimizers and backends improve.
+
+In RustJ, therefore, “SQL for neural networks” is best understood as an inherited compiler separation-of-concerns principle, not as a claim of a broad platform already delivered.
+
+## 3.1 Naming policy
 
 `Jaxa` / `JAXA` is not the name of a current RustJ compiler component.
 
