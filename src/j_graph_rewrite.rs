@@ -72,11 +72,47 @@ pub enum GraphEquivalenceWitness {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceBoundLocality {
+    /// The rule has no proof that the relevant bound can be decided from the
+    /// partial/local candidate alone.
+    Unknown,
+    /// A proof exists that the pruning bound is local to this rewrite.
+    Local,
+    /// The bound depends on surrounding fusion/tile/liveness context.
+    GlobalContextDependent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PruningMonotonicity {
+    /// A candidate may become better again after subsequent rewrites.
+    Unproven,
+    /// A proof exists that the relevant bound can only stay equal or worsen
+    /// below this candidate in the search tree.
+    ProvenMonotone,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResourcePruningContract {
+    pub locality: ResourceBoundLocality,
+    pub monotonicity: PruningMonotonicity,
+}
+
+impl ResourcePruningContract {
+    pub const fn sound_for_early_pruning(self) -> bool {
+        matches!(self.locality, ResourceBoundLocality::Local)
+            && matches!(self.monotonicity, PruningMonotonicity::ProvenMonotone)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphRewriteRule {
     pub id: GraphRewriteRuleId,
     pub witness: GraphEquivalenceWitness,
     pub source_outer_basis: GraphBasisKind,
     pub replacement_outer_basis: GraphBasisKind,
+    /// Early resource pruning is forbidden unless this contract explicitly
+    /// carries both a locality proof and a monotonicity proof.
+    pub pruning: ResourcePruningContract,
 }
 
 /// Registry order is deterministic and is not a profitability ranking.
@@ -85,7 +121,29 @@ pub const RULES: &[GraphRewriteRule] = &[GraphRewriteRule {
     witness: GraphEquivalenceWitness::JFindCutMatchIdentity,
     source_outer_basis: GraphBasisKind::Search,
     replacement_outer_basis: GraphBasisKind::Window,
+    pruning: ResourcePruningContract {
+        locality: ResourceBoundLocality::GlobalContextDependent,
+        monotonicity: PruningMonotonicity::Unproven,
+    },
 }];
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GraphOptimizationPhase {
+    BasisDiscovery,
+    RewriteCandidateGeneration,
+    EquivalenceValidation,
+    CandidateResourceEvaluation,
+    SoundResourcePruning,
+}
+
+pub const GRAPH_OPTIMIZATION_ORDER: &[GraphOptimizationPhase] = &[
+    GraphOptimizationPhase::BasisDiscovery,
+    GraphOptimizationPhase::RewriteCandidateGeneration,
+    GraphOptimizationPhase::EquivalenceValidation,
+    GraphOptimizationPhase::CandidateResourceEvaluation,
+    GraphOptimizationPhase::SoundResourcePruning,
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphRewriteProvenance {
