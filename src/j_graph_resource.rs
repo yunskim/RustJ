@@ -680,7 +680,7 @@ pub fn evaluate_rewrite_candidate(
     let replacement = RewriteAlternativeResourceProfile {
         output_atoms: extent_atoms(memory, source_value),
         has_unknown_implementation_resource:
-            internal.has_unknown || has_unknown_state,
+            internal.has_unknown || has_unknown_state || !state_requirements.is_empty(),
         internal_materialization_atoms: internal,
         unfused_internal_traffic_atoms: scale_known_atoms(internal, 2),
         elidable_internal_traffic_atoms: scale_known_atoms(elidable, 2),
