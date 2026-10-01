@@ -1,14 +1,27 @@
 # RustJ change validation
 
-Use `PROJECT.md` as the single authoritative document for architecture, roadmap, support status, and validation policy. Use `FOUNDATIONS.md` as the mandatory rationale/guardrail document for deciding whether an architecture change preserves J or regresses into a compiler-convenience subset.
+## Documentation language policy
 
-- Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering` for the target-independent middle-end; `Logical Optimizer`, `Schedule/Transform Plan`, and `Physical Planner` are RustJ-native-route stages, not mandatory stages for every execution route. The `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` repositories are historical research/prototype material only; new design decisions belong in RustJ `PROJECT.md`.
+- `AGENTS.md` is internal maintainer/agent guidance and remains English-only.
+- User-facing maintained Markdown uses a Korean canonical file plus an English mirror:
+  - `README.ko.md` (canonical) ↔ `README.md` (English mirror)
+  - `PROJECT.ko.md` (canonical) ↔ `PROJECT.md` (English mirror)
+  - `FOUNDATIONS.ko.md` (canonical) ↔ `FOUNDATIONS.md` (English mirror)
+- Make architecture/design/progress/checklist edits in the `*.ko.md` canonical file first, then update the corresponding English `*.md` mirror in the same change whenever practical.
+- If the two versions ever disagree, the Korean `*.ko.md` file is authoritative.
+- Rust source identifiers, comments, doc comments, diagnostics, tests, commits, and code-facing documentation remain English unless there is a specific reason otherwise.
+- Do not create `AGENTS.ko.md`.
 
-For architecture changes affecting frontend semantics, J Semantic IR, interpreter/JIT/AOT boundaries, rank/CellApply, dynamic-name behavior, optimizer legality, or target semantics, review `FOUNDATIONS.md` first. If a proposed change contradicts it, do not silently override the document: document the new evidence/rationale and update both `FOUNDATIONS.md` and `PROJECT.md` in the same design change.
+
+Use `PROJECT.ko.md` as the single authoritative document for architecture, roadmap, support status, and validation policy. Use `FOUNDATIONS.ko.md` as the mandatory rationale/guardrail document for deciding whether an architecture change preserves J or regresses into a compiler-convenience subset.
+
+- Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering` for the target-independent middle-end; `Logical Optimizer`, `Schedule/Transform Plan`, and `Physical Planner` are RustJ-native-route stages, not mandatory stages for every execution route. The `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` repositories are historical research/prototype material only; new design decisions belong in RustJ `PROJECT.ko.md`.
+
+For architecture changes affecting frontend semantics, J Semantic IR, interpreter/JIT/AOT boundaries, rank/CellApply, dynamic-name behavior, optimizer legality, or target semantics, review `FOUNDATIONS.ko.md` first. If a proposed change contradicts it, do not silently override the document: document the new evidence/rationale and update both `FOUNDATIONS.ko.md` and `PROJECT.ko.md` in the same design change.
 
 For every implementation change:
 
-- Update `PROJECT.md` when architecture, boundaries, roadmap, checklist, supported semantics, or validation status changes.
+- Update `PROJECT.ko.md` when architecture, boundaries, roadmap, checklist, supported semantics, or validation status changes.
 - Do not create new design/progress/checklist Markdown reports. Keep machine-generated measurement data in `reports/` when useful.
 - Add a reproducer and regression coverage for every semantic bug fix.
 - Extend conformance coverage for newly supported semantics.
@@ -101,7 +114,7 @@ For every implementation change:
 - Follow current jsource's error-system principle: preserve enough failure context during enqueue/parse/execution to explain the error later. Prefer structured primitive-specific analyzers (rank/agreement/index/domain/assembly) over hard-coded prose at arbitrary call sites, and never let diagnostic analysis replace or mask the original J error.
 - Human-facing diagnostics should render source name, 1-based line/column, source excerpt, caret/range, and a readable class such as `SyntaxError` or `RankError`; machine-readable `Error::kind()` remains the J-style contract used by conformance tests. Port `w.c::state` transition behavior, `jtenqueue` classification/POS/lookup semantics, and `p.c` 9-row reduction behavior faithfully; representation may be Rust-native but observable/frontend semantics must not be reinterpreted. Preserve word boundaries, enqueue primitive/name/assignment classification and lookup flags, parse-row eligibility/order, parser-time name/POS resolution, result POS, assignment/parenthesis behavior, and completed modifier-entity boundaries. RustJ may replace C pointer tagging/refcount/in-place machinery, but not invent a different J frontend language model.
 - Generalize jsource's enqueue-time `spellin -> ds` primitive lookup as a `PrimitiveResolver`: resolve core J primitives and compile-profile-enabled extension primitives there, not by adding parser grammar cases. Return target-independent semantic primitive handles plus stable lowering keys; select hardware implementations only after semantic/logical analysis through the active TargetContext.
-- Use PROJECT.md section A0.5 F0–F2 + P0–P7 as the authoritative frontend/parser migration checklist. P8 is the handoff into A1/A2/A3. Prefer F0 -> F1 -> F2 before replacing parser reductions so parser work consumes the jsource-compatible enqueue queue rather than today's convenience tokens.
+- Use PROJECT.ko.md section A0.5 F0–F2 + P0–P7 as the authoritative frontend/parser migration checklist. P8 is the handoff into A1/A2/A3. Prefer F0 -> F1 -> F2 before replacing parser reductions so parser work consumes the jsource-compatible enqueue queue rather than today's convenience tokens.
 - Treat every completed modifier reduction as one first-class J function entity before any later hook/fork/train reduction. A fork operand referring to `+/`, for example, must reference the completed derived Verb entity `+/`, not retain separate `+` and `/` parser items or an unfinished modifier fragment.
 - Parser row 3/4 must perform J-defined modifier-construction semantics far enough to determine success/error and the actual returned POS, matching jsource constructor behavior. Keep those target-independent construction facts separate from call-time ResolvedCallFacts and target-specific lowering metadata.
 - Do not assume jsource rows 0–2 can always be replaced by deferred AST construction. If a row action can change later parser-time name/locale/POS resolution or provide a runtime value needed by a modifier constructor, use the shared runtime semantic parse action/fallback rather than continuing static parsing as if the effect/value were already known.
