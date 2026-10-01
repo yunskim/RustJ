@@ -139,7 +139,12 @@ fn graph_rewrite_target_feasibility_does_not_confuse_equivalence_with_lowerabili
         candidate,
         &TargetCapabilities::cpu_baseline(),
     );
-    assert_eq!(cpu.overall, RewriteTargetFeasibilityKind::Unsupported);
+    assert_eq!(cpu.overall, RewriteTargetFeasibilityKind::Supported);
+    assert_eq!(
+        cpu.composite_candidates,
+        vec![RealizationFamily::ReferenceRewriteComposite]
+    );
+    assert!(!cpu.composite_requires_call_facts);
     assert_eq!(cpu.nodes.len(), 2);
     assert!(matches!(
         cpu.nodes[0].feasibility,
@@ -175,11 +180,15 @@ fn rewrite_planning_report_defers_selection_until_target_and_resource_facts_exis
     assert_eq!(reports.len(), 1);
     let report = &reports[0];
     assert_eq!(report.candidate_index, 0);
-    assert_eq!(report.state, RewritePlanningState::TargetUnsupported);
+    assert_eq!(report.state, RewritePlanningState::NeedsResourceFacts);
     assert!(!report.early_pruning_allowed);
     assert_eq!(
         report.target_feasibility.overall,
-        RewriteTargetFeasibilityKind::Unsupported
+        RewriteTargetFeasibilityKind::Supported
+    );
+    assert_eq!(
+        report.target_feasibility.composite_candidates,
+        vec![RealizationFamily::ReferenceRewriteComposite]
     );
     assert_eq!(
         report.resource_evaluation.source_value,
