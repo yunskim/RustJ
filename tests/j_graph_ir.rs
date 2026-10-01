@@ -199,10 +199,15 @@ fn graph_basis_is_distinct_from_execution_basis_and_preserves_graph_granularity(
     // Execution classification is a separate type and a separate lowering
     // decision even where the vocabulary happens to use similar names.
     let analysis = Engine::new().analyze_compilation("1+2").unwrap();
+    let result = analysis.logical.result.unwrap();
+    let producer = analysis.logical.values[result.0].producer;
+    let rustj::logical_ir::OpKind::Basis { call, .. } =
+        &analysis.logical.operations[producer.0].kind
+    else {
+        panic!("elementwise execution basis op")
+    };
     assert_eq!(
-        analysis.transition.nodes[analysis.transition.result.unwrap().0]
-            .basis
-            .layers,
+        call.execution_basis.layers,
         vec![rustj::analysis::ExecutionBasisKind::Elementwise]
     );
 }
@@ -237,15 +242,15 @@ fn execution_ir_is_derived_from_explicit_j_graph_stages() {
     for stage in stage_results {
         assert!(
             analysis
-                .transition
-                .nodes
+                .logical
+                .operations
                 .iter()
-                .any(|node| node.j_origin == Some(*stage)),
+                .any(|operation| operation.j_origin == Some(*stage)),
             "each J Graph stage must survive as execution provenance"
         );
     }
-    assert_eq!(analysis.transition.opportunities.len(), 1);
-    analysis.transition.verify().unwrap();
+    assert_eq!(analysis.logical.opportunities.len(), 1);
+    analysis.logical.verify().unwrap();
 }
 
 #[test]
@@ -272,13 +277,13 @@ fn graph_and_execution_ir_answer_different_questions_without_recovering_topology
     {
         assert!(
             analysis
-                .transition
-                .nodes
+                .logical
+                .operations
                 .iter()
-                .any(|node| node.j_origin == Some(value))
+                .any(|operation| operation.j_origin == Some(value))
         );
     }
-    assert!(!analysis.transition.opportunities.is_empty());
+    assert!(!analysis.logical.opportunities.is_empty());
 }
 
 #[test]
