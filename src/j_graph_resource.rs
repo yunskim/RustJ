@@ -205,6 +205,27 @@ pub struct NodeResourceFormula {
     pub working_state: ResourceExprId,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ResourceStateKind {
+    Temporary,
+    Accumulator,
+    WorkingState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResourceStateLiveRange {
+    pub owner: ValueId,
+    pub kind: ResourceStateKind,
+    pub requirement: ResourceExprId,
+    /// Canonical J-graph order lower-bound lifetime. Physical fusion/scheduling
+    /// may extend this interval but must not shorten semantic dependencies.
+    pub defined_at: usize,
+    pub last_use: usize,
+    /// True when a legal fused realization may need to carry this state across
+    /// neighboring operations/region boundaries.
+    pub may_extend_across_fusion: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RegionResourceFormula {
     pub internal_atoms: ResourceExprId,
@@ -218,7 +239,12 @@ pub struct RegionResourceFormula {
     pub elidable_traffic_atoms: ResourceExprId,
     /// Structural temporary/accumulator/window-state requirements of child
     /// operations. Concrete sizes remain symbolic.
+    /// Conservative structural upper bound: all child state requirements
+    /// considered simultaneously live.
     pub operation_state_requirements: ResourceExprId,
+    /// Peak requirement in canonical J-graph order using current lower-bound
+    /// state live ranges.
+    pub canonical_peak_operation_state_requirements: ResourceExprId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -264,6 +290,7 @@ pub struct GraphResourceSummary {
     pub expressions: ResourceExprGraph,
     pub node_formulas: Vec<NodeResourceFormula>,
     pub region_formulas: Vec<RegionResourceFormula>,
+    pub state_live_ranges: Vec<ResourceStateLiveRange>,
 }
 
 fn extent_atoms(memory: &StaticMemoryAnalysis, value: ValueId) -> Option<usize> {
@@ -277,6 +304,57 @@ fn node_contract(plan: &Plan, value: ValueId) -> Option<&GraphOperationContract>
     }
 }
 
+
+fn resource_may_extend(kind: SymbolicResourceExpr) -> bool {
+    matches!(
+        kind,
+        SymbolicResourceExpr::Unknown
+            | SymbolicResourceExpr::StructuralComposition
+            | SymbolicResourceExpr::ReductionAccumulator
+            | SymbolicResourceExpr::WindowWorkingSet
+    )
+}
+
+fn push_state_range(
+    ranges: &mut Vec<ResourceStateLiveRange>,
+    owner: ValueId,
+    kind: ResourceStateKind,
+    requirement_kind: SymbolicResourceExpr,
+    requirement: ResourceExprId,
+) {
+    if matches!(requirement_kind, SymbolicResourceExpr::None) {
+        return;
+    }
+    ranges.push(ResourceStateLiveRange {
+        owner,
+        kind,
+        requirement,
+        defined_at: owner.0,
+        last_use: owner.0,
+        may_extend_across_fusion: resource_may_extend(requirement_kind),
+    });
+}
+
+fn canonical_peak_state_formula(
+    expressions: &mut ResourceExprGraph,
+    ranges: &[ResourceStateLiveRange],
+) -> ResourceExprId {
+    if ranges.is_empty() {
+        return expressions.zero();
+    }
+    let start = ranges.iter().map(|range| range.defined_at).min().unwrap_or(0);
+    let end = ranges.iter().map(|range| range.last_use).max().unwrap_or(start);
+    let mut points = Vec::new();
+    for point in start..=end {
+        let active = ranges
+            .iter()
+            .filter(|range| range.defined_at <= point && point <= range.last_use)
+            .map(|range| range.requirement)
+            .collect::<Vec<_>>();
+        points.push(expressions.sum(active));
+    }
+    expressions.max(points)
+}
 
 fn scale_known_atoms(input: KnownAtoms, factor: usize) -> KnownAtoms {
     KnownAtoms {
@@ -368,6 +446,7 @@ fn region_graph_order_peak_live_atoms(
 pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSummary {
     let mut expressions = ResourceExprGraph::default();
     let mut node_formulas = Vec::with_capacity(plan.nodes.len());
+    let mut state_live_ranges = Vec::new();
     let nodes = plan
         .nodes
         .iter()
@@ -392,11 +471,35 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 ),
             };
             let value = ValueId(index);
+            let temporary_formula = expressions.requirement(value, temporary);
+            let accumulator_formula = expressions.requirement(value, accumulator);
+            let working_state_formula = expressions.requirement(value, working_state);
             node_formulas.push(NodeResourceFormula {
-                temporary: expressions.requirement(value, temporary),
-                accumulator: expressions.requirement(value, accumulator),
-                working_state: expressions.requirement(value, working_state),
+                temporary: temporary_formula,
+                accumulator: accumulator_formula,
+                working_state: working_state_formula,
             });
+            push_state_range(
+                &mut state_live_ranges,
+                value,
+                ResourceStateKind::Temporary,
+                temporary,
+                temporary_formula,
+            );
+            push_state_range(
+                &mut state_live_ranges,
+                value,
+                ResourceStateKind::Accumulator,
+                accumulator,
+                accumulator_formula,
+            );
+            push_state_range(
+                &mut state_live_ranges,
+                value,
+                ResourceStateKind::WorkingState,
+                working_state,
+                working_state_formula,
+            );
             NodeResourceSummary {
                 value,
                 output_atoms: memory.extent(value).map(|extent| extent.atoms),
@@ -523,6 +626,13 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 }
             }
             let state_formula = expressions.sum(state_terms);
+            let region_state_ranges = state_live_ranges
+                .iter()
+                .copied()
+                .filter(|range| region_values.contains(&range.owner))
+                .collect::<Vec<_>>();
+            let canonical_peak_state_formula =
+                canonical_peak_state_formula(&mut expressions, &region_state_ranges);
 
             region_formulas.push(RegionResourceFormula {
                 internal_atoms: internal_formula,
@@ -532,6 +642,7 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 unfused_internal_traffic_atoms: unfused_traffic_formula,
                 elidable_traffic_atoms: elidable_traffic_formula,
                 operation_state_requirements: state_formula,
+                canonical_peak_operation_state_requirements: canonical_peak_state_formula,
             });
 
             RegionResourceSummary {
@@ -555,5 +666,6 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
         expressions,
         node_formulas,
         region_formulas,
+        state_live_ranges,
     }
 }
