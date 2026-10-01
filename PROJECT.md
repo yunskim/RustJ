@@ -444,6 +444,24 @@ PhysicalArray
 
 The physical layer decides whether a logical view stays virtual, is absorbed by a consumer, or becomes an actual copy/materialization.
 
+#### 6.3.1 Current implementation status and completion criteria
+
+The Logical/Physical Array split is **architecturally decided**, but the runtime representation has not completed the migration yet.
+
+Current status:
+
+- [x] Logical execution `ValueId` and physical `BufferId` are separate identities.
+- [x] `PhysicalArray` owns buffer/stride/offset metadata; Logical IR does not.
+- [x] Regression coverage demonstrates that the same logical atom order can be realized with different physical backing/stride/offset layouts.
+- [x] GraphFacts does not own physical stride/layout/device state.
+- [ ] Dense runtime `Value` payloads still contain `CpuStorage` directly. This is transitional and is not the final Logical Array abstraction.
+- [ ] Complete an explicit representation adapter/handle boundary between dense logical values and CPU/GPU backend storage.
+- [ ] The historical name `facts::LayoutFact` currently means the J-visible `Dense / AxisSparse` representation class, not physical layout. Consider moving it toward a `RepresentationFact` name in a later cleanup.
+
+The split is complete when defining or analyzing a logical value no longer requires `CpuStorage`, strides, offsets, devices, or BufferId, and those facts appear only through a selected backend representation.
+
+Accordingly, the current `Value { shape, Data::Int(CpuStorage<_>), ... }` representation is a migration bridge rather than the final semantic boundary.
+
 ## 6.4 Rank conjunction vs implicit cell application
 
 The explicit rank conjunction `"` and implicit rank/cell iteration are different concepts.
