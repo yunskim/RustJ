@@ -5,8 +5,14 @@
 
 use crate::{
     analysis::{ExecutionBasisKind, CallTarget},
+    j_graph_rewrite::{GraphEquivalenceWitness, GraphRewriteRuleId},
     logical_ir::{ConstraintSet, OpId, OpKind, Plan, ValueId},
     primitive::PrimitiveId,
+};
+
+pub use crate::j_graph_rewrite::{
+    GraphEquivalenceWitness as EquivalenceWitness,
+    GraphRewriteRuleId as ExpansionRuleId,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,26 +64,14 @@ impl ExpansionGraph {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ExpansionRuleId {
-    FindViaWindowMatch,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum EquivalenceWitness {
-    /// J Dictionary E. identity:
-    ///   x E. y  <->  ($x) x&-: ;.3 y
-    JFindCutMatchIdentity,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecutionBasisExpansion {
     pub source_op: OpId,
     pub source_result: ValueId,
-    pub rule: ExpansionRuleId,
+    pub rule: GraphRewriteRuleId,
     pub graph: ExpansionGraph,
     pub applicability: ConstraintSet,
-    pub witness: EquivalenceWitness,
+    pub witness: GraphEquivalenceWitness,
 }
 
 fn find_expansion(
@@ -91,7 +85,7 @@ fn find_expansion(
     ExecutionBasisExpansion {
         source_op,
         source_result,
-        rule: ExpansionRuleId::FindViaWindowMatch,
+        rule: GraphRewriteRuleId::FindViaWindowMatch,
         graph: ExpansionGraph {
             nodes: vec![
                 ExpansionNode {
@@ -114,7 +108,7 @@ fn find_expansion(
             output: matched,
         },
         applicability: ConstraintSet::default(),
-        witness: EquivalenceWitness::JFindCutMatchIdentity,
+        witness: GraphEquivalenceWitness::JFindCutMatchIdentity,
     }
 }
 
