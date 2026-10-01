@@ -301,6 +301,10 @@ pub struct RewriteAlternativeResourceProfile {
     /// Semantic output extent. Equivalence lets the replacement reuse the
     /// source-result extent even when internal candidate extents remain symbolic.
     pub output_atoms: Option<usize>,
+    /// True when graph-visible formulas do not cover implementation-local
+    /// resource behavior. This prevents a graph-visible zero from being read
+    /// as a proven zero implementation cost.
+    pub has_unknown_implementation_resource: bool,
     /// Candidate-local intermediates which would be materialized by an unfused
     /// realization. Unknown is explicit when the rewrite graph does not yet
     /// carry enough shape facts.
@@ -324,6 +328,55 @@ pub struct RewriteResourceEvaluation {
     /// This merely reports the rule contract. Resource comparison never grants
     /// pruning permission by itself.
     pub early_pruning_allowed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceMetricOrdering {
+    SourceLower,
+    Equal,
+    ReplacementLower,
+    Incomparable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RewriteResourceComparison {
+    pub unfused_internal_traffic: ResourceMetricOrdering,
+    pub elidable_internal_traffic: ResourceMetricOrdering,
+}
+
+fn compare_known_atoms(source: KnownAtoms, replacement: KnownAtoms) -> ResourceMetricOrdering {
+    if source.has_unknown || replacement.has_unknown {
+        return ResourceMetricOrdering::Incomparable;
+    }
+    match source.known.cmp(&replacement.known) {
+        std::cmp::Ordering::Less => ResourceMetricOrdering::SourceLower,
+        std::cmp::Ordering::Equal => ResourceMetricOrdering::Equal,
+        std::cmp::Ordering::Greater => ResourceMetricOrdering::ReplacementLower,
+    }
+}
+
+impl RewriteResourceEvaluation {
+    pub fn comparison(&self) -> RewriteResourceComparison {
+        let implementation_unknown = self.source.has_unknown_implementation_resource
+            || self.replacement.has_unknown_implementation_resource;
+        let compare = |source: KnownAtoms, replacement: KnownAtoms| {
+            if implementation_unknown {
+                ResourceMetricOrdering::Incomparable
+            } else {
+                compare_known_atoms(source, replacement)
+            }
+        };
+        RewriteResourceComparison {
+            unfused_internal_traffic: compare(
+                self.source.unfused_internal_traffic_atoms,
+                self.replacement.unfused_internal_traffic_atoms,
+            ),
+            elidable_internal_traffic: compare(
+                self.source.elidable_internal_traffic_atoms,
+                self.replacement.elidable_internal_traffic_atoms,
+            ),
+        }
+    }
 }
 
 
@@ -551,6 +604,7 @@ pub fn evaluate_rewrite_candidate(
     );
     let source = RewriteAlternativeResourceProfile {
         output_atoms: source_summary.output_atoms,
+        has_unknown_implementation_resource: source_unknown_state,
         internal_materialization_atoms: KnownAtoms::default(),
         unfused_internal_traffic_atoms: KnownAtoms::default(),
         elidable_internal_traffic_atoms: KnownAtoms::default(),
@@ -610,6 +664,8 @@ pub fn evaluate_rewrite_candidate(
 
     let replacement = RewriteAlternativeResourceProfile {
         output_atoms: extent_atoms(memory, source_value),
+        has_unknown_implementation_resource:
+            internal.has_unknown || has_unknown_state,
         internal_materialization_atoms: internal,
         unfused_internal_traffic_atoms: scale_known_atoms(internal, 2),
         elidable_internal_traffic_atoms: scale_known_atoms(elidable, 2),
