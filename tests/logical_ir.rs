@@ -312,3 +312,24 @@ fn a3_preserves_structural_opportunities_after_flattening() {
         assert!(value.0 < plan.values.len());
     }
 }
+
+#[test]
+fn incremental_a3_projection_keeps_roles_discovered_by_later_consumers() {
+    use rustj::facts::ValueRole;
+
+    let plan = Engine::new().analyze_a3("i.2 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let OpKind::Basis { call, .. } = &plan.operations[producer.0].kind else {
+        panic!("index-space basis op")
+    };
+
+    assert!(
+        plan.values[call.right.0]
+            .roles
+            .contains(ValueRole::ShapeVector),
+        "the literal shape value must retain the role added by its later consumer"
+    );
+    plan.verify().unwrap();
+}
+
