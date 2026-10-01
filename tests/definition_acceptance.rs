@@ -58,7 +58,7 @@ fn parsing_complete_definitions_preserves_source_and_binding_boundary() {
         assert!(expr.span.start >= 3 && expr.span.end <= source.len());
         assert!(source.get(expr.span).is_some());
         let e = Engine::new();
-        let plan = e.analyze(source).unwrap();
+        let plan = e.analyze_a3(source).unwrap();
         assert!(plan.result.is_some());
         assert!(e.binding_version("f").is_none());
     }
