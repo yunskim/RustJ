@@ -60,3 +60,19 @@ fn resource_summary_keeps_unknown_distinct_from_zero() {
         rustj::j_graph_ir::SymbolicResourceExpr::Unknown
     ));
 }
+
+
+#[test]
+fn hook_identity_input_is_not_counted_as_internal_intermediate() {
+    let graph = Engine::new().analyze_j_graph("(+ -) 3").unwrap();
+    let resources = graph.symbolic_resource_analysis();
+
+    assert_eq!(resources.regions.len(), 1);
+    let region = &resources.regions[0];
+
+    // The retained left/identity path is an external region input, not a newly
+    // allocated branch intermediate.
+    assert_eq!(region.internal_atoms.known, 1);
+    assert_eq!(region.retained_live_atoms.known, 1);
+    assert!(!region.has_unknown_resource_requirement);
+}
