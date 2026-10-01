@@ -538,10 +538,22 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
     .find_map(|(row, matched)| matched.then_some(row))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParseControl {
+    Mark,
+    Assignment,
+    LParen,
+    RParen,
+}
+
 enum ParseValue {
     Noun(Expr, usize),
     Verb(Verb),
     Function(Arc<FunctionEntity>),
+    Control {
+        kind: ParseControl,
+        span: std::ops::Range<usize>,
+    },
 }
 
 struct Item {
@@ -555,6 +567,32 @@ impl Item {
             ParseValue::Noun(expr, _) => expr.span.clone(),
             ParseValue::Verb(verb) => verb.span.clone(),
             ParseValue::Function(entity) => entity.span.clone(),
+            ParseValue::Control { span, .. } => span.clone(),
+        }
+    }
+
+    fn mark(at: usize) -> Self {
+        Self {
+            class: ParseClass::Mark,
+            value: ParseValue::Control {
+                kind: ParseControl::Mark,
+                span: at..at,
+            },
+        }
+    }
+
+    fn control(
+        class: ParseClass,
+        kind: ParseControl,
+        span: std::ops::Range<usize>,
+    ) -> Self {
+        debug_assert!(matches!(
+            class,
+            ParseClass::Assignment | ParseClass::LParen | ParseClass::RParen | ParseClass::Mark
+        ));
+        Self {
+            class,
+            value: ParseValue::Control { kind, span },
         }
     }
 
@@ -606,6 +644,15 @@ impl Item {
             _ => None,
         }
     }
+}
+
+fn stack_window(stack: &[Item]) -> [ParseClass; 4] {
+    let class = |offset: usize| {
+        stack
+            .get(offset)
+            .map_or(ParseClass::Mark, |item| item.class)
+    };
+    [class(0), class(1), class(2), class(3)]
 }
 
 /// Parse without reading bindings, changing state, or invoking any kernels.
