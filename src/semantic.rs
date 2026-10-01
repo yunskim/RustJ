@@ -55,10 +55,14 @@ impl FunctionEntity {
         })
     }
 
-    fn name_ref(name: String, span: std::ops::Range<usize>) -> Arc<Self> {
+    fn name_ref(
+        name: String,
+        result_pos: FunctionPartOfSpeech,
+        span: std::ops::Range<usize>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             span,
-            result_pos: FunctionPartOfSpeech::Verb,
+            result_pos,
             head: FunctionHead::NameRef(name),
             operands: Vec::new(),
         })
@@ -490,19 +494,28 @@ pub fn parse_diagnostic(source: &str) -> Result<Program> {
     parse_with(source, None, false)
 }
 
-pub(crate) fn parse_runtime(source: &str, noun: &dyn Fn(&str) -> Option<Value>) -> Result<Program> {
-    parse_with(source, Some(noun), true)
+#[derive(Clone, Debug)]
+pub(crate) enum ParserNameBinding {
+    Noun(Value),
+    Function(FunctionPartOfSpeech),
+}
+
+pub(crate) fn parse_runtime(
+    source: &str,
+    lookup: &dyn Fn(&str) -> Option<ParserNameBinding>,
+) -> Result<Program> {
+    parse_with(source, Some(lookup), true)
 }
 
 pub(crate) fn parse_analysis(
     source: &str,
-    noun: &dyn Fn(&str) -> Option<Value>,
+    lookup: &dyn Fn(&str) -> Option<ParserNameBinding>,
 ) -> Result<Program> {
-    parse_with(source, Some(noun), false)
+    parse_with(source, Some(lookup), false)
 }
 
-type NounLookup<'a> = Option<&'a dyn Fn(&str) -> Option<Value>>;
-fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Program> {
+type NameLookup<'a> = Option<&'a dyn Fn(&str) -> Option<ParserNameBinding>>;
+fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Program> {
     let mut queue = enqueue(source)?;
     let mut assignment_span = None;
     let mut assignment = None;
@@ -529,7 +542,7 @@ fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Prog
             queue.as_mut_slice()
         };
         let mut pos = 0;
-        let (result, _) = expression(expr, &mut pos, false, 0, noun, snapshot)
+        let (result, _) = expression(expr, &mut pos, false, 0, lookup, snapshot)
             .map_err(|error| {
                 let fallback = expr
                     .get(pos)
@@ -569,7 +582,7 @@ fn expression(
     pos: &mut usize,
     nested: bool,
     depth: usize,
-    noun: NounLookup<'_>,
+    lookup: NameLookup<'_>,
     snapshot: bool,
 ) -> Result<(Expr, usize)> {
     if depth > MAX_EXPR_DEPTH {
@@ -588,7 +601,7 @@ fn expression(
             EnqueuedPayload::Open => {
                 let start = tokens[*pos].span.start;
                 *pos += 1;
-                let (v, height) = expression(tokens, pos, true, depth + 1, noun, snapshot)?;
+                let (v, height) = expression(tokens, pos, true, depth + 1, lookup, snapshot)?;
                 let height = checked_height(height)?;
                 if !tokens.get(*pos).is_some_and(|word| matches!(word.payload, EnqueuedPayload::Close)) {
                     return Err(Error::Syntax("missing )".into()).at(start..start + 1));
@@ -637,26 +650,55 @@ fn expression(
             }
             EnqueuedPayload::Verb(_) | EnqueuedPayload::Name(_) => {
                 if let EnqueuedPayload::Name(n) = &tokens[*pos].payload {
-                    let kind = match noun {
-                        None => Some(ExprKind::ReadName((*n).to_owned())),
-                        Some(lookup) => lookup(n).map(|v| {
-                            if snapshot {
-                                ExprKind::Literal(v)
+                    debug_assert!(tokens[*pos].flags.lookup_name);
+                    match lookup.and_then(|lookup| lookup(n)) {
+                        Some(ParserNameBinding::Noun(value)) => {
+                            let kind = if snapshot {
+                                ExprKind::Literal(value)
                             } else {
                                 ExprKind::ReadName((*n).to_owned())
+                            };
+                            items.push(Item::noun(
+                                Expr {
+                                    span: tokens[*pos].span.clone(),
+                                    kind,
+                                },
+                                0,
+                            ));
+                            *pos += 1;
+                            continue;
+                        }
+                        Some(ParserNameBinding::Function(result_pos)) => {
+                            let span = tokens[*pos].span.clone();
+                            let entity =
+                                FunctionEntity::name_ref((*n).to_owned(), result_pos, span.clone());
+                            *pos += 1;
+                            if result_pos == FunctionPartOfSpeech::Verb {
+                                items.push(Item::verb(Verb {
+                                    span,
+                                    target: VerbTarget::Named((*n).to_owned()),
+                                    entity,
+                                }));
+                            } else {
+                                items.push(Item::function(entity));
                             }
-                        }),
-                    };
-                    if let Some(kind) = kind {
-                        items.push(Item::noun(
-                            Expr {
-                                span: tokens[*pos].span.clone(),
-                                kind,
-                            },
-                            0,
-                        ));
-                        *pos += 1;
-                        continue;
+                            continue;
+                        }
+                        None if lookup.is_none() => {
+                            items.push(Item::noun(
+                                Expr {
+                                    span: tokens[*pos].span.clone(),
+                                    kind: ExprKind::ReadName((*n).to_owned()),
+                                },
+                                0,
+                            ));
+                            *pos += 1;
+                            continue;
+                        }
+                        None => {
+                            // jsource creates a late verb reference for an
+                            // unresolved ordinary lookup name.
+                        }
                     }
                 }
                 let target = match &tokens[*pos].payload {
@@ -667,9 +709,11 @@ fn expression(
                 let verb_span = tokens[*pos].span.clone();
                 let entity = match &target {
                     VerbTarget::Primitive(id) => FunctionEntity::primitive(*id, verb_span.clone()),
-                    VerbTarget::Named(name) => {
-                        FunctionEntity::name_ref(name.clone(), verb_span.clone())
-                    }
+                    VerbTarget::Named(name) => FunctionEntity::name_ref(
+                        name.clone(),
+                        FunctionPartOfSpeech::Verb,
+                        verb_span.clone(),
+                    ),
                     VerbTarget::Derived => unreachable!("source token is not a derived target"),
                 };
                 let verb = Verb {
