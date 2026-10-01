@@ -88,8 +88,10 @@ impl Engine {
     ) -> Result<crate::semantic::BoundProgram> {
         crate::semantic::bind(
             crate::semantic::parse_analysis(source, &|name| match &self.names.get(name)?.value {
-                SymbolValue::Noun(value) => Some(value.clone()),
-                SymbolValue::Verb(_) => None,
+                SymbolValue::Noun(value) => Some(crate::semantic::ParserNameBinding::Noun(value.clone())),
+                SymbolValue::Verb(_) => Some(crate::semantic::ParserNameBinding::Function(
+                    crate::semantic::FunctionPartOfSpeech::Verb,
+                )),
             })?,
             |name| self.binding_version(name),
         )
@@ -233,8 +235,10 @@ impl Engine {
     fn eval_program(&mut self, source: &str, pooled: bool) -> Result<Option<Value>> {
         let program =
             crate::semantic::parse_runtime(source, &|name| match &self.names.get(name)?.value {
-                SymbolValue::Noun(value) => Some(value.clone()),
-                SymbolValue::Verb(_) => None,
+                SymbolValue::Noun(value) => Some(crate::semantic::ParserNameBinding::Noun(value.clone())),
+                SymbolValue::Verb(_) => Some(crate::semantic::ParserNameBinding::Function(
+                    crate::semantic::FunctionPartOfSpeech::Verb,
+                )),
             })?;
         let Some(expr) = program.expression else {
             return Ok(None);
