@@ -15,6 +15,17 @@ pub enum Data {
 }
 
 #[derive(Clone, Debug)]
+/// Transitional runtime carrier for a logical J value.
+///
+/// `shape` and J-visible Data variants belong to logical semantics, while the
+/// current dense payloads still use `CpuStorage` directly.  That CPU backing is
+/// a migration artifact, not a license to add strides, offsets, BufferId,
+/// device placement, tiling, or other physical-representation identity here.
+///
+/// The target architecture keeps logical array identity separate from
+/// `physical::PhysicalArray`/BufferId and eventually treats CpuStorage as one
+/// backend storage realization.
+///
 /// Cloning an owned value copies its payload. Call `into_shared` before cloning
 /// to explicitly share storage without copying (as name bindings do).
 pub struct Value {
