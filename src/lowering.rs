@@ -110,7 +110,6 @@ impl Requirement {
             Self::EvaluationOrderRelaxed => !call.speculation.preserve_evaluation_order,
         }
     }
-}
 
     fn target_only_satisfied(self, target: &TargetCapabilities) -> Option<bool> {
         match self {
@@ -125,6 +124,7 @@ impl Requirement {
             | Self::EvaluationOrderRelaxed => None,
         }
     }
+}
 
 
 #[derive(Clone, Debug, PartialEq, Eq)]
