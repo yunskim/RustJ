@@ -112,9 +112,7 @@ impl Engine {
         crate::j_graph_ir::Plan::from_bound_with_graph_facts(
             self.prepare_semantic_diagnostic(source)?,
             &|name| match self.names.get(name).map(|binding| &binding.value) {
-                Some(SymbolValue::Noun(value)) => crate::j_graph_ir::GraphFacts::from_execution_facts(
-                    &crate::facts::Facts::of(value),
-                ),
+                Some(SymbolValue::Noun(value)) => crate::j_graph_ir::GraphFacts::of(value),
                 _ => crate::j_graph_ir::GraphFacts::default(),
             },
         )
