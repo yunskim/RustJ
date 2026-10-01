@@ -14,7 +14,7 @@ pub struct CompilationAnalysis {
     /// logical-atom/symbolic-state domain.
     pub graph_rewrite_resources: Vec<crate::j_graph_resource::RewriteResourceEvaluation>,
     /// Transitional public IR retained only until M1 direct lowering is done.
-    pub transition: crate::analysis::LogicalPlan,
+    pub transition: crate::transition_ir::LogicalPlan,
     /// Canonical A3 Logical Execution IR for new compiler consumers.
     pub logical: crate::logical_ir::Plan,
 }
