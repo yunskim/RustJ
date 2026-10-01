@@ -8,6 +8,20 @@ use rustj::{
     },
 };
 
+
+fn literal_source_values(plan: &rustj::logical_ir::Plan) -> Vec<Option<rustj::Value>> {
+    let mut values = vec![None; plan.values.len()];
+    for operation in &plan.operations {
+        if let OpKind::Literal(value) = &operation.kind {
+            let [result] = operation.results.as_slice() else {
+                panic!("literal should have one result")
+            };
+            values[result.0] = Some(value.clone());
+        }
+    }
+    values
+}
+
 fn result_basis_call(source: &str) -> (ExecutionBasisKind, CallOp) {
     let plan = Engine::new().analyze_a3(source).unwrap();
     let result = plan.result.unwrap();
@@ -193,6 +207,47 @@ fn rewrite_planning_report_defers_selection_until_target_and_resource_facts_exis
     assert_eq!(
         report.resource_evaluation.source_value,
         analysis.graph_rewrites[0].provenance.source_value
+    );
+}
+
+
+#[test]
+fn registered_cpu_rewrite_composite_dispatches_to_reference_expansion() {
+    let analysis = Engine::new()
+        .analyze_compilation("'co' E. 'cocoa'")
+        .unwrap();
+    let plan = rustj::logical_ir::Plan::from_transition(&analysis.execution);
+    plan.verify().unwrap();
+    let values = literal_source_values(&plan);
+
+    let registry = LoweringRegistry::a3_v0();
+    let rewritten = registry
+        .execute_reference_rewrite(
+            &analysis,
+            &plan,
+            0,
+            &TargetCapabilities::cpu_baseline(),
+            &values,
+        )
+        .unwrap()
+        .json();
+    let direct = Engine::new()
+        .eval("'co' E. 'cocoa'")
+        .unwrap()
+        .unwrap()
+        .json();
+    assert_eq!(rewritten, direct);
+
+    assert!(
+        registry
+            .execute_reference_rewrite(
+                &analysis,
+                &plan,
+                0,
+                &TargetCapabilities::gpu_generic(),
+                &values,
+            )
+            .is_err()
     );
 }
 
