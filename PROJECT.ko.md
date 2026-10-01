@@ -90,7 +90,65 @@ physical planning / backend realization
 
 따라서 이 프로젝트에서 “NN의 SQL”은 **장대한 범용 플랫폼 선언이 아니라, JAXA에서 이어받은 compiler separation-of-concerns 원칙을 설명하는 표현**으로 취급한다.
 
-### 1.2 이름 정책
+### 1.2 핵심 배열 모델 결정 — Logical Array와 Physical Array를 분리한다
+
+RustJ의 가장 중요한 아키텍처 결정 중 하나는 **배열을 논리 계층과 물리 계층으로 분리하는 것**이다.
+
+J 프로그램이 관찰하는 배열의 의미와, 특정 CPU/GPU/backend가 그 배열을 저장·배치·접근하는 방식은 같은 것이 아니다.
+
+```text
+Logical Array / J noun
+    dtype / J-visible type
+    shape
+    ordered logical atoms / value
+    J-visible representation semantics
+      Dense / Boxed / Sparse / ...
+
+            ≠
+
+Physical Array / Representation
+    BufferId / storage
+    strides
+    offset
+    concrete layout / tiling
+    alignment
+    memory space
+    CPU / GPU placement
+    sharding
+    transfer / synchronization
+```
+
+이 분리는 단순 구현 편의가 아니라 **semantic boundary**다.
+
+핵심 불변조건은 다음과 같다.
+
+1. **Logical Array는 J 의미를 소유한다.** shape, atom order, boxed/sparse와 같이 J 프로그램이 관찰할 수 있는 의미는 logical/semantic 계층에 남긴다.
+2. **Physical Array는 realization을 소유한다.** stride, offset, concrete layout, buffer, memory space, device placement는 representation/physical 계층의 책임이다.
+3. **하나의 logical value는 여러 physical representation을 가질 수 있다.** 같은 ValueId가 CPU/GPU 또는 서로 다른 layout의 representation으로 존재할 수 있다.
+4. **여러 logical value가 하나의 physical buffer를 재사용할 수 있다.** lifetime이 겹치지 않으면 BufferId reuse가 가능하다.
+5. **Logical ArrayValue가 존재한다고 해서 별도 buffer가 존재하는 것은 아니다.** view, fused-away intermediate, rematerialized value는 독립 buffer 없이 존재할 수 있다.
+6. reshape/transpose/reverse/slice 같은 연산의 **논리적 의미와 copy/materialization 여부를 분리**한다. copy 여부는 downstream representation/planning이 결정한다.
+7. sparse/boxed처럼 J가 관찰하는 representation class는 semantic 영역에 남기되, CSR/COO, pointer/handle 같은 구체 backend encoding은 physical 영역으로 내린다.
+
+따라서 RustJ의 배열 경계는 개념적으로 다음과 같다.
+
+```text
+J noun / Logical ArrayValue
+        ↓
+semantic + graph + logical execution analysis
+        ↓
+RepresentationFacts / realization choice
+        ↓
+PhysicalArray
+        ↓
+BufferId / memory space / layout / device
+```
+
+이 원칙 때문에 GraphFacts와 Logical IR에는 stride/offset/device를 넣지 않고, Physical Planner가 실제 layout/buffer/placement를 결정한다. 반대로 backend 편의를 위해 J logical noun의 의미를 tensor framework의 physical layout이나 broadcasting 규칙으로 바꾸지 않는다.
+
+상세 모델은 **§6 “논리 배열과 물리 배열”**과 §4.15.8의 RepresentationFacts 경계를 따른다.
+
+### 1.3 이름 정책
 
 현재 아키텍처에는 `Jaxa`라는 별도 compiler component 이름을 두지 않는다.
 
@@ -6439,7 +6497,7 @@ MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable arti
 
 ---
 
-## 6. 논리 배열과 물리 배열
+## 6. 논리 배열과 물리 배열 — 핵심 architecture decision
 
 ### 6.1 논리 J noun, boxed, sparse와 verb
 
