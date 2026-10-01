@@ -158,7 +158,65 @@ This analogy is not intended to broaden RustJ's current product scope. RustJ's i
 
 In RustJ, therefore, “SQL for neural networks” is best understood as an inherited compiler separation-of-concerns principle, not as a claim of a broad platform already delivered.
 
-## 3.1 Naming policy
+## 3.1 Core array-model decision — separate Logical Array from Physical Array
+
+One of RustJ's most important architectural decisions is to **separate logical array semantics from physical array representation**.
+
+The array observed by a J program is not the same thing as the way a particular CPU/GPU/backend stores, lays out, or accesses that array.
+
+```text
+Logical Array / J noun
+    dtype / J-visible type
+    shape
+    ordered logical atoms / value
+    J-visible representation semantics
+      Dense / Boxed / Sparse / ...
+
+            ≠
+
+Physical Array / Representation
+    BufferId / storage
+    strides
+    offset
+    concrete layout / tiling
+    alignment
+    memory space
+    CPU / GPU placement
+    sharding
+    transfer / synchronization
+```
+
+This is a semantic boundary, not just an implementation convenience.
+
+Core invariants:
+
+1. **Logical Array owns J meaning.** Shape, atom order, and J-visible boxed/sparse semantics remain in the logical/semantic layers.
+2. **Physical Array owns realization.** Strides, offsets, concrete layout, buffers, memory spaces, and device placement belong downstream.
+3. **One logical value may have multiple physical representations.** The same ValueId may exist on CPU/GPU or in different layouts.
+4. **Several logical values may reuse one physical buffer** when their lifetimes do not overlap.
+5. **A Logical ArrayValue does not imply a distinct materialized buffer.** Views, fused-away intermediates, and rematerialized values may exist without one.
+6. The logical meaning of reshape/transpose/reverse/slice is separate from whether a copy/materialization is chosen.
+7. J-visible representation classes such as sparse/boxed remain semantic, while concrete encodings such as CSR/COO or pointer/handle layouts are physical.
+
+Conceptually:
+
+```text
+J noun / Logical ArrayValue
+        ↓
+semantic + graph + logical execution analysis
+        ↓
+RepresentationFacts / realization choice
+        ↓
+PhysicalArray
+        ↓
+BufferId / memory space / layout / device
+```
+
+This is why GraphFacts and Logical IR do not own stride/offset/device state, and why Physical Planning decides concrete layout/buffer/placement. Backend convenience must not redefine J noun semantics.
+
+The detailed model is described in the later logical/physical array section and in the RepresentationFacts boundary.
+
+## 3.2 Naming policy
 
 `Jaxa` / `JAXA` is not the name of a current RustJ compiler component.
 
@@ -333,13 +391,17 @@ Names must not be globally snapshotted at sentence start if doing so changes J's
 
 # Part III — Rank, cells, and array semantics
 
-## 6. Logical J array meaning
+## 6. Logical and physical arrays — core architecture decision
+
+### 6.1 Logical J array meaning
 
 A J noun remains logically:
 
 ```text
 type + shape + ordered atoms/value
 ```
+
+J-visible representation semantics such as boxed and sparse are also part of the logical/semantic model when J can observe them.
 
 Physical representation details such as:
 
@@ -355,7 +417,34 @@ Physical representation details such as:
 
 do not belong to J noun semantics.
 
-## 6.1 Rank conjunction vs implicit cell application
+### 6.2 ValueId and BufferId are different
+
+`ValueId` identifies a logical computation result.
+
+`BufferId` identifies a physical storage allocation.
+
+One ValueId may have several physical representations. Conversely, several non-overlapping ValueIds may reuse one BufferId.
+
+A Logical ArrayValue therefore does **not** imply a separate memory buffer.
+
+### 6.3 PhysicalArray
+
+A physical realization may carry:
+
+```text
+PhysicalArray
+  storage / buffer
+  shape
+  strides
+  offset
+  encoding
+  placement
+  layout
+```
+
+The physical layer decides whether a logical view stays virtual, is absorbed by a consumer, or becomes an actual copy/materialization.
+
+## 6.4 Rank conjunction vs implicit cell application
 
 The explicit rank conjunction `"` and implicit rank/cell iteration are different concepts.
 
@@ -364,7 +453,7 @@ The explicit rank conjunction `"` and implicit rank/cell iteration are different
 
 Nested rank boundaries must not be flattened until fill/assembly/error equivalence is proven.
 
-## 6.2 CellApply
+## 6.5 CellApply
 
 Logical `CellApply` represents implicit J cell execution.
 
