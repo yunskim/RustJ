@@ -20,7 +20,7 @@ pub struct LogicalExtent {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LiveRange {
+pub struct GraphOrderLiveRange {
     pub value: ValueId,
     pub defined_at: usize,
     pub last_use: usize,
@@ -49,7 +49,10 @@ pub struct OpportunityValue {
 pub struct StaticMemoryAnalysis {
     /// Extent is None when shape or atom count is not statically known.
     pub extents: Vec<Option<LogicalExtent>>,
-    pub live_ranges: Vec<LiveRange>,
+    /// Lifetime intervals in canonical J-graph evaluation order. Physical
+    /// schedules must recompute scheduled liveness rather than reuse these as
+    /// allocation intervals.
+    pub live_ranges: Vec<GraphOrderLiveRange>,
     pub opportunities: Vec<OpportunityValue>,
     /// Sum of known logical atoms for values that exist in the graph. This is
     /// not peak memory and not an allocation requirement.
@@ -83,11 +86,11 @@ impl StaticMemoryAnalysis {
             .checked_mul(representation.bytes_per_atom(dtype)?)
     }
 
-    /// Peak simultaneous bytes using graph-order liveness and a representation
-    /// model.  This is still a graph-level estimate: it assumes every included
-    /// logical value is materialized and does not account for fusion-elided
-    /// intermediates, tile-local storage, alignment or allocator reuse.
-    pub fn conservative_peak_materialized_bytes(
+    /// Peak simultaneous bytes in the canonical J-graph evaluation order.
+    /// This is a comparison baseline, not a schedule-independent upper bound:
+    /// a legal optimizer may reorder pure operations and change the peak.
+    /// It also assumes every included logical value is materialized.
+    pub fn graph_order_peak_materialized_bytes(
         &self,
         representation: &impl AtomRepresentation,
     ) -> Option<usize> {
@@ -228,7 +231,7 @@ pub fn analyze(plan: &Plan) -> StaticMemoryAnalysis {
     let live_ranges = last_use
         .into_iter()
         .enumerate()
-        .map(|(index, last_use)| LiveRange {
+        .map(|(index, last_use)| GraphOrderLiveRange {
             value: ValueId(index),
             defined_at: index,
             last_use,
