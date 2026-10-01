@@ -7,11 +7,13 @@
   - `README.ko.md` (canonical) ↔ `README.md` (English mirror)
   - `PROJECT.ko.md` (canonical) ↔ `PROJECT.md` (English mirror)
   - `FOUNDATIONS.ko.md` (canonical) ↔ `FOUNDATIONS.md` (English mirror)
+  - `CLA.ko.md` (canonical) ↔ `CLA.md` (English mirror)
 - Make architecture/design/progress/checklist edits in the `*.ko.md` canonical file first, then update the corresponding English `*.md` mirror in the same change whenever practical.
 - If the two versions ever disagree, the Korean `*.ko.md` file is authoritative.
 - Rust source identifiers, comments, doc comments, diagnostics, tests, commits, and code-facing documentation remain English unless there is a specific reason otherwise.
 - Do not create `AGENTS.ko.md`.
-- Preserve the project licensing model: commercial license from the applicable RustJ copyright holder(s) OR GNU GPL version 3 only. Keep Cargo metadata at `GPL-3.0-only`; do not use `GPL-3.0-or-later` unless the canonical project license policy is explicitly changed.
+- Preserve the project licensing model: public distribution is GPL version 3 only; a separate commercial RustJ license may be offered only where the applicable RustJ copyright holder(s) possess all rights needed to grant it. If that commercial path depends on J SOURCE rights, the applicable Jsoftware commercial license and other upstream rights must also be satisfied. Keep Cargo metadata at `GPL-3.0-only`; do not use `GPL-3.0-or-later` unless the canonical project license policy is explicitly changed.
+- External contributions require acceptance of `CLA.ko.md` / `CLA.md`. The CLA must preserve contributor ownership while granting rights sufficient for both GPL distribution and separate commercial relicensing; it must never be described as granting or expanding Jsoftware-owned rights.
 
 
 Use `PROJECT.ko.md` as the single authoritative document for architecture, roadmap, support status, and validation policy. Use `FOUNDATIONS.ko.md` as the mandatory rationale/guardrail document for deciding whether an architecture change preserves J or regresses into a compiler-convenience subset.
