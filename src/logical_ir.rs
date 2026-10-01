@@ -1,8 +1,8 @@
 //! A3-v0 single-block logical IR.
 //!
-//! This module deliberately separates operations from SSA values.  It is built
-//! from the existing inspection plan during migration; it does not execute
-//! kernels and does not encode physical scheduling decisions.
+//! This module deliberately separates operations from SSA values. Canonical A3
+//! is constructed incrementally during J Graph execution-semantic lowering; it
+//! does not execute kernels and does not encode physical scheduling decisions.
 
 use crate::{
     Value,
@@ -930,26 +930,6 @@ impl Plan {
             .first()
             .and_then(|value| self.values.get(value.0));
         Some(LogicalOpView { operation, result })
-    }
-
-    /// Compatibility projection for tests/tools that still own a completed
-    /// transition plan. Normal compiler construction now uses the same
-    /// incremental projector during graph lowering.
-    pub(crate) fn from_transition(transition: &transition::LogicalPlan) -> Self {
-        let mut projection = TransitionProjection::new(
-            transition.source.clone(),
-            transition.j_graph_node_count,
-            transition.j_graph_region_count,
-        );
-        for node in &transition.nodes {
-            projection.push_node(node, &transition.nodes);
-        }
-        projection.finish(
-            transition.symbols.clone(),
-            &transition.opportunities,
-            transition.result,
-            transition.write.as_ref(),
-        )
     }
 
     pub fn verify(&self) -> std::result::Result<(), VerifyError> {
