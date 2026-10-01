@@ -421,6 +421,89 @@ impl From<crate::primitive::PrimitivePartOfSpeech> for FunctionPartOfSpeech {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ParseRow {
+    MonadEdge = 0,
+    MonadVVN = 1,
+    DyadNVN = 2,
+    Adverb = 3,
+    Conjunction = 4,
+    Fork = 5,
+    Hook = 6,
+    Assignment = 7,
+    Parenthesis = 8,
+}
+
+fn is_avn(class: ParseClass) -> bool {
+    matches!(class, ParseClass::Adverb | ParseClass::Verb | ParseClass::Noun)
+}
+
+fn is_cavn(class: ParseClass) -> bool {
+    matches!(
+        class,
+        ParseClass::Conjunction | ParseClass::Adverb | ParseClass::Verb | ParseClass::Noun
+    )
+}
+
+fn is_edge(class: ParseClass) -> bool {
+    matches!(class, ParseClass::Mark | ParseClass::Assignment | ParseClass::LParen)
+}
+
+fn is_edge_or_avn(class: ParseClass) -> bool {
+    is_edge(class) || is_avn(class)
+}
+
+/// Declarative equivalent of the pinned jsource p.c cases table.
+///
+/// The first matching row is the parser precedence. Actions are migrated onto
+/// this table incrementally; the table itself is already the single source for
+/// row eligibility.
+fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
+    use ParseClass::*;
+    let [a, b, c, _d] = classes;
+    [
+        (
+            ParseRow::MonadEdge,
+            is_edge(a) && b == Verb && c == Noun,
+        ),
+        (
+            ParseRow::MonadVVN,
+            is_edge_or_avn(a) && b == Verb && c == Verb,
+        ),
+        (
+            ParseRow::DyadNVN,
+            is_edge_or_avn(a) && b == Noun && c == Verb,
+        ),
+        (
+            ParseRow::Adverb,
+            is_edge_or_avn(a) && matches!(b, Verb | Noun) && c == Adverb,
+        ),
+        (
+            ParseRow::Conjunction,
+            is_edge_or_avn(a) && matches!(b, Verb | Noun) && c == Conjunction,
+        ),
+        (
+            ParseRow::Fork,
+            is_edge_or_avn(a) && matches!(b, Verb | Noun) && c == Verb,
+        ),
+        (
+            ParseRow::Hook,
+            is_edge(a) && is_cavn(b) && is_cavn(c),
+        ),
+        (
+            ParseRow::Assignment,
+            matches!(a, Name | Noun) && b == Assignment && is_cavn(c),
+        ),
+        (
+            ParseRow::Parenthesis,
+            a == LParen && is_cavn(b) && c == RParen,
+        ),
+    ]
+    .into_iter()
+    .find_map(|(row, matched)| matched.then_some(row))
+}
+
 enum ParseValue {
     Noun(Expr, usize),
     Verb(Verb),
