@@ -541,9 +541,6 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ParseControl {
     Mark,
-    Assignment,
-    LParen,
-    RParen,
 }
 
 enum ParseValue {
@@ -578,21 +575,6 @@ impl Item {
                 kind: ParseControl::Mark,
                 span: at..at,
             },
-        }
-    }
-
-    fn control(
-        class: ParseClass,
-        kind: ParseControl,
-        span: std::ops::Range<usize>,
-    ) -> Self {
-        debug_assert!(matches!(
-            class,
-            ParseClass::Assignment | ParseClass::LParen | ParseClass::RParen | ParseClass::Mark
-        ));
-        Self {
-            class,
-            value: ParseValue::Control { kind, span },
         }
     }
 
@@ -646,14 +628,6 @@ impl Item {
     }
 }
 
-fn stack_window(stack: &[Item]) -> [ParseClass; 4] {
-    let class = |offset: usize| {
-        stack
-            .get(offset)
-            .map_or(ParseClass::Mark, |item| item.class)
-    };
-    [class(0), class(1), class(2), class(3)]
-}
 
 /// Parse without reading bindings, changing state, or invoking any kernels.
 pub fn parse(source: &str) -> Result<Program> {
@@ -950,6 +924,10 @@ fn expression(
     let Some((mut rhs, mut height)) = items.pop().and_then(Item::into_noun) else {
         return Err(Error::Syntax("expected right argument".into()).at(rhs_error_span));
     };
+    // The front MARK is an actual parser control item rather than an implicit
+    // class constant. F2 will extend the same stack representation to the
+    // remaining EDGE controls when the legacy recursive grouping path is cut over.
+    let front_mark = Item::mark(0);
     while let Some(item) = items.pop() {
         let item_span = item.span();
         let Some(v) = item.into_verb() else {
@@ -969,7 +947,8 @@ fn expression(
         {
             let context = items
                 .get(items.len().saturating_sub(2))
-                .map_or(ParseClass::Mark, |item| item.class);
+                .unwrap_or(&front_mark)
+                .class;
             match_parse_row([context, ParseClass::Noun, ParseClass::Verb, rhs_class])
                 == Some(ParseRow::DyadNVN)
         } else {
@@ -1001,13 +980,12 @@ fn expression(
         {
             let context = items
                 .get(items.len().saturating_sub(2))
-                .map_or(ParseClass::Mark, |item| item.class);
+                .unwrap_or(&front_mark)
+                .class;
             match_parse_row([context, ParseClass::Verb, ParseClass::Verb, rhs_class])
                 == Some(ParseRow::MonadVVN)
         } else {
-            let context = items
-                .last()
-                .map_or(ParseClass::Mark, |item| item.class);
+            let context = items.last().unwrap_or(&front_mark).class;
             match_parse_row([context, ParseClass::Verb, rhs_class, ParseClass::Mark])
                 == Some(ParseRow::MonadEdge)
         };
@@ -1184,26 +1162,4 @@ mod parser_table_tests {
         );
     }
 
-    #[test]
-    fn explicit_stack_window_carries_mark_and_control_classes() {
-        let stack = vec![
-            super::Item::mark(7),
-            super::Item::control(
-                Assignment,
-                super::ParseControl::Assignment,
-                7..9,
-            ),
-            super::Item::control(LParen, super::ParseControl::LParen, 9..10),
-            super::Item::control(RParen, super::ParseControl::RParen, 10..11),
-        ];
-        assert_eq!(
-            super::stack_window(&stack),
-            [Mark, Assignment, LParen, RParen]
-        );
-        let super::ParseValue::Control { kind, span } = &stack[1].value else {
-            panic!("assignment should be a control item");
-        };
-        assert_eq!(*kind, super::ParseControl::Assignment);
-        assert_eq!(span, &(7..9));
-    }
 }
