@@ -729,11 +729,25 @@ impl Plan {
         Some(hints)
     }
 
+    /// Return the outermost/latest combinator region producing this value.
+    /// Multiple nested regions may legitimately share a result ValueId.
     pub fn region_for_result(&self, value: ValueId) -> Option<(RegionId, &Region)> {
         self.regions
             .iter()
             .enumerate()
+            .rev()
             .find(|(_, region)| region.result == value)
+            .map(|(i, region)| (RegionId(i), region))
+    }
+
+    pub fn regions_for_result(
+        &self,
+        value: ValueId,
+    ) -> impl DoubleEndedIterator<Item = (RegionId, &Region)> {
+        self.regions
+            .iter()
+            .enumerate()
+            .filter(move |(_, region)| region.result == value)
             .map(|(i, region)| (RegionId(i), region))
     }
 
@@ -1063,8 +1077,9 @@ impl Builder<'_> {
             GraphForm::Hook { f, g } => {
                 let g_result = self.apply_function(g.clone(), None, right, g.span.clone())?;
                 let f_left = left.unwrap_or(right);
+                let f_span = f.span.clone();
                 let join_result =
-                    self.apply_function(f, Some(f_left), g_result, span.clone())?;
+                    self.apply_function(f, Some(f_left), g_result, f_span)?;
                 let inputs = match left {
                     Some(left) => vec![left, right],
                     None => vec![right],
@@ -1095,8 +1110,9 @@ impl Builder<'_> {
                     self.apply_function(h.clone(), left, right, h.span.clone())?;
                 let f_result =
                     self.apply_function(f.clone(), left, right, f.span.clone())?;
+                let g_span = g.span.clone();
                 let join_result =
-                    self.apply_function(g, Some(f_result), h_result, span.clone())?;
+                    self.apply_function(g, Some(f_result), h_result, g_span)?;
                 let mut inputs = Vec::with_capacity(2);
                 if let Some(left) = left {
                     inputs.push(left);
