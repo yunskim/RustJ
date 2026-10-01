@@ -6,7 +6,9 @@
 use crate::{
     Data, Error, Value,
     analysis::{ExecutionBasisKind, CallTarget},
-    j_graph_rewrite::{GraphEquivalenceWitness, GraphRewriteRuleId},
+    j_graph_rewrite::{
+        GraphEquivalenceWitness, GraphRewriteCandidate, GraphRewriteRuleId,
+    },
     logical_ir::{
         ConstraintSet, ExecutionBasisPayload, OpId, OpKind, Plan, ValueId,
         WindowShapeSpec,
@@ -191,6 +193,32 @@ pub fn discover(plan: &Plan) -> Vec<ExecutionBasisExpansion> {
     }
 
     expansions
+}
+
+
+/// Resolve the execution expansion corresponding to an already-discovered
+/// J Graph rewrite using provenance, not source reparsing/pattern recovery.
+pub fn for_graph_rewrite(
+    plan: &Plan,
+    candidate: &GraphRewriteCandidate,
+) -> Result<ExecutionBasisExpansion, &'static str> {
+    let mut found = None;
+    for expansion in discover(plan) {
+        let Some(operation) = plan.operations.get(expansion.source_op.0) else {
+            return Err("expansion source operation is out of bounds");
+        };
+        if operation.j_origin != Some(candidate.provenance.source_value)
+            || expansion.rule != candidate.rule
+            || expansion.witness != candidate.witness
+        {
+            continue;
+        }
+        if found.is_some() {
+            return Err("multiple execution expansions match one graph rewrite");
+        }
+        found = Some(expansion);
+    }
+    found.ok_or("no execution expansion matches the graph rewrite provenance")
 }
 
 
