@@ -182,7 +182,7 @@ fn infer_semantic_primitive(
     });
     let dtype = match (id, left) {
         (Less, None) => TypeFact::Exact(DType::Boxed),
-        (Equal | Less | Greater, Some(_)) => TypeFact::Exact(DType::Bool),
+        (Equal | Less | Greater | Find, Some(_)) => TypeFact::Exact(DType::Bool),
         (Shape | Tally | Multiply, None) => TypeFact::Exact(DType::Int),
         (Ravel | Reverse | Transpose | Add | Sparse, None) => right.dtype,
         (Add | Subtract | Multiply, Some(x))
