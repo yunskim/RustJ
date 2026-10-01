@@ -3740,7 +3740,7 @@ AdverseDerived(u, v)
 
 ### 4.16 CompilationTarget은 backend / architecture / device를 분리한다
 
-기존의 하나짜리 `TargetProfile`은 역할이 너무 넓다. 같은 CUDA/ROCm backend에서도 architecture가 다르면 instruction, register organization, subgroup/wave behavior, working_state 기능 등이 달라지고, 같은 architecture를 쓰는 device끼리도 compute-unit 수, memory/cache capacity 등이 다를 수 있다.
+기존의 하나짜리 `TargetProfile`은 역할이 너무 넓다. 같은 CUDA/ROCm backend에서도 architecture가 다르면 instruction, register organization, subgroup/wave behavior, scratchpad 기능 등이 달라지고, 같은 architecture를 쓰는 device끼리도 compute-unit 수, memory/cache capacity 등이 다를 수 있다.
 
 현행 모델은 다음을 구분한다.
 
@@ -3816,7 +3816,7 @@ ArchitectureTarget
   feature_set
   execution_hierarchy_rules
   register_model
-  memory/working_state model
+  memory/scratchpad model
   instruction capabilities
   synchronization/memory-ordering capabilities
   allocation rules
@@ -3847,7 +3847,7 @@ DeviceProfile
   architecture_target
   compute-unit / SM / core count
   register capacities
-  working_state/shared/LDS capacities
+  scratchpad/shared/LDS capacities
   cache capacities/topology
   memory capacity
   supported configurable resource modes
@@ -4234,9 +4234,9 @@ MemorySpace
   async-copy support
 ```
 
-memory-space semantics/transaction/bank rules은 architecture/backend profile에, concrete cache/working_state/HBM capacity는 device profile에 두는 식으로 분리한다.
+memory-space semantics/transaction/bank rules은 architecture/backend profile에, concrete cache/scratchpad/HBM capacity는 device profile에 두는 식으로 분리한다.
 
-일부 target에서는 cache와 working_state/shared memory가 같은 physical resource를 partition한다.
+일부 target에서는 cache와 scratchpad/shared memory가 같은 physical resource를 partition한다.
 
 ```text
 ResourceCoupling
@@ -4292,7 +4292,7 @@ DataMovementCapability
 
 #### 4.16.14 LaunchAndSchedulingLimits
 
-max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic working_state limits, cluster/cooperative launch capability 등을 표현한다.
+max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic scratchpad limits, cluster/cooperative launch capability 등을 표현한다.
 
 rule 자체가 architecture에 속하는지, exact numeric capacity가 device에 속하는지 분리한다.
 
@@ -4370,12 +4370,12 @@ schedule과 target hard facts로부터 계산 가능한 자원/구조 추정이�
 ```text
 ResourceEstimate
   register usage by class
-  shared/LDS/working_state bytes
+  shared/LDS/scratchpad bytes
   spill/local-memory risk
   resident workgroups/subgroups bound
   theoretical occupancy/concurrency bound
   global-memory bytes
-  cache/working_state traffic amount
+  cache/scratchpad traffic amount
   transaction/coalescing count estimate
   bank-conflict structure
   arithmetic intensity
@@ -4458,10 +4458,10 @@ AccumulatorRealization
   outputs per lane/thread
   partial sums per output
   vector/matrix instruction choice
-  register vs working_state staging
+  register vs scratchpad staging
 ```
 
-**working_state/shared/LDS requirement도 tile/staging의 함수**다.
+**scratchpad/shared/LDS requirement도 tile/staging의 함수**다.
 
 ```text
 WorkingStateUsage
@@ -4479,7 +4479,7 @@ WorkingStateUsage
 ```text
 ResourceEstimate
   register classes
-  working_state/shared
+  scratchpad/shared
   live materialized bytes
   external-memory traffic amount
   synchronization/work counts
@@ -4502,7 +4502,7 @@ CompiledResourceReport
   kernel/artifact id
   register usage by class
   spills / local-memory bytes
-  static + dynamic working_state/shared bytes
+  static + dynamic scratchpad/shared bytes
   stack frame
   generated instruction summary
   launch attributes
@@ -4596,7 +4596,7 @@ H1 generic TargetProfile MVP
   subgroup/vector width
   parallelism limits
   register resource summary
-  working_state/shared-memory summary
+  scratchpad/shared-memory summary
   memory spaces/alignment
   supported dtypes/operations
   ABI/data-layout
@@ -4613,7 +4613,7 @@ H2 Physical Schedule MVP
 
 H3 ResourceEstimate MVP
   register estimate
-  working_state/shared estimate
+  scratchpad/shared estimate
   occupancy/concurrency bound
   global-memory traffic
   peak materialized bytes
@@ -7134,7 +7134,7 @@ J Graph 단계에서 **아직 결정하지 않는 것**:
 
 - 실제 register allocation
 - register class별 사용량
-- shared/LDS/working_state의 concrete byte 수
+- shared/LDS/scratchpad의 concrete byte 수
 - tile/workgroup별 local storage
 - packed-bool/box/sparse 등의 final representation
 - alignment/padding/buffer offset
@@ -7237,7 +7237,7 @@ ResourceEstimate / bufferization
 - [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
 - [ ] register estimate는 primitive별 합이 아니라 scheduled liveness peak로 계산한다.
 - [ ] accumulator requirement(logical)와 accumulator realization(schedule/target)을 분리한다.
-- [ ] working_state/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
+- [ ] scratchpad/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
 - [ ] noun snapshot과 verb/adverb/conjunction nameref late lookup, alias/shadow/rebind, `f.` fix semantics를 구분하는 테스트를 추가한다.
 - [ ] mutable extension state가 hidden verb field가 아니라 explicit StateResource로 나타나는 테스트를 추가한다.
