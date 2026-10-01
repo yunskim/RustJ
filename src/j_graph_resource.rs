@@ -893,15 +893,20 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 }
             }
 
+            let mut elidable_values = Vec::new();
             for opportunity in &memory.opportunities {
                 if region_values.contains(&opportunity.value)
+                    && opportunity.value != region.result
+                    && !region.inputs.contains(&opportunity.value)
                     && matches!(
                         opportunity.kind,
                         MaterializationOpportunity::PipelineIntermediate
                             | MaterializationOpportunity::BranchIntermediate
                             | MaterializationOpportunity::VirtualView
                     )
+                    && !elidable_values.contains(&opportunity.value)
                 {
+                    elidable_values.push(opportunity.value);
                     elidable.add(extent_atoms(memory, opportunity.value));
                 }
             }
@@ -917,20 +922,6 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 .iter()
                 .copied()
                 .filter(|value| *value != region.result && !region.inputs.contains(value))
-                .collect::<Vec<_>>();
-            let elidable_values = memory
-                .opportunities
-                .iter()
-                .filter(|opportunity| {
-                    region_values.contains(&opportunity.value)
-                        && matches!(
-                            opportunity.kind,
-                            MaterializationOpportunity::PipelineIntermediate
-                                | MaterializationOpportunity::BranchIntermediate
-                                | MaterializationOpportunity::VirtualView
-                        )
-                })
-                .map(|opportunity| opportunity.value)
                 .collect::<Vec<_>>();
             let retained_values = match &region.kind {
                 RegionKind::Pipeline { .. } => Vec::new(),
