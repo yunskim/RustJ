@@ -141,7 +141,7 @@ impl Engine {
                     Error::Unsupported(message.into())
                         .in_phase(DiagnosticPhase::SemanticAnalysis)
                 })?;
-        let lowered = crate::analysis::lower_graph_both(j_graph.clone(), &|name| match self
+        let logical = crate::analysis::lower_graph(j_graph.clone(), &|name| match self
             .names
             .get(name)
             .map(|b| &b.value)
@@ -154,15 +154,15 @@ impl Engine {
             j_graph,
             graph_rewrites,
             graph_rewrite_resources,
-            transition: lowered.transition,
-            logical: lowered.logical,
+            logical,
         })
     }
 
-    /// M1 compatibility API returning the legacy transition plan.
-    /// New compiler consumers should use `analyze_a3` or `analyze_compilation`.
-    pub fn analyze(&self, source: &str) -> Result<crate::analysis::LogicalPlan> {
-        self.analyze_compilation(source).map(|analysis| analysis.transition)
+    /// Canonical compiler analysis API.
+    ///
+    /// `analyze_a3` is retained as an explicit A3-named alias.
+    pub fn analyze(&self, source: &str) -> Result<crate::logical_ir::Plan> {
+        self.analyze_compilation(source).map(|analysis| analysis.logical)
     }
 
     /// Build the canonical A3-v0 operation/value-separated logical IR.
