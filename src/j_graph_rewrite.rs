@@ -194,7 +194,7 @@ pub fn discover(plan: &Plan) -> Vec<GraphRewriteCandidate> {
             continue;
         };
         if !matches!(
-            function.head,
+            &function.head,
             crate::semantic::FunctionHead::PrimitiveVerb(PrimitiveId::Find)
         ) {
             continue;
