@@ -13,7 +13,7 @@
 use crate::{
     Error, Result, Value,
     contracts::{self, OperationClass, Valence},
-    facts::{Facts, LayoutFact, TypeFact},
+    facts::{SemanticFacts, TypeFact},
     semantic::{
         BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand, NameVersion,
     },
@@ -220,7 +220,7 @@ pub struct GraphFacts {
 }
 
 impl GraphFacts {
-    pub(crate) fn from_execution_facts(facts: &Facts) -> Self {
+    fn from_semantic_facts(facts: &SemanticFacts) -> Self {
         Self {
             dtype: facts.dtype,
             shape: facts.shape.clone(),
@@ -228,21 +228,25 @@ impl GraphFacts {
         }
     }
 
-    fn as_inference_seed(&self) -> Facts {
-        Facts {
+    fn as_semantic_facts(&self) -> SemanticFacts {
+        SemanticFacts {
             dtype: self.dtype,
-            layout: LayoutFact::Unknown,
             shape: self.shape.clone(),
             rank: self.rank,
         }
     }
 
-    pub fn agrees_with_execution(&self, facts: &Facts) -> bool {
+    pub fn agrees_with(
+        &self,
+        dtype: TypeFact,
+        shape: Option<&[usize]>,
+        rank: Option<usize>,
+    ) -> bool {
         let dtype_agrees = match self.dtype {
             TypeFact::Unknown => true,
-            TypeFact::Exact(expected) => facts.dtype == TypeFact::Exact(expected),
+            TypeFact::Exact(expected) => dtype == TypeFact::Exact(expected),
             TypeFact::IntOrFloat => matches!(
-                facts.dtype,
+                dtype,
                 TypeFact::IntOrFloat
                     | TypeFact::Exact(crate::types::DType::Int)
                     | TypeFact::Exact(crate::types::DType::Float)
@@ -251,9 +255,9 @@ impl GraphFacts {
         dtype_agrees
             && self
                 .shape
-                .as_ref()
-                .map_or(true, |shape| Some(shape) == facts.shape.as_ref())
-            && self.rank.map_or(true, |rank| Some(rank) == facts.rank)
+                .as_deref()
+                .map_or(true, |expected| Some(expected) == shape)
+            && self.rank.map_or(true, |expected| Some(expected) == rank)
     }
 }
 
@@ -1223,7 +1227,8 @@ impl Builder<'_> {
         match expression.kind {
             ExprKind::Group(inner) => self.expression(*inner),
             ExprKind::Literal(value) => {
-                let facts = GraphFacts::from_execution_facts(&Facts::of(&value));
+                let semantic_facts = SemanticFacts::of(&value);
+                let facts = GraphFacts::from_semantic_facts(&semantic_facts);
                 Ok(self.push(
                     NodeKind::Literal(value),
                     span,
@@ -1391,17 +1396,15 @@ impl Builder<'_> {
                 let rules = rule_refs(&function);
                 let contract = base_operation_contract(&function, valence, &form);
 
-                let right_facts = self.value_facts(right).clone();
-                let left_facts = left.map(|id| self.value_facts(id).clone());
-                let right_seed = right_facts.as_inference_seed();
-                let left_seed = left_facts.as_ref().map(GraphFacts::as_inference_seed);
-                let inferred = crate::facts::infer_semantic_call(
+                let right_facts = self.value_facts(right).as_semantic_facts();
+                let left_facts =
+                    left.map(|id| self.value_facts(id).as_semantic_facts());
+                let inferred = crate::facts::infer_semantic_projection(
                     &function,
-                    left_seed.as_ref(),
-                    &right_seed,
-                )
-                .0;
-                let facts = GraphFacts::from_execution_facts(&inferred);
+                    left_facts.as_ref(),
+                    &right_facts,
+                );
+                let facts = GraphFacts::from_semantic_facts(&inferred);
 
                 let analyzability = analyzability_for(&function, &facts, &contract);
                 Ok(self.push(
