@@ -5,7 +5,7 @@
 //! an explicit equivalence witness and source provenance.
 
 use crate::{
-    j_graph_ir::{GraphBasis, GraphBasisKind, NodeKind, Plan, ValueId},
+    j_graph_ir::{GraphBasis, GraphBasisKind, GraphFacts, NodeKind, Plan, ValueId},
     primitive::PrimitiveId,
 };
 use std::ops::Range;
@@ -33,6 +33,9 @@ pub struct RewriteNode {
     pub basis: GraphBasisKind,
     pub inputs: Vec<RewriteInput>,
     pub semantics: RewriteNodeSemantics,
+    /// Target-independent facts for this candidate-local value. Unknown is
+    /// explicit; rewrite discovery must not invent shapes merely to aid costing.
+    pub facts: GraphFacts,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -193,6 +196,10 @@ impl GraphRewriteCandidate {
         {
             return Err("rewrite replacement basis does not satisfy registered rule");
         }
+        let output = &self.replacement.nodes[self.replacement.output.0];
+        if output.facts != source.facts {
+            return Err("rewrite output facts do not match equivalent source result");
+        }
         Ok(())
     }
 }
@@ -206,6 +213,8 @@ fn find_via_window_match(
 ) -> GraphRewriteCandidate {
     let window = RewriteNodeId(0);
     let matched = RewriteNodeId(1);
+    let right_facts = &plan.nodes[right.0].facts;
+    let source_facts = plan.nodes[source_value.0].facts.clone();
     GraphRewriteCandidate {
         provenance: GraphRewriteProvenance {
             source_value,
@@ -220,11 +229,17 @@ fn find_via_window_match(
                     basis: GraphBasisKind::Window,
                     inputs: vec![RewriteInput::Source(right), RewriteInput::Source(left)],
                     semantics: RewriteNodeSemantics::WindowByPatternShape,
+                    facts: GraphFacts {
+                        dtype: right_facts.dtype,
+                        shape: None,
+                        rank: None,
+                    },
                 },
                 RewriteNode {
                     basis: GraphBasisKind::CellApply,
                     inputs: vec![RewriteInput::Source(left), RewriteInput::Node(window)],
                     semantics: RewriteNodeSemantics::MatchPatternCell,
+                    facts: source_facts,
                 },
             ],
             output: matched,
