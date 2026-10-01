@@ -63,6 +63,64 @@ J semantics
 >
 > RustJ의 올바른 목표는 “J를 정적 언어로 다시 설계하는 compiler”가 아니라 **J semantics를 소유하고, 분석 가능한 영역을 현대 하드웨어에 맞게 compile하는 execution system**이다.
 
+### 1.1 핵심 불변조건 — Logical Array와 Physical Array는 같은 것이 아니다
+
+이 문서가 보호해야 할 핵심 경계 중 하나는 **J가 관찰하는 배열의 의미와 backend가 사용하는 물리 표현을 분리하는 것**이다.
+
+```text
+Logical Array
+    J-visible type/value
+    shape
+    ordered atoms
+    boxed/sparse 등 J-visible semantics
+
+        ≠
+
+Physical Array / Representation
+    buffer/storage
+    strides
+    offset
+    layout/tiling
+    alignment
+    memory space
+    device placement
+    sharding/transfer
+```
+
+이 분리가 필요한 이유는 단순하다.
+
+**J semantics는 특정 memory layout이나 device에서 정의되지 않는다.**
+
+예를 들어 transpose는 J에서는 logical axis/order 변환이다. 그것을 stride-only view로 유지할지, consumer가 index map을 흡수할지, 실제 copy를 만들지는 backend와 schedule에 따라 달라질 수 있다. 이 선택을 J noun의 semantic identity에 넣으면 implementation detail이 언어 의미로 역류한다.
+
+따라서 다음은 설계 불변조건이다.
+
+- logical shape/order/type과 physical stride/layout을 동일시하지 않는다.
+- `ValueId`와 `BufferId`를 동일시하지 않는다.
+- logical value 존재와 materialized memory buffer 존재를 동일시하지 않는다.
+- CPU/GPU placement를 J value identity로 만들지 않는다.
+- backend가 원하는 broadcasting/layout semantics로 J agreement/rank semantics를 바꾸지 않는다.
+- sparse/boxed의 **J-visible semantic representation**과 CSR/COO/pointer/handle 같은 **backend encoding**을 구분한다.
+- physical realization을 바꾸더라도 같은 logical array semantics를 관찰해야 한다.
+
+이 경계 덕분에 같은 logical value에 대해 여러 physical representation을 선택할 수 있고, 반대로 서로 다른 logical values가 lifetime 분석을 통해 같은 physical buffer를 재사용할 수도 있다.
+
+즉 RustJ에서 physical optimization의 자유는 **logical semantics를 먼저 고정했기 때문에** 생긴다.
+
+```text
+J logical semantics
+        ↓
+analysis / legality
+        ↓
+representation choice
+        ↓
+physical planning
+        ↓
+buffer / layout / device
+```
+
+compiler가 이 순서를 뒤집어 physical representation을 먼저 정한 뒤 J 의미를 거기에 맞추기 시작하면, 그것은 RustJ가 피해야 할 regression이다.
+
 ---
 
 # Part I. 역사적 사실: 왜 APL은 interpreter였는가
