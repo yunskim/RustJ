@@ -1,6 +1,6 @@
 use rustj::{
     Engine,
-    analysis::BasisKind,
+    analysis::ExecutionBasisKind,
     logical_ir::{Constraint, OpKind, SemanticErrorKind},
 };
 
@@ -16,7 +16,7 @@ fn a3_separates_operations_from_values() {
     assert!(matches!(
         plan.operations[producer.0].kind,
         OpKind::Basis {
-            kind: BasisKind::Elementwise,
+            kind: ExecutionBasisKind::Elementwise,
             ..
         }
     ));
@@ -90,7 +90,7 @@ fn gather_has_an_explicit_index_check() {
     assert!(matches!(
         plan.operations[producer.0].kind,
         OpKind::Basis {
-            kind: BasisKind::Gather,
+            kind: ExecutionBasisKind::Gather,
             ..
         }
     ));
@@ -127,7 +127,7 @@ fn write_metadata_uses_a3_value_and_operation_ids() {
 #[test]
 fn reduce_domain_marks_the_reduced_axis_explicitly() {
     use rustj::logical_ir::{
-        AxisRole, BasisPayload, IterationAxisKind, ReductionAxis,
+        AxisRole, ExecutionBasisPayload, IterationAxisKind, ReductionAxis,
     };
 
     let plan = Engine::new().analyze_a3("+/1 2 3").unwrap();
@@ -142,10 +142,10 @@ fn reduce_domain_marks_the_reduced_axis_explicitly() {
         panic!("reduce basis op")
     };
 
-    assert_eq!(*kind, BasisKind::Reduce);
+    assert_eq!(*kind, ExecutionBasisKind::Reduce);
     assert_eq!(
         *payload,
-        BasisPayload::Reduce {
+        ExecutionBasisPayload::Reduce {
             axis: ReductionAxis::LeadingCellAxis
         }
     );
@@ -171,7 +171,7 @@ fn cell_apply_domain_is_the_result_frame_not_the_cell() {
         panic!("cell apply basis op")
     };
 
-    assert_eq!(*kind, BasisKind::CellApply);
+    assert_eq!(*kind, ExecutionBasisKind::CellApply);
     assert_eq!(call.iteration_domain.axes.len(), 1);
     assert_eq!(call.iteration_domain.axes[0].extent, Some(2));
     assert_eq!(call.iteration_domain.axes[0].kind, IterationAxisKind::Parallel);
@@ -180,7 +180,7 @@ fn cell_apply_domain_is_the_result_frame_not_the_cell() {
 
 #[test]
 fn static_reindex_payload_preserves_the_reindex_family() {
-    use rustj::logical_ir::{BasisPayload, ReindexKind};
+    use rustj::logical_ir::{ExecutionBasisPayload, ReindexKind};
 
     let plan = Engine::new().analyze_a3("|.1 2 3").unwrap();
     let result = plan.result.unwrap();
@@ -190,7 +190,7 @@ fn static_reindex_payload_preserves_the_reindex_family() {
     };
     assert_eq!(
         *payload,
-        BasisPayload::StaticReindex {
+        ExecutionBasisPayload::StaticReindex {
             kind: ReindexKind::Reverse
         }
     );
@@ -198,7 +198,7 @@ fn static_reindex_payload_preserves_the_reindex_family() {
 
 #[test]
 fn verifier_rejects_a_basis_payload_that_no_longer_matches_the_call() {
-    use rustj::logical_ir::BasisPayload;
+    use rustj::logical_ir::ExecutionBasisPayload;
 
     let mut plan = Engine::new().analyze_a3("|.1 2 3").unwrap();
     let result = plan.result.unwrap();
@@ -206,7 +206,7 @@ fn verifier_rejects_a_basis_payload_that_no_longer_matches_the_call() {
     let OpKind::Basis { payload, .. } = &mut plan.operations[producer.0].kind else {
         panic!("reindex basis op")
     };
-    *payload = BasisPayload::Elementwise;
+    *payload = ExecutionBasisPayload::Elementwise;
 
     let error = plan.verify().unwrap_err();
     assert_eq!(error.operation, Some(producer));

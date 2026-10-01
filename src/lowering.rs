@@ -5,8 +5,8 @@
 //! to later planning stages.
 
 use crate::{
-    analysis::{AccessFact, AccessRelation, BasisKind},
-    logical_ir::{BasisPayload, CallOp, IterationDomain, OpKind, Operation, Plan},
+    analysis::{AccessFact, AccessRelation, ExecutionBasisKind},
+    logical_ir::{ExecutionBasisPayload, CallOp, IterationDomain, OpKind, Operation, Plan},
 };
 use std::ops::Range;
 
@@ -113,13 +113,13 @@ impl Requirement {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BasisLoweringCapability {
-    pub basis: BasisKind,
+pub struct ExecutionBasisLoweringCapability {
+    pub basis: ExecutionBasisKind,
     pub realization: RealizationFamily,
     pub requirements: Vec<Requirement>,
 }
 
-impl BasisLoweringCapability {
+impl ExecutionBasisLoweringCapability {
     pub fn legal_for(&self, call: &CallOp, target: &TargetCapabilities) -> bool {
         self.requirements
             .iter()
@@ -138,9 +138,9 @@ pub enum RouteRegionClass {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParameterizedLoweringRecipe {
-    pub basis: BasisKind,
+    pub basis: ExecutionBasisKind,
     pub realization: RealizationFamily,
-    pub payload: BasisPayload,
+    pub payload: ExecutionBasisPayload,
     pub iteration_domain: IterationDomain,
 }
 
@@ -157,8 +157,8 @@ pub enum RouteDecision {
     /// J-visible check is kept as its own ordered operation.
     SemanticCheck,
     /// The native planner has one or more semantically legal realization families.
-    NativeBasis {
-        basis: BasisKind,
+    NativeExecutionBasis {
+        basis: ExecutionBasisKind,
         candidates: Vec<RealizationFamily>,
     },
     /// Lack of a native candidate is a route limitation, not invalid J.
@@ -167,12 +167,12 @@ pub enum RouteDecision {
 
 #[derive(Clone, Debug, Default)]
 pub struct LoweringRegistry {
-    capabilities: Vec<BasisLoweringCapability>,
+    capabilities: Vec<ExecutionBasisLoweringCapability>,
 }
 
 impl LoweringRegistry {
     pub fn a3_v0() -> Self {
-        use BasisKind::*;
+        use ExecutionBasisKind::*;
         use RealizationFamily::*;
         use Requirement::*;
         use TargetFamily::*;
@@ -180,7 +180,7 @@ impl LoweringRegistry {
 
         let mut registry = Self::default();
         let mut add = |basis, realization, requirements| {
-            registry.capabilities.push(BasisLoweringCapability {
+            registry.capabilities.push(ExecutionBasisLoweringCapability {
                 basis,
                 realization,
                 requirements,
@@ -303,7 +303,7 @@ impl LoweringRegistry {
         registry
     }
 
-    pub fn capabilities(&self) -> &[BasisLoweringCapability] {
+    pub fn capabilities(&self) -> &[ExecutionBasisLoweringCapability] {
         &self.capabilities
     }
 
@@ -311,7 +311,7 @@ impl LoweringRegistry {
     /// them; cost/preference belongs to a later CostProfile/planner layer.
     pub fn legal_candidates(
         &self,
-        basis: BasisKind,
+        basis: ExecutionBasisKind,
         call: &CallOp,
         target: &TargetCapabilities,
     ) -> Vec<RealizationFamily> {
@@ -339,7 +339,7 @@ impl LoweringRegistry {
                 if candidates.is_empty() {
                     RouteDecision::RuntimeSemanticFallback
                 } else {
-                    RouteDecision::NativeBasis {
+                    RouteDecision::NativeExecutionBasis {
                         basis: *kind,
                         candidates,
                     }
@@ -381,7 +381,7 @@ impl LoweringRegistry {
             match decision {
                 RouteDecision::NoKernel => RouteRegionClass::ValueOnly,
                 RouteDecision::SemanticCheck => RouteRegionClass::SemanticCheck,
-                RouteDecision::NativeBasis { .. } => RouteRegionClass::PureArray,
+                RouteDecision::NativeExecutionBasis { .. } => RouteRegionClass::PureArray,
                 RouteDecision::RuntimeSemanticFallback => RouteRegionClass::RuntimeSemantic,
             }
         }

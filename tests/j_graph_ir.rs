@@ -1,7 +1,7 @@
 use rustj::{
     Engine,
     j_graph_ir::{
-        AccessContract, FusionStructure, GraphAnalyzability, GraphForm, GraphHint,
+        AccessContract, FusionStructure, GraphAnalyzability, GraphBasisKind, GraphForm, GraphHint,
         GraphRuleRef, IterationContract, J_GRAPH_SCHEMA_VERSION, NodeKind,
         RegionKind, ResourceCompositionRule, ResourceRuleRef, SymbolicResourceExpr,
     },
@@ -96,6 +96,7 @@ fn modifiers_expose_collective_and_cell_parallel_contracts_before_execution_lowe
     let result = graph.result.unwrap();
     let NodeKind::Apply {
         form,
+        basis,
         hints,
         contract,
         ..
@@ -104,6 +105,7 @@ fn modifiers_expose_collective_and_cell_parallel_contracts_before_execution_lowe
         panic!()
     };
     assert!(matches!(form, GraphForm::Reduce { .. }));
+    assert_eq!(basis.layers, vec![GraphBasisKind::Reduce]);
     assert!(hints.contains(GraphHint::ReductionStructure));
     assert_eq!(contract.iteration, IterationContract::Reduction);
     assert_eq!(contract.access, AccessContract::ReductionAxis);
@@ -120,6 +122,7 @@ fn modifiers_expose_collective_and_cell_parallel_contracts_before_execution_lowe
     let result = graph.result.unwrap();
     let NodeKind::Apply {
         form,
+        basis,
         hints,
         contract,
         ..
@@ -128,10 +131,39 @@ fn modifiers_expose_collective_and_cell_parallel_contracts_before_execution_lowe
         panic!()
     };
     assert!(matches!(form, GraphForm::Rank { .. }));
+    assert_eq!(
+        basis.layers,
+        vec![GraphBasisKind::CellApply, GraphBasisKind::Reduce]
+    );
     assert!(hints.contains(GraphHint::CellParallelStructure));
     assert_eq!(contract.iteration, IterationContract::CellMap);
     assert_eq!(contract.access, AccessContract::CellRelative);
     assert_eq!(graph.nodes[result.0].facts.shape.as_deref(), Some(&[2][..]));
+}
+
+#[test]
+fn graph_basis_is_distinct_from_execution_basis_and_preserves_graph_granularity() {
+    let graph = Engine::new().analyze_j_graph("1+2").unwrap();
+    let result = graph.result.unwrap();
+    let NodeKind::Apply { basis, .. } = &graph.nodes[result.0].kind else {
+        panic!()
+    };
+    assert_eq!(basis.layers, vec![GraphBasisKind::Elementwise]);
+
+    let graph = Engine::new().analyze_j_graph("1 { 10 20 30").unwrap();
+    let result = graph.result.unwrap();
+    let NodeKind::Apply { basis, .. } = &graph.nodes[result.0].kind else {
+        panic!()
+    };
+    assert_eq!(basis.layers, vec![GraphBasisKind::DynamicGather]);
+
+    // Execution classification is a separate type and a separate lowering
+    // decision even where the vocabulary happens to use similar names.
+    let analysis = Engine::new().analyze_compilation("1+2").unwrap();
+    assert_eq!(
+        analysis.execution.nodes[analysis.execution.result.unwrap().0].basis,
+        Some(rustj::analysis::ExecutionBasisKind::Elementwise)
+    );
 }
 
 #[test]

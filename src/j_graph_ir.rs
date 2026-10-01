@@ -145,6 +145,33 @@ pub enum ResourceCompositionRule {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GraphBasisKind {
+    /// Pointwise/cell-local map structure. The scalar/cell function identity
+    /// remains on the J FunctionEntity rather than being erased into this class.
+    Elementwise,
+    /// J rank/cell application boundary. Nested rank boundaries remain distinct.
+    CellApply,
+    /// Reduction structure whose reducer identity remains on the FunctionEntity.
+    Reduce,
+    /// Compile-time-known index remapping such as transpose/reshape/reverse.
+    StaticReindex,
+    /// Data-dependent indexed access such as general gather.
+    DynamicGather,
+    /// Search/classification access pattern retained for graph-level reasoning.
+    Search,
+    /// Named high-level graph operation intentionally kept opaque at this layer
+    /// (for example convolution). Execution lowering may decompose it later.
+    Structured,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GraphBasis {
+    /// Outer-to-inner graph-basis composition. For example a ranked reduction
+    /// is represented as [CellApply, Reduce], not collapsed into one execution op.
+    pub layers: Vec<GraphBasisKind>,
+}
+
 #[derive(Clone, Debug)]
 pub enum NodeKind {
     Literal(Value),
@@ -162,6 +189,7 @@ pub enum NodeKind {
     Apply {
         function: Arc<FunctionEntity>,
         form: GraphForm,
+        basis: GraphBasis,
         hints: GraphHints,
         rules: GraphRuleRefs,
         contract: GraphOperationContract,
@@ -463,6 +491,53 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
             resource: ResourceRuleRef::Unknown,
         },
     }
+}
+
+fn graph_basis(
+    function: &Arc<FunctionEntity>,
+    valence: Valence,
+    form: &GraphForm,
+) -> GraphBasis {
+    use crate::primitive::PrimitiveId::*;
+    use GraphBasisKind::*;
+
+    let mut layers = Vec::new();
+    match form {
+        GraphForm::Rank { operand, .. } => {
+            layers.push(CellApply);
+            let (inner_form, _) = classify_function(operand);
+            layers.extend(graph_basis(operand, valence, &inner_form).layers);
+        }
+        GraphForm::Reduce { .. } => layers.push(Reduce),
+        GraphForm::Atomic => {
+            let FunctionHead::PrimitiveVerb(id) = &function.head else {
+                return GraphBasis { layers };
+            };
+            let classified = match (*id, valence) {
+                (Shape, Valence::Dyad)
+                | (Ravel, Valence::Monad)
+                | (Reverse, _)
+                | (Transpose, _)
+                | (Take, _)
+                | (Drop, _) => Some(StaticReindex),
+                (From, Valence::Dyad) => Some(DynamicGather),
+                _ => match contracts::for_primitive(*id, valence).class {
+                    OperationClass::Map => Some(Elementwise),
+                    OperationClass::Gather => Some(DynamicGather),
+                    OperationClass::Search => Some(Search),
+                    OperationClass::Structural | OperationClass::Unknown => None,
+                },
+            };
+            if let Some(kind) = classified {
+                layers.push(kind);
+            }
+        }
+        GraphForm::Modifier { .. }
+        | GraphForm::Pipeline { .. }
+        | GraphForm::Hook { .. }
+        | GraphForm::Fork { .. } => {}
+    }
+    GraphBasis { layers }
 }
 
 fn base_operation_contract(
@@ -838,6 +913,7 @@ impl Plan {
             if let NodeKind::Apply {
                 function,
                 form,
+                basis,
                 hints,
                 rules,
                 contract,
@@ -871,6 +947,12 @@ impl Plan {
                 if std::mem::discriminant(form) != std::mem::discriminant(&expected_form) {
                     return Err(format!(
                         "node {index} graph form does not match J function structure"
+                    ));
+                }
+                let expected_basis = graph_basis(function, *valence, &expected_form);
+                if *basis != expected_basis {
+                    return Err(format!(
+                        "node {index} graph basis does not match J function structure"
                     ));
                 }
                 let expected_hints = apply_hints(function, &expected_form, expected_hints);
@@ -1288,6 +1370,7 @@ impl Builder<'_> {
                 } else {
                     Valence::Monad
                 };
+                let basis = graph_basis(&function, valence, &form);
                 let hints = apply_hints(&function, &form, base_hints);
                 let rules = rule_refs(&function);
                 let contract = base_operation_contract(&function, valence, &form);
@@ -1317,6 +1400,7 @@ impl Builder<'_> {
                     NodeKind::Apply {
                         function,
                         form,
+                        basis,
                         hints,
                         rules,
                         contract,

@@ -7,7 +7,7 @@
 use crate::{
     Value,
     analysis::{
-        self, AccessFact, BasisKind, Callable, ResolvedInstantiation, Symbol,
+        self, AccessFact, ExecutionBasisKind, Callable, ResolvedInstantiation, Symbol,
         SymbolId,
     },
     contracts::{Contract, Effect, Valence},
@@ -210,11 +210,11 @@ fn axes_from_shape(
 }
 
 fn iteration_domain(
-    kind: Option<BasisKind>,
+    kind: Option<ExecutionBasisKind>,
     node: &analysis::Node,
     transition: &analysis::LogicalPlan,
 ) -> IterationDomain {
-    if kind == Some(BasisKind::Reduce) {
+    if kind == Some(ExecutionBasisKind::Reduce) {
         let analysis::Operation::Call { right, .. } = &node.operation else {
             return IterationDomain::default();
         };
@@ -243,7 +243,7 @@ fn iteration_domain(
         return IterationDomain { axes };
     }
 
-    if kind == Some(BasisKind::CellApply) {
+    if kind == Some(ExecutionBasisKind::CellApply) {
         if let Some(plan) = &node.rank_plan {
             let frame = plan.result_frame.as_deref();
             return IterationDomain {
@@ -356,7 +356,7 @@ pub enum ReductionAxis {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BasisPayload {
+pub enum ExecutionBasisPayload {
     IndexSpace {
         shape_spec: ValueId,
     },
@@ -380,19 +380,19 @@ pub enum BasisPayload {
     Deferred,
 }
 
-fn basis_payload(kind: BasisKind, call: &CallOp) -> BasisPayload {
+fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPayload {
     use crate::primitive::PrimitiveId;
 
     match kind {
-        BasisKind::IndexSpace => BasisPayload::IndexSpace {
+        ExecutionBasisKind::IndexSpace => ExecutionBasisPayload::IndexSpace {
             shape_spec: call.right,
         },
-        BasisKind::Elementwise => BasisPayload::Elementwise,
-        BasisKind::CellApply => BasisPayload::CellApply,
-        BasisKind::Reduce => BasisPayload::Reduce {
+        ExecutionBasisKind::Elementwise => ExecutionBasisPayload::Elementwise,
+        ExecutionBasisKind::CellApply => ExecutionBasisPayload::CellApply,
+        ExecutionBasisKind::Reduce => ExecutionBasisPayload::Reduce {
             axis: ReductionAxis::LeadingCellAxis,
         },
-        BasisKind::StaticReindex => {
+        ExecutionBasisKind::StaticReindex => {
             let reindex = match call.callable.target {
                 analysis::CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
                 analysis::CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
@@ -402,23 +402,23 @@ fn basis_payload(kind: BasisKind, call: &CallOp) -> BasisPayload {
                 }
                 analysis::CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
                 analysis::CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
-                _ => return BasisPayload::Deferred,
+                _ => return ExecutionBasisPayload::Deferred,
             };
-            BasisPayload::StaticReindex { kind: reindex }
+            ExecutionBasisPayload::StaticReindex { kind: reindex }
         }
-        BasisKind::Gather => {
+        ExecutionBasisKind::Gather => {
             let Some(indices) = call.left else {
-                return BasisPayload::Deferred;
+                return ExecutionBasisPayload::Deferred;
             };
-            BasisPayload::Gather {
+            ExecutionBasisPayload::Gather {
                 indices,
                 source: call.right,
             }
         }
-        BasisKind::ConcatAssemble => BasisPayload::ConcatAssemble,
-        BasisKind::ReplicateCompactExpand => BasisPayload::ReplicateCompactExpand,
-        BasisKind::LookupClassify => BasisPayload::LookupClassify,
-        _ => BasisPayload::Deferred,
+        ExecutionBasisKind::ConcatAssemble => ExecutionBasisPayload::ConcatAssemble,
+        ExecutionBasisKind::ReplicateCompactExpand => ExecutionBasisPayload::ReplicateCompactExpand,
+        ExecutionBasisKind::LookupClassify => ExecutionBasisPayload::LookupClassify,
+        _ => ExecutionBasisPayload::Deferred,
     }
 }
 
@@ -431,8 +431,8 @@ pub enum OpKind {
     },
     VerbReference(Callable),
     Basis {
-        kind: BasisKind,
-        payload: BasisPayload,
+        kind: ExecutionBasisKind,
+        payload: ExecutionBasisPayload,
         call: CallOp,
     },
     /// Correctness-preserving fallback for calls not normalized to a basis op.
@@ -617,7 +617,7 @@ fn call_constraints(
     let mut set = ConstraintSet::default();
 
     if let Some(left_value) = left {
-        if node.basis == Some(BasisKind::CellApply) {
+        if node.basis == Some(ExecutionBasisKind::CellApply) {
             let witness = node.rank_plan.as_ref().and_then(|plan| {
                 plan.result_frame
                     .clone()
@@ -636,7 +636,7 @@ fn call_constraints(
                 },
                 witness,
             });
-        } else if node.basis == Some(BasisKind::Elementwise) {
+        } else if node.basis == Some(ExecutionBasisKind::Elementwise) {
             let analysis::Operation::Call {
                 left: Some(old_left),
                 right: old_right,
@@ -665,7 +665,7 @@ fn call_constraints(
         }
     }
 
-    if node.basis == Some(BasisKind::Gather) {
+    if node.basis == Some(ExecutionBasisKind::Gather) {
         if let Some(indices) = left {
             set.facts.push(ConstraintFact {
                 constraint: Constraint::IndicesInBounds {

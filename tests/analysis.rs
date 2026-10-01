@@ -407,19 +407,19 @@ fn analysis_diagnostics_share_structured_context() {
 
 #[test]
 fn provisional_basis_metadata_is_explicit() {
-    use rustj::{analysis::BasisKind, contracts::Valence};
+    use rustj::{analysis::ExecutionBasisKind, contracts::Valence};
 
     let mut e = Engine::new();
     e.eval("a=:i.2 3").unwrap();
 
     for (source, expected_basis, expected_valence) in [
-        ("1+2", BasisKind::Elementwise, Valence::Dyad),
-        ("+/1 2 3", BasisKind::Reduce, Valence::Monad),
-        ("|.1 2 3", BasisKind::StaticReindex, Valence::Monad),
-        ("i.2 3", BasisKind::IndexSpace, Valence::Monad),
-        ("1 { 10 20 30", BasisKind::Gather, Valence::Dyad),
-        ("10 20 i. 20", BasisKind::LookupClassify, Valence::Dyad),
-        ("+/\"1 a", BasisKind::CellApply, Valence::Monad),
+        ("1+2", ExecutionBasisKind::Elementwise, Valence::Dyad),
+        ("+/1 2 3", ExecutionBasisKind::Reduce, Valence::Monad),
+        ("|.1 2 3", ExecutionBasisKind::StaticReindex, Valence::Monad),
+        ("i.2 3", ExecutionBasisKind::IndexSpace, Valence::Monad),
+        ("1 { 10 20 30", ExecutionBasisKind::Gather, Valence::Dyad),
+        ("10 20 i. 20", ExecutionBasisKind::LookupClassify, Valence::Dyad),
+        ("+/\"1 a", ExecutionBasisKind::CellApply, Valence::Monad),
     ] {
         let plan = e.analyze(source).unwrap();
         let node = &plan.nodes[plan.result.unwrap().0];
@@ -484,12 +484,12 @@ fn verifier_checks_resolved_instantiation_consistency() {
 
 #[test]
 fn verifier_checks_basis_metadata_consistency() {
-    use rustj::analysis::BasisKind;
+    use rustj::analysis::ExecutionBasisKind;
 
     let e = Engine::new();
     let mut plan = e.analyze("1+2").unwrap();
     let result = plan.result.unwrap();
-    plan.nodes[result.0].basis = Some(BasisKind::Reduce);
+    plan.nodes[result.0].basis = Some(ExecutionBasisKind::Reduce);
     let error = plan.verify().unwrap_err();
     assert_eq!(error.node, Some(result));
     assert!(error.message.contains("basis metadata"));

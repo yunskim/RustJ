@@ -79,7 +79,7 @@ pub enum AccessFact {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BasisKind {
+pub enum ExecutionBasisKind {
     IndexSpace,
     Elementwise,
     CellApply,
@@ -118,7 +118,7 @@ pub struct ResolvedInstantiation {
     pub rank_boundary: Option<[i64; 3]>,
 }
 
-fn direct_basis(operation: &Operation) -> Option<BasisKind> {
+fn direct_basis(operation: &Operation) -> Option<ExecutionBasisKind> {
     use crate::primitive::PrimitiveId::*;
 
     let Operation::Call {
@@ -132,10 +132,10 @@ fn direct_basis(operation: &Operation) -> Option<BasisKind> {
     };
 
     if callable.rank.is_some() {
-        return Some(BasisKind::CellApply);
+        return Some(ExecutionBasisKind::CellApply);
     }
     if callable.reduce {
-        return Some(BasisKind::Reduce);
+        return Some(ExecutionBasisKind::Reduce);
     }
 
     let CallTarget::Primitive(id) = callable.target else {
@@ -143,21 +143,21 @@ fn direct_basis(operation: &Operation) -> Option<BasisKind> {
     };
     let dyad = left.is_some();
     match (id, dyad) {
-        (IndexOf | Steps, false) => Some(BasisKind::IndexSpace),
-        (Equal, false) => Some(BasisKind::LookupClassify),
-        (Indices, false) => Some(BasisKind::ReplicateCompactExpand),
+        (IndexOf | Steps, false) => Some(ExecutionBasisKind::IndexSpace),
+        (Equal, false) => Some(ExecutionBasisKind::LookupClassify),
+        (Indices, false) => Some(ExecutionBasisKind::ReplicateCompactExpand),
         (Shape, true)
         | (Ravel, false)
         | (Reverse, _)
         | (Transpose, _)
         | (Take, _)
-        | (Drop, _) => Some(BasisKind::StaticReindex),
-        (Ravel, true) => Some(BasisKind::ConcatAssemble),
-        (From, true) => Some(BasisKind::Gather),
-        (IndexOf | Steps | Indices | Member, true) => Some(BasisKind::LookupClassify),
-        (Magnitude, true) => Some(BasisKind::Elementwise),
+        | (Drop, _) => Some(ExecutionBasisKind::StaticReindex),
+        (Ravel, true) => Some(ExecutionBasisKind::ConcatAssemble),
+        (From, true) => Some(ExecutionBasisKind::Gather),
+        (IndexOf | Steps | Indices | Member, true) => Some(ExecutionBasisKind::LookupClassify),
+        (Magnitude, true) => Some(ExecutionBasisKind::Elementwise),
         _ if contract.class == crate::contracts::OperationClass::Map => {
-            Some(BasisKind::Elementwise)
+            Some(ExecutionBasisKind::Elementwise)
         }
         _ => None,
     }
@@ -219,7 +219,7 @@ pub struct Node {
     pub rank_plan: Option<crate::facts::RankPlan>,
     /// Direct basis identity when the current transition IR can classify the
     /// operation without inventing a multi-node expansion.
-    pub basis: Option<BasisKind>,
+    pub basis: Option<ExecutionBasisKind>,
     pub instantiation: Option<ResolvedInstantiation>,
     /// Roles describe how this value is used/produced, not a new J noun type.
     pub roles: ValueRoleFacts,

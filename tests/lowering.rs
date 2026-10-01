@@ -1,11 +1,11 @@
 use rustj::{
     Engine,
-    analysis::BasisKind,
+    analysis::ExecutionBasisKind,
     logical_ir::{CallOp, EffectSummary, OpKind, SpeculationSemantics},
     lowering::{LoweringRegistry, RealizationFamily, TargetCapabilities},
 };
 
-fn result_basis_call(source: &str) -> (BasisKind, CallOp) {
+fn result_basis_call(source: &str) -> (ExecutionBasisKind, CallOp) {
     let plan = Engine::new().analyze_a3(source).unwrap();
     let result = plan.result.unwrap();
     let producer = plan.values[result.0].producer;
@@ -18,7 +18,7 @@ fn result_basis_call(source: &str) -> (BasisKind, CallOp) {
 #[test]
 fn registry_returns_reference_route_without_claiming_parallel_legality() {
     let (basis, call) = result_basis_call("1+2");
-    assert_eq!(basis, BasisKind::Elementwise);
+    assert_eq!(basis, ExecutionBasisKind::Elementwise);
 
     let registry = LoweringRegistry::a3_v0();
     let candidates = registry.legal_candidates(basis, &call, &TargetCapabilities::cpu_simd());
@@ -51,7 +51,7 @@ fn parallel_elementwise_route_opens_only_after_semantic_safety_is_proven() {
 #[test]
 fn tree_reduction_requires_reassociation_and_error_order_freedom() {
     let (basis, mut call) = result_basis_call("+/1 2 3");
-    assert_eq!(basis, BasisKind::Reduce);
+    assert_eq!(basis, ExecutionBasisKind::Reduce);
 
     let registry = LoweringRegistry::a3_v0();
     let gpu = TargetCapabilities::gpu_generic();
@@ -84,7 +84,7 @@ fn tree_reduction_requires_reassociation_and_error_order_freedom() {
 #[test]
 fn cell_apply_has_only_the_generic_cpu_route_until_uniformity_is_proven() {
     let (basis, call) = result_basis_call("+/\"1 (1 2 3)");
-    assert_eq!(basis, BasisKind::CellApply);
+    assert_eq!(basis, ExecutionBasisKind::CellApply);
 
     let registry = LoweringRegistry::a3_v0();
     assert_eq!(
@@ -101,7 +101,7 @@ fn cell_apply_has_only_the_generic_cpu_route_until_uniformity_is_proven() {
 #[test]
 fn gather_keeps_indexed_parallel_routes_closed_while_errors_are_observable() {
     let (basis, mut call) = result_basis_call("1 { 10 20 30");
-    assert_eq!(basis, BasisKind::Gather);
+    assert_eq!(basis, ExecutionBasisKind::Gather);
 
     let registry = LoweringRegistry::a3_v0();
     assert_eq!(
@@ -136,8 +136,8 @@ fn route_partition_distinguishes_native_fallback_checks_and_value_ops() {
     let producer = plan.values[result.0].producer;
     assert_eq!(
         registry.route_operation(&plan.operations[producer.0], &cpu),
-        RouteDecision::NativeBasis {
-            basis: BasisKind::Elementwise,
+        RouteDecision::NativeExecutionBasis {
+            basis: ExecutionBasisKind::Elementwise,
             candidates: vec![RealizationFamily::ReferenceSequential],
         }
     );
@@ -212,12 +212,12 @@ fn rank_and_reduce_can_use_native_reference_routes_after_purity_resolution() {
     for (source, expected_basis, expected_realization) in [
         (
             "+/1 2 3",
-            BasisKind::Reduce,
+            ExecutionBasisKind::Reduce,
             RealizationFamily::OrderedReduction,
         ),
         (
             "+/\"1 (2 3$ i.6)",
-            BasisKind::CellApply,
+            ExecutionBasisKind::CellApply,
             RealizationFamily::GenericCellLoop,
         ),
     ] {
@@ -226,7 +226,7 @@ fn rank_and_reduce_can_use_native_reference_routes_after_purity_resolution() {
         let producer = plan.values[result.0].producer;
         assert_eq!(
             registry.route_operation(&plan.operations[producer.0], &cpu),
-            RouteDecision::NativeBasis {
+            RouteDecision::NativeExecutionBasis {
                 basis: expected_basis,
                 candidates: vec![expected_realization],
             },
@@ -238,7 +238,7 @@ fn rank_and_reduce_can_use_native_reference_routes_after_purity_resolution() {
 
 #[test]
 fn lowering_recipe_keeps_semantic_parameters_but_not_schedule_choices() {
-    use rustj::logical_ir::{BasisPayload, ReductionAxis};
+    use rustj::logical_ir::{ExecutionBasisPayload, ReductionAxis};
 
     let registry = LoweringRegistry::a3_v0();
     let cpu = TargetCapabilities::cpu_baseline();
@@ -248,14 +248,14 @@ fn lowering_recipe_keeps_semantic_parameters_but_not_schedule_choices() {
 
     let recipes = registry.recipes_for_operation(&plan.operations[producer.0], &cpu);
     assert_eq!(recipes.len(), 1);
-    assert_eq!(recipes[0].basis, BasisKind::Reduce);
+    assert_eq!(recipes[0].basis, ExecutionBasisKind::Reduce);
     assert_eq!(
         recipes[0].realization,
         RealizationFamily::OrderedReduction
     );
     assert_eq!(
         recipes[0].payload,
-        BasisPayload::Reduce {
+        ExecutionBasisPayload::Reduce {
             axis: ReductionAxis::LeadingCellAxis
         }
     );

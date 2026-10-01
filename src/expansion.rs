@@ -4,7 +4,7 @@
 //! in the A3 plan until an optimizer explicitly chooses and proves an expansion.
 
 use crate::{
-    analysis::{BasisKind, CallTarget},
+    analysis::{ExecutionBasisKind, CallTarget},
     logical_ir::{ConstraintSet, OpId, OpKind, Plan, ValueId},
     primitive::PrimitiveId,
 };
@@ -29,7 +29,7 @@ pub enum ExpansionNodeSemantics {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExpansionNode {
-    pub basis: BasisKind,
+    pub basis: ExecutionBasisKind,
     pub inputs: Vec<ExpansionInput>,
     pub semantics: ExpansionNodeSemantics,
 }
@@ -95,7 +95,7 @@ fn find_expansion(
         graph: ExpansionGraph {
             nodes: vec![
                 ExpansionNode {
-                    basis: BasisKind::WindowView,
+                    basis: ExecutionBasisKind::WindowView,
                     inputs: vec![
                         ExpansionInput::Source(right),
                         ExpansionInput::Source(left),
@@ -103,7 +103,7 @@ fn find_expansion(
                     semantics: ExpansionNodeSemantics::WindowByPatternShape,
                 },
                 ExpansionNode {
-                    basis: BasisKind::CellApply,
+                    basis: ExecutionBasisKind::CellApply,
                     inputs: vec![
                         ExpansionInput::Source(left),
                         ExpansionInput::Node(window),
