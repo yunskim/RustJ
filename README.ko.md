@@ -148,3 +148,15 @@ cargo test --features portable
 ## 과거 설계 저장소
 
 과거 `JAXA`, `JAXA-complier`, `japchae`, `jaxa-analyzer`에 흩어져 있던 primitive vocabulary, resource model, materialized-array/Flow–Storage, analyzer 설계는 2026-09-30 기준으로 `PROJECT.ko.md`에 통합했습니다. 앞으로 새 설계 결정은 RustJ의 `PROJECT.ko.md`에 직접 기록합니다.
+
+
+## 라이선스
+
+RustJ는 current `jsource`와 동일한 **dual-license 구조**를 사용합니다.
+
+- RustJ 저작권자로부터 별도 **상용 라이선스**를 받은 경우 해당 상용 라이선스 조건을 적용하거나,
+- 그렇지 않은 경우 **GNU General Public License version 3 (GPL-3.0-only)** 조건으로 사용할 수 있습니다.
+
+정확한 조건은 [LICENSE](LICENSE)를 따르며, GNU GPL v3 전문은 [COPYING](COPYING)에 포함되어 있습니다.
+
+Cargo의 SPDX 메타데이터는 공개 오픈소스 선택지를 나타내기 위해 `GPL-3.0-only`로 표기합니다. 상용 라이선스 대안은 SPDX expression으로 표현하지 않고 `LICENSE`에서 규정합니다.
