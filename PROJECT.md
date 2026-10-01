@@ -1077,6 +1077,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 - Graph Basis / Execution Basis separation;
 - structural opportunities plus initial graph rewrite/resource analysis;
 - A3-v0 SSA Logical IR with Function/Region/Block/Return;
+- shared target-independent execution contracts extracted into `execution_semantics.rs`;
 - Execution Basis payloads, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation;
 - A3 verifier and closed-plan correctness/reference executor;
 - SemanticCapabilityView;
@@ -1087,25 +1088,19 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16.1 Transitional structure that must be removed
 
-The main architectural debt is now **duplicate execution IR** rather than a missing architecture:
+The main remaining M1 debt is the **compatibility transition output**, not A3 construction itself.
 
-```text
-J Graph IR
-   ↓
-analysis::LogicalPlan        // transitional
-   ↓
-logical_ir::Plan             // A3 canonical target
-```
-
-The intended structure is:
+Canonical A3 is now built incrementally while J Graph execution-semantic lowering runs:
 
 ```text
 J Graph IR
    ↓
 Execution Semantic Lowering
-   ↓
-logical_ir::Plan
+   ├─ canonical logical_ir::Plan     // built incrementally
+   └─ transition_ir::LogicalPlan     // crate-private compatibility output
 ```
+
+The completed transition-plan → A3 conversion pass has been removed. M1 now needs to delete the compatibility output and its legacy API/tests.
 
 Other transitional points:
 
@@ -1138,7 +1133,7 @@ The Korean canonical document contains the authoritative detailed M0–M6 checkl
 M0  Freeze module ownership and dependency boundaries
  ↓
 M1  Make logical_ir::Plan the sole canonical execution IR
-    Remove analysis::LogicalPlan transition layer
+    A3 now builds incrementally; remove the compatibility transition output/API
  ↓
 M2  Cut over to the jsource-compatible
     Word Formation → Enqueue → 9-row Parser frontend
@@ -1181,10 +1176,13 @@ backend / executor
 
 Current transitional seams are explicitly temporary:
 
-- `logical_ir.rs ← analysis::LogicalPlan`
-- `lowering.rs ← analysis::{ExecutionBasisKind, CompilationAnalysis, ...}`
+- `transition_ir.rs` is crate-private and deletion-bound;
+- `analysis.rs` owns lowering mechanics, not shared execution vocabulary;
+- `execution_semantics.rs` owns target-independent execution contracts;
+- `compilation.rs` owns the cross-stage analysis bundle;
+- `logical_ir::Plan` is the canonical execution IR.
 
-M1 removes these seams. New functionality must not deepen them.
+New functionality must not add semantics to the compatibility transition IR.
 
 Key ownership rules:
 
@@ -1200,11 +1198,13 @@ Key ownership rules:
 
 M1 is complete only when:
 
-- J Graph IR lowers directly to logical_ir::Plan;
-- Plan::from_transition is gone;
-- analysis::LogicalPlan and its duplicate ValueId/Node/Write/verifier are gone;
-- CompilationAnalysis contains the J graph/rewrite/resource views plus the canonical logical plan;
-- graph origin, source span, name/version, semantic checks and observable ordering survive the cutover.
+- J Graph IR lowering builds logical_ir::Plan directly (**done**);
+- the completed-plan `Plan::from_transition` pass is gone (**done**);
+- shared execution contracts no longer belong to the legacy plan (**done**);
+- compatibility `transition_ir::LogicalPlan` and its ValueId/Node/Write/verifier are gone;
+- `Engine::analyze` and remaining tests no longer expose/consume the transition IR;
+- CompilationAnalysis contains the J graph/rewrite/resource views plus the canonical logical plan without a transition field;
+- graph origin, source span, name/version, semantic checks and observable ordering survive the final cutover.
 
 ## 17.2 M4 first vertical slice
 
