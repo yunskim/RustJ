@@ -106,7 +106,7 @@ fn interpret_word<'a>(
             EnqueuedPayload::Close,
             EnqueueFlags::default(),
         )),
-        _ => primitives.resolve(word).map(|handle| {
+        _ => primitives.resolve_core_for_enqueue(word).map(|handle| {
             use crate::primitive::{PrimitivePartOfSpeech, PrimitiveSemanticId};
             let (class, payload) = match (handle.result_pos, handle.semantic_id) {
                 (PrimitivePartOfSpeech::Verb, PrimitiveSemanticId::Verb(id)) => {
