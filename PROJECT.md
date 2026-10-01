@@ -7197,7 +7197,7 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [x] graph candidate마다 source ValueId/span/basis provenance와 registered semantic-equivalence witness를 유지하고 verifier가 stale provenance/rule mismatch를 거부한다.
 - [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
 - [ ] name-bound derived verb의 graph summary를 binding version + SpecializationKey로 interprocedurally 전파한다.
-- [ ] resource-aware pruning/partition이 J Graph 후보를 소비하고 Physical Planner의 target feasibility와 연결되도록 한다.
+- [ ] graph rewrite candidate를 source/replacement의 동일 logical-atom + symbolic-state resource domain에서 평가하는 `RewriteResourceEvaluation`을 추가했다. unknown implementation resource가 있으면 metric ordering을 `Incomparable`로 유지하고 pruning contract를 우회하지 않는다. 남은 일은 rewrite-specific shape/resource facts를 더 풍부하게 만들고 Physical Planner의 target feasibility/cost와 연결하는 것이다.
 
 **완료 조건:** 대표 J expressions(`@:`, Hook, Fork, Reduce, Rank, 이후 Window/Contract/Key/Power)가 generic execution DAG를 만들기 전에 J Graph IR에서 구조적으로 식별되고, graph optimizer가 source reparsing이나 execution-DAG pattern recovery 없이 fusion/lifetime/parallel/rewrite 후보를 만들 수 있다.
 
