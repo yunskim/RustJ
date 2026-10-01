@@ -605,7 +605,12 @@ pub(crate) fn lower_graph(
                 builder.call_entity(function, left, right, span)?
             }
         };
-        if !graph_facts.agrees_with_execution(&builder.nodes[value.0].facts) {
+        let execution_facts = &builder.nodes[value.0].facts;
+        if !graph_facts.agrees_with(
+            execution_facts.dtype,
+            execution_facts.shape.as_deref(),
+            execution_facts.rank,
+        ) {
             return Err(Error::Unsupported(format!(
                 "J Graph/Execution fact drift at graph value {}",
                 index
