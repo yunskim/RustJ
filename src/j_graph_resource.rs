@@ -151,7 +151,7 @@ impl ResourceExprGraph {
         root: ResourceExprId,
         memory: &StaticMemoryAnalysis,
     ) -> KnownAtoms {
-        let mut values = Vec::with_capacity(self.nodes.len());
+        let mut values: Vec<KnownAtoms> = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
             let value = match node {
                 ResourceExprNode::Zero => KnownAtoms::default(),
