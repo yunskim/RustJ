@@ -7070,9 +7070,9 @@ backend / executor
   - [x] canonical A3 `logical: logical_ir::Plan`을 추가하고 `Engine::analyze_a3`, route/expansion test consumers를 이 필드로 전환했다.
   - [x] compatibility `transition` field와 `transition_ir` module을 제거했다.
 - [x] `analysis::LogicalPlan`, 구형 `analysis::ValueId/Node/Write` 및 transition IR container를 제거했다.
-- [ ] A3 verifier/reference executor/lowering tests를 direct-lowering 경로로 전환한다.
+- [x] A3 verifier/reference executor/lowering tests는 `Engine::analyze_a3`와 `logical_ir::Plan` direct-lowering 경로를 사용한다.
 - [ ] Graph origin, source span, name/version, semantic checks, effect/error order가 cutover 전후 동일함을 regression test로 고정한다.
-- [ ] `analysis.rs`에서 canonical IR container 책임이 사라졌는지 dependency audit를 한다.
+- [x] `analysis.rs` dependency audit를 완료했다. canonical IR container/transition 책임은 없고 `CompilationAnalysis` 및 execution-semantic compatibility re-export만 남아 있다.
 
 **M1 완료 조건:** `J Graph IR → logical_ir::Plan`이 직접 연결되고 `analysis::LogicalPlan`이 코드에서 사라진다.
 
