@@ -6621,6 +6621,24 @@ Storage
   └─ ...
 ```
 
+#### 6.4.1 현재 구현 상태와 완료 조건
+
+Logical/Physical Array 분리는 **아키텍처 결정으로는 확정**됐지만 runtime representation까지 완전히 이행된 상태는 아니다.
+
+현재 상태:
+
+- [x] Logical execution `ValueId`와 physical `BufferId`를 별도 identity로 둔다.
+- [x] `PhysicalArray`가 buffer/stride/offset을 소유하고 logical IR에는 이 정보를 넣지 않는다.
+- [x] 같은 logical atom order를 서로 다른 physical stride/offset/backing으로 표현할 수 있다는 회귀 테스트를 둔다.
+- [x] GraphFacts는 physical stride/layout/device를 소유하지 않는다.
+- [ ] runtime `Value`의 dense payload가 아직 `CpuStorage`를 직접 포함한다. 이는 전환기 구현이며 최종 Logical Array abstraction으로 간주하지 않는다.
+- [ ] dense logical value와 CPU/GPU backend storage 사이의 explicit representation adapter/handle 경계를 완성한다.
+- [ ] 현재 `facts::LayoutFact`라는 역사적 이름은 `Dense / AxisSparse`라는 J-visible representation class를 뜻할 뿐 physical layout이 아니다. 혼동을 줄이기 위해 후속 정리에서 `RepresentationFact` 계열 명칭으로 이동하는 것을 검토한다.
+
+완료 기준은 **logical value를 정의하거나 분석하는 데 `CpuStorage`, stride, offset, device, BufferId가 필요하지 않고**, 선택된 backend representation을 통해서만 그런 정보가 등장하는 상태다.
+
+따라서 현재 `Value { shape, Data::Int(CpuStorage<_>), ... }` 구조는 semantic boundary의 최종형이 아니라 migration bridge다.
+
 ---
 
 ## 7. GPU 친화적 배열 설계
