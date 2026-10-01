@@ -375,10 +375,15 @@ pub(crate) fn lower(
     )
 }
 
-pub(crate) fn lower_graph(
+pub(crate) struct LoweredGraph {
+    pub transition: LogicalPlan,
+    pub logical: crate::logical_ir::Plan,
+}
+
+pub(crate) fn lower_graph_both(
     graph: crate::j_graph_ir::Plan,
     noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
-) -> Result<LogicalPlan> {
+) -> Result<LoweredGraph> {
     let source = graph.source.clone();
     let graph_node_count = graph.nodes.len();
     let graph_result = graph.result;
@@ -395,6 +400,11 @@ pub(crate) fn lower_graph(
         last_ordered: None,
         reads: HashMap::new(),
         current_j_origin: None,
+        logical: crate::logical_ir::TransitionProjection::new(
+            source.clone(),
+            graph_node_count,
+            graph_region_count,
+        ),
     };
     let mut value_map = Vec::with_capacity(graph.nodes.len());
 
@@ -515,7 +525,17 @@ pub(crate) fn lower_graph(
         None
     };
 
-    Ok(LogicalPlan {
+    let logical = builder.logical.finish(
+        builder.symbols.clone(),
+        &builder.opportunities,
+        result,
+        write.as_ref(),
+    );
+    logical
+        .verify()
+        .map_err(|error| Error::Unsupported(error.to_string()))?;
+
+    let transition = LogicalPlan {
         source,
         symbols: builder.symbols,
         nodes: builder.nodes,
@@ -524,7 +544,19 @@ pub(crate) fn lower_graph(
         opportunities: builder.opportunities,
         result,
         write,
+    };
+
+    Ok(LoweredGraph {
+        transition,
+        logical,
     })
+}
+
+pub(crate) fn lower_graph(
+    graph: crate::j_graph_ir::Plan,
+    noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
+) -> Result<LogicalPlan> {
+    lower_graph_both(graph, noun_facts).map(|lowered| lowered.transition)
 }
 
 struct Builder<'a> {
@@ -536,6 +568,7 @@ struct Builder<'a> {
     last_ordered: Option<ValueId>,
     reads: HashMap<(String, usize, usize), NameVersion>,
     current_j_origin: Option<j_graph_ir::ValueId>,
+    logical: crate::logical_ir::TransitionProjection,
 }
 impl Builder<'_> {
     fn symbol(&mut self, name: &str) -> SymbolId {
@@ -663,6 +696,8 @@ impl Builder<'_> {
             span,
             order_after: if ordered { self.last_ordered } else { None },
         });
+        let logical_node = self.nodes[id.0].clone();
+        self.logical.push_node(&logical_node, &self.nodes);
         if ordered {
             self.last_ordered = Some(id);
         }
