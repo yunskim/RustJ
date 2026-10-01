@@ -13,7 +13,7 @@
 use crate::{
     Error, Result, Value,
     contracts::{self, OperationClass, Valence},
-    facts::Facts,
+    facts::{Facts, LayoutFact, TypeFact},
     semantic::{
         BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand, NameVersion,
     },
@@ -169,12 +169,47 @@ pub enum NodeKind {
     },
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GraphFacts {
+    pub dtype: TypeFact,
+    pub shape: Option<Vec<usize>>,
+    pub rank: Option<usize>,
+}
+
+impl GraphFacts {
+    pub fn from_execution_facts(facts: &Facts) -> Self {
+        Self {
+            dtype: facts.dtype,
+            shape: facts.shape.clone(),
+            rank: facts.rank,
+        }
+    }
+
+    fn as_inference_seed(&self) -> Facts {
+        Facts {
+            dtype: self.dtype,
+            layout: LayoutFact::Unknown,
+            shape: self.shape.clone(),
+            rank: self.rank,
+        }
+    }
+
+    pub fn agrees_with_execution(&self, facts: &Facts) -> bool {
+        (matches!(self.dtype, TypeFact::Unknown) || self.dtype == facts.dtype)
+            && self
+                .shape
+                .as_ref()
+                .is_none_or(|shape| Some(shape) == facts.shape.as_ref())
+            && self.rank.is_none_or(|rank| Some(rank) == facts.rank)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Node {
     pub kind: NodeKind,
     pub span: Range<usize>,
     /// Call-instance facts available at J Graph time. Unknown is explicit.
-    pub facts: Facts,
+    pub facts: GraphFacts,
     pub analyzability: GraphAnalyzability,
 }
 
@@ -602,7 +637,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
 
 fn analyzability_for(
     function: &Arc<FunctionEntity>,
-    facts: &Facts,
+    facts: &GraphFacts,
     contract: &GraphOperationContract,
 ) -> GraphAnalyzability {
     if matches!(&function.head, FunctionHead::NameRef(_)) {
@@ -909,7 +944,7 @@ impl Builder<'_> {
         &mut self,
         kind: NodeKind,
         span: Range<usize>,
-        facts: Facts,
+        facts: GraphFacts,
         analyzability: GraphAnalyzability,
     ) -> ValueId {
         let id = ValueId(self.nodes.len());
@@ -922,7 +957,7 @@ impl Builder<'_> {
         id
     }
 
-    fn value_facts(&self, id: ValueId) -> &Facts {
+    fn value_facts(&self, id: ValueId) -> &GraphFacts {
         &self.nodes[id.0].facts
     }
 
@@ -931,7 +966,7 @@ impl Builder<'_> {
         match expression.kind {
             ExprKind::Group(inner) => self.expression(*inner),
             ExprKind::Literal(value) => {
-                let facts = Facts::of(&value);
+                let facts = GraphFacts::from_execution_facts(&Facts::of(&value));
                 Ok(self.push(
                     NodeKind::Literal(value),
                     span,
@@ -944,7 +979,7 @@ impl Builder<'_> {
                     function: verb.entity,
                 },
                 span,
-                Facts::default(),
+                GraphFacts::default(),
                 GraphAnalyzability::StaticWithUnknownFacts,
             )),
             ExprKind::ReadName(name) => {
@@ -952,7 +987,8 @@ impl Builder<'_> {
                     .reads
                     .get(&(name.clone(), span.start, span.end))
                     .ok_or_else(|| Error::Value(name.clone()))?;
-                let facts = (self.noun_facts)(&name);
+                let facts =
+                    GraphFacts::from_execution_facts(&(self.noun_facts)(&name));
                 let analyzability = if facts.shape.is_some() && facts.rank.is_some() {
                     GraphAnalyzability::Static
                 } else {
@@ -1100,14 +1136,19 @@ impl Builder<'_> {
                 let left_facts = left.map(|id| self.value_facts(id).clone());
                 let facts = primitive_call_descriptor(&function)
                     .map(|(id, reduce, rank)| {
-                        crate::facts::infer_call(
+                        let right_seed = right_facts.as_inference_seed();
+                        let left_seed = left_facts
+                            .as_ref()
+                            .map(GraphFacts::as_inference_seed);
+                        let inferred = crate::facts::infer_call(
                             id,
                             reduce,
                             rank,
-                            left_facts.as_ref(),
-                            &right_facts,
+                            left_seed.as_ref(),
+                            &right_seed,
                         )
-                        .0
+                        .0;
+                        GraphFacts::from_execution_facts(&inferred)
                     })
                     .unwrap_or_default();
 
