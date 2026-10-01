@@ -7121,7 +7121,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | Semantic AST와 Array Operation IR 분리 | `FunctionEntity`와 `j_graph_ir::Plan`을 별도 boundary로 둠 | 반영 |
 | J syntax에서 static graph 직접 유도 | `@:`, Hook/Fork, `/`, `"`를 `GraphForm`으로 분류 | 반영 |
 | `@:` pipeline / Hook/Fork branch-join | `Pipeline`, `Hook`, `Fork` + GraphHint | 반영 |
-| applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node이며 `Facts`를 보유, 현재 primitive/rank/reduce 범위에서 전파 | **초기 구현** |
+| applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node이며 `GraphFacts`를 보유. 다만 구현은 아직 execution `Facts` container로 seed/convert하며 `facts::infer_semantic_call`을 직접 호출한다 | **초기 구현 — rule 공유는 맞지만 container coupling 제거 필요** |
 | primitive shape/dtype/rank/effect contract | `GraphRuleRefs` + current `Facts::infer_call` transfer를 J Graph build에서 적용 | **초기 구현** |
 | primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/working_state symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
 | iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionStructure`를 J Graph op에 연결 | **초기 구현** |
@@ -7137,7 +7137,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | Graph basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
 | resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
 | basis access-pattern taxonomy | Graph Basis에 Elementwise/Reduce/StaticReindex/DynamicGather/Search/Structured/CellApply가 있으나 historical 후보의 WindowReduce/Windowing은 아직 없음. Scan은 Execution Basis에만 있고 Graph Basis에서는 열린 질문 | **부분 반영 — 보강 필요** |
-| symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행하나 resource expression은 None/Unknown/StructuralComposition/ReductionAccumulator 수준 | **부분 반영 — 역사 연구보다 표현력이 거침** |
+| symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행하나 resource expression은 None/Unknown/StructuralComposition/ReductionAccumulator 수준. Pipeline/BranchJoin region 합성은 실제 구현됐지만 Reduction/CellMap은 policy enum만 있고 별도 composition path는 아직 없음 | **부분 반영 — 역사 연구보다 표현력이 거침** |
 | resource-aware pruning soundness | checklist에는 있으나 local/global resource 구분, monotonicity/soundness proof requirement가 명문화되지 않았음 | **설계 보강 필요** |
 | Basis → Rewrite → Equivalence → Optimization 의존 순서 | 각 기능은 roadmap에 있으나 선행관계가 약하게 표현됨 | **설계 보강 필요** |
 | static-analyzable subset / validation boundary | `GraphAnalyzability`로 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback을 구분 | **초기 구현** |
@@ -7174,6 +7174,8 @@ v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
 - [x] `GraphBasis` / `GraphBasisKind`를 Execution basis 타입과 분리하고, derived rank/reduction처럼 outer→inner graph-basis composition을 보존하는 최소 seam을 추가했다.
 - [ ] Graph Basis access-pattern vocabulary에 WindowReduce/Windowing을 추가하고, J `\`/Cut/Window semantic structure에서 이를 유도한다. Scan은 독립 Graph Basis 원소인지 검토 결과를 명시한다.
 - [ ] `SymbolicResourceExpr`를 shape/extent/tile-independent logical 변수와 structural composition을 표현할 수 있는 symbolic expression/rule graph로 확장한다. concrete target 숫자는 넣지 않는다.
+- [ ] GraphFacts inference가 execution `Facts` container를 seed/return adapter로 사용하지 않도록 graph-level fact domain/API를 분리하되, shape/dtype/rank transfer rule의 semantic source는 공유한다.
+- [ ] 현재 선언만 있는 Reduction/CellMap resource composition을 실제 graph composition evaluator에 연결하고 Pipeline/BranchJoin과 같은 검증 경로를 갖게 한다.
 - [ ] Pipeline/Reduction/Branch/Join resource composition에서 edge materialization traffic, retained lifetime, accumulator lifetime을 같은 symbolic value/liveness 모델로 합성한다.
 - [ ] Graph Basis → rewrite → equivalence → optimization의 dependency를 optimizer pass ordering과 rule registry API에 반영한다.
 - [ ] resource-aware pruning은 local-resource proof + monotonicity/soundness witness가 있는 rule에만 허용하도록 contract를 정의한다.
