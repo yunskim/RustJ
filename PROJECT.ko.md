@@ -1821,7 +1821,7 @@ backend-specific implementation identity와 semantic verb identity도 분리한�
 | `yunskim/japchae` | main `510c31b5`, 2026-06-19 | primitive identity/realization 2층 모델, resource function, materialized arrays, analyzer output schema |
 | `yunskim/jaxa-analyzer` | substantive baseline `3eef3942`, 2026-07-28; 2026-09-30에는 RustJ 이관 상태 주석 추가 | J frontend/vocabulary/name extension, semantic AST, primitive contract, Flow–Storage/resource 분석의 최신 정리 |
 
-앞으로 위 저장소들은 **historical research/prototype source**다. 설계 결정을 수정할 때 원본을 다시 고쳐 여러 갈래를 유지하지 않고 이 `PROJECT.md`를 갱신한다.
+앞으로 위 저장소들은 **historical research/prototype source**다. 설계 결정을 수정할 때 원본을 다시 고쳐 여러 갈래를 유지하지 않고 이 `PROJECT.ko.md`를 갱신한다.
 
 결정 충돌 시 단순한 repository 날짜보다 **같은 주제에 대한 후속 결정**을 우선한다. 대표적인 예:
 
@@ -6813,7 +6813,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [x] Semantic Analyzer 입력 전에 hook/fork/train/derived verb/rank를 제거하지 않는 원칙을 확정한다.
 - [x] `J Semantic Array IR`과 `Logical Array IR / Plan`을 구분한다.
 - [x] generic boundary 후보를 semantic analysis 이후의 Logical Array IR로 이동한다.
-- [x] 문서를 `PROJECT.md`로 통합한다.
+- [x] 문서를 `PROJECT.ko.md`로 통합한다.
 - [ ] 실제 코드 dependency에서도 source frontend → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Plan 경계를 만든다.
 
 ### A0.5 — jsource-compatible parser 이행 체크리스트
@@ -7863,7 +7863,7 @@ jsource에서 적극적으로 가져올 것:
 
 ### 15.1 권위 문서
 
-앞으로 사람이 유지하는 프로젝트 기준 문서는 **이 `PROJECT.md` 하나**다.
+앞으로 사람이 유지하는 프로젝트 기준 문서는 **이 `PROJECT.ko.md` 하나**다.
 
 변경 시 함께 갱신할 항목:
 
@@ -7883,7 +7883,7 @@ jsource에서 적극적으로 가져올 것:
 - 프로젝트 한 줄 설명
 - 빌드/실행 방법
 - 현재 지원 범위의 짧은 요약
-- `PROJECT.md` 링크
+- `PROJECT.ko.md` 링크
 
 README에 별도의 상세 설계 사본을 만들지 않는다.
 
@@ -7951,7 +7951,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 - `yunskim/japchae`
 - `yunskim/jaxa-analyzer`
 
-앞으로 새 설계 결정을 이 네 저장소 중 하나에 먼저 기록하고 나중에 RustJ로 옮기는 workflow를 사용하지 않는다. **RustJ `PROJECT.md`가 최초 기록 장소이자 최종 권위 문서**다.
+앞으로 새 설계 결정을 이 네 저장소 중 하나에 먼저 기록하고 나중에 RustJ로 옮기는 workflow를 사용하지 않는다. **RustJ `PROJECT.ko.md`가 최초 기록 장소이자 최종 권위 문서**다.
 
 기존 저장소는 prototype 코드, 연구 이력, 참고 구현을 확인할 때만 사용한다.
 
