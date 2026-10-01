@@ -23,7 +23,7 @@ pub struct IrSchemaVersion {
     pub minor: u16,
 }
 
-pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 3 };
+pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 4 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrProvenance {
@@ -503,6 +503,8 @@ pub struct Plan {
     pub entry: FunctionId,
     pub operations: Vec<Operation>,
     pub values: Vec<ValueData>,
+    pub j_graph_node_count: usize,
+    pub j_graph_region_count: usize,
     /// Structural topology discovered directly from J semantic syntax before
     /// flattening to generic SSA-like operations.
     pub opportunities: Vec<StructuralOpportunity<ValueId>>,
@@ -711,6 +713,8 @@ impl Plan {
             entry: FunctionId(0),
             operations: Vec::new(),
             values: Vec::new(),
+            j_graph_node_count: transition.j_graph_node_count,
+            j_graph_region_count: transition.j_graph_region_count,
             opportunities: Vec::new(),
             result: None,
             write: None,
@@ -868,6 +872,14 @@ impl Plan {
         }
 
         for opportunity in &self.opportunities {
+            if let Some(origin) = opportunity.j_region_origin {
+                if origin.0 >= self.j_graph_region_count {
+                    return Err(fail(
+                        None,
+                        "structural opportunity J-region origin is out of bounds".into(),
+                    ));
+                }
+            }
             if opportunity.span.start > opportunity.span.end
                 || opportunity.span.end > source_len
                 || !self.source.is_char_boundary(opportunity.span.start)
