@@ -6,15 +6,28 @@ files that explicitly carry a different license notice.
 RUSTJ SOURCE is Copyright 2026, RustJ copyright holders.
 All rights reserved.
 
-RUSTJ SOURCE can be used under a commercial license from the applicable
-RustJ copyright holder(s), in which case the terms and conditions of
-that license apply.
+RUSTJ SOURCE may be used under a separate commercial license granted by
+the applicable RustJ copyright holder(s), but only to the extent that
+those licensor(s) hold the rights necessary to grant that commercial
+license and the terms of that commercial license are satisfied.
+
+Where commercial use or distribution of RUSTJ SOURCE depends on rights
+in J SOURCE or other material owned by Jsoftware Inc., the applicable
+Jsoftware commercial license and any other required upstream rights must
+also be obtained and complied with.  This notice does not itself grant
+commercial rights in J SOURCE or any other third-party material.
 
    OR
 
 RUSTJ SOURCE can be used under GNU General Public License version 3,
 in which case the terms and conditions of that license apply.
+
 The full GNU GPL version 3 text is included in COPYING.
 Additional information is available at https://www.gnu.org/licenses/.
+
+Contributor rights used for separate commercial licensing are governed
+by the RustJ Contributor License Agreement (CLA.ko.md / CLA.md).  The
+CLA does not alter or expand any rights owned by Jsoftware Inc. or any
+other third party.
 
 *********************************************************************
