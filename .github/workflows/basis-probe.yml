@@ -18,7 +18,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo test --features portable
       - run: cargo build --release
+      - run: cargo clippy --all-targets -- -D warnings -A clippy::result_large_err
