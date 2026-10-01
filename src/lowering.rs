@@ -5,7 +5,7 @@
 //! to later planning stages.
 
 use crate::{
-    analysis::{AccessFact, AccessRelation, ExecutionBasisKind},
+    analysis::{AccessFact, AccessRelation, CompilationAnalysis, ExecutionBasisKind},
     logical_ir::{ExecutionBasisPayload, CallOp, IterationDomain, OpKind, Operation, Plan},
 };
 use std::ops::Range;
@@ -201,6 +201,26 @@ pub struct RewriteTargetFeasibility {
     pub target: TargetCapabilities,
     pub nodes: Vec<RewriteNodeTargetFeasibility>,
     pub overall: RewriteTargetFeasibilityKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RewritePlanningState {
+    TargetUnsupported,
+    NeedsCallFacts,
+    NeedsResourceFacts,
+    ReadyForCosting,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewritePlanningReport {
+    pub candidate_index: usize,
+    pub rule: crate::j_graph_rewrite::GraphRewriteRuleId,
+    pub target_feasibility: RewriteTargetFeasibility,
+    pub resource_evaluation: crate::j_graph_resource::RewriteResourceEvaluation,
+    pub state: RewritePlanningState,
+    /// Mirrors the rule's proof contract. A report reaching ReadyForCosting
+    /// still cannot be early-pruned unless this is true.
+    pub early_pruning_allowed: bool,
 }
 
 fn execution_basis_for_graph_basis(
@@ -464,6 +484,63 @@ impl LoweringRegistry {
             nodes,
             overall,
         }
+    }
+
+
+    pub fn rewrite_planning_reports(
+        &self,
+        analysis: &CompilationAnalysis,
+        target: &TargetCapabilities,
+    ) -> Vec<RewritePlanningReport> {
+        analysis
+            .graph_rewrites
+            .iter()
+            .zip(analysis.graph_rewrite_resources.iter())
+            .enumerate()
+            .map(|(candidate_index, (candidate, resource_evaluation))| {
+                let target_feasibility =
+                    self.rewrite_candidate_target_feasibility(candidate, target);
+                let resource_comparison = resource_evaluation.comparison();
+                let resource_incomplete = resource_evaluation
+                    .source
+                    .has_unknown_implementation_resource
+                    || resource_evaluation
+                        .replacement
+                        .has_unknown_implementation_resource
+                    || matches!(
+                        resource_comparison.unfused_internal_traffic,
+                        crate::j_graph_resource::ResourceMetricOrdering::Incomparable
+                    )
+                    || matches!(
+                        resource_comparison.elidable_internal_traffic,
+                        crate::j_graph_resource::ResourceMetricOrdering::Incomparable
+                    );
+
+                let state = match target_feasibility.overall {
+                    RewriteTargetFeasibilityKind::Unsupported => {
+                        RewritePlanningState::TargetUnsupported
+                    }
+                    RewriteTargetFeasibilityKind::RequiresCallFacts => {
+                        RewritePlanningState::NeedsCallFacts
+                    }
+                    RewriteTargetFeasibilityKind::Supported if resource_incomplete => {
+                        RewritePlanningState::NeedsResourceFacts
+                    }
+                    RewriteTargetFeasibilityKind::Supported => {
+                        RewritePlanningState::ReadyForCosting
+                    }
+                };
+
+                RewritePlanningReport {
+                    candidate_index,
+                    rule: candidate.rule,
+                    target_feasibility,
+                    resource_evaluation: resource_evaluation.clone(),
+                    state,
+                    early_pruning_allowed: resource_evaluation.early_pruning_allowed,
+                }
+            })
+            .collect()
     }
 
     /// Return all legal candidates.  This function intentionally does not rank
