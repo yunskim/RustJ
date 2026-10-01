@@ -56,6 +56,21 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
             .state_requirements
             .contains(&SymbolicResourceExpr::StructuralComposition)
     );
+    let window_state = resources
+        .replacement
+        .state_requirement_atoms
+        .iter()
+        .find(|item| item.kind == SymbolicResourceExpr::WindowWorkingSet)
+        .expect("window working-set requirement");
+    assert_eq!(window_state.atoms.known, 3);
+    assert!(!window_state.atoms.has_unknown);
+    let structural_state = resources
+        .replacement
+        .state_requirement_atoms
+        .iter()
+        .find(|item| item.kind == SymbolicResourceExpr::StructuralComposition)
+        .expect("structural match requirement");
+    assert!(structural_state.atoms.has_unknown);
     assert!(
         !resources.early_pruning_allowed,
         "resource evaluation must not bypass the rule's pruning proof contract"
