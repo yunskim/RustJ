@@ -428,42 +428,6 @@ fn noun_operand_value(function: &FunctionEntity) -> Option<Value> {
     })
 }
 
-fn rank_triplet(value: &Value) -> Option<[i64; 3]> {
-    if value.is_empty() || value.len() > 3 {
-        return None;
-    }
-    let at = |i| value.int_at(i).ok();
-    match value.len() {
-        1 => {
-            let r = at(0)?;
-            Some([r, r, r])
-        }
-        2 => Some([at(1)?, at(0)?, at(1)?]),
-        3 => Some([at(0)?, at(1)?, at(2)?]),
-        _ => None,
-    }
-}
-
-fn primitive_call_descriptor(
-    function: &Arc<FunctionEntity>,
-) -> Option<(crate::primitive::PrimitiveId, bool, Option<[i64; 3]>)> {
-    match &function.head {
-        FunctionHead::PrimitiveVerb(id) => Some((*id, false, None)),
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
-            let operand = function_operands(function).into_iter().next()?;
-            let (id, _, rank) = primitive_call_descriptor(&operand)?;
-            Some((id, true, rank))
-        }
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
-            let operand = function_operands(function).into_iter().next()?;
-            let (id, reduce, _) = primitive_call_descriptor(&operand)?;
-            let rank = noun_operand_value(function).as_ref().and_then(rank_triplet);
-            Some((id, reduce, rank))
-        }
-        _ => None,
-    }
-}
-
 fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
     match &function.head {
         FunctionHead::PrimitiveVerb(id) => GraphRuleRefs {
@@ -1383,23 +1347,15 @@ impl Builder<'_> {
 
                 let right_facts = self.value_facts(right).clone();
                 let left_facts = left.map(|id| self.value_facts(id).clone());
-                let facts = primitive_call_descriptor(&function)
-                    .map(|(id, reduce, rank)| {
-                        let right_seed = right_facts.as_inference_seed();
-                        let left_seed = left_facts
-                            .as_ref()
-                            .map(GraphFacts::as_inference_seed);
-                        let inferred = crate::facts::infer_call(
-                            id,
-                            reduce,
-                            rank,
-                            left_seed.as_ref(),
-                            &right_seed,
-                        )
-                        .0;
-                        GraphFacts::from_execution_facts(&inferred)
-                    })
-                    .unwrap_or_default();
+                let right_seed = right_facts.as_inference_seed();
+                let left_seed = left_facts.as_ref().map(GraphFacts::as_inference_seed);
+                let inferred = crate::facts::infer_semantic_call(
+                    &function,
+                    left_seed.as_ref(),
+                    &right_seed,
+                )
+                .0;
+                let facts = GraphFacts::from_execution_facts(&inferred);
 
                 let analyzability = analyzability_for(&function, &facts, &contract);
                 Ok(self.push(
