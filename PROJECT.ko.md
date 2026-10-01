@@ -6666,7 +6666,7 @@ Logical/Physical Array 분리는 **아키텍처 결정으로는 확정**됐지�
 - [x] GraphFacts는 physical stride/layout/device를 소유하지 않는다.
 - [ ] runtime `Value`의 dense payload가 아직 `CpuStorage`를 직접 포함한다. 이는 전환기 구현이며 최종 Logical Array abstraction으로 간주하지 않는다.
 - [ ] dense logical value와 CPU/GPU backend storage 사이의 explicit representation adapter/handle 경계를 완성한다.
-- [ ] 현재 `facts::LayoutFact`라는 역사적 이름은 `Dense / AxisSparse`라는 J-visible representation class를 뜻할 뿐 physical layout이 아니다. 혼동을 줄이기 위해 후속 정리에서 `RepresentationFact` 계열 명칭으로 이동하는 것을 검토한다.
+- [x] `facts::LayoutFact`를 `RepresentationClassFact`로 이름 변경하고 `Facts.layout`도 `Facts.representation_class`로 바꿨다. `Dense / AxisSparse`는 J-visible representation class이며 physical layout이 아님을 API 이름에서 명시한다.
 
 완료 기준은 **logical value를 정의하거나 분석하는 데 `CpuStorage`, stride, offset, device, BufferId가 필요하지 않고**, 선택된 backend representation을 통해서만 그런 정보가 등장하는 상태다.
 
@@ -7077,10 +7077,10 @@ backend / executor
   - [x] 모든 외부 consumer를 `CompilationAnalysis.logical`로 전환했다.
   - [x] graph lowering builder가 A3 op/value/check를 직접 생성하도록 전환했고 `Plan::from_transition`을 삭제했다.
 - [x] `Engine::analyze_a3`와 `analyze_diagnostic`을 canonical Logical IR API로 전환했다. `Engine::analyze`만 M1 compatibility transition API로 명시해 남겨 두었다.
-- [ ] `CompilationAnalysis`는 `j_graph + rewrite candidates/resource evaluation + canonical logical plan`을 묶는 analysis result로 재정의한다.
+- [x] `CompilationAnalysis`는 `j_graph + rewrite candidates/resource evaluation + canonical logical plan`을 묶는 analysis result로 재정의했다.
   - [x] canonical A3 `logical: logical_ir::Plan`을 추가하고 `Engine::analyze_a3`, route/expansion test consumers를 이 필드로 전환했다.
-  - [ ] compatibility `transition` field를 제거한다. 타입은 이미 crate-private `transition_ir::LogicalPlan`으로 격리했다. (`execution`이라는 canonical-looking 이름은 제거 완료.)
-- [ ] `analysis::LogicalPlan`, 구형 `analysis::ValueId/Node/Write` 및 중복 verifier를 제거한다.
+  - [x] compatibility `transition` field와 `transition_ir` module을 제거했다.
+- [x] `analysis::LogicalPlan`, 구형 `analysis::ValueId/Node/Write` 및 transition IR container를 제거했다.
 - [ ] A3 verifier/reference executor/lowering tests를 direct-lowering 경로로 전환한다.
 - [ ] Graph origin, source span, name/version, semantic checks, effect/error order가 cutover 전후 동일함을 regression test로 고정한다.
 - [ ] `analysis.rs`에서 canonical IR container 책임이 사라졌는지 dependency audit를 한다.
@@ -7109,7 +7109,7 @@ backend / executor
 
 목표: logical value identity에 CPU/GPU/layout identity가 역류하지 않게 하고 representation 선택을 physical planning으로 이동한다.
 
-- [ ] `LayoutFact`를 physical layout으로 오해되지 않는 `RepresentationClassFact` 계열 이름으로 바꾼다.
+- [x] `LayoutFact`를 `RepresentationClassFact`로, `Facts.layout`을 `Facts.representation_class`로 바꿔 physical layout과 구분했다.
 - [ ] Dense/Boxed/Sparse처럼 J-visible representation semantics와 row-major/column-major/stride/tile/device 같은 physical representation을 타입/API에서도 구분한다.
 - [ ] 현재 `Value::Data`의 dense `CpuStorage` 직접 소유를 migration artifact로 한정하고, canonical compiler value identity가 CPU backing을 요구하지 않게 한다.
 - [ ] sparse의 J-visible axes/fill/semantic representation과 concrete coordinate/value buffer encoding의 경계를 점검한다.
@@ -7961,7 +7961,7 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 - `logical_executor::execute_closed`는 A3 correctness/reference executor이며 native Physical Executor는 아니다.
 - Logical/Physical Array 분리 원칙은 문서와 테스트로 고정되어 있고, G1 read-only CPU affine `PhysicalArray`/BufferId/BufferLease가 구현되어 있다.
 - `Value`의 dense payload가 아직 `CpuStorage`를 직접 소유하므로 runtime carrier는 완전한 logical/physical 분리 이전의 migration state다.
-- `facts::LayoutFact`는 실제 physical layout이 아니라 Dense/AxisSparse J-visible representation class이므로 M3에서 이름/API를 정리한다.
+- `facts::RepresentationClassFact`는 Dense/AxisSparse J-visible representation class만 나타내며, stride/offset/device/buffer 같은 physical layout은 포함하지 않는다.
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - F1/F2/P1~P7의 jsource-compatible Enqueue/9-row parser cutover는 미완료이며 현재 modifier/train heuristic parser는 transitional implementation이다.
