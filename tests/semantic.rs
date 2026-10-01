@@ -458,3 +458,56 @@ fn atop_is_preserved_as_a_semantic_composition_graph() {
         FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
     );
 }
+
+
+#[test]
+fn extension_names_enter_as_names_then_join_modifier_rows_by_parser_time_pos() {
+    use rustj::primitive::{
+        ExtensionPrimitive, LoweringKey, PrimitiveContext, PrimitiveHandle,
+        PrimitivePartOfSpeech, PrimitiveResolver, PrimitiveSemanticId,
+        PrimitiveSemanticInfo, PrimitiveSourceOrigin, REGISTRY_VERSION,
+    };
+
+    let handle = |id: &'static str, pos| PrimitiveHandle {
+        semantic_id: PrimitiveSemanticId::Extension(id),
+        source_origin: PrimitiveSourceOrigin::Extension,
+        result_pos: pos,
+        semantic_info: PrimitiveSemanticInfo {
+            registry_version: REGISTRY_VERSION,
+        },
+        lowering_key: LoweringKey::Extension(id),
+    };
+    let context = PrimitiveContext::new(PrimitiveResolver::with_extensions([
+        ExtensionPrimitive {
+            spelling: "advx",
+            handle: handle("test.advx", PrimitivePartOfSpeech::Adverb),
+        },
+        ExtensionPrimitive {
+            spelling: "conjx",
+            handle: handle("test.conjx", PrimitivePartOfSpeech::Conjunction),
+        },
+    ]));
+    let engine = Engine::with_primitive_context(context);
+
+    let adverb = engine.prepare_semantic("f=: + advx").unwrap();
+    let Some(Expr::VerbValue(verb)) = adverb.program.expression.map(|expr| expr.kind) else {
+        panic!("extension adverb should derive a verb");
+    };
+    assert_eq!(
+        verb.entity.head,
+        FunctionHead::NameRef("advx".to_owned())
+    );
+    assert_eq!(verb.entity.result_pos, semantic::FunctionPartOfSpeech::Verb);
+    assert_eq!(verb.entity.operands.len(), 1);
+
+    let conjunction = engine.prepare_semantic("g=: + conjx *").unwrap();
+    let Some(Expr::VerbValue(verb)) = conjunction.program.expression.map(|expr| expr.kind) else {
+        panic!("extension conjunction should derive a verb");
+    };
+    assert_eq!(
+        verb.entity.head,
+        FunctionHead::NameRef("conjx".to_owned())
+    );
+    assert_eq!(verb.entity.result_pos, semantic::FunctionPartOfSpeech::Verb);
+    assert_eq!(verb.entity.operands.len(), 2);
+}
