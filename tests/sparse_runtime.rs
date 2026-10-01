@@ -125,20 +125,20 @@ fn unsupported_paths_do_not_silently_densify_or_panic() {
 
 #[test]
 fn analysis_separates_element_type_from_sparse_layout() {
-    use rustj::facts::LayoutFact;
+    use rustj::facts::RepresentationClassFact;
     let mut e = Engine::new();
     e.eval("s=:$.0 2 0 4").unwrap();
     let plan = e.analyze_a3("s").unwrap();
     let facts = &plan.values[plan.result.unwrap().0].facts;
     assert_eq!(facts.dtype, TypeFact::Exact(DType::Int));
-    assert_eq!(facts.layout, LayoutFact::AxisSparse);
+    assert_eq!(facts.representation_class, RepresentationClassFact::AxisSparse);
     let plan = e.analyze_a3("$.1 2 3").unwrap();
     let facts = &plan.values[plan.result.unwrap().0].facts;
-    assert_eq!(facts.layout, LayoutFact::AxisSparse);
+    assert_eq!(facts.representation_class, RepresentationClassFact::AxisSparse);
     assert_eq!(facts.shape, Some(vec![3]));
     let plan = e.analyze_a3("$.42").unwrap();
     assert_eq!(
-        plan.values[plan.result.unwrap().0].facts.layout,
-        LayoutFact::Dense
+        plan.values[plan.result.unwrap().0].facts.representation_class,
+        RepresentationClassFact::Dense
     );
 }
