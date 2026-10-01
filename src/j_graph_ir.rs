@@ -150,6 +150,7 @@ pub enum ResourceCompositionRule {
     Pipeline,
     BranchJoin,
     Reduction,
+    Window,
     CellMap,
     Structural,
     Unknown,
@@ -206,6 +207,7 @@ pub enum NodeKind {
         hints: GraphHints,
         rules: GraphRuleRefs,
         contract: GraphOperationContract,
+        resource_composition: ResourceCompositionRule,
         valence: Valence,
         left: Option<ValueId>,
         right: ValueId,
@@ -542,6 +544,19 @@ fn graph_basis(
         | GraphForm::Fork { .. } => {}
     }
     GraphBasis { layers }
+}
+
+fn node_resource_composition(form: &GraphForm) -> ResourceCompositionRule {
+    match form {
+        GraphForm::Reduce { .. } => ResourceCompositionRule::Reduction,
+        GraphForm::PrefixInfix { .. } => ResourceCompositionRule::Window,
+        GraphForm::Rank { .. } => ResourceCompositionRule::CellMap,
+        GraphForm::Modifier { .. } => ResourceCompositionRule::Structural,
+        GraphForm::Atomic => ResourceCompositionRule::Unknown,
+        GraphForm::Pipeline { .. } | GraphForm::Hook { .. } | GraphForm::Fork { .. } => {
+            ResourceCompositionRule::Structural
+        }
+    }
 }
 
 fn base_operation_contract(
@@ -944,6 +959,7 @@ impl Plan {
                 hints,
                 rules,
                 contract,
+                resource_composition,
                 valence,
                 left,
                 right,
@@ -991,6 +1007,11 @@ impl Plan {
                 if *contract != base_operation_contract(function, *valence, form) {
                     return Err(format!(
                         "node {index} graph operation contract does not match J function structure"
+                    ));
+                }
+                if *resource_composition != node_resource_composition(form) {
+                    return Err(format!(
+                        "node {index} resource composition does not match J graph form"
                     ));
                 }
                 if node.analyzability != analyzability_for(function, &node.facts, contract) {
@@ -1402,6 +1423,7 @@ impl Builder<'_> {
                 let hints = apply_hints(&function, &form, base_hints);
                 let rules = rule_refs(&function);
                 let contract = base_operation_contract(&function, valence, &form);
+                let resource_composition = node_resource_composition(&form);
 
                 let right_facts = self.value_facts(right).as_semantic_facts();
                 let left_facts =
@@ -1422,6 +1444,7 @@ impl Builder<'_> {
                         hints,
                         rules,
                         contract,
+                        resource_composition,
                         valence,
                         left,
                         right,
