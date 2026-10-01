@@ -140,6 +140,7 @@ cargo test --features portable
 - 설계 근거와 회귀 판정 기준: `FOUNDATIONS.ko.md`
 - 프로젝트 아키텍처·계획·체크리스트의 권위 문서: `PROJECT.ko.md`
 - 사용 진입점: `README.ko.md`
+- 기여자 라이선스 계약: `CLA.ko.md` (정본) / `CLA.md` (영어 mirror)
 - 실측/기계 원자료: `reports/*.json`, `reports/*.jsonl`
 
 과거 개별 Markdown 보고서의 세부 이력은 Git history에서 확인합니다.
