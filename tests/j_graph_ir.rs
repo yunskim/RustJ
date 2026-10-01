@@ -200,7 +200,7 @@ fn graph_basis_is_distinct_from_execution_basis_and_preserves_graph_granularity(
     // decision even where the vocabulary happens to use similar names.
     let analysis = Engine::new().analyze_compilation("1+2").unwrap();
     assert_eq!(
-        analysis.execution.nodes[analysis.execution.result.unwrap().0]
+        analysis.transition.nodes[analysis.transition.result.unwrap().0]
             .basis
             .layers,
         vec![rustj::analysis::ExecutionBasisKind::Elementwise]
@@ -244,8 +244,8 @@ fn execution_ir_is_derived_from_explicit_j_graph_stages() {
             "each J Graph stage must survive as execution provenance"
         );
     }
-    assert_eq!(analysis.execution.opportunities.len(), 1);
-    analysis.execution.verify().unwrap();
+    assert_eq!(analysis.transition.opportunities.len(), 1);
+    analysis.transition.verify().unwrap();
 }
 
 #[test]
@@ -278,7 +278,7 @@ fn graph_and_execution_ir_answer_different_questions_without_recovering_topology
                 .any(|node| node.j_origin == Some(value))
         );
     }
-    assert!(!analysis.execution.opportunities.is_empty());
+    assert!(!analysis.transition.opportunities.is_empty());
 }
 
 #[test]
