@@ -152,11 +152,19 @@ cargo test --features portable
 
 ## 라이선스
 
-RustJ는 current `jsource`와 동일한 **dual-license 구조**를 사용합니다.
+RustJ의 공개 오픈소스 배포 경로는 **GNU General Public License version 3 (GPL-3.0-only)** 입니다.
 
-- RustJ 저작권자로부터 별도 **상용 라이선스**를 받은 경우 해당 상용 라이선스 조건을 적용하거나,
-- 그렇지 않은 경우 **GNU General Public License version 3 (GPL-3.0-only)** 조건으로 사용할 수 있습니다.
+동시에 RustJ는 `jsource`와 같은 방향으로 **별도 상용 라이선스 경로**를 유지합니다. 다만 상용 RustJ 라이선스는 RustJ 저작권자가 실제로 부여할 수 있는 권리의 범위에서만 제공됩니다.
+
+특히 RustJ의 상용 이용·배포가 J SOURCE에서 유래한 코드나 그 밖의 Jsoftware 권리에 의존하는 경우에는, 필요한 범위의 **Jsoftware 상용 J SOURCE 라이선스와 관련 upstream 권리**를 별도로 확보하고 그 계약 조건을 준수해야 합니다. RustJ의 `LICENSE` 자체가 Jsoftware의 상용 권리를 대신 부여하지는 않습니다.
+
+따라서 운영 방향은 다음과 같습니다.
+
+- 필요한 Jsoftware 상용 권리를 확보하지 않은 공개 RustJ 배포: **GPL-3.0-only**
+- 필요한 Jsoftware 상용 권리와 RustJ 측 권리가 모두 확보된 경우: **별도 RustJ 상용 라이선스 제공 가능**
 
 정확한 조건은 [LICENSE](LICENSE)를 따르며, GNU GPL v3 전문은 [COPYING](COPYING)에 포함되어 있습니다.
 
-Cargo의 SPDX 메타데이터는 공개 오픈소스 선택지를 나타내기 위해 `GPL-3.0-only`로 표기합니다. 상용 라이선스 대안은 SPDX expression으로 표현하지 않고 `LICENSE`에서 규정합니다.
+외부 기여자는 RustJ가 GPL 공개 버전과 향후 상용 라이선스 버전을 모두 유지할 수 있도록 [CLA.ko.md](CLA.ko.md)에 동의해야 합니다. 영어판은 [CLA.md](CLA.md)입니다.
+
+Cargo의 SPDX 메타데이터는 공개 오픈소스 선택지를 나타내기 위해 `GPL-3.0-only`로 유지합니다. 조건부 상용 라이선스 경로는 SPDX expression으로 표현하지 않고 `LICENSE`에서 규정합니다.
