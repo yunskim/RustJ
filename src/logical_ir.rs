@@ -13,7 +13,7 @@ use crate::{
     contracts::{Contract, Effect, Valence},
     facts::{Facts, RankPlan, ValueRoleFacts},
     opportunity::{StructuralOpportunity, StructuralTopology},
-    semantic::NameVersion,
+    semantic::{FunctionHead, FunctionOperand, NameVersion},
 };
 use std::ops::Range;
 
@@ -280,6 +280,35 @@ impl EffectSummary {
     }
 }
 
+fn semantic_effect_summary(
+    function: &crate::semantic::FunctionEntity,
+    valence: Valence,
+) -> EffectSummary {
+    match &function.head {
+        FunctionHead::PrimitiveVerb(id) => {
+            EffectSummary::from_contract(crate::contracts::for_primitive(*id, valence))
+        }
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
+                return EffectSummary::Unknown;
+            };
+            // u/ applies u dyadically between items.
+            semantic_effect_summary(operand, Valence::Dyad)
+        }
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
+                return EffectSummary::Unknown;
+            };
+            semantic_effect_summary(operand, valence)
+        }
+        FunctionHead::NameRef(_)
+        | FunctionHead::PrimitiveAdverb(_)
+        | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::Hook
+        | FunctionHead::Fork => EffectSummary::Unknown,
+    }
+}
+
 fn resolved_effect_summary(
     callable: &Callable,
     left: Option<ValueId>,
@@ -289,19 +318,14 @@ fn resolved_effect_summary(
         return EffectSummary::Pure;
     }
 
-    let analysis::CallTarget::Primitive(id) = callable.target else {
-        return EffectSummary::Unknown;
-    };
-    let base_valence = if callable.reduce && left.is_none() {
-        // u/ y applies the dyadic u between cells.
-        Valence::Dyad
-    } else if left.is_some() {
-        Valence::Dyad
-    } else {
-        Valence::Monad
-    };
-    let base = crate::contracts::for_primitive(id, base_valence);
-    EffectSummary::from_contract(base)
+    semantic_effect_summary(
+        &callable.semantic,
+        if left.is_some() {
+            Valence::Dyad
+        } else {
+            Valence::Monad
+        },
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -626,10 +650,11 @@ fn call_constraints(
                     .clone()
                     .map(|result_frame| FactWitness::CellFrameAgreement { result_frame })
             });
-            let ranks = match &node.operation {
-                analysis::Operation::Call { callable, .. } => callable.rank.unwrap_or([0, 0, 0]),
-                _ => [0, 0, 0],
-            };
+            let ranks = node
+                .instantiation
+                .as_ref()
+                .and_then(|instantiation| instantiation.rank_boundary)
+                .unwrap_or([0, 0, 0]);
             set.facts.push(ConstraintFact {
                 constraint: Constraint::CellFrameAgreement {
                     left: left_value,
