@@ -266,8 +266,8 @@ impl GraphFacts {
             && self
                 .shape
                 .as_deref()
-                .map_or(true, |expected| Some(expected) == shape)
-            && self.rank.map_or(true, |expected| Some(expected) == rank)
+                .is_none_or(|expected| Some(expected) == shape)
+            && self.rank.is_none_or(|expected| Some(expected) == rank)
     }
 }
 
@@ -1153,7 +1153,7 @@ impl Plan {
                                         "region {index} dyadic pipeline first stage mismatch"
                                     ));
                                 }
-                            } else if *left != None {
+                            } else if left.is_some() {
                                 return Err(format!(
                                     "region {index} pipeline stage {stage_index} must be monadic"
                                 ));
