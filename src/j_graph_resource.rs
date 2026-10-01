@@ -41,7 +41,7 @@ pub struct NodeResourceSummary {
     pub output_atoms: Option<usize>,
     pub temporary: SymbolicResourceExpr,
     pub accumulator: SymbolicResourceExpr,
-    pub scratchpad: SymbolicResourceExpr,
+    pub working_state: SymbolicResourceExpr,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,11 +122,11 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
         .iter()
         .enumerate()
         .map(|(index, node)| {
-            let (temporary, accumulator, scratchpad) = match &node.kind {
+            let (temporary, accumulator, working_state) = match &node.kind {
                 NodeKind::Apply { contract, .. } => (
                     contract.temporary,
                     contract.accumulator,
-                    contract.scratchpad,
+                    contract.working_state,
                 ),
                 _ => (
                     SymbolicResourceExpr::Unknown,
@@ -139,7 +139,7 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 output_atoms: memory.extent(ValueId(index)).map(|extent| extent.atoms),
                 temporary,
                 accumulator,
-                scratchpad,
+                working_state,
             }
         })
         .collect::<Vec<_>>();
@@ -188,7 +188,7 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                         contract.temporary,
                         SymbolicResourceExpr::Unknown
                     ) || matches!(contract.accumulator, SymbolicResourceExpr::Unknown)
-                        || matches!(contract.scratchpad, SymbolicResourceExpr::Unknown);
+                        || matches!(contract.working_state, SymbolicResourceExpr::Unknown);
                 } else {
                     has_unknown_resource = true;
                 }
