@@ -282,12 +282,13 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 2 {
             for i in (0..items.len() - 1).rev() {
-                let right_context = items
-                    .get(i + 2)
-                    .map_or(ParseClass::Mark, |item| item.class);
+                // Transitional legacy phase: because this helper is not yet
+                // the real queue/stack engine, the isolated rightmost
+                // constructor is presented to the shared row matcher at a
+                // virtual parse edge.  P2 removes this phase entirely.
                 if items[i].class == ParseClass::Verb
                     && match_parse_row([
-                        right_context,
+                        ParseClass::Mark,
                         items[i].class,
                         items[i + 1].class,
                         ParseClass::Mark,
@@ -319,12 +320,9 @@ fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
 
         if items.len() >= 3 {
             for i in (0..items.len() - 2).rev() {
-                let right_context = items
-                    .get(i + 3)
-                    .map_or(ParseClass::Mark, |item| item.class);
                 if items[i].class == ParseClass::Verb
                     && match_parse_row([
-                        right_context,
+                        ParseClass::Mark,
                         items[i].class,
                         items[i + 1].class,
                         items[i + 2].class,
