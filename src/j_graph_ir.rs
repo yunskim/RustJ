@@ -230,14 +230,6 @@ impl GraphFacts {
         Self::from_semantic_facts(&semantic)
     }
 
-    pub(crate) fn from_logical_parts(
-        dtype: TypeFact,
-        shape: Option<Vec<usize>>,
-        rank: Option<usize>,
-    ) -> Self {
-        Self { dtype, shape, rank }
-    }
-
     fn from_semantic_facts(facts: &SemanticFacts) -> Self {
         Self {
             dtype: facts.dtype,
