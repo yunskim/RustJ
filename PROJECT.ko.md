@@ -7797,19 +7797,77 @@ RustJ 적용:
 - Logical/Physical Plan 분리
 - layout conflict materialization
 
-### ArrayFire / fusion systems
+### ArrayFire / J ArrayFire add-on / fusion systems
 
-참고:
+확인 기준: 2026-10-01.
 
-- lazy graph
-- evaluation boundary
-- kernel fusion
+주요 참고 자료:
+
+- ArrayFire JIT: https://arrayfire.org/docs/jit.htm
+- ArrayFire Unified Backend: https://arrayfire.org/docs/unifiedbackend.htm
+- CUDA interoperability: https://arrayfire.org/docs/interop_cuda.htm
+- Memory manager API: https://arrayfire.org/docs/group__memory__manager.htm
+- Jsoftware ArrayFire add-on, pinned at `b0543c8278fe7a50e0ac9f938a936b4a84ee239b`:
+  https://github.com/jsoftware/math_arrayfire/tree/b0543c8278fe7a50e0ac9f938a936b4a84ee239b
+- J add-on manual:
+  https://github.com/jsoftware/math_arrayfire/blob/b0543c8278fe7a50e0ac9f938a936b4a84ee239b/man.txt
+- Alex Shroyer의 J GPU/ArrayFire prototype 자료:
+  https://alexshroyer.com/papers/matmul_j_gpu.pdf
+
+ArrayFire 자체에서 참고할 핵심:
+
+- elementwise 연산을 즉시 실행하지 않고 AST/lazy expression graph로 누적한 뒤 필요할 때 한 kernel로 JIT fusion한다.
+- explicit `eval` 또는 JIT가 지원하지 않는 consumer가 evaluation boundary가 되며, `sync`는 평가 시작과 완료 대기를 구분한다.
+- CUDA/OpenCL/oneAPI/CPU backend를 공통 array API 뒤에 두며 backend 선택은 array 계산 의미와 분리한다.
+- device pointer, stream, lock/unlock, custom memory manager를 명시해 외부 kernel/library와의 ownership·lifetime·synchronization 경계를 관리한다.
+- JIT compilation cache가 있으므로 cold compile cost와 warm execution cost를 분리해 측정해야 한다.
+
+Jsoftware의 `math_arrayfire` add-on에서 특히 참고할 부분:
+
+- 이것은 J 전체를 GPU compiler로 바꾸는 구현이 아니라 J에서 ArrayFire C API로 들어가는 **library adapter/offload 사례**다.
+- J array는 row-major, ArrayFire array는 column-major이므로 add-on은 `rcc` 변환을 사용한다. 이는 logical atom order와 physical layout을 동일시하면 adapter 경계에서 불필요한 전역 변환 비용이 생길 수 있다는 실제 사례다.
+- `families.ijs`는 `af_add`, `af_mul`, `af_sum` 같은 concrete ArrayFire function family를 직접 매핑한다. J의 일반 `/`, `\\`, rank, derived verb 의미 전체가 자동으로 ArrayFire op로 번역되는 구조는 아니다.
+- add-on은 `af_array` handle을 별도 추적하고 release/hold/device GC를 관리한다. RustJ의 ValueId와 외부 backend buffer/handle을 분리해야 한다는 근거로 사용할 수 있다.
+- add-on의 shape/rank validation은 ArrayFire `dim4` 경계에 맞춰 사실상 rank 4 이하를 전제로 한다. 이는 backend capability/precondition이지 J 언어의 rank 제한이 되어서는 안 된다.
+- CPU/CUDA/OpenCL backend를 바꿔 쓸 수 있지만, backend 변경 자체가 J noun의 semantic identity를 바꾸지는 않는다.
 
 RustJ 적용:
 
-- 고수준 semantic graph를 분석한 뒤 logical dataflow 생성
-- 합법적인 fusion
-- materialization 최소화
+1. **ArrayFire는 Graph/Execution optimizer의 선행 구현 사례로 참고한다.**
+   - lazy graph, evaluation boundary, fusion trigger를 참고하되 J Semantic IR 자체를 lazy ArrayFire AST처럼 축소하지 않는다.
+   - fusion 여부와 materialization은 semantic legality가 확정된 뒤 Logical/Physical planning에서 결정한다.
+
+2. **J ArrayFire add-on은 external-library route의 adapter 사례로 참고한다.**
+   - `J logical value → adapter capability check → external array handle → execution → logical result` 경계를 설계할 때 직접 비교한다.
+   - op coverage, dtype/rank/shape/layout 조건은 route precondition으로 명시한다.
+
+3. **row-major/column-major mismatch를 Physical Planner 검증 사례로 사용한다.**
+   - RustJ logical array는 layout-neutral하게 유지한다.
+   - ArrayFire route가 column-major representation을 요구하면 view/consumer absorption/copy 중 어느 것이 합법적이고 싼지 physical plan에서 선택한다.
+   - adapter 편의를 위해 J logical atom order를 바꾸지 않는다.
+
+4. **evaluation/synchronization을 Physical Plan의 별도 개념으로 둔다.**
+   - lazy value의 존재, kernel submission, device completion은 서로 다른 상태다.
+   - 향후 AsyncToken/Timepoint, transfer, external library call의 legality와 lifetime 검증에 ArrayFire의 `eval/sync` 및 interop 경계를 비교한다.
+
+5. **cost model과 benchmark 방법론에 cold/warm JIT를 분리한다.**
+   - compile latency, kernel-cache hit, host/device transfer, layout conversion, intermediate materialization을 별도 비용 항목으로 본다.
+   - 단순 warm-kernel 수치만으로 route profitability를 판단하지 않는다.
+
+6. **Graph Basis ↔ external capability matrix를 만들 때 실물 비교 대상으로 사용한다.**
+   - Elementwise, Reduce, Scan, Gather/Index, MatMul, Conv, Sparse 등 RustJ basis family가 ArrayFire API에서 직접 지원되는지,
+   - J 의미를 그대로 보존하는지,
+   - adapter shim 또는 fallback이 필요한지를 구분한다.
+
+중요한 비채택 사항:
+
+- ArrayFire `af::array`를 RustJ Logical Array/J noun과 동일시하지 않는다.
+- ArrayFire의 rank/dim4 제한, column-major layout, dtype 범위를 J semantics에 역류시키지 않는다.
+- ArrayFire의 fixed reduction API를 J의 일반 adverb `/` 또는 `\\` 의미론과 동일시하지 않는다.
+- ArrayFire JIT가 fuse할 수 있다는 사실만으로 RustJ Graph rewrite/fusion의 semantic legality가 증명되었다고 보지 않는다.
+- J add-on의 FFI 함수 매핑을 RustJ compiler architecture 자체로 채택하지 않는다.
+
+따라서 ArrayFire는 RustJ의 GPU backend 후보 하나라기보다, **lazy array execution, kernel fusion, external-library routing, physical layout mismatch, device-handle lifetime과 synchronization을 동시에 검증할 수 있는 비교 기준**으로 다룬다.
 
 ### JAX / multi-device systems
 
