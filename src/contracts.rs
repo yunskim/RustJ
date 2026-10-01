@@ -107,6 +107,7 @@ pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Con
             (Shape, Valence::Monad) => ShapeRule::ShapeOf,
             (Tally, Valence::Monad) => ShapeRule::Tally,
             (Less, Valence::Monad) => ShapeRule::Scalar,
+            (Find, Valence::Dyad) => ShapeRule::PreserveRight,
             _ => ShapeRule::Unknown,
         },
         effect: if known { Effect::Pure } else { Effect::Unknown },
