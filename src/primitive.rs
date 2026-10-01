@@ -70,12 +70,14 @@ impl ConjunctionId {
     pub fn from_spelling(s: &str) -> Option<Self> {
         match s {
             "\"" => Some(Self::Rank),
+            "@:" => Some(Self::Atop),
             _ => None,
         }
     }
     pub const fn spelling(self) -> &'static str {
         match self {
             Self::Rank => "\"",
+            Self::Atop => "@:",
         }
     }
 }
