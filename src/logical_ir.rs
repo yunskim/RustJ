@@ -1075,14 +1075,57 @@ impl Plan {
                 }
                 Ok(())
             };
+            let check_symbol = |symbol: SymbolId| {
+                if symbol.0 >= self.symbols.len() {
+                    Err(fail(Some(op_id), "symbol id is out of bounds".into()))
+                } else {
+                    Ok(())
+                }
+            };
+            let check_callable = |callable: &Callable| {
+                if callable.semantic.result_pos != crate::semantic::FunctionPartOfSpeech::Verb {
+                    return Err(fail(
+                        Some(op_id),
+                        "callable semantic entity is not a verb".into(),
+                    ));
+                }
+                if let CallTarget::Dynamic(symbol) = callable.target {
+                    check_symbol(symbol)?;
+                }
+                Ok(())
+            };
+            let check_call_result = |call: &CallOp| {
+                let [result] = operation.results.as_slice() else {
+                    return Err(fail(
+                        Some(op_id),
+                        "call operation must produce exactly one SSA value".into(),
+                    ));
+                };
+                let Some(data) = self.values.get(result.0) else {
+                    return Err(fail(Some(op_id), "call result value is out of bounds".into()));
+                };
+                if call.instantiation.result_dtype != data.facts.dtype
+                    || call.instantiation.result_rank != data.facts.rank
+                {
+                    return Err(fail(
+                        Some(op_id),
+                        "call instantiation result facts do not match SSA result facts".into(),
+                    ));
+                }
+                Ok(())
+            };
 
             match &operation.kind {
-                OpKind::Literal(_) | OpKind::ReadNoun { .. } | OpKind::VerbReference(_) => {}
+                OpKind::Literal(_) => {}
+                OpKind::ReadNoun { symbol, .. } => check_symbol(*symbol)?,
+                OpKind::VerbReference(callable) => check_callable(callable)?,
                 OpKind::Basis {
                     kind,
                     payload,
                     call,
                 } => {
+                    check_callable(&call.callable)?;
+                    check_call_result(call)?;
                     if call.execution_basis.outer() != Some(*kind) {
                         return Err(fail(
                             Some(op_id),
@@ -1139,6 +1182,8 @@ impl Plan {
                     }
                 }
                 OpKind::SemanticCall(call) => {
+                    check_callable(&call.callable)?;
+                    check_call_result(call)?;
                     if !call.execution_basis.is_empty() {
                         return Err(fail(
                             Some(op_id),
