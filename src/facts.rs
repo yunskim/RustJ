@@ -67,6 +67,39 @@ pub struct Facts {
     pub shape: Option<Vec<usize>>,
     pub rank: Option<usize>,
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SemanticFacts {
+    pub dtype: TypeFact,
+    pub shape: Option<Vec<usize>>,
+    pub rank: Option<usize>,
+}
+
+impl SemanticFacts {
+    pub(crate) fn of(value: &Value) -> Self {
+        Self::from(&Facts::of(value))
+    }
+
+    fn as_execution_seed(&self) -> Facts {
+        Facts {
+            dtype: self.dtype,
+            layout: LayoutFact::Unknown,
+            shape: self.shape.clone(),
+            rank: self.rank,
+        }
+    }
+}
+
+impl From<&Facts> for SemanticFacts {
+    fn from(facts: &Facts) -> Self {
+        Self {
+            dtype: facts.dtype,
+            shape: facts.shape.clone(),
+            rank: facts.rank,
+        }
+    }
+}
+
 impl Facts {
     pub fn of(value: &Value) -> Self {
         if let crate::Data::Sparse(v) = value.data() {
@@ -393,4 +426,20 @@ pub(crate) fn infer_semantic_call(
         | FunctionHead::Hook
         | FunctionHead::Fork => (Facts::default(), None),
     }
+}
+
+
+/// Graph-facing semantic fact projection.  J Graph IR consumes this API rather
+/// than constructing execution Facts/LayoutFact directly.  The transfer-rule
+/// implementation is still shared with execution inference; the adapter stays
+/// inside this module until the rule engine itself is made domain-generic.
+pub(crate) fn infer_semantic_projection(
+    function: &Arc<FunctionEntity>,
+    left: Option<&SemanticFacts>,
+    right: &SemanticFacts,
+) -> SemanticFacts {
+    let left_seed = left.map(SemanticFacts::as_execution_seed);
+    let right_seed = right.as_execution_seed();
+    let (facts, _) = infer_semantic_call(function, left_seed.as_ref(), &right_seed);
+    SemanticFacts::from(&facts)
 }
