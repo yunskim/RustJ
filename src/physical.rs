@@ -233,8 +233,15 @@ impl BufferRegistry {
     }
 }
 
-/// Immutable affine mapping into a leased CPU allocation. Logical dtype comes
-/// from its encoding, preventing caller-supplied dtype/backing mismatches.
+/// Immutable affine mapping into a leased CPU allocation.
+///
+/// The descriptor's `shape` is the logical index domain needed to interpret
+/// this particular physical mapping; it is not the authoritative semantic
+/// identity of a J noun.  Strides, offset, encoding, and BufferId are physical
+/// realization details and must remain downstream of logical/semantic analysis.
+///
+/// Logical dtype comes from its encoding, preventing caller-supplied
+/// dtype/backing mismatches.
 #[derive(Clone, Debug)]
 pub struct PhysicalArray {
     buffer: BufferLease,
