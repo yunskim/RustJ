@@ -75,6 +75,9 @@ pub enum IterationContract {
     Gather,
     Search,
     Reduction,
+    /// J prefix/infix family: a sequence of prefixes or windows is presented
+    /// to the derived operand. Exact scan/window lowering is a later decision.
+    WindowFamily,
     CellMap,
     Unknown,
 }
@@ -86,6 +89,8 @@ pub enum AccessContract {
     Indirect,
     SearchDependent,
     ReductionAxis,
+    /// Overlapping prefix/window access induced by J `\`.
+    WindowRelative,
     CellRelative,
     Unknown,
 }
@@ -94,6 +99,8 @@ pub enum AccessContract {
 pub enum FusionStructure {
     ElementwiseChain,
     ReductionAware,
+    /// Neighborhood/prefix reuse exists, but fusion requires boundary/order proof.
+    WindowAware,
     AccessSensitive,
     RequiresSemanticProof,
     Unknown,
@@ -154,6 +161,9 @@ pub enum GraphBasisKind {
     CellApply,
     /// Reduction structure whose reducer identity remains on the FunctionEntity.
     Reduce,
+    /// Prefix/window access family. The operand identity remains separate, so
+    /// e.g. `(+/)\` becomes Window -> Reduce rather than a fused special case.
+    Window,
     /// Compile-time-known index remapping such as transpose/reshape/reverse.
     StaticReindex,
     /// Data-dependent indexed access such as general gather.
@@ -330,6 +340,12 @@ pub enum GraphForm {
     Reduce {
         operand: Arc<FunctionEntity>,
     },
+    /// J `u\` derived verb. Monadic application is prefix-family; dyadic
+    /// application is infix/window-family. We preserve the source adverb here
+    /// and defer scan-vs-window execution refinement.
+    PrefixInfix {
+        operand: Arc<FunctionEntity>,
+    },
     Rank {
         operand: Arc<FunctionEntity>,
         rank_spec: Option<Value>,
@@ -348,6 +364,7 @@ pub enum GraphHint {
     RetainedValueCandidate,
     ParallelBranchCandidate,
     ReductionStructure,
+    WindowStructure,
     CellParallelStructure,
     /// Logical index/view transform can potentially remain virtual.
     VirtualIndexingCandidate,
@@ -475,10 +492,20 @@ fn graph_basis(
         GraphForm::Reduce { operand } => {
             layers.push(Reduce);
             let (inner_form, _) = classify_function(operand);
-            if matches!(inner_form, GraphForm::Rank { .. } | GraphForm::Reduce { .. }) {
+            if matches!(
+                inner_form,
+                GraphForm::Rank { .. } | GraphForm::Reduce { .. } | GraphForm::PrefixInfix { .. }
+            ) {
                 layers.extend(graph_basis(operand, Valence::Dyad, &inner_form).layers);
             }
-        },
+        }
+        GraphForm::PrefixInfix { operand } => {
+            layers.push(Window);
+            let (inner_form, _) = classify_function(operand);
+            // Prefix/infix presents each selected prefix/window to u monadically.
+            // Keep any meaningful inner graph-basis structure visible.
+            layers.extend(graph_basis(operand, Valence::Monad, &inner_form).layers);
+        }
         GraphForm::Atomic => {
             let FunctionHead::PrimitiveVerb(id) = &function.head else {
                 return GraphBasis { layers };
@@ -523,6 +550,14 @@ fn base_operation_contract(
             temporary: SymbolicResourceExpr::None,
             accumulator: SymbolicResourceExpr::ReductionAccumulator,
             working_state: SymbolicResourceExpr::None,
+        },
+        GraphForm::PrefixInfix { .. } => GraphOperationContract {
+            iteration: IterationContract::WindowFamily,
+            access: AccessContract::WindowRelative,
+            fusion_structure: FusionStructure::WindowAware,
+            temporary: SymbolicResourceExpr::StructuralComposition,
+            accumulator: SymbolicResourceExpr::StructuralComposition,
+            working_state: SymbolicResourceExpr::StructuralComposition,
         },
         GraphForm::Rank { .. } => GraphOperationContract {
             iteration: IterationContract::CellMap,
@@ -603,6 +638,9 @@ fn apply_hints(
     if matches!(form, GraphForm::Reduce { .. }) {
         hints.push(GraphHint::ReductionStructure);
     }
+    if matches!(form, GraphForm::PrefixInfix { .. }) {
+        hints.push(GraphHint::WindowStructure);
+    }
     if matches!(form, GraphForm::Rank { .. }) {
         hints.push(GraphHint::CellParallelStructure);
     }
@@ -671,6 +709,14 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
                 .next()
                 .unwrap_or_else(|| function.clone());
             GraphForm::Reduce { operand }
+        }
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
+            hints.push(GraphHint::WindowStructure);
+            let operand = function_operands(function)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| function.clone());
+            GraphForm::PrefixInfix { operand }
         }
         FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
             hints.push(GraphHint::CellParallelStructure);
