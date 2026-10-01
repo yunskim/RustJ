@@ -347,6 +347,9 @@ pub struct LogicalPlan {
 pub struct CompilationAnalysis {
     /// JAXA-style graph algebra: J grammar/combinators + static graph hints.
     pub j_graph: crate::j_graph_ir::Plan,
+    /// Target-independent algebraic alternatives discovered from J Graph IR.
+    /// Candidates retain explicit equivalence witnesses and do not mutate j_graph.
+    pub graph_rewrites: Vec<crate::j_graph_rewrite::GraphRewriteCandidate>,
     /// Execution-oriented logical dataflow derived from j_graph.
     pub execution: LogicalPlan,
 }
