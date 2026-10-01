@@ -7007,9 +7007,60 @@ Logical J value와 physical representation의 분리는 이 전체 pipeline에 �
 - [x] `physical.rs`가 아직 Physical Planner가 아니라 read-only CPU affine representation foundation임을 명시했다.
 - [x] `runtime.rs`의 `ResolvedVerb { reduce, rank, ... }` flattening은 과도기 runtime 구현이며 canonical semantic/compiler model이 아님을 확인했다.
 - [x] ArrayFire와 `math_arrayfire`를 semantic oracle이 아니라 execution/fusion/adapter 참고 구현으로 배치했다.
-- [ ] compiler module ownership/dependency 표를 코드 구조와 맞춰 확정하고 reverse dependency 금지선을 문서화한다.
+- [x] compiler module ownership/dependency 표를 코드 구조와 맞춰 확정하고 reverse dependency 금지선을 문서화했다.
 
-**M0 완료 조건:** 새 구현이 어느 stage에 속하는지 한 곳으로 결정할 수 있고, 과도기 compatibility bridge를 새 canonical interface로 오인하지 않는다.
+현재/목표 module ownership은 다음을 기준으로 한다.
+
+| 책임 | 현재 주요 모듈 | canonical owner / 목표 | 금지되는 역방향 의존 |
+|---|---|---|---|
+| word formation | `scanner.rs` | frontend word former | graph/logical/physical/runtime가 scanner 구현 세부에 의존하지 않음 |
+| enqueue/word interpretation | 현재 `syntax.rs`에 혼재 | 향후 `enqueuer` | target/backend 정보를 enqueue가 읽지 않음 |
+| parser + semantic construction | `semantic.rs` | frontend/parser + immutable `FunctionEntity` | Graph/Logical/Physical 선택을 parser가 소유하지 않음 |
+| J graph algebra | `j_graph_ir.rs`, `j_graph_rewrite.rs`, `j_graph_resource.rs`, `j_graph_memory.rs` | J Graph IR / Graph Analyzer | Logical/Physical plan을 다시 semantic identity로 역주입하지 않음 |
+| execution semantic contract | 현재 `analysis.rs`에 일부 혼재 | 독립 execution-semantics contract | schedule/buffer/device를 포함하지 않음 |
+| canonical Logical Execution IR | `logical_ir.rs` | `logical_ir::Plan` | `physical.rs`, kernel/runtime concrete storage에 의존하지 않음 |
+| route legality/capability | `lowering.rs` | verified Logical IR 이후 lowering/route layer | semantic/parser를 target 편의에 맞게 변경하지 않음 |
+| schedule/transform | 아직 없음 | 별도 planner-side representation | canonical Logical IR을 destructive하게 schedule-specific IR로 덮지 않음 |
+| physical representation | `physical.rs`, `storage.rs` | representation layer | semantic facts를 physical layout으로 정의하지 않음 |
+| Physical Plan/bufferization | 아직 없음 | Physical Planner | J parser/FunctionEntity를 직접 해석하지 않음 |
+| backend kernels | `kernels.rs`, `numeric.rs`, `simd.rs` 등 | backend realization | kernel 구현 세부가 semantic legality를 정의하지 않음 |
+| interpreter/reference runtime | `runtime.rs`, `logical_executor.rs` | transitional/reference execution | compiler canonical IR의 의미를 runtime flattening으로 정의하지 않음 |
+
+현재 확인된 **허용된 과도기 dependency**는 다음 두 가지다.
+
+```text
+logical_ir.rs
+    ← analysis::LogicalPlan transition input
+
+lowering.rs
+    ← analysis::{ExecutionBasisKind, CompilationAnalysis, ...}
+```
+
+이는 M1에서 제거할 migration seam이다. 새 기능은 이 seam 위에 추가하지 않는다.
+
+M0 이후 적용할 dependency 방향:
+
+```text
+frontend
+  ↓
+semantic FunctionEntity
+  ↓
+J Graph IR
+  ↓
+execution semantic contracts
+  ↓
+logical_ir::Plan
+  ↓
+route / schedule
+  ↓
+physical plan / representation
+  ↓
+backend / executor
+```
+
+옆 단계의 provenance/type identity 참조는 허용하지만, **아래 단계의 concrete realization 정보가 위 단계의 semantic identity를 결정하는 dependency는 금지**한다.
+
+**M0 완료 조건:** **완료.** 새 구현이 어느 stage에 속하는지 한 곳으로 결정할 수 있고, 과도기 compatibility bridge를 새 canonical interface로 오인하지 않는다.
 
 #### M1 — canonical Logical Execution IR로 cutover
 
