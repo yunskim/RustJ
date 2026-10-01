@@ -39,6 +39,7 @@ impl KnownAtoms {
 pub struct NodeResourceSummary {
     pub value: ValueId,
     pub output_atoms: Option<usize>,
+    pub composition: ResourceCompositionRule,
     pub temporary: SymbolicResourceExpr,
     pub accumulator: SymbolicResourceExpr,
     pub working_state: SymbolicResourceExpr,
@@ -122,13 +123,19 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
         .iter()
         .enumerate()
         .map(|(index, node)| {
-            let (temporary, accumulator, working_state) = match &node.kind {
-                NodeKind::Apply { contract, .. } => (
+            let (composition, temporary, accumulator, working_state) = match &node.kind {
+                NodeKind::Apply {
+                    contract,
+                    resource_composition,
+                    ..
+                } => (
+                    *resource_composition,
                     contract.temporary,
                     contract.accumulator,
                     contract.working_state,
                 ),
                 _ => (
+                    ResourceCompositionRule::Unknown,
                     SymbolicResourceExpr::None,
                     SymbolicResourceExpr::None,
                     SymbolicResourceExpr::None,
@@ -137,6 +144,7 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
             NodeResourceSummary {
                 value: ValueId(index),
                 output_atoms: memory.extent(ValueId(index)).map(|extent| extent.atoms),
+                composition,
                 temporary,
                 accumulator,
                 working_state,
