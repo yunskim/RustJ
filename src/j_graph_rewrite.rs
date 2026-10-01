@@ -74,6 +74,11 @@ pub enum GraphEquivalenceWitness {
     JFindCutMatchIdentity,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RewriteFactRuleId {
+    FindViaWindowMatchFacts,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceBoundLocality {
     /// The rule has no proof that the relevant bound can be decided from the
@@ -111,6 +116,7 @@ impl ResourcePruningContract {
 pub struct GraphRewriteRule {
     pub id: GraphRewriteRuleId,
     pub witness: GraphEquivalenceWitness,
+    pub fact_rule: RewriteFactRuleId,
     pub source_outer_basis: GraphBasisKind,
     pub replacement_outer_basis: GraphBasisKind,
     /// Early resource pruning is forbidden unless this contract explicitly
@@ -122,6 +128,7 @@ pub struct GraphRewriteRule {
 pub const RULES: &[GraphRewriteRule] = &[GraphRewriteRule {
     id: GraphRewriteRuleId::FindViaWindowMatch,
     witness: GraphEquivalenceWitness::JFindCutMatchIdentity,
+    fact_rule: RewriteFactRuleId::FindViaWindowMatchFacts,
     source_outer_basis: GraphBasisKind::Search,
     replacement_outer_basis: GraphBasisKind::Window,
     pruning: ResourcePruningContract {
@@ -147,6 +154,82 @@ pub const GRAPH_OPTIMIZATION_ORDER: &[GraphOptimizationPhase] = &[
     GraphOptimizationPhase::CandidateResourceEvaluation,
     GraphOptimizationPhase::SoundResourcePruning,
 ];
+
+
+fn input_graph_facts(
+    plan: &Plan,
+    local_facts: &[GraphFacts],
+    input: RewriteInput,
+) -> Result<GraphFacts, &'static str> {
+    match input {
+        RewriteInput::Source(value) => plan
+            .nodes
+            .get(value.0)
+            .map(|node| node.facts.clone())
+            .ok_or("rewrite input references an invalid J Graph value"),
+        RewriteInput::Node(value) => local_facts
+            .get(value.0)
+            .cloned()
+            .ok_or("rewrite input references unavailable local facts"),
+    }
+}
+
+fn infer_rewrite_facts(
+    plan: &Plan,
+    source_value: ValueId,
+    rule: RewriteFactRuleId,
+    replacement: &RewriteGraph,
+) -> Result<Vec<GraphFacts>, &'static str> {
+    let source_facts = plan
+        .nodes
+        .get(source_value.0)
+        .map(|node| node.facts.clone())
+        .ok_or("rewrite source facts are unavailable")?;
+    let mut facts = Vec::with_capacity(replacement.nodes.len());
+
+    for (index, node) in replacement.nodes.iter().enumerate() {
+        let inferred = match (rule, node.semantics) {
+            (
+                RewriteFactRuleId::FindViaWindowMatchFacts,
+                RewriteNodeSemantics::WindowByPatternShape,
+            ) => {
+                let Some(source_input) = node.inputs.first().copied() else {
+                    return Err("window rewrite node has no source input");
+                };
+                let right = input_graph_facts(plan, &facts, source_input)?;
+                GraphFacts {
+                    dtype: right.dtype,
+                    shape: None,
+                    rank: None,
+                }
+            }
+            (
+                RewriteFactRuleId::FindViaWindowMatchFacts,
+                RewriteNodeSemantics::MatchPatternCell,
+            ) => {
+                if index != replacement.output.0 {
+                    return Err("find rewrite match node must be the candidate output");
+                }
+                source_facts.clone()
+            }
+        };
+        facts.push(inferred);
+    }
+    Ok(facts)
+}
+
+fn assign_rewrite_facts(
+    plan: &Plan,
+    source_value: ValueId,
+    rule: RewriteFactRuleId,
+    replacement: &mut RewriteGraph,
+) -> Result<(), &'static str> {
+    let inferred = infer_rewrite_facts(plan, source_value, rule, replacement)?;
+    for (node, facts) in replacement.nodes.iter_mut().zip(inferred) {
+        node.facts = facts;
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphRewriteProvenance {
@@ -184,6 +267,21 @@ impl GraphRewriteCandidate {
         if rule.witness != self.witness {
             return Err("rewrite equivalence witness does not match rule registry");
         }
+        let expected_facts = infer_rewrite_facts(
+            plan,
+            self.provenance.source_value,
+            rule.fact_rule,
+            &self.replacement,
+        )?;
+        if self
+            .replacement
+            .nodes
+            .iter()
+            .map(|node| &node.facts)
+            .ne(expected_facts.iter())
+        {
+            return Err("rewrite-local facts do not match registered fact rule");
+        }
         if basis.layers.first().copied() != Some(rule.source_outer_basis) {
             return Err("rewrite source basis does not satisfy registered rule");
         }
@@ -213,8 +311,31 @@ fn find_via_window_match(
 ) -> GraphRewriteCandidate {
     let window = RewriteNodeId(0);
     let matched = RewriteNodeId(1);
-    let right_facts = &plan.nodes[right.0].facts;
-    let source_facts = plan.nodes[source_value.0].facts.clone();
+    let mut replacement = RewriteGraph {
+        nodes: vec![
+            RewriteNode {
+                basis: GraphBasisKind::Window,
+                inputs: vec![RewriteInput::Source(right), RewriteInput::Source(left)],
+                semantics: RewriteNodeSemantics::WindowByPatternShape,
+                facts: GraphFacts::default(),
+            },
+            RewriteNode {
+                basis: GraphBasisKind::CellApply,
+                inputs: vec![RewriteInput::Source(left), RewriteInput::Node(window)],
+                semantics: RewriteNodeSemantics::MatchPatternCell,
+                facts: GraphFacts::default(),
+            },
+        ],
+        output: matched,
+    };
+    assign_rewrite_facts(
+        plan,
+        source_value,
+        RewriteFactRuleId::FindViaWindowMatchFacts,
+        &mut replacement,
+    )
+    .expect("registered find rewrite facts must be derivable");
+
     GraphRewriteCandidate {
         provenance: GraphRewriteProvenance {
             source_value,
@@ -223,27 +344,7 @@ fn find_via_window_match(
         },
         rule: GraphRewriteRuleId::FindViaWindowMatch,
         witness: GraphEquivalenceWitness::JFindCutMatchIdentity,
-        replacement: RewriteGraph {
-            nodes: vec![
-                RewriteNode {
-                    basis: GraphBasisKind::Window,
-                    inputs: vec![RewriteInput::Source(right), RewriteInput::Source(left)],
-                    semantics: RewriteNodeSemantics::WindowByPatternShape,
-                    facts: GraphFacts {
-                        dtype: right_facts.dtype,
-                        shape: None,
-                        rank: None,
-                    },
-                },
-                RewriteNode {
-                    basis: GraphBasisKind::CellApply,
-                    inputs: vec![RewriteInput::Source(left), RewriteInput::Node(window)],
-                    semantics: RewriteNodeSemantics::MatchPatternCell,
-                    facts: source_facts,
-                },
-            ],
-            output: matched,
-        },
+        replacement,
     }
 }
 
