@@ -6,9 +6,10 @@
 
 use crate::{
     Value,
-    analysis::{
-        self, AccessFact, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation,
-        Symbol, SymbolId,
+    analysis::{self},
+    execution_semantics::{
+        AccessFact, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation, Symbol,
+        SymbolId,
     },
     contracts::{Contract, Effect, Valence},
     facts::{Facts, RankPlan, ValueRoleFacts},
