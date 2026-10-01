@@ -124,7 +124,7 @@ impl Engine {
     pub fn analyze_compilation(
         &self,
         source: &str,
-    ) -> Result<crate::analysis::CompilationAnalysis> {
+    ) -> Result<crate::compilation::CompilationAnalysis> {
         self.analyze_compilation_diagnostic(source)
             .map_err(Error::into_unlocated)
     }
@@ -132,7 +132,7 @@ impl Engine {
     pub fn analyze_compilation_diagnostic(
         &self,
         source: &str,
-    ) -> Result<crate::analysis::CompilationAnalysis> {
+    ) -> Result<crate::compilation::CompilationAnalysis> {
         let j_graph = self.analyze_j_graph_diagnostic(source)?;
         let graph_rewrites = j_graph.rewrite_candidates();
         let graph_rewrite_resources =
@@ -154,7 +154,7 @@ impl Engine {
         logical
             .verify()
             .map_err(|error| Error::Unsupported(error.to_string()).in_phase(DiagnosticPhase::SemanticAnalysis))?;
-        Ok(crate::analysis::CompilationAnalysis {
+        Ok(crate::compilation::CompilationAnalysis {
             j_graph,
             graph_rewrites,
             graph_rewrite_resources,
