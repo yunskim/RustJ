@@ -1,8 +1,7 @@
 //! Aggregate compiler analysis result.
 //!
-//! This module owns the cross-stage analysis bundle. It deliberately keeps the
-//! legacy transition plan visible only as an M1 migration seam while exposing
-//! the canonical A3 Logical Execution IR through `logical`.
+//! This module owns the cross-stage analysis bundle. Canonical executable
+//! analysis is represented only by A3 `logical_ir::Plan`.
 
 #[derive(Clone, Debug)]
 pub struct CompilationAnalysis {
@@ -13,8 +12,6 @@ pub struct CompilationAnalysis {
     /// Source-vs-replacement resource views in the same target-independent
     /// logical-atom/symbolic-state domain.
     pub graph_rewrite_resources: Vec<crate::j_graph_resource::RewriteResourceEvaluation>,
-    /// Transitional public IR retained only until M1 direct lowering is done.
-    pub transition: crate::transition_ir::LogicalPlan,
     /// Canonical A3 Logical Execution IR for new compiler consumers.
     pub logical: crate::logical_ir::Plan,
 }
