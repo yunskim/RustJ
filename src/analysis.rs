@@ -447,7 +447,10 @@ pub(crate) fn lower(
     bound: BoundProgram,
     noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
 ) -> Result<LogicalPlan> {
-    lower_graph(crate::j_graph_ir::Plan::from_bound(bound)?, noun_facts)
+    lower_graph(
+        crate::j_graph_ir::Plan::from_bound_with_facts(bound, noun_facts)?,
+        noun_facts,
+    )
 }
 
 pub(crate) fn lower_graph(
@@ -458,6 +461,7 @@ pub(crate) fn lower_graph(
     let graph_node_count = graph.nodes.len();
     let graph_result = graph.result;
     let graph_write = graph.write.clone();
+    let graph_regions = graph.regions.clone();
 
     let mut builder = Builder {
         noun_facts,
@@ -489,19 +493,74 @@ pub(crate) fn lower_graph(
             }
             crate::j_graph_ir::NodeKind::Apply {
                 function,
-                form,
                 left,
                 right,
                 ..
             } => {
                 let left = left.map(|value| value_map[value.0]);
                 let right = value_map[right.0];
-                builder.call_graph_apply(function, form, left, right, span)?
+                builder.call_entity(function, left, right, span)?
             }
         };
         value_map.push(value);
     }
     builder.current_j_origin = None;
+
+    // J Graph IR is the source of truth for syntax-derived topology.  Project
+    // its explicit regions onto execution ValueIds instead of rediscovering
+    // pipelines/branches from the flattened execution DAG.
+    for region in graph_regions {
+        let map = |value: crate::j_graph_ir::ValueId| value_map[value.0];
+        match region.kind {
+            crate::j_graph_ir::RegionKind::Pipeline { stage_results } => {
+                builder.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Atop,
+                    span: region.span,
+                    topology: StructuralTopology::Pipeline {
+                        inputs: region.inputs.into_iter().map(map).collect(),
+                        stage_results: stage_results.into_iter().map(map).collect(),
+                    },
+                });
+            }
+            crate::j_graph_ir::RegionKind::Hook {
+                branch_results,
+                join_result,
+                live_across,
+            } => {
+                let shared_inputs = if region.inputs.len() == 1 {
+                    region.inputs.into_iter().map(map).collect()
+                } else {
+                    Vec::new()
+                };
+                builder.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Hook,
+                    span: region.span,
+                    topology: StructuralTopology::BranchJoin {
+                        shared_inputs,
+                        branch_results: branch_results.into_iter().map(map).collect(),
+                        join_result: map(join_result),
+                        live_across: live_across.into_iter().map(map).collect(),
+                    },
+                });
+            }
+            crate::j_graph_ir::RegionKind::Fork {
+                branch_results,
+                join_result,
+                live_across,
+            } => {
+                builder.opportunities.push(StructuralOpportunity {
+                    source: OpportunitySource::Fork,
+                    span: region.span,
+                    topology: StructuralTopology::BranchJoin {
+                        shared_inputs: region.inputs.into_iter().map(map).collect(),
+                        branch_results: branch_results.into_iter().map(map).collect(),
+                        join_result: map(join_result),
+                        live_across: live_across.into_iter().map(map).collect(),
+                    },
+                });
+            }
+        }
+    }
 
     let result = graph_result.map(|value| value_map[value.0]);
     let write = if let Some(write) = graph_write {
@@ -755,112 +814,6 @@ impl Builder<'_> {
         self.call_entity(verb.entity, left, right, span)
     }
 
-    fn call_graph_apply(
-        &mut self,
-        semantic: Arc<FunctionEntity>,
-        form: crate::j_graph_ir::GraphForm,
-        left: Option<ValueId>,
-        right: ValueId,
-        span: Range<usize>,
-    ) -> Result<ValueId> {
-        match form {
-            crate::j_graph_ir::GraphForm::Pipeline { stages } => {
-                if stages.len() < 2 {
-                    return Err(Error::Unsupported("malformed J graph pipeline".into()));
-                }
-                let mut inputs = Vec::with_capacity(2);
-                if let Some(left) = left {
-                    inputs.push(left);
-                }
-                inputs.push(right);
-
-                let mut current = right;
-                let mut stage_results = Vec::with_capacity(stages.len());
-                for (index, stage) in stages.into_iter().enumerate() {
-                    current = self.call_entity(
-                        stage.clone(),
-                        if index == 0 { left } else { None },
-                        current,
-                        stage.span.clone(),
-                    )?;
-                    stage_results.push(current);
-                }
-                self.opportunities.push(StructuralOpportunity {
-                    source: OpportunitySource::Atop,
-                    span: semantic.span.clone(),
-                    topology: StructuralTopology::Pipeline {
-                        inputs,
-                        stage_results,
-                    },
-                });
-                Ok(current)
-            }
-            crate::j_graph_ir::GraphForm::Fork { f, g, h } => {
-                // J's observable order for a general fork is h, f, then g.
-                let h_result =
-                    self.call_entity(h.clone(), left, right, h.span.clone())?;
-                let f_result =
-                    self.call_entity(f.clone(), left, right, f.span.clone())?;
-                let join_result = self.call_entity(
-                    g,
-                    Some(f_result),
-                    h_result,
-                    span,
-                )?;
-                let mut shared_inputs = Vec::with_capacity(2);
-                if let Some(left) = left {
-                    shared_inputs.push(left);
-                }
-                shared_inputs.push(right);
-                self.opportunities.push(StructuralOpportunity {
-                    source: OpportunitySource::Fork,
-                    span: semantic.span.clone(),
-                    topology: StructuralTopology::BranchJoin {
-                        shared_inputs: shared_inputs.clone(),
-                        branch_results: vec![h_result, f_result],
-                        join_result,
-                        live_across: shared_inputs,
-                    },
-                });
-                Ok(join_result)
-            }
-            crate::j_graph_ir::GraphForm::Hook { f, g } => {
-                let g_result =
-                    self.call_entity(g.clone(), None, right, g.span.clone())?;
-                let f_left = left.unwrap_or(right);
-                let join_result = self.call_entity(
-                    f,
-                    Some(f_left),
-                    g_result,
-                    span,
-                )?;
-                self.opportunities.push(StructuralOpportunity {
-                    source: OpportunitySource::Hook,
-                    span: semantic.span.clone(),
-                    topology: StructuralTopology::BranchJoin {
-                        shared_inputs: if left.is_none() {
-                            vec![right]
-                        } else {
-                            Vec::new()
-                        },
-                        branch_results: vec![f_left, g_result],
-                        join_result,
-                        live_across: vec![f_left],
-                    },
-                });
-                Ok(join_result)
-            }
-            // Reduce/Rank/other modifiers keep J graph identity in the upstream
-            // IR; execution lowering interprets their semantic FunctionEntity.
-            crate::j_graph_ir::GraphForm::Atomic
-            | crate::j_graph_ir::GraphForm::Reduce { .. }
-            | crate::j_graph_ir::GraphForm::Rank { .. }
-            | crate::j_graph_ir::GraphForm::Modifier { .. } => {
-                self.call_entity(semantic, left, right, span)
-            }
-        }
-    }
-
     fn call_entity(
         &mut self,
         semantic: Arc<FunctionEntity>,
@@ -871,10 +824,9 @@ impl Builder<'_> {
         match &semantic.head {
             FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
             | FunctionHead::Hook
-            | FunctionHead::Fork => {
-                let (form, _) = crate::j_graph_ir::classify_function(&semantic);
-                self.call_graph_apply(semantic, form, left, right, span)
-            }
+            | FunctionHead::Fork => Err(Error::Unsupported(
+                "composite J function reached execution lowering without J Graph expansion".into(),
+            )),
             _ => {
                 let callable = self.callable_entity(semantic)?;
                 let valence = if left.is_some() {
