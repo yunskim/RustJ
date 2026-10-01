@@ -1054,117 +1054,36 @@ fn expression(
             }
         }
     }
-    let items = reduce_modifier_applications(items)?;
-    let mut items = collapse_verb_trains(items)?;
+    let mut items = reduce_parse_stack_subset(items)?;
 
-    if items.len() == 1
-        && items
+    if items.len() != 1 {
+        let span = items
             .first()
-            .is_some_and(|item| item.class == ParseClass::Verb)
-    {
-        let verb = items
-            .pop()
-            .and_then(Item::into_verb)
-            .expect("verb class");
-        return Ok((
+            .map(Item::span)
+            .unwrap_or_else(|| tokens.last().map(|word| word.span.clone()).unwrap_or(0..0));
+        return Err(
+            Error::Syntax("unreduced parser stack after rows 0-6".into()).at(span),
+        );
+    }
+
+    let item = items.pop().expect("one reduced parser item");
+    let span = item.span();
+    match item.value {
+        ParseValue::Noun(expr, height) => Ok((expr, height)),
+        ParseValue::Verb(verb) => Ok((
             Expr {
                 span: verb.span.clone(),
                 kind: ExprKind::VerbValue(verb),
             },
             0,
-        ));
+        )),
+        ParseValue::Function(_) => Err(
+            Error::Syntax("unapplied function modifier".into()).at(span),
+        ),
+        ParseValue::Control { .. } => Err(
+            Error::Syntax("unexpected parser control result".into()).at(span),
+        ),
     }
-    let rhs_error_span = items
-        .last()
-        .map(Item::span)
-        .unwrap_or_else(|| tokens.last().map(|word| word.span.clone()).unwrap_or(0..0));
-    let Some((mut rhs, mut height)) = items.pop().and_then(Item::into_noun) else {
-        return Err(Error::Syntax("expected right argument".into()).at(rhs_error_span));
-    };
-    // The front MARK is an actual parser control item rather than an implicit
-    // class constant. F2 will extend the same stack representation to the
-    // remaining EDGE controls when the legacy recursive grouping path is cut over.
-    let front_mark = Item::mark(0);
-    while let Some(item) = items.pop() {
-        let item_span = item.span();
-        let Some(v) = item.into_verb() else {
-            return Err(
-                Error::Syntax("unreduced function modifier or adjacent nouns".into())
-                    .at(item_span),
-            );
-        };
-
-        let rhs_class = ParseClass::Noun;
-
-        // Row 2: (EDGE+AVN) NOUN VERB NOUN.  The context is the
-        // item immediately to the left of the candidate lhs, or MARK.
-        let dyad_row = if items
-            .last()
-            .is_some_and(|item| item.class == ParseClass::Noun)
-        {
-            let context = items
-                .get(items.len().saturating_sub(2))
-                .unwrap_or(&front_mark)
-                .class;
-            match_parse_row([context, ParseClass::Noun, ParseClass::Verb, rhs_class])
-                == Some(ParseRow::DyadNVN)
-        } else {
-            false
-        };
-
-        if dyad_row {
-            let (lhs, left_height) = items
-                .pop()
-                .and_then(Item::into_noun)
-                .expect("row 2 lhs noun");
-            height = checked_height(height.max(left_height))?;
-            rhs = Expr {
-                span: lhs.span.start..rhs.span.end,
-                kind: ExprKind::Dyad {
-                    verb: v,
-                    left: Box::new(lhs),
-                    right: Box::new(rhs),
-                },
-            };
-            continue;
-        }
-
-        // Row 1 executes the right verb in V V N, leaving the left
-        // verb on the parser stack.  Row 0 handles EDGE V N.
-        let monad_row = if items
-            .last()
-            .is_some_and(|item| item.class == ParseClass::Verb)
-        {
-            let context = items
-                .get(items.len().saturating_sub(2))
-                .unwrap_or(&front_mark)
-                .class;
-            match_parse_row([context, ParseClass::Verb, ParseClass::Verb, rhs_class])
-                == Some(ParseRow::MonadVVN)
-        } else {
-            let context = items.last().unwrap_or(&front_mark).class;
-            match_parse_row([context, ParseClass::Verb, rhs_class, ParseClass::Mark])
-                == Some(ParseRow::MonadEdge)
-        };
-
-        if !monad_row {
-            return Err(
-                Error::Syntax("no jsource row 0-2 application matches".into())
-                    .at(item_span),
-            );
-        }
-
-        height = checked_height(height)?;
-        rhs = Expr {
-            span: v.span.start..rhs.span.end,
-            kind: ExprKind::Monad {
-                verb: v,
-                argument: Box::new(rhs),
-            },
-        };
-    }
-
-    Ok((rhs, height))
 }
 
 fn checked_height(child_height: usize) -> Result<usize> {
