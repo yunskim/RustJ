@@ -105,7 +105,7 @@ impl SemanticFacts {
     }
 }
 
-impl From<&Facts> for SemanticFacts {
+impl std::convert::From<&Facts> for SemanticFacts {
     fn from(facts: &Facts) -> Self {
         Self {
             dtype: facts.dtype,
