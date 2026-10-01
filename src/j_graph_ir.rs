@@ -33,7 +33,7 @@ pub struct GraphSchemaVersion {
 }
 
 pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion =
-    GraphSchemaVersion { major: 0, minor: 2 };
+    GraphSchemaVersion { major: 0, minor: 3 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
