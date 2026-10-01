@@ -8,6 +8,7 @@ use crate::{
     Error, Result, Value,
     analysis::CallTarget,
     logical_ir::{Constraint, OpKind, Plan, SemanticCheck, ValueId},
+    semantic::{FunctionEntity, FunctionHead, FunctionOperand},
 };
 
 fn value_at(values: &[Option<Value>], id: ValueId) -> Result<&Value> {
@@ -86,6 +87,44 @@ fn execute_check(check: &SemanticCheck, values: &[Option<Value>]) -> Result<()> 
     }
 }
 
+fn flattened_reference_semantics_supported(function: &FunctionEntity) -> bool {
+    match &function.head {
+        FunctionHead::PrimitiveVerb(_) => true,
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => matches!(
+            function.operands.first(),
+            Some(FunctionOperand::Function(operand))
+                if matches!(operand.head, FunctionHead::PrimitiveVerb(_))
+        ),
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            match function.operands.first() {
+                Some(FunctionOperand::Function(operand))
+                    if matches!(operand.head, FunctionHead::PrimitiveVerb(_)) =>
+                {
+                    true
+                }
+                Some(FunctionOperand::Function(operand))
+                    if matches!(
+                        operand.head,
+                        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+                    ) =>
+                {
+                    matches!(
+                        operand.operands.first(),
+                        Some(FunctionOperand::Function(base))
+                            if matches!(base.head, FunctionHead::PrimitiveVerb(_))
+                    )
+                }
+                _ => false,
+            }
+        }
+        FunctionHead::NameRef(_)
+        | FunctionHead::PrimitiveAdverb(_)
+        | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::Hook
+        | FunctionHead::Fork => false,
+    }
+}
+
 fn execute_call(
     call: &crate::logical_ir::CallOp,
     values: &[Option<Value>],
@@ -95,6 +134,11 @@ fn execute_call(
             "A3 reference executor does not resolve dynamic calls".into(),
         ));
     };
+    if !flattened_reference_semantics_supported(&call.callable.semantic) {
+        return Err(Error::Unsupported(
+            "A3 reference executor requires structural derived-modifier execution".into(),
+        ));
+    }
 
     let right = value_at(values, call.right)?.clone();
     if let Some(left) = call.left {
