@@ -11,6 +11,7 @@
 - If the two versions ever disagree, the Korean `*.ko.md` file is authoritative.
 - Rust source identifiers, comments, doc comments, diagnostics, tests, commits, and code-facing documentation remain English unless there is a specific reason otherwise.
 - Do not create `AGENTS.ko.md`.
+- Preserve the project licensing model: commercial license from the applicable RustJ copyright holder(s) OR GNU GPL version 3 only. Keep Cargo metadata at `GPL-3.0-only`; do not use `GPL-3.0-or-later` unless the canonical project license policy is explicitly changed.
 
 
 Use `PROJECT.ko.md` as the single authoritative document for architecture, roadmap, support status, and validation policy. Use `FOUNDATIONS.ko.md` as the mandatory rationale/guardrail document for deciding whether an architecture change preserves J or regresses into a compiler-convenience subset.
