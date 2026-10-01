@@ -41,3 +41,56 @@ fn legacy_syntax_tokens_are_only_an_adapter_over_enqueue_payloads() {
         assert_eq!(word.word_index, token.word_index);
     }
 }
+
+
+#[test]
+fn primitive_resolver_keeps_core_precedence_and_extension_parser_pos() {
+    use rustj::primitive::{
+        ExtensionPrimitive, LoweringKey, PrimitiveContext, PrimitiveHandle,
+        PrimitivePartOfSpeech, PrimitiveResolver, PrimitiveSemanticId,
+        PrimitiveSemanticInfo, PrimitiveSourceOrigin, REGISTRY_VERSION,
+    };
+
+    let extension = PrimitiveHandle {
+        semantic_id: PrimitiveSemanticId::Verb(rustj::primitive::PrimitiveId::Add),
+        source_origin: PrimitiveSourceOrigin::Extension,
+        result_pos: PrimitivePartOfSpeech::Verb,
+        semantic_info: PrimitiveSemanticInfo {
+            registry_version: REGISTRY_VERSION,
+        },
+        lowering_key: LoweringKey::Extension("test.addx"),
+    };
+    let context = PrimitiveContext::new(PrimitiveResolver::with_extensions([
+        ExtensionPrimitive {
+            spelling: "addx",
+            handle: extension,
+        },
+        ExtensionPrimitive {
+            spelling: "+",
+            handle: extension,
+        },
+    ]));
+
+    let words = enqueuer::enqueue_with_context("addx +", &context).unwrap();
+    assert_eq!(
+        words.iter().map(|word| word.class).collect::<Vec<_>>(),
+        vec![EnqueueClass::Verb, EnqueueClass::Verb]
+    );
+    assert!(matches!(
+        words[0].payload,
+        EnqueuedPayload::Verb(rustj::primitive::PrimitiveId::Add)
+    ));
+
+    let core = context.resolve("+").unwrap();
+    assert_eq!(core.source_origin, PrimitiveSourceOrigin::Core);
+    assert!(matches!(core.lowering_key, LoweringKey::Core(_)));
+}
+
+#[test]
+fn unresolved_extension_like_spelling_remains_an_ordinary_name() {
+    let words = enqueuer::enqueue("addx").unwrap();
+    assert_eq!(words.len(), 1);
+    assert_eq!(words[0].class, EnqueueClass::Name);
+    assert!(words[0].flags.lookup_name);
+    assert!(matches!(words[0].payload, EnqueuedPayload::Name("addx")));
+}
