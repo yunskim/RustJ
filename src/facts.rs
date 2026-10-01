@@ -15,7 +15,12 @@ pub enum TypeFact {
     Exact(DType),
     IntOrFloat,
 }
-/// Physical representation is independent of the logical atom type.
+/// J-visible representation-class fact used by semantic/execution analysis.
+///
+/// Despite the historical `LayoutFact` name, this is **not** a physical
+/// stride/tile/device layout. `Dense` vs `AxisSparse` describes a semantic
+/// representation class observable through J sparse semantics. Physical layout
+/// belongs to representation/physical planning and must not be added here.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LayoutFact {
     #[default]
