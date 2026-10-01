@@ -527,6 +527,7 @@ pub(crate) fn lower_graph_both(
 
     let logical = builder.logical.finish(
         builder.symbols.clone(),
+        &builder.nodes,
         &builder.opportunities,
         result,
         write.as_ref(),
