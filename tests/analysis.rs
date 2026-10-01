@@ -507,6 +507,11 @@ fn J_syntax_records_structural_optimization_opportunities() {
     assert_eq!(p.opportunities.len(), 1);
     let pipeline = &p.opportunities[0];
     assert_eq!(pipeline.source, OpportunitySource::Atop);
+    assert!(pipeline.j_region_origin.is_some());
+    assert!(
+        pipeline.j_region_origin.unwrap().0 < p.j_graph_region_count,
+        "execution opportunity must point back to an upstream J Graph region"
+    );
     let StructuralTopology::Pipeline {
         inputs,
         stage_results,
