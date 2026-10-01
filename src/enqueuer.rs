@@ -27,10 +27,13 @@ pub enum EnqueueClass {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EnqueueFlags {
-    /// Ordinary names are resolved at parser-stack entry, not by word formation.
+    /// Ordinary names are resolved at parser-stack entry. Assignment targets
+    /// deliberately keep this false, matching jsource QCNAMEASSIGNED.
     pub lookup_name: bool,
-    /// The currently supported copula is global assignment (= : without space).
+    /// Copula metadata retained for parser-time assignment semantics.
     pub global_assignment: bool,
+    pub local_assignment: bool,
+    pub assignment_to_name: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -218,10 +221,7 @@ fn interpret_word<'a>(
         return Ok((
             EnqueueClass::Name,
             EnqueuedPayload::Name(word),
-            EnqueueFlags {
-                lookup_name: true,
-                ..EnqueueFlags::default()
-            },
+            EnqueueFlags::default(),
         ));
     }
 
@@ -266,5 +266,41 @@ pub fn enqueue_with_context<'a>(
             flags,
         });
     }
+
+    // jsource installs ordinary NAMEs as non-lookup first. A NAME becomes
+    // lookup when followed by a non-assignment word, or when it is the final
+    // word. A NAME immediately before a copula remains the assignment target.
+    for index in 0..out.len() {
+        if out[index].class == EnqueueClass::Name {
+            out[index].flags.lookup_name =
+                index + 1 == out.len() || out[index + 1].class != EnqueueClass::Assignment;
+        }
+        if out[index].class == EnqueueClass::Assignment {
+            out[index].flags.assignment_to_name =
+                index > 0 && out[index - 1].class == EnqueueClass::Name;
+        }
+    }
+
+    // jsource rejects a one-word sentence whose sole entity cannot itself be
+    // a sentence result.
+    if out.len() == 1
+        && !matches!(
+            out[0].class,
+            EnqueueClass::Noun
+                | EnqueueClass::Name
+                | EnqueueClass::Verb
+                | EnqueueClass::Adverb
+                | EnqueueClass::Conjunction
+        )
+    {
+        return Err(
+            Error::Syntax("single word cannot be a sentence result".into()).with_context(
+                ErrorContext::phase(DiagnosticPhase::Enqueue)
+                    .with_span(out[0].span.clone())
+                    .with_blame_word(out[0].word_index),
+            ),
+        );
+    }
+
     Ok(out)
 }
