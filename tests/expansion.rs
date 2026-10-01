@@ -1,6 +1,6 @@
 use rustj::{
     Engine,
-    analysis::BasisKind,
+    analysis::ExecutionBasisKind,
     expansion::{
         EquivalenceWitness, ExpansionInput, ExpansionNodeSemantics, ExpansionRuleId, discover,
     },
@@ -32,12 +32,12 @@ fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
     expansion.graph.verify().unwrap();
 
     assert_eq!(expansion.graph.nodes.len(), 2);
-    assert_eq!(expansion.graph.nodes[0].basis, BasisKind::WindowView);
+    assert_eq!(expansion.graph.nodes[0].basis, ExecutionBasisKind::WindowView);
     assert_eq!(
         expansion.graph.nodes[0].semantics,
         ExpansionNodeSemantics::WindowByPatternShape
     );
-    assert_eq!(expansion.graph.nodes[1].basis, BasisKind::CellApply);
+    assert_eq!(expansion.graph.nodes[1].basis, ExecutionBasisKind::CellApply);
     assert_eq!(
         expansion.graph.nodes[1].semantics,
         ExpansionNodeSemantics::MatchPatternCell
