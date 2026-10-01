@@ -58,6 +58,23 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
         !resources.early_pruning_allowed,
         "resource evaluation must not bypass the rule's pruning proof contract"
     );
+    assert!(
+        resources.source.has_unknown_implementation_resource,
+        "graph-visible zero must not be interpreted as a proven zero Search implementation cost"
+    );
+    assert!(
+        resources.replacement.has_unknown_implementation_resource,
+        "candidate-local unknown window extent/state must remain an unknown implementation resource"
+    );
+    let comparison = resources.comparison();
+    assert_eq!(
+        comparison.unfused_internal_traffic,
+        rustj::j_graph_resource::ResourceMetricOrdering::Incomparable
+    );
+    assert_eq!(
+        comparison.elidable_internal_traffic,
+        rustj::j_graph_resource::ResourceMetricOrdering::Incomparable
+    );
 
     assert_eq!(candidate.rule, GraphRewriteRuleId::FindViaWindowMatch);
     assert_eq!(
