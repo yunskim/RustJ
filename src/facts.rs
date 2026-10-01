@@ -17,12 +17,12 @@ pub enum TypeFact {
 }
 /// J-visible representation-class fact used by semantic/execution analysis.
 ///
-/// Despite the historical `LayoutFact` name, this is **not** a physical
-/// stride/tile/device layout. `Dense` vs `AxisSparse` describes a semantic
-/// representation class observable through J sparse semantics. Physical layout
-/// belongs to representation/physical planning and must not be added here.
+/// J-visible representation class, not a physical layout.
+/// `Dense` vs `AxisSparse` is observable through J sparse semantics; stride,
+/// tile, device, buffer and other physical realization details belong to
+/// representation/physical planning and must not be added here.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum LayoutFact {
+pub enum RepresentationClassFact {
     #[default]
     Unknown,
     Dense,
@@ -68,7 +68,7 @@ impl ValueRoleFacts {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
     pub dtype: TypeFact,
-    pub layout: LayoutFact,
+    pub representation_class: RepresentationClassFact,
     pub shape: Option<Vec<usize>>,
     pub rank: Option<usize>,
 }
@@ -120,7 +120,7 @@ impl Facts {
         if let crate::Data::Sparse(v) = value.data() {
             return Self {
                 dtype: Self::of(v.fill()).dtype,
-                layout: LayoutFact::AxisSparse,
+                representation_class: RepresentationClassFact::AxisSparse,
                 shape: Some(value.shape().to_vec()),
                 rank: Some(value.shape().len()),
             };
@@ -135,7 +135,7 @@ impl Facts {
         };
         Self {
             dtype: TypeFact::Exact(dtype),
-            layout: LayoutFact::Dense,
+            representation_class: RepresentationClassFact::Dense,
             shape: Some(value.shape().to_vec()),
             rank: Some(value.shape().len()),
         }
@@ -216,10 +216,10 @@ pub(crate) fn infer(
         &right_semantic,
     );
     let layout = match (id, left, right.rank) {
-        (Sparse, None, Some(0)) => right.layout,
-        (Sparse, None, Some(_)) => LayoutFact::AxisSparse,
-        (Shape | Tally, None, _) => LayoutFact::Dense,
-        _ => LayoutFact::Unknown,
+        (Sparse, None, Some(0)) => right.representation_class,
+        (Sparse, None, Some(_)) => RepresentationClassFact::AxisSparse,
+        (Shape | Tally, None, _) => RepresentationClassFact::Dense,
+        _ => RepresentationClassFact::Unknown,
     };
     Facts {
         dtype: semantic.dtype,
@@ -255,7 +255,7 @@ fn split(shape: &[usize], requested: i64) -> (Vec<usize>, Vec<usize>) {
 fn cell(input: &Facts, shape: Vec<usize>) -> Facts {
     Facts {
         dtype: input.dtype,
-        layout: input.layout,
+        representation_class: input.representation_class,
         rank: Some(shape.len()),
         shape: Some(shape),
     }
@@ -279,7 +279,7 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     };
     Facts {
         dtype,
-        layout: LayoutFact::Unknown,
+        representation_class: RepresentationClassFact::Unknown,
         shape,
         rank: input.rank.map(|r| r.saturating_sub(1)),
     }
@@ -406,7 +406,7 @@ fn infer_ranked_semantic_call(
     (
         Facts {
             dtype: result.dtype,
-            layout: LayoutFact::Unknown,
+            representation_class: RepresentationClassFact::Unknown,
             shape,
             rank,
         },
