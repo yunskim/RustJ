@@ -7137,7 +7137,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | Graph basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
 | resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
 | basis access-pattern taxonomy | Graph Basis에 Window access family를 추가해 `u\`를 `PrefixInfix`로 보존하고 `(+/)\`를 `Window → Reduce`로 표현. Scan은 별도 Graph Basis 원소로 승격할지 열린 질문으로 유지 | **초기 구현** |
-| symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행한다. `PrefixInfix`는 `WindowWorkingSet`과 operand accumulator를, `Rank`는 inner temporary/accumulator/working-state를 전달한다. Pipeline/BranchJoin region 합성과 node-level Reduction/Window/CellMap identity는 구현됐지만 일반 symbolic expression/rule graph는 아직 없음 | **부분 반영 — 역사 연구보다 표현력이 거침** |
+| symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행한다. `ResourceExprGraph`가 ValueAtoms/Requirement/Sum/Max 식을 보존하고 Pipeline/BranchJoin의 internal/elidable/retained/peak-live provenance를 표현한다. PrefixInfix/Rank는 inner resource requirement를 합성한다. richer accumulator/window-size 함수와 target realization은 후속 | **초기 구현** |
 | resource-aware pruning soundness | checklist에는 있으나 local/global resource 구분, monotonicity/soundness proof requirement가 명문화되지 않았음 | **설계 보강 필요** |
 | Basis → Rewrite → Equivalence → Optimization 의존 순서 | 각 기능은 roadmap에 있으나 선행관계가 약하게 표현됨 | **설계 보강 필요** |
 | static-analyzable subset / validation boundary | `GraphAnalyzability`로 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback을 구분 | **초기 구현** |
@@ -7173,7 +7173,7 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
 - [x] `GraphBasis` / `GraphBasisKind`를 Execution basis 타입과 분리하고, derived rank/reduction처럼 outer→inner graph-basis composition을 보존하는 최소 seam을 추가했다.
 - [x] Graph Basis에 Window access family를 추가하고 J `\`을 `GraphForm::PrefixInfix`로 보존한다. operand basis를 중첩해 `(+/)\`가 `Window → Reduce`가 되게 했다. Scan은 독립 Graph Basis 원소인지 열린 질문으로 명시한다.
-- [ ] `SymbolicResourceExpr`를 shape/extent/tile-independent logical 변수와 structural composition을 표현할 수 있는 symbolic expression/rule graph로 확장한다. concrete target 숫자는 넣지 않는다.
+- [x] 기존 `SymbolicResourceExpr` requirement leaf 위에 `ResourceExprGraph`를 추가해 logical `ValueAtoms`, symbolic requirement, `Sum`, `Max` composition을 표현한다. node requirement와 region internal/elidable/retained/peak-live 식 provenance를 보존하며 concrete target 숫자는 넣지 않는다.
 - [x] GraphFacts inference에서 execution `Facts`/`LayoutFact` container seed/return adapter를 제거하고 layout-independent `SemanticFacts` domain/API를 사용한다. primitive shape/dtype rule source는 execution inference와 공유한다.
 - [ ] Reduction/CellMap/Window resource composition identity를 실제 Apply node와 verifier/resource summary에 연결했고, Rank/PrefixInfix가 inner accumulator/working-state requirement를 보존하도록 합성했다. 남은 일은 이 node composition을 Pipeline/BranchJoin과 같은 symbolic lifetime/traffic evaluator까지 확장하는 것이다.
 - [ ] Pipeline/Reduction/Branch/Join resource composition에서 edge materialization traffic, retained lifetime, accumulator lifetime을 같은 symbolic value/liveness 모델로 합성한다.
