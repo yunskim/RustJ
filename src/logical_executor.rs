@@ -6,7 +6,6 @@
 
 use crate::{
     Error, Result, Value,
-    analysis::CallTarget,
     logical_ir::{Constraint, OpKind, Plan, SemanticCheck, ValueId},
     semantic::{FunctionEntity, FunctionHead, FunctionOperand},
 };
@@ -87,41 +86,180 @@ fn execute_check(check: &SemanticCheck, values: &[Option<Value>]) -> Result<()> 
     }
 }
 
-fn flattened_reference_semantics_supported(function: &FunctionEntity) -> bool {
-    match &function.head {
-        FunctionHead::PrimitiveVerb(_) => true,
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => matches!(
-            function.operands.first(),
-            Some(FunctionOperand::Function(operand))
-                if matches!(operand.head, FunctionHead::PrimitiveVerb(_))
-        ),
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
-            match function.operands.first() {
-                Some(FunctionOperand::Function(operand))
-                    if matches!(operand.head, FunctionHead::PrimitiveVerb(_)) =>
-                {
-                    true
-                }
-                Some(FunctionOperand::Function(operand))
-                    if matches!(
-                        operand.head,
-                        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
-                    ) =>
-                {
-                    matches!(
-                        operand.operands.first(),
-                        Some(FunctionOperand::Function(base))
-                            if matches!(base.head, FunctionHead::PrimitiveVerb(_))
-                    )
-                }
-                _ => false,
-            }
+fn semantic_function_operand(function: &FunctionEntity) -> Option<&std::sync::Arc<FunctionEntity>> {
+    function.operands.iter().find_map(|operand| match operand {
+        FunctionOperand::Function(function) => Some(function),
+        FunctionOperand::Noun { .. } => None,
+    })
+}
+
+fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
+    let value = function.operands.iter().find_map(|operand| match operand {
+        FunctionOperand::Noun { value, .. } => Some(value),
+        FunctionOperand::Function(_) => None,
+    })?;
+    if value.is_empty() || value.len() > 3 {
+        return None;
+    }
+    let at = |i| value.int_at(i).ok();
+    match value.len() {
+        1 => {
+            let r = at(0)?;
+            Some([r, r, r])
         }
-        FunctionHead::NameRef(_)
-        | FunctionHead::PrimitiveAdverb(_)
+        2 => Some([at(1)?, at(0)?, at(1)?]),
+        3 => Some([at(0)?, at(1)?, at(2)?]),
+        _ => None,
+    }
+}
+
+fn cell_rank(array_rank: usize, requested: i64) -> usize {
+    if requested < 0 {
+        array_rank.saturating_sub(
+            usize::try_from(requested.unsigned_abs()).unwrap_or(usize::MAX),
+        )
+    } else {
+        array_rank.min(usize::try_from(requested).unwrap_or(usize::MAX))
+    }
+}
+
+fn assemble_uniform_cells(
+    frame: Vec<usize>,
+    cells: impl IntoIterator<Item = Result<Value>>,
+) -> Result<Value> {
+    let mut cells = cells.into_iter();
+    let first = cells
+        .next()
+        .ok_or_else(|| Error::Unsupported("rank over empty frame (prototype inference)".into()))??;
+    let result_shape = first.shape().to_vec();
+    let mut shape = frame;
+    shape.extend_from_slice(&result_shape);
+    let mut builder = crate::assembly::CellBuilder::new(&first, crate::value::count(&shape)?)?;
+    for cell in cells {
+        let cell = cell?;
+        if cell.shape() != result_shape.as_slice() {
+            return Err(Error::Unsupported("rank result padding".into()));
+        }
+        builder.push(&cell)?;
+    }
+    Value::new(shape, builder.finish())
+}
+
+fn execute_ranked_semantic(
+    function: &FunctionEntity,
+    ranks: [i64; 3],
+    left: Option<Value>,
+    right: Value,
+) -> Result<Value> {
+    if let Some(left) = left {
+        let ar = cell_rank(left.shape().len(), ranks[1]);
+        let br = cell_rank(right.shape().len(), ranks[2]);
+        let af = left.shape()[..left.shape().len() - ar].to_vec();
+        let bf = right.shape()[..right.shape().len() - br].to_vec();
+
+        if af.is_empty() && bf.is_empty() {
+            return execute_semantic(function, Some(left), right);
+        }
+        let (short, frame) = if af.len() <= bf.len() {
+            (af.as_slice(), bf.as_slice())
+        } else {
+            (bf.as_slice(), af.as_slice())
+        };
+        if !frame.starts_with(short) {
+            return Err(Error::Length);
+        }
+        let frame = frame.to_vec();
+        let frames = crate::value::count(&frame)?;
+        if frames == 0 {
+            return Err(Error::Unsupported(
+                "dyadic rank over empty frame (prototype inference)".into(),
+            ));
+        }
+        let ad = crate::value::count(&frame[af.len()..])?;
+        let bd = crate::value::count(&frame[bf.len()..])?;
+        let cells = (0..frames).map(|i| {
+            let x = left.view().cell(ar, i / ad)?.to_owned()?;
+            let y = right.view().cell(br, i / bd)?.to_owned()?;
+            execute_semantic(function, Some(x), y)
+        });
+        assemble_uniform_cells(frame, cells)
+    } else {
+        let rank = cell_rank(right.shape().len(), ranks[0]);
+        let frame_rank = right.shape().len() - rank;
+        if frame_rank == 0 {
+            return execute_semantic(function, None, right);
+        }
+        let frame = right.shape()[..frame_rank].to_vec();
+        let frames = crate::value::count(&frame)?;
+        if frames == 0 {
+            return Err(Error::Unsupported(
+                "rank over empty frame (prototype inference)".into(),
+            ));
+        }
+        let cells = (0..frames).map(|i| {
+            let cell = right.view().cell(rank, i)?.to_owned()?;
+            execute_semantic(function, None, cell)
+        });
+        assemble_uniform_cells(frame, cells)
+    }
+}
+
+fn execute_derived_reduction(function: &FunctionEntity, right: Value) -> Result<Value> {
+    if let FunctionHead::PrimitiveVerb(id) = function.head {
+        return crate::kernels::reduce(id.spelling(), right);
+    }
+    if right.shape().is_empty() {
+        return Ok(right);
+    }
+    let items = right.shape()[0];
+    if items == 0 {
+        return Err(Error::Unsupported(
+            "empty derived reduction identity is not implemented".into(),
+        ));
+    }
+    let cell_rank = right.shape().len() - 1;
+    let mut out = right.view().cell(cell_rank, items - 1)?.to_owned()?;
+    for row in (0..items - 1).rev() {
+        let left = right.view().cell(cell_rank, row)?.to_owned()?;
+        out = execute_semantic(function, Some(left), out)?;
+    }
+    Ok(out)
+}
+
+fn execute_semantic(
+    function: &FunctionEntity,
+    left: Option<Value>,
+    right: Value,
+) -> Result<Value> {
+    match &function.head {
+        FunctionHead::PrimitiveVerb(id) => match left {
+            Some(left) => crate::kernels::dyad(id.spelling(), left, right),
+            None => crate::kernels::monad(id.spelling(), right),
+        },
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            if left.is_some() {
+                return Err(Error::Unsupported("dyadic insert-derived call".into()));
+            }
+            let operand = semantic_function_operand(function)
+                .ok_or_else(|| Error::Unsupported("malformed insert semantic entity".into()))?;
+            execute_derived_reduction(operand, right)
+        }
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            let operand = semantic_function_operand(function)
+                .ok_or_else(|| Error::Unsupported("malformed rank semantic entity".into()))?;
+            let ranks = semantic_rank_triplet(function)
+                .ok_or_else(|| Error::Unsupported("unsupported rank semantic entity".into()))?;
+            execute_ranked_semantic(operand, ranks, left, right)
+        }
+        FunctionHead::NameRef(_) => Err(Error::Unsupported(
+            "A3 reference executor does not resolve dynamic calls".into(),
+        )),
+        FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::Hook
-        | FunctionHead::Fork => false,
+        | FunctionHead::Fork => Err(Error::Unsupported(
+            "A3 reference executor does not implement this semantic function".into(),
+        )),
     }
 }
 
@@ -129,46 +267,12 @@ fn execute_call(
     call: &crate::logical_ir::CallOp,
     values: &[Option<Value>],
 ) -> Result<Value> {
-    let CallTarget::Primitive(id) = call.callable.target else {
-        return Err(Error::Unsupported(
-            "A3 reference executor does not resolve dynamic calls".into(),
-        ));
-    };
-    if !flattened_reference_semantics_supported(&call.callable.semantic) {
-        return Err(Error::Unsupported(
-            "A3 reference executor requires structural derived-modifier execution".into(),
-        ));
-    }
-
     let right = value_at(values, call.right)?.clone();
-    if let Some(left) = call.left {
-        let left = value_at(values, left)?.clone();
-        if let Some(rank) = call.callable.rank {
-            crate::kernels::ranked_dyad_ranks(
-                id.spelling(),
-                rank[1],
-                rank[2],
-                left,
-                right,
-            )
-        } else {
-            // This matches the current runtime's dyadic path.  A dyadic derived
-            // form that needs structural semantics must stay outside this
-            // reference subset until that semantic call is implemented.
-            crate::kernels::dyad(id.spelling(), left, right)
-        }
-    } else if let Some(rank) = call.callable.rank {
-        crate::kernels::ranked(
-            id.spelling(),
-            call.callable.reduce,
-            rank[0],
-            right,
-        )
-    } else if call.callable.reduce {
-        crate::kernels::reduce(id.spelling(), right)
-    } else {
-        crate::kernels::monad(id.spelling(), right)
-    }
+    let left = call
+        .left
+        .map(|left| value_at(values, left).cloned())
+        .transpose()?;
+    execute_semantic(&call.callable.semantic, left, right)
 }
 
 fn store_single_result(
