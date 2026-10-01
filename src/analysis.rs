@@ -516,12 +516,14 @@ pub(crate) fn lower_graph(
     // J Graph IR is the source of truth for syntax-derived topology.  Project
     // its explicit regions onto execution ValueIds instead of rediscovering
     // pipelines/branches from the flattened execution DAG.
-    for region in graph_regions {
+    for (region_index, region) in graph_regions.into_iter().enumerate() {
+        let region_origin = Some(crate::j_graph_ir::RegionId(region_index));
         let map = |value: crate::j_graph_ir::ValueId| value_map[value.0];
         match region.kind {
             crate::j_graph_ir::RegionKind::Pipeline { stage_results } => {
                 builder.opportunities.push(StructuralOpportunity {
                     source: OpportunitySource::Atop,
+                    j_region_origin: region_origin,
                     span: region.span,
                     topology: StructuralTopology::Pipeline {
                         inputs: region.inputs.into_iter().map(map).collect(),
@@ -541,6 +543,7 @@ pub(crate) fn lower_graph(
                 };
                 builder.opportunities.push(StructuralOpportunity {
                     source: OpportunitySource::Hook,
+                    j_region_origin: region_origin,
                     span: region.span,
                     topology: StructuralTopology::BranchJoin {
                         shared_inputs,
@@ -557,6 +560,7 @@ pub(crate) fn lower_graph(
             } => {
                 builder.opportunities.push(StructuralOpportunity {
                     source: OpportunitySource::Fork,
+                    j_region_origin: region_origin,
                     span: region.span,
                     topology: StructuralTopology::BranchJoin {
                         shared_inputs: region.inputs.into_iter().map(map).collect(),
