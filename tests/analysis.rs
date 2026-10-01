@@ -89,8 +89,8 @@ fn noun_versions_and_dynamic_calls_are_distinct() {
     let reads: Vec<_> = p
         .operations
         .iter()
-        .filter_map(|operation| match operation.kind {
-            OpKind::ReadNoun { symbol, version } => Some((symbol, version)),
+        .filter_map(|operation| match &operation.kind {
+            OpKind::ReadNoun { symbol, version } => Some((*symbol, *version)),
             _ => None,
         })
         .collect();
@@ -112,7 +112,7 @@ fn noun_versions_and_dynamic_calls_are_distinct() {
     let next = e.analyze_a3("a").unwrap();
     let result = next.result.unwrap();
     assert!(matches!(
-        operation_for_value(&next, result).kind,
+        &operation_for_value(&next, result).kind,
         OpKind::ReadNoun {
             version: NameVersion(2),
             ..
@@ -168,7 +168,7 @@ fn primitive_and_derived_contracts_are_conservative() {
     let p = e.analyze_a3("g=:future").unwrap();
     let result = p.result.unwrap();
     assert!(matches!(
-        operation_for_value(&p, result).kind,
+        &operation_for_value(&p, result).kind,
         OpKind::VerbReference(_)
     ));
     assert_eq!(p.write.unwrap().after, None);
@@ -423,7 +423,7 @@ fn canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order() {
         CallTarget::Primitive(PrimitiveId::Add)
     ));
     assert!(matches!(
-        calls[1].2.callable.semantic.head,
+        &calls[1].2.callable.semantic.head,
         FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
     ));
     assert!(matches!(
