@@ -114,7 +114,7 @@ fn graph_rewrite_links_to_execution_expansion_by_j_origin() {
         .analyze_compilation("'co' E. 'cocoa'")
         .unwrap();
     let candidate = &analysis.graph_rewrites[0];
-    let plan = rustj::logical_ir::Plan::from_transition(&analysis.execution);
+    let plan = analysis.logical.clone();
     plan.verify().unwrap();
 
     let expansion = for_graph_rewrite(&plan, candidate).unwrap();
