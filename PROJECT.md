@@ -3738,7 +3738,7 @@ AdverseDerived(u, v)
 
 ### 4.16 CompilationTarget은 backend / architecture / device를 분리한다
 
-기존의 하나짜리 `TargetProfile`은 역할이 너무 넓다. 같은 CUDA/ROCm backend에서도 architecture가 다르면 instruction, register organization, subgroup/wave behavior, scratchpad 기능 등이 달라지고, 같은 architecture를 쓰는 device끼리도 compute-unit 수, memory/cache capacity 등이 다를 수 있다.
+기존의 하나짜리 `TargetProfile`은 역할이 너무 넓다. 같은 CUDA/ROCm backend에서도 architecture가 다르면 instruction, register organization, subgroup/wave behavior, working_state 기능 등이 달라지고, 같은 architecture를 쓰는 device끼리도 compute-unit 수, memory/cache capacity 등이 다를 수 있다.
 
 현행 모델은 다음을 구분한다.
 
@@ -3814,7 +3814,7 @@ ArchitectureTarget
   feature_set
   execution_hierarchy_rules
   register_model
-  memory/scratchpad model
+  memory/working_state model
   instruction capabilities
   synchronization/memory-ordering capabilities
   allocation rules
@@ -3845,7 +3845,7 @@ DeviceProfile
   architecture_target
   compute-unit / SM / core count
   register capacities
-  scratchpad/shared/LDS capacities
+  working_state/shared/LDS capacities
   cache capacities/topology
   memory capacity
   supported configurable resource modes
@@ -4232,9 +4232,9 @@ MemorySpace
   async-copy support
 ```
 
-memory-space semantics/transaction/bank rules은 architecture/backend profile에, concrete cache/scratchpad/HBM capacity는 device profile에 두는 식으로 분리한다.
+memory-space semantics/transaction/bank rules은 architecture/backend profile에, concrete cache/working_state/HBM capacity는 device profile에 두는 식으로 분리한다.
 
-일부 target에서는 cache와 scratchpad/shared memory가 같은 physical resource를 partition한다.
+일부 target에서는 cache와 working_state/shared memory가 같은 physical resource를 partition한다.
 
 ```text
 ResourceCoupling
@@ -4290,7 +4290,7 @@ DataMovementCapability
 
 #### 4.16.14 LaunchAndSchedulingLimits
 
-max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic scratchpad limits, cluster/cooperative launch capability 등을 표현한다.
+max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic working_state limits, cluster/cooperative launch capability 등을 표현한다.
 
 rule 자체가 architecture에 속하는지, exact numeric capacity가 device에 속하는지 분리한다.
 
@@ -4368,12 +4368,12 @@ schedule과 target hard facts로부터 계산 가능한 자원/구조 추정이�
 ```text
 ResourceEstimate
   register usage by class
-  shared/LDS/scratchpad bytes
+  shared/LDS/working_state bytes
   spill/local-memory risk
   resident workgroups/subgroups bound
   theoretical occupancy/concurrency bound
   global-memory bytes
-  cache/scratchpad traffic amount
+  cache/working_state traffic amount
   transaction/coalescing count estimate
   bank-conflict structure
   arithmetic intensity
@@ -4456,13 +4456,13 @@ AccumulatorRealization
   outputs per lane/thread
   partial sums per output
   vector/matrix instruction choice
-  register vs scratchpad staging
+  register vs working_state staging
 ```
 
-**scratchpad/shared/LDS requirement도 tile/staging의 함수**다.
+**working_state/shared/LDS requirement도 tile/staging의 함수**다.
 
 ```text
-ScratchpadUsage
+WorkingStateUsage
   = S(access reuse,
       tile shape,
       pipeline stages,
@@ -4477,7 +4477,7 @@ ScratchpadUsage
 ```text
 ResourceEstimate
   register classes
-  scratchpad/shared
+  working_state/shared
   live materialized bytes
   external-memory traffic amount
   synchronization/work counts
@@ -4500,7 +4500,7 @@ CompiledResourceReport
   kernel/artifact id
   register usage by class
   spills / local-memory bytes
-  static + dynamic scratchpad/shared bytes
+  static + dynamic working_state/shared bytes
   stack frame
   generated instruction summary
   launch attributes
@@ -4594,7 +4594,7 @@ H1 generic TargetProfile MVP
   subgroup/vector width
   parallelism limits
   register resource summary
-  scratchpad/shared-memory summary
+  working_state/shared-memory summary
   memory spaces/alignment
   supported dtypes/operations
   ABI/data-layout
@@ -4611,7 +4611,7 @@ H2 Physical Schedule MVP
 
 H3 ResourceEstimate MVP
   register estimate
-  scratchpad/shared estimate
+  working_state/shared estimate
   occupancy/concurrency bound
   global-memory traffic
   peak materialized bytes
@@ -4668,7 +4668,7 @@ MaterializationDecision
   KeepVirtual
   FuseAway
   RegisterResident
-  ScratchpadResident
+  WorkingStateResident
   Bufferize(memory_space)
   ExternalResource
 ```
@@ -5941,7 +5941,7 @@ Physical planner가 다음 중 하나를 고른다.
 KeepVirtual
 FuseAway
 RegisterResident
-ScratchpadResident
+WorkingStateResident
 Recompute
 Bufferize
 ExternalResource
@@ -7058,7 +7058,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | `@:` pipeline / Hook/Fork branch-join | `Pipeline`, `Hook`, `Fork` + GraphHint | 반영 |
 | applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node이며 `Facts`를 보유, 현재 primitive/rank/reduce 범위에서 전파 | **초기 구현** |
 | primitive shape/dtype/rank/effect contract | `GraphRuleRefs` + current `Facts::infer_call` transfer를 J Graph build에서 적용 | **초기 구현** |
-| primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/scratchpad symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
+| primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/working_state symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
 | iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionCapability`를 J Graph op에 연결 | **초기 구현** |
 | pipeline/reduction/branch/join별 resource composition | `ResourceCompositionRule`로 Pipeline/BranchJoin/Reduction/CellMap 정책 identity를 표현. 실제 symbolic composition evaluator는 후속 | **부분 반영** |
 | intermediate edge materialization/traffic 분석 | `j_graph_memory`가 pipeline/branch/view materialization opportunity와 logical extent를 계산. traffic/selected materialization plan은 후속 | **초기 구현** |
@@ -7098,7 +7098,7 @@ v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
 - [x] Hook/Fork/@: topology 분류의 단일 소스를 `j_graph_ir::classify_function()`으로 두고 execution analyzer의 독립 pattern rediscovery를 제거한다.
 - [ ] Cut/Window, Dot/Contract, Power/Iteration, Key/GroupBy, Scan/Infix 등 J graph algebra vocabulary를 GraphForm/GraphHint로 확장한다.
 - [x] current primitive/rank/reduce 범위에서 stage별 shape/dtype/rank facts를 J Graph build 중 전파한다. richer rule registry는 계속 확장한다.
-- [x] `GraphOperationContract`로 iteration/access/fusion 및 temporary/accumulator/scratchpad symbolic requirement의 최소 seam을 추가했다.
+- [x] `GraphOperationContract`로 iteration/access/fusion 및 temporary/accumulator/working_state symbolic requirement의 최소 seam을 추가했다.
 - [x] graph-level use-def/common-input/live-range를 J Graph 및 `j_graph_memory`에서 계산한다.
 - [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
 - [x] `j_graph_resource`에서 Pipeline/BranchJoin의 internal/elidable/retained/peak-live atom volume과 reduction accumulator requirement를 합성하는 최소 evaluator를 구현했다. Reduction/CellMap 단독-region 및 traffic 식은 계속 확장한다.
@@ -7125,14 +7125,14 @@ J Graph 단계에서 정적으로 계산할 수 있는 것:
 - pipeline/branch 내부 intermediate
 - 어떤 value가 materialization-elision 후보인지
 - static reindex/view가 virtual하게 유지될 가능성
-- reduction accumulator / temporary / scratchpad의 symbolic requirement
+- reduction accumulator / temporary / working_state의 symbolic requirement
 - representation model이 주어졌을 때 logical extent의 represented byte size
 
 J Graph 단계에서 **아직 결정하지 않는 것**:
 
 - 실제 register allocation
 - register class별 사용량
-- shared/LDS/scratchpad의 concrete byte 수
+- shared/LDS/working_state의 concrete byte 수
 - tile/workgroup별 local storage
 - packed-bool/box/sparse 등의 final representation
 - alignment/padding/buffer offset
@@ -7235,7 +7235,7 @@ ResourceEstimate / bufferization
 - [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
 - [ ] register estimate는 primitive별 합이 아니라 scheduled liveness peak로 계산한다.
 - [ ] accumulator requirement(logical)와 accumulator realization(schedule/target)을 분리한다.
-- [ ] scratchpad/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
+- [ ] working_state/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
 - [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
 - [ ] noun snapshot과 verb/adverb/conjunction nameref late lookup, alias/shadow/rebind, `f.` fix semantics를 구분하는 테스트를 추가한다.
 - [ ] mutable extension state가 hidden verb field가 아니라 explicit StateResource로 나타나는 테스트를 추가한다.
