@@ -85,6 +85,15 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
         candidate.provenance.source_basis.layers,
         vec![GraphBasisKind::Search]
     );
+    let source_facts = &analysis.j_graph.nodes[candidate.provenance.source_value.0].facts;
+    assert_eq!(
+        source_facts.dtype,
+        rustj::facts::TypeFact::Exact(rustj::types::DType::Bool)
+    );
+    assert_eq!(source_facts.shape.as_deref(), Some(&[6][..]));
+    assert_eq!(source_facts.rank, Some(1));
+    assert_eq!(resources.source.output_atoms, Some(6));
+    assert_eq!(resources.replacement.output_atoms, Some(6));
 
     let source = &analysis.j_graph.nodes[candidate.provenance.source_value.0];
     let NodeKind::Apply {
