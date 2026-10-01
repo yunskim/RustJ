@@ -1,28 +1,27 @@
 //! Execution-oriented semantic lowering from J Graph IR.
 //!
-//! J grammar/topology discovery belongs to `j_graph_ir`; this module expands
-//! the selected graph into explicit execution dataflow, facts, checks and basis
-//! identities. IDs are local to one plan, not runtime addresses.
+//! J grammar/topology discovery belongs to `j_graph_ir`. This module resolves
+//! target-independent execution semantics and constructs canonical A3 Logical IR
+//! directly. It does not own a second plan container.
+
 use crate::{
     Error, Result,
     contracts::{self, Contract, Valence},
-    facts::{ValueRole, ValueRoleFacts},
+    facts::{Facts, ValueRole, ValueRoleFacts},
     j_graph_ir,
+    logical_ir::{Plan, PlanBuilder, ValueId, Write},
     opportunity::{OpportunitySource, StructuralOpportunity, StructuralTopology},
     semantic::{
-        BoundProgram, Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand,
-        FunctionPartOfSpeech, NameVersion, Verb,
+        FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech,
     },
 };
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
+pub use crate::compilation::CompilationAnalysis;
 pub use crate::execution_semantics::{
     AccessFact, AccessRelation, CallTarget, Callable, ExecutionBasis, ExecutionBasisKind,
     ResolvedInstantiation, Scope, Symbol, SymbolId,
 };
-
-pub use crate::compilation::CompilationAnalysis;
-pub use crate::transition_ir::{LogicalPlan, Node, Operation, ValueId, VerifyError, Write};
 
 fn primitive_execution_basis(
     id: crate::primitive::PrimitiveId,
@@ -68,9 +67,6 @@ fn append_execution_basis(
         }
         FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
             layers.push(ExecutionBasisKind::Reduce);
-            // The reducer leaf identity is carried by the semantic FunctionEntity.
-            // Recurse only when the reducer itself is structurally derived so that
-            // Insert(Rank(u)) remains distinct from Rank(Insert(u)).
             if let Some(FunctionOperand::Function(operand)) = function.operands.first() {
                 if matches!(
                     operand.head,
@@ -91,6 +87,17 @@ fn append_execution_basis(
         | FunctionHead::Hook
         | FunctionHead::Fork => {}
     }
+}
+
+fn execution_basis(callable: &Callable, left: Option<ValueId>) -> ExecutionBasis {
+    let valence = if left.is_some() {
+        Valence::Dyad
+    } else {
+        Valence::Monad
+    };
+    let mut layers = Vec::new();
+    append_execution_basis(&callable.semantic, valence, &mut layers);
+    ExecutionBasis { layers }
 }
 
 fn outer_rank_boundary(function: &FunctionEntity) -> Option<[i64; 3]> {
@@ -122,38 +129,18 @@ fn outer_rank_boundary(function: &FunctionEntity) -> Option<[i64; 3]> {
     }
 }
 
-fn execution_basis(operation: &Operation) -> ExecutionBasis {
-    let Operation::Call { callable, left, .. } = operation else {
-        return ExecutionBasis::default();
-    };
-
-    let valence = if left.is_some() {
-        Valence::Dyad
-    } else {
-        Valence::Monad
-    };
-    let mut layers = Vec::new();
-    append_execution_basis(&callable.semantic, valence, &mut layers);
-    ExecutionBasis { layers }
-}
-
-fn input_roles(operation: &Operation) -> Vec<(ValueId, ValueRole)> {
+fn input_roles(
+    target: CallTarget,
+    left: Option<ValueId>,
+    right: ValueId,
+) -> Vec<(ValueId, ValueRole)> {
     use crate::primitive::PrimitiveId::*;
 
-    let Operation::Call {
-        callable,
-        left,
-        right,
-        ..
-    } = operation
-    else {
+    let CallTarget::Primitive(id) = target else {
         return Vec::new();
     };
-    let CallTarget::Primitive(id) = callable.target else {
-        return Vec::new();
-    };
-    match (id, *left) {
-        (IndexOf, None) => vec![(*right, ValueRole::ShapeVector)],
+    match (id, left) {
+        (IndexOf, None) => vec![(right, ValueRole::ShapeVector)],
         (Shape, Some(left)) => vec![(left, ValueRole::ShapeVector)],
         (From, Some(left)) => vec![(left, ValueRole::IndexVector)],
         (Take | Drop, Some(left)) => vec![(left, ValueRole::CountVector)],
@@ -162,20 +149,14 @@ fn input_roles(operation: &Operation) -> Vec<(ValueId, ValueRole)> {
     }
 }
 
-fn result_roles(operation: &Operation) -> ValueRoleFacts {
+fn result_roles(target: CallTarget, dyad: bool) -> ValueRoleFacts {
     use crate::primitive::PrimitiveId::*;
 
     let mut roles = ValueRoleFacts::default();
-    let Operation::Call {
-        callable, left, ..
-    } = operation
-    else {
+    let CallTarget::Primitive(id) = target else {
         return roles;
     };
-    let CallTarget::Primitive(id) = callable.target else {
-        return roles;
-    };
-    match (id, left.is_some()) {
+    match (id, dyad) {
         (Shape, false) => roles.insert(ValueRole::ShapeVector),
         (Indices, false) | (IndexOf | Steps, true) => roles.insert(ValueRole::IndexVector),
         _ => {}
@@ -183,207 +164,27 @@ fn result_roles(operation: &Operation) -> ValueRoleFacts {
     roles
 }
 
-impl LogicalPlan {
-    pub fn verify(&self) -> std::result::Result<(), VerifyError> {
-        let fail = |node: Option<ValueId>, message: String| VerifyError { node, message };
-        let source_len = self.source.len();
-
-        for (index, node) in self.nodes.iter().enumerate() {
-            let id = ValueId(index);
-            if node.span.start > node.span.end
-                || node.span.end > source_len
-                || !self.source.is_char_boundary(node.span.start)
-                || !self.source.is_char_boundary(node.span.end)
-            {
-                return Err(fail(Some(id), "invalid source span".into()));
-            }
-            if let Some(origin) = node.j_origin {
-                if origin.0 >= self.j_graph_node_count {
-                    return Err(fail(
-                        Some(id),
-                        "J graph origin is out of bounds".into(),
-                    ));
-                }
-            }
-            if let Some(rank) = node.facts.rank {
-                if let Some(shape) = &node.facts.shape {
-                    if rank != shape.len() {
-                        return Err(fail(Some(id), "fact rank does not match shape".into()));
-                    }
-                }
-            }
-            if let Some(before) = node.order_after {
-                if before.0 >= index {
-                    return Err(fail(Some(id), "order edge must reference an earlier value".into()));
-                }
-            }
-            if node.basis != execution_basis(&node.operation) {
-                return Err(fail(
-                    Some(id),
-                    "basis metadata does not match the logical operation".into(),
-                ));
-            }
-
-            let check_symbol = |symbol: SymbolId| {
-                (symbol.0 < self.symbols.len())
-                    .then_some(())
-                    .ok_or_else(|| fail(Some(id), "symbol id out of bounds".into()))
-            };
-            let check_value = |value: ValueId, label: &str| {
-                (value.0 < index)
-                    .then_some(())
-                    .ok_or_else(|| fail(Some(id), format!("{label} must reference an earlier value")))
-            };
-            let check_callable = |callable: &Callable| {
-                if callable.semantic.result_pos != FunctionPartOfSpeech::Verb {
-                    return Err(fail(Some(id), "callable semantic entity is not a verb".into()));
-                }
-                match callable.target {
-                    CallTarget::Primitive(_) => Ok(()),
-                    CallTarget::Dynamic(symbol) => check_symbol(symbol),
-                }
-            };
-
-            match &node.operation {
-                Operation::Literal(_) => {}
-                Operation::ReadNoun { symbol, .. } => check_symbol(*symbol)?,
-                Operation::VerbReference(callable) => check_callable(callable)?,
-                Operation::Call {
-                    callable,
-                    left,
-                    right,
-                    ..
-                } => {
-                    check_callable(callable)?;
-                    if let Some(left) = left {
-                        check_value(*left, "left input")?;
-                    }
-                    check_value(*right, "right input")?;
-
-                    let Some(instantiation) = &node.instantiation else {
-                        return Err(fail(Some(id), "call is missing resolved instantiation".into()));
-                    };
-                    let expected_valence = if left.is_some() {
-                        Valence::Dyad
-                    } else {
-                        Valence::Monad
-                    };
-                    if instantiation.valence != expected_valence {
-                        return Err(fail(
-                            Some(id),
-                            "instantiation valence does not match call".into(),
-                        ));
-                    }
-                    if instantiation.target != callable.target {
-                        return Err(fail(
-                            Some(id),
-                            "instantiation target does not match call".into(),
-                        ));
-                    }
-                    if instantiation.result_dtype != node.facts.dtype
-                        || instantiation.result_rank != node.facts.rank
-                    {
-                        return Err(fail(
-                            Some(id),
-                            "instantiation result facts do not match node facts".into(),
-                        ));
-                    }
-                }
-            }
-        }
-
-        for opportunity in &self.opportunities {
-            if let Some(origin) = opportunity.j_region_origin {
-                if origin.0 >= self.j_graph_region_count {
-                    return Err(fail(
-                        None,
-                        "structural opportunity J-region origin is out of bounds".into(),
-                    ));
-                }
-            }
-            if opportunity.span.start > opportunity.span.end
-                || opportunity.span.end > source_len
-                || !self.source.is_char_boundary(opportunity.span.start)
-                || !self.source.is_char_boundary(opportunity.span.end)
-            {
-                return Err(fail(None, "invalid structural opportunity span".into()));
-            }
-            for value in opportunity.values() {
-                if value.0 >= self.nodes.len() {
-                    return Err(fail(
-                        None,
-                        "structural opportunity references an out-of-bounds value".into(),
-                    ));
-                }
-            }
-            match &opportunity.topology {
-                StructuralTopology::Pipeline { stage_results, .. } if stage_results.len() < 2 => {
-                    return Err(fail(
-                        None,
-                        "pipeline opportunity must contain at least two stages".into(),
-                    ));
-                }
-                StructuralTopology::BranchJoin {
-                    branch_results, ..
-                } if branch_results.len() < 2 => {
-                    return Err(fail(
-                        None,
-                        "branch/join opportunity must contain at least two branches".into(),
-                    ));
-                }
-                _ => {}
-            }
-        }
-
-        if let Some(result) = self.result {
-            if result.0 >= self.nodes.len() {
-                return Err(fail(None, "result value id out of bounds".into()));
-            }
-        }
-        if let Some(write) = &self.write {
-            if write.symbol.0 >= self.symbols.len() {
-                return Err(fail(None, "write symbol id out of bounds".into()));
-            }
-            if write.value.0 >= self.nodes.len() {
-                return Err(fail(None, "write value id out of bounds".into()));
-            }
-            if let Some(after) = write.after {
-                if after.0 >= self.nodes.len() {
-                    return Err(fail(None, "write order dependency out of bounds".into()));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-pub(crate) fn lower(
-    bound: BoundProgram,
-    noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
-) -> Result<LogicalPlan> {
-    let graph_fact = |name: &str| {
-        let facts = noun_facts(name);
-        crate::j_graph_ir::GraphFacts::from_logical_parts(
-            facts.dtype,
-            facts.shape,
-            facts.rank,
+fn access_fact(callable: &Callable, left: Option<ValueId>, contract: Contract) -> AccessFact {
+    if left.is_none()
+        && matches!(
+            &callable.semantic.head,
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
         )
-    };
-    lower_graph(
-        crate::j_graph_ir::Plan::from_bound_with_graph_facts(bound, &graph_fact)?,
-        noun_facts,
-    )
+    {
+        return AccessFact::Known(AccessRelation::ReduceLeadingAxis);
+    }
+    if matches!(&callable.semantic.head, FunctionHead::PrimitiveVerb(_))
+        && contract.class == crate::contracts::OperationClass::Map
+    {
+        return AccessFact::Known(AccessRelation::ElementwiseMap);
+    }
+    AccessFact::Opaque
 }
 
-pub(crate) struct LoweredGraph {
-    pub transition: LogicalPlan,
-    pub logical: crate::logical_ir::Plan,
-}
-
-pub(crate) fn lower_graph_both(
+pub(crate) fn lower_graph(
     graph: crate::j_graph_ir::Plan,
-    noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
-) -> Result<LoweredGraph> {
+    noun_facts: &dyn Fn(&str) -> Facts,
+) -> Result<Plan> {
     let source = graph.source.clone();
     let graph_node_count = graph.nodes.len();
     let graph_result = graph.result;
@@ -395,18 +196,10 @@ pub(crate) fn lower_graph_both(
         noun_facts,
         symbols: Vec::new(),
         names: HashMap::new(),
-        nodes: Vec::new(),
-        opportunities: Vec::new(),
-        last_ordered: None,
-        reads: HashMap::new(),
         current_j_origin: None,
-        logical: crate::logical_ir::TransitionProjection::new(
-            source.clone(),
-            graph_node_count,
-            graph_region_count,
-        ),
+        logical: PlanBuilder::new(source, graph_node_count, graph_region_count),
     };
-    let mut value_map = Vec::with_capacity(graph.nodes.len());
+    let mut value_map = Vec::with_capacity(graph_node_count);
 
     for (index, node) in graph.nodes.into_iter().enumerate() {
         let origin = crate::j_graph_ir::ValueId(index);
@@ -414,16 +207,12 @@ pub(crate) fn lower_graph_both(
         let graph_facts = node.facts.clone();
         let span = node.span;
         let value = match node.kind {
-            crate::j_graph_ir::NodeKind::Literal(value) => {
-                builder.push(Operation::Literal(value), span, false)
-            }
+            crate::j_graph_ir::NodeKind::Literal(value) => builder.push_literal(value, span),
             crate::j_graph_ir::NodeKind::ReadNoun { name, version } => {
-                let symbol = builder.symbol(&name);
-                builder.push(Operation::ReadNoun { symbol, version }, span, true)
+                builder.push_read_noun(name, version, span)
             }
             crate::j_graph_ir::NodeKind::VerbValue { function } => {
-                let callable = builder.callable_entity(function)?;
-                builder.push(Operation::VerbReference(callable), span, false)
+                builder.push_verb_reference(function, span)?
             }
             crate::j_graph_ir::NodeKind::Apply {
                 function,
@@ -436,30 +225,28 @@ pub(crate) fn lower_graph_both(
                 builder.call_entity(function, left, right, span)?
             }
         };
-        let execution_facts = &builder.nodes[value.0].facts;
+
+        let execution_facts = builder.logical.facts(value);
         if !graph_facts.agrees_with(
             execution_facts.dtype,
             execution_facts.shape.as_deref(),
             execution_facts.rank,
         ) {
             return Err(Error::Unsupported(format!(
-                "J Graph/Execution fact drift at graph value {}",
-                index
+                "J Graph/Execution fact drift at graph value {index}"
             )));
         }
         value_map.push(value);
     }
     builder.current_j_origin = None;
 
-    // J Graph IR is the source of truth for syntax-derived topology.  Project
-    // its explicit regions onto execution ValueIds instead of rediscovering
-    // pipelines/branches from the flattened execution DAG.
+    let mut opportunities = Vec::new();
     for (region_index, region) in graph_regions.into_iter().enumerate() {
         let region_origin = Some(crate::j_graph_ir::RegionId(region_index));
         let map = |value: crate::j_graph_ir::ValueId| value_map[value.0];
         match region.kind {
             crate::j_graph_ir::RegionKind::Pipeline { stage_results } => {
-                builder.opportunities.push(StructuralOpportunity {
+                opportunities.push(StructuralOpportunity {
                     source: OpportunitySource::Atop,
                     j_region_origin: region_origin,
                     span: region.span,
@@ -479,7 +266,7 @@ pub(crate) fn lower_graph_both(
                 } else {
                     Vec::new()
                 };
-                builder.opportunities.push(StructuralOpportunity {
+                opportunities.push(StructuralOpportunity {
                     source: OpportunitySource::Hook,
                     j_region_origin: region_origin,
                     span: region.span,
@@ -496,7 +283,7 @@ pub(crate) fn lower_graph_both(
                 join_result,
                 live_across,
             } => {
-                builder.opportunities.push(StructuralOpportunity {
+                opportunities.push(StructuralOpportunity {
                     source: OpportunitySource::Fork,
                     j_region_origin: region_origin,
                     span: region.span,
@@ -519,58 +306,29 @@ pub(crate) fn lower_graph_both(
             previous: write.previous,
             proposed: write.proposed,
             span: write.span,
-            after: builder.last_ordered,
+            after: builder.logical.last_ordered(),
         })
     } else {
         None
     };
 
-    let logical = builder.logical.finish(
-        builder.symbols.clone(),
-        &builder.nodes,
-        &builder.opportunities,
-        result,
-        write.as_ref(),
-    );
-    logical
-        .verify()
+    let Builder {
+        symbols, logical, ..
+    } = builder;
+    let plan = logical.finish(symbols, opportunities, result, write);
+    plan.verify()
         .map_err(|error| Error::Unsupported(error.to_string()))?;
-
-    let transition = LogicalPlan {
-        source,
-        symbols: builder.symbols,
-        nodes: builder.nodes,
-        j_graph_node_count: graph_node_count,
-        j_graph_region_count: graph_region_count,
-        opportunities: builder.opportunities,
-        result,
-        write,
-    };
-
-    Ok(LoweredGraph {
-        transition,
-        logical,
-    })
-}
-
-pub(crate) fn lower_graph(
-    graph: crate::j_graph_ir::Plan,
-    noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
-) -> Result<LogicalPlan> {
-    lower_graph_both(graph, noun_facts).map(|lowered| lowered.transition)
+    Ok(plan)
 }
 
 struct Builder<'a> {
-    noun_facts: &'a dyn Fn(&str) -> crate::facts::Facts,
+    noun_facts: &'a dyn Fn(&str) -> Facts,
     symbols: Vec<Symbol>,
     names: HashMap<String, SymbolId>,
-    nodes: Vec<Node>,
-    opportunities: Vec<StructuralOpportunity<ValueId>>,
-    last_ordered: Option<ValueId>,
-    reads: HashMap<(String, usize, usize), NameVersion>,
     current_j_origin: Option<j_graph_ir::ValueId>,
-    logical: crate::logical_ir::TransitionProjection,
+    logical: PlanBuilder,
 }
+
 impl Builder<'_> {
     fn symbol(&mut self, name: &str) -> SymbolId {
         if let Some(id) = self.names.get(name) {
@@ -583,9 +341,6 @@ impl Builder<'_> {
         });
         self.names.insert(name.into(), id);
         id
-    }
-    fn callable(&mut self, verb: Verb) -> Result<Callable> {
-        self.callable_entity(verb.entity)
     }
 
     fn callable_entity(&mut self, semantic: Arc<FunctionEntity>) -> Result<Callable> {
@@ -605,14 +360,16 @@ impl Builder<'_> {
                     });
                 }
                 FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
-                    if current.result_pos == FunctionPartOfSpeech::Verb => {
+                    if current.result_pos == FunctionPartOfSpeech::Verb =>
+                {
                     let [FunctionOperand::Function(base)] = current.operands.as_slice() else {
                         return Err(Error::Unsupported("malformed insert semantic entity".into()));
                     };
                     current = base.clone();
                 }
                 FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
-                    if current.result_pos == FunctionPartOfSpeech::Verb => {
+                    if current.result_pos == FunctionPartOfSpeech::Verb =>
+                {
                     let [
                         FunctionOperand::Function(base),
                         FunctionOperand::Noun { value, .. },
@@ -639,88 +396,46 @@ impl Builder<'_> {
             }
         }
     }
-    fn push(&mut self, operation: Operation, span: Range<usize>, ordered: bool) -> ValueId {
-        let id = ValueId(self.nodes.len());
-        let access = match &operation {
-            Operation::Call { callable, left, .. }
-                if left.is_none()
-                    && matches!(
-                        &callable.semantic.head,
-                        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
-                    ) =>
-            {
-                AccessFact::Known(AccessRelation::ReduceLeadingAxis)
-            }
-            Operation::Call {
-                callable,
-                contract,
-                ..
-            } if matches!(&callable.semantic.head, FunctionHead::PrimitiveVerb(_))
-                && contract.class == crate::contracts::OperationClass::Map =>
-            {
-                AccessFact::Known(AccessRelation::ElementwiseMap)
-            }
-            _ => AccessFact::Opaque,
-        };
-        let (facts, rank_plan) = match &operation {
-            Operation::Literal(value) => (crate::facts::Facts::of(value), None),
-            Operation::ReadNoun { symbol, .. } => {
-                ((self.noun_facts)(&self.symbols[symbol.0].name), None)
-            }
-            Operation::Call {
-                callable,
-                left,
-                right,
-                ..
-            } => crate::facts::infer_semantic_call(
-                &callable.semantic,
-                left.map(|id| &self.nodes[id.0].facts),
-                &self.nodes[right.0].facts,
-            ),
-            _ => (crate::facts::Facts::default(), None),
-        };
-        let basis = execution_basis(&operation);
-        let instantiation = self.resolved_instantiation(&operation, &facts);
-        for (value, role) in input_roles(&operation) {
-            self.nodes[value.0].roles.insert(role);
-        }
-        let roles = result_roles(&operation);
-        self.nodes.push(Node {
-            rank_plan,
-            j_origin: self.current_j_origin,
-            facts,
-            basis,
-            instantiation,
-            roles,
-            access,
-            operation,
-            span,
-            order_after: if ordered { self.last_ordered } else { None },
-        });
-        let logical_node = self.nodes[id.0].clone();
-        self.logical.push_node(&logical_node, &self.nodes);
-        if ordered {
-            self.last_ordered = Some(id);
-        }
-        id
+
+    fn push_literal(&mut self, value: crate::Value, span: Range<usize>) -> ValueId {
+        let facts = Facts::of(&value);
+        self.logical
+            .push_literal(value, facts, self.current_j_origin, span)
     }
+
+    fn push_read_noun(
+        &mut self,
+        name: String,
+        version: crate::semantic::NameVersion,
+        span: Range<usize>,
+    ) -> ValueId {
+        let facts = (self.noun_facts)(&name);
+        let symbol = self.symbol(&name);
+        self.logical
+            .push_read_noun(symbol, version, facts, self.current_j_origin, span)
+    }
+
+    fn push_verb_reference(
+        &mut self,
+        function: Arc<FunctionEntity>,
+        span: Range<usize>,
+    ) -> Result<ValueId> {
+        let callable = self.callable_entity(function)?;
+        Ok(self
+            .logical
+            .push_verb_reference(callable, self.current_j_origin, span))
+    }
+
     fn resolved_instantiation(
         &self,
-        operation: &Operation,
-        result: &crate::facts::Facts,
-    ) -> Option<ResolvedInstantiation> {
-        let Operation::Call {
-            callable,
-            left,
-            right,
-            ..
-        } = operation
-        else {
-            return None;
-        };
-        let left_facts = left.map(|id| &self.nodes[id.0].facts);
-        let right_facts = &self.nodes[right.0].facts;
-        Some(ResolvedInstantiation {
+        callable: &Callable,
+        left: Option<ValueId>,
+        right: ValueId,
+        result: &Facts,
+    ) -> ResolvedInstantiation {
+        let left_facts = left.map(|value| self.logical.facts(value));
+        let right_facts = self.logical.facts(right);
+        ResolvedInstantiation {
             target: callable.target,
             valence: if left.is_some() {
                 Valence::Dyad
@@ -734,45 +449,7 @@ impl Builder<'_> {
             result_dtype: result.dtype,
             result_rank: result.rank,
             rank_boundary: outer_rank_boundary(&callable.semantic),
-        })
-    }
-
-    fn expression(&mut self, expr: Expr) -> Result<ValueId> {
-        let span = expr.span;
-        match expr.kind {
-            ExprKind::Group(inner) => self.expression(*inner),
-            ExprKind::Literal(value) => Ok(self.push(Operation::Literal(value), span, false)),
-            ExprKind::ReadName(name) => {
-                let version = *self
-                    .reads
-                    .get(&(name.clone(), span.start, span.end))
-                    .ok_or_else(|| Error::Value(name.clone()))?;
-                let symbol = self.symbol(&name);
-                Ok(self.push(Operation::ReadNoun { symbol, version }, span, true))
-            }
-            ExprKind::VerbValue(verb) => {
-                let callable = self.callable(verb)?;
-                Ok(self.push(Operation::VerbReference(callable), span, false))
-            }
-            ExprKind::Monad { verb, argument } => {
-                let right = self.expression(*argument)?;
-                self.call(verb, None, right, span)
-            }
-            ExprKind::Dyad { verb, left, right } => {
-                let right = self.expression(*right)?;
-                let left = self.expression(*left)?;
-                self.call(verb, Some(left), right, span)
-            }
         }
-    }
-    fn call(
-        &mut self,
-        verb: Verb,
-        left: Option<ValueId>,
-        right: ValueId,
-        span: Range<usize>,
-    ) -> Result<ValueId> {
-        self.call_entity(verb.entity, left, right, span)
     }
 
     fn call_entity(
@@ -785,34 +462,56 @@ impl Builder<'_> {
         match &semantic.head {
             FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
             | FunctionHead::Hook
-            | FunctionHead::Fork => Err(Error::Unsupported(
-                "composite J function reached execution lowering without J Graph expansion".into(),
-            )),
-            _ => {
-                let callable = self.callable_entity(semantic)?;
-                let valence = if left.is_some() {
-                    Valence::Dyad
-                } else {
-                    Valence::Monad
-                };
-                // Base primitive contracts do not prove properties of derived verbs.
-                // Inspect semantic identity directly so modifier nesting is not
-                // accidentally flattened into reduce/rank flags.
-                let contract = match &callable.semantic.head {
-                    FunctionHead::PrimitiveVerb(id) => contracts::for_primitive(*id, valence),
-                    _ => contracts::lookup("", valence),
-                };
-                Ok(self.push(
-                    Operation::Call {
-                        callable,
-                        left,
-                        right,
-                        contract,
-                    },
-                    span,
-                    true,
-                ))
+            | FunctionHead::Fork => {
+                return Err(Error::Unsupported(
+                    "composite J function reached execution lowering without J Graph expansion"
+                        .into(),
+                ));
             }
+            _ => {}
         }
+
+        let callable = self.callable_entity(semantic)?;
+        let valence = if left.is_some() {
+            Valence::Dyad
+        } else {
+            Valence::Monad
+        };
+        let contract = match &callable.semantic.head {
+            FunctionHead::PrimitiveVerb(id) => contracts::for_primitive(*id, valence),
+            _ => contracts::lookup("", valence),
+        };
+
+        let left_facts = left.map(|value| self.logical.facts(value).clone());
+        let right_facts = self.logical.facts(right).clone();
+        let (facts, rank_plan) = crate::facts::infer_semantic_call(
+            &callable.semantic,
+            left_facts.as_ref(),
+            &right_facts,
+        );
+
+        let basis = execution_basis(&callable, left);
+        let instantiation = self.resolved_instantiation(&callable, left, right, &facts);
+        let access = access_fact(&callable, left, contract);
+
+        for (value, role) in input_roles(callable.target, left, right) {
+            self.logical.insert_role(value, role);
+        }
+        let roles = result_roles(callable.target, left.is_some());
+
+        Ok(self.logical.push_call(
+            callable,
+            basis,
+            left,
+            right,
+            contract,
+            facts,
+            rank_plan,
+            access,
+            instantiation,
+            roles,
+            self.current_j_origin,
+            span,
+        ))
     }
 }
