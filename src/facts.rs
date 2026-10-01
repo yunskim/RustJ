@@ -79,15 +79,6 @@ impl SemanticFacts {
     pub(crate) fn of(value: &Value) -> Self {
         Self::from(&Facts::of(value))
     }
-
-    fn as_execution_seed(&self) -> Facts {
-        Facts {
-            dtype: self.dtype,
-            layout: LayoutFact::Unknown,
-            shape: self.shape.clone(),
-            rank: self.rank,
-        }
-    }
 }
 
 impl From<&Facts> for SemanticFacts {
@@ -135,12 +126,12 @@ fn agreement(left: &[usize], right: &[usize]) -> Option<Vec<usize>> {
     };
     long.starts_with(short).then(|| long.to_vec())
 }
-pub(crate) fn infer(
+fn infer_semantic_primitive(
     id: PrimitiveId,
     rule: ShapeRule,
-    left: Option<&Facts>,
-    right: &Facts,
-) -> Facts {
+    left: Option<&SemanticFacts>,
+    right: &SemanticFacts,
+) -> SemanticFacts {
     let shape = match rule {
         ShapeRule::PreserveRight => right.shape.clone(),
         ShapeRule::PrefixAgreement => left
@@ -183,6 +174,23 @@ pub(crate) fn infer(
         }
         _ => TypeFact::Unknown,
     };
+    SemanticFacts { dtype, shape, rank }
+}
+
+pub(crate) fn infer(
+    id: PrimitiveId,
+    rule: ShapeRule,
+    left: Option<&Facts>,
+    right: &Facts,
+) -> Facts {
+    let left_semantic = left.map(SemanticFacts::from);
+    let right_semantic = SemanticFacts::from(right);
+    let semantic = infer_semantic_primitive(
+        id,
+        rule,
+        left_semantic.as_ref(),
+        &right_semantic,
+    );
     let layout = match (id, left, right.rank) {
         (Sparse, None, Some(0)) => right.layout,
         (Sparse, None, Some(_)) => LayoutFact::AxisSparse,
@@ -190,10 +198,10 @@ pub(crate) fn infer(
         _ => LayoutFact::Unknown,
     };
     Facts {
-        dtype,
+        dtype: semantic.dtype,
         layout,
-        shape,
-        rank,
+        shape: semantic.shape,
+        rank: semantic.rank,
     }
 }
 
@@ -429,17 +437,174 @@ pub(crate) fn infer_semantic_call(
 }
 
 
-/// Graph-facing semantic fact projection.  J Graph IR consumes this API rather
-/// than constructing execution Facts/LayoutFact directly.  The transfer-rule
-/// implementation is still shared with execution inference; the adapter stays
-/// inside this module until the rule engine itself is made domain-generic.
+fn semantic_cell(input: &SemanticFacts, shape: Vec<usize>) -> SemanticFacts {
+    SemanticFacts {
+        dtype: input.dtype,
+        rank: Some(shape.len()),
+        shape: Some(shape),
+    }
+}
+
+fn semantic_reduction(id: PrimitiveId, input: &SemanticFacts) -> SemanticFacts {
+    if !matches!(id, Add | Subtract | Multiply | Divide) {
+        return SemanticFacts::default();
+    }
+    let shape = input
+        .shape
+        .as_ref()
+        .map(|s| s.get(1..).unwrap_or(&[]).to_vec());
+    let dtype = match input.shape.as_deref() {
+        Some([]) => input.dtype,
+        Some([1, ..]) => input.dtype,
+        Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
+        Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
+            TypeFact::IntOrFloat
+        }
+        _ => TypeFact::Unknown,
+    };
+    SemanticFacts {
+        dtype,
+        shape,
+        rank: input.rank.map(|r| r.saturating_sub(1)),
+    }
+}
+
+fn infer_derived_reduction_semantic(
+    function: &Arc<FunctionEntity>,
+    input: &SemanticFacts,
+) -> SemanticFacts {
+    if let FunctionHead::PrimitiveVerb(id) = function.head {
+        return semantic_reduction(id, input);
+    }
+
+    let Some(shape) = input.shape.as_ref() else {
+        return SemanticFacts::default();
+    };
+    if shape.is_empty() {
+        return input.clone();
+    }
+
+    let items = shape[0];
+    if items == 0 {
+        return SemanticFacts::default();
+    }
+
+    let item_shape = shape[1..].to_vec();
+    let item = semantic_cell(input, item_shape.clone());
+    if items == 1 {
+        return item;
+    }
+
+    let step = infer_semantic_projection(function, Some(&item), &item);
+    if items == 2 {
+        return step;
+    }
+
+    if step.shape.as_deref() == Some(item_shape.as_slice())
+        && step.rank == Some(item_shape.len())
+    {
+        step
+    } else {
+        SemanticFacts::default()
+    }
+}
+
+fn infer_ranked_semantic_projection(
+    function: &Arc<FunctionEntity>,
+    ranks: [i64; 3],
+    left: Option<&SemanticFacts>,
+    right: &SemanticFacts,
+) -> SemanticFacts {
+    let Some(right_shape) = &right.shape else {
+        return SemanticFacts::default();
+    };
+    let (rf, rc) = split(
+        right_shape,
+        if left.is_some() { ranks[2] } else { ranks[0] },
+    );
+    let (lf, lc) = if let Some(left) = left {
+        let Some(shape) = &left.shape else {
+            return SemanticFacts::default();
+        };
+        let (frame, cell) = split(shape, ranks[1]);
+        (Some(frame), Some(cell))
+    } else {
+        (None, None)
+    };
+    let Some(mut frame) = match &lf {
+        Some(lf) => agreement(lf, &rf),
+        None => Some(rf.clone()),
+    } else {
+        return SemanticFacts::default();
+    };
+    if frame.contains(&0) {
+        // J requires fill/prototype execution to determine the cell result.
+        return SemanticFacts::default();
+    }
+
+    let right_cell = semantic_cell(right, rc);
+    let left_cell = left.zip(lc).map(|(x, s)| semantic_cell(x, s));
+    let result = infer_semantic_projection(function, left_cell.as_ref(), &right_cell);
+    let shape = result.shape.map(|s| {
+        frame.extend(s);
+        frame
+    });
+    let rank = result.rank.and_then(|r| {
+        shape
+            .as_ref()
+            .map(|full| full.len().saturating_sub(r))
+            .and_then(|frame_rank| r.checked_add(frame_rank))
+    });
+    SemanticFacts {
+        dtype: result.dtype,
+        shape,
+        rank,
+    }
+}
+
+/// Graph-facing semantic fact projection. J Graph IR consumes this domain
+/// directly; representation/layout facts remain owned by execution analysis.
 pub(crate) fn infer_semantic_projection(
     function: &Arc<FunctionEntity>,
     left: Option<&SemanticFacts>,
     right: &SemanticFacts,
 ) -> SemanticFacts {
-    let left_seed = left.map(SemanticFacts::as_execution_seed);
-    let right_seed = right.as_execution_seed();
-    let (facts, _) = infer_semantic_call(function, left_seed.as_ref(), &right_seed);
-    SemanticFacts::from(&facts)
+    match &function.head {
+        FunctionHead::PrimitiveVerb(id) => {
+            let valence = if left.is_some() {
+                Valence::Dyad
+            } else {
+                Valence::Monad
+            };
+            infer_semantic_primitive(
+                *id,
+                crate::contracts::for_primitive(*id, valence).shape_rule,
+                left,
+                right,
+            )
+        }
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            if left.is_some() {
+                return SemanticFacts::default();
+            }
+            let Some(operand) = function_operand(function) else {
+                return SemanticFacts::default();
+            };
+            infer_derived_reduction_semantic(operand, right)
+        }
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            let Some(operand) = function_operand(function) else {
+                return SemanticFacts::default();
+            };
+            let Some(ranks) = semantic_rank_triplet(function) else {
+                return SemanticFacts::default();
+            };
+            infer_ranked_semantic_projection(operand, ranks, left, right)
+        }
+        FunctionHead::NameRef(_)
+        | FunctionHead::PrimitiveAdverb(_)
+        | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::Hook
+        | FunctionHead::Fork => SemanticFacts::default(),
+    }
 }
