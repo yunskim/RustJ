@@ -182,7 +182,7 @@ pub struct GraphFacts {
 }
 
 impl GraphFacts {
-    pub fn from_execution_facts(facts: &Facts) -> Self {
+    pub(crate) fn from_execution_facts(facts: &Facts) -> Self {
         Self {
             dtype: facts.dtype,
             shape: facts.shape.clone(),
@@ -669,12 +669,12 @@ fn analyzability_for(
 
 impl Plan {
     pub fn from_bound(bound: BoundProgram) -> Result<Self> {
-        Self::from_bound_with_facts(bound, &|_| Facts::default())
+        Self::from_bound_with_graph_facts(bound, &|_| GraphFacts::default())
     }
 
-    pub fn from_bound_with_facts(
+    pub fn from_bound_with_graph_facts(
         bound: BoundProgram,
-        noun_facts: &dyn Fn(&str) -> Facts,
+        noun_facts: &dyn Fn(&str) -> GraphFacts,
     ) -> Result<Self> {
         let reads = bound
             .reads
@@ -1095,7 +1095,7 @@ struct Builder<'a> {
     nodes: Vec<Node>,
     regions: Vec<Region>,
     reads: HashMap<(String, usize, usize), NameVersion>,
-    noun_facts: &'a dyn Fn(&str) -> Facts,
+    noun_facts: &'a dyn Fn(&str) -> GraphFacts,
 }
 
 impl Builder<'_> {
@@ -1146,8 +1146,7 @@ impl Builder<'_> {
                     .reads
                     .get(&(name.clone(), span.start, span.end))
                     .ok_or_else(|| Error::Value(name.clone()))?;
-                let facts =
-                    GraphFacts::from_execution_facts(&(self.noun_facts)(&name));
+                let facts = (self.noun_facts)(&name);
                 let analyzability = if facts.shape.is_some() && facts.rank.is_some() {
                     GraphAnalyzability::Static
                 } else {
