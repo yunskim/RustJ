@@ -89,6 +89,14 @@ fn fork_resource_composition_exposes_retained_input_and_reduction_state() {
         state.has_unknown,
         "accumulator state must remain symbolic rather than silently becoming zero"
     );
+    let canonical_peak = resources.expressions.evaluate_atoms(
+        formula.canonical_peak_operation_state_requirements,
+        &memory,
+    );
+    assert!(
+        canonical_peak.has_unknown,
+        "canonical state peak must retain the symbolic accumulator requirement"
+    );
 }
 
 
@@ -110,6 +118,13 @@ fn rank_resource_contract_preserves_inner_reduction_requirement() {
         summary.accumulator,
         rustj::j_graph_ir::SymbolicResourceExpr::ReductionAccumulator
     ));
+    assert!(resources.state_live_ranges.iter().any(|range| {
+        range.owner == result
+            && range.kind == rustj::j_graph_resource::ResourceStateKind::Accumulator
+            && range.defined_at == result.0
+            && range.last_use == result.0
+            && range.may_extend_across_fusion
+    }));
 }
 
 #[test]
@@ -149,6 +164,11 @@ fn window_resource_contract_composes_reuse_and_inner_reduction_state() {
             ..
         }
     ));
+    assert!(resources.state_live_ranges.iter().any(|range| {
+        range.owner == result
+            && range.kind == rustj::j_graph_resource::ResourceStateKind::WorkingState
+            && range.may_extend_across_fusion
+    }));
 }
 
 #[test]
