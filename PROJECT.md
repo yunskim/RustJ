@@ -7177,8 +7177,8 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [x] GraphFacts inference에서 execution `Facts`/`LayoutFact` container seed/return adapter를 제거하고 layout-independent `SemanticFacts` domain/API를 사용한다. primitive shape/dtype rule source는 execution inference와 공유한다.
 - [ ] Reduction/CellMap/Window resource composition identity를 실제 Apply node와 verifier/resource summary에 연결했고, Rank/PrefixInfix가 inner accumulator/working-state requirement를 보존하도록 합성했다. 남은 일은 이 node composition을 Pipeline/BranchJoin과 같은 symbolic lifetime/traffic evaluator까지 확장하는 것이다.
 - [ ] Pipeline/Reduction/Branch/Join resource composition에서 edge materialization traffic, retained lifetime, accumulator lifetime을 같은 symbolic value/liveness 모델로 합성한다.
-- [ ] Graph Basis → rewrite → equivalence → optimization의 dependency를 optimizer pass ordering과 rule registry API에 반영한다.
-- [ ] resource-aware pruning은 local-resource proof + monotonicity/soundness witness가 있는 rule에만 허용하도록 contract를 정의한다.
+- [x] Graph Basis → rewrite candidate generation → equivalence validation → candidate resource evaluation → sound resource pruning 순서를 `GRAPH_OPTIMIZATION_ORDER`와 rule registry API에 반영했다.
+- [x] resource-aware pruning은 `ResourceBoundLocality::Local` + `PruningMonotonicity::ProvenMonotone`가 모두 있는 rule에만 early pruning을 허용하도록 contract를 정의했다. 현재 `E.` rewrite는 global-context-dependent/unproven이라 pruning 불가다.
 - [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / PrefixInfix(`\`) / Rank(`"`) / generic Modifier를 구분한다.
 - [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / WindowStructure / CellParallelStructure를 기록한다.
 - [x] `GraphRuleRefs`로 shape/dtype/rank-cell/effect rule source와 resource rule의 StructuralComposition/Unknown을 명시한다.
@@ -7193,8 +7193,8 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
 - [x] `j_graph_resource`에서 Pipeline/BranchJoin의 internal/elidable/retained/peak-live atom volume과 reduction accumulator requirement를 합성하는 최소 evaluator를 구현했다. Reduction/CellMap 단독-region 및 traffic 식은 계속 확장한다.
 - [ ] representation/schedule/TargetProfile을 결합해 graph-level logical memory 분석을 downstream `ResourceEstimate`로 연결한다.
-- [ ] Graph basis verb의 algebraic rewrite/equivalence rule을 J Graph IR에 표현하고 후보 graph를 생성할 수 있게 한다.
-- [ ] graph candidate마다 semantic-equivalence witness/provenance를 유지한다.
+- [x] 최소 graph rewrite registry/candidate sidecar를 추가하고 첫 rule로 `E.` Search → Window+CellApply(Match) 후보를 J Dictionary equivalence witness와 함께 생성한다. 일반 rule set 확장은 계속 필요하다.
+- [x] graph candidate마다 source ValueId/span/basis provenance와 registered semantic-equivalence witness를 유지하고 verifier가 stale provenance/rule mismatch를 거부한다.
 - [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
 - [ ] name-bound derived verb의 graph summary를 binding version + SpecializationKey로 interprocedurally 전파한다.
 - [ ] resource-aware pruning/partition이 J Graph 후보를 소비하고 Physical Planner의 target feasibility와 연결되도록 한다.
