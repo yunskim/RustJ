@@ -178,7 +178,7 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
             };
 
             for value in &region_values {
-                if *value != region.result {
+                if *value != region.result && !region.inputs.contains(value) {
                     internal_atoms.add(extent_atoms(memory, *value));
                 }
                 if let Some(contract) = node_contract(plan, *value) {
