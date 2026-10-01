@@ -715,12 +715,10 @@ fn error_for(constraint: &Constraint) -> SemanticErrorKind {
     }
 }
 
-/// M1-only incremental projection from execution-semantic lowering records
-/// into canonical A3. It accepts one freshly lowered value at a time, so the
-/// compiler no longer needs a completed transition plan before A3 construction.
+/// Incremental canonical A3 builder used by execution-semantic lowering.
 ///
-/// The input record type remains temporary. Once compatibility `LogicalPlan`
-/// is removed, this builder will be fed directly by execution semantic lowering.
+/// It owns SSA value creation, ordered semantic checks and the single-block
+/// A3-v0 container. It contains no schedule, buffer, layout or target choices.
 pub(crate) struct PlanBuilder {
     plan: Plan,
     last_ordered: Option<OpId>,
