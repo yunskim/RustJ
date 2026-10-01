@@ -142,34 +142,58 @@ fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
     }
 }
 
-/// Collapse one contiguous verb train using J's right-to-left hook/fork
-/// construction. The build is iterative so large trains do not recurse while
-/// being constructed, and each derived node only holds shared operand handles.
+/// Reduce a pure verb train with the pinned jsource row-5/row-6 matcher.
+///
+/// This remains a restricted migration helper: mixed N/V trains stay in the
+/// general parser path.  The important change is that Hook/Fork choice is no
+/// longer inferred from vector length alone; every construction is admitted by
+/// the same parse-row table used by the parser migration.
 fn make_verb_train(mut verbs: Vec<Verb>) -> Result<Verb> {
-    match verbs.len() {
-        0 => return Err(Error::Syntax("empty verb train".into())),
-        1 => return Ok(verbs.pop().expect("one verb")),
-        2 => {
-            let g = verbs.pop().expect("right hook verb");
-            let f = verbs.pop().expect("left hook verb");
-            return Ok(train_hook(f, g));
-        }
-        _ => {}
+    if verbs.is_empty() {
+        return Err(Error::Syntax("empty verb train".into()));
     }
 
-    let h = verbs.pop().expect("fork h");
-    let g = verbs.pop().expect("fork g");
-    let f = verbs.pop().expect("fork f");
-    let mut tail = train_fork(f, g, h);
-    while verbs.len() >= 2 {
-        let g = verbs.pop().expect("train g");
-        let f = verbs.pop().expect("train f");
-        tail = train_fork(f, g, tail);
+    // jsource's stack runs right-to-left.  Repeated row 5 reductions consume
+    // the rightmost V V V and reinsert the completed verb.
+    while verbs.len() >= 3 {
+        let n = verbs.len();
+        let edge = if n == 3 {
+            ParseClass::Mark
+        } else {
+            ParseClass::Verb
+        };
+        if match_parse_row([
+            edge,
+            ParseClass::Verb,
+            ParseClass::Verb,
+            ParseClass::Verb,
+        ]) != Some(ParseRow::Fork)
+        {
+            return Err(Error::Syntax("verb train fork row mismatch".into()));
+        }
+
+        let h = verbs.pop().expect("fork h");
+        let g = verbs.pop().expect("fork g");
+        let f = verbs.pop().expect("fork f");
+        verbs.push(train_fork(f, g, h));
     }
-    if let Some(f) = verbs.pop() {
-        tail = train_hook(f, tail);
+
+    if verbs.len() == 2 {
+        if match_parse_row([
+            ParseClass::Mark,
+            ParseClass::Verb,
+            ParseClass::Verb,
+            ParseClass::Mark,
+        ]) != Some(ParseRow::Hook)
+        {
+            return Err(Error::Syntax("verb train hook row mismatch".into()));
+        }
+        let g = verbs.pop().expect("hook g");
+        let f = verbs.pop().expect("hook f");
+        verbs.push(train_hook(f, g));
     }
-    Ok(tail)
+
+    Ok(verbs.pop().expect("one reduced verb"))
 }
 
 fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
