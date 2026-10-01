@@ -44,10 +44,6 @@ pub struct Callable {
     /// Shared semantic function graph; lowering may inspect this without
     /// reparsing source or recursively copying a large derived function.
     pub semantic: Arc<FunctionEntity>,
-    /// Transitional execution fields retained for the current runtime subset.
-    /// Semantic analysis must not use these flattened flags as its source of truth.
-    pub reduce: bool,
-    pub rank: Option<[i64; 3]>,
 }
 #[derive(Clone, Debug)]
 pub enum Operation {
@@ -734,24 +730,18 @@ impl Builder<'_> {
 
     fn callable_entity(&mut self, semantic: Arc<FunctionEntity>) -> Result<Callable> {
         let mut current = semantic.clone();
-        let mut reduce = false;
-        let mut rank = None;
         loop {
             match &current.head {
                 FunctionHead::PrimitiveVerb(id) => {
                     return Ok(Callable {
                         target: CallTarget::Primitive(*id),
                         semantic,
-                        reduce,
-                        rank,
                     });
                 }
                 FunctionHead::NameRef(name) => {
                     return Ok(Callable {
                         target: CallTarget::Dynamic(self.symbol(name)),
                         semantic,
-                        reduce,
-                        rank,
                     });
                 }
                 FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
@@ -759,7 +749,6 @@ impl Builder<'_> {
                     let [FunctionOperand::Function(base)] = current.operands.as_slice() else {
                         return Err(Error::Unsupported("malformed insert semantic entity".into()));
                     };
-                    reduce = true;
                     current = base.clone();
                 }
                 FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
@@ -774,12 +763,9 @@ impl Builder<'_> {
                     if value.is_empty() || value.len() > 3 {
                         return Err(Error::Length);
                     }
-                    let at = |i| value.int_at(i);
-                    rank = Some(match value.len() {
-                        1 => [at(0)?, at(0)?, at(0)?],
-                        2 => [at(1)?, at(0)?, at(1)?],
-                        _ => [at(0)?, at(1)?, at(2)?],
-                    });
+                    for i in 0..value.len() {
+                        value.int_at(i)?;
+                    }
                     current = base.clone();
                 }
                 FunctionHead::PrimitiveAdverb(_)
