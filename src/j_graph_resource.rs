@@ -52,6 +52,10 @@ pub enum ResourceExprNode {
     },
     Sum(Vec<ResourceExprId>),
     Max(Vec<ResourceExprId>),
+    Scale {
+        factor: usize,
+        input: ResourceExprId,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -106,6 +110,14 @@ impl ResourceExprGraph {
         }
     }
 
+    fn scale(&mut self, factor: usize, input: ResourceExprId) -> ResourceExprId {
+        match factor {
+            0 => self.zero(),
+            1 => input,
+            _ => self.push(ResourceExprNode::Scale { factor, input }),
+        }
+    }
+
     pub fn verify(&self, plan: &Plan) -> Result<(), &'static str> {
         for (index, node) in self.nodes.iter().enumerate() {
             match node {
@@ -118,6 +130,11 @@ impl ResourceExprGraph {
                 ResourceExprNode::Sum(inputs) | ResourceExprNode::Max(inputs) => {
                     if inputs.iter().any(|input| input.0 >= index) {
                         return Err("resource expression must reference earlier expression nodes");
+                    }
+                }
+                ResourceExprNode::Scale { input, .. } => {
+                    if input.0 >= index {
+                        return Err("resource expression must reference an earlier expression node");
                     }
                 }
                 ResourceExprNode::Zero | ResourceExprNode::Unknown => {}
@@ -164,6 +181,13 @@ impl ResourceExprGraph {
                     }
                     out
                 }
+                ResourceExprNode::Scale { factor, input } => {
+                    let item = values[input.0];
+                    KnownAtoms {
+                        known: item.known.saturating_mul(*factor),
+                        has_unknown: item.has_unknown,
+                    }
+                }
             };
             values.push(value);
         }
@@ -187,6 +211,14 @@ pub struct RegionResourceFormula {
     pub elidable_materialization_atoms: ResourceExprId,
     pub retained_live_atoms: ResourceExprId,
     pub graph_order_peak_live_atoms: ResourceExprId,
+    /// Baseline logical traffic if every internal edge is written and read.
+    pub unfused_internal_traffic_atoms: ResourceExprId,
+    /// Logical read+write traffic which can potentially disappear if all
+    /// currently-marked elidable edges stay virtual/fused.
+    pub elidable_traffic_atoms: ResourceExprId,
+    /// Structural temporary/accumulator/window-state requirements of child
+    /// operations. Concrete sizes remain symbolic.
+    pub operation_state_requirements: ResourceExprId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -213,6 +245,10 @@ pub struct RegionResourceSummary {
     /// order. This is not schedule-independent; physical planning recomputes
     /// liveness after any legal reordering/fusion.
     pub graph_order_peak_live_atoms: KnownAtoms,
+    /// Read+write atom traffic if all internal edges materialize.
+    pub unfused_internal_traffic_atoms: KnownAtoms,
+    /// Read+write atom traffic associated with currently-elidable edges.
+    pub elidable_traffic_atoms: KnownAtoms,
     /// Whether any child operation carries an accumulator requirement.
     pub has_reduction_accumulator: bool,
     /// Whether symbolic resource details remain unknown.
@@ -241,6 +277,13 @@ fn node_contract(plan: &Plan, value: ValueId) -> Option<&GraphOperationContract>
     }
 }
 
+
+fn scale_known_atoms(input: KnownAtoms, factor: usize) -> KnownAtoms {
+    KnownAtoms {
+        known: input.known.saturating_mul(factor),
+        has_unknown: input.has_unknown,
+    }
+}
 
 fn sum_value_atoms(
     expressions: &mut ResourceExprGraph,
@@ -465,14 +508,30 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
             };
             let peak_formula =
                 region_graph_order_peak_formula(&mut expressions, memory, &live_values);
+            let internal_formula = sum_value_atoms(&mut expressions, internal_values);
+            let elidable_formula = sum_value_atoms(&mut expressions, elidable_values);
+            let retained_formula = sum_value_atoms(&mut expressions, retained_values);
+            let unfused_traffic_formula = expressions.scale(2, internal_formula);
+            let elidable_traffic_formula = expressions.scale(2, elidable_formula);
+
+            let mut state_terms = Vec::new();
+            for value in &region_values {
+                if let Some(formula) = node_formulas.get(value.0) {
+                    state_terms.push(formula.temporary);
+                    state_terms.push(formula.accumulator);
+                    state_terms.push(formula.working_state);
+                }
+            }
+            let state_formula = expressions.sum(state_terms);
+
             region_formulas.push(RegionResourceFormula {
-                internal_atoms: sum_value_atoms(&mut expressions, internal_values),
-                elidable_materialization_atoms: sum_value_atoms(
-                    &mut expressions,
-                    elidable_values,
-                ),
-                retained_live_atoms: sum_value_atoms(&mut expressions, retained_values),
+                internal_atoms: internal_formula,
+                elidable_materialization_atoms: elidable_formula,
+                retained_live_atoms: retained_formula,
                 graph_order_peak_live_atoms: peak_formula,
+                unfused_internal_traffic_atoms: unfused_traffic_formula,
+                elidable_traffic_atoms: elidable_traffic_formula,
+                operation_state_requirements: state_formula,
             });
 
             RegionResourceSummary {
@@ -481,6 +540,8 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 elidable_materialization_atoms: elidable,
                 retained_live_atoms: retained,
                 graph_order_peak_live_atoms: region_graph_order_peak_live_atoms(memory, live_values),
+                unfused_internal_traffic_atoms: scale_known_atoms(internal_atoms, 2),
+                elidable_traffic_atoms: scale_known_atoms(elidable, 2),
                 has_reduction_accumulator: has_accumulator,
                 has_unknown_resource_requirement: has_unknown_resource,
             }
