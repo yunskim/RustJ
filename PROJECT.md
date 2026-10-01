@@ -35,6 +35,39 @@ RustJ aims to implement:
 
 The C J engine is not intended to become RustJ's normal fallback runtime.
 
+### Reference implementations
+
+RustJ does not treat all external implementations as having the same authority. They are used as **role-specific reference implementations**.
+
+- **`jsoftware/jsource` — J semantic reference / oracle**
+  - The authority for language semantics, parser/name behavior, primitive corner cases, rank/agreement, errors, and type semantics.
+  - The primary reference for RustJ semantic correctness and differential testing.
+
+- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
+  - A reference for lazy expression graphs, evaluation boundaries, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend selection, and device-memory/stream/synchronization handling.
+  - Used when comparing RustJ Graph/Execution optimization, Physical Planner behavior, external-library routes, and cost models.
+  - **It is not an oracle for J language semantics.**
+
+- **`jsoftware/math_arrayfire` — J ↔ GPU-library adapter/offload reference**
+  - A concrete adapter that passes J arrays into ArrayFire handles.
+  - Useful for studying row-major J versus column-major ArrayFire conversion, backend capability/rank limits, external-handle lifetime, release, and device-GC boundaries.
+  - It must not be interpreted as an implementation of arbitrary J rank/adverb/derived-verb semantics as a GPU compiler.
+
+- **APEX / Co-dfns / TAIL→Futhark — array-compiler research implementations**
+  - References for morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion, and GPU lowering.
+  - Their restricted APL subsets are not inherited as restrictions on RustJ's J semantics.
+
+The reference depends on the question being asked:
+
+```text
+J semantic correctness       → jsource
+array graph/JIT fusion       → ArrayFire
+J↔external GPU adapter       → jsoftware/math_arrayfire
+array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
+```
+
+The detailed ArrayFire source observations, RustJ applications, and non-adoptions are recorded in §14.2, **ArrayFire and the J ArrayFire add-on**.
+
 ---
 
 ## 2. Target architecture
