@@ -7111,7 +7111,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 #### A1.5.1 과거 JAXA 역대조 감사
 
-2026-10-01 `yunskim/JAXA`, `yunskim/jaxa-analyzer`, `yunskim/JAXA-complier`를 현행 RustJ J Graph IR과 다시 대조했다.
+2026-10-01 `yunskim/JAXA`, `yunskim/JAXA-complier`, `yunskim/japchae`, `yunskim/jaxa-analyzer`를 현행 RustJ J Graph IR과 **여러 독립 관점으로 반복 대조**했다. 이번 감사는 (1) language/graph intent, (2) resource/Flow–Storage/static-memory, (3) basis/rewrite/equivalence, (4) frontend prototype, (5) superseded claim 역검토의 다섯 패스로 수행했다.
 
 | 과거 JAXA 개념 | 현행 RustJ 상태 | 판정 |
 |---|---|---|
@@ -7133,6 +7133,10 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
 | Graph basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
 | resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
+| basis access-pattern taxonomy | Graph Basis에 Elementwise/Reduce/StaticReindex/DynamicGather/Search/Structured/CellApply가 있으나 historical 후보의 WindowReduce/Windowing은 아직 없음. Scan은 Execution Basis에만 있고 Graph Basis에서는 열린 질문 | **부분 반영 — 보강 필요** |
+| symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행하나 resource expression은 None/Unknown/StructuralComposition/ReductionAccumulator 수준 | **부분 반영 — 역사 연구보다 표현력이 거침** |
+| resource-aware pruning soundness | checklist에는 있으나 local/global resource 구분, monotonicity/soundness proof requirement가 명문화되지 않았음 | **설계 보강 필요** |
+| Basis → Rewrite → Equivalence → Optimization 의존 순서 | 각 기능은 roadmap에 있으나 선행관계가 약하게 표현됨 | **설계 보강 필요** |
 | static-analyzable subset / validation boundary | `GraphAnalyzability`로 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback을 구분 | **초기 구현** |
 | jsource-style graph normalization(capped fork→atop, tine simplification) | 현 `j_graph_ir`에는 별도 normalization pass 없음 | **미구현/확인 필요** |
 | multi-device static partition | 없음 | future work |
@@ -7148,10 +7152,28 @@ v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
 
 남은 핵심 부족은 **symbolic resource composition evaluator와 target-aware partition**이다. 과거 analyzer의 `compose_pipeline`, `compose_reduction`, `compose_branch`, `compose_join`에 대응하는 policy identity는 생겼지만 실제 peak temporary/accumulator/traffic 식을 합성하는 pass는 아직 구현하지 않았다.
 
+#### 2026-10-01 반복 감사에서 추가로 확정한 JAXA 계승 원칙
+
+1. **Graph Basis의 historical lower bound는 arithmetic atom이 아니라 access pattern 계층이다.** Japchae D-24의 핵심은 너무 작은 scalar `+`/`*`로 분해해 algorithm/access identity를 잃지 말라는 것이다. RustJ의 Graph Basis는 이 원칙을 유지한다. `Conv` 같은 structured op를 Graph Basis에서 black box로 유지하는 결정과 Execution Basis에서 필요 시 분해하는 결정은 독립적이다.
+2. **Graph Basis vocabulary에는 windowing 계열이 필요하다.** historical 후보는 `map / reduce / window-reduce / static-reindex / dynamic-gather`이고 `scan`은 독립 패턴인지 열린 질문이었다. RustJ는 `WindowReduce` 또는 이에 동등한 graph-level window access identity를 추가해야 한다. ExecutionBasis::WindowView가 존재한다는 사실로 이 요구를 대체하지 않는다.
+3. **Basis 연구가 rewrite/equivalence보다 선행한다.** 작업 의존은 `Basis → Rewrite → Equivalence → Optimization`으로 둔다. 완전한 최소 basis 증명까지 기다릴 필요는 없지만, rewrite rule은 어떤 Graph Basis identity를 보존/변환하는지 명시해야 한다.
+4. **resource contract는 node별 고정 숫자도, 단순 enum 합도 아니다.** target-independent graph 층은 symbolic requirement/access/liveness/materialization 관계를 합성하고, schedule/target 이후 concrete register/shared/global resource를 계산한다. 현재 최소 `SymbolicResourceExpr`는 seam일 뿐 최종 모델이 아니다.
+5. **resource-aware pruning은 매우 후순위다.** basis/rewrite/equivalence가 먼저 서야 하며, pruning은 (a) 해당 resource bound가 부분 graph에서 local하게 결정 가능한지, (b) pruning predicate가 monotone하거나 그 밖의 soundness proof를 갖는지 확인된 경우에만 허용한다. 그렇지 않으면 후보 생성 후 cost/resource evaluation만 수행한다.
+6. **static memory claim은 logical determinability로 해석한다.** graph에서 extent/use/lifetime/storage obligation을 정적으로 알 수 있다는 주장은 유지하지만 physical offset/buffer/layout을 J Graph semantic fact로 올리지 않는다.
+7. **adjoint/VJP는 basis/rewrite보다 앞서지 않는다.** historical 연구도 복합 graph의 AD는 basis/graph expansion 위에서 자연스럽게 닫히는 문제로 보았다. 현재 `ParallelFanOut` schema는 유지하되 실제 AD transform은 Graph Basis와 rewrite/equivalence surface가 더 성숙한 뒤 진행한다.
+8. **frontend 역사 prototype은 current jsource보다 우선하지 않는다.** `JAXA-complier`의 tokenizer/enqueuer/parser Python prototype은 유용한 참고 구현이지만, name lookup timing과 parser behavior의 oracle은 current jsource `w.c/p.c/cf.c`다. 특히 전체 name 품사를 parser 전에 미리 확정하는 모델로 되돌아가지 않는다.
+9. **초기 JAXA의 강한 구현 주장은 그대로 계승하지 않는다.** `"RjP`, rank 변화=항상 fusion boundary, 모든 shape op=항상 zero-copy, parse-time complete graph, fixed physical offset, primitive 고정 register 숫자는 후기 연구 또는 current RustJ 계층 분리와 충돌하므로 superseded다.
+
+
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
 - [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
 - [x] `GraphBasis` / `GraphBasisKind`를 Execution basis 타입과 분리하고, derived rank/reduction처럼 outer→inner graph-basis composition을 보존하는 최소 seam을 추가했다.
+- [ ] Graph Basis access-pattern vocabulary에 WindowReduce/Windowing을 추가하고, J `\`/Cut/Window semantic structure에서 이를 유도한다. Scan은 독립 Graph Basis 원소인지 검토 결과를 명시한다.
+- [ ] `SymbolicResourceExpr`를 shape/extent/tile-independent logical 변수와 structural composition을 표현할 수 있는 symbolic expression/rule graph로 확장한다. concrete target 숫자는 넣지 않는다.
+- [ ] Pipeline/Reduction/Branch/Join resource composition에서 edge materialization traffic, retained lifetime, accumulator lifetime을 같은 symbolic value/liveness 모델로 합성한다.
+- [ ] Graph Basis → rewrite → equivalence → optimization의 dependency를 optimizer pass ordering과 rule registry API에 반영한다.
+- [ ] resource-aware pruning은 local-resource proof + monotonicity/soundness witness가 있는 rule에만 허용하도록 contract를 정의한다.
 - [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / Rank(`"`) / generic Modifier를 구분한다.
 - [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / CellParallelStructure를 기록한다.
 - [x] `GraphRuleRefs`로 shape/dtype/rank-cell/effect rule source와 resource rule의 StructuralComposition/Unknown을 명시한다.
