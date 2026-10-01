@@ -49,6 +49,9 @@ pub enum StructuralTopology<V> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructuralOpportunity<V> {
     pub source: OpportunitySource,
+    /// Originating J Graph region.  None is reserved for opportunities created
+    /// by execution-only analyses that have no J-syntax region source.
+    pub j_region_origin: Option<crate::j_graph_ir::RegionId>,
     pub span: Range<usize>,
     pub topology: StructuralTopology<V>,
 }
@@ -88,6 +91,7 @@ impl<V> StructuralOpportunity<V> {
         };
         StructuralOpportunity {
             source: self.source,
+            j_region_origin: self.j_region_origin,
             span: self.span,
             topology,
         }
