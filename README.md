@@ -41,6 +41,32 @@ execution
 
 RustJ's immediate goal remains **an accurate J compiler/runtime**. “SQL for neural networks” is therefore historical context for why Graph IR, rewrite, resource analysis, and planning are separated this way—not a claim that RustJ is already an NN framework or a general-purpose compiler platform.
 
+## Core array model — Logical Array vs Physical Array
+
+RustJ explicitly separates **logical array semantics** from **physical array representation**. This is a core architecture decision.
+
+```text
+Logical Array / J noun
+  dtype / J-visible type
+  shape
+  ordered logical atoms
+  boxed / sparse and other J-visible semantics
+
+        ≠
+
+Physical Array / Representation
+  buffer / storage
+  strides / offset
+  layout / tiling / alignment
+  memory space
+  CPU/GPU placement
+  sharding / transfer
+```
+
+A single logical value may therefore have multiple physical representations, while a logical intermediate does not necessarily require its own materialized buffer. Operations such as reshape, transpose, reverse, and slice keep their **logical meaning separate from whether a copy/materialization is chosen**.
+
+RustJ preserves J semantics first; downstream planning chooses representation, layout, buffers, and devices. See the **Logical vs Physical Array** sections in [PROJECT.md](PROJECT.md) and [FOUNDATIONS.md](FOUNDATIONS.md).
+
 ```text
 J Source
   ↓
