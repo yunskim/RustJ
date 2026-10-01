@@ -6,6 +6,7 @@ use rustj::{
         PruningMonotonicity, ResourceBoundLocality, RewriteInput, RewriteNodeSemantics,
         GRAPH_OPTIMIZATION_ORDER, RULES,
     },
+    j_graph_ir::SymbolicResourceExpr,
     primitive::PrimitiveId,
     semantic::FunctionHead,
 };
@@ -19,6 +20,44 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
     assert_eq!(analysis.graph_rewrites.len(), 1);
     let candidate = &analysis.graph_rewrites[0];
     candidate.verify(&analysis.j_graph).unwrap();
+
+    assert_eq!(analysis.graph_rewrite_resources.len(), 1);
+    let resources = &analysis.graph_rewrite_resources[0];
+    assert_eq!(resources.source_value, candidate.provenance.source_value);
+    assert!(
+        resources.source.has_unknown_state_requirement,
+        "Search implementation state is not modeled precisely yet"
+    );
+    assert!(
+        resources
+            .replacement
+            .internal_materialization_atoms
+            .has_unknown,
+        "candidate-local window extent must stay symbolic until rewrite facts exist"
+    );
+    assert!(
+        resources
+            .replacement
+            .elidable_internal_traffic_atoms
+            .has_unknown,
+        "virtualizable window traffic must remain an explicit unknown, not zero"
+    );
+    assert!(
+        resources
+            .replacement
+            .state_requirements
+            .contains(&SymbolicResourceExpr::WindowWorkingSet)
+    );
+    assert!(
+        resources
+            .replacement
+            .state_requirements
+            .contains(&SymbolicResourceExpr::StructuralComposition)
+    );
+    assert!(
+        !resources.early_pruning_allowed,
+        "resource evaluation must not bypass the rule's pruning proof contract"
+    );
 
     assert_eq!(candidate.rule, GraphRewriteRuleId::FindViaWindowMatch);
     assert_eq!(
