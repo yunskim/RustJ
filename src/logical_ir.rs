@@ -6,7 +6,7 @@
 
 use crate::{
     Value,
-    analysis::{self},
+    analysis,
     execution_semantics::{
         AccessFact, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation, Symbol,
         SymbolId,
@@ -738,10 +738,11 @@ impl Plan {
         Some(LogicalOpView { operation, result })
     }
 
-    /// Convert the current inspection plan into the A3-v0 op/value-separated
-    /// single-block representation.  The transition plan remains available as
-    /// the compatibility API while migration proceeds.
-    pub fn from_transition(transition: &analysis::LogicalPlan) -> Self {
+    /// Internal M1 migration seam from the legacy transition plan into the
+    /// canonical A3 op/value-separated representation. New compiler consumers
+    /// must not depend on this conversion; it disappears when direct J Graph
+    /// lowering lands.
+    pub(crate) fn from_transition(transition: &analysis::LogicalPlan) -> Self {
         let mut plan = Self {
             header: IrHeader::current(),
             source: transition.source.clone(),
