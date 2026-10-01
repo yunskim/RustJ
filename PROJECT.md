@@ -5711,7 +5711,7 @@ later로 둔 operation도 language semantics를 later까지 금지한다는 뜻�
 2026-10-01 현재 기존 src/analysis.rs::LogicalPlan은 compatibility/inspection plan으로 유지하고, 별도 src/logical_ir.rs에 A3-v0 single-block IR migration seam을 추가했다.
 
 transition plan 쪽:
-- Node.basis: 한 call을 추가 graph expansion 없이 직접 분류할 수 있을 때 provisional ExecutionBasisKind를 기록한다.
+- Node.basis: 한 call을 추가 graph expansion 없이 직접 분류하되, 단일 enum이 아니라 outer→inner `ExecutionBasis.layers`를 기록한다. 예: ranked reduction은 `[CellApply, Reduce]`를 보존한다.
 - ResolvedInstantiation: target/valence/input-output dtype·rank/requested rank boundary를 기록한다.
 - ValueRoleFacts: ShapeVector, IndexVector, CountVector, AxisPermutation 등 문맥상 role을 noun type과 분리한다.
 
@@ -5719,7 +5719,7 @@ A3 logical_ir 쪽:
 - Operation과 SSA ValueData를 분리하여 zero-result operation을 표현할 수 있다.
 - SemanticCheck는 실제 zero-result ordered op이며 PrefixAgreement, CellFrameAgreement, IndicesInBounds constraint를 우선 지원한다.
 - ConstraintSet과 FactWitness로 static proof가 있는 check와 unresolved check를 구분한다.
-- basis node는 family-specific ExecutionBasisPayload와 IterationDomain/axis role을 가진다.
+- basis node는 family-specific ExecutionBasisPayload와 IterationDomain/axis role을 가진다. 현재 A3의 `OpKind::Basis.kind`는 routing을 위한 outer execution basis이고, `CallOp.execution_basis`가 전체 outer→inner composition을 보존한다.
 - EffectSummary와 SpeculationSemantics는 conservative PrimitiveContract에서 초기화되며 이후 proof-driven refinement가 가능하다.
 - src/lowering.rs의 ExecutionBasisLoweringCapability registry는 legality만 판정하며 cost/preference와 분리된다.
 - native candidate가 없으면 RuntimeSemanticFallback으로 분류하며 invalid J로 취급하지 않는다.
