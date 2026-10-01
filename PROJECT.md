@@ -7101,7 +7101,7 @@ v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
 - [x] `GraphOperationContract`로 iteration/access/fusion 및 temporary/accumulator/scratchpad symbolic requirement의 최소 seam을 추가했다.
 - [x] graph-level use-def/common-input/live-range를 J Graph 및 `j_graph_memory`에서 계산한다.
 - [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
-- [ ] `ResourceCompositionRule` evaluator를 구현해 pipeline/reduction/branch/join의 symbolic peak temporary/accumulator/traffic 식을 합성한다.
+- [x] `j_graph_resource`에서 Pipeline/BranchJoin의 internal/elidable/retained/peak-live atom volume과 reduction accumulator requirement를 합성하는 최소 evaluator를 구현했다. Reduction/CellMap 단독-region 및 traffic 식은 계속 확장한다.
 - [ ] representation/schedule/TargetProfile을 결합해 graph-level logical memory 분석을 downstream `ResourceEstimate`로 연결한다.
 - [ ] basis verb의 algebraic rewrite/equivalence rule을 J Graph IR에 표현하고 후보 graph를 생성할 수 있게 한다.
 - [ ] graph candidate마다 semantic-equivalence witness/provenance를 유지한다.
@@ -7163,6 +7163,8 @@ ResourceEstimate / bufferization
 - 모든 logical value를 materialize한다고 가정한 `conservative_peak_materialized_bytes()` 제공
 
 이 conservative peak는 최종 resource estimate가 아니다. fusion/materialization selection 전의 upper-bound-like graph estimate이며, JAXA의 핵심인 **“graph에서 memory obligation을 정적으로 계산한다”**는 주장을 검증하기 위한 분석 결과다.
+
+현재 `j_graph_resource` 최소 evaluator는 region별 `internal_atoms`, `elidable_materialization_atoms`, `retained_live_atoms`, `peak_live_atoms`, `has_reduction_accumulator`, `has_unknown_resource_requirement`를 계산한다. 이것은 target-independent logical resource summary다.
 
 향후 `ResourceCompositionRule` evaluator는 다음 불변조건을 따른다.
 
