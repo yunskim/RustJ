@@ -432,7 +432,7 @@ fn diagnostic_parser_retains_span_without_changing_machine_error_api() {
 
 
 #[test]
-fn atop_is_preserved_as_a_semantic_composition_graph() {
+fn chained_conjunctions_preserve_jsource_left_to_right_association() {
     let p = semantic::parse("(|. @: , @: |.)").unwrap();
     let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
         panic!()
@@ -443,19 +443,35 @@ fn atop_is_preserved_as_a_semantic_composition_graph() {
         FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
     );
     let [
-        FunctionOperand::Function(outer),
-        FunctionOperand::Function(inner),
+        FunctionOperand::Function(left),
+        FunctionOperand::Function(right),
     ] = verb.entity.operands.as_slice()
     else {
-        panic!("atop should retain both function operands")
+        panic!("outer atop should retain both function operands")
     };
     assert_eq!(
-        outer.head,
+        left.head,
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop),
+        "J conjunctions associate left-to-right"
+    );
+    let [
+        FunctionOperand::Function(first),
+        FunctionOperand::Function(second),
+    ] = left.operands.as_slice()
+    else {
+        panic!("left-associated inner atop should retain both operands")
+    };
+    assert_eq!(
+        first.head,
         FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Reverse)
     );
     assert_eq!(
-        inner.head,
-        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
+        second.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Ravel)
+    );
+    assert_eq!(
+        right.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Reverse)
     );
 }
 
