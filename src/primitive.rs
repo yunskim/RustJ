@@ -93,6 +93,7 @@ pub enum PrimitiveSemanticId {
     Verb(PrimitiveId),
     Adverb(AdverbId),
     Conjunction(ConjunctionId),
+    Extension(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -136,6 +137,9 @@ impl PrimitiveHandle {
             PrimitiveSemanticId::Verb(_) => PrimitivePartOfSpeech::Verb,
             PrimitiveSemanticId::Adverb(_) => PrimitivePartOfSpeech::Adverb,
             PrimitiveSemanticId::Conjunction(_) => PrimitivePartOfSpeech::Conjunction,
+            PrimitiveSemanticId::Extension(_) => {
+                unreachable!("extension handles must declare their parser part of speech")
+            }
         };
         Self {
             semantic_id,
@@ -175,19 +179,26 @@ impl PrimitiveResolver {
         }
     }
 
-    pub fn resolve(&self, spelling: &str) -> Option<PrimitiveHandle> {
+    /// Resolve only spellings that are J core primitives at enqueue time.
+    ///
+    /// Alphabetic extension names must remain ordinary NAMEs. Their current
+    /// binding and part of speech are resolved by the parser/name environment.
+    pub fn resolve_core_for_enqueue(&self, spelling: &str) -> Option<PrimitiveHandle> {
         if let Some(id) = PrimitiveId::from_spelling(spelling) {
             return Some(PrimitiveHandle::core(PrimitiveSemanticId::Verb(id)));
         }
         if let Some(id) = AdverbId::from_spelling(spelling) {
             return Some(PrimitiveHandle::core(PrimitiveSemanticId::Adverb(id)));
         }
-        if let Some(id) = ConjunctionId::from_spelling(spelling) {
-            return Some(PrimitiveHandle::core(PrimitiveSemanticId::Conjunction(id)));
-        }
+        ConjunctionId::from_spelling(spelling)
+            .map(|id| PrimitiveHandle::core(PrimitiveSemanticId::Conjunction(id)))
+    }
+
+    /// Lookup for the parser/name-binding layer after a word has entered as NAME.
+    pub fn resolve_extension_binding(&self, name: &str) -> Option<PrimitiveHandle> {
         self.extensions
             .iter()
-            .find(|extension| extension.spelling == spelling)
+            .find(|extension| extension.spelling == name)
             .map(|extension| extension.handle)
     }
 }
@@ -208,7 +219,11 @@ impl PrimitiveContext {
         Self { resolver }
     }
 
-    pub fn resolve(&self, spelling: &str) -> Option<PrimitiveHandle> {
-        self.resolver.resolve(spelling)
+    pub fn resolve_core_for_enqueue(&self, spelling: &str) -> Option<PrimitiveHandle> {
+        self.resolver.resolve_core_for_enqueue(spelling)
+    }
+
+    pub fn resolve_extension_binding(&self, name: &str) -> Option<PrimitiveHandle> {
+        self.resolver.resolve_extension_binding(name)
     }
 }
