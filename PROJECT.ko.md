@@ -971,68 +971,39 @@ RustJ가 달리 구현해도 되는 것은 포인터 low-bit tagging, refcount, 
 
 ##### Enqueuer의 primitive-resolution hook
 
-jsource `jtenqueue`는 word spelling을 `spellin`으로 primitive id에 대응시킨 뒤 `ds(e)`로 canonical primitive object를 가져온다. RustJ는 이 지점을 다음처럼 일반화한다.
-
-```text
-Enqueued source word
-       ↓
-PrimitiveResolver::resolve(word, CompilePrimitiveContext)
-       │
-       ├─ Core J primitive catalog
-       │    // jsource spellin + ds equivalent
-       │
-       └─ Enabled extension primitive catalog
-            // NN/array/compiler extensions
-       ↓
-PrimitiveHandle {
-    semantic_id,
-    source_origin,
-    result_pos,
-    semantic_info,
-    lowering_key
-}
-```
-
-`PrimitiveHandle`의 **semantic 정보는 target-independent**다. `lowering_key`는 hardware metadata 자체가 아니라 이후 active `TargetContext`에서 implementation/capability를 찾기 위한 안정적인 key다.
-
-따라서 compile invocation 시작 시 두 가지를 함께 고정한다.
-
-```text
-CompilationSession
-  primitive_context:
-    core_j_revision
-    enabled_extension_sets
-    primitive_locale/path
-  target_context:
-    active_target_locale/path
-    architecture/device/runtime facts
-```
-
-Enqueuer는 `primitive_context`를 사용해 source word를 semantic primitive로 resolve하고, 이후 lowering은 **같은 session의 `target_context`**에서 그 primitive의 `lowering_key`를 조회한다. 이 때문에 original J primitive와 extension primitive가 동일한 target/hardware specification 체계를 사용한다.
+jsource `jtenqueue`는 symbol spelling primitive와 ordinary NAME을 구분한다. RustJ도 이 경계를 유지한다. **enqueue 단계에서 primitive로 고정되는 것은 core J primitive spelling뿐**이고, alphabetic extension 이름은 ordinary NAME + lookup metadata로 들어간다.
 
 ```text
 source "+"
-   ↓ enqueue PrimitiveResolver
-Core(Add) --------------------┐
+   ↓ enqueue core primitive resolution
+PrimitiveHandle(Core(Add))
+   ↓
+existing parser rows
 
 source "conv"
-   ↓ enqueue PrimitiveResolver│
-Extension(Conv) --------------+--> semantic_id / lowering_key
-                              │
-                              ↓
-                       active TargetContext
-                              ↓
-                    target-specific lowering
+   ↓ enqueue
+NAME("conv", lookup=true)
+   ↓ parser-time name lookup
+current binding / expected POS
+   ↓
+extension-derived semantic entity
 ```
+
+`PrimitiveHandle`의 semantic 정보는 target-independent다. built-in과 extension-derived computational entity는 parser/name-binding 이후 공통 semantic capability와 `lowering_key` 체계로 수렴할 수 있지만, **extension visibility나 현재 binding을 enqueue가 keyword처럼 고정하지 않는다.**
+
+따라서 compile invocation의 `PrimitiveContext`는 core primitive catalog와 extension binding catalog를 함께 가질 수 있어도 역할이 다르다.
+
+- enqueuer: core J spelling만 `resolve_core_for_enqueue`로 해석한다.
+- parser/name environment: ordinary NAME의 현재 binding을 lookup하고 extension entity/POS를 결정한다.
+- target lowering: semantic entity의 stable lowering key를 active `TargetContext`에서 조회한다.
 
 중요한 규칙:
 
 - Core J primitive의 spelling/POS/semantic contract는 jsource와 호환되어야 한다.
-- Extension primitive는 parser production을 추가하지 않는다. enqueue 결과가 Verb/Adverb/Conjunction/Noun 중 하나이면 기존 parser row에 그대로 참여한다.
-- extension primitive visibility는 compile primitive profile/locale이 결정한다.
-- target hardware 정보 자체는 primitive semantic entity에 복사하지 않는다.
+- Extension name은 parser keyword가 아니며 enqueue에서 Verb/Adverb/Conjunction으로 고정하지 않는다.
+- extension shadow/rebind는 ordinary J name semantics를 따른다.
+- target hardware 정보 자체는 semantic entity에 복사하지 않는다.
 - enqueuer에서 target-specific kernel을 선택하지 않는다.
-- semantic primitive handle의 `lowering_key`만 이후 target locale lookup에 사용한다.
 - portable extension은 target implementation이 없더라도 semantic resolution 자체는 가능하며, lowering 단계에서 unsupported/fallback을 판단할 수 있다.
 - 명시적으로 target-gated인 extension을 향후 지원하더라도 그 gating은 compile profile의 명시적 정책이어야 하며 core J semantics를 변경해서는 안 된다.
 
@@ -7201,17 +7172,17 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [x] `EnqueuedWord { class, payload, span, word_index, flags }`와 `EnqueueClass`/`EnqueueFlags`를 정의해 parser-facing class/payload/provenance를 명시적으로 분리했다.
 - [ ] enqueue의 classification order와 parser class/POS 결정 순서를 `jtenqueue`와 동일하게 유지한다. RustJ convenience lexer가 먼저 품사를 확정하지 않게 한다.
 - [ ] core J primitive lookup을 jsource `spellin -> ds`와 같은 위치와 precedence로 구현한다.
-- [ ] `PrimitiveResolver`가 core J primitive와 compile profile에서 enabled된 extension primitive를 동일 interface로 반환하게 한다.
-- [ ] `PrimitiveHandle { semantic_id, source_origin, result_pos, semantic_info, lowering_key }`를 정의한다.
+- [x] `PrimitiveResolver`/`PrimitiveContext`를 만들고 enqueue용 core primitive resolution과 parser/name-binding용 extension lookup을 분리했다.
+- [x] `PrimitiveHandle { semantic_id, source_origin, result_pos, semantic_info, lowering_key }`를 정의했다.
 - [ ] compile 시작 시 `PrimitiveContext`와 `TargetContext`를 함께 확정하되 enqueuer는 semantic primitive resolution에 `PrimitiveContext`만 사용한다.
 - [ ] built-in과 extension 모두 동일 `lowering_key -> active TargetContext` lookup protocol을 사용하게 한다.
-- [ ] primitive로 resolve되지 않은 valid extension-like spelling은 ordinary NAME classification으로 진행한다.
+- [x] extension-like spelling은 enabled extension catalog에 있어도 enqueue에서는 ordinary NAME + lookup metadata로 진행한다.
 - [ ] numeric/string construction, name validation, assignment/copula classification을 jsource `jtenqueue` 순서대로 이식한다.
 - [ ] ordinary NAME과 lookup NAME의 enqueue flags를 jsource와 같은 위치 규칙으로 구분한다.
 - [ ] assignment local/global/to-name semantic flags를 보존한다.
 - [ ] one-word sentence legality를 enqueue 단계에서 검사한다.
 - [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
-- [ ] extension primitive가 Verb/Adverb/Conjunction을 반환할 때 core primitive와 같은 parser row에 참여하는 테스트를 만든다.
+- [ ] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 parser row에 참여하는 테스트를 만든다.
 
 **F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
 
