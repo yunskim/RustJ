@@ -4,7 +4,7 @@
 //! the selected graph into explicit execution dataflow, facts, checks and basis
 //! identities. IDs are local to one plan, not runtime addresses.
 use crate::{
-    Error, Result, Value,
+    Error, Result,
     contracts::{self, Contract, Valence},
     facts::{ValueRole, ValueRoleFacts},
     j_graph_ir,
@@ -21,25 +21,9 @@ pub use crate::execution_semantics::{
     ResolvedInstantiation, Scope, Symbol, SymbolId,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ValueId(pub usize);
+pub use crate::compilation::CompilationAnalysis;
+pub use crate::transition_ir::{LogicalPlan, Node, Operation, ValueId, VerifyError, Write};
 
-#[derive(Clone, Debug)]
-pub enum Operation {
-    Literal(Value),
-    /// Snapshot requirement: value must belong to this observed name version.
-    ReadNoun {
-        symbol: SymbolId,
-        version: NameVersion,
-    },
-    VerbReference(Callable),
-    Call {
-        callable: Callable,
-        left: Option<ValueId>,
-        right: ValueId,
-        contract: Contract,
-    },
-}
 fn primitive_execution_basis(
     id: crate::primitive::PrimitiveId,
     valence: Valence,
@@ -198,70 +182,6 @@ fn result_roles(operation: &Operation) -> ValueRoleFacts {
     }
     roles
 }
-
-#[derive(Clone, Debug)]
-pub struct Node {
-    pub operation: Operation,
-    /// Originating applied J-graph node. One J combinator application may
-    /// expand to multiple execution-oriented logical operations.
-    pub j_origin: Option<j_graph_ir::ValueId>,
-    pub facts: crate::facts::Facts,
-    pub rank_plan: Option<crate::facts::RankPlan>,
-    /// Outer-to-inner execution-basis structure. This may retain nested
-    /// CellApply/Reduce/etc. identity even when the transition IR keeps one
-    /// structured call rather than inventing a multi-node expansion.
-    pub basis: ExecutionBasis,
-    pub instantiation: Option<ResolvedInstantiation>,
-    /// Roles describe how this value is used/produced, not a new J noun type.
-    pub roles: ValueRoleFacts,
-    /// Missing access knowledge is explicit and is an optimization barrier,
-    /// never by itself a J semantic error.
-    pub access: AccessFact,
-    pub span: Range<usize>,
-    /// Conservative order edge for potential errors, reads and effects.
-    pub order_after: Option<ValueId>,
-}
-#[derive(Clone, Debug)]
-pub struct Write {
-    pub symbol: SymbolId,
-    pub value: ValueId,
-    pub previous: Option<NameVersion>,
-    pub proposed: NameVersion,
-    pub span: Range<usize>,
-    /// Commit only after evaluation and its ordered operations succeed.
-    pub after: Option<ValueId>,
-}
-#[derive(Clone, Debug)]
-pub struct LogicalPlan {
-    pub source: String,
-    pub symbols: Vec<Symbol>,
-    pub nodes: Vec<Node>,
-    pub j_graph_node_count: usize,
-    pub j_graph_region_count: usize,
-    /// J syntax/derived semantics exposes topology before generic DAG analysis.
-    /// These are target-independent optimization opportunities, not legality proofs.
-    pub opportunities: Vec<StructuralOpportunity<ValueId>>,
-    pub result: Option<ValueId>,
-    pub write: Option<Write>,
-}
-
-pub use crate::compilation::CompilationAnalysis;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerifyError {
-    pub node: Option<ValueId>,
-    pub message: String,
-}
-impl std::fmt::Display for VerifyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(node) = self.node {
-            write!(f, "logical IR verification failed at value {}: {}", node.0, self.message)
-        } else {
-            write!(f, "logical IR verification failed: {}", self.message)
-        }
-    }
-}
-impl std::error::Error for VerifyError {}
 
 impl LogicalPlan {
     pub fn verify(&self) -> std::result::Result<(), VerifyError> {
