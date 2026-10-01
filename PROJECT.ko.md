@@ -7220,14 +7220,14 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### P1 — parser stack model과 semantic value model 분리
 
-- [ ] parser의 **class/control 정보**와 parser가 운반하는 **J semantic value/entity**를 별도 타입으로 나눈다.
-- [ ] parsing class를 `Noun | Verb | Adverb | Conjunction | Name(assign target only) | Assignment | LParen | RParen | Mark` 수준으로 표현한다.
-- [ ] ordinary non-assignment NAME을 일반 stack `Name` item으로 오래 유지하지 않고 jsource처럼 stack class 판정 전에 현재 binding으로 resolve한다.
-- [ ] Noun과 FunctionEntity를 억지로 하나의 Rust enum representation으로 합치지 않되 parser가 둘의 J parsing class를 동일 방식으로 조회할 수 있게 한다.
-- [ ] source primitive와 completed derived entity가 동일한 Verb/Adverb/Conjunction parser interface를 사용하게 한다.
-- [ ] `FunctionEntity.result_pos`를 completed function entity의 parser POS 근거로 사용한다.
-- [ ] assignment-target name/control token과 ordinary semantic NameRef를 구분한다.
-- [ ] source span/error-token provenance를 reduction 결과에 보존한다.
+- [x] parser class/control(`EnqueueClass`/`ParseClass`)과 semantic payload/entity(`EnqueuedPayload`/`ParseValue`/`FunctionEntity`)를 별도 타입으로 분리했다.
+- [x] `ParseClass`가 `Noun | Verb | Adverb | Conjunction | Name | Assignment | LParen | RParen | Mark`를 명시적으로 표현한다.
+- [x] ordinary lookup NAME은 stack item 생성 전에 `ParserNameBinding`으로 현재 noun/function POS를 resolve하며, unresolved ordinary name만 jsource식 late verb nameref로 남긴다.
+- [x] Noun과 `FunctionEntity`는 별도 representation을 유지하면서 `Item/ParseClass`에서 동일한 parser class interface로 참여한다.
+- [x] source primitive, named modifier, completed derived entity가 모두 `FunctionEntity.result_pos -> ParseClass` 경로로 parser에 참여한다.
+- [x] `FunctionEntity.result_pos`를 completed function entity의 parser POS 근거로 사용한다.
+- [x] enqueue lookup/to-name flags와 parser assignment path로 assignment-target NAME을 ordinary semantic `NameRef`와 분리했다.
+- [x] `EnqueuedWord`의 byte span/word index를 parser 진입까지 보존하고 completed Expr/FunctionEntity reduction span 및 진단 blame provenance로 전달한다.
 
 **P1 완료 조건:** parser control state와 J semantic entity가 분리되어 있으며 ordinary names, assignment names, nouns, verbs/modifiers를 jsource class rules대로 stack에 올릴 수 있다.
 
