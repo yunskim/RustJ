@@ -938,3 +938,15 @@ Design work is authored in Korean canonical files first. English mirrors are upd
 If a discrepancy exists, the Korean canonical file is authoritative.
 
 Code identifiers, comments, doc comments, test names, diagnostics, and commit messages remain English unless a specific case requires otherwise.
+
+
+---
+
+## License policy
+
+RustJ follows the same dual-license structure as current `jsource`:
+
+- a separate commercial license from the applicable RustJ copyright holder(s), when granted; **or**
+- GNU General Public License version 3, `GPL-3.0-only`.
+
+`LICENSE` is the governing dual-license notice and `COPYING` contains the full GNU GPL v3 text. Cargo metadata keeps `license = "GPL-3.0-only"` for the public open-source option. Do not change it back to `GPL-3.0-or-later`.
