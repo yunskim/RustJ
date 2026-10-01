@@ -174,7 +174,6 @@ fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
     };
     let id = *id;
     let span = left.span.start..operator.span.end;
-    let reduce = matches!(id, crate::primitive::AdverbId::Insert);
     Ok(Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
@@ -184,7 +183,6 @@ fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
             span,
             vec![FunctionOperand::Function(left.entity)],
         ),
-
     })
 }
 
