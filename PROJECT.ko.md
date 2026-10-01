@@ -7066,11 +7066,13 @@ backend / executor
 
 목표: `logical_ir::Plan`을 유일한 canonical execution IR로 만들고 `analysis::LogicalPlan` 과도기 계층을 제거한다.
 
-- [ ] `ExecutionBasisKind`, `ExecutionBasis`, `AccessFact`, resolved-call facts처럼 계속 필요한 execution-semantic contract를 `analysis.rs`의 과도기 plan 타입과 분리한다.
+- [x] `ExecutionBasisKind`, `ExecutionBasis`, `AccessFact`, `AccessRelation`, `CallTarget/Callable`, `ResolvedInstantiation`, symbol/scope처럼 계속 필요한 target-independent execution-semantic contract를 `execution_semantics.rs`로 분리했다. `analysis` re-export는 compatibility만 담당한다.
 - [ ] J Graph IR에서 `logical_ir::Plan`으로 **직접** lowering하는 경로를 만든다.
 - [ ] `logical_ir::Plan::from_transition(&analysis::LogicalPlan)`을 제거할 수 있도록 모든 필수 fact/check/order/provenance 생성 책임을 direct lowering으로 이동한다.
 - [ ] `Engine::analyze_a3` 계열을 canonical Logical IR 생성 API로 만들고, compiler-facing API가 더 이상 구형 LogicalPlan을 정상 경로로 반환하지 않게 한다.
 - [ ] `CompilationAnalysis`는 `j_graph + rewrite candidates/resource evaluation + canonical logical plan`을 묶는 analysis result로 재정의한다.
+  - [x] canonical A3 `logical: logical_ir::Plan`을 추가하고 `Engine::analyze_a3`, route/expansion test consumers를 이 필드로 전환했다.
+  - [ ] compatibility `execution: analysis::LogicalPlan` field를 제거한다.
 - [ ] `analysis::LogicalPlan`, 구형 `analysis::ValueId/Node/Write` 및 중복 verifier를 제거한다.
 - [ ] A3 verifier/reference executor/lowering tests를 direct-lowering 경로로 전환한다.
 - [ ] Graph origin, source span, name/version, semantic checks, effect/error order가 cutover 전후 동일함을 regression test로 고정한다.
