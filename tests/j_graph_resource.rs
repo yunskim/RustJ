@@ -19,7 +19,7 @@ fn pipeline_resource_composition_counts_internal_and_elidable_atoms() {
     assert_eq!(region.retained_live_atoms.known, 0);
     assert!(!region.has_reduction_accumulator);
     assert!(!region.has_unknown_resource_requirement);
-    assert!(region.peak_live_atoms.known >= 3);
+    assert!(region.graph_order_peak_live_atoms.known >= 3);
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn fork_resource_composition_exposes_retained_input_and_reduction_state() {
 
     // The original four-atom input remains logically live across branch work.
     assert_eq!(region.retained_live_atoms.known, 4);
-    assert!(region.peak_live_atoms.known >= 4);
+    assert!(region.graph_order_peak_live_atoms.known >= 4);
 
     // +/ branch exposes a symbolic accumulator requirement before a concrete
     // target decides register/shared-memory realization.
