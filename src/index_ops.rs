@@ -58,7 +58,7 @@ pub(crate) fn indices(y: Value) -> Result<Value> {
     Value::ints([n], out)
 }
 
-fn atom_eq(a: &Value, ai: usize, b: &Value, bi: usize) -> bool {
+pub(crate) fn atom_eq(a: &Value, ai: usize, b: &Value, bi: usize) -> bool {
     match (&a.data, &b.data) {
         (Data::Char(x), Data::Char(y)) => x[ai] == y[bi],
         (Data::Char(_), _) | (_, Data::Char(_)) => false,
