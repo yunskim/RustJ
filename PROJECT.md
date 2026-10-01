@@ -7157,14 +7157,14 @@ ResourceEstimate / bufferization
 
 - `src/j_graph_memory.rs`의 `StaticMemoryAnalysis`
 - `LogicalExtent { shape, atoms, dtype }`
-- `LiveRange { defined_at, last_use }`
+- `GraphOrderLiveRange { defined_at, last_use }`
 - `PipelineIntermediate`, `RetainedAcrossBranch`, `BranchIntermediate`, `VirtualView` materialization opportunity
 - explicit `AtomRepresentation`을 제공할 때만 byte size 평가
-- 모든 logical value를 materialize한다고 가정한 `conservative_peak_materialized_bytes()` 제공
+- 모든 logical value를 materialize한다고 가정한 `graph_order_peak_materialized_bytes()` 제공
 
 이 conservative peak는 최종 resource estimate가 아니다. fusion/materialization selection 전의 upper-bound-like graph estimate이며, JAXA의 핵심인 **“graph에서 memory obligation을 정적으로 계산한다”**는 주장을 검증하기 위한 분석 결과다.
 
-현재 `j_graph_resource` 최소 evaluator는 region별 `internal_atoms`, `elidable_materialization_atoms`, `retained_live_atoms`, `peak_live_atoms`, `has_reduction_accumulator`, `has_unknown_resource_requirement`를 계산한다. 이것은 target-independent logical resource summary다.
+현재 `j_graph_resource` 최소 evaluator는 region별 `internal_atoms`, `elidable_materialization_atoms`, `retained_live_atoms`, `graph_order_peak_live_atoms`, `has_reduction_accumulator`, `has_unknown_resource_requirement`를 계산한다. 이것은 target-independent logical resource summary다.
 
 향후 `ResourceCompositionRule` evaluator는 다음 불변조건을 따른다.
 
