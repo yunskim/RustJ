@@ -77,7 +77,26 @@ pub(crate) struct SemanticFacts {
 
 impl SemanticFacts {
     pub(crate) fn of(value: &Value) -> Self {
-        Self::from(&Facts::of(value))
+        if let crate::Data::Sparse(v) = value.data() {
+            return Self {
+                dtype: Self::of(v.fill()).dtype,
+                shape: Some(value.shape().to_vec()),
+                rank: Some(value.shape().len()),
+            };
+        }
+        let dtype = match value.data() {
+            crate::Data::Bool(_) => DType::Bool,
+            crate::Data::Int(_) => DType::Int,
+            crate::Data::Float(_) => DType::Float,
+            crate::Data::Char(_) => DType::Char,
+            crate::Data::Boxed(_) => DType::Boxed,
+            crate::Data::Sparse(_) => unreachable!(),
+        };
+        Self {
+            dtype: TypeFact::Exact(dtype),
+            shape: Some(value.shape().to_vec()),
+            rank: Some(value.shape().len()),
+        }
     }
 }
 
@@ -531,10 +550,11 @@ fn infer_ranked_semantic_projection(
     } else {
         (None, None)
     };
-    let Some(mut frame) = match &lf {
+    let result_frame = match &lf {
         Some(lf) => agreement(lf, &rf),
         None => Some(rf.clone()),
-    } else {
+    };
+    let Some(mut frame) = result_frame else {
         return SemanticFacts::default();
     };
     if frame.contains(&0) {
