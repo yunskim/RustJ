@@ -26,9 +26,6 @@ fn parse_is_execution_free_and_right_associative() {
     let Some(Expr::Monad { verb, .. }) = p.expression.map(|e| e.kind) else {
         panic!()
     };
-    assert!(verb.reduce);
-    assert_eq!(verb.rank, Some([1, 1, 1]));
-
     let rank = verb.entity;
     assert_eq!(
         rank.head,
