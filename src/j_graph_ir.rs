@@ -508,7 +508,13 @@ fn graph_basis(
             let (inner_form, _) = classify_function(operand);
             layers.extend(graph_basis(operand, valence, &inner_form).layers);
         }
-        GraphForm::Reduce { .. } => layers.push(Reduce),
+        GraphForm::Reduce { operand } => {
+            layers.push(Reduce);
+            let (inner_form, _) = classify_function(operand);
+            if matches!(inner_form, GraphForm::Rank { .. } | GraphForm::Reduce { .. }) {
+                layers.extend(graph_basis(operand, Valence::Dyad, &inner_form).layers);
+            }
+        },
         GraphForm::Atomic => {
             let FunctionHead::PrimitiveVerb(id) = &function.head else {
                 return GraphBasis { layers };
