@@ -347,3 +347,48 @@ fn incremental_a3_projection_keeps_roles_discovered_by_later_consumers() {
     plan.verify().unwrap();
 }
 
+
+
+#[test]
+fn direct_a3_lowering_preserves_graph_provenance_versions_and_check_order() {
+    let source = "a=:1 2+1 2 3";
+    let engine = Engine::new();
+    let graph = engine.analyze_j_graph(source).unwrap();
+    let plan = engine.analyze_a3(source).unwrap();
+    plan.verify().unwrap();
+
+    assert_eq!(plan.source, graph.source);
+    assert_eq!(plan.j_graph_node_count, graph.nodes.len());
+    assert_eq!(plan.j_graph_region_count, graph.regions.len());
+
+    for operation in &plan.operations {
+        if let Some(origin) = operation.j_origin {
+            assert_eq!(
+                operation.span,
+                graph.nodes[origin.0].span,
+                "A3 operation span must come from its J Graph origin"
+            );
+        }
+    }
+
+    let graph_write = graph.write.as_ref().expect("graph write");
+    let logical_write = plan.write.as_ref().expect("logical write");
+    assert_eq!(logical_write.previous, graph_write.previous);
+    assert_eq!(logical_write.proposed, graph_write.proposed);
+    assert_eq!(logical_write.span, graph_write.span);
+    assert_eq!(plan.symbols[logical_write.symbol.0].name, graph_write.name);
+
+    let check_id = plan
+        .operations
+        .iter()
+        .position(|operation| matches!(operation.kind, OpKind::SemanticCheck(_)))
+        .expect("prefix agreement check");
+    let result = plan.result.expect("result");
+    let producer = plan.values[result.0].producer;
+    assert_eq!(
+        plan.operations[producer.0].order_after,
+        Some(rustj::logical_ir::OpId(check_id)),
+        "observable semantic check must remain ordered before the value-producing call"
+    );
+    assert_eq!(logical_write.after, Some(producer));
+}
