@@ -128,17 +128,17 @@ fn analysis_separates_element_type_from_sparse_layout() {
     use rustj::facts::LayoutFact;
     let mut e = Engine::new();
     e.eval("s=:$.0 2 0 4").unwrap();
-    let plan = e.analyze("s").unwrap();
-    let facts = &plan.nodes[plan.result.unwrap().0].facts;
+    let plan = e.analyze_a3("s").unwrap();
+    let facts = &plan.values[plan.result.unwrap().0].facts;
     assert_eq!(facts.dtype, TypeFact::Exact(DType::Int));
     assert_eq!(facts.layout, LayoutFact::AxisSparse);
-    let plan = e.analyze("$.1 2 3").unwrap();
-    let facts = &plan.nodes[plan.result.unwrap().0].facts;
+    let plan = e.analyze_a3("$.1 2 3").unwrap();
+    let facts = &plan.values[plan.result.unwrap().0].facts;
     assert_eq!(facts.layout, LayoutFact::AxisSparse);
     assert_eq!(facts.shape, Some(vec![3]));
-    let plan = e.analyze("$.42").unwrap();
+    let plan = e.analyze_a3("$.42").unwrap();
     assert_eq!(
-        plan.nodes[plan.result.unwrap().0].facts.layout,
+        plan.values[plan.result.unwrap().0].facts.layout,
         LayoutFact::Dense
     );
 }
