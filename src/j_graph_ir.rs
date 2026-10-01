@@ -717,6 +717,13 @@ impl Plan {
         crate::j_graph_memory::analyze(self)
     }
 
+    pub fn symbolic_resource_analysis(
+        &self,
+    ) -> crate::j_graph_resource::GraphResourceSummary {
+        let memory = self.static_memory_analysis();
+        crate::j_graph_resource::analyze(self, &memory)
+    }
+
     pub fn use_counts(&self) -> Vec<usize> {
         let mut counts = vec![0usize; self.nodes.len()];
         for node in &self.nodes {
