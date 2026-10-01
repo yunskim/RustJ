@@ -461,7 +461,7 @@ fn is_edge_or_avn(class: ParseClass) -> bool {
 /// row eligibility.
 fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
     use ParseClass::*;
-    let [a, b, c, _d] = classes;
+    let [a, b, c, d] = classes;
     [
         (
             ParseRow::MonadEdge,
@@ -469,11 +469,11 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
         ),
         (
             ParseRow::MonadVVN,
-            is_edge_or_avn(a) && b == Verb && c == Verb,
+            is_edge_or_avn(a) && b == Verb && c == Verb && d == Noun,
         ),
         (
             ParseRow::DyadNVN,
-            is_edge_or_avn(a) && b == Noun && c == Verb,
+            is_edge_or_avn(a) && b == Noun && c == Verb && d == Noun,
         ),
         (
             ParseRow::Adverb,
@@ -481,11 +481,14 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
         ),
         (
             ParseRow::Conjunction,
-            is_edge_or_avn(a) && matches!(b, Verb | Noun) && c == Conjunction,
+            is_edge_or_avn(a)
+                && matches!(b, Verb | Noun)
+                && c == Conjunction
+                && matches!(d, Verb | Noun),
         ),
         (
             ParseRow::Fork,
-            is_edge_or_avn(a) && matches!(b, Verb | Noun) && c == Verb,
+            is_edge_or_avn(a) && matches!(b, Verb | Noun) && c == Verb && d == Verb,
         ),
         (
             ParseRow::Hook,
