@@ -1183,4 +1183,27 @@ mod parser_table_tests {
             Some(ParseRow::Conjunction)
         );
     }
+
+    #[test]
+    fn explicit_stack_window_carries_mark_and_control_classes() {
+        let stack = vec![
+            super::Item::mark(7),
+            super::Item::control(
+                Assignment,
+                super::ParseControl::Assignment,
+                7..9,
+            ),
+            super::Item::control(LParen, super::ParseControl::LParen, 9..10),
+            super::Item::control(RParen, super::ParseControl::RParen, 10..11),
+        ];
+        assert_eq!(
+            super::stack_window(&stack),
+            [Mark, Assignment, LParen, RParen]
+        );
+        let super::ParseValue::Control { kind, span } = &stack[1].value else {
+            panic!("assignment should be a control item");
+        };
+        assert_eq!(*kind, super::ParseControl::Assignment);
+        assert_eq!(span, &(7..9));
+    }
 }
