@@ -12,6 +12,7 @@ use std::collections::HashMap;
 pub struct Engine {
     names: HashMap<String, Binding>,
     pool: crate::pool::OutputPool,
+    primitives: crate::primitive::PrimitiveContext,
 }
 
 enum SymbolValue {
@@ -61,6 +62,7 @@ impl Engine {
         Self {
             names: HashMap::new(),
             pool: crate::pool::OutputPool::new(bytes),
+            primitives: crate::primitive::PrimitiveContext::core(),
         }
     }
     /// Retained payload capacity in bytes and cumulative reuse count.
@@ -75,6 +77,33 @@ impl Engine {
     pub fn new() -> Self {
         Self::default()
     }
+    /// Create an Engine with a compile-profile primitive context.
+    ///
+    /// Extension names still enter enqueue as ordinary NAMEs; this context is
+    /// consulted only during parser-time name lookup after user bindings.
+    pub fn with_primitive_context(primitives: crate::primitive::PrimitiveContext) -> Self {
+        Self {
+            names: HashMap::new(),
+            pool: crate::pool::OutputPool::new(64 * 1024 * 1024),
+            primitives,
+        }
+    }
+
+    fn parser_name_binding(&self, name: &str) -> Option<crate::semantic::ParserNameBinding> {
+        if let Some(binding) = self.names.get(name) {
+            return Some(match &binding.value {
+                SymbolValue::Noun(value) => crate::semantic::ParserNameBinding::Noun(value.clone()),
+                SymbolValue::Verb(_) => crate::semantic::ParserNameBinding::Function(
+                    crate::semantic::FunctionPartOfSpeech::Verb,
+                ),
+            });
+        }
+        self.primitives
+            .resolve_extension_binding(name)
+            .map(|handle| {
+                crate::semantic::ParserNameBinding::Function(handle.result_pos.into())
+            })
+    }
     /// Inspect bindings without execution or mutation. Versions are Engine-local.
     /// Stable machine API: diagnostic wrappers are stripped before return.
     pub fn prepare_semantic(&self, source: &str) -> Result<crate::semantic::BoundProgram> {
@@ -87,12 +116,7 @@ impl Engine {
         source: &str,
     ) -> Result<crate::semantic::BoundProgram> {
         crate::semantic::bind(
-            crate::semantic::parse_analysis(source, &|name| match &self.names.get(name)?.value {
-                SymbolValue::Noun(value) => Some(crate::semantic::ParserNameBinding::Noun(value.clone())),
-                SymbolValue::Verb(_) => Some(crate::semantic::ParserNameBinding::Function(
-                    crate::semantic::FunctionPartOfSpeech::Verb,
-                )),
-            })?,
+            crate::semantic::parse_analysis(source, &|name| self.parser_name_binding(name))?,
             |name| self.binding_version(name),
         )
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
@@ -234,12 +258,7 @@ impl Engine {
 
     fn eval_program(&mut self, source: &str, pooled: bool) -> Result<Option<Value>> {
         let program =
-            crate::semantic::parse_runtime(source, &|name| match &self.names.get(name)?.value {
-                SymbolValue::Noun(value) => Some(crate::semantic::ParserNameBinding::Noun(value.clone())),
-                SymbolValue::Verb(_) => Some(crate::semantic::ParserNameBinding::Function(
-                    crate::semantic::FunctionPartOfSpeech::Verb,
-                )),
-            })?;
+            crate::semantic::parse_runtime(source, &|name| self.parser_name_binding(name))?;
         let Some(expr) = program.expression else {
             return Ok(None);
         };
