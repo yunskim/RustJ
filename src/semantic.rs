@@ -193,8 +193,8 @@ fn apply_conjunction(
     right: Item,
 ) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
-    let primitive_id = match operator.head {
-        FunctionHead::PrimitiveConjunction(id) => Some(id),
+    let primitive_id = match &operator.head {
+        FunctionHead::PrimitiveConjunction(id) => Some(*id),
         _ => None,
     };
     let mut operands = vec![FunctionOperand::Function(left.entity)];
