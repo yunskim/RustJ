@@ -7110,7 +7110,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
-> **현재 위상:** `j_graph_ir` v0.3는 **explicit applied-operation graph + combinator region + 초기 access-pattern basis/resource composition** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts, use-count, analyzability, symbolic operation/resource contract가 존재한다. 다만 일반 symbolic resource expression, target-aware feasibility, rewrite/equivalence, fusion partition 계산은 아직 후속이다.
+> **현재 위상:** `j_graph_ir` v0.3는 **explicit applied-operation graph + access-pattern basis + witnessed rewrite/resource analysis** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts/use-count/analyzability와 `ResourceExprGraph`, witnessed rewrite candidate, conservative source-vs-replacement resource evaluation, existing `LoweringRegistry + TargetCapabilities`에 대한 target-only feasibility bridge가 존재한다. 아직 없는 것은 full rewrite-specific shape algebra, executable WindowView lowering, fusion-candidate별 lifetime extension, resolved TargetProfile/ResourceEstimate/CostProfile, 실제 candidate selection/partition이다.
 
 #### A1.5.1 과거 JAXA 역대조 감사
 
@@ -7153,7 +7153,7 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 3. stage별 `Facts`, `GraphOperationContract`, `GraphAnalyzability`, use-count를 graph에서 질의할 수 있다.
 4. `j_graph_memory`가 logical extent, graph-order live range, pipeline/branch/view materialization opportunity를 계산한다.
 
-남은 핵심 부족은 **symbolic resource composition evaluator와 target-aware partition**이다. 과거 analyzer의 `compose_pipeline`, `compose_reduction`, `compose_branch`, `compose_join`에 대응하는 policy identity는 생겼지만 실제 peak temporary/accumulator/traffic 식을 합성하는 pass는 아직 구현하지 않았다.
+남은 핵심 부족은 **rewrite candidate를 실제 executable lowering/schedule/target resource model로 연결하는 단계**다. Graph 쪽에서는 `ResourceExprGraph`로 internal/elidable traffic, retained/peak-live, temporary/accumulator/window-state requirement와 canonical state lifetime을 표현하고, rewrite candidate도 동일 logical-atom/symbolic-state domain에서 비교한다. 다음 경계는 rewrite-specific facts의 확대, WindowView 등 execution lowering capability, fusion 선택에 따른 lifetime extension, resolved TargetProfile 기반 ResourceEstimate/CostEstimate, 그리고 그 뒤의 candidate selection/partition이다.
 
 #### 2026-10-01 반복 감사에서 추가로 확정한 JAXA 계승 원칙
 
