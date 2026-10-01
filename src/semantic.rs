@@ -173,16 +173,13 @@ fn make_verb_train(mut verbs: Vec<Verb>) -> Result<Verb> {
 }
 
 fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
-    let FunctionHead::PrimitiveAdverb(id) = &operator.head else {
-        return Err(Error::Unsupported("named/derived adverb application".into()));
-    };
-    let id = *id;
+    debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
     let span = left.span.start..operator.span.end;
     Ok(Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
         entity: FunctionEntity::derived(
-            FunctionHead::PrimitiveAdverb(id),
+            operator.head.clone(),
             FunctionPartOfSpeech::Verb,
             span,
             vec![FunctionOperand::Function(left.entity)],
@@ -195,16 +192,17 @@ fn apply_conjunction(
     operator: Arc<FunctionEntity>,
     right: Item,
 ) -> Result<Verb> {
-    let FunctionHead::PrimitiveConjunction(id) = &operator.head else {
-        return Err(Error::Unsupported("named/derived conjunction application".into()));
+    debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
+    let primitive_id = match operator.head {
+        FunctionHead::PrimitiveConjunction(id) => Some(id),
+        _ => None,
     };
-    let id = *id;
     let mut operands = vec![FunctionOperand::Function(left.entity)];
     let right_end;
     let Item { class, value: right } = right;
     match (class, right) {
         (ParseClass::Noun, ParseValue::Noun(expr, _)) => {
-            if matches!(id, crate::primitive::ConjunctionId::Atop) {
+            if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Atop)) {
                 return Err(Error::Syntax("atop requires a verb right operand".into()));
             }
             right_end = expr.span.end;
@@ -224,7 +222,7 @@ fn apply_conjunction(
                     ))
                 }
             };
-            if matches!(id, crate::primitive::ConjunctionId::Rank) {
+            if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Rank)) {
                 if value.is_empty() || value.len() > 3 {
                     return Err(Error::Length);
                 }
@@ -248,7 +246,7 @@ fn apply_conjunction(
         span: span.clone(),
         target: VerbTarget::Derived,
         entity: FunctionEntity::derived(
-            FunctionHead::PrimitiveConjunction(id),
+            operator.head.clone(),
             FunctionPartOfSpeech::Verb,
             span,
             operands,
