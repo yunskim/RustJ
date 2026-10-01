@@ -2299,7 +2299,7 @@ RustJ에서 GPU compiler의 필요성을 평가할 때 “arithmetic throughput�
 
 ## 48. 이 문서를 언제 갱신해야 하는가
 
-다음 중 하나라도 바뀌면 FOUNDATIONS.md를 검토한다.
+다음 중 하나라도 바뀌면 FOUNDATIONS.ko.md를 검토한다.
 
 1. RustJ가 full J semantics 목표를 포기하거나 수정할 때
 2. interpreter/runtime fallback의 역할이 바뀔 때
