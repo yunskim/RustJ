@@ -4672,10 +4672,13 @@ MaterializationDecision
   RegisterResident
   WorkingStateResident
   Bufferize(memory_space)
+  Rematerialize(recompute_source_or_region)
   ExternalResource
 ```
 
 따라서 Logical IR에서 `Materialize`를 일반적인 실행 op처럼 남발하지 않는다. explicit checkpoint처럼 **J/RustJ semantics 자체가 저장을 요구하는 경우**에만 semantic storage op/requirement가 존재한다.
+
+`Rematerialize`는 semantic value를 삭제하는 것이 아니라 **동일 value를 필요 시 다시 계산하는 physical/schedule 선택**이다. 따라서 checkpoint requirement와 rematerialization decision을 분리한다. explicit checkpoint가 있으면 저장 의무가 생길 수 있지만, ordinary ephemeral value는 planner가 `Bufferize`와 `Rematerialize` 사이를 resource/cost 모델로 선택할 수 있다. 이 선택의 legality는 purity/effect/error-order/name-binding/state dependency를 증명해야 하며 단순히 계산량이 작다는 이유로 재계산하지 않는다.
 
 persistent state는 primitive 내부 hidden state로 숨기지 않는다. scalar state도 J 의미상 rank-0 array로 취급한다.
 
@@ -7129,7 +7132,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | fusion partition 산출 | candidate/opportunity까지만 있고 partition/feasibility 계산 없음 | **미구현** |
 | reshape/flatten/transpose를 virtual view로 취급 | Ravel/Reverse/Transpose에 `VirtualIndexingCandidate`를 J Graph에서 기록 | **초기 구현** |
 | Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
-| checkpoint/rematerialization/reversible recovery | 문서 설계는 있으나 J Graph/Planner 구현은 없음 | 연구/후속 |
+| checkpoint/rematerialization/reversible recovery | `StorageRequirement::ExplicitCheckpoint`와 logical/physical 분리는 설계됨. physical `Rematerialize` decision은 이번 반복 감사에서 명시적 planning option으로 보강했으나 구현은 없음 | **부분 반영 — 후속** |
 | adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
 | Graph basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
 | resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
