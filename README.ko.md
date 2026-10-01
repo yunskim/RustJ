@@ -1,3 +1,5 @@
+[English](README.md) | **한국어 — 정본(canonical)**
+
 # RustJ — J 배열 컴파일러
 
 RustJ는 J의 언어·배열 의미론을 보존하면서 CPU와 GPU를 동등한 실행 대상으로 삼는 Rust 기반 배열 컴파일러를 목표로 합니다.
@@ -25,9 +27,9 @@ Route Partition
   └─ region(s): verified library/custom-kernel route
 ```
 
-**상세 아키텍처, compiler stage 경계, IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.md](PROJECT.md)입니다.**
+**상세 아키텍처, compiler stage 경계, IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.ko.md](PROJECT.ko.md)입니다.**
 
-**왜 RustJ가 compiler-oriented architecture를 택하면서도 J semantics를 그대로 보존해야 하는지에 대한 설계 근거와 회귀 판정 기준은 [FOUNDATIONS.md](FOUNDATIONS.md)입니다. frontend·Semantic IR·interpreter/JIT/AOT 경계·rank/CellApply·target architecture를 바꾸기 전 반드시 검토합니다.**
+**왜 RustJ가 compiler-oriented architecture를 택하면서도 J semantics를 그대로 보존해야 하는지에 대한 설계 근거와 회귀 판정 기준은 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)입니다. frontend·Semantic IR·interpreter/JIT/AOT 경계·rank/CellApply·target architecture를 바꾸기 전 반드시 검토합니다.**
 
 ## 설계 연구 기반
 
@@ -54,7 +56,7 @@ Pure/effect region partition
 ParameterizedLoweringRecipe
 ```
 
-각 연구 compiler의 static-rank/static-scope/no-execute/pure-subset 제한은 RustJ language restriction이 아니라 **특정 compiler route의 precondition**으로만 취급합니다. 상세 근거와 거부 항목은 [FOUNDATIONS.md](FOUNDATIONS.md) Part XX, 구현 계약과 체크리스트는 [PROJECT.md](PROJECT.md) 4.24.3–4.24.10/A2/A3를 따릅니다.
+각 연구 compiler의 static-rank/static-scope/no-execute/pure-subset 제한은 RustJ language restriction이 아니라 **특정 compiler route의 precondition**으로만 취급합니다. 상세 근거와 거부 항목은 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md) Part XX, 구현 계약과 체크리스트는 [PROJECT.ko.md](PROJECT.ko.md) 4.24.3–4.24.10/A2/A3를 따릅니다.
 
 ## 현재 상태
 
@@ -129,15 +131,15 @@ cargo test
 cargo test --features portable
 ```
 
-추가 conformance·성능·메모리 검증 원칙은 [PROJECT.md](PROJECT.md)의 검증 절을 따릅니다.
+추가 conformance·성능·메모리 검증 원칙은 [PROJECT.ko.md](PROJECT.ko.md)의 검증 절을 따릅니다.
 
 ## 문서 정책
 
-사람이 유지하는 설계·계획·진행 Markdown 문서를 임의로 더 늘리지 않습니다. `FOUNDATIONS.md`는 사용자가 명시적으로 요청한 **설계 헌법/근거 문서**로서 예외이며, roadmap/checklist를 중복하지 않습니다.
+사람이 유지하는 설계·계획·진행 Markdown 문서를 임의로 더 늘리지 않습니다. `FOUNDATIONS.ko.md`는 사용자가 명시적으로 요청한 **설계 헌법/근거 문서**로서 예외이며, roadmap/checklist를 중복하지 않습니다.
 
-- 설계 근거와 회귀 판정 기준: `FOUNDATIONS.md`
-- 프로젝트 아키텍처·계획·체크리스트의 권위 문서: `PROJECT.md`
-- 사용 진입점: `README.md`
+- 설계 근거와 회귀 판정 기준: `FOUNDATIONS.ko.md`
+- 프로젝트 아키텍처·계획·체크리스트의 권위 문서: `PROJECT.ko.md`
+- 사용 진입점: `README.ko.md`
 - 실측/기계 원자료: `reports/*.json`, `reports/*.jsonl`
 
 과거 개별 Markdown 보고서의 세부 이력은 Git history에서 확인합니다.
@@ -145,4 +147,4 @@ cargo test --features portable
 
 ## 과거 설계 저장소
 
-과거 `JAXA`, `JAXA-complier`, `japchae`, `jaxa-analyzer`에 흩어져 있던 primitive vocabulary, resource model, materialized-array/Flow–Storage, analyzer 설계는 2026-09-30 기준으로 `PROJECT.md`에 통합했습니다. 앞으로 새 설계 결정은 RustJ의 `PROJECT.md`에 직접 기록합니다.
+과거 `JAXA`, `JAXA-complier`, `japchae`, `jaxa-analyzer`에 흩어져 있던 primitive vocabulary, resource model, materialized-array/Flow–Storage, analyzer 설계는 2026-09-30 기준으로 `PROJECT.ko.md`에 통합했습니다. 앞으로 새 설계 결정은 RustJ의 `PROJECT.ko.md`에 직접 기록합니다.
