@@ -215,8 +215,11 @@ fn interpret_word<'a>(
     if word.as_bytes()[0].is_ascii_alphabetic()
         && word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
     {
-        if word.contains('_') {
-            return Err(Error::Unsupported("locatives and underscore names".into()));
+        // jsource vnm accepts ordinary underscores inside simple names.
+        // Trailing '_' and '__' introduce direct/indirect locatives, which are
+        // a separate name-resolution feature not implemented by this frontend.
+        if word.ends_with('_') || word.contains("__") {
+            return Err(Error::Unsupported("J locative names".into()));
         }
         return Ok((
             EnqueueClass::Name,
