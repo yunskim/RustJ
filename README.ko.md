@@ -41,6 +41,32 @@ resource / cost를 고려한 계획
 
 현재 RustJ의 직접 목표는 여전히 **J를 정확하게 구현하는 compiler/runtime**입니다. “NN의 SQL”은 현재 제품 범위나 구현 완료를 뜻하는 표현이 아니라, Graph IR·rewrite·resource model·planner를 왜 이런 식으로 나누는지를 설명하는 역사적 배경이자 설계 방향입니다.
 
+## 핵심 배열 모델 — Logical Array와 Physical Array
+
+RustJ는 배열을 **논리 계층과 물리 계층으로 분리**합니다. 이 구분은 핵심 아키텍처 결정입니다.
+
+```text
+Logical Array / J noun
+  dtype / J-visible type
+  shape
+  ordered logical atoms
+  boxed / sparse 등 J-visible semantics
+
+        ≠
+
+Physical Array / Representation
+  buffer/storage
+  strides / offset
+  layout / tiling / alignment
+  memory space
+  CPU/GPU placement
+  sharding / transfer
+```
+
+따라서 하나의 logical value가 여러 physical representation을 가질 수 있고, logical intermediate가 존재해도 반드시 별도 buffer를 가져야 하는 것은 아닙니다. reshape/transpose/reverse 같은 연산도 **논리적 의미와 실제 copy/materialization 여부를 분리**합니다.
+
+RustJ는 J 의미를 먼저 보존한 뒤, downstream planner가 representation·layout·buffer·device를 선택합니다. 상세 결정은 [PROJECT.ko.md](PROJECT.ko.md)의 **“논리 배열과 물리 배열”** 절과 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)의 관련 불변조건을 따릅니다.
+
 ```text
 J Source
   ↓
