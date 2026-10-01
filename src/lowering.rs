@@ -5,6 +5,7 @@
 //! to later planning stages.
 
 use crate::{
+    Error, Value,
     analysis::{AccessFact, AccessRelation, CompilationAnalysis, ExecutionBasisKind},
     logical_ir::{ExecutionBasisPayload, CallOp, IterationDomain, OpKind, Operation, Plan},
 };
@@ -615,6 +616,37 @@ impl LoweringRegistry {
                 }
             })
             .collect()
+    }
+
+
+    /// Execute the v0 whole-rewrite reference realization registered for a
+    /// candidate. This is a validation/bootstrap route, not a cost-based
+    /// selection policy and not a standalone WindowView kernel API.
+    pub fn execute_reference_rewrite(
+        &self,
+        analysis: &CompilationAnalysis,
+        plan: &Plan,
+        candidate_index: usize,
+        target: &TargetCapabilities,
+        source_values: &[Option<Value>],
+    ) -> crate::Result<Value> {
+        let candidate = analysis
+            .graph_rewrites
+            .get(candidate_index)
+            .ok_or_else(|| Error::Index)?;
+        let feasibility = self.rewrite_candidate_target_feasibility(candidate, target);
+        if !feasibility
+            .composite_candidates
+            .contains(&RealizationFamily::ReferenceRewriteComposite)
+        {
+            return Err(Error::Unsupported(
+                "reference rewrite composite is not legal for this target".into(),
+            ));
+        }
+
+        let expansion = crate::expansion::for_graph_rewrite(plan, candidate)
+            .map_err(|message| Error::Unsupported(message.into()))?;
+        crate::expansion::execute_reference(&expansion, source_values)
     }
 
     /// Return all legal candidates.  This function intentionally does not rank
