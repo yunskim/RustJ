@@ -1157,6 +1157,45 @@ M6  Add verified external routes such as ArrayFire/MLIR/StableHLO;
 
 The ordering is intentional. Do not grow the optimizer or GPU backend while duplicate canonical IRs and frontend semantic uncertainty remain.
 
+## 17.0 Module ownership baseline
+
+M0 is complete. The intended dependency direction is:
+
+```text
+frontend
+  ↓
+semantic FunctionEntity
+  ↓
+J Graph IR
+  ↓
+execution-semantic contracts
+  ↓
+logical_ir::Plan
+  ↓
+route / schedule
+  ↓
+physical plan / representation
+  ↓
+backend / executor
+```
+
+Current transitional seams are explicitly temporary:
+
+- `logical_ir.rs ← analysis::LogicalPlan`
+- `lowering.rs ← analysis::{ExecutionBasisKind, CompilationAnalysis, ...}`
+
+M1 removes these seams. New functionality must not deepen them.
+
+Key ownership rules:
+
+- parser/FunctionEntity owns J semantic construction, not target decisions;
+- J Graph owns graph algebra and rewrite/resource analysis, not physical layout;
+- Logical IR owns executable semantic dataflow/check/effect/error contracts, not buffers or devices;
+- route/schedule/planner owns realization decisions;
+- physical representation owns buffer/layout/device details;
+- backend kernels do not define semantic legality;
+- interpreter/reference-runtime flattening is not a canonical compiler model.
+
 ## 17.1 M1 completion gate
 
 M1 is complete only when:
