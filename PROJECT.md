@@ -7128,7 +7128,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | pipeline/reduction/branch/join별 resource composition | Region은 Pipeline/BranchJoin, Apply node는 Reduction/Window/CellMap/Structural composition identity를 직접 기록. `j_graph_resource`가 node/region identity를 노출하나 full symbolic evaluator는 후속 | **부분 반영** |
 | intermediate edge materialization/traffic 분석 | `j_graph_memory`가 pipeline/branch/view materialization opportunity와 logical extent를 계산. traffic/selected materialization plan은 후속 | **초기 구현** |
 | register/live-value pressure 분석 | J Graph use-def/live-range를 계산하고 branch `live_across`가 join까지 lifetime을 확장. register pressure로의 target mapping은 후속 | **초기 구현** |
-| target profile과 graph resource demand 결합 | downstream TargetProfile/ResourceEstimate 설계는 있으나 J Graph와 연결 안 됨 | **부분 반영** |
+| target profile과 graph resource demand 결합 | full TargetProfile/ResourceEstimate는 후속. 다만 Graph rewrite basis를 existing `LoweringRegistry + TargetCapabilities`에 투영하는 target-only feasibility query를 추가해 `Supported / RequiresCallFacts / Unsupported`를 구분한다 | **초기 연결** |
 | fusion partition 산출 | candidate/opportunity까지만 있고 partition/feasibility 계산 없음 | **미구현** |
 | reshape/flatten/transpose를 virtual view로 취급 | Ravel/Reverse/Transpose에 `VirtualIndexingCandidate`를 J Graph에서 기록 | **초기 구현** |
 | Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
@@ -7192,12 +7192,12 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [x] graph-level use-def/common-input/live-range를 J Graph 및 `j_graph_memory`에서 계산한다.
 - [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
 - [x] `j_graph_resource`에서 Pipeline/BranchJoin의 internal/elidable/retained/peak-live atom volume과 reduction accumulator requirement를 합성하는 최소 evaluator를 구현했다. Reduction/CellMap 단독-region 및 traffic 식은 계속 확장한다.
-- [ ] representation/schedule/TargetProfile을 결합해 graph-level logical memory 분석을 downstream `ResourceEstimate`로 연결한다.
+- [ ] graph rewrite에 대해서는 existing `TargetCapabilities`/`LoweringRegistry`와의 초기 feasibility bridge를 추가했다. representation/schedule/full TargetProfile을 결합한 downstream `ResourceEstimate`는 여전히 후속이다.
 - [x] 최소 graph rewrite registry/candidate sidecar를 추가하고 첫 rule로 `E.` Search → Window+CellApply(Match) 후보를 J Dictionary equivalence witness와 함께 생성한다. 일반 rule set 확장은 계속 필요하다.
 - [x] graph candidate마다 source ValueId/span/basis provenance와 registered semantic-equivalence witness를 유지하고 verifier가 stale provenance/rule mismatch를 거부한다.
 - [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
 - [ ] name-bound derived verb의 graph summary를 binding version + SpecializationKey로 interprocedurally 전파한다.
-- [ ] graph rewrite candidate를 source/replacement의 동일 logical-atom + symbolic-state resource domain에서 평가하는 `RewriteResourceEvaluation`을 추가했다. unknown implementation resource가 있으면 metric ordering을 `Incomparable`로 유지하고 pruning contract를 우회하지 않는다. 남은 일은 rewrite-specific shape/resource facts를 더 풍부하게 만들고 Physical Planner의 target feasibility/cost와 연결하는 것이다.
+- [ ] graph rewrite candidate를 source/replacement의 동일 logical-atom + symbolic-state resource domain에서 평가하고 rewrite-local GraphFacts를 보존한다. existing `LoweringRegistry + TargetCapabilities`로 replacement GraphBasis를 execution basis에 투영해 target-only feasibility도 질의한다. unknown cost는 `Incomparable`, call-dependent legality는 `RequiresCallFacts`로 남긴다. 남은 일은 WindowView 등 실제 lowering capability, full TargetProfile/ResourceEstimate/CostProfile과 연결하는 것이다.
 
 **완료 조건:** 대표 J expressions(`@:`, Hook, Fork, Reduce, Rank, 이후 Window/Contract/Key/Power)가 generic execution DAG를 만들기 전에 J Graph IR에서 구조적으로 식별되고, graph optimizer가 source reparsing이나 execution-DAG pattern recovery 없이 fusion/lifetime/parallel/rewrite 후보를 만들 수 있다.
 
