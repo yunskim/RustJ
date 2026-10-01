@@ -7110,7 +7110,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
-> **현재 위상:** `j_graph_ir` v0.2는 **explicit applied-operation graph + combinator region** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고 stage별 Facts, use-count, analyzability, symbolic operation/resource contract가 존재한다. 다만 target-aware symbolic resource composition과 fusion partition 계산은 아직 후속이다.
+> **현재 위상:** `j_graph_ir` v0.3는 **explicit applied-operation graph + combinator region + 초기 access-pattern basis/resource composition** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts, use-count, analyzability, symbolic operation/resource contract가 존재한다. 다만 일반 symbolic resource expression, target-aware feasibility, rewrite/equivalence, fusion partition 계산은 아직 후속이다.
 
 #### A1.5.1 과거 JAXA 역대조 감사
 
@@ -7146,7 +7146,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **핵심 판정:** 현재 IR은 JAXA의 가장 중요한 **“표기에서 graph topology를 직접 얻는다”**는 주장을 복구했다. 그러나 과거 연구에서 `Array Operation IR`이라는 말은 topology만이 아니라 **shape/flow/fusion/resource 분석을 수행할 수 있는 stage-level operation graph**를 의미했다. 현행 v0.1은 아직 그 수준까지 가지 않았다.
 
-v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
+v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access family, graph-only fact domain 경계, node-level Reduction/Window/CellMap resource composition을 추가했다.
 
 1. `@:` stage, Hook/Fork branch/join은 이제 실제 J Graph `ValueId` node/edge다.
 2. 원래 J combinator identity는 `Region(Pipeline/Hook/Fork)`으로 별도 보존한다.
