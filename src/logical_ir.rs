@@ -763,6 +763,7 @@ impl PlanBuilder {
         self.last_ordered
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn push_value(
         &mut self,
         kind: OpKind,
