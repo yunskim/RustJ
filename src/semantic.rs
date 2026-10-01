@@ -658,7 +658,12 @@ fn expression(
             }
             EnqueuedPayload::Verb(_) | EnqueuedPayload::Name(_) => {
                 if let EnqueuedPayload::Name(n) = &tokens[*pos].payload {
-                    debug_assert!(tokens[*pos].flags.lookup_name);
+                    if !tokens[*pos].flags.lookup_name {
+                        return Err(
+                            Error::Syntax("assignment-target name in expression".into())
+                                .at(tokens[*pos].span.clone()),
+                        );
+                    }
                     match lookup.and_then(|lookup| lookup(n)) {
                         Some(ParserNameBinding::Noun(value)) => {
                             let kind = if snapshot {
