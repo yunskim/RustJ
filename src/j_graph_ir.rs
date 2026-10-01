@@ -324,7 +324,7 @@ fn function_operands(function: &FunctionEntity) -> Vec<Arc<FunctionEntity>> {
 
 fn flatten_atop(function: &Arc<FunctionEntity>, out: &mut Vec<Arc<FunctionEntity>>) {
     if matches!(
-        function.head,
+        &function.head,
         FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
     ) {
         if let [
@@ -434,10 +434,10 @@ fn base_operation_contract(
             ..GraphOperationContract::default()
         },
         GraphForm::Atomic => {
-            let FunctionHead::PrimitiveVerb(id) = function.head else {
+            let FunctionHead::PrimitiveVerb(id) = &function.head else {
                 return GraphOperationContract::default();
             };
-            match contracts::for_primitive(id, valence).class {
+            match contracts::for_primitive(*id, valence).class {
                 OperationClass::Map => GraphOperationContract {
                     iteration: IterationContract::Elementwise,
                     access: AccessContract::CorrespondingElements,
@@ -493,7 +493,7 @@ fn apply_hints(
         crate::primitive::PrimitiveId::Ravel
         | crate::primitive::PrimitiveId::Reverse
         | crate::primitive::PrimitiveId::Transpose,
-    ) = function.head
+    ) = &function.head
     {
         hints.push(GraphHint::VirtualIndexingCandidate);
     }
@@ -597,7 +597,7 @@ fn analyzability_for(
     facts: &Facts,
     contract: &GraphOperationContract,
 ) -> GraphAnalyzability {
-    if matches!(function.head, FunctionHead::NameRef(_)) {
+    if matches!(&function.head, FunctionHead::NameRef(_)) {
         return GraphAnalyzability::RequiresSpecialization;
     }
     if facts.shape.is_none()
