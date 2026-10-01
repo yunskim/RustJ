@@ -54,9 +54,10 @@ pub struct RegionResourceSummary {
     pub elidable_materialization_atoms: KnownAtoms,
     /// Values which must remain live across sibling/region work.
     pub retained_live_atoms: KnownAtoms,
-    /// Peak logical atoms simultaneously live inside the region under graph
-    /// ordering, independent of concrete register/shared/global placement.
-    pub peak_live_atoms: KnownAtoms,
+    /// Peak logical atoms simultaneously live in canonical J-graph evaluation
+    /// order. This is not schedule-independent; physical planning recomputes
+    /// liveness after any legal reordering/fusion.
+    pub graph_order_peak_live_atoms: KnownAtoms,
     /// Whether any child operation carries an accumulator requirement.
     pub has_reduction_accumulator: bool,
     /// Whether symbolic resource details remain unknown.
@@ -80,7 +81,7 @@ fn node_contract(plan: &Plan, value: ValueId) -> Option<&GraphOperationContract>
     }
 }
 
-fn region_peak_live_atoms(
+fn region_graph_order_peak_live_atoms(
     memory: &StaticMemoryAnalysis,
     values: impl IntoIterator<Item = ValueId>,
 ) -> KnownAtoms {
@@ -218,7 +219,7 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 internal_atoms,
                 elidable_materialization_atoms: elidable,
                 retained_live_atoms: retained,
-                peak_live_atoms: region_peak_live_atoms(memory, live_values),
+                graph_order_peak_live_atoms: region_graph_order_peak_live_atoms(memory, live_values),
                 has_reduction_accumulator: has_accumulator,
                 has_unknown_resource_requirement: has_unknown_resource,
             }
