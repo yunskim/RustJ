@@ -167,8 +167,12 @@ fn prefix_infix_exposes_window_graph_basis_without_collapsing_inner_reduction() 
     assert_eq!(contract.access, AccessContract::WindowRelative);
     assert_eq!(contract.fusion_structure, FusionStructure::WindowAware);
     assert_eq!(
+        contract.accumulator,
+        SymbolicResourceExpr::ReductionAccumulator
+    );
+    assert_eq!(
         contract.working_state,
-        SymbolicResourceExpr::StructuralComposition
+        SymbolicResourceExpr::WindowWorkingSet
     );
 
     // Scan is intentionally not asserted as a separate Graph Basis yet.
