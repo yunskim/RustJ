@@ -6,6 +6,7 @@ mod index_ops;
 
 pub mod analysis;
 pub mod bit_storage;
+pub mod compilation;
 pub mod contracts;
 pub mod error;
 pub mod execution_semantics;
