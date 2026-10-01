@@ -8308,3 +8308,15 @@ Source
 - hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하지 않는다.
 - 외부 IR을 쓰기 쉽도록 RustJ Logical IR을 외부 IR의 표현력에 맞춰 축소하지 않는다.
 - optimization을 쉽게 하려고 semantic storage/effect/error ordering을 physical schedule 정보와 섞지 않는다.
+
+
+---
+
+## 라이선스 정책
+
+RustJ는 current `jsource`와 동일한 dual-license 구조를 사용한다.
+
+- 별도의 상용 라이선스를 RustJ의 해당 저작권자로부터 부여받은 경우 그 상용 라이선스 조건을 적용한다.
+- 그 외에는 GNU General Public License version 3, 즉 `GPL-3.0-only` 조건을 적용한다.
+
+`LICENSE`가 dual-license 고지의 기준이고, `COPYING`은 GNU GPL v3 전문을 보존한다. Cargo의 `license` 메타데이터는 공개 오픈소스 선택지를 나타내기 위해 `GPL-3.0-only`로 유지한다. `GPL-3.0-or-later`로 변경하지 않는다.
