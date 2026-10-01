@@ -134,6 +134,7 @@ impl Engine {
         source: &str,
     ) -> Result<crate::analysis::CompilationAnalysis> {
         let j_graph = self.analyze_j_graph_diagnostic(source)?;
+        let graph_rewrites = j_graph.rewrite_candidates();
         let execution = crate::analysis::lower_graph(j_graph.clone(), &|name| match self
             .names
             .get(name)
@@ -143,7 +144,11 @@ impl Engine {
             _ => crate::facts::Facts::default(),
         })
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))?;
-        Ok(crate::analysis::CompilationAnalysis { j_graph, execution })
+        Ok(crate::analysis::CompilationAnalysis {
+            j_graph,
+            graph_rewrites,
+            execution,
+        })
     }
 
     /// Backward-compatible projection of analyze_compilation() returning only
