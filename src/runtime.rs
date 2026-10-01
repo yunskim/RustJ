@@ -141,7 +141,7 @@ impl Engine {
                     Error::Unsupported(message.into())
                         .in_phase(DiagnosticPhase::SemanticAnalysis)
                 })?;
-        let execution = crate::analysis::lower_graph(j_graph.clone(), &|name| match self
+        let lowered = crate::analysis::lower_graph_both(j_graph.clone(), &|name| match self
             .names
             .get(name)
             .map(|b| &b.value)
@@ -150,16 +150,12 @@ impl Engine {
             _ => crate::facts::Facts::default(),
         })
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))?;
-        let logical = crate::logical_ir::Plan::from_transition(&execution);
-        logical
-            .verify()
-            .map_err(|error| Error::Unsupported(error.to_string()).in_phase(DiagnosticPhase::SemanticAnalysis))?;
         Ok(crate::compilation::CompilationAnalysis {
             j_graph,
             graph_rewrites,
             graph_rewrite_resources,
-            transition: execution,
-            logical,
+            transition: lowered.transition,
+            logical: lowered.logical,
         })
     }
 
