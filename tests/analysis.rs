@@ -625,7 +625,7 @@ fn verifier_checks_basis_metadata_consistency() {
 }
 
 #[test]
-fn J_syntax_records_structural_optimization_opportunities() {
+fn j_syntax_records_structural_optimization_opportunities() {
     use rustj::opportunity::{OpportunitySource, StructuralTopology};
 
     let e = Engine::new();
