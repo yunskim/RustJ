@@ -44,6 +44,8 @@ pub struct Callable {
     /// Shared semantic function graph; lowering may inspect this without
     /// reparsing source or recursively copying a large derived function.
     pub semantic: Arc<FunctionEntity>,
+    /// Transitional execution fields retained for the current runtime subset.
+    /// Semantic analysis must not use these flattened flags as its source of truth.
     pub reduce: bool,
     pub rank: Option<[i64; 3]>,
 }
@@ -206,6 +208,35 @@ fn append_execution_basis(
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::Hook
         | FunctionHead::Fork => {}
+    }
+}
+
+fn outer_rank_boundary(function: &FunctionEntity) -> Option<[i64; 3]> {
+    if !matches!(
+        function.head,
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+    ) {
+        return None;
+    }
+    let [
+        FunctionOperand::Function(_),
+        FunctionOperand::Noun { value, .. },
+    ] = function.operands.as_slice()
+    else {
+        return None;
+    };
+    if value.is_empty() || value.len() > 3 {
+        return None;
+    }
+    let at = |i| value.int_at(i).ok();
+    match value.len() {
+        1 => {
+            let r = at(0)?;
+            Some([r, r, r])
+        }
+        2 => Some([at(1)?, at(0)?, at(1)?]),
+        3 => Some([at(0)?, at(1)?, at(2)?]),
+        _ => None,
     }
 }
 
@@ -795,16 +826,11 @@ impl Builder<'_> {
                 left,
                 right,
                 ..
-            } => match callable.target {
-                CallTarget::Primitive(id) => crate::facts::infer_call(
-                    id,
-                    callable.reduce,
-                    callable.rank,
-                    left.map(|id| &self.nodes[id.0].facts),
-                    &self.nodes[right.0].facts,
-                ),
-                _ => (crate::facts::Facts::default(), None),
-            },
+            } => crate::facts::infer_semantic_call(
+                &callable.semantic,
+                left.map(|id| &self.nodes[id.0].facts),
+                &self.nodes[right.0].facts,
+            ),
             _ => (crate::facts::Facts::default(), None),
         };
         let basis = execution_basis(&operation);
@@ -859,7 +885,7 @@ impl Builder<'_> {
             right_rank: right_facts.rank,
             result_dtype: result.dtype,
             result_rank: result.rank,
-            rank_boundary: callable.rank,
+            rank_boundary: outer_rank_boundary(&callable.semantic),
         })
     }
 
@@ -922,10 +948,10 @@ impl Builder<'_> {
                     Valence::Monad
                 };
                 // Base primitive contracts do not prove properties of derived verbs.
-                let contract = match callable.target {
-                    CallTarget::Primitive(id) if !callable.reduce && callable.rank.is_none() => {
-                        contracts::for_primitive(id, valence)
-                    }
+                // Inspect semantic identity directly so modifier nesting is not
+                // accidentally flattened into reduce/rank flags.
+                let contract = match &callable.semantic.head {
+                    FunctionHead::PrimitiveVerb(id) => contracts::for_primitive(*id, valence),
                     _ => contracts::lookup("", valence),
                 };
                 Ok(self.push(
