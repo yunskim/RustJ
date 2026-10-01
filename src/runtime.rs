@@ -150,11 +150,16 @@ impl Engine {
             _ => crate::facts::Facts::default(),
         })
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))?;
+        let logical = crate::logical_ir::Plan::from_transition(&execution);
+        logical
+            .verify()
+            .map_err(|error| Error::Unsupported(error.to_string()).in_phase(DiagnosticPhase::SemanticAnalysis))?;
         Ok(crate::analysis::CompilationAnalysis {
             j_graph,
             graph_rewrites,
             graph_rewrite_resources,
             execution,
+            logical,
         })
     }
 
@@ -164,14 +169,10 @@ impl Engine {
         self.analyze_compilation(source).map(|analysis| analysis.execution)
     }
 
-    /// Build the A3-v0 operation/value-separated single-block logical IR.
-    /// This is still inspection-only and does not execute kernels.
+    /// Build the canonical A3-v0 operation/value-separated logical IR.
+    /// This is inspection-only and does not execute kernels.
     pub fn analyze_a3(&self, source: &str) -> Result<crate::logical_ir::Plan> {
-        let transition = self.analyze(source)?;
-        let plan = crate::logical_ir::Plan::from_transition(&transition);
-        plan.verify()
-            .map_err(|error| Error::Unsupported(error.to_string()))?;
-        Ok(plan)
+        self.analyze_compilation(source).map(|analysis| analysis.logical)
     }
 
     /// Compiler-facing analysis path retaining the same structured diagnostic
