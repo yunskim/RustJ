@@ -1040,7 +1040,7 @@ impl Plan {
             }
         }
 
-        if let Some(result) = self.result {        if let Some(result) = self.result {
+        if let Some(result) = self.result {
             if result.0 >= self.nodes.len() {
                 return Err("result is out of bounds".into());
             }
