@@ -944,9 +944,18 @@ Code identifiers, comments, doc comments, test names, diagnostics, and commit me
 
 ## License policy
 
-RustJ follows the same dual-license structure as current `jsource`:
+RustJ's public open-source distribution path is GNU General Public License version 3, `GPL-3.0-only`.
 
-- a separate commercial license from the applicable RustJ copyright holder(s), when granted; **or**
-- GNU General Public License version 3, `GPL-3.0-only`.
+RustJ also preserves a separate commercial-licensing path in the same general direction as current `jsource`. A commercial RustJ license may be granted only to the extent that the applicable RustJ copyright holder(s) actually possess the rights needed to relicense the relevant material.
 
-`LICENSE` is the governing dual-license notice and `COPYING` contains the full GNU GPL v3 text. Cargo metadata keeps `license = "GPL-3.0-only"` for the public open-source option. Do not change it back to `GPL-3.0-or-later`.
+Where commercial use or distribution of RustJ depends on code or other rights derived from J SOURCE, the necessary Jsoftware commercial J SOURCE license and other upstream rights must also be obtained and complied with. RustJ's `LICENSE` does not itself grant Jsoftware-owned commercial rights.
+
+Current policy:
+
+- public RustJ distribution without the necessary Jsoftware commercial rights: `GPL-3.0-only`
+- where the necessary Jsoftware commercial rights and RustJ-side rights are both available: a separate RustJ commercial license may be offered
+- external Contributions must grant the project the rights in `CLA.ko.md` / `CLA.md` needed for GPL distribution and separate commercial relicensing
+- the CLA does not transfer contributor copyright to the project
+- the CLA does not expand any rights owned by Jsoftware or another third party
+
+`LICENSE` is the governing notice and `COPYING` contains the full GNU GPL v3 text. Cargo metadata remains `license = "GPL-3.0-only"` for the public open-source option. Do not change it back to `GPL-3.0-or-later`.
