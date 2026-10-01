@@ -28,19 +28,21 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
         resources.source.has_unknown_state_requirement,
         "Search implementation state is not modeled precisely yet"
     );
-    assert!(
-        resources
-            .replacement
-            .internal_materialization_atoms
-            .has_unknown,
-        "candidate-local window extent must stay symbolic until rewrite facts exist"
+    assert_eq!(
+        resources.replacement.internal_materialization_atoms.known,
+        18
     );
-    assert!(
-        resources
-            .replacement
-            .elidable_internal_traffic_atoms
-            .has_unknown,
-        "virtualizable window traffic must remain an explicit unknown, not zero"
+    assert!(!resources
+        .replacement
+        .internal_materialization_atoms
+        .has_unknown);
+    assert_eq!(
+        resources.replacement.unfused_internal_traffic_atoms.known,
+        36
+    );
+    assert_eq!(
+        resources.replacement.elidable_internal_traffic_atoms.known,
+        36
     );
     assert!(
         resources
@@ -64,7 +66,7 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
     );
     assert!(
         resources.replacement.has_unknown_implementation_resource,
-        "candidate-local unknown window extent/state must remain an unknown implementation resource"
+        "symbolic WindowWorkingSet/structural state must remain unknown even when window volume is known"
     );
     let comparison = resources.comparison();
     assert_eq!(
@@ -122,8 +124,11 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
         candidate.replacement.nodes[0].facts.dtype,
         analysis.j_graph.nodes[window_source.0].facts.dtype
     );
-    assert!(candidate.replacement.nodes[0].facts.shape.is_none());
-    assert!(candidate.replacement.nodes[0].facts.rank.is_none());
+    assert_eq!(
+        candidate.replacement.nodes[0].facts.shape.as_deref(),
+        Some(&[6, 3][..])
+    );
+    assert_eq!(candidate.replacement.nodes[0].facts.rank, Some(2));
 
     assert_eq!(
         candidate.replacement.nodes[0].basis,
