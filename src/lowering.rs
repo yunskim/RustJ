@@ -634,7 +634,7 @@ impl LoweringRegistry {
         let candidate = analysis
             .graph_rewrites
             .get(candidate_index)
-            .ok_or_else(|| Error::Index)?;
+            .ok_or(Error::Index)?;
         let feasibility = self.rewrite_candidate_target_feasibility(candidate, target);
         if !feasibility
             .composite_candidates
