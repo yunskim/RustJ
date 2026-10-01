@@ -7045,7 +7045,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
-> **현재 위상:** 구현된 `j_graph_ir` v0.1은 **topology/provenance shell**이다. 과거 JAXA Array Operation IR 연구가 목표로 한 shape/resource propagation, symbolic resource composition, fusion partition 계산까지 완성한 상태가 아니다.
+> **현재 위상:** `j_graph_ir` v0.2는 **explicit applied-operation graph + combinator region** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고 stage별 Facts, use-count, analyzability, symbolic operation/resource contract가 존재한다. 다만 target-aware symbolic resource composition과 fusion partition 계산은 아직 후속이다.
 
 #### A1.5.1 과거 JAXA 역대조 감사
 
@@ -7056,36 +7056,35 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | Semantic AST와 Array Operation IR 분리 | `FunctionEntity`와 `j_graph_ir::Plan`을 별도 boundary로 둠 | 반영 |
 | J syntax에서 static graph 직접 유도 | `@:`, Hook/Fork, `/`, `"`를 `GraphForm`으로 분류 | 반영 |
 | `@:` pipeline / Hook/Fork branch-join | `Pipeline`, `Hook`, `Fork` + GraphHint | 반영 |
-| applied graph stage별 shape 전파 | stage가 아직 `Arc<FunctionEntity>` payload이며 stage별 Value/Facts가 없음 | **미흡** |
-| primitive shape/dtype/rank/effect contract | `GraphRuleRefs`는 rule source만 가리키며 실제 rule evaluation은 없음 | **부분 반영** |
-| primitive symbolic resource contract | resource가 `Unknown/StructuralComposition` placeholder뿐 | **미구현** |
-| iteration/reduction/access pattern contract | Execution IR에는 일부 있으나 J Graph IR primitive contract에는 연결 안 됨 | **미흡** |
-| pipeline/reduction/branch/join별 resource composition | 없음 | **미구현** |
-| intermediate edge materialization/traffic 분석 | GraphHint만 있고 edge-level traffic/materialization model 없음 | **미구현** |
-| register/live-value pressure 분석 | live-across hint만 있고 symbolic liveness/resource composition 없음 | **미구현** |
+| applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node이며 `Facts`를 보유, 현재 primitive/rank/reduce 범위에서 전파 | **초기 구현** |
+| primitive shape/dtype/rank/effect contract | `GraphRuleRefs` + current `Facts::infer_call` transfer를 J Graph build에서 적용 | **초기 구현** |
+| primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/scratchpad symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
+| iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionCapability`를 J Graph op에 연결 | **초기 구현** |
+| pipeline/reduction/branch/join별 resource composition | `ResourceCompositionRule`로 Pipeline/BranchJoin/Reduction/CellMap 정책 identity를 표현. 실제 symbolic composition evaluator는 후속 | **부분 반영** |
+| intermediate edge materialization/traffic 분석 | `j_graph_memory`가 pipeline/branch/view materialization opportunity와 logical extent를 계산. traffic/selected materialization plan은 후속 | **초기 구현** |
+| register/live-value pressure 분석 | J Graph use-def/live-range를 계산하고 branch `live_across`가 join까지 lifetime을 확장. register pressure로의 target mapping은 후속 | **초기 구현** |
 | target profile과 graph resource demand 결합 | downstream TargetProfile/ResourceEstimate 설계는 있으나 J Graph와 연결 안 됨 | **부분 반영** |
 | fusion partition 산출 | candidate/opportunity까지만 있고 partition/feasibility 계산 없음 | **미구현** |
-| reshape/flatten/transpose를 virtual view로 취급 | Execution IR의 StaticReindex/Flow–Storage 설계에는 있으나 J Graph hint/contract에는 없음 | **부분 반영** |
+| reshape/flatten/transpose를 virtual view로 취급 | Ravel/Reverse/Transpose에 `VirtualIndexingCandidate`를 J Graph에서 기록 | **초기 구현** |
 | Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
 | checkpoint/rematerialization/reversible recovery | 문서 설계는 있으나 J Graph/Planner 구현은 없음 | 연구/후속 |
 | adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
 | basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
 | resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
-| static-analyzable subset / validation boundary | `DynamicOrUnknown` rule ref는 있으나 node/plan eligibility 판정 없음 | **미흡** |
+| static-analyzable subset / validation boundary | `GraphAnalyzability`로 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback을 구분 | **초기 구현** |
 | jsource-style graph normalization(capped fork→atop, tine simplification) | 현 `j_graph_ir`에는 별도 normalization pass 없음 | **미구현/확인 필요** |
 | multi-device static partition | 없음 | future work |
 
 **핵심 판정:** 현재 IR은 JAXA의 가장 중요한 **“표기에서 graph topology를 직접 얻는다”**는 주장을 복구했다. 그러나 과거 연구에서 `Array Operation IR`이라는 말은 topology만이 아니라 **shape/flow/fusion/resource 분석을 수행할 수 있는 stage-level operation graph**를 의미했다. 현행 v0.1은 아직 그 수준까지 가지 않았다.
 
-가장 큰 구조적 부족은 다음이다.
+v0.2에서 위의 가장 큰 구조적 부족은 보완했다.
 
-1. `Pipeline { stages: Vec<FunctionEntity> }`가 stage identity는 보존하지만 **각 stage를 독립 graph operation/value로 만들지 않는다.**
-2. 따라서 J Graph 단계에서 stage별 shape/dtype/rank/access/resource fact를 전파하기 어렵다.
-3. Hook/Fork도 branch function identity는 있지만 branch output과 join input이 J Graph `ValueId` edge로 명시되지 않는다.
-4. 결과적으로 과거 analyzer의 `propagate_shape`, `compose_pipeline`, `compose_reduction`, `compose_branch`, `compose_join`에 해당하는 분석은 아직 Execution lowering 이후에야 가능한 구조다.
-5. 이것은 JAXA의 “graph가 표기에서 이미 주어진다”는 이점을 일부만 사용하는 상태다.
+1. `@:` stage, Hook/Fork branch/join은 이제 실제 J Graph `ValueId` node/edge다.
+2. 원래 J combinator identity는 `Region(Pipeline/Hook/Fork)`으로 별도 보존한다.
+3. stage별 `Facts`, `GraphOperationContract`, `GraphAnalyzability`, use-count를 graph에서 질의할 수 있다.
+4. `j_graph_memory`가 logical extent, graph-order live range, pipeline/branch/view materialization opportunity를 계산한다.
 
-따라서 J Graph IR v0.2의 우선 목표는 **compressed syntax form을 보존하면서 동시에 stage/branch를 explicit applied graph nodes/edges로 노출하는 것**이다. 일반 SSA로 의미를 잃는 flattening이 아니라, J combinator region/provenance를 유지한 applied operation graph여야 한다.
+남은 핵심 부족은 **symbolic resource composition evaluator와 target-aware partition**이다. 과거 analyzer의 `compose_pipeline`, `compose_reduction`, `compose_branch`, `compose_join`에 대응하는 policy identity는 생겼지만 실제 peak temporary/accumulator/traffic 식을 합성하는 pass는 아직 구현하지 않았다.
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
@@ -7098,9 +7097,12 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [x] execution node/A3 op가 `j_origin`으로 originating J Graph node를 보존한다.
 - [x] Hook/Fork/@: topology 분류의 단일 소스를 `j_graph_ir::classify_function()`으로 두고 execution analyzer의 독립 pattern rediscovery를 제거한다.
 - [ ] Cut/Window, Dot/Contract, Power/Iteration, Key/GroupBy, Scan/Infix 등 J graph algebra vocabulary를 GraphForm/GraphHint로 확장한다.
-- [ ] primitive/derived operation마다 실제 shape/dtype/rank/effect rule registry를 `GraphRuleRefs`와 연결한다.
-- [ ] symbolic resource rule registry를 추가하여 primitive resource model 또는 explicit Unknown을 J Graph IR에서 질의할 수 있게 한다. concrete target 수치는 넣지 않는다.
-- [ ] graph-level use-def와 common-input/liveness analysis를 J Graph IR 자체에 추가한다.
+- [x] current primitive/rank/reduce 범위에서 stage별 shape/dtype/rank facts를 J Graph build 중 전파한다. richer rule registry는 계속 확장한다.
+- [x] `GraphOperationContract`로 iteration/access/fusion 및 temporary/accumulator/scratchpad symbolic requirement의 최소 seam을 추가했다.
+- [x] graph-level use-def/common-input/live-range를 J Graph 및 `j_graph_memory`에서 계산한다.
+- [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
+- [ ] `ResourceCompositionRule` evaluator를 구현해 pipeline/reduction/branch/join의 symbolic peak temporary/accumulator/traffic 식을 합성한다.
+- [ ] representation/schedule/TargetProfile을 결합해 graph-level logical memory 분석을 downstream `ResourceEstimate`로 연결한다.
 - [ ] basis verb의 algebraic rewrite/equivalence rule을 J Graph IR에 표현하고 후보 graph를 생성할 수 있게 한다.
 - [ ] graph candidate마다 semantic-equivalence witness/provenance를 유지한다.
 - [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
@@ -7108,6 +7110,69 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 - [ ] resource-aware pruning/partition이 J Graph 후보를 소비하고 Physical Planner의 target feasibility와 연결되도록 한다.
 
 **완료 조건:** 대표 J expressions(`@:`, Hook, Fork, Reduce, Rank, 이후 Window/Contract/Key/Power)가 generic execution DAG를 만들기 전에 J Graph IR에서 구조적으로 식별되고, graph optimizer가 source reparsing이나 execution-DAG pattern recovery 없이 fusion/lifetime/parallel/rewrite 후보를 만들 수 있다.
+
+#### A1.5.2 JAXA의 static-memory claim을 RustJ에서 해석하는 방식
+
+JAXA의 중요한 주장 중 하나는 **배열 연산을 J DSL로 정적으로 표현하면 graph를 실행하기 전에 필요한 메모리 구조를 상당 부분 결정할 수 있다**는 것이다. RustJ는 이 주장을 버리지 않되, `logical memory`와 `physical memory`를 구분한다.
+
+J Graph 단계에서 정적으로 계산할 수 있는 것:
+
+- 각 logical ArrayValue의 shape / rank / dtype fact
+- shape가 known이면 atom count
+- producer-consumer use-def와 fan-out
+- graph-order lifetime / last-use
+- Hook/Fork의 live-across value
+- pipeline/branch 내부 intermediate
+- 어떤 value가 materialization-elision 후보인지
+- static reindex/view가 virtual하게 유지될 가능성
+- reduction accumulator / temporary / scratchpad의 symbolic requirement
+- representation model이 주어졌을 때 logical extent의 represented byte size
+
+J Graph 단계에서 **아직 결정하지 않는 것**:
+
+- 실제 register allocation
+- register class별 사용량
+- shared/LDS/scratchpad의 concrete byte 수
+- tile/workgroup별 local storage
+- packed-bool/box/sparse 등의 final representation
+- alignment/padding/buffer offset
+- spill/occupancy
+- exact physical allocation/reuse
+
+따라서:
+
+~~~text
+J syntax / J Graph
+    ↓
+Static logical memory analysis
+    shape → atom count → use/lifetime → materialization opportunity
+    ↓
+Representation + Schedule + Target
+    ↓
+ResourceEstimate / bufferization
+    register/shared/global bytes, peak physical memory, traffic
+~~~
+
+현재 구현:
+
+- `src/j_graph_memory.rs`의 `StaticMemoryAnalysis`
+- `LogicalExtent { shape, atoms, dtype }`
+- `LiveRange { defined_at, last_use }`
+- `PipelineIntermediate`, `RetainedAcrossBranch`, `BranchIntermediate`, `VirtualView` materialization opportunity
+- explicit `AtomRepresentation`을 제공할 때만 byte size 평가
+- 모든 logical value를 materialize한다고 가정한 `conservative_peak_materialized_bytes()` 제공
+
+이 conservative peak는 최종 resource estimate가 아니다. fusion/materialization selection 전의 upper-bound-like graph estimate이며, JAXA의 핵심인 **“graph에서 memory obligation을 정적으로 계산한다”**는 주장을 검증하기 위한 분석 결과다.
+
+향후 `ResourceCompositionRule` evaluator는 다음 불변조건을 따른다.
+
+- Pipeline: stage temporary는 lifetime이 겹치지 않으면 재사용 가능하며 internal edge materialization을 제거할 수 있다.
+- Reduction: 큰 producer result 대신 accumulator state로 직접 소비할 수 있는지를 표현한다.
+- Branch: sibling branch의 live temporary와 retained input이 겹칠 수 있다.
+- Join: 두 branch result가 join 시점에 동시에 live할 수 있다.
+- memory traffic은 node resource의 단순 합이 아니라 **materialized edge의 write/read**를 중심으로 계산한다.
+- register pressure는 primitive register 숫자의 합이 아니라 **simultaneously-live symbolic values**를 중심으로 계산한다.
+
 
 ### A2 — Extension Primitive Registry와 analysis contract
 
