@@ -246,6 +246,7 @@ pub struct LogicalPlan {
     pub symbols: Vec<Symbol>,
     pub nodes: Vec<Node>,
     pub j_graph_node_count: usize,
+    pub j_graph_region_count: usize,
     /// J syntax/derived semantics exposes topology before generic DAG analysis.
     /// These are target-independent optimization opportunities, not legality proofs.
     pub opportunities: Vec<StructuralOpportunity<ValueId>>,
@@ -387,6 +388,14 @@ impl LogicalPlan {
         }
 
         for opportunity in &self.opportunities {
+            if let Some(origin) = opportunity.j_region_origin {
+                if origin.0 >= self.j_graph_region_count {
+                    return Err(fail(
+                        None,
+                        "structural opportunity J-region origin is out of bounds".into(),
+                    ));
+                }
+            }
             if opportunity.span.start > opportunity.span.end
                 || opportunity.span.end > source_len
                 || !self.source.is_char_boundary(opportunity.span.start)
@@ -461,6 +470,7 @@ pub(crate) fn lower_graph(
     let graph_node_count = graph.nodes.len();
     let graph_result = graph.result;
     let graph_write = graph.write.clone();
+    let graph_region_count = graph.regions.len();
     let graph_regions = graph.regions.clone();
 
     let mut builder = Builder {
@@ -592,6 +602,7 @@ pub(crate) fn lower_graph(
         symbols: builder.symbols,
         nodes: builder.nodes,
         j_graph_node_count: graph_node_count,
+        j_graph_region_count: graph_region_count,
         opportunities: builder.opportunities,
         result,
         write,
