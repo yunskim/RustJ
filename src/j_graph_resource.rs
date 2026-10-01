@@ -413,6 +413,13 @@ fn merge_state_requirement(
     }
 }
 
+fn rewrite_node_atoms(node: &crate::j_graph_rewrite::RewriteNode) -> Option<usize> {
+    let shape = node.facts.shape.as_ref()?;
+    shape
+        .iter()
+        .try_fold(1usize, |atoms, dim| atoms.checked_mul(*dim))
+}
+
 fn rewrite_node_resource_requirements(
     semantics: RewriteNodeSemantics,
 ) -> (
@@ -644,10 +651,18 @@ pub fn evaluate_rewrite_candidate(
         // Keep its extent symbolic unless a rewrite-specific derivation exists.
         // WindowByPatternShape is intentionally virtualizable, so the same
         // unknown volume is also tracked as elidable rather than forced materialization.
-        let mut atoms = KnownAtoms::default();
+        let atoms = match rewrite_node_atoms(node) {
+            Some(known) => KnownAtoms {
+                known,
+                has_unknown: false,
+            },
+            None => KnownAtoms {
+                known: 0,
+                has_unknown: true,
+            },
+        };
         match node.semantics {
             RewriteNodeSemantics::WindowByPatternShape => {
-                atoms.has_unknown = true;
                 internal.known = internal.known.saturating_add(atoms.known);
                 internal.has_unknown |= atoms.has_unknown;
                 elidable.known = elidable.known.saturating_add(atoms.known);
@@ -655,9 +670,9 @@ pub fn evaluate_rewrite_candidate(
             }
             RewriteNodeSemantics::MatchPatternCell => {
                 // Non-output match intermediates are not expected in the current
-                // rule; retain conservative unknown handling if a future rule does.
-                atoms.has_unknown = true;
-                internal.has_unknown = true;
+                // rule; retain the generic fact-driven accounting for future rules.
+                internal.known = internal.known.saturating_add(atoms.known);
+                internal.has_unknown |= atoms.has_unknown;
             }
         }
     }
