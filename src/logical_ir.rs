@@ -382,6 +382,12 @@ pub enum ReductionAxis {
     LeadingCellAxis,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowShapeSpec {
+    /// The logical window shape is the shape of another source value.
+    PatternShape { pattern: ValueId },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecutionBasisPayload {
     IndexSpace {
@@ -395,6 +401,10 @@ pub enum ExecutionBasisPayload {
     Gather {
         indices: ValueId,
         source: ValueId,
+    },
+    WindowView {
+        source: ValueId,
+        shape: WindowShapeSpec,
     },
     Reduce {
         axis: ReductionAxis,
