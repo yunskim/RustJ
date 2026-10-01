@@ -158,11 +158,19 @@ The primitive vocabulary, resource model, materialized-array/Flow–Storage mode
 
 ## License
 
-RustJ follows the same **dual-license structure** as current `jsource`:
+RustJ's public open-source distribution path is **GNU General Public License version 3 (GPL-3.0-only)**.
 
-- use under a separate **commercial license** obtained from the applicable RustJ copyright holder(s), in which case that commercial license applies; **or**
-- use under **GNU General Public License version 3 (GPL-3.0-only)**.
+At the same time, RustJ preserves a **separate commercial-licensing path** in the same general direction as `jsource`. A commercial RustJ license can be granted only to the extent that the applicable RustJ copyright holder(s) actually hold the rights needed to grant it.
+
+In particular, where commercial use or distribution of RustJ depends on code or other rights derived from J SOURCE, the necessary **Jsoftware commercial J SOURCE license and other upstream rights** must also be obtained and complied with. RustJ's own `LICENSE` does not itself grant commercial rights in Jsoftware material.
+
+Operationally:
+
+- public RustJ distribution without the necessary Jsoftware commercial rights: **GPL-3.0-only**
+- where the necessary Jsoftware commercial rights and RustJ rights are both available: a **separate RustJ commercial license may be offered**
 
 See [LICENSE](LICENSE) for the governing notice and [COPYING](COPYING) for the full GNU GPL v3 text.
 
-Cargo metadata uses `GPL-3.0-only` to describe the public open-source option. The separate commercial-license alternative is stated in `LICENSE` rather than encoded as an SPDX expression.
+External contributors must agree to the [CLA.ko.md](CLA.ko.md) (canonical) / [CLA.md](CLA.md) so that RustJ can preserve both GPL distribution and a future commercial-licensing path where legally permitted.
+
+Cargo metadata remains `GPL-3.0-only` for the public open-source option. The conditional commercial path is described in `LICENSE` rather than encoded as an SPDX expression.
