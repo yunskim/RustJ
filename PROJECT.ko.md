@@ -30,34 +30,42 @@ C J 엔진을 RustJ의 정상 실행 fallback으로 사용하지 않는다.
 
 현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, 초기 분석/LogicalPlan, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
 
-### 1.1 JAXA의 원래 비전 — “NN의 SQL”
+### 1.1 JAXA에서 이어받은 설계 원칙 — “NN의 SQL”
 
-JAXA의 원래 슬로건은 **“NN의 SQL”**이었다.
+JAXA 문서에서는 **“NN의 SQL”**, **“배열 연산의 SQL”**이라는 비유를 사용했다.
 
-이 표현은 신경망 계산을 SQL 문법처럼 쓰자는 뜻이 아니라, 관계형 데이터베이스에서 SQL이 수행한 역할 분리를 신경망·배열 계산에도 적용하자는 뜻이다.
+이 표현의 핵심은 SQL과 비슷한 문법을 만들거나 범용 신경망 플랫폼을 선언하는 것이 아니다. 과거 JAXA 문서에서 반복해서 강조한 핵심은 다음 한 문장에 가깝다.
+
+> **JAXA specifies logical array intent, not physical execution procedure.**
+
+즉 SQL과 닮은 것은 표면 문법이 아니라 **logical intent와 physical execution plan의 분리**다.
 
 ```text
-declarative computation intent
+logical array intent
         ↓
-logical array / NN graph
+legal logical / physical plans
         ↓
-algebraic rewrite / equivalence
+resource / cost evaluation
         ↓
-resource / locality / materialization analysis
-        ↓
-alternative physical plans
-        ↓
-target / resource / cost based selection
-        ↓
-CPU / GPU / library / accelerator execution
+selected execution plan
 ```
 
-즉 사용자는 “어떤 kernel을 어떤 tile 크기로 어느 device에서 돌릴지”를 직접 기술하는 대신 **무엇을 계산할지와 필요한 semantic constraint를 표현**하고, compiler가 가능한 동등 graph와 실행 계획을 생성·평가·선택한다.
+사용자는 가능한 한 계산의 의미와 필요한 semantic/storage obligation을 표현하고, 다음 사항은 analyzer/compiler/backend에 맡긴다.
 
-이 비전은 current RustJ에서 다음 구조로 계승한다.
+- 어떤 동등한 graph form을 사용할지
+- fusion 또는 materialization을 할지
+- 어떤 실행 basis와 route를 사용할지
+- 어떤 memory/schedule 전략을 사용할지
+- target별로 어떤 realization을 선택할지
+
+과거 JAXA 문서의 또 다른 중요한 표현은 다음과 같다.
+
+> **JAXA does not execute fusion — the compiler does.**
+
+이 원칙은 current RustJ에서 다음 구조로 이어진다.
 
 ```text
-J Semantic Construction
+J semantics / FunctionEntity
         ↓
 J Graph IR / Graph Basis
         ↓
@@ -67,32 +75,20 @@ symbolic resource reasoning
         ↓
 Logical Execution IR / Execution Basis
         ↓
-route / schedule / physical planning
-        ↓
-backend realization
+physical planning / backend realization
 ```
 
-관계형 database optimizer와의 비유에서 중요한 대응은 다음과 같다.
+이 비유는 RustJ의 현재 제품 범위를 확대해서 주장하기 위한 것이 아니다. current RustJ의 직접 목표는 **full J semantics를 보존하는 J compiler/runtime**이다.
 
-| Database system | RustJ / JAXA vision |
-|---|---|
-| SQL query | declarative J/array/NN computation |
-| relational algebra | J Graph IR / Graph Basis |
-| logical rewrite | graph rewrite / equivalence |
-| statistics/cardinality | shape/rank/access/resource facts |
-| alternative query plans | alternative execution graphs/routes |
-| cost model | ResourceEstimate / CostEstimate |
-| physical operator selection | Execution Basis / backend realization |
-| query executor | RustJ executor / external backend |
+“NN의 SQL”은 다음을 설명하는 historical design direction으로만 사용한다.
 
-따라서 RustJ의 직접 목표와 장기 비전은 다음처럼 구분한다.
+1. source에서 physical procedure를 불필요하게 고정하지 않는다.
+2. 의미적으로 동등한 실행 방법이 있다면 compiler가 선택할 수 있게 한다.
+3. legality를 cost보다 먼저 판단한다.
+4. resource/cost model은 의미를 바꾸는 것이 아니라 합법적인 plan 중에서 선택하는 데 사용한다.
+5. backend나 optimizer가 발전해도 같은 logical intent를 다시 사용할 수 있게 한다.
 
-- **직접 목표:** full J semantics를 보존하는 현대적인 J compiler/runtime
-- **장기 연구·제품 비전:** JAXA의 “NN의 SQL”을 가능하게 하는 declarative array-computing compiler core
-
-이 장기 비전은 RustJ를 지금 당장 NN framework나 SQL-like DSL로 바꾼다는 뜻이 아니다. 현재 우선순위는 J를 정확하게 구현하고, J가 제공하는 고수준 array algebra를 loss 없이 compiler graph로 보존하는 것이다. 다만 Graph Basis, equivalence, resource model, planner를 설계할 때는 **향후 J 외의 array/NN frontend도 동일한 compiler core를 사용할 수 있는가**를 중요한 확장성 기준으로 삼는다.
-
-이 절은 historical JAXA의 원래 product/research north star를 보존하기 위한 것이다. 이후 세부 구현이 backend나 개별 primitive 최적화에 치우치더라도, 최종 방향은 “사용자가 physical execution plan을 직접 작성하지 않고 declarative computation을 제출하면 compiler가 계획을 선택한다”는 구조를 잃지 않는다.
+따라서 이 프로젝트에서 “NN의 SQL”은 **장대한 범용 플랫폼 선언이 아니라, JAXA에서 이어받은 compiler separation-of-concerns 원칙을 설명하는 표현**으로 취급한다.
 
 ### 1.2 이름 정책
 
