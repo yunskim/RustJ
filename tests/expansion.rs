@@ -4,7 +4,7 @@ use rustj::{
     expansion::{
         EquivalenceWitness, ExpansionInput, ExpansionNodeSemantics, ExpansionRuleId, discover,
     },
-    logical_ir::OpKind,
+    logical_ir::{ExecutionBasisPayload, OpKind, WindowShapeSpec},
 };
 
 #[test]
@@ -33,6 +33,18 @@ fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
 
     assert_eq!(expansion.graph.nodes.len(), 2);
     assert_eq!(expansion.graph.nodes[0].basis, ExecutionBasisKind::WindowView);
+    let [ExpansionInput::Source(window_source), ExpansionInput::Source(pattern)] =
+        expansion.graph.nodes[0].inputs.as_slice()
+    else {
+        panic!("window expansion inputs")
+    };
+    assert_eq!(
+        expansion.graph.nodes[0].payload,
+        ExecutionBasisPayload::WindowView {
+            source: *window_source,
+            shape: WindowShapeSpec::PatternShape { pattern: *pattern },
+        }
+    );
     assert_eq!(
         expansion.graph.nodes[0].semantics,
         ExpansionNodeSemantics::WindowByPatternShape
@@ -52,6 +64,15 @@ fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
 fn ordinary_basis_calls_do_not_gain_unrelated_expansions() {
     let plan = Engine::new().analyze_a3("1+2").unwrap();
     assert!(discover(&plan).is_empty());
+}
+
+
+#[test]
+fn expansion_graph_rejects_payload_input_drift() {
+    let plan = Engine::new().analyze_a3("'co' E. 'cocoa'").unwrap();
+    let mut expansion = discover(&plan).pop().unwrap();
+    expansion.graph.nodes[0].payload = ExecutionBasisPayload::CellApply;
+    assert!(expansion.graph.verify().is_err());
 }
 
 #[test]
