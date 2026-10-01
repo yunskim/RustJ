@@ -549,7 +549,12 @@ pub(crate) fn lower(
     noun_facts: &dyn Fn(&str) -> crate::facts::Facts,
 ) -> Result<LogicalPlan> {
     let graph_fact = |name: &str| {
-        crate::j_graph_ir::GraphFacts::from_execution_facts(&noun_facts(name))
+        let facts = noun_facts(name);
+        crate::j_graph_ir::GraphFacts::from_logical_parts(
+            facts.dtype,
+            facts.shape,
+            facts.rank,
+        )
     };
     lower_graph(
         crate::j_graph_ir::Plan::from_bound_with_graph_facts(bound, &graph_fact)?,
