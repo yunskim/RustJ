@@ -7014,11 +7014,10 @@ Logical J value와 physical representation의 분리는 이 전체 pipeline에 �
 | 책임 | 현재 주요 모듈 | canonical owner / 목표 | 금지되는 역방향 의존 |
 |---|---|---|---|
 | word formation | `scanner.rs` | frontend word former | graph/logical/physical/runtime가 scanner 구현 세부에 의존하지 않음 |
-| enqueue/word interpretation | 현재 `syntax.rs`에 혼재 | 향후 `enqueuer` | target/backend 정보를 enqueue가 읽지 않음 |
+| enqueue/word interpretation | `enqueuer.rs` | frontend enqueuer | target/backend 정보를 enqueue가 읽지 않음 |
 | parser + semantic construction | `semantic.rs` | frontend/parser + immutable `FunctionEntity` | Graph/Logical/Physical 선택을 parser가 소유하지 않음 |
 | J graph algebra | `j_graph_ir.rs`, `j_graph_rewrite.rs`, `j_graph_resource.rs`, `j_graph_memory.rs` | J Graph IR / Graph Analyzer | Logical/Physical plan을 다시 semantic identity로 역주입하지 않음 |
 | execution semantic contract | `execution_semantics.rs` | 독립 target-independent execution-semantics contract | schedule/buffer/device를 포함하지 않음 |
-| transitional execution IR | `transition_ir.rs` (crate-private) | M1 중 삭제 대상 | 새 기능/새 semantic fact를 추가하지 않음 |
 | canonical Logical Execution IR | `logical_ir.rs` | `logical_ir::Plan` | `physical.rs`, kernel/runtime concrete storage에 의존하지 않음 |
 | compilation aggregate | `compilation.rs` | cross-stage analysis bundle | lowering semantics 자체를 소유하지 않음 |
 | route legality/capability | `lowering.rs` | verified Logical IR 이후 lowering/route layer | semantic/parser를 target 편의에 맞게 변경하지 않음 |
@@ -7028,17 +7027,7 @@ Logical J value와 physical representation의 분리는 이 전체 pipeline에 �
 | backend kernels | `kernels.rs`, `numeric.rs`, `simd.rs` 등 | backend realization | kernel 구현 세부가 semantic legality를 정의하지 않음 |
 | interpreter/reference runtime | `runtime.rs`, `logical_executor.rs` | transitional/reference execution | compiler canonical IR의 의미를 runtime flattening으로 정의하지 않음 |
 
-현재 확인된 **허용된 과도기 dependency**는 다음 두 가지다.
-
-```text
-logical_ir.rs
-    ← analysis::LogicalPlan transition input
-
-lowering.rs
-    ← analysis::{ExecutionBasisKind, CompilationAnalysis, ...}
-```
-
-이는 M1에서 제거할 migration seam이다. 새 기능은 이 seam 위에 추가하지 않는다.
+M1 transition container는 제거되었다. `analysis`의 remaining re-export는 target-independent execution-semantic contract와 compilation aggregate compatibility surface이며 canonical Logical IR container를 소유하지 않는다.
 
 M0 이후 적용할 dependency 방향:
 
@@ -7208,8 +7197,8 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### F1 — jsource enqueue + PrimitiveResolver 이식
 
-- [ ] 현재 `syntax::lex_spanned`가 수행하는 word interpretation을 별도 `enqueuer` 단계로 이동한다.
-- [ ] `EnqueuedWord { class, payload, span, flags }`를 정의해 jsource QC pointer tagging을 명시적 Rust enum/flags로 표현한다.
+- [x] `syntax::lex_spanned`가 수행하던 word interpretation을 `enqueuer::enqueue`로 이동하고 `syntax`는 legacy Token adapter로 축소했다.
+- [x] `EnqueuedWord { class, payload, span, word_index, flags }`와 `EnqueueClass`/`EnqueueFlags`를 정의해 parser-facing class/payload/provenance를 명시적으로 분리했다.
 - [ ] enqueue의 classification order와 parser class/POS 결정 순서를 `jtenqueue`와 동일하게 유지한다. RustJ convenience lexer가 먼저 품사를 확정하지 않게 한다.
 - [ ] core J primitive lookup을 jsource `spellin -> ds`와 같은 위치와 precedence로 구현한다.
 - [ ] `PrimitiveResolver`가 core J primitive와 compile profile에서 enabled된 extension primitive를 동일 interface로 반환하게 한다.
