@@ -56,6 +56,10 @@ fn window_resource_contract_composes_reuse_and_inner_reduction_state() {
     let result = graph.result.unwrap();
     let summary = &resources.nodes[result.0];
 
+    assert_eq!(
+        summary.composition,
+        rustj::j_graph_ir::ResourceCompositionRule::Window
+    );
     assert!(matches!(
         summary.accumulator,
         rustj::j_graph_ir::SymbolicResourceExpr::ReductionAccumulator
