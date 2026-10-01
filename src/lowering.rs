@@ -77,6 +77,8 @@ pub enum RealizationFamily {
     GpuTreeReduction,
     TensorOrGemm,
     ExternalLibrary,
+    /// Execute a witnessed graph rewrite as one composite reference route.
+    ReferenceRewriteComposite,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +133,16 @@ impl Requirement {
 pub struct ExecutionBasisLoweringCapability {
     pub basis: ExecutionBasisKind,
     pub realization: RealizationFamily,
+    pub requirements: Vec<Requirement>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewriteCompositeLoweringCapability {
+    pub rule: crate::j_graph_rewrite::GraphRewriteRuleId,
+    pub realization: RealizationFamily,
+    /// v0 composite capabilities use target/feature requirements only.
+    /// Call-dependent requirements remain unresolved until a richer rewrite
+    /// semantic-proof interface is connected.
     pub requirements: Vec<Requirement>,
 }
 
@@ -200,6 +212,10 @@ pub struct RewriteTargetFeasibility {
     pub rule: crate::j_graph_rewrite::GraphRewriteRuleId,
     pub target: TargetCapabilities,
     pub nodes: Vec<RewriteNodeTargetFeasibility>,
+    /// Whole-rewrite realizations can be legal even when individual graph-basis
+    /// nodes do not have standalone lowering routes.
+    pub composite_candidates: Vec<RealizationFamily>,
+    pub composite_requires_call_facts: bool,
     pub overall: RewriteTargetFeasibilityKind,
 }
 
@@ -258,6 +274,7 @@ pub enum RouteDecision {
 #[derive(Clone, Debug, Default)]
 pub struct LoweringRegistry {
     capabilities: Vec<ExecutionBasisLoweringCapability>,
+    rewrite_capabilities: Vec<RewriteCompositeLoweringCapability>,
 }
 
 impl LoweringRegistry {
@@ -391,6 +408,14 @@ impl LoweringRegistry {
         );
 
         registry
+            .rewrite_capabilities
+            .push(RewriteCompositeLoweringCapability {
+                rule: crate::j_graph_rewrite::GraphRewriteRuleId::FindViaWindowMatch,
+                realization: RealizationFamily::ReferenceRewriteComposite,
+                requirements: vec![Target(Cpu)],
+            });
+
+        registry
     }
 
     pub fn capabilities(&self) -> &[ExecutionBasisLoweringCapability] {
@@ -444,8 +469,37 @@ impl LoweringRegistry {
         candidate: &crate::j_graph_rewrite::GraphRewriteCandidate,
         target: &TargetCapabilities,
     ) -> RewriteTargetFeasibility {
+        let mut composite_candidates = Vec::new();
+        let mut composite_requires_call_facts = false;
+        for capability in self
+            .rewrite_capabilities
+            .iter()
+            .filter(|capability| capability.rule == candidate.rule)
+        {
+            let mut target_rejected = false;
+            let mut unresolved = false;
+            for requirement in &capability.requirements {
+                match requirement.target_only_satisfied(target) {
+                    Some(true) => {}
+                    Some(false) => {
+                        target_rejected = true;
+                        break;
+                    }
+                    None => unresolved = true,
+                }
+            }
+            if target_rejected {
+                continue;
+            }
+            if unresolved {
+                composite_requires_call_facts = true;
+            } else if !composite_candidates.contains(&capability.realization) {
+                composite_candidates.push(capability.realization);
+            }
+        }
+
         let mut nodes = Vec::with_capacity(candidate.replacement.nodes.len());
-        let mut overall = RewriteTargetFeasibilityKind::Supported;
+        let mut node_overall = RewriteTargetFeasibilityKind::Supported;
 
         for (index, node) in candidate.replacement.nodes.iter().enumerate() {
             let execution_basis = execution_basis_for_graph_basis(node.basis);
@@ -453,7 +507,7 @@ impl LoweringRegistry {
                 Some(basis) => self.basis_target_feasibility(basis, target),
                 None => BasisTargetFeasibility::Unsupported,
             };
-            overall = match (&feasibility, overall) {
+            node_overall = match (&feasibility, node_overall) {
                 (BasisTargetFeasibility::Unsupported, _) => {
                     RewriteTargetFeasibilityKind::Unsupported
                 }
@@ -478,10 +532,25 @@ impl LoweringRegistry {
             });
         }
 
+        let overall = if !composite_candidates.is_empty() {
+            RewriteTargetFeasibilityKind::Supported
+        } else if composite_requires_call_facts {
+            match node_overall {
+                RewriteTargetFeasibilityKind::Supported => {
+                    RewriteTargetFeasibilityKind::Supported
+                }
+                _ => RewriteTargetFeasibilityKind::RequiresCallFacts,
+            }
+        } else {
+            node_overall
+        };
+
         RewriteTargetFeasibility {
             rule: candidate.rule,
             target: target.clone(),
             nodes,
+            composite_candidates,
+            composite_requires_call_facts,
             overall,
         }
     }
