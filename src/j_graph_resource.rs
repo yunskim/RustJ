@@ -35,6 +35,160 @@ impl KnownAtoms {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ResourceExprId(pub usize);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResourceExprNode {
+    Zero,
+    Unknown,
+    /// Logical atom extent of a J Graph value.
+    ValueAtoms(ValueId),
+    /// A symbolic resource requirement whose concrete extent depends on later
+    /// schedule/target decisions (for example an accumulator or window state).
+    Requirement {
+        value: ValueId,
+        kind: SymbolicResourceExpr,
+    },
+    Sum(Vec<ResourceExprId>),
+    Max(Vec<ResourceExprId>),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResourceExprGraph {
+    pub nodes: Vec<ResourceExprNode>,
+}
+
+impl ResourceExprGraph {
+    fn push(&mut self, node: ResourceExprNode) -> ResourceExprId {
+        let id = ResourceExprId(self.nodes.len());
+        self.nodes.push(node);
+        id
+    }
+
+    fn zero(&mut self) -> ResourceExprId {
+        self.push(ResourceExprNode::Zero)
+    }
+
+    fn unknown(&mut self) -> ResourceExprId {
+        self.push(ResourceExprNode::Unknown)
+    }
+
+    fn value_atoms(&mut self, value: ValueId) -> ResourceExprId {
+        self.push(ResourceExprNode::ValueAtoms(value))
+    }
+
+    fn requirement(
+        &mut self,
+        value: ValueId,
+        kind: SymbolicResourceExpr,
+    ) -> ResourceExprId {
+        match kind {
+            SymbolicResourceExpr::None => self.zero(),
+            SymbolicResourceExpr::Unknown => self.unknown(),
+            other => self.push(ResourceExprNode::Requirement { value, kind: other }),
+        }
+    }
+
+    fn sum(&mut self, inputs: Vec<ResourceExprId>) -> ResourceExprId {
+        match inputs.as_slice() {
+            [] => self.zero(),
+            [only] => *only,
+            _ => self.push(ResourceExprNode::Sum(inputs)),
+        }
+    }
+
+    fn max(&mut self, inputs: Vec<ResourceExprId>) -> ResourceExprId {
+        match inputs.as_slice() {
+            [] => self.zero(),
+            [only] => *only,
+            _ => self.push(ResourceExprNode::Max(inputs)),
+        }
+    }
+
+    pub fn verify(&self, plan: &Plan) -> Result<(), &'static str> {
+        for (index, node) in self.nodes.iter().enumerate() {
+            match node {
+                ResourceExprNode::ValueAtoms(value)
+                | ResourceExprNode::Requirement { value, .. } => {
+                    if value.0 >= plan.nodes.len() {
+                        return Err("resource expression references an invalid J Graph value");
+                    }
+                }
+                ResourceExprNode::Sum(inputs) | ResourceExprNode::Max(inputs) => {
+                    if inputs.iter().any(|input| input.0 >= index) {
+                        return Err("resource expression must reference earlier expression nodes");
+                    }
+                }
+                ResourceExprNode::Zero | ResourceExprNode::Unknown => {}
+            }
+        }
+        Ok(())
+    }
+
+    pub fn evaluate_atoms(
+        &self,
+        root: ResourceExprId,
+        memory: &StaticMemoryAnalysis,
+    ) -> KnownAtoms {
+        let mut values = Vec::with_capacity(self.nodes.len());
+        for node in &self.nodes {
+            let value = match node {
+                ResourceExprNode::Zero => KnownAtoms::default(),
+                ResourceExprNode::Unknown | ResourceExprNode::Requirement { .. } => {
+                    KnownAtoms {
+                        known: 0,
+                        has_unknown: true,
+                    }
+                }
+                ResourceExprNode::ValueAtoms(value) => {
+                    let mut atoms = KnownAtoms::default();
+                    atoms.add(extent_atoms(memory, *value));
+                    atoms
+                }
+                ResourceExprNode::Sum(inputs) => {
+                    let mut out = KnownAtoms::default();
+                    for input in inputs {
+                        let item = values[input.0];
+                        out.known = out.known.saturating_add(item.known);
+                        out.has_unknown |= item.has_unknown;
+                    }
+                    out
+                }
+                ResourceExprNode::Max(inputs) => {
+                    let mut out = KnownAtoms::default();
+                    for input in inputs {
+                        let item = values[input.0];
+                        out.known = out.known.max(item.known);
+                        out.has_unknown |= item.has_unknown;
+                    }
+                    out
+                }
+            };
+            values.push(value);
+        }
+        values.get(root.0).copied().unwrap_or(KnownAtoms {
+            known: 0,
+            has_unknown: true,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NodeResourceFormula {
+    pub temporary: ResourceExprId,
+    pub accumulator: ResourceExprId,
+    pub working_state: ResourceExprId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegionResourceFormula {
+    pub internal_atoms: ResourceExprId,
+    pub elidable_materialization_atoms: ResourceExprId,
+    pub retained_live_atoms: ResourceExprId,
+    pub graph_order_peak_live_atoms: ResourceExprId,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeResourceSummary {
     pub value: ValueId,
@@ -69,6 +223,11 @@ pub struct RegionResourceSummary {
 pub struct GraphResourceSummary {
     pub nodes: Vec<NodeResourceSummary>,
     pub regions: Vec<RegionResourceSummary>,
+    /// Symbolic provenance for node requirements and region volume/liveness
+    /// composition. Concrete target bytes are intentionally absent.
+    pub expressions: ResourceExprGraph,
+    pub node_formulas: Vec<NodeResourceFormula>,
+    pub region_formulas: Vec<RegionResourceFormula>,
 }
 
 fn extent_atoms(memory: &StaticMemoryAnalysis, value: ValueId) -> Option<usize> {
@@ -80,6 +239,52 @@ fn node_contract(plan: &Plan, value: ValueId) -> Option<&GraphOperationContract>
         NodeKind::Apply { contract, .. } => Some(contract),
         _ => None,
     }
+}
+
+
+fn sum_value_atoms(
+    expressions: &mut ResourceExprGraph,
+    values: impl IntoIterator<Item = ValueId>,
+) -> ResourceExprId {
+    let inputs = values
+        .into_iter()
+        .map(|value| expressions.value_atoms(value))
+        .collect::<Vec<_>>();
+    expressions.sum(inputs)
+}
+
+fn region_graph_order_peak_formula(
+    expressions: &mut ResourceExprGraph,
+    memory: &StaticMemoryAnalysis,
+    values: &[ValueId],
+) -> ResourceExprId {
+    if values.is_empty() {
+        return expressions.zero();
+    }
+    let start = values
+        .iter()
+        .map(|value| memory.live_ranges[value.0].defined_at)
+        .min()
+        .unwrap_or(0);
+    let end = values
+        .iter()
+        .map(|value| memory.live_ranges[value.0].last_use)
+        .max()
+        .unwrap_or(start);
+
+    let mut points = Vec::new();
+    for point in start..=end {
+        let live = values
+            .iter()
+            .copied()
+            .filter(|value| {
+                let range = memory.live_ranges[value.0];
+                range.defined_at <= point && point <= range.last_use
+            })
+            .collect::<Vec<_>>();
+        points.push(sum_value_atoms(expressions, live));
+    }
+    expressions.max(points)
 }
 
 fn region_graph_order_peak_live_atoms(
@@ -118,6 +323,8 @@ fn region_graph_order_peak_live_atoms(
 }
 
 pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSummary {
+    let mut expressions = ResourceExprGraph::default();
+    let mut node_formulas = Vec::with_capacity(plan.nodes.len());
     let nodes = plan
         .nodes
         .iter()
@@ -141,9 +348,15 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                     SymbolicResourceExpr::None,
                 ),
             };
+            let value = ValueId(index);
+            node_formulas.push(NodeResourceFormula {
+                temporary: expressions.requirement(value, temporary),
+                accumulator: expressions.requirement(value, accumulator),
+                working_state: expressions.requirement(value, working_state),
+            });
             NodeResourceSummary {
-                value: ValueId(index),
-                output_atoms: memory.extent(ValueId(index)).map(|extent| extent.atoms),
+                value,
+                output_atoms: memory.extent(value).map(|extent| extent.atoms),
                 composition,
                 temporary,
                 accumulator,
@@ -152,6 +365,7 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
         })
         .collect::<Vec<_>>();
 
+    let mut region_formulas = Vec::with_capacity(plan.regions.len());
     let regions = plan
         .regions
         .iter()
@@ -225,6 +439,42 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 }
             }
 
+            let internal_values = region_values
+                .iter()
+                .copied()
+                .filter(|value| *value != region.result && !region.inputs.contains(value))
+                .collect::<Vec<_>>();
+            let elidable_values = memory
+                .opportunities
+                .iter()
+                .filter(|opportunity| {
+                    region_values.contains(&opportunity.value)
+                        && matches!(
+                            opportunity.kind,
+                            MaterializationOpportunity::PipelineIntermediate
+                                | MaterializationOpportunity::BranchIntermediate
+                                | MaterializationOpportunity::VirtualView
+                        )
+                })
+                .map(|opportunity| opportunity.value)
+                .collect::<Vec<_>>();
+            let retained_values = match &region.kind {
+                RegionKind::Pipeline { .. } => Vec::new(),
+                RegionKind::Hook { live_across, .. }
+                | RegionKind::Fork { live_across, .. } => live_across.clone(),
+            };
+            let peak_formula =
+                region_graph_order_peak_formula(&mut expressions, memory, &live_values);
+            region_formulas.push(RegionResourceFormula {
+                internal_atoms: sum_value_atoms(&mut expressions, internal_values),
+                elidable_materialization_atoms: sum_value_atoms(
+                    &mut expressions,
+                    elidable_values,
+                ),
+                retained_live_atoms: sum_value_atoms(&mut expressions, retained_values),
+                graph_order_peak_live_atoms: peak_formula,
+            });
+
             RegionResourceSummary {
                 composition: region.resource_composition,
                 internal_atoms,
@@ -237,5 +487,12 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
         })
         .collect();
 
-    GraphResourceSummary { nodes, regions }
+    debug_assert!(expressions.verify(plan).is_ok());
+    GraphResourceSummary {
+        nodes,
+        regions,
+        expressions,
+        node_formulas,
+        region_formulas,
+    }
 }
