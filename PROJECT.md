@@ -489,7 +489,7 @@ Current status:
 - [x] GraphFacts does not own physical stride/layout/device state.
 - [ ] Dense runtime `Value` payloads still contain `CpuStorage` directly. This is transitional and is not the final Logical Array abstraction.
 - [ ] Complete an explicit representation adapter/handle boundary between dense logical values and CPU/GPU backend storage.
-- [ ] The historical name `facts::LayoutFact` currently means the J-visible `Dense / AxisSparse` representation class, not physical layout. Consider moving it toward a `RepresentationFact` name in a later cleanup.
+- [x] Renamed `facts::LayoutFact` to `RepresentationClassFact` and `Facts.layout` to `Facts.representation_class`; `Dense / AxisSparse` remains a J-visible representation class, not a physical layout.
 
 The split is complete when defining or analyzing a logical value no longer requires `CpuStorage`, strides, offsets, devices, or BufferId, and those facts appear only through a selected backend representation.
 
