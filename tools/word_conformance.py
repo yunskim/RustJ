@@ -49,5 +49,7 @@ def main():
     report={'jsource_revision':'13994ffa1ed5f06f79fad6e9822a7ed2d29b1528','cases':len(samples),'seed':args.seed,'open_quotes':opened,'failed':len(failures),'failures':failures,'reference':os.environ.get('J_LIBRARY')}
     args.report.write_text(json.dumps(report,indent=2))
     print(json.dumps({k:v for k,v in report.items() if k!='failures'},indent=2))
+    if failures:
+        print(json.dumps({"first_failures": failures[:50]}, indent=2))
     return bool(failures)
 if __name__=='__main__':raise SystemExit(main())
