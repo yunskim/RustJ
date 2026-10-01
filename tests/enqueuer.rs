@@ -22,8 +22,10 @@ fn enqueue_owns_word_interpretation_and_preserves_source_provenance() {
         (0..7).collect::<Vec<_>>()
     );
     assert_eq!(&source[words[4].span.clone()], "alpha");
-    assert!(words[4].flags.lookup_name);
+    assert!(!words[4].flags.lookup_name);
     assert!(words[5].flags.global_assignment);
+    assert!(!words[5].flags.local_assignment);
+    assert!(words[5].flags.assignment_to_name);
     assert!(matches!(words[0].payload, EnqueuedPayload::Verb(_)));
     assert!(matches!(words[1].payload, EnqueuedPayload::Adverb(_)));
     assert!(matches!(words[2].payload, EnqueuedPayload::Conjunction(_)));
@@ -91,4 +93,25 @@ fn unresolved_extension_like_spelling_remains_an_ordinary_name() {
     assert_eq!(words[0].class, EnqueueClass::Name);
     assert!(words[0].flags.lookup_name);
     assert!(matches!(words[0].payload, EnqueuedPayload::Name("addx")));
+}
+
+
+#[test]
+fn name_lookup_flags_follow_jsource_queue_positions() {
+    let words = enqueuer::enqueue("a + b").unwrap();
+    assert!(words[0].flags.lookup_name);
+    assert!(words[2].flags.lookup_name);
+
+    let assigned = enqueuer::enqueue("a=:b").unwrap();
+    assert!(!assigned[0].flags.lookup_name);
+    assert!(assigned[1].flags.assignment_to_name);
+    assert!(assigned[2].flags.lookup_name);
+}
+
+#[test]
+fn one_word_non_result_entities_are_rejected_during_enqueue() {
+    for source in ["=:", "(", ")"] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        assert!(matches!(error.into_unlocated(), rustj::Error::Syntax(_)));
+    }
 }
