@@ -1,5 +1,9 @@
 # RustJ change validation
 
+## Core architecture invariants
+
+- Keep **Logical Array and Physical Array / Representation separate**. J-visible type/value/shape/atom order and J-visible boxed/sparse semantics belong to logical/semantic layers. BufferId, strides, offsets, concrete layout/tiling/alignment, memory space, device placement, sharding, transfer, and materialization belong to representation/physical planning. Do not equate ValueId with BufferId or logical-value existence with a materialized buffer.
+
 ## Documentation language policy
 
 - `AGENTS.md` is internal maintainer/agent guidance and remains English-only.
