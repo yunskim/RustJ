@@ -47,6 +47,26 @@ fn fork_resource_composition_exposes_retained_input_and_reduction_state() {
 }
 
 
+
+#[test]
+fn rank_resource_contract_preserves_inner_reduction_requirement() {
+    let mut engine = Engine::new();
+    engine.eval("a=:i.2 3").unwrap();
+    let graph = engine.analyze_j_graph("+/\"1 a").unwrap();
+    let resources = graph.symbolic_resource_analysis();
+    let result = graph.result.unwrap();
+    let summary = &resources.nodes[result.0];
+
+    assert_eq!(
+        summary.composition,
+        rustj::j_graph_ir::ResourceCompositionRule::CellMap
+    );
+    assert!(matches!(
+        summary.accumulator,
+        rustj::j_graph_ir::SymbolicResourceExpr::ReductionAccumulator
+    ));
+}
+
 #[test]
 fn window_resource_contract_composes_reuse_and_inner_reduction_state() {
     let graph = Engine::new()
