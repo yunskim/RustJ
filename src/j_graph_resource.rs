@@ -317,7 +317,14 @@ pub struct RewriteAlternativeResourceProfile {
     /// Target-independent operation-state requirements exposed by this
     /// alternative. Concrete size/placement remains downstream.
     pub state_requirements: Vec<SymbolicResourceExpr>,
+    pub state_requirement_atoms: Vec<RewriteStateRequirement>,
     pub has_unknown_state_requirement: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RewriteStateRequirement {
+    pub kind: SymbolicResourceExpr,
+    pub atoms: KnownAtoms,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -410,6 +417,47 @@ fn merge_state_requirement(
                 requirements.push(other);
             }
         }
+    }
+}
+
+fn graph_value_atoms(plan: &Plan, value: ValueId) -> Option<usize> {
+    let shape = plan.nodes.get(value.0)?.facts.shape.as_ref()?;
+    shape
+        .iter()
+        .try_fold(1usize, |atoms, dim| atoms.checked_mul(*dim))
+}
+
+fn rewrite_state_requirement_atoms(
+    plan: &Plan,
+    node: &crate::j_graph_rewrite::RewriteNode,
+    kind: SymbolicResourceExpr,
+) -> KnownAtoms {
+    match (node.semantics, kind) {
+        (
+            RewriteNodeSemantics::WindowByPatternShape,
+            SymbolicResourceExpr::WindowWorkingSet,
+        ) => {
+            let pattern = node.inputs.get(1).copied();
+            let atoms = match pattern {
+                Some(RewriteInput::Source(value)) => graph_value_atoms(plan, value),
+                _ => None,
+            };
+            match atoms {
+                Some(known) => KnownAtoms {
+                    known,
+                    has_unknown: false,
+                },
+                None => KnownAtoms {
+                    known: 0,
+                    has_unknown: true,
+                },
+            }
+        }
+        (_, SymbolicResourceExpr::None) => KnownAtoms::default(),
+        _ => KnownAtoms {
+            known: 0,
+            has_unknown: true,
+        },
     }
 }
 
@@ -616,12 +664,14 @@ pub fn evaluate_rewrite_candidate(
         unfused_internal_traffic_atoms: KnownAtoms::default(),
         elidable_internal_traffic_atoms: KnownAtoms::default(),
         state_requirements: source_state_requirements,
+        state_requirement_atoms: Vec::new(),
         has_unknown_state_requirement: source_unknown_state,
     };
 
     let mut internal = KnownAtoms::default();
     let mut elidable = KnownAtoms::default();
     let mut state_requirements = Vec::new();
+    let mut state_requirement_atoms = Vec::new();
     let mut has_unknown_state = false;
 
     for (index, node) in candidate.replacement.nodes.iter().enumerate() {
@@ -642,6 +692,18 @@ pub fn evaluate_rewrite_candidate(
             &mut has_unknown_state,
             working_state,
         );
+        for kind in [temporary, accumulator, working_state] {
+            if matches!(kind, SymbolicResourceExpr::None | SymbolicResourceExpr::Unknown) {
+                continue;
+            }
+            let atoms = rewrite_state_requirement_atoms(plan, node, kind);
+            if !state_requirement_atoms
+                .iter()
+                .any(|item: &RewriteStateRequirement| item.kind == kind)
+            {
+                state_requirement_atoms.push(RewriteStateRequirement { kind, atoms });
+            }
+        }
 
         if index == candidate.replacement.output.0 {
             continue;
@@ -680,11 +742,14 @@ pub fn evaluate_rewrite_candidate(
     let replacement = RewriteAlternativeResourceProfile {
         output_atoms: extent_atoms(memory, source_value),
         has_unknown_implementation_resource:
-            internal.has_unknown || has_unknown_state || !state_requirements.is_empty(),
+            internal.has_unknown
+                || has_unknown_state
+                || state_requirement_atoms.iter().any(|item| item.atoms.has_unknown),
         internal_materialization_atoms: internal,
         unfused_internal_traffic_atoms: scale_known_atoms(internal, 2),
         elidable_internal_traffic_atoms: scale_known_atoms(elidable, 2),
         state_requirements,
+        state_requirement_atoms,
         has_unknown_state_requirement: has_unknown_state,
     };
 
