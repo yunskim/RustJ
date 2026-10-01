@@ -204,7 +204,7 @@ pub fn analyze(plan: &Plan) -> StaticMemoryAnalysis {
                     );
                 }
                 for value in branch_results {
-                    if *value != *join_result {
+                    if *value != *join_result && !region.inputs.contains(value) {
                         add_opportunity(
                             &mut opportunities,
                             *value,
