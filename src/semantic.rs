@@ -2,8 +2,8 @@
 //! Nodes retain byte spans; binding and execution remain separate phases.
 use crate::{
     Error, Result, Value,
+    enqueuer::{EnqueuedPayload, enqueue},
     error::{DiagnosticPhase, ErrorContext},
-    syntax::{Token, lex_spanned},
 };
 use std::sync::Arc;
 
@@ -503,17 +503,17 @@ pub(crate) fn parse_analysis(
 
 type NounLookup<'a> = Option<&'a dyn Fn(&str) -> Option<Value>>;
 fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Program> {
-    let spanned = lex_spanned(source)?;
-    let spans: Vec<_> = spanned.iter().map(|t| t.span.clone()).collect();
-    let word_indices: Vec<_> = spanned.iter().map(|t| t.word_index).collect();
-    let mut tokens: Vec<_> = spanned.into_iter().map(|t| t.token).collect();
+    let enqueued = enqueue(source)?;
+    let spans: Vec<_> = enqueued.iter().map(|word| word.span.clone()).collect();
+    let word_indices: Vec<_> = enqueued.iter().map(|word| word.word_index).collect();
+    let mut tokens: Vec<_> = enqueued.into_iter().map(|word| word.payload).collect();
     let mut assignment_span = None;
     let mut assignment = None;
     let expression = if tokens.is_empty() {
         None
     } else {
-        let (expr, expr_spans, expr_words) = if tokens.len() > 1 && matches!(tokens[1], Token::Assign) {
-            let Token::Name(name) = &tokens[0] else {
+        let (expr, expr_spans, expr_words) = if tokens.len() > 1 && matches!(tokens[1], EnqueuedPayload::Assign) {
+            let EnqueuedPayload::Name(name) = &tokens[0] else {
                 return Err(
                     Error::Syntax("assignment target".into()).with_context(
                         ErrorContext::phase(DiagnosticPhase::Parse)
@@ -568,7 +568,7 @@ fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Prog
     })
 }
 fn expression(
-    tokens: &mut [Token<'_>],
+    tokens: &mut [EnqueuedPayload<'_>],
     spans: &[std::ops::Range<usize>],
     pos: &mut usize,
     nested: bool,
@@ -582,19 +582,19 @@ fn expression(
     let mut items = Vec::new();
     while *pos < tokens.len() {
         match &tokens[*pos] {
-            Token::Close => {
+            EnqueuedPayload::Close => {
                 if nested {
                     break;
                 } else {
                     return Err(Error::Syntax("unexpected )".into()).at(spans[*pos].clone()));
                 }
             }
-            Token::Open => {
+            EnqueuedPayload::Open => {
                 let start = spans[*pos].start;
                 *pos += 1;
                 let (v, height) = expression(tokens, spans, pos, true, depth + 1, noun, snapshot)?;
                 let height = checked_height(height)?;
-                if !matches!(tokens.get(*pos), Some(Token::Close)) {
+                if !matches!(tokens.get(*pos), Some(EnqueuedPayload::Close)) {
                     return Err(Error::Syntax("missing )".into()).at(start..start + 1));
                 }
                 let v = Expr {
@@ -612,7 +612,7 @@ fn expression(
                 }
                 items.push(Item::noun(v, height));
             }
-            Token::Scalar(v) => {
+            EnqueuedPayload::Scalar(v) => {
                 items.push(Item::noun(
                     Expr {
                         span: spans[*pos].clone(),
@@ -626,8 +626,8 @@ fn expression(
                 ));
                 *pos += 1;
             }
-            Token::Noun(_) => {
-                let Token::Noun(v) = std::mem::replace(&mut tokens[*pos], Token::Open) else {
+            EnqueuedPayload::Noun(_) => {
+                let EnqueuedPayload::Noun(v) = std::mem::replace(&mut tokens[*pos], EnqueuedPayload::Open) else {
                     unreachable!()
                 };
                 items.push(Item::noun(
@@ -639,8 +639,8 @@ fn expression(
                 ));
                 *pos += 1;
             }
-            Token::Verb(_) | Token::Name(_) => {
-                if let Token::Name(n) = &tokens[*pos] {
+            EnqueuedPayload::Verb(_) | EnqueuedPayload::Name(_) => {
+                if let EnqueuedPayload::Name(n) = &tokens[*pos] {
                     let kind = match noun {
                         None => Some(ExprKind::ReadName((*n).to_owned())),
                         Some(lookup) => lookup(n).map(|v| {
@@ -664,8 +664,8 @@ fn expression(
                     }
                 }
                 let target = match &tokens[*pos] {
-                    Token::Verb(id) => VerbTarget::Primitive(*id),
-                    Token::Name(n) => VerbTarget::Named((*n).to_owned()),
+                    EnqueuedPayload::Verb(id) => VerbTarget::Primitive(*id),
+                    EnqueuedPayload::Name(n) => VerbTarget::Named((*n).to_owned()),
                     _ => unreachable!(),
                 };
                 let verb_span = spans[*pos].clone();
@@ -684,14 +684,14 @@ fn expression(
                 *pos += 1;
                 items.push(Item::verb(verb));
             }
-            Token::Adverb(id) => {
+            EnqueuedPayload::Adverb(id) => {
                 items.push(Item::function(FunctionEntity::primitive_adverb(
                     *id,
                     spans[*pos].clone(),
                 )));
                 *pos += 1;
             }
-            Token::Conjunction(id) => {
+            EnqueuedPayload::Conjunction(id) => {
                 items.push(Item::function(FunctionEntity::primitive_conjunction(
                     *id,
                     spans[*pos].clone(),
