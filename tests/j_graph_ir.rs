@@ -1,7 +1,7 @@
 use rustj::{
     Engine,
     j_graph_ir::{
-        AccessContract, FusionCapability, GraphAnalyzability, GraphForm, GraphHint,
+        AccessContract, FusionStructure, GraphAnalyzability, GraphForm, GraphHint,
         GraphRuleRef, IterationContract, J_GRAPH_SCHEMA_VERSION, NodeKind,
         RegionKind, ResourceCompositionRule, ResourceRuleRef, SymbolicResourceExpr,
     },
@@ -107,7 +107,7 @@ fn modifiers_expose_collective_and_cell_parallel_contracts_before_execution_lowe
     assert!(hints.contains(GraphHint::ReductionStructure));
     assert_eq!(contract.iteration, IterationContract::Reduction);
     assert_eq!(contract.access, AccessContract::ReductionAxis);
-    assert_eq!(contract.fusion, FusionCapability::ReductionAware);
+    assert_eq!(contract.fusion_structure, FusionStructure::ReductionAware);
     assert_eq!(
         contract.accumulator,
         SymbolicResourceExpr::ReductionAccumulator
