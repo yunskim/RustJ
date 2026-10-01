@@ -9,6 +9,7 @@ pub mod bit_storage;
 pub mod compilation;
 pub mod contracts;
 pub mod error;
+pub mod enqueuer;
 pub mod execution_semantics;
 pub mod expansion;
 pub mod facts;
