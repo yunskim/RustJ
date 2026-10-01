@@ -1061,7 +1061,7 @@ mod parser_table_tests {
             ([Mark, Verb, Adverb, Noun], ParseRow::Adverb),
             ([Mark, Verb, Conjunction, Noun], ParseRow::Conjunction),
             ([Mark, Verb, Verb, Verb], ParseRow::Fork),
-            ([Mark, Verb, Noun, Verb], ParseRow::Hook),
+            ([Mark, Conjunction, Verb, Noun], ParseRow::Hook),
             ([Name, Assignment, Verb, Noun], ParseRow::Assignment),
             ([LParen, Verb, RParen, Noun], ParseRow::Parenthesis),
         ];
