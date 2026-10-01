@@ -4,6 +4,7 @@
 //! in the A3 plan until an optimizer explicitly chooses and proves an expansion.
 
 use crate::{
+    Data, Error, Value,
     analysis::{ExecutionBasisKind, CallTarget},
     j_graph_rewrite::{GraphEquivalenceWitness, GraphRewriteRuleId},
     logical_ir::{
@@ -80,8 +81,25 @@ impl ExpansionGraph {
                 (
                     ExpansionNodeSemantics::MatchPatternCell,
                     ExecutionBasisPayload::CellApply,
-                    [ExpansionInput::Source(_), ExpansionInput::Node(_)],
-                ) => {}
+                    [
+                        ExpansionInput::Source(match_pattern),
+                        ExpansionInput::Node(window_node),
+                    ],
+                ) => {
+                    let Some(window) = self.nodes.get(window_node.0) else {
+                        return Err("match expansion references a missing window node");
+                    };
+                    let ExecutionBasisPayload::WindowView {
+                        shape: WindowShapeSpec::PatternShape { pattern },
+                        ..
+                    } = &window.payload
+                    else {
+                        return Err("match expansion input is not a WindowView");
+                    };
+                    if pattern != match_pattern {
+                        return Err("match expansion pattern does not match WindowView pattern");
+                    }
+                }
                 _ => {
                     return Err(
                         "expansion node semantic payload does not match its inputs",
@@ -173,4 +191,114 @@ pub fn discover(plan: &Plan) -> Vec<ExecutionBasisExpansion> {
     }
 
     expansions
+}
+
+
+#[derive(Clone)]
+enum ReferenceExpansionValue {
+    WindowFamily {
+        pattern: Value,
+        source: Value,
+    },
+    Value(Value),
+}
+
+fn source_value(values: &[Option<Value>], id: ValueId) -> crate::Result<Value> {
+    values
+        .get(id.0)
+        .and_then(Option::as_ref)
+        .cloned()
+        .ok_or_else(|| Error::Unsupported("reference expansion source value is unavailable".into()))
+}
+
+fn find_window_family(pattern: Value, source: Value) -> crate::Result<ReferenceExpansionValue> {
+    if pattern.is_sparse() || source.is_sparse() {
+        return Err(Error::Unsupported("sparse dyad E.".into()));
+    }
+    if matches!(pattern.data(), Data::Boxed(_)) || matches!(source.data(), Data::Boxed(_)) {
+        return Err(Error::Unsupported("boxed search".into()));
+    }
+    if pattern.shape().len() > source.shape().len() {
+        return Err(Error::Rank);
+    }
+    if pattern.shape().len() > 1 || source.shape().len() > 1 {
+        return Err(Error::Unsupported("E. multidimensional pattern".into()));
+    }
+    Ok(ReferenceExpansionValue::WindowFamily { pattern, source })
+}
+
+fn match_window_family(pattern: &Value, source: &Value) -> crate::Result<Value> {
+    let width = pattern.len();
+    Value::new(
+        source.shape().to_vec(),
+        Data::Bool(crate::storage::CpuStorage::generate(source.len(), |i| {
+            (width <= source.len() - i
+                && (0..width).all(|k| crate::index_ops::atom_eq(pattern, k, source, i + k)))
+                as u8
+        })?),
+    )
+}
+
+/// Execute a witnessed expansion through a small reference realization.
+///
+/// This is deliberately separate from ordinary A3 basis execution: expansion
+/// nodes may carry virtual descriptors (WindowFamily) rather than materialized
+/// J values. It exists to validate/host a composite lowering family without
+/// pretending every basis node already has a standalone native kernel.
+pub fn execute_reference(
+    expansion: &ExecutionBasisExpansion,
+    source_values: &[Option<Value>],
+) -> crate::Result<Value> {
+    expansion
+        .graph
+        .verify()
+        .map_err(|message| Error::Unsupported(message.into()))?;
+
+    let mut local = Vec::with_capacity(expansion.graph.nodes.len());
+    for node in &expansion.graph.nodes {
+        let value = match (node.semantics, node.inputs.as_slice()) {
+            (
+                ExpansionNodeSemantics::WindowByPatternShape,
+                [
+                    ExpansionInput::Source(source),
+                    ExpansionInput::Source(pattern),
+                ],
+            ) => find_window_family(
+                source_value(source_values, *pattern)?,
+                source_value(source_values, *source)?,
+            )?,
+            (
+                ExpansionNodeSemantics::MatchPatternCell,
+                [
+                    ExpansionInput::Source(_),
+                    ExpansionInput::Node(window),
+                ],
+            ) => {
+                let Some(ReferenceExpansionValue::WindowFamily { pattern, source }) =
+                    local.get(window.0)
+                else {
+                    return Err(Error::Unsupported(
+                        "reference expansion match input is not a window family".into(),
+                    ));
+                };
+                ReferenceExpansionValue::Value(match_window_family(pattern, source)?)
+            }
+            _ => {
+                return Err(Error::Unsupported(
+                    "reference expansion does not implement this node".into(),
+                ));
+            }
+        };
+        local.push(value);
+    }
+
+    match local.get(expansion.graph.output.0) {
+        Some(ReferenceExpansionValue::Value(value)) => Ok(value.clone()),
+        Some(ReferenceExpansionValue::WindowFamily { .. }) => Err(Error::Unsupported(
+            "reference expansion cannot return a virtual window family".into(),
+        )),
+        None => Err(Error::Unsupported(
+            "reference expansion output is unavailable".into(),
+        )),
+    }
 }
