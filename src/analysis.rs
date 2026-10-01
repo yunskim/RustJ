@@ -256,10 +256,9 @@ pub struct CompilationAnalysis {
     /// logical-atom/symbolic-state domain. This is evaluation, not selection.
     pub graph_rewrite_resources:
         Vec<crate::j_graph_resource::RewriteResourceEvaluation>,
-    /// Transitional execution plan retained only for compatibility while M1
-    /// removes the duplicate public IR. New compiler consumers should use
-    /// `logical`.
-    pub execution: LogicalPlan,
+    /// Transitional plan retained only for compatibility while M1 removes the
+    /// duplicate public IR. New compiler consumers must use `logical`.
+    pub transition: LogicalPlan,
     /// Canonical A3 Logical Execution IR consumed by route/planner layers.
     pub logical: crate::logical_ir::Plan,
 }
