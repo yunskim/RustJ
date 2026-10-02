@@ -634,6 +634,60 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
     .find_map(|(row, matched)| matched.then_some(row))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrainOutcome {
+    Result(ParseClass),
+    Fork,
+}
+
+fn bident_outcome(left: ParseClass, right: ParseClass) -> Option<TrainOutcome> {
+    use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
+    use TrainOutcome::Result as R;
+    Some(match (left, right) {
+        (V, V) => R(V),
+        (V, N) => R(N),
+        (N, A) => R(V),
+        (N, C) => R(A),
+        (V, A) => R(V),
+        (V, C) => R(A),
+        (A, V) | (A, A) | (A, C) => R(A),
+        (C, N) | (C, V) => R(A),
+        (C, A) | (C, C) => R(C),
+        _ => return None,
+    })
+}
+
+fn trident_outcome(
+    first: ParseClass,
+    second: ParseClass,
+    third: ParseClass,
+) -> Option<TrainOutcome> {
+    use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
+    use TrainOutcome::{Fork, Result as R};
+    Some(match (first, second, third) {
+        (N, V, N) => R(N),
+        (V, V, V) | (N, V, V) => Fork,
+
+        (A, A, A) => R(A),
+        (A, A, V) => R(C),
+        (V, V, C) | (N, V, C) => R(C),
+        (A, V, V) => R(A),
+        (C, V, V) | (C, V, C) => R(C),
+        (C, A, A) => R(C),
+
+        (N, C, N) | (N, C, V) | (V, C, N) | (V, C, V) => R(V),
+        (N, C, A) | (V, C, A) => R(A),
+        (N, C, C) | (V, C, C) => R(C),
+
+        (A, C, N) | (A, C, V) => R(A),
+        (A, C, A) | (A, C, C) => R(C),
+
+        (C, C, N) | (C, C, V) | (C, C, A) | (C, C, C) => R(C),
+        _ => return None,
+    })
+}
+
+
 #[derive(Clone)]
 enum ParseValue {
     Noun(Expr, usize),
