@@ -7233,9 +7233,10 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 #### P2 — 하나의 9-row reduction engine으로 전환
 
-- [ ] row 0 `EDGE VERB NOUN ANY`의 reduction extent/precedence를 구현한다. parser-visible effect/value dependency가 없을 때만 Noun-producing monadic semantic application으로 defer한다.
-- [ ] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 reduction extent/precedence를 구현한다.
-- [ ] row 2 `EDGE+AVN NOUN VERB NOUN`의 정확한 reduction extent/precedence를 구현한다. parser-visible effect/value dependency가 없을 때만 Noun-producing dyadic semantic application으로 defer한다.
+- **jsource invariant:** conjunction chain은 parse-table 구조상 left-to-right로 결합한다. 예: `u @: v @: w`의 semantic graph는 `(u @: v) @: w`이다.
+- [x] row 0 `EDGE VERB NOUN ANY`를 right-to-left stack reducer에서 first-match precedence로 선택하고 monadic `Expr` application으로 defer한다.
+- [x] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 four-class eligibility/reduction extent를 production stack reducer에 구현했다.
+- [x] row 2 `EDGE+AVN NOUN VERB NOUN`을 production stack reducer에서 선택하고 dyadic `Expr` application으로 defer한다.
 - [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV ANY`를 modifier semantic constructor 호출로 구현한다.
 - [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다.
 - [ ] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 Fork construction을 구현한다.
@@ -7245,7 +7246,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [ ] 각 reduction 결과를 같은 parser stack에 되돌리고 다시 **동일한 row matcher**로 scan/reduce한다.
 - [ ] row action abstraction이 `ReadyParseValue`와 `RequiresRuntimeSemanticParse`를 구분할 수 있게 하여, 정적 compiler path가 parser-visible runtime dependency를 숨기지 않게 한다.
 - [ ] runtime semantic fallback도 별도 grammar/parser를 만들지 않고 동일한 9-row matcher를 사용하게 한다.
-- [ ] row precedence가 vector scan 순서나 별도 train heuristic에 우연히 의존하지 않게 한다.
+- [x] 기존 flat-vector modifier/train/application reducer를 삭제하고 production expression reduction을 right-to-left stack + ordered `match_parse_row`로 cutover했다. 아직 미구현 semantic form은 해당 row action에서 명시적으로 남긴다.
 - [ ] one-word sentence의 별도 jsource path와 관찰 가능한 결과가 동일하도록 테스트한다.
 
 **P2 완료 조건:** 모든 parser reduction 선택을 jsource row 번호와 input class 조합으로 설명할 수 있고, deferred semantic action과 runtime semantic action이 동일한 parser engine을 공유한다. parser-visible effect/value dependency를 무시한 정적 진행 경로가 없다.
