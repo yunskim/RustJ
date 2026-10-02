@@ -371,7 +371,7 @@ fn reduce_stack_prefix(
                     stack.get(3).map_or(ParseClass::Mark, |item| item.class),
                 ];
                 match trident_disposition(classes[0], classes[1], classes[2]) {
-                    Some(TrainOutcome::Fork) if classes == [
+                    TridentDisposition::BuildFork if classes == [
                         ParseClass::Verb,
                         ParseClass::Verb,
                         ParseClass::Verb,
@@ -383,14 +383,24 @@ fn reduce_stack_prefix(
                         stack.insert(1, Item::verb(train_fork(f, g, h)));
                         true
                     }
-                    Some(TrainOutcome::Fork) => {
+                    TridentDisposition::BuildFork => {
                         return Err(Error::Unsupported(
                             "jsource noun-left fork semantics are not yet represented".into(),
                         ));
                     }
-                    Some(TrainOutcome::Result(_)) | None => {
+                    TridentDisposition::ImmediateSemanticApply => {
+                        return Err(Error::Unsupported(
+                            "row 5 requires parser-time semantic execution".into(),
+                        ));
+                    }
+                    TridentDisposition::BuildDerivedModifier(result_pos) => {
+                        return Err(Error::Unsupported(format!(
+                            "row 5 derived modifier result {result_pos:?} is not yet represented"
+                        )));
+                    }
+                    TridentDisposition::SyntaxError => {
                         return Err(Error::Syntax(
-                            "row 5 matched a non-fork trident outcome".into(),
+                            "invalid jsource trident part-of-speech combination".into(),
                         ));
                     }
                 }
@@ -399,22 +409,24 @@ fn reduce_stack_prefix(
                 let left = stack.get(1).map_or(ParseClass::Mark, |item| item.class);
                 let right = stack.get(2).map_or(ParseClass::Mark, |item| item.class);
                 match bident_disposition(left, right) {
-                    Some(TrainOutcome::Result(ParseClass::Verb))
-                        if left == ParseClass::Verb && right == ParseClass::Verb =>
-                    {
+                    BidentDisposition::BuildHook => {
                         let mut phrase: Vec<_> = stack.drain(1..3).collect();
                         let f = phrase.remove(0).into_verb().expect("row 6 f");
                         let g = phrase.remove(0).into_verb().expect("row 6 g");
                         stack.insert(1, Item::verb(train_hook(f, g)));
                         true
                     }
-                    Some(TrainOutcome::Result(result_pos)) => {
+                    BidentDisposition::BuildDerivedModifier(result_pos) => {
                         return Err(Error::Unsupported(format!(
-                            "jsource bident result {result_pos:?} is not yet represented"
+                            "jsource bident derived modifier result {result_pos:?} is not yet represented"
                         )));
                     }
-                    Some(TrainOutcome::Fork) => unreachable!("bident table never yields fork"),
-                    None => {
+                    BidentDisposition::ImmediateSemanticApply => {
+                        return Err(Error::Unsupported(
+                            "row 6 requires parser-time semantic execution".into(),
+                        ));
+                    }
+                    BidentDisposition::SyntaxError => {
                         return Err(Error::Syntax(
                             "invalid jsource bident part-of-speech combination".into(),
                         ));
@@ -1290,73 +1302,75 @@ mod parser_table_tests {
     }
 
     #[test]
-    fn pinned_jsource_bident_pos_table_is_exact_for_supported_classes() {
-        use super::TrainOutcome::{Fork, Result as R};
+    fn pinned_jsource_bident_dispositions_match_cf_c() {
+        use super::BidentDisposition::{BuildDerivedModifier as D, BuildHook, ImmediateSemanticApply as I, SyntaxError as S};
 
         let expected = [
-            ((Verb, Verb), R(Verb)),
-            ((Verb, Noun), R(Noun)),
-            ((Noun, Adverb), R(Verb)),
-            ((Noun, Conjunction), R(Adverb)),
-            ((Verb, Adverb), R(Verb)),
-            ((Verb, Conjunction), R(Adverb)),
-            ((Adverb, Verb), R(Adverb)),
-            ((Adverb, Adverb), R(Adverb)),
-            ((Adverb, Conjunction), R(Adverb)),
-            ((Conjunction, Noun), R(Adverb)),
-            ((Conjunction, Verb), R(Adverb)),
-            ((Conjunction, Adverb), R(Conjunction)),
-            ((Conjunction, Conjunction), R(Conjunction)),
+            ((Verb, Verb), BuildHook),
+            ((Verb, Noun), I),
+            ((Noun, Adverb), I),
+            ((Verb, Adverb), I),
+            ((Noun, Conjunction), D(Adverb)),
+            ((Verb, Conjunction), D(Adverb)),
+            ((Adverb, Verb), D(Adverb)),
+            ((Adverb, Adverb), D(Adverb)),
+            ((Adverb, Conjunction), D(Adverb)),
+            ((Conjunction, Noun), D(Adverb)),
+            ((Conjunction, Verb), D(Adverb)),
+            ((Conjunction, Adverb), D(Conjunction)),
+            ((Conjunction, Conjunction), D(Conjunction)),
         ];
-        for ((left, right), outcome) in expected {
-            assert_eq!(super::bident_disposition(left, right), Some(outcome));
+        for ((left, right), disposition) in expected {
+            assert_eq!(super::bident_disposition(left, right), disposition);
         }
-        let _ = Fork; // keep result enum variants visibly tied to the shared table tests
-        assert_eq!(super::bident_disposition(Noun, Noun), None);
-        assert_eq!(super::bident_disposition(Noun, Verb), None);
+        assert_eq!(super::bident_disposition(Noun, Noun), S);
+        assert_eq!(super::bident_disposition(Noun, Verb), S);
     }
 
     #[test]
-    fn pinned_jsource_trident_pos_table_is_exact_for_defined_entries() {
-        use super::TrainOutcome::{Fork, Result as R};
+    fn pinned_jsource_trident_dispositions_match_cf_c() {
+        use super::TridentDisposition::{
+            BuildDerivedModifier as D, BuildFork, ImmediateSemanticApply as I,
+            SyntaxError as S,
+        };
 
         let expected = [
-            ((Noun, Verb, Noun), R(Noun)),
-            ((Verb, Verb, Verb), Fork),
-            ((Noun, Verb, Verb), Fork),
-            ((Adverb, Adverb, Adverb), R(Adverb)),
-            ((Adverb, Adverb, Verb), R(Conjunction)),
-            ((Verb, Verb, Conjunction), R(Conjunction)),
-            ((Noun, Verb, Conjunction), R(Conjunction)),
-            ((Adverb, Verb, Verb), R(Adverb)),
-            ((Conjunction, Verb, Verb), R(Conjunction)),
-            ((Conjunction, Verb, Conjunction), R(Conjunction)),
-            ((Conjunction, Adverb, Adverb), R(Conjunction)),
-            ((Noun, Conjunction, Noun), R(Verb)),
-            ((Noun, Conjunction, Verb), R(Verb)),
-            ((Verb, Conjunction, Noun), R(Verb)),
-            ((Verb, Conjunction, Verb), R(Verb)),
-            ((Noun, Conjunction, Adverb), R(Adverb)),
-            ((Verb, Conjunction, Adverb), R(Adverb)),
-            ((Noun, Conjunction, Conjunction), R(Conjunction)),
-            ((Verb, Conjunction, Conjunction), R(Conjunction)),
-            ((Adverb, Conjunction, Noun), R(Adverb)),
-            ((Adverb, Conjunction, Verb), R(Adverb)),
-            ((Adverb, Conjunction, Adverb), R(Conjunction)),
-            ((Adverb, Conjunction, Conjunction), R(Conjunction)),
-            ((Conjunction, Conjunction, Verb), R(Conjunction)),
-            ((Conjunction, Conjunction, Noun), R(Conjunction)),
-            ((Conjunction, Conjunction, Adverb), R(Conjunction)),
-            ((Conjunction, Conjunction, Conjunction), R(Conjunction)),
+            ((Noun, Verb, Noun), I),
+            ((Verb, Verb, Verb), BuildFork),
+            ((Noun, Verb, Verb), BuildFork),
+            ((Adverb, Adverb, Adverb), D(Adverb)),
+            ((Adverb, Adverb, Verb), D(Conjunction)),
+            ((Verb, Verb, Conjunction), D(Conjunction)),
+            ((Noun, Verb, Conjunction), D(Conjunction)),
+            ((Adverb, Verb, Verb), D(Adverb)),
+            ((Conjunction, Verb, Verb), D(Conjunction)),
+            ((Conjunction, Verb, Conjunction), D(Conjunction)),
+            ((Conjunction, Adverb, Adverb), D(Conjunction)),
+            ((Noun, Conjunction, Noun), I),
+            ((Noun, Conjunction, Verb), I),
+            ((Verb, Conjunction, Noun), I),
+            ((Verb, Conjunction, Verb), I),
+            ((Noun, Conjunction, Adverb), D(Adverb)),
+            ((Verb, Conjunction, Adverb), D(Adverb)),
+            ((Noun, Conjunction, Conjunction), D(Conjunction)),
+            ((Verb, Conjunction, Conjunction), D(Conjunction)),
+            ((Adverb, Conjunction, Noun), D(Adverb)),
+            ((Adverb, Conjunction, Verb), D(Adverb)),
+            ((Adverb, Conjunction, Adverb), D(Conjunction)),
+            ((Adverb, Conjunction, Conjunction), D(Conjunction)),
+            ((Conjunction, Conjunction, Verb), D(Conjunction)),
+            ((Conjunction, Conjunction, Noun), D(Conjunction)),
+            ((Conjunction, Conjunction, Adverb), D(Conjunction)),
+            ((Conjunction, Conjunction, Conjunction), D(Conjunction)),
         ];
-        for ((first, second, third), outcome) in expected {
+        for ((first, second, third), disposition) in expected {
             assert_eq!(
                 super::trident_disposition(first, second, third),
-                Some(outcome)
+                disposition
             );
         }
-        assert_eq!(super::trident_disposition(Verb, Noun, Verb), None);
-        assert_eq!(super::trident_disposition(Noun, Noun, Noun), None);
+        assert_eq!(super::trident_disposition(Verb, Noun, Verb), S);
+        assert_eq!(super::trident_disposition(Noun, Noun, Noun), S);
     }
 
 }
