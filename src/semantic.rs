@@ -755,7 +755,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Pr
             queue.as_mut_slice()
         };
         let mut pos = 0;
-        let (result, _) = expression(expr, &mut pos, false, 0, lookup, snapshot)
+        let (result, _) = expression(expr, &mut pos, lookup, snapshot)
             .map_err(|error| {
                 let fallback = expr
                     .get(pos)
@@ -793,46 +793,35 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Pr
 fn expression(
     tokens: &mut [EnqueuedWord<'_>],
     pos: &mut usize,
-    nested: bool,
-    depth: usize,
     lookup: NameLookup<'_>,
     snapshot: bool,
 ) -> Result<(Expr, usize)> {
-    if depth > MAX_EXPR_DEPTH {
-        return Err(Error::Limit);
-    }
     let mut items = Vec::new();
+    let mut open_spans = Vec::new();
     while *pos < tokens.len() {
         match &tokens[*pos].payload {
             EnqueuedPayload::Close => {
-                if nested {
-                    break;
-                } else {
-                    return Err(Error::Syntax("unexpected )".into()).at(tokens[*pos].span.clone()));
+                if open_spans.pop().is_none() {
+                    return Err(
+                        Error::Syntax("unexpected )".into()).at(tokens[*pos].span.clone()),
+                    );
                 }
+                items.push(Item::control(
+                    ParseClass::RParen,
+                    tokens[*pos].span.clone(),
+                ));
+                *pos += 1;
             }
             EnqueuedPayload::Open => {
-                let start = tokens[*pos].span.start;
-                *pos += 1;
-                let (v, height) = expression(tokens, pos, true, depth + 1, lookup, snapshot)?;
-                let height = checked_height(height)?;
-                if !tokens.get(*pos).is_some_and(|word| matches!(word.payload, EnqueuedPayload::Close)) {
-                    return Err(Error::Syntax("missing )".into()).at(start..start + 1));
+                if open_spans.len() >= MAX_EXPR_DEPTH {
+                    return Err(Error::Limit);
                 }
-                let v = Expr {
-                    span: start..tokens[*pos].span.end,
-                    kind: ExprKind::Group(Box::new(v)),
-                };
+                open_spans.push(tokens[*pos].span.clone());
+                items.push(Item::control(
+                    ParseClass::LParen,
+                    tokens[*pos].span.clone(),
+                ));
                 *pos += 1;
-                if let ExprKind::Group(inner) = &v.kind {
-                    if let ExprKind::VerbValue(verb) = &inner.kind {
-                        let mut verb = verb.clone();
-                        verb.span = v.span;
-                        items.push(Item::verb(verb));
-                        continue;
-                    }
-                }
-                items.push(Item::noun(v, height));
             }
             EnqueuedPayload::Scalar(v) => {
                 items.push(Item::noun(
@@ -964,6 +953,10 @@ fn expression(
             }
         }
     }
+    if let Some(span) = open_spans.last() {
+        return Err(Error::Syntax("missing )".into()).at(span.clone()));
+    }
+
     let mut items = reduce_parse_stack_subset(items)?;
 
     if items.len() != 1 {
