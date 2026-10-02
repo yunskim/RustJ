@@ -790,64 +790,50 @@ pub(crate) fn parse_analysis(
 type NameLookup<'a> = Option<&'a dyn Fn(&str) -> Option<ParserNameBinding>>;
 fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Program> {
     let mut queue = enqueue(source)?;
-    let mut assignment_span = None;
-    let mut assignment = None;
-    let expression = if queue.is_empty() {
-        None
-    } else {
-        let expr = if queue.len() > 1 && queue[1].class == EnqueueClass::Assignment {
-            if queue[0].class != EnqueueClass::Name || queue[0].flags.lookup_name {
-                return Err(
-                    Error::Syntax("assignment target".into()).with_context(
-                        ErrorContext::phase(DiagnosticPhase::Parse)
-                            .with_span(queue[0].span.clone())
-                            .with_blame_word(queue[0].word_index),
-                    ),
-                );
-            }
-            let EnqueuedPayload::Name(name) = &queue[0].payload else {
-                return Err(Error::Syntax("assignment target".into()));
-            };
-            assignment = Some((*name).to_owned());
-            assignment_span = Some(queue[0].span.clone());
-            &mut queue[2..]
-        } else {
-            queue.as_mut_slice()
-        };
-        let mut pos = 0;
-        let (result, _) = expression(expr, &mut pos, lookup, snapshot)
-            .map_err(|error| {
-                let fallback = expr
-                    .get(pos)
-                    .or_else(|| expr.last());
-                let fallback_span = fallback
-                    .map(|word| word.span.clone())
-                    .unwrap_or(source.len()..source.len());
-                let mut context =
-                    ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
-                if let Some(word) = fallback {
-                    context = context.with_blame_word(word.word_index);
-                }
-                error.with_context(context)
-            })?;
-        if pos != expr.len() {
-            let fallback = expr.get(pos).or_else(|| expr.last());
-            let span = fallback
+    if queue.is_empty() {
+        return Ok(Program {
+            source: source.to_owned(),
+            assignment: None,
+            assignment_span: None,
+            expression: None,
+        });
+    }
+
+    let mut pos = 0;
+    let (result, _, pending_assignment) =
+        expression(queue.as_mut_slice(), &mut pos, lookup, snapshot).map_err(|error| {
+            let fallback = queue.get(pos).or_else(|| queue.last());
+            let fallback_span = fallback
                 .map(|word| word.span.clone())
                 .unwrap_or(source.len()..source.len());
-            let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(span);
+            let mut context =
+                ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
             if let Some(word) = fallback {
                 context = context.with_blame_word(word.word_index);
             }
-            return Err(Error::Syntax("trailing tokens".into()).with_context(context));
+            error.with_context(context)
+        })?;
+    if pos != queue.len() {
+        let fallback = queue.get(pos).or_else(|| queue.last());
+        let span = fallback
+            .map(|word| word.span.clone())
+            .unwrap_or(source.len()..source.len());
+        let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(span);
+        if let Some(word) = fallback {
+            context = context.with_blame_word(word.word_index);
         }
-        Some(result)
+        return Err(Error::Syntax("trailing tokens".into()).with_context(context));
+    }
+
+    let (assignment, assignment_span) = match pending_assignment {
+        Some(PendingAssignment { name, span }) => (Some(name), Some(span)),
+        None => (None, None),
     };
     Ok(Program {
         source: source.to_owned(),
         assignment,
         assignment_span,
-        expression,
+        expression: Some(result),
     })
 }
 fn expression(
@@ -855,7 +841,7 @@ fn expression(
     pos: &mut usize,
     lookup: NameLookup<'_>,
     snapshot: bool,
-) -> Result<(Expr, usize)> {
+) -> Result<(Expr, usize, Option<PendingAssignment>)> {
     let mut items = Vec::new();
     let mut open_spans = Vec::new();
     while *pos < tokens.len() {
@@ -913,10 +899,12 @@ fn expression(
             EnqueuedPayload::Verb(_) | EnqueuedPayload::Name(_) => {
                 if let EnqueuedPayload::Name(n) = &tokens[*pos].payload {
                     if !tokens[*pos].flags.lookup_name {
-                        return Err(
-                            Error::Syntax("assignment-target name in expression".into())
-                                .at(tokens[*pos].span.clone()),
-                        );
+                        items.push(Item::name_target(
+                            (*n).to_owned(),
+                            tokens[*pos].span.clone(),
+                        ));
+                        *pos += 1;
+                        continue;
                     }
                     match lookup.and_then(|lookup| lookup(n)) {
                         Some(ParserNameBinding::Noun(value)) => {
@@ -1005,11 +993,12 @@ fn expression(
                 )));
                 *pos += 1;
             }
-            _ => {
-                return Err(
-                    Error::Unsupported("assignment/modifier in expression".into())
-                        .at(tokens[*pos].span.clone()),
-                );
+            EnqueuedPayload::Assign => {
+                items.push(Item::control(
+                    ParseClass::Assignment,
+                    tokens[*pos].span.clone(),
+                ));
+                *pos += 1;
             }
         }
     }
@@ -1017,7 +1006,7 @@ fn expression(
         return Err(Error::Syntax("missing )".into()).at(span.clone()));
     }
 
-    let mut items = reduce_parse_stack_subset(items)?;
+    let (mut items, assignment) = reduce_parse_stack_subset(items)?;
 
     if items.len() != 1 {
         let span = items
@@ -1032,13 +1021,14 @@ fn expression(
     let item = items.pop().expect("one reduced parser item");
     let span = item.span();
     match item.value {
-        ParseValue::Noun(expr, height) => Ok((expr, height)),
+        ParseValue::Noun(expr, height) => Ok((expr, height, assignment)),
         ParseValue::Verb(verb) => Ok((
             Expr {
                 span: verb.span.clone(),
                 kind: ExprKind::VerbValue(verb),
             },
             0,
+            assignment,
         )),
         ParseValue::Function(_) => Err(
             Error::Syntax("unapplied function modifier".into()).at(span),
