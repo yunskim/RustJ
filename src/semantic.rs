@@ -142,6 +142,44 @@ fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
     }
 }
 
+fn train_noun_fork(noun: Expr, g: Verb, h: Verb) -> Result<Verb> {
+    let noun_span = noun.span.clone();
+    let value = match noun.kind {
+        ExprKind::Literal(value) => value,
+        ExprKind::Group(inner) => {
+            let ExprKind::Literal(value) = inner.kind else {
+                return Err(Error::Unsupported(
+                    "runtime-dependent noun-left fork requires semantic parser execution".into(),
+                ));
+            };
+            value
+        }
+        _ => {
+            return Err(Error::Unsupported(
+                "runtime-dependent noun-left fork requires semantic parser execution".into(),
+            ));
+        }
+    };
+    let span = noun_span.start..h.span.end;
+    Ok(Verb {
+        span: span.clone(),
+        target: VerbTarget::Derived,
+        entity: FunctionEntity::derived(
+            FunctionHead::Fork,
+            FunctionPartOfSpeech::Verb,
+            span,
+            vec![
+                FunctionOperand::Noun {
+                    value,
+                    span: noun_span,
+                },
+                FunctionOperand::Function(g.entity),
+                FunctionOperand::Function(h.entity),
+            ],
+        ),
+    })
+}
+
 fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
     let span = left.span.start..operator.span.end;
@@ -383,9 +421,30 @@ fn reduce_stack_prefix(
                         stack.insert(1, Item::verb(train_fork(f, g, h)));
                         true
                     }
+                    TridentDisposition::BuildFork
+                        if classes == [
+                            ParseClass::Noun,
+                            ParseClass::Verb,
+                            ParseClass::Verb,
+                        ] =>
+                    {
+                        let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                        let (noun, _) = phrase.remove(0).into_noun().expect("row 5 noun");
+                        let g = phrase.remove(0).into_verb().expect("row 5 g");
+                        let h = phrase.remove(0).into_verb().expect("row 5 h");
+                        let span = noun.span.start..h.span.end;
+                        stack.insert(
+                            1,
+                            Item::verb(
+                                train_noun_fork(noun, g, h)
+                                    .map_err(|error| error.at(span))?,
+                            ),
+                        );
+                        true
+                    }
                     TridentDisposition::BuildFork => {
-                        return Err(Error::Unsupported(
-                            "jsource noun-left fork semantics are not yet represented".into(),
+                        return Err(Error::Syntax(
+                            "row 5 fork disposition has invalid parser classes".into(),
                         ));
                     }
                     TridentDisposition::ImmediateSemanticApply => {
