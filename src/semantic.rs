@@ -365,31 +365,60 @@ fn reduce_stack_prefix(
                 }
             }
             ParseRow::Fork => {
-                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb)
-                    && stack.get(2).is_some_and(|item| item.class == ParseClass::Verb)
-                    && stack.get(3).is_some_and(|item| item.class == ParseClass::Verb)
-                {
-                    let mut phrase: Vec<_> = stack.drain(1..4).collect();
-                    let f = phrase.remove(0).into_verb().expect("row 5 f");
-                    let g = phrase.remove(0).into_verb().expect("row 5 g");
-                    let h = phrase.remove(0).into_verb().expect("row 5 h");
-                    stack.insert(1, Item::verb(train_fork(f, g, h)));
-                    true
-                } else {
-                    false
+                let classes = [
+                    stack.get(1).map_or(ParseClass::Mark, |item| item.class),
+                    stack.get(2).map_or(ParseClass::Mark, |item| item.class),
+                    stack.get(3).map_or(ParseClass::Mark, |item| item.class),
+                ];
+                match trident_outcome(classes[0], classes[1], classes[2]) {
+                    Some(TrainOutcome::Fork) if classes == [
+                        ParseClass::Verb,
+                        ParseClass::Verb,
+                        ParseClass::Verb,
+                    ] => {
+                        let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                        let f = phrase.remove(0).into_verb().expect("row 5 f");
+                        let g = phrase.remove(0).into_verb().expect("row 5 g");
+                        let h = phrase.remove(0).into_verb().expect("row 5 h");
+                        stack.insert(1, Item::verb(train_fork(f, g, h)));
+                        true
+                    }
+                    Some(TrainOutcome::Fork) => {
+                        return Err(Error::Unsupported(
+                            "jsource noun-left fork semantics are not yet represented".into(),
+                        ));
+                    }
+                    Some(TrainOutcome::Result(_)) | None => {
+                        return Err(Error::Syntax(
+                            "row 5 matched a non-fork trident outcome".into(),
+                        ));
+                    }
                 }
             }
             ParseRow::Hook => {
-                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb)
-                    && stack.get(2).is_some_and(|item| item.class == ParseClass::Verb)
-                {
-                    let mut phrase: Vec<_> = stack.drain(1..3).collect();
-                    let f = phrase.remove(0).into_verb().expect("row 6 f");
-                    let g = phrase.remove(0).into_verb().expect("row 6 g");
-                    stack.insert(1, Item::verb(train_hook(f, g)));
-                    true
-                } else {
-                    false
+                let left = stack.get(1).map_or(ParseClass::Mark, |item| item.class);
+                let right = stack.get(2).map_or(ParseClass::Mark, |item| item.class);
+                match bident_outcome(left, right) {
+                    Some(TrainOutcome::Result(ParseClass::Verb))
+                        if left == ParseClass::Verb && right == ParseClass::Verb =>
+                    {
+                        let mut phrase: Vec<_> = stack.drain(1..3).collect();
+                        let f = phrase.remove(0).into_verb().expect("row 6 f");
+                        let g = phrase.remove(0).into_verb().expect("row 6 g");
+                        stack.insert(1, Item::verb(train_hook(f, g)));
+                        true
+                    }
+                    Some(TrainOutcome::Result(result_pos)) => {
+                        return Err(Error::Unsupported(format!(
+                            "jsource bident result {result_pos:?} is not yet represented"
+                        )));
+                    }
+                    Some(TrainOutcome::Fork) => unreachable!("bident table never yields fork"),
+                    None => {
+                        return Err(Error::Syntax(
+                            "invalid jsource bident part-of-speech combination".into(),
+                        ));
+                    }
                 }
             }
             ParseRow::Assignment => {
