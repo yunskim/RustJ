@@ -32,8 +32,7 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion =
-    GraphSchemaVersion { major: 0, minor: 3 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 3 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -488,11 +487,7 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
     }
 }
 
-fn graph_basis(
-    function: &Arc<FunctionEntity>,
-    valence: Valence,
-    form: &GraphForm,
-) -> GraphBasis {
+fn graph_basis(function: &Arc<FunctionEntity>, valence: Valence, form: &GraphForm) -> GraphBasis {
     use crate::primitive::PrimitiveId::*;
     use GraphBasisKind::*;
 
@@ -589,7 +584,7 @@ fn base_operation_contract(
                 accumulator: inner.accumulator,
                 working_state: SymbolicResourceExpr::WindowWorkingSet,
             }
-        },
+        }
         GraphForm::Rank { operand, .. } => {
             let (inner_form, _) = classify_function(operand);
             let inner = base_operation_contract(operand, valence, &inner_form);
@@ -601,7 +596,7 @@ fn base_operation_contract(
                 accumulator: inner.accumulator,
                 working_state: inner.working_state,
             }
-        },
+        }
         GraphForm::Atomic => {
             let FunctionHead::PrimitiveVerb(id) = &function.head else {
                 return GraphOperationContract::default();
@@ -688,10 +683,8 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         FunctionHead::Hook => {
             hints.push(GraphHint::BranchJoinFusionCandidate);
             hints.push(GraphHint::RetainedValueCandidate);
-            let [
-                FunctionOperand::Function(f),
-                FunctionOperand::Function(g),
-            ] = function.operands.as_slice()
+            let [FunctionOperand::Function(f), FunctionOperand::Function(g)] =
+                function.operands.as_slice()
             else {
                 return (
                     GraphForm::Modifier {
@@ -838,7 +831,8 @@ impl Plan {
             .map(|write| {
                 Ok(Write {
                     name: write.name,
-                    value: result.ok_or_else(|| Error::Syntax("assignment without value".into()))?,
+                    value: result
+                        .ok_or_else(|| Error::Syntax("assignment without value".into()))?,
                     previous: write.previous,
                     proposed: write.proposed,
                     span: write.span,
@@ -915,9 +909,7 @@ impl Plan {
         crate::j_graph_memory::analyze(self)
     }
 
-    pub fn symbolic_resource_analysis(
-        &self,
-    ) -> crate::j_graph_resource::GraphResourceSummary {
+    pub fn symbolic_resource_analysis(&self) -> crate::j_graph_resource::GraphResourceSummary {
         let memory = self.static_memory_analysis();
         crate::j_graph_resource::analyze(self, &memory)
     }
@@ -960,7 +952,9 @@ impl Plan {
             }
             let check = |value: ValueId, label: &str| {
                 if value.0 >= index {
-                    Err(format!("node {index} {label} must reference an earlier value"))
+                    Err(format!(
+                        "node {index} {label} must reference an earlier value"
+                    ))
                 } else {
                     Ok(())
                 }
@@ -1069,10 +1063,7 @@ impl Plan {
             }
 
             match (&region.kind, expected_form) {
-                (
-                    RegionKind::Pipeline { stage_results },
-                    GraphForm::Pipeline { stages },
-                ) => {
+                (RegionKind::Pipeline { stage_results }, GraphForm::Pipeline { stages }) => {
                     if region.resource_composition != ResourceCompositionRule::Pipeline {
                         return Err(format!("region {index} pipeline composition mismatch"));
                     }
@@ -1085,26 +1076,27 @@ impl Plan {
                     if stage_results.last().copied() != Some(region.result) {
                         return Err(format!("region {index} pipeline result mismatch"));
                     }
-                    let expected_analyzability = stage_results.iter().fold(
-                        GraphAnalyzability::Static,
-                        |state, value| state.combine(self.nodes[value.0].analyzability),
-                    );
+                    let expected_analyzability = stage_results
+                        .iter()
+                        .fold(GraphAnalyzability::Static, |state, value| {
+                            state.combine(self.nodes[value.0].analyzability)
+                        });
                     if region.analyzability != expected_analyzability {
                         return Err(format!("region {index} pipeline analyzability is stale"));
                     }
 
                     if stages.len() != stage_results.len() {
-                        return Err(format!("region {index} pipeline stage/function count mismatch"));
+                        return Err(format!(
+                            "region {index} pipeline stage/function count mismatch"
+                        ));
                     }
 
                     let mut previous = *region
                         .inputs
                         .last()
                         .ok_or_else(|| format!("region {index} pipeline has no input"))?;
-                    for (stage_index, (stage, stage_result)) in stages
-                        .iter()
-                        .zip(stage_results.iter().copied())
-                        .enumerate()
+                    for (stage_index, (stage, stage_result)) in
+                        stages.iter().zip(stage_results.iter().copied()).enumerate()
                     {
                         let expected_inputs = if stage_index == 0 && region.inputs.len() == 2 {
                             vec![region.inputs[0], previous]
@@ -1114,7 +1106,9 @@ impl Plan {
                         let (stage_form, _) = classify_function(stage);
                         if matches!(
                             stage_form,
-                            GraphForm::Pipeline { .. } | GraphForm::Hook { .. } | GraphForm::Fork { .. }
+                            GraphForm::Pipeline { .. }
+                                | GraphForm::Hook { .. }
+                                | GraphForm::Fork { .. }
                         ) {
                             let nested = self.regions.iter().find(|candidate| {
                                 candidate.result == stage_result
@@ -1384,8 +1378,7 @@ impl Builder<'_> {
                         current,
                         stage.span.clone(),
                     )?;
-                    analyzability =
-                        analyzability.combine(self.nodes[current.0].analyzability);
+                    analyzability = analyzability.combine(self.nodes[current.0].analyzability);
                     stage_results.push(current);
                 }
                 let result = current;
@@ -1405,8 +1398,7 @@ impl Builder<'_> {
                 let g_result = self.apply_function(g.clone(), None, right, g.span.clone())?;
                 let f_left = left.unwrap_or(right);
                 let f_span = f.span.clone();
-                let join_result =
-                    self.apply_function(f, Some(f_left), g_result, f_span)?;
+                let join_result = self.apply_function(f, Some(f_left), g_result, f_span)?;
                 let inputs = match left {
                     Some(left) => vec![left, right],
                     None => vec![right],
@@ -1433,13 +1425,10 @@ impl Builder<'_> {
             }
             GraphForm::Fork { f, g, h } => {
                 // J observable order for a general fork: h, f, then g.
-                let h_result =
-                    self.apply_function(h.clone(), left, right, h.span.clone())?;
-                let f_result =
-                    self.apply_function(f.clone(), left, right, f.span.clone())?;
+                let h_result = self.apply_function(h.clone(), left, right, h.span.clone())?;
+                let f_result = self.apply_function(f.clone(), left, right, f.span.clone())?;
                 let g_span = g.span.clone();
-                let join_result =
-                    self.apply_function(g, Some(f_result), h_result, g_span)?;
+                let join_result = self.apply_function(g, Some(f_result), h_result, g_span)?;
                 let mut inputs = Vec::with_capacity(2);
                 if let Some(left) = left {
                     inputs.push(left);
@@ -1478,8 +1467,7 @@ impl Builder<'_> {
                 let resource_composition = node_resource_composition(&form);
 
                 let right_facts = self.value_facts(right).as_semantic_facts();
-                let left_facts =
-                    left.map(|id| self.value_facts(id).as_semantic_facts());
+                let left_facts = left.map(|id| self.value_facts(id).as_semantic_facts());
                 let inferred = crate::facts::infer_semantic_projection(
                     &function,
                     left_facts.as_ref(),

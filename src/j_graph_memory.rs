@@ -108,7 +108,8 @@ impl StaticMemoryAnalysis {
             let mut live = 0usize;
             for range in &self.live_ranges {
                 if range.defined_at <= point && point <= range.last_use {
-                    live = live.checked_add(self.represented_bytes(range.value, representation)?)?;
+                    live =
+                        live.checked_add(self.represented_bytes(range.value, representation)?)?;
                 }
             }
             peak = peak.max(live);
@@ -174,7 +175,10 @@ pub fn analyze(plan: &Plan) -> StaticMemoryAnalysis {
     for region in &plan.regions {
         match &region.kind {
             RegionKind::Pipeline { stage_results } => {
-                for value in stage_results.iter().copied().take(stage_results.len().saturating_sub(1))
+                for value in stage_results
+                    .iter()
+                    .copied()
+                    .take(stage_results.len().saturating_sub(1))
                 {
                     add_opportunity(
                         &mut opportunities,

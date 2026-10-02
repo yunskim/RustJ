@@ -5,7 +5,14 @@ use std::{
     process::ExitCode,
 };
 
-fn run(engine: &mut Engine, line: &str, json: bool, semantic: bool, source_name: &str, line_number: usize) -> bool {
+fn run(
+    engine: &mut Engine,
+    line: &str,
+    json: bool,
+    semantic: bool,
+    source_name: &str,
+    line_number: usize,
+) -> bool {
     match if semantic {
         engine.eval_semantic_reference_diagnostic(line)
     } else {

@@ -2,12 +2,11 @@ use rustj::{
     Engine,
     analysis::ExecutionBasisKind,
     expansion::{
-        EquivalenceWitness, ExpansionInput, ExpansionNodeSemantics, ExpansionRuleId,
-        discover, execute_reference, for_graph_rewrite,
+        EquivalenceWitness, ExpansionInput, ExpansionNodeSemantics, ExpansionRuleId, discover,
+        execute_reference, for_graph_rewrite,
     },
     logical_ir::{ExecutionBasisPayload, OpKind, WindowShapeSpec},
 };
-
 
 fn literal_source_values(plan: &rustj::logical_ir::Plan) -> Vec<Option<rustj::Value>> {
     let mut values = vec![None; plan.values.len()];
@@ -40,16 +39,18 @@ fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
     assert_eq!(expansion.source_op, producer);
     assert_eq!(expansion.source_result, result);
     assert_eq!(expansion.rule, ExpansionRuleId::FindViaWindowMatch);
-    assert_eq!(
-        expansion.witness,
-        EquivalenceWitness::JFindCutMatchIdentity
-    );
+    assert_eq!(expansion.witness, EquivalenceWitness::JFindCutMatchIdentity);
     expansion.graph.verify().unwrap();
 
     assert_eq!(expansion.graph.nodes.len(), 2);
-    assert_eq!(expansion.graph.nodes[0].basis, ExecutionBasisKind::WindowView);
-    let [ExpansionInput::Source(window_source), ExpansionInput::Source(pattern)] =
-        expansion.graph.nodes[0].inputs.as_slice()
+    assert_eq!(
+        expansion.graph.nodes[0].basis,
+        ExecutionBasisKind::WindowView
+    );
+    let [
+        ExpansionInput::Source(window_source),
+        ExpansionInput::Source(pattern),
+    ] = expansion.graph.nodes[0].inputs.as_slice()
     else {
         panic!("window expansion inputs")
     };
@@ -64,7 +65,10 @@ fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
         expansion.graph.nodes[0].semantics,
         ExpansionNodeSemantics::WindowByPatternShape
     );
-    assert_eq!(expansion.graph.nodes[1].basis, ExecutionBasisKind::CellApply);
+    assert_eq!(
+        expansion.graph.nodes[1].basis,
+        ExecutionBasisKind::CellApply
+    );
     assert_eq!(
         expansion.graph.nodes[1].semantics,
         ExpansionNodeSemantics::MatchPatternCell
@@ -74,7 +78,6 @@ fn find_keeps_its_semantic_identity_and_offers_a_window_match_expansion() {
         ExpansionInput::Node(rustj::expansion::ExpansionNodeId(0))
     );
 }
-
 
 #[test]
 fn find_window_match_reference_realization_matches_current_find_subset() {
@@ -87,14 +90,8 @@ fn find_window_match_reference_realization_matches_current_find_subset() {
         let plan = Engine::new().analyze_a3(source).unwrap();
         let expansion = discover(&plan).pop().expect("find expansion");
         let values = literal_source_values(&plan);
-        let expanded = execute_reference(&expansion, &values)
-            .unwrap()
-            .json();
-        let direct = Engine::new()
-            .eval(source)
-            .unwrap()
-            .unwrap()
-            .json();
+        let expanded = execute_reference(&expansion, &values).unwrap().json();
+        let direct = Engine::new().eval(source).unwrap().unwrap().json();
         assert_eq!(expanded, direct, "{source}");
     }
 
@@ -106,7 +103,6 @@ fn find_window_match_reference_realization_matches_current_find_subset() {
     let direct = Engine::new().eval(source).unwrap_err();
     assert_eq!(expanded.kind(), direct.kind());
 }
-
 
 #[test]
 fn graph_rewrite_links_to_execution_expansion_by_j_origin() {
@@ -140,7 +136,6 @@ fn ordinary_basis_calls_do_not_gain_unrelated_expansions() {
     let plan = Engine::new().analyze_a3("1+2").unwrap();
     assert!(discover(&plan).is_empty());
 }
-
 
 #[test]
 fn expansion_graph_rejects_payload_input_drift() {

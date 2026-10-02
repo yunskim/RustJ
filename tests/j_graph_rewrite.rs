@@ -1,12 +1,12 @@
 use rustj::{
     Engine,
+    j_graph_ir::SymbolicResourceExpr,
     j_graph_ir::{GraphBasisKind, NodeKind},
     j_graph_rewrite::{
-        GraphEquivalenceWitness, GraphOptimizationPhase, GraphRewriteRuleId,
-        PruningMonotonicity, ResourceBoundLocality, RewriteInput, RewriteNodeSemantics,
-        GRAPH_OPTIMIZATION_ORDER, RULES,
+        GRAPH_OPTIMIZATION_ORDER, GraphEquivalenceWitness, GraphOptimizationPhase,
+        GraphRewriteRuleId, PruningMonotonicity, RULES, ResourceBoundLocality, RewriteInput,
+        RewriteNodeSemantics,
     },
-    j_graph_ir::SymbolicResourceExpr,
     primitive::PrimitiveId,
     semantic::FunctionHead,
 };
@@ -32,10 +32,12 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
         resources.replacement.internal_materialization_atoms.known,
         18
     );
-    assert!(!resources
-        .replacement
-        .internal_materialization_atoms
-        .has_unknown);
+    assert!(
+        !resources
+            .replacement
+            .internal_materialization_atoms
+            .has_unknown
+    );
     assert_eq!(
         resources.replacement.unfused_internal_traffic_atoms.known,
         36
@@ -130,9 +132,7 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
         candidate.replacement.nodes[1].facts,
         analysis.j_graph.nodes[candidate.provenance.source_value.0].facts
     );
-    let RewriteInput::Source(window_source) =
-        candidate.replacement.nodes[0].inputs[0]
-    else {
+    let RewriteInput::Source(window_source) = candidate.replacement.nodes[0].inputs[0] else {
         panic!("window should read the original right argument")
     };
     assert_eq!(
@@ -145,10 +145,7 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
     );
     assert_eq!(candidate.replacement.nodes[0].facts.rank, Some(2));
 
-    assert_eq!(
-        candidate.replacement.nodes[0].basis,
-        GraphBasisKind::Window
-    );
+    assert_eq!(candidate.replacement.nodes[0].basis, GraphBasisKind::Window);
     assert_eq!(
         candidate.replacement.nodes[0].semantics,
         RewriteNodeSemantics::WindowByPatternShape
@@ -167,12 +164,9 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
     ));
 }
 
-
 #[test]
 fn rewrite_verifier_rejects_stale_rule_derived_facts() {
-    let graph = Engine::new()
-        .analyze_j_graph("'ana' E. 'banana'")
-        .unwrap();
+    let graph = Engine::new().analyze_j_graph("'ana' E. 'banana'").unwrap();
     let mut candidate = graph.rewrite_candidates().pop().unwrap();
     candidate.replacement.nodes[0].facts.rank = Some(99);
     let error = candidate.verify(&graph).unwrap_err();
@@ -189,10 +183,7 @@ fn rewrite_registry_is_a_rule_registry_not_a_profitability_ranking() {
         RULES[0].pruning.locality,
         ResourceBoundLocality::GlobalContextDependent
     );
-    assert_eq!(
-        RULES[0].pruning.monotonicity,
-        PruningMonotonicity::Unproven
-    );
+    assert_eq!(RULES[0].pruning.monotonicity, PruningMonotonicity::Unproven);
     assert!(!RULES[0].pruning.sound_for_early_pruning());
 
     assert_eq!(

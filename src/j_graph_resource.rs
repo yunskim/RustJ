@@ -11,9 +11,7 @@ use crate::{
         SymbolicResourceExpr, ValueId,
     },
     j_graph_memory::{MaterializationOpportunity, StaticMemoryAnalysis},
-    j_graph_rewrite::{
-        GraphRewriteCandidate, RewriteInput, RewriteNodeSemantics,
-    },
+    j_graph_rewrite::{GraphRewriteCandidate, RewriteInput, RewriteNodeSemantics},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -78,11 +76,7 @@ impl ResourceExprGraph {
         self.push(ResourceExprNode::ValueAtoms(value))
     }
 
-    fn requirement(
-        &mut self,
-        value: ValueId,
-        kind: SymbolicResourceExpr,
-    ) -> ResourceExprId {
+    fn requirement(&mut self, value: ValueId, kind: SymbolicResourceExpr) -> ResourceExprId {
         match kind {
             SymbolicResourceExpr::None => self.zero(),
             SymbolicResourceExpr::Unknown => self.unknown(),
@@ -130,7 +124,9 @@ impl ResourceExprGraph {
                 }
                 ResourceExprNode::Scale { input, .. } => {
                     if input.0 >= index {
-                        return Err("resource expression must reference an earlier expression node");
+                        return Err(
+                            "resource expression must reference an earlier expression node",
+                        );
                     }
                 }
                 ResourceExprNode::Zero | ResourceExprNode::Unknown => {}
@@ -148,12 +144,10 @@ impl ResourceExprGraph {
         for node in &self.nodes {
             let value = match node {
                 ResourceExprNode::Zero => KnownAtoms::default(),
-                ResourceExprNode::Unknown | ResourceExprNode::Requirement { .. } => {
-                    KnownAtoms {
-                        known: 0,
-                        has_unknown: true,
-                    }
-                }
+                ResourceExprNode::Unknown | ResourceExprNode::Requirement { .. } => KnownAtoms {
+                    known: 0,
+                    has_unknown: true,
+                },
                 ResourceExprNode::ValueAtoms(value) => {
                     let mut atoms = KnownAtoms::default();
                     atoms.add(extent_atoms(memory, *value));
@@ -379,7 +373,6 @@ impl RewriteResourceEvaluation {
     }
 }
 
-
 fn profile_state_requirements(
     temporary: SymbolicResourceExpr,
     accumulator: SymbolicResourceExpr,
@@ -426,10 +419,7 @@ fn rewrite_state_requirement_atoms(
     kind: SymbolicResourceExpr,
 ) -> KnownAtoms {
     match (node.semantics, kind) {
-        (
-            RewriteNodeSemantics::WindowByPatternShape,
-            SymbolicResourceExpr::WindowWorkingSet,
-        ) => {
+        (RewriteNodeSemantics::WindowByPatternShape, SymbolicResourceExpr::WindowWorkingSet) => {
             let pattern = node.inputs.get(1).copied();
             let atoms = match pattern {
                 Some(RewriteInput::Source(value)) => graph_value_atoms(plan, value),
@@ -493,7 +483,6 @@ fn node_contract(plan: &Plan, value: ValueId) -> Option<&GraphOperationContract>
     }
 }
 
-
 fn resource_may_extend(kind: SymbolicResourceExpr) -> bool {
     matches!(
         kind,
@@ -531,8 +520,16 @@ fn canonical_peak_state_formula(
     if ranges.is_empty() {
         return expressions.zero();
     }
-    let start = ranges.iter().map(|range| range.defined_at).min().unwrap_or(0);
-    let end = ranges.iter().map(|range| range.last_use).max().unwrap_or(start);
+    let start = ranges
+        .iter()
+        .map(|range| range.defined_at)
+        .min()
+        .unwrap_or(0);
+    let end = ranges
+        .iter()
+        .map(|range| range.last_use)
+        .max()
+        .unwrap_or(start);
     let mut points = Vec::new();
     for point in start..=end {
         let active = ranges
@@ -632,7 +629,6 @@ fn region_graph_order_peak_live_atoms(
     peak
 }
 
-
 pub fn evaluate_rewrite_candidate(
     plan: &Plan,
     memory: &StaticMemoryAnalysis,
@@ -670,23 +666,18 @@ pub fn evaluate_rewrite_candidate(
     for (index, node) in candidate.replacement.nodes.iter().enumerate() {
         let (temporary, accumulator, working_state) =
             rewrite_node_resource_requirements(node.semantics);
-        merge_state_requirement(
-            &mut state_requirements,
-            &mut has_unknown_state,
-            temporary,
-        );
-        merge_state_requirement(
-            &mut state_requirements,
-            &mut has_unknown_state,
-            accumulator,
-        );
+        merge_state_requirement(&mut state_requirements, &mut has_unknown_state, temporary);
+        merge_state_requirement(&mut state_requirements, &mut has_unknown_state, accumulator);
         merge_state_requirement(
             &mut state_requirements,
             &mut has_unknown_state,
             working_state,
         );
         for kind in [temporary, accumulator, working_state] {
-            if matches!(kind, SymbolicResourceExpr::None | SymbolicResourceExpr::Unknown) {
+            if matches!(
+                kind,
+                SymbolicResourceExpr::None | SymbolicResourceExpr::Unknown
+            ) {
                 continue;
             }
             let atoms = rewrite_state_requirement_atoms(plan, node, kind);
@@ -734,10 +725,11 @@ pub fn evaluate_rewrite_candidate(
 
     let replacement = RewriteAlternativeResourceProfile {
         output_atoms: extent_atoms(memory, source_value),
-        has_unknown_implementation_resource:
-            internal.has_unknown
-                || has_unknown_state
-                || state_requirement_atoms.iter().any(|item| item.atoms.has_unknown),
+        has_unknown_implementation_resource: internal.has_unknown
+            || has_unknown_state
+            || state_requirement_atoms
+                .iter()
+                .any(|item| item.atoms.has_unknown),
         internal_materialization_atoms: internal,
         unfused_internal_traffic_atoms: scale_known_atoms(internal, 2),
         elidable_internal_traffic_atoms: scale_known_atoms(elidable, 2),
@@ -883,11 +875,10 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 if let Some(contract) = node_contract(plan, *value) {
                     has_accumulator |=
                         contract.accumulator == SymbolicResourceExpr::ReductionAccumulator;
-                    has_unknown_resource |= matches!(
-                        contract.temporary,
-                        SymbolicResourceExpr::Unknown
-                    ) || matches!(contract.accumulator, SymbolicResourceExpr::Unknown)
-                        || matches!(contract.working_state, SymbolicResourceExpr::Unknown);
+                    has_unknown_resource |=
+                        matches!(contract.temporary, SymbolicResourceExpr::Unknown)
+                            || matches!(contract.accumulator, SymbolicResourceExpr::Unknown)
+                            || matches!(contract.working_state, SymbolicResourceExpr::Unknown);
                 } else {
                     has_unknown_resource = true;
                 }
@@ -925,8 +916,9 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 .collect::<Vec<_>>();
             let retained_values = match &region.kind {
                 RegionKind::Pipeline { .. } => Vec::new(),
-                RegionKind::Hook { live_across, .. }
-                | RegionKind::Fork { live_across, .. } => live_across.clone(),
+                RegionKind::Hook { live_across, .. } | RegionKind::Fork { live_across, .. } => {
+                    live_across.clone()
+                }
             };
             let peak_formula =
                 region_graph_order_peak_formula(&mut expressions, memory, &live_values);
@@ -969,7 +961,10 @@ pub fn analyze(plan: &Plan, memory: &StaticMemoryAnalysis) -> GraphResourceSumma
                 internal_atoms,
                 elidable_materialization_atoms: elidable,
                 retained_live_atoms: retained,
-                graph_order_peak_live_atoms: region_graph_order_peak_live_atoms(memory, live_values),
+                graph_order_peak_live_atoms: region_graph_order_peak_live_atoms(
+                    memory,
+                    live_values,
+                ),
                 unfused_internal_traffic_atoms: scale_known_atoms(internal_atoms, 2),
                 elidable_traffic_atoms: scale_known_atoms(elidable, 2),
                 has_reduction_accumulator: has_accumulator,

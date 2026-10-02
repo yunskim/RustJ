@@ -131,14 +131,22 @@ fn analysis_separates_element_type_from_sparse_layout() {
     let plan = e.analyze_a3("s").unwrap();
     let facts = &plan.values[plan.result.unwrap().0].facts;
     assert_eq!(facts.dtype, TypeFact::Exact(DType::Int));
-    assert_eq!(facts.representation_class, RepresentationClassFact::AxisSparse);
+    assert_eq!(
+        facts.representation_class,
+        RepresentationClassFact::AxisSparse
+    );
     let plan = e.analyze_a3("$.1 2 3").unwrap();
     let facts = &plan.values[plan.result.unwrap().0].facts;
-    assert_eq!(facts.representation_class, RepresentationClassFact::AxisSparse);
+    assert_eq!(
+        facts.representation_class,
+        RepresentationClassFact::AxisSparse
+    );
     assert_eq!(facts.shape, Some(vec![3]));
     let plan = e.analyze_a3("$.42").unwrap();
     assert_eq!(
-        plan.values[plan.result.unwrap().0].facts.representation_class,
+        plan.values[plan.result.unwrap().0]
+            .facts
+            .representation_class,
         RepresentationClassFact::Dense
     );
 }

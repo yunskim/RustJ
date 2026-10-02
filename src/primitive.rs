@@ -42,7 +42,6 @@ primitives! {
     Find => "E.",
 }
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AdverbId {
     Insert,
@@ -86,7 +85,6 @@ impl ConjunctionId {
         }
     }
 }
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PrimitiveSemanticId {

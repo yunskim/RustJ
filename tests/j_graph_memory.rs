@@ -1,8 +1,6 @@
 use rustj::{
     Engine,
-    j_graph_memory::{
-        AtomRepresentation, MaterializationOpportunity,
-    },
+    j_graph_memory::{AtomRepresentation, MaterializationOpportunity},
     types::DType,
 };
 
@@ -55,9 +53,7 @@ fn pipeline_memory_analysis_knows_extents_and_materialization_candidates() {
 
 #[test]
 fn fork_memory_analysis_extends_shared_input_lifetime_to_the_join() {
-    let graph = Engine::new()
-        .analyze_j_graph("(+/ % #) 1 2 3 4")
-        .unwrap();
+    let graph = Engine::new().analyze_j_graph("(+/ % #) 1 2 3 4").unwrap();
     let memory = graph.static_memory_analysis();
 
     let (_, region) = graph
@@ -76,8 +72,7 @@ fn fork_memory_analysis_extends_shared_input_lifetime_to_the_join() {
     let range = &memory.live_ranges[input.0];
     assert!(range.last_use >= join_result.0);
     assert!(memory.opportunities.iter().any(|item| {
-        item.value == input
-            && item.kind == MaterializationOpportunity::RetainedAcrossBranch
+        item.value == input && item.kind == MaterializationOpportunity::RetainedAcrossBranch
     }));
 }
 
@@ -101,5 +96,9 @@ fn byte_accounting_requires_an_explicit_representation_model() {
 
     assert_eq!(memory.extent(result).unwrap().atoms, 3);
     assert_eq!(memory.represented_bytes(result, &Dense64), Some(24));
-    assert!(memory.graph_order_peak_materialized_bytes(&Dense64).is_some());
+    assert!(
+        memory
+            .graph_order_peak_materialized_bytes(&Dense64)
+            .is_some()
+    );
 }

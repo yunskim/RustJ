@@ -150,7 +150,10 @@ fn primitive_and_derived_contracts_are_conservative() {
     let e = Engine::new();
 
     let p = e.analyze_a3("1+2").unwrap();
-    assert_eq!(result_call(&p).contract.overflow, Overflow::WholeResultPromotion);
+    assert_eq!(
+        result_call(&p).contract.overflow,
+        Overflow::WholeResultPromotion
+    );
 
     let p = e.analyze_a3("+/1 2").unwrap();
     assert_eq!(
@@ -247,10 +250,7 @@ fn agreement_is_prefix_and_rank_is_known_without_extents() {
     }
 
     let p = e.analyze_a3("prefix+matrix").unwrap();
-    assert_eq!(
-        p.values[p.result.unwrap().0].facts.shape,
-        Some(vec![2, 3])
-    );
+    assert_eq!(p.values[p.result.unwrap().0].facts.shape, Some(vec![2, 3]));
 
     let p = e.analyze_a3("suffix+matrix").unwrap();
     assert_eq!(p.values[p.result.unwrap().0].facts.shape, None);
@@ -472,10 +472,7 @@ fn analysis_diagnostics_share_structured_context() {
     let error = engine.analyze_diagnostic("1 + )").unwrap_err();
     assert_eq!(error.kind(), "syntax error");
     let context = error.context().expect("diagnostic context");
-    assert_eq!(
-        context.phase,
-        Some(rustj::error::DiagnosticPhase::Parse)
-    );
+    assert_eq!(context.phase, Some(rustj::error::DiagnosticPhase::Parse));
     assert_eq!(context.span.clone(), Some(4..5));
     assert_eq!(context.blame_word_index, Some(2));
 }
@@ -495,8 +492,16 @@ fn provisional_basis_metadata_is_explicit() {
             vec![ExecutionBasisKind::StaticReindex],
             Valence::Monad,
         ),
-        ("i.2 3", vec![ExecutionBasisKind::IndexSpace], Valence::Monad),
-        ("1 { 10 20 30", vec![ExecutionBasisKind::Gather], Valence::Dyad),
+        (
+            "i.2 3",
+            vec![ExecutionBasisKind::IndexSpace],
+            Valence::Monad,
+        ),
+        (
+            "1 { 10 20 30",
+            vec![ExecutionBasisKind::Gather],
+            Valence::Dyad,
+        ),
         (
             "10 20 i. 20",
             vec![ExecutionBasisKind::LookupClassify],
@@ -514,13 +519,11 @@ fn provisional_basis_metadata_is_explicit() {
         assert_eq!(call.execution_basis.layers, expected_basis, "{source}");
         assert_eq!(call.instantiation.valence, expected_valence, "{source}");
         assert_eq!(
-            call.instantiation.result_dtype,
-            plan.values[result.0].facts.dtype,
+            call.instantiation.result_dtype, plan.values[result.0].facts.dtype,
             "{source}"
         );
         assert_eq!(
-            call.instantiation.result_rank,
-            plan.values[result.0].facts.rank,
+            call.instantiation.result_rank, plan.values[result.0].facts.rank,
             "{source}"
         );
         plan.verify().unwrap();
@@ -603,7 +606,9 @@ fn verifier_checks_resolved_instantiation_consistency() {
     let e = Engine::new();
     let mut plan = e.analyze_a3("1+2").unwrap();
     let result = plan.result.unwrap();
-    call_for_value_mut(&mut plan, result).instantiation.result_rank = Some(1);
+    call_for_value_mut(&mut plan, result)
+        .instantiation
+        .result_rank = Some(1);
 
     let error = plan.verify().unwrap_err();
     assert_eq!(error.operation, Some(plan.values[result.0].producer));
@@ -616,8 +621,7 @@ fn verifier_checks_basis_metadata_consistency() {
     let mut plan = e.analyze_a3("1+2").unwrap();
     let result = plan.result.unwrap();
     let producer = plan.values[result.0].producer;
-    call_for_value_mut(&mut plan, result).execution_basis.layers =
-        vec![ExecutionBasisKind::Reduce];
+    call_for_value_mut(&mut plan, result).execution_basis.layers = vec![ExecutionBasisKind::Reduce];
 
     let error = plan.verify().unwrap_err();
     assert_eq!(error.operation, Some(producer));

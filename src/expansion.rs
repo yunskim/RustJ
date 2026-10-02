@@ -5,20 +5,16 @@
 
 use crate::{
     Data, Error, Value,
-    analysis::{ExecutionBasisKind, CallTarget},
-    j_graph_rewrite::{
-        GraphEquivalenceWitness, GraphRewriteCandidate, GraphRewriteRuleId,
-    },
+    analysis::{CallTarget, ExecutionBasisKind},
+    j_graph_rewrite::{GraphEquivalenceWitness, GraphRewriteCandidate, GraphRewriteRuleId},
     logical_ir::{
-        ConstraintSet, ExecutionBasisPayload, OpId, OpKind, Plan, ValueId,
-        WindowShapeSpec,
+        ConstraintSet, ExecutionBasisPayload, OpId, OpKind, Plan, ValueId, WindowShapeSpec,
     },
     primitive::PrimitiveId,
 };
 
 pub use crate::j_graph_rewrite::{
-    GraphEquivalenceWitness as EquivalenceWitness,
-    GraphRewriteRuleId as ExpansionRuleId,
+    GraphEquivalenceWitness as EquivalenceWitness, GraphRewriteRuleId as ExpansionRuleId,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -103,9 +99,7 @@ impl ExpansionGraph {
                     }
                 }
                 _ => {
-                    return Err(
-                        "expansion node semantic payload does not match its inputs",
-                    );
+                    return Err("expansion node semantic payload does not match its inputs");
                 }
             }
         }
@@ -139,10 +133,7 @@ fn find_expansion(
             nodes: vec![
                 ExpansionNode {
                     basis: ExecutionBasisKind::WindowView,
-                    inputs: vec![
-                        ExpansionInput::Source(right),
-                        ExpansionInput::Source(left),
-                    ],
+                    inputs: vec![ExpansionInput::Source(right), ExpansionInput::Source(left)],
                     semantics: ExpansionNodeSemantics::WindowByPatternShape,
                     payload: ExecutionBasisPayload::WindowView {
                         source: right,
@@ -151,10 +142,7 @@ fn find_expansion(
                 },
                 ExpansionNode {
                     basis: ExecutionBasisKind::CellApply,
-                    inputs: vec![
-                        ExpansionInput::Source(left),
-                        ExpansionInput::Node(window),
-                    ],
+                    inputs: vec![ExpansionInput::Source(left), ExpansionInput::Node(window)],
                     semantics: ExpansionNodeSemantics::MatchPatternCell,
                     payload: ExecutionBasisPayload::CellApply,
                 },
@@ -195,7 +183,6 @@ pub fn discover(plan: &Plan) -> Vec<ExecutionBasisExpansion> {
     expansions
 }
 
-
 /// Resolve the execution expansion corresponding to an already-discovered
 /// J Graph rewrite using provenance, not source reparsing/pattern recovery.
 pub fn for_graph_rewrite(
@@ -221,13 +208,9 @@ pub fn for_graph_rewrite(
     found.ok_or("no execution expansion matches the graph rewrite provenance")
 }
 
-
 #[derive(Clone)]
 enum ReferenceExpansionValue {
-    WindowFamily {
-        pattern: Value,
-        source: Value,
-    },
+    WindowFamily { pattern: Value, source: Value },
     Value(Value),
 }
 
@@ -297,10 +280,7 @@ pub fn execute_reference(
             )?,
             (
                 ExpansionNodeSemantics::MatchPatternCell,
-                [
-                    ExpansionInput::Source(_),
-                    ExpansionInput::Node(window),
-                ],
+                [ExpansionInput::Source(_), ExpansionInput::Node(window)],
             ) => {
                 let Some(ReferenceExpansionValue::WindowFamily { pattern, source }) =
                     local.get(window.0)

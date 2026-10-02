@@ -44,13 +44,12 @@ fn legacy_syntax_tokens_are_only_an_adapter_over_enqueue_payloads() {
     }
 }
 
-
 #[test]
 fn primitive_resolver_keeps_extensions_as_names_until_parser_binding() {
     use rustj::primitive::{
-        ExtensionPrimitive, LoweringKey, PrimitiveContext, PrimitiveHandle,
-        PrimitivePartOfSpeech, PrimitiveResolver, PrimitiveSemanticId,
-        PrimitiveSemanticInfo, PrimitiveSourceOrigin, REGISTRY_VERSION,
+        ExtensionPrimitive, LoweringKey, PrimitiveContext, PrimitiveHandle, PrimitivePartOfSpeech,
+        PrimitiveResolver, PrimitiveSemanticId, PrimitiveSemanticInfo, PrimitiveSourceOrigin,
+        REGISTRY_VERSION,
     };
 
     let extension = PrimitiveHandle {
@@ -62,12 +61,10 @@ fn primitive_resolver_keeps_extensions_as_names_until_parser_binding() {
         },
         lowering_key: LoweringKey::Extension("test.addx"),
     };
-    let context = PrimitiveContext::new(PrimitiveResolver::with_extensions([
-        ExtensionPrimitive {
-            spelling: "addx",
-            handle: extension,
-        },
-    ]));
+    let context = PrimitiveContext::new(PrimitiveResolver::with_extensions([ExtensionPrimitive {
+        spelling: "addx",
+        handle: extension,
+    }]));
 
     let words = enqueuer::enqueue_with_context("addx +", &context).unwrap();
     assert_eq!(
@@ -95,7 +92,6 @@ fn unresolved_extension_like_spelling_remains_an_ordinary_name() {
     assert!(matches!(words[0].payload, EnqueuedPayload::Name("addx")));
 }
 
-
 #[test]
 fn name_lookup_flags_follow_jsource_queue_positions() {
     let words = enqueuer::enqueue("a + b").unwrap();
@@ -116,7 +112,6 @@ fn one_word_non_result_entities_are_rejected_during_enqueue() {
     }
 }
 
-
 #[test]
 fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsupported() {
     let words = enqueuer::enqueue("foo_bar").unwrap();
@@ -126,6 +121,9 @@ fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsuppor
 
     for source in ["foo_", "foo__bar"] {
         let error = enqueuer::enqueue(source).unwrap_err();
-        assert!(matches!(error.into_unlocated(), rustj::Error::Unsupported(_)));
+        assert!(matches!(
+            error.into_unlocated(),
+            rustj::Error::Unsupported(_)
+        ));
     }
 }

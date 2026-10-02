@@ -1,4 +1,4 @@
-use crate::{error::Result, enqueuer::EnqueuedPayload};
+use crate::{enqueuer::EnqueuedPayload, error::Result};
 
 pub use crate::types::Scalar;
 

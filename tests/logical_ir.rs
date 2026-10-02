@@ -23,7 +23,6 @@ fn a3_separates_operations_from_values() {
     ));
 }
 
-
 #[test]
 fn logical_facts_use_semantic_representation_class_not_physical_layout() {
     let plan = Engine::new().analyze_a3("1 2 3").unwrap();
@@ -73,7 +72,10 @@ fn unresolved_prefix_agreement_is_a_zero_result_semantic_check() {
 
     assert!(plan.operations[check_id].results.is_empty());
     assert_eq!(check.error, SemanticErrorKind::Length);
-    assert!(matches!(check.constraint, Constraint::PrefixAgreement { .. }));
+    assert!(matches!(
+        check.constraint,
+        Constraint::PrefixAgreement { .. }
+    ));
 
     let result = plan.result.unwrap();
     let producer = plan.values[result.0].producer;
@@ -97,7 +99,10 @@ fn gather_has_an_explicit_index_check() {
         })
         .expect("index check");
     assert_eq!(check.error, SemanticErrorKind::Index);
-    assert!(matches!(check.constraint, Constraint::IndicesInBounds { .. }));
+    assert!(matches!(
+        check.constraint,
+        Constraint::IndicesInBounds { .. }
+    ));
 
     let result = plan.result.unwrap();
     let producer = plan.values[result.0].producer;
@@ -137,12 +142,9 @@ fn write_metadata_uses_a3_value_and_operation_ids() {
     assert!(write.after.unwrap().0 < plan.operations.len());
 }
 
-
 #[test]
 fn reduce_domain_marks_the_reduced_axis_explicitly() {
-    use rustj::logical_ir::{
-        AxisRole, ExecutionBasisPayload, IterationAxisKind, ReductionAxis,
-    };
+    use rustj::logical_ir::{AxisRole, ExecutionBasisPayload, IterationAxisKind, ReductionAxis};
 
     let plan = Engine::new().analyze_a3("+/1 2 3").unwrap();
     let result = plan.result.unwrap();
@@ -192,7 +194,10 @@ fn cell_apply_domain_is_the_result_frame_not_the_cell() {
     );
     assert_eq!(call.iteration_domain.axes.len(), 1);
     assert_eq!(call.iteration_domain.axes[0].extent, Some(2));
-    assert_eq!(call.iteration_domain.axes[0].kind, IterationAxisKind::Parallel);
+    assert_eq!(
+        call.iteration_domain.axes[0].kind,
+        IterationAxisKind::Parallel
+    );
     assert_eq!(call.iteration_domain.axes[0].role, AxisRole::Frame);
 }
 
@@ -231,7 +236,6 @@ fn verifier_rejects_a_basis_payload_that_no_longer_matches_the_call() {
     assert!(error.message.contains("basis payload"));
 }
 
-
 #[test]
 fn a3_v0_has_explicit_single_function_region_block_and_return() {
     use rustj::logical_ir::{BlockId, FunctionId, RegionId, Terminator};
@@ -256,7 +260,6 @@ fn verifier_rejects_an_entry_block_that_does_not_cover_the_operation_sequence() 
     assert!(error.message.contains("complete operation sequence"));
 }
 
-
 #[test]
 fn a3_header_records_schema_and_registry_provenance() {
     use rustj::logical_ir::A3_SCHEMA_VERSION;
@@ -277,7 +280,6 @@ fn verifier_rejects_an_unknown_a3_schema() {
     let error = plan.verify().unwrap_err();
     assert!(error.message.contains("schema version"));
 }
-
 
 #[test]
 fn semantic_capability_view_hides_storage_layout_of_call_metadata() {
@@ -305,14 +307,11 @@ fn semantic_capability_view_hides_storage_layout_of_call_metadata() {
     assert!(view.destination_relation().is_some());
 }
 
-
 #[test]
 fn a3_preserves_structural_opportunities_after_flattening() {
     use rustj::opportunity::{OpportunitySource, StructuralTopology};
 
-    let plan = Engine::new()
-        .analyze_a3("(|. @: , @: |.) 1 2 3")
-        .unwrap();
+    let plan = Engine::new().analyze_a3("(|. @: , @: |.) 1 2 3").unwrap();
     plan.verify().unwrap();
 
     assert_eq!(plan.opportunities.len(), 1);
@@ -347,8 +346,6 @@ fn incremental_a3_projection_keeps_roles_discovered_by_later_consumers() {
     plan.verify().unwrap();
 }
 
-
-
 #[test]
 fn direct_a3_lowering_preserves_graph_provenance_versions_and_check_order() {
     let source = "a=:1 2+1 2 3";
@@ -364,8 +361,7 @@ fn direct_a3_lowering_preserves_graph_provenance_versions_and_check_order() {
     for operation in &plan.operations {
         if let Some(origin) = operation.j_origin {
             assert_eq!(
-                operation.span,
-                graph.nodes[origin.0].span,
+                operation.span, graph.nodes[origin.0].span,
                 "A3 operation span must come from its J Graph origin"
             );
         }

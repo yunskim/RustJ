@@ -1,7 +1,4 @@
-use rustj::{
-    Engine,
-    j_graph_ir::ResourceCompositionRule,
-};
+use rustj::{Engine, j_graph_ir::ResourceCompositionRule};
 
 #[test]
 fn pipeline_resource_composition_counts_internal_and_elidable_atoms() {
@@ -60,9 +57,7 @@ fn pipeline_resource_composition_counts_internal_and_elidable_atoms() {
 
 #[test]
 fn fork_resource_composition_exposes_retained_input_and_reduction_state() {
-    let graph = Engine::new()
-        .analyze_j_graph("(+/ % #) 1 2 3 4")
-        .unwrap();
+    let graph = Engine::new().analyze_j_graph("(+/ % #) 1 2 3 4").unwrap();
     let resources = graph.symbolic_resource_analysis();
 
     assert_eq!(resources.regions.len(), 1);
@@ -89,17 +84,14 @@ fn fork_resource_composition_exposes_retained_input_and_reduction_state() {
         state.has_unknown,
         "accumulator state must remain symbolic rather than silently becoming zero"
     );
-    let canonical_peak = resources.expressions.evaluate_atoms(
-        formula.canonical_peak_operation_state_requirements,
-        &memory,
-    );
+    let canonical_peak = resources
+        .expressions
+        .evaluate_atoms(formula.canonical_peak_operation_state_requirements, &memory);
     assert!(
         canonical_peak.has_unknown,
         "canonical state peak must retain the symbolic accumulator requirement"
     );
 }
-
-
 
 #[test]
 fn rank_resource_contract_preserves_inner_reduction_requirement() {
@@ -129,9 +121,7 @@ fn rank_resource_contract_preserves_inner_reduction_requirement() {
 
 #[test]
 fn window_resource_contract_composes_reuse_and_inner_reduction_state() {
-    let graph = Engine::new()
-        .analyze_j_graph("(+/)\\ 1 2 3 4")
-        .unwrap();
+    let graph = Engine::new().analyze_j_graph("(+/)\\ 1 2 3 4").unwrap();
     let resources = graph.symbolic_resource_analysis();
     let result = graph.result.unwrap();
     let summary = &resources.nodes[result.0];
@@ -185,7 +175,6 @@ fn resource_summary_keeps_unknown_distinct_from_zero() {
         rustj::j_graph_ir::SymbolicResourceExpr::Unknown
     ));
 }
-
 
 #[test]
 fn hook_identity_input_is_not_counted_as_internal_intermediate() {

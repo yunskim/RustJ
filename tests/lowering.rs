@@ -3,11 +3,10 @@ use rustj::{
     analysis::ExecutionBasisKind,
     logical_ir::{CallOp, EffectSummary, OpKind, SpeculationSemantics},
     lowering::{
-        BasisTargetFeasibility, LoweringRegistry, RealizationFamily,
-        RewritePlanningState, RewriteTargetFeasibilityKind, TargetCapabilities,
+        BasisTargetFeasibility, LoweringRegistry, RealizationFamily, RewritePlanningState,
+        RewriteTargetFeasibilityKind, TargetCapabilities,
     },
 };
-
 
 fn literal_source_values(plan: &rustj::logical_ir::Plan) -> Vec<Option<rustj::Value>> {
     let mut values = vec![None; plan.values.len()];
@@ -72,11 +71,7 @@ fn tree_reduction_requires_reassociation_and_error_order_freedom() {
 
     let registry = LoweringRegistry::a3_v0();
     let gpu = TargetCapabilities::gpu_generic();
-    assert!(
-        registry
-            .legal_candidates(basis, &call, &gpu)
-            .is_empty()
-    );
+    assert!(registry.legal_candidates(basis, &call, &gpu).is_empty());
 
     call.effect = EffectSummary::Pure;
     call.possible_errors.unknown = false;
@@ -85,11 +80,7 @@ fn tree_reduction_requires_reassociation_and_error_order_freedom() {
         may_raise_observable_error: false,
         preserve_evaluation_order: false,
     };
-    assert!(
-        registry
-            .legal_candidates(basis, &call, &gpu)
-            .is_empty()
-    );
+    assert!(registry.legal_candidates(basis, &call, &gpu).is_empty());
 
     call.contract.allow_reassociation = true;
     assert_eq!(
@@ -139,8 +130,6 @@ fn gather_keeps_indexed_parallel_routes_closed_while_errors_are_observable() {
     );
 }
 
-
-
 #[test]
 fn graph_rewrite_target_feasibility_does_not_confuse_equivalence_with_lowerability() {
     let analysis = Engine::new()
@@ -149,10 +138,8 @@ fn graph_rewrite_target_feasibility_does_not_confuse_equivalence_with_lowerabili
     let candidate = &analysis.graph_rewrites[0];
     let registry = LoweringRegistry::a3_v0();
 
-    let cpu = registry.rewrite_candidate_target_feasibility(
-        candidate,
-        &TargetCapabilities::cpu_baseline(),
-    );
+    let cpu = registry
+        .rewrite_candidate_target_feasibility(candidate, &TargetCapabilities::cpu_baseline());
     assert_eq!(cpu.overall, RewriteTargetFeasibilityKind::Supported);
     assert_eq!(
         cpu.composite_candidates,
@@ -169,16 +156,15 @@ fn graph_rewrite_target_feasibility_does_not_confuse_equivalence_with_lowerabili
         BasisTargetFeasibility::RequiresCallFacts
     ));
 
-    let gpu = registry.rewrite_candidate_target_feasibility(
-        candidate,
-        &TargetCapabilities::gpu_generic(),
-    );
+    let gpu = registry
+        .rewrite_candidate_target_feasibility(candidate, &TargetCapabilities::gpu_generic());
     assert_eq!(gpu.overall, RewriteTargetFeasibilityKind::Unsupported);
-    assert!(gpu.nodes.iter().all(|node| {
-        matches!(node.feasibility, BasisTargetFeasibility::Unsupported)
-    }));
+    assert!(
+        gpu.nodes
+            .iter()
+            .all(|node| { matches!(node.feasibility, BasisTargetFeasibility::Unsupported) })
+    );
 }
-
 
 #[test]
 fn rewrite_planning_report_defers_selection_until_target_and_resource_facts_exist() {
@@ -186,10 +172,7 @@ fn rewrite_planning_report_defers_selection_until_target_and_resource_facts_exis
         .analyze_compilation("'ana' E. 'banana'")
         .unwrap();
     let registry = LoweringRegistry::a3_v0();
-    let reports = registry.rewrite_planning_reports(
-        &analysis,
-        &TargetCapabilities::cpu_baseline(),
-    );
+    let reports = registry.rewrite_planning_reports(&analysis, &TargetCapabilities::cpu_baseline());
 
     assert_eq!(reports.len(), 1);
     let report = &reports[0];
@@ -209,7 +192,6 @@ fn rewrite_planning_report_defers_selection_until_target_and_resource_facts_exis
         analysis.graph_rewrites[0].provenance.source_value
     );
 }
-
 
 #[test]
 fn registered_cpu_rewrite_composite_dispatches_to_reference_expansion() {
@@ -300,7 +282,6 @@ fn route_partition_distinguishes_native_fallback_checks_and_value_ops() {
     );
 }
 
-
 #[test]
 fn route_partition_forms_contiguous_semantic_regions() {
     use rustj::lowering::RouteRegionClass;
@@ -311,7 +292,10 @@ fn route_partition_forms_contiguous_semantic_regions() {
     let plan = Engine::new().analyze_a3("1 2+1 2 3").unwrap();
     let regions = registry.partition_plan(&plan, &cpu);
     assert_eq!(
-        regions.iter().map(|region| region.class).collect::<Vec<_>>(),
+        regions
+            .iter()
+            .map(|region| region.class)
+            .collect::<Vec<_>>(),
         vec![
             RouteRegionClass::ValueOnly,
             RouteRegionClass::SemanticCheck,
@@ -322,7 +306,10 @@ fn route_partition_forms_contiguous_semantic_regions() {
     let plan = Engine::new().analyze_a3("future 3").unwrap();
     let regions = registry.partition_plan(&plan, &cpu);
     assert_eq!(
-        regions.iter().map(|region| region.class).collect::<Vec<_>>(),
+        regions
+            .iter()
+            .map(|region| region.class)
+            .collect::<Vec<_>>(),
         vec![
             RouteRegionClass::ValueOnly,
             RouteRegionClass::RuntimeSemantic,
@@ -363,7 +350,6 @@ fn rank_and_reduce_can_use_native_reference_routes_after_purity_resolution() {
     }
 }
 
-
 #[test]
 fn lowering_recipe_keeps_semantic_parameters_but_not_schedule_choices() {
     use rustj::logical_ir::{ExecutionBasisPayload, ReductionAxis};
@@ -377,10 +363,7 @@ fn lowering_recipe_keeps_semantic_parameters_but_not_schedule_choices() {
     let recipes = registry.recipes_for_operation(&plan.operations[producer.0], &cpu);
     assert_eq!(recipes.len(), 1);
     assert_eq!(recipes[0].basis, ExecutionBasisKind::Reduce);
-    assert_eq!(
-        recipes[0].realization,
-        RealizationFamily::OrderedReduction
-    );
+    assert_eq!(recipes[0].realization, RealizationFamily::OrderedReduction);
     assert_eq!(
         recipes[0].payload,
         ExecutionBasisPayload::Reduce {

@@ -6,11 +6,11 @@
 
 use crate::{
     Value,
-    execution_semantics::{
-        AccessFact, CallTarget, Callable, ExecutionBasis, ExecutionBasisKind, ResolvedInstantiation,
-        Symbol, SymbolId,
-    },
     contracts::{Contract, Effect, Valence},
+    execution_semantics::{
+        AccessFact, CallTarget, Callable, ExecutionBasis, ExecutionBasisKind,
+        ResolvedInstantiation, Symbol, SymbolId,
+    },
     facts::{Facts, RankPlan, ValueRoleFacts},
     opportunity::{StructuralOpportunity, StructuralTopology},
     semantic::{FunctionHead, FunctionOperand, NameVersion},
@@ -122,11 +122,7 @@ impl Constraint {
     fn values(&self) -> [Option<ValueId>; 2] {
         match *self {
             Self::PrefixAgreement { left, right }
-            | Self::CellFrameAgreement {
-                left,
-                right,
-                ..
-            } => [Some(left), Some(right)],
+            | Self::CellFrameAgreement { left, right, .. } => [Some(left), Some(right)],
             Self::IndicesInBounds { indices, source } => [Some(indices), Some(source)],
         }
     }
@@ -434,9 +430,7 @@ fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPaylo
                 CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
                 CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
                 CallTarget::Primitive(PrimitiveId::Reverse) => ReindexKind::Reverse,
-                CallTarget::Primitive(PrimitiveId::Transpose) => {
-                    ReindexKind::Transpose
-                }
+                CallTarget::Primitive(PrimitiveId::Transpose) => ReindexKind::Transpose,
                 CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
                 CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
                 _ => return ExecutionBasisPayload::Deferred,
@@ -594,9 +588,7 @@ impl SemanticCapabilityView for LogicalOpView<'_> {
 
     fn possible_errors(&self) -> PossibleErrors {
         match &self.operation.kind {
-            OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
-                call.possible_errors.clone()
-            }
+            OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => call.possible_errors.clone(),
             OpKind::SemanticCheck(check) => PossibleErrors {
                 known: vec![check.error],
                 unknown: false,
@@ -975,18 +967,13 @@ impl Plan {
     }
 
     pub fn verify(&self) -> std::result::Result<(), VerifyError> {
-        let fail = |operation: Option<OpId>, message: String| VerifyError {
-            operation,
-            message,
-        };
+        let fail = |operation: Option<OpId>, message: String| VerifyError { operation, message };
         let source_len = self.source.len();
 
         if self.header.schema != A3_SCHEMA_VERSION {
             return Err(fail(None, "unsupported A3 IR schema version".into()));
         }
-        if self.header.provenance.primitive_registry_version
-            != crate::primitive::REGISTRY_VERSION
-        {
+        if self.header.provenance.primitive_registry_version != crate::primitive::REGISTRY_VERSION {
             return Err(fail(
                 None,
                 "A3 IR primitive registry provenance does not match compiler".into(),
@@ -1024,9 +1011,9 @@ impl Plan {
                         "pipeline opportunity must contain at least two stages".into(),
                     ));
                 }
-                StructuralTopology::BranchJoin {
-                    branch_results, ..
-                } if branch_results.len() < 2 => {
+                StructuralTopology::BranchJoin { branch_results, .. }
+                    if branch_results.len() < 2 =>
+                {
                     return Err(fail(
                         None,
                         "branch/join opportunity must contain at least two branches".into(),
@@ -1136,7 +1123,10 @@ impl Plan {
                     ));
                 };
                 let Some(data) = self.values.get(result.0) else {
-                    return Err(fail(Some(op_id), "call result value is out of bounds".into()));
+                    return Err(fail(
+                        Some(op_id),
+                        "call result value is out of bounds".into(),
+                    ));
                 };
                 if call.instantiation.result_dtype != data.facts.dtype
                     || call.instantiation.result_rank != data.facts.rank
@@ -1287,7 +1277,10 @@ impl Plan {
 
         for (index, value) in self.values.iter().enumerate() {
             let Some(operation) = self.operations.get(value.producer.0) else {
-                return Err(fail(None, format!("value {index} producer is out of bounds")));
+                return Err(fail(
+                    None,
+                    format!("value {index} producer is out of bounds"),
+                ));
             };
             if !operation.results.contains(&ValueId(index)) {
                 return Err(fail(

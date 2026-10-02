@@ -2,8 +2,8 @@ use rustj::{
     Engine,
     j_graph_ir::{
         AccessContract, FusionStructure, GraphAnalyzability, GraphBasisKind, GraphForm, GraphHint,
-        GraphRuleRef, IterationContract, J_GRAPH_SCHEMA_VERSION, NodeKind,
-        RegionKind, ResourceCompositionRule, ResourceRuleRef, SymbolicResourceExpr,
+        GraphRuleRef, IterationContract, J_GRAPH_SCHEMA_VERSION, NodeKind, RegionKind,
+        ResourceCompositionRule, ResourceRuleRef, SymbolicResourceExpr,
     },
     primitive::{PrimitiveId, REGISTRY_VERSION},
 };
@@ -49,9 +49,7 @@ fn atop_is_an_explicit_pipeline_region_with_stage_values() {
 
 #[test]
 fn fork_is_an_explicit_branch_join_region_and_common_input_is_visible() {
-    let graph = Engine::new()
-        .analyze_j_graph("(+/ % #) 1 2 3 4")
-        .unwrap();
+    let graph = Engine::new().analyze_j_graph("(+/ % #) 1 2 3 4").unwrap();
     graph.verify().unwrap();
 
     let result = graph.result.unwrap();
@@ -140,7 +138,6 @@ fn modifiers_expose_collective_and_cell_parallel_contracts_before_execution_lowe
     assert_eq!(contract.access, AccessContract::CellRelative);
     assert_eq!(graph.nodes[result.0].facts.shape.as_deref(), Some(&[2][..]));
 }
-
 
 #[test]
 fn prefix_infix_exposes_window_graph_basis_without_collapsing_inner_reduction() {
@@ -328,7 +325,6 @@ fn graph_verifier_rejects_unknown_schema() {
     let error = graph.verify().unwrap_err();
     assert!(error.contains("schema version"));
 }
-
 
 #[test]
 fn hook_keeps_retained_value_without_claiming_parallel_siblings() {

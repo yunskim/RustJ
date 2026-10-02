@@ -8,7 +8,7 @@ use crate::{
     Error, Value,
     compilation::CompilationAnalysis,
     execution_semantics::{AccessFact, AccessRelation, ExecutionBasisKind},
-    logical_ir::{ExecutionBasisPayload, CallOp, IterationDomain, OpKind, Operation, Plan},
+    logical_ir::{CallOp, ExecutionBasisPayload, IterationDomain, OpKind, Operation, Plan},
 };
 use std::ops::Range;
 
@@ -130,7 +130,6 @@ impl Requirement {
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecutionBasisLoweringCapability {
     pub basis: ExecutionBasisKind,
@@ -184,9 +183,7 @@ pub enum BasisTargetFeasibility {
     /// At least one registered realization needs only target/feature facts and
     /// those facts are satisfied. Full operation legality may still add checks
     /// once a concrete CallOp exists.
-    Supported {
-        candidates: Vec<RealizationFamily>,
-    },
+    Supported { candidates: Vec<RealizationFamily> },
     /// Matching target families exist, but all surviving capabilities require
     /// call-dependent semantic facts (purity, access, rank, error order, ...).
     RequiresCallFacts,
@@ -289,11 +286,13 @@ impl LoweringRegistry {
 
         let mut registry = Self::default();
         let mut add = |basis, realization, requirements| {
-            registry.capabilities.push(ExecutionBasisLoweringCapability {
-                basis,
-                realization,
-                requirements,
-            });
+            registry
+                .capabilities
+                .push(ExecutionBasisLoweringCapability {
+                    basis,
+                    realization,
+                    requirements,
+                });
         };
 
         add(Elementwise, ReferenceSequential, vec![Target(Cpu), Pure]);
@@ -432,7 +431,11 @@ impl LoweringRegistry {
         let mut supported = Vec::new();
         let mut requires_call_facts = false;
 
-        for capability in self.capabilities.iter().filter(|capability| capability.basis == basis) {
+        for capability in self
+            .capabilities
+            .iter()
+            .filter(|capability| capability.basis == basis)
+        {
             let mut target_rejected = false;
             let mut unresolved = false;
             for requirement in &capability.requirements {
@@ -538,9 +541,7 @@ impl LoweringRegistry {
             RewriteTargetFeasibilityKind::Supported
         } else if composite_requires_call_facts {
             match node_overall {
-                RewriteTargetFeasibilityKind::Supported => {
-                    RewriteTargetFeasibilityKind::Supported
-                }
+                RewriteTargetFeasibilityKind::Supported => RewriteTargetFeasibilityKind::Supported,
                 _ => RewriteTargetFeasibilityKind::RequiresCallFacts,
             }
         } else {
@@ -556,7 +557,6 @@ impl LoweringRegistry {
             overall,
         }
     }
-
 
     pub fn rewrite_planning_reports(
         &self,
@@ -618,7 +618,6 @@ impl LoweringRegistry {
             })
             .collect()
     }
-
 
     /// Execute the v0 whole-rewrite reference realization registered for a
     /// candidate. This is a validation/bootstrap route, not a cost-based
@@ -715,11 +714,7 @@ impl LoweringRegistry {
             .collect()
     }
 
-    pub fn partition_plan(
-        &self,
-        plan: &Plan,
-        target: &TargetCapabilities,
-    ) -> Vec<RouteRegion> {
+    pub fn partition_plan(&self, plan: &Plan, target: &TargetCapabilities) -> Vec<RouteRegion> {
         fn class(decision: &RouteDecision) -> RouteRegionClass {
             match decision {
                 RouteDecision::NoKernel => RouteRegionClass::ValueOnly,

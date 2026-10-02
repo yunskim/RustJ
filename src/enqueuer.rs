@@ -118,10 +118,9 @@ fn interpret_word<'a>(
                 (PrimitivePartOfSpeech::Adverb, PrimitiveSemanticId::Adverb(id)) => {
                     (EnqueueClass::Adverb, EnqueuedPayload::Adverb(id))
                 }
-                (
-                    PrimitivePartOfSpeech::Conjunction,
-                    PrimitiveSemanticId::Conjunction(id),
-                ) => (EnqueueClass::Conjunction, EnqueuedPayload::Conjunction(id)),
+                (PrimitivePartOfSpeech::Conjunction, PrimitiveSemanticId::Conjunction(id)) => {
+                    (EnqueueClass::Conjunction, EnqueuedPayload::Conjunction(id))
+                }
                 _ => unreachable!("primitive handle POS must match semantic ID"),
             };
             (class, payload, EnqueueFlags::default())
@@ -204,10 +203,7 @@ fn interpret_word<'a>(
         };
         return Ok((
             EnqueueClass::Noun,
-            EnqueuedPayload::Noun(Box::new(Value::new(
-                Shape::from([fields]),
-                data,
-            )?)),
+            EnqueuedPayload::Noun(Box::new(Value::new(Shape::from([fields]), data)?)),
             EnqueueFlags::default(),
         ));
     }

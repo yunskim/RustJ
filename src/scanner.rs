@@ -9,22 +9,22 @@ use std::ops::Range;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
 enum State {
-    Space = 0,        // SS
-    AfterNumber = 1,  // SS9
-    Symbol = 2,       // SX
-    Name = 3,         // SA
-    N = 4,            // SN
-    Nb = 5,           // SNB
-    ClosedQuote = 6,  // SQQ
-    Number = 7,       // S9
-    MoreNumber = 8,   // S99
-    Quote = 9,        // SQ
-    NbDot = 10,       // SNZ
-    Comment = 11,     // SZ
+    Space = 0,          // SS
+    AfterNumber = 1,    // SS9
+    Symbol = 2,         // SX
+    Name = 3,           // SA
+    N = 4,              // SN
+    Nb = 5,             // SNB
+    ClosedQuote = 6,    // SQQ
+    Number = 7,         // S9
+    MoreNumber = 8,     // S99
+    Quote = 9,          // SQ
+    NbDot = 10,         // SNZ
+    Comment = 11,       // SZ
     Uninflectable = 12, // SU
-    OpenBrace = 13,   // SDD
-    CloseBrace = 14,  // SDDZ
-    DoubleBrace = 15, // SDDD
+    OpenBrace = 13,     // SDD
+    CloseBrace = 14,    // SDDZ
+    DoubleBrace = 15,   // SDDD
 }
 
 /// Column order is chosen for readable Rust tables, but every variant maps
@@ -100,37 +100,245 @@ use State as S;
 /// dense column order so every meaningful transition is visible and auditable.
 const TRANSITIONS: [[Transition; 12]; 16] = [
     // SS
-    [t(S::Symbol,1), t(S::OpenBrace,1), t(S::CloseBrace,1), t(S::Uninflectable,1), t(S::Space,0), t(S::Name,1), t(S::N,1), t(S::Name,1), t(S::Number,1), t(S::Symbol,1), t(S::Symbol,1), t(S::Quote,1)],
+    [
+        t(S::Symbol, 1),
+        t(S::OpenBrace, 1),
+        t(S::CloseBrace, 1),
+        t(S::Uninflectable, 1),
+        t(S::Space, 0),
+        t(S::Name, 1),
+        t(S::N, 1),
+        t(S::Name, 1),
+        t(S::Number, 1),
+        t(S::Symbol, 1),
+        t(S::Symbol, 1),
+        t(S::Quote, 1),
+    ],
     // SS9
-    [t(S::Symbol,1), t(S::OpenBrace,1), t(S::CloseBrace,1), t(S::Uninflectable,1), t(S::AfterNumber,0), t(S::Name,1), t(S::N,1), t(S::Name,1), t(S::MoreNumber,1), t(S::Symbol,1), t(S::Symbol,1), t(S::Quote,1)],
+    [
+        t(S::Symbol, 1),
+        t(S::OpenBrace, 1),
+        t(S::CloseBrace, 1),
+        t(S::Uninflectable, 1),
+        t(S::AfterNumber, 0),
+        t(S::Name, 1),
+        t(S::N, 1),
+        t(S::Name, 1),
+        t(S::MoreNumber, 1),
+        t(S::Symbol, 1),
+        t(S::Symbol, 1),
+        t(S::Quote, 1),
+    ],
     // SX
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,2), t(S::N,2), t(S::Name,2), t(S::Number,2), t(S::Symbol,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 2),
+        t(S::N, 2),
+        t(S::Name, 2),
+        t(S::Number, 2),
+        t(S::Symbol, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // SA
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,0), t(S::Name,0), t(S::Name,0), t(S::Name,0), t(S::Symbol,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 0),
+        t(S::Name, 0),
+        t(S::Name, 0),
+        t(S::Name, 0),
+        t(S::Symbol, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // SN
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,0), t(S::Name,0), t(S::Nb,0), t(S::Name,0), t(S::Symbol,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 0),
+        t(S::Name, 0),
+        t(S::Nb, 0),
+        t(S::Name, 0),
+        t(S::Symbol, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // SNB
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,0), t(S::Name,0), t(S::Name,0), t(S::Name,0), t(S::NbDot,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 0),
+        t(S::Name, 0),
+        t(S::Name, 0),
+        t(S::Name, 0),
+        t(S::NbDot, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // SQQ
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,2), t(S::N,2), t(S::Name,2), t(S::Number,2), t(S::Symbol,2), t(S::Symbol,2), t(S::Quote,0)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 2),
+        t(S::N, 2),
+        t(S::Name, 2),
+        t(S::Number, 2),
+        t(S::Symbol, 2),
+        t(S::Symbol, 2),
+        t(S::Quote, 0),
+    ],
     // S9
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::AfterNumber,1), t(S::Number,0), t(S::Number,0), t(S::Number,0), t(S::Number,0), t(S::Number,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::AfterNumber, 1),
+        t(S::Number, 0),
+        t(S::Number, 0),
+        t(S::Number, 0),
+        t(S::Number, 0),
+        t(S::Number, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // S99
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::AfterNumber,1), t(S::MoreNumber,0), t(S::MoreNumber,0), t(S::MoreNumber,0), t(S::MoreNumber,0), t(S::MoreNumber,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::AfterNumber, 1),
+        t(S::MoreNumber, 0),
+        t(S::MoreNumber, 0),
+        t(S::MoreNumber, 0),
+        t(S::MoreNumber, 0),
+        t(S::MoreNumber, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // SQ
-    [t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::Quote,0), t(S::ClosedQuote,0)],
+    [
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::Quote, 0),
+        t(S::ClosedQuote, 0),
+    ],
     // SNZ
-    [t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Uninflectable,2), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Symbol,0), t(S::Symbol,0), t(S::Comment,0)],
+    [
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Uninflectable, 2),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Symbol, 0),
+        t(S::Symbol, 0),
+        t(S::Comment, 0),
+    ],
     // SZ
-    [t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Uninflectable,2), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0), t(S::Comment,0)],
+    [
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Uninflectable, 2),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+        t(S::Comment, 0),
+    ],
     // SU
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,2), t(S::N,2), t(S::Name,2), t(S::Number,2), t(S::Symbol,2), t(S::Symbol,2), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 2),
+        t(S::N, 2),
+        t(S::Name, 2),
+        t(S::Number, 2),
+        t(S::Symbol, 2),
+        t(S::Symbol, 2),
+        t(S::Quote, 2),
+    ],
     // SDD
-    [t(S::Symbol,2), t(S::DoubleBrace,0), t(S::Symbol,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,2), t(S::N,2), t(S::Name,2), t(S::Number,2), t(S::Symbol,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::DoubleBrace, 0),
+        t(S::Symbol, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 2),
+        t(S::N, 2),
+        t(S::Name, 2),
+        t(S::Number, 2),
+        t(S::Symbol, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // SDDZ
-    [t(S::Symbol,2), t(S::Symbol,2), t(S::DoubleBrace,0), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,2), t(S::N,2), t(S::Name,2), t(S::Number,2), t(S::Symbol,0), t(S::Symbol,0), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::Symbol, 2),
+        t(S::DoubleBrace, 0),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 2),
+        t(S::N, 2),
+        t(S::Name, 2),
+        t(S::Number, 2),
+        t(S::Symbol, 0),
+        t(S::Symbol, 0),
+        t(S::Quote, 2),
+    ],
     // SDDD
-    [t(S::Symbol,2), t(S::OpenBrace,2), t(S::CloseBrace,2), t(S::Uninflectable,2), t(S::Space,1), t(S::Name,2), t(S::N,2), t(S::Name,2), t(S::Number,2), undd(S::Symbol), undd(S::Symbol), t(S::Quote,2)],
+    [
+        t(S::Symbol, 2),
+        t(S::OpenBrace, 2),
+        t(S::CloseBrace, 2),
+        t(S::Uninflectable, 2),
+        t(S::Space, 1),
+        t(S::Name, 2),
+        t(S::N, 2),
+        t(S::Name, 2),
+        t(S::Number, 2),
+        undd(S::Symbol),
+        undd(S::Symbol),
+        t(S::Quote, 2),
+    ],
 ];
 
 fn transition(state: State, class: Class) -> Transition {
@@ -151,11 +359,7 @@ pub fn parse_word_spans(source: &[u8]) -> Result<Vec<Range<usize>>> {
     let mut spans = scan(source)?;
     if let Some(last) = spans.last() {
         let word = &source[last.clone()];
-        if word.starts_with(b"NB.")
-            && !word
-                .get(3)
-                .is_some_and(|b| matches!(b, b'.' | b':'))
-        {
+        if word.starts_with(b"NB.") && !word.get(3).is_some_and(|b| matches!(b, b'.' | b':')) {
             spans.pop();
         }
     }

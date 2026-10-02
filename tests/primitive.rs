@@ -1,8 +1,8 @@
 use rustj::{
     Engine,
     analysis::CallTarget,
-    logical_ir::OpKind,
     contracts::{self, Effect, Valence},
+    logical_ir::OpKind,
     primitive::{AdverbId, PrimitiveId},
     syntax::{self, Token},
 };
@@ -36,7 +36,6 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
         );
     }
 }
-
 
 #[test]
 fn registered_adverb_spellings_reach_the_shared_frontend() {

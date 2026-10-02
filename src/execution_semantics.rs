@@ -5,11 +5,7 @@
 //! realization. Keeping them outside `analysis.rs` prevents the temporary
 //! `analysis::LogicalPlan` container from owning canonical compiler vocabulary.
 
-use crate::{
-    contracts::Valence,
-    facts::TypeFact,
-    semantic::FunctionEntity,
-};
+use crate::{contracts::Valence, facts::TypeFact, semantic::FunctionEntity};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

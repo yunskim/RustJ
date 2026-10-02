@@ -137,7 +137,6 @@ pub const RULES: &[GraphRewriteRule] = &[GraphRewriteRule {
     },
 }];
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GraphOptimizationPhase {
     BasisDiscovery,
@@ -154,7 +153,6 @@ pub const GRAPH_OPTIMIZATION_ORDER: &[GraphOptimizationPhase] = &[
     GraphOptimizationPhase::CandidateResourceEvaluation,
     GraphOptimizationPhase::SoundResourcePruning,
 ];
-
 
 fn input_graph_facts(
     plan: &Plan,
@@ -209,7 +207,10 @@ fn infer_rewrite_facts(
                 // right-argument position, with cell shape equal to the pattern
                 // shape.  Trailing non-fitting windows remain logical positions
                 // whose Match result is false; they do not disappear.
-                let shape = match (&right.shape, pattern.as_ref().and_then(|x| x.shape.as_ref())) {
+                let shape = match (
+                    &right.shape,
+                    pattern.as_ref().and_then(|x| x.shape.as_ref()),
+                ) {
                     (Some(right_shape), Some(pattern_shape))
                         if right_shape.len() <= 1
                             && pattern_shape.len() <= right_shape.len()
@@ -310,11 +311,7 @@ impl GraphRewriteCandidate {
         if basis.layers.first().copied() != Some(rule.source_outer_basis) {
             return Err("rewrite source basis does not satisfy registered rule");
         }
-        if self
-            .replacement
-            .nodes
-            .first()
-            .map(|node| node.basis)
+        if self.replacement.nodes.first().map(|node| node.basis)
             != Some(rule.replacement_outer_basis)
         {
             return Err("rewrite replacement basis does not satisfy registered rule");
