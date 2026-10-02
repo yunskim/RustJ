@@ -594,6 +594,10 @@ enum ParseValue {
     Noun(Expr, usize),
     Verb(Verb),
     Function(Arc<FunctionEntity>),
+    NameTarget {
+        name: String,
+        span: std::ops::Range<usize>,
+    },
     Control {
         span: std::ops::Range<usize>,
     },
@@ -615,6 +619,7 @@ impl Item {
             ParseValue::Noun(expr, _) => expr.span.clone(),
             ParseValue::Verb(verb) => verb.span.clone(),
             ParseValue::Function(entity) => entity.span.clone(),
+            ParseValue::NameTarget { span, .. } => span.clone(),
             ParseValue::Control { span } => span.clone(),
         }
     }
@@ -633,10 +638,21 @@ impl Item {
     }
 
     fn control(class: ParseClass, span: std::ops::Range<usize>) -> Self {
-        debug_assert!(matches!(class, ParseClass::LParen | ParseClass::RParen));
+        debug_assert!(matches!(
+            class,
+            ParseClass::Assignment | ParseClass::LParen | ParseClass::RParen
+        ));
         Self {
             class,
             value: ParseValue::Control { span },
+            span_override: None,
+        }
+    }
+
+    fn name_target(name: String, span: std::ops::Range<usize>) -> Self {
+        Self {
+            class: ParseClass::Name,
+            value: ParseValue::NameTarget { name, span },
             span_override: None,
         }
     }
