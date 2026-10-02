@@ -1245,4 +1245,74 @@ mod parser_table_tests {
         );
     }
 
+    #[test]
+    fn pinned_jsource_bident_pos_table_is_exact_for_supported_classes() {
+        use super::TrainOutcome::{Fork, Result as R};
+
+        let expected = [
+            ((Verb, Verb), R(Verb)),
+            ((Verb, Noun), R(Noun)),
+            ((Noun, Adverb), R(Verb)),
+            ((Noun, Conjunction), R(Adverb)),
+            ((Verb, Adverb), R(Verb)),
+            ((Verb, Conjunction), R(Adverb)),
+            ((Adverb, Verb), R(Adverb)),
+            ((Adverb, Adverb), R(Adverb)),
+            ((Adverb, Conjunction), R(Adverb)),
+            ((Conjunction, Noun), R(Adverb)),
+            ((Conjunction, Verb), R(Adverb)),
+            ((Conjunction, Adverb), R(Conjunction)),
+            ((Conjunction, Conjunction), R(Conjunction)),
+        ];
+        for ((left, right), outcome) in expected {
+            assert_eq!(super::bident_outcome(left, right), Some(outcome));
+        }
+        let _ = Fork; // keep result enum variants visibly tied to the shared table tests
+        assert_eq!(super::bident_outcome(Noun, Noun), None);
+        assert_eq!(super::bident_outcome(Noun, Verb), None);
+    }
+
+    #[test]
+    fn pinned_jsource_trident_pos_table_is_exact_for_defined_entries() {
+        use super::TrainOutcome::{Fork, Result as R};
+
+        let expected = [
+            ((Noun, Verb, Noun), R(Noun)),
+            ((Verb, Verb, Verb), Fork),
+            ((Noun, Verb, Verb), Fork),
+            ((Adverb, Adverb, Adverb), R(Adverb)),
+            ((Adverb, Adverb, Verb), R(Conjunction)),
+            ((Verb, Verb, Conjunction), R(Conjunction)),
+            ((Noun, Verb, Conjunction), R(Conjunction)),
+            ((Adverb, Verb, Verb), R(Adverb)),
+            ((Conjunction, Verb, Verb), R(Conjunction)),
+            ((Conjunction, Verb, Conjunction), R(Conjunction)),
+            ((Conjunction, Adverb, Adverb), R(Conjunction)),
+            ((Noun, Conjunction, Noun), R(Verb)),
+            ((Noun, Conjunction, Verb), R(Verb)),
+            ((Verb, Conjunction, Noun), R(Verb)),
+            ((Verb, Conjunction, Verb), R(Verb)),
+            ((Noun, Conjunction, Adverb), R(Adverb)),
+            ((Verb, Conjunction, Adverb), R(Adverb)),
+            ((Noun, Conjunction, Conjunction), R(Conjunction)),
+            ((Verb, Conjunction, Conjunction), R(Conjunction)),
+            ((Adverb, Conjunction, Noun), R(Adverb)),
+            ((Adverb, Conjunction, Verb), R(Adverb)),
+            ((Adverb, Conjunction, Adverb), R(Conjunction)),
+            ((Adverb, Conjunction, Conjunction), R(Conjunction)),
+            ((Conjunction, Conjunction, Verb), R(Conjunction)),
+            ((Conjunction, Conjunction, Noun), R(Conjunction)),
+            ((Conjunction, Conjunction, Adverb), R(Conjunction)),
+            ((Conjunction, Conjunction, Conjunction), R(Conjunction)),
+        ];
+        for ((first, second, third), outcome) in expected {
+            assert_eq!(
+                super::trident_outcome(first, second, third),
+                Some(outcome)
+            );
+        }
+        assert_eq!(super::trident_outcome(Verb, Noun, Verb), None);
+        assert_eq!(super::trident_outcome(Noun, Noun, Noun), None);
+    }
+
 }
