@@ -2,7 +2,7 @@
 //! Nodes retain byte spans; binding and execution remain separate phases.
 use crate::{
     Error, Result, Value,
-    enqueuer::{EnqueueClass, EnqueuedPayload, EnqueuedWord, enqueue},
+    enqueuer::{EnqueuedPayload, EnqueuedWord, enqueue},
     error::{DiagnosticPhase, ErrorContext},
 };
 use std::sync::Arc;
