@@ -380,7 +380,40 @@ fn reduce_stack_prefix(stack: &mut Vec<Item>) -> Result<()> {
                     false
                 }
             }
-            ParseRow::Assignment | ParseRow::Parenthesis => false,
+            ParseRow::Assignment => false,
+            ParseRow::Parenthesis => {
+                let mut phrase: Vec<_> = stack.drain(0..3).collect();
+                let left = phrase.remove(0);
+                let value = phrase.remove(0);
+                let right = phrase.remove(0);
+                let group_span = left.span().start..right.span().end;
+
+                let grouped = match value.value {
+                    ParseValue::Noun(expr, height) => Item::noun(
+                        Expr {
+                            span: group_span.clone(),
+                            kind: ExprKind::Group(Box::new(expr)),
+                        },
+                        checked_height(height)?,
+                    )
+                    .with_span(group_span),
+                    ParseValue::Verb(mut verb) => {
+                        verb.span = group_span.clone();
+                        Item::verb(verb).with_span(group_span)
+                    }
+                    ParseValue::Function(entity) => {
+                        Item::function(entity).with_span(group_span)
+                    }
+                    ParseValue::Control { .. } => {
+                        return Err(
+                            Error::Syntax("invalid parenthesized parser control".into())
+                                .at(group_span),
+                        );
+                    }
+                };
+                stack.insert(0, grouped);
+                true
+            },
         };
 
         // The table matched a jsource row whose semantic action has not yet
