@@ -1,0 +1,13 @@
+{
+  "jsource_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "platform": "nt",
+  "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+  "binary_sha256": "5c569edd7ba9d1a74013b15150f89e3f857dae04f708f1192f0fae5df246a266",
+  "cases": 6618,
+  "seed": 20260927,
+  "open_quotes": 1109,
+  "failed": 0,
+  "zero_mismatch": true,
+  "failures": [],
+  "reference": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\j.dll"
+}

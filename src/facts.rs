@@ -209,12 +209,7 @@ pub(crate) fn infer(
 ) -> Facts {
     let left_semantic = left.map(SemanticFacts::from);
     let right_semantic = SemanticFacts::from(right);
-    let semantic = infer_semantic_primitive(
-        id,
-        rule,
-        left_semantic.as_ref(),
-        &right_semantic,
-    );
+    let semantic = infer_semantic_primitive(id, rule, left_semantic.as_ref(), &right_semantic);
     let representation_class = match (id, left, right.rank) {
         (Sparse, None, Some(0)) => right.representation_class,
         (Sparse, None, Some(_)) => RepresentationClassFact::AxisSparse,
@@ -285,25 +280,12 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     }
 }
 
-
 fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
     let value = function.operands.iter().find_map(|operand| match operand {
         FunctionOperand::Noun { value, .. } => Some(value),
         FunctionOperand::Function(_) => None,
     })?;
-    if value.is_empty() || value.len() > 3 {
-        return None;
-    }
-    let at = |i| value.int_at(i).ok();
-    match value.len() {
-        1 => {
-            let r = at(0)?;
-            Some([r, r, r])
-        }
-        2 => Some([at(1)?, at(0)?, at(1)?]),
-        3 => Some([at(0)?, at(1)?, at(2)?]),
-        _ => None,
-    }
+    crate::semantic::rank_noun_contract(value).ok()
 }
 
 fn function_operand(function: &FunctionEntity) -> Option<&Arc<FunctionEntity>> {
@@ -343,9 +325,7 @@ fn infer_derived_reduction(function: &Arc<FunctionEntity>, input: &Facts) -> Fac
 
     // For a longer fold, one-step inference is stable only when feeding the
     // result back into the reducer preserves the logical cell shape/rank.
-    if step.shape.as_deref() == Some(item_shape.as_slice())
-        && step.rank == Some(item_shape.len())
-    {
+    if step.shape.as_deref() == Some(item_shape.as_slice()) && step.rank == Some(item_shape.len()) {
         step
     } else {
         Facts::default()
@@ -430,7 +410,12 @@ pub(crate) fn infer_semantic_call(
                 Valence::Monad
             };
             (
-                infer(*id, crate::contracts::for_primitive(*id, valence).shape_rule, left, right),
+                infer(
+                    *id,
+                    crate::contracts::for_primitive(*id, valence).shape_rule,
+                    left,
+                    right,
+                ),
                 None,
             )
         }
@@ -459,7 +444,6 @@ pub(crate) fn infer_semantic_call(
         | FunctionHead::Fork => (Facts::default(), None),
     }
 }
-
 
 fn semantic_cell(input: &SemanticFacts, shape: Vec<usize>) -> SemanticFacts {
     SemanticFacts {
@@ -524,9 +508,7 @@ fn infer_derived_reduction_semantic(
         return step;
     }
 
-    if step.shape.as_deref() == Some(item_shape.as_slice())
-        && step.rank == Some(item_shape.len())
-    {
+    if step.shape.as_deref() == Some(item_shape.as_slice()) && step.rank == Some(item_shape.len()) {
         step
     } else {
         SemanticFacts::default()

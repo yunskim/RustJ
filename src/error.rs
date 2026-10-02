@@ -142,11 +142,7 @@ impl ErrorContext {
         self
     }
 
-    pub fn executing(
-        mut self,
-        operation: impl Into<String>,
-        valence: DiagnosticValence,
-    ) -> Self {
+    pub fn executing(mut self, operation: impl Into<String>, valence: DiagnosticValence) -> Self {
         self.operation = Some(operation.into());
         self.valence = Some(valence);
         self
@@ -213,7 +209,7 @@ pub enum Error {
     /// Stable machine APIs strip this wrapper before returning.
     Context {
         error: Box<Error>,
-        context: ErrorContext,
+        context: Box<ErrorContext>,
     },
 }
 
@@ -271,16 +267,13 @@ impl Error {
 
     pub fn with_context(self, outer: ErrorContext) -> Self {
         match self {
-            Self::Context {
-                error,
-                mut context,
-            } => {
+            Self::Context { error, mut context } => {
                 context.merge_outer(outer);
                 Self::Context { error, context }
             }
             error => Self::Context {
                 error: Box::new(error),
-                context: outer,
+                context: Box::new(outer),
             },
         }
     }
@@ -416,9 +409,7 @@ impl DiagnosticAnalyzer {
 
         // Conservative generic explanation only when the failure site did not
         // provide a more precise structured detail.
-        if error.kind() == "length error"
-            && context.arguments.len() == 2
-            && explanations.is_empty()
+        if error.kind() == "length error" && context.arguments.len() == 2 && explanations.is_empty()
         {
             let x = &context.arguments[0];
             let y = &context.arguments[1];

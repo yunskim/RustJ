@@ -11,9 +11,7 @@ use crate::{
     j_graph_ir,
     logical_ir::{Plan, PlanBuilder, ValueId, Write},
     opportunity::{OpportunitySource, StructuralOpportunity, StructuralTopology},
-    semantic::{
-        FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech,
-    },
+    semantic::{FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech},
 };
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
@@ -34,12 +32,9 @@ fn primitive_execution_basis(
         (IndexOf | Steps, false) => Some(ExecutionBasisKind::IndexSpace),
         (Equal, false) => Some(ExecutionBasisKind::LookupClassify),
         (Indices, false) => Some(ExecutionBasisKind::ReplicateCompactExpand),
-        (Shape, true)
-        | (Ravel, false)
-        | (Reverse, _)
-        | (Transpose, _)
-        | (Take, _)
-        | (Drop, _) => Some(ExecutionBasisKind::StaticReindex),
+        (Shape, true) | (Ravel, false) | (Reverse, _) | (Transpose, _) | (Take, _) | (Drop, _) => {
+            Some(ExecutionBasisKind::StaticReindex)
+        }
         (Ravel, true) => Some(ExecutionBasisKind::ConcatAssemble),
         (From, true) => Some(ExecutionBasisKind::Gather),
         (IndexOf | Steps | Indices | Member, true) => Some(ExecutionBasisKind::LookupClassify),
@@ -114,19 +109,7 @@ fn outer_rank_boundary(function: &FunctionEntity) -> Option<[i64; 3]> {
     else {
         return None;
     };
-    if value.is_empty() || value.len() > 3 {
-        return None;
-    }
-    let at = |i| value.int_at(i).ok();
-    match value.len() {
-        1 => {
-            let r = at(0)?;
-            Some([r, r, r])
-        }
-        2 => Some([at(1)?, at(0)?, at(1)?]),
-        3 => Some([at(0)?, at(1)?, at(2)?]),
-        _ => None,
-    }
+    crate::semantic::rank_noun_contract(value).ok()
 }
 
 fn input_roles(
@@ -363,7 +346,9 @@ impl Builder<'_> {
                     if current.result_pos == FunctionPartOfSpeech::Verb =>
                 {
                     let [FunctionOperand::Function(base)] = current.operands.as_slice() else {
-                        return Err(Error::Unsupported("malformed insert semantic entity".into()));
+                        return Err(Error::Unsupported(
+                            "malformed insert semantic entity".into(),
+                        ));
                     };
                     current = base.clone();
                 }
@@ -377,12 +362,7 @@ impl Builder<'_> {
                     else {
                         return Err(Error::Unsupported("malformed rank semantic entity".into()));
                     };
-                    if value.is_empty() || value.len() > 3 {
-                        return Err(Error::Length);
-                    }
-                    for i in 0..value.len() {
-                        value.int_at(i)?;
-                    }
+                    crate::semantic::rank_noun_contract(value)?;
                     current = base.clone();
                 }
                 FunctionHead::PrimitiveAdverb(_)

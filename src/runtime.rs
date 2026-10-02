@@ -45,7 +45,6 @@ fn operation_label(verb: &ResolvedVerb) -> String {
     }
 }
 
-
 struct Binding {
     value: SymbolValue,
     version: crate::semantic::NameVersion,
@@ -100,9 +99,7 @@ impl Engine {
         }
         self.primitives
             .resolve_extension_binding(name)
-            .map(|handle| {
-                crate::semantic::ParserNameBinding::Function(handle.result_pos.into())
-            })
+            .map(|handle| crate::semantic::ParserNameBinding::Function(handle.result_pos.into()))
     }
     /// Inspect bindings without execution or mutation. Versions are Engine-local.
     /// Stable machine API: diagnostic wrappers are stripped before return.
@@ -131,10 +128,7 @@ impl Engine {
             .map_err(Error::into_unlocated)
     }
 
-    pub fn analyze_j_graph_diagnostic(
-        &self,
-        source: &str,
-    ) -> Result<crate::j_graph_ir::Plan> {
+    pub fn analyze_j_graph_diagnostic(&self, source: &str) -> Result<crate::j_graph_ir::Plan> {
         crate::j_graph_ir::Plan::from_bound_with_graph_facts(
             self.prepare_semantic_diagnostic(source)?,
             &|name| match self.names.get(name).map(|binding| &binding.value) {
@@ -164,8 +158,7 @@ impl Engine {
         let graph_rewrite_resources =
             crate::j_graph_resource::evaluate_rewrite_candidates(&j_graph, &graph_rewrites)
                 .map_err(|message| {
-                    Error::Unsupported(message.into())
-                        .in_phase(DiagnosticPhase::SemanticAnalysis)
+                    Error::Unsupported(message.into()).in_phase(DiagnosticPhase::SemanticAnalysis)
                 })?;
         let logical = crate::analysis::lower_graph(j_graph.clone(), &|name| match self
             .names
@@ -188,13 +181,15 @@ impl Engine {
     ///
     /// `analyze_a3` is retained as an explicit A3-named alias.
     pub fn analyze(&self, source: &str) -> Result<crate::logical_ir::Plan> {
-        self.analyze_compilation(source).map(|analysis| analysis.logical)
+        self.analyze_compilation(source)
+            .map(|analysis| analysis.logical)
     }
 
     /// Build the canonical A3-v0 operation/value-separated logical IR.
     /// This is inspection-only and does not execute kernels.
     pub fn analyze_a3(&self, source: &str) -> Result<crate::logical_ir::Plan> {
-        self.analyze_compilation(source).map(|analysis| analysis.logical)
+        self.analyze_compilation(source)
+            .map(|analysis| analysis.logical)
     }
 
     /// Compiler-facing canonical Logical IR path retaining the same structured
@@ -249,10 +244,7 @@ impl Engine {
         self.eval_program(source, true)
     }
 
-    pub fn eval_semantic_reference_diagnostic(
-        &mut self,
-        source: &str,
-    ) -> Result<Option<Value>> {
+    pub fn eval_semantic_reference_diagnostic(&mut self, source: &str) -> Result<Option<Value>> {
         self.eval_program(source, false)
     }
 
@@ -306,18 +298,18 @@ impl Engine {
                     )
                 })?;
                 let SymbolValue::Verb(target) = &binding.value else {
-                    return Err(
-                        Error::Domain.with_context(
-                            ErrorContext::phase(DiagnosticPhase::Runtime)
-                                .with_current_name(name.clone()),
-                        ),
-                    );
+                    return Err(Error::Domain.with_context(
+                        ErrorContext::phase(DiagnosticPhase::Runtime)
+                            .with_current_name(name.clone()),
+                    ));
                 };
                 self.resolve_function_entity(&target.entity, depth + 1)
             }
             FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
                 let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
-                    return Err(Error::Unsupported("malformed insert semantic entity".into()));
+                    return Err(Error::Unsupported(
+                        "malformed insert semantic entity".into(),
+                    ));
                 };
                 let mut resolved = self.resolve_function_entity(operand, depth + 1)?;
                 if resolved.reduce || resolved.rank.is_some() {
@@ -342,24 +334,16 @@ impl Engine {
                         "runtime subset cannot flatten nested rank modifiers".into(),
                     ));
                 }
-                if value.is_empty() || value.len() > 3 {
-                    return Err(Error::Length);
-                }
-                let at = |i| value.int_at(i);
-                resolved.rank = Some(match value.len() {
-                    1 => [at(0)?, at(0)?, at(0)?],
-                    2 => [at(1)?, at(0)?, at(1)?],
-                    _ => [at(0)?, at(1)?, at(2)?],
-                });
+                resolved.rank = Some(crate::semantic::rank_noun_contract(value)?);
                 Ok(resolved)
             }
             FunctionHead::PrimitiveAdverb(_)
             | FunctionHead::PrimitiveConjunction(_)
             | FunctionHead::Hook
-            | FunctionHead::Fork => Err(
-                Error::Unsupported("derived train runtime lowering not implemented".into())
-                    .in_phase(DiagnosticPhase::Runtime),
-            ),
+            | FunctionHead::Fork => Err(Error::Unsupported(
+                "derived train runtime lowering not implemented".into(),
+            )
+            .in_phase(DiagnosticPhase::Runtime)),
         }
     }
 
@@ -376,75 +360,75 @@ impl Engine {
         }
         let result = (|| -> Result<Value> {
             match expr.kind {
-            Expr::Group(inner) => self.interpret_ir(*inner, pooled, depth + 1),
-            Expr::Literal(v) => Ok(v),
-            Expr::VerbValue(_) => Err(Error::Domain),
-            Expr::ReadName(name) => match self.names.get(&name) {
-                Some(Binding {
-                    value: SymbolValue::Noun(value),
-                    ..
-                }) => Ok(value.clone()),
-                Some(_) => Err(Error::Domain),
-                None => Err(Error::Value(name)),
-            },
-            Expr::Monad { verb, argument } => {
-                let verb_span = verb.span.clone();
-                let y = self.interpret_ir(*argument, pooled, depth + 1)?;
-                let y_summary = argument_summary(ArgumentRole::Y, &y);
-                let verb = self.resolve_verb(verb)?;
-                let operation = operation_label(&verb);
-                let call = if let Some(rank) = verb.rank {
-                    kernels::ranked(verb.id.spelling(), verb.reduce, rank[0], y)
-                } else if verb.reduce {
-                    kernels::reduce(verb.id.spelling(), y)
-                } else {
-                    kernels::monad(verb.id.spelling(), y)
-                };
-                call.map_err(|error| {
-                    error.with_context(
-                        ErrorContext::phase(DiagnosticPhase::Runtime)
-                            .with_span(verb_span)
-                            .executing(operation, DiagnosticValence::Monad)
-                            .with_argument(y_summary),
-                    )
-                })
-            }
-            Expr::Dyad { verb, left, right } => {
-                let verb_span = verb.span.clone();
-                let y = self.interpret_ir(*right, pooled, depth + 1)?;
-                let x = self.interpret_ir(*left, pooled, depth + 1)?;
-                let x_summary = argument_summary(ArgumentRole::X, &x);
-                let y_summary = argument_summary(ArgumentRole::Y, &y);
-                let verb = self.resolve_verb(verb)?;
-                let operation = operation_label(&verb);
-                let call = if let Some(rank) = verb.rank {
-                    kernels::ranked_dyad_ranks(verb.id.spelling(), rank[1], rank[2], x, y)
-                } else if pooled && !x.is_sparse() && !y.is_sparse() {
-                    match verb.id {
-                        crate::primitive::PrimitiveId::Add => {
-                            kernels::atomic_with_pool(kernels::Op::Add, x, y, &mut self.pool)
+                Expr::Group(inner) => self.interpret_ir(*inner, pooled, depth + 1),
+                Expr::Literal(v) => Ok(v),
+                Expr::VerbValue(_) => Err(Error::Domain),
+                Expr::ReadName(name) => match self.names.get(&name) {
+                    Some(Binding {
+                        value: SymbolValue::Noun(value),
+                        ..
+                    }) => Ok(value.clone()),
+                    Some(_) => Err(Error::Domain),
+                    None => Err(Error::Value(name)),
+                },
+                Expr::Monad { verb, argument } => {
+                    let verb_span = verb.span.clone();
+                    let y = self.interpret_ir(*argument, pooled, depth + 1)?;
+                    let y_summary = argument_summary(ArgumentRole::Y, &y);
+                    let verb = self.resolve_verb(verb)?;
+                    let operation = operation_label(&verb);
+                    let call = if let Some(rank) = verb.rank {
+                        kernels::ranked(verb.id.spelling(), verb.reduce, rank[0], y)
+                    } else if verb.reduce {
+                        kernels::reduce(verb.id.spelling(), y)
+                    } else {
+                        kernels::monad(verb.id.spelling(), y)
+                    };
+                    call.map_err(|error| {
+                        error.with_context(
+                            ErrorContext::phase(DiagnosticPhase::Runtime)
+                                .with_span(verb_span)
+                                .executing(operation, DiagnosticValence::Monad)
+                                .with_argument(y_summary),
+                        )
+                    })
+                }
+                Expr::Dyad { verb, left, right } => {
+                    let verb_span = verb.span.clone();
+                    let y = self.interpret_ir(*right, pooled, depth + 1)?;
+                    let x = self.interpret_ir(*left, pooled, depth + 1)?;
+                    let x_summary = argument_summary(ArgumentRole::X, &x);
+                    let y_summary = argument_summary(ArgumentRole::Y, &y);
+                    let verb = self.resolve_verb(verb)?;
+                    let operation = operation_label(&verb);
+                    let call = if let Some(rank) = verb.rank {
+                        kernels::ranked_dyad_ranks(verb.id.spelling(), rank[1], rank[2], x, y)
+                    } else if pooled && !x.is_sparse() && !y.is_sparse() {
+                        match verb.id {
+                            crate::primitive::PrimitiveId::Add => {
+                                kernels::atomic_with_pool(kernels::Op::Add, x, y, &mut self.pool)
+                            }
+                            crate::primitive::PrimitiveId::Subtract => {
+                                kernels::atomic_with_pool(kernels::Op::Sub, x, y, &mut self.pool)
+                            }
+                            crate::primitive::PrimitiveId::Multiply => {
+                                kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool)
+                            }
+                            _ => kernels::dyad(verb.id.spelling(), x, y),
                         }
-                        crate::primitive::PrimitiveId::Subtract => {
-                            kernels::atomic_with_pool(kernels::Op::Sub, x, y, &mut self.pool)
-                        }
-                        crate::primitive::PrimitiveId::Multiply => {
-                            kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool)
-                        }
-                        _ => kernels::dyad(verb.id.spelling(), x, y),
-                    }
-                } else {
-                    kernels::dyad(verb.id.spelling(), x, y)
-                };
-                call.map_err(|error| {
-                    error.with_context(
-                        ErrorContext::phase(DiagnosticPhase::Runtime)
-                            .with_span(verb_span)
-                            .executing(operation, DiagnosticValence::Dyad)
-                            .with_argument(x_summary)
-                            .with_argument(y_summary),
-                    )
-                })
-            }
+                    } else {
+                        kernels::dyad(verb.id.spelling(), x, y)
+                    };
+                    call.map_err(|error| {
+                        error.with_context(
+                            ErrorContext::phase(DiagnosticPhase::Runtime)
+                                .with_span(verb_span)
+                                .executing(operation, DiagnosticValence::Dyad)
+                                .with_argument(x_summary)
+                                .with_argument(y_summary),
+                        )
+                    })
+                }
             }
         })();
         result.map_err(|error| error.at(span))

@@ -1,9 +1,7 @@
 use rustj::{
     Engine,
     contracts::{self, Effect, Overflow, Valence},
-    semantic::{
-        self, ExprKind as Expr, FunctionHead, FunctionOperand,
-    },
+    semantic::{self, ExprKind as Expr, FunctionHead, FunctionOperand},
 };
 #[test]
 fn parse_is_execution_free_and_right_associative() {
@@ -33,7 +31,9 @@ fn parse_is_execution_free_and_right_associative() {
     );
     let [
         FunctionOperand::Function(insert),
-        FunctionOperand::Noun { value: rank_value, .. },
+        FunctionOperand::Noun {
+            value: rank_value, ..
+        },
     ] = rank.operands.as_slice()
     else {
         panic!("rank should retain base function and rank noun");
@@ -365,16 +365,31 @@ fn verb_trains_build_shared_hook_fork_graphs_right_to_left() {
         f.head,
         FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
     );
-    assert_eq!(g.head, FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Divide));
-    assert_eq!(h.head, FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Tally));
+    assert_eq!(
+        g.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Divide)
+    );
+    assert_eq!(
+        h.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Tally)
+    );
 
     let p = semantic::parse("(+ - * %)").unwrap();
-    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else { panic!() };
+    let Some(Expr::VerbValue(verb)) = p.expression.map(|e| e.kind) else {
+        panic!()
+    };
     assert_eq!(verb.entity.head, FunctionHead::Hook);
-    let [FunctionOperand::Function(first), FunctionOperand::Function(tail)] =
-        verb.entity.operands.as_slice()
-    else { panic!() };
-    assert_eq!(first.head, FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add));
+    let [
+        FunctionOperand::Function(first),
+        FunctionOperand::Function(tail),
+    ] = verb.entity.operands.as_slice()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        first.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+    );
     assert_eq!(tail.head, FunctionHead::Fork);
 }
 
@@ -421,7 +436,10 @@ fn large_pure_verb_train_builds_iteratively_as_a_shared_graph() {
 #[test]
 fn diagnostic_parser_retains_span_without_changing_machine_error_api() {
     let source = "1 + )";
-    assert!(matches!(semantic::parse(source), Err(rustj::Error::Syntax(_))));
+    assert!(matches!(
+        semantic::parse(source),
+        Err(rustj::Error::Syntax(_))
+    ));
     let error = semantic::parse_diagnostic(source).unwrap_err();
     assert_eq!(error.kind(), "syntax error");
     assert_eq!(error.span().cloned(), Some(4..5));
@@ -429,7 +447,6 @@ fn diagnostic_parser_retains_span_without_changing_machine_error_api() {
     assert!(rendered.contains("line 1, column 5"));
     assert!(rendered.contains("SyntaxError: unexpected )"));
 }
-
 
 #[test]
 fn chained_conjunctions_preserve_jsource_left_to_right_association() {
@@ -475,13 +492,12 @@ fn chained_conjunctions_preserve_jsource_left_to_right_association() {
     );
 }
 
-
 #[test]
 fn extension_names_enter_as_names_then_join_modifier_rows_by_parser_time_pos() {
     use rustj::primitive::{
-        ExtensionPrimitive, LoweringKey, PrimitiveContext, PrimitiveHandle,
-        PrimitivePartOfSpeech, PrimitiveResolver, PrimitiveSemanticId,
-        PrimitiveSemanticInfo, PrimitiveSourceOrigin, REGISTRY_VERSION,
+        ExtensionPrimitive, LoweringKey, PrimitiveContext, PrimitiveHandle, PrimitivePartOfSpeech,
+        PrimitiveResolver, PrimitiveSemanticId, PrimitiveSemanticInfo, PrimitiveSourceOrigin,
+        REGISTRY_VERSION,
     };
 
     let handle = |id: &'static str, pos| PrimitiveHandle {
@@ -509,10 +525,7 @@ fn extension_names_enter_as_names_then_join_modifier_rows_by_parser_time_pos() {
     let Some(Expr::VerbValue(verb)) = adverb.program.expression.map(|expr| expr.kind) else {
         panic!("extension adverb should derive a verb");
     };
-    assert_eq!(
-        verb.entity.head,
-        FunctionHead::NameRef("advx".to_owned())
-    );
+    assert_eq!(verb.entity.head, FunctionHead::NameRef("advx".to_owned()));
     assert_eq!(verb.entity.result_pos, semantic::FunctionPartOfSpeech::Verb);
     assert_eq!(verb.entity.operands.len(), 1);
 
@@ -520,25 +533,95 @@ fn extension_names_enter_as_names_then_join_modifier_rows_by_parser_time_pos() {
     let Some(Expr::VerbValue(verb)) = conjunction.program.expression.map(|expr| expr.kind) else {
         panic!("extension conjunction should derive a verb");
     };
-    assert_eq!(
-        verb.entity.head,
-        FunctionHead::NameRef("conjx".to_owned())
-    );
+    assert_eq!(verb.entity.head, FunctionHead::NameRef("conjx".to_owned()));
     assert_eq!(verb.entity.result_pos, semantic::FunctionPartOfSpeech::Verb);
     assert_eq!(verb.entity.operands.len(), 2);
 }
-
 
 #[test]
 fn final_assignment_uses_row_seven_but_mid_sentence_assignment_is_not_rebound_to_the_root() {
     let program = semantic::parse("target=: +/ % #").unwrap();
     assert_eq!(program.assignment.as_deref(), Some("target"));
-    assert_eq!(program.assignment_span.as_ref().map(|span| &program.source[span.clone()]), Some("target"));
+    assert_eq!(
+        program
+            .assignment_span
+            .as_ref()
+            .map(|span| &program.source[span.clone()]),
+        Some("target")
+    );
     assert!(matches!(
         program.expression.map(|expr| expr.kind),
         Some(Expr::VerbValue(_))
     ));
 
     let error = semantic::parse("1 + target=:2").unwrap_err();
-    assert!(matches!(error.into_unlocated(), rustj::Error::Unsupported(_)));
+    assert!(matches!(
+        error.into_unlocated(),
+        rustj::Error::Unsupported(_)
+    ));
+}
+
+#[test]
+fn nested_parentheses_preserve_completed_noun_operands() {
+    for source in ["+\"((1))", "(((7))) + *"] {
+        assert!(semantic::parse(source).is_ok(), "{source}");
+    }
+}
+
+#[test]
+fn rank_constructor_checks_noun_rank_before_length_or_domain() {
+    for (noun, expected) in [
+        ("1 1 $ 0", "rank error"),
+        ("2 2 $ 0", "rank error"),
+        ("0 4 $ 0", "rank error"),
+        ("1 1 $ 'a'", "rank error"),
+        ("0 $ 0", "length error"),
+        ("4 $ 0", "length error"),
+        ("'a'", "domain error"),
+        ("1.5", "domain error"),
+    ] {
+        let mut engine = Engine::default();
+        engine.eval(&format!("r=:{noun}")).unwrap();
+        let error = engine.eval("f=:+\"r").unwrap_err();
+        assert_eq!(error.kind(), expected, "{noun}");
+    }
+}
+
+#[test]
+fn rank_noun_audit_accepts_j_infinite_and_tolerantly_integral_values() {
+    for rank in [
+        "_",
+        "__",
+        "_.",
+        "1e100",
+        "_1e100",
+        "1.00000000000001",
+        "_1.00000000000001",
+        "0 1 _",
+    ] {
+        let mut engine = Engine::default();
+        engine.eval(&format!("f=:+\"{rank}")).unwrap();
+        assert_eq!(
+            engine.eval("f 3").unwrap().unwrap().int_at(0).unwrap(),
+            3,
+            "{rank}"
+        );
+        let analysis = engine.analyze(&format!("(+\"{rank}) 3"));
+        assert!(analysis.is_ok(), "{rank}: {analysis:?}");
+    }
+}
+
+#[test]
+fn invalid_modifier_operands_report_constructor_domain_errors() {
+    for source in ["3/", "+@:3", "3@:+"] {
+        assert_eq!(
+            semantic::parse(source).unwrap_err().kind(),
+            "domain error",
+            "{source}"
+        );
+    }
+    assert!(matches!(
+        semantic::parse("3\"0").unwrap_err().into_unlocated(),
+        rustj::Error::Unsupported(_)
+    ));
 }

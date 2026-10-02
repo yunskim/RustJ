@@ -134,6 +134,14 @@ def cases():
         '0$.$.0.0 1.5 0.0', '0$.$.i.0', '3$.1 2', '6$.spcheck',
         '1$._1 2', '1$.i.0',
     ])
+    # F1/P3/P5: construction errors are observed before a derived verb runs.
+    fixed.extend(['3/', '+@:3', '3@:+', '(+"((1))) 3'])
+    for rank in ['_', '__', '_.', '1e100', '_1e100',
+                 '1.00000000000001', '_1.00000000000001',
+                 '0 1 _', '1 _1', '_ 0 1', '1.5', "'a'", '1 2 3 4']:
+        fixed.extend([f'rankfn=:+"{rank}', 'rankfn 3', 'rankfn i.2 3'])
+    for noun in ['1 1$0', '2 2$0', '0 4$0', "1 1$'a'", '0$0', '4$0']:
+        fixed.extend([f'rankarg=:{noun}', 'rankfn=:+"rankarg', 'rankfn 3'])
     return fixed
 
 def equal(a, b):
@@ -165,6 +173,7 @@ def generated(seed, rounds):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--semantic-reference', action='store_true')
+    parser.add_argument('--reference-revision', help='Verified source revision of the supplied C library')
     parser.add_argument('--seed', type=int, default=20260926)
     parser.add_argument('--rounds', type=int, default=100)
     parser.add_argument('--binary', type=Path, default=ROOT / 'target/release/rustj')
@@ -175,7 +184,7 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     corpus = cases() + generated(args.seed, args.rounds)
     library = Path(os.environ.get('J_LIBRARY', str(ROOT / '.reference/bin/linux/j64/libj.so')))
-    report = {'rust_path': 'semantic-reference' if args.semantic_reference else 'direct', 'seed': args.seed, 'rounds': args.rounds, 'cases': len(corpus),
+    report = {'reference_revision': args.reference_revision, 'platform': os.name, 'rust_path': 'semantic-reference' if args.semantic_reference else 'direct', 'seed': args.seed, 'rounds': args.rounds, 'cases': len(corpus),
               'reference_library': str(library),
               'reference_sha256': hashlib.sha256(library.read_bytes()).hexdigest(),
               'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),

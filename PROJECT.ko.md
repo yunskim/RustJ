@@ -7363,10 +7363,10 @@ backend / executor
 
 목표: 현재 heuristic parser를 jsource-compatible Word Formation → Enqueue → 9-row Parser pipeline으로 교체한다.
 
-- [ ] F0 differential 0-mismatch 기록을 완료한다.
+- [x] F0 differential 0-mismatch 기록을 완료했다. pinned source 기록과 Windows 일반/AVX2 배포본 재검증을 구분한다.
 - [ ] F1 Enqueuer/PrimitiveResolver를 완료한다.
 - [ ] F2 Parse Queue를 완료한다.
-- [ ] P1 parser control class와 semantic entity/value를 분리한다.
+- [x] P1 parser control class와 semantic entity/value를 분리했다. parser-time lookup/effect sequencing의 완성은 P4/P2의 별도 gate다.
 - [ ] P2 하나의 9-row reduction engine으로 전환한다.
 - [ ] P3 modifier/Hook/Fork/bident/trident construction semantics를 연결한다.
 - [ ] P4 parser-time name resolution/assignment sequencing을 연결한다.
@@ -7614,6 +7614,22 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 
 **P5 완료 조건:** parser는 J entity construction의 성공/실패와 completed semantic identity를 정확히 결정하지만, call-dependent 및 target-dependent compiler facts는 소유하지 않는다.
 
+**2026-10-02 구현·검증 증거 (F0/P3/P5의 부분 완료):**
+
+- [x] rank noun의 construction 검사를 rank → length → numeric audit 순서로 통일했다. scalar/vector만 허용하며, empty/4개 이상 operand와 잘못된 numeric operand의 J error class를 보존한다.
+- [x] `semantic::rank_noun_contract`를 parser, analysis/facts, interpreter와 Logical IR reference executor가 공유한다. 고정 fuzz 정수 audit, 무한대/범위 밖 실수/`_.`의 jsource `vib` 처리 및 ±63 requested-rank clamp를 적용하되 FunctionEntity에는 원래 noun을 보존한다.
+- [x] 중첩 괄호의 completed literal noun을 conjunction 및 noun-left fork construction에서 보존한다. 계산이 필요한 noun operand는 여전히 runtime semantic parsing coverage boundary다.
+- [x] noun `/` 및 noun operand의 `@:`는 unreduced-stack syntax error 대신 constructor domain error를 반환한다. 합법적인 noun-left rank 등 미구현 form은 UnsupportedImplementation으로 구분한다.
+- [x] 큰 diagnostic ErrorContext를 box로 분리했다. 기존 kind/span/blame/inner-context 우선순위는 유지하며 Error 크기 ≤32 bytes를 회귀 검사한다.
+- [x] native Windows default/portable는 각각 208 passed / 17 ignored이며, fmt, clippy `-D warnings`, Python harness 11 tests를 통과했다. 17개 pending definition acceptance tests는 완료로 계산하지 않는다. 기존 formatting drift도 정리했다.
+- [x] Windows 공식 C 배포본 일반·AVX2 각각에서 2,050문장 × direct/semantic-reference 경로가 불일치 0 / known deviation 0이다. word formation은 각각 6,618건(seed `20260927`, open quote `1109`) 불일치 0이다.
+
+이번 실행 기준선은 공식 `build/w64.zip`의 release commit metadata `ded7793fe5795d79eda8e7138dce94aa056edf78`이다. `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`은 source-level parser 검토 기준으로 유지한다. 그 고정 소스의 Windows MSVC 빌드는 GNU C 확장 때문에 실패했으므로 이번 배포본 비교를 pinned-build 성공으로 표시하지 않는다. 각 `reports/frontend-*-windows.json`은 실제 DLL/실행 파일 SHA-256과 revision/platform을 기록하며, word harness는 revision을 하드코딩하지 않는다.
+
+재실행: native Windows에서 `tools/check-windows.ps1` 후 `tools/check-frontend-windows.ps1 -ReferenceDirectory <j.dll/javx2.dll 폴더> -ReferenceRevision <확인한 40자리 commit> -Avx2`를 실행한다. 기본 Python 3.13 경로는 `-Python`으로 변경할 수 있다. GitHub CI와 Linux tests는 실행하지 않았다. upstream 전체 suite와 CUDA 검증도 수행하지 않았다.
+
+**남은 gate:** intrinsic FunctionSemanticInfo 저장, full noun/verb modifier semantics, 실제 result POS, P2 runtime action/fallback, P4 우측→좌측 name/assignment timing은 미완료다. 이 증거는 M2 전체 완료를 뜻하지 않는다.
+
 #### P6 — differential/conformance test matrix
 
 - [ ] 9개 parse row 각각의 최소 positive sentence를 jsource와 differential 비교한다.
@@ -7631,7 +7647,7 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 - [ ] assigned entity의 POS는 `4!:0`, 유용한 derived structure는 `5!:1`/ `5!:5`를 oracle로 비교한다.
 - [ ] RustJ ParseTrace로 row id/input classes/span/result class를 golden화하되 jsource 내부 bitmask/주소/flags와 비교하지 않는다.
 - [ ] 아직 lowering하지 못하는 합법 J form의 **parser success**와 이후 `UnsupportedImplementation`을 syntax error와 구분한다.
-- [ ] 현재 지원 범위의 differential suite를 CI 필수 gate로 만든다.
+- [x] 현재 지원 범위의 differential suite를 native Windows local gate로 실행할 도구를 추가했다. GitHub CI는 사용자 지시에 따라 생략한다.
 
 **P6 완료 조건:** 지원 parser surface의 변경은 jsource observable differential + RustJ row trace golden 없이 merge되지 않는다.
 
@@ -7644,7 +7660,7 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 - [ ] noun/verb application을 수동으로 조립하던 legacy loop를 제거한다.
 - [ ] parser-only migration fields와 dead compatibility code를 제거한다.
 - [ ] `parse`, `parse_analysis`, `parse_runtime`가 parser semantics를 하나의 engine에서 공유하게 한다.
-- [ ] parser 전환 후 전체 test/CI를 통과시킨다.
+- [ ] parser 전환 후 전체 native Windows local 검증을 통과시킨다. GitHub CI는 생략한다.
 
 **P7 완료 조건:** RustJ의 J parser semantics를 정의하는 코드 경로가 하나이며, 그 경로는 jsource-compatible class resolution + 9-row reduction + semantic constructor contract를 따른다.
 

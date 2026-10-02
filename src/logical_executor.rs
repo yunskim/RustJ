@@ -98,26 +98,12 @@ fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
         FunctionOperand::Noun { value, .. } => Some(value),
         FunctionOperand::Function(_) => None,
     })?;
-    if value.is_empty() || value.len() > 3 {
-        return None;
-    }
-    let at = |i| value.int_at(i).ok();
-    match value.len() {
-        1 => {
-            let r = at(0)?;
-            Some([r, r, r])
-        }
-        2 => Some([at(1)?, at(0)?, at(1)?]),
-        3 => Some([at(0)?, at(1)?, at(2)?]),
-        _ => None,
-    }
+    crate::semantic::rank_noun_contract(value).ok()
 }
 
 fn cell_rank(array_rank: usize, requested: i64) -> usize {
     if requested < 0 {
-        array_rank.saturating_sub(
-            usize::try_from(requested.unsigned_abs()).unwrap_or(usize::MAX),
-        )
+        array_rank.saturating_sub(usize::try_from(requested.unsigned_abs()).unwrap_or(usize::MAX))
     } else {
         array_rank.min(usize::try_from(requested).unwrap_or(usize::MAX))
     }
@@ -128,9 +114,9 @@ fn assemble_uniform_cells(
     cells: impl IntoIterator<Item = Result<Value>>,
 ) -> Result<Value> {
     let mut cells = cells.into_iter();
-    let first = cells
-        .next()
-        .ok_or_else(|| Error::Unsupported("rank over empty frame (prototype inference)".into()))??;
+    let first = cells.next().ok_or_else(|| {
+        Error::Unsupported("rank over empty frame (prototype inference)".into())
+    })??;
     let result_shape = first.shape().to_vec();
     let mut shape = frame;
     shape.extend_from_slice(&result_shape);
@@ -226,11 +212,7 @@ fn execute_derived_reduction(function: &FunctionEntity, right: Value) -> Result<
     Ok(out)
 }
 
-fn execute_semantic(
-    function: &FunctionEntity,
-    left: Option<Value>,
-    right: Value,
-) -> Result<Value> {
+fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value) -> Result<Value> {
     match &function.head {
         FunctionHead::PrimitiveVerb(id) => match left {
             Some(left) => crate::kernels::dyad(id.spelling(), left, right),
@@ -263,10 +245,7 @@ fn execute_semantic(
     }
 }
 
-fn execute_call(
-    call: &crate::logical_ir::CallOp,
-    values: &[Option<Value>],
-) -> Result<Value> {
+fn execute_call(call: &crate::logical_ir::CallOp, values: &[Option<Value>]) -> Result<Value> {
     let right = value_at(values, call.right)?.clone();
     let left = call
         .left

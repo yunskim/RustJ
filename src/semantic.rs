@@ -68,10 +68,7 @@ impl FunctionEntity {
         })
     }
 
-    fn primitive_adverb(
-        id: crate::primitive::AdverbId,
-        span: std::ops::Range<usize>,
-    ) -> Arc<Self> {
+    fn primitive_adverb(id: crate::primitive::AdverbId, span: std::ops::Range<usize>) -> Arc<Self> {
         Arc::new(Self {
             span,
             result_pos: FunctionPartOfSpeech::Adverb,
@@ -142,24 +139,69 @@ fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
     }
 }
 
+/// Parentheses are parser boundaries, not a change to a completed noun's value.
+/// Computed operands still require the shared runtime semantic parse action.
+fn completed_noun(mut expr: Expr, context: &str) -> Result<Value> {
+    loop {
+        match expr.kind {
+            ExprKind::Literal(value) => return Ok(value),
+            ExprKind::Group(inner) => expr = *inner,
+            _ => {
+                return Err(Error::Unsupported(format!(
+                    "{context} requires semantic parser execution"
+                )));
+            }
+        }
+    }
+}
+
+/// J rank-conjunction noun construction (cr.c::jtqq): rank, then length,
+/// then numeric audit. Keep the original noun in FunctionEntity operands;
+/// the requested triple is intrinsic and does not use actual argument ranks.
+pub(crate) fn rank_noun_contract(value: &Value) -> Result<[i64; 3]> {
+    if value.shape.len() > 1 {
+        return Err(Error::Rank);
+    }
+    if !(1..=3).contains(&value.len()) {
+        return Err(Error::Length);
+    }
+    let at = |index: usize| -> Result<i64> {
+        let rank = match &value.data {
+            crate::value::Data::Float(values) => {
+                let x = values[index];
+                if x.abs() < -(i64::MIN as f64) {
+                    let rounded = x.round();
+                    // u.c::jtvib uses fixed fuzz against the integer, even
+                    // when the caller's comparison tolerance differs.
+                    if x != rounded && (x - rounded).abs() > 2f64.powi(-44) * rounded.abs() {
+                        return Err(Error::Domain);
+                    }
+                    rounded as i64
+                } else if x > 0.0 {
+                    i64::MAX
+                } else {
+                    // Matches vib for negative infinity and J's _. rank.
+                    -i64::MAX
+                }
+            }
+            _ => value.int_at(index)?,
+        };
+        // J's maximum array rank is 63. Retain the source noun unchanged.
+        Ok(rank.clamp(-63, 63))
+    };
+    Ok(match value.len() {
+        1 => {
+            let r = at(0)?;
+            [r, r, r]
+        }
+        2 => [at(1)?, at(0)?, at(1)?],
+        _ => [at(0)?, at(1)?, at(2)?],
+    })
+}
+
 fn train_noun_fork(noun: Expr, g: Verb, h: Verb) -> Result<Verb> {
     let noun_span = noun.span.clone();
-    let value = match noun.kind {
-        ExprKind::Literal(value) => value,
-        ExprKind::Group(inner) => {
-            let ExprKind::Literal(value) = inner.kind else {
-                return Err(Error::Unsupported(
-                    "runtime-dependent noun-left fork requires semantic parser execution".into(),
-                ));
-            };
-            value
-        }
-        _ => {
-            return Err(Error::Unsupported(
-                "runtime-dependent noun-left fork requires semantic parser execution".into(),
-            ));
-        }
-    };
+    let value = completed_noun(noun, "runtime-dependent noun-left fork")?;
     let span = noun_span.start..h.span.end;
     Ok(Verb {
         span: span.clone(),
@@ -195,11 +237,7 @@ fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
     })
 }
 
-fn apply_conjunction(
-    left: Verb,
-    operator: Arc<FunctionEntity>,
-    right: Item,
-) -> Result<Verb> {
+fn apply_conjunction(left: Verb, operator: Arc<FunctionEntity>, right: Item) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let primitive_id = match &operator.head {
         FunctionHead::PrimitiveConjunction(id) => Some(*id),
@@ -208,38 +246,23 @@ fn apply_conjunction(
     let mut operands = vec![FunctionOperand::Function(left.entity)];
     let right_span = right.span();
     let right_end = right_span.end;
-    let Item { class, value: right, .. } = right;
+    let Item {
+        class,
+        value: right,
+        ..
+    } = right;
     match (class, right) {
         (ParseClass::Noun, ParseValue::Noun(expr, _)) => {
             if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Atop)) {
-                return Err(Error::Syntax("atop requires a verb right operand".into()));
+                return Err(Error::Domain);
             }
-            let value = match expr.kind {
-                ExprKind::Literal(value) => value,
-                ExprKind::Group(inner) => match inner.kind {
-                    ExprKind::Literal(value) => value,
-                    _ => {
-                        return Err(Error::Unsupported(
-                            "non-literal conjunction noun operand".into(),
-                        ))
-                    }
-                },
-                _ => {
-                    return Err(Error::Unsupported(
-                        "non-literal conjunction noun operand".into(),
-                    ))
-                }
-            };
+            let noun_span = expr.span.clone();
+            let value = completed_noun(expr, "runtime-dependent conjunction noun operand")?;
             if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Rank)) {
-                if value.is_empty() || value.len() > 3 {
-                    return Err(Error::Length);
-                }
-                for i in 0..value.len() {
-                    value.int_at(i)?;
-                }
+                rank_noun_contract(&value)?;
             }
             operands.push(FunctionOperand::Noun {
-                span: expr.span,
+                span: noun_span,
                 value,
             });
         }
@@ -286,18 +309,17 @@ fn reduce_parse_stack_subset(
     stack.insert(0, Item::mark(0));
     reduce_stack_prefix(&mut stack, &mut assignment, true)?;
 
-    if stack.first().is_some_and(|item| item.class == ParseClass::Mark) {
+    if stack
+        .first()
+        .is_some_and(|item| item.class == ParseClass::Mark)
+    {
         stack.remove(0);
     }
     Ok((stack, assignment))
 }
 
 fn stack_prefix_classes(stack: &[Item]) -> [ParseClass; 4] {
-    let class = |index: usize| {
-        stack
-            .get(index)
-            .map_or(ParseClass::Mark, |item| item.class)
-    };
+    let class = |index: usize| stack.get(index).map_or(ParseClass::Mark, |item| item.class);
     [class(0), class(1), class(2), class(3)]
 }
 
@@ -360,34 +382,40 @@ fn reduce_stack_prefix(
                 true
             }
             ParseRow::Adverb => {
-                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb) {
+                if stack
+                    .get(1)
+                    .is_some_and(|item| item.class == ParseClass::Verb)
+                {
                     let mut phrase: Vec<_> = stack.drain(1..3).collect();
                     let left = phrase.remove(0).into_verb().expect("row 3 verb");
-                    let operator = phrase
-                        .remove(0)
-                        .into_function()
-                        .expect("row 3 adverb");
+                    let operator = phrase.remove(0).into_function().expect("row 3 adverb");
                     let span = left.span.start..operator.span.end;
                     stack.insert(
                         1,
-                        Item::verb(
-                            apply_adverb(left, operator)
-                                .map_err(|error| error.at(span))?,
-                        ),
+                        Item::verb(apply_adverb(left, operator).map_err(|error| error.at(span))?),
                     );
                     true
                 } else {
-                    false
+                    let operator = stack[2].clone().into_function().expect("row 3 adverb");
+                    return Err(match operator.head {
+                        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+                            Error::Domain
+                        }
+                        _ => Error::Unsupported(
+                            "noun adverb construction requires semantic parser execution".into(),
+                        ),
+                    }
+                    .at(stack[1].span()));
                 }
             }
             ParseRow::Conjunction => {
-                if stack.get(1).is_some_and(|item| item.class == ParseClass::Verb) {
+                if stack
+                    .get(1)
+                    .is_some_and(|item| item.class == ParseClass::Verb)
+                {
                     let mut phrase: Vec<_> = stack.drain(1..4).collect();
                     let left = phrase.remove(0).into_verb().expect("row 4 left verb");
-                    let operator = phrase
-                        .remove(0)
-                        .into_function()
-                        .expect("row 4 conjunction");
+                    let operator = phrase.remove(0).into_function().expect("row 4 conjunction");
                     let right = phrase.remove(0);
                     let span = left.span.start..right.span().end;
                     stack.insert(
@@ -399,7 +427,17 @@ fn reduce_stack_prefix(
                     );
                     true
                 } else {
-                    false
+                    let operator = stack[2].clone().into_function().expect("row 4 conjunction");
+                    return Err(match operator.head {
+                        FunctionHead::PrimitiveConjunction(
+                            crate::primitive::ConjunctionId::Atop,
+                        ) => Error::Domain,
+                        _ => Error::Unsupported(
+                            "noun-left conjunction construction requires semantic parser execution"
+                                .into(),
+                        ),
+                    }
+                    .at(stack[1].span()));
                 }
             }
             ParseRow::Fork => {
@@ -409,11 +447,9 @@ fn reduce_stack_prefix(
                     stack.get(3).map_or(ParseClass::Mark, |item| item.class),
                 ];
                 match trident_disposition(classes[0], classes[1], classes[2]) {
-                    TridentDisposition::BuildFork if classes == [
-                        ParseClass::Verb,
-                        ParseClass::Verb,
-                        ParseClass::Verb,
-                    ] => {
+                    TridentDisposition::BuildFork
+                        if classes == [ParseClass::Verb, ParseClass::Verb, ParseClass::Verb] =>
+                    {
                         let mut phrase: Vec<_> = stack.drain(1..4).collect();
                         let f = phrase.remove(0).into_verb().expect("row 5 f");
                         let g = phrase.remove(0).into_verb().expect("row 5 g");
@@ -422,11 +458,7 @@ fn reduce_stack_prefix(
                         true
                     }
                     TridentDisposition::BuildFork
-                        if classes == [
-                            ParseClass::Noun,
-                            ParseClass::Verb,
-                            ParseClass::Verb,
-                        ] =>
+                        if classes == [ParseClass::Noun, ParseClass::Verb, ParseClass::Verb] =>
                     {
                         let mut phrase: Vec<_> = stack.drain(1..4).collect();
                         let (noun, _) = phrase.remove(0).into_noun().expect("row 5 noun");
@@ -436,8 +468,7 @@ fn reduce_stack_prefix(
                         stack.insert(
                             1,
                             Item::verb(
-                                train_noun_fork(noun, g, h)
-                                    .map_err(|error| error.at(span))?,
+                                train_noun_fork(noun, g, h).map_err(|error| error.at(span))?,
                             ),
                         );
                         true
@@ -503,10 +534,11 @@ fn reduce_stack_prefix(
                         "multiple assignments in one sentence".into(),
                     ));
                 }
-                if stack.first().is_some_and(|item| item.class == ParseClass::Noun) {
-                    return Err(Error::Unsupported(
-                        "noun/multiple assignment target".into(),
-                    ));
+                if stack
+                    .first()
+                    .is_some_and(|item| item.class == ParseClass::Noun)
+                {
+                    return Err(Error::Unsupported("noun/multiple assignment target".into()));
                 }
 
                 let mut phrase: Vec<_> = stack.drain(0..3).collect();
@@ -524,7 +556,7 @@ fn reduce_stack_prefix(
                 *assignment = Some(PendingAssignment { name, span });
                 stack.insert(0, value);
                 true
-            },
+            }
             ParseRow::Parenthesis => {
                 let mut phrase: Vec<_> = stack.drain(0..3).collect();
                 let left = phrase.remove(0);
@@ -545,19 +577,15 @@ fn reduce_stack_prefix(
                         verb.span = group_span.clone();
                         Item::verb(verb).with_span(group_span)
                     }
-                    ParseValue::Function(entity) => {
-                        Item::function(entity).with_span(group_span)
-                    }
+                    ParseValue::Function(entity) => Item::function(entity).with_span(group_span),
                     ParseValue::NameTarget { .. } | ParseValue::Control { .. } => {
-                        return Err(
-                            Error::Syntax("invalid parenthesized parser control".into())
-                                .at(group_span),
-                        );
+                        return Err(Error::Syntax("invalid parenthesized parser control".into())
+                            .at(group_span));
                     }
                 };
                 stack.insert(0, grouped);
                 true
-            },
+            }
         };
 
         // The table matched a jsource row whose semantic action has not yet
@@ -663,7 +691,10 @@ pub enum ParseRow {
 }
 
 fn is_avn(class: ParseClass) -> bool {
-    matches!(class, ParseClass::Adverb | ParseClass::Verb | ParseClass::Noun)
+    matches!(
+        class,
+        ParseClass::Adverb | ParseClass::Verb | ParseClass::Noun
+    )
 }
 
 fn is_cavn(class: ParseClass) -> bool {
@@ -674,7 +705,10 @@ fn is_cavn(class: ParseClass) -> bool {
 }
 
 fn is_edge(class: ParseClass) -> bool {
-    matches!(class, ParseClass::Mark | ParseClass::Assignment | ParseClass::LParen)
+    matches!(
+        class,
+        ParseClass::Mark | ParseClass::Assignment | ParseClass::LParen
+    )
 }
 
 fn is_edge_or_avn(class: ParseClass) -> bool {
@@ -690,10 +724,7 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
     use ParseClass::*;
     let [a, b, c, d] = classes;
     [
-        (
-            ParseRow::MonadEdge,
-            is_edge(a) && b == Verb && c == Noun,
-        ),
+        (ParseRow::MonadEdge, is_edge(a) && b == Verb && c == Noun),
         (
             ParseRow::MonadVVN,
             is_edge_or_avn(a) && b == Verb && c == Verb && d == Noun,
@@ -717,10 +748,7 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
             ParseRow::Fork,
             is_edge_or_avn(a) && matches!(b, Verb | Noun) && c == Verb && d == Verb,
         ),
-        (
-            ParseRow::Hook,
-            is_edge(a) && is_cavn(b) && is_cavn(c),
-        ),
+        (ParseRow::Hook, is_edge(a) && is_cavn(b) && is_cavn(c)),
         (
             ParseRow::Assignment,
             matches!(a, Name | Noun) && b == Assignment && is_cavn(c),
@@ -776,11 +804,7 @@ fn trident_disposition(
     match (first, second, third) {
         (V, V, V) | (N, V, V) => BuildFork,
 
-        (N, V, N)
-        | (N, C, N)
-        | (N, C, V)
-        | (V, C, N)
-        | (V, C, V) => ImmediateSemanticApply,
+        (N, V, N) | (N, C, N) | (N, C, V) | (V, C, N) | (V, C, V) => ImmediateSemanticApply,
 
         (A, A, A) => BuildDerivedModifier(A),
         (A, A, V) => BuildDerivedModifier(C),
@@ -795,9 +819,7 @@ fn trident_disposition(
         (A, C, N) | (A, C, V) => BuildDerivedModifier(A),
         (A, C, A) | (A, C, C) => BuildDerivedModifier(C),
 
-        (C, C, N) | (C, C, V) | (C, C, A) | (C, C, C) => {
-            BuildDerivedModifier(C)
-        }
+        (C, C, N) | (C, C, V) | (C, C, A) | (C, C, C) => BuildDerivedModifier(C),
 
         _ => SyntaxError,
     }
@@ -924,7 +946,6 @@ impl Item {
     }
 }
 
-
 /// Parse without reading bindings, changing state, or invoking any kernels.
 pub fn parse(source: &str) -> Result<Program> {
     parse_with(source, None, false).map_err(Error::into_unlocated)
@@ -975,8 +996,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Pr
             let fallback_span = fallback
                 .map(|word| word.span.clone())
                 .unwrap_or(source.len()..source.len());
-            let mut context =
-                ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
+            let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
             if let Some(word) = fallback {
                 context = context.with_blame_word(word.word_index);
             }
@@ -1017,14 +1037,9 @@ fn expression(
         match &tokens[*pos].payload {
             EnqueuedPayload::Close => {
                 if open_spans.pop().is_none() {
-                    return Err(
-                        Error::Syntax("unexpected )".into()).at(tokens[*pos].span.clone()),
-                    );
+                    return Err(Error::Syntax("unexpected )".into()).at(tokens[*pos].span.clone()));
                 }
-                items.push(Item::control(
-                    ParseClass::RParen,
-                    tokens[*pos].span.clone(),
-                ));
+                items.push(Item::control(ParseClass::RParen, tokens[*pos].span.clone()));
                 *pos += 1;
             }
             EnqueuedPayload::Open => {
@@ -1032,10 +1047,7 @@ fn expression(
                     return Err(Error::Limit);
                 }
                 open_spans.push(tokens[*pos].span.clone());
-                items.push(Item::control(
-                    ParseClass::LParen,
-                    tokens[*pos].span.clone(),
-                ));
+                items.push(Item::control(ParseClass::LParen, tokens[*pos].span.clone()));
                 *pos += 1;
             }
             EnqueuedPayload::Scalar(v) => {
@@ -1043,17 +1055,19 @@ fn expression(
                     Expr {
                         span: tokens[*pos].span.clone(),
                         kind: ExprKind::Literal(
-                        v.clone()
-                            .into_value()
-                            .map_err(|error| error.at(tokens[*pos].span.clone()))?,
-                    ),
+                            v.clone()
+                                .into_value()
+                                .map_err(|error| error.at(tokens[*pos].span.clone()))?,
+                        ),
                     },
                     0,
                 ));
                 *pos += 1;
             }
             EnqueuedPayload::Noun(_) => {
-                let EnqueuedPayload::Noun(v) = std::mem::replace(&mut tokens[*pos].payload, EnqueuedPayload::Open) else {
+                let EnqueuedPayload::Noun(v) =
+                    std::mem::replace(&mut tokens[*pos].payload, EnqueuedPayload::Open)
+                else {
                     unreachable!()
                 };
                 items.push(Item::noun(
@@ -1182,9 +1196,7 @@ fn expression(
             .first()
             .map(Item::span)
             .unwrap_or_else(|| tokens.last().map(|word| word.span.clone()).unwrap_or(0..0));
-        return Err(
-            Error::Syntax("unreduced parser stack after rows 0-6".into()).at(span),
-        );
+        return Err(Error::Syntax("unreduced parser stack after rows 0-6".into()).at(span));
     }
 
     let item = items.pop().expect("one reduced parser item");
@@ -1199,12 +1211,12 @@ fn expression(
             0,
             assignment,
         )),
-        ParseValue::Function(_) => Err(
-            Error::Syntax("unapplied function modifier".into()).at(span),
-        ),
-        ParseValue::NameTarget { .. } | ParseValue::Control { .. } => Err(
-            Error::Syntax("unexpected parser control result".into()).at(span),
-        ),
+        ParseValue::Function(_) => {
+            Err(Error::Syntax("unapplied function modifier".into()).at(span))
+        }
+        ParseValue::NameTarget { .. } | ParseValue::Control { .. } => {
+            Err(Error::Syntax("unexpected parser control result".into()).at(span))
+        }
     }
 }
 
@@ -1321,10 +1333,9 @@ pub(crate) fn bind(
     })
 }
 
-
 #[cfg(test)]
 mod parser_table_tests {
-    use super::{match_parse_row, ParseClass::*, ParseRow};
+    use super::{ParseClass::*, ParseRow, match_parse_row};
 
     #[test]
     fn pinned_jsource_rows_and_precedence_are_exact() {
@@ -1362,7 +1373,9 @@ mod parser_table_tests {
 
     #[test]
     fn pinned_jsource_bident_dispositions_match_cf_c() {
-        use super::BidentDisposition::{BuildDerivedModifier as D, BuildHook, ImmediateSemanticApply as I, SyntaxError as S};
+        use super::BidentDisposition::{
+            BuildDerivedModifier as D, BuildHook, ImmediateSemanticApply as I, SyntaxError as S,
+        };
 
         let expected = [
             ((Verb, Verb), BuildHook),
@@ -1389,8 +1402,7 @@ mod parser_table_tests {
     #[test]
     fn pinned_jsource_trident_dispositions_match_cf_c() {
         use super::TridentDisposition::{
-            BuildDerivedModifier as D, BuildFork, ImmediateSemanticApply as I,
-            SyntaxError as S,
+            BuildDerivedModifier as D, BuildFork, ImmediateSemanticApply as I, SyntaxError as S,
         };
 
         let expected = [
@@ -1431,5 +1443,4 @@ mod parser_table_tests {
         assert_eq!(super::trident_disposition(Verb, Noun, Verb), S);
         assert_eq!(super::trident_disposition(Noun, Noun, Noun), S);
     }
-
 }

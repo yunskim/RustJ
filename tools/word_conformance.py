@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local word-formation oracle; does not evaluate the tested program."""
-import argparse, json, os, random, subprocess
+import argparse, hashlib, json, os, random, subprocess
 from pathlib import Path
 from oracle import Oracle
 ROOT=Path(__file__).resolve().parents[1]
@@ -10,6 +10,7 @@ def main():
     p.add_argument('--binary',type=Path,default=ROOT/f'target/release/examples/scan_words{suffix}')
     p.add_argument('--seed',type=int,default=20260927)
     p.add_argument('--rounds',type=int,default=2000)
+    p.add_argument('--reference-revision', help='Verified source revision of the supplied C library')
     p.add_argument('--report',type=Path,default=Path('/tmp/rustj-words.json'))
     args=p.parse_args()
     if not args.binary.exists():
@@ -46,7 +47,9 @@ def main():
                 start=source.index(word,offset);expected.append([start,start+len(word)]);offset=start+len(word)
             if got.get('spans')!=expected: failures.append({'hex':source.hex(),'expected':expected,'actual':got})
     finally:o.close()
-    report={'jsource_revision':'13994ffa1ed5f06f79fad6e9822a7ed2d29b1528','cases':len(samples),'seed':args.seed,'open_quotes':opened,'failed':len(failures),'zero_mismatch':not failures,'failures':failures,'reference':os.environ.get('J_LIBRARY')}
+    library=Path(os.environ.get('J_LIBRARY', str(ROOT / '.reference/bin/linux/j64/libj.so')))
+    report={'jsource_revision':args.reference_revision,'platform':os.name,'reference_sha256':hashlib.sha256(library.read_bytes()).hexdigest(),'binary_sha256':hashlib.sha256(args.binary.read_bytes()).hexdigest(),'cases':len(samples),'seed':args.seed,'open_quotes':opened,'failed':len(failures),'zero_mismatch':not failures,'failures':failures,'reference':os.environ.get('J_LIBRARY')}
+    args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report,indent=2))
     print(json.dumps({k:v for k,v in report.items() if k!='failures'},indent=2))
     if failures:
