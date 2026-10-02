@@ -370,7 +370,7 @@ fn reduce_stack_prefix(
                     stack.get(2).map_or(ParseClass::Mark, |item| item.class),
                     stack.get(3).map_or(ParseClass::Mark, |item| item.class),
                 ];
-                match trident_outcome(classes[0], classes[1], classes[2]) {
+                match trident_disposition(classes[0], classes[1], classes[2]) {
                     Some(TrainOutcome::Fork) if classes == [
                         ParseClass::Verb,
                         ParseClass::Verb,
@@ -398,7 +398,7 @@ fn reduce_stack_prefix(
             ParseRow::Hook => {
                 let left = stack.get(1).map_or(ParseClass::Mark, |item| item.class);
                 let right = stack.get(2).map_or(ParseClass::Mark, |item| item.class);
-                match bident_outcome(left, right) {
+                match bident_disposition(left, right) {
                     Some(TrainOutcome::Result(ParseClass::Verb))
                         if left == ParseClass::Verb && right == ParseClass::Verb =>
                     {
@@ -664,58 +664,73 @@ fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TrainOutcome {
-    Result(ParseClass),
-    Fork,
+enum BidentDisposition {
+    SyntaxError,
+    ImmediateSemanticApply,
+    BuildHook,
+    BuildDerivedModifier(ParseClass),
 }
 
-fn bident_outcome(left: ParseClass, right: ParseClass) -> Option<TrainOutcome> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TridentDisposition {
+    SyntaxError,
+    ImmediateSemanticApply,
+    BuildFork,
+    BuildDerivedModifier(ParseClass),
+}
+
+fn bident_disposition(left: ParseClass, right: ParseClass) -> BidentDisposition {
+    use BidentDisposition::*;
     use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
-    use TrainOutcome::Result as R;
-    Some(match (left, right) {
-        (V, V) => R(V),
-        (V, N) => R(N),
-        (N, A) => R(V),
-        (N, C) => R(A),
-        (V, A) => R(V),
-        (V, C) => R(A),
-        (A, V) | (A, A) | (A, C) => R(A),
-        (C, N) | (C, V) => R(A),
-        (C, A) | (C, C) => R(C),
-        _ => return None,
-    })
+    match (left, right) {
+        (V, V) => BuildHook,
+        (V, N) | (N, A) | (V, A) => ImmediateSemanticApply,
+
+        (N, C) | (V, C) => BuildDerivedModifier(A),
+        (A, V) | (A, A) | (A, C) => BuildDerivedModifier(A),
+        (C, N) | (C, V) => BuildDerivedModifier(A),
+        (C, A) | (C, C) => BuildDerivedModifier(C),
+
+        _ => SyntaxError,
+    }
 }
 
-fn trident_outcome(
+fn trident_disposition(
     first: ParseClass,
     second: ParseClass,
     third: ParseClass,
-) -> Option<TrainOutcome> {
+) -> TridentDisposition {
     use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
-    use TrainOutcome::{Fork, Result as R};
-    Some(match (first, second, third) {
-        (N, V, N) => R(N),
-        (V, V, V) | (N, V, V) => Fork,
+    use TridentDisposition::*;
+    match (first, second, third) {
+        (V, V, V) | (N, V, V) => BuildFork,
 
-        (A, A, A) => R(A),
-        (A, A, V) => R(C),
-        (V, V, C) | (N, V, C) => R(C),
-        (A, V, V) => R(A),
-        (C, V, V) | (C, V, C) => R(C),
-        (C, A, A) => R(C),
+        (N, V, N)
+        | (N, C, N)
+        | (N, C, V)
+        | (V, C, N)
+        | (V, C, V) => ImmediateSemanticApply,
 
-        (N, C, N) | (N, C, V) | (V, C, N) | (V, C, V) => R(V),
-        (N, C, A) | (V, C, A) => R(A),
-        (N, C, C) | (V, C, C) => R(C),
+        (A, A, A) => BuildDerivedModifier(A),
+        (A, A, V) => BuildDerivedModifier(C),
+        (V, V, C) | (N, V, C) => BuildDerivedModifier(C),
+        (A, V, V) => BuildDerivedModifier(A),
+        (C, V, V) | (C, V, C) => BuildDerivedModifier(C),
+        (C, A, A) => BuildDerivedModifier(C),
 
-        (A, C, N) | (A, C, V) => R(A),
-        (A, C, A) | (A, C, C) => R(C),
+        (N, C, A) | (V, C, A) => BuildDerivedModifier(A),
+        (N, C, C) | (V, C, C) => BuildDerivedModifier(C),
 
-        (C, C, N) | (C, C, V) | (C, C, A) | (C, C, C) => R(C),
-        _ => return None,
-    })
+        (A, C, N) | (A, C, V) => BuildDerivedModifier(A),
+        (A, C, A) | (A, C, C) => BuildDerivedModifier(C),
+
+        (C, C, N) | (C, C, V) | (C, C, A) | (C, C, C) => {
+            BuildDerivedModifier(C)
+        }
+
+        _ => SyntaxError,
+    }
 }
-
 
 #[derive(Clone)]
 enum ParseValue {
@@ -1294,11 +1309,11 @@ mod parser_table_tests {
             ((Conjunction, Conjunction), R(Conjunction)),
         ];
         for ((left, right), outcome) in expected {
-            assert_eq!(super::bident_outcome(left, right), Some(outcome));
+            assert_eq!(super::bident_disposition(left, right), Some(outcome));
         }
         let _ = Fork; // keep result enum variants visibly tied to the shared table tests
-        assert_eq!(super::bident_outcome(Noun, Noun), None);
-        assert_eq!(super::bident_outcome(Noun, Verb), None);
+        assert_eq!(super::bident_disposition(Noun, Noun), None);
+        assert_eq!(super::bident_disposition(Noun, Verb), None);
     }
 
     #[test]
@@ -1336,12 +1351,12 @@ mod parser_table_tests {
         ];
         for ((first, second, third), outcome) in expected {
             assert_eq!(
-                super::trident_outcome(first, second, third),
+                super::trident_disposition(first, second, third),
                 Some(outcome)
             );
         }
-        assert_eq!(super::trident_outcome(Verb, Noun, Verb), None);
-        assert_eq!(super::trident_outcome(Noun, Noun, Noun), None);
+        assert_eq!(super::trident_disposition(Verb, Noun, Verb), None);
+        assert_eq!(super::trident_disposition(Noun, Noun, Noun), None);
     }
 
 }
