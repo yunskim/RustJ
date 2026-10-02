@@ -3,7 +3,8 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 기준일: 2026-09-30  
+> 문서 갱신일: 2026-10-02
+>
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
 > 그 외 개별 설계 보고서·진행 보고서·체크리스트 Markdown 파일은 새로 만들지 않는다. 기계가 생성한 측정 원자료(JSON/JSONL)는 `reports/`에 별도로 보존한다.
@@ -61,7 +62,7 @@ array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
 
 ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택 사항은 §13의 **ArrayFire / J ArrayFire add-on / fusion systems** 절을 따른다.
 
-현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, 초기 분석/LogicalPlan, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
+현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, J Graph와 canonical Logical IR 분석, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
 
 ### 1.1 JAXA에서 이어받은 설계 원칙 — “NN의 SQL”
 
@@ -125,61 +126,9 @@ physical planning / backend realization
 
 ### 1.2 핵심 배열 모델 결정 — Logical Array와 Physical Array를 분리한다
 
-RustJ의 가장 중요한 아키텍처 결정 중 하나는 **배열을 논리 계층과 물리 계층으로 분리하는 것**이다.
+Logical Array는 J-visible type·shape·atom order와 boxed/sparse 의미를 소유한다. Physical Array는 buffer·stride·offset·layout·placement 등 실행 표현을 소유한다. logical value의 존재는 별도 buffer 할당을 뜻하지 않는다.
 
-J 프로그램이 관찰하는 배열의 의미와, 특정 CPU/GPU/backend가 그 배열을 저장·배치·접근하는 방식은 같은 것이 아니다.
-
-```text
-Logical Array / J noun
-    dtype / J-visible type
-    shape
-    ordered logical atoms / value
-    J-visible representation semantics
-      Dense / Boxed / Sparse / ...
-
-            ≠
-
-Physical Array / Representation
-    BufferId / storage
-    strides
-    offset
-    concrete layout / tiling
-    alignment
-    memory space
-    CPU / GPU placement
-    sharding
-    transfer / synchronization
-```
-
-이 분리는 단순 구현 편의가 아니라 **semantic boundary**다.
-
-핵심 불변조건은 다음과 같다.
-
-1. **Logical Array는 J 의미를 소유한다.** shape, atom order, boxed/sparse와 같이 J 프로그램이 관찰할 수 있는 의미는 logical/semantic 계층에 남긴다.
-2. **Physical Array는 realization을 소유한다.** stride, offset, concrete layout, buffer, memory space, device placement는 representation/physical 계층의 책임이다.
-3. **하나의 logical value는 여러 physical representation을 가질 수 있다.** 같은 ValueId가 CPU/GPU 또는 서로 다른 layout의 representation으로 존재할 수 있다.
-4. **여러 logical value가 하나의 physical buffer를 재사용할 수 있다.** lifetime이 겹치지 않으면 BufferId reuse가 가능하다.
-5. **Logical ArrayValue가 존재한다고 해서 별도 buffer가 존재하는 것은 아니다.** view, fused-away intermediate, rematerialized value는 독립 buffer 없이 존재할 수 있다.
-6. reshape/transpose/reverse/slice 같은 연산의 **논리적 의미와 copy/materialization 여부를 분리**한다. copy 여부는 downstream representation/planning이 결정한다.
-7. sparse/boxed처럼 J가 관찰하는 representation class는 semantic 영역에 남기되, CSR/COO, pointer/handle 같은 구체 backend encoding은 physical 영역으로 내린다.
-
-따라서 RustJ의 배열 경계는 개념적으로 다음과 같다.
-
-```text
-J noun / Logical ArrayValue
-        ↓
-semantic + graph + logical execution analysis
-        ↓
-RepresentationFacts / realization choice
-        ↓
-PhysicalArray
-        ↓
-BufferId / memory space / layout / device
-```
-
-이 원칙 때문에 GraphFacts와 Logical IR에는 stride/offset/device를 넣지 않고, Physical Planner가 실제 layout/buffer/placement를 결정한다. 반대로 backend 편의를 위해 J logical noun의 의미를 tensor framework의 physical layout이나 broadcasting 규칙으로 바꾸지 않는다.
-
-상세 모델은 **§6 “논리 배열과 물리 배열”**과 §4.15.8의 RepresentationFacts 경계를 따른다.
+모델과 완료 조건은 [§6](#logical-physical-array-model), GPU view/placement는 §7, alias/lifetime 조건은 §8에서 정의한다. 도입부에 상세 구조와 완료표를 복제하지 않는다.
 
 ### 1.3 이름 정책
 
@@ -913,7 +862,7 @@ NOUN + CONJ + ADV
 
 같은 합법 조합을 parser 규칙에 따라 처리했을 때 그 구조와 결과 POS를 표현할 수 있어야 한다. 특정 compiler optimization이 지원하지 않는다고 해서 parser/semantic IR 단계에서 syntax-invalid로 축소하지 않는다.
 
-#### 3.3.2 gerund는 새 atom type이 아니라 contextually interpreted noun이다
+#### 3.3.1a gerund는 새 atom type이 아니라 contextually interpreted noun이다
 
 J gerund는 일반적으로 boxed noun 표현이며 특정 modifier(`@.`, `^:`, grave 계열, rank의 noun form 등)가 그 noun을 function/entity sequence로 해석한다.
 
@@ -1554,23 +1503,9 @@ StreamEvent
 
 ### 3.6 현재 구현과 목표 경계의 차이
 
-현재 코드는 아직 이 구조를 완성하지 않았다.
+현재 모듈 책임은 [§10 M0 ownership 표](#architecture-migration-checklist), 구현 상태는 [§12](#current-implementation-status)에 모아 둔다. compiler의 연결된 분석 경로는 `FunctionEntity → j_graph_ir::Plan → analysis::lower_graph → logical_ir::Plan`이다. `analysis.rs`는 FunctionEntity를 직접 canonicalize하는 분석기가 아니라 J Graph의 execution-semantic lowering을 담당한다.
 
-현재 주요 모듈:
-
-- `src/scanner.rs`: word formation
-- `src/syntax.rs`: token 변환
-- `src/semantic.rs`: 현재 Semantic IR과 binding 기초
-- `src/contracts.rs`: primitive contract
-- `src/facts.rs`: dtype/shape/rank facts
-- `src/analysis.rs`: 현재 Semantic IR에서 LogicalPlan을 직접 생성하는 초기 분석기
-- `src/physical.rs`: BufferId/BufferLease/PhysicalArray 기초
-- `src/runtime.rs`: 제한된 직접 실행 경로
-- `src/kernels.rs`, `src/numeric.rs`, `src/simd.rs`: CPU 실행
-- `src/storage.rs`: CPU storage
-- `src/sparse.rs`, `src/bit_storage.rs`: 추가 storage 표현
-
-current jsource의 **parse reduction table을 DAG shape의 기준**으로 삼고, `V/fgh`는 shared execution-object realization의 cross-check로 사용한다. 현재 `semantic.rs`는 `/`를 ADV, `"`를 CONJ로 token/POS 보존하고 parser row 3/4가 operator-parent FunctionEntity를 만들도록 이전한다. `analysis.rs`는 이 graph를 직접 분석하며 legacy `reduce/rank` field는 runtime compatibility 기간에만 유지한다.
+현재 `semantic.rs`는 `/` ADV와 `"` CONJ의 identity/POS 및 지원 subset의 parser construction graph를 보존한다. 전체 jsource-compatible Enqueue/9-row cutover는 M2에서 추적한다. `Callable.reduce/rank`와 runtime `ResolvedVerb`의 flattening은 남은 migration 표현이며 canonical function identity가 아니다.
 
 ### 3.7 name resolution과 explicit definition의 호출 의미
 
@@ -1721,6 +1656,594 @@ JAXA의 핵심 연구 대상은 첫 번째 middle-end인 **J Graph Analyzer**다
 - generic execution SSA로 먼저 평탄화한 뒤 J topology를 다시 추측
 - concrete bufferization/schedule 선택
 
+<a id="j-graph-opportunities"></a>
+
+#### 4.1.1 J syntax-derived Structural Opportunity IR: 문법을 optimization information source로 사용한다
+
+과거 JAXA의 핵심 주장은 “J를 컴파일한다”보다 더 강했다.
+
+> **J의 combinator syntax와 derived semantics가 계산 graph의 topology를 정적으로 드러내므로, compiler가 fusion·parallelism·materialization·lifetime 기회를 일반 DAG pattern matching보다 일찍 발견할 수 있다.**
+
+RustJ는 이 정보를 generic Logical DAG로 펼친 뒤 다시 복원하지 않는다. J Graph IR이 FunctionEntity의 J 구조를 실제 noun application과 결합해 **GraphForm/GraphHint**를 만들고, Execution lowering이 이를 concrete execution ValueId에 투영한 `StructuralOpportunity`를 만든다.
+
+이 원칙은 basis 분석과 다른 축이다.
+
+~~~text
+J Semantic Construction IR
+          ↓
+      J Graph IR
+          ├→ graph algebra / rewrite analysis
+          └→ GraphForm / GraphHint
+                    ↓
+           Execution lowering
+                    ├→ Basis analysis
+                    └→ StructuralOpportunity projection
+                              │
+                              ▼
+                    Logical optimization substrate
+                              │
+                    semantic legality / proof
+                              │
+                    target/resource feasibility
+                              │
+                    schedule / physical plan
+~~~
+
+Basis는 “무슨 배열 연산인가”를 설명한다.
+
+~~~text
++/      → Reduce
+{       → Gather
+;.3     → WindowView
+u . v   → Contract
+~~~
+
+Structural opportunity는 “연산들이 어떤 topology로 연결되었는가”를 설명한다.
+
+~~~text
+@:          → Pipeline
+hook/fork   → Branch / Join
+fork        → Parallel branch candidate
+adjoint/VJP → expanded graph topology (후속 연구)
+^:          → Iteration topology
+"           → Cell-level parallel application topology
+~~~
+
+두 정보는 합쳐져야 한다.
+
+~~~text
+operation kind × graph topology × semantic facts
+~~~
+
+##### JAXA에서 계승하는 첫 세 topology
+
+**1. @: — Pipeline fusion opportunity**
+
+~~~j
+f @: g @: h
+~~~
+
+J 결합 규칙만으로 실행 흐름을 다음처럼 알 수 있다.
+
+~~~text
+h → g → f
+~~~
+
+따라서 Semantic Analyzer는 일반 DAG optimizer가 나중에 producer-consumer chain을 재발견하기 전에 다음 정보를 기록한다.
+
+~~~text
+PipelineOpportunity
+  source = Atop
+  inputs
+  ordered stage results
+  intermediate values that may avoid materialization
+  source span / semantic provenance
+~~~
+
+이 record는 “반드시 하나의 kernel로 fuse한다”는 뜻이 아니다.
+
+**2. hook/fork — Branch/Join fusion + retained-value opportunity**
+
+monadic hook:
+
+~~~j
+(+ F) y
+~~~
+
+~~~text
+y ─────────────────┐
+                   +
+F(y) ───────────────┘
+~~~
+
+fork:
+
+~~~j
+f g h
+~~~
+
+~~~text
+        f(y) ──┐
+y ─────┤       g → result
+        h(y) ──┘
+~~~
+
+따라서 analyzer는 다음을 알고 있다.
+
+~~~text
+BranchJoinOpportunity
+  shared_inputs
+  branch_results
+  join_result
+  values live across branch computation
+  J observable branch evaluation order
+  source = Hook | Fork
+~~~
+
+과거 JAXA 문서의 “input y를 register에 유지”는 현행 RustJ Logical IR에서는 더 일반적으로 다음처럼 해석한다.
+
+> **shared/live-across value를 fusion region 안에서 materialize하지 않고 join까지 유지할 가능성이 있다.**
+
+register/shared memory/reload/recompute/global materialization 중 무엇을 쓸지는 Physical Planner가 결정한다.
+
+**3. adjoint/VJP expansion — 생성된 graph에서 발견하는 fan-out opportunity**
+
+Adjoint/VJP 관계 등록 자체는 parallel 힌트가 아니다. `(loss_adjoint [ (loss emit))`의 병렬 후보는 `[`를 가운데 둔 바깥 fork syntax에서 나오며, 아래 미래 AD expansion 사례도 실제 생성된 branch topology가 후보의 근거다. 후보 발견과 effect/error/alias proof를 통한 실행 허가를 분리한다.
+
+Flow–Storage 연구의 backward 그림:
+
+~~~text
+dy + saved values
+       │
+       ├─ data adjoint       → dx → previous layer
+       ├─ parameter adjoint  → grad_W → emit/accumulate
+       └─ parameter adjoint  → grad_b → emit/accumulate
+~~~
+
+은 data dependency가 없는 여러 branch를 만들 수 있다. 따라서 향후 adjoint/VJP expansion은 다음 record를 생성한다.
+
+~~~text
+ParallelFanOutOpportunity
+  inputs
+  branch_results
+  continuing flow value
+  emitted parameter-adjoint values
+  source = AdjointVjp
+~~~
+
+이 또한 실제 concurrent kernel 실행을 의미하지 않는다. effect/accumulation ordering과 target bandwidth/resource analysis가 뒤따른다.
+
+##### opportunity와 legality를 분리한다
+
+StructuralOpportunity는 **후보 발견**이다.
+
+~~~text
+J syntax / derived semantics
+        ↓
+StructuralOpportunity
+        ↓
+SemanticFusion/ParallelLegality
+        ↓
+TargetFusion/ParallelFeasibility
+        ↓
+Cost/Schedule decision
+        ↓
+Physical fusion / parallel execution
+~~~
+
+semantic legality는 다음을 본다.
+
+- EffectSummary
+- SpeculationSemantics
+- J error ordering
+- ConstraintSet / FactWitness
+- numeric semantics
+- rank/cell/frame assembly
+- access/dependency relation
+- alias/destination relation
+- representation compatibility
+
+target/resource feasibility는 그 뒤에 다음을 본다.
+
+- register pressure / live-value pressure
+- shared/local memory
+- synchronization
+- subgroup/warp/SIMD constraints
+- memory bandwidth and coalescing
+- launch overhead
+- library/tensor-core realization constraints
+- tiling feasibility
+
+따라서 하드웨어 정보는 Semantic IR에 넣지 않지만 **fusion region을 확정하기 전에는 반드시 들어온다**.
+
+~~~text
+early:
+  "여기는 fusion/parallel opportunity다"
+
+middle:
+  "J semantics상 합법하다"
+
+later:
+  "이 target에서 실제로 realizable/profitable하다"
+
+commit:
+  chosen FusionRegion / ParallelSchedule
+~~~
+
+##### Flow–Storage와의 연결
+
+StructuralOpportunity는 4.24 Flow–Storage의 storage 결정을 앞당겨 확정하지 않는다.
+
+Pipeline 내부 intermediate:
+
+~~~text
+Logical ArrayValue
+  → materialization elision candidate
+~~~
+
+Hook/Fork의 live-across value:
+
+~~~text
+Logical ArrayValue
+  → retain/reload/recompute/materialize choice
+~~~
+
+Adjoint parameter branch:
+
+~~~text
+Logical ArrayValue
+  → continuing flow가 아니라 semantic emit/accumulate destination을 가질 수 있음
+~~~
+
+Physical planner가 다음 중 하나를 고른다.
+
+~~~text
+KeepVirtual
+FuseAway
+RegisterResident
+WorkingStateResident
+Recompute
+Bufferize
+ExternalResource
+~~~
+
+즉 **syntax가 lifetime/topology 힌트를 주고, Flow–Storage가 semantic obligation을 설명하며, hardware planner가 실제 storage를 선택한다.**
+
+##### 현재 구현 경계의 정본
+
+`j_graph_ir::classify_function()`이 `GraphForm/GraphHint`를 만들고, execution lowering은 이를 canonical `logical_ir::Plan`의 opportunity/provenance로 투영한다. `Operation.j_origin`이 graph→execution 대응을 보존한다. `CompilationAnalysis`는 `j_graph`와 `logical`을 함께 반환한다.
+
+세부 구현과 남은 graph 연구는 [A1.5](#j-graph-implementation-checklist), 단일 execution IR cutover는 [M1](#architecture-migration-checklist), 전체 상태는 [§12](#current-implementation-status)에서 추적한다. adjoint/VJP expansion은 여전히 schema/연구 단계이며 실제 AD transform이나 병렬 실행 완료가 아니다.
+
+##### 중요한 불변조건
+
+1. StructuralOpportunity는 optimization hint보다 강한 **semantic-topology provenance**지만, physical schedule은 아니다.
+2. Opportunity가 존재한다고 fusion/parallelization legality가 자동 성립하지 않는다.
+3. J observable evaluation order는 opportunity 안에서도 잃지 않는다. 병렬 실행은 별도 proof가 있어야 한다.
+4. basis normalization 때문에 Atop/Hook/Fork provenance를 버리지 않는다.
+5. generic DAG pattern matching은 추가 기회를 찾는 보조 수단일 수 있지만, J 문법이 이미 준 topology를 다시 찾는 주 경로가 되어서는 안 된다.
+6. hardware resource 정보는 opportunity discovery에 필요하지 않지만, 실제 fusion/parallel region 확정에는 필요하다.
+7. 이 층의 목적은 J 문법의 표현을 미학적으로 보존하는 것이 아니라 **optimizer search space를 줄이고 materialization/lifetime/parallel 후보를 일찍 제공하는 것**이다.
+
+
+<a id="syntax-graph-hints"></a>
+
+#### 4.1.2 J syntax에서 얻는 graph 최적화 힌트 분류
+
+검토일: 2026-10-02. 범위: primitive의 산술·배열 구현 정보를 사용하기 전에, J의 구문 구조에서 얻는 graph 정보를 분류하고 검토한다.
+일반 컴파일러 정보 분류 → syntax로 해석 가능한 분류 → J 구문 대응 → graph 정보와 최적화 후보의 순서로 정리한다.
+문서·설계 검토이며 구문 지원이나 실행 최적화를 새로 구현한 것은 아니다.
+
+##### 4.1.2.1 먼저 바로잡는 기준: fork 구조 자체가 병렬 실행 후보를 드러낸다
+
+`(loss_adjoint [ (loss emit))`의 parallel 가능성은 **`[`를 가운데 verb로 둔 fork 구문 자체**에서 나온다. `loss_adjoint`가 미분 연산이라는 사실이나 `loss`의 구현을 알아야 이 후보를 발견하는 것은 아니다.
+
+바깥 형태를 `(f [ h)`로 보면 단항 적용 시 다음 구조가 된다.
+
+```text
+              input
+              /   \
+            f       h
+              \   /
+          가운데 verb: [
+          결과: 왼쪽 branch의 값
+```
+
+이 구문만으로 입력 fan-out, 두 branch 사이의 직접 반환값 의존성 부재, 가운데 결합 위치를 알 수 있다. 가운데 verb가 `[`라는 의미를 더하면 왼쪽 결과 선택을 알 수 있다. 따라서 정보의 출처는 다음처럼 구분한다.
+
+1. **Syntax**: 세 verb의 fork 형태가 두 branch를 같은 입력에 적용하는 graph를 만든다.
+2. **가운데 verb의 의미**: `[`는 왼쪽 결과를 선택한다. 이는 산술 kernel의 구현 정보가 아니다.
+3. **후속 적법성 검사**: 숨은 상태 의존성·효과·alias·관찰 가능한 오류가 허용하는지 확인한다.
+4. **후속 비용 판단**: 병렬 실행·동기 실행·fusion 중 실행 전략을 선택한다.
+
+‘parallel 후보를 발견하는 근거’와 ‘실제로 parallel 실행해도 되는지의 검사’를 혼동하지 않는다. 구문에서 후보가 나온다는 사용자의 설명을 기준으로 한다. [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm)
+
+`(loss emit)` 안의 hook 구조도 별도로 해석한다. 두 이름이 verb로 해석된 경우 내부는 `y loss (emit y)`의 의존성을 가지며, 바깥 fork의 fan-out과 내부 hook의 의존성은 함께 보존한다. 실제 JAXA binding이 다른 품사라면 먼저 해당 품사/파싱을 확정한다. `emit`의 효과는 JAXA 계약에서 얻으며 표준 J 키워드로 간주하지 않는다.
+
+##### 4.1.2.2 먼저 분류: graph에서 읽을 수 있는 일반 컴파일러 정보
+
+| 분류 | 일반적으로 필요한 정보 | primitive 내부를 보지 않고 syntax에서 얻을 수 있는 부분 |
+|---|---|---|
+| 의존성·병렬성 | 독립 branch, producer-consumer, join | fork/hook/합성의 graph 연결 |
+| 값 흐름·사용 관계 | 어떤 입력을 어디에 전달하고 어떤 결과를 사용하는가 | train의 입력 routing, 결과 선택 형태 |
+| fusion 범위 | 연산 연결과 cell 적용 경계 | 합성·capped fork·rank 구조 |
+| 작업 분할 | 적용 단위, frame/cell, 구간 경계 | rank와 partition/window modifier |
+| 반복·선택 | loop-carried edge, 반복 수, 분기 영역 | power와 agenda |
+| 상수·특수화 | 결합된 인자와 호출 대상의 안정성 | noun bond, noun을 포함한 train, 명시적 Fix |
+| 재사용 후보 | 동일 입력에 대한 반복 적용, 여러 consumer | 같은 graph 부분이 반복되는 구문 구조 |
+
+순수성, 정확한 dtype/shape, 결합법칙, 메모리 정렬·독점 소유, SIMD 폭, CUDA 배치는 syntax만으로 일반적으로 보장되지 않는다. 이번에는 이런 선언이나 실행 기능을 추가하지 않는다.
+
+위 분류는 [GCC 속성](https://gcc.gnu.org/onlinedocs/gcc-15.2.0/gcc/Common-Function-Attributes.html), [LLVM 언어 참조](https://llvm.org/docs/LangRef.html)의 최적화 정보 구분을 참고해 graph 관점으로 정리한 것이다.
+
+##### 4.1.2.3 Syntax 자체에서 얻는 힌트: leaf verb를 black box로 둔 검토
+
+여기서 syntax는 train 문법과 verb를 조합하는 modifier 구문까지 포함한다. J 용어로는 `@`, rank 등의 modifier도 primitive에 속할 수 있지만, 이 문서에서는 **leaf 연산이 무엇을 계산하는지의 정보**와 **연산을 어떻게 연결·적용하는지의 정보**를 분리한다.
+
+`f`, `g`, `h`, `u`, `v`가 어떤 산술 연산인지 몰라도 다음 정보를 얻을 수 있다. 표의 식은 단항/양항 적용을 명시했으며 설명용 정규화에는 rank 적용 경계가 별도로 따라붙는다.
+
+| ID | J 표현 | syntax/조합 의미에서 드러나는 graph 정보 | 컴파일러에게 주는 후보 |
+|---|---|---|---|
+| S1 | `(f g h) y` | 같은 입력에서 `f`와 `h`로 fan-out, 결과를 `g`에 전달 | branch parallel, 공통 입력 접근 계획 |
+| S2 | `(f [ h) y`, `(f ] h) y` | S1의 fork + 가운데 selector에 따른 결과 사용 관계 | branch parallel, 불필요한 결과 저장 축소 |
+| S3 | `(f g) y` | `g(y)`를 계산한 뒤 원 입력과 함께 `f`에 전달 | 원 입력 수명 보존, producer-consumer fusion |
+| S4 | `([: u v) y`, `(u@:v) y` | `v` 결과를 `u`로 전달하는 연쇄 | 중간 결과 materialization 축소 후보 |
+| S5 | `(u@v) y`와 `(u@:v) y` | 합성의 rank/cell 경계가 다름 | cell-local fusion과 whole-array fusion의 구분 |
+| S6 | `x (u&v) y` | 양쪽 입력을 각각 `v`에 통과시킨 뒤 `u`로 결합 | 두 변환의 parallel 후보, 같은 변환 코드 특수화 |
+| S7 | `(u"n) y` | 명시한 rank의 cell에 같은 verb를 적용 | cell 단위 작업 분할·batch kernel 후보 |
+| S8 | `(m&u) y`, `(u&n) y`, `(N g h) y` | noun operand가 결합됨; noun train은 상수 branch 형태 | 결합 값 특수화, 반복 전달·계산 축소 후보 |
+| S9 | `(u^:k) y` | 반복 영역과 이전 결과→다음 입력 edge | 작은 상수 반복 전개, 임시 값 수명 계획 |
+| S10 | gerund의 `@.` | selector와 선택되는 verb/train 영역 | 상수 selector 해소, 실행 영역 분리 |
+| S11 | 중첩 train·괄호로 구성한 verb | 정확한 grouping과 producer/consumer 영역 | graph 구조 보존, 최적화 탐색 범위 명시 |
+| S12 | `(f g f) y` | 동일한 이름 표현을 같은 입력에 두 번 적용하는 형태 | 공통식 제거 후보. 동일 binding·효과 계약 확인 필요 |
+
+근거: [Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), [Atop](https://www.jsoftware.com/help/dictionary/d620.htm), [At](https://www.jsoftware.com/help/dictionary/d622.htm), [Compose](https://www.jsoftware.com/help/dictionary/d630v.htm), [Rank](https://www.jsoftware.com/help/dictionary/d600v.htm), [Bond](https://www.jsoftware.com/help/dictionary/d630n.htm), [Power](https://www.jsoftware.com/help/dictionary/d202n.htm), [Agenda](https://www.jsoftware.com/help/dictionary/d621.htm).
+
+특히 S1–S6은 leaf verb의 배열 연산 의미를 몰라도 graph 연결을 얻는다. S7–S10은 modifier의 일반 적용 의미와 상수 operand를 해석하며, leaf verb의 산술 속성은 요구하지 않는다.
+
+###### 4.1.2.3.1 구문별로 후보와 허가를 분리한다
+
+- **Fork**: 두 branch의 반환값이 서로의 직접 입력이 아니라는 사실을 제공한다. 숨은 global/slot 상태 의존성까지 없다는 선언은 아니다. 효과·오류 검사는 후보를 없애는 근거일 수 있지만, 후보의 출처는 syntax다.
+- **선택 fork**: `[`, `]`는 결과 사용 관계를 알려준다. 선택되지 않은 branch의 효과와 오류를 무조건 없애지 않는다. 그 결과 payload를 만들지 않아도 동일 실행 의미가 가능한지는 후속 분석이다.
+- **Hook**: 원 입력을 downstream verb가 다시 쓰므로 입력 수명과 두 입력 edge를 보존한다. 내부 stage를 두 독립 branch로 실행하는 힌트는 아니다.
+- **합성**: 순서 있는 데이터 의존성을 준다. fusion 후보이지만 leaf가 black box면 내부 fusion을 구현할 수 있다는 뜻은 아니다. 효과·오류·rank를 보존해야 한다.
+- **Dyadic compose**: 동일 verb가 다른 두 입력에 적용되는 구조다. 두 호출을 하나의 값 계산으로 합칠 수 있다는 뜻은 아니다. `&`의 noun bond와 verb compose는 operand 품사에 따라 구분한다.
+- **Rank**: cell/frame 경계를 준다. dtype·cell shape·물리 연속성·순수성은 별도 정보다. J agreement, 음수 rank, 빈 frame/prototype과 오류 순서를 보존한다.
+- **Power**: 비음수 정수 반복은 loop-carried edge를 준다. 반복 자체는 parallel 후보가 아니다. 음수·무한·boxed·배열 power를 같은 고정 loop로 낮추지 않는다.
+- **Agenda**: scalar selector이면 단일 선택 영역 후보다. 일반 selector는 train을 구성할 수도 있으므로 모든 `@.`를 if로 바꾸지 않는다. 비선택 영역을 임의로 추측 실행하지 않는다.
+- **괄호**: grouping이 parse 구조를 바꿀 때만 정보가 달라진다. 같은 parse를 둘러싼 여분의 괄호는 fusion fence·순서 보장·메모리 materialization 선언이 아니다.
+- **반복 표현**: 같은 이름의 두 출현만으로 공통식 제거를 허가하지 않는다. binding·입력·효과·관찰 가능한 오류의 동등성을 확인해야 한다.
+
+##### 4.1.2.4 Leaf primitive 힌트와 섞지 않을 modifier 구조
+
+다음은 syntax로 표현되는 고수준 적용 구조다. 구조 자체와 leaf를 알아야 얻는 최적화 정보를 별도 열로 분리한다.
+
+| 표현 | leaf를 몰라도 얻는 적용 구조 | leaf를 알아야 얻는 추가 정보 |
+|---|---|---|
+| `u/ y` | item 사이에 dyad를 삽입하는 구조 | `u`의 항등원·결합법칙·수치 재결합 허용 |
+| `u\ y` | 각 prefix에 `u` 적용 | `u`가 특정 reduce일 때 효율적인 scan 인식 |
+| `k u\ y` | window/chunk 길이와 겹침·마지막 조각 구조 | rolling 집계 변환의 동등성 |
+| `u;.n` | cut 종류와 구간/tile 적용 구조 | 구간 안의 kernel 및 출력 특수화 |
+| `keys u/. values` | key별 그룹에 `u` 적용 | key 비교 계약과 그룹 집계 kernel |
+| dyadic `u . v` | 두 verb를 결합하는 contraction 적용 구조 | `+/ . *` 등 구체적 dot/GEMM 인식 |
+
+즉 `+/\`의 **prefix 적용 구조**는 modifier 쪽 정보이고, **덧셈 누적을 위한 scan kernel**은 leaf `+`와 reduce 의미를 더한 정보다. `+/ % #`도 fork라는 syntax 정보와 sum/tally/divide라는 leaf 정보를 분리한다.
+
+근거: [Insert/Table](https://www.jsoftware.com/help/dictionary/d420.htm), [Prefix/Infix](https://www.jsoftware.com/help/dictionary/d430.htm), [Cut](https://www.jsoftware.com/help/dictionary/d331.htm), [Key/Oblique](https://www.jsoftware.com/help/dictionary/d421.htm), [Dot](https://www.jsoftware.com/help/dictionary/d300.htm).
+
+##### 4.1.2.5 Binding 정보와 일반 graph 대비 추가 가치
+
+명시적 `u f.`는 이름 참조를 당시 referent로 고정하는 의미를 제공하지만, 순수한 grouping 문법만의 사실과는 구분한다. `$:` 포함 부분은 Fix의 예외다. 사용자가 쓰지 않은 Fix를 자동 적용해 동적 이름 의미를 바꾸지 않는다. [J Fix](https://www.jsoftware.com/help/dictionary/dfdot.htm)
+
+일반 배열 graph가 leaf 호출과 데이터 edge만 가진다면 J의 rank/partition/반복 영역 및 바인딩 의미는 추가로 보존할 정보가 된다. 이미 fan-out edge를 가진 graph에도 **fork syntax가 parallel 후보를 제공한다**는 사실은 같다. 다만 graph의 표현력이 동일하다면 새 정보가 더 생기는 것은 아니다. J syntax는 graph 구성과 구조 인식의 source다.
+
+현재 가장 중요한 설계는 leaf kernel 목록으로 일찍 풀지 않고 syntax에서 유래한 fork/hook/compose/cell/partition/loop/selection 구조를 보존하는 것이다. ‘syntax origin’ 기록은 구문이 어떤 최적화 후보를 제공했는지 설명하는 진단에도 사용할 수 있다.
+
+##### 4.1.2.6 다른 배열 컴파일 프레임워크와의 대조
+
+[정본 내 프레임워크 비교](#framework-graph-hints)에 JAX/XLA, MLIR Linalg, TVM Relax, Halide의 공식 설명과 소스를 바탕으로 F1–F9를 기록했다. 추가 힌트는 fork 재결합 영역, consumer 수, 입력 수명, cell mapping, window 공유 영역, loop invariant, 값/effect live-out이다. 각 항목은 출처와 J 적용 추론을 분리한다.
+
+##### 4.1.2.7 RustJ에 반영할 설계와 검증 체크리스트
+
+제안하는 처리 순서:
+
+```text
+품사/binding 확인과 parsing
+  → syntax 구조에서 graph + 최적화 후보 생성
+  → leaf 계약·효과·오류·alias로 적법성 검사
+  → shape/layout와 비용으로 실행 전략 선택
+```
+
+Graph 노드/영역의 설계 후보: `Fork`, `Hook`, `Compose`, `CellApply`, `BoundOperand`, `LoopRegion`, `SelectionRegion`. 결과 선택은 `Fork` 가운데 verb의 계약을 해석한 값 사용 정보로 둔다. 실제 구현 API 이름은 아니다.
+
+각 후보에 source span, syntax origin, 적용 valence/rank, 데이터 edge, 효과 검사 상태를 남긴다. 예를 들어 `ParallelCandidate(origin=Fork)`는 **병렬 후보를 발견한 상태**이지 `ParallelSafe`나 실행 계획 확정 상태가 아니다. 이름이 verb인지 noun인지 모르는 상태에서 토큰 세 개만 보고 fork를 확정하지 않는다.
+
+최신 `main` 기준(`89b87b8`)에서는 `src/j_graph_ir.rs`가 `GraphForm::Pipeline/Hook/Fork/Reduce/PrefixInfix/Rank`와 `GraphHint::ParallelBranchCandidate` 등을 이미 보존한다. `classify_function()`은 leaf kernel 구현을 분석하기 전에 fork에서 병렬 후보를 만든다. 이 사실은 실행 병렬화 완료를 뜻하지 않는다. Bond/Compose/Power/Agenda/Fix의 일반 지원과 S1–S12 전체 최적화는 별도로 검증해야 한다. 자세한 현재 상태는 A1.5를 따른다.
+
+- [x] 사용자 예의 parallel 후보가 바깥 fork syntax에서 나온다고 명시했다.
+- [x] leaf를 black box로 두고도 얻는 syntax 힌트 S1–S12를 검토했다.
+- [x] 일반 compiler 정보 분류와 J syntax 대응을 분리했다.
+- [x] modifier 적용 구조와 leaf kernel 힌트를 구분했다.
+- [x] 후보 생성과 적법성·비용 판단을 별도 단계로 정리했다.
+- [ ] 구문 지원 시 named verb만으로 fork/hook/compose graph를 검사하는 회귀를 추가한다.
+- [ ] fork 두 branch 사이에 불필요한 반환값 의존 edge가 생기지 않는지 확인한다.
+- [ ] 사용자 예의 바깥 fork와 내부 hook이 별도 구조로 보존되는지 확인한다.
+- [ ] effectful branch에서도 parallel 후보는 생성되되 안전성 실패 후 실행 순서가 보존되는지 검증한다.
+- [ ] rank/valence·이름 재정의·Agenda·Power의 영역 의미를 검증한다.
+- [ ] 후보 적용 전후 값·dtype·shape·오류·효과 순서를 Windows 네이티브에서 비교한다.
+
+기존 M1–M6/frontend 이행 순서와 G1–G5 배열 설계 우선순위가 실행 계획의 기준이다. 이번 검토는 그 계획을 보강하며 조사한 모든 syntax 구현을 선행 조건으로 추가하지 않는다. 실제 CUDA 보류는 유지한다. 이번에는 문서만 수정했으며 Rust/C 실행 테스트, 성능 측정, 새 parsing 또는 병렬 실행 구현은 수행하지 않았다.
+
+<a id="framework-graph-hints"></a>
+
+#### 4.1.3 배열 컴파일 프레임워크와의 소스 기반 대조
+
+검토일: 2026-10-02. 범위: J syntax가 만드는 graph 구조에서 얻을 수 있는 힌트를 다른 배열 컴파일 프레임워크의 공식 문서·실제 소스와 비교한다.
+기준 문서: [정본 내 syntax 힌트](#syntax-graph-hints). leaf primitive의 산술 속성을 알아야 하는 변환과 syntax에서 발견할 수 있는 후보를 분리한다.
+
+각 항목은 외부에서 확인한 사실, J에 적용하는 설계상의 추론, 추가 조건, 출처를 함께 기록한다. 코드는 열어 읽었지만 빌드·실행하지 않았다. 외부 GitHub `main` 링크는 이동하는 참조이며 고정 revision snapshot이 아니다. 구현 채택 시 revision을 고정하고 재검토해야 한다. RustJ의 통합 시점 코드 대조는 `89b87b8`을 기준으로 했다. CUDA 구현은 계속 보류한다.
+
+##### 4.1.3.1 분류와 조사 결과의 대응
+
+| 일반 컴파일러 정보 | J graph에서 얻는 힌트 | 참고 프레임워크와 직접 출처 |
+|---|---|---|
+| 의존성·병렬성 | fork의 분기와 재결합 지점 | [TVM FuseOps](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc) |
+| 값 사용·수명 | hook의 원 입력 재사용, consumer 수, 영역 밖 사용 | [MLIR fusion](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp) |
+| fusion 범위 | 합성 chain, fork diamond의 전체 영역, 여러 출력 | [XLA priority fusion](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc) |
+| 작업 분할·접근 패턴 | rank의 cell mapping, cut/window의 접근 영역 | [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Halide lesson 8 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp) |
+| 반복·상수·선택 | power의 carry, bond의 invariant, agenda의 nested graph | [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX conditionals](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py) |
+| 효과·적법성 | 후보 graph와 효과 의존성 분리 | [TVM Relax API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html), [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py) |
+
+##### 4.1.3.2 발견한 힌트와 J 적용 방법
+
+###### F1 — Fork의 재결합 지점은 영역 전체 최적화 후보를 준다
+
+**확인한 사실:** TVM `FuseOps`는 갈라진 경로가 다시 모이는 diamond를 다루기 위해 post-dominator 분석과 경로 검사를 사용한다. 단일 producer-consumer edge만 보는 것보다 영역 전체를 분석한다.
+
+**J에서 얻는 힌트:** `(f g h) y`는 두 branch와 가운데 `g`를 명시한다. `((f g h)@:p) y`는 `p` 결과에서 갈라져 `g`로 모이는 diamond를 드러낸다. leaf 내부를 몰라도 branch별 parallel 및 전체 영역 fusion 후보를 만들 수 있다.
+
+**조건:** 구문의 가운데 위치는 재결합 후보이지 전역 graph의 post-dominator 증명은 아니다. 영역 밖 consumer, effect edge와 선택 fork를 포함한 실제 graph를 분석해야 한다. `g`의 구현 계약은 fusion 실행의 후속 조건이다.
+
+출처: [TVM fuse_ops.cc — fusion algorithm 주석과 GraphCreator](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), J 형태의 근거: [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), [J At](https://www.jsoftware.com/help/dictionary/d622.htm).
+
+###### F2 — 같은 producer의 consumer 수는 공유·재계산·fusion 선택 힌트다
+
+**확인한 사실:** MLIR fusion 소스는 producer 결과가 다른 consumer에서도 사용되면 보존할 결과를 계산한다. 특정 reshape fusion 제어의 기본값은 producer의 단일 사용을 검사한다. 이는 모든 fusion에 단일 consumer를 요구한다는 뜻은 아니다.
+
+**J에서 얻는 힌트:** `(u@:v) y`의 내부 결과는 전체 graph에서 단일 consumer인지 확인한다. `((f g h)@:p) y`의 `p` 결과는 두 branch에 공유된다. Hook `(f g) y`에서는 원 입력이 `g`와 downstream `f`에 사용되어 수명이 길어진다. 이 사용 관계는 syntax에서 만든 edge로 계산할 수 있다.
+
+**활용:** 공유 결과를 한 번 materialize할지, branch마다 재계산할지, 여러 출력을 가진 fusion으로 보존할지 비교한다. 원 입력의 마지막 사용 전에는 버퍼를 회수하지 않는다.
+
+**조건:** `p`를 복제하려면 효과·오류·binding 동등성이 필요하고 비용도 따져야 한다. 공유 logical value와 공유 physical allocation의 alias는 별개다.
+
+출처: [MLIR ElementwiseOpFusion.cpp — getPreservedProducerResults, defaultControlFn](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm).
+
+###### F3 — Fork에서는 parallel과 fusion을 경쟁 후보로 둔다
+
+**확인한 사실:** XLA priority fusion 구현은 producer의 users와 fusion 가능성을 살피고, fused/unfused 실행시간 추정 차이를 우선순위에 사용한다. 일부 경로는 multi-output fusion도 검토한다.
+
+**J에서 얻는 힌트:** fork의 두 branch는 별도 parallel 작업 후보이면서 같은 입력을 읽는 하나의 fusion 영역 후보이기도 하다. 합성 chain도 중간 배열 제거 후보가 된다. syntax는 실행 전략을 하나로 고정하지 않는다.
+
+**활용:** 순차·병렬·공유 producer·재계산·fusion 후보의 작업량, 입력 재읽기, 중간 결과 크기를 비교한다. 비용 추정이 없는 단계에서는 안전한 기존 Rust 실행을 유지한다.
+
+**조건:** leaf를 black box로 두면 graph 후보와 사용 횟수는 알 수 있어도 register pressure나 실제 kernel fusion 비용까지 알 수는 없다. CUDA를 구현하지 않고도 CPU 후보 분석을 설계할 수 있다.
+
+출처: [XLA priority_fusion.cc — CalculateProducerPriority, EstimateRunTimes](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc), [XLA architecture의 Fusion/Buffer Assignment](https://openxla.org/xla/gpu_architecture).
+
+###### F4 — Rank 정보는 iteration domain과 입력 mapping으로 보존한다
+
+**확인한 사실:** MLIR Linalg는 iteration 종류와 indexing maps를 계산 payload와 함께 구조적으로 표현한다. fusion 구현은 tensor 의미, iterator 조건, mapping과 loop bound 보존을 검사한다.
+
+**J에서 얻는 힌트:** `u"n`은 cell 적용 영역을 지정한다. dyadic rank와 J agreement를 해석하면 frame iteration이 각 입력의 cell에 어떻게 대응하는지 얻는다. 이는 단순히 각 node에 숫자 rank 하나를 붙이는 것보다 많은 구조 정보다.
+
+**활용:** `CellApply`에 iteration domain, 입력별 cell mapping, 결과 조립 mapping을 보존한다. mapping이 증명되면 cell별 batch 실행 및 cell-local 합성 후보를 만든다.
+
+**조건:** frame을 곧바로 MLIR의 검증된 `parallel` iterator로 선언하지 않는다. 효과·결과 shape·empty prototype을 먼저 확인한다. NumPy broadcast나 affine mapping을 J agreement 대신 사용하지 않는다.
+
+출처: [MLIR Linalg 공식 설명](https://mlir.llvm.org/docs/Dialects/Linalg/), [MLIR LinalgStructuredOps.td](https://github.com/llvm/llvm-project/blob/main/mlir/include/mlir/Dialect/Linalg/IR/LinalgStructuredOps.td), [MLIR areElementwiseOpsFusable](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [J Rank](https://www.jsoftware.com/help/dictionary/d600v.htm).
+
+###### F5 — 합성 경계에 입력 mapping을 결합하면 복사 제거 후보가 된다
+
+**확인한 사실:** MLIR의 elementwise fusion은 consumer iteration과 producer indexing map을 결합해 fused 입력 mapping을 만든다. XLA는 논리 shape와 physical layout을 구분하며 layout 충돌을 copy로 처리한다.
+
+**J에서 얻는 힌트:** 합성 syntax는 producer-consumer 연결을 준다. 그 사이의 연산이 index mapping을 제공할 경우 graph에 mapping을 결합해 중간 배열을 피하는 후보를 만들 수 있다.
+
+**정보 출처 구분:** 합성 연결은 syntax 정보다. transpose/reverse 등 구체적 index mapping은 해당 연산 의미에서 나온다. 합성 자체만으로 transpose가 metadata-only라고 주장하지 않는다.
+
+**조건:** `@`/`@:`의 rank 경계, non-affine mapping, fill과 논리 원소 순서를 보존한다. 주소 span·alias·정렬은 physical 단계의 별도 증명이다.
+
+출처: [MLIR fusion 소스 — consumerToProducerLoopsMap](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [XLA Layout Assignment](https://openxla.org/xla/gpu_architecture), [J At](https://www.jsoftware.com/help/dictionary/d622.htm).
+
+###### F6 — Window의 겹침은 지역 재사용·필요 영역 힌트를 준다
+
+**확인한 사실:** Halide lesson 8은 inlining, compute_root, compute_at을 비교하며 중간 저장·중복 계산·지역성의 상충을 설명한다. 예제는 필요한 producer 영역만 계산하고 기존 행을 재사용하며 저장을 circular buffer로 축소하는 경우를 보여 준다. parallel loop가 끼면 그런 재사용이 제한되는 경우도 설명한다.
+
+**J에서 얻는 힌트:** `k u\ y` 및 일부 `u;.n`은 window/tile의 경계·겹침을 드러낸다. producer-consumer 합성과 함께 있으면 필요한 입력 영역, 인접 window의 공유 영역, 마지막 조각을 분석할 수 있다.
+
+**활용:** 전체 window 배열 생성, tile-local materialization, 순차 구간에서의 제한된 재사용을 경쟁 후보로 둔다. storage scope와 computation scope를 별개로 계획한다.
+
+**조건:** J의 괄호·합성은 Halide `compute_at`/`store_at` schedule 선언이 아니다. 겹친 window는 출력 write 독립성을 보장하지 않으며 rolling sum의 수치 동등성도 별도 검증한다. tile 크기는 syntax에서 임의로 정하지 않는다.
+
+출처: [Halide lesson 8 공식 설명](https://halide-lang.org/docs/tutorial/lesson_08_scheduling_2.html), [같은 lesson의 C++ 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp), [J Prefix/Infix](https://www.jsoftware.com/help/dictionary/d430.htm), [J Cut](https://www.jsoftware.com/help/dictionary/d331.htm).
+
+###### F7 — Power에서는 carry와 invariant를 분리한다
+
+**확인한 사실:** JAX loop 구현은 body graph의 constants와 carry를 구분한다. while 처리에는 그대로 전달되는 carry를 조건부로 body constant로 옮기는 분석이 있으며, scan은 carry의 shape/dtype 조건을 검사한다.
+
+**J에서 얻는 힌트:** 비음수 정수 `u^:k`는 반복 영역과 loop-carried edge를 준다. noun bond로 결합된 입력 또는 body 안에서 변하지 않는 값은 invariant 후보가 된다.
+
+**활용:** 불변 인자 준비·binding 검사·metadata 계산을 loop 밖으로 옮기는 후보를 만들고, 반복에 따라 변하는 값과 분리한다.
+
+**조건:** J의 반복 결과는 shape/dtype가 바뀔 수 있으므로 JAX의 고정 carry 제약을 언어 규칙으로 도입하지 않는다. shape/dtype 안정성을 증명한 특수 경로에만 guard를 두고 일반 경로를 유지한다. 상태를 읽는 verb의 결과를 임의 hoist하지 않는다.
+
+출처: [JAX loops.py — _check_carry_type, while_loop의 forwarding/constant 처리](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX jaxpr의 loop 설명](https://docs.jax.dev/en/latest/601/jaxpr.html), [J Power](https://www.jsoftware.com/help/dictionary/d202n.htm), [J Bond](https://www.jsoftware.com/help/dictionary/d630n.htm).
+
+###### F8 — Agenda와 중첩 train은 flat DAG 대신 영역으로 보존한다
+
+**확인한 사실:** Jaxpr는 branch와 loop body를 sub-jaxpr로 표현한다. conditional 소스는 branch 효과를 합성하며, Relax의 If는 별도 branch SeqExpr를 가진다.
+
+**J에서 얻는 힌트:** Agenda는 선택되는 verb/train 영역을, 중첩 train은 합성 영역의 topology를 드러낸다. scalar selector가 상수면 선택 해소 후보를 만들 수 있다.
+
+**활용:** branch별 상수·shape·효과 facts의 범위를 보존하고, 선택되지 않은 branch를 실행하지 않은 채 내부 최적화를 계획한다.
+
+**조건:** 일반 Agenda selector는 train 구성도 가능하다. 모든 경우를 binary if로 낮추거나 branch 값을 eager 계산한 뒤 선택하지 않는다. 괄호만으로 schedule fence를 추가하지 않는다.
+
+출처: [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html), [JAX conditionals.py — _join_cond_effects](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py), [TVM expr.h — IfNode/SeqExprNode](https://github.com/apache/tvm/blob/main/include/tvm/relax/expr.h), [J Agenda](https://www.jsoftware.com/help/dictionary/d621.htm).
+
+###### F9 — 값의 live-out과 효과의 live-out을 분리한다
+
+**확인한 사실:** Relax API는 일반 binding block과 pure dataflow block을 구분한다. MLIR fusion은 다른 consumer에 필요한 producer 결과를 보존한다. JAX loop 구현은 허용되는 효과를 별도로 검사한다.
+
+**J에서 얻는 힌트:** `(f [ h)`의 fork는 parallel 후보를 주며 selector는 왼쪽 값만 반환됨을 알려 준다. 오른쪽 branch의 값이 영역 밖으로 나가지 않는다는 사실과 그 branch의 효과가 관찰되지 않는다는 사실은 다르다.
+
+**활용:** graph의 외부 결과 목록과 effect 결과/의존성을 분리한다. ‘값이 미사용’이라는 이유만으로 `loss emit`을 지우지 않고, 반환 payload를 줄일 수 있는지와 효과를 유지할지를 따로 검사한다.
+
+**조건:** J fork를 무조건 TVM pure dataflow block으로 선언하지 않는다. syntax는 후보와 값 흐름을 제공하고 순수성·효과는 별도 계약에서 얻는다.
+
+출처: [TVM Relax DataflowBlock API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html), [MLIR getPreservedProducerResults](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [JAX loop effect 검사](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm).
+
+##### 4.1.3.3 사용자 예에 적용한 결과
+
+`(loss_adjoint [ (loss emit))`는 바깥 fork syntax에서 F1/F3의 parallel 후보를 만든다. 내부 `(loss emit)`이 두 verb의 hook이면 F2의 원 입력 재사용과 producer-consumer edge를 보존한다. `[`의 선택 의미로 F9의 값 live-out을 얻는다.
+
+이는 하나의 구문에서 다음 세 정보를 분리해 추출하는 사례다.
+
+- **Topology**: 두 branch와 재결합 위치 — syntax에서 얻는다.
+- **Value use**: 왼쪽 값 반환, 내부 hook의 원 입력 사용 — 조합/selector 의미에서 얻는다.
+- **Legality**: 공유 slot·I/O·alias·오류 충돌 — 후속 계약과 분석에서 얻는다.
+
+Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레임워크는 이 후보를 재결합·사용 횟수·영역·비용·효과 정보로 정교화하는 참고 자료다. 해당 구문에 관한 해석 근거는 [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), 비교 근거는 [TVM fusion](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), [MLIR fusion](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp)이다.
+
+##### 4.1.3.4 J graph IR에 추가할 정보와 우선순위
+
+아래 필드와 기능은 설계 제안이며 현재 구현된 API가 아니다. 다른 프레임워크의 IR나 purity 제약을 그대로 복사하지 않는다.
+
+| 우선순위 | 보존/계산할 graph 정보 | 활용 | 근거 |
+|---|---|---|---|
+| 1 | syntax origin, region topology, data/effect edge 분리 | Fork 후보의 출처와 거부 이유 설명 | F1/F9: [TVM fusion](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), [Relax API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html) |
+| 1 | consumer 목록, 원 입력 사용, region live-out | Hook 수명, 공유 결과 보존 | F2: [MLIR fusion](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp) |
+| 1 | cell/frame domain, 입력별 logical mapping | G2–G3의 rank/view 연결 | F4/F5: [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/) |
+| 2 | 재결합 후보와 실제 post-dominator/외부 사용 | 영역 전체 fusion 탐색 | F1: [TVM fusion](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc) |
+| 2 | parallel/shared/recompute/fusion 후보 비용 | 한 전략을 syntax에서 강제하지 않음 | F3/F6: [XLA 소스](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc), [Halide 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp) |
+| 3 | loop carry/invariant와 branch-local facts | Power/Agenda 구문 지원 후 영역 최적화 | F7/F8: [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX conditionals](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py) |
+
+최신 `main` 기준(`89b87b8`)에는 `src/j_graph_ir.rs`의 explicit stage/branch graph, `GraphForm`/`GraphHint`, use-count/liveness 및 symbolic resource 분석 seam이 있다. F1–F9는 이 구조를 보강할 설계 근거이며 새 최적화 실행의 완료 보고가 아니다. 현재 구현 상세는 A1.5를 따른다. G1–G5 우선순위를 유지하고, 미지원 syntax 전체 구현이나 실제 CUDA 작업을 이번 조사에 포함하지 않는다.
+
+##### 4.1.3.5 체크리스트
+
+- [x] JAX, XLA, MLIR Linalg, TVM Relax, Halide의 공식 자료와 관련 소스를 읽었다.
+- [x] F1–F9마다 관찰 사실·J 적용 추론·조건·출처를 기록했다.
+- [x] fork syntax의 parallel 후보와 leaf primitive의 kernel 정보를 분리했다.
+- [x] source 링크를 각 발견과 우선순위 항목에 붙였다.
+- [ ] 구현 채택 시 프레임워크 revision을 고정하고 근거를 재확인한다.
+- [ ] named black-box verb를 사용해 topology/consumer/live-out 추출을 검증한다.
+- [ ] 숨은 효과가 있는 fork의 후보 생성과 실행 거부를 별도로 검증한다.
+- [ ] 공유 producer 복제, hook 입력 조기 회수, Agenda 비선택 실행을 차단하는 회귀를 추가한다.
+- [ ] rank mapping·empty prototype·shape 변화 power를 검증한다.
+- [ ] 실행 연결 후 Windows 네이티브에서 값·오류·효과 순서와 복사/할당/성능을 비교한다.
+
+이번 변경은 문서만 작성했다. 외부 프레임워크 빌드, Rust/C 실행 테스트, 성능 측정 또는 CUDA 검증은 수행하지 않았다.
+
 ### 4.2 Execution Semantic Lowering의 책임
 
 - J Graph node를 explicit execution dataflow로 전개
@@ -1797,7 +2320,7 @@ Route partition / export
 
 따라서 **middle-end를 generic tensor IR consumer처럼 만들기 위해 J의 구조를 일찍 버리지 않는다.**
 
-### 4.4 분석 fact는 typed lattice로 관리하고 semantic error와 분리한다
+#### 4.4.1 분석 fact는 typed lattice로 관리하고 semantic error와 분리한다
 
 shape, alias, invariance, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
 
@@ -1892,49 +2415,95 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 따라서 `PrimitiveContract`는 analyzer가 보는 공통 interface이고, `PrimitiveSpec`은 그 contract를 실제로 제공하는 versioned registry record라는 관계로 사용한다.
 
-### 4.6 과거 jaxa-analyzer 연구에서 가져오는 확장 어휘
+<a id="extension-primitive-inventory"></a>
 
-`jaxa-analyzer` 연구/prototype 저장소에서 검토한 확장 어휘는 RustJ에 흡수할 때 **표면 품사와 derived structure를 먼저 보존**한다. `JAXA`는 여기서 역사적 연구명일 뿐 현재 RustJ 아키텍처의 별도 컴포넌트명이 아니다.
+### 4.6 확장 primitive 목록 — 기능, 필요성, 채택 상태
 
-예:
+갱신일: **2026-10-02**. 아래 표는 원격 기본 브랜치 HEAD를 확인하고 그 revision의 문서와 prototype registry를 읽어 갱신했다. 가장 후기의 주제별 결정과 현행 RustJ 원칙을 우선한다. 원본 연구 문서의 서술 전체를 그대로 채택하거나 historical registry를 실행 구현으로 간주하지 않는다.
 
-- `relu`, `flatten`, `softmax`: verb 후보
-- `conv`, `linear`, `bn`, `avgpool2d`, `cp`: 역사 prototype에서는 parameterized adverb
-- `cast_f32`: 실제 등록 품사와 결합 의미를 보존하여 분석
-- `load`, `store`, `emit`, `cp`: 채택 시 storage/effect semantics와 derived structure를 명시
-- `with`: **채택하는 ordinary-name conjunction extension**. base entity에 typed semantic annotation/contract를 결합한다.
+| 저장소 | 확인한 최신 HEAD | 근거의 역할 |
+|---|---|---|
+| `yunskim/JAXA` | [`12bc0659`](https://github.com/yunskim/JAXA/tree/12bc0659a1e008597bf07449c70029bc61eff93b) · 2026-03-24 | 초기 문제의식; 후속 결정의 우선 근거가 아님 |
+| `yunskim/JAXA-complier` | [`ceba0589`](https://github.com/yunskim/JAXA-complier/tree/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368) · 2026-04-26 | 품사를 갖춘 실제 prototype inventory |
+| `yunskim/japchae` | [`510c31b5`](https://github.com/yunskim/japchae/tree/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607) · 2026-06-19 | pooling/dropout 및 상태 설계 이력 |
+| `yunskim/jaxa-analyzer` | [`7275d5ba`](https://github.com/yunskim/jaxa-analyzer/tree/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33) · 2026-09-30 | 후기 cast·effect·AD·Flow–Storage 검토; 현행 설계는 RustJ로 이관 |
 
-중요한 원칙은 **확장 어휘도 품사와 composition structure가 분석 정보라면 너무 일찍 평평한 operation으로 만들지 않는 것**이다.
+**출처 키**: [P — prototype registry](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py); [T — historical training modes](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md); [A — extension architecture §§1.10, 3.4–3.5, 4.3, 7.4–7.7](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md); [F — later Flow–Storage scope §8](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_scope_and_compiler_positioning.md); [W — Flow–Storage technical review](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_model_review_and_open_questions.md); [D — pooling/dropout decisions](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md).
 
-특히 parameterized adverb와 그 결과 verb를 구분한다.
+아래 “필요한 이유와 최소 계약”은 원본 기능 설명을 현행 RustJ 설계에 적용한 요구사항이다. 원본 prototype가 이 계약을 모두 구현했다는 뜻은 아니다. [영어 mirror의 같은 목록](PROJECT.md#extension-primitive-inventory).
 
-```text
-source binding: conv          // Adverb
-parameter noun: 1 6 5 5
-        ↓ adverb application
-DerivedVerb(Conv, params)
-        ↓ semantic analysis
-LogicalOp::Conv2d(...)
-```
+**확장이 필요한 이유:** 모든 계산이 새 primitive 없이는 표현 불가능하다는 뜻이 아니다. 표준 J로 표현 가능한 계산은 reference definition을 먼저 제공한다. 확장 이름은 parameter schema, shape/numeric/effect 계약, 고수준 graph identity 및 검증된 library/native/external lowering의 연결점을 제공한다. 지원 경로가 없으면 등록 완료로 표시하지 않는다.
 
-즉 `PrimitiveId::Conv2d`는 source spelling `conv`의 품사 identity와 같은 것이 아니다.
+모든 source 이름은 ordinary J binding이며 예약 keyword가 아니다. **Adverb → parameter/verb operand를 받아 derived verb 생성**, **Verb → 배열 계산**, **Conjunction → 두 operand로 derived entity 생성**, **등록 API → 선언/관계 설정**을 구분한다. builder의 품사와 생성된 계산 verb의 valence/rank를 혼동하지 않는다.
 
-`with` 자체는 유지한다. 다만 ordinary J conjunction name이므로 parser spelling special-case를 만들지 않고 일반 name lookup/nameref 의미를 따른다. `with`의 오른쪽은 typed semantic annotation/contract로 제한한다. 예를 들면 adjoint relation, StateResource binding, numeric policy, checkpoint/storage semantic policy, extension-specific semantic constraint는 허용할 수 있다. CUDA block, tile, register budget, 특정 device, physical layout 같은 schedule/physical policy는 `with`에 넣지 않는다.
+| 이름/family | 표면 품사·종류 | 기능 | 필요한 이유와 최소 계약 | RustJ 상태 | 출처 |
+|---|---|---|---|---|---|
+| `conv / conv_forward` | Adverb | 파라미터 noun을 받아 공간 convolution verb를 생성한다. | 국소 window·채널 contraction을 고수준 graph에 남겨 reference/library/kernel 경로를 비교한다. kernel·stride·padding·dilation·bias 및 explicit weight resource 계약이 필요하다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `depthwise_conv / depthwise_conv_forward` | Adverb | 채널별로 독립된 convolution verb를 생성한다. | 일반 convolution과 다른 채널 연결·재사용 구조를 분석한다. multiplier와 출력 shape를 명세해야 하며 prototype의 identity shape rule만으로 등록할 수 없다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
+| `linear / linear_forward` | Adverb | 입출력 크기와 bias 설정을 받아 affine 변환 verb를 생성한다. | 행렬 contraction과 bias 결합을 분석하고 다른 layer의 weight를 구분한다. 단순 matmul과 parameter/resource binding을 분리한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `bn / bn_forward` | Adverb | 채널별 batch 통계로 정규화하는 verb를 생성한다. | 배치 축 reduction, 학습/추론 차이, running-stat read/write를 드러낸다. epsilon·통계 축·갱신 규칙이 필요하며 고정 barrier는 semantic 계약이 아니다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `ln / ln_forward` | Adverb | 지정 feature 축에서 각 sample을 정규화한다. | 배치 통계와 sample-local reduction을 구분하고 affine parameter·epsilon·축을 검증한다. sample 독립이 reduction 내부 동기화 부재를 보장하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
+| `avgpool2d` | Adverb | window 크기·stride를 받아 공간 평균 pooling verb를 만든다. | window 접근·겹침·reduction을 보존한다. padding 포함 분모와 빈 window 계약이 필요하며 producer/consumer fusion은 후속 판단이다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [D](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md) |
+| `maxpool2d` | Adverb | window 최댓값 pooling verb를 만든다. | window reduction과 backward index 요구를 분석한다. NaN·동률·padding·빈 window와 backward 선택 규칙을 명세한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [D](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md) |
+| `dropout` | Adverb | 확률 parameter로 확률적 mask 적용 verb를 만든다. | 학습/추론 차이와 RNG 의존성을 명시해 잘못된 CSE·재계산을 막는다. seed/state·scaling·mask 재사용 계약이 필요하다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [D](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md) |
+| `flatten` | Verb | cell의 지정 축들을 하나의 feature 축으로 편다. | 공간 layer와 linear 입력을 연결하고 logical reindex를 보존한다. J atom 순서·축 범위가 필요하며 항상 zero-copy라는 뜻은 아니다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
+| `relu` | Verb | 원소별로 음수 부분을 제거하는 활성화다. | 가장 작은 map/fusion 검증 대상이다. numeric domain·NaN·signed zero·미분 경계 정책을 reference와 비교한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
+| `gelu` | Verb | 원소별 Gaussian-error 기반 활성화다. | 정확식과 근사식을 구분한 numeric 계약으로 backend 간 오차를 검증한다. 단순한 이름만으로 approximation을 선택하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
+| `softmax` | Verb | 지정 축의 지수값을 정규화한다. | exp/map와 axis reduction을 한 구조로 분석한다. 안정화 방식·축·빈 입력·무한대/NaN을 명세하고 고정 fusion 경계로 취급하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
+| `scaled_dot_product_attn` | Verb | Q·K·V로 scaled dot-product attention을 계산한다. | contraction–softmax–contraction 구조를 유지해 tiled/library 경로를 비교한다. mask·scale·축·dtype 계약이 필요하며 FlashAttention 지원을 뜻하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
+| `crossentropy` | Verb (dyad) | label과 prediction의 cross-entropy loss를 계산한다. | loss 축 reduction과 입력별 미분 계약을 드러낸다. logits/probability 여부·label 형식·평균/합 reduction·log 안정성을 먼저 확정한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `conv_backward / depthwise_conv_backward / linear_backward / bn_backward / ln_backward` | Adverb (prototype) | parameter로 backward 계산 verb를 생성하던 factory 항목들이다. | 학습 계산도 일급 graph로 표현한다. 후기 설계는 입력별 data/parameter VJP를 독립 entity로 등록하므로 하나의 backward spelling에 출력·state를 숨기지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `adam` | Adverb | 학습률·moment parameter로 optimizer update verb를 만든다. | weight·gradient·moment·step의 read/write 및 version 의존을 분석한다. mutable state는 explicit StateResource이며 in-place/fusion/실행 시점은 별도 결정이다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `cast_f32 / cast_*` | Adverb | operand verb의 결과 dtype 변환을 포함한 derived verb를 만든다. | conversion을 producer 구조와 함께 분석해 mixed-precision 후보를 보존한다. rounding·overflow·NaN 계약이 필요하며 adverb 품사만으로 fusion/in-place를 강제하지 않는다. | 후보; 개별 실행 미검증 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `to_f32 / to_*` | Verb | 입력 배열을 명시된 dtype으로 변환한다. | 독립 conversion graph node를 표현한다. device 전송 기능이 아니며 별도 커널 강제와도 다르다. 지원 dtype family와 numeric rule은 추가 확정이 필요하다. | 후보; 개별 실행 미검증 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `emit / emit_acc` | Adverb (research) | 계산 결과를 주 반환 경로 외 resource로 쓰거나 누적하는 derived verb다. | gradient·loss·통계의 side output과 write/accumulate 효과를 보존한다. destination·충돌·누적 순서를 명세한다. 후기 문서는 독립 surface op와 Write/Accumulate 중 표현 선택을 미결로 둔다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [F](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_scope_and_compiler_positioning.md) |
+| `cp` | Adverb (research) | 나중의 계산이 필요로 하는 중간값의 checkpoint 보존 요구/후보를 표시한다. | backward residual의 lifetime와 저장/재계산 trade-off를 분석한다. 강제 보존·저장 후보·실제 materialization을 구분하며 후기 문서는 surface 채택을 미결로 둔다. | 연구/미결; 실행 미구현 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [F](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_scope_and_compiler_positioning.md) |
+| `store` | Adverb (research) | operand 계산의 결과 또는 제어 매핑을 명시 resource에 저장한다. | 멀리 떨어진 forward/backward 소비자가 같은 결정 결과를 사용하게 한다. write destination·version·반환값·effect 순서가 필요하다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [W](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_model_review_and_open_questions.md) |
+| `load` | Adverb form in research sketches | resource에 저장한 값/매핑을 읽는 derived accessor를 구성한다. | routing 결정을 재계산하지 않고 동일 version으로 재사용한다. resource identity·read version·미초기화 오류를 명세해야 하며 전체 POS/operand schema는 아직 확정되지 않았다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [W](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_model_review_and_open_questions.md) |
+| `with` | Conjunction | base entity에 typed semantic annotation/contract를 결합한다. | adjoint 관계·resource binding·numeric/storage 정책을 계산 identity와 함께 검증한다. RustJ 설계에서 채택했지만 runtime 구현 완료는 아니다. device/tile/register/layout은 받지 않는다. | 설계 채택; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `adjoint relation registration` | Registration API; not a computational conjunction | forward와 입력별 adjoint/VJP entity 사이의 관계를 등록한다. | shape/type·선형화·residual·공유 resource 계약을 검증하고 미래 AD의 rule을 제공한다. inverse/obverse나 parallel annotation이 아니며 API spelling과 schema는 후속 확정한다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `grad` | Adverb (historical) | weight gradient를 전역 gradient buffer로 보내던 학습 mode다. | 당시 gradient 누적/optimizer 분리 목적을 기록한다. 고정 offset과 inverse-slot 기반 학습 mode는 채택하지 않고 explicit write/accumulate resource 계약으로 재설계한다. | 역사 기록; 직접 채택 안 함 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [T](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md) |
+| `consume` | Adverb (historical) | 계산된 gradient를 즉시 optimizer가 소비하도록 선언하던 mode다. | 중간 gradient 저장 축소라는 목적은 후보로 유지한다. 즉시 weight update를 기본 의미로 만들지 않고 이전 weight version의 모든 reader 및 effect legality를 먼저 검증한다. | 역사 기록; 직접 채택 안 함 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [T](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md) |
 
-반대로 다음 physical policy는 semantic annotation에 섞지 않는다.
+#### 4.6.1 연구 사례와 core J의 경계
 
-- CUDA block/thread
-- tile 크기
-- shared-memory/register budget
-- 특정 device
-- backend-specific layout
-- stream/event 배치
+다음은 후기 연구의 확장성 검토 사례이며 위 prototype registry의 완성 항목이 아니다.
 
-backend-specific implementation identity와 semantic verb identity도 분리한다.
+| 연구 이름/역할 | 기능 | 왜 검토하며 무엇이 미결인가 | 출처 |
+|---|---|---|---|
+| `mp / MatMul` | 두 입력의 matrix contraction. | `+/ .*` 등 표준 J reference로 표현 가능한 계산의 contract/lowering alias 후보이며 필수 새 syntax가 아니다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `FFT / IFFT` | 주파수 변환과 대응 역변환. | 일반 배열 언어의 확장성 연구 사례다. normalization·축·complex dtype 및 adjoint 관계를 확정하기 전 등록된 primitive로 표시하지 않는다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `Embedding / input-specific *_adjoint or *_grad_*` | index lookup 및 각 입력에 대한 VJP. | parameter gradient만 있고 index 미분은 없는 사례로 AD 분해를 검증한다. 입력별 미분 가능성과 scatter/accumulate 계약이 필요하다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+| `decision / capacity / weighted_sum` | MoE routing 결정·용량 처리·가중합. | 논의 중 역할/예시 이름이다. `@.`는 표준 J primitive이며 확장 목록에 넣지 않는다. drop/pad·token/probability 공동 매핑·재조립을 명세한 뒤 실제 이름/품사를 정한다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
+
+`+`, `/`, `\`, `"`, `@:`, `[`, `]`, `@.`, `|:`, `:.`, `^:`는 core J 어휘이므로 확장 primitive로 중복 등록하지 않는다. core와 extension-derived op 모두 같은 semantic/capability/lowering 원칙을 따른다.
+
+#### 4.6.2 최신 연구와 RustJ의 적용 경계
+
+1. **`emit`·`cp`는 미결이다.** 후기 범위 문서 §8은 surface primitive, core effect, annotation/planner 표현을 다시 검토한다. 이전 문서의 “기본 어휘”만으로 채택 완료라 쓰지 않는다.
+2. **`with`는 현행 설계에서 채택한다.** ordinary-name conjunction으로 typed semantic contract만 결합한다. 역사 문서의 optimizer/gerund 묶기 예는 자동으로 현재 operand schema가 되지 않는다.
+3. **`adjoint`는 관계다.** 비선형에는 선형화 지점과 residual을 갖춘 VJP 계약이 필요하다. `:.`/`^:_1`의 inverse 의미를 adjoint로 바꾸지 않는다. `(loss_adjoint [ (loss emit))`의 parallel 후보는 바깥 fork syntax에서 나오며, `emit`이 실제 adverb binding이면 `(loss emit)`은 modifier application이다. 둘 다 verb일 때만 hook이다.
+4. **dtype와 품사만으로 physical 실행을 확정하지 않는다.** 역사 cast 문서의 “adverb이면 fusion 강제”, “narrowing이면 in-place”, “widening이면 새 버퍼”는 현행 불변식이 아니다. numeric correctness·alias·use/liveness·target/cost 판단 후 실제 realization을 선택한다.
+5. **상태는 explicit resource다.** prototype의 hidden weight/moment, fixed offset, 고정 barrier/stream/register 숫자를 primitive identity로 복사하지 않는다. `ValueId`, `StateResource`, `BufferId`를 구분한다.
+
+#### 4.6.3 구현 상태와 체크리스트
+
+코드 대조 기준은 현재 문서 작업 checkout `89b87b8`이다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
+
+- [x] 네 저장소 최신 HEAD를 확인하고 commit 고정 출처로 기능·필요성·품사·채택 상태를 갱신했다.
+- [x] 이전 inventory에서 빠진 forward/backward family, `grad`·`consume`과 후기 cast/storage/registration 어휘를 구분했다.
+- [x] 한국어 정본과 영어 mirror에 통합했다.
+- [ ] 각 채택 후보의 parameter schema, valence/innate rank, shape/dtype/numeric rule과 reference를 확정한다.
+- [ ] effect/error/alias·StateResource/version 및 가능한 access/reduction 계약을 검증한다.
+- [ ] 최소 한 개의 검증된 execution/lowering route를 연결한 뒤에만 개별 지원 완료로 표시한다.
+- [ ] ordinary name 재정의/locale/POS, empty/exceptional 입력 및 값·shape·dtype·오류·효과 순서를 Windows 네이티브에서 비교한다.
+
+가장 작은 구현 검증 후보는 `relu` → `linear`/`flatten` → `conv`/`avgpool2d`다. 기존 M1–M6/frontend 이행 순서가 우선하며 이 목록을 새 선행 작업 전체로 강제하지 않는다. training/AD/state family는 뒤에 진행하고 실제 CUDA 구현 보류는 유지한다.
+
 
 ### 4.7 과거 JAXA/Japchae 저장소 통합 기준
 
-2026-09-30에 다음 네 저장소의 최신 내용을 다시 대조했다. **2026-10-02 재확인한 원격 HEAD와 확장 primitive별 최신 대조는 [§4.25](#extension-primitive-inventory)를 따른다.** 이 표의 substantive baseline은 당시 조사 이력이다.
+2026-09-30에 다음 네 저장소의 최신 내용을 다시 대조했다. **2026-10-02 재확인한 원격 HEAD와 확장 primitive별 최신 대조는 [§4.6](#extension-primitive-inventory)를 따른다.** 이 표의 substantive baseline은 당시 조사 이력이다.
 
 | 저장소 | 검토 기준 | 이 문서에 흡수하는 핵심 |
 |---|---|---|
@@ -3302,11 +3871,73 @@ IL1/IL2 구현과 함께 다음 infrastructure를 추가한다.
 2. `FunctionEntity.semantic_info`를 추가하여 shared DAG의 각 node가 자신의 name/self/effect/error/rank/atomicity/latent semantic summary를 직접 소유하게 한다. construction 시 child summary를 bottom-up으로 조합하고, pass-local 재계산 proof만 별도 cache/table로 둔다.
 3. current `Node.facts + rank_plan + access`를 점진적으로 `ResolvedCallFacts / LogicalFacts` 구조로 모으되 한 번에 거대한 enum/struct로 바꾸지 않는다.
 4. `CellApplicationPlanner`가 effective rank, frame/cell, agreement, repetition, empty policy를 생산하게 한다.
-5. `LogicalPlan::verify`가 must-preserve fact의 정합성을 검증한다.
+5. `logical_ir::Plan::verify`가 must-preserve fact의 정합성을 검증한다.
 6. use-def 기반 `OptimizationFacts` pass를 추가하여 uniform-result, mean/fusion, CellApply fusion, materialization-elision candidate를 만든다.
 7. `LoweringRegistry`에는 IRS/FUSEDOK에 대응하는 capability만 등록하고 semantic fact와 섞지 않는다.
 8. 실제 stride/alignment/in-place/buffer reuse는 Logical IR 구현보다 뒤의 representation/physical 단계에서만 추가한다.
 
+
+<a id="mean-proof-example"></a>
+
+##### 4.11.4.12 Canonical E2E 표본 — `(+/ % #) y`
+
+이 표현을 compiler pipeline의 고정 추적 표본으로 사용한다. 단순 vector 입력만 사용하면 implicit cell application이 드러나지 않으므로 두 입력을 구분한다.
+
+```j
+y =: 1 2 3 4
+(+/ % #) y
+```
+
+은 parser/train/lowering smoke test로 사용한다. 더 강한 E2E semantic test는 다음이다.
+
+```j
+y =: i. 2 3
+(+/ % #) y
+```
+
+J 의미상:
+
+```text
++/ y  -> 3 5 7
+#  y  -> 2
+3 5 7 % 2 -> 1.5 2.5 3.5
+```
+
+current jsource는 이 source structure를 fork로 유지한다. `cf.c::jtfolk`는 `f=+/`, `g=%`, `h=#`인 fork를 인식해 monadic executor를 `jtmean`으로 specialize하지만, derived entity 자체는 `CFORK`와 원래 f/g/h operands를 유지한다. `ar.c::jtslash`가 만든 `+/`의 monadic rank는 infinite(`RMAX`)이고, primitive table에서 `#`의 monadic rank도 infinite, `%`의 dyadic left/right rank는 `0 0`이다. 따라서 matrix 입력에서는 마지막 `%`가 다음 implicit cell application을 요구한다.
+
+```text
+left  = +/ y : shape [3], dyad cell rank 0
+right = #  y : shape [],  dyad cell rank 0
+
+CellApply2
+  left_frame  = [3]
+  left_cell   = []
+  right_frame = []
+  right_cell  = []
+  agreement   = prefix
+  repetition  = repeat right scalar over left residual frame
+  result      = shape [3]
+```
+
+현재 코드 대조 기준: **2026-10-02, `98ae387`**. 다음은 재실행한 테스트 결과가 아니라 source/API 검토 결과다.
+
+| 경계 | 현재 상태 | 아직 검증/구현할 것 |
+|---|---|---|
+| FunctionEntity → J Graph | 이 표본의 shared Fork와 applied stage/branch 구조를 보존한다 | 전체 frontend의 mixed phrase/POS/construction 의미는 M2 gate를 따른다 |
+| J Graph → canonical Logical IR | `analysis::lower_graph()`가 `logical_ir::Plan`을 직접 생성한다. `CompilationAnalysis.logical`과 `Engine::analyze/analyze_a3`가 같은 canonical plan을 사용한다 | canonical container cutover는 M1 완료. 새로운 lowering은 transition IR을 만들지 않는다 |
+| Reduce / CellApply payload | A3의 `ExecutionBasisPayload`, `CallOp.execution_basis`와 explicit rank-plan seam은 존재한다 | plain `%`의 innate rank와 일반 implicit CellApply/assembly를 완성해야 한다. `Callable.reduce/rank` migration field도 아직 남는다 |
+| verifier / reference execution | `Plan::verify()`와 `logical_executor::execute_closed()`가 존재한다 | closed-plan reference 실행을 named/environment 전체 지원 또는 Physical Executor로 오인하지 않는다 |
+| route / physical execution | `LoweringRegistry`와 contiguous route-partition prototype이 존재한다 | 선택된 native Schedule/Physical Plan/CPU Physical Executor는 M4 이후의 미완료 경계다 |
+
+shape `[3]` 추론만으로 `%`의 prefix agreement와 residual-frame repetition을 구현했다고 판정하지 않는다. 이 표본의 semantic contract 검증은 다음으로 좁힌다.
+
+- [ ] primitive/derived callable의 valence별 innate `RankSpec`과 explicit `"`가 공통 CellApplicationPlanner를 사용한다.
+- [ ] matrix 표본의 `Divide`가 위 `CellApply2` frame/cell/repetition을 보존하는 golden을 추가한다.
+- [ ] verifier가 input/result facts, frame/cell split, prefix agreement와 repetition relation을 검사한다.
+- [ ] `Reduce + Tally + CellApply(Divide)`를 M4의 최소 physical 경로로 실행하고 jsource와 differential 검증한다.
+- [ ] 그 generic 경로의 의미 동등성이 검증된 뒤에만 fused Mean 후보를 추가한다. semantic Fork identity는 유지한다.
+
+`tests/analysis.rs::canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order`는 `analyze_a3 + verify`와 h → f → g ordering을 확인하는 smoke test다. 실제 실행이나 compiler-native E2E 완료의 증거는 아니다. M4의 실행 체크리스트와 이 semantic 표본의 조건은 별개로 추적한다.
 
 ### 4.12 access pattern은 fusion 분석의 semantic lower bound다
 
@@ -4023,7 +4654,7 @@ TargetProfile =
 
 TargetProfile은 logical IR에 복사하지 않는다. compile invocation, route partition, schedule/physical planner, external adapter가 질의한다.
 
-### 4.16.5 Compilation 시작 시 active target locale을 확정한다
+##### 4.16.5.1 Compilation 시작 시 active target locale을 확정한다
 
 각 compile invocation은 parser/J Semantic IR의 의미와 독립적으로 **active compiler target context**를 가진다. 단일-target MVP에서는 compile 시작 시 하나의 `CompilationTargetLocale`을 확정한다.
 
@@ -4084,7 +4715,7 @@ Lowering candidates
 - 숫자 architecture 버전으로 암묵적 상속을 추론하지 않는다.
 - 단일-target MVP 이후 heterogeneous execution이 필요해지면 `CompilationSession`이 여러 `TargetContext`를 보유하고 RoutePartition이 region별 context를 선택하도록 확장한다. 이 경우에도 각 region의 built-in/extension은 선택된 동일 target locale chain을 사용한다.
 
-### 4.16.5.1 AOT와 JIT는 동일한 target selection contract를 사용한다
+##### 4.16.5.2 AOT와 JIT는 동일한 target selection contract를 사용한다
 
 AOT build와 향후 JIT compilation은 서로 다른 target-selection 시스템을 만들지 않는다. 둘 다 동일한 입력 contract를 사용한다.
 
@@ -4136,7 +4767,7 @@ JIT:
 
 JIT 전용 primitive registry나 JIT 전용 hardware metadata 체계를 만들지 않는다. cache key에는 semantic/IR version과 함께 resolved target identity 및 lowering-relevant runtime capability version을 포함할 수 있다.
 
-### 4.16.6 Target locale chain: J locale 방식을 compiler lookup에 재사용한다
+#### 4.16.6 Target locale chain: J locale 방식을 compiler lookup에 재사용한다
 
 backend/architecture/device별 lowering과 capability override는 J의 **locale/path resolution 아이디어**를 compiler namespace에 재사용하면 단순하게 구현할 수 있다.
 
@@ -5833,12 +6464,12 @@ later / workload-driven
 
 later로 둔 operation도 language semantics를 later까지 금지한다는 뜻이 아니다. 해당 basis lowering이 없으면 기존 native/runtime semantic path 또는 structured-op fallback이 correctness를 담당한다.
 
-##### 현재 A3 transition implementation seam
+##### 현재 A3 direct-lowering 구현 경계
 
-2026-10-01 현재 기존 src/analysis.rs::LogicalPlan은 compatibility/inspection plan으로 유지하고, 별도 src/logical_ir.rs에 A3-v0 single-block IR migration seam을 추가했다.
+M1 cutover 이후 `analysis::lower_graph()`가 canonical `logical_ir::Plan`을 직접 생성한다. 모듈/API와 완료 상태의 정본은 [§10 M1](#architecture-migration-checklist), [§12](#current-implementation-status)다. 아래는 basis 계약의 구현 경계다.
 
-transition plan 쪽:
-- Node.basis: 한 call을 추가 graph expansion 없이 직접 분류하되, 단일 enum이 아니라 outer→inner `ExecutionBasis.layers`를 기록한다. 예: ranked reduction은 `[CellApply, Reduce]`를 보존한다.
+shared execution-semantic contract:
+- `CallOp.execution_basis`: outer→inner `ExecutionBasis.layers`를 기록한다. 예: ranked reduction은 `[CellApply, Reduce]`를 보존한다.
 - ResolvedInstantiation: target/valence/input-output dtype·rank/requested rank boundary를 기록한다.
 - ValueRoleFacts: ShapeVector, IndexVector, CountVector, AxisPermutation 등 문맥상 role을 noun type과 분리한다.
 
@@ -5866,7 +6497,7 @@ A3 logical_ir 쪽:
 
 현재 correctness oracle로 src/logical_executor.rs의 closed-plan reference executor를 추가했다. 이 경로는 기존 semantic kernels를 재사용하며 physical schedule/bufferization을 하지 않는다. A3의 operation order, zero-result SemanticCheck, SSA wiring, basis payload가 기존 runtime과 같은 결과/error class를 내는지 검증하는 용도다.
 
-기존 transition Node에는 zero-result SemanticCheck를 역이식하지 않는다. 새로운 A3 op/result-separated IR에서만 표현한다.
+zero-result SemanticCheck는 canonical A3 op/result-separated IR에서 표현한다. 제거된 transition container를 새 기능을 위해 복원하지 않는다.
 
 ##### basis contract 검증
 
@@ -5884,690 +6515,6 @@ J error가 있는 case는 값만 비교하지 않고 **error class와 observable
 
 
 
-#### 4.24.15 J syntax-derived Structural Opportunity IR: 문법을 optimization information source로 사용한다
-
-과거 JAXA의 핵심 주장은 “J를 컴파일한다”보다 더 강했다.
-
-> **J의 combinator syntax와 derived semantics가 계산 graph의 topology를 정적으로 드러내므로, compiler가 fusion·parallelism·materialization·lifetime 기회를 일반 DAG pattern matching보다 일찍 발견할 수 있다.**
-
-RustJ는 이 정보를 generic Logical DAG로 펼친 뒤 다시 복원하지 않는다. J Graph IR이 FunctionEntity의 J 구조를 실제 noun application과 결합해 **GraphForm/GraphHint**를 만들고, Execution lowering이 이를 concrete execution ValueId에 투영한 `StructuralOpportunity`를 만든다.
-
-이 원칙은 basis 분석과 다른 축이다.
-
-~~~text
-J Semantic Construction IR
-          ↓
-      J Graph IR
-          ├→ graph algebra / rewrite analysis
-          └→ GraphForm / GraphHint
-                    ↓
-           Execution lowering
-                    ├→ Basis analysis
-                    └→ StructuralOpportunity projection
-                              │
-                              ▼
-                    Logical optimization substrate
-                              │
-                    semantic legality / proof
-                              │
-                    target/resource feasibility
-                              │
-                    schedule / physical plan
-~~~
-
-Basis는 “무슨 배열 연산인가”를 설명한다.
-
-~~~text
-+/      → Reduce
-{       → Gather
-;.3     → WindowView
-u . v   → Contract
-~~~
-
-Structural opportunity는 “연산들이 어떤 topology로 연결되었는가”를 설명한다.
-
-~~~text
-@:          → Pipeline
-hook/fork   → Branch / Join
-fork        → Parallel branch candidate
-adjoint/VJP → expanded graph topology (후속 연구)
-^:          → Iteration topology
-"           → Cell-level parallel application topology
-~~~
-
-두 정보는 합쳐져야 한다.
-
-~~~text
-operation kind × graph topology × semantic facts
-~~~
-
-##### JAXA에서 계승하는 첫 세 topology
-
-**1. @: — Pipeline fusion opportunity**
-
-~~~j
-f @: g @: h
-~~~
-
-J 결합 규칙만으로 실행 흐름을 다음처럼 알 수 있다.
-
-~~~text
-h → g → f
-~~~
-
-따라서 Semantic Analyzer는 일반 DAG optimizer가 나중에 producer-consumer chain을 재발견하기 전에 다음 정보를 기록한다.
-
-~~~text
-PipelineOpportunity
-  source = Atop
-  inputs
-  ordered stage results
-  intermediate values that may avoid materialization
-  source span / semantic provenance
-~~~
-
-이 record는 “반드시 하나의 kernel로 fuse한다”는 뜻이 아니다.
-
-**2. hook/fork — Branch/Join fusion + retained-value opportunity**
-
-monadic hook:
-
-~~~j
-(+ F) y
-~~~
-
-~~~text
-y ─────────────────┐
-                   +
-F(y) ───────────────┘
-~~~
-
-fork:
-
-~~~j
-f g h
-~~~
-
-~~~text
-        f(y) ──┐
-y ─────┤       g → result
-        h(y) ──┘
-~~~
-
-따라서 analyzer는 다음을 알고 있다.
-
-~~~text
-BranchJoinOpportunity
-  shared_inputs
-  branch_results
-  join_result
-  values live across branch computation
-  J observable branch evaluation order
-  source = Hook | Fork
-~~~
-
-과거 JAXA 문서의 “input y를 register에 유지”는 현행 RustJ Logical IR에서는 더 일반적으로 다음처럼 해석한다.
-
-> **shared/live-across value를 fusion region 안에서 materialize하지 않고 join까지 유지할 가능성이 있다.**
-
-register/shared memory/reload/recompute/global materialization 중 무엇을 쓸지는 Physical Planner가 결정한다.
-
-**3. adjoint/VJP expansion — 생성된 graph에서 발견하는 fan-out opportunity**
-
-Adjoint/VJP 관계 등록 자체는 parallel 힌트가 아니다. `(loss_adjoint [ (loss emit))`의 병렬 후보는 `[`를 가운데 둔 바깥 fork syntax에서 나오며, 아래 미래 AD expansion 사례도 실제 생성된 branch topology가 후보의 근거다. 후보 발견과 effect/error/alias proof를 통한 실행 허가를 분리한다.
-
-Flow–Storage 연구의 backward 그림:
-
-~~~text
-dy + saved values
-       │
-       ├─ data adjoint       → dx → previous layer
-       ├─ parameter adjoint  → grad_W → emit/accumulate
-       └─ parameter adjoint  → grad_b → emit/accumulate
-~~~
-
-은 data dependency가 없는 여러 branch를 만들 수 있다. 따라서 향후 adjoint/VJP expansion은 다음 record를 생성한다.
-
-~~~text
-ParallelFanOutOpportunity
-  inputs
-  branch_results
-  continuing flow value
-  emitted parameter-adjoint values
-  source = AdjointVjp
-~~~
-
-이 또한 실제 concurrent kernel 실행을 의미하지 않는다. effect/accumulation ordering과 target bandwidth/resource analysis가 뒤따른다.
-
-##### opportunity와 legality를 분리한다
-
-StructuralOpportunity는 **후보 발견**이다.
-
-~~~text
-J syntax / derived semantics
-        ↓
-StructuralOpportunity
-        ↓
-SemanticFusion/ParallelLegality
-        ↓
-TargetFusion/ParallelFeasibility
-        ↓
-Cost/Schedule decision
-        ↓
-Physical fusion / parallel execution
-~~~
-
-semantic legality는 다음을 본다.
-
-- EffectSummary
-- SpeculationSemantics
-- J error ordering
-- ConstraintSet / FactWitness
-- numeric semantics
-- rank/cell/frame assembly
-- access/dependency relation
-- alias/destination relation
-- representation compatibility
-
-target/resource feasibility는 그 뒤에 다음을 본다.
-
-- register pressure / live-value pressure
-- shared/local memory
-- synchronization
-- subgroup/warp/SIMD constraints
-- memory bandwidth and coalescing
-- launch overhead
-- library/tensor-core realization constraints
-- tiling feasibility
-
-따라서 하드웨어 정보는 Semantic IR에 넣지 않지만 **fusion region을 확정하기 전에는 반드시 들어온다**.
-
-~~~text
-early:
-  "여기는 fusion/parallel opportunity다"
-
-middle:
-  "J semantics상 합법하다"
-
-later:
-  "이 target에서 실제로 realizable/profitable하다"
-
-commit:
-  chosen FusionRegion / ParallelSchedule
-~~~
-
-##### Flow–Storage와의 연결
-
-StructuralOpportunity는 4.24 Flow–Storage의 storage 결정을 앞당겨 확정하지 않는다.
-
-Pipeline 내부 intermediate:
-
-~~~text
-Logical ArrayValue
-  → materialization elision candidate
-~~~
-
-Hook/Fork의 live-across value:
-
-~~~text
-Logical ArrayValue
-  → retain/reload/recompute/materialize choice
-~~~
-
-Adjoint parameter branch:
-
-~~~text
-Logical ArrayValue
-  → continuing flow가 아니라 semantic emit/accumulate destination을 가질 수 있음
-~~~
-
-Physical planner가 다음 중 하나를 고른다.
-
-~~~text
-KeepVirtual
-FuseAway
-RegisterResident
-WorkingStateResident
-Recompute
-Bufferize
-ExternalResource
-~~~
-
-즉 **syntax가 lifetime/topology 힌트를 주고, Flow–Storage가 semantic obligation을 설명하며, hardware planner가 실제 storage를 선택한다.**
-
-##### 현재 구현 seam
-
-2026-10-01 현재 코드에는 첫 migration seam을 추가했다.
-
-- ConjunctionId::Atop (@:)을 frontend registry에 추가했다.
-- FunctionEntity는 @: derived verb를 PrimitiveConjunction(Atop) + 두 function operand로 보존한다.
-- src/opportunity.rs에 target-independent StructuralOpportunity<V>를 추가했다.
-- Pipeline, BranchJoin, ParallelFanOut topology를 정의했다.
-- analysis::call_entity()가 Atop/Hook/Fork를 실제 call DAG로 펼칠 때 **동시에 opportunity record를 생성**한다.
-- @: chain은 recursive semantic tree를 execution-order pipeline으로 flatten하여 하나의 Pipeline record로 남긴다.
-- Hook/Fork는 J observable evaluation order를 유지한 branch result list와 live-across/shared input을 기록한다.
-- transition LogicalPlan과 A3 Logical IR 둘 다 opportunity sidecar를 운반하고 verifier가 value/span 무결성을 검사한다.
-- `src/j_graph_ir.rs`는 적용된 J graph를 독립 compiler IR로 제공하며 `GraphForm`과 `GraphHint`를 node 자체에 기록한다. 현재 `Pipeline/Hook/Fork/Reduce/Rank`가 first-class form이다.
-- execution `analysis::lower_graph()`는 이제 `BoundProgram`을 직접 해석하지 않고 J Graph IR을 소비한다. `Node.j_origin`이 graph node와 execution op의 many-to-one provenance를 보존한다.
-- `Engine::analyze_compilation()`은 `j_graph`와 `execution` 두 IR을 함께 반환한다.
-- ParallelFanOut은 type/schema만 먼저 정의했으며 실제 adjoint/VJP pass가 생길 때 producer를 연결한다.
-- 현재 opportunity extraction은 call site에서 직접 보이는 semantic function graph를 기준으로 한다. name-bound derived verb를 interprocedurally 열어 topology를 전파하는 summary/cache는 아직 없으며, 이후 SpecializationEngine/binding-version analysis와 연결한다.
-
-이 방식은 source semantics를 generic DAG로 펼치는 것과 J syntax가 제공한 optimization information을 보존하는 것을 동시에 만족한다.
-
-##### 중요한 불변조건
-
-1. StructuralOpportunity는 optimization hint보다 강한 **semantic-topology provenance**지만, physical schedule은 아니다.
-2. Opportunity가 존재한다고 fusion/parallelization legality가 자동 성립하지 않는다.
-3. J observable evaluation order는 opportunity 안에서도 잃지 않는다. 병렬 실행은 별도 proof가 있어야 한다.
-4. basis normalization 때문에 Atop/Hook/Fork provenance를 버리지 않는다.
-5. generic DAG pattern matching은 추가 기회를 찾는 보조 수단일 수 있지만, J 문법이 이미 준 topology를 다시 찾는 주 경로가 되어서는 안 된다.
-6. hardware resource 정보는 opportunity discovery에 필요하지 않지만, 실제 fusion/parallel region 확정에는 필요하다.
-7. 이 층의 목적은 J 문법의 표현을 미학적으로 보존하는 것이 아니라 **optimizer search space를 줄이고 materialization/lifetime/parallel 후보를 일찍 제공하는 것**이다.
-
-
-<a id="syntax-graph-hints"></a>
-
-#### 4.24.15a J syntax에서 얻는 graph 최적화 힌트 분류
-
-검토일: 2026-10-02. 범위: primitive의 산술·배열 구현 정보를 사용하기 전에, J의 구문 구조에서 얻는 graph 정보를 분류하고 검토한다.
-일반 컴파일러 정보 분류 → syntax로 해석 가능한 분류 → J 구문 대응 → graph 정보와 최적화 후보의 순서로 정리한다.
-문서·설계 검토이며 구문 지원이나 실행 최적화를 새로 구현한 것은 아니다.
-
-##### 4.24.15a.1 먼저 바로잡는 기준: fork 구조 자체가 병렬 실행 후보를 드러낸다
-
-`(loss_adjoint [ (loss emit))`의 parallel 가능성은 **`[`를 가운데 verb로 둔 fork 구문 자체**에서 나온다. `loss_adjoint`가 미분 연산이라는 사실이나 `loss`의 구현을 알아야 이 후보를 발견하는 것은 아니다.
-
-바깥 형태를 `(f [ h)`로 보면 단항 적용 시 다음 구조가 된다.
-
-```text
-              input
-              /   \
-            f       h
-              \   /
-          가운데 verb: [
-          결과: 왼쪽 branch의 값
-```
-
-이 구문만으로 입력 fan-out, 두 branch 사이의 직접 반환값 의존성 부재, 가운데 결합 위치를 알 수 있다. 가운데 verb가 `[`라는 의미를 더하면 왼쪽 결과 선택을 알 수 있다. 따라서 정보의 출처는 다음처럼 구분한다.
-
-1. **Syntax**: 세 verb의 fork 형태가 두 branch를 같은 입력에 적용하는 graph를 만든다.
-2. **가운데 verb의 의미**: `[`는 왼쪽 결과를 선택한다. 이는 산술 kernel의 구현 정보가 아니다.
-3. **후속 적법성 검사**: 숨은 상태 의존성·효과·alias·관찰 가능한 오류가 허용하는지 확인한다.
-4. **후속 비용 판단**: 병렬 실행·동기 실행·fusion 중 실행 전략을 선택한다.
-
-‘parallel 후보를 발견하는 근거’와 ‘실제로 parallel 실행해도 되는지의 검사’를 혼동하지 않는다. 구문에서 후보가 나온다는 사용자의 설명을 기준으로 한다. [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm)
-
-`(loss emit)` 안의 hook 구조도 별도로 해석한다. 두 이름이 verb로 해석된 경우 내부는 `y loss (emit y)`의 의존성을 가지며, 바깥 fork의 fan-out과 내부 hook의 의존성은 함께 보존한다. 실제 JAXA binding이 다른 품사라면 먼저 해당 품사/파싱을 확정한다. `emit`의 효과는 JAXA 계약에서 얻으며 표준 J 키워드로 간주하지 않는다.
-
-##### 4.24.15a.2 먼저 분류: graph에서 읽을 수 있는 일반 컴파일러 정보
-
-| 분류 | 일반적으로 필요한 정보 | primitive 내부를 보지 않고 syntax에서 얻을 수 있는 부분 |
-|---|---|---|
-| 의존성·병렬성 | 독립 branch, producer-consumer, join | fork/hook/합성의 graph 연결 |
-| 값 흐름·사용 관계 | 어떤 입력을 어디에 전달하고 어떤 결과를 사용하는가 | train의 입력 routing, 결과 선택 형태 |
-| fusion 범위 | 연산 연결과 cell 적용 경계 | 합성·capped fork·rank 구조 |
-| 작업 분할 | 적용 단위, frame/cell, 구간 경계 | rank와 partition/window modifier |
-| 반복·선택 | loop-carried edge, 반복 수, 분기 영역 | power와 agenda |
-| 상수·특수화 | 결합된 인자와 호출 대상의 안정성 | noun bond, noun을 포함한 train, 명시적 Fix |
-| 재사용 후보 | 동일 입력에 대한 반복 적용, 여러 consumer | 같은 graph 부분이 반복되는 구문 구조 |
-
-순수성, 정확한 dtype/shape, 결합법칙, 메모리 정렬·독점 소유, SIMD 폭, CUDA 배치는 syntax만으로 일반적으로 보장되지 않는다. 이번에는 이런 선언이나 실행 기능을 추가하지 않는다.
-
-위 분류는 [GCC 속성](https://gcc.gnu.org/onlinedocs/gcc-15.2.0/gcc/Common-Function-Attributes.html), [LLVM 언어 참조](https://llvm.org/docs/LangRef.html)의 최적화 정보 구분을 참고해 graph 관점으로 정리한 것이다.
-
-##### 4.24.15a.3 Syntax 자체에서 얻는 힌트: leaf verb를 black box로 둔 검토
-
-여기서 syntax는 train 문법과 verb를 조합하는 modifier 구문까지 포함한다. J 용어로는 `@`, rank 등의 modifier도 primitive에 속할 수 있지만, 이 문서에서는 **leaf 연산이 무엇을 계산하는지의 정보**와 **연산을 어떻게 연결·적용하는지의 정보**를 분리한다.
-
-`f`, `g`, `h`, `u`, `v`가 어떤 산술 연산인지 몰라도 다음 정보를 얻을 수 있다. 표의 식은 단항/양항 적용을 명시했으며 설명용 정규화에는 rank 적용 경계가 별도로 따라붙는다.
-
-| ID | J 표현 | syntax/조합 의미에서 드러나는 graph 정보 | 컴파일러에게 주는 후보 |
-|---|---|---|---|
-| S1 | `(f g h) y` | 같은 입력에서 `f`와 `h`로 fan-out, 결과를 `g`에 전달 | branch parallel, 공통 입력 접근 계획 |
-| S2 | `(f [ h) y`, `(f ] h) y` | S1의 fork + 가운데 selector에 따른 결과 사용 관계 | branch parallel, 불필요한 결과 저장 축소 |
-| S3 | `(f g) y` | `g(y)`를 계산한 뒤 원 입력과 함께 `f`에 전달 | 원 입력 수명 보존, producer-consumer fusion |
-| S4 | `([: u v) y`, `(u@:v) y` | `v` 결과를 `u`로 전달하는 연쇄 | 중간 결과 materialization 축소 후보 |
-| S5 | `(u@v) y`와 `(u@:v) y` | 합성의 rank/cell 경계가 다름 | cell-local fusion과 whole-array fusion의 구분 |
-| S6 | `x (u&v) y` | 양쪽 입력을 각각 `v`에 통과시킨 뒤 `u`로 결합 | 두 변환의 parallel 후보, 같은 변환 코드 특수화 |
-| S7 | `(u"n) y` | 명시한 rank의 cell에 같은 verb를 적용 | cell 단위 작업 분할·batch kernel 후보 |
-| S8 | `(m&u) y`, `(u&n) y`, `(N g h) y` | noun operand가 결합됨; noun train은 상수 branch 형태 | 결합 값 특수화, 반복 전달·계산 축소 후보 |
-| S9 | `(u^:k) y` | 반복 영역과 이전 결과→다음 입력 edge | 작은 상수 반복 전개, 임시 값 수명 계획 |
-| S10 | gerund의 `@.` | selector와 선택되는 verb/train 영역 | 상수 selector 해소, 실행 영역 분리 |
-| S11 | 중첩 train·괄호로 구성한 verb | 정확한 grouping과 producer/consumer 영역 | graph 구조 보존, 최적화 탐색 범위 명시 |
-| S12 | `(f g f) y` | 동일한 이름 표현을 같은 입력에 두 번 적용하는 형태 | 공통식 제거 후보. 동일 binding·효과 계약 확인 필요 |
-
-근거: [Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), [Atop](https://www.jsoftware.com/help/dictionary/d620.htm), [At](https://www.jsoftware.com/help/dictionary/d622.htm), [Compose](https://www.jsoftware.com/help/dictionary/d630v.htm), [Rank](https://www.jsoftware.com/help/dictionary/d600v.htm), [Bond](https://www.jsoftware.com/help/dictionary/d630n.htm), [Power](https://www.jsoftware.com/help/dictionary/d202n.htm), [Agenda](https://www.jsoftware.com/help/dictionary/d621.htm).
-
-특히 S1–S6은 leaf verb의 배열 연산 의미를 몰라도 graph 연결을 얻는다. S7–S10은 modifier의 일반 적용 의미와 상수 operand를 해석하며, leaf verb의 산술 속성은 요구하지 않는다.
-
-###### 4.24.15a.3.1 구문별로 후보와 허가를 분리한다
-
-- **Fork**: 두 branch의 반환값이 서로의 직접 입력이 아니라는 사실을 제공한다. 숨은 global/slot 상태 의존성까지 없다는 선언은 아니다. 효과·오류 검사는 후보를 없애는 근거일 수 있지만, 후보의 출처는 syntax다.
-- **선택 fork**: `[`, `]`는 결과 사용 관계를 알려준다. 선택되지 않은 branch의 효과와 오류를 무조건 없애지 않는다. 그 결과 payload를 만들지 않아도 동일 실행 의미가 가능한지는 후속 분석이다.
-- **Hook**: 원 입력을 downstream verb가 다시 쓰므로 입력 수명과 두 입력 edge를 보존한다. 내부 stage를 두 독립 branch로 실행하는 힌트는 아니다.
-- **합성**: 순서 있는 데이터 의존성을 준다. fusion 후보이지만 leaf가 black box면 내부 fusion을 구현할 수 있다는 뜻은 아니다. 효과·오류·rank를 보존해야 한다.
-- **Dyadic compose**: 동일 verb가 다른 두 입력에 적용되는 구조다. 두 호출을 하나의 값 계산으로 합칠 수 있다는 뜻은 아니다. `&`의 noun bond와 verb compose는 operand 품사에 따라 구분한다.
-- **Rank**: cell/frame 경계를 준다. dtype·cell shape·물리 연속성·순수성은 별도 정보다. J agreement, 음수 rank, 빈 frame/prototype과 오류 순서를 보존한다.
-- **Power**: 비음수 정수 반복은 loop-carried edge를 준다. 반복 자체는 parallel 후보가 아니다. 음수·무한·boxed·배열 power를 같은 고정 loop로 낮추지 않는다.
-- **Agenda**: scalar selector이면 단일 선택 영역 후보다. 일반 selector는 train을 구성할 수도 있으므로 모든 `@.`를 if로 바꾸지 않는다. 비선택 영역을 임의로 추측 실행하지 않는다.
-- **괄호**: grouping이 parse 구조를 바꿀 때만 정보가 달라진다. 같은 parse를 둘러싼 여분의 괄호는 fusion fence·순서 보장·메모리 materialization 선언이 아니다.
-- **반복 표현**: 같은 이름의 두 출현만으로 공통식 제거를 허가하지 않는다. binding·입력·효과·관찰 가능한 오류의 동등성을 확인해야 한다.
-
-##### 4.24.15a.4 Leaf primitive 힌트와 섞지 않을 modifier 구조
-
-다음은 syntax로 표현되는 고수준 적용 구조다. 구조 자체와 leaf를 알아야 얻는 최적화 정보를 별도 열로 분리한다.
-
-| 표현 | leaf를 몰라도 얻는 적용 구조 | leaf를 알아야 얻는 추가 정보 |
-|---|---|---|
-| `u/ y` | item 사이에 dyad를 삽입하는 구조 | `u`의 항등원·결합법칙·수치 재결합 허용 |
-| `u\ y` | 각 prefix에 `u` 적용 | `u`가 특정 reduce일 때 효율적인 scan 인식 |
-| `k u\ y` | window/chunk 길이와 겹침·마지막 조각 구조 | rolling 집계 변환의 동등성 |
-| `u;.n` | cut 종류와 구간/tile 적용 구조 | 구간 안의 kernel 및 출력 특수화 |
-| `keys u/. values` | key별 그룹에 `u` 적용 | key 비교 계약과 그룹 집계 kernel |
-| dyadic `u . v` | 두 verb를 결합하는 contraction 적용 구조 | `+/ . *` 등 구체적 dot/GEMM 인식 |
-
-즉 `+/\`의 **prefix 적용 구조**는 modifier 쪽 정보이고, **덧셈 누적을 위한 scan kernel**은 leaf `+`와 reduce 의미를 더한 정보다. `+/ % #`도 fork라는 syntax 정보와 sum/tally/divide라는 leaf 정보를 분리한다.
-
-근거: [Insert/Table](https://www.jsoftware.com/help/dictionary/d420.htm), [Prefix/Infix](https://www.jsoftware.com/help/dictionary/d430.htm), [Cut](https://www.jsoftware.com/help/dictionary/d331.htm), [Key/Oblique](https://www.jsoftware.com/help/dictionary/d421.htm), [Dot](https://www.jsoftware.com/help/dictionary/d300.htm).
-
-##### 4.24.15a.5 Binding 정보와 일반 graph 대비 추가 가치
-
-명시적 `u f.`는 이름 참조를 당시 referent로 고정하는 의미를 제공하지만, 순수한 grouping 문법만의 사실과는 구분한다. `$:` 포함 부분은 Fix의 예외다. 사용자가 쓰지 않은 Fix를 자동 적용해 동적 이름 의미를 바꾸지 않는다. [J Fix](https://www.jsoftware.com/help/dictionary/dfdot.htm)
-
-일반 배열 graph가 leaf 호출과 데이터 edge만 가진다면 J의 rank/partition/반복 영역 및 바인딩 의미는 추가로 보존할 정보가 된다. 이미 fan-out edge를 가진 graph에도 **fork syntax가 parallel 후보를 제공한다**는 사실은 같다. 다만 graph의 표현력이 동일하다면 새 정보가 더 생기는 것은 아니다. J syntax는 graph 구성과 구조 인식의 source다.
-
-현재 가장 중요한 설계는 leaf kernel 목록으로 일찍 풀지 않고 syntax에서 유래한 fork/hook/compose/cell/partition/loop/selection 구조를 보존하는 것이다. ‘syntax origin’ 기록은 구문이 어떤 최적화 후보를 제공했는지 설명하는 진단에도 사용할 수 있다.
-
-##### 4.24.15a.6 다른 배열 컴파일 프레임워크와의 대조
-
-[정본 내 프레임워크 비교](#framework-graph-hints)에 JAX/XLA, MLIR Linalg, TVM Relax, Halide의 공식 설명과 소스를 바탕으로 F1–F9를 기록했다. 추가 힌트는 fork 재결합 영역, consumer 수, 입력 수명, cell mapping, window 공유 영역, loop invariant, 값/effect live-out이다. 각 항목은 출처와 J 적용 추론을 분리한다.
-
-##### 4.24.15a.7 RustJ에 반영할 설계와 검증 체크리스트
-
-제안하는 처리 순서:
-
-```text
-품사/binding 확인과 parsing
-  → syntax 구조에서 graph + 최적화 후보 생성
-  → leaf 계약·효과·오류·alias로 적법성 검사
-  → shape/layout와 비용으로 실행 전략 선택
-```
-
-Graph 노드/영역의 설계 후보: `Fork`, `Hook`, `Compose`, `CellApply`, `BoundOperand`, `LoopRegion`, `SelectionRegion`. 결과 선택은 `Fork` 가운데 verb의 계약을 해석한 값 사용 정보로 둔다. 실제 구현 API 이름은 아니다.
-
-각 후보에 source span, syntax origin, 적용 valence/rank, 데이터 edge, 효과 검사 상태를 남긴다. 예를 들어 `ParallelCandidate(origin=Fork)`는 **병렬 후보를 발견한 상태**이지 `ParallelSafe`나 실행 계획 확정 상태가 아니다. 이름이 verb인지 noun인지 모르는 상태에서 토큰 세 개만 보고 fork를 확정하지 않는다.
-
-최신 `main` 기준(`89b87b8`)에서는 `src/j_graph_ir.rs`가 `GraphForm::Pipeline/Hook/Fork/Reduce/PrefixInfix/Rank`와 `GraphHint::ParallelBranchCandidate` 등을 이미 보존한다. `classify_function()`은 leaf kernel 구현을 분석하기 전에 fork에서 병렬 후보를 만든다. 이 사실은 실행 병렬화 완료를 뜻하지 않는다. Bond/Compose/Power/Agenda/Fix의 일반 지원과 S1–S12 전체 최적화는 별도로 검증해야 한다. 자세한 현재 상태는 A1.5를 따른다.
-
-- [x] 사용자 예의 parallel 후보가 바깥 fork syntax에서 나온다고 명시했다.
-- [x] leaf를 black box로 두고도 얻는 syntax 힌트 S1–S12를 검토했다.
-- [x] 일반 compiler 정보 분류와 J syntax 대응을 분리했다.
-- [x] modifier 적용 구조와 leaf kernel 힌트를 구분했다.
-- [x] 후보 생성과 적법성·비용 판단을 별도 단계로 정리했다.
-- [ ] 구문 지원 시 named verb만으로 fork/hook/compose graph를 검사하는 회귀를 추가한다.
-- [ ] fork 두 branch 사이에 불필요한 반환값 의존 edge가 생기지 않는지 확인한다.
-- [ ] 사용자 예의 바깥 fork와 내부 hook이 별도 구조로 보존되는지 확인한다.
-- [ ] effectful branch에서도 parallel 후보는 생성되되 안전성 실패 후 실행 순서가 보존되는지 검증한다.
-- [ ] rank/valence·이름 재정의·Agenda·Power의 영역 의미를 검증한다.
-- [ ] 후보 적용 전후 값·dtype·shape·오류·효과 순서를 Windows 네이티브에서 비교한다.
-
-기존 M1–M6/frontend 이행 순서와 G1–G5 배열 설계 우선순위가 실행 계획의 기준이다. 이번 검토는 그 계획을 보강하며 조사한 모든 syntax 구현을 선행 조건으로 추가하지 않는다. 실제 CUDA 보류는 유지한다. 이번에는 문서만 수정했으며 Rust/C 실행 테스트, 성능 측정, 새 parsing 또는 병렬 실행 구현은 수행하지 않았다.
-
-<a id="framework-graph-hints"></a>
-
-#### 4.24.15b 배열 컴파일 프레임워크와의 소스 기반 대조
-
-검토일: 2026-10-02. 범위: J syntax가 만드는 graph 구조에서 얻을 수 있는 힌트를 다른 배열 컴파일 프레임워크의 공식 문서·실제 소스와 비교한다.
-기준 문서: [정본 내 syntax 힌트](#syntax-graph-hints). leaf primitive의 산술 속성을 알아야 하는 변환과 syntax에서 발견할 수 있는 후보를 분리한다.
-
-각 항목은 외부에서 확인한 사실, J에 적용하는 설계상의 추론, 추가 조건, 출처를 함께 기록한다. 코드는 열어 읽었지만 빌드·실행하지 않았다. 외부 GitHub `main` 링크는 이동하는 참조이며 고정 revision snapshot이 아니다. 구현 채택 시 revision을 고정하고 재검토해야 한다. RustJ의 통합 시점 코드 대조는 `89b87b8`을 기준으로 했다. CUDA 구현은 계속 보류한다.
-
-##### 4.24.15b.1 분류와 조사 결과의 대응
-
-| 일반 컴파일러 정보 | J graph에서 얻는 힌트 | 참고 프레임워크와 직접 출처 |
-|---|---|---|
-| 의존성·병렬성 | fork의 분기와 재결합 지점 | [TVM FuseOps](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc) |
-| 값 사용·수명 | hook의 원 입력 재사용, consumer 수, 영역 밖 사용 | [MLIR fusion](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp) |
-| fusion 범위 | 합성 chain, fork diamond의 전체 영역, 여러 출력 | [XLA priority fusion](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc) |
-| 작업 분할·접근 패턴 | rank의 cell mapping, cut/window의 접근 영역 | [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Halide lesson 8 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp) |
-| 반복·상수·선택 | power의 carry, bond의 invariant, agenda의 nested graph | [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX conditionals](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py) |
-| 효과·적법성 | 후보 graph와 효과 의존성 분리 | [TVM Relax API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html), [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py) |
-
-##### 4.24.15b.2 발견한 힌트와 J 적용 방법
-
-### F1 — Fork의 재결합 지점은 영역 전체 최적화 후보를 준다
-
-**확인한 사실:** TVM `FuseOps`는 갈라진 경로가 다시 모이는 diamond를 다루기 위해 post-dominator 분석과 경로 검사를 사용한다. 단일 producer-consumer edge만 보는 것보다 영역 전체를 분석한다.
-
-**J에서 얻는 힌트:** `(f g h) y`는 두 branch와 가운데 `g`를 명시한다. `((f g h)@:p) y`는 `p` 결과에서 갈라져 `g`로 모이는 diamond를 드러낸다. leaf 내부를 몰라도 branch별 parallel 및 전체 영역 fusion 후보를 만들 수 있다.
-
-**조건:** 구문의 가운데 위치는 재결합 후보이지 전역 graph의 post-dominator 증명은 아니다. 영역 밖 consumer, effect edge와 선택 fork를 포함한 실제 graph를 분석해야 한다. `g`의 구현 계약은 fusion 실행의 후속 조건이다.
-
-출처: [TVM fuse_ops.cc — fusion algorithm 주석과 GraphCreator](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), J 형태의 근거: [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), [J At](https://www.jsoftware.com/help/dictionary/d622.htm).
-
-### F2 — 같은 producer의 consumer 수는 공유·재계산·fusion 선택 힌트다
-
-**확인한 사실:** MLIR fusion 소스는 producer 결과가 다른 consumer에서도 사용되면 보존할 결과를 계산한다. 특정 reshape fusion 제어의 기본값은 producer의 단일 사용을 검사한다. 이는 모든 fusion에 단일 consumer를 요구한다는 뜻은 아니다.
-
-**J에서 얻는 힌트:** `(u@:v) y`의 내부 결과는 전체 graph에서 단일 consumer인지 확인한다. `((f g h)@:p) y`의 `p` 결과는 두 branch에 공유된다. Hook `(f g) y`에서는 원 입력이 `g`와 downstream `f`에 사용되어 수명이 길어진다. 이 사용 관계는 syntax에서 만든 edge로 계산할 수 있다.
-
-**활용:** 공유 결과를 한 번 materialize할지, branch마다 재계산할지, 여러 출력을 가진 fusion으로 보존할지 비교한다. 원 입력의 마지막 사용 전에는 버퍼를 회수하지 않는다.
-
-**조건:** `p`를 복제하려면 효과·오류·binding 동등성이 필요하고 비용도 따져야 한다. 공유 logical value와 공유 physical allocation의 alias는 별개다.
-
-출처: [MLIR ElementwiseOpFusion.cpp — getPreservedProducerResults, defaultControlFn](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm).
-
-### F3 — Fork에서는 parallel과 fusion을 경쟁 후보로 둔다
-
-**확인한 사실:** XLA priority fusion 구현은 producer의 users와 fusion 가능성을 살피고, fused/unfused 실행시간 추정 차이를 우선순위에 사용한다. 일부 경로는 multi-output fusion도 검토한다.
-
-**J에서 얻는 힌트:** fork의 두 branch는 별도 parallel 작업 후보이면서 같은 입력을 읽는 하나의 fusion 영역 후보이기도 하다. 합성 chain도 중간 배열 제거 후보가 된다. syntax는 실행 전략을 하나로 고정하지 않는다.
-
-**활용:** 순차·병렬·공유 producer·재계산·fusion 후보의 작업량, 입력 재읽기, 중간 결과 크기를 비교한다. 비용 추정이 없는 단계에서는 안전한 기존 Rust 실행을 유지한다.
-
-**조건:** leaf를 black box로 두면 graph 후보와 사용 횟수는 알 수 있어도 register pressure나 실제 kernel fusion 비용까지 알 수는 없다. CUDA를 구현하지 않고도 CPU 후보 분석을 설계할 수 있다.
-
-출처: [XLA priority_fusion.cc — CalculateProducerPriority, EstimateRunTimes](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc), [XLA architecture의 Fusion/Buffer Assignment](https://openxla.org/xla/gpu_architecture).
-
-### F4 — Rank 정보는 iteration domain과 입력 mapping으로 보존한다
-
-**확인한 사실:** MLIR Linalg는 iteration 종류와 indexing maps를 계산 payload와 함께 구조적으로 표현한다. fusion 구현은 tensor 의미, iterator 조건, mapping과 loop bound 보존을 검사한다.
-
-**J에서 얻는 힌트:** `u"n`은 cell 적용 영역을 지정한다. dyadic rank와 J agreement를 해석하면 frame iteration이 각 입력의 cell에 어떻게 대응하는지 얻는다. 이는 단순히 각 node에 숫자 rank 하나를 붙이는 것보다 많은 구조 정보다.
-
-**활용:** `CellApply`에 iteration domain, 입력별 cell mapping, 결과 조립 mapping을 보존한다. mapping이 증명되면 cell별 batch 실행 및 cell-local 합성 후보를 만든다.
-
-**조건:** frame을 곧바로 MLIR의 검증된 `parallel` iterator로 선언하지 않는다. 효과·결과 shape·empty prototype을 먼저 확인한다. NumPy broadcast나 affine mapping을 J agreement 대신 사용하지 않는다.
-
-출처: [MLIR Linalg 공식 설명](https://mlir.llvm.org/docs/Dialects/Linalg/), [MLIR LinalgStructuredOps.td](https://github.com/llvm/llvm-project/blob/main/mlir/include/mlir/Dialect/Linalg/IR/LinalgStructuredOps.td), [MLIR areElementwiseOpsFusable](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [J Rank](https://www.jsoftware.com/help/dictionary/d600v.htm).
-
-### F5 — 합성 경계에 입력 mapping을 결합하면 복사 제거 후보가 된다
-
-**확인한 사실:** MLIR의 elementwise fusion은 consumer iteration과 producer indexing map을 결합해 fused 입력 mapping을 만든다. XLA는 논리 shape와 physical layout을 구분하며 layout 충돌을 copy로 처리한다.
-
-**J에서 얻는 힌트:** 합성 syntax는 producer-consumer 연결을 준다. 그 사이의 연산이 index mapping을 제공할 경우 graph에 mapping을 결합해 중간 배열을 피하는 후보를 만들 수 있다.
-
-**정보 출처 구분:** 합성 연결은 syntax 정보다. transpose/reverse 등 구체적 index mapping은 해당 연산 의미에서 나온다. 합성 자체만으로 transpose가 metadata-only라고 주장하지 않는다.
-
-**조건:** `@`/`@:`의 rank 경계, non-affine mapping, fill과 논리 원소 순서를 보존한다. 주소 span·alias·정렬은 physical 단계의 별도 증명이다.
-
-출처: [MLIR fusion 소스 — consumerToProducerLoopsMap](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [XLA Layout Assignment](https://openxla.org/xla/gpu_architecture), [J At](https://www.jsoftware.com/help/dictionary/d622.htm).
-
-### F6 — Window의 겹침은 지역 재사용·필요 영역 힌트를 준다
-
-**확인한 사실:** Halide lesson 8은 inlining, compute_root, compute_at을 비교하며 중간 저장·중복 계산·지역성의 상충을 설명한다. 예제는 필요한 producer 영역만 계산하고 기존 행을 재사용하며 저장을 circular buffer로 축소하는 경우를 보여 준다. parallel loop가 끼면 그런 재사용이 제한되는 경우도 설명한다.
-
-**J에서 얻는 힌트:** `k u\ y` 및 일부 `u;.n`은 window/tile의 경계·겹침을 드러낸다. producer-consumer 합성과 함께 있으면 필요한 입력 영역, 인접 window의 공유 영역, 마지막 조각을 분석할 수 있다.
-
-**활용:** 전체 window 배열 생성, tile-local materialization, 순차 구간에서의 제한된 재사용을 경쟁 후보로 둔다. storage scope와 computation scope를 별개로 계획한다.
-
-**조건:** J의 괄호·합성은 Halide `compute_at`/`store_at` schedule 선언이 아니다. 겹친 window는 출력 write 독립성을 보장하지 않으며 rolling sum의 수치 동등성도 별도 검증한다. tile 크기는 syntax에서 임의로 정하지 않는다.
-
-출처: [Halide lesson 8 공식 설명](https://halide-lang.org/docs/tutorial/lesson_08_scheduling_2.html), [같은 lesson의 C++ 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp), [J Prefix/Infix](https://www.jsoftware.com/help/dictionary/d430.htm), [J Cut](https://www.jsoftware.com/help/dictionary/d331.htm).
-
-### F7 — Power에서는 carry와 invariant를 분리한다
-
-**확인한 사실:** JAX loop 구현은 body graph의 constants와 carry를 구분한다. while 처리에는 그대로 전달되는 carry를 조건부로 body constant로 옮기는 분석이 있으며, scan은 carry의 shape/dtype 조건을 검사한다.
-
-**J에서 얻는 힌트:** 비음수 정수 `u^:k`는 반복 영역과 loop-carried edge를 준다. noun bond로 결합된 입력 또는 body 안에서 변하지 않는 값은 invariant 후보가 된다.
-
-**활용:** 불변 인자 준비·binding 검사·metadata 계산을 loop 밖으로 옮기는 후보를 만들고, 반복에 따라 변하는 값과 분리한다.
-
-**조건:** J의 반복 결과는 shape/dtype가 바뀔 수 있으므로 JAX의 고정 carry 제약을 언어 규칙으로 도입하지 않는다. shape/dtype 안정성을 증명한 특수 경로에만 guard를 두고 일반 경로를 유지한다. 상태를 읽는 verb의 결과를 임의 hoist하지 않는다.
-
-출처: [JAX loops.py — _check_carry_type, while_loop의 forwarding/constant 처리](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX jaxpr의 loop 설명](https://docs.jax.dev/en/latest/601/jaxpr.html), [J Power](https://www.jsoftware.com/help/dictionary/d202n.htm), [J Bond](https://www.jsoftware.com/help/dictionary/d630n.htm).
-
-### F8 — Agenda와 중첩 train은 flat DAG 대신 영역으로 보존한다
-
-**확인한 사실:** Jaxpr는 branch와 loop body를 sub-jaxpr로 표현한다. conditional 소스는 branch 효과를 합성하며, Relax의 If는 별도 branch SeqExpr를 가진다.
-
-**J에서 얻는 힌트:** Agenda는 선택되는 verb/train 영역을, 중첩 train은 합성 영역의 topology를 드러낸다. scalar selector가 상수면 선택 해소 후보를 만들 수 있다.
-
-**활용:** branch별 상수·shape·효과 facts의 범위를 보존하고, 선택되지 않은 branch를 실행하지 않은 채 내부 최적화를 계획한다.
-
-**조건:** 일반 Agenda selector는 train 구성도 가능하다. 모든 경우를 binary if로 낮추거나 branch 값을 eager 계산한 뒤 선택하지 않는다. 괄호만으로 schedule fence를 추가하지 않는다.
-
-출처: [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html), [JAX conditionals.py — _join_cond_effects](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py), [TVM expr.h — IfNode/SeqExprNode](https://github.com/apache/tvm/blob/main/include/tvm/relax/expr.h), [J Agenda](https://www.jsoftware.com/help/dictionary/d621.htm).
-
-### F9 — 값의 live-out과 효과의 live-out을 분리한다
-
-**확인한 사실:** Relax API는 일반 binding block과 pure dataflow block을 구분한다. MLIR fusion은 다른 consumer에 필요한 producer 결과를 보존한다. JAX loop 구현은 허용되는 효과를 별도로 검사한다.
-
-**J에서 얻는 힌트:** `(f [ h)`의 fork는 parallel 후보를 주며 selector는 왼쪽 값만 반환됨을 알려 준다. 오른쪽 branch의 값이 영역 밖으로 나가지 않는다는 사실과 그 branch의 효과가 관찰되지 않는다는 사실은 다르다.
-
-**활용:** graph의 외부 결과 목록과 effect 결과/의존성을 분리한다. ‘값이 미사용’이라는 이유만으로 `loss emit`을 지우지 않고, 반환 payload를 줄일 수 있는지와 효과를 유지할지를 따로 검사한다.
-
-**조건:** J fork를 무조건 TVM pure dataflow block으로 선언하지 않는다. syntax는 후보와 값 흐름을 제공하고 순수성·효과는 별도 계약에서 얻는다.
-
-출처: [TVM Relax DataflowBlock API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html), [MLIR getPreservedProducerResults](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [JAX loop effect 검사](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm).
-
-##### 4.24.15b.3 사용자 예에 적용한 결과
-
-`(loss_adjoint [ (loss emit))`는 바깥 fork syntax에서 F1/F3의 parallel 후보를 만든다. 내부 `(loss emit)`이 두 verb의 hook이면 F2의 원 입력 재사용과 producer-consumer edge를 보존한다. `[`의 선택 의미로 F9의 값 live-out을 얻는다.
-
-이는 하나의 구문에서 다음 세 정보를 분리해 추출하는 사례다.
-
-- **Topology**: 두 branch와 재결합 위치 — syntax에서 얻는다.
-- **Value use**: 왼쪽 값 반환, 내부 hook의 원 입력 사용 — 조합/selector 의미에서 얻는다.
-- **Legality**: 공유 slot·I/O·alias·오류 충돌 — 후속 계약과 분석에서 얻는다.
-
-Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레임워크는 이 후보를 재결합·사용 횟수·영역·비용·효과 정보로 정교화하는 참고 자료다. 해당 구문에 관한 해석 근거는 [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), 비교 근거는 [TVM fusion](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), [MLIR fusion](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp)이다.
-
-##### 4.24.15b.4 J graph IR에 추가할 정보와 우선순위
-
-아래 필드와 기능은 설계 제안이며 현재 구현된 API가 아니다. 다른 프레임워크의 IR나 purity 제약을 그대로 복사하지 않는다.
-
-| 우선순위 | 보존/계산할 graph 정보 | 활용 | 근거 |
-|---|---|---|---|
-| 1 | syntax origin, region topology, data/effect edge 분리 | Fork 후보의 출처와 거부 이유 설명 | F1/F9: [TVM fusion](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), [Relax API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html) |
-| 1 | consumer 목록, 원 입력 사용, region live-out | Hook 수명, 공유 결과 보존 | F2: [MLIR fusion](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp) |
-| 1 | cell/frame domain, 입력별 logical mapping | G2–G3의 rank/view 연결 | F4/F5: [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/) |
-| 2 | 재결합 후보와 실제 post-dominator/외부 사용 | 영역 전체 fusion 탐색 | F1: [TVM fusion](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc) |
-| 2 | parallel/shared/recompute/fusion 후보 비용 | 한 전략을 syntax에서 강제하지 않음 | F3/F6: [XLA 소스](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc), [Halide 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp) |
-| 3 | loop carry/invariant와 branch-local facts | Power/Agenda 구문 지원 후 영역 최적화 | F7/F8: [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX conditionals](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py) |
-
-최신 `main` 기준(`89b87b8`)에는 `src/j_graph_ir.rs`의 explicit stage/branch graph, `GraphForm`/`GraphHint`, use-count/liveness 및 symbolic resource 분석 seam이 있다. F1–F9는 이 구조를 보강할 설계 근거이며 새 최적화 실행의 완료 보고가 아니다. 현재 구현 상세는 A1.5를 따른다. G1–G5 우선순위를 유지하고, 미지원 syntax 전체 구현이나 실제 CUDA 작업을 이번 조사에 포함하지 않는다.
-
-##### 4.24.15b.5 체크리스트
-
-- [x] JAX, XLA, MLIR Linalg, TVM Relax, Halide의 공식 자료와 관련 소스를 읽었다.
-- [x] F1–F9마다 관찰 사실·J 적용 추론·조건·출처를 기록했다.
-- [x] fork syntax의 parallel 후보와 leaf primitive의 kernel 정보를 분리했다.
-- [x] source 링크를 각 발견과 우선순위 항목에 붙였다.
-- [ ] 구현 채택 시 프레임워크 revision을 고정하고 근거를 재확인한다.
-- [ ] named black-box verb를 사용해 topology/consumer/live-out 추출을 검증한다.
-- [ ] 숨은 효과가 있는 fork의 후보 생성과 실행 거부를 별도로 검증한다.
-- [ ] 공유 producer 복제, hook 입력 조기 회수, Agenda 비선택 실행을 차단하는 회귀를 추가한다.
-- [ ] rank mapping·empty prototype·shape 변화 power를 검증한다.
-- [ ] 실행 연결 후 Windows 네이티브에서 값·오류·효과 순서와 복사/할당/성능을 비교한다.
-
-이번 변경은 문서만 작성했다. 외부 프레임워크 빌드, Rust/C 실행 테스트, 성능 측정 또는 CUDA 검증은 수행하지 않았다.
-
-<a id="extension-primitive-inventory"></a>
-
-### 4.25 확장 primitive 목록 — 기능, 필요성, 채택 상태
-
-갱신일: **2026-10-02**. 아래 표는 원격 기본 브랜치 HEAD를 확인하고 그 revision의 문서와 prototype registry를 읽어 갱신했다. 가장 후기의 주제별 결정과 현행 RustJ 원칙을 우선한다. 원본 연구 문서의 서술 전체를 그대로 채택하거나 historical registry를 실행 구현으로 간주하지 않는다.
-
-| 저장소 | 확인한 최신 HEAD | 근거의 역할 |
-|---|---|---|
-| `yunskim/JAXA` | [`12bc0659`](https://github.com/yunskim/JAXA/tree/12bc0659a1e008597bf07449c70029bc61eff93b) · 2026-03-24 | 초기 문제의식; 후속 결정의 우선 근거가 아님 |
-| `yunskim/JAXA-complier` | [`ceba0589`](https://github.com/yunskim/JAXA-complier/tree/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368) · 2026-04-26 | 품사를 갖춘 실제 prototype inventory |
-| `yunskim/japchae` | [`510c31b5`](https://github.com/yunskim/japchae/tree/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607) · 2026-06-19 | pooling/dropout 및 상태 설계 이력 |
-| `yunskim/jaxa-analyzer` | [`7275d5ba`](https://github.com/yunskim/jaxa-analyzer/tree/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33) · 2026-09-30 | 후기 cast·effect·AD·Flow–Storage 검토; 현행 설계는 RustJ로 이관 |
-
-**출처 키**: [P — prototype registry](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py); [T — historical training modes](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md); [A — extension architecture §§1.10, 3.4–3.5, 4.3, 7.4–7.7](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md); [F — later Flow–Storage scope §8](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_scope_and_compiler_positioning.md); [W — Flow–Storage technical review](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_model_review_and_open_questions.md); [D — pooling/dropout decisions](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md).
-
-아래 “필요한 이유와 최소 계약”은 원본 기능 설명을 현행 RustJ 설계에 적용한 요구사항이다. 원본 prototype가 이 계약을 모두 구현했다는 뜻은 아니다. [영어 mirror의 같은 목록](PROJECT.md#extension-primitive-inventory).
-
-**확장이 필요한 이유:** 모든 계산이 새 primitive 없이는 표현 불가능하다는 뜻이 아니다. 표준 J로 표현 가능한 계산은 reference definition을 먼저 제공한다. 확장 이름은 parameter schema, shape/numeric/effect 계약, 고수준 graph identity 및 검증된 library/native/external lowering의 연결점을 제공한다. 지원 경로가 없으면 등록 완료로 표시하지 않는다.
-
-모든 source 이름은 ordinary J binding이며 예약 keyword가 아니다. **Adverb → parameter/verb operand를 받아 derived verb 생성**, **Verb → 배열 계산**, **Conjunction → 두 operand로 derived entity 생성**, **등록 API → 선언/관계 설정**을 구분한다. builder의 품사와 생성된 계산 verb의 valence/rank를 혼동하지 않는다.
-
-| 이름/family | 표면 품사·종류 | 기능 | 필요한 이유와 최소 계약 | RustJ 상태 | 출처 |
-|---|---|---|---|---|---|
-| `conv / conv_forward` | Adverb | 파라미터 noun을 받아 공간 convolution verb를 생성한다. | 국소 window·채널 contraction을 고수준 graph에 남겨 reference/library/kernel 경로를 비교한다. kernel·stride·padding·dilation·bias 및 explicit weight resource 계약이 필요하다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `depthwise_conv / depthwise_conv_forward` | Adverb | 채널별로 독립된 convolution verb를 생성한다. | 일반 convolution과 다른 채널 연결·재사용 구조를 분석한다. multiplier와 출력 shape를 명세해야 하며 prototype의 identity shape rule만으로 등록할 수 없다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
-| `linear / linear_forward` | Adverb | 입출력 크기와 bias 설정을 받아 affine 변환 verb를 생성한다. | 행렬 contraction과 bias 결합을 분석하고 다른 layer의 weight를 구분한다. 단순 matmul과 parameter/resource binding을 분리한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `bn / bn_forward` | Adverb | 채널별 batch 통계로 정규화하는 verb를 생성한다. | 배치 축 reduction, 학습/추론 차이, running-stat read/write를 드러낸다. epsilon·통계 축·갱신 규칙이 필요하며 고정 barrier는 semantic 계약이 아니다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `ln / ln_forward` | Adverb | 지정 feature 축에서 각 sample을 정규화한다. | 배치 통계와 sample-local reduction을 구분하고 affine parameter·epsilon·축을 검증한다. sample 독립이 reduction 내부 동기화 부재를 보장하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
-| `avgpool2d` | Adverb | window 크기·stride를 받아 공간 평균 pooling verb를 만든다. | window 접근·겹침·reduction을 보존한다. padding 포함 분모와 빈 window 계약이 필요하며 producer/consumer fusion은 후속 판단이다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [D](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md) |
-| `maxpool2d` | Adverb | window 최댓값 pooling verb를 만든다. | window reduction과 backward index 요구를 분석한다. NaN·동률·padding·빈 window와 backward 선택 규칙을 명세한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [D](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md) |
-| `dropout` | Adverb | 확률 parameter로 확률적 mask 적용 verb를 만든다. | 학습/추론 차이와 RNG 의존성을 명시해 잘못된 CSE·재계산을 막는다. seed/state·scaling·mask 재사용 계약이 필요하다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [D](https://github.com/yunskim/japchae/blob/510c31b5fe3d4bf6ca0c6fa9aeae8556ca134607/documents/decisions.md) |
-| `flatten` | Verb | cell의 지정 축들을 하나의 feature 축으로 편다. | 공간 layer와 linear 입력을 연결하고 logical reindex를 보존한다. J atom 순서·축 범위가 필요하며 항상 zero-copy라는 뜻은 아니다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
-| `relu` | Verb | 원소별로 음수 부분을 제거하는 활성화다. | 가장 작은 map/fusion 검증 대상이다. numeric domain·NaN·signed zero·미분 경계 정책을 reference와 비교한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
-| `gelu` | Verb | 원소별 Gaussian-error 기반 활성화다. | 정확식과 근사식을 구분한 numeric 계약으로 backend 간 오차를 검증한다. 단순한 이름만으로 approximation을 선택하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
-| `softmax` | Verb | 지정 축의 지수값을 정규화한다. | exp/map와 axis reduction을 한 구조로 분석한다. 안정화 방식·축·빈 입력·무한대/NaN을 명세하고 고정 fusion 경계로 취급하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
-| `scaled_dot_product_attn` | Verb | Q·K·V로 scaled dot-product attention을 계산한다. | contraction–softmax–contraction 구조를 유지해 tiled/library 경로를 비교한다. mask·scale·축·dtype 계약이 필요하며 FlashAttention 지원을 뜻하지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
-| `crossentropy` | Verb (dyad) | label과 prediction의 cross-entropy loss를 계산한다. | loss 축 reduction과 입력별 미분 계약을 드러낸다. logits/probability 여부·label 형식·평균/합 reduction·log 안정성을 먼저 확정한다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `conv_backward / depthwise_conv_backward / linear_backward / bn_backward / ln_backward` | Adverb (prototype) | parameter로 backward 계산 verb를 생성하던 factory 항목들이다. | 학습 계산도 일급 graph로 표현한다. 후기 설계는 입력별 data/parameter VJP를 독립 entity로 등록하므로 하나의 backward spelling에 출력·state를 숨기지 않는다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `adam` | Adverb | 학습률·moment parameter로 optimizer update verb를 만든다. | weight·gradient·moment·step의 read/write 및 version 의존을 분석한다. mutable state는 explicit StateResource이며 in-place/fusion/실행 시점은 별도 결정이다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `cast_f32 / cast_*` | Adverb | operand verb의 결과 dtype 변환을 포함한 derived verb를 만든다. | conversion을 producer 구조와 함께 분석해 mixed-precision 후보를 보존한다. rounding·overflow·NaN 계약이 필요하며 adverb 품사만으로 fusion/in-place를 강제하지 않는다. | 후보; 개별 실행 미검증 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `to_f32 / to_*` | Verb | 입력 배열을 명시된 dtype으로 변환한다. | 독립 conversion graph node를 표현한다. device 전송 기능이 아니며 별도 커널 강제와도 다르다. 지원 dtype family와 numeric rule은 추가 확정이 필요하다. | 후보; 개별 실행 미검증 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `emit / emit_acc` | Adverb (research) | 계산 결과를 주 반환 경로 외 resource로 쓰거나 누적하는 derived verb다. | gradient·loss·통계의 side output과 write/accumulate 효과를 보존한다. destination·충돌·누적 순서를 명세한다. 후기 문서는 독립 surface op와 Write/Accumulate 중 표현 선택을 미결로 둔다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [F](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_scope_and_compiler_positioning.md) |
-| `cp` | Adverb (research) | 나중의 계산이 필요로 하는 중간값의 checkpoint 보존 요구/후보를 표시한다. | backward residual의 lifetime와 저장/재계산 trade-off를 분석한다. 강제 보존·저장 후보·실제 materialization을 구분하며 후기 문서는 surface 채택을 미결로 둔다. | 연구/미결; 실행 미구현 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [F](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_scope_and_compiler_positioning.md) |
-| `store` | Adverb (research) | operand 계산의 결과 또는 제어 매핑을 명시 resource에 저장한다. | 멀리 떨어진 forward/backward 소비자가 같은 결정 결과를 사용하게 한다. write destination·version·반환값·effect 순서가 필요하다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [W](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_model_review_and_open_questions.md) |
-| `load` | Adverb form in research sketches | resource에 저장한 값/매핑을 읽는 derived accessor를 구성한다. | routing 결정을 재계산하지 않고 동일 version으로 재사용한다. resource identity·read version·미초기화 오류를 명세해야 하며 전체 POS/operand schema는 아직 확정되지 않았다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [W](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/flow_storage_model_review_and_open_questions.md) |
-| `with` | Conjunction | base entity에 typed semantic annotation/contract를 결합한다. | adjoint 관계·resource binding·numeric/storage 정책을 계산 identity와 함께 검증한다. RustJ 설계에서 채택했지만 runtime 구현 완료는 아니다. device/tile/register/layout은 받지 않는다. | 설계 채택; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `adjoint relation registration` | Registration API; not a computational conjunction | forward와 입력별 adjoint/VJP entity 사이의 관계를 등록한다. | shape/type·선형화·residual·공유 resource 계약을 검증하고 미래 AD의 rule을 제공한다. inverse/obverse나 parallel annotation이 아니며 API spelling과 schema는 후속 확정한다. | 연구/미결; 실행 미구현 | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `grad` | Adverb (historical) | weight gradient를 전역 gradient buffer로 보내던 학습 mode다. | 당시 gradient 누적/optimizer 분리 목적을 기록한다. 고정 offset과 inverse-slot 기반 학습 mode는 채택하지 않고 explicit write/accumulate resource 계약으로 재설계한다. | 역사 기록; 직접 채택 안 함 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [T](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md) |
-| `consume` | Adverb (historical) | 계산된 gradient를 즉시 optimizer가 소비하도록 선언하던 mode다. | 중간 gradient 저장 축소라는 목적은 후보로 유지한다. 즉시 weight update를 기본 의미로 만들지 않고 이전 weight version의 모든 reader 및 effect legality를 먼저 검증한다. | 역사 기록; 직접 채택 안 함 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [T](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md) |
-
-#### 4.25.1 연구 사례와 core J의 경계
-
-다음은 후기 연구의 확장성 검토 사례이며 위 prototype registry의 완성 항목이 아니다.
-
-| 연구 이름/역할 | 기능 | 왜 검토하며 무엇이 미결인가 | 출처 |
-|---|---|---|---|
-| `mp / MatMul` | 두 입력의 matrix contraction. | `+/ .*` 등 표준 J reference로 표현 가능한 계산의 contract/lowering alias 후보이며 필수 새 syntax가 아니다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `FFT / IFFT` | 주파수 변환과 대응 역변환. | 일반 배열 언어의 확장성 연구 사례다. normalization·축·complex dtype 및 adjoint 관계를 확정하기 전 등록된 primitive로 표시하지 않는다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `Embedding / input-specific *_adjoint or *_grad_*` | index lookup 및 각 입력에 대한 VJP. | parameter gradient만 있고 index 미분은 없는 사례로 AD 분해를 검증한다. 입력별 미분 가능성과 scatter/accumulate 계약이 필요하다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-| `decision / capacity / weighted_sum` | MoE routing 결정·용량 처리·가중합. | 논의 중 역할/예시 이름이다. `@.`는 표준 J primitive이며 확장 목록에 넣지 않는다. drop/pad·token/probability 공동 매핑·재조립을 명세한 뒤 실제 이름/품사를 정한다. | [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
-
-`+`, `/`, `\`, `"`, `@:`, `[`, `]`, `@.`, `|:`, `:.`, `^:`는 core J 어휘이므로 확장 primitive로 중복 등록하지 않는다. core와 extension-derived op 모두 같은 semantic/capability/lowering 원칙을 따른다.
-
-#### 4.25.2 최신 연구와 RustJ의 적용 경계
-
-1. **`emit`·`cp`는 미결이다.** 후기 범위 문서 §8은 surface primitive, core effect, annotation/planner 표현을 다시 검토한다. 이전 문서의 “기본 어휘”만으로 채택 완료라 쓰지 않는다.
-2. **`with`는 현행 설계에서 채택한다.** ordinary-name conjunction으로 typed semantic contract만 결합한다. 역사 문서의 optimizer/gerund 묶기 예는 자동으로 현재 operand schema가 되지 않는다.
-3. **`adjoint`는 관계다.** 비선형에는 선형화 지점과 residual을 갖춘 VJP 계약이 필요하다. `:.`/`^:_1`의 inverse 의미를 adjoint로 바꾸지 않는다. `(loss_adjoint [ (loss emit))`의 parallel 후보는 바깥 fork syntax에서 나오며, `emit`이 실제 adverb binding이면 `(loss emit)`은 modifier application이다. 둘 다 verb일 때만 hook이다.
-4. **dtype와 품사만으로 physical 실행을 확정하지 않는다.** 역사 cast 문서의 “adverb이면 fusion 강제”, “narrowing이면 in-place”, “widening이면 새 버퍼”는 현행 불변식이 아니다. numeric correctness·alias·use/liveness·target/cost 판단 후 실제 realization을 선택한다.
-5. **상태는 explicit resource다.** prototype의 hidden weight/moment, fixed offset, 고정 barrier/stream/register 숫자를 primitive identity로 복사하지 않는다. `ValueId`, `StateResource`, `BufferId`를 구분한다.
-
-#### 4.25.3 구현 상태와 체크리스트
-
-코드 대조 기준은 현재 문서 작업 checkout `89b87b8`이다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
-
-- [x] 네 저장소 최신 HEAD를 확인하고 commit 고정 출처로 기능·필요성·품사·채택 상태를 갱신했다.
-- [x] 이전 inventory에서 빠진 forward/backward family, `grad`·`consume`과 후기 cast/storage/registration 어휘를 구분했다.
-- [x] 한국어 정본과 영어 mirror에 통합했다.
-- [ ] 각 채택 후보의 parameter schema, valence/innate rank, shape/dtype/numeric rule과 reference를 확정한다.
-- [ ] effect/error/alias·StateResource/version 및 가능한 access/reduction 계약을 검증한다.
-- [ ] 최소 한 개의 검증된 execution/lowering route를 연결한 뒤에만 개별 지원 완료로 표시한다.
-- [ ] ordinary name 재정의/locale/POS, empty/exceptional 입력 및 값·shape·dtype·오류·효과 순서를 Windows 네이티브에서 비교한다.
-
-가장 작은 구현 검증 후보는 `relu` → `linear`/`flatten` → `conv`/`avgpool2d`다. 기존 M1–M6/frontend 이행 순서가 우선하며 이 목록을 새 선행 작업 전체로 강제하지 않는다. training/AD/state family는 뒤에 진행하고 실제 CUDA 구현 보류는 유지한다.
 
 ---
 
@@ -6633,7 +6580,7 @@ Apply(
              Divide
 ```
 
-여기서 일반 dataflow 실행 의미는 fork 표기 없이도 표현할 수 있지만, **원래 source가 fork/hook/@:였다는 topology provenance는 optimization 정보로 계속 보존한다.** 4.24.15의 StructuralOpportunity sidecar가 pipeline/branch-join/live-across 정보를 명시적으로 운반하므로 optimizer가 generic DAG에서 이를 다시 pattern-match할 필요가 없다. 진단·debug provenance이기도 하지만 그것에 한정되지 않는다.
+여기서 일반 dataflow 실행 의미는 fork 표기 없이도 표현할 수 있지만, **원래 source가 fork/hook/@:였다는 topology provenance는 optimization 정보로 계속 보존한다.** §4.1.1의 StructuralOpportunity sidecar가 pipeline/branch-join/live-across 정보를 명시적으로 운반하므로 optimizer가 generic DAG에서 이를 다시 pattern-match할 필요가 없다. 진단·debug provenance이기도 하지만 그것에 한정되지 않는다.
 
 Logical Plan에서 보존할 정보:
 
@@ -6871,6 +6818,8 @@ MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable arti
 
 ---
 
+<a id="logical-physical-array-model"></a>
+
 ## 6. 논리 배열과 물리 배열 — 핵심 architecture decision
 
 ### 6.1 논리 J noun, boxed, sparse와 verb
@@ -6946,7 +6895,7 @@ verb는 noun array를 입력받아 noun array를 반환하는 array transformer�
 
 하나의 ValueId가 CPU와 GPU의 여러 representation을 가질 수 있다.
 
-반대로 서로 수명이 겹치지 않는 여러 ValueId가 같은 BufferId를 재사용할 수도 있다.
+반대로 수명·alias·effect 조건이 검증된 여러 ValueId가 같은 BufferId를 재사용할 수도 있다. Logical ArrayValue가 존재한다고 별도 buffer가 필요한 것은 아니다. view, fused-away intermediate, rematerialized value의 실제 저장과 reshape/transpose/reverse/slice의 copy 여부는 downstream planner가 결정한다.
 
 ### 6.3 PhysicalArray
 
@@ -7313,6 +7262,8 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 ---
 
+<a id="architecture-migration-checklist"></a>
+
 ## 10. 구현 계획과 체크리스트
 
 이 절이 앞으로 유일한 구현 체크리스트다.
@@ -7344,7 +7295,7 @@ Logical J value와 physical representation의 분리는 이 전체 pipeline에 �
 - [x] 목표 compiler stage와 각 stage의 책임을 문서에서 확정했다.
 - [x] Graph Basis와 Execution Basis를 별도 계층으로 분리했다.
 - [x] Logical Array/J noun과 Physical Array/representation을 별도 계층으로 분리했다.
-- [x] 현재 코드의 중복 execution IR 경계(`analysis::LogicalPlan` → `logical_ir::Plan`)를 구조 부채로 식별했다.
+- [x] 과거 중복 execution IR 경계를 구조 부채로 식별했고 M1에서 제거했다.
 - [x] `physical.rs`가 아직 Physical Planner가 아니라 read-only CPU affine representation foundation임을 명시했다.
 - [x] `runtime.rs`의 `ResolvedVerb { reduce, rank, ... }` flattening은 과도기 runtime 구현이며 canonical semantic/compiler model이 아님을 확인했다.
 - [x] ArrayFire와 `math_arrayfire`를 semantic oracle이 아니라 execution/fusion/adapter 참고 구현으로 배치했다.
@@ -7394,28 +7345,19 @@ backend / executor
 
 **M0 완료 조건:** **완료.** 새 구현이 어느 stage에 속하는지 한 곳으로 결정할 수 있고, 과도기 compatibility bridge를 새 canonical interface로 오인하지 않는다.
 
-#### M1 — canonical Logical Execution IR로 cutover
+#### M1 — canonical Logical Execution IR로 cutover — 완료
 
-목표: `logical_ir::Plan`을 유일한 canonical execution IR로 만들고 crate-private `transition_ir::LogicalPlan` compatibility 계층(현재 `analysis`에서 re-export)을 제거한다.
+`logical_ir::Plan`이 유일한 canonical execution IR이다. 아래는 현재 유지되는 완료 조건이며 제거한 과도기 container를 현행 모듈처럼 설명하지 않는다.
 
-- [x] `ExecutionBasisKind`, `ExecutionBasis`, `AccessFact`, `AccessRelation`, `CallTarget/Callable`, `ResolvedInstantiation`, symbol/scope처럼 계속 필요한 target-independent execution-semantic contract를 `execution_semantics.rs`로 분리했다. `analysis` re-export는 compatibility만 담당한다.
-- [x] J Graph IR execution-semantic lowering 중 canonical `logical_ir::Plan`을 incremental하게 직접 생성하는 경로를 만들었다. legacy transition plan은 같은 lowering record에서 compatibility output으로만 병행 생성한다.
-  - [x] legacy container 타입을 `analysis.rs`에서 crate-private `transition_ir.rs`로 격리해 direct lowerer가 제거해야 할 seam을 한 모듈로 축소했다.
-  - [x] A3 iteration-domain/constraint helper가 `transition::Node` 전체가 아니라 `Facts/RankPlan/ExecutionBasis/ResolvedInstantiation`을 받도록 분리했다.
-  - [x] graph-node lowering builder가 incremental projector를 직접 호출해 A3 op/value/check를 생성하도록 전환했다.
-- [x] 완성된 transition plan을 다시 읽는 `Plan::from_transition` pass를 제거하고, fact/check/order/provenance 생성을 incremental `TransitionProjection`으로 옮겼다.
-  - [x] 모든 외부 consumer를 `CompilationAnalysis.logical`로 전환했다.
-  - [x] graph lowering builder가 A3 op/value/check를 직접 생성하도록 전환했고 `Plan::from_transition`을 삭제했다.
-- [x] `Engine::analyze_a3`와 `analyze_diagnostic`을 canonical Logical IR API로 전환했다. `Engine::analyze`만 M1 compatibility transition API로 명시해 남겨 두었다.
-- [x] `CompilationAnalysis`는 `j_graph + rewrite candidates/resource evaluation + canonical logical plan`을 묶는 analysis result로 재정의했다.
-  - [x] canonical A3 `logical: logical_ir::Plan`을 추가하고 `Engine::analyze_a3`, route/expansion test consumers를 이 필드로 전환했다.
-  - [x] compatibility `transition` field와 `transition_ir` module을 제거했다.
-- [x] `analysis::LogicalPlan`, 구형 `analysis::ValueId/Node/Write` 및 transition IR container를 제거했다.
-- [x] A3 verifier/reference executor/lowering tests는 `Engine::analyze_a3`와 `logical_ir::Plan` direct-lowering 경로를 사용한다.
-- [x] direct A3 regression test로 Graph origin/source span, name version, semantic check 선행 순서와 write ordering을 고정했다.
-- [x] `analysis.rs` dependency audit를 완료했다. canonical IR container/transition 책임은 없고 `CompilationAnalysis` 및 execution-semantic compatibility re-export만 남아 있다.
+- [x] shared target-independent execution-semantic contract를 `execution_semantics.rs`로 분리했다.
+- [x] `analysis::lower_graph()`가 J Graph IR에서 A3 op/value/check를 직접 생성한다.
+- [x] `Plan::from_transition`, `TransitionProjection`, `transition_ir` module/container 및 `analysis::LogicalPlan`을 제거했다.
+- [x] `CompilationAnalysis`는 `j_graph`, rewrite/resource views와 canonical `logical`만 묶으며 `transition` 필드가 없다.
+- [x] `Engine::analyze`, `analyze_a3`, `analyze_diagnostic`은 canonical Logical IR을 반환한다.
+- [x] verifier/reference-executor/lowering test consumer를 canonical `logical_ir::Plan`으로 전환했다.
+- [x] Graph origin/source span, name version, semantic check와 write ordering의 direct-A3 regression을 추가했다.
 
-**M1 완료 조건:** `J Graph IR → logical_ir::Plan`이 직접 연결되고 `analysis::LogicalPlan`이 코드에서 사라진다.
+**M1 완료 조건:** 충족. `J Graph IR → logical_ir::Plan` 직접 연결과 단일 execution container가 유지되어야 한다. 이 완료는 full frontend, implicit cell semantics 또는 native Physical Executor의 완료를 뜻하지 않는다.
 
 #### M2 — jsource-compatible frontend/parser cutover
 
@@ -7496,14 +7438,12 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 ### A0 — 문서/아키텍처 경계
 
-### A0 — 문서/아키텍처 경계
-
 - [x] RustJ 내부 compiler stage의 논리적 경계를 확정한다.
 - [x] Semantic Analyzer 입력 전에 hook/fork/train/derived verb/rank를 제거하지 않는 원칙을 확정한다.
 - [x] `J Semantic Array IR`과 `Logical Array IR / Plan`을 구분한다.
 - [x] generic boundary 후보를 semantic analysis 이후의 Logical Array IR로 이동한다.
 - [x] 문서를 `PROJECT.ko.md`로 통합한다.
-- [ ] 실제 코드 dependency에서도 source frontend → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Plan 경계를 만든다.
+- [x] 현재 지원 subset의 source frontend → FunctionEntity → J Graph → canonical Logical IR 분석 경계를 연결했다. full frontend/execution 완료는 M2/M4에서 별도로 추적한다.
 
 ### A0.5 — jsource-compatible parser 이행 체크리스트
 
@@ -7798,6 +7738,8 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank 및 derived verb/adverb/conjunction의 의미 구조가 분석 입력에 남아 있다.
 
+<a id="j-graph-implementation-checklist"></a>
+
 ### A1.5 — J Graph IR / JAXA Array Operation Graph IR
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
@@ -7813,7 +7755,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | Semantic AST와 Array Operation IR 분리 | `FunctionEntity`와 `j_graph_ir::Plan`을 별도 boundary로 둠 | 반영 |
 | J syntax에서 static graph 직접 유도 | `@:`, Hook/Fork, `/`, `"`를 `GraphForm`으로 분류 | 반영 |
 | `@:` pipeline / Hook/Fork branch-join | `Pipeline`, `Hook`, `Fork` + GraphHint | 반영 |
-| applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node이며 `GraphFacts`를 보유. 다만 구현은 아직 execution `Facts` container로 seed/convert하며 `facts::infer_semantic_call`을 직접 호출한다 | **초기 구현 — rule 공유는 맞지만 container coupling 제거 필요** |
+| applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node와 독립 `GraphFacts`를 보유하며 layout-independent `SemanticFacts`와 `facts::infer_semantic_projection`을 사용한다 | **초기 구현 — container 분리됨** |
 | primitive shape/dtype/rank/effect contract | `GraphRuleRefs` + layout-independent `SemanticFacts` transfer를 J Graph build에서 적용. Execution `Facts` container와 GraphFacts container는 분리 | **초기 구현** |
 | primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/working_state symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
 | iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionStructure`를 J Graph op에 연결 | **초기 구현** |
@@ -7821,12 +7763,12 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | intermediate edge materialization/traffic 분석 | `j_graph_memory`가 pipeline/branch/view materialization opportunity와 logical extent를 계산. traffic/selected materialization plan은 후속 | **초기 구현** |
 | register/live-value pressure 분석 | J Graph use-def/live-range를 계산하고 branch `live_across`가 join까지 lifetime을 확장. register pressure로의 target mapping은 후속 | **초기 구현** |
 | target profile과 graph resource demand 결합 | full TargetProfile/ResourceEstimate는 후속. 다만 Graph rewrite basis를 existing `LoweringRegistry + TargetCapabilities`에 투영하는 target-only feasibility query를 추가해 `Supported / RequiresCallFacts / Unsupported`를 구분한다 | **초기 연결** |
-| fusion partition 산출 | candidate/opportunity까지만 있고 partition/feasibility 계산 없음 | **미구현** |
+| fusion partition 산출 | fusion candidate/opportunity만 있으며 선택된 fusion partition은 없음. rewrite의 target-only feasibility bridge와 구분 | **미구현** |
 | reshape/flatten/transpose를 virtual view로 취급 | Ravel/Reverse/Transpose에 `VirtualIndexingCandidate`를 J Graph에서 기록 | **초기 구현** |
 | Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
 | checkpoint/rematerialization/reversible recovery | `StorageRequirement::ExplicitCheckpoint`와 logical/physical 분리는 설계됨. physical `Rematerialize` decision은 이번 반복 감사에서 명시적 planning option으로 보강했으나 구현은 없음 | **부분 반영 — 후속** |
 | adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
-| Graph basis → rewrite → equivalence algebra | roadmap/설계만 있음 | 과거 연구와 동일하게 아직 열린 문제 |
+| Graph basis → rewrite → equivalence algebra | Graph Basis와 첫 witnessed `E.` rewrite registry/candidate/verifier/resource 비교가 있음 | **초기 구현 — 일반 rule/equivalence 확장은 후속** |
 | resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
 | basis access-pattern taxonomy | Graph Basis에 Window access family를 추가해 `u\`를 `PrefixInfix`로 보존하고 `(+/)\`를 `Window → Reduce`로 표현. Scan은 별도 Graph Basis 원소로 승격할지 열린 질문으로 유지 | **초기 구현** |
 | symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행한다. `ResourceExprGraph`가 ValueAtoms/Requirement/Sum/Max 식을 보존하고 Pipeline/BranchJoin의 internal/elidable/retained/peak-live provenance를 표현한다. PrefixInfix/Rank는 inner resource requirement를 합성한다. richer accumulator/window-size 함수와 target realization은 후속 | **초기 구현** |
@@ -7836,13 +7778,13 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 | jsource-style graph normalization(capped fork→atop, tine simplification) | 현 `j_graph_ir`에는 별도 normalization pass 없음 | **미구현/확인 필요** |
 | multi-device static partition | 없음 | future work |
 
-**핵심 판정:** 현재 IR은 JAXA의 가장 중요한 **“표기에서 graph topology를 직접 얻는다”**는 주장을 복구했다. 그러나 과거 연구에서 `Array Operation IR`이라는 말은 topology만이 아니라 **shape/flow/fusion/resource 분석을 수행할 수 있는 stage-level operation graph**를 의미했다. 현행 v0.1은 아직 그 수준까지 가지 않았다.
+**현재 판정:** v0.3는 표기에서 얻는 topology를 stage-level applied graph, GraphFacts, use/liveness 및 symbolic resource seam으로 확장했다. 부족한 것은 graph 부재가 아니라 rewrite-specific facts, 실행 lowering 및 실제 schedule/resource/cost 선택이다.
 
 v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access family, graph-only fact domain 경계, node-level Reduction/Window/CellMap resource composition을 추가했다.
 
 1. `@:` stage, Hook/Fork branch/join은 이제 실제 J Graph `ValueId` node/edge다.
 2. 원래 J combinator identity는 `Region(Pipeline/Hook/Fork)`으로 별도 보존한다.
-3. stage별 `Facts`, `GraphOperationContract`, `GraphAnalyzability`, use-count를 graph에서 질의할 수 있다.
+3. stage별 `GraphFacts`, `GraphOperationContract`, `GraphAnalyzability`, use-count를 graph에서 질의할 수 있다.
 4. `j_graph_memory`가 logical extent, graph-order live range, pipeline/branch/view materialization opportunity를 계산한다.
 
 남은 핵심 부족은 **rewrite candidate를 실제 executable lowering/schedule/target resource model로 연결하는 단계**다. Graph 쪽에서는 `ResourceExprGraph`로 internal/elidable traffic, retained/peak-live, temporary/accumulator/window-state requirement와 canonical state lifetime을 표현하고, rewrite candidate도 동일 logical-atom/symbolic-state domain에서 비교한다. 다음 경계는 rewrite-specific facts의 확대, WindowView 등 execution lowering capability, fusion 선택에 따른 lifetime extension, resolved TargetProfile 기반 ResourceEstimate/CostEstimate, 그리고 그 뒤의 candidate selection/partition이다.
@@ -7850,7 +7792,7 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 #### 2026-10-01 반복 감사에서 추가로 확정한 JAXA 계승 원칙
 
 1. **Graph Basis의 historical lower bound는 arithmetic atom이 아니라 access pattern 계층이다.** Japchae D-24의 핵심은 너무 작은 scalar `+`/`*`로 분해해 algorithm/access identity를 잃지 말라는 것이다. RustJ의 Graph Basis는 이 원칙을 유지한다. `Conv` 같은 structured op를 Graph Basis에서 black box로 유지하는 결정과 Execution Basis에서 필요 시 분해하는 결정은 독립적이다.
-2. **Graph Basis vocabulary에는 windowing 계열이 필요하다.** historical 후보는 `map / reduce / window-reduce / static-reindex / dynamic-gather`이고 `scan`은 독립 패턴인지 열린 질문이었다. RustJ는 `WindowReduce` 또는 이에 동등한 graph-level window access identity를 추가해야 한다. ExecutionBasis::WindowView가 존재한다는 사실로 이 요구를 대체하지 않는다.
+2. **Graph Basis vocabulary에는 windowing 계열이 필요하다.** historical 후보는 `map / reduce / window-reduce / static-reindex / dynamic-gather`이고 `scan`은 독립 패턴인지 열린 질문이었다. v0.3에서 `PrefixInfix`/Window access family와 resource identity를 추가했다. 일반 WindowReduce 실행 지원은 후속이다. ExecutionBasis::WindowView가 존재한다는 사실로 이 요구를 대체하지 않는다.
 3. **Basis 연구가 rewrite/equivalence보다 선행한다.** 작업 의존은 `Basis → Rewrite → Equivalence → Optimization`으로 둔다. 완전한 최소 basis 증명까지 기다릴 필요는 없지만, rewrite rule은 어떤 Graph Basis identity를 보존/변환하는지 명시해야 한다.
 4. **resource contract는 node별 고정 숫자도, 단순 enum 합도 아니다.** target-independent graph 층은 symbolic requirement/access/liveness/materialization 관계를 합성하고, schedule/target 이후 concrete register/shared/global resource를 계산한다. 현재 최소 `SymbolicResourceExpr`는 seam일 뿐 최종 모델이 아니다.
 5. **resource-aware pruning은 매우 후순위다.** basis/rewrite/equivalence가 먼저 서야 하며, pruning은 (a) 해당 resource bound가 부분 graph에서 local하게 결정 가능한지, (b) pruning predicate가 monotone하거나 그 밖의 soundness proof를 갖는지 확인된 경우에만 허용한다. 그렇지 않으면 후보 생성 후 cost/resource evaluation만 수행한다.
@@ -7859,8 +7801,6 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 8. **frontend 역사 prototype은 current jsource보다 우선하지 않는다.** `JAXA-complier`의 tokenizer/enqueuer/parser Python prototype은 유용한 참고 구현이지만, name lookup timing과 parser behavior의 oracle은 current jsource `w.c/p.c/cf.c`다. 특히 전체 name 품사를 parser 전에 미리 확정하는 모델로 되돌아가지 않는다.
 9. **초기 JAXA의 강한 구현 주장은 그대로 계승하지 않는다.** `"RjP`, rank 변화=항상 fusion boundary, 모든 shape op=항상 zero-copy, parse-time complete graph, fixed physical offset, primitive 고정 register 숫자는 후기 연구 또는 current RustJ 계층 분리와 충돌하므로 superseded다.
 
-
-**목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
 - [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
 - [x] `GraphBasis` / `GraphBasisKind`를 Execution basis 타입과 분리하고, derived rank/reduction처럼 outer→inner graph-basis composition을 보존하는 최소 seam을 추가했다.
@@ -7874,7 +7814,7 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / PrefixInfix(`\`) / Rank(`"`) / generic Modifier를 구분한다.
 - [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / WindowStructure / CellParallelStructure를 기록한다.
 - [x] `GraphRuleRefs`로 shape/dtype/rank-cell/effect rule source와 resource rule의 StructuralComposition/Unknown을 명시한다.
-- [x] `Engine::analyze_compilation()`이 `j_graph`와 `execution` 두 IR을 함께 반환한다.
+- [x] `Engine::analyze_compilation()`이 `j_graph`와 `logical` 두 IR을 함께 반환한다.
 - [x] execution lowering은 BoundProgram을 직접 canonicalize하지 않고 J Graph IR을 소비한다.
 - [x] execution node/A3 op가 `j_origin`으로 originating J Graph node를 보존한다.
 - [x] Hook/Fork/@: topology 분류의 단일 소스를 `j_graph_ir::classify_function()`으로 두고 execution analyzer의 독립 pattern rediscovery를 제거한다.
@@ -8192,6 +8132,8 @@ Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 �
 
 ---
 
+<a id="validation-policy"></a>
+
 ## 11. 검증 정책
 
 모든 구현 변경은 이 절을 따른다.
@@ -8275,17 +8217,23 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 
 `Rust가 J보다 빠르다` 같은 전체적 결론은 제한된 microbenchmark만으로 주장하지 않는다.
 
+### 11.8 Semantic hard cases의 golden 관문
+
+prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, name expected-POS mismatch, assignment entity+effect/right-to-left lookup, hook/fork observable order, adverse/obverse latent semantics, tolerance/`!.`, overflow retry/promotion 및 error precedence를 대응 semantic golden으로 잠근다. full-J 전체를 첫 CPU slice 전에 완성할 필요는 없으나, 해당 의미를 optimization/lowering 대상으로 열기 전에 값·dtype·shape·오류·효과 순서의 differential 검증이 있어야 한다. 첫 matrix cell 표본은 [§4.11.4.12](#mean-proof-example)를 사용한다.
+
 ---
+
+<a id="current-implementation-status"></a>
 
 ## 12. 현재 검증·구현 상태 요약
 
-기준일: 2026-10-01.
+코드 검토 기준: 2026-10-02, `98ae387` (직전 문서 commit; runtime 코드는 `89b87b8`과 동일). 이 기준일은 전체 runtime 검증을 재실행했다는 뜻이 아니다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
 - parser-produced shared `FunctionEntity`가 primitive, modifier application, hook/fork/train, rank/@: 구조를 보존한다.
 - J Graph IR이 별도 canonical analysis surface로 존재하고 Graph Basis, structural opportunity, graph rewrite/resource analysis 기초가 구현되어 있다.
-- crate-private `transition_ir::LogicalPlan`과 `logical_ir.rs`의 A3 SSA `Plan`이 아직 병행 출력된다. 그러나 canonical A3는 이제 J Graph lowering 중 incremental하게 직접 생성되며 완성된 transition plan을 재변환하지 않는다. **M1의 남은 핵심은 compatibility `transition` output/API와 transition container 타입 자체를 삭제하는 것**이다.
+- **M1 완료:** J Graph lowering이 `logical_ir::Plan`을 직접 생성한다. transition module/container/API는 제거했고 `Engine::analyze/analyze_a3`와 `CompilationAnalysis.logical`은 같은 canonical plan을 사용한다.
 - A3-v0에는 SSA ValueId, Function/Region/Block/Return, Execution Basis payload, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation, verifier가 구현되어 있다.
 - `SemanticCapabilityView`, `ParameterizedLoweringRecipe`, `LoweringRegistry`, 기본 target legality/candidate generation과 contiguous route partition prototype이 구현되어 있다.
 - 현재 RoutePartition은 class + operation range 중심의 prototype이며 boundary values/preconditions/chosen external route/bridge representation은 아직 없다.
@@ -8611,7 +8559,15 @@ jsource에서 적극적으로 가져올 것:
 
 ### 15.1 권위 문서
 
-앞으로 사람이 유지하는 프로젝트 기준 문서는 **이 `PROJECT.ko.md`가 정본이며 `PROJECT.md`는 같은 설계의 영어 mirror**다. Syntax 힌트 검토와 프레임워크 비교도 §4.24.15a–b에 통합했으며 별도 설계 보고서를 유지하지 않는다. 새 설계·구조 결정은 한국어 정본을 먼저 갱신하고 영어 mirror를 같은 변경에서 갱신한다.
+앞으로 사람이 유지하는 프로젝트 기준 문서는 **이 `PROJECT.ko.md`가 정본이며 `PROJECT.md`는 같은 설계의 영어 mirror**다. Syntax 힌트 검토와 프레임워크 비교도 §4.1.2–3에 통합했으며 별도 설계 보고서를 유지하지 않는다. 새 설계·구조 결정은 한국어 정본을 먼저 갱신하고 영어 mirror를 같은 변경에서 갱신한다.
+
+정본 유지 규칙:
+
+- 전체 구현 상태와 코드 검토 기준은 §12에서 요약하고, 완료/미완료 관문은 §10의 해당 stage 체크리스트에서 관리한다. 다른 절은 고유 계약만 설명하고 이 정본 위치를 참조한다.
+- syntax/graph 연구는 §4.1, 확장 primitive inventory는 §4.6, cell 의미의 proof 표본은 §4.11.4, 공통 검증 정책은 §11에 둔다.
+- 역사 감사와 과거 설계는 날짜/검토 기준을 명시한다. 이전 v0.1 또는 transition 단계의 상태를 현재 구현으로 서술하지 않는다.
+- 절을 이동하면 한·영 heading/상호 참조를 함께 갱신하고, 고정 출처·후보/채택/구현 상태·고유 검증 조건을 보존한다.
+
 
 변경 시 함께 갱신할 항목:
 
@@ -8656,8 +8612,8 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 - COMPILER-ARCHITECTURE
 - JAXA-REVIEW
 - MEMORY-POLICY
-- COMPILER-HINTS-J-SYNTAX — §4.24.15a로 통합
-- J-GRAPH-FRAMEWORK-OPTIMIZATION-REVIEW — §4.24.15b로 통합
+- COMPILER-HINTS-J-SYNTAX — §4.1.2로 통합
+- J-GRAPH-FRAMEWORK-OPTIMIZATION-REVIEW — §4.1.3로 통합
 - ARRAY-FRAMEWORK-DESIGN-REVIEW
 - GPU-ARRAY-DESIGN-AUDIT
 - RUST-ARRAY-REFERENCES
@@ -8821,244 +8777,16 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 ---
 
-## 16. 다음 작업
+## 16. 다음 작업 — 정본 체크리스트로 이동
 
-현재 가장 먼저 증명해야 하는 것은 전체 compiler stack이 아니라 **J semantic structure → verified Logical IR → 최소 CPU 실행**의 얇은 수직 슬라이스다.
+작업 순서는 [§10 M0–M6](#architecture-migration-checklist)만 유지하고, 현재 구현 상태는 [§12](#current-implementation-status)를 따른다. 이 절에 별도의 Proof Slice 완료표나 과거 단계별 상태표를 복제하지 않는다.
 
-장기 architecture를 유지하되 구현 순서는 다음처럼 좁힌다.
+1. **M2/frontend**: F0–F2/P0–P8의 jsource-compatible construction/name/assignment cutover를 완료한다. M1 canonical Logical IR cutover는 완료 상태다.
+2. **M3/배열 경계**: logical value와 physical representation의 code/API 분리를 수렴시킨다.
+3. **M4/CPU vertical slice**: verified Logical IR → 최소 Schedule/Physical Plan → CPU Physical Executor를 연결한다. [matrix mean 표본](#mean-proof-example)은 implicit cell semantics를 검증하며 analyzer smoke test만으로 실행 완료를 판정하지 않는다.
+4. **M5–M6**: 그 뒤 route/schedule/resource/cost 선택과 검증된 external adapter를 확장한다. 실제 CUDA 구현은 사용자가 재개하기 전까지 보류한다.
 
-### 16.1 Proof Slice 0 — A1 semantic preservation
-
-1. 현재 `semantic.rs`, `analysis.rs`, `facts.rs`, `contracts.rs`의 실제 책임과 목표 architecture의 차이를 표로 만든다.
-2. `semantic.rs`가 noun/verb/adverb/conjunction, hook/fork/train, derived entity, gerund interpretation, rank, nameref를 얼마나 보존하는지 감사한다.
-3. 첫 slice의 `J Semantic Array IR`은 jsource parser row 3/4/5/6가 만든 shared `FunctionEntity` graph로 명시한다. modifier별 special semantic node를 추가하지 않는다.
-4. 다음 semantic golden을 우선 고정한다.
-   - primitive valence
-   - reduction-derived verb
-   - fork/train 구조 보존
-   - rank form 보존
-   - noun snapshot vs function late binding
-   - assignment entity+effect / same-sentence lookup
-
-**성공 기준:** scanner/parser 없이 handcrafted J Semantic IR을 Semantic Analyzer에 넣어 테스트할 수 있고, 분석 전에는 J composition identity가 사라지지 않는다.
-
-### 16.1.1 현재 Proof Slice 0 진행 상태
-
-현재 코드에 다음 migration seam이 들어갔다.
-
-- [x] primitive/name function identity를 `Arc<FunctionEntity>` shared handle로 표현
-- [x] lexer가 `/`를 ADV, `"`를 CONJ로 분류하고 parser row 3/4의 현재 지원 subset이 operator-parent graph를 만든다
-- [x] isolated pure verb train을 jsource 규칙대로 오른쪽부터 fork, 짝수 길이는 최종 hook으로 구성
-- [x] hook/fork graph가 큰 train에서 subtree deep-copy 없이 공유됨
-- [x] Semantic Analyzer가 canonical fork `(+/ % #) y`를 Tally / reduction-semantics(+) / Divide dataflow로 낮추면서 jsource-compatible observable order edge를 보존
-- [x] nested hook/fork long train도 동일 graph lowering path를 사용
-- [x] A3-v0 `LogicalPlan::verify()` 기초와 `AccessFact::Known | Opaque` seam 존재
-
-아직 남은 A1 핵심:
-
-- [ ] ordinary name parser-time POS를 noun/verb/adverb/conjunction 전체로 일반화
-- [ ] jsource row 3/4의 NOUN operand forms와 full result-POS rule을 구현
-- [ ] row 5/6을 pure edge phrase helper가 아니라 일반 parser-stack production으로 확대하고 mixed-sentence precedence를 differential test로 고정
-- [ ] current `Callable.reduce/rank` migration fields를 normalized LogicalOp/Rank facts로 제거
-- [ ] derived adverb/conjunction 및 modifier train
-- [ ] built-in/extension ADV·CONJ operator identity/POS registry와 typed semantic contract interface
-- [ ] legacy `VerbTarget/reduce/rank` runtime compatibility field 제거
-- [ ] function graph 안의 rank/fit/adverse/obverse 등 더 많은 J form을 registry-driven analysis로 이전
-- [ ] explicit definition/locale/gerund 전체 의미
-
-현재 `FunctionEntity.operands`는 v0 단순성을 위해 `Vec`를 사용한다. 대부분 parser productions가 1–3 semantic operand를 갖지만, jsource `fgh[3]`의 slot layout 자체를 semantic ABI로 채택하지 않는다. **inline-small-vector + rare spill** 같은 저장 최적화는 large-train memory profile을 측정한 뒤 적용할 수 있다.
-
-### 16.2 Proof Slice 1 — A3-v0 verified Logical IR
-
-Implicit loop는 이 단계에서 backend loop로 만들지 않고 `CellApplyPlan`/logical `CellApply` seam을 먼저 추가한다. explicit `"` parent-conjunction 구조와 callable innate rank가 같은 planner를 사용해야 한다.
-
-5. single Function / single Region / single Block의 SSA `ValueId` core와 verifier를 만든다.
-6. v0 fact는 다음으로 제한한다.
-
-```text
-shape / dtype / valence
-IterationDomain: Map | Reduce
-AxisSemantics: minimum required subset
-AccessFact: Known(simple relation) | Opaque
-NumericSemantics: minimum
-EffectSummary / SpeculationSemantics
-ConstraintSet + compile-time Witness: minimum
-```
-
-7. `Unknown/Opaque` access는 semantic failure가 아니라 access-sensitive optimization barrier로 처리한다.
-8. Semantic Analyzer가 target 정보 없이 J Semantic IR + minimal capability를 읽어 single-block Logical IR을 만들게 한다.
-9. operation verifier가 malformed IR, fact contradiction, illegal valence/input relation을 거부하게 한다.
-
-**첫 canonical proof example:**
-
-```j
-(+/ % #) y
-```
-
-```text
-J Semantic IR
-  Fork
-  ├─ / : Verb
-  │   └─ + : Verb
-  ├─ % : Verb
-  └─ # : Verb
-        ↓ Semantic Analyzer
-Logical IR
-  Reduce(+)
-  Tally
-  Divide
-```
-
-source/semantic provenance와 필요한 numeric/rank contract를 유지한다.
-
-### 16.2.1 Canonical E2E audit — `(+/ % #) y`
-
-이 표현을 compiler pipeline의 고정 추적 표본으로 사용한다. 단순 vector 입력만 사용하면 implicit cell application이 드러나지 않으므로 두 입력을 구분한다.
-
-```j
-y =: 1 2 3 4
-(+/ % #) y
-```
-
-은 parser/train/lowering smoke test로 사용한다. 더 강한 E2E semantic test는 다음이다.
-
-```j
-y =: i. 2 3
-(+/ % #) y
-```
-
-J 의미상:
-
-```text
-+/ y  -> 3 5 7
-#  y  -> 2
-3 5 7 % 2 -> 1.5 2.5 3.5
-```
-
-current jsource는 이 source structure를 fork로 유지한다. `cf.c::jtfolk`는 `f=+/`, `g=%`, `h=#`인 fork를 인식해 monadic executor를 `jtmean`으로 specialize하지만, derived entity 자체는 `CFORK`와 원래 f/g/h operands를 유지한다. `ar.c::jtslash`가 만든 `+/`의 monadic rank는 infinite(`RMAX`)이고, primitive table에서 `#`의 monadic rank도 infinite, `%`의 dyadic left/right rank는 `0 0`이다. 따라서 matrix 입력에서는 마지막 `%`가 다음 implicit cell application을 요구한다.
-
-```text
-left  = +/ y : shape [3], dyad cell rank 0
-right = #  y : shape [],  dyad cell rank 0
-
-CellApply2
-  left_frame  = [3]
-  left_cell   = []
-  right_frame = []
-  right_cell  = []
-  agreement   = prefix
-  repetition  = repeat right scalar over left residual frame
-  result      = shape [3]
-```
-
-2026-09-30 current RustJ의 실제 단계별 상태:
-
-| 단계 | 현재 표본에서의 상태 | 실제 표현 / 문제 |
-|---|---|---|
-| scanner / word formation | 연결됨 | `+`, `/`, `%`, `#`를 별도 J word로 형성 |
-| token/POS classification | 연결됨 | `+`/ `%`/ `#` = Verb, `/` = Adverb |
-| modifier parser reduction | 연결됨 | `+ /` -> applied adverb FunctionEntity, parent identity는 `/` |
-| train construction | 이 표본에서 연결됨 | `+/ % #` -> shared `Fork(f=+/, g=%, h=#)` graph |
-| noun binding | 연결됨 | analysis path에서 `y`는 `ReadName + NameVersion` |
-| Semantic Analyzer structural lowering | 연결됨 | fork 실행 의미를 h -> f -> g 순으로 `Tally`, reduction `+`, `Divide` call dataflow로 생성 |
-| fact inference | 부분 연결 | shape/dtype 일부와 `ReduceLeadingAxis`/elementwise access를 계산 |
-| innate rank contract | **미구현** | primitive/derived callable의 monad/dyad-left/dyad-right `RankSpec`이 contract에 없음 |
-| implicit CellApply | **미구현** | matrix case의 `Divide([3], scalar)`가 logical `CellApply2`로 나타나지 않음 |
-| current rank fact | migration-only | `facts::RankPlan`은 explicit `Callable.rank`가 있을 때만 생김; plain `%`의 innate rank-0 iteration은 기록하지 않음 |
-| normalized LogicalOp | 부분 구현 | 아직 `Operation::Call + Callable.reduce` 중심이며 canonical `Reduce` / `CellApply` payload op로 분리되지 않음 |
-| LogicalPlan verifier | 기초만 존재 | ID/span/fact-shape/order 참조를 검증하지만 valence/rank/CellApply/agreement semantic legality verifier는 아직 없음 |
-| target-independent canonicalization | 미구현 | mean pattern 같은 rewrite가 없음 |
-| RoutePartition | 미구현 | 실제 route module/plan 없음 |
-| native Schedule / Physical Plan | 미연결 | `physical.rs`의 G1 affine representation은 존재하지만 LogicalPlan에서 생성되지 않음 |
-| LogicalPlan executor | **없음** | `analysis.rs`가 inspection-only이며 execute-plan API가 없음 |
-| legacy direct runtime | 별도 경로 | Semantic Analyzer/LogicalPlan을 우회하며 current `resolve_verb`는 `VerbTarget::Derived` fork를 실행하지 못함 |
-| true compiler E2E | **아직 성립하지 않음** | source -> verified Logical IR까지가 현재 연결된 compiler slice |
-
-특히 현재 analyzer는 matrix case에서도 `ShapeRule::PrefixAgreement`만으로 마지막 `Divide`의 result shape `[3]`을 추론할 수 있다. 그러나 **shape가 맞는 것과 J cell-iteration semantics를 표현한 것은 다르다.** 현재 `rank_plan=None`인 채 elementwise map으로 보이는 것은 최종 설계에서 허용할 수 없는 migration 상태다.
-
-따라서 이 표본의 첫 실제 compiler E2E proof 순서는 다음으로 고정한다.
-
-1. primitive/derived callable에 valence별 innate `RankSpec`을 연결한다.
-2. explicit `"`와 innate rank가 함께 사용하는 pure `CellApplicationPlanner`를 만든다.
-3. matrix `(+/ % #) y`의 마지막 `%`가 위의 `CellApply2`를 생성하는 golden test를 추가한다.
-4. `+/`를 migration bool이 아닌 normalized `Reduce(+)`로 내리고 `#`/ `%`와 함께 verified Logical IR을 만든다.
-5. verifier가 CellApply의 frame/cell split, prefix agreement, repetition relation, input/result fact consistency를 검증하게 한다.
-6. 이 single-region Logical IR을 기존 CPU kernels에 연결하는 최소 native executor를 만든다.
-7. generic `Reduce + Tally + CellApply(Divide)` 결과를 jsource와 differential test한다.
-8. 그 뒤에만 `(+/ % #)` -> fused Mean 후보를 Logical Optimizer/native lowering에 추가한다. 이 specialization은 semantic Fork graph를 대체하지 않고 generic path와 의미 동등성이 검증되어야 한다.
-
-기존 `tests/analysis.rs::canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order`는 parser/analyzer ordering smoke test로 유지하되, **compiler end-to-end 성공 증거로 간주하지 않는다.** 그 테스트는 `analyze + verify`까지만 호출하며 실행 경로를 통과하지 않는다.
-
-### 16.3 Proof Slice 2 — 최소 CPU end-to-end
-
-10. A2 전체를 구현하지 말고 **A2-v0 capability subset**만 연결한다.
-11. 먼저 dyadic `+`와 dense numeric reduction 한 개를 native CPU lowering에 연결한다.
-12. 최소 RustJ-native execution path를 만든다.
-
-```text
-Source
- → J Semantic IR
- → Semantic Analyzer
- → verified Logical IR
- → minimal native CPU lowering/executor
- → J Value
-```
-
-13. 기존 RustJ/reference execution과 differential test한다.
-14. 이 slice에 필요한 G3/G4 항목만 구현한다. full TargetProfile, ResourceEstimate, mixed route는 blocking requirement가 아니다.
-
-**성공 기준:** architecture diagram의 핵심 경계가 실제 코드에서 한 번 end-to-end로 통과한다.
-
-### 16.4 Semantic hard cases를 golden으로 잠근다
-
-15. 가능한 순서대로 다음을 differential/golden test로 추가한다.
-
-- prefix agreement
-- empty fill-cell / empty type semantics
-- rank result assembly
-- nameref expected-POS mismatch
-- assignment entity+effect와 right-to-left lookup sequencing
-- fork/hook observable effect order
-- adverse/obverse latent semantics
-- tolerance/`!.`
-- overflow retry/promotion + error precedence
-
-모든 항목을 첫 vertical slice 전에 완성할 필요는 없다. 다만 해당 semantic feature를 optimization/lowering 대상으로 열기 전에 대응 golden이 있어야 한다.
-
-### 16.5 그 다음 확장
-
-16. G2 structural view 또는 첫 external adapter 중 하나를 선택해 다음 proof slice로 진행한다.
-17. external route를 선택하면 처음에는 **verified single-block region 전체를 한 route**로 내린다. elementwise + reduction + static reindex 수준의 MLIR adapter와 MLIR verifier/differential test부터 시작한다.
-18. mixed contiguous-subgraph RoutePartition과 boundary bridge는 external 단일-route가 안정된 뒤 추가한다.
-19. `CompilationTarget` MVP, `TargetFacts + TargetQueries`, target locale chain은 실제 target-dependent planning이 필요해지는 시점에 구현한다.
-20. RustJ-native Schedule/Physical Plan의 richer tile/memory-space/synchronization 모델도 그 시점에 확장한다.
-21. `ResourceEstimate`, `CostEstimate`, `CompiledResourceReport`, runtime measurement feedback/re-plan은 실제 schedule 후보가 둘 이상 생긴 뒤 구현한다.
-22. StableHLO export는 의미가 정확히 맞는 tensor/NN subset부터 별도 adapter로 검토한다.
-23. branch/loop/try-catch-throw exceptional CFG/effect token은 A3-v1에서 추가한다.
-24. portable serialization/version migration과 async timepoint는 필요 시 A3-v2/physical extension으로 추가한다.
-25. 기존 LogicalPlan 결과와 새 pipeline의 의미 동등성을 계속 비교한다.
-
-### 16.6 구현 단계와 장기 architecture를 혼동하지 않는다
-
-다음은 **장기 architecture invariant**이지 첫 proof slice의 완료 조건이 아니다.
-
-- CPU/GPU는 동일한 semantic/logical architecture의 peer target이다.
-- mixed route가 가능하다.
-- TargetProfile/TargetQueries와 resource/cost feedback 구조가 존재할 수 있다.
-- full J semantics와 analyzable compiler profile을 분리한다.
-
-반대로 현재 implementation claim은 보수적으로 쓴다.
-
-- G1 physical boundary foundation은 존재한다.
-- A1/A2/A3는 prototype 요소가 있으나 목표 architecture는 아직 미완성이다.
-- GPU 관련 절은 현재 **계약/확장 경계**이며 GPU end-to-end 완료를 뜻하지 않는다.
-
-특히 세 가지 shortcut을 금지한다.
-
-- hook/fork/train/adverb/conjunction 정보를 “generic하게 만들기 위해” semantic analysis 이전에 소거하지 않는다.
-- 외부 IR을 쓰기 쉽도록 RustJ Logical IR을 외부 IR의 표현력에 맞춰 축소하지 않는다.
-- optimization을 쉽게 하려고 semantic storage/effect/error ordering을 physical schedule 정보와 섞지 않는다.
-
+장기 architecture의 full TargetProfile/mixed-route/async 모델이나 확장 primitive 전체를 첫 CPU slice의 선행 조건으로 삼지 않는다. 해당 의미를 최적화 대상으로 열 때는 [§11의 검증 정책](#validation-policy)과 대응 semantic golden을 먼저 충족한다.
 
 ---
 
