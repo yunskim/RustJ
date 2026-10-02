@@ -571,10 +571,14 @@ enum ParseValue {
 struct Item {
     class: ParseClass,
     value: ParseValue,
+    span_override: Option<std::ops::Range<usize>>,
 }
 
 impl Item {
     fn span(&self) -> std::ops::Range<usize> {
+        if let Some(span) = &self.span_override {
+            return span.clone();
+        }
         match &self.value {
             ParseValue::Noun(expr, _) => expr.span.clone(),
             ParseValue::Verb(verb) => verb.span.clone(),
@@ -583,10 +587,25 @@ impl Item {
         }
     }
 
+    fn with_span(mut self, span: std::ops::Range<usize>) -> Self {
+        self.span_override = Some(span);
+        self
+    }
+
     fn mark(at: usize) -> Self {
         Self {
             class: ParseClass::Mark,
             value: ParseValue::Control { span: at..at },
+            span_override: None,
+        }
+    }
+
+    fn control(class: ParseClass, span: std::ops::Range<usize>) -> Self {
+        debug_assert!(matches!(class, ParseClass::LParen | ParseClass::RParen));
+        Self {
+            class,
+            value: ParseValue::Control { span },
+            span_override: None,
         }
     }
 
@@ -594,6 +613,7 @@ impl Item {
         Self {
             class: ParseClass::Noun,
             value: ParseValue::Noun(expr, height),
+            span_override: None,
         }
     }
 
@@ -602,6 +622,7 @@ impl Item {
         Self {
             class: ParseClass::Verb,
             value: ParseValue::Verb(verb),
+            span_override: None,
         }
     }
 
@@ -609,6 +630,7 @@ impl Item {
         Self {
             class: entity.result_pos.into(),
             value: ParseValue::Function(entity),
+            span_override: None,
         }
     }
 
