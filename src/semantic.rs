@@ -168,14 +168,14 @@ fn apply_conjunction(
         _ => None,
     };
     let mut operands = vec![FunctionOperand::Function(left.entity)];
-    let right_end;
-    let Item { class, value: right } = right;
+    let right_span = right.span();
+    let right_end = right_span.end;
+    let Item { class, value: right, .. } = right;
     match (class, right) {
         (ParseClass::Noun, ParseValue::Noun(expr, _)) => {
             if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Atop)) {
                 return Err(Error::Syntax("atop requires a verb right operand".into()));
             }
-            right_end = expr.span.end;
             let value = match expr.kind {
                 ExprKind::Literal(value) => value,
                 ExprKind::Group(inner) => match inner.kind {
@@ -206,7 +206,6 @@ fn apply_conjunction(
             });
         }
         (ParseClass::Verb, ParseValue::Verb(verb)) => {
-            right_end = verb.span.end;
             operands.push(FunctionOperand::Function(verb.entity));
         }
         _ => return Err(Error::Syntax("invalid conjunction right operand".into())),
