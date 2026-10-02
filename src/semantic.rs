@@ -227,22 +227,31 @@ fn apply_conjunction(
 /// represented by this frontend: AVN ADV (row 3) and AVN CONJ AVN (row 4).
 /// We select the rightmost reducible phrase to match the parser's right-to-left
 /// queue/stack discipline. Hook/fork reduction is performed separately below.
-fn reduce_parse_stack_subset(mut queue: Vec<Item>) -> Result<Vec<Item>> {
+#[derive(Clone, Debug)]
+struct PendingAssignment {
+    name: String,
+    span: std::ops::Range<usize>,
+}
+
+fn reduce_parse_stack_subset(
+    mut queue: Vec<Item>,
+) -> Result<(Vec<Item>, Option<PendingAssignment>)> {
     let mut stack = Vec::<Item>::new();
+    let mut assignment = None;
 
     while let Some(item) = queue.pop() {
         stack.insert(0, item);
-        reduce_stack_prefix(&mut stack)?;
+        reduce_stack_prefix(&mut stack, &mut assignment, queue.is_empty())?;
     }
 
     // jsource realizes the virtual FRONT MARK only after the queue is empty.
     stack.insert(0, Item::mark(0));
-    reduce_stack_prefix(&mut stack)?;
+    reduce_stack_prefix(&mut stack, &mut assignment, true)?;
 
     if stack.first().is_some_and(|item| item.class == ParseClass::Mark) {
         stack.remove(0);
     }
-    Ok(stack)
+    Ok((stack, assignment))
 }
 
 fn stack_prefix_classes(stack: &[Item]) -> [ParseClass; 4] {
@@ -254,7 +263,11 @@ fn stack_prefix_classes(stack: &[Item]) -> [ParseClass; 4] {
     [class(0), class(1), class(2), class(3)]
 }
 
-fn reduce_stack_prefix(stack: &mut Vec<Item>) -> Result<()> {
+fn reduce_stack_prefix(
+    stack: &mut Vec<Item>,
+    assignment: &mut Option<PendingAssignment>,
+    queue_exhausted: bool,
+) -> Result<()> {
     loop {
         let Some(row) = match_parse_row(stack_prefix_classes(stack)) else {
             return Ok(());
@@ -379,7 +392,39 @@ fn reduce_stack_prefix(stack: &mut Vec<Item>) -> Result<()> {
                     false
                 }
             }
-            ParseRow::Assignment => false,
+            ParseRow::Assignment => {
+                if !queue_exhausted {
+                    return Err(Error::Unsupported(
+                        "non-final assignment requires runtime semantic parsing".into(),
+                    ));
+                }
+                if assignment.is_some() {
+                    return Err(Error::Unsupported(
+                        "multiple assignments in one sentence".into(),
+                    ));
+                }
+                if stack.first().is_some_and(|item| item.class == ParseClass::Noun) {
+                    return Err(Error::Unsupported(
+                        "noun/multiple assignment target".into(),
+                    ));
+                }
+
+                let mut phrase: Vec<_> = stack.drain(0..3).collect();
+                let target = phrase.remove(0);
+                let _copula = phrase.remove(0);
+                let value = phrase.remove(0);
+                let ParseValue::NameTarget { name, span } = target.value else {
+                    return Err(Error::Syntax("row 7 requires a name target".into()));
+                };
+                if matches!(value.class, ParseClass::Adverb | ParseClass::Conjunction) {
+                    return Err(Error::Unsupported(
+                        "modifier assignment is not yet executable".into(),
+                    ));
+                }
+                *assignment = Some(PendingAssignment { name, span });
+                stack.insert(0, value);
+                true
+            },
             ParseRow::Parenthesis => {
                 let mut phrase: Vec<_> = stack.drain(0..3).collect();
                 let left = phrase.remove(0);
