@@ -527,3 +527,18 @@ fn extension_names_enter_as_names_then_join_modifier_rows_by_parser_time_pos() {
     assert_eq!(verb.entity.result_pos, semantic::FunctionPartOfSpeech::Verb);
     assert_eq!(verb.entity.operands.len(), 2);
 }
+
+
+#[test]
+fn final_assignment_uses_row_seven_but_mid_sentence_assignment_is_not_rebound_to_the_root() {
+    let program = semantic::parse("target=: +/ % #").unwrap();
+    assert_eq!(program.assignment.as_deref(), Some("target"));
+    assert_eq!(program.assignment_span.as_ref().map(|span| &program.source[span.clone()]), Some("target"));
+    assert!(matches!(
+        program.expression.map(|expr| expr.kind),
+        Some(Expr::VerbValue(_))
+    ));
+
+    let error = semantic::parse("1 + target=:2").unwrap_err();
+    assert!(matches!(error.into_unlocated(), rustj::Error::Unsupported(_)));
+}
