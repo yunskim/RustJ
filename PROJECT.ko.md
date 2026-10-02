@@ -7242,7 +7242,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [ ] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 Fork construction을 구현한다.
 - [ ] row 6 `EDGE CAVN CAVN ANY`를 Hook/bident/trident semantic dispatch로 구현한다.
 - [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다.
-- [ ] row 8 `LPAR CAVN RPAR ANY` parenthesis reduction을 구현한다.
+- [x] row 8 `LPAR CAVN RPAR ANY`를 production stack action으로 구현하고 recursive parenthesis parser를 제거했다. grouped noun은 `ExprKind::Group`/depth를, grouped function은 semantic identity를 유지한 채 parser provenance span을 괄호 전체로 보존한다.
 - [ ] 각 reduction 결과를 같은 parser stack에 되돌리고 다시 **동일한 row matcher**로 scan/reduce한다.
 - [ ] row action abstraction이 `ReadyParseValue`와 `RequiresRuntimeSemanticParse`를 구분할 수 있게 하여, 정적 compiler path가 parser-visible runtime dependency를 숨기지 않게 한다.
 - [ ] runtime semantic fallback도 별도 grammar/parser를 만들지 않고 동일한 9-row matcher를 사용하게 한다.
