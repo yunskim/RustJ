@@ -448,7 +448,7 @@ fn reduce_stack_prefix(
                     ParseValue::Function(entity) => {
                         Item::function(entity).with_span(group_span)
                     }
-                    ParseValue::Control { .. } => {
+                    ParseValue::NameTarget { .. } | ParseValue::Control { .. } => {
                         return Err(
                             Error::Syntax("invalid parenthesized parser control".into())
                                 .at(group_span),
@@ -1033,7 +1033,7 @@ fn expression(
         ParseValue::Function(_) => Err(
             Error::Syntax("unapplied function modifier".into()).at(span),
         ),
-        ParseValue::Control { .. } => Err(
+        ParseValue::NameTarget { .. } | ParseValue::Control { .. } => Err(
             Error::Syntax("unexpected parser control result".into()).at(span),
         ),
     }
