@@ -7506,6 +7506,85 @@ python tools/frontend_stage_conformance.py --binary target/windows-validation/de
 
 이번 source 기반 수정은 [w.c::jtenqueue](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [sn.c::vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c), [wn.c::connum](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c), [p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)를 참조했다. `foo_`는 locative 미지원이 아니라 ill-formed name이다. `1q`, `1e`, `1.2.3`, `3..`도 ill-formed number를 보존하며 미구현 숫자 표기·유효 locative는 Unsupported로 남긴다.
 
+<a id="noun-reduction-capture"></a>
+
+#### Noun reduction과 컴파일용 구조 보존 — 조사 및 구현 계획 (2026-10-03)
+
+**결정:** runtime parser는 jsource처럼 verb application을 실행하여 실제 noun으로 reduce하고, 컴파일러는 별도 capture에서 생산 연산과 input/output 연결을 보존한다. noun이 된다는 이유로 provenance를 버리지 않는다. verb 중심의 tacit 표현은 구조를 노출하는 권장 방식이며 필수 언어 제한이 아니다. 이 절은 F2/P2–P6를 구체화하는 계획이고 별도 roadmap이나 두 번째 canonical IR을 만들지 않는다.
+
+**현재 코드와의 차이:** `parser.rs` rows 0–2는 `ExprKind::Monad/Dyad`를 Noun class로 넣고, `runtime.rs::eval_program`은 parse 이후 `interpret_ir`에서 실행한다. `expression()`은 현재 name을 queue drain 이전에 resolve하기도 한다. 따라서 이미 “C처럼 즉시 실행 + 별도 graph 기록”이 구현되었다고 말할 수 없다. 기존 `j_graph_ir::Plan`은 이 지연 표현에서 graph를 만들 수 있지만 computed noun이 뒤 modifier constructor에 필요한 경우와 parser-visible effects는 미완료다. 최종 결과를 실행한 뒤 AST를 다시 그리는 것만으로 이 문제를 해결하지 않는다.
+
+##### 다른 언어·배열 프레임워크의 처리
+
+아래 공식 문서/소스는 2026-10-03 확인했다. `main`/`stable`/nightly URL은 움직이는 참고 자료이며 RustJ 호환성 oracle revision을 대신하지 않는다. framework 동작과 RustJ 적용 판단을 구분한다.
+
+| 사례 | 실제 처리 | RustJ에 참고할 요소와 한계 | 출처 |
+|---|---|---|---|
+| PyTorch `make_fx` / ProxyTensor | real tracing은 실제 tensor로 실행하며 operation graph도 수집한다. `proxy_call`은 proxy node를 만들고 실제 operation을 호출한 뒤 `track_tensor_tree`로 결과와 proxy를 연결한다. fake tracing도 별도 mode다 | 실제 noun과 graph reference를 별도로 보존하는 v0의 가장 가까운 사례. 다만 J modifier/train 의미는 tensor primitive tracing만으로 복원할 수 없으므로 parser construction identity를 함께 기록한다 | [make_fx API](https://docs.pytorch.org/docs/stable/generated/torch.fx.experimental.proxy_tensor.make_fx.html), [proxy_tensor.py source](https://github.com/pytorch/pytorch/blob/main/torch/fx/experimental/proxy_tensor.py) |
+| PyTorch FX symbolic tracing / Dynamo | FX Proxy는 값을 대신해 연산을 기록하지만 input-dependent Python control flow에는 제한이 있다. Dynamo는 graph, residual code, validity guards를 만들고 unsupported 구간에서는 graph break 후 일반 실행을 이어간다 | graph가 모르는 noun 값·name/POS·effect를 static 성공으로 꾸미지 않는다. 경계와 재사용 조건을 명시한다. RustJ runtime에도 지원 범위가 있으므로 모든 미지원 J 문법을 처리하는 fallback이 있다고 가정하지 않는다 | [FX tracing limitations](https://docs.pytorch.org/docs/stable/fx.html), [Dynamo graph breaks/guards](https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/compile/programming_model.dynamo_core_concepts.html) |
+| JAX | tracer가 operation을 기록하여 jaxpr를 만든다. abstract tracer는 shape/dtype을 알지만 실제 data를 모른다. static/concrete 값과 traced 값의 경계를 구분하며 Python side effects가 일반 jaxpr에 자동으로 들어가지 않는다 | 이후 no-execution static 경로의 참고 모델. 실제 noun이 필요한 J constructor를 abstract shape/dtype만으로 처리하지 않는다. J observable effects를 trace 때 한 번 실행하고 compiled reuse에서 생략하는 정책은 채택하지 않는다 | [Tracing](https://docs.jax.dev/en/latest/tracing.html), [JIT and side effects](https://docs.jax.dev/en/latest/jit-compilation.html) |
+| TensorFlow `tf.function` | tracing 때 Python은 실행하고 TensorFlow operations는 graph에 기록한다. AutoGraph가 지원 제어 흐름을 변환한다. Python effects와 TensorFlow runtime effects는 서로 다르다 | host/parser-time 작업과 graph runtime 작업의 staging 경계를 명시한다. J error/name/assignment 동작을 graph 밖에서 실행했다는 이유로 subsequent calls에서 누락시키지 않는다 | [tf.function tracing, AutoGraph, effects](https://www.tensorflow.org/guide/function) |
+| ArrayFire / Eigen | ArrayFire는 지원 elementwise operations를 AST에 모으고 explicit `eval`이나 non-JIT consumer가 필요할 때 평가한다. Eigen은 expression templates와 alias/cost 규칙에 따라 평가를 지연하거나 temporary를 만든다 | pure-array fusion과 계산 경계의 참고 사례. 모든 J parser noun을 lazy array로 바꾸는 근거는 아니다. J가 요구하는 오류·효과 시점을 늦출 수 있는지는 별도 증명이 필요하다 | [ArrayFire JIT](https://arrayfire.org/docs/jit.htm), [Eigen lazy evaluation/aliasing](https://libeigen.gitlab.io/eigen/docs-nightly/TopicLazyEvaluation.html) |
+| Julia compiler | compiler는 SSA-form IR에 instruction/result/control-flow 관계를 유지한다. 이는 ordinary runtime value가 생성 이력을 자동으로 갖는다는 의미가 아니다 | J 의미를 확보한 후 application 결과를 SSA value로 연결하는 후속 lowering의 참고 사례. SSA만 도입하면 동적 J parsing이 해결된다는 결론은 내리지 않는다 | [Julia SSA IR](https://docs.julialang.org/en/v1/devdocs/ssair/) |
+
+**RustJ 적용 판단:** 위 사례에서 실행/값과 graph representation이 분리될 수 있다는 점을 취한다. parser-time 의미 보존은 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)가 기준이다. pure-array lazy evaluation은 이후 증명된 구간에서 사용할 최적화이며, 이번 baseline parser의 replacement가 아니다.
+
+##### 값과 기록의 소유권
+
+예: `a + b * c`에서 parser의 오른쪽 reduction은 `b * c`를 실행해 noun을 얻는다. 별도 기록은 다음 연결을 보존한다. `v1/v2`는 설명용 observation id이며 메모리 주소가 아니다.
+
+```text
+capture: v1 = Apply(*, b_read, c_read)   parser: actual noun result + origin(v1)
+capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
+```
+
+- **Parser noun carrier:** 실제 `Value`와 optional capture origin을 가진다. J 품사는 계속 Noun이다. capture 여부가 class matching/POS/error를 바꾸지 않는다. recording-disabled carrier는 추가 array 보관·graph 할당을 하지 않는다.
+- **별도 `CompilerCapture`(제안):** application occurrence별 input ids, shared `FunctionEntity`, monad/dyad valence, original spans/word indices, observed type/shape, sequence/effect dependency, success/failure를 기록한다. 구체적인 `Value` 전체를 모든 node에 복사하지 않는다. literal constants는 intentional immutable constant pool, external nouns는 input slots, 중간 결과는 ids와 facts로 표현한다. scalar 값이 실제 constructor 선택에 사용되었다면 그 의존성/guard를 명시한다.
+- **동일 값과 동일 origin은 다르다:** `2*3`과 `1+5`가 모두 6이어도 다른 production occurrence다. 값 equality나 storage pointer로 node identity를 합치지 않는다. shared operand는 id를 공유할 수 있지만 compiler proof 없이 두 연산을 합치지 않는다. `CaptureValueId`는 기존 J Graph `ValueId`, J name/version, Physical `BufferId`와 구분하고 adapter에서 명시적으로 매핑한다.
+- **Function construction:** rows 3–6의 `/`, `"`, hook/fork completed entity identity는 그대로 보존한다. computed noun을 constructor가 읽으면 실제 값으로 validation하고 capture에는 해당 noun-origin → constructor operand 연결을 별도로 기록한다. 원 operator와 operand 순서를 지우거나 일반 Reduce/Map으로 바꾸지 않는다. sample-dependent rank나 function specialization은 intrinsic function identity와 별개의 reuse witness다.
+- **외부 이름·assignment:** noun은 실제 stack-entry lookup 시점의 값/version을 사용한다. function NameRef는 예상 POS와 late binding을 보존한다. named function 실행에서 관찰한 target은 observation/witness이지 무조건 상수화할 근거가 아니다. 이전 workspace 값의 생성 graph가 없으면 외부 입력으로 기록하며 과거 이력을 추측하지 않는다. 문장 간 capture는 명시적인 scope와 binding versions가 생긴 후 확장한다.
+- **성공/오류/효과:** invoke 직전에 attempt/input edges를 기록하고, 성공 시 output origin을 연결한다. 실패 시 기존 J ErrorKind/ErrorContext를 그대로 반환하고 실패 node와 partial graph를 남길 수 있다. partial graph는 complete executable plan이 아니다. 이미 수행된 J-visible effects를 capture 실패 때문에 문장 전체 rollback하거나 재실행하지 않는다. 아직 성공하지 않은 바깥 assignment를 commit하지 않는 기존 의미를 보존한다. trace 내부 실패는 J 오류를 덮어쓰지 않고 capture 불완전 상태로 분리한다.
+- **최적화 전달:** capture는 새 실행 IR이 아니라 기존 `j_graph_ir::Plan`을 생성/보강하는 입력 sidecar다. `logical_ir::Plan`이 canonical execution IR이라는 M1 원칙은 유지한다. J Graph verifier는 data edges와 effect/error sequencing을 검증한 후 기존 lowering으로 넘긴다. parser에는 target/device/schedule/fusion 결정을 넣지 않는다.
+
+##### 실행 경로와 재사용 경계
+
+1. **Reference semantic execution:** capture on/off 모두 같은 parser class matcher와 row actions를 사용한다. rows 0–2의 runtime action은 그 시점에 실제 noun을 생성한다. record 여부로 실행 횟수·name lookup·오류 시점이 달라지면 안 된다.
+2. **Execute-and-capture:** 제안 API `Engine::eval_with_capture(&mut self, source)`는 사용자 문장을 한 번 실행하고 outcome + capture를 반환한다. 이는 read-only `prepare_semantic/analyze_j_graph(&self, ...)`와 구분한다. 실패를 기록하려면 outcome을 필드로 가진 report가 필요하며 outer `Result` 때문에 partial trace를 잃지 않도록 API를 정한다. 분석 요청을 명분으로 IO/assignment를 몰래 실행하거나 성공 trace를 만들기 위해 두 번 실행하지 않는다.
+3. **Static compilation:** 이후 pure/static 범위는 같은 parser row engine의 abstract actions로 graph를 만들 수 있다. 실제 값이 필요한 constructor, unknown POS/binding, effects/error boundary는 typed dependency와 coverage reason으로 드러내며 현재 지원 runtime action/region을 이용한다. no-execution AOT는 unknown dependency를 명시적으로 거부하거나 residual runtime region으로 나타내고 compile-time 실행으로 해결하지 않는다.
+4. **Captured graph reuse:** trace 한 번으로 모든 입력/branch가 표현되었다고 주장하지 않는다. observed shape·data-dependent constructor/POS·binding/environment assumptions를 constants/input dependencies/guards로 구분한다. reuse 전에 검증하거나 재capture/semantic execution으로 되돌린다. 재capture는 이미 일부 effects를 실행한 지점에서 문장 처음부터 다시 시작하는 방식으로 구현하지 않는다. v0 capture는 inspection에 한정하고 재사용 실행을 기본 제공하지 않는다.
+5. **효율:** execute-and-capture는 첫 실행의 array 계산 비용을 없애지 않는다. v0는 trace arena + shared function references + small facts를 기본으로 하여 capture 때문에 모든 temporary가 살아남지 않게 한다. pure-array region reuse/JIT/fusion이 subsequent execution의 성능 단계다. CUDA 구현은 계속 유예한다.
+
+##### 구현 순서와 완료 체크리스트
+
+기존 F2/P2–P6에 속한 아래 항목을 순서대로 진행한다. 조사/계획 완료와 runtime 구현 완료를 혼동하지 않는다.
+
+- [x] 공식 문서 및 ProxyTensor source에서 concrete/symbolic capture, lazy evaluation, graph break/guard, SSA 방식의 차이를 조사했다.
+- [x] 실제 noun reduction + 별도 compilation capture를 결정하고 문법상의 verb-only 제한을 두지 않기로 했다.
+- [x] 현재 deferred parser와 목표 runtime parser의 차이, 아래 implementation/test gate를 정본에 기록했다.
+- [ ] **P2/P4 — runtime row actions:** 하나의 parser context/semantic host가 name lookup, verb invocation, constructor validation을 제공하게 한다. lookup을 실제 right-to-left queue→stack entry로 이동한다. rows 0–2가 실제 Value를 반환하게 하고 성공 noun을 재삽입한다. 미지원 effectful J forms를 full runtime 지원으로 표시하지 않는다.
+- [ ] **P2/P5 — capture carrier:** opt-in recorder, occurrence ids, input/output associations와 ordered attempt/success/error events를 추가한다. raw Value storage/primitive executor에 compiler fields를 넣지 않는다. recording on/off semantic parity를 먼저 확인한다.
+- [ ] **P3/P5 — construction provenance:** rows 3–6의 completed FunctionEntity DAG와 computed noun operands의 origin을 연결한다. 정적 placeholder로 실제 noun validation을 대체하지 않는다. 구체적으로 `f=:+"(1+0)`의 계산 rank operand와 `f=:(1+2) + *`의 noun-left fork를 지원 여부 manifest와 비교한다.
+- [ ] **P4 — names/effects:** same-sentence assignment/name/POS/locale mutation을 현재 지원 범위에서 실행 순서대로 기록한다. 이미 수행된 effects와 pending outer assignment를 구분한다. 미지원 행위는 reason과 partial capture로 남기며 silent approximation을 하지 않는다.
+- [ ] **P5/P8 — graph adapter:** input/constant/read/apply/constructor dependency events에서 기존 J Graph로 연결하고 verifier를 통과시킨다. unresolved/opaque operation은 optimization barrier로 유지하고 array lowering coverage와 구분한다.
+- [ ] **P6 — differential and retention gate:** 아래 검증 matrix를 Windows default/portable, 일반·AVX2 C oracle에서 실행한다. 보고서에 구현 범위·검사 수·known deviations/pending·실제 revisions/hashes를 남긴다. GitHub CI는 사용하지 않는다.
+- [ ] **후속 P5/P8 — static/reuse:** purity·error order·binding/value guards를 확보한 구간에서만 abstract actions, region compilation, safe reuse를 추가한다. 첫 구현의 completion gate는 production CUDA/JIT가 아니라 runtime reduction + capture parity + verified J Graph다.
+
+##### 테스트 matrix와 수용 조건
+
+| 검증 축 | 사례/방법 | 통과 조건 |
+|---|---|---|
+| Arithmetic topology | `a=:2`, `b=:3`, `c=:4` 후 `a+b*c`; `(a+b)*c`; monad chain | C 결과/오류 일치. capture에는 실제 reduction order와 producer-consumer edges가 남고 괄호 차이가 보존된다 |
+| 동일 값, 다른 production | `(2*3)+(1+5)` | 두 6이 별도 origins이며 최종 add가 두 origin을 참조한다 |
+| Constructor noun | `f=:+"(1+0)`; `f=:(1+2) + *`; 계산 rank/length/domain 오류 | C `4!:0`/`5!:1`, 결과 및 오류 일치. actual noun operand와 생산 graph가 연결되고 constructor-time 오류를 뒤로 미루지 않는다 |
+| Completed verb structure | `+/ % #`, hook/fork, nested rank/atop | source operator·operand order·completed modifier 경계가 C atomic structure와 일치한다 |
+| Naming/sequencing | noun assignment 이후 rebind, late function alias rebind, 지원되는 중간 assignment | noun snapshot/version과 function POS/late binding이 유지된다. trace 없는 eval과 effects/lookup 순서가 같다 |
+| Failure and partial graph | `1+('a'+2)`, `(1 2+1 2 3)+('a'+1)` 및 두 실패 분기의 반대 배치 | C error class와 failure precedence 일치. 실패 노드 뒤 성공 output/outer commit이 없고 partial graph를 executable로 오인하지 않는다 |
+| Exactly-once effects | runtime semantic-host test double로 invocation/assignment events 계수; C에서 지원된 J 문장 별도 비교 | capture on/off 실행 횟수 동일. recording failure나 replay가 effects를 중복시키지 않는다. host tests를 C full-J 지원 증거로 계산하지 않는다 |
+| Memory/identity | 큰 array chain·alias 입력·복수 문장·capture 해제 후 temporary lifetimes 관찰 | per-node full-array copy와 diagnostic array retention 없음. BufferId로 semantic id를 생성하지 않는다. bounded metadata/constant policy 검증 |
+| Reuse safety | shape/binding/POS/constructor 값이 바뀐 입력; branch 양쪽 | guard invalidation 또는 semantic region 실행. 한 번 trace한 branch를 universal program으로 재사용하지 않는다 |
+
+**이번 조사 상태:** 계획/참고자료 정리만 완료했다. parser runtime action·capture API·memory tests는 아직 구현/실행하지 않았으며, 이전 212 tests/7,014 stage checks가 새 capture 구현의 검증 결과를 뜻하지 않는다.
+
 #### F0 — jsource word formation 이식
 
 - [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/tokenizer.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
