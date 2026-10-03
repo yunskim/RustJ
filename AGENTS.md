@@ -65,8 +65,9 @@ For every implementation change:
 
 - Treat built-in J primitives and extension-derived operations uniformly for hardware lowering; existing primitives such as add/reduce/transpose must participate in the same lowering-capability architecture.
 
-### APEX/Co-dfns/TAIL-Futhark middle-end invariants
+### Array-compiler middle-end invariants
 
+- Treat J source and parser-produced semantic structure as computation meaning, not as a physical execution plan. Preserve rank/cell, modifier/derived-entity, train/composition, reduce/scan, and reindex/shape structure until semantic/logical lowering has extracted the relevant contracts.
 - Treat `ValueFacts` as an extensible abstract-analysis domain, not a bag of optional metadata. Type/rank/shape/item-count/constant/array-property facts must support explicit merge/refinement semantics and may participate in worklist/fixpoint analysis.
 - Keep `ArrayPropertyFacts` (for example IntegralValued, NonNegative, Unique, Sorted, Permutation, KnownRange) on values/call analysis, never as immutable FunctionEntity identity unless the property is truly intrinsic to the entity.
 - When an inferred fact is used to remove a J-visible check, specialize a call, or choose a narrower route, retain a `FactWitness`/provenance or an explicit runtime guard. Never base legality on optimistic unknown facts.

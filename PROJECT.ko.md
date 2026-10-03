@@ -52,10 +52,10 @@ RustJ는 외부 구현을 하나의 동일한 권위로 취급하지 않고 **�
   - 이들의 제한된 APL subset을 RustJ의 J semantics 제한으로 가져오지 않는다.
 
 - **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
-  - Remora는 J/APL 계열의 rank polymorphism, frame/cell semantics와 implicit lifting을 정형화한 비교 대상이다.
-  - Bohrium은 기존 NumPy-style array program을 지연된 중간 표현으로 모아 fusion/materialization과 heterogeneous execution을 결정한 선례다.
-  - Lift는 high-level map/reduce 등의 rewrite와 hardware mapping을 분리하는 optimizer 연구의 비교 대상이다.
-  - MLIR Linalg는 structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 계층화의 비교 대상이다.
+  - Remora는 J/APL 계열의 rank polymorphism, frame/cell semantics와 implicit lifting을 정형화한 비교 대상이다. 근거: https://arxiv.org/abs/1907.00509
+  - Bohrium은 기존 NumPy-style array program을 지연된 중간 표현으로 모아 fusion/materialization과 heterogeneous execution을 결정한 선례다. 근거/논문 목록: https://bohrium.readthedocs.io/publications.html
+  - Lift는 high-level map/reduce 등의 rewrite와 hardware mapping을 분리하는 optimizer 연구의 비교 대상이다. 근거: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg는 structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 계층화의 비교 대상이다. 근거: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
   - 어느 시스템도 RustJ의 J semantic specification은 아니며, compiler layering과 optimization technique의 근거로만 사용한다.
 
 따라서 reference 우선순위는 목적별로 다르다.
@@ -8744,11 +8744,12 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드 검토 기준: 2026-10-02, `98ae387` (직전 문서 commit; runtime 코드는 `89b87b8`과 동일). 이 기준일은 전체 runtime 검증을 재실행했다는 뜻이 아니다.
+코드/문서 검토 기준: 2026-10-04, runtime/source `87a1eaa` (이후 `4209d9e`는 문서 통합 commit). 아래 최신 frontend 검증 수치는 `87a1eaa`에 기록된 실행 결과이며, 이번 문서 재검토에서 테스트를 다시 실행했다는 뜻은 아니다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
 - parser-produced shared `FunctionEntity`가 primitive, modifier application, hook/fork/train, rank/@: 구조를 보존한다.
+- explicit/direct definition frontend는 immutable `DefinitionCode`, control-flow metadata, multiple root direct definition, raw noun direct definition과 UTF-8/source provenance까지 확장되었다. definition invocation/local frame, nested/other-tagged/computed forms, Code body의 J Graph/A3 lowering은 아직 미완료다.
 - J Graph IR이 별도 canonical analysis surface로 존재하고 Graph Basis, structural opportunity, graph rewrite/resource analysis 기초가 구현되어 있다.
 - **M1 완료:** J Graph lowering이 `logical_ir::Plan`을 직접 생성한다. transition module/container/API는 제거했고 `Engine::analyze/analyze_a3`와 `CompilationAnalysis.logical`은 같은 canonical plan을 사용한다.
 - A3-v0에는 SSA ValueId, Function/Region/Block/Return, Execution Basis payload, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation, verifier가 구현되어 있다.
@@ -8761,6 +8762,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - F1/F2/P1~P7의 jsource-compatible Enqueue/9-row parser cutover는 미완료이며 현재 modifier/train heuristic parser는 transitional implementation이다.
+- 최신 기록 검증(`87a1eaa`): Windows default/portable 각각 **358 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**; j64/AVX2 각각 direct·semantic-reference·parser-capture **4,739 cases / 4,735 passed / 기존 runtime 경계 4 / failed 0**, stage **9,919 checks**, word formation **6,618 cases**. full upstream suite·definition invocation acceptance·private C control trace 동등성은 검증되지 않았다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

@@ -2478,6 +2478,15 @@ MLIR Linalg
 
 RustJ는 이 연구들의 제한된 language subset이나 static assumption을 그대로 채택하지 않는다. **J semantic completeness는 그대로 유지하고, 각 compiler route가 요구하는 정적 조건은 route precondition 또는 specialization guard로 취급한다.**
 
+직접 비교 근거:
+
+- Remora / *The Semantics of Rank Polymorphism*: https://arxiv.org/abs/1907.00509
+- Bohrium publication index (NumPy CPU/GPU/cluster, vector VM, fusion lineage): https://bohrium.readthedocs.io/publications.html
+- Lift / *A Functional Data-Parallel IR for High-Performance GPU Code Generation*: https://doi.org/10.1109/CGO.2017.7863730
+- MLIR Linalg structured-operation primer / implicit-loop materialization: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+
+이 출처들은 RustJ semantic specification이 아니라 위 compiler 원칙을 검증·비교하기 위한 자료다.
+
 ## 51. APEX: Array Morphology를 정식 abstract interpretation으로 본다
 
 APEX 연구의 가장 중요한 교훈은 array compiler가 단순 dtype inference를 넘어 **type, rank, shape, element count, constant/value knowledge, array property**를 data-flow property로 추적해야 한다는 점이다. APEX는 SSA와 interprocedural/semi-global analysis를 사용해 같은 source name의 서로 다른 값들을 분리하고, array morphology 정보를 반복 전파했다. [APEX-1][APEX-2]

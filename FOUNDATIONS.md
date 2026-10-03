@@ -709,6 +709,15 @@ Together these systems reinforce several RustJ rules:
 
 Restrictions in research systems—such as static scope, static rank, pure subsets, or no execute—are compiler-route preconditions, not RustJ language restrictions.
 
+Direct comparison sources:
+
+- Remora, *The Semantics of Rank Polymorphism*: https://arxiv.org/abs/1907.00509
+- Bohrium publication index (NumPy CPU/GPU/cluster, vector VM, fusion lineage): https://bohrium.readthedocs.io/publications.html
+- Lift, *A Functional Data-Parallel IR for High-Performance GPU Code Generation*: https://doi.org/10.1109/CGO.2017.7863730
+- MLIR Linalg structured-operation primer / implicit-loop materialization: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+
+These are comparison evidence for compiler principles, not RustJ's J semantic specification.
+
 The question is always:
 
 > Can RustJ use the optimization idea while preserving J?

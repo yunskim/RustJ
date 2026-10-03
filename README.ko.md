@@ -67,13 +67,15 @@ RustJ는 J 의미를 먼저 보존한 뒤, downstream planner가 representation�
 ```text
 J Source
   ↓
-Frontend
+Frontend / parser-time J semantics
   ↓
-J Semantic Array IR
+J Semantic Construction IR / FunctionEntity
   ↓
-Semantic Analyzer / Lowering
+J Graph IR / Graph Analyzer
   ↓
-Verified Logical Array IR / Execution Plan
+Execution Semantic Lowering
+  ↓
+Verified Logical Execution IR / Plan
   ↓
 Route Partition
   │
@@ -99,11 +101,14 @@ RustJ middle-end는 jsource compatibility 외에도 기존 array-language compil
 - **APL → TAIL → Futhark**: typed/rank-aware array IR, explicit map/reduction nests, loop fusion, nested-parallelism flattening, GPU lowering.  
   Dyalog'16: https://elsman.com/pdf/Dyalog16.pdf  
   FHPC'16: https://elsman.com/pdf/fhpc16futhark.pdf
-- **Remora**: J/APL 계열의 rank polymorphism, frame/cell semantics, implicit lifting을 정형화한 비교 연구.
-- **Bohrium**: 기존 NumPy-style array program을 지연 IR로 수집하고 fusion/materialization/heterogeneous execution을 뒤에서 결정한 선례.
-- **Lift**: high-level map/reduce rewrite와 hardware mapping 분리의 비교 연구.
+- **Remora**: J/APL 계열의 rank polymorphism, frame/cell semantics, implicit lifting을 정형화한 비교 연구.  
+  Paper: https://arxiv.org/abs/1907.00509
+- **Bohrium**: 기존 NumPy-style array program을 지연 IR로 수집하고 fusion/materialization/heterogeneous execution을 뒤에서 결정한 선례.  
+  Publications: https://bohrium.readthedocs.io/publications.html
+- **Lift**: high-level map/reduce rewrite와 hardware mapping 분리의 비교 연구.  
+  Paper: https://doi.org/10.1109/CGO.2017.7863730
 - **MLIR Linalg**: structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 참고 IR.  
-  Docs: https://mlir.llvm.org/docs/Dialects/Linalg/
+  Docs: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
 
 이 연구를 그대로 복제하지 않습니다. RustJ는 **full J semantics를 먼저 보존**하고 다음 요소만 middle-end에 흡수합니다.
 
@@ -124,17 +129,17 @@ ParameterizedLoweringRecipe
 현재 저장소는 목표 compiler pipeline으로 이동 중인 전환 단계입니다.
 
 - 제한된 J frontend와 CPU 직접 실행 경로
-- J Semantic IR 기초
-- primitive contract와 dtype/shape/rank fact
-- 초기 LogicalPlan
-- CPU Inline/Owned/Shared storage
-- runtime AVX2 + portable fallback
-- sparse/boxed/packed-bit 기반 일부
-- read-only affine PhysicalArray(G1)
-- hook/fork/train/derived verb를 보존하는 J Semantic Array IR → Semantic Analyzer/Lowering 경계는 아직 완전 분리되지 않음
+- shared immutable `FunctionEntity` semantic DAG와 hook/fork/train/derived modifier/rank 구조
+- 별도 canonical analysis surface인 J Graph IR과 Graph Basis/rewrite/resource-analysis 기초
+- **M1 완료:** J Graph lowering이 canonical A3 `logical_ir::Plan`을 직접 생성하며 transition IR/container는 제거됨
+- A3-v0의 SSA ValueId, Execution Basis, semantic check/constraint/effect/error contract와 verifier/reference executor
+- explicit/direct definition frontend의 `DefinitionCode`, control-flow metadata, multiple root DD, raw noun DD, UTF-8/source provenance 지원; invocation/local frame과 Code body graph/A3 lowering은 미완료
+- CPU Inline/Owned/Shared storage, runtime AVX2 + portable fallback
+- sparse/boxed/packed-bit 기반 일부와 read-only affine PhysicalArray(G1)
+- M2 jsource-compatible frontend cutover와 M3 logical/physical value 경계 수렴, M4 native Physical Planner/CPU executor는 미완료
 - 실제 CUDA backend는 아직 미구현
 
-현재 compiler architecture 작업의 초점은 이미 들어간 shared FunctionEntity/hook/fork/rank-conjunction 구조를 바탕으로 valence별 innate rank contract와 logical `CellApply` planner를 추가하고, 동시에 `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` 경계를 코드에서 명시하는 것입니다.
+현재 우선순위는 **M2 frontend**입니다. word formation/enqueue/9-row parser와 definition/name/assignment semantics를 jsource-compatible하게 수렴시킨 뒤, M3 logical/physical 경계를 마무리하고 M4의 `Verified Logical IR → Schedule/Physical Plan → CPU Physical Executor` vertical slice를 연결합니다.
 
 Logical Array IR 이후 실행 경로는 하나로 고정하지 않습니다. RustJ-native planner/executor 외에도 MLIR/LLVM 계열, StableHLO-compatible subset, SPIR-V/NVVM/ROCDL, 검증된 외부 library/kernel lowering을 사용할 수 있도록 설계합니다. RustJ는 J 의미·legality·lowering 조건을 책임지고, 이미 잘 만들어진 compiler IR과 optimizer를 가능한 범위에서 재사용합니다.
 

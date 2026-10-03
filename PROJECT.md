@@ -58,10 +58,10 @@ RustJ does not treat all external implementations as having the same authority. 
   - Their restricted APL subsets are not inherited as restrictions on RustJ's J semantics.
 
 - **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
-  - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family.
-  - Bohrium is a precedent for collecting existing NumPy-style array programs into a delayed intermediate representation and deciding fusion, materialization, and heterogeneous realization later.
-  - Lift is a comparison point for separating high-level map/reduce rewrites from hardware mapping.
-  - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops.
+  - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family. Source: https://arxiv.org/abs/1907.00509
+  - Bohrium is a precedent for collecting existing NumPy-style array programs into a delayed intermediate representation and deciding fusion, materialization, and heterogeneous realization later. Publications: https://bohrium.readthedocs.io/publications.html
+  - Lift is a comparison point for separating high-level map/reduce rewrites from hardware mapping. Source: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops. Source: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
   - None of these systems define RustJ's J semantics; they are evidence for compiler layering and optimization techniques.
 
 The reference depends on the question being asked:
@@ -1792,9 +1792,10 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code inspection baseline: 2026-10-02, `98ae387`; runtime code matches `89b87b8`. This date does not claim a rerun of the runtime test suite.
+Code/document review baseline: 2026-10-04, runtime/source `87a1eaa`; the later `4209d9e` commit changes documentation only. The frontend validation numbers below are the recorded results from `87a1eaa`; this documentation review did not rerun them.
 
 - shared immutable FunctionEntity semantic DAG;
+- explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
 - J Graph IR as a separate analysis surface;
 - Graph Basis / Execution Basis separation;
 - structural opportunities plus initial graph rewrite/resource analysis;
@@ -1818,6 +1819,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - M2 still needs the full jsource-compatible Enqueue + 9-row parser cutover;
+- latest recorded frontend validation (`87a1eaa`): Windows default/portable **358 passed / 17 ignored**, fmt/clippy/build pass, Python **27 passed**; j64 and AVX2 each record **4,739 cases / 4,735 passed / 4 existing runtime boundaries / 0 failed** across direct/semantic-reference/parser-capture, **9,919 stage checks**, and **6,618 word-formation cases**. The full upstream suite, definition invocation acceptance, and private C control-trace equivalence remain unverified;
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 

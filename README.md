@@ -67,13 +67,15 @@ RustJ preserves J semantics first; downstream planning chooses representation, l
 ```text
 J Source
   ↓
-Frontend
+Frontend / parser-time J semantics
   ↓
-J Semantic Array IR
+J Semantic Construction IR / FunctionEntity
   ↓
-Semantic Analyzer / Lowering
+J Graph IR / Graph Analyzer
   ↓
-Verified Logical Array IR / Execution Plan
+Execution Semantic Lowering
+  ↓
+Verified Logical Execution IR / Plan
   ↓
 Route Partition
   │
@@ -99,11 +101,14 @@ In addition to jsource compatibility, RustJ's middle-end design draws from prior
 - **APL → TAIL → Futhark**: typed/rank-aware array IRs, explicit map/reduction nests, loop fusion, nested-parallelism flattening, and GPU lowering.  
   Dyalog'16: https://elsman.com/pdf/Dyalog16.pdf  
   FHPC'16: https://elsman.com/pdf/fhpc16futhark.pdf
-- **Remora**: a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family.
-- **Bohrium**: a precedent for collecting existing NumPy-style array programs into a delayed IR and deciding fusion, materialization, and heterogeneous realization later.
-- **Lift**: a comparison point for separating high-level map/reduce rewrites from hardware mapping.
+- **Remora**: a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family.  
+  Paper: https://arxiv.org/abs/1907.00509
+- **Bohrium**: a precedent for collecting existing NumPy-style array programs into a delayed IR and deciding fusion, materialization, and heterogeneous realization later.  
+  Publications: https://bohrium.readthedocs.io/publications.html
+- **Lift**: a comparison point for separating high-level map/reduce rewrites from hardware mapping.  
+  Paper: https://doi.org/10.1109/CGO.2017.7863730
 - **MLIR Linalg**: a reference for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops.  
-  Docs: https://mlir.llvm.org/docs/Dialects/Linalg/
+  Docs: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
 
 RustJ does not copy these compilers wholesale. It preserves **full J semantics first** and selectively adopts ideas such as:
 
@@ -124,17 +129,17 @@ Restrictions such as static rank, static scope, no execute, or pure-only subsets
 The repository is currently in transition toward the target compiler pipeline.
 
 - Limited J frontend and direct CPU execution path
-- Foundations of J Semantic IR
-- Primitive contracts and dtype/shape/rank facts
-- Initial LogicalPlan
-- CPU Inline/Owned/Shared storage
-- Runtime AVX2 plus portable fallback
-- Initial sparse/boxed/packed-bit support
-- Read-only affine PhysicalArray (G1)
-- Shared FunctionEntity/hook/fork/train/derived-verb semantics exist, but the J Semantic Array IR → Semantic Analyzer/Lowering boundary is not yet fully separated
+- Shared immutable `FunctionEntity` semantic DAG preserving hook/fork/train/derived-modifier/rank structure
+- J Graph IR as a separate canonical analysis surface with Graph Basis plus initial rewrite/resource analysis
+- **M1 complete:** J Graph lowering builds the canonical A3 `logical_ir::Plan` directly; the transition IR/container has been removed
+- A3-v0 SSA ValueIds, Execution Basis, semantic checks/constraints/effect/error contracts, verifier, and reference executor
+- Explicit/direct-definition frontend support for `DefinitionCode`, control-flow metadata, multiple root DDs, raw noun DDs, and UTF-8/source provenance; invocation/local frames and Code-body graph/A3 lowering remain incomplete
+- CPU Inline/Owned/Shared storage and runtime AVX2 plus portable fallback
+- Initial sparse/boxed/packed-bit support and read-only affine PhysicalArray (G1)
+- M2 jsource-compatible frontend cutover, M3 logical/physical value-boundary convergence, and the M4 native Physical Planner/CPU executor remain incomplete
 - CUDA backend is not implemented yet
 
-The current compiler-architecture work builds on the shared FunctionEntity/hook/fork/rank-conjunction representation, adds valence-specific innate-rank contracts and logical `CellApply` planning, and makes the `J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan` boundary explicit in code.
+The current priority is **M2 frontend convergence**: complete the jsource-compatible word-formation/enqueue/9-row-parser and definition/name/assignment semantics, then finish M3 logical/physical separation and connect the M4 `Verified Logical IR → Schedule/Physical Plan → CPU Physical Executor` vertical slice.
 
 Execution after Logical Array IR is intentionally not restricted to one route. RustJ-native planning/execution can coexist with MLIR/LLVM-family lowering, StableHLO-compatible subsets, SPIR-V/NVVM/ROCDL, and verified external libraries/custom kernels. RustJ owns J semantics, legality, and lowering preconditions while reusing mature external compiler IRs and optimizers where appropriate.
 
