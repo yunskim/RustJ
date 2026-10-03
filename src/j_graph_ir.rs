@@ -867,12 +867,14 @@ impl Plan {
         capture
             .verify()
             .map_err(|message| Error::Unsupported(format!("invalid capture: {message}")))?;
-        if capture.events.iter().any(|event| {
-            matches!(
-                event,
-                CaptureEvent::ApplyFailure { .. } | CaptureEvent::ConstructionFailure { .. }
-            )
-        }) {
+        if capture.failure.is_some()
+            || capture.events.iter().any(|event| {
+                matches!(
+                    event,
+                    CaptureEvent::ApplyFailure { .. } | CaptureEvent::ConstructionFailure { .. }
+                )
+            })
+        {
             return Err(Error::Unsupported(
                 "failed capture is not a completed J graph".into(),
             ));
@@ -892,6 +894,7 @@ impl Plan {
         let mut occurrences = Vec::new();
         let mut observed_facts = Vec::new();
         let mut constructors = Vec::new();
+        let mut modifier_bindings = Vec::new();
         let mut pending = None;
         let mut constructor_inputs = Vec::new();
         let mut result = None;
@@ -986,6 +989,9 @@ impl Plan {
                 CaptureEvent::ConstructionAttempt { noun_inputs, .. } => {
                     constructor_inputs = noun_inputs.iter().map(|id| values[id]).collect();
                 }
+                CaptureEvent::ModifierResolved { binding } => {
+                    modifier_bindings.push(binding.clone())
+                }
                 CaptureEvent::ConstructionSuccess {
                     row,
                     function,
@@ -1044,7 +1050,10 @@ impl Plan {
             }
         }
         let result = result.or_else(|| capture.result.map(|id| values[&id]));
-        let mut verb_references = Vec::new();
+        let mut verb_references: Vec<_> = modifier_bindings
+            .iter()
+            .map(|b| (b.name.clone(), b.span.clone()))
+            .collect();
         let mut functions: Vec<_> = builder
             .nodes
             .iter()
@@ -1089,6 +1098,7 @@ impl Plan {
             occurrences,
             observed_facts,
             constructors,
+            modifier_bindings,
         })
     }
 

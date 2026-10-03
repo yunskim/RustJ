@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2100,
+  "cases": 2139,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\j.dll",
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "53d5a6a79f584703a5eeb9af4773a3e1c7bc4a47cda77f6acab71348e2445606",
+  "binary_sha256": "533726a79f79a763261df6c4cf75d5ff947e2222f6865622d4210e523fa6562a",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2098,
+  "passed": 2137,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -74,6 +74,41 @@
       "index": 1298,
       "source": "(midfn=:+) 3",
       "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1300,
+      "source": "(midfn=:-) 3",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1302,
+      "source": "+(midadv=:/) i.3",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1304,
+      "source": "+(midconj=:\")0 i.3",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1327,
+      "source": "modadv=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1328,
+      "source": "modalias=:modadv",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1333,
+      "source": "modadv=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1335,
+      "source": "modconj=:\"",
+      "reason": "captured modifier value graph lowering"
     }
   ],
   "failed": 0

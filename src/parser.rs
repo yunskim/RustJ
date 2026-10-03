@@ -110,9 +110,42 @@ fn train_noun_fork(noun: Expr, g: Verb, h: Verb) -> Result<Verb> {
     })
 }
 
-fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
+fn resolve_modifier(
+    operator: Arc<FunctionEntity>,
+    span: std::ops::Range<usize>,
+    context: &mut ActionContext<'_>,
+    row: ParseRow,
+) -> Result<Arc<FunctionEntity>> {
+    let FunctionHead::NameRef(name) = &operator.head else {
+        return Ok(operator);
+    };
+    let Some(host) = context.host.as_mut() else {
+        return Ok(operator);
+    };
+    let resolved = host.resolve_modifier(name, operator.result_pos)?;
+    if let Some(capture) = &mut context.capture {
+        for (name, version) in resolved.bindings {
+            capture.events.push(CaptureEvent::ModifierResolved {
+                binding: crate::parser_capture::ModifierBinding {
+                    name,
+                    version,
+                    expected: operator.result_pos,
+                    row,
+                    function: resolved.function.clone(),
+                    span: span.clone(),
+                },
+            });
+        }
+    }
+    Ok(resolved.function)
+}
+
+fn apply_adverb(
+    left: Verb,
+    operator: Arc<FunctionEntity>,
+    span: std::ops::Range<usize>,
+) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
-    let span = left.span.start..operator.span.end;
     Ok(Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
@@ -224,8 +257,10 @@ fn reduce_parse_stack_subset(
     }
 
     // jsource realizes the virtual FRONT MARK only after the queue is empty.
-    stack.insert(0, Item::mark(0));
-    reduce_stack_prefix(&mut stack, &mut assignment, true, context, reductions)?;
+    if assignment.is_none() {
+        stack.insert(0, Item::mark(0));
+        reduce_stack_prefix(&mut stack, &mut assignment, true, context, reductions)?;
+    }
 
     if stack
         .first()
@@ -387,7 +422,7 @@ fn reduce_stack_prefix(
             });
         }
 
-        if !reduced {
+        if !reduced || assignment.is_some() {
             return Ok(());
         }
     }
@@ -475,15 +510,31 @@ fn apply_parse_row(
             {
                 let mut phrase: Vec<_> = stack.drain(1..3).collect();
                 let left = phrase.remove(0).into_verb().expect("row 3 verb");
-                let operator = phrase.remove(0).into_function().expect("row 3 adverb");
-                let span = left.span.start..operator.span.end;
+                let operator = phrase.remove(0);
+                let operator_span = operator.span();
+                let span = left.span.start..operator_span.end;
+                let operator = resolve_modifier(
+                    operator.into_function().expect("row 3 adverb"),
+                    operator_span,
+                    context,
+                    row,
+                )?;
                 stack.insert(
                     1,
-                    Item::verb(apply_adverb(left, operator).map_err(|error| error.at(span))?),
+                    Item::verb(
+                        apply_adverb(left, operator, span.clone())
+                            .map_err(|error| error.at(span.clone()))?,
+                    )
+                    .with_span(span),
                 );
                 true
             } else {
-                let operator = stack[2].clone().into_function().expect("row 3 adverb");
+                let operator = resolve_modifier(
+                    stack[2].clone().into_function().expect("row 3 adverb"),
+                    stack[2].span(),
+                    context,
+                    row,
+                )?;
                 return Err(match operator.head {
                     FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
                         Error::Domain
@@ -502,9 +553,16 @@ fn apply_parse_row(
             {
                 let mut phrase: Vec<_> = stack.drain(1..4).collect();
                 let left = phrase.remove(0).into_verb().expect("row 4 left verb");
-                let operator = phrase.remove(0).into_function().expect("row 4 conjunction");
+                let operator = phrase.remove(0);
+                let operator_span = operator.span();
                 let right = phrase.remove(0);
                 let span = left.span.start..right.span().end;
+                let operator = resolve_modifier(
+                    operator.into_function().expect("row 4 conjunction"),
+                    operator_span,
+                    context,
+                    row,
+                )?;
                 stack.insert(
                     1,
                     Item::verb(
@@ -513,7 +571,12 @@ fn apply_parse_row(
                 );
                 true
             } else {
-                let operator = stack[2].clone().into_function().expect("row 4 conjunction");
+                let operator = resolve_modifier(
+                    stack[2].clone().into_function().expect("row 4 conjunction"),
+                    stack[2].span(),
+                    context,
+                    row,
+                )?;
                 return Err(match operator.head {
                     FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
                         Error::Domain
@@ -628,7 +691,7 @@ fn apply_parse_row(
             let mut phrase: Vec<_> = stack.drain(0..3).collect();
             let target = phrase.remove(0);
             let copula = phrase.remove(0);
-            let value = phrase.remove(0);
+            let mut value = phrase.remove(0);
             let ParseValue::NameTarget { name, span } = target.value else {
                 return Err(Error::Syntax("row 7 requires a name target".into()));
             };
@@ -637,10 +700,13 @@ fn apply_parse_row(
                 copula: copula.provenance.expect("copula provenance"),
                 flags: copula.flags,
             };
-            if queue_exhausted {
-                *assignment = Some(PendingAssignment { name, span, source });
-                stack.insert(0, value);
-            } else {
+            if context.host.is_some() {
+                let span = value.span();
+                if let ParseValue::Function(function) = &mut value.value {
+                    *function = resolve_modifier(function.clone(), span, context, row)?;
+                }
+            }
+            if let Some(host) = context.host.as_mut() {
                 if source.flags.local_assignment || !source.flags.global_assignment {
                     return Err(Error::Unsupported(
                         "local parser-time assignment scope".into(),
@@ -658,7 +724,6 @@ fn apply_parse_row(
                     ParseValue::Function(function) => (AssignedValue::Modifier(function), 0),
                     _ => return Err(Error::Syntax("invalid assignment value".into())),
                 };
-                let host = context.host.as_mut().expect("runtime assignment host");
                 let previous = host.version(&name);
                 let assigned = host.assign(&name, assigned)?;
                 let function = match &assigned {
@@ -673,10 +738,10 @@ fn apply_parse_row(
                         previous,
                         span: span.clone(),
                         value: occurrence,
-                        final_assignment: false,
+                        final_assignment: queue_exhausted,
                         class,
                         function,
-                        source,
+                        source: source.clone(),
                     });
                 }
                 let result = match assigned {
@@ -691,6 +756,12 @@ fn apply_parse_row(
                     AssignedValue::Modifier(function) => Item::function(function),
                 };
                 stack.insert(0, result);
+                if queue_exhausted {
+                    *assignment = Some(PendingAssignment { name, span, source });
+                }
+            } else {
+                *assignment = Some(PendingAssignment { name, span, source });
+                stack.insert(0, value);
             }
             true
         }
@@ -1110,11 +1181,25 @@ pub(crate) enum AssignedValue {
     Modifier(Arc<FunctionEntity>),
 }
 
+pub(crate) struct ResolvedModifier {
+    pub function: Arc<FunctionEntity>,
+    pub bindings: Vec<(String, crate::semantic::NameVersion)>,
+}
+
 pub(crate) trait RuntimeParserHost {
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion>;
     /// Operands have already reduced to actual nouns; execute exactly one call.
     fn apply(&mut self, expression: Expr) -> Result<Value>;
+    fn resolve_modifier(
+        &mut self,
+        _name: &str,
+        _expected: FunctionPartOfSpeech,
+    ) -> Result<ResolvedModifier> {
+        Err(Error::Unsupported(
+            "named modifier construction requires a runtime host".into(),
+        ))
+    }
     /// Return the assigned value with storage shared at the binding boundary.
     fn assign(&mut self, _name: &str, _value: AssignedValue) -> Result<AssignedValue> {
         Err(Error::Unsupported(
@@ -1298,14 +1383,14 @@ fn expression(
 ) -> Result<(Expr, usize, Option<PendingAssignment>)> {
     let mut items = Vec::new();
     let mut open_spans = Vec::new();
+    let mut unexpected_close = None;
     while *pos < tokens.len() {
         let source_word = *pos;
         match &tokens[*pos].payload {
             EnqueuedPayload::Close => {
                 if open_spans.pop().is_none() {
-                    return Err(Error::Syntax("unexpected )".into())
-                        .at(tokens[*pos].span.clone())
-                        .blamed_on_word(tokens[*pos].word_index));
+                    unexpected_close
+                        .get_or_insert((tokens[*pos].span.clone(), tokens[*pos].word_index));
                 }
                 items.push(Item::control(ParseClass::RParen, tokens[*pos].span.clone()));
                 *pos += 1;
@@ -1390,13 +1475,31 @@ fn expression(
         let item = items.pop().expect("one item per enqueue word");
         items.push(item.with_source(&tokens[source_word]));
     }
-    if let Some((span, word_index)) = open_spans.last() {
-        return Err(Error::Syntax("missing )".into())
-            .at(span.clone())
-            .blamed_on_word(*word_index));
+    // Diagnose unmatched controls after reachable actions, preserving their
+    // original source token. Do not replace an earlier runtime error class.
+    let control_error = unexpected_close
+        .map(|(span, word)| {
+            Error::Syntax("unexpected )".into())
+                .at(span)
+                .blamed_on_word(word)
+        })
+        .or_else(|| {
+            open_spans.last().map(|(span, word)| {
+                Error::Syntax("missing )".into())
+                    .at(span.clone())
+                    .blamed_on_word(*word)
+            })
+        });
+    let reduced = reduce_parse_stack_subset(items, context, reductions);
+    let (mut items, assignment) = match reduced {
+        Err(error) if error.kind() == "syntax error" && control_error.is_some() => {
+            return Err(control_error.unwrap());
+        }
+        other => other?,
+    };
+    if let Some(error) = control_error {
+        return Err(error);
     }
-
-    let (mut items, assignment) = reduce_parse_stack_subset(items, context, reductions)?;
 
     if items.len() != 1 {
         let span = items
@@ -1420,10 +1523,23 @@ fn expression(
             _ => None,
         };
         if let Some(function) = function {
-            capture.events.push(CaptureEvent::FunctionResult {
+            let event = CaptureEvent::FunctionResult {
                 function,
                 span: span.clone(),
-            });
+            };
+            // Declaration of the final entity precedes its final commit in the
+            // observation log; no computation or binding is replayed here.
+            if matches!(
+                capture.events.last(),
+                Some(CaptureEvent::Commit {
+                    final_assignment: true,
+                    ..
+                })
+            ) {
+                capture.events.insert(capture.events.len() - 1, event);
+            } else {
+                capture.events.push(event);
+            }
         }
     }
     match item.value {

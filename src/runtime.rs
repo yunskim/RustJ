@@ -35,6 +35,42 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn apply(&mut self, expression: crate::semantic::Expr) -> Result<Value> {
         self.engine.interpret_ir(expression, self.pooled, 0)
     }
+    fn resolve_modifier(
+        &mut self,
+        name: &str,
+        expected: crate::semantic::FunctionPartOfSpeech,
+    ) -> Result<crate::parser::ResolvedModifier> {
+        let mut current = name.to_owned();
+        let mut bindings = Vec::new();
+        for _ in 0..=crate::semantic::MAX_EXPR_DEPTH {
+            let binding = self
+                .engine
+                .names
+                .get(&current)
+                .ok_or_else(|| Error::Value(current.clone()))?;
+            let SymbolValue::Modifier(function) = &binding.value else {
+                return Err(Error::Domain);
+            };
+            if function.result_pos != expected {
+                return Err(Error::Domain);
+            }
+            bindings.push((current.clone(), binding.version));
+            if let FunctionHead::NameRef(next) = &function.head {
+                current = next.clone();
+            } else {
+                if !function.operands.is_empty() {
+                    return Err(Error::Unsupported(
+                        "derived modifier construction executor".into(),
+                    ));
+                }
+                return Ok(crate::parser::ResolvedModifier {
+                    function: function.clone(),
+                    bindings,
+                });
+            }
+        }
+        Err(Error::Limit)
+    }
     fn assign(
         &mut self,
         name: &str,
@@ -302,6 +338,12 @@ impl Engine {
     pub fn eval_captured(&mut self, source: &str) -> CapturedEvaluation {
         let mut capture = crate::parser_capture::ParseCapture::default();
         let result = self.eval_program(source, true, Some(&mut capture));
+        if let Err(error) = &result {
+            capture.failure = Some(crate::parser_capture::CaptureFailure {
+                kind: error.kind().into(),
+                context: error.context().cloned(),
+            });
+        }
         CapturedEvaluation { result, capture }
     }
 
@@ -309,7 +351,7 @@ impl Engine {
         &mut self,
         source: &str,
         pooled: bool,
-        mut capture: Option<&mut crate::parser_capture::ParseCapture>,
+        capture: Option<&mut crate::parser_capture::ParseCapture>,
     ) -> Result<Option<Value>> {
         let program = crate::parser::parse_runtime_host(
             source,
@@ -317,7 +359,7 @@ impl Engine {
                 engine: self,
                 pooled,
             },
-            capture.as_deref_mut(),
+            capture,
         )?;
         let Some(expr) = program.expression else {
             return Ok(None);
@@ -331,33 +373,9 @@ impl Engine {
             // Parentheses only wrap completed nouns; no kernel replay occurs.
             _ => SymbolValue::Noun(self.interpret_ir(expr, pooled, 0)?),
         };
-        if let Some(name) = program.assignment {
-            let previous = self.binding_version(&name);
-            let (class, function) = match &value {
-                SymbolValue::Noun(_) => (crate::parser::ParseClass::Noun, None),
-                SymbolValue::Verb(verb) => {
-                    (crate::parser::ParseClass::Verb, Some(verb.entity.clone()))
-                }
-                SymbolValue::Modifier(function) => {
-                    (function.result_pos.into(), Some(function.clone()))
-                }
-            };
-            self.commit_binding(name.clone(), value)?;
-            if let Some(capture) = capture {
-                capture
-                    .events
-                    .push(crate::parser_capture::CaptureEvent::Commit {
-                        version: self.binding_version(&name).expect("committed binding"),
-                        previous,
-                        span: program.assignment_span.expect("assignment span"),
-                        value: capture.result,
-                        final_assignment: true,
-                        class,
-                        function,
-                        source: program.assignment_source.expect("assignment provenance"),
-                        name,
-                    });
-            }
+        if program.assignment.is_some() {
+            // Runtime row 7 already committed the value. Even a later parser
+            // exit error must not roll back that J-visible assignment.
             Ok(None)
         } else {
             match value {

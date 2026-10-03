@@ -47,6 +47,9 @@ pub enum CaptureEvent {
         noun_inputs: Vec<OccurrenceId>,
         span: Range<usize>,
     },
+    ModifierResolved {
+        binding: ModifierBinding,
+    },
     ConstructionSuccess {
         row: ParseRow,
         function: Arc<FunctionEntity>,
@@ -74,12 +77,30 @@ pub enum CaptureEvent {
     },
 }
 
+#[derive(Clone, Debug)]
+pub struct ModifierBinding {
+    pub name: String,
+    pub version: NameVersion,
+    pub expected: crate::semantic::FunctionPartOfSpeech,
+    pub row: ParseRow,
+    pub function: Arc<FunctionEntity>,
+    pub span: Range<usize>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ParseCapture {
     source: String,
     pub events: Vec<CaptureEvent>,
     pub result: Option<OccurrenceId>,
+    /// Terminal enqueue/parse/runtime failure, including errors with no apply.
+    pub failure: Option<CaptureFailure>,
     next_id: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct CaptureFailure {
+    pub kind: String,
+    pub context: Option<ErrorContext>,
 }
 
 impl ParseCapture {
@@ -115,7 +136,7 @@ impl ParseCapture {
         let mut attempts = BTreeMap::new();
         let mut next = 0;
         let mut construction = None;
-        for event in &self.events {
+        for (event_index, event) in self.events.iter().enumerate() {
             match event {
                 CaptureEvent::Input { id, .. } => {
                     if id.0 != next || !attempts.is_empty() || construction.is_some() {
@@ -157,13 +178,58 @@ impl ParseCapture {
                         return Err("constructor input is unavailable");
                     }
                 }
+                CaptureEvent::ModifierResolved { binding } => {
+                    let valid_phase = match binding.row {
+                        ParseRow::Assignment => construction.is_none() && attempts.is_empty(),
+                        ParseRow::Adverb | ParseRow::Conjunction => {
+                            construction == Some(binding.row)
+                        }
+                        _ => false,
+                    };
+                    if !valid_phase || binding.function.result_pos != binding.expected {
+                        return Err("invalid modifier resolution witness");
+                    }
+                }
                 CaptureEvent::ConstructionSuccess { row, .. }
                 | CaptureEvent::ConstructionFailure { row, .. } => {
                     if construction.take() != Some(*row) {
                         return Err("construction outcome without matching attempt");
                     }
                 }
-                CaptureEvent::Commit { value, .. } => {
+                CaptureEvent::Commit {
+                    value,
+                    class,
+                    function,
+                    version,
+                    previous,
+                    source,
+                    final_assignment,
+                    ..
+                } => {
+                    let valid_value = match class {
+                        crate::parser::ParseClass::Noun => value.is_some() && function.is_none(),
+                        crate::parser::ParseClass::Verb
+                        | crate::parser::ParseClass::Adverb
+                        | crate::parser::ParseClass::Conjunction => {
+                            value.is_none()
+                                && function.as_ref().is_some_and(|f| {
+                                    crate::parser::ParseClass::from(f.result_pos) == *class
+                                })
+                        }
+                        _ => false,
+                    };
+                    if !valid_value {
+                        return Err("commit result POS does not match value");
+                    }
+                    if previous.map_or(Some(1), |v| v.0.checked_add(1)) != Some(version.0) {
+                        return Err("invalid commit binding version");
+                    }
+                    if source.flags.global_assignment == source.flags.local_assignment {
+                        return Err("invalid commit copula scope");
+                    }
+                    if *final_assignment && event_index + 1 != self.events.len() {
+                        return Err("events after final commit");
+                    }
                     if value.is_some_and(|id| !ready.contains(&id)) {
                         return Err("commit value is unavailable");
                     }
@@ -196,6 +262,7 @@ pub struct CapturedGraph {
     /// Runtime observations are separate from inferred facts and reuse guards.
     pub observed_facts: Vec<(crate::j_graph_ir::ValueId, GraphFacts)>,
     pub constructors: Vec<ConstructorOrigin>,
+    pub modifier_bindings: Vec<ModifierBinding>,
 }
 
 #[derive(Clone, Debug)]

@@ -462,3 +462,186 @@ fn grouped_assignment_result_is_not_a_final_silent_write() {
         })
     ));
 }
+
+#[test]
+fn intermediate_function_assignment_preserves_actual_pos_and_entity() {
+    use rustj::parser::ParseClass;
+    let mut engine = Engine::new();
+    for (source, class, expected) in [
+        ("(f=:-) 3", ParseClass::Verb, -3),
+        ("+(adv=:/) i.3", ParseClass::Adverb, 3),
+        ("+(conj=:\")0 (3)", ParseClass::Conjunction, 3),
+    ] {
+        let report = engine.eval_captured(source);
+        assert_eq!(
+            report.result.unwrap().unwrap().int_at(0).unwrap(),
+            expected,
+            "{source}"
+        );
+        report.capture.verify().unwrap();
+        let entity = report
+            .capture
+            .events
+            .iter()
+            .find_map(|e| match e {
+                CaptureEvent::Commit {
+                    class: actual,
+                    function: Some(function),
+                    value: None,
+                    final_assignment: false,
+                    ..
+                } => {
+                    assert_eq!(*actual, class);
+                    Some(function)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(ParseClass::from(entity.result_pos), class);
+        assert!(report.capture.requires_ordered_effect_graph());
+    }
+}
+
+#[test]
+fn commit_verifier_rejects_wrong_pos_version_and_final_order() {
+    let mut engine = Engine::new();
+    let report = engine.eval_captured("x=:2");
+    report.result.unwrap();
+    for mutation in 0..3 {
+        let mut capture = report.capture.clone();
+        let CaptureEvent::Commit { class, version, .. } = capture.events.last_mut().unwrap() else {
+            panic!()
+        };
+        match mutation {
+            0 => *class = rustj::parser::ParseClass::Verb,
+            1 => *version = rustj::semantic::NameVersion(0),
+            _ => capture.events.push(capture.events[0].clone()),
+        }
+        assert!(capture.verify().is_err());
+    }
+}
+
+#[test]
+fn unmatched_controls_do_not_preempt_reachable_assignment_actions() {
+    let mut plain = Engine::new();
+    let mut observed = Engine::new();
+    for source in [
+        "x=:0", "(x=:2", "x", "x=:0", "((x=:2)", "x", "x=:0", "x=:2)", "x", "x=:0", ")+(x=:2)", "x",
+    ] {
+        let report = observed.eval_captured(source);
+        assert_eq!(
+            output(report.result),
+            output(plain.eval(source)),
+            "{source}"
+        );
+        report.capture.verify().unwrap();
+        if source.contains("=:2") {
+            assert_eq!(plain.eval("x").unwrap().unwrap().int_at(0).unwrap(), 2);
+            assert!(
+                report
+                    .capture
+                    .events
+                    .iter()
+                    .any(|e| matches!(e, CaptureEvent::Commit { name, .. } if name == "x"))
+            );
+            assert!(rustj::j_graph_ir::Plan::from_capture(&report.capture).is_err());
+        }
+    }
+}
+
+#[test]
+fn final_hook_assignment_is_retained_when_exit_parse_finds_unmatched_control() {
+    let mut engine = Engine::new();
+    engine.eval("a=:1 2 3").unwrap();
+    let report = engine.eval_captured("a=:missing + )");
+    assert_eq!(report.result.unwrap_err().kind(), "syntax error");
+    report.capture.verify().unwrap();
+    assert_eq!(
+        engine.binding_version("a"),
+        Some(rustj::semantic::NameVersion(2))
+    );
+    assert!(
+        matches!(report.capture.events.last(), Some(CaptureEvent::Commit {
+        class: rustj::parser::ParseClass::Verb, function: Some(entity), final_assignment: true, ..
+    }) if entity.head == FunctionHead::Hook)
+    );
+    assert!(rustj::j_graph_ir::Plan::from_capture(&report.capture).is_err());
+}
+
+#[test]
+fn terminal_syntax_and_enqueue_errors_cannot_be_adapted_as_completed_graphs() {
+    let mut engine = Engine::new();
+    for source in ["(1", "1 )", "'unclosed", "x=:2)"] {
+        let report = engine.eval_captured(source);
+        let error = report.result.unwrap_err();
+        let failure = report.capture.failure.as_ref().unwrap();
+        assert_eq!(failure.kind, error.kind());
+        assert_eq!(
+            failure.context.as_ref().and_then(|c| c.span.clone()),
+            error.span().cloned()
+        );
+        report.capture.verify().unwrap();
+        assert_eq!(
+            rustj::j_graph_ir::Plan::from_capture(&report.capture)
+                .unwrap_err()
+                .kind(),
+            "unsupported"
+        );
+    }
+}
+
+#[test]
+fn named_modifiers_resolve_at_construction_and_keep_snapshot_dependencies() {
+    let mut engine = Engine::new();
+    engine.eval("adv=:/").unwrap();
+    let alias = engine.eval_captured("alias=:adv");
+    alias.result.unwrap();
+    alias.capture.verify().unwrap();
+    assert!(alias.capture.events.iter().any(|e| matches!(e, CaptureEvent::ModifierResolved { binding } if binding.name == "adv" && binding.row == rustj::parser::ParseRow::Assignment)));
+    let report = engine.eval_captured("f=:+alias");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let graph = rustj::j_graph_ir::Plan::from_capture(&report.capture).unwrap();
+    assert_eq!(
+        graph.constructors.last().unwrap().function.span,
+        3.."f=:+alias".len()
+    );
+    assert!(
+        graph
+            .modifier_bindings
+            .iter()
+            .all(|b| b.span == (4.."f=:+alias".len()))
+    );
+    assert_eq!(
+        graph
+            .modifier_bindings
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect::<Vec<_>>(),
+        ["alias"]
+    );
+    assert!(
+        graph
+            .graph
+            .verb_references
+            .iter()
+            .any(|(name, _)| name == "alias")
+    );
+    engine.eval("adv=:1").unwrap();
+    assert_eq!(engine.eval("f i.3").unwrap().unwrap().int_at(0).unwrap(), 3);
+    assert_eq!(
+        engine
+            .eval("+alias i.3")
+            .unwrap()
+            .unwrap()
+            .int_at(0)
+            .unwrap(),
+        3
+    );
+    engine.eval("conj=:\"").unwrap();
+    engine.eval("g=:+conj 0").unwrap();
+    engine.eval("conj=:1").unwrap();
+    assert_eq!(engine.eval("g i.3").unwrap().unwrap().len(), 3);
+    engine.eval("adv=:/").unwrap();
+    assert_eq!(engine.eval("3 adv").unwrap_err().kind(), "domain error");
+}

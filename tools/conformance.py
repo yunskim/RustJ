@@ -170,6 +170,22 @@ def cases():
         'midarr=:i.65', 'midalias=:midarr', 'midarr+(midarr=:midarr+1)',
         'midarr', 'midalias', 'midfn=:+', 'midfn (midfn=:2)', 'midfn',
         '(midfn=:+) 3', 'midfn 3',
+        '(midfn=:-) 3', 'midfn 3', '+(midadv=:/) i.3', '+midadv i.3',
+        '+(midconj=:")0 i.3', '+midconj 0 i.3',
+    ])
+    fixed.extend([
+        'parenwrite=:0', '(parenwrite=:2', 'parenwrite',
+        'parenwrite=:0', '((parenwrite=:2)', 'parenwrite',
+        'parenwrite=:0', 'parenwrite=:2)', 'parenwrite',
+        'parenwrite=:0', ')+(parenwrite=:2)', 'parenwrite',
+        'parenwrite=:0', 'parenwrite+(parenwrite=:2', 'parenwrite',
+        'parenwrite=:0', "'bad'+(parenwrite=:2", 'parenwrite',
+        'parenwrite=:0', "(parenwrite=:2)+('a'+1", 'parenwrite',
+    ])
+    fixed.extend([
+        'modadv=:/', 'modalias=:modadv', 'modf=:+modalias', 'modadv=:1', 'modf i.3',
+        '+modalias i.3', 'modadv=:/', '3 modadv',
+        'modconj=:\"', 'modg=:+modconj 0', 'modconj=:1', 'modg i.3',
     ])
     return fixed
 
@@ -240,11 +256,16 @@ def main():
         if oracle.returncode != 0 or rust.returncode not in (0,1):
             raise RuntimeError(f'process failure: oracle={oracle.returncode}, rust={rust.returncode}\n{oracle.stderr}\n{rust.stderr}')
         if args.parser_capture:
-            report['graph_coverage_boundaries'] = [
-                {'index': int(line.split(': ', 1)[1]),
-                 'source': corpus[int(line.split(': ', 1)[1])],
-                 'reason': 'capture needs ordered assignment/effect graph'}
-                for line in rust.stderr.splitlines() if line.startswith('ordered-effect graph boundary: ')]
+            report['graph_coverage_boundaries'] = []
+            for line in rust.stderr.splitlines():
+                for prefix, reason in [
+                    ('ordered-effect graph boundary: ', 'capture needs ordered assignment/effect graph'),
+                    ('modifier-value graph boundary: ', 'captured modifier value graph lowering'),
+                ]:
+                    if line.startswith(prefix):
+                        index = int(line[len(prefix):])
+                        report['graph_coverage_boundaries'].append({
+                            'index': index, 'source': corpus[index], 'reason': reason})
         expected = [json.loads(s) for s in oracle.stdout.splitlines()]
         actual = [json.loads(s) for s in rust.stdout.splitlines()]
         if len(expected) != len(corpus) or len(actual) != len(corpus):
@@ -265,6 +286,8 @@ def main():
                      and a.get('shape') == b.get('shape') == [2,3,4,3]
                      and a.get('data') == b.get('data'))
             report['known_deviations' if known else 'failures'].append(item)
+        if not report['failures']:
+            args.report.with_suffix('.repro.ijs').unlink(missing_ok=True)
         if report['failures']:
             # Replay the full prefix: stateful failures cannot be reproduced by one line.
             end = report['failures'][0]['index'] + 1
@@ -273,7 +296,7 @@ def main():
         report['harness_error'] = str(error)
     report['failed'] = len(report['failures'])
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2))
+    args.report.write_text(json.dumps(report, indent=2), newline='\n')
     print(json.dumps({k:v for k,v in report.items() if k not in ['failures','known_deviations']}, indent=2))
     print('known deviations:', len(report['known_deviations']))
     return bool(report['failures'] or report.get('harness_error'))

@@ -222,8 +222,24 @@ fn shared_frontend_preserves_right_hand_error_precedence() {
             }
             .unwrap_err();
             assert_eq!(error.kind(), kind, "{source}");
-            assert_eq!(engine.binding_version("a"), Some(semantic::NameVersion(1)));
-            assert_eq!(engine.eval("a").unwrap().unwrap().json(), before);
+            if source == "missing + )" {
+                // C constructs/assigns the hook before exit-parse reports the
+                // unmatched ')'. A syntax failure is not a universal rollback.
+                assert_eq!(engine.binding_version("a"), Some(semantic::NameVersion(2)));
+                assert!(matches!(
+                    engine
+                        .prepare_semantic("a")
+                        .unwrap()
+                        .program
+                        .expression
+                        .unwrap()
+                        .kind,
+                    Expr::VerbValue(_)
+                ));
+            } else {
+                assert_eq!(engine.binding_version("a"), Some(semantic::NameVersion(1)));
+                assert_eq!(engine.eval("a").unwrap().unwrap().json(), before);
+            }
         }
     }
 }
