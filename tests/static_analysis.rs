@@ -367,3 +367,34 @@ fn graph_verifier_checks_snapshot_pos_version_and_source_use() {
         assert!(graph.verify().is_err());
     }
 }
+
+#[test]
+fn bound_rank_bident_can_analyze_trillion_atom_metadata_without_a_kernel() {
+    let mut analyzer = StaticAnalyzer::new();
+    analyzer
+        .declare_noun("x", input(Some(vec![1_000_000_000_000])))
+        .unwrap();
+    let report = analyzer.analyze("out=: - (\"1) x").unwrap();
+    report.graph.verify().unwrap();
+    assert_eq!(
+        report
+            .memory
+            .extent(report.graph.result.unwrap())
+            .unwrap()
+            .shape,
+        vec![1_000_000_000_000]
+    );
+    assert!(analyzer.binding("out").is_none());
+    assert!(
+        report
+            .reductions
+            .iter()
+            .any(|r| r.row == rustj::parser::ParseRow::Hook)
+    );
+    assert!(
+        report
+            .reductions
+            .iter()
+            .any(|r| r.row == rustj::parser::ParseRow::Adverb)
+    );
+}

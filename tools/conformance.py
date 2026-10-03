@@ -197,11 +197,21 @@ def cases():
     fixed.extend(['trainerr=: (1 2+1 2 3) "', 'trainerr=: (/3)',
                   'trainitems=:i.65', 'trainarray=:trainitems "',
                   'trainitems=:trainitems+1', 'trainitems'])
+    fixed.extend([
+        'boundright=:"1', 'boundcopy=:boundright', 'boundright=:1',
+        'boundfn=: - boundcopy', 'boundfn i.2 3', '(- ("1)) i.2 3',
+        '(- ("1 2)) i.2 3', '(+ ("-)) i.4', '(+ (@:-)) i.4',
+        'boundbad=:"\'a\'', 'boundkeep=:+', 'boundkeep=: - boundbad', 'boundkeep i.3',
+        'boundkeep=: - ("1 2 3 4)', 'boundkeep i.3', 'boundkeep=: - (@:3)',
+        'boundcopy=:"2', 'boundfn i.2 3', 'boundfn=: - boundcopy', 'boundfn i.2 3',
+    ])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked
 # separately; these are neither conformance passes nor C baseline deviations.
 RUNTIME_COVERAGE_BOUNDARIES = {
+    '(+ ("-)) i.4': 'verb-valued rank operand has no runtime executor',
+    '(+ (@:-)) i.4': 'atop has no runtime executor',
     '(entryverb/ % #) entrynoun': 'named insert inside fork has no runtime executor',
     '(entryverb/ % #) entrycopy': 'named insert inside fork has no runtime executor',
 }

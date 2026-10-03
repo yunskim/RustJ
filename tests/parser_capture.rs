@@ -720,3 +720,39 @@ fn modifier_train_retains_named_array_by_value_across_reassignment() {
     assert_eq!(value.int_at(64).unwrap(), 64);
     assert_eq!(engine.eval("items").unwrap().unwrap().int_at(0).unwrap(), 1);
 }
+
+#[test]
+fn named_bound_modifier_application_retains_identity_version_and_current_use_span() {
+    let mut engine = Engine::new();
+    for source in ["bound=: \"1", "alias=:bound"] {
+        engine.eval(source).unwrap();
+    }
+    let source = "- alias i.4";
+    let version = engine.binding_version("alias").unwrap();
+    let graph = engine.analyze_j_graph(source).unwrap();
+    graph.verify().unwrap();
+    let snapshot = &graph.modifier_snapshots[0];
+    assert_eq!(snapshot.version, version);
+    let report = engine.eval_captured(source);
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let binding = report
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            CaptureEvent::ModifierResolved { binding } if binding.name == "alias" => Some(binding),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(binding.row, ParseRow::Adverb);
+    assert_eq!(binding.version, version);
+    assert_eq!(&source[binding.span.clone()], "alias");
+    assert!(std::sync::Arc::ptr_eq(
+        &binding.function,
+        &snapshot.function
+    ));
+    assert!(report.capture.events.iter().any(|event| matches!(event,
+        CaptureEvent::ConstructionSuccess { function, .. }
+        if function.head == FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank))));
+}

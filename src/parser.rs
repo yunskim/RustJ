@@ -116,7 +116,7 @@ fn resolve_modifier(
     context: &mut ActionContext<'_>,
     row: ParseRow,
 ) -> Result<Arc<FunctionEntity>> {
-    if matches!(operator.head, FunctionHead::ModifierTrain) && row != ParseRow::Assignment {
+    if matches!(operator.head, FunctionHead::ModifierTrain) && row == ParseRow::Conjunction {
         return Err(Error::Unsupported("derived modifier application semantics".into()).at(span));
     }
     let FunctionHead::NameRef(name) = &operator.head else {
@@ -155,6 +155,44 @@ fn apply_adverb(
     span: std::ops::Range<usize>,
 ) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
+    // cf.c tcNV: u (C n/v) applies C to u and the bound right operand.
+    // This is semantic construction, not an optimization of the train.
+    if matches!(operator.head, FunctionHead::ModifierTrain) {
+        if let [FunctionOperand::Function(conjunction), right] = operator.operands.as_slice() {
+            if conjunction.is_primitive_modifier()
+                && conjunction.result_pos == FunctionPartOfSpeech::Conjunction
+            {
+                let operand_span = left.span.end..span.end;
+                let right = match right {
+                    FunctionOperand::Noun { value, .. } => Item::noun(
+                        Expr {
+                            span: operand_span,
+                            kind: ExprKind::Literal(value.clone()),
+                        },
+                        0,
+                    ),
+                    FunctionOperand::Function(function)
+                        if function.result_pos == FunctionPartOfSpeech::Verb =>
+                    {
+                        Item::verb(Verb {
+                            span: operand_span,
+                            target: VerbTarget::Derived,
+                            entity: function.clone(),
+                        })
+                    }
+                    _ => {
+                        return Err(Error::Unsupported(
+                            "bound conjunction operand semantics".into(),
+                        ));
+                    }
+                };
+                return apply_conjunction(left, conjunction.clone(), right);
+            }
+        }
+        return Err(Error::Unsupported(
+            "derived modifier application semantics".into(),
+        ));
+    }
     Ok(Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
@@ -952,7 +990,8 @@ fn modifier_train(phrase: Vec<Item>, result: ParseClass) -> Result<Arc<FunctionE
         let item_span = item.span();
         operands.push(match item.value {
             ParseValue::Noun(expr, _) => FunctionOperand::Noun {
-                value: completed_noun(expr, "runtime-dependent modifier train noun operand")?,
+                value: completed_noun(expr, "runtime-dependent modifier train noun operand")?
+                    .into_shared(),
                 span: item_span,
             },
             ParseValue::Verb(verb) => FunctionOperand::Function(verb.entity),
@@ -1351,7 +1390,7 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
             0,
         ),
         Some(ParserNameBinding::KnownModifier { function, version }) => {
-            if context.mode != ParseContext::Analysis || !function.is_primitive_modifier() {
+            if context.mode != ParseContext::Analysis || !function.is_known_modifier() {
                 return Err(Error::Unsupported(
                     "modifier snapshot has no supported static constructor semantics".into(),
                 )

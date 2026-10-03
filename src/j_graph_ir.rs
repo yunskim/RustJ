@@ -1204,7 +1204,7 @@ impl Plan {
                 || self.source[span.clone()] != snapshot.name
                 || snapshot.version.0 == 0
                 || snapshot.expected != snapshot.function.result_pos
-                || !snapshot.function.is_primitive_modifier()
+                || !snapshot.function.is_known_modifier()
             {
                 return Err("invalid static modifier snapshot".into());
             }

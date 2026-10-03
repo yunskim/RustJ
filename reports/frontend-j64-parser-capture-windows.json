@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2165,
+  "cases": 2185,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\j.dll",
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "b107bec0f70a4e3e55b2b6c61b428911707383cda5692b7366e739e927fd5aa8",
+  "binary_sha256": "e00a9c8f1855530b748bbef360f2f8eba605233c2a95248720582da3633f6d9c",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2163,
+  "passed": 2181,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -41,6 +41,46 @@
         "error": "unsupported"
       },
       "reason": "named insert inside fork has no runtime executor"
+    },
+    {
+      "index": 1372,
+      "source": "(+ (\"-)) i.4",
+      "reference": {
+        "type": 4,
+        "shape": [
+          4
+        ],
+        "data": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "rust": {
+        "error": "unsupported"
+      },
+      "reason": "verb-valued rank operand has no runtime executor"
+    },
+    {
+      "index": 1373,
+      "source": "(+ (@:-)) i.4",
+      "reference": {
+        "type": 4,
+        "shape": [
+          4
+        ],
+        "data": [
+          0,
+          -1,
+          -2,
+          -3
+        ]
+      },
+      "rust": {
+        "error": "unsupported"
+      },
+      "reason": "atop has no runtime executor"
     }
   ],
   "failures": [],
@@ -213,6 +253,26 @@
     {
       "index": 1362,
       "source": "trainarray=:trainitems \"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1365,
+      "source": "boundright=:\"1",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1366,
+      "source": "boundcopy=:boundright",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1374,
+      "source": "boundbad=:\"'a'",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1381,
+      "source": "boundcopy=:\"2",
       "reason": "captured modifier value graph lowering"
     }
   ],

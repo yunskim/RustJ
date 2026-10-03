@@ -710,11 +710,7 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
-    for source in [
-        "protected=: + (\"1)",
-        "protected=: + (/ /)",
-        "protected=: + (@:/) -",
-    ] {
+    for source in ["protected=: + (/ /)", "protected=: + (@:/) -"] {
         let report = engine.eval_captured(source);
         assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
         report.capture.verify().unwrap();
@@ -722,6 +718,81 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
         assert_eq!(
             engine.prepare_semantic(source).unwrap_err().kind(),
             "unsupported"
+        );
+    }
+}
+
+#[test]
+fn right_bound_conjunction_bident_matches_direct_construction_and_calls() {
+    let mut engine = rustj::Engine::new();
+    for (source, direct) in [
+        ("(+ (\"1)) i.2 3", "(+\"1) i.2 3"),
+        ("(- (\"1 2)) i.2 3", "(-\"1 2) i.2 3"),
+    ] {
+        let expected = engine.eval(direct).unwrap().unwrap().json();
+        for semantic in [false, true] {
+            let actual = if semantic {
+                engine.eval_semantic_reference(source)
+            } else {
+                engine.eval(source)
+            };
+            assert_eq!(actual.unwrap().unwrap().json(), expected, "{source}");
+        }
+    }
+}
+
+#[test]
+fn named_bound_modifier_alias_is_frozen_and_failures_leave_target_unchanged() {
+    let mut engine = rustj::Engine::new();
+    for source in [
+        "bound=: \"1",
+        "alias=:bound",
+        "bound=:1",
+        "fn=: - alias",
+        "protected=:+",
+    ] {
+        engine.eval(source).unwrap();
+    }
+    assert_eq!(
+        engine.eval("fn i.4").unwrap().unwrap().json(),
+        engine.eval("-i.4").unwrap().unwrap().json()
+    );
+    let graph = engine.analyze_j_graph("- alias i.4").unwrap();
+    graph.verify().unwrap();
+    assert_eq!(graph.modifier_snapshots[0].name, "alias");
+    let version = engine.binding_version("protected");
+    for (source, kind) in [
+        ("protected=: - (\"'a')", "domain error"),
+        ("protected=: - (\"1 2 3 4)", "length error"),
+        ("protected=: - (@:3)", "domain error"),
+    ] {
+        let report = engine.eval_captured(source);
+        report.capture.verify().unwrap();
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
+        assert_eq!(engine.binding_version("protected"), version);
+        assert_eq!(engine.prepare_semantic(source).unwrap_err().kind(), kind);
+    }
+}
+
+#[test]
+fn right_bound_verb_operand_preserves_construction_separately_from_executor_coverage() {
+    use rustj::semantic::{ExprKind, FunctionHead, FunctionOperand};
+    for source in ["+ (\"-)", "+ (@:-)"] {
+        let program = semantic::parse(source).unwrap();
+        let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!();
+        };
+        assert!(matches!(
+            verb.entity.head,
+            FunctionHead::PrimitiveConjunction(_)
+        ));
+        assert_eq!(verb.entity.operands.len(), 2);
+        let FunctionOperand::Function(right) = &verb.entity.operands[1] else {
+            panic!();
+        };
+        assert_eq!(
+            right.head,
+            FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Subtract)
         );
     }
 }

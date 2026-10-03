@@ -58,7 +58,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             if let FunctionHead::NameRef(next) = &function.head {
                 current = next.clone();
             } else {
-                if !function.operands.is_empty() {
+                if !function.is_known_modifier() {
                     return Err(Error::Unsupported(
                         "derived modifier construction executor".into(),
                     ));

@@ -252,7 +252,7 @@ def run(args):
                                                           'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
         else:
             check('static_value_boundary', source, {'C_success': True, 'rust': {'error': 'unsupported'}}, {'C_success': reference is None, 'rust': actual})
-        for source in ['candidate=: + ("1)', 'candidate=: + (/ /)', 'candidate=: + (@:/) -']:
+        for source in ['candidate=: + (/ /)', 'candidate=: + (@:/) -']:
             actual = static_probe.inspect(source)
             reference = oracle.run(source)
             if reference is None and actual == {'error': 'unsupported'}:
@@ -263,6 +263,17 @@ def run(args):
                 check('static_modifier_application_boundary', source,
                       {'C_success': True, 'rust': {'error': 'unsupported'}},
                       {'C_success': reference is None, 'rust': actual})
+        for expression in ['- ("1)', '- ("1 2)', '- ("+)', '+ (@:-)']:
+            analyze_function('candidate=: ' + expression, [])
+        for expression in ['- ("\'a\')', '- ("1 2 3 4)', '- (@:3)']:
+            analyze_function('candidate=: ' + expression, [])
+        setup('boundrank=:"1', 'boundrank')
+        setup('boundalias=:boundrank', 'boundalias')
+        analyze_function('candidate=: - boundrank', [('boundrank', 1)])
+        analyze_function('candidate=: - boundalias', [('boundalias', 1)])
+        setup('boundrank=:"2', 'boundrank')
+        analyze_function('candidate=: - boundalias', [('boundalias', 1)])
+        analyze_function('candidate=: - boundrank', [('boundrank', 1)])
         setup('analysisadv=:\\', 'analysisadv')
         analyze_function('candidate=: + analysisalias', [('analysisalias', 1)])
         analyze_function('candidate=: + analysisadv', [('analysisadv', 1)])

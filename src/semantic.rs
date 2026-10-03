@@ -58,6 +58,17 @@ impl FunctionEntity {
                 )
             )
     }
+    /// Construction identity can be observed without applying the modifier.
+    /// A known train identity does not imply its application is implemented.
+    pub(crate) fn is_known_modifier(&self) -> bool {
+        self.is_primitive_modifier()
+            || (matches!(self.head, FunctionHead::ModifierTrain)
+                && matches!(
+                    self.result_pos,
+                    FunctionPartOfSpeech::Adverb | FunctionPartOfSpeech::Conjunction
+                )
+                && matches!(self.operands.len(), 2 | 3))
+    }
     pub(crate) fn primitive(
         id: crate::primitive::PrimitiveId,
         span: std::ops::Range<usize>,
