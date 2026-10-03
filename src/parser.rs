@@ -148,16 +148,24 @@ fn resolve_modifier(
 
 /// Read the current construction environment without snapshotting a sentence.
 #[derive(Clone, Copy, Default)]
-struct ConstructionNames<'a> {
+struct ConstructionNames<'a, 'h> {
     lookup: NameLookup<'a>,
-    host: Option<&'a dyn RuntimeParserHost>,
-    observations: Option<&'a std::cell::RefCell<Vec<crate::parser_capture::GerundNameRead>>>,
+    host: Option<&'a std::cell::RefCell<&'h mut dyn RuntimeParserHost>>,
+    observations: Option<&'a std::cell::RefCell<Vec<CaptureEvent>>>,
+    row: Option<ParseRow>,
 }
 
-impl ConstructionNames<'_> {
+fn construction_host<'h>(
+    host: &'h mut Option<&mut dyn RuntimeParserHost>,
+) -> Option<std::cell::RefCell<&'h mut dyn RuntimeParserHost>> {
+    host.as_mut()
+        .map(|host| std::cell::RefCell::new(&mut **host as &mut dyn RuntimeParserHost))
+}
+
+impl ConstructionNames<'_, '_> {
     fn binding(&self, name: &str) -> Result<Option<ParserNameBinding>> {
         if let Some(host) = self.host {
-            host.gerund_binding(name)
+            host.borrow().gerund_binding(name)
         } else if let Some(lookup) = self.lookup {
             Ok(lookup(name))
         } else {
@@ -165,6 +173,91 @@ impl ConstructionNames<'_> {
                 "gerund name construction requires a name environment".into(),
             ))
         }
+    }
+    fn apply_noun(
+        self,
+        verb: Verb,
+        left: Option<Expr>,
+        right: Expr,
+        span: std::ops::Range<usize>,
+    ) -> Result<Item> {
+        let Some(host) = self.host else {
+            return Err(Error::Unsupported(
+                "constructor noun call requires runtime semantic host".into(),
+            ));
+        };
+        let right_span = right.span.clone();
+        let right = completed_noun(right, "constructor right noun")?.into_shared();
+        let left = left
+            .map(|expr| {
+                let span = expr.span.clone();
+                completed_noun(expr, "constructor left noun")
+                    .map(|value| (value.into_shared(), span))
+            })
+            .transpose()?;
+        let observed = self.observations.map(|_| {
+            (
+                left.as_ref()
+                    .map(|(value, _)| crate::j_graph_ir::GraphFacts::of(value)),
+                crate::j_graph_ir::GraphFacts::of(&right),
+            )
+        });
+        let function = verb.entity.clone();
+        let right = Box::new(Expr {
+            span: right_span,
+            kind: ExprKind::Literal(right),
+        });
+        let expression = Expr {
+            span: span.clone(),
+            kind: if let Some((value, noun_span)) = left {
+                ExprKind::Dyad {
+                    verb,
+                    left: Box::new(Expr {
+                        span: noun_span,
+                        kind: ExprKind::Literal(value),
+                    }),
+                    right,
+                }
+            } else {
+                ExprKind::Monad {
+                    verb,
+                    argument: right,
+                }
+            },
+        };
+        let result = host.borrow_mut().apply(expression);
+        if let (Some(observations), Some((left, right))) = (self.observations, observed) {
+            let outcome = match &result {
+                Ok(value) => crate::parser_capture::ConstructorCallOutcome::Success(
+                    crate::j_graph_ir::GraphFacts::of(value),
+                ),
+                Err(error) => crate::parser_capture::ConstructorCallOutcome::Failure {
+                    kind: error.kind().into(),
+                    context: error.context().cloned(),
+                },
+            };
+            observations
+                .borrow_mut()
+                .push(CaptureEvent::ConstructorApply {
+                    row: self.row.expect("constructor row"),
+                    call: crate::parser_capture::ConstructorCall {
+                        function,
+                        left,
+                        right,
+                        span: span.clone(),
+                        outcome,
+                    },
+                });
+        }
+        result.map(|value| {
+            Item::noun(
+                Expr {
+                    span,
+                    kind: ExprKind::Literal(value.into_shared()),
+                },
+                0,
+            )
+        })
     }
 }
 
@@ -175,7 +268,7 @@ fn apply_adverb(
     operator: Arc<FunctionEntity>,
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -314,7 +407,7 @@ fn audit_gerund(
     value: &Value,
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Vec<Arc<FunctionEntity>>> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -369,7 +462,7 @@ fn gerund_primitive(spelling: &str, span: std::ops::Range<usize>) -> Result<Item
 fn gerund_character(
     spelling: &str,
     span: std::ops::Range<usize>,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     let bytes = spelling.as_bytes();
     if bytes[0].is_ascii_alphabetic() && !matches!(bytes.last(), Some(b'.' | b':')) {
@@ -401,12 +494,15 @@ fn gerund_character(
             };
             observations
                 .borrow_mut()
-                .push(crate::parser_capture::GerundNameRead {
-                    name: spelling.into(),
-                    version: names.host.and_then(|host| host.version(spelling)),
-                    class,
-                    facts,
-                    span: span.clone(),
+                .push(CaptureEvent::GerundNameResolved {
+                    row: names.row.expect("constructor row"),
+                    read: crate::parser_capture::GerundNameRead {
+                        name: spelling.into(),
+                        version: names.host.and_then(|host| host.borrow().version(spelling)),
+                        class,
+                        facts,
+                        span: span.clone(),
+                    },
                 });
         }
         let pos = match binding {
@@ -452,7 +548,7 @@ fn decode_gerund_ar(
     value: &Value,
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     use crate::value::Data;
     if depth >= MAX_EXPR_DEPTH {
@@ -637,7 +733,7 @@ fn construct_modifier_bident(
     right: Item,
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -654,9 +750,12 @@ fn construct_modifier_bident(
         BidentDisposition::ImmediateSemanticApply if right.class == ParseClass::Adverb => {
             apply_adverb(left, right.into_function().unwrap(), span, depth + 1, names)
         }
-        BidentDisposition::ImmediateSemanticApply => Err(Error::Unsupported(
-            "modifier bident requires parser-time noun execution".into(),
-        )),
+        BidentDisposition::ImmediateSemanticApply => names.apply_noun(
+            left.into_verb().expect("V N bident"),
+            None,
+            right.into_noun().expect("V N bident").0,
+            span,
+        ),
         BidentDisposition::SyntaxError => Err(Error::Syntax(
             "invalid modifier bident application result".into(),
         )),
@@ -669,7 +768,7 @@ fn construct_modifier_trident(
     third: Item,
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -702,9 +801,12 @@ fn construct_modifier_trident(
                 names,
             )
         }
-        TridentDisposition::ImmediateSemanticApply => Err(Error::Unsupported(
-            "modifier trident requires parser-time noun execution".into(),
-        )),
+        TridentDisposition::ImmediateSemanticApply => names.apply_noun(
+            second.into_verb().expect("N V N trident"),
+            Some(first.into_noun().expect("N V N trident").0),
+            third.into_noun().expect("N V N trident").0,
+            span,
+        ),
         TridentDisposition::SyntaxError => Err(Error::Syntax(
             "invalid modifier trident application result".into(),
         )),
@@ -717,7 +819,7 @@ fn apply_conjunction_items(
     right: Item,
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -785,7 +887,7 @@ fn apply_modifier_trident(
     operands: &[FunctionOperand],
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
     if depth >= MAX_EXPR_DEPTH {
@@ -919,7 +1021,7 @@ fn apply_conjunction_at(
     right: Item,
     span: std::ops::Range<usize>,
     depth: usize,
-    names: ConstructionNames<'_>,
+    names: ConstructionNames<'_, '_>,
 ) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let primitive_id = match &operator.head {
@@ -1303,20 +1405,17 @@ fn apply_parse_row(
                 row,
             )?;
             let observations = std::cell::RefCell::new(Vec::new());
-            let result = apply_adverb(
-                left,
-                operator,
-                span.clone(),
-                0,
-                context.construction_names(&observations),
-            )
-            .map_err(|error| error.at(span.clone()));
+            let host = construction_host(&mut context.host);
+            let names = ConstructionNames {
+                lookup: context.lookup,
+                host: host.as_ref(),
+                observations: context.capture.as_ref().map(|_| &observations),
+                row: Some(row),
+            };
+            let result = apply_adverb(left, operator, span.clone(), 0, names)
+                .map_err(|error| error.at(span.clone()));
             if let Some(capture) = &mut context.capture {
-                for read in observations.into_inner() {
-                    capture
-                        .events
-                        .push(CaptureEvent::GerundNameResolved { row, read });
-                }
+                capture.events.extend(observations.into_inner());
             }
             stack.insert(1, result?.with_span(span));
             true
@@ -1335,21 +1434,17 @@ fn apply_parse_row(
                 row,
             )?;
             let observations = std::cell::RefCell::new(Vec::new());
-            let result = apply_conjunction_items(
-                left,
-                operator,
-                right,
-                span.clone(),
-                0,
-                context.construction_names(&observations),
-            )
-            .map_err(|error| error.at(span.clone()));
+            let host = construction_host(&mut context.host);
+            let names = ConstructionNames {
+                lookup: context.lookup,
+                host: host.as_ref(),
+                observations: context.capture.as_ref().map(|_| &observations),
+                row: Some(row),
+            };
+            let result = apply_conjunction_items(left, operator, right, span.clone(), 0, names)
+                .map_err(|error| error.at(span.clone()));
             if let Some(capture) = &mut context.capture {
-                for read in observations.into_inner() {
-                    capture
-                        .events
-                        .push(CaptureEvent::GerundNameResolved { row, read });
-                }
+                capture.events.extend(observations.into_inner());
             }
             stack.insert(1, result?.with_span(span));
             true
@@ -2066,19 +2161,6 @@ struct ActionContext<'a> {
     modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
 }
 
-impl ActionContext<'_> {
-    fn construction_names<'a>(
-        &'a self,
-        observations: &'a std::cell::RefCell<Vec<crate::parser_capture::GerundNameRead>>,
-    ) -> ConstructionNames<'a> {
-        ConstructionNames {
-            lookup: self.lookup,
-            host: self.host.as_deref(),
-            observations: self.capture.as_ref().map(|_| observations),
-        }
-    }
-}
-
 /// Resolve one ordinary name only when its queue entry reaches the stack.
 fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Item> {
     let ParseValue::LookupName { name, span } = &item.value else {
@@ -2730,6 +2812,58 @@ mod modifier_storage_tests {
 #[cfg(test)]
 mod gerund_ar_tests {
     use super::*;
+
+    #[test]
+    fn constructor_call_observes_updated_host_and_static_path_never_executes() {
+        struct Host {
+            calls: usize,
+        }
+        impl RuntimeParserHost for Host {
+            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
+                None
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                None
+            }
+            fn gerund_binding(&self, _: &str) -> Result<Option<ParserNameBinding>> {
+                Ok(Some(if self.calls == 0 {
+                    ParserNameBinding::Function(FunctionPartOfSpeech::Verb)
+                } else {
+                    ParserNameBinding::Noun(Value::scalar(2))
+                }))
+            }
+            fn apply(&mut self, expression: Expr) -> Result<Value> {
+                assert!(matches!(expression.kind, ExprKind::Monad { .. }));
+                self.calls += 1;
+                Ok(Value::scalar(2))
+            }
+        }
+        let call = ar("4", vec![text("+"), noun(Value::scalar(1))]);
+        assert_eq!(
+            decode_gerund_ar(&call, 0..1, 0, ConstructionNames::default())
+                .err()
+                .unwrap()
+                .kind(),
+            "unsupported"
+        );
+        let value = ar("3", vec![call, text("aftercall"), text("")]);
+        let mut host = Host { calls: 0 };
+        {
+            let bridge = std::cell::RefCell::new(&mut host as &mut dyn RuntimeParserHost);
+            let names = ConstructionNames {
+                host: Some(&bridge),
+                ..ConstructionNames::default()
+            };
+            assert_eq!(
+                decode_gerund_ar(&value, 0..1, 0, names)
+                    .err()
+                    .unwrap()
+                    .kind(),
+                "syntax error"
+            );
+        }
+        assert_eq!(host.calls, 1);
+    }
     use crate::{storage::CpuStorage, value::Data};
 
     fn text(s: &str) -> Value {
@@ -2871,6 +3005,7 @@ mod gerund_ar_tests {
             lookup: Some(&lookup),
             host: None,
             observations: None,
+            row: None,
         };
         let decoded = function(decode_gerund_ar(&text("fn"), 3..8, 0, names).unwrap());
         assert_eq!(decoded.head, FunctionHead::NameRef("fn".into()));
@@ -2881,6 +3016,7 @@ mod gerund_ar_tests {
             lookup: Some(&noun_lookup),
             host: None,
             observations: None,
+            row: None,
         };
         assert_eq!(
             audit_gerund(&boxes(vec![text("fn")]), 3..8, 0, names)

@@ -54,6 +54,10 @@ pub enum CaptureEvent {
         row: ParseRow,
         read: GerundNameRead,
     },
+    ConstructorApply {
+        row: ParseRow,
+        call: ConstructorCall,
+    },
     ConstructionSuccess {
         row: ParseRow,
         function: Arc<FunctionEntity>,
@@ -89,6 +93,24 @@ pub struct ModifierBinding {
     pub row: ParseRow,
     pub function: Arc<FunctionEntity>,
     pub span: Range<usize>,
+}
+
+/// One completed runtime call required by a constructor, not a replayable plan.
+#[derive(Clone, Debug)]
+pub struct ConstructorCall {
+    pub function: Arc<FunctionEntity>,
+    pub left: Option<GraphFacts>,
+    pub right: GraphFacts,
+    pub span: Range<usize>,
+    pub outcome: ConstructorCallOutcome,
+}
+#[derive(Clone, Debug)]
+pub enum ConstructorCallOutcome {
+    Success(GraphFacts),
+    Failure {
+        kind: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 /// Constructor-time observation, not a cache guard or a retained noun payload.
@@ -224,6 +246,16 @@ impl ParseCapture {
                         return Err("invalid gerund name observation");
                     }
                 }
+                CaptureEvent::ConstructorApply { row, call } => {
+                    if construction != Some(*row)
+                        || !matches!(row, ParseRow::Adverb | ParseRow::Conjunction)
+                        || call.function.result_pos != crate::semantic::FunctionPartOfSpeech::Verb
+                        || call.span.start >= call.span.end
+                        || self.source.get(call.span.clone()).is_none()
+                    {
+                        return Err("invalid constructor call observation");
+                    }
+                }
                 CaptureEvent::ConstructionSuccess { row, .. }
                 | CaptureEvent::ConstructionFailure { row, .. } => {
                     if construction.take() != Some(*row) {
@@ -298,6 +330,7 @@ pub struct CapturedGraph {
     pub constructors: Vec<ConstructorOrigin>,
     pub modifier_bindings: Vec<ModifierBinding>,
     pub gerund_name_reads: Vec<GerundNameRead>,
+    pub constructor_calls: Vec<ConstructorCall>,
 }
 
 #[derive(Clone, Debug)]

@@ -7729,6 +7729,19 @@ Windows default/portable 각각 **297 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [r.c fxchar/fx 및 noun/fork decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [sc.c nameref의 noun 값 반환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [cg.c fxeachv의 decoded gerund 보존](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c gerund audit 및 constant fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
 
+##### Bident/trident AR 내부 noun 실행과 capture (2026-10-03)
+
+- [x] P3/P4: `cf.c::jthook`의 즉시 적용 production에 따라 `V N` bident는 monad를, `N V N` trident는 dyad를 runtime semantic host에서 실행한다. decoder와 modifier construction의 공통 disposition을 유지하며 실제 noun `Item`을 반환한다. 이를 바깥 noun-left fork 등의 operand로 전달하고 shared Literal 및 기존 decoded gerund 구조에 결과 값을 보존한다. 최종 gerund Verb 검사 전에 함수 실행 오류가 먼저 발생하도록 한다.
+- [x] P4: constructor 동안 host를 잠깐 mutable로 빌려 실제 call을 실행한다. 이후 AR 이름 조회는 갱신된 환경을 읽으며 문장 전체 binding snapshot을 만들지 않는다. static/no-host 경로는 Unsupported를 반환하고 실행하지 않는다. 지원 범위는 기존 runtime verb executor 범위이며 미지원 callable을 임의로 계산하지 않는다.
+- [x] P4/P6: `ConstructorApply`는 완료된 call의 함수 객체·valence에 따른 입력 facts·span·성공 결과 facts 또는 오류 class/context를 기록한다. 배열 argument/result payload는 event에 보관하지 않는다. 이름 조회 event와 같은 buffer를 사용해 실제 순서를 유지하고 바깥 construction 성공·실패 전에 전달한다. verifier는 해당 row 3/4 construction 구간 안의 Verb call만 허용한다. `CapturedGraph.constructor_calls`는 관찰 sidecar이며 재실행 계획이나 최적화 guard가 아니다. 실행된 함수 내부의 전체 효과/조회 trace까지 포착한 것은 아니다.
+- [x] P6: 회귀 테스트 4개로 monadic/dyadic 실제 값, call 성공 뒤의 최종 DomainError, call의 DomainError/LengthError와 quiet rank fallback, 기존 target/version 유지, 잘못 배치된 call event 거절을 검증했다. monadic `+`의 65,536개 정수 payload 공유·원본/Engine 해제 후 수명, Windows hook AR의 g→f 조회 순서도 확인했다. mock host 검사는 첫 call 이후의 binding 변화가 다음 조회에 반영되고 static 경로는 call하지 않는다는 연결 계약을 검증하며 전체 J effect 호환성 증명으로 취급하지 않는다.
+- [x] P6: 공통 C 비교 문장 44개와 stage 검사 56건을 추가했다. stage는 함수 표현/POS 19건, 오류 8건, setup 17건 및 computed snapshot setup 8건·decoded noun 값 4건을 비교한다. decoded 값은 C-only `5!:0`→`5!:1`과 Rust constructor 관찰 `D`로 교차 확인한다. Rust frontend를 외래 실행으로 우회하지 않는다.
+- [ ] 다음: train/AR 내부 late modifier NameRef의 조회 및 적용·effect 계약을 연결한다. 미지원 derived callable, gerund 실행/Logical lowering, compiled reuse 조건, 전체 내부 효과 graph, locative/locale/definition scope와 primitive inventory는 계속 별도 과제다. tokenizer/enqueuer/parser 우선순위를 유지하고 최적화·CUDA·GitHub CI는 진행하지 않는다.
+
+Windows default/portable 각각 **301 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,582문장 중 2,578 passed, 기존 runtime 경계 4개, failed 0**; stage **7,620 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. 공급된 Windows DLL release pin과 검토 source pin을 구분하며 전체 J/upstream suite·GPU·Linux·GitHub CI 검증을 주장하지 않는다.
+
+기준 소스: [cf.c hook의 V N/N V N 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L311), [r.c AR hook/fork decode 순서](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L93), [cg.c 최종 gerund Verb 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c quiet gerund audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

@@ -92,6 +92,26 @@ def gerund_snapshot_cases():
     return out
 
 
+def constructor_call_cases():
+    out = ['callkeep=:+']
+    calls = [
+        "(<'4'),<((<'-'),<((<'0'),<7))",
+        "(<'4'),<((<((<'0'),<2)),(<'+'),<((<'0'),<3))",
+        "(<'4'),<((<'#'),<((<'0'),<1 2 3))",
+        "(<'4'),<((<((<'0'),<1 2)),(<'*'),<((<'0'),<3 4))",
+        "(<'4'),<((<'-'),<((<'0'),<'x'))",
+        "(<'4'),<((<((<'0'),<1 2)),(<'+'),<((<'0'),<1 2 3))",
+    ]
+    for inner in calls:
+        out += ['callar=:' + inner, "callouterar=:(<'3'),<((<callar),(<'+'),<'-')",
+                'callkeep=:(,<callouterar)BACKSLASH', 'callfn=:(,<callouterar)"0',
+                'callfn=:(,<callar)"0', 'callkeep=:(,<callar)BACKSLASH']
+    out += ['callinput=:1 2 3', 'callverb=:+', "callar=:(<'4'),<((<'callverb'),<'callinput')",
+            "callouterar=:(<'3'),<((<callar),(<'+'),<'-')", 'callfn=:(,<callouterar)BACKSLASH',
+            'callinput=:4 5', 'callfn=:(,<callouterar)BACKSLASH']
+    return [s.replace('BACKSLASH', chr(92)) for s in out]
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -348,6 +368,7 @@ def cases():
     fixed.extend(compound_gerund_cases())
     fixed.extend(gerund_name_cases())
     fixed.extend(gerund_snapshot_cases())
+    fixed.extend(constructor_call_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

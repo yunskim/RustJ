@@ -904,6 +904,7 @@ impl Plan {
         let mut constructors = Vec::new();
         let mut modifier_bindings = Vec::new();
         let mut gerund_name_reads = Vec::new();
+        let mut constructor_calls = Vec::new();
         let mut pending = None;
         let mut constructor_inputs = Vec::new();
         let mut result = None;
@@ -1003,6 +1004,9 @@ impl Plan {
                 }
                 CaptureEvent::GerundNameResolved { read, .. } => {
                     gerund_name_reads.push(read.clone());
+                }
+                CaptureEvent::ConstructorApply { call, .. } => {
+                    constructor_calls.push(call.clone());
                 }
                 CaptureEvent::ConstructionSuccess {
                     row,
@@ -1113,6 +1117,7 @@ impl Plan {
             constructors,
             modifier_bindings,
             gerund_name_reads,
+            constructor_calls,
         })
     }
 

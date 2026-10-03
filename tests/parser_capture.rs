@@ -1062,3 +1062,166 @@ fn static_gerund_analysis_keeps_abstract_noun_boundary_without_writing() {
     assert_eq!(engine.binding_version("snapnoun"), noun_version);
     assert_eq!(engine.binding_version("snapfn"), None);
 }
+
+#[test]
+fn serialized_bident_and_trident_calls_produce_actual_noun_snapshots() {
+    use rustj::{parser_capture::ConstructorCallOutcome, semantic::FunctionOperand};
+    let mut engine = Engine::new();
+    for (inner, expected, dyad) in [
+        ("(<'4'),<((<'-'),<((<'0'),<7))", -7, false),
+        ("(<'4'),<((<((<'0'),<2)),(<'+'),<((<'0'),<3))", 5, true),
+    ] {
+        engine.eval(&format!("callar=:{inner}")).unwrap();
+        engine
+            .eval("outerar=:(<'3'),<((<callar),(<'+'),<'-')")
+            .unwrap();
+        let report = engine.eval_captured("callfn=:(,<outerar)\\");
+        report.result.unwrap();
+        report.capture.verify().unwrap();
+        let graph = rustj::j_graph_ir::Plan::from_capture(&report.capture).unwrap();
+        assert_eq!(graph.constructor_calls.len(), 1);
+        let call = &graph.constructor_calls[0];
+        assert_eq!(call.left.is_some(), dyad);
+        assert!(matches!(call.outcome, ConstructorCallOutcome::Success(_)));
+        let function = report
+            .capture
+            .events
+            .iter()
+            .find_map(|e| match e {
+                CaptureEvent::ConstructionSuccess { function, .. }
+                    if function.decoded_gerund.is_some() =>
+                {
+                    Some(function)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let FunctionOperand::Noun { value, .. } =
+            &function.decoded_gerund.as_ref().unwrap()[0].operands[0]
+        else {
+            panic!()
+        };
+        assert_eq!(value.int_at(0).unwrap(), expected);
+        let mut invalid = report.capture.clone();
+        let index = invalid
+            .events
+            .iter()
+            .position(|e| matches!(e, CaptureEvent::ConstructorApply { .. }))
+            .unwrap();
+        let event = invalid.events.remove(index);
+        invalid.events.insert(0, event);
+        assert!(invalid.verify().is_err());
+    }
+}
+
+#[test]
+fn constructor_call_failure_precedes_outer_audit_and_preserves_target() {
+    use rustj::parser_capture::ConstructorCallOutcome;
+    let mut engine = Engine::new();
+    engine.eval("keep=:+").unwrap();
+    let version = engine.binding_version("keep");
+    for (inner, error) in [
+        ("(<'4'),<((<'-'),<((<'0'),<'x'))", "domain error"),
+        (
+            "(<'4'),<((<((<'0'),<1 2)),(<'+'),<((<'0'),<1 2 3))",
+            "length error",
+        ),
+    ] {
+        engine.eval(&format!("callar=:{inner}")).unwrap();
+        engine
+            .eval("outerar=:(<'3'),<((<callar),(<'+'),<'-')")
+            .unwrap();
+        let report = engine.eval_captured("keep=:(,<outerar)\\");
+        assert_eq!(report.result.unwrap_err().kind(), error);
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("keep"), version);
+        let calls: Vec<_> = report
+            .capture
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                CaptureEvent::ConstructorApply { call, .. } => Some(call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            matches!(&calls[0].outcome, ConstructorCallOutcome::Failure { kind, .. } if kind == error)
+        );
+        let report = engine.eval_captured("rankfn=:(,<outerar)\"0");
+        report.result.unwrap();
+        report.capture.verify().unwrap();
+        assert!(report.capture.events.iter().any(|e| matches!(e, CaptureEvent::ConstructorApply { call, .. } if matches!(call.outcome, ConstructorCallOutcome::Failure { .. }))));
+    }
+    // A successful call can still fail the final gerund Verb audit.
+    engine
+        .eval("callar=:(<'4'),<((<'-'),<((<'0'),<7))")
+        .unwrap();
+    let report = engine.eval_captured("keep=:(,<callar)\\");
+    assert_eq!(report.result.unwrap_err().kind(), "domain error");
+    report.capture.verify().unwrap();
+    assert!(report.capture.events.iter().any(|e| matches!(e, CaptureEvent::ConstructorApply { call, .. } if matches!(call.outcome, ConstructorCallOutcome::Success(_)))));
+    assert_eq!(engine.binding_version("keep"), version);
+}
+
+#[test]
+fn constructor_call_shares_identity_payload_and_observes_name_order() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = Engine::new();
+    engine.eval("callinput=:i.65536").unwrap();
+    engine.eval("callverb=:+").unwrap();
+    let original = engine.eval("callinput").unwrap().unwrap();
+    let pointer = match original.data() {
+        rustj::value::Data::Int(v) => v.as_slice().as_ptr(),
+        _ => panic!(),
+    };
+    engine
+        .eval("callar=:(<'4'),<((<'callverb'),<'callinput')")
+        .unwrap();
+    engine
+        .eval("outerar=:(<'3'),<((<callar),(<'+'),<'-')")
+        .unwrap();
+    let report = engine.eval_captured("callfn=:(,<outerar)\\");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let order: Vec<_> = report
+        .capture
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            CaptureEvent::GerundNameResolved { read, .. } => Some(read.name.as_str()),
+            CaptureEvent::ConstructorApply { .. } => Some("call"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, ["callinput", "callverb", "call"]); // Windows C hook AR: g before f.
+    let outer = report
+        .capture
+        .events
+        .iter()
+        .find_map(|e| match e {
+            CaptureEvent::ConstructionSuccess { function, .. }
+                if function.decoded_gerund.is_some() =>
+            {
+                Some(function.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    let FunctionOperand::Noun { value, .. } =
+        &outer.decoded_gerund.as_ref().unwrap()[0].operands[0]
+    else {
+        panic!()
+    };
+    assert_eq!(
+        match value.data() {
+            rustj::value::Data::Int(v) => v.as_slice().as_ptr(),
+            _ => panic!(),
+        },
+        pointer
+    );
+    engine.eval("callinput=:9").unwrap();
+    drop(engine);
+    drop(original);
+    assert_eq!(value.int_at(65535).unwrap(), 65535);
+}

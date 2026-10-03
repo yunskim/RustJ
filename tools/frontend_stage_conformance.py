@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -359,6 +359,34 @@ def run(args):
                     check('runtime_gerund_name_constructor', source, expected, actual)
             else:
                 check('runtime_gerund_name_setup_or_target', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+        for source in constructor_call_cases():
+            if source.startswith(('callfn=:', 'callkeep=:')):
+                error = oracle.run(source)
+                actual = static_probe.inspect(source, 'R')
+                if error:
+                    check('runtime_constructor_call_error', source, error, actual)
+                else:
+                    target = source.split('=:', 1)[0].strip()
+                    expected = {'pos': oracle.name_class(target)['class'],
+                        'function': atomic_function(oracle.representation(target, 'atomic')['value'])}
+                    check('runtime_constructor_call_result', source, expected, actual)
+            else:
+                expected = oracle.eval(source)
+                if 'error' in expected:
+                    raise RuntimeError(f'invalid constructor call fixture: {source}: {expected}')
+                check('runtime_constructor_call_setup', source, expected, static_probe.inspect(source, 'E'))
+        for source in [s for s in constructor_call_cases() if s.startswith('callar=:')][:4]:
+            for setup in [source, "callouterar=:(<'3'),<((<callar),(<'+'),<'-')"]:
+                expected = oracle.eval(setup)
+                if 'error' in expected:
+                    raise RuntimeError(f'invalid computed snapshot fixture: {setup}: {expected}')
+                check('constructor_decode_setup', setup, expected, static_probe.inspect(setup, 'E'))
+            error = oracle.run('calldecoded=:(<callouterar)5!:0')
+            if error:
+                raise RuntimeError(f'C computed snapshot decoder failed: {error}')
+            decoded = atomic_function(oracle.representation('calldecoded', 'atomic')['value'])
+            source = 'callfn=:(,<callouterar)' + chr(92)
+            check('constructor_decoded_snapshot', source, {'decoded': [decoded]}, static_probe.inspect(source, 'D'))
         # C's fix adverb decodes the same AR independently. It is reference-only;
         # Rust D observes the constructor-owned decode, never executes 5!:0.
         for noun in ['7', 'i.4', '<1 2']:

@@ -16,7 +16,7 @@
     "jsrc/sc.c": "1abfd822020758ed28b15011f36d6a2911304bbb1c62361b7cfa78cab0ef54aa"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "74e3b0f59e6d63f7b020ce98b2460f06a0b18da90915397bcf42b64f76bfdd28",
+  "probe_sha256": "f1c1c51c9543d5c653eb8be43745b063967599ddfc641f6577ad28e60f01e617",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -41,6 +41,11 @@
     "runtime_gerund_name_constructor": 23,
     "runtime_gerund_name_setup_or_target": 30,
     "runtime_gerund_name_error": 8,
+    "runtime_constructor_call_result": 19,
+    "runtime_constructor_call_setup": 17,
+    "runtime_constructor_call_error": 8,
+    "constructor_decode_setup": 8,
+    "constructor_decoded_snapshot": 4,
     "snapshot_setup": 6,
     "decoded_noun_snapshot": 6,
     "snapshot_rebind": 3,
