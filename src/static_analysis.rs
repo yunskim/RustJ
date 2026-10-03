@@ -55,6 +55,8 @@ pub struct SourceWord {
 pub struct StaticAnalysis {
     pub graph: Plan,
     pub source_words: Vec<SourceWord>,
+    pub reductions: Vec<crate::parser::ParseReduction>,
+    pub assignment_source: Option<crate::parser::AssignmentSource>,
     /// Memory facts keyed by source graph IDs.
     pub memory: StaticMemoryAnalysis,
     pub resources: GraphResourceSummary,
@@ -159,6 +161,8 @@ impl StaticAnalyzer {
                 CatalogKind::Function(pos) => ParserNameBinding::Function(*pos),
             })
         })?;
+        let reductions = program.reductions.clone();
+        let assignment_source = program.assignment_source.clone();
         let bound = bind(program, |name| {
             self.catalog.get(name).map(|entry| entry.version)
         })?;
@@ -197,6 +201,8 @@ impl StaticAnalyzer {
         Ok(StaticAnalysis {
             graph,
             source_words,
+            reductions,
+            assignment_source,
             memory,
             resources,
             inputs: inputs.into_values().collect(),

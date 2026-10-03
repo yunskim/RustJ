@@ -4,13 +4,45 @@
   "rust_path": "direct",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2050,
+  "cases": 2063,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\j.dll",
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "75bf5ace70e1ae426d11f97f039c0df58bf30be6f7985cc8c383d90d5164b88f",
+  "binary_sha256": "8843bec3efdba7e727c2e439556a62e93535a9f4a57aeebc0587032ab2a02d65",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2050,
+  "passed": 2061,
   "known_deviations": [],
+  "coverage_boundaries": [
+    {
+      "index": 1255,
+      "source": "(entryverb/ % #) entrynoun",
+      "reference": {
+        "type": 8,
+        "shape": [],
+        "data": [
+          2.0
+        ]
+      },
+      "rust": {
+        "error": "unsupported"
+      },
+      "reason": "named insert inside fork has no runtime executor"
+    },
+    {
+      "index": 1262,
+      "source": "(entryverb/ % #) entrycopy",
+      "reference": {
+        "type": 8,
+        "shape": [],
+        "data": [
+          2.0
+        ]
+      },
+      "rust": {
+        "error": "unsupported"
+      },
+      "reason": "named insert inside fork has no runtime executor"
+    }
+  ],
   "failures": [],
   "failed": 0
 }

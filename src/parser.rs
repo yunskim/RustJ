@@ -2,7 +2,7 @@
 //! Consumes typed enqueue records; produces target-independent Semantic IR.
 use crate::{
     Error, Result, Value,
-    enqueuer::{EnqueuedPayload, EnqueuedWord, enqueue},
+    enqueuer::{EnqueueFlags, EnqueuedPayload, EnqueuedWord, enqueue},
     error::{DiagnosticPhase, ErrorContext},
     semantic::{
         Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech,
@@ -10,6 +10,30 @@ use crate::{
     },
 };
 use std::sync::Arc;
+
+/// Original enqueue-word coverage and inherited diagnostic token (zero-based).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParseProvenance {
+    pub word_range: std::ops::Range<usize>,
+    pub blame_word_index: usize,
+}
+
+/// Completed grammar action; records source structure, never execution choices.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParseReduction {
+    pub row: ParseRow,
+    pub inputs: Vec<ParseProvenance>,
+    pub result: ParseProvenance,
+    pub result_class: ParseClass,
+    pub span: std::ops::Range<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssignmentSource {
+    pub target: ParseProvenance,
+    pub copula: ParseProvenance,
+    pub flags: EnqueueFlags,
+}
 
 fn train_hook(f: Verb, g: Verb) -> Verb {
     let span = f.span.start..g.span.end;
@@ -155,22 +179,27 @@ fn apply_conjunction(left: Verb, operator: Arc<FunctionEntity>, right: Item) -> 
 struct PendingAssignment {
     name: String,
     span: std::ops::Range<usize>,
+    source: AssignmentSource,
 }
 
 fn reduce_parse_stack_subset(
     mut queue: Vec<Item>,
+    lookup: NameLookup<'_>,
+    context: ParseContext,
+    reductions: &mut Vec<ParseReduction>,
 ) -> Result<(Vec<Item>, Option<PendingAssignment>)> {
     let mut stack = Vec::<Item>::new();
     let mut assignment = None;
 
     while let Some(item) = queue.pop() {
+        let item = resolve_stack_item(item, lookup, context)?;
         stack.insert(0, item);
-        reduce_stack_prefix(&mut stack, &mut assignment, queue.is_empty())?;
+        reduce_stack_prefix(&mut stack, &mut assignment, queue.is_empty(), reductions)?;
     }
 
     // jsource realizes the virtual FRONT MARK only after the queue is empty.
     stack.insert(0, Item::mark(0));
-    reduce_stack_prefix(&mut stack, &mut assignment, true)?;
+    reduce_stack_prefix(&mut stack, &mut assignment, true, reductions)?;
 
     if stack
         .first()
@@ -190,269 +219,321 @@ fn reduce_stack_prefix(
     stack: &mut Vec<Item>,
     assignment: &mut Option<PendingAssignment>,
     queue_exhausted: bool,
+    reductions: &mut Vec<ParseReduction>,
 ) -> Result<()> {
     loop {
         let Some(row) = match_parse_row(stack_prefix_classes(stack)) else {
             return Ok(());
         };
 
-        let reduced = match row {
-            ParseRow::MonadEdge => {
-                let mut phrase: Vec<_> = stack.drain(1..3).collect();
-                let verb = phrase.remove(0).into_verb().expect("row 0 verb");
-                let (argument, height) = phrase.remove(0).into_noun().expect("row 0 noun");
-                let expr = Expr {
-                    span: verb.span.start..argument.span.end,
-                    kind: ExprKind::Monad {
-                        verb,
-                        argument: Box::new(argument),
-                    },
-                };
-                stack.insert(1, Item::noun(expr, checked_height(height)?));
-                true
-            }
-            ParseRow::MonadVVN => {
-                let mut phrase: Vec<_> = stack.drain(2..4).collect();
-                let verb = phrase.remove(0).into_verb().expect("row 1 verb");
-                let (argument, height) = phrase.remove(0).into_noun().expect("row 1 noun");
-                let expr = Expr {
-                    span: verb.span.start..argument.span.end,
-                    kind: ExprKind::Monad {
-                        verb,
-                        argument: Box::new(argument),
-                    },
-                };
-                stack.insert(2, Item::noun(expr, checked_height(height)?));
-                true
-            }
-            ParseRow::DyadNVN => {
-                let mut phrase: Vec<_> = stack.drain(1..4).collect();
-                let (left, left_height) = phrase.remove(0).into_noun().expect("row 2 left noun");
-                let verb = phrase.remove(0).into_verb().expect("row 2 verb");
-                let (right, right_height) = phrase.remove(0).into_noun().expect("row 2 right noun");
-                let expr = Expr {
-                    span: left.span.start..right.span.end,
-                    kind: ExprKind::Dyad {
-                        verb,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                };
-                stack.insert(
-                    1,
-                    Item::noun(expr, checked_height(left_height.max(right_height))?),
-                );
-                true
-            }
-            ParseRow::Adverb => {
-                if stack
-                    .get(1)
-                    .is_some_and(|item| item.class == ParseClass::Verb)
-                {
-                    let mut phrase: Vec<_> = stack.drain(1..3).collect();
-                    let left = phrase.remove(0).into_verb().expect("row 3 verb");
-                    let operator = phrase.remove(0).into_function().expect("row 3 adverb");
-                    let span = left.span.start..operator.span.end;
-                    stack.insert(
-                        1,
-                        Item::verb(apply_adverb(left, operator).map_err(|error| error.at(span))?),
-                    );
-                    true
-                } else {
-                    let operator = stack[2].clone().into_function().expect("row 3 adverb");
-                    return Err(match operator.head {
-                        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
-                            Error::Domain
-                        }
-                        _ => Error::Unsupported(
-                            "noun adverb construction requires semantic parser execution".into(),
-                        ),
-                    }
-                    .at(stack[1].span()));
-                }
-            }
-            ParseRow::Conjunction => {
-                if stack
-                    .get(1)
-                    .is_some_and(|item| item.class == ParseClass::Verb)
-                {
-                    let mut phrase: Vec<_> = stack.drain(1..4).collect();
-                    let left = phrase.remove(0).into_verb().expect("row 4 left verb");
-                    let operator = phrase.remove(0).into_function().expect("row 4 conjunction");
-                    let right = phrase.remove(0);
-                    let span = left.span.start..right.span().end;
-                    stack.insert(
-                        1,
-                        Item::verb(
-                            apply_conjunction(left, operator, right)
-                                .map_err(|error| error.at(span))?,
-                        ),
-                    );
-                    true
-                } else {
-                    let operator = stack[2].clone().into_function().expect("row 4 conjunction");
-                    return Err(match operator.head {
-                        FunctionHead::PrimitiveConjunction(
-                            crate::primitive::ConjunctionId::Atop,
-                        ) => Error::Domain,
-                        _ => Error::Unsupported(
-                            "noun-left conjunction construction requires semantic parser execution"
-                                .into(),
-                        ),
-                    }
-                    .at(stack[1].span()));
-                }
-            }
-            ParseRow::Fork => {
-                let classes = [
-                    stack.get(1).map_or(ParseClass::Mark, |item| item.class),
-                    stack.get(2).map_or(ParseClass::Mark, |item| item.class),
-                    stack.get(3).map_or(ParseClass::Mark, |item| item.class),
-                ];
-                match trident_disposition(classes[0], classes[1], classes[2]) {
-                    TridentDisposition::BuildFork
-                        if classes == [ParseClass::Verb, ParseClass::Verb, ParseClass::Verb] =>
-                    {
-                        let mut phrase: Vec<_> = stack.drain(1..4).collect();
-                        let f = phrase.remove(0).into_verb().expect("row 5 f");
-                        let g = phrase.remove(0).into_verb().expect("row 5 g");
-                        let h = phrase.remove(0).into_verb().expect("row 5 h");
-                        stack.insert(1, Item::verb(train_fork(f, g, h)));
-                        true
-                    }
-                    TridentDisposition::BuildFork
-                        if classes == [ParseClass::Noun, ParseClass::Verb, ParseClass::Verb] =>
-                    {
-                        let mut phrase: Vec<_> = stack.drain(1..4).collect();
-                        let (noun, _) = phrase.remove(0).into_noun().expect("row 5 noun");
-                        let g = phrase.remove(0).into_verb().expect("row 5 g");
-                        let h = phrase.remove(0).into_verb().expect("row 5 h");
-                        let span = noun.span.start..h.span.end;
-                        stack.insert(
-                            1,
-                            Item::verb(
-                                train_noun_fork(noun, g, h).map_err(|error| error.at(span))?,
-                            ),
-                        );
-                        true
-                    }
-                    TridentDisposition::BuildFork => {
-                        return Err(Error::Syntax(
-                            "row 5 fork disposition has invalid parser classes".into(),
-                        ));
-                    }
-                    TridentDisposition::ImmediateSemanticApply => {
-                        return Err(Error::Unsupported(
-                            "row 5 requires parser-time semantic execution".into(),
-                        ));
-                    }
-                    TridentDisposition::BuildDerivedModifier(result_pos) => {
-                        return Err(Error::Unsupported(format!(
-                            "row 5 derived modifier result {result_pos:?} is not yet represented"
-                        )));
-                    }
-                    TridentDisposition::SyntaxError => {
-                        return Err(Error::Syntax(
-                            "invalid jsource trident part-of-speech combination".into(),
-                        ));
-                    }
-                }
-            }
-            ParseRow::Hook => {
-                let left = stack.get(1).map_or(ParseClass::Mark, |item| item.class);
-                let right = stack.get(2).map_or(ParseClass::Mark, |item| item.class);
-                match bident_disposition(left, right) {
-                    BidentDisposition::BuildHook => {
-                        let mut phrase: Vec<_> = stack.drain(1..3).collect();
-                        let f = phrase.remove(0).into_verb().expect("row 6 f");
-                        let g = phrase.remove(0).into_verb().expect("row 6 g");
-                        stack.insert(1, Item::verb(train_hook(f, g)));
-                        true
-                    }
-                    BidentDisposition::BuildDerivedModifier(result_pos) => {
-                        return Err(Error::Unsupported(format!(
-                            "jsource bident derived modifier result {result_pos:?} is not yet represented"
-                        )));
-                    }
-                    BidentDisposition::ImmediateSemanticApply => {
-                        return Err(Error::Unsupported(
-                            "row 6 requires parser-time semantic execution".into(),
-                        ));
-                    }
-                    BidentDisposition::SyntaxError => {
-                        return Err(Error::Syntax(
-                            "invalid jsource bident part-of-speech combination".into(),
-                        ));
-                    }
-                }
-            }
-            ParseRow::Assignment => {
-                if !queue_exhausted {
-                    return Err(Error::Unsupported(
-                        "non-final assignment requires runtime semantic parsing".into(),
-                    ));
-                }
-                if assignment.is_some() {
-                    return Err(Error::Unsupported(
-                        "multiple assignments in one sentence".into(),
-                    ));
-                }
-                if stack
-                    .first()
-                    .is_some_and(|item| item.class == ParseClass::Noun)
-                {
-                    return Err(Error::Unsupported("noun/multiple assignment target".into()));
-                }
-
-                let mut phrase: Vec<_> = stack.drain(0..3).collect();
-                let target = phrase.remove(0);
-                let _copula = phrase.remove(0);
-                let value = phrase.remove(0);
-                let ParseValue::NameTarget { name, span } = target.value else {
-                    return Err(Error::Syntax("row 7 requires a name target".into()));
-                };
-                *assignment = Some(PendingAssignment { name, span });
-                stack.insert(0, value);
-                true
-            }
-            ParseRow::Parenthesis => {
-                let mut phrase: Vec<_> = stack.drain(0..3).collect();
-                let left = phrase.remove(0);
-                let value = phrase.remove(0);
-                let right = phrase.remove(0);
-                let group_span = left.span().start..right.span().end;
-
-                let grouped = match value.value {
-                    ParseValue::Noun(expr, height) => Item::noun(
-                        Expr {
-                            span: group_span.clone(),
-                            kind: ExprKind::Group(Box::new(expr)),
-                        },
-                        checked_height(height)?,
-                    )
-                    .with_span(group_span),
-                    ParseValue::Verb(mut verb) => {
-                        verb.span = group_span.clone();
-                        Item::verb(verb).with_span(group_span)
-                    }
-                    ParseValue::Function(entity) => Item::function(entity).with_span(group_span),
-                    ParseValue::NameTarget { .. } | ParseValue::Control { .. } => {
-                        return Err(Error::Syntax("invalid parenthesized parser control".into())
-                            .at(group_span));
-                    }
-                };
-                stack.insert(0, grouped);
-                true
-            }
+        // Match jsource's inherited .t token: modifiers/forks/hooks inherit
+        // the left operand; parentheses inherit '('. Noun call results keep the
+        // right noun token, which p.c marks immaterial for non-executable nouns.
+        let (start, count, inherit, fail) = match row {
+            ParseRow::MonadEdge => (1, 2, 2, 1),
+            ParseRow::MonadVVN => (2, 2, 3, 2),
+            ParseRow::DyadNVN => (1, 3, 3, 2),
+            ParseRow::Adverb => (1, 2, 1, 2),
+            ParseRow::Conjunction => (1, 3, 1, 2),
+            ParseRow::Fork => (1, 3, 1, 2),
+            ParseRow::Hook => (1, 2, 1, 1),
+            ParseRow::Assignment => (0, 3, 2, 1),
+            ParseRow::Parenthesis => (0, 3, 0, 0),
         };
+        let inputs: Vec<_> = stack[start..start + count]
+            .iter()
+            .map(|item| item.provenance.clone().expect("source item provenance"))
+            .collect();
+        let provenance = ParseProvenance {
+            word_range: inputs[0].word_range.start..inputs.last().unwrap().word_range.end,
+            blame_word_index: stack[inherit].provenance.as_ref().unwrap().blame_word_index,
+        };
+        let failure = stack[fail].provenance.as_ref().unwrap().blame_word_index;
+        let failure_span = stack[fail].span();
+        let reduction_span = stack[start].span().start..stack[start + count - 1].span().end;
+        let reduced = apply_parse_row(row, stack, assignment, queue_exhausted)
+            .map_err(|error| error.at(failure_span).blamed_on_word(failure))?;
+        if reduced {
+            let result = &mut stack[start];
+            result.provenance = Some(provenance.clone());
+            reductions.push(ParseReduction {
+                row,
+                inputs,
+                result: provenance,
+                result_class: result.class,
+                span: reduction_span,
+            });
+        }
 
-        // The table matched a jsource row whose semantic action has not yet
-        // migrated into this subset engine. Leave it for the existing outer
-        // assignment/grouping path rather than applying a different row.
         if !reduced {
             return Ok(());
         }
     }
+}
+
+fn apply_parse_row(
+    row: ParseRow,
+    stack: &mut Vec<Item>,
+    assignment: &mut Option<PendingAssignment>,
+    queue_exhausted: bool,
+) -> Result<bool> {
+    Ok(match row {
+        ParseRow::MonadEdge => {
+            let mut phrase: Vec<_> = stack.drain(1..3).collect();
+            let verb = phrase.remove(0).into_verb().expect("row 0 verb");
+            let (argument, height) = phrase.remove(0).into_noun().expect("row 0 noun");
+            let expr = Expr {
+                span: verb.span.start..argument.span.end,
+                kind: ExprKind::Monad {
+                    verb,
+                    argument: Box::new(argument),
+                },
+            };
+            stack.insert(1, Item::noun(expr, checked_height(height)?));
+            true
+        }
+        ParseRow::MonadVVN => {
+            let mut phrase: Vec<_> = stack.drain(2..4).collect();
+            let verb = phrase.remove(0).into_verb().expect("row 1 verb");
+            let (argument, height) = phrase.remove(0).into_noun().expect("row 1 noun");
+            let expr = Expr {
+                span: verb.span.start..argument.span.end,
+                kind: ExprKind::Monad {
+                    verb,
+                    argument: Box::new(argument),
+                },
+            };
+            stack.insert(2, Item::noun(expr, checked_height(height)?));
+            true
+        }
+        ParseRow::DyadNVN => {
+            let mut phrase: Vec<_> = stack.drain(1..4).collect();
+            let (left, left_height) = phrase.remove(0).into_noun().expect("row 2 left noun");
+            let verb = phrase.remove(0).into_verb().expect("row 2 verb");
+            let (right, right_height) = phrase.remove(0).into_noun().expect("row 2 right noun");
+            let expr = Expr {
+                span: left.span.start..right.span.end,
+                kind: ExprKind::Dyad {
+                    verb,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+            };
+            stack.insert(
+                1,
+                Item::noun(expr, checked_height(left_height.max(right_height))?),
+            );
+            true
+        }
+        ParseRow::Adverb => {
+            if stack
+                .get(1)
+                .is_some_and(|item| item.class == ParseClass::Verb)
+            {
+                let mut phrase: Vec<_> = stack.drain(1..3).collect();
+                let left = phrase.remove(0).into_verb().expect("row 3 verb");
+                let operator = phrase.remove(0).into_function().expect("row 3 adverb");
+                let span = left.span.start..operator.span.end;
+                stack.insert(
+                    1,
+                    Item::verb(apply_adverb(left, operator).map_err(|error| error.at(span))?),
+                );
+                true
+            } else {
+                let operator = stack[2].clone().into_function().expect("row 3 adverb");
+                return Err(match operator.head {
+                    FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+                        Error::Domain
+                    }
+                    _ => Error::Unsupported(
+                        "noun adverb construction requires semantic parser execution".into(),
+                    ),
+                }
+                .at(stack[1].span()));
+            }
+        }
+        ParseRow::Conjunction => {
+            if stack
+                .get(1)
+                .is_some_and(|item| item.class == ParseClass::Verb)
+            {
+                let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                let left = phrase.remove(0).into_verb().expect("row 4 left verb");
+                let operator = phrase.remove(0).into_function().expect("row 4 conjunction");
+                let right = phrase.remove(0);
+                let span = left.span.start..right.span().end;
+                stack.insert(
+                    1,
+                    Item::verb(
+                        apply_conjunction(left, operator, right).map_err(|error| error.at(span))?,
+                    ),
+                );
+                true
+            } else {
+                let operator = stack[2].clone().into_function().expect("row 4 conjunction");
+                return Err(match operator.head {
+                    FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+                        Error::Domain
+                    }
+                    _ => Error::Unsupported(
+                        "noun-left conjunction construction requires semantic parser execution"
+                            .into(),
+                    ),
+                }
+                .at(stack[1].span()));
+            }
+        }
+        ParseRow::Fork => {
+            let classes = [
+                stack.get(1).map_or(ParseClass::Mark, |item| item.class),
+                stack.get(2).map_or(ParseClass::Mark, |item| item.class),
+                stack.get(3).map_or(ParseClass::Mark, |item| item.class),
+            ];
+            match trident_disposition(classes[0], classes[1], classes[2]) {
+                TridentDisposition::BuildFork
+                    if classes == [ParseClass::Verb, ParseClass::Verb, ParseClass::Verb] =>
+                {
+                    let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                    let f = phrase.remove(0).into_verb().expect("row 5 f");
+                    let g = phrase.remove(0).into_verb().expect("row 5 g");
+                    let h = phrase.remove(0).into_verb().expect("row 5 h");
+                    stack.insert(1, Item::verb(train_fork(f, g, h)));
+                    true
+                }
+                TridentDisposition::BuildFork
+                    if classes == [ParseClass::Noun, ParseClass::Verb, ParseClass::Verb] =>
+                {
+                    let mut phrase: Vec<_> = stack.drain(1..4).collect();
+                    let (noun, _) = phrase.remove(0).into_noun().expect("row 5 noun");
+                    let g = phrase.remove(0).into_verb().expect("row 5 g");
+                    let h = phrase.remove(0).into_verb().expect("row 5 h");
+                    let span = noun.span.start..h.span.end;
+                    stack.insert(
+                        1,
+                        Item::verb(train_noun_fork(noun, g, h).map_err(|error| error.at(span))?),
+                    );
+                    true
+                }
+                TridentDisposition::BuildFork => {
+                    return Err(Error::Syntax(
+                        "row 5 fork disposition has invalid parser classes".into(),
+                    ));
+                }
+                TridentDisposition::ImmediateSemanticApply => {
+                    return Err(Error::Unsupported(
+                        "row 5 requires parser-time semantic execution".into(),
+                    ));
+                }
+                TridentDisposition::BuildDerivedModifier(result_pos) => {
+                    return Err(Error::Unsupported(format!(
+                        "row 5 derived modifier result {result_pos:?} is not yet represented"
+                    )));
+                }
+                TridentDisposition::SyntaxError => {
+                    return Err(Error::Syntax(
+                        "invalid jsource trident part-of-speech combination".into(),
+                    ));
+                }
+            }
+        }
+        ParseRow::Hook => {
+            let left = stack.get(1).map_or(ParseClass::Mark, |item| item.class);
+            let right = stack.get(2).map_or(ParseClass::Mark, |item| item.class);
+            match bident_disposition(left, right) {
+                BidentDisposition::BuildHook => {
+                    let mut phrase: Vec<_> = stack.drain(1..3).collect();
+                    let f = phrase.remove(0).into_verb().expect("row 6 f");
+                    let g = phrase.remove(0).into_verb().expect("row 6 g");
+                    stack.insert(1, Item::verb(train_hook(f, g)));
+                    true
+                }
+                BidentDisposition::BuildDerivedModifier(result_pos) => {
+                    return Err(Error::Unsupported(format!(
+                        "jsource bident derived modifier result {result_pos:?} is not yet represented"
+                    )));
+                }
+                BidentDisposition::ImmediateSemanticApply => {
+                    return Err(Error::Unsupported(
+                        "row 6 requires parser-time semantic execution".into(),
+                    ));
+                }
+                BidentDisposition::SyntaxError => {
+                    return Err(Error::Syntax(
+                        "invalid jsource bident part-of-speech combination".into(),
+                    ));
+                }
+            }
+        }
+        ParseRow::Assignment => {
+            if !queue_exhausted {
+                return Err(Error::Unsupported(
+                    "non-final assignment requires runtime semantic parsing".into(),
+                ));
+            }
+            if assignment.is_some() {
+                return Err(Error::Unsupported(
+                    "multiple assignments in one sentence".into(),
+                ));
+            }
+            if stack
+                .first()
+                .is_some_and(|item| item.class == ParseClass::Noun)
+            {
+                return Err(Error::Unsupported("noun/multiple assignment target".into()));
+            }
+
+            let mut phrase: Vec<_> = stack.drain(0..3).collect();
+            let target = phrase.remove(0);
+            let copula = phrase.remove(0);
+            let value = phrase.remove(0);
+            let ParseValue::NameTarget { name, span } = target.value else {
+                return Err(Error::Syntax("row 7 requires a name target".into()));
+            };
+            *assignment = Some(PendingAssignment {
+                name,
+                span,
+                source: AssignmentSource {
+                    target: target.provenance.expect("assignment target provenance"),
+                    copula: copula.provenance.expect("copula provenance"),
+                    flags: copula.flags,
+                },
+            });
+            stack.insert(0, value);
+            true
+        }
+        ParseRow::Parenthesis => {
+            let mut phrase: Vec<_> = stack.drain(0..3).collect();
+            let left = phrase.remove(0);
+            let value = phrase.remove(0);
+            let right = phrase.remove(0);
+            let group_span = left.span().start..right.span().end;
+
+            let grouped = match value.value {
+                ParseValue::Noun(expr, height) => Item::noun(
+                    Expr {
+                        span: group_span.clone(),
+                        kind: ExprKind::Group(Box::new(expr)),
+                    },
+                    checked_height(height)?,
+                )
+                .with_span(group_span),
+                ParseValue::Verb(mut verb) => {
+                    verb.span = group_span.clone();
+                    Item::verb(verb).with_span(group_span)
+                }
+                ParseValue::Function(entity) => Item::function(entity).with_span(group_span),
+                ParseValue::LookupName { .. }
+                | ParseValue::NameTarget { .. }
+                | ParseValue::Control { .. } => {
+                    return Err(
+                        Error::Syntax("invalid parenthesized parser control".into()).at(group_span)
+                    );
+                }
+            };
+            stack.insert(0, grouped);
+            true
+        }
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -629,6 +710,10 @@ fn trident_disposition(
 
 #[derive(Clone)]
 enum ParseValue {
+    LookupName {
+        name: String,
+        span: std::ops::Range<usize>,
+    },
     Noun(Expr, usize),
     Verb(Verb),
     Function(Arc<FunctionEntity>),
@@ -646,6 +731,8 @@ struct Item {
     class: ParseClass,
     value: ParseValue,
     span_override: Option<std::ops::Range<usize>>,
+    provenance: Option<ParseProvenance>,
+    flags: EnqueueFlags,
 }
 
 impl Item {
@@ -657,8 +744,29 @@ impl Item {
             ParseValue::Noun(expr, _) => expr.span.clone(),
             ParseValue::Verb(verb) => verb.span.clone(),
             ParseValue::Function(entity) => entity.span.clone(),
-            ParseValue::NameTarget { span, .. } => span.clone(),
+            ParseValue::NameTarget { span, .. } | ParseValue::LookupName { span, .. } => {
+                span.clone()
+            }
             ParseValue::Control { span } => span.clone(),
+        }
+    }
+
+    fn with_source(mut self, word: &EnqueuedWord<'_>) -> Self {
+        self.provenance = Some(ParseProvenance {
+            word_range: word.word_index..word.word_index + 1,
+            blame_word_index: word.word_index,
+        });
+        self.flags = word.flags;
+        self
+    }
+
+    fn lookup_name(name: String, span: std::ops::Range<usize>) -> Self {
+        Self {
+            class: ParseClass::Name,
+            value: ParseValue::LookupName { name, span },
+            span_override: None,
+            provenance: None,
+            flags: EnqueueFlags::default(),
         }
     }
 
@@ -672,6 +780,8 @@ impl Item {
             class: ParseClass::Mark,
             value: ParseValue::Control { span: at..at },
             span_override: None,
+            provenance: None,
+            flags: EnqueueFlags::default(),
         }
     }
 
@@ -684,6 +794,8 @@ impl Item {
             class,
             value: ParseValue::Control { span },
             span_override: None,
+            provenance: None,
+            flags: EnqueueFlags::default(),
         }
     }
 
@@ -692,6 +804,8 @@ impl Item {
             class: ParseClass::Name,
             value: ParseValue::NameTarget { name, span },
             span_override: None,
+            provenance: None,
+            flags: EnqueueFlags::default(),
         }
     }
 
@@ -700,6 +814,8 @@ impl Item {
             class: ParseClass::Noun,
             value: ParseValue::Noun(expr, height),
             span_override: None,
+            provenance: None,
+            flags: EnqueueFlags::default(),
         }
     }
 
@@ -709,6 +825,8 @@ impl Item {
             class: ParseClass::Verb,
             value: ParseValue::Verb(verb),
             span_override: None,
+            provenance: None,
+            flags: EnqueueFlags::default(),
         }
     }
 
@@ -717,6 +835,8 @@ impl Item {
             class: entity.result_pos.into(),
             value: ParseValue::Function(entity),
             span_override: None,
+            provenance: None,
+            flags: EnqueueFlags::default(),
         }
     }
 
@@ -750,13 +870,13 @@ impl Item {
 
 /// Parse without reading bindings, changing state, or invoking any kernels.
 pub fn parse(source: &str) -> Result<Program> {
-    parse_with(source, None, false).map_err(Error::into_unlocated)
+    parse_with(source, None, ParseContext::Analysis).map_err(Error::into_unlocated)
 }
 
 /// Diagnostic frontend entry point. It uses the same parser semantics as
 /// `parse` but retains source spans on errors for compiler/interpreter/JIT UI.
 pub fn parse_diagnostic(source: &str) -> Result<Program> {
-    parse_with(source, None, false)
+    parse_with(source, None, ParseContext::Analysis)
 }
 
 #[derive(Clone, Debug)]
@@ -772,18 +892,89 @@ pub(crate) fn parse_runtime(
     source: &str,
     lookup: &dyn Fn(&str) -> Option<ParserNameBinding>,
 ) -> Result<Program> {
-    parse_with(source, Some(lookup), true)
+    parse_with(source, Some(lookup), ParseContext::Runtime)
 }
 
 pub(crate) fn parse_analysis(
     source: &str,
     lookup: &dyn Fn(&str) -> Option<ParserNameBinding>,
 ) -> Result<Program> {
-    parse_with(source, Some(lookup), false)
+    parse_with(source, Some(lookup), ParseContext::Analysis)
+}
+
+/// Resolve one ordinary name only when its queue entry reaches the stack.
+fn resolve_stack_item(item: Item, lookup: NameLookup<'_>, context: ParseContext) -> Result<Item> {
+    let ParseValue::LookupName { name, span } = &item.value else {
+        return Ok(item);
+    };
+    let name = name.clone();
+    let span = span.clone();
+    let binding = lookup.and_then(|lookup| lookup(&name));
+    let mut resolved = match binding {
+        Some(ParserNameBinding::Noun(value)) => Item::noun(
+            Expr {
+                span,
+                kind: if context == ParseContext::Runtime {
+                    ExprKind::Literal(value)
+                } else {
+                    ExprKind::ReadName(name)
+                },
+            },
+            0,
+        ),
+        Some(ParserNameBinding::AbstractNoun) if context == ParseContext::Runtime => {
+            return Err(
+                Error::Unsupported("abstract noun requires static analysis".into())
+                    .at(span)
+                    .blamed_on_word(item.provenance.as_ref().unwrap().blame_word_index),
+            );
+        }
+        Some(ParserNameBinding::AbstractNoun) => Item::noun(
+            Expr {
+                span,
+                kind: ExprKind::ReadName(name),
+            },
+            0,
+        ),
+        None if lookup.is_none() => Item::noun(
+            Expr {
+                span,
+                kind: ExprKind::ReadName(name),
+            },
+            0,
+        ),
+        Some(ParserNameBinding::Function(pos)) => {
+            let entity = FunctionEntity::name_ref(name.clone(), pos, span.clone());
+            if pos == FunctionPartOfSpeech::Verb {
+                Item::verb(Verb {
+                    span,
+                    target: VerbTarget::Named(name),
+                    entity,
+                })
+            } else {
+                Item::function(entity)
+            }
+        }
+        None => Item::verb(Verb {
+            span: span.clone(),
+            target: VerbTarget::Named(name.clone()),
+            entity: FunctionEntity::name_ref(name, FunctionPartOfSpeech::Verb, span),
+        }),
+    };
+    resolved.provenance = item.provenance;
+    resolved.flags = item.flags;
+    Ok(resolved)
+}
+
+/// Both modes use the same grammar; only runtime mode snapshots concrete nouns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParseContext {
+    Analysis,
+    Runtime,
 }
 
 type NameLookup<'a> = Option<&'a dyn Fn(&str) -> Option<ParserNameBinding>>;
-fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Program> {
+fn parse_with(source: &str, lookup: NameLookup<'_>, context: ParseContext) -> Result<Program> {
     let mut queue = enqueue(source)?;
     if queue.is_empty() {
         return Ok(Program {
@@ -791,22 +982,31 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Pr
             assignment: None,
             assignment_span: None,
             expression: None,
+            reductions: Vec::new(),
+            assignment_source: None,
         });
     }
 
     let mut pos = 0;
-    let (result, _, pending_assignment) =
-        expression(queue.as_mut_slice(), &mut pos, lookup, snapshot).map_err(|error| {
-            let fallback = queue.get(pos).or_else(|| queue.last());
-            let fallback_span = fallback
-                .map(|word| word.span.clone())
-                .unwrap_or(source.len()..source.len());
-            let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
-            if let Some(word) = fallback {
-                context = context.with_blame_word(word.word_index);
-            }
-            error.with_context(context)
-        })?;
+    let mut reductions = Vec::new();
+    let (result, _, pending_assignment) = expression(
+        queue.as_mut_slice(),
+        &mut pos,
+        lookup,
+        context,
+        &mut reductions,
+    )
+    .map_err(|error| {
+        let fallback = queue.get(pos).or_else(|| queue.last());
+        let fallback_span = fallback
+            .map(|word| word.span.clone())
+            .unwrap_or(source.len()..source.len());
+        let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
+        if let Some(word) = fallback {
+            context = context.with_blame_word(word.word_index);
+        }
+        error.with_context(context)
+    })?;
     if pos != queue.len() {
         let fallback = queue.get(pos).or_else(|| queue.last());
         let span = fallback
@@ -819,30 +1019,36 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, snapshot: bool) -> Result<Pr
         return Err(Error::Syntax("trailing tokens".into()).with_context(context));
     }
 
-    let (assignment, assignment_span) = match pending_assignment {
-        Some(PendingAssignment { name, span }) => (Some(name), Some(span)),
-        None => (None, None),
+    let (assignment, assignment_span, assignment_source) = match pending_assignment {
+        Some(PendingAssignment { name, span, source }) => (Some(name), Some(span), Some(source)),
+        None => (None, None, None),
     };
     Ok(Program {
         source: source.to_owned(),
         assignment,
         assignment_span,
         expression: Some(result),
+        reductions,
+        assignment_source,
     })
 }
 fn expression(
     tokens: &mut [EnqueuedWord<'_>],
     pos: &mut usize,
     lookup: NameLookup<'_>,
-    snapshot: bool,
+    context: ParseContext,
+    reductions: &mut Vec<ParseReduction>,
 ) -> Result<(Expr, usize, Option<PendingAssignment>)> {
     let mut items = Vec::new();
     let mut open_spans = Vec::new();
     while *pos < tokens.len() {
+        let source_word = *pos;
         match &tokens[*pos].payload {
             EnqueuedPayload::Close => {
                 if open_spans.pop().is_none() {
-                    return Err(Error::Syntax("unexpected )".into()).at(tokens[*pos].span.clone()));
+                    return Err(Error::Syntax("unexpected )".into())
+                        .at(tokens[*pos].span.clone())
+                        .blamed_on_word(tokens[*pos].word_index));
                 }
                 items.push(Item::control(ParseClass::RParen, tokens[*pos].span.clone()));
                 *pos += 1;
@@ -851,7 +1057,7 @@ fn expression(
                 if open_spans.len() >= MAX_EXPR_DEPTH {
                     return Err(Error::Limit);
                 }
-                open_spans.push(tokens[*pos].span.clone());
+                open_spans.push((tokens[*pos].span.clone(), tokens[*pos].word_index));
                 items.push(Item::control(ParseClass::LParen, tokens[*pos].span.clone()));
                 *pos += 1;
             }
@@ -884,105 +1090,23 @@ fn expression(
                 ));
                 *pos += 1;
             }
-            EnqueuedPayload::Verb(_) | EnqueuedPayload::Name(_) => {
-                if let EnqueuedPayload::Name(n) = &tokens[*pos].payload {
-                    if !tokens[*pos].flags.lookup_name {
-                        items.push(Item::name_target(
-                            (*n).to_owned(),
-                            tokens[*pos].span.clone(),
-                        ));
-                        *pos += 1;
-                        continue;
-                    }
-                    match lookup.and_then(|lookup| lookup(n)) {
-                        Some(ParserNameBinding::Noun(value)) => {
-                            let kind = if snapshot {
-                                ExprKind::Literal(value)
-                            } else {
-                                ExprKind::ReadName((*n).to_owned())
-                            };
-                            items.push(Item::noun(
-                                Expr {
-                                    span: tokens[*pos].span.clone(),
-                                    kind,
-                                },
-                                0,
-                            ));
-                            *pos += 1;
-                            continue;
-                        }
-                        Some(ParserNameBinding::AbstractNoun) => {
-                            if snapshot {
-                                return Err(Error::Unsupported(
-                                    "abstract noun requires static analysis".into(),
-                                )
-                                .at(tokens[*pos].span.clone()));
-                            }
-                            items.push(Item::noun(
-                                Expr {
-                                    span: tokens[*pos].span.clone(),
-                                    kind: ExprKind::ReadName((*n).to_owned()),
-                                },
-                                0,
-                            ));
-                            *pos += 1;
-                            continue;
-                        }
-                        Some(ParserNameBinding::Function(result_pos)) => {
-                            let span = tokens[*pos].span.clone();
-                            let entity =
-                                FunctionEntity::name_ref((*n).to_owned(), result_pos, span.clone());
-                            *pos += 1;
-                            if result_pos == FunctionPartOfSpeech::Verb {
-                                items.push(Item::verb(Verb {
-                                    span,
-                                    target: VerbTarget::Named((*n).to_owned()),
-                                    entity,
-                                }));
-                            } else {
-                                items.push(Item::function(entity));
-                            }
-                            continue;
-                        }
-                        None if lookup.is_none() => {
-                            items.push(Item::noun(
-                                Expr {
-                                    span: tokens[*pos].span.clone(),
-                                    kind: ExprKind::ReadName((*n).to_owned()),
-                                },
-                                0,
-                            ));
-                            *pos += 1;
-                            continue;
-                        }
-                        None => {
-                            // jsource creates a late verb reference for an
-                            // unresolved ordinary lookup name.
-                        }
-                    }
-                }
-                let target = match &tokens[*pos].payload {
-                    EnqueuedPayload::Verb(id) => VerbTarget::Primitive(*id),
-                    EnqueuedPayload::Name(n) => VerbTarget::Named((*n).to_owned()),
-                    _ => unreachable!(),
-                };
-                let verb_span = tokens[*pos].span.clone();
-                let entity = match &target {
-                    VerbTarget::Primitive(id) => FunctionEntity::primitive(*id, verb_span.clone()),
-                    VerbTarget::Named(name) => FunctionEntity::name_ref(
-                        name.clone(),
-                        FunctionPartOfSpeech::Verb,
-                        verb_span.clone(),
-                    ),
-                    VerbTarget::Derived => unreachable!("source token is not a derived target"),
-                };
-                let verb = Verb {
-                    span: verb_span,
-                    target,
-                    entity,
-                };
+            EnqueuedPayload::Name(name) => {
+                let span = tokens[*pos].span.clone();
+                items.push(if tokens[*pos].flags.lookup_name {
+                    Item::lookup_name((*name).to_owned(), span)
+                } else {
+                    Item::name_target((*name).to_owned(), span)
+                });
                 *pos += 1;
-                items.push(Item::verb(verb));
+            }
+            EnqueuedPayload::Verb(id) => {
+                let span = tokens[*pos].span.clone();
+                items.push(Item::verb(Verb {
+                    span: span.clone(),
+                    target: VerbTarget::Primitive(*id),
+                    entity: FunctionEntity::primitive(*id, span),
+                }));
+                *pos += 1;
             }
             EnqueuedPayload::Adverb(id) => {
                 items.push(Item::function(FunctionEntity::primitive_adverb(
@@ -1006,19 +1130,27 @@ fn expression(
                 *pos += 1;
             }
         }
+        let item = items.pop().expect("one item per enqueue word");
+        items.push(item.with_source(&tokens[source_word]));
     }
-    if let Some(span) = open_spans.last() {
-        return Err(Error::Syntax("missing )".into()).at(span.clone()));
+    if let Some((span, word_index)) = open_spans.last() {
+        return Err(Error::Syntax("missing )".into())
+            .at(span.clone())
+            .blamed_on_word(*word_index));
     }
 
-    let (mut items, assignment) = reduce_parse_stack_subset(items)?;
+    let (mut items, assignment) = reduce_parse_stack_subset(items, lookup, context, reductions)?;
 
     if items.len() != 1 {
         let span = items
             .first()
             .map(Item::span)
             .unwrap_or_else(|| tokens.last().map(|word| word.span.clone()).unwrap_or(0..0));
-        return Err(Error::Syntax("unreduced parser stack after rows 0-6".into()).at(span));
+        let mut error = Error::Syntax("unreduced parser stack after rows 0-8".into()).at(span);
+        if let Some(provenance) = items.first().and_then(|item| item.provenance.as_ref()) {
+            error = error.blamed_on_word(provenance.blame_word_index);
+        }
+        return Err(error);
     }
 
     let item = items.pop().expect("one reduced parser item");
@@ -1041,7 +1173,9 @@ fn expression(
             0,
             assignment,
         )),
-        ParseValue::NameTarget { .. } | ParseValue::Control { .. } => {
+        ParseValue::LookupName { .. }
+        | ParseValue::NameTarget { .. }
+        | ParseValue::Control { .. } => {
             Err(Error::Syntax("unexpected parser control result".into()).at(span))
         }
     }
@@ -1165,5 +1299,77 @@ mod parser_table_tests {
         }
         assert_eq!(super::trident_disposition(Verb, Noun, Verb), S);
         assert_eq!(super::trident_disposition(Noun, Noun, Noun), S);
+    }
+}
+
+#[cfg(test)]
+mod stack_entry_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    #[test]
+    fn names_resolve_right_to_left_and_nouns_snapshot_at_each_stack_entry() {
+        let seen = RefCell::new(Vec::new());
+        let program = parse_runtime("x+x", &|name| {
+            seen.borrow_mut().push(name.to_owned());
+            let value = Value::scalar(seen.borrow().len() as i64);
+            Some(ParserNameBinding::Noun(value))
+        })
+        .unwrap();
+        assert_eq!(*seen.borrow(), vec!["x", "x"]);
+        let ExprKind::Dyad { left, right, .. } = program.expression.unwrap().kind else {
+            panic!()
+        };
+        let ExprKind::Literal(left) = left.kind else {
+            panic!()
+        };
+        let ExprKind::Literal(right) = right.kind else {
+            panic!()
+        };
+        assert_eq!(left.json(), Value::scalar(2).json());
+        assert_eq!(right.json(), Value::scalar(1).json());
+
+        seen.borrow_mut().clear();
+        parse_analysis("a+b*c", &|name| {
+            seen.borrow_mut().push(name.to_owned());
+            Some(ParserNameBinding::AbstractNoun)
+        })
+        .unwrap();
+        assert_eq!(*seen.borrow(), vec!["c", "b", "a"]);
+    }
+
+    #[test]
+    fn constructor_failure_stops_lookup_of_unvisited_left_names() {
+        let seen = RefCell::new(Vec::new());
+        let error = parse_runtime("unvisited (+\"'bad') right", &|name| {
+            seen.borrow_mut().push(name.to_owned());
+            Some(ParserNameBinding::Noun(Value::scalar(1)))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), "domain error");
+        assert_eq!(*seen.borrow(), vec!["right"]);
+        assert_eq!(error.context().unwrap().blame_word_index, Some(3));
+    }
+
+    #[test]
+    fn assignment_target_is_not_looked_up_and_named_modifiers_keep_pos() {
+        let seen = RefCell::new(Vec::new());
+        let program = parse_analysis("out=:f adv x", &|name| {
+            seen.borrow_mut().push(name.to_owned());
+            Some(match name {
+                "x" => ParserNameBinding::AbstractNoun,
+                "adv" => ParserNameBinding::Function(FunctionPartOfSpeech::Adverb),
+                "f" => ParserNameBinding::Function(FunctionPartOfSpeech::Verb),
+                _ => panic!("unexpected lookup: {name}"),
+            })
+        })
+        .unwrap();
+        assert_eq!(*seen.borrow(), vec!["x", "adv", "f"]);
+        assert_eq!(program.assignment.as_deref(), Some("out"));
+        let ExprKind::Monad { verb, .. } = program.expression.unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(verb.entity.head, FunctionHead::NameRef("adv".into()));
+        assert_eq!(verb.entity.result_pos, FunctionPartOfSpeech::Verb);
     }
 }

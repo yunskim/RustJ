@@ -7512,7 +7512,7 @@ python tools/frontend_stage_conformance.py --binary target/windows-validation/de
 
 **결정:** runtime parser는 jsource처럼 verb application을 실행하여 실제 noun으로 reduce하고, 컴파일러는 별도 capture에서 생산 연산과 input/output 연결을 보존한다. noun이 된다는 이유로 provenance를 버리지 않는다. verb 중심의 tacit 표현은 구조를 노출하는 권장 방식이며 필수 언어 제한이 아니다. 이 절은 F2/P2–P6를 구체화하는 계획이고 별도 roadmap이나 두 번째 canonical IR을 만들지 않는다.
 
-**현재 코드와의 차이:** `parser.rs` rows 0–2는 `ExprKind::Monad/Dyad`를 Noun class로 넣고, `runtime.rs::eval_program`은 parse 이후 `interpret_ir`에서 실행한다. `expression()`은 현재 name을 queue drain 이전에 resolve하기도 한다. 따라서 이미 “C처럼 즉시 실행 + 별도 graph 기록”이 구현되었다고 말할 수 없다. 기존 `j_graph_ir::Plan`은 이 지연 표현에서 graph를 만들 수 있지만 computed noun이 뒤 modifier constructor에 필요한 경우와 parser-visible effects는 미완료다. 최종 결과를 실행한 뒤 AST를 다시 그리는 것만으로 이 문제를 해결하지 않는다.
+**현재 코드와의 차이:** `parser.rs` rows 0–2는 `ExprKind::Monad/Dyad`를 Noun class로 넣고, `runtime.rs::eval_program`은 parse 이후 `interpret_ir`에서 실행한다. `expression()`은 unresolved name을 queue에 남기며 실제 조회는 오른쪽부터 queue→stack entry에서 수행한다. 다만 rows 0–2의 실제 실행과 parser-visible effects는 아직 이 시점에 통합하지 않았다. 따라서 이미 “C처럼 즉시 실행 + 별도 graph 기록”이 구현되었다고 말할 수 없다. 기존 `j_graph_ir::Plan`은 이 지연 표현에서 graph를 만들 수 있지만 computed noun이 뒤 modifier constructor에 필요한 경우와 parser-visible effects는 미완료다. 최종 결과를 실행한 뒤 AST를 다시 그리는 것만으로 이 문제를 해결하지 않는다.
 
 ##### 다른 언어·배열 프레임워크의 처리
 
@@ -7561,14 +7561,15 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 `static_analysis::StaticAnalyzer`는 입력 이름의 noun/function 품사와 `GraphFacts`를 선언받아 기존 tokenizer → enqueuer → parser → bind → J Graph 경로를 비실행으로 연결한다. parser의 `AbstractNoun`은 실제 `Value`가 아닌 분석용 noun 분류이며, concrete 실행에 들어가면 거부한다. 실제 입력 배열을 할당하거나 이름의 함수를 호출하지 않고 noun을 중간에 사용하는 식도 연산 구조로 남긴다. 리터럴은 기존처럼 실제 상수 payload를 구성하므로 '모든 allocation 없음'을 뜻하지 않는다.
 
 - [x] trillion-element 입력을 metadata만으로 선언하고 `x+y*z`, `(x+y)*z`의 다른 operand 구조와 fork region을 보존하는 regression을 추가했다.
-- [x] `SourceWord` sidecar로 tokenizer span, enqueue 품사·original word index·name lookup/copula flags를 분석 결과에 보존한다. graph/source span을 통한 추적의 출발점이며 모든 parser reduction의 original-word 매핑 완료를 뜻하지 않는다.
+- [x] `SourceWord` sidecar로 tokenizer span, enqueue 품사·original word index·name lookup/copula flags를 분석 결과에 보존한다. `ParseReduction`이 지원되는 각 reduction의 operand word range·result origin과 연결한다. 미지원 semantic action의 runtime trace 완료를 뜻하지 않는다.
 - [x] 미정 shape는 Unknown, 이름의 함수는 specialization 경계로 유지한다. 품사가 없는 이름과 값이 필요한 미지원 constructor는 분석 coverage 오류로 반환한다.
 - [x] assignment는 proposed graph write만 남기며 input catalog를 변경하지 않는다. runtime에서 domain error인 식도 분석 중 실행하지 않는 regression을 추가했다. 분석 성공이 runtime 오류 없음의 증명은 아니다.
 - [x] `examples/static_explain.rs`로 데이터 없이 graph와 logical memory 정보를 확인한다. catalog version은 runtime guard가 아니며 결과는 실행 가능한 compiled plan이 아니다.
-- [ ] parser stack entry의 이름 조회 순서, 각 reduction의 provenance/copula 전달, 실제 noun reduction과 별도 capture를 기존 F2/P2–P6 체크리스트에 따라 완성한다.
+- [x] 이름 조회를 오른쪽부터 stack entry로 옮기고, 지원되는 각 reduction의 provenance와 final assignment copula를 전달한다.
+- [ ] 실제 noun reduction과 별도 capture, non-final assignment/effect는 기존 F2/P2–P6 체크리스트에 따라 완성한다.
 - [ ] frontend 검증 후 별도 단계에서 effect/error ordering 증명과 최적화 변환·lowering·실행을 연결한다.
 
-논리적 extent/live range/resource 보고는 기존 분석기를 재사용하며 최적화는 하지 않는다. logical atom 합계는 peak allocation이 아니다. 전체 J, upstream suite, CUDA 실행을 지원·검증했다는 의미는 아니다. 이번 Windows 검증: Rust default/portable 각각 219 passed, 17 ignored; fmt/clippy 통과; Python harness 17 passed; j64/AVX2 각각 direct·semantic-reference 2,050문장, stage 7,014 checks, words 6,618 cases에서 failed 0. 신규 정적 frontend regression은 7개다. metadata-only 10^12-element 예제도 실행했다. C DLL release metadata는 `ded7793fe5795d79eda8e7138dce94aa056edf78`, source 검토 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`이며 source pin으로 빌드한 DLL이라는 주장은 하지 않는다. 신규 정적 frontend regression과 기존 Windows default/portable·C j64/AVX2 frontend 비교를 함께 검증한다.
+논리적 extent/live range/resource 보고는 기존 분석기를 재사용하며 최적화는 하지 않는다. logical atom 합계는 peak allocation이 아니다. 전체 J, upstream suite, CUDA 실행을 지원·검증했다는 의미는 아니다. 이번 Windows 검증: Rust default/portable 각각 228 passed, 17 ignored; fmt/clippy 통과; Python harness 18 passed; j64/AVX2 각각 direct·semantic-reference 2,063문장 중 2,061 passed, runtime coverage boundary 2개, failed 0; stage 7,014 checks와 words 6,618 cases에서 failed 0. 신규 정적 frontend regression은 7개다. metadata-only 10^12-element 예제도 실행했다. C DLL release metadata는 `ded7793fe5795d79eda8e7138dce94aa056edf78`, source 검토 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`이며 source pin으로 빌드한 DLL이라는 주장은 하지 않는다. 신규 정적 frontend regression과 기존 Windows default/portable·C j64/AVX2 frontend 비교를 함께 검증한다.
 
 <a id="static-frontend-review"></a>
 
@@ -7583,23 +7584,27 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 | `tokenizer.rs` | `w.c` transition table, raw spans, quote errors, parser-visible comment cutoff | capture 때문에 변경할 사항은 없다. runtime/capture/target 정보를 넣지 않는다 |
 | `enqueuer.rs` | literal construction, core primitive POS, unresolved NAME, lookup/copula flags, word index/span | graph를 만들 필요는 없다. `EnqueueEnvironment`와 flags/provenance를 parser 입구 이후에도 전달하는 contract를 보완한다 |
 | `parser.rs::ParseValue::Noun(Expr, usize)` | Noun class와 원본 표현/의미 구조 | concrete Value carrier와 static noun facts/origin carrier를 명시적으로 구분한다. Expr 하나를 concrete 값처럼 사용하지 않는다. capture origin은 값과 별도이며 보존된 static graph도 버리지 않는다 |
-| `expression()` / queue drain | 같은 queue/stack 규칙과 name의 noun/function 구분 | 현재 left-to-right Item 생성 중 name lookup을 한다. 실제 right-to-left queue→stack entry에서 semantic context를 통해 resolve하도록 옮긴다. static은 안정된 binding/POS 정보만 사용하며 불명확하면 분석 경계로 남긴다 |
+| `expression()` / queue drain | 같은 queue/stack 규칙과 name의 noun/function 구분 | `resolve_stack_item`이 실제 right-to-left queue→stack entry에서 조회한다. `ParseContext`가 analysis와 runtime noun snapshot을 구분한다. invocation·effect sequencing host는 미완료다. static은 안정된 binding/POS 정보만 사용하며 불명확하면 분석 경계로 남긴다 |
 | rows 0–2 / `runtime.rs::eval_program` | monad/dyad 의미와 실제 kernel implementation | static action은 application graph와 facts를 만들고, concrete action은 그 지점에서 실행한 noun을 돌려준다. concrete reduction 후 전체 Expr를 다시 실행하여 중복 계산하지 않도록 runtime return contract를 함께 바꾼다 |
 | `completed_noun()` / rows 3–6 | completed FunctionEntity DAG, source operator, ordered operands | 현재 Literal/Group만 concrete noun으로 취급한다. static constructor는 필요한 값이 constant/proven이면 진행하고, 아니면 value-dependent 경계로 남긴다. concrete constructor는 실제 값과 origin을 받아 validation한다 |
-| `Item` / row 7 / diagnostics | source spans, enqueue의 local/global/to-name 구분 | 현재 Item에는 original word index와 copula flags가 없고 row 7은 copula를 버린다. provenance·assignment scope를 보존한다. pending-final assignment만 표현하는 모델을 runtime assignment action과 구분한다. local 실행 미지원 상태를 유지하면서 metadata를 조용히 global로 해석하지 않는다 |
+| `Item` / row 7 / diagnostics | source spans, enqueue의 local/global/to-name 구분 | `Item`이 original-word range/inherited token과 enqueue flags를 보존하며 row 7은 `AssignmentSource`로 target/copula provenance와 flags를 남긴다. pending-final assignment만 표현하는 모델을 runtime assignment action과 구분한다. local 실행 미지원 상태를 유지하면서 metadata를 조용히 global로 해석하지 않는다 |
 | row 8 / graph adapter | 괄호에 따른 reduction boundary | grouping 전후 같은 noun origin을 유지한다. 괄호 자체를 추가 실행 operation으로 만들지 않는다. production 순서·operand slot·original word를 기존 J Graph adapter에 전달한다 |
-| parser API / runtime / analysis | `prepare_semantic/analyze_j_graph(&self, ...)`의 비실행 성격 | 단순 `snapshot: bool`을 의미가 명확한 context/action contract로 대체한다. static 분석과 runtime capture는 동일 grammar를 사용하되 실행 권한과 반환 타입을 구분한다 |
+| parser API / runtime / analysis | `prepare_semantic/analyze_j_graph(&self, ...)`의 비실행 성격 | `snapshot: bool`은 `ParseContext::{Analysis, Runtime}`으로 대체했다. 실제 invocation/capture semantic host와 return contract는 후속 작업이다. static 분석과 runtime capture는 동일 grammar를 사용하되 실행 권한과 반환 타입을 구분한다 |
 
-이 변경은 tokenizer/enqueuer/parser 파일 분리를 되돌리는 작업이 아니다. 핵심은 **parser의 payload·semantic actions와 metadata 전달**이며, graph/capture를 lexer나 physical `Value`에 넣지 않는다. 근거는 현재 `parser.rs`의 `Noun(Expr, usize)`, `expression`, `completed_noun`, row 7의 `_copula`, `runtime.rs::eval_program` 및 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)/[w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 계약이다. 이 검토에서 runtime code를 변경한 것은 아니다.
+이 변경은 tokenizer/enqueuer/parser 파일 분리를 되돌리는 작업이 아니다. 핵심은 **parser의 payload·semantic actions와 metadata 전달**이며, graph/capture를 lexer나 physical `Value`에 넣지 않는다. 근거는 현재 `parser.rs`의 `Noun(Expr, usize)`, `expression`, `completed_noun`, row 7의 `AssignmentSource`, `runtime.rs::eval_program` 및 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)/[w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 계약이다. 이전 구조 검토를 현재 parser 변경에 맞게 갱신했다. kernel/executor 변경은 포함하지 않는다.
 
 **메모리 분석의 의미:** 현재 `j_graph_memory.rs`는 알려진 shape의 logical atom count, graph 순서의 live range, intermediate/view materialization 후보를 분석하고 명시적인 representation model로 byte 수를 평가한다. 이는 실제 allocation이나 peak device memory의 보장이 아니다. shape가 미정이면 Unknown/상징식/조건을 유지하고, physical schedule·layout·alias·variable-width boxed/sparse representation이 정해진 뒤 peak/residency를 별도 평가한다. source가 주는 구조와 사용자 input signature가 확보되면 배열 원소를 실행하지 않고 분석한다. 현재 모든 symbolic shape나 J form이 구현되었다는 의미는 아니다.
 
 - [x] 세 파일의 재검토를 완료하고 tokenizer 유지, enqueuer metadata 전달 보완, parser/context/return contract 수정으로 범위를 좁혔다.
 - [x] 최소 수용 기준을 static graph + logical memory analysis로 명시하고 full capture/JIT/physical peak 계산과 구분했다.
 - [ ] **P2/P5 static-first interface:** 기존 static graph 경로를 유지하면서 static/concrete noun carrier와 같은 grammar의 actions를 정의한다. compile 요청이 runtime effects를 실행하지 않는 regression을 추가한다.
-- [ ] **F2/P4 provenance and lookup:** original word/copy-free origin/copula flags를 유지하고 name resolve를 stack entry로 옮긴다. runtime 호환성과 static validity 조건을 함께 검증한다.
+- [x] **F2/P4 supported lookup/provenance:** original word 범위와 inherited token·final copula flags를 유지하고 name resolve를 stack entry로 옮겼다. 지원되는 reduction의 구조와 실패 시 중단을 검증했다. non-final assignment/locale/effect 동등성은 아래 별도 미완료 항목이다.
 - [ ] **P3/P6 value-dependent boundary:** constant constructor 사례는 분석하며 unknown 실제 값/품사에서는 경계와 reason을 반환한다. Unsupported analysis를 J syntax error로 바꾸지 않는다.
 - [ ] **P5/P6 static memory gate:** input type/shape 또는 facts로 graph/liveness/extent를 분석하고 Unknown을 보존한다. 결과 보고에 logical atoms·represented bytes·추정 peak의 차이를 표시한다.
+
+**구현한 provenance 계약:** `Program.reductions`와 정적 분석 결과의 `reductions`는 row id, 순서대로 나열한 operand word range, result word range/품사, byte span, inherited token을 가진다. actual noun payload는 복사하지 않는다. jsource `p.c`의 modifier·fork·hook은 왼쪽 operand의 `.t`, 괄호는 `(`의 `.t`를 이어받는다. rows 0–2의 noun 결과는 오른쪽 noun token을 유지하며 C는 이를 non-executable noun에서 immaterial로 설명한다. 실패 operator의 blame token과 result token은 별도다. Rust의 index는 0부터 시작한다. 이 계약은 [p.c stack entry](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L735), [noun result](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L922), [modifier/train/parenthesis](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1002)를 cross-check한 source 기반 regression이며 C 내부 stack trace를 직접 export한 검증은 아니다.
+
+이번 regression 9개는 이름의 오른쪽→왼쪽 조회·각 stack entry noun snapshot, constructor 실패 후 미방문 이름 조회 중단, named modifier POS, 9개 row의 original-word 전달, grouping된 modifier/fork origin, final copula 보존, 원문 error token 및 named insert/fork 분석 경계를 검증한다. C corpus에도 13문장을 추가했다. `(entryverb/ % #) entrynoun`과 `(entryverb/ % #) entrycopy`는 frontend 구조를 보존하지만 기존 runtime executor가 처리하지 못한다. 보고서 `coverage_boundaries`에 exact source와 실제 C/Rust 결과·이유를 남기며 성공이나 C baseline deviation으로 세지 않는다. Rust가 다른 오류를 내거나 등록하지 않은 구문이 실패하면 일반 failure다. 나머지 2,061문장의 값/error 비교와 stage/word 검증을 통과했다.
 
 위 static 분석 gate는 runtime capture 전부의 완료를 기다리지 않는다. 아래 capture 체크리스트는 별도 실행 경로의 완료 기준으로 유지한다.
 

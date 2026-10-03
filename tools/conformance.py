@@ -142,7 +142,30 @@ def cases():
         fixed.extend([f'rankfn=:+"{rank}', 'rankfn 3', 'rankfn i.2 3'])
     for noun in ['1 1$0', '2 2$0', '0 4$0', "1 1$'a'", '0$0', '4$0']:
         fixed.extend([f'rankarg=:{noun}', 'rankfn=:+"rankarg', 'rankfn 3'])
+    # F2: stack-entry noun snapshots and completed named modifier/train boundaries.
+    # These compare supported observable results/errors, not a C stack trace.
+    fixed.extend([
+        'entrynoun=:1 2 3', 'entrynoun+entrynoun', 'entryverb=:+',
+        'entryverb/entrynoun', 'entrynoun+entryverb/entrynoun',
+        '(entryverb/ % #) entrynoun',
+        "entrynoun (+\"'bad') entrynoun", "((entryverb/))\"'bad'",
+        'entrycopy=:entrynoun', 'entrynoun=:9', 'entrycopy',
+        'entryverb=:*', '(entryverb/ % #) entrycopy',
+    ])
     return fixed
+
+# Exact newly exercised runtime coverage gaps. Parser correctness is checked
+# separately; these are neither conformance passes nor C baseline deviations.
+RUNTIME_COVERAGE_BOUNDARIES = {
+    '(entryverb/ % #) entrynoun': 'named insert inside fork has no runtime executor',
+    '(entryverb/ % #) entrycopy': 'named insert inside fork has no runtime executor',
+}
+
+def runtime_coverage_boundary(source, reference, actual):
+    if (source in RUNTIME_COVERAGE_BOUNDARIES and 'data' in reference
+            and actual == {'error': 'unsupported'}):
+        return RUNTIME_COVERAGE_BOUNDARIES[source]
+    return None
 
 def equal(a, b):
     if a.keys() != b.keys():
@@ -189,7 +212,7 @@ def main():
               'reference_sha256': hashlib.sha256(library.read_bytes()).hexdigest(),
               'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),
               'scope': 'supported subset; upstream suite NOT executed',
-              'passed': 0, 'known_deviations': [], 'failures': []}
+              'passed': 0, 'known_deviations': [], 'coverage_boundaries': [], 'failures': []}
     try:
         oracle = subprocess.run([sys.executable, str(ROOT / 'tools/oracle.py')], input=''.join(json.dumps(s)+'\n' for s in corpus), text=True, capture_output=True, timeout=120)
         rust = subprocess.run([str(args.binary), '--json'] + (['--semantic-reference'] if args.semantic_reference else []), input='\n'.join(corpus)+'\n', text=True, capture_output=True, timeout=120)
@@ -204,6 +227,10 @@ def main():
                 report['passed'] += 1
                 continue
             item = {'index': i, 'source': source, 'reference': a, 'rust': b}
+            boundary = runtime_coverage_boundary(source, a, b)
+            if boundary is not None:
+                report['coverage_boundaries'].append({**item, 'reason': boundary})
+                continue
             # Narrow, explicit baseline discrepancy, never a blanket dtype waiver.
             known = (args.allow_known_j64 and library.parent.name == 'j64'
                      and source == '(i.2 3) -"1 0 (i.2 3 4)'

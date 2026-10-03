@@ -141,6 +141,21 @@ fn frontend_provenance_survives_reduction_without_assignment_execution() {
             .iter()
             .all(|w| !source[w.span.clone()].starts_with("NB."))
     );
+    assert!(
+        r.assignment_source
+            .as_ref()
+            .unwrap()
+            .flags
+            .global_assignment
+    );
+    assert_eq!(
+        r.reductions.last().unwrap().row,
+        rustj::parser::ParseRow::Assignment
+    );
+    assert_eq!(
+        r.reductions.last().unwrap().result.word_range,
+        0..r.source_words.len()
+    );
     assert!(a.binding("out").is_none());
     assert!(
         r.graph

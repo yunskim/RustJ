@@ -194,6 +194,9 @@ pub struct Program {
     pub assignment: Option<String>,
     pub assignment_span: Option<std::ops::Range<usize>>,
     pub expression: Option<Expr>,
+    /// Parser-row provenance, separate from semantic operation payloads.
+    pub reductions: Vec<crate::parser::ParseReduction>,
+    pub assignment_source: Option<crate::parser::AssignmentSource>,
 }
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
