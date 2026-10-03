@@ -15,6 +15,28 @@ pub struct Engine {
     primitives: crate::primitive::PrimitiveContext,
 }
 
+/// Execution result plus optional source-operation observations, including failure.
+pub struct CapturedEvaluation {
+    pub result: Result<Option<Value>>,
+    pub capture: crate::parser_capture::ParseCapture,
+}
+
+struct EngineParserHost<'a> {
+    engine: &'a mut Engine,
+    pooled: bool,
+}
+impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
+        self.engine.parser_name_binding(name)
+    }
+    fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
+        self.engine.binding_version(name)
+    }
+    fn apply(&mut self, expression: crate::semantic::Expr) -> Result<Value> {
+        self.engine.interpret_ir(expression, self.pooled, 0)
+    }
+}
+
 enum SymbolValue {
     Noun(Value),
     Verb(crate::semantic::Verb),
@@ -231,13 +253,13 @@ impl Engine {
 
     /// Reference execution with stable machine-readable J errors.
     pub fn eval_semantic_reference(&mut self, source: &str) -> Result<Option<Value>> {
-        self.eval_program(source, false)
+        self.eval_program(source, false, None)
             .map_err(Error::into_unlocated)
     }
 
     /// Normal execution with stable machine-readable J errors.
     pub fn eval(&mut self, source: &str) -> Result<Option<Value>> {
-        self.eval_program(source, true)
+        self.eval_program(source, true, None)
             .map_err(Error::into_unlocated)
     }
 
@@ -245,15 +267,35 @@ impl Engine {
     /// Python-style human diagnostics. Future JIT/interpreter frontends should
     /// reuse this contract rather than invent a separate error path.
     pub fn eval_diagnostic(&mut self, source: &str) -> Result<Option<Value>> {
-        self.eval_program(source, true)
+        self.eval_program(source, true, None)
     }
 
     pub fn eval_semantic_reference_diagnostic(&mut self, source: &str) -> Result<Option<Value>> {
-        self.eval_program(source, false)
+        self.eval_program(source, false, None)
     }
 
-    fn eval_program(&mut self, source: &str, pooled: bool) -> Result<Option<Value>> {
-        let program = crate::parser::parse_runtime(source, &|name| self.parser_name_binding(name))?;
+    /// Capture is observational: the same parser/kernel path executes either way.
+    /// Input/intermediate facts and edges are retained, not array snapshots.
+    pub fn eval_captured(&mut self, source: &str) -> CapturedEvaluation {
+        let mut capture = crate::parser_capture::ParseCapture::default();
+        let result = self.eval_program(source, true, Some(&mut capture));
+        CapturedEvaluation { result, capture }
+    }
+
+    fn eval_program(
+        &mut self,
+        source: &str,
+        pooled: bool,
+        mut capture: Option<&mut crate::parser_capture::ParseCapture>,
+    ) -> Result<Option<Value>> {
+        let program = crate::parser::parse_runtime_host(
+            source,
+            &mut EngineParserHost {
+                engine: self,
+                pooled,
+            },
+            capture.as_deref_mut(),
+        )?;
         let Some(expr) = program.expression else {
             return Ok(None);
         };
@@ -262,10 +304,20 @@ impl Engine {
         let value = match expr.kind {
             crate::semantic::ExprKind::VerbValue(verb) => SymbolValue::Verb(verb),
             crate::semantic::ExprKind::ModifierValue(function) => SymbolValue::Modifier(function),
+            crate::semantic::ExprKind::Literal(value) => SymbolValue::Noun(value),
+            // Parentheses only wrap completed nouns; no kernel replay occurs.
             _ => SymbolValue::Noun(self.interpret_ir(expr, pooled, 0)?),
         };
         if let Some(name) = program.assignment {
-            self.commit_binding(name, value)?;
+            self.commit_binding(name.clone(), value)?;
+            if let Some(capture) = capture {
+                capture
+                    .events
+                    .push(crate::parser_capture::CaptureEvent::Commit {
+                        version: self.binding_version(&name).expect("committed binding"),
+                        name,
+                    });
+            }
             Ok(None)
         } else {
             match value {

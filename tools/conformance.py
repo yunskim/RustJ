@@ -152,6 +152,16 @@ def cases():
         'entrycopy=:entrynoun', 'entrynoun=:9', 'entrycopy',
         'entryverb=:*', '(entryverb/ % #) entrycopy',
     ])
+    # P2/P3: concrete row results are available to subsequent constructors.
+    fixed.extend([
+        'computedrank=:+"(1+0)', 'computedrank i.2 3',
+        'computedrank=: +"(#1 2)', 'computedrank i.2 3',
+        'computedrank=:+"(0$0)', 'computedrank i.2 3',
+        "computedrank=:+\"('a'+1)", 'computedrank i.2 3',
+        'computedrank=:+"(1 2+1 2 3)', 'computedrank i.2 3',
+        'computedfork=:(1+2) + *',
+        'computedrank=:+"(1+0.5)', 'computedrank i.2 3',
+    ])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked
@@ -196,6 +206,7 @@ def generated(seed, rounds):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--semantic-reference', action='store_true')
+    parser.add_argument('--parser-capture', action='store_true', help='Use capture_probe as binary; verify runtime provenance')
     parser.add_argument('--reference-revision', help='Verified source revision of the supplied C library')
     parser.add_argument('--seed', type=int, default=20260926)
     parser.add_argument('--rounds', type=int, default=100)
@@ -204,10 +215,11 @@ def main():
     parser.add_argument('--allow-known-j64', action='store_true')
     args = parser.parse_args()
     if args.rounds < 0: parser.error('rounds must be nonnegative')
+    if args.parser_capture and args.semantic_reference: parser.error('choose one execution path')
     args.report.parent.mkdir(parents=True, exist_ok=True)
     corpus = cases() + generated(args.seed, args.rounds)
     library = Path(os.environ.get('J_LIBRARY', str(ROOT / '.reference/bin/linux/j64/libj.so')))
-    report = {'reference_revision': args.reference_revision, 'platform': os.name, 'rust_path': 'semantic-reference' if args.semantic_reference else 'direct', 'seed': args.seed, 'rounds': args.rounds, 'cases': len(corpus),
+    report = {'reference_revision': args.reference_revision, 'platform': os.name, 'rust_path': 'parser-capture' if args.parser_capture else ('semantic-reference' if args.semantic_reference else 'direct'), 'seed': args.seed, 'rounds': args.rounds, 'cases': len(corpus),
               'reference_library': str(library),
               'reference_sha256': hashlib.sha256(library.read_bytes()).hexdigest(),
               'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),

@@ -360,7 +360,7 @@ Source-grounded changes refer to [w.c](https://github.com/jsoftware/jsource/blob
 
 **Decision:** runtime parsing executes verb applications and reinserts actual nouns, as jsource does. An optional separate capture retains production operations and input/output dependencies. Tacit verb-oriented expression remains useful, but is not a language restriction. This plan elaborates F2/P2–P6 and does not introduce another canonical IR or competing roadmap.
 
-**Current gap:** `parser.rs` rows 0–2 currently insert `ExprKind::Monad/Dyad` as Noun-class items; `runtime.rs::eval_program` executes them after parsing in `interpret_ir`. `expression()` now retains unresolved names until right-to-left queue-to-stack entry; parser-visible invocation/effects still await integration. Existing `j_graph_ir::Plan` preserves graphs for this deferred subset; immediate runtime reduction, computed constructor operands and parser-visible effects are not complete. Reconstructing a graph after final evaluation does not fix parser-time semantics.
+**Remaining gap:** runtime rows 0–2 now invoke a host and reduce actual nouns; static contexts retain application Expr structure. Capture v0 retains source operations and occurrence edges separately, but its existing-J-Graph adapter is pending. Non-final assignments, locales, definitions, effects and full modifier POS remain incomplete. Arbitrary fork executor coverage is separate from frontend construction support.
 
 ##### Framework/language comparison
 
@@ -413,6 +413,19 @@ The goal is a **J tokenizer/enqueuer/parser usable for analysis and optimization
 - [ ] After frontend verification, connect effect/error-order proofs, optimization transforms, lowering, and execution as separate stages.
 
 Logical extent/liveness/resource reports reuse existing analysis without optimizing. The logical atom total is not peak allocation. This does not claim full J, upstream-suite or CUDA coverage. Windows validation: Rust default/portable each 228 passed, 17 ignored; fmt/clippy passed; Python harness 18 passed; j64/AVX2 each examined 2,063 direct and semantic-reference sentences: 2,061 passed, two runtime coverage boundaries and zero failures. All 7,014 stage checks and 6,618 word cases passed. Seven new static-frontend regressions passed, as did the metadata-only 10^12-element example. C DLL release metadata is `ded7793fe5795d79eda8e7138dce94aa056edf78`; reviewed source pin is `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`. The DLL is not claimed to have been built from that source pin. Verify new static-frontend regressions together with existing Windows default/portable and C j64/AVX2 frontend comparisons.
+
+##### Runtime noun reduction and separate capture v0 (2026-10-03)
+
+- [x] P2/P4: `RuntimeParserHost` supplies stack-entry lookup and rows 0–2 invocation through the same nine-row parser for supported forms. Each application immediately reduces to an actual `Value` and re-enters the stack. Final nouns do not replay computation. Analysis contexts have no execution host.
+- [x] P2/P5: `Engine::eval_captured` returns optional `ParseCapture` observations. Capture on/off uses the same parser/kernels, recording input occurrences, source FunctionEntity apply attempts, success facts or failure kind/context, constructor noun-input associations, and final commits. Failed evaluation retains partial capture.
+- [x] P3/P5: runtime constructors accept computed nouns in `f=:+"(1+0)` and `f=:(1+2) + *`, linking producer occurrences to constructor inputs. Arbitrary fork-call executor coverage and static computed constructors remain separate boundaries; no fake constants.
+- [x] Regressions cover capture parity, preserved bindings/versions after failure, parenthesis identity, facts-only large reads, invocation before later lookup, and final Literal results.
+- [ ] P5/P8: connect a verified adapter to the existing J Graph with constructor-provenance sidecars.
+- [ ] P4: extend non-final assignment, locale, definition, effect and constructor/result-POS coverage. The 17 ignored definition acceptance tests remain unimplemented.
+
+`parser_capture.rs` is an observation log, not a replacement canonical IR. Input/intermediate snapshots are omitted; dtype/shape, source spans and occurrence edges are retained. Shared FunctionEntity objects own intrinsic noun operands required by J semantics, so capture may extend their lifetime without copying payloads. This is distinct from buffers/physical scheduling. An observed execution does not prove compiled replay legal without purity/binding/value/error guards. Runtime capture computes actual values; the separate static analyzer never invokes them.
+
+Windows validation: default/portable each **236 passed / 17 ignored**, fmt/clippy passed, Python 18 passed. Each j64/AVX2 variant examined **2,076 sentences across direct, semantic-reference and parser-capture: 2,074 passed, two explicit runtime boundaries, zero failures**; 7,014 stage checks and 6,618 word cases passed. `examples/capture_probe.rs` validates associations and attempt/outcome ordering for every sentence. Save the two new parser-capture JSON reports. Preserve the existing DLL/source pin distinction and skip GitHub CI.
 
 <a id="static-frontend-review"></a>
 

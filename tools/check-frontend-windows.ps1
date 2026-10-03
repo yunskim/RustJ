@@ -41,11 +41,15 @@ Invoke-FrontendCheck $Python @('-m', 'unittest', 'discover', '-s', 'tools', '-p'
 foreach ($library in $libraries) {
     $env:J_LIBRARY = Join-Path $reference $library
     $variant = if ($library -eq 'j.dll') { 'j64' } else { 'avx2' }
-    foreach ($mode in @('direct', 'semantic-reference')) {
+    foreach ($mode in @('direct', 'semantic-reference', 'parser-capture')) {
         Write-Output "START $variant $mode"
         $checkArguments = @('tools/conformance.py', '--binary', 'target/windows-validation/debug/rustj.exe',
             '--reference-revision', $ReferenceRevision, '--report', "reports/frontend-$variant-$mode-windows.json")
         if ($mode -eq 'semantic-reference') { $checkArguments += '--semantic-reference' }
+        if ($mode -eq 'parser-capture') {
+            $checkArguments[2] = 'target/windows-validation/debug/examples/capture_probe.exe'
+            $checkArguments += '--parser-capture'
+        }
         Invoke-FrontendCheck $Python $checkArguments
     }
     Write-Output "START $variant stages"

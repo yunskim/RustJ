@@ -24,6 +24,7 @@ pub mod lowering;
 mod numeric;
 pub mod opportunity;
 pub mod parser;
+pub mod parser_capture;
 pub mod physical;
 mod pool;
 pub mod primitive;

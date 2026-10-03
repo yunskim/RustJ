@@ -4,12 +4,12 @@
   "rust_path": "semantic-reference",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2063,
+  "cases": 2076,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\javx2.dll",
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "8843bec3efdba7e727c2e439556a62e93535a9f4a57aeebc0587032ab2a02d65",
+  "binary_sha256": "b4fda2ba2a83df9e6caadef7dcd6b47d0fa97ff3cd67a9a45491ff8dd0024bb5",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2061,
+  "passed": 2074,
   "known_deviations": [],
   "coverage_boundaries": [
     {

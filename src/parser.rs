@@ -1,5 +1,6 @@
 //! J parser queue/stack reductions and parser-time construction.
 //! Consumes typed enqueue records; produces target-independent Semantic IR.
+use crate::parser_capture::{CaptureEvent, OccurrenceId, ParseCapture};
 use crate::{
     Error, Result, Value,
     enqueuer::{EnqueueFlags, EnqueuedPayload, EnqueuedWord, enqueue},
@@ -184,22 +185,47 @@ struct PendingAssignment {
 
 fn reduce_parse_stack_subset(
     mut queue: Vec<Item>,
-    lookup: NameLookup<'_>,
-    context: ParseContext,
+    context: &mut ActionContext<'_>,
     reductions: &mut Vec<ParseReduction>,
 ) -> Result<(Vec<Item>, Option<PendingAssignment>)> {
     let mut stack = Vec::<Item>::new();
     let mut assignment = None;
 
     while let Some(item) = queue.pop() {
-        let item = resolve_stack_item(item, lookup, context)?;
+        let name = match &item.value {
+            ParseValue::LookupName { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        let mut item = resolve_stack_item(item, context)?;
+        let version = name
+            .as_deref()
+            .and_then(|name| context.host.as_ref().and_then(|host| host.version(name)));
+        if let (Some(capture), ParseValue::Noun(expr, _)) = (&mut context.capture, &item.value) {
+            if let ExprKind::Literal(value) = &expr.kind {
+                let id = capture.next();
+                capture.events.push(CaptureEvent::Input {
+                    id,
+                    name,
+                    version,
+                    span: item.span(),
+                    facts: crate::j_graph_ir::GraphFacts::of(value),
+                });
+                item.occurrence = Some(id);
+            }
+        }
         stack.insert(0, item);
-        reduce_stack_prefix(&mut stack, &mut assignment, queue.is_empty(), reductions)?;
+        reduce_stack_prefix(
+            &mut stack,
+            &mut assignment,
+            queue.is_empty(),
+            context,
+            reductions,
+        )?;
     }
 
     // jsource realizes the virtual FRONT MARK only after the queue is empty.
     stack.insert(0, Item::mark(0));
-    reduce_stack_prefix(&mut stack, &mut assignment, true, reductions)?;
+    reduce_stack_prefix(&mut stack, &mut assignment, true, context, reductions)?;
 
     if stack
         .first()
@@ -219,6 +245,7 @@ fn reduce_stack_prefix(
     stack: &mut Vec<Item>,
     assignment: &mut Option<PendingAssignment>,
     queue_exhausted: bool,
+    context: &mut ActionContext<'_>,
     reductions: &mut Vec<ParseReduction>,
 ) -> Result<()> {
     loop {
@@ -251,11 +278,106 @@ fn reduce_stack_prefix(
         let failure = stack[fail].provenance.as_ref().unwrap().blame_word_index;
         let failure_span = stack[fail].span();
         let reduction_span = stack[start].span().start..stack[start + count - 1].span().end;
-        let reduced = apply_parse_row(row, stack, assignment, queue_exhausted)
-            .map_err(|error| error.at(failure_span).blamed_on_word(failure))?;
+        let is_call = matches!(
+            row,
+            ParseRow::MonadEdge | ParseRow::MonadVVN | ParseRow::DyadNVN
+        );
+        let is_construction = matches!(
+            row,
+            ParseRow::Adverb | ParseRow::Conjunction | ParseRow::Fork | ParseRow::Hook
+        );
+        let retained = match row {
+            ParseRow::Parenthesis => stack[1].occurrence,
+            ParseRow::Assignment => stack[2].occurrence,
+            _ => None,
+        };
+        let mut output = None;
+        if let Some(capture) = &mut context.capture {
+            if is_call {
+                let verb_slot = if row == ParseRow::MonadEdge { 1 } else { 2 };
+                let ParseValue::Verb(verb) = &stack[verb_slot].value else {
+                    unreachable!()
+                };
+                let right_slot = start + count - 1;
+                let id = capture.next();
+                capture.events.push(CaptureEvent::ApplyAttempt {
+                    id,
+                    function: verb.entity.clone(),
+                    left: if row == ParseRow::DyadNVN {
+                        stack[1].occurrence
+                    } else {
+                        None
+                    },
+                    right: stack[right_slot]
+                        .occurrence
+                        .expect("runtime noun occurrence"),
+                    span: reduction_span.clone(),
+                    word_index: failure,
+                });
+                output = Some(id);
+            } else if is_construction {
+                capture.events.push(CaptureEvent::ConstructionAttempt {
+                    row,
+                    noun_inputs: stack[start..start + count]
+                        .iter()
+                        .filter_map(|item| item.occurrence)
+                        .collect(),
+                    span: reduction_span.clone(),
+                });
+            }
+        }
+        let reduced = apply_parse_row(row, stack, assignment, queue_exhausted, context)
+            .map_err(|error| error.at(failure_span).blamed_on_word(failure));
+        let reduced = match reduced {
+            Ok(reduced) => reduced,
+            Err(error) => {
+                if let Some(capture) = &mut context.capture {
+                    if let Some(id) = output {
+                        capture.events.push(CaptureEvent::ApplyFailure {
+                            id,
+                            kind: error.kind().into(),
+                            context: error.context().cloned(),
+                        });
+                    } else if is_construction {
+                        capture.events.push(CaptureEvent::ConstructionFailure {
+                            row,
+                            kind: error.kind().into(),
+                            span: reduction_span,
+                        });
+                    }
+                }
+                return Err(error);
+            }
+        };
         if reduced {
             let result = &mut stack[start];
             result.provenance = Some(provenance.clone());
+            result.occurrence = output.or(retained);
+            if let Some(capture) = &mut context.capture {
+                if let Some(id) = output {
+                    let ParseValue::Noun(expr, _) = &result.value else {
+                        unreachable!()
+                    };
+                    let ExprKind::Literal(value) = &expr.kind else {
+                        unreachable!()
+                    };
+                    capture.events.push(CaptureEvent::ApplySuccess {
+                        id,
+                        facts: crate::j_graph_ir::GraphFacts::of(value),
+                    });
+                } else if is_construction {
+                    let function = match &result.value {
+                        ParseValue::Verb(verb) => verb.entity.clone(),
+                        ParseValue::Function(function) => function.clone(),
+                        _ => unreachable!(),
+                    };
+                    capture.events.push(CaptureEvent::ConstructionSuccess {
+                        row,
+                        function,
+                        span: reduction_span.clone(),
+                    });
+                }
+            }
             reductions.push(ParseReduction {
                 row,
                 inputs,
@@ -271,11 +393,28 @@ fn reduce_stack_prefix(
     }
 }
 
+fn runtime_noun(
+    mut expression: Expr,
+    height: usize,
+    context: &mut ActionContext<'_>,
+) -> Result<Item> {
+    if let Some(host) = &mut context.host {
+        let span = expression.span.clone();
+        let value = host.apply(expression)?;
+        expression = Expr {
+            span,
+            kind: ExprKind::Literal(value),
+        };
+    }
+    Ok(Item::noun(expression, height))
+}
+
 fn apply_parse_row(
     row: ParseRow,
     stack: &mut Vec<Item>,
     assignment: &mut Option<PendingAssignment>,
     queue_exhausted: bool,
+    context: &mut ActionContext<'_>,
 ) -> Result<bool> {
     Ok(match row {
         ParseRow::MonadEdge => {
@@ -289,7 +428,7 @@ fn apply_parse_row(
                     argument: Box::new(argument),
                 },
             };
-            stack.insert(1, Item::noun(expr, checked_height(height)?));
+            stack.insert(1, runtime_noun(expr, checked_height(height)?, context)?);
             true
         }
         ParseRow::MonadVVN => {
@@ -303,7 +442,7 @@ fn apply_parse_row(
                     argument: Box::new(argument),
                 },
             };
-            stack.insert(2, Item::noun(expr, checked_height(height)?));
+            stack.insert(2, runtime_noun(expr, checked_height(height)?, context)?);
             true
         }
         ParseRow::DyadNVN => {
@@ -321,7 +460,11 @@ fn apply_parse_row(
             };
             stack.insert(
                 1,
-                Item::noun(expr, checked_height(left_height.max(right_height))?),
+                runtime_noun(
+                    expr,
+                    checked_height(left_height.max(right_height))?,
+                    context,
+                )?,
             );
             true
         }
@@ -733,6 +876,7 @@ struct Item {
     span_override: Option<std::ops::Range<usize>>,
     provenance: Option<ParseProvenance>,
     flags: EnqueueFlags,
+    occurrence: Option<OccurrenceId>,
 }
 
 impl Item {
@@ -767,6 +911,7 @@ impl Item {
             span_override: None,
             provenance: None,
             flags: EnqueueFlags::default(),
+            occurrence: None,
         }
     }
 
@@ -782,6 +927,7 @@ impl Item {
             span_override: None,
             provenance: None,
             flags: EnqueueFlags::default(),
+            occurrence: None,
         }
     }
 
@@ -796,6 +942,7 @@ impl Item {
             span_override: None,
             provenance: None,
             flags: EnqueueFlags::default(),
+            occurrence: None,
         }
     }
 
@@ -806,6 +953,7 @@ impl Item {
             span_override: None,
             provenance: None,
             flags: EnqueueFlags::default(),
+            occurrence: None,
         }
     }
 
@@ -816,6 +964,7 @@ impl Item {
             span_override: None,
             provenance: None,
             flags: EnqueueFlags::default(),
+            occurrence: None,
         }
     }
 
@@ -827,6 +976,7 @@ impl Item {
             span_override: None,
             provenance: None,
             flags: EnqueueFlags::default(),
+            occurrence: None,
         }
     }
 
@@ -837,6 +987,7 @@ impl Item {
             span_override: None,
             provenance: None,
             flags: EnqueueFlags::default(),
+            occurrence: None,
         }
     }
 
@@ -888,7 +1039,8 @@ pub(crate) enum ParserNameBinding {
     Function(FunctionPartOfSpeech),
 }
 
-pub(crate) fn parse_runtime(
+#[cfg(test)]
+fn parse_runtime(
     source: &str,
     lookup: &dyn Fn(&str) -> Option<ParserNameBinding>,
 ) -> Result<Program> {
@@ -902,19 +1054,53 @@ pub(crate) fn parse_analysis(
     parse_with(source, Some(lookup), ParseContext::Analysis)
 }
 
+pub(crate) trait RuntimeParserHost {
+    fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    fn version(&self, name: &str) -> Option<crate::semantic::NameVersion>;
+    /// Operands have already reduced to actual nouns; execute exactly one call.
+    fn apply(&mut self, expression: Expr) -> Result<Value>;
+}
+
+pub(crate) fn parse_runtime_host(
+    source: &str,
+    host: &mut dyn RuntimeParserHost,
+    capture: Option<&mut ParseCapture>,
+) -> Result<Program> {
+    parse_context(
+        source,
+        &mut ActionContext {
+            mode: ParseContext::Runtime,
+            lookup: None,
+            host: Some(host),
+            capture,
+        },
+    )
+}
+
+struct ActionContext<'a> {
+    mode: ParseContext,
+    lookup: NameLookup<'a>,
+    host: Option<&'a mut dyn RuntimeParserHost>,
+    capture: Option<&'a mut ParseCapture>,
+}
+
 /// Resolve one ordinary name only when its queue entry reaches the stack.
-fn resolve_stack_item(item: Item, lookup: NameLookup<'_>, context: ParseContext) -> Result<Item> {
+fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Item> {
     let ParseValue::LookupName { name, span } = &item.value else {
         return Ok(item);
     };
     let name = name.clone();
     let span = span.clone();
-    let binding = lookup.and_then(|lookup| lookup(&name));
+    let binding = if let Some(host) = &mut context.host {
+        host.lookup(&name)
+    } else {
+        context.lookup.and_then(|lookup| lookup(&name))
+    };
     let mut resolved = match binding {
         Some(ParserNameBinding::Noun(value)) => Item::noun(
             Expr {
                 span,
-                kind: if context == ParseContext::Runtime {
+                kind: if context.mode == ParseContext::Runtime {
                     ExprKind::Literal(value)
                 } else {
                     ExprKind::ReadName(name)
@@ -922,7 +1108,7 @@ fn resolve_stack_item(item: Item, lookup: NameLookup<'_>, context: ParseContext)
             },
             0,
         ),
-        Some(ParserNameBinding::AbstractNoun) if context == ParseContext::Runtime => {
+        Some(ParserNameBinding::AbstractNoun) if context.mode == ParseContext::Runtime => {
             return Err(
                 Error::Unsupported("abstract noun requires static analysis".into())
                     .at(span)
@@ -936,7 +1122,7 @@ fn resolve_stack_item(item: Item, lookup: NameLookup<'_>, context: ParseContext)
             },
             0,
         ),
-        None if lookup.is_none() => Item::noun(
+        None if context.lookup.is_none() && context.host.is_none() => Item::noun(
             Expr {
                 span,
                 kind: ExprKind::ReadName(name),
@@ -974,7 +1160,19 @@ enum ParseContext {
 }
 
 type NameLookup<'a> = Option<&'a dyn Fn(&str) -> Option<ParserNameBinding>>;
-fn parse_with(source: &str, lookup: NameLookup<'_>, context: ParseContext) -> Result<Program> {
+fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Result<Program> {
+    parse_context(
+        source,
+        &mut ActionContext {
+            mode,
+            lookup,
+            host: None,
+            capture: None,
+        },
+    )
+}
+
+fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Program> {
     let mut queue = enqueue(source)?;
     if queue.is_empty() {
         return Ok(Program {
@@ -989,24 +1187,18 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, context: ParseContext) -> Re
 
     let mut pos = 0;
     let mut reductions = Vec::new();
-    let (result, _, pending_assignment) = expression(
-        queue.as_mut_slice(),
-        &mut pos,
-        lookup,
-        context,
-        &mut reductions,
-    )
-    .map_err(|error| {
-        let fallback = queue.get(pos).or_else(|| queue.last());
-        let fallback_span = fallback
-            .map(|word| word.span.clone())
-            .unwrap_or(source.len()..source.len());
-        let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
-        if let Some(word) = fallback {
-            context = context.with_blame_word(word.word_index);
-        }
-        error.with_context(context)
-    })?;
+    let (result, _, pending_assignment) =
+        expression(queue.as_mut_slice(), &mut pos, context, &mut reductions).map_err(|error| {
+            let fallback = queue.get(pos).or_else(|| queue.last());
+            let fallback_span = fallback
+                .map(|word| word.span.clone())
+                .unwrap_or(source.len()..source.len());
+            let mut context = ErrorContext::phase(DiagnosticPhase::Parse).with_span(fallback_span);
+            if let Some(word) = fallback {
+                context = context.with_blame_word(word.word_index);
+            }
+            error.with_context(context)
+        })?;
     if pos != queue.len() {
         let fallback = queue.get(pos).or_else(|| queue.last());
         let span = fallback
@@ -1035,8 +1227,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, context: ParseContext) -> Re
 fn expression(
     tokens: &mut [EnqueuedWord<'_>],
     pos: &mut usize,
-    lookup: NameLookup<'_>,
-    context: ParseContext,
+    context: &mut ActionContext<'_>,
     reductions: &mut Vec<ParseReduction>,
 ) -> Result<(Expr, usize, Option<PendingAssignment>)> {
     let mut items = Vec::new();
@@ -1139,7 +1330,7 @@ fn expression(
             .blamed_on_word(*word_index));
     }
 
-    let (mut items, assignment) = reduce_parse_stack_subset(items, lookup, context, reductions)?;
+    let (mut items, assignment) = reduce_parse_stack_subset(items, context, reductions)?;
 
     if items.len() != 1 {
         let span = items
@@ -1155,6 +1346,9 @@ fn expression(
 
     let item = items.pop().expect("one reduced parser item");
     let span = item.span();
+    if let Some(capture) = &mut context.capture {
+        capture.result = item.occurrence;
+    }
     match item.value {
         ParseValue::Noun(expr, height) => Ok((expr, height, assignment)),
         ParseValue::Verb(verb) => Ok((
@@ -1371,5 +1565,56 @@ mod stack_entry_tests {
         };
         assert_eq!(verb.entity.head, FunctionHead::NameRef("adv".into()));
         assert_eq!(verb.entity.result_pos, FunctionPartOfSpeech::Verb);
+    }
+}
+
+#[cfg(test)]
+mod runtime_action_tests {
+    use super::*;
+    struct Host {
+        log: Vec<String>,
+        left: i64,
+    }
+    impl RuntimeParserHost for Host {
+        fn lookup(&mut self, name: &str) -> Option<ParserNameBinding> {
+            self.log.push(format!("lookup:{name}"));
+            Some(ParserNameBinding::Noun(Value::scalar(if name == "left" {
+                self.left
+            } else {
+                3
+            })))
+        }
+        fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+            None
+        }
+        fn apply(&mut self, expression: Expr) -> Result<Value> {
+            let ExprKind::Dyad { verb, left, right } = expression.kind else {
+                panic!()
+            };
+            let left = completed_noun(*left, "test left")?;
+            let right = completed_noun(*right, "test right")?;
+            let VerbTarget::Primitive(id) = verb.target else {
+                panic!()
+            };
+            self.log.push(format!("apply:{}", id.spelling()));
+            self.left = 8; // Proves subsequent parser lookup sees host state now.
+            crate::kernels::dyad(id.spelling(), left, right)
+        }
+    }
+    #[test]
+    fn runtime_rows_invoke_before_later_lookup_and_return_a_completed_noun() {
+        let mut host = Host {
+            log: Vec::new(),
+            left: 100,
+        };
+        let program = parse_runtime_host("left+(right*2)", &mut host, None).unwrap();
+        assert_eq!(
+            host.log,
+            ["lookup:right", "apply:*", "lookup:left", "apply:+"]
+        );
+        let ExprKind::Literal(value) = program.expression.unwrap().kind else {
+            panic!("runtime result must not replay an AST")
+        };
+        assert_eq!(value.int_at(0).unwrap(), 14);
     }
 }
