@@ -762,6 +762,9 @@ pub fn parse_diagnostic(source: &str) -> Result<Program> {
 #[derive(Clone, Debug)]
 pub(crate) enum ParserNameBinding {
     Noun(Value),
+    /// Analysis-only noun class, with facts owned by the input catalog.
+    /// This is not a dummy Value and must never enter concrete execution.
+    AbstractNoun,
     Function(FunctionPartOfSpeech),
 }
 
@@ -902,6 +905,23 @@ fn expression(
                                 Expr {
                                     span: tokens[*pos].span.clone(),
                                     kind,
+                                },
+                                0,
+                            ));
+                            *pos += 1;
+                            continue;
+                        }
+                        Some(ParserNameBinding::AbstractNoun) => {
+                            if snapshot {
+                                return Err(Error::Unsupported(
+                                    "abstract noun requires static analysis".into(),
+                                )
+                                .at(tokens[*pos].span.clone()));
+                            }
+                            items.push(Item::noun(
+                                Expr {
+                                    span: tokens[*pos].span.clone(),
+                                    kind: ExprKind::ReadName((*n).to_owned()),
                                 },
                                 0,
                             ));

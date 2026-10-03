@@ -33,6 +33,7 @@ pub mod semantic;
 #[allow(unsafe_code)]
 mod simd;
 pub mod sparse;
+pub mod static_analysis;
 pub mod storage;
 pub mod syntax;
 pub mod tokenizer;
