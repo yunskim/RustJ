@@ -7634,6 +7634,18 @@ Windows 검증: default/portable 각각 **266 passed / 17 ignored**, fmt/clippy 
 
 기준 소스: [cf.c tcNV 및 다른 modifier train actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
 
+##### 왼쪽 binding과 연속 adverb application (2026-10-03)
+
+- [x] P3: `cf.c::tNVc`에 따라 `u (v C)`를 `v C u`의 실제 constructor에 전달한다. `1 (-")`처럼 noun 입력이 rank specification인 경우도 처리한다. row 3은 N/V 입력과 실제 결과 품사를 가진 `Item`을 받아 같은 parser stack에 재삽입한다. static computed noun은 계속 명시적 경계이며 noun을 fake constant로 바꾸지 않는다.
+- [x] P3/P5: `taAV`의 `(A A)`/`(A V)`는 첫 adverb를 적용한 뒤 실제 결과와 두 번째 operand를 bident dispatch에 전달한다. `/ / /`의 `taaa`는 f→g→h 순서로 적용한다. `+ (/ /)`의 중첩 Insert, `+ (/ +)`의 Hook, `+ (/ / /)`의 3단계 Insert를 immutable completed DAG로 보존하며 요약 boolean이나 하나의 primitive로 축약하지 않는다. recursion에는 기존 depth limit을 적용한다.
+- [x] P4/P6: left-bound named alias의 snapshot identity, noun-input rank/length/domain 오류, 실패 후 기존 target 유지, computed noun 생산 occurrence와 row 3의 연결을 검증한다. application의 source span은 현재 구문을 가리키며 이전 train 정의 객체를 수정하지 않는다. 지원된 정적 구간은 kernel 없이 함수 구조를 구성한다.
+- [x] P3/P6: `(A C)`의 `tac`를 `(A A/V)`의 `taAV`로 오인하지 않는다. `tac`는 첫 적용 결과뿐 아니라 원래 입력도 필요하므로 미구현 경계로 남긴다. `3 (/@:)`는 첫 `/`의 DomainError가 먼저 발생하며, 유효한 `+ (/@:)`는 잘못된 Adverb 결과를 반환하지 않고 `Unsupported`를 낸다. C 성공/actual POS와 exact source를 stage 보고서에 기록한다.
+- [ ] noun을 왼쪽에 고정한 rank/gerund, `tac`, derived conjunction 및 다른 trident action, train 내부 late modifier NameRef의 동적 조회·effect 계약, row 6 즉시 application을 연결한다. 구성된 nested Insert/Hook의 실행 지원은 기존 kernel/executor coverage와 별개다. locale/explicit-local/definition scope도 계속 미완료다.
+
+Windows 검증: default/portable 각각 **270 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,205문장 중 2,201 passed, 기존 runtime 경계 4개, failed 0**; stage **7,168 checks**(새 정적 검사 40건)와 words **6,618 cases** 통과. 회귀 테스트 4개를 추가했다. capture graph 경계 40건(ordered-effect 9건, modifier-value 31건)과 static analysis 경계 3건을 성공 수와 구분한다. upstream suite, optimizer/CUDA, GitHub CI 실행을 주장하지 않는다. C DLL release/source review pin 구분을 유지한다.
+
+기준 소스: [cf.c taAV/tNVc/tac/taaa](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application 및 재삽입](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

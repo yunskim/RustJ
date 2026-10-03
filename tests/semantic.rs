@@ -710,7 +710,7 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
-    for source in ["protected=: + (/ /)", "protected=: + (@:/) -"] {
+    for source in ["protected=: + (@:/) -", "protected=: + (/@:)"] {
         let report = engine.eval_captured(source);
         assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
         report.capture.verify().unwrap();
@@ -794,5 +794,90 @@ fn right_bound_verb_operand_preserves_construction_separately_from_executor_cove
             right.head,
             FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Subtract)
         );
+    }
+}
+
+#[test]
+fn left_bound_bident_uses_noun_input_as_rank_operand_and_alias_is_frozen() {
+    let mut engine = rustj::Engine::new();
+    for source in [
+        "left=: -\"",
+        "alias=:left",
+        "left=:1",
+        "rankval=:1",
+        "fn=:rankval alias",
+    ] {
+        engine.eval(source).unwrap();
+    }
+    for (source, direct) in [
+        ("fn i.2 3", "(-\"1) i.2 3"),
+        ("(1 (-\")) i.2 3", "(-\"1) i.2 3"),
+    ] {
+        let expected = engine.eval(direct).unwrap().unwrap().json();
+        assert_eq!(engine.eval(source).unwrap().unwrap().json(), expected);
+        assert_eq!(
+            engine
+                .eval_semantic_reference(source)
+                .unwrap()
+                .unwrap()
+                .json(),
+            expected
+        );
+    }
+    let graph = engine.analyze_j_graph("(1 alias) i.4").unwrap();
+    graph.verify().unwrap();
+    assert_eq!(graph.modifier_snapshots[0].name, "alias");
+}
+
+#[test]
+fn successive_adverbs_keep_completed_nested_insert_and_hook_entities() {
+    use rustj::semantic::{ExprKind, FunctionHead, FunctionOperand};
+    for (source, head, count) in [
+        (
+            "+ (/ /)",
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            1,
+        ),
+        ("+ (/ +)", FunctionHead::Hook, 2),
+        (
+            "+ (/ / /)",
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            1,
+        ),
+    ] {
+        let program = semantic::parse(source).unwrap();
+        let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!();
+        };
+        assert_eq!(verb.entity.head, head, "{source}");
+        assert_eq!(verb.entity.operands.len(), count);
+        let FunctionOperand::Function(child) = &verb.entity.operands[0] else {
+            panic!();
+        };
+        assert_eq!(
+            child.head,
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        );
+        assert_eq!(verb.span, 0..source.len());
+    }
+}
+
+#[test]
+fn left_binding_and_sequential_errors_stop_before_assignment() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for (expression, kind) in [
+        ("'a' (-\")", "domain error"),
+        ("1 2 3 4 (-\")", "length error"),
+        ("'a' ((-\") /)", "domain error"),
+        ("3 (/@:)", "domain error"),
+    ] {
+        let source = format!("protected=: {expression}");
+        let report = engine.eval_captured(&source);
+        report.capture.verify().unwrap();
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
+        assert_eq!(engine.binding_version("protected"), version);
+        assert_eq!(engine.prepare_semantic(&source).unwrap_err().kind(), kind);
     }
 }

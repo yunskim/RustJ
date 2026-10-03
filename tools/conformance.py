@@ -205,6 +205,14 @@ def cases():
         'boundkeep=: - ("1 2 3 4)', 'boundkeep i.3', 'boundkeep=: - (@:3)',
         'boundcopy=:"2', 'boundfn i.2 3', 'boundfn=: - boundcopy', 'boundfn i.2 3',
     ])
+    fixed.extend([
+        'leftbind=:-"', 'leftalias=:leftbind', 'leftbind=:1', 'leftfn=:1 leftalias',
+        'leftfn i.2 3', '(1 (-")) i.2 3', 'leftfn=:(1+0) leftalias', 'leftfn i.4',
+        'seqfn=: + (/ /)', 'seqfn=: + (/ +)', 'seqfn=: + (/ / /)',
+        'leftkeep=:+', 'leftkeep=: \'a\' (-")', 'leftkeep i.3',
+        'leftkeep=:1 2 3 4 (-")', 'leftkeep i.3', 'leftkeep=: \'a\' ((-") /)',
+        'leftkeep i.3', 'leftkeep=:3 (/@:)', 'leftkeep i.3',
+    ])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

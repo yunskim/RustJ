@@ -10,7 +10,7 @@
     "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "3bbfa182ba2cd3d207167ddb14ca3769461a51c182f2d756b28c2aab7ba86f13",
+  "probe_sha256": "5e0c4589971205e9e6c0bb0be6217b27320c6c2cedcb02c6931265ca0f28b46c",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -24,11 +24,11 @@
     "enqueue_index": 23,
     "parser_function": 131,
     "frontend_error": 17,
-    "static_setup": 11,
-    "static_constructor": 18,
-    "static_read_only": 18,
-    "static_modifier_dependencies": 18,
-    "static_constructor_error": 7,
+    "static_setup": 14,
+    "static_constructor": 29,
+    "static_read_only": 29,
+    "static_modifier_dependencies": 29,
+    "static_constructor_error": 11,
     "copula_reference": 4
   },
   "mismatches": [],
@@ -42,7 +42,7 @@
       }
     },
     {
-      "source": "candidate=: + (/ /)",
+      "source": "candidate=: + (@:/) -",
       "reason": "derived modifier application semantics are not implemented",
       "reference_pos": 3,
       "rust": {
@@ -50,7 +50,7 @@
       }
     },
     {
-      "source": "candidate=: + (@:/) -",
+      "source": "candidate=: + (/@:)",
       "reason": "derived modifier application semantics are not implemented",
       "reference_pos": 3,
       "rust": {

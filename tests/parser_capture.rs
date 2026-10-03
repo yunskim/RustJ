@@ -756,3 +756,30 @@ fn named_bound_modifier_application_retains_identity_version_and_current_use_spa
         CaptureEvent::ConstructionSuccess { function, .. }
         if function.head == FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank))));
 }
+
+#[test]
+fn computed_left_bident_input_retains_noun_origin_without_static_execution() {
+    let mut engine = Engine::new();
+    engine.eval("left=: -\"").unwrap();
+    let report = engine.eval_captured("fn=:(1+0) left");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let origin = report
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            CaptureEvent::ApplySuccess { id, .. } => Some(*id),
+            _ => None,
+        })
+        .unwrap();
+    assert!(report.capture.events.iter().any(|event| matches!(event,
+        CaptureEvent::ConstructionAttempt { row: ParseRow::Adverb, noun_inputs, .. } if noun_inputs == &[origin])));
+    assert!(report.capture.events.iter().any(|event| matches!(event,
+        CaptureEvent::ConstructionSuccess { function, .. }
+        if function.head == FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank))));
+    assert_eq!(
+        engine.prepare_semantic("(1+0) left").unwrap_err().kind(),
+        "unsupported"
+    );
+}
