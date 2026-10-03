@@ -50,6 +50,10 @@ pub enum CaptureEvent {
     ModifierResolved {
         binding: ModifierBinding,
     },
+    GerundNameResolved {
+        row: ParseRow,
+        read: GerundNameRead,
+    },
     ConstructionSuccess {
         row: ParseRow,
         function: Arc<FunctionEntity>,
@@ -84,6 +88,16 @@ pub struct ModifierBinding {
     pub expected: crate::semantic::FunctionPartOfSpeech,
     pub row: ParseRow,
     pub function: Arc<FunctionEntity>,
+    pub span: Range<usize>,
+}
+
+/// Constructor-time observation, not a cache guard or a retained noun payload.
+#[derive(Clone, Debug)]
+pub struct GerundNameRead {
+    pub name: String,
+    pub version: Option<NameVersion>,
+    pub class: crate::parser::ParseClass,
+    pub facts: Option<GraphFacts>,
     pub span: Range<usize>,
 }
 
@@ -190,6 +204,26 @@ impl ParseCapture {
                         return Err("invalid modifier resolution witness");
                     }
                 }
+                CaptureEvent::GerundNameResolved { row, read } => {
+                    if construction != Some(*row)
+                        || !matches!(row, ParseRow::Adverb | ParseRow::Conjunction)
+                        || !matches!(
+                            read.class,
+                            crate::parser::ParseClass::Noun
+                                | crate::parser::ParseClass::Verb
+                                | crate::parser::ParseClass::Adverb
+                                | crate::parser::ParseClass::Conjunction
+                        )
+                        || (read.class == crate::parser::ParseClass::Noun) != read.facts.is_some()
+                        || (read.class == crate::parser::ParseClass::Noun && read.version.is_none())
+                        || read.name.is_empty()
+                        || read.span.start >= read.span.end
+                        || self.source.get(read.span.clone()).is_none()
+                        || read.version.is_some_and(|v| v.0 == 0)
+                    {
+                        return Err("invalid gerund name observation");
+                    }
+                }
                 CaptureEvent::ConstructionSuccess { row, .. }
                 | CaptureEvent::ConstructionFailure { row, .. } => {
                     if construction.take() != Some(*row) {
@@ -263,6 +297,7 @@ pub struct CapturedGraph {
     pub observed_facts: Vec<(crate::j_graph_ir::ValueId, GraphFacts)>,
     pub constructors: Vec<ConstructorOrigin>,
     pub modifier_bindings: Vec<ModifierBinding>,
+    pub gerund_name_reads: Vec<GerundNameRead>,
 }
 
 #[derive(Clone, Debug)]

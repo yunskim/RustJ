@@ -16,7 +16,7 @@
     "jsrc/sc.c": "1abfd822020758ed28b15011f36d6a2911304bbb1c62361b7cfa78cab0ef54aa"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "a0f0b99df3f20008d0dab42d7212b8faeac01f45395045fcff29c2de98988272",
+  "probe_sha256": "74e3b0f59e6d63f7b020ce98b2460f06a0b18da90915397bcf42b64f76bfdd28",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -38,9 +38,13 @@
     "runtime_ar_setup_or_target": 46,
     "runtime_ar_constructor": 39,
     "runtime_ar_constructor_error": 18,
-    "runtime_gerund_name_constructor": 9,
-    "runtime_gerund_name_setup_or_target": 14,
-    "runtime_gerund_name_error": 7,
+    "runtime_gerund_name_constructor": 23,
+    "runtime_gerund_name_setup_or_target": 30,
+    "runtime_gerund_name_error": 8,
+    "snapshot_setup": 6,
+    "decoded_noun_snapshot": 6,
+    "snapshot_rebind": 3,
+    "reference_snapshot_retention": 3,
     "copula_reference": 4
   },
   "mismatches": [],

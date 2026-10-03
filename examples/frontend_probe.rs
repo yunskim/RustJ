@@ -153,7 +153,11 @@ fn inspect_analysis(engine: &rustj::Engine, source: &str) -> rustj::Result<Strin
 }
 
 /// R explicitly executes parser construction; A remains read-only/static.
-fn inspect_runtime(engine: &mut rustj::Engine, source: &str) -> rustj::Result<String> {
+fn inspect_runtime(
+    engine: &mut rustj::Engine,
+    source: &str,
+    decoded: bool,
+) -> rustj::Result<String> {
     use rustj::parser_capture::CaptureEvent;
     let report = engine.eval_captured(source);
     report
@@ -178,6 +182,20 @@ fn inspect_runtime(engine: &mut rustj::Engine, source: &str) -> rustj::Result<St
         .ok_or_else(|| {
             rustj::Error::Unsupported("runtime observation requires a function result".into())
         })?;
+    if decoded {
+        let functions = entity
+            .decoded_gerund
+            .as_ref()
+            .ok_or_else(|| rustj::Error::Unsupported("no decoded gerund".into()))?;
+        return Ok(format!(
+            "{{\"decoded\":[{}]}}",
+            functions
+                .iter()
+                .map(|f| function(f))
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+    }
     Ok(format!(
         "{{\"pos\":{},\"function\":{}}}",
         pos(entity.result_pos),
@@ -221,7 +239,7 @@ fn main() {
                     Ok(None) => "{\"silent\":true}".into(),
                     Err(error) => format!("{{\"error\":\"{}\"}}", error.kind()),
                 },
-                "R" => inspect_runtime(&mut engine, &source)
+                "R" | "D" => inspect_runtime(&mut engine, &source, operation == "D")
                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
                 "A" => inspect_analysis(&engine, &source)
                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),

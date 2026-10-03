@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -346,7 +346,7 @@ def run(args):
                 if source.startswith('compoundar=:') and 'error' in expected:
                     raise RuntimeError(f'invalid AR fixture setup: {source}: {expected}')
                 check('runtime_ar_setup_or_target', source, expected, static_probe.inspect(source, 'E'))
-        for source in gerund_name_cases():
+        for source in gerund_name_cases() + gerund_snapshot_cases():
             if source.startswith(('gerundnamefn=:', 'gerund_name_keep=:')):
                 error = oracle.run(source)
                 actual = static_probe.inspect(source, 'R')
@@ -359,6 +359,30 @@ def run(args):
                     check('runtime_gerund_name_constructor', source, expected, actual)
             else:
                 check('runtime_gerund_name_setup_or_target', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+        # C's fix adverb decodes the same AR independently. It is reference-only;
+        # Rust D observes the constructor-owned decode, never executes 5!:0.
+        for noun in ['7', 'i.4', '<1 2']:
+            for source in ['gssnapshot=:' + noun, "gsar=:(<'3'),<((<'gssnapshot'),(<'+'),<'-')"]:
+                expected = oracle.eval(source)
+                if 'error' in expected:
+                    raise RuntimeError(f'invalid snapshot fixture: {source}: {expected}')
+                check('snapshot_setup', source, expected, static_probe.inspect(source, 'E'))
+            error = oracle.run('gsdecoded=:(<gsar)5!:0')
+            if error:
+                raise RuntimeError(f'C snapshot decoder failed: {error}')
+            decoded = atomic_function(oracle.representation('gsdecoded', 'atomic')['value'])
+            source = 'gerundnamefn=:(,<gsar)\\'
+            check('decoded_noun_snapshot', source, {'decoded': [decoded]}, static_probe.inspect(source, 'D'))
+            source = 'gssnapshot=:9'
+            check('snapshot_rebind', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+            check('reference_snapshot_retention', noun, decoded,
+                  atomic_function(oracle.representation('gsdecoded', 'atomic')['value']))
+            error = oracle.run('gsdecodednew=:(<gsar)5!:0')
+            if error:
+                raise RuntimeError(f'C snapshot redecoder failed: {error}')
+            current = atomic_function(oracle.representation('gsdecodednew', 'atomic')['value'])
+            source = 'gerundnamefn=:(,<gsar)"0'
+            check('decoded_noun_snapshot', source, {'decoded': [current]}, static_probe.inspect(source, 'D'))
         for source in ['rustjstagelocal=.1 2 3', 'rustjstagelocal=:1 2 3']:
             error = oracle.run(source)
             check('copula_reference', source, None, error)

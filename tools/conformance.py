@@ -80,6 +80,18 @@ def gerund_name_cases():
     return out
 
 
+def gerund_snapshot_cases():
+    out = []
+    for noun in ['7', '9', 'i.4', "'x'", '<1 2']:
+        out += ['gssnapshot=:' + noun, "gsar=:(<'3'),<((<'gssnapshot'),(<'+'),<'-')",
+                'gerundnamefn=:(,<gsar)\\', 'gerundnamefn=:(,<gsar)"0']
+    out += ['gsrank=:0', "gsar=:(<'\"'),<((<'+'),<'gsrank')", 'gerundnamefn=:(,<gsar)\\',
+            'gsrank=:2', 'gerundnamefn=:(,<gsar)\\', 'gssnapshot=:7',
+            "gsar=:(<'3'),<((<'gssnapshot'),(<''),<'-')", 'gerund_name_keep=:+',
+            'gerund_name_keep=:(,<gsar)\\', 'gerund_name_keep i.3', 'gerundnamefn=:(,<gsar)"0']
+    return out
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -335,6 +347,7 @@ def cases():
     ])
     fixed.extend(compound_gerund_cases())
     fixed.extend(gerund_name_cases())
+    fixed.extend(gerund_snapshot_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

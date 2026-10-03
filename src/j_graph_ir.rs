@@ -903,6 +903,7 @@ impl Plan {
         let mut observed_facts = Vec::new();
         let mut constructors = Vec::new();
         let mut modifier_bindings = Vec::new();
+        let mut gerund_name_reads = Vec::new();
         let mut pending = None;
         let mut constructor_inputs = Vec::new();
         let mut result = None;
@@ -999,6 +1000,9 @@ impl Plan {
                 }
                 CaptureEvent::ModifierResolved { binding } => {
                     modifier_bindings.push(binding.clone())
+                }
+                CaptureEvent::GerundNameResolved { read, .. } => {
+                    gerund_name_reads.push(read.clone());
                 }
                 CaptureEvent::ConstructionSuccess {
                     row,
@@ -1108,6 +1112,7 @@ impl Plan {
             observed_facts,
             constructors,
             modifier_bindings,
+            gerund_name_reads,
         })
     }
 

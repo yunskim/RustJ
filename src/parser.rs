@@ -151,6 +151,7 @@ fn resolve_modifier(
 struct ConstructionNames<'a> {
     lookup: NameLookup<'a>,
     host: Option<&'a dyn RuntimeParserHost>,
+    observations: Option<&'a std::cell::RefCell<Vec<crate::parser_capture::GerundNameRead>>>,
 }
 
 impl ConstructionNames<'_> {
@@ -269,18 +270,21 @@ fn apply_adverb(
         let (noun, _) = left.into_noun().unwrap();
         let noun_span = noun.span.clone();
         let value = completed_noun(noun, "runtime-dependent prefix gerund operand")?;
-        audit_gerund(&value, noun_span.clone(), depth + 1, names)?;
+        let decoded = audit_gerund(&value, noun_span.clone(), depth + 1, names)?;
         return Ok(Item::verb(Verb {
             span: span.clone(),
             target: VerbTarget::Derived,
-            entity: FunctionEntity::derived(
-                operator.head.clone(),
-                FunctionPartOfSpeech::Verb,
-                span,
-                vec![FunctionOperand::Noun {
-                    value: value.into_shared(),
-                    span: noun_span,
-                }],
+            entity: FunctionEntity::with_decoded_gerund(
+                FunctionEntity::derived(
+                    operator.head.clone(),
+                    FunctionPartOfSpeech::Verb,
+                    span,
+                    vec![FunctionOperand::Noun {
+                        value: value.into_shared(),
+                        span: noun_span,
+                    }],
+                ),
+                Some(decoded),
             ),
         }));
     }
@@ -311,7 +315,7 @@ fn audit_gerund(
     span: std::ops::Range<usize>,
     depth: usize,
     names: ConstructionNames<'_>,
-) -> Result<()> {
+) -> Result<Vec<Arc<FunctionEntity>>> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
     }
@@ -324,12 +328,15 @@ fn audit_gerund(
     let crate::value::Data::Boxed(leaves) = &value.data else {
         return Err(Error::Domain);
     };
+    let mut decoded = Vec::with_capacity(leaves.len());
     for leaf in leaves.iter() {
-        if decode_gerund_ar(leaf, span.clone(), depth + 1, names)?.class != ParseClass::Verb {
+        let item = decode_gerund_ar(leaf, span.clone(), depth + 1, names)?;
+        if item.class != ParseClass::Verb {
             return Err(Error::Domain);
         }
+        decoded.push(item.into_verb().unwrap().entity);
     }
-    Ok(())
+    Ok(decoded)
 }
 
 fn gerund_primitive(spelling: &str, span: std::ops::Range<usize>) -> Result<Item> {
@@ -379,10 +386,40 @@ fn gerund_character(
             return Err(Error::IllFormedName);
         }
         let binding = names.binding(spelling)?;
+        if let Some(observations) = names.observations {
+            let (class, facts) = match &binding {
+                Some(ParserNameBinding::Noun(value)) => (
+                    ParseClass::Noun,
+                    Some(crate::j_graph_ir::GraphFacts::of(value)),
+                ),
+                Some(ParserNameBinding::AbstractNoun) => (ParseClass::Noun, None),
+                Some(ParserNameBinding::Function(pos)) => ((*pos).into(), None),
+                Some(ParserNameBinding::KnownModifier { function, .. }) => {
+                    (function.result_pos.into(), None)
+                }
+                None => (ParseClass::Verb, None),
+            };
+            observations
+                .borrow_mut()
+                .push(crate::parser_capture::GerundNameRead {
+                    name: spelling.into(),
+                    version: names.host.and_then(|host| host.version(spelling)),
+                    class,
+                    facts,
+                    span: span.clone(),
+                });
+        }
         let pos = match binding {
-            Some(ParserNameBinding::Noun(_) | ParserNameBinding::AbstractNoun) => {
-                // The gerund audit can reject noun POS without cloning payloads.
-                // Value-consuming nested constructors remain an explicit boundary.
+            Some(ParserNameBinding::Noun(value)) => {
+                return Ok(Item::noun(
+                    Expr {
+                        span,
+                        kind: ExprKind::Literal(value.into_shared()),
+                    },
+                    0,
+                ));
+            }
+            Some(ParserNameBinding::AbstractNoun) => {
                 return Ok(Item::noun(
                     Expr {
                         span,
@@ -911,6 +948,7 @@ fn apply_conjunction_at(
         }
         _ => return Err(Error::Syntax("invalid conjunction right operand".into())),
     };
+    let mut decoded = None;
     let left_operand = match left.value {
         ParseValue::Verb(verb) => FunctionOperand::Function(verb.entity),
         ParseValue::Noun(expr, _) => {
@@ -924,7 +962,7 @@ fn apply_conjunction_at(
                 && ranks != Some([63; 3])
             {
                 match audit_gerund(&value, noun_span.clone(), depth + 1, names) {
-                    Ok(()) => {}
+                    Ok(functions) => decoded = Some(functions),
                     Err(error) if error.kind() == "unsupported" => return Err(error),
                     // cr.c suppresses failed fx audits and uses the noun itself.
                     Err(_) => {}
@@ -941,11 +979,14 @@ fn apply_conjunction_at(
     Ok(Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
-        entity: FunctionEntity::derived(
-            operator.head.clone(),
-            FunctionPartOfSpeech::Verb,
-            span,
-            operands,
+        entity: FunctionEntity::with_decoded_gerund(
+            FunctionEntity::derived(
+                operator.head.clone(),
+                FunctionPartOfSpeech::Verb,
+                span,
+                operands,
+            ),
+            decoded,
         ),
     })
 }
@@ -1261,15 +1302,23 @@ fn apply_parse_row(
                 context,
                 row,
             )?;
+            let observations = std::cell::RefCell::new(Vec::new());
             let result = apply_adverb(
                 left,
                 operator,
                 span.clone(),
                 0,
-                context.construction_names(),
+                context.construction_names(&observations),
             )
-            .map_err(|error| error.at(span.clone()))?;
-            stack.insert(1, result.with_span(span));
+            .map_err(|error| error.at(span.clone()));
+            if let Some(capture) = &mut context.capture {
+                for read in observations.into_inner() {
+                    capture
+                        .events
+                        .push(CaptureEvent::GerundNameResolved { row, read });
+                }
+            }
+            stack.insert(1, result?.with_span(span));
             true
         }
         ParseRow::Conjunction => {
@@ -1285,16 +1334,24 @@ fn apply_parse_row(
                 context,
                 row,
             )?;
+            let observations = std::cell::RefCell::new(Vec::new());
             let result = apply_conjunction_items(
                 left,
                 operator,
                 right,
                 span.clone(),
                 0,
-                context.construction_names(),
+                context.construction_names(&observations),
             )
-            .map_err(|error| error.at(span.clone()))?;
-            stack.insert(1, result.with_span(span));
+            .map_err(|error| error.at(span.clone()));
+            if let Some(capture) = &mut context.capture {
+                for read in observations.into_inner() {
+                    capture
+                        .events
+                        .push(CaptureEvent::GerundNameResolved { row, read });
+                }
+            }
+            stack.insert(1, result?.with_span(span));
             true
         }
         ParseRow::Fork => {
@@ -2010,10 +2067,14 @@ struct ActionContext<'a> {
 }
 
 impl ActionContext<'_> {
-    fn construction_names(&self) -> ConstructionNames<'_> {
+    fn construction_names<'a>(
+        &'a self,
+        observations: &'a std::cell::RefCell<Vec<crate::parser_capture::GerundNameRead>>,
+    ) -> ConstructionNames<'a> {
         ConstructionNames {
             lookup: self.lookup,
             host: self.host.as_deref(),
+            observations: self.capture.as_ref().map(|_| observations),
         }
     }
 }
@@ -2809,6 +2870,7 @@ mod gerund_ar_tests {
         let names = ConstructionNames {
             lookup: Some(&lookup),
             host: None,
+            observations: None,
         };
         let decoded = function(decode_gerund_ar(&text("fn"), 3..8, 0, names).unwrap());
         assert_eq!(decoded.head, FunctionHead::NameRef("fn".into()));
@@ -2818,6 +2880,7 @@ mod gerund_ar_tests {
         let names = ConstructionNames {
             lookup: Some(&noun_lookup),
             host: None,
+            observations: None,
         };
         assert_eq!(
             audit_gerund(&boxes(vec![text("fn")]), 3..8, 0, names)
@@ -2826,8 +2889,24 @@ mod gerund_ar_tests {
             "domain error"
         );
         assert_eq!(decoded.result_pos, FunctionPartOfSpeech::Verb);
-        // A named noun inside an AR fork needs a value snapshot. Do not
-        // silently turn its ReadName into a late-bound constant operand.
+        let fork = function(
+            decode_gerund_ar(
+                &ar("3", vec![text("fn"), text("+"), text("-")]),
+                3..8,
+                0,
+                names,
+            )
+            .unwrap(),
+        );
+        let FunctionOperand::Noun { value, .. } = &fork.operands[0] else {
+            panic!()
+        };
+        assert_eq!(value.int_at(0).unwrap(), 1);
+        let abstract_lookup = |_: &str| Some(ParserNameBinding::AbstractNoun);
+        let names = ConstructionNames {
+            lookup: Some(&abstract_lookup),
+            ..ConstructionNames::default()
+        };
         assert_eq!(
             decode_gerund_ar(
                 &ar("3", vec![text("fn"), text("+"), text("-")]),

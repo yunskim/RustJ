@@ -880,3 +880,185 @@ fn noun_left_rank_with_right_verb_is_not_a_rank_of_that_verb() {
         .unwrap();
     assert!(matches!(form, GraphForm::Modifier { .. }));
 }
+
+#[test]
+fn gerund_named_noun_snapshot_survives_rebinding_without_copying_payload() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = Engine::new();
+    engine.eval("snapnoun=:i.65536").unwrap();
+    let original = engine.eval("snapnoun").unwrap().unwrap();
+    let pointer = match original.data() {
+        rustj::value::Data::Int(v) => v.as_slice().as_ptr(),
+        _ => panic!(),
+    };
+    let version = engine.binding_version("snapnoun");
+    engine
+        .eval("snapar=:(<'3'),<((<'snapnoun'),(<'+'),<'-')")
+        .unwrap();
+    let report = engine.eval_captured("snapfn=:(,<snapar)\\");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let graph = rustj::j_graph_ir::Plan::from_capture(&report.capture).unwrap();
+    assert_eq!(graph.gerund_name_reads.len(), 1);
+    let read = &graph.gerund_name_reads[0];
+    assert_eq!(read.name, "snapnoun");
+    assert_eq!(read.version, version);
+    assert_eq!(read.class, rustj::parser::ParseClass::Noun);
+    assert!(read.facts.is_some());
+    let outer = report
+        .capture
+        .events
+        .iter()
+        .find_map(|e| match e {
+            CaptureEvent::ConstructionSuccess { function, .. }
+                if function.decoded_gerund.is_some() =>
+            {
+                Some(function.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(outer.operands.len(), 1); // Original gerund noun remains the only source operand.
+    let fork = &outer.decoded_gerund.as_ref().unwrap()[0];
+    let FunctionOperand::Noun { value, .. } = &fork.operands[0] else {
+        panic!()
+    };
+    assert_eq!(
+        match value.data() {
+            rustj::value::Data::Int(v) => v.as_slice().as_ptr(),
+            _ => panic!(),
+        },
+        pointer
+    );
+    engine.eval("snapnoun=:9").unwrap();
+    engine.eval("snapar=:0").unwrap();
+    drop(original);
+    drop(engine);
+    assert_eq!(value.int_at(65535).unwrap(), 65535);
+}
+
+#[test]
+fn gerund_capture_keeps_lookup_order_on_failure_and_discards_partial_rank_decode() {
+    let mut engine = Engine::new();
+    engine.eval("snapnoun=:7").unwrap();
+    engine
+        .eval("snapar=:(<'3'),<((<'snapnoun'),(<''),<'-')")
+        .unwrap();
+    engine.eval("keep=:+").unwrap();
+    let version = engine.binding_version("keep");
+    let report = engine.eval_captured("keep=:(,<snapar)\\");
+    assert_eq!(report.result.unwrap_err().kind(), "length error");
+    report.capture.verify().unwrap();
+    assert_eq!(engine.binding_version("keep"), version);
+    let read_index = report
+        .capture
+        .events
+        .iter()
+        .position(|e| matches!(e, CaptureEvent::GerundNameResolved { .. }))
+        .unwrap();
+    let failure_index = report
+        .capture
+        .events
+        .iter()
+        .position(|e| matches!(e, CaptureEvent::ConstructionFailure { .. }))
+        .unwrap();
+    assert!(read_index < failure_index);
+    let mut invalid = report.capture.clone();
+    let read = invalid.events.remove(read_index);
+    invalid.events.insert(0, read);
+    assert!(invalid.verify().is_err());
+    let report = engine.eval_captured("rankfn=:(,<snapar)\"0");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    assert!(
+        report
+            .capture
+            .events
+            .iter()
+            .any(|e| matches!(e, CaptureEvent::GerundNameResolved { .. }))
+    );
+    let function = report
+        .capture
+        .events
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            CaptureEvent::Commit {
+                function: Some(f), ..
+            } => Some(f),
+            _ => None,
+        })
+        .unwrap();
+    assert!(function.decoded_gerund.is_none());
+}
+
+#[test]
+fn gerund_decoded_rank_snapshot_and_function_reference_are_distinct() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = Engine::new();
+    engine.eval("snaprank=:0").unwrap();
+    engine.eval("snapverb=:+").unwrap();
+    engine
+        .eval("snapar=:(<'\"'),<((<'snapverb'),<'snaprank')")
+        .unwrap();
+    let report = engine.eval_captured("snapfn=:(,<snapar)\\");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let reads: Vec<_> = report
+        .capture
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            CaptureEvent::GerundNameResolved { read, .. } => Some(read),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        reads.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+        ["snapverb", "snaprank"]
+    );
+    let outer = report
+        .capture
+        .events
+        .iter()
+        .find_map(|e| match e {
+            CaptureEvent::ConstructionSuccess { function, .. }
+                if function.decoded_gerund.is_some() =>
+            {
+                Some(function.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    let rank = &outer.decoded_gerund.as_ref().unwrap()[0];
+    let FunctionOperand::Function(verb) = &rank.operands[0] else {
+        panic!()
+    };
+    assert_eq!(verb.head, FunctionHead::NameRef("snapverb".into()));
+    engine.eval("snapverb=:-").unwrap();
+    engine.eval("snaprank=:2").unwrap();
+    let FunctionOperand::Noun { value, .. } = &rank.operands[1] else {
+        panic!()
+    };
+    assert_eq!(value.int_at(0).unwrap(), 0);
+}
+
+#[test]
+fn static_gerund_analysis_keeps_abstract_noun_boundary_without_writing() {
+    let mut engine = Engine::new();
+    engine.eval("snapnoun=:7").unwrap();
+    engine
+        .eval("snapar=:(<'3'),<((<'snapnoun'),(<'+'),<'-')")
+        .unwrap();
+    engine.eval("snapger=:,<snapar").unwrap();
+    let noun_version = engine.binding_version("snapnoun");
+    assert_eq!(
+        engine
+            .prepare_semantic("snapfn=:snapger\\")
+            .unwrap_err()
+            .kind(),
+        "unsupported"
+    );
+    assert_eq!(engine.binding_version("snapnoun"), noun_version);
+    assert_eq!(engine.binding_version("snapfn"), None);
+}

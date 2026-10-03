@@ -42,8 +42,20 @@ pub struct FunctionEntity {
     pub result_pos: FunctionPartOfSpeech,
     pub head: FunctionHead,
     pub operands: Vec<FunctionOperand>,
+    /// Constructor-decoded gerund functions. Not source semantic operand edges.
+    /// Retains intrinsic noun snapshots independently of the original boxed AR.
+    pub decoded_gerund: Option<Vec<Arc<FunctionEntity>>>,
 }
 impl FunctionEntity {
+    pub(crate) fn with_decoded_gerund(
+        mut entity: Arc<Self>,
+        decoded: Option<Vec<Arc<FunctionEntity>>>,
+    ) -> Arc<Self> {
+        Arc::get_mut(&mut entity)
+            .expect("fresh constructor entity")
+            .decoded_gerund = decoded;
+        entity
+    }
     /// Registered, operand-free core construction semantics known without a call.
     pub(crate) fn is_primitive_modifier(&self) -> bool {
         self.operands.is_empty()
@@ -78,6 +90,7 @@ impl FunctionEntity {
             result_pos: FunctionPartOfSpeech::Verb,
             head: FunctionHead::PrimitiveVerb(id),
             operands: Vec::new(),
+            decoded_gerund: None,
         })
     }
 
@@ -91,6 +104,7 @@ impl FunctionEntity {
             result_pos,
             head: FunctionHead::NameRef(name),
             operands: Vec::new(),
+            decoded_gerund: None,
         })
     }
 
@@ -103,6 +117,7 @@ impl FunctionEntity {
             result_pos: FunctionPartOfSpeech::Adverb,
             head: FunctionHead::PrimitiveAdverb(id),
             operands: Vec::new(),
+            decoded_gerund: None,
         })
     }
 
@@ -115,6 +130,7 @@ impl FunctionEntity {
             result_pos: FunctionPartOfSpeech::Conjunction,
             head: FunctionHead::PrimitiveConjunction(id),
             operands: Vec::new(),
+            decoded_gerund: None,
         })
     }
 
@@ -129,6 +145,7 @@ impl FunctionEntity {
             result_pos,
             head,
             operands,
+            decoded_gerund: None,
         })
     }
 }

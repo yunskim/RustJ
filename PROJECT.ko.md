@@ -7716,6 +7716,19 @@ Windows default/portable 각각 **293 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [r.c fxchar](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [a.c swap](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/a.c#L21), [sc.c nameref](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [sn.c vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
 
+##### Gerund 내부 noun snapshot과 조회 capture (2026-10-03)
+
+- [x] P3/P4: character AR의 named noun을 생성 시점의 실제 `Value`로 가져와 shared Literal로 decode한다. noun-left fork 및 rank operand의 값이 뒤 이름 재정의에 따라 변하지 않도록 한다. abstract noun은 값을 추측하지 않으며 값이 필요한 constructor에서 기존 Unsupported를 유지한다.
+- [x] P4/P5: `FunctionEntity.decoded_gerund`에 완료된 decoded 함수들을 보존한다. 이 정보는 intrinsic noun snapshot을 가진 immutable 공유 객체이며, 원래 boxed gerund noun은 source operand에 그대로 남는다. decoded 함수들을 원래 PrefixInfix/Rank의 semantic child edge로 추가하지 않는다. 성공한 gerund audit만 decoded 결과를 보존하고, rank의 quiet constant fallback에서는 부분 결과를 버린다. 이 보존은 gerund 실행 지원을 뜻하지 않는다.
+- [x] P4/P6: 생성 중의 이름 조회마다 `GerundNameResolved`에 이름·현재 binding version(undef는 없음)·실제 품사·noun facts·outer AR span을 기록한다. 배열 payload는 capture event에 넣지 않는다. 성공·실패·quiet fallback에서 조회 순서를 유지하고, 해당 constructor attempt/outcome 사이에서만 유효하도록 verifier를 확장했다. `CapturedGraph.gerund_name_reads`는 별도 observation sidecar이며 compiled reuse guard가 아니다. static 분석의 내부 이름 dependency/guard 계약은 아직 완성하지 않았다.
+- [x] P6: 회귀 테스트 4개를 추가했다. 65,536개 정수의 payload pointer 공유, 재정의·원본/Engine 해제 후 수명, rank noun snapshot과 verb NameRef의 차이, 첫 오류와 기존 target/version 보존, 부분 decode 폐기, 잘못 배치된 capture event 거절을 검증한다. 공개 정적 분석은 abstract bound noun 경계를 그대로 유지하며 실행·assignment를 수행하지 않는다.
+- [x] P6: C 공통 비교 문장 31개 및 stage 검사 49건을 추가했다. `frontend_probe`의 `D`는 생성된 객체의 decoded 함수 표현을 관찰한다. C에만 적용한 fix adverb `5!:0`의 AR decode 결과를 `5!:1`로 읽어 scalar/vector/boxed named noun snapshot 6건을 비교하고, C 객체의 재정의 후 snapshot 유지 3건을 별도 확인한다. Rust에서는 외래 실행으로 우회하지 않는다. 기존 `R`의 원래 함수 표현/POS 비교도 유지한다.
+- [ ] 다음: bident/trident AR의 즉시 noun 실행 및 capture, train 내부 late modifier 조회·effect 계약을 연결한다. gerund 실행/Logical lowering, compiled reuse 조건, locative/locale/definition scope 및 전체 primitive inventory는 별도 미완료다. tokenizer/enqueuer/parser 우선순위와 최적화/CUDA 보류를 유지한다.
+
+Windows default/portable 각각 **297 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,538문장 중 2,534 passed, 기존 runtime 경계 4개, failed 0**; stage **7,564 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. C DLL release pin과 검토 source pin을 구분한다. 전체 J/upstream suite·GPU·GitHub CI 실행은 주장하지 않는다.
+
+기준 소스: [r.c fxchar/fx 및 noun/fork decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [sc.c nameref의 noun 값 반환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [cg.c fxeachv의 decoded gerund 보존](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c gerund audit 및 constant fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
