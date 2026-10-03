@@ -7610,6 +7610,18 @@ Windows 검증: default/portable 각각 **250 passed / 17 ignored**, fmt/clippy 
 
 Windows 검증: default/portable 각각 **256 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로에서 **2,139문장 중 2,137 passed, runtime 경계 2개, failed 0**; stage **7,056 checks**(새 정적 구성·오류·대입 없음·의존성 검사 42건 포함)와 words **6,618 cases** 통과. 정적 값 의존 경계 1건과 기존 capture graph 경계 13건은 성공 수와 별도로 기록한다. 정적 분석 regression 6개를 추가했다. 기존 C DLL release/source review pin 구분, 미완료 definition 테스트 및 GitHub CI 생략 방침을 유지한다.
 
+##### Modifier train의 구조·품사 보존 (2026-10-03)
+
+- [x] P2/P3: `p.c` row 6처럼 stack의 세 번째 operand가 CAVN이면 trident, 그렇지 않으면 bident를 선택한다. `cf.c::bidents[]/tridents[]`의 nonzero action disposition은 실행 없이 실제 Adverb/Conjunction을 구성한다. SyntaxError와 즉시 semantic application disposition은 구별하며, 미구현 즉시 application을 성공 구조로 바꾸지 않는다.
+- [x] P3/P5: `FunctionHead::ModifierTrain`이 C `CADVF`의 의미적 bident/trident를 나타낸다. arity 2/3, 원래 순서의 noun/function operands, 실제 result POS, source span과 completed child DAG를 보존한다. C `5!:1`의 `4` 표현과 비교하며 일반 verb Hook의 `2`/Fork의 `3`과 구분한다. `+"`, `"1`, `/\`, `@:/`, `/ / /`, `/ / +`, nested train을 지원한다. C의 executor pointer/helper slot을 의미적 operand로 복제하지 않는다.
+- [x] P2/P6: source provenance/capture는 bident의 왼쪽 token과 non-fork trident의 가운데 token을 전달하고 입력 2/3개를 기록한다. runtime의 계산된 noun은 실제 값으로 구성되며 `ConstructionAttempt.noun_inputs`가 생산 occurrence를 연결한다. train이 보유한 named array는 noun by-value 규칙을 따르며 원래 이름을 재대입해도 값이 보존된다. 정적 경로는 계산된 noun을 실행하지 않고 명시적으로 거부한다.
+- [x] P6: C atomic representation/POS 비교를 20문장 확장하고 SyntaxError 사례 2개를 추가했다. runtime value/error corpus에도 구성·실패·배열 이름 재대입 사례를 추가했다. 네 가지 분석 경계(기존 computed rank 1건, derived modifier application 3건)는 C 성공과 Rust `Unsupported`를 exact source로 확인해 성공 수에서 제외한다.
+- [ ] derived modifier application, named derived modifier 조회/alias 구성, row 6 immediate semantic application, 전체 locale/explicit-local/definition scope를 연결한다. standalone modifier의 Semantic IR 보존과 J Graph로의 executable lowering은 별개다. compiler 분석·executor는 새 train을 일반 Hook/Fork나 알려진 primitive로 추측하지 않는다. 이번 단계에서 optimizer/CUDA를 구현하지 않는다.
+
+Windows 검증: default/portable 각각 **261 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,165문장 중 2,163 passed + runtime 경계 2개, failed 0**; stage **7,098 checks**와 words **6,618 cases**에서 failed 0이다. 회귀 테스트 5개를 추가했다. capture graph 경계 34건(ordered-effect 9건, modifier-value 25건)과 정적 분석 경계 4건은 별도로 보고한다. 새 modifier Semantic IR 구성은 executable modifier-value graph lowering의 완료를 뜻하지 않는다. 기존 미완료 definition 테스트·upstream suite 미실행·GitHub CI 생략 방침을 유지한다.
+
+구현 기준: [p.c row 6](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1057), [cf.c disposition tables and jthook](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L288). 기존 Windows DLL release pin과 source review pin은 서로 다르며 이 source로 DLL을 빌드했다는 주장은 하지 않는다.
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
@@ -7641,7 +7653,7 @@ Windows 검증: default/portable 각각 **256 passed / 17 ignored**, fmt/clippy 
 - [ ] **P3/P6 value-dependent boundary:** constant constructor 사례는 분석하며 unknown 실제 값/품사에서는 경계와 reason을 반환한다. Unsupported analysis를 J syntax error로 바꾸지 않는다.
 - [ ] **P5/P6 static memory gate:** input type/shape 또는 facts로 graph/liveness/extent를 분석하고 Unknown을 보존한다. 결과 보고에 logical atoms·represented bytes·추정 peak의 차이를 표시한다.
 
-**구현한 provenance 계약:** `Program.reductions`와 정적 분석 결과의 `reductions`는 row id, 순서대로 나열한 operand word range, result word range/품사, byte span, inherited token을 가진다. actual noun payload는 복사하지 않는다. jsource `p.c`의 modifier·fork·hook은 왼쪽 operand의 `.t`, 괄호는 `(`의 `.t`를 이어받는다. rows 0–2의 noun 결과는 오른쪽 noun token을 유지하며 C는 이를 non-executable noun에서 immaterial로 설명한다. 실패 operator의 blame token과 result token은 별도다. Rust의 index는 0부터 시작한다. 이 계약은 [p.c stack entry](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L735), [noun result](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L922), [modifier/train/parenthesis](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1002)를 cross-check한 source 기반 regression이며 C 내부 stack trace를 직접 export한 검증은 아니다.
+**구현한 provenance 계약:** `Program.reductions`와 정적 분석 결과의 `reductions`는 row id, 순서대로 나열한 operand word range, result word range/품사, byte span, inherited token을 가진다. actual noun payload는 복사하지 않는다. jsource `p.c`의 modifier·fork·bident hook은 왼쪽 operand의 `.t`, non-fork trident는 가운데 operand의 `.t`, 괄호는 `(`의 `.t`를 이어받는다. rows 0–2의 noun 결과는 오른쪽 noun token을 유지하며 C는 이를 non-executable noun에서 immaterial로 설명한다. 실패 operator의 blame token과 result token은 별도다. Rust의 index는 0부터 시작한다. 이 계약은 [p.c stack entry](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L735), [noun result](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L922), [modifier/train/parenthesis](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1002)를 cross-check한 source 기반 regression이며 C 내부 stack trace를 직접 export한 검증은 아니다.
 
 이번 regression 9개는 이름의 오른쪽→왼쪽 조회·각 stack entry noun snapshot, constructor 실패 후 미방문 이름 조회 중단, named modifier POS, 9개 row의 original-word 전달, grouping된 modifier/fork origin, final copula 보존, 원문 error token 및 named insert/fork 분석 경계를 검증한다. C corpus에도 13문장을 추가했다. `(entryverb/ % #) entrynoun`과 `(entryverb/ % #) entrycopy`는 frontend 구조를 보존하지만 기존 runtime executor가 처리하지 못한다. 보고서 `coverage_boundaries`에 exact source와 실제 C/Rust 결과·이유를 남기며 성공이나 C baseline deviation으로 세지 않는다. Rust가 다른 오류를 내거나 등록하지 않은 구문이 실패하면 일반 failure다. 나머지 2,061문장의 값/error 비교와 stage/word 검증을 통과했다.
 
@@ -7780,8 +7792,8 @@ Windows 검증: default/portable 각각 **256 passed / 17 ignored**, fmt/clippy 
 - [ ] rows 3–4에서 result POS를 RustJ가 임의로 고정하지 않고 **modifier semantic constructor가 반환한 실제 POS**를 다음 parser class로 사용한다.
 - [ ] row 3의 `VERB ADV`와 `NOUN ADV`를 각 adverb의 J construction semantics에 따라 처리한다.
 - [ ] row 4의 `(VERB|NOUN) CONJ (VERB|NOUN)` 전체 parser form을 각 conjunction의 J construction semantics에 따라 처리한다.
-- [ ] `cf.c::bidents[]`를 단순 result-POS 표가 아니라 `SyntaxError | ImmediateSemanticApply | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮긴다.
-- [ ] `cf.c::tridents[]`를 `SyntaxError | ImmediateSemanticApply | BuildFork | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮긴다.
+- [x] `cf.c::bidents[]`를 `SyntaxError | ImmediateSemanticApply | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 6의 non-executing modifier 구성은 지원하며, immediate application executor는 별도 미완료다.
+- [x] `cf.c::tridents[]`를 `SyntaxError | ImmediateSemanticApply | BuildFork | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 5 fork와 row 6 non-fork modifier를 구분하며, immediate application executor는 별도 미완료다.
 - [ ] VV Hook과 NVV/VVV Fork의 construction boundary를 jsource와 동일하게 만든다.
 - [ ] 긴 train은 별도 `LongTrain` algorithm이 아니라 row 5/6 반복 reduction의 결과로만 형성한다.
 - [ ] modifier application마다 completed entity 하나를 만들고 후속 reduction은 그 entity ref만 보게 한다.

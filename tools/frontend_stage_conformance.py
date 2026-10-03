@@ -22,7 +22,7 @@ CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LPare
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
 PENDING = {
     'enqueue': ['complex/extended/rational numeric notation', 'locatives and name _:', 'complete spellin/ds inventory', 'tacit translator env=0 and locative copula upgrade'],
-    'parser': ['runtime ptcol reachable-state trace equivalence', 'in-sentence assignment and right-to-left lookup effects', 'computed noun modifier operands', 'derived adverb/conjunction results', 'explicit/direct definitions', 'full row provenance and reinsertion trace'],
+    'parser': ['runtime ptcol reachable-state trace equivalence', 'full local/locale assignment and right-to-left effect coverage', 'full computed noun modifier operands', 'derived modifier application and named derived identities', 'explicit/direct definitions', 'full row provenance and reinsertion trace'],
 }
 
 
@@ -183,6 +183,10 @@ def run(args):
                 check('enqueue_provenance', source + f' word {i}', observation['visible_words'][i], source.encode()[slice(*word['span'])].hex())
                 check('enqueue_index', source + f' word {i}', i, word['index'])
         functions = ['/', '\\', '"', '@:', '(/)', '(")', 'stageadverb=:/', 'stageconjunction=:@:', '+', '+/', '+\\', '+*', '+-*', '+-*%', '+-*%#', '+/ % #', '+"1', '+"0 1', '+"0 1 2', '+@:-', '+@:-@:*', '(+/) % #', '(+*) - %', '7 + *', '(7) + *', '+"((1))', '(+"1)/']
+        # cf.c CADVF trains: retain arity, operands and actual ADV/CONJ POS.
+        functions.extend(['+"', '"1', '3"', '/+', '/\\', '/@:', '@:/', '@:@:',
+                          '/ / /', '/ / +', '/ + *', '@: + *', '+ @: /', '+ @: @:',
+                          '(/ /) /', '("1)', '"1 2', '3 @:', '"+', '@: 3'])
         rng = random.Random(20261003)
         for length in range(2, 9):
             functions.extend(' '.join(rng.choice(['+', '-', '*', '%', '#', ',']) for _ in range(length)) for _ in range(12))
@@ -194,7 +198,7 @@ def run(args):
                 raise RuntimeError(f'oracle rejected positive function case {source}: {error}')
             expected = {'pos': oracle.name_class('rustjstagefunction')['class'], 'function': atomic_function(oracle.representation('rustjstagefunction', 'atomic')['value'])}
             check('parser_function', source, expected, observation['parse'])
-        for source in ['3/', '+@:3', '3@:+', '+"1 2 3 4', "+\"'a'", '(', ')', '=:', 'NB..', "'unterminated", 'foo_', '1q', '1e', '1.2.3', '3..']:
+        for source in ['(/3)', '(@:/3)', '3/', '+@:3', '3@:+', '+"1 2 3 4', "+\"'a'", '(', ')', '=:', 'NB..', "'unterminated", 'foo_', '1q', '1e', '1.2.3', '3..']:
             observation = probe.inspect(source)
             expected = oracle.run('rustjstagefunction =: ' + source)
             if not expected:
@@ -248,6 +252,17 @@ def run(args):
                                                           'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
         else:
             check('static_value_boundary', source, {'C_success': True, 'rust': {'error': 'unsupported'}}, {'C_success': reference is None, 'rust': actual})
+        for source in ['candidate=: + ("1)', 'candidate=: + (/ /)', 'candidate=: + (@:/) -']:
+            actual = static_probe.inspect(source)
+            reference = oracle.run(source)
+            if reference is None and actual == {'error': 'unsupported'}:
+                report['analysis_coverage_boundaries'].append({'source': source,
+                    'reason': 'derived modifier application semantics are not implemented',
+                    'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
+            else:
+                check('static_modifier_application_boundary', source,
+                      {'C_success': True, 'rust': {'error': 'unsupported'}},
+                      {'C_success': reference is None, 'rust': actual})
         setup('analysisadv=:\\', 'analysisadv')
         analyze_function('candidate=: + analysisalias', [('analysisalias', 1)])
         analyze_function('candidate=: + analysisadv', [('analysisadv', 1)])

@@ -469,6 +469,7 @@ impl Engine {
             }
             FunctionHead::PrimitiveAdverb(_)
             | FunctionHead::PrimitiveConjunction(_)
+            | FunctionHead::ModifierTrain
             | FunctionHead::Hook
             | FunctionHead::Fork => Err(Error::Unsupported(
                 "derived train runtime lowering not implemented".into(),

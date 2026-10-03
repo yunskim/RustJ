@@ -471,6 +471,7 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
         },
         FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => GraphRuleRefs {
             shape: GraphRuleRef::StructuralComposition,
@@ -774,6 +775,10 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
                 rank_spec: noun_operand_value(function),
             }
         }
+        FunctionHead::ModifierTrain => GraphForm::Modifier {
+            head: function.head.clone(),
+            operands: function_operands(function),
+        },
         FunctionHead::PrimitiveVerb(_) | FunctionHead::NameRef(_) => GraphForm::Atomic,
     };
     (form, hints)

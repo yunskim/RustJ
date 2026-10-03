@@ -238,6 +238,7 @@ fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value
         )),
         FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => Err(Error::Unsupported(
             "A3 reference executor does not implement this semantic function".into(),

@@ -11,6 +11,7 @@ fn function(f: &FunctionEntity) -> String {
         FunctionHead::PrimitiveAdverb(id) => id.spelling(),
         FunctionHead::PrimitiveConjunction(id) => id.spelling(),
         FunctionHead::Hook => "2",
+        FunctionHead::ModifierTrain => "4",
         FunctionHead::Fork => "3",
         FunctionHead::NameRef(name) => name,
     };

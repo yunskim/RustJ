@@ -645,3 +645,78 @@ fn named_modifiers_resolve_at_construction_and_keep_snapshot_dependencies() {
     engine.eval("adv=:/").unwrap();
     assert_eq!(engine.eval("3 adv").unwrap_err().kind(), "domain error");
 }
+
+#[test]
+fn modifier_train_capture_retains_runtime_noun_origin_and_real_pos() {
+    use rustj::semantic::{FunctionOperand, FunctionPartOfSpeech};
+    let mut engine = Engine::new();
+    let report = engine.eval_captured("train=: (1+2) \"");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let entity = report
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            CaptureEvent::ConstructionSuccess { function, .. }
+                if function.head == FunctionHead::ModifierTrain =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(entity.result_pos, FunctionPartOfSpeech::Adverb);
+    let FunctionOperand::Noun { value, .. } = &entity.operands[0] else {
+        panic!();
+    };
+    assert_eq!(value.int_at(0).unwrap(), 3);
+    let noun_origin = report
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            CaptureEvent::ApplySuccess { id, .. } => Some(*id),
+            _ => None,
+        })
+        .unwrap();
+    assert!(report.capture.events.iter().any(|event| matches!(event,
+        CaptureEvent::ConstructionAttempt { row: ParseRow::Hook, noun_inputs, .. }
+        if noun_inputs == &[noun_origin])));
+    assert!(report.capture.events.iter().any(|event| matches!(event, CaptureEvent::Commit { function: Some(f), .. } if std::sync::Arc::ptr_eq(f, entity))));
+    assert_eq!(
+        engine.prepare_semantic("(1+2) \"").unwrap_err().kind(),
+        "unsupported"
+    );
+}
+
+#[test]
+fn modifier_train_retains_named_array_by_value_across_reassignment() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = Engine::new();
+    engine.eval("items=:i.65").unwrap();
+    let report = engine.eval_captured("train=:items \"");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let function = report
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            CaptureEvent::ConstructionSuccess { function, .. }
+                if function.head == FunctionHead::ModifierTrain =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let FunctionOperand::Noun { value, .. } = &function.operands[0] else {
+        panic!();
+    };
+    engine.eval("items=:items+1").unwrap();
+    assert_eq!(value.shape(), &[65]);
+    assert_eq!(value.int_at(0).unwrap(), 0);
+    assert_eq!(value.int_at(64).unwrap(), 64);
+    assert_eq!(engine.eval("items").unwrap().unwrap().int_at(0).unwrap(), 1);
+}

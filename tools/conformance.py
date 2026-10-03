@@ -187,6 +187,16 @@ def cases():
         '+modalias i.3', 'modadv=:/', '3 modadv',
         'modconj=:\"', 'modg=:+modconj 0', 'modconj=:1', 'modg i.3',
     ])
+    # P3: constructing a modifier train does not apply it. Function/POS
+    # representation is independently compared by the frontend stage suite.
+    fixed.extend('train' + str(i) + '=: ' + expression for i, expression in enumerate([
+        '+"', '"1', '3"', '/+', '/\\', '/@:', '@:/', '@:@:',
+        '/ / /', '/ / +', '/ + *', '@: + *', '+ @: /', '+ @: @:',
+        '(/ /) /', '"1 2', '3 @:', '"+', '@: 3', '(1+2) "',
+    ]))
+    fixed.extend(['trainerr=: (1 2+1 2 3) "', 'trainerr=: (/3)',
+                  'trainitems=:i.65', 'trainarray=:trainitems "',
+                  'trainitems=:trainitems+1', 'trainitems'])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

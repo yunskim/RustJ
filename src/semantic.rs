@@ -19,6 +19,8 @@ pub enum FunctionHead {
     /// Parser-production identities with no source operator token.
     Hook,
     Fork,
+    /// cf.c CADVF: non-executing bident/trident returning a modifier.
+    ModifierTrain,
 }
 
 #[derive(Debug)]

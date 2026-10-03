@@ -440,6 +440,7 @@ pub(crate) fn infer_semantic_call(
         FunctionHead::NameRef(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => (Facts::default(), None),
     }
@@ -607,6 +608,7 @@ pub(crate) fn infer_semantic_projection(
         FunctionHead::NameRef(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => SemanticFacts::default(),
     }

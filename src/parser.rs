@@ -116,6 +116,9 @@ fn resolve_modifier(
     context: &mut ActionContext<'_>,
     row: ParseRow,
 ) -> Result<Arc<FunctionEntity>> {
+    if matches!(operator.head, FunctionHead::ModifierTrain) && row != ParseRow::Assignment {
+        return Err(Error::Unsupported("derived modifier application semantics".into()).at(span));
+    }
     let FunctionHead::NameRef(name) = &operator.head else {
         return Ok(operator);
     };
@@ -304,6 +307,7 @@ fn reduce_stack_prefix(
             ParseRow::Adverb => (1, 2, 1, 2),
             ParseRow::Conjunction => (1, 3, 1, 2),
             ParseRow::Fork => (1, 3, 1, 2),
+            ParseRow::Hook if stack.get(3).is_some_and(|item| is_cavn(item.class)) => (1, 3, 2, 2),
             ParseRow::Hook => (1, 2, 1, 1),
             ParseRow::Assignment => (0, 3, 2, 1),
             ParseRow::Parenthesis => (0, 3, 0, 0),
@@ -649,30 +653,53 @@ fn apply_parse_row(
             }
         }
         ParseRow::Hook => {
-            let left = stack.get(1).map_or(ParseClass::Mark, |item| item.class);
-            let right = stack.get(2).map_or(ParseClass::Mark, |item| item.class);
-            match bident_disposition(left, right) {
-                BidentDisposition::BuildHook => {
-                    let mut phrase: Vec<_> = stack.drain(1..3).collect();
-                    let f = phrase.remove(0).into_verb().expect("row 6 f");
-                    let g = phrase.remove(0).into_verb().expect("row 6 g");
-                    stack.insert(1, Item::verb(train_hook(f, g)));
-                    true
+            let left = stack[1].class;
+            let right = stack[2].class;
+            if stack.get(3).is_some_and(|item| is_cavn(item.class)) {
+                match trident_disposition(left, right, stack[3].class) {
+                    TridentDisposition::BuildDerivedModifier(pos) => {
+                        let phrase = stack.drain(1..4).collect();
+                        stack.insert(1, Item::function(modifier_train(phrase, pos)?));
+                        true
+                    }
+                    TridentDisposition::ImmediateSemanticApply => {
+                        return Err(Error::Unsupported(
+                            "row 6 trident requires semantic application".into(),
+                        ));
+                    }
+                    TridentDisposition::SyntaxError => {
+                        return Err(Error::Syntax(
+                            "invalid jsource trident part-of-speech combination".into(),
+                        ));
+                    }
+                    TridentDisposition::BuildFork => {
+                        return Err(Error::Syntax("fork must be selected by row 5".into()));
+                    }
                 }
-                BidentDisposition::BuildDerivedModifier(result_pos) => {
-                    return Err(Error::Unsupported(format!(
-                        "jsource bident derived modifier result {result_pos:?} is not yet represented"
-                    )));
-                }
-                BidentDisposition::ImmediateSemanticApply => {
-                    return Err(Error::Unsupported(
-                        "row 6 requires parser-time semantic execution".into(),
-                    ));
-                }
-                BidentDisposition::SyntaxError => {
-                    return Err(Error::Syntax(
-                        "invalid jsource bident part-of-speech combination".into(),
-                    ));
+            } else {
+                match bident_disposition(left, right) {
+                    BidentDisposition::BuildHook => {
+                        let mut phrase: Vec<_> = stack.drain(1..3).collect();
+                        let f = phrase.remove(0).into_verb().expect("row 6 f");
+                        let g = phrase.remove(0).into_verb().expect("row 6 g");
+                        stack.insert(1, Item::verb(train_hook(f, g)));
+                        true
+                    }
+                    BidentDisposition::BuildDerivedModifier(pos) => {
+                        let phrase = stack.drain(1..3).collect();
+                        stack.insert(1, Item::function(modifier_train(phrase, pos)?));
+                        true
+                    }
+                    BidentDisposition::ImmediateSemanticApply => {
+                        return Err(Error::Unsupported(
+                            "row 6 requires parser-time semantic execution".into(),
+                        ));
+                    }
+                    BidentDisposition::SyntaxError => {
+                        return Err(Error::Syntax(
+                            "invalid jsource bident part-of-speech combination".into(),
+                        ));
+                    }
                 }
             }
         }
@@ -913,6 +940,37 @@ pub fn match_parse_row(classes: [ParseClass; 4]) -> Option<ParseRow> {
     ]
     .into_iter()
     .find_map(|(row, matched)| matched.then_some(row))
+}
+
+/// cf.c jthook with a nonzero action function: construction returns a
+/// modifier without applying it. N/V operands remain semantic operands;
+/// no execution-only fgh helper or compiler fact becomes a child.
+fn modifier_train(phrase: Vec<Item>, result: ParseClass) -> Result<Arc<FunctionEntity>> {
+    let span = phrase.first().unwrap().span().start..phrase.last().unwrap().span().end;
+    let mut operands = Vec::with_capacity(phrase.len());
+    for item in phrase {
+        let item_span = item.span();
+        operands.push(match item.value {
+            ParseValue::Noun(expr, _) => FunctionOperand::Noun {
+                value: completed_noun(expr, "runtime-dependent modifier train noun operand")?,
+                span: item_span,
+            },
+            ParseValue::Verb(verb) => FunctionOperand::Function(verb.entity),
+            ParseValue::Function(function) => FunctionOperand::Function(function),
+            _ => return Err(Error::Syntax("invalid modifier train operand".into())),
+        });
+    }
+    let result_pos = match result {
+        ParseClass::Adverb => FunctionPartOfSpeech::Adverb,
+        ParseClass::Conjunction => FunctionPartOfSpeech::Conjunction,
+        _ => return Err(Error::Syntax("invalid modifier train result POS".into())),
+    };
+    Ok(FunctionEntity::derived(
+        FunctionHead::ModifierTrain,
+        result_pos,
+        span,
+        operands,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

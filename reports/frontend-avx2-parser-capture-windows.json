@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2139,
+  "cases": 2165,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\javx2.dll",
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "56c5b46f6a6a9e681ae4760797731f5e963c4b7eaa34cbf51210095c0071aad4",
+  "binary_sha256": "b107bec0f70a4e3e55b2b6c61b428911707383cda5692b7366e739e927fd5aa8",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2137,
+  "passed": 2163,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -108,6 +108,111 @@
     {
       "index": 1335,
       "source": "modconj=:\"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1339,
+      "source": "train0=: +\"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1340,
+      "source": "train1=: \"1",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1341,
+      "source": "train2=: 3\"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1342,
+      "source": "train3=: /+",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1343,
+      "source": "train4=: /\\",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1344,
+      "source": "train5=: /@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1345,
+      "source": "train6=: @:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1346,
+      "source": "train7=: @:@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1347,
+      "source": "train8=: / / /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1348,
+      "source": "train9=: / / +",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1349,
+      "source": "train10=: / + *",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1350,
+      "source": "train11=: @: + *",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1351,
+      "source": "train12=: + @: /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1352,
+      "source": "train13=: + @: @:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1353,
+      "source": "train14=: (/ /) /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1354,
+      "source": "train15=: \"1 2",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1355,
+      "source": "train16=: 3 @:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1356,
+      "source": "train17=: \"+",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1357,
+      "source": "train18=: @: 3",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1358,
+      "source": "train19=: (1+2) \"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1362,
+      "source": "trainarray=:trainitems \"",
       "reason": "captured modifier value graph lowering"
     }
   ],

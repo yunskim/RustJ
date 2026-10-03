@@ -10,11 +10,11 @@
     "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "bcc3deba6c3cb8dc203a3f5f229fddd0604546d7f882bb89f2784d0a711b25a2",
+  "probe_sha256": "24f202826b7b14e1347c2582a61e55cd12effc05f6f8aafa24f89391a960d0a8",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
-    "tokenizer": 163,
+    "tokenizer": 183,
     "enqueue_pos": 41,
     "enqueue_noun": 15,
     "comment_cutoff": 11,
@@ -22,8 +22,8 @@
     "enqueue_flags": 23,
     "enqueue_provenance": 23,
     "enqueue_index": 23,
-    "parser_function": 111,
-    "frontend_error": 15,
+    "parser_function": 131,
+    "frontend_error": 17,
     "static_setup": 8,
     "static_constructor": 10,
     "static_read_only": 10,
@@ -40,6 +40,30 @@
       "rust": {
         "error": "unsupported"
       }
+    },
+    {
+      "source": "candidate=: + (\"1)",
+      "reason": "derived modifier application semantics are not implemented",
+      "reference_pos": 3,
+      "rust": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "source": "candidate=: + (/ /)",
+      "reason": "derived modifier application semantics are not implemented",
+      "reference_pos": 3,
+      "rust": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "source": "candidate=: + (@:/) -",
+      "reason": "derived modifier application semantics are not implemented",
+      "reference_pos": 3,
+      "rust": {
+        "error": "unsupported"
+      }
     }
   ],
   "pending": {
@@ -51,9 +75,9 @@
     ],
     "parser": [
       "runtime ptcol reachable-state trace equivalence",
-      "in-sentence assignment and right-to-left lookup effects",
-      "computed noun modifier operands",
-      "derived adverb/conjunction results",
+      "full local/locale assignment and right-to-left effect coverage",
+      "full computed noun modifier operands",
+      "derived modifier application and named derived identities",
       "explicit/direct definitions",
       "full row provenance and reinsertion trace"
     ]

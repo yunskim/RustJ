@@ -641,3 +641,87 @@ fn invalid_modifier_operands_report_constructor_domain_errors() {
         rustj::Error::Unsupported(_)
     ));
 }
+
+#[test]
+fn modifier_bidents_and_tridents_preserve_actual_pos_and_ordered_operands() {
+    use rustj::semantic::{ExprKind, FunctionHead, FunctionPartOfSpeech as Pos};
+    for (source, expected, count) in [
+        ("+\"", Pos::Adverb, 2),
+        ("\"1", Pos::Adverb, 2),
+        ("3\"", Pos::Adverb, 2),
+        ("/+", Pos::Adverb, 2),
+        ("/\\", Pos::Adverb, 2),
+        ("/@:", Pos::Adverb, 2),
+        ("@:/", Pos::Conjunction, 2),
+        ("@:@:", Pos::Conjunction, 2),
+        ("/ / /", Pos::Adverb, 3),
+        ("/ / +", Pos::Conjunction, 3),
+        ("/ + *", Pos::Adverb, 3),
+        ("@: + *", Pos::Conjunction, 3),
+        ("+ @: /", Pos::Adverb, 3),
+        ("+ @: @:", Pos::Conjunction, 3),
+    ] {
+        let program = semantic::parse(source).unwrap_or_else(|e| panic!("{source}: {e:?}"));
+        let ExprKind::ModifierValue(entity) = program.expression.unwrap().kind else {
+            panic!("{source}");
+        };
+        assert_eq!(entity.head, FunctionHead::ModifierTrain, "{source}");
+        assert_eq!(entity.result_pos, expected, "{source}");
+        assert_eq!(entity.operands.len(), count, "{source}");
+        assert_eq!(entity.span, 0..source.len());
+        let row = program
+            .reductions
+            .iter()
+            .find(|r| r.row == rustj::parser::ParseRow::Hook)
+            .unwrap();
+        assert_eq!(row.inputs.len(), count);
+        // p.c row 6 takes f's token for a bident and g's for a trident.
+        assert_eq!(row.result.blame_word_index, if count == 2 { 0 } else { 1 });
+    }
+}
+
+#[test]
+fn nested_modifier_train_keeps_completed_child_and_noun_payload() {
+    use rustj::semantic::{ExprKind, FunctionHead, FunctionOperand};
+    let program = semantic::parse("(/ /) /").unwrap();
+    let ExprKind::ModifierValue(root) = program.expression.unwrap().kind else {
+        panic!();
+    };
+    assert_eq!(root.operands.len(), 2);
+    let FunctionOperand::Function(child) = &root.operands[0] else {
+        panic!();
+    };
+    assert_eq!(child.head, FunctionHead::ModifierTrain);
+    assert_eq!(child.operands.len(), 2);
+    let program = semantic::parse("\"1 2").unwrap();
+    let ExprKind::ModifierValue(root) = program.expression.unwrap().kind else {
+        panic!();
+    };
+    let FunctionOperand::Noun { value, span } = &root.operands[1] else {
+        panic!();
+    };
+    assert_eq!(value.shape(), &[2]);
+    assert_eq!(*span, 1..4);
+    assert_eq!(value.int_at(1).unwrap(), 2);
+}
+
+#[test]
+fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for source in [
+        "protected=: + (\"1)",
+        "protected=: + (/ /)",
+        "protected=: + (@:/) -",
+    ] {
+        let report = engine.eval_captured(source);
+        assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("protected"), version);
+        assert_eq!(
+            engine.prepare_semantic(source).unwrap_err().kind(),
+            "unsupported"
+        );
+    }
+}
