@@ -257,6 +257,7 @@ fn definition_frame_json(
     use rustj::definition_input::DefinitionForm;
     let (form, mode) = match input.form {
         DefinitionForm::Direct => ("direct", 9),
+        DefinitionForm::NounDirect => ("noun_direct", 0),
         DefinitionForm::ExplicitString(mode) => ("string", mode),
         DefinitionForm::ExplicitBlock(mode) => ("block", mode),
     };

@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -223,7 +223,7 @@ def run(args):
     observed_rows = [json.loads(x) for x in subprocess.check_output([args.binary, '--rows'], text=True).splitlines()]
     report = {'platform': platform.platform(), 'reference_revision': args.reference_revision,
               'source_review_revision': args.source_revision,
-              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c', 'jsrc/s.c', 'jsrc/jtype.h', 'jsrc/cx.c', 'jsrc/wc.c', 'jsrc/io.c', 'jsrc/jerr.h', 'jsrc/j.h', 'jsrc/w.h', 'test/ggoto.ijs']},
+              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c', 'jsrc/s.c', 'jsrc/jtype.h', 'jsrc/cx.c', 'jsrc/wc.c', 'jsrc/io.c', 'jsrc/jerr.h', 'jsrc/j.h', 'jsrc/w.h', 'test/ggoto.ijs', 'test/g0x.ijs']},
               'reference_library_sha256': hashlib.sha256(Path(os.environ['J_LIBRARY']).read_bytes()).hexdigest(),
               'probe_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdigest(),
               'checks': {}, 'mismatches': [], 'analysis_coverage_boundaries': [], 'pending': PENDING,
@@ -614,6 +614,27 @@ def run(args):
             check('definition_multiline_constructor', source, expected, static_probe.inspect(source, 'R'))
         for source in ["defcode=:1 : 'u\n:\nv'", "defcode=:{{u\n:\nu}}"]:
             check('definition_valence_error', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+        for source in noun_direct_cases():
+            if source.startswith('nounmixed='):
+                error=oracle.run(source)
+                if error: raise RuntimeError(f'invalid mixed noun fixture: {error}')
+                expected={'pos':3,'function':atomic_function(oracle.representation('nounmixed','atomic')['value'])}
+                check('noun_direct_mixed_constructor',source,expected,static_probe.inspect(source,'R'))
+            else:
+                check('noun_direct_value_or_assignment',source,oracle.eval(source),static_probe.inspect(source,'E'))
+        for source in ["nounraw=:{{)n\nabc\n}}", "nounraw=:{{)nfirst\n embedded }}\n}}",
+                "nounraw=:{{)n\n'broken NB. {{\n}}", "nounraw=:{{)n \n)\n}}",
+                "nounraw=:{{)n\n}}", "nounraw=:{{)n\r\nabc\r\n}}"]:
+            error=oracle.run_script(source)
+            if error: raise RuntimeError(f'invalid noun input script: {error}')
+            check('noun_direct_script_assignment',source,{'silent':True},static_probe.inspect(source,'E'))
+            check('noun_direct_script_value',source,oracle.read_noun('nounraw'),static_probe.inspect('nounraw','E'))
+        for source,body,start in [('nounraw=:{{)nabc}}','abc',13),
+                ("nounraw=:{{)n'broken}}","'broken",13),
+                ('nounraw=:{{)n\nabc\n}}','abc\n',14)]:
+            expected={'state':'definition','form':'noun_direct','mode':0,'body_hex':body.encode().hex(),
+                'span':[9,len(source)],'body_span':[start,start+len(body)],'nested':[]}
+            check('noun_direct_input',source,expected,definition_probe.inspect(source))
         for source in multiple_definition_cases():
             if '{{' not in source:
                 check('multiple_definition_setup_or_transaction',source,oracle.eval(source),static_probe.inspect(source,'E'))

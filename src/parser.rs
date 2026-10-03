@@ -877,6 +877,7 @@ fn apply_conjunction_items(
         let body = completed_noun(right, "computed definition body")?;
         let expected_mode = match origin.input.form {
             crate::definition_input::DefinitionForm::Direct => 9,
+            crate::definition_input::DefinitionForm::NounDirect => return Err(Error::Domain),
             crate::definition_input::DefinitionForm::ExplicitString(m)
             | crate::definition_input::DefinitionForm::ExplicitBlock(m) => i64::from(m),
         };

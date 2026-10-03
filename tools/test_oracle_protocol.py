@@ -75,3 +75,22 @@ class AssignmentObservationTests(unittest.TestCase):
         self.check('(x=:2)', ['(', 'x', '=:', '2', ')'], False)
         self.check("'=:'", ["'=:'"], False)
         self.check('1 NB. =:', ['1', 'NB. =:'], False)
+
+
+class RawNounTransportTests(unittest.TestCase):
+    def test_raw_quote_body_uses_prefix_for_outer_copula_without_double_execution(self):
+        oracle=Oracle.__new__(Oracle)
+        calls=[]
+        source="raw=:{{)n'broken}}"
+        oracle.words=lambda text: {'words_hex':[b'raw'.hex(),b'=:'.hex()]} if text=='raw=:' else {'error':'open quote'}
+        oracle.run=lambda text:calls.append(text)
+        self.assertEqual(oracle.eval(source),{'silent':True})
+        self.assertEqual(calls,[source])
+
+    def test_script_transport_quotes_once_and_rejects_nul(self):
+        oracle=Oracle.__new__(Oracle)
+        calls=[]
+        oracle.run=lambda text:calls.append(text)
+        oracle.run_script("raw=:{{)n\n'broken\n}}")
+        self.assertEqual(calls,["0!:100 'raw=:{{)n\n''broken\n}}'"])
+        with self.assertRaises(ValueError): oracle.run_script('a\x00b')

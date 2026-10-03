@@ -22,10 +22,11 @@
     "jsrc/jerr.h": "70ed09fa0e3ebd92c151b1a352cfeff5ea0cf23ca5eb379f10c8e27ca06f4e0c",
     "jsrc/j.h": "0db8f2ee84bf85bafe78d400d66d207589de93f3f2b7e34e0c72c9d7f26edf5b",
     "jsrc/w.h": "9ea93c4f74ee09b42f821f0887a1eab7c0c6ae183c4adb83c04bf59a38281f1b",
-    "test/ggoto.ijs": "8263a76775711d99dd94c6e1b18c6265e1cfb29888df23fa0e376d98ac3b407c"
+    "test/ggoto.ijs": "8263a76775711d99dd94c6e1b18c6265e1cfb29888df23fa0e376d98ac3b407c",
+    "test/g0x.ijs": "347cae3454e26505de6679fc0451b258d7acc99828fe65cc0a2c1f0037a3da6e"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "5c9a397a96a76f66fdc346ae0d72f9751ec4a4195c1538fce9f7223d08d256e8",
+  "probe_sha256": "2e0acdd55894c4782be9c38c8588953f83a7502998b7aa122e4d0a001a6ab42a",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -76,6 +77,11 @@
     "definition_constructor": 16,
     "definition_multiline_constructor": 5,
     "definition_valence_error": 2,
+    "noun_direct_value_or_assignment": 159,
+    "noun_direct_mixed_constructor": 2,
+    "noun_direct_script_assignment": 6,
+    "noun_direct_script_value": 6,
+    "noun_direct_input": 3,
     "multiple_definition_setup_or_transaction": 6,
     "multiple_definition_constructor": 6,
     "multiple_definition_error": 3,

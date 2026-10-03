@@ -321,20 +321,46 @@ pub fn enqueue_in_environment<'a>(
         crate::tokenizer::parse_word_spans(source.as_bytes())
             .map_err(|error| error.in_phase(DiagnosticPhase::WordFormation))?
     };
-    let origins = (!definitions.is_empty()).then(|| {
-        (
-            std::sync::Arc::<str>::from(source),
-            std::sync::Arc::new(primitives.clone()),
-        )
-    });
+    let origins = definitions
+        .iter()
+        .any(|input| input.form != crate::definition_input::DefinitionForm::NounDirect)
+        .then(|| {
+            (
+                std::sync::Arc::<str>::from(source),
+                std::sync::Arc::new(primitives.clone()),
+            )
+        });
     let mut out = Vec::with_capacity(spans.len());
     for span in spans {
         let word = source
             .get(span.clone())
             .ok_or_else(|| Error::Unsupported("non-UTF-8 word".into()).at(span.clone()))?;
         if let Some(input) = definitions.iter().find(|input| input.span == span) {
+            if input.form == crate::definition_input::DefinitionForm::NounDirect {
+                let body = input.body_text(source)?.as_bytes().to_vec();
+                let payload = if body.len() == 1 {
+                    EnqueuedPayload::Scalar(Scalar::Char(body[0]))
+                } else {
+                    EnqueuedPayload::Noun(Box::new(Value::new(
+                        [body.len()],
+                        Data::Char(CpuStorage::new(body)),
+                    )?))
+                };
+                out.push(EnqueuedWord {
+                    class: EnqueueClass::Noun,
+                    payload,
+                    span,
+                    word_index: out.len(),
+                    flags: EnqueueFlags::default(),
+                });
+                continue;
+            }
+
             let mode = match input.form {
                 crate::definition_input::DefinitionForm::Direct => 9,
+                crate::definition_input::DefinitionForm::NounDirect => {
+                    unreachable!("noun DD handled above")
+                }
                 crate::definition_input::DefinitionForm::ExplicitString(m)
                 | crate::definition_input::DefinitionForm::ExplicitBlock(m) => m,
             };

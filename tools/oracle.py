@@ -69,12 +69,33 @@ class Oracle:
             return {'error': ERRORS.get(code, f'J error {code}')}
         return None
 
+    def run_script(self, source):
+        # 0!:100 supplies real script lines to jgets; feeding one multiline
+        # JDo string does not test noun-DD continuation/column-zero delimiters.
+        if '\x00' in source:
+            raise ValueError('script contains NUL')
+        return self.run("0!:100 '" + source.replace("'", "''") + "'")
+
     def eval(self, source):
         # Single-name/noun-target outer assignments are silent. Use C ;: word
         # formation to avoid treating inner copulas, literals or comments as
         # final assignments. This adapter does not classify arbitrary J trains.
         if '=:' in source or '=.' in source:
             formed = self.words(source)
+            # Raw noun DD may contain unmatched quotes. ;: of the original
+            # text is not DD preprocessing; inspect only the prefix before
+            # a real tag to classify the outer copula, without executing twice.
+            if 'error' in formed:
+                start = 0
+                while True:
+                    tag = source.find('{{)n', start)
+                    if tag < 0:
+                        break
+                    prefix = self.words(source[:tag])
+                    if 'error' not in prefix:
+                        formed = prefix
+                        break
+                    start = tag + 4
             if 'error' in formed:
                 return self.run(source) or formed
             words = [bytes.fromhex(word) for word in formed['words_hex']]

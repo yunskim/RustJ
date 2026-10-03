@@ -702,6 +702,20 @@ Windows default/portable each: **352 passed / 17 ignored**; fmt/clippy/build pas
 
 Sources: [cx.c repeated DD expansion](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [p.c parser reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
 
+##### Raw input and noun preservation for tagged noun DD (2026-10-04, partial DEF-1/2)
+
+- [x] Add `DefinitionForm::NounDirect` for `{{)n ... }}`. This produces a **character noun**, not function Code. Quotes, NB., control spellings and `{{` in the raw body are not words or executable sentences. Any `}}` on the first physical line closes it; later lines require column-zero `}}`. An empty header omits the initial LF, while a nonempty header retains the separator before the next line.
+- [x] Retain original delimiter/body byte spans while converting physical CRLF to logical LF. Rescan later roots separately so an unmatched raw quote cannot contaminate subsequent ordinary/noun DD scanning. Nested noun DD inside ordinary DD and other tags remain Unsupported.
+- [x] Enqueue one Noun with original span/index, distinguishing a single-byte character scalar from empty/multiple-byte character arrays. Create no DefinitionConstructor or invocation frame. Reuse existing noun reduction, assignment, snapshot and constant-noun fork construction. Adjacent nouns retain C's N/N syntax error; no concatenation grammar is invented.
+- [x] Six Rust regression tests cover raw values/shapes, multiline/column-zero delimiters, mixed roots, enqueue provenance, noun snapshots, static non-commit, both CLI paths with quotes/comments/CRLF, and UTF-8 byte-boundary panics. Framing safely leaves invalid ordinary primitive bytes for enqueue diagnostics.
+- [x] Add **161 C corpus cases**, with 11 fixed bodies and 64 bodies generated with seed 20261004, value observations, snapshots and mixed trains. Add **176 stage checks**. Six multiline cases use C `0!:100` script input to compare actual physical-line handling of LF/CRLF, empty headers, embedded delimiters and raw quotes. A single multiline JDo call is not treated as collection evidence.
+- [x] Observe the copula prefix when raw quotes make original-source `;:` observation fail, without executing the source twice. Set Windows subprocess transport explicitly to UTF-8 and compare Korean raw noun bytes. Add two adapter regression tests.
+- [ ] Next: semantic nested DD/nested noun DD, other tagged/computed/grouped forms and mixed literal-colon/DD framing. Audit unfinished-input EOF error-class compatibility separately. Callable A3, body graph lowering, invocation/local scope and locative for names remain incomplete. Optimization, CUDA and GitHub CI stay deferred.
+
+Windows default/portable each: **358 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. For both j64 and AVX2, direct/semantic-reference/parser-capture: **4,739 cases / 4,735 passed / 4 existing runtime boundaries / 0 failed**; stages: **9,919 checks**; words: **6,618 cases**. All ten report binary/source hashes match, including the added `test/g0x.ijs` hash. Record 78 capture-graph and 2 static boundaries separately. The full upstream suite, definition invocation acceptance and private C trace equivalence remain unverified. DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` differs from reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`.
+
+Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1413), [io.c physical input normalization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L316), [io.c script-line input](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L362), [upstream string-script execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/g0x.ijs#L32).
+
 <a id="static-frontend-review"></a>
 
 ##### Static-analysis acceptance and existing frontend review (2026-10-03)

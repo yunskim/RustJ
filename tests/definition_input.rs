@@ -85,7 +85,7 @@ fn quoted_and_inflected_delimiters_are_not_definition_input() {
         InputFrame::NeedMore
     );
     assert!(frame("f=:3 : 'unfinished").is_err());
-    assert_eq!(frame("f=:{{)n raw }}").unwrap_err().kind(), "unsupported");
+    assert_eq!(frame("f=:{{)v raw }}").unwrap_err().kind(), "unsupported");
 }
 
 #[test]
@@ -175,4 +175,130 @@ fn each_root_enqueues_its_own_constructor_and_expanded_error_index() {
     }
     let error = enqueue("{{y}} + {{y}} 1 2e").unwrap_err();
     assert_eq!(error.context().unwrap().blame_word_index, Some(11));
+}
+
+#[test]
+fn noun_direct_body_is_raw_not_word_formation_or_executable_code() {
+    for (source, body) in [
+        ("raw=:{{)n}}", ""),
+        ("raw=:{{)na}}", "a"),
+        ("raw=:{{)n한글}}", "한글"),
+        ("raw=:{{)n'broken NB. {{ if.}}", "'broken NB. {{ if."),
+        ("raw=:{{)name}}", "ame"),
+    ] {
+        let input = definition(source);
+        assert_eq!(input.form, DefinitionForm::NounDirect);
+        assert_eq!(input.body_text(source).unwrap(), body);
+        assert!(input.nested.is_empty());
+        let mut engine = rustj::Engine::new();
+        engine.eval(source).unwrap();
+        let value = engine.eval("raw").unwrap().unwrap();
+        let rustj::Data::Char(data) = value.data() else {
+            panic!()
+        };
+        assert_eq!(data.as_slice(), body.as_bytes());
+        let expected_shape = if body.len() == 1 {
+            Vec::new()
+        } else {
+            vec![body.len()]
+        };
+        assert_eq!(value.shape(), expected_shape.as_slice());
+    }
+}
+
+#[test]
+fn raw_noun_continuation_closes_only_at_column_zero_after_first_line() {
+    for (source, body) in [
+        ("raw=:{{)n\nabc\n}}", "abc\n"),
+        ("raw=:{{)nfirst\n inside }}\n}}", "first\n inside }}\n"),
+        (
+            "raw=:{{)n \n)\nNB. {{\n'broken\n}}",
+            " \n)\nNB. {{\n'broken\n",
+        ),
+    ] {
+        let input = definition(source);
+        assert_eq!(input.body_text(source).unwrap(), body);
+        assert_eq!(input.span.end, source.len());
+    }
+    let mut collector = DefinitionCollector::default();
+    assert_eq!(
+        collector.push_line("raw=:{{)n").unwrap(),
+        InputFrame::NeedMore
+    );
+    assert_eq!(
+        collector.push_line(" inside }}").unwrap(),
+        InputFrame::NeedMore
+    );
+    assert!(collector.finish().is_err());
+    let InputFrame::Definition(input) = collector.push_line("}}").unwrap() else {
+        panic!()
+    };
+    assert_eq!(input.body_text(collector.source()).unwrap(), " inside }}\n");
+}
+
+#[test]
+fn raw_quote_does_not_poison_later_regular_or_noun_root_scanning() {
+    let source = "mix=:{{)n'broken}} + {{y}}";
+    let InputFrame::Definitions(inputs) = frame(source).unwrap() else {
+        panic!()
+    };
+    assert_eq!(inputs.len(), 2);
+    assert_eq!(inputs[0].form, DefinitionForm::NounDirect);
+    assert_eq!(inputs[1].form, DefinitionForm::Direct);
+    rustj::semantic::parse(source).unwrap();
+    let mut engine = rustj::Engine::new();
+    engine.eval(source).unwrap();
+    engine.eval("raw=:{{)nold}}").unwrap();
+    let version = engine.binding_version("raw");
+    assert_eq!(
+        engine.eval("raw=:{{)na}} {{)nb}}").unwrap_err().kind(),
+        "syntax error"
+    );
+    assert_eq!(engine.binding_version("raw"), version);
+    let value = engine.eval("raw").unwrap().unwrap();
+    let rustj::Data::Char(data) = value.data() else {
+        panic!()
+    };
+    assert_eq!(data.as_slice(), b"old");
+}
+
+#[test]
+fn noun_direct_enqueues_one_literal_with_root_provenance_and_snapshot_semantics() {
+    use rustj::enqueuer::{EnqueueClass, enqueue};
+    let source = "raw=:{{)n'broken}}";
+    let queue = enqueue(source).unwrap();
+    assert_eq!(queue.len(), 3);
+    assert_eq!(queue[2].class, EnqueueClass::Noun);
+    assert_eq!(queue[2].span, 5..source.len());
+    assert_eq!(queue[2].word_index, 2);
+    let mut engine = rustj::Engine::new();
+    engine.eval("raw=:{{)na}}").unwrap();
+    engine.eval("copy=:raw").unwrap();
+    engine.eval("raw=:{{)nb}}").unwrap();
+    let value = engine.eval("copy").unwrap().unwrap();
+    let rustj::Data::Char(data) = value.data() else {
+        panic!()
+    };
+    assert_eq!(data.as_slice(), b"a");
+    let engine = rustj::Engine::new();
+    engine.prepare_semantic(source).unwrap();
+    assert!(engine.binding_version("raw").is_none());
+    assert!(
+        rustj::definition_code::compile(
+            source,
+            &definition(source),
+            &rustj::primitive::PrimitiveContext::core()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn non_ascii_primitive_bytes_never_panic_in_definition_framing() {
+    assert_eq!(frame("한글").unwrap(), InputFrame::Sentence);
+    let mut engine = rustj::Engine::new();
+    assert!(engine.eval("한글").is_err());
+    let source = "raw=:{{)n한글}} + {{y}}";
+    assert!(matches!(frame(source).unwrap(), InputFrame::Definitions(_)));
+    rustj::semantic::parse(source).unwrap();
 }

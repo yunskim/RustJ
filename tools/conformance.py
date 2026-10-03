@@ -251,6 +251,23 @@ def definition_flow_cases():
         for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
 
 
+def noun_direct_cases():
+    out = ['nounraw_counter=:0']
+    bodies = ['', 'a', 'abc', "'broken", 'NB. if. {{', 'counter=:99',
+              '한글', 'x', ')', '  raw  ', 'a\tb']
+    rng=random.Random(20261004)
+    alphabet="abc 'NB.:{()=+0129"
+    bodies += [''.join(rng.choice(alphabet) for _ in range(rng.randrange(33))).replace('}}','} }') for _ in range(64)]
+    for body in bodies:
+        out += ['nounraw=:{{)n'+body+'}}', 'nounraw']
+    out += ['nounraw_counter', 'nounraw=:{{)na}} {{)nb}}', 'nounraw',
+            'nounraw_copy=:nounraw', 'nounraw=:{{)nchanged}}', 'nounraw_copy',
+            "nounmixed=:{{)n'broken}} + {{y}}",
+            'nounmixed=:{{y}} + ({{)nabc}} + {{y}})',
+            'nounraw=:{{)nabc}} NB. }} opaque', 'nounraw']
+    return out
+
+
 def multiple_definition_cases():
     return [
         'multikeep=:+', 'multi_counter=:0',
@@ -529,6 +546,7 @@ def cases():
     fixed.extend(definition_code_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
+    fixed.extend(noun_direct_cases())
     fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
     fixed.extend("gotomatrix=:3 : '"+body.replace("\n", " ").replace("'", "''")+"'" for body in goto_position_matrix())
     return fixed
@@ -605,8 +623,8 @@ def main():
               'passed': 0, 'known_deviations': [], 'coverage_boundaries': [], 'failures': []}
     try:
         validate_cli_corpus(corpus)
-        oracle = subprocess.run([sys.executable, str(ROOT / 'tools/oracle.py')], input=''.join(json.dumps(s)+'\n' for s in corpus), text=True, capture_output=True, timeout=120)
-        rust = subprocess.run([str(args.binary), '--json'] + (['--semantic-reference'] if args.semantic_reference else []), input='\n'.join(corpus)+'\n', text=True, capture_output=True, timeout=120)
+        oracle = subprocess.run([sys.executable, str(ROOT / 'tools/oracle.py')], input=''.join(json.dumps(s)+'\n' for s in corpus), text=True, encoding='utf-8', capture_output=True, timeout=120)
+        rust = subprocess.run([str(args.binary), '--json'] + (['--semantic-reference'] if args.semantic_reference else []), input='\n'.join(corpus)+'\n', text=True, encoding='utf-8', capture_output=True, timeout=120)
         if oracle.returncode != 0 or rust.returncode not in (0,1):
             raise RuntimeError(f'process failure: oracle={oracle.returncode}, rust={rust.returncode}\n{oracle.stderr}\n{rust.stderr}')
         if args.parser_capture:

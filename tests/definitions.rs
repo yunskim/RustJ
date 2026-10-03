@@ -5,7 +5,7 @@ use rustj::{Engine, Error, semantic, syntax};
 fn definition_forms_are_rejected_without_binding_or_running_the_body() {
     let forms = [
         "f=:{{ {{y+1}} y }}",
-        "f=:{{)n literal data }}",
+        "f=:{{)v unsupported tag }}",
         "f=:{{ for_i_base_. y do. y end. }}",
         "f=:3 : 0\nfor_i_base_. y do.\nleaked=:99\nend.\n)",
     ];

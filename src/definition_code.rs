@@ -110,6 +110,9 @@ pub fn compile(
     input: &DefinitionInput,
     primitives: &PrimitiveContext,
 ) -> Result<Arc<DefinitionCode>> {
+    if input.form == DefinitionForm::NounDirect {
+        return Err(Error::Domain.at(input.span.clone()));
+    }
     if !input.nested.is_empty() {
         return Err(
             Error::Unsupported("nested definition code construction".into()).at(input.span.clone()),
@@ -333,6 +336,7 @@ pub fn compile(
             }
         }
         DefinitionForm::ExplicitString(mode) | DefinitionForm::ExplicitBlock(mode) => mode,
+        DefinitionForm::NounDirect => return Err(Error::Domain),
     };
     let result_pos = match mode {
         1 => FunctionPartOfSpeech::Adverb,

@@ -261,3 +261,54 @@ fn multiple_root_collection_emits_one_sentence_without_executing_either_body() {
         assert_eq!(lines[2], "{\"type\":1,\"shape\":[],\"data\":[0]}");
     }
 }
+
+#[test]
+fn raw_noun_collection_preserves_quotes_comments_and_normalizes_crlf() {
+    for (source, body) in [
+        ("raw=:{{)n\n'broken NB. {{\n}}\nraw\n", "'broken NB. {{\n"),
+        ("raw=:{{)n\r\nabc\r\n}}\r\nraw\r\n", "abc\n"),
+    ] {
+        for semantic in [false, true] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_rustj"));
+            command.arg("--json");
+            if semantic {
+                command.arg("--semantic-reference");
+            }
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(source.as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let text = String::from_utf8(output.stdout).unwrap();
+            let lines: Vec<_> = text.lines().collect();
+            let data = body
+                .bytes()
+                .map(|byte| byte.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            assert_eq!(
+                lines,
+                vec![
+                    "{\"silent\":true}".to_string(),
+                    format!(
+                        "{{\"type\":2,\"shape\":[{}],\"data\":[{data}]}}",
+                        body.len()
+                    )
+                ]
+            );
+        }
+    }
+}

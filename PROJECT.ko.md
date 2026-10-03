@@ -7859,6 +7859,20 @@ Windows default/portable 각각 **352 passed / 17 ignored**, fmt/clippy/build �
 
 Sources: [cx.c repeated DD expansion](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [p.c parser reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
 
+##### Tagged noun DD의 raw 입력·noun 보존 (2026-10-04, partial DEF-1/2)
+
+- [x] `DefinitionForm::NounDirect`로 `{{)n ... }}`를 처리한다. 이는 함수 Code가 아니라 **문자 noun**이다. raw body의 quote·NB.·control spelling·`{{`를 word나 실행 문장으로 해석하지 않는다. 첫 물리 줄에서는 어디에 있는 `}}`도 종료하고, 다음 줄부터는 column zero의 `}}`만 종료한다. tag가 첫 줄 끝이면 초기 LF를 생략하고, 첫 줄에 body가 있으면 다음 줄 앞 LF를 보존한다.
+- [x] 원본 delimiter/body byte span은 유지하면서 physical CRLF를 logical LF로 변환한다. 이후 root를 별도로 rescan하므로 raw body의 unmatched quote가 다음 ordinary/noun DD의 word formation을 오염시키지 않는다. ordinary DD 내부의 nested noun DD 및 다른 tag는 아직 Unsupported다.
+- [x] enqueue는 raw noun을 원래 span·word index를 가진 Noun 한 개로 낸다. 길이 1의 char scalar와 빈/여러 byte char 배열을 구분한다. DefinitionConstructor나 local invocation frame을 만들지 않는다. 기존 noun reduction·assignment·snapshot 및 constant-noun fork 구성을 재사용한다. 두 noun의 단순 나열에는 C의 N/N syntax error를 유지하며 임의 concat 규칙을 추가하지 않는다.
+- [x] Rust 회귀 테스트 6개로 raw 값/shape, multiline·column-zero 종료, mixed roots, enqueue provenance·noun snapshot·static 미commit, CLI 두 경로의 quote/comment·CRLF 및 UTF-8 byte-boundary panic을 검증했다. malformed 일반 primitive byte를 framing에서 잘못 slicing하지 않고 enqueue의 오류 경로로 넘긴다.
+- [x] C corpus에 noun 사례 **161건**을 추가했다(고정 body 11개·seed 20261004의 body 64개, 값 관찰·snapshot·mixed train 포함). stage에는 **176 checks**를 추가했다. multiline 6건은 C `0!:100` script 경로로 실제 physical input을 공급해 LF/CRLF·빈 header·embedded delimiter·raw quote를 비교한다. 한 번의 multiline `JDo` 호출을 physical-line collection 증거로 사용하지 않는다.
+- [x] oracle이 raw body의 unmatched quote 때문에 `;:` 관찰을 definition 실행 오류로 잘못 취급하지 않도록 copula prefix를 관찰한다. 원본 문장을 두 번 실행하지 않는다. Windows subprocess 입력의 UTF-8을 명시해 한글 raw noun의 byte 값도 비교한다. 두 adapter regression test를 추가했다.
+- [ ] 다음: semantic nested DD와 nested noun DD, 다른 tagged/computed/grouped definition 및 mixed literal-colon/DD framing. unfinished input의 EOF error-class 정합도 별도 audit 대상이다. callable A3·본문 graph lowering·invocation/local scope, for locative name은 미완료다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **358 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,739 cases / 4,735 passed / 기존 runtime 경계 4 / failed 0**, stage **9,919 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했고 `test/g0x.ijs` hash도 기록했다. capture graph 경계 78과 static 경계 2는 별도이며 upstream full suite·definition 호출 acceptance·private C trace 동등성은 미검증이다. DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`와 source review `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`는 서로 다른 revision이다.
+
+Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1413), [io.c physical input normalization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L316), [io.c script-line input](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L362), [upstream string-script execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/g0x.ijs#L32).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
