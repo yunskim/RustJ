@@ -145,6 +145,21 @@ def late_modifier_cases():
     return [source.replace('BACKSLASH', chr(92)) for source in out]
 
 
+def modifier_inventory_cases():
+    """All 16 bident and 64 trident ARs, including invalid productions.
+
+    Boxed AR construction bypasses surface reduction ambiguity. Prefix's
+    gerund audit requires a final Verb; an actual modifier/noun is rejected.
+    """
+    import itertools
+    leaves = {'N': "((<'0'),<3)", 'V': "'+'", 'A': "'/'", 'C': "'@:'"}
+    for arity in (2, 3):
+        for parts in itertools.product('NACV', repeat=arity):
+            args = ','.join('(<'+leaves[part]+')' for part in parts)
+            yield "inventoryar=:(<'4'),<(" + args + ')'
+            yield 'inventoryfn=:(,<inventoryar)' + chr(92)
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -403,6 +418,7 @@ def cases():
     fixed.extend(gerund_snapshot_cases())
     fixed.extend(constructor_call_cases())
     fixed.extend(late_modifier_cases())
+    fixed.extend(modifier_inventory_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

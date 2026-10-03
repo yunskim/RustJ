@@ -7755,6 +7755,18 @@ Windows default/portable 각각 **305 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [p.c nameless stack lookup](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L693), [s.c binding 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L739), [jtype.h primitive/nameless flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1334), [cf.c train 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L367), [sc.c 저장 품사 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L138), [r.c character AR](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
 
+##### Bident/trident constructor inventory 전체 조합 검증 (2026-10-03)
+
+- [x] P3/P6: 실제 parser row 및 AR decoder가 사용하는 `bident_disposition`/`trident_disposition`을 frontend probe의 `--constructors`에서 관찰한다. 별도 Rust golden dispatch를 만들지 않는다. C `cf.c`의 `bidents[16]`·`tridents[64]`를 읽어 syntax error, 즉시 semantic apply, hook/fork, derived modifier 및 결과 품사 분류를 **80개 조합 모두** 대조한다. 표 밖에서 먼저 처리하는 `V V` hook과 `MARK` fork도 구분한다.
+- [x] P6: C 표의 누락·중복·알 수 없는 operand/action/result 및 probe의 누락·중복 조합을 실패로 처리한다. source extractor 회귀 테스트 3개를 추가했다. 80개 조합이 맞는다는 결과를 runtime ptcol 전체 실행 순서나 모든 operand 값의 지원으로 확대하지 않는다.
+- [x] P3/P6: 모든 16개 bident 및 64개 trident를 boxed AR로 구성하여 surface parser의 다른 reduction과 혼동하지 않고 실제 constructor에 전달한다. 공통 비교 문장 **160개**를 추가했고, stage에서는 AR setup 80건·오류 75건·최종 Verb 성공 5건을 C와 비교한다. 추가로 성공 5건의 decoded 함수 구조를 C의 reference-only `5!:0`/`5!:1`와 비교한다. noun/modifier 반환 후 gerund의 최종 Verb 검사에서 발생하는 DomainError와 불가능한 production의 SyntaxError를 구분한다.
+- [x] P6: Rust 회귀 테스트로 invalid bident/trident와 `N V N` 결과의 최종 audit 실패 후 기존 함수·binding version 및 capture 유효성을 확인한다. static/no-host 경로가 필요한 noun 실행을 임의로 수행하지 않고 Unsupported를 유지하는지도 검증한다. 이번 변경은 constructor 지원 확대를 주장하지 않으며 기존 dispatch의 검증 범위를 넓힌다.
+- [ ] 다음: explicit/direct definition의 입력 수집·실행 없는 frontend 구조와 local/locative/definition scope를 검토한다. 남은 callable inventory, 내부 effect/dependency·compiled reuse 계약, gerund 실행/Logical lowering은 별도 작업이다. tokenizer/enqueuer/parser 우선순위와 최적화·CUDA·GitHub CI 보류를 유지한다.
+
+Windows default/portable 각각 **306 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,805문장 중 2,801 passed, 기존 runtime 경계 4개, failed 0**; stage **7,935 checks**, words **6,618 cases** 통과. capture graph 경계 71건(ordered-effect 9, modifier-value 62), static 경계 2건은 유지한다. 새 waiver는 없으며 C DLL release pin과 검토 source pin을 구분한다.
+
+기준 소스: [cf.c bident/trident 표와 hook dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L310), [cf.c 즉시 적용 및 modifier 구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L349), [r.c AR decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

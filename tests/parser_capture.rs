@@ -1360,3 +1360,43 @@ fn gerund_modifier_name_read_precedes_actual_resolution() {
         ));
     }
 }
+
+#[test]
+fn ar_constructor_inventory_errors_preserve_target_and_noun_execution_boundary() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("inventoryfn=:+").unwrap();
+    let version = engine.binding_version("inventoryfn");
+    for (ar, expected) in [
+        ("(<'4'),<((<((<'0'),<3)),<((<'0'),<3))", "syntax error"),
+        ("(<'4'),<((<'/'),<((<'0'),<3))", "syntax error"),
+        ("(<'4'),<((<((<'0'),<3)),(<'/'),<'/')", "syntax error"),
+        (
+            "(<'4'),<((<((<'0'),<3)),(<'+'),<((<'0'),<3))",
+            "domain error",
+        ),
+    ] {
+        engine.eval(&format!("inventoryar=:{ar}")).unwrap();
+        let report = engine.eval_captured("inventoryfn=:(,<inventoryar)\\");
+        assert_eq!(report.result.unwrap_err().kind(), expected, "{ar}");
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("inventoryfn"), version);
+        assert_eq!(
+            engine
+                .eval("inventoryfn 3")
+                .unwrap()
+                .unwrap()
+                .int_at(0)
+                .unwrap(),
+            3
+        );
+    }
+    // N V N executes before the final gerund Verb audit. Static parsing may
+    // not fabricate that value or execute the call to turn it into a Literal.
+    assert_eq!(
+        engine
+            .prepare_semantic("inventoryfn=:(,<inventoryar)\\")
+            .unwrap_err()
+            .kind(),
+        "unsupported"
+    );
+}

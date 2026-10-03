@@ -1867,7 +1867,9 @@ fn modifier_train(phrase: Vec<Item>, result: ParseClass) -> Result<Arc<FunctionE
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BidentDisposition {
+/// Execution-free classification shared by row 6 and AR construction.
+/// Immediate application has value-dependent success and actual result POS.
+pub enum BidentDisposition {
     SyntaxError,
     ImmediateSemanticApply,
     BuildHook,
@@ -1875,14 +1877,16 @@ enum BidentDisposition {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TridentDisposition {
+/// Execution-free classification shared by row 5 and AR construction.
+/// This is construction dispatch, not a call/lowering capability promise.
+pub enum TridentDisposition {
     SyntaxError,
     ImmediateSemanticApply,
     BuildFork,
     BuildDerivedModifier(ParseClass),
 }
 
-fn bident_disposition(left: ParseClass, right: ParseClass) -> BidentDisposition {
+pub fn bident_disposition(left: ParseClass, right: ParseClass) -> BidentDisposition {
     use BidentDisposition::*;
     use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
     match (left, right) {
@@ -1898,7 +1902,7 @@ fn bident_disposition(left: ParseClass, right: ParseClass) -> BidentDisposition 
     }
 }
 
-fn trident_disposition(
+pub fn trident_disposition(
     first: ParseClass,
     second: ParseClass,
     third: ParseClass,

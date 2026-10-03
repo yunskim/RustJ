@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -55,6 +55,48 @@ def source_rows(source):
     if len(fields) != 81:
         raise ValueError('expected nine rows of nine fields')
     return [[expand(x) for x in fields[i:i+4]] for i in range(0, 81, 9)]
+
+
+def source_constructors(source):
+    """Read cf.c dispositions. Missing/duplicate/unknown source fails closed.
+
+    Special V V hook dispatch precedes bidents[]; MARK selects a fork.
+    A zero action invokes a semantic constructor/call, not a deferred train.
+    """
+    source = re.sub(r'/\*.*?\*/|//[^\n]*', '', source, flags=re.S)
+    if 'if(AT(a)&AT(w)&VERB)' not in re.sub(r'\s+', '', source):
+        raise ValueError('C V V hook dispatch missing')
+    classes = {'NOUN': 'Noun', 'ADV': 'Adverb', 'CONJ': 'Conjunction', 'VERB': 'Verb'}
+    tables = {}
+    for arity, name, size in [(2, 'bidents', 16), (3, 'tridents', 64)]:
+        match = re.search(name + r'\[' + str(size) + r'\]\s*=\s*\{(.*?)\};', source, re.S)
+        if not match:
+            raise ValueError('C constructor table missing: ' + name)
+        pattern = r'\[TYPE' + str(arity) + r'\(([^)]+)\)\]\s*=\s*\{\s*(\w+)\s*,\s*(\w+)\s*\}\s*,?'
+        entries = list(re.finditer(pattern, match[1]))
+        if re.sub(pattern, '', match[1]).strip():
+            raise ValueError('unrecognized C constructor table fields: ' + name)
+        table = {}
+        for entry in entries:
+            tokens = [part.strip() for part in entry[1].split(',')]
+            if len(tokens) != arity or any(part not in classes for part in tokens):
+                raise ValueError('unknown C constructor operand class')
+            key = tuple(classes[part] for part in tokens)
+            if key in table:
+                raise ValueError('duplicate C constructor entry')
+            action, result = entry[2], entry[3]
+            if result == 'MARK' and action == '0' and arity == 3:
+                disposition = 'BuildFork'
+            elif action == '0' and result in ('NOUN', 'VERB'):
+                disposition = 'ImmediateSemanticApply'
+            elif result in ('ADV', 'CONJ') and re.search(r'static\s+DF[12]\(' + action + r'\)', source):
+                disposition = 'BuildDerivedModifier(' + classes[result] + ')'
+            else:
+                raise ValueError('unknown C constructor action/result: ' + action + '/' + result)
+            table[key] = disposition
+        tables.update({parts: table.get(parts, 'SyntaxError') for parts in itertools.product(classes.values(), repeat=arity)})
+    tables[('Verb', 'Verb')] = 'BuildHook'
+    return tables
 
 
 def expected_row(rows, classes):
@@ -127,7 +169,7 @@ def run(args):
               'reference_library_sha256': hashlib.sha256(Path(os.environ['J_LIBRARY']).read_bytes()).hexdigest(),
               'probe_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdigest(),
               'checks': {}, 'mismatches': [], 'analysis_coverage_boundaries': [], 'pending': PENDING,
-              'limitations': ['enqueue control/name flags use source-derived goldens, not a C queue export', 'cases[] enumeration does not prove runtime ptcol action equivalence']}
+              'limitations': ['enqueue control/name flags use source-derived goldens, not a C queue export', 'cases[] enumeration does not prove runtime ptcol action equivalence', 'cf.c disposition enumeration does not prove all operand values, effects or callable implementations']}
     def check(stage, source, expected, actual):
         report['checks'][stage] = report['checks'].get(stage, 0) + 1
         if not equivalent(expected, actual):
@@ -136,6 +178,13 @@ def run(args):
     check('row_transport', 'coverage', [list(x) for x in combinations], [x['classes'] for x in observed_rows])
     for classes, observed in zip(combinations, observed_rows):
         check('declarative_rows', list(classes), expected_row(rows, classes), observed['row'])
+    expected_constructors = source_constructors((source_dir / 'jsrc/cf.c').read_text())
+    observed_constructors = [json.loads(line) for line in subprocess.check_output([args.binary, '--constructors'], text=True).splitlines()]
+    keys = [tuple(entry['classes']) for entry in observed_constructors]
+    check('constructor_transport', 'coverage', sorted(expected_constructors), sorted(keys))
+    for entry in observed_constructors:
+        parts = tuple(entry['classes'])
+        check('constructor_disposition', list(parts), expected_constructors.get(parts), entry['disposition'])
     oracle, probe, static_probe = Oracle(), Probe(args.binary), Probe(args.binary, analysis=True)
     try:
         literals = ['0', '1', '2', '_3', '0 1 1', '1 2 3', '1 2.5 _3', '_', '__', '_.', '1e_3', "''", "'a'", "'abc'", "'can''t'"]
@@ -387,6 +436,26 @@ def run(args):
             decoded = atomic_function(oracle.representation('calldecoded', 'atomic')['value'])
             source = 'callfn=:(,<callouterar)' + chr(92)
             check('constructor_decoded_snapshot', source, {'decoded': [decoded]}, static_probe.inspect(source, 'D'))
+        for source in modifier_inventory_cases():
+            if source.startswith('inventoryar=:'):
+                expected = oracle.eval(source)
+                if 'error' in expected:
+                    raise RuntimeError(f'invalid inventory AR fixture: {source}: {expected}')
+                check('constructor_inventory_setup', source, expected, static_probe.inspect(source, 'E'))
+            else:
+                error = oracle.run(source)
+                actual = static_probe.inspect(source, 'R')
+                if error:
+                    check('constructor_inventory_error', source, error, actual)
+                else:
+                    expected = {'pos': oracle.name_class('inventoryfn')['class'],
+                        'function': atomic_function(oracle.representation('inventoryfn', 'atomic')['value'])}
+                    check('constructor_inventory_result', source, expected, actual)
+                    error = oracle.run('inventorydecoded=:(<inventoryar)5!:0')
+                    if error:
+                        raise RuntimeError(f'C inventory decode failed: {error}')
+                    decoded = atomic_function(oracle.representation('inventorydecoded', 'atomic')['value'])
+                    check('constructor_inventory_decoded', source, {'decoded': [decoded]}, static_probe.inspect(source, 'D'))
         for source in late_modifier_cases():
             if source.startswith(('latefn=:', 'latekeep=:')):
                 error = oracle.run(source)

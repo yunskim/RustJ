@@ -58,6 +58,26 @@ fn rows() {
         }
     }
 }
+// Observe the same classifiers used by parser rows and the AR decoder.
+fn constructors() {
+    use ParseClass::{Adverb, Conjunction, Noun, Verb};
+    let classes = [Noun, Adverb, Conjunction, Verb];
+    for first in classes {
+        for second in classes {
+            println!(
+                "{{\"classes\":[\"{first:?}\",\"{second:?}\"],\"disposition\":\"{:?}\"}}",
+                bident_disposition(first, second)
+            );
+            for third in classes {
+                println!(
+                    "{{\"classes\":[\"{first:?}\",\"{second:?}\",\"{third:?}\"],\"disposition\":\"{:?}\"}}",
+                    trident_disposition(first, second, third)
+                );
+            }
+        }
+    }
+}
+
 fn inspect(source: &str) -> rustj::Result<String> {
     let raw = rustj::tokenizer::scan(source.as_bytes())?;
     let visible = rustj::tokenizer::parse_word_spans(source.as_bytes())?;
@@ -206,6 +226,10 @@ fn inspect_runtime(
 fn main() {
     if std::env::args().any(|a| a == "--rows") {
         rows();
+        return;
+    }
+    if std::env::args().any(|a| a == "--constructors") {
+        constructors();
         return;
     }
     let analysis = std::env::args().any(|a| a == "--analysis");

@@ -18,10 +18,12 @@
     "jsrc/jtype.h": "2a6fc646eb60270bbba35a9fbbfc6e50abb1158e63dce81574e67027e287a4c4"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "1ce960a50b8d291534209dd775d2791c96d4fbceb5d8f62ce8086815875d84b9",
+  "probe_sha256": "409ddab93c9a8e19b1dec43c79e11408a72ef49f7c3cf8f2bb074ad37829cd49",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
+    "constructor_transport": 1,
+    "constructor_disposition": 80,
     "tokenizer": 183,
     "enqueue_pos": 41,
     "enqueue_noun": 15,
@@ -48,6 +50,10 @@
     "runtime_constructor_call_error": 8,
     "constructor_decode_setup": 8,
     "constructor_decoded_snapshot": 4,
+    "constructor_inventory_setup": 80,
+    "constructor_inventory_error": 75,
+    "constructor_inventory_result": 5,
+    "constructor_inventory_decoded": 5,
     "late_modifier_setup_or_target": 37,
     "late_modifier_constructor": 23,
     "late_modifier_error": 3,
@@ -96,7 +102,8 @@
   },
   "limitations": [
     "enqueue control/name flags use source-derived goldens, not a C queue export",
-    "cases[] enumeration does not prove runtime ptcol action equivalence"
+    "cases[] enumeration does not prove runtime ptcol action equivalence",
+    "cf.c disposition enumeration does not prove all operand values, effects or callable implementations"
   ],
   "failed": 0
 }

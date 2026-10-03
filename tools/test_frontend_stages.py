@@ -1,5 +1,5 @@
 import unittest
-from frontend_stage_conformance import atomic_function, atomic_node, expected_row, source_rows, equivalent
+from frontend_stage_conformance import atomic_function, atomic_node, expected_row, source_rows, source_constructors, equivalent
 
 
 def chars(s):
@@ -43,3 +43,30 @@ class FrontendProjectionTests(unittest.TestCase):
     def test_missing_source_contract_is_not_a_pass(self):
         with self.assertRaises(ValueError):
             source_rows('PT cases[] = {};')
+
+    def test_constructor_inventory_reads_sparse_source_and_hook_special_case(self):
+        source = """if(AT(a)&AT(w)&VERB) {}
+        static DF1(taAV) {}
+        bidents[16] = {[TYPE2(ADV,VERB)]={taAV,ADV},};
+        tridents[64] = {[TYPE3(VERB,VERB,VERB)]={0,MARK},};"""
+        table = source_constructors(source)
+        self.assertEqual(len(table), 80)
+        self.assertEqual(table[('Verb', 'Verb')], 'BuildHook')
+        self.assertEqual(table[('Verb', 'Verb', 'Verb')], 'BuildFork')
+        self.assertEqual(table[('Adverb', 'Verb')], 'BuildDerivedModifier(Adverb)')
+        self.assertEqual(table[('Noun', 'Noun')], 'SyntaxError')
+
+    def test_unknown_or_duplicate_constructor_entries_fail_closed(self):
+        base = "if(AT(a)&AT(w)&VERB) {} bidents[16] = {%s}; tridents[64] = {};"
+        for entry in ['[TYPE2(NOUN,NOUN)]={missing,ADV},',
+                      '[TYPE2(B01,VERB)]={0,NOUN},',
+                      '[TYPE2(VERB,NOUN)]={0,NOUN},[TYPE2(VERB,NOUN)]={0,NOUN},',
+                      '[TYPE2(VERB,NOUN)]={0,MARK},', 'unexpected']:
+            with self.subTest(entry=entry), self.assertRaises(ValueError):
+                source_constructors(base % entry)
+
+    def test_constructor_inventory_requires_both_tables_and_hook_dispatch(self):
+        for source in ['', 'bidents[16] = {}; tridents[64] = {};',
+                       'if(AT(a)&AT(w)&VERB) {} bidents[16] = {};']:
+            with self.assertRaises(ValueError):
+                source_constructors(source)
