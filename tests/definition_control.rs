@@ -88,7 +88,10 @@ fn partition_is_not_a_control_flow_audit_or_executor() {
     engine.eval("f=:+").unwrap();
     let version = engine.binding_version("f");
     assert_eq!(
-        engine.eval("f=:3 : 'if. y do. 1 end.'").unwrap_err().kind(),
+        engine
+            .eval("f=:3 : 'goto_done. label_done. y'")
+            .unwrap_err()
+            .kind(),
         "unsupported"
     );
     assert_eq!(engine.binding_version("f"), version);

@@ -7810,6 +7810,19 @@ Windows default/portable 각각 **326 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [wc.c conword 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L331), [wc.c getsen 문장 분할](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L366), [wc.c preparse audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [sn.c vnm 이름 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
 
+##### Definition control 구조와 valence별 audit (2026-10-04, partial DEF-2)
+
+- [x] `definition_flow.rs`에 control entry·jump metadata를 추가했다. `preparse/conall/conend`를 따라 if/elseif/else, while/whilst/for, break/continue, assert/return/throw, try/catch/catchd/catcht, select/case/fcase의 **정의 생성 단계**를 처리한다. 호출별 local frame과 본문 실행은 아직 구현하지 않았다.
+- [x] physical sentence와 fragment별 word 범위를 함께 보존한다. body-relative span, physical line, valence별 target, assert marker 위치를 검증한다. `go`는 C의 control/error target이며 모든 정상 successor를 표현하는 CFG edge는 아니다. catcht의 runtime 처리를 정적 확정으로 해석하지 않는다.
+- [x] 각 valence의 enqueue를 마친 뒤 control 구조를 검사하고, monad 검사를 끝낸 뒤 dyad를 처리한다. literal mode 4의 divider 이전 monad는 C처럼 검사에서 제외한다. 실패 시 기존 binding을 보존하고 본문의 assignment·name lookup·실행을 하지 않는다.
+- [x] C의 control entry·sentence word·전체 word 한계를 반영했다. control entry 경계는 native C 비교로 검증했다. verifier는 valence 범위, jump 범위, physical line, word/source span 및 assert marker 참조를 검사한다. 전체 word 한계의 대규모 C 실측과 완전한 CFG 의미 증명은 미완료다.
+- [x] 8개 control word의 길이 1–3 조합 **584개**를 C와 비교한다. C의 packed-code interval 검사로 허용되는 비정형 `while. if./while./whilst./for. end.`도 보존하고 `analysis_barrier`로 표시한다. 이를 structured lowering 대상으로 추론하지 않는다. nested loop·try·select target은 검토한 pinned C 알고리즘 기반의 별도 Rust 회귀 테스트로 확인한다.
+- [ ] 다음: goto/label target·구조 진입 제한 audit, `canend`/BBLOCKEND 결과 자격 metadata. 호출 frame·runtime scope, nested/tagged/multiple DD, computed colon operand 및 Code 본문 graph lowering은 별도 단계다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **340 passed / 17 ignored**, fmt/clippy/build 통과, Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **3,501 cases / 3,497 passed / 기존 runtime 경계 4 / failed 0**, stage **8,677 checks**, words **6,618 cases** 통과. capture graph 경계 78과 static 경계 2는 별도 기록한다. 생성 결과·오류·atomic representation을 비교했으며 **private C control/jump trace를 export해서 비교한 것은 아니다**. upstream full suite와 definition 호출 acceptance 17건은 미실행이다. 보고서 10개의 실행 파일 및 source hash를 확인했다. DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`와 검토 소스 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`는 서로 다른 revision이다.
+
+Sources: [wc.c conend / packed interval](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L72), [wc.c try/select](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L111), [wc.c conall](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L177), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [cx.c valence ordering](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

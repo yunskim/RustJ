@@ -64,8 +64,8 @@ fn script_and_argument_failures_have_nonzero_status() {
 #[test]
 fn unsupported_definitions_never_execute_following_body_lines() {
     for source in [
-        "f=:{{\nif. y do.\nleaked=:99\nend.\n}}\nleaked\n",
-        "f=:3 : 0\nif. y do.\nleaked=:99\nend.\n)\nleaked\n",
+        "f=:{{\ngoto_done.\nleaked=:99\nlabel_done.\n}}\nleaked\n",
+        "f=:3 : 0\ngoto_done.\nleaked=:99\nlabel_done.\n)\nleaked\n",
         "f=:{{ 'unfinished\nleaked=:99\n}}\nleaked\n",
         "f=:verb define\nleaked=:99\n)\nleaked\n",
     ] {
@@ -216,7 +216,7 @@ fn completed_definition_error_does_not_truncate_a_json_session() {
             .stdin
             .take()
             .unwrap()
-            .write_all(b"f=:+\nf=:3 : 'if. y do.' 1 2+1 2 3\nf 7\n")
+            .write_all(b"f=:+\nf=:3 : 'goto_done.' 1 2+1 2 3\nf 7\n")
             .unwrap();
         let result = child.wait_with_output().unwrap();
         assert_eq!(result.status.code(), Some(1));

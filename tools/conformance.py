@@ -179,6 +179,44 @@ def definition_code_cases():
     ]
 
 
+def definition_flow_bodies():
+    return [
+        'if. y do. 1 end.', 'if. y do. 1 else. 0 end.',
+        'if. y do. 1 elseif. x do. 2 else. 3 end.',
+        'while. y do. y end.', 'whilst. y do. break. end.',
+        'for_i. y do. continue. break. end.',
+        'while. y do. for_i. y do. continue. break. end. break. end.',
+        'if. if. y do. z end. do. a end.',
+        'assert. y', '1 return.', 'throw.',
+        'select. y case. 1 do. 2 end.',
+        'select. y case. 1 do. 2 fcase. 3 do. 4 case. 5 do. 6 end.',
+        'while. y do. select. y case. 1 do. break. 0 end. end.',
+        'while. y do. select. y case. 1 do. select. z case. 2 do. continue. 0 end. 0 end. end.',
+        'if. do. else. if. end.',
+        'select. y end.', 'case. y do. 1 end.', 'select. y do. 1 end.',
+        'try. y catch. 1 end.', 'try. y catchd. 2 catch. 1 catcht. 3 end.',
+        'try. try. y catchd. 1 end. throw. catch. 2 end.', 'try. y catcht. 3 end.',
+        'try. end.', 'catch. end.', 'try. catch. catch. end.', 'try. if. y catch. end.',
+        'if.', 'if. y end.', 'do.', 'else.', 'elseif.', 'end.',
+        'break.', 'continue.', 'assert.', 'assert. do.', 'assert. assert. y',
+        'if. y do. else. else. end.', 'while. y end.',
+        'for_i. y do. if. y do. 1 end.', 'if. y do. 1 2e',
+    ]
+
+
+def control_sequence_matrix():
+    """Bounded exhaustive structural states, including legal empty test bodies."""
+    import itertools
+    words=['if.','do.','else.','elseif.','end.','while.','whilst.','for.']
+    return [' '.join(parts) for size in range(1,4) for parts in itertools.product(words,repeat=size)]
+
+
+def definition_flow_cases():
+    return ['flowcounter=:0', "flowfn=:3 : 'if. y do. flowcounter=:99 else. 7 end.'", 'flowcounter'] + [
+        sentence for body in definition_flow_bodies()
+        for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -439,6 +477,8 @@ def cases():
     fixed.extend(late_modifier_cases())
     fixed.extend(modifier_inventory_cases())
     fixed.extend(definition_code_cases())
+    fixed.extend(definition_flow_cases())
+    fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

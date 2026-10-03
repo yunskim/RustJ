@@ -10,6 +10,7 @@ pub mod compilation;
 pub mod contracts;
 pub mod definition_code;
 pub mod definition_control;
+pub mod definition_flow;
 pub mod definition_input;
 pub mod enqueuer;
 pub mod error;

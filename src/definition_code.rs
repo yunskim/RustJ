@@ -52,6 +52,8 @@ pub struct DefinitionCode {
     pub dyad: Range<usize>,
     /// C VXOPR: operator definition refers to x/y invocation arguments.
     pub operator_definition: bool,
+    pub monad_controls: Vec<crate::definition_flow::ControlNode>,
+    pub dyad_controls: Vec<crate::definition_flow::ControlNode>,
 }
 
 pub(crate) fn semantic_body<'a>(source: &'a str, input: &DefinitionInput) -> Result<Cow<'a, str>> {
@@ -118,43 +120,159 @@ pub fn compile(
     if lines.is_empty() {
         lines.push("");
     }
+    use crate::{
+        definition_control::ControlWord as W,
+        definition_flow::{ControlJump as J, ControlKind as K, ControlNode},
+    };
+    let split_line = lines
+        .iter()
+        .enumerate()
+        .find(|(i, line)| {
+            *i + 1 < lines.len() && line.trim_end_matches(['\r', '\n']).trim_matches(' ') == ":"
+        })
+        .map(|(i, _)| i);
     let mut sentences = Vec::new();
     let mut offset = 0;
     let mut split = None;
     let mut names = Vec::new();
+    let mut sections: [Vec<ControlNode>; 2] = [Vec::new(), Vec::new()];
+    let mut queued_words = [0usize; 2];
+    let mut audited = [false; 2];
+    let mut pending_assert: Option<std::ops::Range<usize>> = None;
     for (line_index, physical) in lines.iter().enumerate() {
         let line = physical.trim_end_matches(['\r', '\n']);
-        // cx.c only recognizes a spaces-only : before the final body line.
-        if line_index + 1 < lines.len() && line.trim_matches(' ') == ":" && split.is_none() {
+        if Some(line_index) == split_line {
+            if let Some(span) = pending_assert.take() {
+                return Err(body_error(
+                    Error::Control.at(span),
+                    source,
+                    input,
+                    &body,
+                    0,
+                    body.len(),
+                ));
+            }
+            // C calls preparse separately: audit monad before enqueueing dyad.
+            crate::definition_flow::audit(&mut sections[0])
+                .map_err(|e| body_error(e, source, input, &body, 0, body.len()))?;
+            audited[0] = true;
             split = Some(sentences.len());
             offset += physical.len();
             continue;
         }
-        let parts = crate::definition_control::partition_line(line)
-            .map_err(|error| body_error(error, source, input, &body, offset, line.len()))?;
-        if parts.iter().any(|part| part.control.is_some()) {
-            return Err(
-                Error::Unsupported("definition control-flow audit is pending".into())
-                    .at(input.span.clone()),
-            );
-        }
-        let queue = crate::enqueuer::enqueue_in_environment(
-            line,
-            primitives,
-            EnqueueEnvironment::ExplicitDefinition,
-        )
-        .map_err(|error| body_error(error, source, input, &body, offset, line.len()))?;
-        let mut words = Vec::with_capacity(queue.len());
-        for word in queue {
-            if let crate::enqueuer::EnqueuedPayload::Name(name) = &word.payload {
-                names.push((*name).to_owned());
+        let side = usize::from(split.is_some());
+        let mode4 = matches!(
+            input.form,
+            DefinitionForm::ExplicitString(4) | DefinitionForm::ExplicitBlock(4)
+        );
+        // C discards a supplied monadic section before preparse for literal 4 :.
+        let ignored = mode4 && split_line.is_some() && split.is_none();
+        let mut words = Vec::new();
+        if !ignored {
+            let parts = crate::definition_control::partition_line(line)
+                .map_err(|e| body_error(e, source, input, &body, offset, line.len()))?;
+            for part in parts {
+                let span = offset + part.span.start..offset + part.span.end;
+                // j.h CWMAX/SWMAX/EXPWMAX; pending assert occupies a temporary slot.
+                if sections[side].len() + usize::from(pending_assert.is_some()) + 1 >= 32766 {
+                    return Err(body_error(
+                        Error::Limit.at(span),
+                        source,
+                        input,
+                        &body,
+                        0,
+                        body.len(),
+                    ));
+                }
+                if let Some(control) = part.control {
+                    if let Some(marker) = pending_assert.take() {
+                        return Err(body_error(
+                            Error::Control.at(marker),
+                            source,
+                            input,
+                            &body,
+                            0,
+                            body.len(),
+                        ));
+                    }
+                    if control == W::Assert {
+                        pending_assert = Some(span);
+                        continue;
+                    }
+                    if control == W::For {
+                        queued_words[side] += 1;
+                    }
+                    let go = if matches!(control, W::Break | W::Continue | W::Throw) {
+                        J::DynamicError
+                    } else if control == W::Return {
+                        J::Return
+                    } else {
+                        J::Index(sections[side].len() + 1)
+                    };
+                    sections[side].push(ControlNode {
+                        span,
+                        line: line_index,
+                        words: words.len()..words.len(),
+                        kind: K::Word(control),
+                        go,
+                        assertion: None,
+                        analysis_barrier: false,
+                    });
+                } else {
+                    let begin = words.len();
+                    let queue = crate::enqueuer::enqueue_in_environment(
+                        &line[part.span.clone()],
+                        primitives,
+                        EnqueueEnvironment::ExplicitDefinition,
+                    )
+                    .map_err(|e| {
+                        body_error(
+                            e,
+                            source,
+                            input,
+                            &body,
+                            offset + part.span.start,
+                            part.span.len(),
+                        )
+                    })?;
+                    if queue.len() >= 32767 {
+                        return Err(body_error(
+                            Error::Limit.at(span),
+                            source,
+                            input,
+                            &body,
+                            0,
+                            body.len(),
+                        ));
+                    }
+                    queued_words[side] += queue.len();
+                    for word in queue {
+                        if let crate::enqueuer::EnqueuedPayload::Name(name) = &word.payload {
+                            names.push((*name).to_owned());
+                        }
+                        words.push(DefinitionWord {
+                            span: span.start + word.span.start..span.start + word.span.end,
+                            index: words.len(),
+                            class: word.class,
+                            flags: word.flags,
+                        });
+                    }
+                    let assertion = pending_assert.take();
+                    sections[side].push(ControlNode {
+                        span,
+                        line: line_index,
+                        words: begin..words.len(),
+                        kind: if assertion.is_some() {
+                            K::Assert
+                        } else {
+                            K::Body
+                        },
+                        go: J::DynamicError,
+                        assertion,
+                        analysis_barrier: false,
+                    });
+                }
             }
-            words.push(DefinitionWord {
-                span: offset + word.span.start..offset + word.span.end,
-                index: word.word_index,
-                class: word.class,
-                flags: word.flags,
-            });
         }
         sentences.push(DefinitionSentence {
             span: offset..offset + line.len(),
@@ -162,6 +280,34 @@ pub fn compile(
             words,
         });
         offset += physical.len();
+        if queued_words[side] >= 16777215 {
+            return Err(body_error(
+                Error::Limit,
+                source,
+                input,
+                &body,
+                offset - physical.len(),
+                line.len(),
+            ));
+        }
+    }
+    if let Some(span) = pending_assert {
+        return Err(body_error(
+            Error::Control.at(span),
+            source,
+            input,
+            &body,
+            0,
+            body.len(),
+        ));
+    }
+    // Within each valence enqueue completes before conall auditing.
+    for (index, section) in sections.iter_mut().enumerate() {
+        if audited[index] {
+            continue;
+        }
+        crate::definition_flow::audit(section)
+            .map_err(|e| body_error(e, source, input, &body, 0, body.len()))?;
     }
     let mode = match input.form {
         DefinitionForm::Direct => {
@@ -206,7 +352,17 @@ pub fn compile(
             std::mem::swap(&mut monad, &mut dyad);
         }
     }
-    Ok(Arc::new(DefinitionCode {
+    let [mut monad_controls, mut dyad_controls] = sections;
+    if mode == 4 || (mode <= 2 && monad.is_empty() && !dyad.is_empty() && dyad_controls.is_empty())
+    {
+        if dyad_controls.is_empty() {
+            std::mem::swap(&mut monad_controls, &mut dyad_controls);
+        }
+        if mode == 4 {
+            monad_controls.clear();
+        }
+    }
+    let code = DefinitionCode {
         source: Arc::from(source),
         body,
         source_span: input.span.clone(),
@@ -217,10 +373,70 @@ pub fn compile(
         monad,
         dyad,
         operator_definition,
-    }))
+        monad_controls,
+        dyad_controls,
+    };
+    code.verify()?;
+    Ok(Arc::new(code))
 }
 
 impl DefinitionCode {
+    /// Verify source/word/control references before consuming this code in analysis.
+    pub fn verify(&self) -> Result<()> {
+        for range in [&self.monad, &self.dyad] {
+            if self.sentences.get(range.clone()).is_none() {
+                return Err(Error::Unsupported(
+                    "definition valence range outside source lines".into(),
+                ));
+            }
+        }
+        for (nodes, range) in [
+            (&self.monad_controls, &self.monad),
+            (&self.dyad_controls, &self.dyad),
+        ] {
+            crate::definition_flow::verify(nodes)?;
+            for node in nodes {
+                let position = self
+                    .sentences
+                    .binary_search_by_key(&node.line, |line| line.line)
+                    .map_err(|_| Error::Unsupported("control source line is missing".into()))?;
+                if !range.contains(&position) {
+                    return Err(Error::Unsupported(
+                        "control source belongs to a different valence".into(),
+                    ));
+                }
+                let line = &self.sentences[position];
+                if self.body.get(node.span.clone()).is_none()
+                    || node.span.start < line.span.start
+                    || node.span.end > line.span.end
+                    || line.words.get(node.words.clone()).is_none()
+                {
+                    return Err(Error::Unsupported(
+                        "control source/word reference outside body".into(),
+                    ));
+                }
+                for word in &line.words[node.words.clone()] {
+                    if self.body.get(word.span.clone()).is_none()
+                        || word.span.start < node.span.start
+                        || word.span.end > node.span.end
+                    {
+                        return Err(Error::Unsupported(
+                            "statement word outside control fragment".into(),
+                        ));
+                    }
+                }
+                if node
+                    .assertion
+                    .as_ref()
+                    .is_some_and(|span| self.body.get(span.clone()) != Some("assert."))
+                {
+                    return Err(Error::Unsupported("invalid assertion source marker".into()));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Semantic 5!:1 body projection after valence rearrangement; source stays intact.
     pub fn representation_lines(&self) -> Vec<&str> {
         let section = |range: Range<usize>| {

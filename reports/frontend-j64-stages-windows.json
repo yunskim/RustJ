@@ -18,10 +18,13 @@
     "jsrc/jtype.h": "2a6fc646eb60270bbba35a9fbbfc6e50abb1158e63dce81574e67027e287a4c4",
     "jsrc/cx.c": "f22c05b7bfacf007e62766f90a471422e17108101b8bbff4c0357b69fcbf837e",
     "jsrc/wc.c": "b4d9b1f38aa35532096d500bdb14c78e13eb7e9280365d337b832069c4ec26f2",
-    "jsrc/io.c": "65036d4e52be0b84753736d37ef53f0e4a4237e4bf0d387b276a75d4ce863bb0"
+    "jsrc/io.c": "65036d4e52be0b84753736d37ef53f0e4a4237e4bf0d387b276a75d4ce863bb0",
+    "jsrc/jerr.h": "70ed09fa0e3ebd92c151b1a352cfeff5ea0cf23ca5eb379f10c8e27ca06f4e0c",
+    "jsrc/j.h": "0db8f2ee84bf85bafe78d400d66d207589de93f3f2b7e34e0c72c9d7f26edf5b",
+    "jsrc/w.h": "9ea93c4f74ee09b42f821f0887a1eab7c0c6ae183c4adb83c04bf59a38281f1b"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "f60d944bd48cc3808dd45eb127cdf1cbb8a620bacb9ce99012c454cee008f1e8",
+  "probe_sha256": "e2826298016dd3d219ce845257399e315432c774f8cee1db99a21656fe2363e2",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -72,6 +75,12 @@
     "definition_constructor": 16,
     "definition_multiline_constructor": 5,
     "definition_valence_error": 2,
+    "definition_flow_constructor": 21,
+    "definition_flow_error": 25,
+    "definition_mode4_discarded_valence": 1,
+    "definition_control_entry_limit": 1,
+    "control_sequence_matrix_error": 576,
+    "control_sequence_matrix_constructor": 8,
     "snapshot_setup": 6,
     "decoded_noun_snapshot": 6,
     "snapshot_rebind": 3,
