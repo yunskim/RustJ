@@ -7847,6 +7847,18 @@ Windows default/portable 각각 **348 passed / 17 ignored**, fmt/clippy/build �
 
 Sources: [wc.c goto audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L14), [j.h half-open intervals and DO loop index](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1065), [upstream goto position tests](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/ggoto.ijs).
 
+##### 한 문장의 여러 direct definition 보존 (2026-10-04, partial DEF-1/2)
+
+- [x] `InputFrame::Definitions`로 disjoint root DD를 source 순서대로 보존한다. 각각의 delimiter/body span과 nested 범위 소유권을 분리한다. 뒤쪽 root가 미완성이면 전체가 NeedMore이며 앞쪽 root도 commit되지 않는다. nested 범위 수집은 semantic nested Code 지원을 뜻하지 않는다.
+- [x] enqueuer는 각 root를 독립된 parenthesized `9 : body` constructor로 전개하고 gap의 ordinary word를 유지한다. 원본 source와 primitive context를 constructor끼리 Arc로 공유한다. gap 오류의 blame index도 전개된 queue index를 사용한다. body·constructor의 원본 위치는 전개 위치와 별개로 보존한다.
+- [x] 기존 row 4·row 7과 Hook/Fork 처리를 사용하며 여러 DefinitionCode를 function operand로 유지한다. 본문 이름을 조회하거나 noun으로 실행/reduce하지 않는다. static prepare는 binding을 commit하지 않으며, 실패한 train 정의도 old binding을 보존한다.
+- [x] 회귀 테스트 4개로 quote/comment·nested 소유권, incomplete collection, enqueue provenance/index·Arc 공유, structural train·body 미실행·binding 유지 및 CLI의 두 경로를 검증했다. C corpus에 15건을 추가해 실제 atomic representation과 오류·transaction을 비교했다. stage에는 input projection·incomplete 비교 4건을 더했다.
+- [ ] 다음: semantic nested DD와 tagged DD, computed/grouped colon operands 및 한 문장의 mixed literal-colon/DD framing. 여러 ordinary root DD 지원을 모든 definition form 지원으로 확대 해석하지 않는다. invocation/local scope, A3 및 Code 본문 graph lowering은 후속 단계다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **352 passed / 17 ignored**, fmt/clippy/build 통과, Python **25 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,578 cases / 4,574 passed / 기존 runtime 경계 4 / failed 0**, stage **9,743 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했다. capture graph 경계 78과 static 경계 2는 별도이며, full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다. DLL release와 source review pin은 이전과 같다.
+
+Sources: [cx.c repeated DD expansion](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [p.c parser reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

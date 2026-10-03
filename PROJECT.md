@@ -690,6 +690,18 @@ Windows default/portable each: **348 passed / 17 ignored**; fmt/clippy/build pas
 
 Sources: [wc.c goto audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L14), [j.h half-open intervals and DO loop index](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1065), [upstream goto position tests](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/ggoto.ijs).
 
+##### Preserve multiple direct definitions in one sentence (2026-10-04, partial DEF-1/2)
+
+- [x] `InputFrame::Definitions` preserves disjoint root DDs in source order, with separate delimiter/body spans and nested-range ownership. An incomplete later root makes the entire input NeedMore without committing an earlier root. Collecting nested ranges does not implement semantic nested Code construction.
+- [x] Enqueue each root as an independent parenthesized `9 : body` constructor, preserving ordinary gap words. Constructors share source and primitive context through Arc. Gap diagnostics use expanded queue indices while retaining original source positions independently.
+- [x] Reuse existing rows 4/7 and Hook/Fork construction, preserving separate DefinitionCodes as function operands. Do not resolve or execute/reduce body names. Static preparation never commits bindings; failed train construction retains old bindings.
+- [x] Four regression tests cover quote/comment and nested ownership, incomplete collection, enqueue provenance/indices/Arc sharing, structural trains, no body execution, transactional bindings and both CLI paths. Add 15 native C outcome/atomic-representation/transaction cases and four stage input/incomplete projections.
+- [ ] Next: semantic nested DDs, tagged DDs, computed/grouped colon operands and mixed literal-colon/DD framing in one sentence. Multiple ordinary root DD support is not complete definition-form support. Invocation/local scope, A3 and Code body graph lowering follow separately. Optimization, CUDA and GitHub CI remain deferred.
+
+Windows default/portable each: **352 passed / 17 ignored**; fmt/clippy/build pass; Python: **25 passed**. For both j64 and AVX2, direct/semantic-reference/parser-capture: **4,578 cases / 4,574 passed / 4 existing runtime boundaries / 0 failed**; stages: **9,743 checks**; words: **6,618 cases**. All ten report binary/source hashes match. Record 78 capture-graph and 2 static boundaries separately. The full upstream suite, definition invocation acceptance and private C trace equivalence remain unverified. DLL release and source review pins remain distinct as documented above.
+
+Sources: [cx.c repeated DD expansion](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [p.c parser reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
+
 <a id="static-frontend-review"></a>
 
 ##### Static-analysis acceptance and existing frontend review (2026-10-03)

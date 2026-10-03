@@ -251,6 +251,22 @@ def definition_flow_cases():
         for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
 
 
+def multiple_definition_cases():
+    return [
+        'multikeep=:+', 'multi_counter=:0',
+        'multiroot=:{{y+1}} + {{y-1}}',
+        'multiroot=:{{y}} {{x+y}}',
+        'multiroot=:{{y}} + {{y}} + {{y}}',
+        'multiroot=:{{y}} - {{y}}',
+        "multiroot=:{{ '}}' + y}} + {{y}}",
+        'multiroot=:{{multi_counter=:99+y}} + {{futuremulti+y}}',
+        'multi_counter',
+        'multikeep=:{{if.}} + {{y}}', 'multikeep 7',
+        'multikeep=:{{y}} + {{if.}}', 'multikeep 7',
+        'multikeep=:{{goto_a.}} + {{y}}', 'multikeep 7',
+    ]
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -512,6 +528,7 @@ def cases():
     fixed.extend(modifier_inventory_cases())
     fixed.extend(definition_code_cases())
     fixed.extend(definition_flow_cases())
+    fixed.extend(multiple_definition_cases())
     fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
     fixed.extend("gotomatrix=:3 : '"+body.replace("\n", " ").replace("'", "''")+"'" for body in goto_position_matrix())
     return fixed

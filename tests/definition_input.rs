@@ -115,3 +115,64 @@ fn block_terminator_inside_nested_direct_definition_does_not_end_input() {
     assert_eq!(&source[input.nested[0].clone()], "{{\n)\ny+1\n}}");
     assert!(input.body_text(source).unwrap().contains("inner y"));
 }
+
+#[test]
+fn multiple_roots_preserve_disjoint_source_order_and_nested_ownership() {
+    let source = "f=:{{ '}}' [ y }} + {{ {{y+1}} y }} NB. {{ opaque";
+    let InputFrame::Definitions(inputs) = frame(source).unwrap() else {
+        panic!()
+    };
+    assert_eq!(inputs.len(), 2);
+    assert!(inputs[0].span.end < inputs[1].span.start);
+    assert!(inputs[0].nested.is_empty());
+    assert_eq!(inputs[1].nested.len(), 1);
+    assert_eq!(&source[inputs[1].nested[0].clone()], "{{y+1}}");
+    let mut collector = DefinitionCollector::default();
+    assert_eq!(
+        collector.push_line("f=:{{y}} + {{").unwrap(),
+        InputFrame::NeedMore
+    );
+    assert!(collector.finish().is_err());
+    assert!(matches!(
+        collector.push_line("y+1}}").unwrap(),
+        InputFrame::Definitions(_)
+    ));
+    assert!(frame("{{y}} }}").is_err());
+}
+
+#[test]
+fn each_root_enqueues_its_own_constructor_and_expanded_error_index() {
+    use rustj::{
+        enqueuer::{EnqueuedPayload, enqueue},
+        semantic::FunctionHead,
+    };
+    let source = "{{y+1}} + {{y-1}}";
+    let queue = enqueue(source).unwrap();
+    assert_eq!(queue.len(), 11);
+    let origins: Vec<_> = queue
+        .iter()
+        .filter_map(|word| match &word.payload {
+            EnqueuedPayload::Function(function) => match &function.head {
+                FunctionHead::DefinitionConstructor(origin) => Some(origin),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(origins.len(), 2);
+    assert_eq!(&source[origins[0].input.span.clone()], "{{y+1}}");
+    assert_eq!(&source[origins[1].input.span.clone()], "{{y-1}}");
+    assert!(std::sync::Arc::ptr_eq(
+        &origins[0].source,
+        &origins[1].source
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &origins[0].primitives,
+        &origins[1].primitives
+    ));
+    for (i, word) in queue.iter().enumerate() {
+        assert_eq!(word.word_index, i);
+    }
+    let error = enqueue("{{y}} + {{y}} 1 2e").unwrap_err();
+    assert_eq!(error.context().unwrap().blame_word_index, Some(11));
+}

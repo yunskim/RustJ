@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -614,6 +614,27 @@ def run(args):
             check('definition_multiline_constructor', source, expected, static_probe.inspect(source, 'R'))
         for source in ["defcode=:1 : 'u\n:\nv'", "defcode=:{{u\n:\nu}}"]:
             check('definition_valence_error', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+        for source in multiple_definition_cases():
+            if '{{' not in source:
+                check('multiple_definition_setup_or_transaction',source,oracle.eval(source),static_probe.inspect(source,'E'))
+                continue
+            error=oracle.run(source)
+            actual=static_probe.inspect(source,'R')
+            if error:
+                check('multiple_definition_error',source,error,actual)
+            else:
+                name=source.split('=:',1)[0]
+                expected={'pos':oracle.name_class(name)['class'],'function':atomic_function(oracle.representation(name,'atomic')['value'])}
+                check('multiple_definition_constructor',source,expected,actual)
+        for source in ['many=:{{y+1}} + {{y-1}}','many=:{{y}} + {{\ny+1}}']:
+            actual=definition_probe.inspect(source)
+            expected=[]
+            for start in [source.index('{{'),source.rindex('{{')]:
+                close=source.index('}}',start)
+                expected.append({'state':'definition','form':'direct','mode':9,'body_hex':source[start+2:close].encode().hex(),'span':[start,close+2],'body_span':[start+2,close],'nested':[]})
+            check('multiple_definition_input',source,{'state':'definitions','definitions':expected},actual)
+        for source in ['many=:{{y}} + {{','many=:{{y}} + {{\ny+1']:
+            check('multiple_definition_incomplete',source,{'state':'incomplete'},definition_probe.inspect(source))
         for body in definition_flow_bodies() + ['assert.\nNB. ignored\ny',
                 'if. y do. 1 end.\n:\nwhile. x do. break. end.', 'if.\n:\n1 2e', '1 2e\n:\nif.']:
             source="flowfn=:3 : '" + body.replace("'", "''") + "'"

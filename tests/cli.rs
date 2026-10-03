@@ -226,3 +226,38 @@ fn completed_definition_error_does_not_truncate_a_json_session() {
         assert!(text.ends_with("{\"type\":4,\"shape\":[],\"data\":[7]}\n"));
     }
 }
+
+#[test]
+fn multiple_root_collection_emits_one_sentence_without_executing_either_body() {
+    for semantic in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rustj"));
+        command.arg("--json");
+        if semantic {
+            command.arg("--semantic-reference");
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"counter=:0\ncombined=:{{counter=:99+y}} + {{\nfuture+y\n}}\ncounter\n")
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines[0], "{\"silent\":true}");
+        assert_eq!(lines[1], "{\"silent\":true}");
+        assert_eq!(lines[2], "{\"type\":1,\"shape\":[],\"data\":[0]}");
+    }
+}

@@ -69,7 +69,7 @@ fn run_input(
                     }
                     continue;
                 }
-                Ok(InputFrame::Definition(_)) => {
+                Ok(InputFrame::Definition(_) | InputFrame::Definitions(_)) => {
                     let result = run(
                         engine,
                         collector.source(),

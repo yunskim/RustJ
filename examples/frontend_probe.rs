@@ -250,30 +250,45 @@ fn inspect_runtime(
     ))
 }
 
+fn definition_frame_json(
+    source: &str,
+    input: &rustj::definition_input::DefinitionInput,
+) -> rustj::Result<String> {
+    use rustj::definition_input::DefinitionForm;
+    let (form, mode) = match input.form {
+        DefinitionForm::Direct => ("direct", 9),
+        DefinitionForm::ExplicitString(mode) => ("string", mode),
+        DefinitionForm::ExplicitBlock(mode) => ("block", mode),
+    };
+    let nested = input
+        .nested
+        .iter()
+        .map(|s| format!("[{},{}]", s.start, s.end))
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok(format!(
+        "{{\"state\":\"definition\",\"form\":\"{form}\",\"mode\":{mode},\"body_hex\":\"{}\",\"span\":[{},{}],\"body_span\":[{},{}],\"nested\":[{nested}]}}",
+        hex(input.body_text(source)?.as_bytes()),
+        input.span.start,
+        input.span.end,
+        input.body.start,
+        input.body.end
+    ))
+}
 fn inspect_definition(source: &str) -> rustj::Result<String> {
-    use rustj::definition_input::{DefinitionForm, InputFrame};
+    use rustj::definition_input::InputFrame;
     match rustj::parser::frame_definition_input(source)? {
         InputFrame::Sentence => Ok("{\"state\":\"sentence\"}".into()),
         InputFrame::NeedMore => Ok("{\"state\":\"incomplete\"}".into()),
-        InputFrame::Definition(input) => {
-            let (form, mode) = match input.form {
-                DefinitionForm::Direct => ("direct", 9),
-                DefinitionForm::ExplicitString(mode) => ("string", mode),
-                DefinitionForm::ExplicitBlock(mode) => ("block", mode),
-            };
-            let nested = input
-                .nested
+        InputFrame::Definition(input) => definition_frame_json(source, &input),
+        InputFrame::Definitions(inputs) => {
+            let entries = inputs
                 .iter()
-                .map(|span| format!("[{},{}]", span.start, span.end))
-                .collect::<Vec<_>>()
-                .join(",");
+                .map(|input| definition_frame_json(source, input))
+                .collect::<rustj::Result<Vec<_>>>()?;
             Ok(format!(
-                "{{\"state\":\"definition\",\"form\":\"{form}\",\"mode\":{mode},\"body_hex\":\"{}\",\"span\":[{},{}],\"body_span\":[{},{}],\"nested\":[{nested}]}}",
-                hex(input.body_text(source)?.as_bytes()),
-                input.span.start,
-                input.span.end,
-                input.body.start,
-                input.body.end
+                "{{\"state\":\"definitions\",\"definitions\":[{}]}}",
+                entries.join(",")
             ))
         }
     }

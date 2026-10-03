@@ -26,6 +26,8 @@ pub enum InputFrame {
     Sentence,
     NeedMore,
     Definition(DefinitionInput),
+    /// Disjoint root definitions in one sentence, in source order.
+    Definitions(Vec<DefinitionInput>),
 }
 
 impl DefinitionInput {
@@ -111,6 +113,7 @@ pub fn frame(source: &str) -> Result<InputFrame> {
 fn direct(source: &str, open: Range<usize>) -> Result<InputFrame> {
     let mut stack = Vec::new();
     let mut nested = Vec::new();
+    let mut roots = Vec::new();
     // wordil keeps NB. comments opaque and permits LF inside a quoted word.
     // Comments stay single opaque spans, including on interior body lines.
     for span in tokenizer::scan_unfinished(source.as_bytes()) {
@@ -136,31 +139,28 @@ fn direct(source: &str, open: Range<usize>) -> Result<InputFrame> {
                     .ok_or_else(|| Error::Syntax("unmatched }}".into()).at(span.clone()))?;
                 if stack.is_empty() {
                     // Completed definitions still require well-formed quotes.
-                    tokenizer::scan(&source.as_bytes()[open.start..span.end])?;
-                    let tail = &source[span.end..];
-                    let tail = tail.split('\n').next().unwrap_or(tail);
-                    if tokenizer::scan_unfinished(tail.as_bytes())
-                        .iter()
-                        .any(|word| &tail[word.clone()] == "{{")
-                    {
-                        return Err(Error::Unsupported(
-                            "multiple direct definitions in one sentence".into(),
-                        )
-                        .at(span));
-                    }
-                    return Ok(InputFrame::Definition(DefinitionInput {
+                    tokenizer::scan(&source.as_bytes()[start.start..span.end])?;
+                    roots.push(DefinitionInput {
                         form: DefinitionForm::Direct,
-                        span: open.start..span.end,
-                        body: open.end..span.start,
-                        nested,
-                    }));
+                        span: start.start..span.end,
+                        body: start.end..span.start,
+                        nested: std::mem::take(&mut nested),
+                    });
+                    continue;
                 }
                 nested.push(start.start..span.end);
             }
             _ => {}
         }
     }
-    Ok(InputFrame::NeedMore)
+    if !stack.is_empty() {
+        return Ok(InputFrame::NeedMore);
+    }
+    Ok(if roots.len() == 1 {
+        InputFrame::Definition(roots.pop().unwrap())
+    } else {
+        InputFrame::Definitions(roots)
+    })
 }
 
 fn explicit_block(source: &str, mode: u8, start: usize, first_end: usize) -> Result<InputFrame> {

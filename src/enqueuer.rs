@@ -289,41 +289,60 @@ pub fn enqueue_in_environment<'a>(
     primitives: &crate::primitive::PrimitiveContext,
     environment: EnqueueEnvironment,
 ) -> Result<Vec<EnqueuedWord<'a>>> {
-    let definition = match crate::definition_input::frame(source)? {
-        crate::definition_input::InputFrame::Definition(input) => Some(input),
+    let definitions = match crate::definition_input::frame(source)? {
+        crate::definition_input::InputFrame::Definition(input) => vec![input],
+        crate::definition_input::InputFrame::Definitions(inputs) => inputs,
         crate::definition_input::InputFrame::NeedMore => {
             return Err(Error::Syntax("unterminated definition input".into()));
         }
-        crate::definition_input::InputFrame::Sentence => None,
+        crate::definition_input::InputFrame::Sentence => Vec::new(),
     };
-    let spans = if let Some(input) = &definition {
-        let mut spans = crate::tokenizer::parse_word_spans(&source.as_bytes()[..input.span.start])?;
-        spans.push(input.span.clone());
-        spans.extend(
-            crate::tokenizer::parse_word_spans(&source.as_bytes()[input.span.end..])?
+    let spans = if !definitions.is_empty() {
+        let mut spans = Vec::new();
+        let mut previous_end = 0;
+        for input in &definitions {
+            spans.extend(
+                crate::tokenizer::parse_word_spans(
+                    &source.as_bytes()[previous_end..input.span.start],
+                )?
                 .into_iter()
-                .map(|s| input.span.end + s.start..input.span.end + s.end),
+                .map(|s| previous_end + s.start..previous_end + s.end),
+            );
+            spans.push(input.span.clone());
+            previous_end = input.span.end;
+        }
+        spans.extend(
+            crate::tokenizer::parse_word_spans(&source.as_bytes()[previous_end..])?
+                .into_iter()
+                .map(|s| previous_end + s.start..previous_end + s.end),
         );
         spans
     } else {
         crate::tokenizer::parse_word_spans(source.as_bytes())
             .map_err(|error| error.in_phase(DiagnosticPhase::WordFormation))?
     };
+    let origins = (!definitions.is_empty()).then(|| {
+        (
+            std::sync::Arc::<str>::from(source),
+            std::sync::Arc::new(primitives.clone()),
+        )
+    });
     let mut out = Vec::with_capacity(spans.len());
-    for (word_index, span) in spans.into_iter().enumerate() {
+    for span in spans {
         let word = source
             .get(span.clone())
             .ok_or_else(|| Error::Unsupported("non-UTF-8 word".into()).at(span.clone()))?;
-        if let Some(input) = definition.as_ref().filter(|input| input.span == span) {
+        if let Some(input) = definitions.iter().find(|input| input.span == span) {
             let mode = match input.form {
                 crate::definition_input::DefinitionForm::Direct => 9,
                 crate::definition_input::DefinitionForm::ExplicitString(m)
                 | crate::definition_input::DefinitionForm::ExplicitBlock(m) => m,
             };
+            let (source_origin, primitive_origin) = origins.as_ref().unwrap();
             let provenance = std::sync::Arc::new(crate::definition_code::DefinitionSource {
-                source: std::sync::Arc::from(source),
+                source: source_origin.clone(),
                 input: input.clone(),
-                primitives: std::sync::Arc::new(primitives.clone()),
+                primitives: primitive_origin.clone(),
             });
             let operator = crate::semantic::FunctionEntity::derived(
                 crate::semantic::FunctionHead::DefinitionConstructor(provenance),
@@ -380,7 +399,7 @@ pub fn enqueue_in_environment<'a>(
             error.with_context(
                 ErrorContext::phase(DiagnosticPhase::Enqueue)
                     .with_span(span.clone())
-                    .with_blame_word(word_index),
+                    .with_blame_word(out.len()),
             )
         })?;
         out.push(EnqueuedWord {

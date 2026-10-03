@@ -147,3 +147,46 @@ fn captured_generated_literals_use_enqueue_indices_not_ambiguous_macro_spans() {
     }
     assert!(rustj::j_graph_ir::Plan::from_capture(&report.capture).is_err());
 }
+
+#[test]
+fn multiple_root_codes_survive_train_construction_without_body_execution() {
+    use rustj::semantic::FunctionOperand;
+    let source = "combined=:{{counter=:99+y}} + {{future+y}}";
+    let program = semantic::parse(source).unwrap();
+    let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+        panic!()
+    };
+    assert_eq!(verb.entity.head, FunctionHead::Fork);
+    let codes: Vec<_> = verb
+        .entity
+        .operands
+        .iter()
+        .filter_map(|operand| match operand {
+            FunctionOperand::Function(f) => match &f.head {
+                FunctionHead::ExplicitDefinition(code) => Some(code),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(codes.len(), 2);
+    assert!(codes[0].source_span.end < codes[1].source_span.start);
+    assert_eq!(&*codes[1].body, "future+y");
+    let mut engine = Engine::new();
+    engine.eval("counter=:0").unwrap();
+    engine.eval(source).unwrap();
+    assert_eq!(
+        engine.eval("counter").unwrap().unwrap().int_at(0).unwrap(),
+        0
+    );
+    assert!(engine.binding_version("future").is_none());
+    let version = engine.binding_version("combined");
+    assert_eq!(
+        engine.eval("combined=:{{if.}} + {{y}}").unwrap_err().kind(),
+        "control error"
+    );
+    assert_eq!(engine.binding_version("combined"), version);
+    let static_engine = Engine::new();
+    static_engine.prepare_semantic(source).unwrap();
+    assert!(static_engine.binding_version("combined").is_none());
+}

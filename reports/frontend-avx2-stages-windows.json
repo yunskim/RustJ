@@ -25,7 +25,7 @@
     "test/ggoto.ijs": "8263a76775711d99dd94c6e1b18c6265e1cfb29888df23fa0e376d98ac3b407c"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "608f24a23f578f856f96c168bb676a8507d08930e7d53d7fafed6e72a8eb3b4b",
+  "probe_sha256": "5c9a397a96a76f66fdc346ae0d72f9751ec4a4195c1538fce9f7223d08d256e8",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -76,6 +76,11 @@
     "definition_constructor": 16,
     "definition_multiline_constructor": 5,
     "definition_valence_error": 2,
+    "multiple_definition_setup_or_transaction": 6,
+    "multiple_definition_constructor": 6,
+    "multiple_definition_error": 3,
+    "multiple_definition_input": 2,
+    "multiple_definition_incomplete": 2,
     "definition_flow_constructor": 35,
     "definition_flow_error": 30,
     "definition_mode4_discarded_valence": 1,
