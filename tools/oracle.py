@@ -70,9 +70,16 @@ class Oracle:
         return None
 
     def eval(self, source):
-        # Corpus uses one top-level assignment per line; no assignment-in-string.
-        if '=:' in source:
-            return self.run(source) or {'silent': True}
+        # Single-name/noun-target outer assignments are silent. Use C ;: word
+        # formation to avoid treating inner copulas, literals or comments as
+        # final assignments. This adapter does not classify arbitrary J trains.
+        if '=:' in source or '=.' in source:
+            formed = self.words(source)
+            if 'error' in formed:
+                return self.run(source) or formed
+            words = [bytes.fromhex(word) for word in formed['words_hex']]
+            if len(words) >= 2 and words[1] in (b'=:', b'=.'):
+                return self.run(source) or {'silent': True}
         error = self.run('rustjresult =: ' + source)
         if error:
             return error

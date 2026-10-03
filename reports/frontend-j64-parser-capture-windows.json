@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2076,
+  "cases": 2100,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\j.dll",
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "cd2e81c62acccd38b85f22ec2f1b9e17ee1a792bb51318442a9bee22e89c70d1",
+  "binary_sha256": "53d5a6a79f584703a5eeb9af4773a3e1c7bc4a47cda77f6acab71348e2445606",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2074,
+  "passed": 2098,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -44,5 +44,37 @@
     }
   ],
   "failures": [],
+  "graph_coverage_boundaries": [
+    {
+      "index": 1277,
+      "source": "mid+(mid=:2)",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1279,
+      "source": "mid+(mid=:mid+1)",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1285,
+      "source": "mida=:midb=:1",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1288,
+      "source": "(mid=.4)",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1292,
+      "source": "midarr+(midarr=:midarr+1)",
+      "reason": "capture needs ordered assignment/effect graph"
+    },
+    {
+      "index": 1298,
+      "source": "(midfn=:+) 3",
+      "reason": "capture needs ordered assignment/effect graph"
+    }
+  ],
   "failed": 0
 }

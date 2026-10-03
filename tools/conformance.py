@@ -162,6 +162,15 @@ def cases():
         'computedfork=:(1+2) + *',
         'computedrank=:+"(1+0.5)', 'computedrank i.2 3',
     ])
+    # P4: parser-time assignment, right-to-left lookup and committed early effects.
+    fixed.extend([
+        'mid=:0', 'mid+(mid=:2)', 'mid', 'mid+(mid=:mid+1)', 'mid',
+        'outer=:99', "outer=:'a'+(mid=:2)", 'outer', 'mid',
+        'mida=:midb=:1', 'mida', 'midb', '(mid=.4)', 'mid',
+        'midarr=:i.65', 'midalias=:midarr', 'midarr+(midarr=:midarr+1)',
+        'midarr', 'midalias', 'midfn=:+', 'midfn (midfn=:2)', 'midfn',
+        '(midfn=:+) 3', 'midfn 3',
+    ])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked
@@ -230,6 +239,12 @@ def main():
         rust = subprocess.run([str(args.binary), '--json'] + (['--semantic-reference'] if args.semantic_reference else []), input='\n'.join(corpus)+'\n', text=True, capture_output=True, timeout=120)
         if oracle.returncode != 0 or rust.returncode not in (0,1):
             raise RuntimeError(f'process failure: oracle={oracle.returncode}, rust={rust.returncode}\n{oracle.stderr}\n{rust.stderr}')
+        if args.parser_capture:
+            report['graph_coverage_boundaries'] = [
+                {'index': int(line.split(': ', 1)[1]),
+                 'source': corpus[int(line.split(': ', 1)[1])],
+                 'reason': 'capture needs ordered assignment/effect graph'}
+                for line in rust.stderr.splitlines() if line.startswith('ordered-effect graph boundary: ')]
         expected = [json.loads(s) for s in oracle.stdout.splitlines()]
         actual = [json.loads(s) for s in rust.stdout.splitlines()]
         if len(expected) != len(corpus) or len(actual) != len(corpus):

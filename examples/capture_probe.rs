@@ -21,7 +21,9 @@ fn main() -> ExitCode {
             eprintln!("invalid capture for {line:?}: {error}");
             return ExitCode::from(2);
         }
-        if report.result.is_ok() {
+        if report.result.is_ok() && report.capture.requires_ordered_effect_graph() {
+            eprintln!("ordered-effect graph boundary: {verified}");
+        } else if report.result.is_ok() {
             if let Err(error) = rustj::j_graph_ir::Plan::from_capture(&report.capture) {
                 eprintln!("invalid captured J graph for {line:?}: {}", error.kind());
                 return ExitCode::from(2);

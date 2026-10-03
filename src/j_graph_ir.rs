@@ -877,6 +877,11 @@ impl Plan {
                 "failed capture is not a completed J graph".into(),
             ));
         }
+        if capture.requires_ordered_effect_graph() {
+            return Err(Error::Unsupported(
+                "capture needs ordered assignment/effect graph".into(),
+            ));
+        }
         let mut builder = Builder {
             nodes: Vec::new(),
             regions: Vec::new(),
@@ -1018,6 +1023,7 @@ impl Plan {
                     version,
                     previous,
                     span,
+                    ..
                 } => {
                     let value = result
                         .or_else(|| capture.result.map(|id| values[&id]))

@@ -608,7 +608,7 @@ fn apply_parse_row(
             }
         }
         ParseRow::Assignment => {
-            if !queue_exhausted {
+            if !queue_exhausted && context.host.is_none() {
                 return Err(Error::Unsupported(
                     "non-final assignment requires runtime semantic parsing".into(),
                 ));
@@ -632,16 +632,66 @@ fn apply_parse_row(
             let ParseValue::NameTarget { name, span } = target.value else {
                 return Err(Error::Syntax("row 7 requires a name target".into()));
             };
-            *assignment = Some(PendingAssignment {
-                name,
-                span,
-                source: AssignmentSource {
-                    target: target.provenance.expect("assignment target provenance"),
-                    copula: copula.provenance.expect("copula provenance"),
-                    flags: copula.flags,
-                },
-            });
-            stack.insert(0, value);
+            let source = AssignmentSource {
+                target: target.provenance.expect("assignment target provenance"),
+                copula: copula.provenance.expect("copula provenance"),
+                flags: copula.flags,
+            };
+            if queue_exhausted {
+                *assignment = Some(PendingAssignment { name, span, source });
+                stack.insert(0, value);
+            } else {
+                if source.flags.local_assignment || !source.flags.global_assignment {
+                    return Err(Error::Unsupported(
+                        "local parser-time assignment scope".into(),
+                    ));
+                }
+                let value_span = value.span();
+                let occurrence = value.occurrence;
+                let class = value.class;
+                let (assigned, height) = match value.value {
+                    ParseValue::Noun(expr, height) => (
+                        AssignedValue::Noun(completed_noun(expr, "assignment value")?),
+                        height,
+                    ),
+                    ParseValue::Verb(verb) => (AssignedValue::Verb(verb), 0),
+                    ParseValue::Function(function) => (AssignedValue::Modifier(function), 0),
+                    _ => return Err(Error::Syntax("invalid assignment value".into())),
+                };
+                let host = context.host.as_mut().expect("runtime assignment host");
+                let previous = host.version(&name);
+                let assigned = host.assign(&name, assigned)?;
+                let function = match &assigned {
+                    AssignedValue::Verb(verb) => Some(verb.entity.clone()),
+                    AssignedValue::Modifier(function) => Some(function.clone()),
+                    _ => None,
+                };
+                if let Some(capture) = &mut context.capture {
+                    capture.events.push(CaptureEvent::Commit {
+                        name: name.clone(),
+                        version: host.version(&name).expect("committed version"),
+                        previous,
+                        span: span.clone(),
+                        value: occurrence,
+                        final_assignment: false,
+                        class,
+                        function,
+                        source,
+                    });
+                }
+                let result = match assigned {
+                    AssignedValue::Noun(value) => Item::noun(
+                        Expr {
+                            span: value_span,
+                            kind: ExprKind::Literal(value),
+                        },
+                        height,
+                    ),
+                    AssignedValue::Verb(verb) => Item::verb(verb),
+                    AssignedValue::Modifier(function) => Item::function(function),
+                };
+                stack.insert(0, result);
+            }
             true
         }
         ParseRow::Parenthesis => {
@@ -1054,11 +1104,23 @@ pub(crate) fn parse_analysis(
     parse_with(source, Some(lookup), ParseContext::Analysis)
 }
 
+pub(crate) enum AssignedValue {
+    Noun(Value),
+    Verb(Verb),
+    Modifier(Arc<FunctionEntity>),
+}
+
 pub(crate) trait RuntimeParserHost {
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion>;
     /// Operands have already reduced to actual nouns; execute exactly one call.
     fn apply(&mut self, expression: Expr) -> Result<Value>;
+    /// Return the assigned value with storage shared at the binding boundary.
+    fn assign(&mut self, _name: &str, _value: AssignedValue) -> Result<AssignedValue> {
+        Err(Error::Unsupported(
+            "host does not support parser-time assignment".into(),
+        ))
+    }
 }
 
 pub(crate) fn parse_runtime_host(

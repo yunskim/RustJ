@@ -66,6 +66,11 @@ pub enum CaptureEvent {
         version: NameVersion,
         previous: Option<NameVersion>,
         span: Range<usize>,
+        value: Option<OccurrenceId>,
+        class: crate::parser::ParseClass,
+        function: Option<Arc<FunctionEntity>>,
+        source: crate::parser::AssignmentSource,
+        final_assignment: bool,
     },
 }
 
@@ -89,6 +94,19 @@ impl ParseCapture {
         let id = OccurrenceId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    /// Existing J Graph has one pending outer write, not ordered runtime effects.
+    pub fn requires_ordered_effect_graph(&self) -> bool {
+        self.events.iter().any(|event| {
+            matches!(
+                event,
+                CaptureEvent::Commit {
+                    final_assignment: false,
+                    ..
+                }
+            )
+        })
     }
 
     /// Check associations and attempt/outcome ordering, including partial failure.
@@ -145,7 +163,15 @@ impl ParseCapture {
                         return Err("construction outcome without matching attempt");
                     }
                 }
-                CaptureEvent::Commit { .. } | CaptureEvent::FunctionResult { .. } => {
+                CaptureEvent::Commit { value, .. } => {
+                    if value.is_some_and(|id| !ready.contains(&id)) {
+                        return Err("commit value is unavailable");
+                    }
+                    if !attempts.is_empty() || construction.is_some() {
+                        return Err("commit before action outcome");
+                    }
+                }
+                CaptureEvent::FunctionResult { .. } => {
                     if !attempts.is_empty() || construction.is_some() {
                         return Err("commit before action outcome");
                     }

@@ -333,3 +333,132 @@ fn capture_adapter_rejects_failures_and_inconsistent_literal_facts() {
     let graph = Plan::from_capture(&report.capture).unwrap();
     assert!(graph.graph.nodes.is_empty());
 }
+
+#[test]
+fn parser_time_assignment_precedes_left_name_lookup_and_retains_versions() {
+    use rustj::j_graph_ir::Plan;
+    let mut engine = Engine::new();
+    engine.eval("x=:0").unwrap();
+    let previous = engine.binding_version("x");
+    let report = engine.eval_captured("x+(x=:2)");
+    assert_eq!(report.result.unwrap().unwrap().int_at(0).unwrap(), 4);
+    report.capture.verify().unwrap();
+    let events = &report.capture.events;
+    let index = events
+        .iter()
+        .position(|e| matches!(e, CaptureEvent::Commit { name, .. } if name == "x"))
+        .unwrap();
+    let CaptureEvent::Commit {
+        previous: old,
+        version,
+        value,
+        class,
+        source,
+        ..
+    } = &events[index]
+    else {
+        panic!()
+    };
+    assert_eq!(*old, previous);
+    assert_eq!(Some(*version), engine.binding_version("x"));
+    assert!(value.is_some());
+    assert_eq!(*class, rustj::parser::ParseClass::Noun);
+    assert!(source.flags.global_assignment);
+    assert!(events[index+1..].iter().any(|e| matches!(e, CaptureEvent::Input { name: Some(name), version: observed, .. } if name == "x" && *observed == Some(*version))));
+    assert!(report.capture.requires_ordered_effect_graph());
+    assert_eq!(
+        Plan::from_capture(&report.capture).unwrap_err().kind(),
+        "unsupported"
+    );
+    assert_eq!(
+        engine.prepare_semantic("x+(x=:2)").unwrap_err().kind(),
+        "unsupported"
+    );
+    assert_eq!(engine.binding_version("x"), Some(*version));
+}
+
+#[test]
+fn parser_time_commits_survive_later_error_and_do_not_commit_outer_target() {
+    let mut plain = Engine::new();
+    let mut observed = Engine::new();
+    for source in [
+        "x=:0",
+        "out=:99",
+        "out=:'a'+(x=:2)",
+        "out",
+        "x",
+        "a=:b=:1",
+        "a",
+        "b",
+        "x+(x=:x+1)",
+        "(x=.4)",
+        "x",
+    ] {
+        let expected = output(plain.eval(source));
+        let report = observed.eval_captured(source);
+        assert_eq!(output(report.result), expected, "{source}");
+        report.capture.verify().unwrap();
+        for name in ["x", "out", "a", "b"] {
+            assert_eq!(plain.binding_version(name), observed.binding_version(name));
+        }
+    }
+    assert_eq!(plain.eval("out").unwrap().unwrap().int_at(0).unwrap(), 99);
+    assert_eq!(plain.eval("a+b").unwrap().unwrap().int_at(0).unwrap(), 2);
+    assert_eq!(plain.eval("x").unwrap().unwrap().int_at(0).unwrap(), 4);
+}
+
+#[test]
+fn intermediate_array_assignment_freezes_alias_without_losing_producer_identity() {
+    let mut engine = Engine::new();
+    engine.eval("a=:i.100000").unwrap();
+    engine.eval("saved=:a").unwrap();
+    let report = engine.eval_captured("a+(a=:a+1)");
+    let value = report.result.unwrap().unwrap();
+    assert_eq!(value.int_at(99999).unwrap(), 200000);
+    report.capture.verify().unwrap();
+    assert_eq!(
+        engine
+            .eval("saved")
+            .unwrap()
+            .unwrap()
+            .int_at(99999)
+            .unwrap(),
+        99999
+    );
+    assert_eq!(
+        engine.eval("a").unwrap().unwrap().int_at(99999).unwrap(),
+        100000
+    );
+    let producer = report
+        .capture
+        .events
+        .iter()
+        .find_map(|e| match e {
+            CaptureEvent::ApplySuccess { id, .. } => Some(*id),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        report
+            .capture
+            .events
+            .iter()
+            .any(|e| matches!(e, CaptureEvent::Commit { value: Some(id), .. } if *id == producer))
+    );
+}
+
+#[test]
+fn grouped_assignment_result_is_not_a_final_silent_write() {
+    let mut engine = Engine::new();
+    let report = engine.eval_captured("(x=:2)");
+    assert_eq!(report.result.unwrap().unwrap().int_at(0).unwrap(), 2);
+    report.capture.verify().unwrap();
+    assert!(report.capture.requires_ordered_effect_graph());
+    assert!(matches!(
+        report.capture.events.last(),
+        Some(CaptureEvent::Commit {
+            final_assignment: false,
+            ..
+        })
+    ));
+}

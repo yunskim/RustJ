@@ -35,6 +35,29 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn apply(&mut self, expression: crate::semantic::Expr) -> Result<Value> {
         self.engine.interpret_ir(expression, self.pooled, 0)
     }
+    fn assign(
+        &mut self,
+        name: &str,
+        value: crate::parser::AssignedValue,
+    ) -> Result<crate::parser::AssignedValue> {
+        use crate::parser::AssignedValue;
+        let (binding, returned) = match value {
+            AssignedValue::Noun(value) => {
+                let value = value.into_shared();
+                let returned = value.clone();
+                (SymbolValue::Noun(value), AssignedValue::Noun(returned))
+            }
+            AssignedValue::Verb(verb) => {
+                (SymbolValue::Verb(verb.clone()), AssignedValue::Verb(verb))
+            }
+            AssignedValue::Modifier(function) => (
+                SymbolValue::Modifier(function.clone()),
+                AssignedValue::Modifier(function),
+            ),
+        };
+        self.engine.commit_binding(name.to_owned(), binding)?;
+        Ok(returned)
+    }
 }
 
 enum SymbolValue {
@@ -310,6 +333,15 @@ impl Engine {
         };
         if let Some(name) = program.assignment {
             let previous = self.binding_version(&name);
+            let (class, function) = match &value {
+                SymbolValue::Noun(_) => (crate::parser::ParseClass::Noun, None),
+                SymbolValue::Verb(verb) => {
+                    (crate::parser::ParseClass::Verb, Some(verb.entity.clone()))
+                }
+                SymbolValue::Modifier(function) => {
+                    (function.result_pos.into(), Some(function.clone()))
+                }
+            };
             self.commit_binding(name.clone(), value)?;
             if let Some(capture) = capture {
                 capture
@@ -318,6 +350,11 @@ impl Engine {
                         version: self.binding_version(&name).expect("committed binding"),
                         previous,
                         span: program.assignment_span.expect("assignment span"),
+                        value: capture.result,
+                        final_assignment: true,
+                        class,
+                        function,
+                        source: program.assignment_source.expect("assignment provenance"),
                         name,
                     });
             }
