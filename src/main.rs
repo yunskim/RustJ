@@ -12,7 +12,7 @@ fn run(
     semantic: bool,
     source_name: &str,
     line_number: usize,
-) -> bool {
+) -> rustj::Result<()> {
     match if semantic {
         engine.eval_semantic_reference_diagnostic(line)
     } else {
@@ -20,13 +20,13 @@ fn run(
     } {
         Ok(Some(v)) => {
             println!("{}", if json { v.json() } else { v.display() });
-            true
+            Ok(())
         }
         Ok(None) => {
             if json {
                 println!("{{\"silent\":true}}");
             }
-            true
+            Ok(())
         }
         Err(e) => {
             if json {
@@ -34,7 +34,7 @@ fn run(
             } else {
                 eprintln!("{}", e.render(source_name, line, line_number));
             }
-            false
+            Err(e)
         }
     }
 }
@@ -69,8 +69,31 @@ fn run_input(
                     }
                     continue;
                 }
-                Ok(_) => {
-                    run(
+                Ok(InputFrame::Definition(_)) => {
+                    let result = run(
+                        engine,
+                        collector.source(),
+                        json,
+                        semantic,
+                        source_name,
+                        *start,
+                    );
+                    let succeeded = result.is_ok();
+                    ok &= succeeded;
+                    if succeeded
+                        || (!stop_on_error
+                            && result.as_ref().is_err_and(|e| e.kind() != "unsupported"))
+                    {
+                        pending = None;
+                        if interactive {
+                            eprint!("   ");
+                            let _ = io::stderr().flush();
+                        }
+                        continue;
+                    }
+                }
+                Ok(InputFrame::Sentence) => {
+                    let _ = run(
                         engine,
                         collector.source(),
                         json,
@@ -88,7 +111,7 @@ fn run_input(
             );
             return ExitCode::FAILURE;
         }
-        let succeeded = run(engine, &line, json, semantic, source_name, index + 1);
+        let succeeded = run(engine, &line, json, semantic, source_name, index + 1).is_ok();
         ok &= succeeded;
         if !succeeded && stop_on_error {
             return ExitCode::FAILURE;
@@ -162,7 +185,7 @@ fn main() -> ExitCode {
     }
     let mut engine = Engine::new();
     if let Some(s) = expr {
-        return if run(&mut engine, &s, json, semantic, "<command-line>", 1) {
+        return if run(&mut engine, &s, json, semantic, "<command-line>", 1).is_ok() {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE

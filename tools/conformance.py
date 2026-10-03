@@ -160,6 +160,23 @@ def modifier_inventory_cases():
             yield 'inventoryfn=:(,<inventoryar)' + chr(92)
 
 
+def definition_code_cases():
+    """Construction only: bodies must stay unevaluated and names unresolved."""
+    return [
+        'defcounter=:0',
+        'defcode=:{{y+1}}', 'defalias=:defcode',
+        'defcode=:{{x+y}}', 'defalias=:defcode',
+        'defcode=:{{u y}}', 'defcode=:{{u v y}}',
+        'defcode=:{{u x+y}}', 'defcode=:{{u}}', 'defcode=:{{v}}',
+        'defcode=:{{}}', "defcode=:3 : ''",
+        "defcode=:3 : 'futuredef+y'",
+        "defcode=:4 : 'x+y'",
+        "defcode=:1 : 'u y'", "defcode=:2 : 'u v y'",
+        'defcode=:{{defcounter=:defcounter+y}}', 'defcounter',
+        'defkeep=:+', "defkeep=:3 : 'if. y do.' 1 2+1 2 3", 'defkeep 7',
+    ]
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -419,6 +436,7 @@ def cases():
     fixed.extend(constructor_call_cases())
     fixed.extend(late_modifier_cases())
     fixed.extend(modifier_inventory_cases())
+    fixed.extend(definition_code_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

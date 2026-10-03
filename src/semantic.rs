@@ -16,6 +16,8 @@ pub enum FunctionHead {
     PrimitiveAdverb(crate::primitive::AdverbId),
     PrimitiveConjunction(crate::primitive::ConjunctionId),
     NameRef(String),
+    ExplicitDefinition(Arc<crate::definition_code::DefinitionCode>),
+    DefinitionConstructor(Arc<crate::definition_code::DefinitionSource>),
     /// Parser-production identities with no source operator token.
     Hook,
     Fork,

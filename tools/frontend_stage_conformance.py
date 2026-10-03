@@ -16,13 +16,13 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
 PENDING = {
     'enqueue': ['complex/extended/rational numeric notation', 'locatives and name _:', 'complete spellin/ds inventory', 'tacit translator env=0 and locative copula upgrade'],
-    'parser': ['runtime ptcol reachable-state trace equivalence', 'full local/locale assignment and right-to-left effect coverage', 'full computed noun modifier operands', 'derived modifier application and named derived identities', 'explicit/direct definitions', 'full row provenance and reinsertion trace'],
+    'parser': ['runtime ptcol reachable-state trace equivalence', 'full local/locale assignment and right-to-left effect coverage', 'full computed noun modifier operands', 'derived modifier application and named derived identities', 'complete explicit/direct definitions: nested/tagged input, controls and invocation', 'full row provenance and reinsertion trace'],
 }
 
 
@@ -520,6 +520,32 @@ def run(args):
             expected = atomic_function(oracle.representation('latedecoded', 'atomic')['value'])
             source = 'latefn=:(,<latear)' + chr(92)
             check('late_modifier_decoded_snapshot', source, {'decoded': [expected]}, static_probe.inspect(source, 'D'))
+        for source in definition_code_cases():
+            if source.startswith(('defcode=:', 'defalias=:')):
+                error = oracle.run(source)
+                actual = static_probe.inspect(source, 'R')
+                if error:
+                    check('definition_constructor_error', source, error, actual)
+                else:
+                    target = source.split('=:', 1)[0]
+                    expected = {'pos': oracle.name_class(target)['class'],
+                        'function': atomic_function(oracle.representation(target, 'atomic')['value'])}
+                    check('definition_constructor', source, expected, actual)
+            else:
+                check('definition_no_execution_or_transaction', source,
+                      oracle.eval(source), static_probe.inspect(source, 'E'))
+        for source in ["defcode=:3 : 'y+1\n:\nx+y'", "defcode=:{{\ny+1}}",
+                       "defcode=:3 : 'copy=.futuredef\ncopy+y'",
+                       "defcode=:4 : 'y+1\n:\nx+y'",
+                       "defcode=:1 : 'u y\n:\nu x+y'"]:
+            error = oracle.run(source)
+            if error:
+                raise RuntimeError(f'invalid definition fixture: {source}: {error}')
+            expected = {'pos': oracle.name_class('defcode')['class'],
+                'function': atomic_function(oracle.representation('defcode', 'atomic')['value'])}
+            check('definition_multiline_constructor', source, expected, static_probe.inspect(source, 'R'))
+        for source in ["defcode=:1 : 'u\n:\nv'", "defcode=:{{u\n:\nu}}"]:
+            check('definition_valence_error', source, oracle.eval(source), static_probe.inspect(source, 'E'))
         # C's fix adverb decodes the same AR independently. It is reference-only;
         # Rust D observes the constructor-owned decode, never executes 5!:0.
         for noun in ['7', 'i.4', '<1 2']:

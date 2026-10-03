@@ -51,6 +51,7 @@ pub enum EnqueuedPayload<'a> {
     Verb(crate::primitive::PrimitiveId),
     Adverb(crate::primitive::AdverbId),
     Conjunction(crate::primitive::ConjunctionId),
+    Function(std::sync::Arc<crate::semantic::FunctionEntity>),
     Assign,
     Open,
     Close,
@@ -288,14 +289,94 @@ pub fn enqueue_in_environment<'a>(
     primitives: &crate::primitive::PrimitiveContext,
     environment: EnqueueEnvironment,
 ) -> Result<Vec<EnqueuedWord<'a>>> {
-    let spans = crate::tokenizer::parse_word_spans(source.as_bytes())
-        .map_err(|error| error.in_phase(DiagnosticPhase::WordFormation))?;
+    let definition = match crate::definition_input::frame(source)? {
+        crate::definition_input::InputFrame::Definition(input) => Some(input),
+        crate::definition_input::InputFrame::NeedMore => {
+            return Err(Error::Syntax("unterminated definition input".into()));
+        }
+        crate::definition_input::InputFrame::Sentence => None,
+    };
+    let spans = if let Some(input) = &definition {
+        let mut spans = crate::tokenizer::parse_word_spans(&source.as_bytes()[..input.span.start])?;
+        spans.push(input.span.clone());
+        spans.extend(
+            crate::tokenizer::parse_word_spans(&source.as_bytes()[input.span.end..])?
+                .into_iter()
+                .map(|s| input.span.end + s.start..input.span.end + s.end),
+        );
+        spans
+    } else {
+        crate::tokenizer::parse_word_spans(source.as_bytes())
+            .map_err(|error| error.in_phase(DiagnosticPhase::WordFormation))?
+    };
     let mut out = Vec::with_capacity(spans.len());
     for (word_index, span) in spans.into_iter().enumerate() {
         let word = source
             .get(span.clone())
             .ok_or_else(|| Error::Unsupported("non-UTF-8 word".into()).at(span.clone()))?;
-        let (class, payload, flags) = interpret_word(word, &span, primitives).map_err(|error| {
+        if let Some(input) = definition.as_ref().filter(|input| input.span == span) {
+            let mode = match input.form {
+                crate::definition_input::DefinitionForm::Direct => 9,
+                crate::definition_input::DefinitionForm::ExplicitString(m)
+                | crate::definition_input::DefinitionForm::ExplicitBlock(m) => m,
+            };
+            let provenance = std::sync::Arc::new(crate::definition_code::DefinitionSource {
+                source: std::sync::Arc::from(source),
+                input: input.clone(),
+                primitives: std::sync::Arc::new(primitives.clone()),
+            });
+            let operator = crate::semantic::FunctionEntity::derived(
+                crate::semantic::FunctionHead::DefinitionConstructor(provenance),
+                crate::semantic::FunctionPartOfSpeech::Conjunction,
+                span.clone(),
+                Vec::new(),
+            );
+            let body = crate::definition_code::semantic_body(source, input)?
+                .as_bytes()
+                .to_vec();
+            let body_payload = if body.len() == 1 {
+                EnqueuedPayload::Scalar(Scalar::Char(body[0]))
+            } else {
+                EnqueuedPayload::Noun(Box::new(Value::new(
+                    [body.len()],
+                    Data::Char(CpuStorage::new(body)),
+                )?))
+            };
+            let mut expanded = Vec::new();
+            if input.form == crate::definition_input::DefinitionForm::Direct {
+                expanded.push((EnqueueClass::LeftParen, EnqueuedPayload::Open));
+            }
+            expanded.extend([
+                (
+                    EnqueueClass::Noun,
+                    EnqueuedPayload::Scalar(if mode == 1 {
+                        Scalar::Bool(true)
+                    } else {
+                        Scalar::Int(mode.into())
+                    }),
+                ),
+                (
+                    EnqueueClass::Conjunction,
+                    EnqueuedPayload::Function(operator),
+                ),
+                (EnqueueClass::Noun, body_payload),
+            ]);
+            if input.form == crate::definition_input::DefinitionForm::Direct {
+                expanded.push((EnqueueClass::RightParen, EnqueuedPayload::Close));
+            }
+            for (class, payload) in expanded {
+                out.push(EnqueuedWord {
+                    class,
+                    payload,
+                    span: span.clone(),
+                    word_index: out.len(),
+                    flags: EnqueueFlags::default(),
+                });
+            }
+            continue;
+        }
+        let interpreted = interpret_word(word, &span, primitives);
+        let (class, payload, flags) = interpreted.map_err(|error| {
             error.with_context(
                 ErrorContext::phase(DiagnosticPhase::Enqueue)
                     .with_span(span.clone())
@@ -306,7 +387,7 @@ pub fn enqueue_in_environment<'a>(
             class,
             payload,
             span,
-            word_index,
+            word_index: out.len(),
             flags,
         });
     }

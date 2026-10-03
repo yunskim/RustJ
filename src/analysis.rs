@@ -79,6 +79,8 @@ fn append_execution_basis(
         FunctionHead::NameRef(_) => {}
         FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::DefinitionConstructor(_)
+        | FunctionHead::ExplicitDefinition(_)
         | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => {}
@@ -368,6 +370,8 @@ impl Builder<'_> {
                 }
                 FunctionHead::PrimitiveAdverb(_)
                 | FunctionHead::PrimitiveConjunction(_)
+                | FunctionHead::DefinitionConstructor(_)
+                | FunctionHead::ExplicitDefinition(_)
                 | FunctionHead::ModifierTrain
                 | FunctionHead::Hook
                 | FunctionHead::Fork => {
@@ -443,6 +447,8 @@ impl Builder<'_> {
     ) -> Result<ValueId> {
         match &semantic.head {
             FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
+            | FunctionHead::DefinitionConstructor(_)
+            | FunctionHead::ExplicitDefinition(_)
             | FunctionHead::ModifierTrain
             | FunctionHead::Hook
             | FunctionHead::Fork => {

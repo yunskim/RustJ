@@ -7781,6 +7781,21 @@ Windows default/portable 각각 **314 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [cx.c colon0 입력 종료](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L796), [cx.c quoted body line 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L841), [cx.c DD token/nesting 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1345), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [io.c definition 입력](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L383).
 
+##### DefinitionCode 생성·valence·capture provenance (2026-10-04, partial DEF-1/2)
+
+- [x] `definition_code.rs`에 immutable `DefinitionCode`를 추가했다. 원본 source/form/span, decoded body, physical line 및 body-relative word span·품사·enqueue flags를 저장한다. local copula와 future name을 보존하며 본문 이름을 생성 시점에 조회하거나 본문을 실행하지 않는다. Code와 호출별 local value frame은 별개이고 후자는 아직 미구현이다.
+- [x] enqueuer는 완료된 literal 정의를 N C N으로, direct definition은 C처럼 괄호가 있는 `(9 : 'body')`로 전개한다. 기존 parser row 4에서 Code를 생성하고 row 7에서 binding을 commit한다. direct body의 첫 word 앞 공백/초기 LF 정리도 C 기준을 따른다. enqueue에서 Code를 미리 만들어 오류 순서를 바꾸지 않는다. explicit colon 오른쪽의 length error가 먼저 발생할 때 생성·commit은 일어나지 않는다.
+- [x] actual body Name의 `u/m`, `v/n`, `x/y`를 이용해 direct mode/POS를 추론한다. 문자열·주석의 철자를 이름으로 취급하지 않는다. spaces-only `:` 구역, mode 4 dyad 선택, operator x/y 여부와 default valence 이동을 보존한다. x/y 없는 modifier가 두 valence를 정의하면 `ValenceError`를 내고 기존 binding/version을 유지한다. 원본 본문과 valence 재배치 후 함수 표현을 분리한다.
+- [x] 완료된 정의는 `FunctionHead::ExplicitDefinition`으로 보존되며 CLI가 닫는 줄 이후 계속 입력을 받을 수 있다. 일반 실행 오류 뒤 stdin 세션을 계속 읽고 실패 status는 유지한다. 미완료·미지원 정의는 여전히 중단하며 본문 줄을 별도 문장으로 실행하지 않는다.
+- [x] parser capture Input에 expanded enqueue word index를 보존한다. generated mode/body noun은 같은 DD source span을 공유하므로 span만으로 하나의 원본 단어라고 재해석하지 않는다. capture→J graph는 전체 enqueue의 index/span/payload/facts를 검증한다. 잘못된 index는 거부한다. VerbValue의 Code를 unknown 계약으로 보존하지만 내부 본문 graph를 분석했다고 주장하지 않는다. modifier-value graph와 A3 callable lowering은 미지원이다.
+- [x] Code 회귀 테스트 6개와 CLI 오류 후 continuation 테스트 1개를 추가했다. source/local flags, future binding 미조회, mode/POS·valence, 본문 미실행, 실패 transaction, row 4 오류 순서, generated capture 검증을 검사한다. full definition acceptance **17개는 계속 ignored**다.
+- [x] 공유 C corpus에 21문장, stage에 28검사를 추가했다. j64/AVX2에서 생성된 함수 품사·atomic 표현, alias, source/semantic body 구분, multiline valence, 미실행 counter와 실패 후 기존 함수 보존을 비교한다. native C block input callback 및 full preparse/control-flow의 동등성 검증은 아직 아니다.
+- [ ] 다음: `wc.c::getsen/conword/preparse`의 control-word 분할·구조와 nested/tagged 정의, 여러 root DD, computed/grouped colon operands를 구현한다. Code 호출용 local frame, runtime name/POS lookup·scope, complete J graph body 분석과 A3 lowering은 별도 단계다. optimizer·CUDA·GitHub CI는 진행하지 않는다.
+
+Windows default/portable 각각 **321 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **2,826 cases / 2,822 passed / 기존 runtime 경계 4 / failed 0**; stage **8,007 checks**, words **6,618 cases** 통과. capture graph 경계 78(ordered-effect 9, modifier-value 69), static 경계 2를 별도 기록한다. 새 modifier 정의 7건의 graph 경계는 실행 비교의 실패/면제가 아니다. upstream full suite는 실행하지 않았다. DLL release `ded7793...`와 source review `13994ff...`는 다른 revision이다.
+
+기준 소스: [cx.c colon·valence 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264), [cx.c xop·mode 추론](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1282), [cx.c direct definition 전개](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [wc.c control-word preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

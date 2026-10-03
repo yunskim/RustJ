@@ -870,6 +870,46 @@ fn apply_conjunction_items(
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let operator = names.resolve_modifier(operator, span.clone())?;
+    if let FunctionHead::DefinitionConstructor(origin) = &operator.head {
+        let (left, _) = left.into_noun().ok_or(Error::Domain)?;
+        let (right, _) = right.into_noun().ok_or(Error::Domain)?;
+        let mode = completed_noun(left, "computed definition mode")?;
+        let body = completed_noun(right, "computed definition body")?;
+        let expected_mode = match origin.input.form {
+            crate::definition_input::DefinitionForm::Direct => 9,
+            crate::definition_input::DefinitionForm::ExplicitString(m)
+            | crate::definition_input::DefinitionForm::ExplicitBlock(m) => i64::from(m),
+        };
+        if !mode.shape().is_empty() || mode.int_at(0)? != expected_mode {
+            return Err(Error::Unsupported("computed definition mode".into()));
+        }
+        let crate::Data::Char(bytes) = &body.data else {
+            return Err(Error::Domain);
+        };
+        if bytes.as_slice()
+            != crate::definition_code::semantic_body(&origin.source, &origin.input)?.as_bytes()
+        {
+            return Err(Error::Unsupported("computed definition body".into()));
+        }
+        let code =
+            crate::definition_code::compile(&origin.source, &origin.input, &origin.primitives)?;
+        let function = FunctionEntity::derived(
+            FunctionHead::ExplicitDefinition(code.clone()),
+            code.result_pos,
+            span.clone(),
+            Vec::new(),
+        );
+        return Ok(if code.result_pos == FunctionPartOfSpeech::Verb {
+            Item::verb(Verb {
+                span,
+                target: VerbTarget::Derived,
+                entity: function,
+            })
+        } else {
+            Item::function(function)
+        });
+    }
+
     if matches!(operator.head, FunctionHead::ModifierTrain) {
         match operator.operands.as_slice() {
             [
@@ -1175,6 +1215,11 @@ fn reduce_parse_stack_subset(
                     version,
                     span: item.span(),
                     facts: crate::j_graph_ir::GraphFacts::of(value),
+                    word_index: item
+                        .provenance
+                        .as_ref()
+                        .expect("queued input provenance")
+                        .blame_word_index,
                 });
                 item.occurrence = Some(id);
             }
@@ -2489,6 +2534,19 @@ fn expression(
                     *id,
                     tokens[*pos].span.clone(),
                 )));
+                *pos += 1;
+            }
+            EnqueuedPayload::Function(function) => {
+                let item = if function.result_pos == FunctionPartOfSpeech::Verb {
+                    Item::verb(Verb {
+                        span: tokens[*pos].span.clone(),
+                        target: VerbTarget::Derived,
+                        entity: function.clone(),
+                    })
+                } else {
+                    Item::function(function.clone())
+                };
+                items.push(item.with_span(tokens[*pos].span.clone()));
                 *pos += 1;
             }
             EnqueuedPayload::Assign => {

@@ -64,8 +64,8 @@ fn script_and_argument_failures_have_nonzero_status() {
 #[test]
 fn unsupported_definitions_never_execute_following_body_lines() {
     for source in [
-        "f=:{{\nleaked=:99\n}}\nleaked\n",
-        "f=:3 : 0\nleaked=:99\n)\nleaked\n",
+        "f=:{{\nif. y do.\nleaked=:99\nend.\n}}\nleaked\n",
+        "f=:3 : 0\nif. y do.\nleaked=:99\nend.\n)\nleaked\n",
         "f=:{{ 'unfinished\nleaked=:99\n}}\nleaked\n",
         "f=:verb define\nleaked=:99\n)\nleaked\n",
     ] {
@@ -163,7 +163,7 @@ fn human_length_errors_include_semantic_execution_context() {
 }
 
 #[test]
-fn definition_input_waits_for_closing_line_before_reporting_unsupported() {
+fn definition_input_waits_for_closing_line_before_binding_code() {
     use std::{io::BufRead, sync::mpsc, time::Duration};
     for (header, closing) in [("f=:{{", "}}"), ("f=:3 : 0", ")")] {
         let mut child = Command::new(env!("CARGO_BIN_EXE_rustj"))
@@ -181,15 +181,48 @@ fn definition_input_waits_for_closing_line_before_reporting_unsupported() {
             let mut line = String::new();
             reader.read_line(&mut line).unwrap();
             sender.send(line).unwrap();
+            let mut remaining = String::new();
+            std::io::Read::read_to_string(&mut reader, &mut remaining).unwrap();
+            remaining
         });
         writeln!(input, "{header}\nleaked=:99").unwrap();
         input.flush().unwrap();
         assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
-        writeln!(input, "{closing}\nleaked").unwrap();
+        writeln!(input, "{closing}\nleaked 0").unwrap();
         drop(input);
         let response = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
-        assert!(response.contains("unsupported"));
-        reader.join().unwrap();
+        assert!(response.contains("silent"));
+        let remaining = reader.join().unwrap();
+        assert!(remaining.contains("value error"));
+        assert!(!remaining.contains("99"));
         assert_eq!(child.wait().unwrap().code(), Some(1));
+    }
+}
+
+#[test]
+fn completed_definition_error_does_not_truncate_a_json_session() {
+    for semantic in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rustj"));
+        command.arg("--json");
+        if semantic {
+            command.arg("--semantic-reference");
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"f=:+\nf=:3 : 'if. y do.' 1 2+1 2 3\nf 7\n")
+            .unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        let text = String::from_utf8(result.stdout).unwrap();
+        assert_eq!(text.lines().count(), 3, "{text}");
+        assert!(text.contains("length error"));
+        assert!(text.ends_with("{\"type\":4,\"shape\":[],\"data\":[7]}\n"));
     }
 }

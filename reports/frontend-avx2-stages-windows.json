@@ -21,7 +21,7 @@
     "jsrc/io.c": "65036d4e52be0b84753736d37ef53f0e4a4237e4bf0d387b276a75d4ce863bb0"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "67a9631beb3e78fbd8447997c3adcc3eb998664c330d03d55eea55bc660f4b79",
+  "probe_sha256": "aa938c6bbd2559b66d560c7ceba4dc804d761e32edd6341ce6d9e22dfcb0dec0",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -66,6 +66,10 @@
     "late_modifier_error": 3,
     "late_modifier_decode_setup": 4,
     "late_modifier_decoded_snapshot": 2,
+    "definition_no_execution_or_transaction": 5,
+    "definition_constructor": 16,
+    "definition_multiline_constructor": 5,
+    "definition_valence_error": 2,
     "snapshot_setup": 6,
     "decoded_noun_snapshot": 6,
     "snapshot_rebind": 3,
@@ -103,7 +107,7 @@
       "full local/locale assignment and right-to-left effect coverage",
       "full computed noun modifier operands",
       "derived modifier application and named derived identities",
-      "explicit/direct definitions",
+      "complete explicit/direct definitions: nested/tagged input, controls and invocation",
       "full row provenance and reinsertion trace"
     ]
   },

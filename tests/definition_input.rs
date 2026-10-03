@@ -43,7 +43,7 @@ fn explicit_quoted_body_unescapes_without_evaluating_the_body() {
         assert_eq!(input.body_text(&source).unwrap(), "leaked=:99 NB. it's { }");
         let engine = rustj::Engine::new();
         assert!(engine.binding_version("leaked").is_none());
-        assert!(engine.prepare_semantic(&source).is_err());
+        assert!(engine.prepare_semantic(&source).is_ok());
         let multiline = format!("f=:{mode} : 'leaked=:99\ny+1'");
         assert_eq!(
             definition(&multiline).body_text(&multiline).unwrap(),

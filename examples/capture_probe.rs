@@ -33,7 +33,7 @@ fn main() -> ExitCode {
             eprintln!("modifier-value graph boundary: {verified}");
         } else if report.result.is_ok() {
             if let Err(error) = rustj::j_graph_ir::Plan::from_capture(&report.capture) {
-                eprintln!("invalid captured J graph for {line:?}: {}", error.kind());
+                eprintln!("invalid captured J graph for {line:?}: {error}");
                 return ExitCode::from(2);
             }
         }

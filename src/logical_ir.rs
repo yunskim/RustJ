@@ -300,6 +300,8 @@ fn semantic_effect_summary(
         FunctionHead::NameRef(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::DefinitionConstructor(_)
+        | FunctionHead::ExplicitDefinition(_)
         | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => EffectSummary::Unknown,

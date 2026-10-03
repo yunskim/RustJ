@@ -480,7 +480,9 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
             effect: GraphRuleRef::StructuralComposition,
             resource: ResourceRuleRef::StructuralComposition,
         },
-        FunctionHead::NameRef(_) => GraphRuleRefs {
+        FunctionHead::NameRef(_)
+        | FunctionHead::DefinitionConstructor(_)
+        | FunctionHead::ExplicitDefinition(_) => GraphRuleRefs {
             shape: GraphRuleRef::DynamicOrUnknown,
             dtype: GraphRuleRef::DynamicOrUnknown,
             rank_cell: GraphRuleRef::DynamicOrUnknown,
@@ -779,7 +781,10 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
             head: function.head.clone(),
             operands: function_operands(function),
         },
-        FunctionHead::PrimitiveVerb(_) | FunctionHead::NameRef(_) => GraphForm::Atomic,
+        FunctionHead::PrimitiveVerb(_)
+        | FunctionHead::NameRef(_)
+        | FunctionHead::DefinitionConstructor(_)
+        | FunctionHead::ExplicitDefinition(_) => GraphForm::Atomic,
     };
     (form, hints)
 }
@@ -910,6 +915,10 @@ impl Plan {
         let mut constructor_inputs = Vec::new();
         let mut result = None;
         let mut write = None;
+        let mut source_words: Vec<_> = crate::enqueuer::enqueue(capture.source())?
+            .into_iter()
+            .map(Some)
+            .collect();
         for event in &capture.events {
             match event {
                 CaptureEvent::ModifierStacked { snapshot } => {
@@ -921,18 +930,21 @@ impl Plan {
                     version,
                     span,
                     facts,
+                    word_index,
                 } => {
-                    let text = capture.source().get(span.clone()).ok_or_else(|| {
-                        Error::Unsupported("capture input has invalid span".into())
-                    })?;
-                    let mut queue = crate::enqueuer::enqueue(text)?;
-                    if queue.len() != 1 {
+                    let word = source_words
+                        .get_mut(*word_index)
+                        .and_then(Option::take)
+                        .ok_or_else(|| {
+                            Error::Unsupported("capture input enqueue index mismatch".into())
+                        })?;
+                    if word.span != *span {
                         return Err(Error::Unsupported(
-                            "capture input is not one enqueue word".into(),
+                            "capture input source span mismatch".into(),
                         ));
                     }
                     let value = if let Some(name) = name {
-                        if !matches!(&queue[0].payload, crate::enqueuer::EnqueuedPayload::Name(n) if *n == name)
+                        if !matches!(&word.payload, crate::enqueuer::EnqueuedPayload::Name(n) if *n == name)
                         {
                             return Err(Error::Unsupported("capture name/source mismatch".into()));
                         }
@@ -948,7 +960,7 @@ impl Plan {
                             GraphAnalyzability::Static,
                         )
                     } else {
-                        let literal = match queue.remove(0).payload {
+                        let literal = match word.payload {
                             crate::enqueuer::EnqueuedPayload::Scalar(scalar) => {
                                 scalar.into_value()?
                             }

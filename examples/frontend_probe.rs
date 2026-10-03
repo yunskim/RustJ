@@ -6,6 +6,31 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 fn function(f: &FunctionEntity) -> String {
+    if let FunctionHead::ExplicitDefinition(code) = &f.head {
+        let lines: Vec<_> = code
+            .representation_lines()
+            .into_iter()
+            .map(|line| line.trim_end_matches('\r').as_bytes())
+            .collect();
+        let width = lines.iter().map(|line| line.len()).max().unwrap_or(0);
+        let mut bytes = Vec::new();
+        for line in &lines {
+            bytes.extend_from_slice(line);
+            bytes.resize(bytes.len() + width - line.len(), b' ');
+        }
+        let values = bytes
+            .iter()
+            .map(u8::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let dtype = if code.mode == 1 { 1 } else { 4 };
+        return format!(
+            "{{\"head_hex\":\"3a\",\"operands\":[{{\"noun\":{{\"type\":{dtype},\"shape\":[],\"data\":[{}]}}}},{{\"noun\":{{\"type\":2,\"shape\":[{},{}],\"data\":[{values}]}}}}]}}",
+            code.mode,
+            lines.len(),
+            width
+        );
+    }
     let head = match &f.head {
         FunctionHead::PrimitiveVerb(id) => id.spelling(),
         FunctionHead::PrimitiveAdverb(id) => id.spelling(),
@@ -14,6 +39,8 @@ fn function(f: &FunctionEntity) -> String {
         FunctionHead::ModifierTrain => "4",
         FunctionHead::Fork => "3",
         FunctionHead::NameRef(name) => name,
+        FunctionHead::DefinitionConstructor(_) => ":",
+        FunctionHead::ExplicitDefinition(_) => unreachable!("explicit definition projected above"),
     };
     let operands = f
         .operands

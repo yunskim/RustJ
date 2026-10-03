@@ -48,7 +48,7 @@ fn session(source: &str, reference: bool) -> std::process::Output {
 }
 
 #[test]
-#[ignore = "DEF-1/2: definition AST and execution-free parsing are not implemented"]
+#[ignore = "DEF-1/2: code construction is implemented; complete A3 callable projection remains pending"]
 fn parsing_complete_definitions_preserves_source_and_binding_boundary() {
     for source in ["f=:{{ y+1 }}", "f=:3 : 'y+1'", "f=:3 : 0\nt=.y+1\nt\n)"] {
         let parsed = semantic::parse(source).unwrap();

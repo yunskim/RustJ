@@ -27,6 +27,8 @@ pub enum CaptureEvent {
         version: Option<NameVersion>,
         span: Range<usize>,
         facts: GraphFacts,
+        /// Expanded enqueue index; several generated words may share a DD span.
+        word_index: usize,
     },
     ApplyAttempt {
         id: OccurrenceId,

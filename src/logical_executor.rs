@@ -238,6 +238,8 @@ fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value
         )),
         FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
+        | FunctionHead::DefinitionConstructor(_)
+        | FunctionHead::ExplicitDefinition(_)
         | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => Err(Error::Unsupported(
