@@ -393,9 +393,42 @@ For `a+b*c`, runtime reductions yield actual nouns while capture retains `v1=App
 
 Capture-on/off uses the same class matcher and semantic row actions. Proposed `Engine::eval_with_capture(&mut self, source)` executes once and returns an outcome/capture report, including partial failure information. It is distinct from read-only `prepare_semantic/analyze_j_graph(&self, ...)`; analysis must not silently run IO/assignments. A successful trace must not require a second execution.
 
-Later static compilation may use abstract actions of the same row engine for proven pure/static forms. Concrete-value constructors, unknown bindings/POS and effect/error boundaries require explicit dependencies and supported runtime/residual regions. No-execution AOT rejects unknown dependencies or represents residual execution; it does not resolve them by secretly running the program.
+The default non-executing static path may use abstract actions of the same row engine for proven pure/static forms. Concrete-value constructors, unknown bindings/POS and effect/error boundaries require explicit dependencies and supported runtime/residual regions. No-execution AOT rejects unknown dependencies or represents residual execution; it does not resolve them by secretly running the program.
 
 An observed path is not a universal program. Separate input dependencies, constants and validity guards for shape, bindings/POS, environment and constructor values. Invalid reuse falls back safely or recaptures without restarting already-performed effects. v0 capture supports inspection and does not enable unguarded compiled replay. Execute-and-capture still pays for the first array computation; small arena metadata and shared function references must avoid retaining all temporaries. Static/reuse/fusion is subsequent performance work; CUDA remains deferred.
+
+<a id="static-frontend-review"></a>
+
+##### Static-analysis acceptance and existing frontend review (2026-10-03)
+
+**User acceptance:** analysis of operation graphs and memory requirements without execution is sufficient initially. Static analysis stays the default. Concrete execution plus capture serves value-dependent semantics/dynamic observation; full capture is not a prerequisite for supported static analysis. Track full J runtime compatibility, capture and compiled reuse separately.
+
+Static nouns carry Noun POS, graph origin, inferred facts and an optional constant. Concrete nouns carry actual `Value` and separate origin. Use the same matcher/row rules with explicit action/context differences. Do not invent known noun values/POS from Unknown. Constant folding must preserve J errors/effects/bindings.
+
+| Existing structure | Keep | Required change |
+|---|---|---|
+| `tokenizer.rs` | Transition table, raw spans, comment cutoff, quote errors | No capture-driven change; no execution/target fields |
+| `enqueuer.rs` | Literals, primitive POS, unresolved names, lookup/copula flags, provenance | No graph construction; forward environment/flags/provenance beyond parser entry |
+| `ParseValue::Noun(Expr, usize)` | Noun class and semantic structure | Distinguish concrete Value from static facts/origin carriers; do not treat an Expr as an actual value or erase existing static graphs |
+| `expression()` / queue drain | Common queue/stack and noun/function distinction | Move current left-to-right name lookup to right-to-left stack entry through semantic context; static analysis needs stable POS/bindings or an explicit boundary |
+| Rows 0–2 / `eval_program` | Monad/dyad semantics and kernels | Static actions build applications/facts; concrete actions execute and reinsert values. Change runtime result contract together to prevent evaluating already-reduced operations twice |
+| `completed_noun()` / rows 3–6 | Completed FunctionEntity, source operators and ordered operands | Literal/Group-only extraction is insufficient. Static constructors require known/proven constants; concrete constructors use actual values and preserve origins |
+| `Item` / row 7 / errors | Spans and enqueue assignment metadata | Preserve dropped original word index and copula flags/scope; distinguish final pending writes from runtime assignments. Do not silently interpret unsupported local execution as global |
+| Row 8 / graph adapter | Parenthesis reduction boundaries | Preserve noun origin through grouping; no extra execution op for parentheses; forward production/operand/source provenance |
+| APIs / runtime / analysis | Read-only `prepare_semantic/analyze_j_graph` | Replace `snapshot: bool` with explicit action/context contracts, shared grammar, distinct execution permissions and result types |
+
+The file separation stands. Changes concentrate in parser payload/actions and metadata forwarding, not lexer grammar or physical Value storage. Evidence is the current Noun carrier, lookup loop, constructor extractor, discarded `_copula` and `eval_program`, cross-checked against [p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c) and [w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c). This review does not change runtime code.
+
+`j_graph_memory.rs` currently reports known logical extents/atoms, graph-order live ranges and materialization opportunities, with byte counts evaluated under an explicit representation model. These are not actual allocations or guaranteed peak device memory. Unknown shapes remain unknown; symbolic expressions/conditions can extend coverage. Physical peak/residency depends on schedule, layout, aliases and variable-width boxed/sparse representation. Given structure and input facts, static analysis need not execute array elements; this does not claim full symbolic-shape/J-form implementation.
+
+- [x] Review all three modules: keep tokenizer, forward enqueue metadata, change parser/context/result contracts.
+- [x] Define minimum acceptance as static graph/logical memory analysis, separate from full capture/JIT/physical peak estimation.
+- [ ] **P2/P5 static-first interfaces:** retain existing static graphs while introducing explicit static/concrete carriers and actions; regression-test that compilation executes no runtime effects.
+- [ ] **F2/P4 lookup/provenance:** forward original words, origins and copula flags; move lookup to stack entry and verify runtime semantics/static validity.
+- [ ] **P3/P6 constructor boundaries:** analyze known constants; report reasons for unknown concrete values/POS without changing unsupported analysis into J syntax errors.
+- [ ] **P5/P6 memory gate:** infer graph/liveness/extents from input facts, retain Unknown, distinguish atoms/represented bytes/estimated physical peaks.
+
+These static-analysis gates do not wait for completion of all runtime-capture work. The capture checklist below remains a separate execution-path gate.
 
 ##### Checklist integrated with F2/P2–P6
 
@@ -408,7 +441,7 @@ An observed path is not a universal program. Separate input dependencies, consta
 - [ ] **P4 names/effects:** capture supported same-sentence assignment, binding/POS/locale changes in semantic order; distinguish prior effects from pending outer commit and report incomplete coverage.
 - [ ] **P5/P8 graph adapter:** translate input/constant/read/apply/constructor dependencies into verified existing J Graph. Keep opaque operations as optimization barriers with separate lowering coverage.
 - [ ] **P6 validation:** Windows default/portable and ordinary/AVX2 C differential, including recorded coverage, revisions/hashes and pending/deviations; no GitHub CI.
-- [ ] **Later P5/P8 static/reuse:** require purity, error ordering and binding/value guards before abstract actions, region compilation or replay. v0 completes at runtime reduction + capture parity + verified J Graph, without production JIT/CUDA.
+- [ ] **Later P5/P8 static/reuse:** require purity, error ordering and binding/value guards before abstract actions, region compilation or replay. The capture execution path completes at runtime reduction + capture parity + verified J Graph; this is separate from minimum static-analysis acceptance and requires no production JIT/CUDA.
 
 ##### Regression/acceptance matrix
 
