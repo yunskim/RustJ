@@ -1310,6 +1310,9 @@ impl Builder<'_> {
                     GraphAnalyzability::Static,
                 ))
             }
+            ExprKind::ModifierValue(_) => {
+                Err(Error::Unsupported("modifier value graph lowering".into()).at(span))
+            }
             ExprKind::VerbValue(verb) => Ok(self.push(
                 NodeKind::VerbValue {
                     function: verb.entity,

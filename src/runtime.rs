@@ -18,6 +18,7 @@ pub struct Engine {
 enum SymbolValue {
     Noun(Value),
     Verb(crate::semantic::Verb),
+    Modifier(std::sync::Arc<FunctionEntity>),
 }
 
 struct ResolvedVerb {
@@ -88,18 +89,21 @@ impl Engine {
         }
     }
 
-    fn parser_name_binding(&self, name: &str) -> Option<crate::semantic::ParserNameBinding> {
+    fn parser_name_binding(&self, name: &str) -> Option<crate::parser::ParserNameBinding> {
         if let Some(binding) = self.names.get(name) {
             return Some(match &binding.value {
-                SymbolValue::Noun(value) => crate::semantic::ParserNameBinding::Noun(value.clone()),
-                SymbolValue::Verb(_) => crate::semantic::ParserNameBinding::Function(
+                SymbolValue::Noun(value) => crate::parser::ParserNameBinding::Noun(value.clone()),
+                SymbolValue::Modifier(function) => {
+                    crate::parser::ParserNameBinding::Function(function.result_pos)
+                }
+                SymbolValue::Verb(_) => crate::parser::ParserNameBinding::Function(
                     crate::semantic::FunctionPartOfSpeech::Verb,
                 ),
             });
         }
         self.primitives
             .resolve_extension_binding(name)
-            .map(|handle| crate::semantic::ParserNameBinding::Function(handle.result_pos.into()))
+            .map(|handle| crate::parser::ParserNameBinding::Function(handle.result_pos.into()))
     }
     /// Inspect bindings without execution or mutation. Versions are Engine-local.
     /// Stable machine API: diagnostic wrappers are stripped before return.
@@ -113,7 +117,7 @@ impl Engine {
         source: &str,
     ) -> Result<crate::semantic::BoundProgram> {
         crate::semantic::bind(
-            crate::semantic::parse_analysis(source, &|name| self.parser_name_binding(name))?,
+            crate::parser::parse_analysis(source, &|name| self.parser_name_binding(name))?,
             |name| self.binding_version(name),
         )
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))
@@ -249,8 +253,7 @@ impl Engine {
     }
 
     fn eval_program(&mut self, source: &str, pooled: bool) -> Result<Option<Value>> {
-        let program =
-            crate::semantic::parse_runtime(source, &|name| self.parser_name_binding(name))?;
+        let program = crate::parser::parse_runtime(source, &|name| self.parser_name_binding(name))?;
         let Some(expr) = program.expression else {
             return Ok(None);
         };
@@ -258,6 +261,7 @@ impl Engine {
         // runtime errors relative to failures in right-hand arguments.
         let value = match expr.kind {
             crate::semantic::ExprKind::VerbValue(verb) => SymbolValue::Verb(verb),
+            crate::semantic::ExprKind::ModifierValue(function) => SymbolValue::Modifier(function),
             _ => SymbolValue::Noun(self.interpret_ir(expr, pooled, 0)?),
         };
         if let Some(name) = program.assignment {
@@ -267,6 +271,9 @@ impl Engine {
             match value {
                 SymbolValue::Noun(value) => Ok(Some(value)),
                 SymbolValue::Verb(_) => Err(Error::Unsupported("verb result display".into())),
+                SymbolValue::Modifier(_) => {
+                    Err(Error::Unsupported("modifier result display".into()))
+                }
             }
         }
     }
@@ -362,7 +369,7 @@ impl Engine {
             match expr.kind {
                 Expr::Group(inner) => self.interpret_ir(*inner, pooled, depth + 1),
                 Expr::Literal(v) => Ok(v),
-                Expr::VerbValue(_) => Err(Error::Domain),
+                Expr::VerbValue(_) | Expr::ModifierValue(_) => Err(Error::Domain),
                 Expr::ReadName(name) => match self.names.get(&name) {
                     Some(Binding {
                         value: SymbolValue::Noun(value),

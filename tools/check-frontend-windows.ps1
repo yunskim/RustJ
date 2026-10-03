@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$ReferenceDirectory,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ReferenceRevision,
+    [Parameter(Mandatory=$true)][string]$SourceDirectory,
+    [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceRevision,
     [string]$Python = "$env:USERPROFILE\AppData\Local\Programs\Python\Python313\python.exe",
     [switch]$Avx2
 )
@@ -9,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Run this validator on Windows.' }
 $root = Split-Path $PSScriptRoot -Parent
 $reference = (Resolve-Path $ReferenceDirectory).Path
+$sourceDirectoryPath = (Resolve-Path $SourceDirectory).Path
 $toolBin = "$env:USERPROFILE\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin"
 $env:Path = "$toolBin;$env:Path"
 $env:RUSTC = "$toolBin\rustc.exe"
@@ -45,6 +48,11 @@ foreach ($library in $libraries) {
         if ($mode -eq 'semantic-reference') { $checkArguments += '--semantic-reference' }
         Invoke-FrontendCheck $Python $checkArguments
     }
+    Write-Output "START $variant stages"
+    Invoke-FrontendCheck $Python @('tools/frontend_stage_conformance.py',
+        '--binary', 'target/windows-validation/debug/examples/frontend_probe.exe',
+        '--source-directory', $sourceDirectoryPath, '--source-revision', $SourceRevision,
+        '--reference-revision', $ReferenceRevision, '--report', "reports/frontend-$variant-stages-windows.json")
     Write-Output "START $variant words"
     Invoke-FrontendCheck $Python @('tools/word_conformance.py', '--binary', 'target/windows-validation/debug/examples/scan_words.exe',
         '--reference-revision', $ReferenceRevision, '--report', "reports/frontend-$variant-words-windows.json")

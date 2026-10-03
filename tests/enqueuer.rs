@@ -119,7 +119,11 @@ fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsuppor
     assert_eq!(words[0].class, EnqueueClass::Name);
     assert!(matches!(words[0].payload, EnqueuedPayload::Name("foo_bar")));
 
-    for source in ["foo_", "foo__bar"] {
+    assert!(matches!(
+        enqueuer::enqueue("foo_").unwrap_err().into_unlocated(),
+        rustj::Error::IllFormedName
+    ));
+    for source in ["foo_bar_", "foo__bar", "foo__"] {
         let error = enqueuer::enqueue(source).unwrap_err();
         assert!(matches!(
             error.into_unlocated(),

@@ -1,0 +1,51 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "source_review_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+  "source_hashes": {
+    "jsrc/w.c": "8acc4b4918edb61733ae698dcab606feb11bac3398b0bcb6ea4cce4d5c9d20b3",
+    "jsrc/p.c": "3b2ec598720e94951b5f5648e9e9850dc74e3d80d06310b2b447f2912482125d",
+    "jsrc/cf.c": "8b3d39221d9cd214b684d642bb6d204c7eba0df87170c7a13a5924c4944f36b2",
+    "jsrc/sn.c": "02c71db4fb9cf49ecde64995cf9300f7c715313919cfdab3fbf86194af0f6d14",
+    "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d"
+  },
+  "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+  "probe_sha256": "4b61cee4c0082a6f31fec16887bf31419f576d597563fbd614e8f8feb274beca",
+  "checks": {
+    "row_transport": 1,
+    "declarative_rows": 6561,
+    "tokenizer": 163,
+    "enqueue_pos": 41,
+    "enqueue_noun": 15,
+    "comment_cutoff": 11,
+    "enqueue_control_class": 23,
+    "enqueue_flags": 23,
+    "enqueue_provenance": 23,
+    "enqueue_index": 23,
+    "parser_function": 111,
+    "frontend_error": 15,
+    "copula_reference": 4
+  },
+  "mismatches": [],
+  "pending": {
+    "enqueue": [
+      "complex/extended/rational numeric notation",
+      "locatives and name _:",
+      "complete spellin/ds inventory",
+      "tacit translator env=0 and locative copula upgrade"
+    ],
+    "parser": [
+      "runtime ptcol reachable-state trace equivalence",
+      "in-sentence assignment and right-to-left lookup effects",
+      "computed noun modifier operands",
+      "derived adverb/conjunction results",
+      "explicit/direct definitions",
+      "full row provenance and reinsertion trace"
+    ]
+  },
+  "limitations": [
+    "enqueue control/name flags use source-derived goldens, not a C queue export",
+    "cases[] enumeration does not prove runtime ptcol action equivalence"
+  ],
+  "failed": 0
+}

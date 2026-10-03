@@ -25,6 +25,13 @@ pub enum EnqueueClass {
     RightParen,
 }
 
+/// jtenqueue's sentence environment; explicit bodies retain local copulas.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnqueueEnvironment {
+    TopLevel,
+    ExplicitDefinition,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EnqueueFlags {
     /// Ordinary names are resolved at parser-stack entry. Assignment targets
@@ -68,10 +75,27 @@ fn numeric_text(s: &str) -> Cow<'_, str> {
     }
 }
 
+fn numeric_failure(s: &str) -> Error {
+    // wn.c::numcase recognizes these alternate families. Do not report a J
+    // lexical error just because RustJ has not implemented their constructors.
+    if s.bytes()
+        .any(|b| matches!(b, b'a' | b'b' | b'j' | b'p' | b'r' | b'x' | b'f'))
+    {
+        Error::Unsupported(format!("numeric literal {s}"))
+    } else {
+        Error::IllFormedNumber
+    }
+}
+
 fn parse_int(s: &str) -> Result<i64> {
     numeric_text(s)
         .parse()
-        .map_err(|_| Error::Unsupported(format!("numeric literal {s}")))
+        .map_err(|e: std::num::ParseIntError| match e.kind() {
+            std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow => {
+                Error::Unsupported("overflowing integer literal conversion".into())
+            }
+            _ => numeric_failure(s),
+        })
 }
 
 fn parse_float(s: &str) -> Result<f64> {
@@ -79,9 +103,7 @@ fn parse_float(s: &str) -> Result<f64> {
         "_" => Ok(f64::INFINITY),
         "__" => Ok(f64::NEG_INFINITY),
         "_." => Ok(f64::NAN),
-        _ => numeric_text(s)
-            .parse()
-            .map_err(|_| Error::Unsupported(format!("numeric literal {s}"))),
+        _ => numeric_text(s).parse().map_err(|_| numeric_failure(s)),
     }
 }
 
@@ -96,6 +118,14 @@ fn interpret_word<'a>(
             EnqueuedPayload::Assign,
             EnqueueFlags {
                 global_assignment: true,
+                ..EnqueueFlags::default()
+            },
+        )),
+        "=." => Some((
+            EnqueueClass::Assignment,
+            EnqueuedPayload::Assign,
+            EnqueueFlags {
+                local_assignment: true,
                 ..EnqueueFlags::default()
             },
         )),
@@ -214,6 +244,11 @@ fn interpret_word<'a>(
         // jsource vnm accepts ordinary underscores inside simple names.
         // Trailing '_' and '__' introduce direct/indirect locatives, which are
         // a separate name-resolution feature not implemented by this frontend.
+        // sn.c::vnm rejects a trailing single underscore without a preceding
+        // locale separator. foo__ is a valid base-locale name, still unsupported.
+        if word.ends_with('_') && word.bytes().filter(|&b| b == b'_').count() == 1 {
+            return Err(Error::IllFormedName);
+        }
         if word.ends_with('_') || word.contains("__") {
             return Err(Error::Unsupported("J locative names".into()));
         }
@@ -243,7 +278,17 @@ pub fn enqueue_with_context<'a>(
     source: &'a str,
     primitives: &crate::primitive::PrimitiveContext,
 ) -> Result<Vec<EnqueuedWord<'a>>> {
-    let spans = crate::scanner::parse_word_spans(source.as_bytes())
+    enqueue_in_environment(source, primitives, EnqueueEnvironment::TopLevel)
+}
+
+/// Classify an explicit-definition body without turning local assignment global.
+/// Selecting this environment does not implement local symbol tables or execution.
+pub fn enqueue_in_environment<'a>(
+    source: &'a str,
+    primitives: &crate::primitive::PrimitiveContext,
+    environment: EnqueueEnvironment,
+) -> Result<Vec<EnqueuedWord<'a>>> {
+    let spans = crate::tokenizer::parse_word_spans(source.as_bytes())
         .map_err(|error| error.in_phase(DiagnosticPhase::WordFormation))?;
     let mut out = Vec::with_capacity(spans.len());
     for (word_index, span) in spans.into_iter().enumerate() {
@@ -275,6 +320,11 @@ pub fn enqueue_with_context<'a>(
                 index + 1 == out.len() || out[index + 1].class != EnqueueClass::Assignment;
         }
         if out[index].class == EnqueueClass::Assignment {
+            // w.c::jtenqueue env==1 upgrades local copulas at top level.
+            if environment == EnqueueEnvironment::TopLevel && out[index].flags.local_assignment {
+                out[index].flags.local_assignment = false;
+                out[index].flags.global_assignment = true;
+            }
             out[index].flags.assignment_to_name =
                 index > 0 && out[index - 1].class == EnqueueClass::Name;
         }

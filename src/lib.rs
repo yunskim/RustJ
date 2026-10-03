@@ -23,6 +23,7 @@ pub mod logical_ir;
 pub mod lowering;
 mod numeric;
 pub mod opportunity;
+pub mod parser;
 pub mod physical;
 mod pool;
 pub mod primitive;
@@ -34,6 +35,7 @@ mod simd;
 pub mod sparse;
 pub mod storage;
 pub mod syntax;
+pub mod tokenizer;
 pub mod types;
 pub mod value;
 

@@ -197,6 +197,8 @@ impl ErrorContext {
 pub enum Error {
     Syntax(String),
     Spelling,
+    IllFormedName,
+    IllFormedNumber,
     Domain,
     Length,
     Rank,
@@ -237,6 +239,8 @@ impl Error {
         match self {
             Self::Syntax(_) => "syntax error",
             Self::Spelling => "spelling error",
+            Self::IllFormedName => "ill-formed name",
+            Self::IllFormedNumber => "ill-formed number",
             Self::Domain => "domain error",
             Self::Length => "length error",
             Self::Rank => "rank error",
@@ -253,6 +257,8 @@ impl Error {
         match self.root() {
             Self::Syntax(_) => "SyntaxError",
             Self::Spelling => "SpellingError",
+            Self::IllFormedName => "IllFormedNameError",
+            Self::IllFormedNumber => "IllFormedNumberError",
             Self::Domain => "DomainError",
             Self::Length => "LengthError",
             Self::Rank => "RankError",

@@ -1099,7 +1099,7 @@ RustJ Logical IR / compiler facts
 
 RustJ는 jsource의 C parser implementation details(bit-packed parse masks, refcount/inplacing mechanics, function pointers, cache tricks)를 복제할 필요는 없다. 그러나 **reduction eligibility, reduction ordering, result POS, parser-time name lookup semantics, completed modifier entity boundaries**는 호환되어야 한다.
 
-현재의 `reduce_modifier_applications -> collapse_verb_trains -> noun/verb application` 식 staged helper는 구현 과도기이며, 최종 parser semantic model로 간주하지 않는다. 장기적으로는 jsource의 9-row parse behavior를 하나의 parser reduction engine에서 재현하고 differential tests로 검증한다.
+과거 `reduce_modifier_applications -> collapse_verb_trains` staged helper는 최종 semantic model이 아니었다. 현재 선언 row matcher는 통합되어 있으나 runtime semantic actions와 전체 constructor/POS coverage는 아직 미완료다. 장기적으로는 jsource의 9-row parse behavior를 하나의 parser reduction engine에서 재현하고 differential tests로 검증한다.
 
 #### 3.3.4 Function DAG의 shape는 J parser reduction rule이 결정한다
 
@@ -7464,9 +7464,51 @@ RustJ가 그대로 맞춰야 하는 것은 **word/class resolution timing, row e
 
 RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST parser가 아니라는 점을 보존해야 한다. rows 0–2의 verb application은 **parser-visible effect/value dependency가 없다는 것이 증명된 경우에만** Noun-producing semantic application으로 defer할 수 있다. 그 실행이 이후 name/locale lookup, assignment state, modifier operand value, result POS 또는 construction-time error에 영향을 줄 수 있으면 정적 parser가 효과를 무시한 채 진행해서는 안 된다. v0 correctness baseline은 동일한 9-row engine의 runtime semantic action/fallback을 사용하고, 이후 guard/multiversion으로 정적 범위를 넓힌다. rows 3–4 역시 modifier application 시점에 필요한 J construction semantics를 수행하여 completed entity/POS/error를 결정해야 한다.
 
+#### Frontend 파일 경계
+
+| 파일 | 책임 | 입력 → 출력 |
+|---|---|---|
+| `src/tokenizer.rs` | `w.c::jtwordil` state machine, raw words·parse-visible comment cutoff | source bytes → byte spans |
+| `src/enqueuer.rs` | `jtenqueue` 해석, primitive/literal/name/copula·환경별 flags | source + tokenizer spans → `EnqueuedWord` queue |
+| `src/parser.rs` | parse class/9-row matcher, stack reduction, modifier/train construction, parser-time name/POS lookup | typed queue → `Program`/completed `FunctionEntity` |
+| `src/semantic.rs` | target-independent 의미 객체·rank constructor 계약·binding/version model | parser 결과를 실행/분석 계층에 전달 |
+
+Tokenizer·enqueuer·parser 구현은 각각 한 파일이 소유한다. 기존 `scanner` module과 `semantic::parse`/row API는 compatibility re-export만 남겨 기존 사용자를 보호하며 별도 grammar를 유지하지 않는다. parser는 enqueue 결과를 spelling으로 다시 분류하지 않는다. execution/target 선택을 이 세 파일에 넣지 않는다.
+
+#### 최우선 실행 계획과 단계별 논리 동등성 (2026-10-03)
+
+Tokenizer → Enqueuer → Parser의 jsource 충실도를 다른 구현 작업보다 먼저 완성한다. 기존 F0–F2/P0–P7 체크리스트를 그대로 사용하며 새 병렬 로드맵은 만들지 않는다. CUDA 구현은 계속 계획에만 둔다. representation·주소·refcount는 비교 대상이 아니며, 다음 의미 투영과 실패 동작을 비교한다.
+
+| 단계 | 비교 대상 | 검증 방법 | 현재 한계 |
+|---|---|---|---|
+| Tokenizer/F0 | raw word bytes, parser-visible comment cutoff, quote 오류 | C `;:`와 Rust raw spans 비교; 별도로 trailing `NB.`를 parse queue에서 제외 | 기존 256-byte sweep과 새 UTF-8 probe의 입력 범위를 구분한다 |
+| Enqueuer/F1 | 품사, noun type/shape/data, primitive/name 구분, copula·lookup 플래그, 원 word index/span | literal/primitive를 C에 할당하여 값과 `4!:0` 비교; 이름/control 플래그는 `w.c::jtenqueue`에서 도출한 golden | C 내부 queue를 직접 export한 검증은 아니다. 전체 숫자 표기·locative·`_:`·env=0 미완료 |
+| Parser/F2/P2/P3 | first-match row, completed modifier와 hook/fork의 ordered semantic operands, 최종 POS, construction error | 실제 source `p.c::cases[]`를 읽어 9⁴ 조합 비교; C `5!:1`을 의미 구조로 정규화; `4!:0`과 error class 비교 | `cases[]`는 tacit translator용 선언 테이블이다. runtime `ptcol`의 reachable state·reinsertion·effect/name sequencing 증명과는 별도다 |
+
+`examples/frontend_probe.rs`는 backend-independent 관찰 adapter다. source operator가 DAG parent로 남고 noun operand는 type/shape/data와 boxed 구조를 보존한다. `tools/frontend_stage_conformance.py`는 각 단계의 검사 수·불일치·미지원 목록을 따로 보고한다. 알려진 미지원 문법을 성공으로 집계하거나 최종 값 일치만으로 parser 구조 동등성을 선언하지 않는다. source review revision과 실제 oracle DLL revision·hash도 별도로 기록한다.
+
+실행 순서는 다음과 같다. 각 완료 표시는 아래 F/P 항목에만 적용한다.
+
+1. F0 경계 검증을 유지하고 stage probe를 추가한다.
+2. F1의 copula 환경부터 복원하고 literal/name/spelling 오류·전체 core primitive coverage를 넓힌다.
+3. F2/P2의 선언 row 계약과 runtime dispatch·reduction extent를 따로 검증한다.
+4. P3의 modifier/trains 구조와 result POS/construction errors를 C atomic representation으로 확장한다.
+5. P4의 parser-time noun snapshot/late function lookup, 중간 assignment/locale/effect를 runtime semantic action과 검증한다.
+6. P6에서 단계별 비교와 기존 값/error differential을 native Windows gate로 실행한 뒤 P7 cutover 완료를 판단한다. GitHub CI는 사용하지 않는다.
+
+새 stage 검증 실행 예시(Windows, source checkout과 DLL revision은 실제 준비한 값을 사용):
+
+```powershell
+python tools/frontend_stage_conformance.py --binary target/windows-validation/debug/examples/frontend_probe.exe --source-directory target/jref --source-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 --reference-revision ded7793fe5795d79eda8e7138dce94aa056edf78 --report reports/frontend-j64-stages-windows.json
+```
+
+이 명령은 `J_LIBRARY`에 실제 `j.dll`/`javx2.dll` 경로가 설정되어 있어야 한다. source pin이 다르거나 DLL이 다른 revision이면 보고서에 그 차이를 유지한다. Windows local runner에도 source-directory/source-revision을 지정하여 단계 검사를 함께 실행한다.
+
+이번 source 기반 수정은 [w.c::jtenqueue](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [sn.c::vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c), [wn.c::connum](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c), [p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)를 참조했다. `foo_`는 locative 미지원이 아니라 ill-formed name이다. `1q`, `1e`, `1.2.3`, `3..`도 ill-formed number를 보존하며 미구현 숫자 표기·유효 locative는 Unsupported로 남긴다.
+
 #### F0 — jsource word formation 이식
 
-- [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/scanner.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
+- [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/tokenizer.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
 - [x] 기존 handwritten `scanner::transition`을 제거하고 lookup-only `TRANSITIONS[state][class]`로 교체했다. follow-on numeric rewind와 UNDD 처리는 `jtwordil`의 별도 boundary action으로 유지한다.
 - [x] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다. `tools/word_conformance.py`가 state-prefix × 256-byte sweep, 특수 사례, seeded random 2,000건을 포함한다.
 - [x] unmatched quote를 jsource `EVOPENQ`에 대응하는 `open quote`로 분류하고 시작 quote byte span을 보존한다.
@@ -7489,7 +7531,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [x] extension-like spelling은 enabled extension catalog에 있어도 enqueue에서는 ordinary NAME + lookup metadata로 진행한다.
 - [ ] numeric/string construction, name validation, assignment/copula classification을 jsource `jtenqueue` 순서대로 이식한다.
 - [x] ordinary NAME은 처음 non-lookup으로 두고, trailing NAME/뒤에 non-assignment가 오는 NAME만 lookup으로 전환하며 copula 직전 assignment target NAME은 non-lookup으로 유지한다.
-- [x] `EnqueueFlags`에 `global_assignment/local_assignment/assignment_to_name`을 분리했다. 현재 지원 copula `=:`는 global이며 NAME 직후 copula는 to-name flag를 보존한다.
+- [x] `EnqueueFlags`에 `global_assignment/local_assignment/assignment_to_name`을 분리했다. `=:`는 global이며 NAME 직후 copula는 to-name flag를 보존한다. `=.`는 TopLevel에서 global로 승격하고 ExplicitDefinition enqueue 환경에서는 local을 유지한다. explicit body의 local 실행과 locative 승격은 미완료다.
 - [x] one-word sentence는 Noun/Name/Verb/Adverb/Conjunction만 결과 가능 class로 허용하고 copula/괄호 단독 문장을 enqueue 단계에서 거부한다.
 - [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
 - [x] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 modifier/parser class 경로에 참여하는 테스트를 만들었다.
@@ -7516,7 +7558,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 - [x] rows 3–4의 modifier action 결과 `yy`의 실제 `AT(yy)`가 다음 parser class가 됨을 확인한다.
 - [x] modifier application 결과가 하나의 completed J entity로 stack에 재삽입된 뒤 후속 reduction에 참여함을 확인한다.
 - [x] `+/ % #`에서 `+/`가 하나의 derived VERB entity로 만들어진 뒤 Fork의 `f` operand가 됨을 확인한다.
-- [x] 현재 RustJ의 `reduce_modifier_applications -> collapse_verb_trains -> noun/verb application` 구조가 jsource table dispatch를 근사하는 과도기 구현임을 확인한다.
+- [x] 과거 staged modifier/train helper의 의미 한계를 확인했다. 현재 matcher는 `match_parse_row`로 통합되었으며, runtime semantic action 및 전체 POS coverage는 P2–P4에서 계속 추적한다.
 - [x] parser와 compiler-analysis 책임 경계를 고정한다.
 - [x] differential oracle의 최소 contract를 정한다:
   - 성공/실패 및 J error class,
@@ -7526,7 +7568,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
   - RustJ 내부에서는 row id/input classes/span/result class를 기록하는 optional ParseTrace.
 - [x] 위 contract를 실제 test harness API로 만든다. `tools/oracle.py` JSON-lines protocol이 `eval`, `sentence`, `name_class`, `representation(atomic|linear)`을 제공하며 기존 string eval 요청과 호환된다.
 
-**P0 완료 조건:** **완료.** observable contract를 사용하는 oracle API가 존재하고, CI/reference build는 parser 검토 기준 jsource revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`을 고정한다.
+**P0 완료 조건:** **완료.** observable contract를 사용하는 oracle API가 존재하고, source review는 jsource revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`을 고정한다. 로컬 oracle DLL은 별도 revision/hash로 식별하며 source pin으로 빌드되었다고 가정하지 않는다. GitHub CI는 생략한다.
 
 #### P1 — parser stack model과 semantic value model 분리
 
@@ -7626,11 +7668,18 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 
 이번 실행 기준선은 공식 `build/w64.zip`의 release commit metadata `ded7793fe5795d79eda8e7138dce94aa056edf78`이다. `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`은 source-level parser 검토 기준으로 유지한다. 그 고정 소스의 Windows MSVC 빌드는 GNU C 확장 때문에 실패했으므로 이번 배포본 비교를 pinned-build 성공으로 표시하지 않는다. 각 `reports/frontend-*-windows.json`은 실제 DLL/실행 파일 SHA-256과 revision/platform을 기록하며, word harness는 revision을 하드코딩하지 않는다.
 
-재실행: native Windows에서 `tools/check-windows.ps1` 후 `tools/check-frontend-windows.ps1 -ReferenceDirectory <j.dll/javx2.dll 폴더> -ReferenceRevision <확인한 40자리 commit> -Avx2`를 실행한다. 기본 Python 3.13 경로는 `-Python`으로 변경할 수 있다. GitHub CI와 Linux tests는 실행하지 않았다. upstream 전체 suite와 CUDA 검증도 수행하지 않았다.
+재실행: native Windows에서 `tools/check-windows.ps1` 후 `tools/check-frontend-windows.ps1 -ReferenceDirectory <j.dll/javx2.dll 폴더> -ReferenceRevision <확인한 40자리 commit> -SourceDirectory <jsource checkout> -SourceRevision <검토한 40자리 commit> -Avx2`를 실행한다. 기본 Python 3.13 경로는 `-Python`으로 변경할 수 있다. GitHub CI와 Linux tests는 실행하지 않았다. upstream 전체 suite와 CUDA 검증도 수행하지 않았다.
 
 **남은 gate:** intrinsic FunctionSemanticInfo 저장, full noun/verb modifier semantics, 실제 result POS, P2 runtime action/fallback, P4 우측→좌측 name/assignment timing은 미완료다. 이 증거는 M2 전체 완료를 뜻하지 않는다.
 
 #### P6 — differential/conformance test matrix
+
+- [x] 단계별 probe와 의미 정규화·source-table 비교 harness를 추가한다 (`frontend_probe`, `frontend_stage_conformance`).
+- [x] tokenizer/enqueuer/parser 구현 파일을 분리하고 기존 scanner/semantic parser API는 compatibility export로 유지한다.
+- [x] 단독/괄호 adverb·conjunction 및 최종 이름 할당을 syntax error 없이 `ModifierValue`와 실제 POS로 보존한다. named modifier 실행·전체 derived POS는 계속 미완료다.
+- [x] normalization이 completed modifier 경계·ordered operand·boxed noun type/shape를 보존하고 모르는 atomic encoding을 거부하는 unit tests를 추가한다.
+- [x] 새 stage suite의 native Windows j64/AVX2 실행 결과를 기록한다. 각각 7,014개 검사(선언 row 6,561조합, 함수/POS 구조 111건 포함), 불일치 0이다.
+- [ ] runtime `ptcol`의 reachable stack context와 row actions/provenance trace를 C와 비교한다. 선언 `cases[]` 6,561조합 검사는 이 항목을 대체하지 않는다.
 
 - [ ] 9개 parse row 각각의 최소 positive sentence를 jsource와 differential 비교한다.
 - [ ] row precedence가 충돌할 수 있는 competing-pattern 문장을 추가한다.
@@ -7649,14 +7698,16 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 - [ ] 아직 lowering하지 못하는 합법 J form의 **parser success**와 이후 `UnsupportedImplementation`을 syntax error와 구분한다.
 - [x] 현재 지원 범위의 differential suite를 native Windows local gate로 실행할 도구를 추가했다. GitHub CI는 사용자 지시에 따라 생략한다.
 
+**2026-10-03 Windows 실행 기록:** 파일 분리와 `=.`/ill-formed name·number/modifier result POS 수정 후 default/portable 각각 **212 passed, 17 ignored**; fmt/clippy 통과, Python harness **17 passed**. 일반/AVX2 C oracle 각각 direct/semantic-reference **2,050문장**, raw word **6,618건**, 새 stage suite **7,014개 검사**에서 불일치 0이다. 17개 ignored definition tests와 stage report의 pending 목록은 완료가 아니다. 새 보고서는 `reports/frontend-{j64,avx2}-stages-windows.json`이며 기존 6개 value/word 보고서도 현재 binaries의 hash로 갱신했다. source review pin과 공식 Windows DLL revision은 앞 실행 기록처럼 서로 다르다.
+
 **P6 완료 조건:** 지원 parser surface의 변경은 jsource observable differential + RustJ row trace golden 없이 merge되지 않는다.
 
 #### P7 — cutover와 legacy parser 제거
 
 - [ ] 새 9-row engine이 기존 parser/semantic golden을 모두 통과한다.
 - [ ] Analyzer golden(`(+/ % #) y` 포함)이 새 parser output에서도 동일한 completed entity graph를 입력으로 받는다.
-- [ ] old `reduce_modifier_applications`를 제거한다.
-- [ ] old `collapse_verb_trains`를 제거한다.
+- [x] old `reduce_modifier_applications` 함수는 현재 source에 없다. row engine이 modifier reductions를 소유한다.
+- [x] old `collapse_verb_trains` 함수는 현재 source에 없다. row engine이 train reductions를 소유한다.
 - [ ] noun/verb application을 수동으로 조립하던 legacy loop를 제거한다.
 - [ ] parser-only migration fields와 dead compatibility code를 제거한다.
 - [ ] `parse`, `parse_analysis`, `parse_runtime`가 parser semantics를 하나의 engine에서 공유하게 한다.
