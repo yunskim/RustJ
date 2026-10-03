@@ -7,10 +7,11 @@
     "jsrc/p.c": "3b2ec598720e94951b5f5648e9e9850dc74e3d80d06310b2b447f2912482125d",
     "jsrc/cf.c": "8b3d39221d9cd214b684d642bb6d204c7eba0df87170c7a13a5924c4944f36b2",
     "jsrc/sn.c": "02c71db4fb9cf49ecde64995cf9300f7c715313919cfdab3fbf86194af0f6d14",
-    "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d"
+    "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d",
+    "jsrc/cr.c": "9c2a7976afae1bae96a8fd5027b6df69f83b71a20ff62a94e08d25cabccadde4"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "809a1c96b5f14b5acdc7d7d7ddc4bbf03cdd37a2a69aae2fc5d4fe66c799d8d8",
+  "probe_sha256": "d9bd70f8bf55129fcf2ed4d2a9ef9f8754e0fac5ff5662c7dd32b6256400864a",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -25,10 +26,10 @@
     "parser_function": 131,
     "frontend_error": 17,
     "static_setup": 20,
-    "static_constructor": 70,
-    "static_read_only": 70,
-    "static_modifier_dependencies": 70,
-    "static_constructor_error": 72,
+    "static_constructor": 76,
+    "static_read_only": 76,
+    "static_modifier_dependencies": 76,
+    "static_constructor_error": 75,
     "copula_reference": 4
   },
   "mismatches": [],
@@ -36,14 +37,6 @@
     {
       "source": "candidate=: + analysisrank (#1 2)",
       "reason": "rank operand needs a concrete noun; analysis does not execute it",
-      "reference_pos": 3,
-      "rust": {
-        "error": "unsupported"
-      }
-    },
-    {
-      "source": "candidate=: 3 (\" /) 1",
-      "reason": "noun-left rank constructor semantics are not implemented",
       "reference_pos": 3,
       "rust": {
         "error": "unsupported"

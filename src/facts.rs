@@ -281,18 +281,21 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
 }
 
 fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
-    let value = function.operands.iter().find_map(|operand| match operand {
-        FunctionOperand::Noun { value, .. } => Some(value),
-        FunctionOperand::Function(_) => None,
-    })?;
+    let [
+        FunctionOperand::Function(_),
+        FunctionOperand::Noun { value, .. },
+    ] = function.operands.as_slice()
+    else {
+        return None;
+    };
     crate::semantic::rank_noun_contract(value).ok()
 }
 
 fn function_operand(function: &FunctionEntity) -> Option<&Arc<FunctionEntity>> {
-    function.operands.iter().find_map(|operand| match operand {
+    match function.operands.first()? {
         FunctionOperand::Function(function) => Some(function),
         FunctionOperand::Noun { .. } => None,
-    })
+    }
 }
 
 fn infer_derived_reduction(function: &Arc<FunctionEntity>, input: &Facts) -> Facts {
@@ -611,5 +614,28 @@ pub(crate) fn infer_semantic_projection(
         | FunctionHead::ModifierTrain
         | FunctionHead::Hook
         | FunctionHead::Fork => SemanticFacts::default(),
+    }
+}
+
+#[cfg(test)]
+mod noun_rank_tests {
+    use super::*;
+
+    #[test]
+    fn noun_left_rank_does_not_infer_from_right_verb_or_left_constant() {
+        let program = crate::semantic::parse("3\"+").unwrap();
+        let crate::semantic::ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!();
+        };
+        assert!(function_operand(&verb.entity).is_none());
+        assert!(semantic_rank_triplet(&verb.entity).is_none());
+        let input = SemanticFacts {
+            dtype: TypeFact::Exact(DType::Int),
+            shape: Some(vec![4]),
+            rank: Some(1),
+        };
+        let result = infer_semantic_projection(&verb.entity, None, &input);
+        assert!(result.shape.is_none());
+        assert_eq!(result.dtype, TypeFact::Unknown);
     }
 }

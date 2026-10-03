@@ -761,7 +761,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         }
         FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
             hints.push(GraphHint::CellParallelStructure);
-            let Some(operand) = function_operands(function).into_iter().next() else {
+            let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
                 return (
                     GraphForm::Modifier {
                         head: function.head.clone(),
@@ -771,7 +771,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
                 );
             };
             GraphForm::Rank {
-                operand,
+                operand: operand.clone(),
                 rank_spec: noun_operand_value(function),
             }
         }

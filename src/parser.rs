@@ -405,18 +405,6 @@ fn apply_conjunction_items(
             "conjunction child identity requires resolution".into(),
         ));
     }
-    let Some(left) = left.into_verb() else {
-        return Err(
-            if matches!(
-                operator.head,
-                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
-            ) {
-                Error::Domain
-            } else {
-                Error::Unsupported("noun-left rank constructor semantics".into())
-            },
-        );
-    };
     apply_conjunction_at(left, operator, right, span).map(Item::verb)
 }
 
@@ -553,7 +541,7 @@ fn modifier_operand(operand: &FunctionOperand, span: std::ops::Range<usize>) -> 
 }
 
 fn apply_conjunction_at(
-    left: Verb,
+    left: Item,
     operator: Arc<FunctionEntity>,
     right: Item,
     span: std::ops::Range<usize>,
@@ -563,32 +551,50 @@ fn apply_conjunction_at(
         FunctionHead::PrimitiveConjunction(id) => Some(*id),
         _ => None,
     };
-    let mut operands = vec![FunctionOperand::Function(left.entity)];
-    let Item {
-        class,
-        value: right,
-        ..
-    } = right;
-    match (class, right) {
-        (ParseClass::Noun, ParseValue::Noun(expr, _)) => {
+    // cr.c::jtqq audits the right rank operand before inspecting noun-left
+    // constant/gerund construction. Keep both original operands in the DAG.
+    let ranks;
+    let right_operand = match right.value {
+        ParseValue::Noun(expr, _) => {
             if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Atop)) {
                 return Err(Error::Domain);
             }
             let noun_span = expr.span.clone();
             let value = completed_noun(expr, "runtime-dependent conjunction noun operand")?;
-            if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Rank)) {
-                rank_noun_contract(&value)?;
-            }
-            operands.push(FunctionOperand::Noun {
+            ranks = Some(rank_noun_contract(&value)?);
+            FunctionOperand::Noun {
                 span: noun_span,
-                value,
-            });
+                value: value.into_shared(),
+            }
         }
-        (ParseClass::Verb, ParseValue::Verb(verb)) => {
-            operands.push(FunctionOperand::Function(verb.entity));
+        ParseValue::Verb(verb) => {
+            ranks = None;
+            FunctionOperand::Function(verb.entity)
         }
         _ => return Err(Error::Syntax("invalid conjunction right operand".into())),
-    }
+    };
+    let left_operand = match left.value {
+        ParseValue::Verb(verb) => FunctionOperand::Function(verb.entity),
+        ParseValue::Noun(expr, _) => {
+            if !matches!(primitive_id, Some(crate::primitive::ConjunctionId::Rank)) {
+                return Err(Error::Domain);
+            }
+            let noun_span = expr.span.clone();
+            let value = completed_noun(expr, "runtime-dependent noun-left rank operand")?;
+            if value.shape.len() == 1
+                && matches!(value.data, crate::value::Data::Boxed(_))
+                && ranks != Some([63; 3])
+            {
+                return Err(Error::Unsupported("noun-left rank gerund audit".into()));
+            }
+            FunctionOperand::Noun {
+                value: value.into_shared(),
+                span: noun_span,
+            }
+        }
+        _ => return Err(Error::Syntax("invalid conjunction left operand".into())),
+    };
+    let operands = vec![left_operand, right_operand];
     Ok(Verb {
         span: span.clone(),
         target: VerbTarget::Derived,

@@ -636,10 +636,6 @@ fn invalid_modifier_operands_report_constructor_domain_errors() {
             "{source}"
         );
     }
-    assert!(matches!(
-        semantic::parse("3\"0").unwrap_err().into_unlocated(),
-        rustj::Error::Unsupported(_)
-    ));
 }
 
 #[test]
@@ -710,7 +706,7 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
-    let source = "protected=: 3 (\" /) 1";
+    let source = "protected=: 3 (\\ @: +)";
     let report = engine.eval_captured(source);
     assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
     report.capture.verify().unwrap();
@@ -1060,5 +1056,45 @@ fn modifier_trident_errors_stop_before_later_actions_and_assignment() {
         assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
         assert_eq!(engine.binding_version("protected"), version);
         assert_eq!(engine.prepare_semantic(&source).unwrap_err().kind(), kind);
+    }
+}
+
+#[test]
+fn noun_left_rank_preserves_constant_and_rank_operands() {
+    use rustj::semantic::{ExprKind, FunctionOperand};
+    for source in ["3\"0", "1 2 3\"1 2", "'abc'\"_", "3\"+"] {
+        let program = semantic::parse(source).unwrap();
+        let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!("{source}");
+        };
+        assert!(
+            matches!(verb.entity.operands[0], FunctionOperand::Noun { .. }),
+            "{source}"
+        );
+        assert_eq!(verb.entity.operands.len(), 2);
+        assert_eq!(
+            verb.entity.result_pos,
+            rustj::semantic::FunctionPartOfSpeech::Verb
+        );
+    }
+}
+
+#[test]
+fn noun_left_rank_audits_right_rank_before_gerund_and_assignment() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for (expression, kind) in [
+        ("3\"'a'", "domain error"),
+        ("3\"1 2 3 4", "length error"),
+        ("3\"(2 2$0)", "rank error"),
+        ("(,<'bad')\"1 2 3 4", "length error"),
+        ("(,<'bad')\"0", "unsupported"),
+    ] {
+        let source = format!("protected=: {expression}");
+        let report = engine.eval_captured(&source);
+        report.capture.verify().unwrap();
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
+        assert_eq!(engine.binding_version("protected"), version);
     }
 }

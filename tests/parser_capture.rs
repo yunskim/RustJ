@@ -814,3 +814,69 @@ fn named_derived_conjunction_alias_keeps_identity_after_rebinding() {
     ));
     assert_eq!(&source[binding.span.clone()], "alias");
 }
+
+#[test]
+fn computed_noun_left_rank_capture_retains_both_noun_origins() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = Engine::new();
+    let source = "constantfn=: (i.4)\"1";
+    assert_eq!(
+        engine.prepare_semantic(source).unwrap_err().kind(),
+        "unsupported"
+    );
+    let report = engine.eval_captured(source);
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let entity = report
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            CaptureEvent::ConstructionSuccess {
+                row: ParseRow::Conjunction,
+                function,
+                ..
+            } => Some(function),
+            _ => None,
+        })
+        .unwrap();
+    let [
+        FunctionOperand::Noun { value, span },
+        FunctionOperand::Noun { value: ranks, .. },
+    ] = entity.operands.as_slice()
+    else {
+        panic!();
+    };
+    assert_eq!(value.shape(), [4]);
+    assert_eq!(value.int_at(3).unwrap(), 3);
+    assert_eq!(ranks.int_at(0).unwrap(), 1);
+    assert_eq!(&source[span.clone()], "(i.4)");
+    assert!(report.capture.events.iter().any(|event| matches!(event,
+        CaptureEvent::ConstructionAttempt { row: ParseRow::Conjunction, noun_inputs, .. } if noun_inputs.len() == 2)));
+}
+
+#[test]
+fn noun_left_rank_with_right_verb_is_not_a_rank_of_that_verb() {
+    use rustj::j_graph_ir::{GraphForm, NodeKind};
+    let engine = Engine::new();
+    let graph = engine.analyze_j_graph("(3\"+) i.4").unwrap();
+    graph.verify().unwrap();
+    let form = graph
+        .nodes
+        .iter()
+        .find_map(|node| match &node.kind {
+            NodeKind::Apply { function, form, .. }
+                if matches!(
+                    function.head,
+                    rustj::semantic::FunctionHead::PrimitiveConjunction(
+                        rustj::primitive::ConjunctionId::Rank
+                    )
+                ) =>
+            {
+                Some(form)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(matches!(form, GraphForm::Modifier { .. }));
+}

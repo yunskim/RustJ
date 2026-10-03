@@ -258,6 +258,15 @@ def cases():
         'tridentkeep=: + (" @: /) 1 2 3 4', 'tridentkeep i.3',
     ])
     fixed.extend('matrixfn=: ' + expression for expression in modifier_trident_cases())
+    fixed.extend([
+        'constantfn=: 3"0', 'constantfn=: 1 2 3"1 2', "constantfn=: 'abc'\"_",
+        'constantfn=: 3"+', 'constantfn=: 3 (" /) 1', 'constantfn=: 3 (+ ")',
+        'constantfn=: 3 (+ " /)', 'constantfn=: (i.4)"1',
+        'constantkeep=:+', "constantkeep=: 3\"'a'", 'constantkeep i.3',
+        'constantkeep=: 3"1 2 3 4', 'constantkeep i.3',
+        'constantkeep=: 3"(2 2$0)', 'constantkeep i.3',
+        "constantkeep=: (,<'bad')\"1 2 3 4", 'constantkeep i.3',
+    ])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

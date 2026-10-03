@@ -7669,6 +7669,17 @@ Windows default/portable 각각 **278 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [cf.c modifier trident actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
 
+##### Noun-left rank 구성과 operand 역할 보존 (2026-10-03)
+
+- [x] P3/P5: `cr.c::jtqq`에 따라 ordinary noun-left rank를 구성한다. 오른쪽 rank의 rank→length→numeric audit를 먼저 수행하고 왼쪽 noun 또는 verb, 오른쪽 noun 또는 verb의 원래 순서·값·span을 immutable Rank entity에 보존한다. noun 저장소는 공유한다. derived modifier binding/trident를 통한 적용도 같은 경로를 사용한다.
+- [x] P4/P6: runtime에서 계산된 `(i.4)` noun과 rank noun의 두 생산 occurrence를 construction capture에 연결한다. 정적 경로는 computed noun을 실행하지 않고 명시적 경계를 유지한다. 실패 시 기존 assignment target과 version을 유지한다.
+- [x] P5/P6: `3"+`에서 오른쪽 `+`를 실제 실행 대상으로 오인하거나 왼쪽 `3`을 rank specification으로 오인하지 않는다. Rank graph form 및 shape/type 추론은 왼쪽 function operand가 있는 기존 지원 형태에만 적용하고 noun-left 형태는 구조를 보존한 Modifier와 unknown facts로 남긴다. 회귀 테스트 5개, C 비교 문장 17개, stage 검사 21개를 추가했다.
+- [ ] boxed rank-1 noun의 gerund audit(오른쪽 rank가 모두 최대값인 경우 제외), constant-rank 함수의 kernel 실행·Logical lowering, 즉시 noun 실행, late modifier 조회 및 locale/definition scope를 연결한다. plain noun-left constructor 성공이 모든 gerund나 실행 지원을 뜻하지 않는다. 최적화/CUDA는 보류한다.
+
+Windows default/portable 각각 **283 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,336문장 중 2,332 passed, runtime 경계 4개, failed 0**; stage **7,379 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 별도이며 static 보고 경계는 computed rank 1건으로 줄었다. gerund 및 다른 computed noun 구간의 미지원까지 없어졌다는 의미는 아니다. stage source hash에 `cr.c`를 추가해 실제 rank-constructor 검토 소스를 식별한다. GitHub CI는 생략했다.
+
+기준 소스: [cr.c jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
