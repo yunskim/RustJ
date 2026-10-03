@@ -8744,7 +8744,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드/문서 검토 기준: 2026-10-04, runtime/source `87a1eaa` (이후 `4209d9e`는 문서 통합 commit). 아래 최신 frontend 검증 수치는 `87a1eaa`에 기록된 실행 결과이며, 이번 문서 재검토에서 테스트를 다시 실행했다는 뜻은 아니다.
+코드/문서 검토 기준: 2026-10-04, runtime/source `87a1eaa`. 이후 이 절의 문서 정리 commit들은 runtime/source를 변경하지 않는다. 아래 최신 frontend 검증 수치는 `87a1eaa`에 기록된 실행 결과이며, 이번 문서 재검토에서 테스트를 다시 실행했다는 뜻은 아니다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.

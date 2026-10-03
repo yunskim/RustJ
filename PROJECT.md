@@ -1792,7 +1792,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: 2026-10-04, runtime/source `87a1eaa`; the later `4209d9e` commit changes documentation only. The frontend validation numbers below are the recorded results from `87a1eaa`; this documentation review did not rerun them.
+Code/document review baseline: 2026-10-04, runtime/source `87a1eaa`. Subsequent documentation-only cleanup commits in this section do not change runtime/source. The frontend validation numbers below are the recorded results from `87a1eaa`; this documentation review did not rerun them.
 
 - shared immutable FunctionEntity semantic DAG;
 - explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
