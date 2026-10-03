@@ -21,12 +21,14 @@
     "jsrc/io.c": "65036d4e52be0b84753736d37ef53f0e4a4237e4bf0d387b276a75d4ce863bb0"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "aa938c6bbd2559b66d560c7ceba4dc804d761e32edd6341ce6d9e22dfcb0dec0",
+  "probe_sha256": "f60d944bd48cc3808dd45eb127cdf1cbb8a620bacb9ce99012c454cee008f1e8",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
     "constructor_transport": 1,
     "constructor_disposition": 80,
+    "control_inventory_size": 1,
+    "control_partition_source_projection": 33,
     "definition_input": 14,
     "definition_body_words": 20,
     "definition_body_literal": 5,
@@ -66,7 +68,7 @@
     "late_modifier_error": 3,
     "late_modifier_decode_setup": 4,
     "late_modifier_decoded_snapshot": 2,
-    "definition_no_execution_or_transaction": 5,
+    "definition_no_execution_or_transaction": 9,
     "definition_constructor": 16,
     "definition_multiline_constructor": 5,
     "definition_valence_error": 2,
@@ -114,7 +116,8 @@
   "limitations": [
     "enqueue control/name flags use source-derived goldens, not a C queue export",
     "cases[] enumeration does not prove runtime ptcol action equivalence",
-    "cf.c disposition enumeration does not prove all operand values, effects or callable implementations"
+    "cf.c disposition enumeration does not prove all operand values, effects or callable implementations",
+    "control partition uses C ;: words and reviewed conword/getsen source, not an exported C preparse/control-flow trace"
   ],
   "failed": 0
 }

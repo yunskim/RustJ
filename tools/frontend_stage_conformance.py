@@ -99,6 +99,64 @@ def source_constructors(source):
     return tables
 
 
+def source_control_words(source):
+    """Read conword fixed-word lengths; this is not a private C API export."""
+    block = source.split('static I jtconword', 1)[1].split('// w is string', 1)[0]
+    names = {'CDO':'Do','CIF':'If','CEND':'End','CELSE':'Else','CWHILE':'While',
+        'CELSEIF':'ElseIf','CFOR':'For','CRETURN':'Return','CBREAK':'Break',
+        'CCONT':'Continue','CSELECT':'Select','CCASE':'Case','CFCASE':'FCase',
+        'CWHILST':'Whilst','CASSERT':'Assert','CTHROW':'Throw','CTRY':'Try',
+        'CCATCH':'Catch','CCATCHD':'CatchD','CCATCHT':'CatchT'}
+    out = {}
+    for line in block.splitlines():
+        if 'cwtlen=(' not in line:
+            continue
+        match = re.search(r"MATCHNAME8\((\d+),([^)]*)\).*?cwtlen=\((\w+)<<8\)\+(\d+)", line)
+        if not match or match[3] not in names:
+            raise ValueError('unrecognized conword fixed match: ' + line)
+        prefix = ''.join(re.findall(r"'(.)'", match[2]))[:int(match[1])]
+        length = int(match[4])
+        word = prefix if len(prefix) == length else prefix + '.' if prefix == 'continue' and length == 9 else None
+        if not word or word in out:
+            raise ValueError('invalid/duplicate conword match')
+        out[word] = names[match[3]]
+    if not out:
+        raise ValueError('conword fixed table empty')
+    return out
+
+
+def reference_control_parts(source, words_hex, fixed):
+    """getsen partition algorithm with C ;: words and reviewed conword classes."""
+    data = source.encode()
+    parts = []
+    cursor, start, end = 0, None, 0
+    for encoded in words_hex:
+        word = bytes.fromhex(encoded)
+        if word.startswith(b'NB.'):
+            break
+        index = data.find(word, cursor)
+        if index < 0:
+            raise ValueError('C word absent from source')
+        cursor = index + len(word)
+        if start is None:
+            start = index
+        text = word.decode()
+        kind = fixed.get(text)
+        if text.endswith('.'):
+            for prefix, cls in [('for_','For'), ('goto_','Goto'), ('label_','Label')]:
+                if text.startswith(prefix):
+                    kind = cls
+        if kind:
+            if start < index:
+                parts.append({'span':[start,index], 'control':None, 'text_hex':data[start:index].hex()})
+            parts.append({'span':[index,cursor], 'control':kind, 'text_hex':encoded})
+            start = None
+        end = cursor
+    if start is not None:
+        parts.append({'span':[start,end], 'control':None, 'text_hex':data[start:end].hex()})
+    return {'parts':parts}
+
+
 def expected_row(rows, classes):
     return next((i for i, row in enumerate(rows) if all(c in allowed for c, allowed in zip(classes, row))), None)
 
@@ -169,7 +227,7 @@ def run(args):
               'reference_library_sha256': hashlib.sha256(Path(os.environ['J_LIBRARY']).read_bytes()).hexdigest(),
               'probe_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdigest(),
               'checks': {}, 'mismatches': [], 'analysis_coverage_boundaries': [], 'pending': PENDING,
-              'limitations': ['enqueue control/name flags use source-derived goldens, not a C queue export', 'cases[] enumeration does not prove runtime ptcol action equivalence', 'cf.c disposition enumeration does not prove all operand values, effects or callable implementations']}
+              'limitations': ['enqueue control/name flags use source-derived goldens, not a C queue export', 'cases[] enumeration does not prove runtime ptcol action equivalence', 'cf.c disposition enumeration does not prove all operand values, effects or callable implementations', 'control partition uses C ;: words and reviewed conword/getsen source, not an exported C preparse/control-flow trace']}
     def check(stage, source, expected, actual):
         report['checks'][stage] = report['checks'].get(stage, 0) + 1
         if not equivalent(expected, actual):
@@ -187,6 +245,16 @@ def run(args):
         check('constructor_disposition', list(parts), expected_constructors.get(parts), entry['disposition'])
     oracle, probe, static_probe, definition_probe = Oracle(), Probe(args.binary), Probe(args.binary, analysis=True), Probe(args.binary, definitions=True)
     try:
+        fixed_controls = source_control_words((source_dir / 'jsrc/wc.c').read_text())
+        check('control_inventory_size', 'wc.c conword fixed inventory', 20, len(fixed_controls))
+        control_fixtures = list(fixed_controls) + ['for_item.', 'for_a_b.', 'goto_exit.', 'label_exit.', 'goto_.',
+            '  if. y + 1   do. y else.  0 end. NB. if. ignored',
+            "assert. 'if. do. end.'", 'a NB. if. do. end.', 'NB. if.', '',
+            'if.x continuex. IF.', 'try. a catch. b catchd. c catcht. d end.', "'한글' if. x do. y end."]
+        for source in control_fixtures:
+            words = oracle.words(source)['words_hex']
+            check('control_partition_source_projection', source,
+                reference_control_parts(source, words, fixed_controls), static_probe.inspect(source, 'Q'))
         # Input framing is an execution-free source projection, not a callable
         # parser. Construct C fixtures only to validate their source/body words.
         for body in [' y+1 ', "\nNB. }} {{ opaque\ny+1\n", "\ninner=.{{y+1}}\ninner y\n", " 'it''s }}' [ y "]:

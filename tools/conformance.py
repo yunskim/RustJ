@@ -174,6 +174,8 @@ def definition_code_cases():
         "defcode=:1 : 'u y'", "defcode=:2 : 'u v y'",
         'defcode=:{{defcounter=:defcounter+y}}', 'defcounter',
         'defkeep=:+', "defkeep=:3 : 'if. y do.' 1 2+1 2 3", 'defkeep 7',
+        "defkeep=:3 : 'for_. y do. y end.'", 'defkeep 7',
+        "defkeep=:3 : 'for_1a. y do. y end.'", 'defkeep 7',
     ]
 
 

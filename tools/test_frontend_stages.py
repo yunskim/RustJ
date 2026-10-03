@@ -1,5 +1,5 @@
 import unittest
-from frontend_stage_conformance import atomic_function, atomic_node, expected_row, source_rows, source_constructors, equivalent
+from frontend_stage_conformance import atomic_function, atomic_node, expected_row, source_rows, source_constructors, equivalent, source_control_words
 
 
 def chars(s):
@@ -11,6 +11,15 @@ def box(shape, data):
 
 
 class FrontendProjectionTests(unittest.TestCase):
+    def test_control_source_projection_rejects_unknown_duplicate_or_bad_lengths(self):
+        prefix = 'static I jtconword(J jt,I n,C*s){\n'
+        suffix = '\n// w is string'
+        do = "if((MATCHNAME8(3,'d','o','.',' ',' ',' ',' ',' ')))cwtlen=(CDO<<8)+3;"
+        self.assertEqual(source_control_words(prefix+do+suffix), {'do.':'Do'})
+        for body in [do+'\n'+do, do.replace('CDO','CUNKNOWN'), do.replace('+3;','+9;')]:
+            with self.assertRaises(ValueError):
+                source_control_words(prefix+body+suffix)
+
     def test_completed_modifier_is_single_fork_child(self):
         modifier = box([2], [chars('/'), box([1], [chars('+')])])
         fork = box([], [box([2], [chars('3'), box([3], [modifier, chars('%'), chars('#')])])])

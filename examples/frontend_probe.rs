@@ -279,6 +279,26 @@ fn inspect_definition(source: &str) -> rustj::Result<String> {
     }
 }
 
+fn inspect_control_parts(source: &str) -> rustj::Result<String> {
+    let parts = rustj::definition_control::partition_line(source)?;
+    let entries = parts
+        .iter()
+        .map(|part| {
+            let kind = part
+                .control
+                .map_or("null".to_owned(), |kind| format!("\"{kind:?}\""));
+            format!(
+                "{{\"span\":[{},{}],\"control\":{kind},\"text_hex\":\"{}\"}}",
+                part.span.start,
+                part.span.end,
+                hex(source[part.span.clone()].as_bytes())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok(format!("{{\"parts\":[{entries}]}}"))
+}
+
 fn main() {
     if std::env::args().any(|a| a == "--rows") {
         rows();
@@ -324,6 +344,8 @@ fn main() {
                     Err(error) => format!("{{\"error\":\"{}\"}}", error.kind()),
                 },
                 "R" | "D" => inspect_runtime(&mut engine, &source, operation == "D")
+                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
+                "Q" => inspect_control_parts(&source)
                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
                 "A" => inspect_analysis(&engine, &source)
                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),

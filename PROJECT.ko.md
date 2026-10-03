@@ -7796,6 +7796,20 @@ Windows default/portable 각각 **321 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [cx.c colon·valence 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264), [cx.c xop·mode 추론](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1282), [cx.c direct definition 전개](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [wc.c control-word preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385).
 
+##### Control-word 분할과 body 진단 위치 (2026-10-04, partial DEF-2)
+
+- [x] `definition_control.rs`의 `ControlWord`/`DefinitionPart`/`partition_line`을 추가했다. `wc.c::conword/getsen`을 따라 tokenizer가 만든 실제 word를 고정 control word 20개와 named `for_`·`goto_`·`label_`로 분류한다. control 사이의 실행 문장과 원본 byte span, control 직전 공백을 보존하며 leading/trailing 공백과 NB. comment는 제외한다. quoted text의 control 철자를 제어 구문으로 해석하지 않는다. `if.x`는 실제 word formation 결과가 `if.` + `x`이므로 If로 분할한다.
+- [x] `for_`의 ordinary name을 검사하고 잘못된 `for_.`/`for_1a.`에는 IllFormedName을 반환한다. locative loop name은 Unsupported다. goto/label target 연결·유효성은 C와 같이 후속 audit 과제이며 이 분류기에서 완성했다고 주장하지 않는다.
+- [x] DefinitionCode 생성 경로에서 partition을 먼저 검사한다. control-flow audit을 구현하기 전에는 control body를 Unsupported로 유지하고 binding을 commit하지 않는다. public partition API는 unmatched control도 분할할 수 있지만 정의가 유효하다고 판정하거나 실행하지 않는다.
+- [x] body tokenizer/enqueue/name 오류의 위치를 원본 소스 byte span으로 변환한다. direct body의 공백/초기 LF 정리, block의 물리 줄, quoted body의 quote doubling을 반영한다. body-local word index를 outer sentence index로 잘못 보고하지 않는다. 오류 kind와 기존 diagnostic context는 보존한다.
+- [x] 회귀 테스트 5개로 전체 분류 inventory, named/invalid name, 공백·quote·comment·adjacent control, 미완료 구조와 실행 경계, 실패 후 기존 binding 유지, direct/block/escaped quoted body의 진단 위치를 검증했다. Python에는 source table의 unknown/duplicate/length 변경 거부 테스트를 추가했다.
+- [x] stage에서 pinned `wc.c`의 MATCHNAME8·length·control enum을 읽어 fixed inventory를 비교하고, C `;:`의 실제 words와 검토한 getsen 알고리즘을 사용하는 source projection 33건을 비교한다. UTF-8 quoted body와 모든 고정 control을 포함한다. 이는 C private getsen/preparse 실행 trace를 export한 것이 아니며 full control-flow 동등성 증거와 구분한다. 두 invalid-for definition과 실패 후 old-function 문장 4건도 공유 C 비교에 추가했다.
+- [ ] 다음: `preparse`/`conall`/`congoto`의 control 구조 audit과 jump/section metadata를 구현하고 검증한다. 이후 호출별 local frame·name/POS lookup, nested/tagged/multiple DD, computed colon operand 및 J graph body 분석을 이어간다. Code의 control body 호출, 전체 definition acceptance, 최적화·CUDA·GitHub CI는 미지원/보류다.
+
+Windows default/portable 각각 **326 passed / 17 ignored**, fmt/clippy/build 통과, Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **2,830 cases / 2,826 passed / 기존 runtime 경계 4 / failed 0**; stage **8,045 checks**, words **6,618 cases** 통과. capture graph 경계 78과 static 경계 2는 그대로 별도 기록한다. full upstream suite 및 private C control-flow trace 비교는 실행하지 않았다. source review pin과 DLL release pin은 이전 절과 같다.
+
+기준 소스: [wc.c conword 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L331), [wc.c getsen 문장 분할](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L366), [wc.c preparse audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [sn.c vnm 이름 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

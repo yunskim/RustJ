@@ -69,6 +69,40 @@ pub(crate) fn semantic_body<'a>(source: &'a str, input: &DefinitionInput) -> Res
     })
 }
 
+fn body_error(
+    error: Error,
+    source: &str,
+    input: &DefinitionInput,
+    body: &str,
+    line_offset: usize,
+    line_len: usize,
+) -> Error {
+    let relative = error.span().cloned().unwrap_or(0..line_len);
+    let boundary = |decoded: usize| {
+        if matches!(input.form, DefinitionForm::ExplicitString(_)) {
+            let mut original = input.body.start + 1;
+            let bytes = source.as_bytes();
+            for _ in 0..decoded {
+                original += if bytes[original] == b'\'' && bytes.get(original + 1) == Some(&b'\'') {
+                    2
+                } else {
+                    1
+                };
+            }
+            original
+        } else {
+            // Direct bodies skip leading whitespace and at most one initial LF.
+            input.body.start + (input.body.len() - body.len()) + decoded
+        }
+    };
+    let mut context = error.context().cloned().unwrap_or_default();
+    context.span =
+        Some(boundary(line_offset + relative.start)..boundary(line_offset + relative.end));
+    // A body queue's index is not an outer expanded sentence index.
+    context.blame_word_index = None;
+    error.into_unlocated().with_context(context)
+}
+
 pub fn compile(
     source: &str,
     input: &DefinitionInput,
@@ -96,11 +130,20 @@ pub fn compile(
             offset += physical.len();
             continue;
         }
+        let parts = crate::definition_control::partition_line(line)
+            .map_err(|error| body_error(error, source, input, &body, offset, line.len()))?;
+        if parts.iter().any(|part| part.control.is_some()) {
+            return Err(
+                Error::Unsupported("definition control-flow audit is pending".into())
+                    .at(input.span.clone()),
+            );
+        }
         let queue = crate::enqueuer::enqueue_in_environment(
             line,
             primitives,
             EnqueueEnvironment::ExplicitDefinition,
-        )?;
+        )
+        .map_err(|error| body_error(error, source, input, &body, offset, line.len()))?;
         let mut words = Vec::with_capacity(queue.len());
         for word in queue {
             if let crate::enqueuer::EnqueuedPayload::Name(name) = &word.payload {
