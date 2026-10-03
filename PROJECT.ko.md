@@ -7692,6 +7692,18 @@ Windows default/portable 각각 **286 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [ap.c jtbslash](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L940), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
 
+##### 복합 gerund atomic representation 해석 (2026-10-03)
+
+- [x] P3/P5: `r.c::jtfx`의 boxed AR을 재귀 해석한다. primitive 단일 head, noun `0`, hook `2`, fork `3`, modifier `4`, primitive adverb/conjunction 적용 및 boxed head로 구성된 derived modifier 적용을 지원한다. decoder는 기존 parser의 bident/trident disposition과 constructor action을 사용해 실제 결과 품사를 반환한다. 새 J 문법이나 modifier 전용 semantic AST를 만들지 않는다.
+- [x] P3/P6: AR의 boxed type→rank→length, header와 operand vector의 audit, fork의 f→g→h 및 modifier의 왼쪽→오른쪽 audit를 보존한다. hook/modifier train AR은 명시적으로 h를 먼저 해석하고 g→f를 따른다. 마지막 순서는 두 제공된 Windows C DLL에서 확인한 C argument 평가 순서이며, C 언어 일반의 보장이나 Linux compiler 순서로 주장하지 않는다. noun-left rank의 확실한 audit 실패는 기존처럼 constant fallback으로 처리한다.
+- [x] P4/P5: J-visible gerund noun과 현재 construction span을 그대로 보존하며, decoded execution auxiliaries를 parent의 semantic child로 추가하지 않는다. 공유된 65,536개 정수 noun AR의 payload pointer와 원본 해제 후 수명을 검증한다. 재귀 해석·중첩 constructor에는 기존 depth limit을 적용한다. AR 내부 byte offset을 모르는 경우 바깥 operand span을 사용한다.
+- [x] P6: 회귀 테스트 4개, C 비교 문장 103개를 추가했다. `frontend_probe`의 `R`은 명시적 runtime parser construction/capture 관찰이며 completed function을 C `5!:1`/`4!:0`와 비교한다. `A`의 read-only/static 계약은 유지한다. stage에는 constructor 표현/품사 39건, 오류 18건, setup/기존 target 검사 46건을 추가했다. AR fixture 자체의 잘못된 setup은 공통 오류로 통과시키지 않고 검사 실패로 처리한다.
+- [ ] 다음: gerund name/locative와 전체 spellin inventory, serialized entity가 즉시 noun 실행을 요구하는 경우의 host/capture 연결, train 내부 late modifier 조회, gerund 실행·Logical lowering 및 locale/definition scope를 진행한다. 이름·미등록 primitive·미지원 즉시 실행은 명시적 Unsupported이며 임의 품사나 fake noun으로 대체하지 않는다. 최적화/CUDA는 보류한다.
+
+Windows default/portable 각각 **290 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,477문장 중 2,473 passed, 기존 runtime 경계 4개, failed 0**; stage **7,485 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)과 static 경계 2건(computed rank, computed gerund noun)은 별도다. 성공한 AR 해석이 모든 J primitive/name/실행을 지원한다는 뜻은 아니다. C DLL release/source review pin 구분과 declarative parse table/실제 trace 증명 범위 구분을 유지하며 GitHub CI는 생략했다.
+
+기준 소스: [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cf.c hook 및 modifier dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

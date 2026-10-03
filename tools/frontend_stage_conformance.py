@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -328,6 +328,24 @@ def run(args):
         analyze_function('candidate=: + analysisadv', [('analysisadv', 1)])
         setup('analysisalias=:analysisadv', 'analysisalias')
         analyze_function('candidate=: + analysisalias', [('analysisalias', 1)])
+        # R runs shared runtime parser construction and projects the completed
+        # function for comparison with C 5!:1/4!:0. A stays read-only.
+        for source in compound_gerund_cases():
+            if source.startswith(('compoundfn=:', 'compoundkeep=:')):
+                error = oracle.run(source)
+                actual = static_probe.inspect(source, 'R')
+                if error:
+                    check('runtime_ar_constructor_error', source, error, actual)
+                else:
+                    target = source.split('=:', 1)[0].strip()
+                    expected = {'pos': oracle.name_class(target)['class'],
+                        'function': atomic_function(oracle.representation(target, 'atomic')['value'])}
+                    check('runtime_ar_constructor', source, expected, actual)
+            else:
+                expected = oracle.eval(source)
+                if source.startswith('compoundar=:') and 'error' in expected:
+                    raise RuntimeError(f'invalid AR fixture setup: {source}: {expected}')
+                check('runtime_ar_setup_or_target', source, expected, static_probe.inspect(source, 'E'))
         for source in ['rustjstagelocal=.1 2 3', 'rustjstagelocal=:1 2 3']:
             error = oracle.run(source)
             check('copula_reference', source, None, error)

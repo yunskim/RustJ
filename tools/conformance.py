@@ -31,6 +31,42 @@ def modifier_trident_cases():
                     yield left + ' ' + train + ' ' + right
 
 
+def compound_gerund_cases():
+    """Stateful AR constructor/error fixtures; no 5!: execution shortcut."""
+    out = []
+    valid = [
+        ",<'+'",
+        "(<'/'),<(, <'+')",
+        "(<'2'),<((<'+'),<'-')",
+        "(<'3'),<((<'+'),(<'%'),<'#')",
+        "(<'4'),<((<'+'),<'/')",
+        "(<'@:') , <((<'+'),<'-')",
+        "(<'\"'),<((<'+'),<((<'0'),<1))",
+        "(<'3'),<((<((<'0'),<7)),(<'+'),<'*')",
+        "(<((<'4'),<((<'/'),<'/'))),<(, <'+')",
+        "(<((<'4'),<((<'/'),(<'/'),<'/'))),<(, <'+')",
+    ]
+    for value in valid:
+        out += ['compoundar=: ' + value, 'compoundfn=: (,<compoundar)\\',
+                'compoundfn=: (,<compoundar)"0']
+    out += ['compoundkeep=:+']
+    invalid = [
+        "(0$<0)", "2 2$<0", "(<'+'),(<'+'),<'+'",
+        "(<'2'),<(, <'+')", "(<'3'),<((<'+'),<'-')",
+        "(<'/'),<((<'+'),<'-')", "(<'@:') , <(, <'+')",
+        "(<'/'),<(, <'/')", "(<'3'),<((<'/'),(<'+'),<'*')",
+        "(<'3'),<((<'+'),(<'/'),<'*')", "(<'3'),<((<'+'),(<'+'),<'/')",
+        "(<'2'),<((<3),<'')", "(<'2'),<((<''),<3)",
+        "(<'4'),<((<3),(<''),<3)",
+        "(<'3'),<((<3),(<''),<'+')",
+        "(<'2'),<(2 2$<'+')", "(<'2'),<1 2", "(<''),<1",
+    ]
+    for value in invalid:
+        out += ['compoundar=: ' + value, 'compoundkeep=: (,<compoundar)\\',
+                'compoundkeep i.3', 'compoundfn=: (,<compoundar)"0']
+    return out
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -284,6 +320,7 @@ def cases():
         "gerundkeep=: (, <(2 2$'+'))\\", 'gerundkeep i.3',
         "gerundkeep=: ((<3),<'')\\", 'gerundkeep i.3', "gerundkeep=: ((<''),<3)\\", 'gerundkeep i.3',
     ])
+    fixed.extend(compound_gerund_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

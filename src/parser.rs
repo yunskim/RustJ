@@ -239,7 +239,7 @@ fn apply_adverb(
         let (noun, _) = left.into_noun().unwrap();
         let noun_span = noun.span.clone();
         let value = completed_noun(noun, "runtime-dependent prefix gerund operand")?;
-        audit_primitive_gerund(&value)?;
+        audit_gerund(&value, noun_span.clone(), depth + 1)?;
         return Ok(Item::verb(Verb {
             span: span.clone(),
             target: VerbTarget::Derived,
@@ -274,10 +274,12 @@ fn apply_adverb(
     }))
 }
 
-/// cg.c::jtfxeachv(1), with r.c::jtfx character primitive leaves.
-/// Keep the J-visible gerund noun, not execution-only decoded fgh auxiliaries.
-/// Names and compound ARs require their own decoding/binding contract.
-fn audit_primitive_gerund(value: &Value) -> Result<()> {
+/// cg.c::jtfxeachv(1): decode in element order, then require actual Verb POS.
+/// Retain the J-visible gerund noun rather than execution-only fgh auxiliaries.
+fn audit_gerund(value: &Value, span: std::ops::Range<usize>, depth: usize) -> Result<()> {
+    if depth >= MAX_EXPR_DEPTH {
+        return Err(Error::Limit);
+    }
     if value.shape.len() > 1 {
         return Err(Error::Rank);
     }
@@ -288,38 +290,190 @@ fn audit_primitive_gerund(value: &Value) -> Result<()> {
         return Err(Error::Domain);
     };
     for leaf in leaves.iter() {
-        match &leaf.data {
-            crate::value::Data::Char(bytes) => {
-                if leaf.shape.len() > 1 {
-                    return Err(Error::Rank);
-                }
-                if leaf.is_empty() {
-                    return Err(Error::Length);
-                }
-                if bytes.iter().any(|c| !(32..127).contains(c)) {
-                    return Err(Error::Spelling);
-                }
-                let spelling = std::str::from_utf8(bytes.as_slice()).unwrap();
-                let Some(primitive) =
-                    crate::primitive::PrimitiveResolver::core().resolve_core_for_enqueue(spelling)
-                else {
-                    return Err(Error::Unsupported(
-                        "gerund name or unregistered primitive decoding".into(),
-                    ));
-                };
-                if primitive.result_pos != crate::primitive::PrimitivePartOfSpeech::Verb {
-                    return Err(Error::Domain);
-                }
-            }
-            crate::value::Data::Boxed(_) => {
-                return Err(Error::Unsupported(
-                    "compound gerund atomic representation decoding".into(),
-                ));
-            }
-            _ => return Err(Error::Domain),
+        if decode_gerund_ar(leaf, span.clone(), depth + 1)?.class != ParseClass::Verb {
+            return Err(Error::Domain);
         }
     }
     Ok(())
+}
+
+fn gerund_primitive(spelling: &str, span: std::ops::Range<usize>) -> Result<Item> {
+    use crate::primitive::PrimitiveSemanticId;
+    let Some(primitive) =
+        crate::primitive::PrimitiveResolver::core().resolve_core_for_enqueue(spelling)
+    else {
+        return Err(Error::Unsupported(
+            "gerund name or unregistered primitive decoding".into(),
+        ));
+    };
+    Ok(match primitive.semantic_id {
+        PrimitiveSemanticId::Verb(id) => Item::verb(Verb {
+            span: span.clone(),
+            target: VerbTarget::Derived,
+            entity: FunctionEntity::primitive(id, span),
+        }),
+        PrimitiveSemanticId::Adverb(id) => {
+            Item::function(FunctionEntity::primitive_adverb(id, span))
+        }
+        PrimitiveSemanticId::Conjunction(id) => {
+            Item::function(FunctionEntity::primitive_conjunction(id, span))
+        }
+        _ => return Err(Error::Unsupported("extension gerund decoding".into())),
+    })
+}
+
+/// r.c::jtfx core AR decoding. Constructor reductions share the parser's
+/// disposition/actions; this is a serialized entity format, not another grammar.
+fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -> Result<Item> {
+    use crate::value::Data;
+    if depth >= MAX_EXPR_DEPTH {
+        return Err(Error::Limit);
+    }
+    if let Data::Char(bytes) = &value.data {
+        if value.shape.len() > 1 {
+            return Err(Error::Rank);
+        }
+        if value.is_empty() {
+            return Err(Error::Length);
+        }
+        if bytes.iter().any(|c| !(32..127).contains(c)) {
+            return Err(Error::Spelling);
+        }
+        return gerund_primitive(std::str::from_utf8(bytes.as_slice()).unwrap(), span);
+    }
+    let Data::Boxed(fields) = &value.data else {
+        return Err(Error::Domain);
+    };
+    if value.shape.len() > 1 {
+        return Err(Error::Rank);
+    }
+    if !(1..=2).contains(&value.len()) {
+        return Err(Error::Length);
+    }
+    let first = &fields[0];
+    if first.is_empty() {
+        return Err(Error::Length);
+    }
+    enum Head {
+        Entity(Item),
+        Noun,
+        Hook,
+        Fork,
+        Modifier,
+    }
+    let head = if matches!(first.data, Data::Boxed(_)) {
+        Head::Entity(decode_gerund_ar(first, span.clone(), depth + 1)?)
+    } else {
+        // u.c::vs audits header rank before converting to literal.
+        if first.shape.len() > 1 {
+            return Err(Error::Rank);
+        }
+        let Data::Char(bytes) = &first.data else {
+            return Err(Error::Domain);
+        };
+        let spelling = std::str::from_utf8(bytes.as_slice()).map_err(|_| Error::Spelling)?;
+        match spelling {
+            "0" => Head::Noun,
+            "2" => Head::Hook,
+            "3" => Head::Fork,
+            "4" => Head::Modifier,
+            _ => Head::Entity(gerund_primitive(spelling, span.clone())?),
+        }
+    };
+    if fields.len() == 2 && matches!(head, Head::Noun) {
+        return Ok(Item::noun(
+            Expr {
+                span,
+                kind: ExprKind::Literal(fields[1].as_ref().clone().into_shared()),
+            },
+            0,
+        ));
+    }
+    let args = if fields.len() == 2 {
+        let value = &fields[1];
+        if value.shape.len() > 1 {
+            return Err(Error::Rank);
+        }
+        let Data::Boxed(args) = &value.data else {
+            return Err(Error::Domain);
+        };
+        args.as_slice()
+    } else {
+        &[]
+    };
+    let decode = |index: usize| decode_gerund_ar(args[index].as_ref(), span.clone(), depth + 1);
+    match head {
+        Head::Noun => Err(Error::Domain),
+        Head::Hook | Head::Modifier => {
+            if (matches!(head, Head::Hook) && args.len() != 2) || !(2..=3).contains(&args.len()) {
+                return Err(Error::Length);
+            }
+            // r.c explicitly decodes h first. Both supplied Windows C variants
+            // evaluate hook(fx(f),fx(g),h) with g before f; fixture this order.
+            let third = if args.len() == 3 {
+                Some(decode(2)?)
+            } else {
+                None
+            };
+            let second = decode(1)?;
+            let first = decode(0)?;
+            if let Some(third) = third {
+                construct_modifier_trident(first, second, third, span, depth + 1)
+            } else {
+                construct_modifier_bident(first, second, span, depth + 1)
+            }
+        }
+        Head::Fork => {
+            if args.len() != 3 {
+                return Err(Error::Length);
+            }
+            let first = decode(0)?;
+            if !matches!(first.class, ParseClass::Noun | ParseClass::Verb) {
+                return Err(Error::Syntax("invalid AR fork first operand".into()));
+            }
+            let second = decode(1)?;
+            if second.class != ParseClass::Verb {
+                return Err(Error::Syntax("invalid AR fork second operand".into()));
+            }
+            let third = decode(2)?;
+            if third.class != ParseClass::Verb {
+                return Err(Error::Syntax("invalid AR fork third operand".into()));
+            }
+            construct_modifier_trident(first, second, third, span, depth + 1)
+        }
+        Head::Entity(operator) => {
+            if args.is_empty() {
+                return Ok(operator);
+            }
+            let expected = match operator.class {
+                ParseClass::Adverb => 1,
+                ParseClass::Conjunction => 2,
+                _ => 0,
+            };
+            if args.len() != expected {
+                return Err(Error::Length);
+            }
+            let first = decode(0)?;
+            if !matches!(first.class, ParseClass::Noun | ParseClass::Verb) {
+                return Err(Error::Domain);
+            }
+            if expected == 1 {
+                apply_adverb(first, operator.into_function().unwrap(), span, depth + 1)
+            } else {
+                let second = decode(1)?;
+                if !matches!(second.class, ParseClass::Noun | ParseClass::Verb) {
+                    return Err(Error::Domain);
+                }
+                apply_conjunction_items(
+                    first,
+                    operator.into_function().unwrap(),
+                    second,
+                    span,
+                    depth + 1,
+                )
+            }
+        }
+    }
 }
 
 /// Make repeated use of a concrete noun cheap without cloning its payload.
@@ -477,7 +631,7 @@ fn apply_conjunction_items(
             "conjunction child identity requires resolution".into(),
         ));
     }
-    apply_conjunction_at(left, operator, right, span).map(Item::verb)
+    apply_conjunction_at(left, operator, right, span, depth + 1).map(Item::verb)
 }
 
 /// cf.c's trident actions construct with actual intermediate POS, in source
@@ -617,6 +771,7 @@ fn apply_conjunction_at(
     operator: Arc<FunctionEntity>,
     right: Item,
     span: std::ops::Range<usize>,
+    depth: usize,
 ) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let primitive_id = match &operator.head {
@@ -657,7 +812,7 @@ fn apply_conjunction_at(
                 && matches!(value.data, crate::value::Data::Boxed(_))
                 && ranks != Some([63; 3])
             {
-                match audit_primitive_gerund(&value) {
+                match audit_gerund(&value, noun_span.clone(), depth + 1) {
                     Ok(()) => {}
                     Err(error) if error.kind() == "unsupported" => return Err(error),
                     // cr.c suppresses failed fx audits and uses the noun itself.
@@ -2370,5 +2525,132 @@ mod modifier_storage_tests {
         assert_eq!(a.as_ptr(), pointer);
         drop(first);
         assert_eq!(second.int_at(65_535).unwrap(), 65_535);
+    }
+}
+
+#[cfg(test)]
+mod gerund_ar_tests {
+    use super::*;
+    use crate::{storage::CpuStorage, value::Data};
+
+    fn text(s: &str) -> Value {
+        Value::new(
+            [s.len()],
+            Data::Char(CpuStorage::new(s.as_bytes().to_vec())),
+        )
+        .unwrap()
+    }
+    fn boxes(values: Vec<Value>) -> Value {
+        Value::new(
+            [values.len()],
+            Data::Boxed(CpuStorage::new(
+                values
+                    .into_iter()
+                    .map(|v| Arc::new(v.into_shared()))
+                    .collect(),
+            )),
+        )
+        .unwrap()
+    }
+    fn ar(head: &str, args: Vec<Value>) -> Value {
+        boxes(vec![text(head), boxes(args)])
+    }
+    fn noun(value: Value) -> Value {
+        boxes(vec![text("0"), value])
+    }
+
+    fn function(item: Item) -> Arc<FunctionEntity> {
+        match item.value {
+            ParseValue::Verb(verb) => verb.entity,
+            ParseValue::Function(function) => function,
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn serialized_core_entities_use_parser_constructor_dags_and_actual_pos() {
+        for (value, expected, pos) in [
+            (
+                boxes(vec![text("+")]),
+                FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Add),
+                FunctionPartOfSpeech::Verb,
+            ),
+            (
+                ar("/", vec![text("+")]),
+                FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert),
+                FunctionPartOfSpeech::Verb,
+            ),
+            (
+                ar("\"", vec![text("+"), noun(Value::scalar(1))]),
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank),
+                FunctionPartOfSpeech::Verb,
+            ),
+            (
+                ar("@:", vec![text("+"), text("-")]),
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop),
+                FunctionPartOfSpeech::Verb,
+            ),
+            (
+                ar("2", vec![text("+"), text("-")]),
+                FunctionHead::Hook,
+                FunctionPartOfSpeech::Verb,
+            ),
+            (
+                ar("3", vec![noun(Value::scalar(7)), text("+"), text("*")]),
+                FunctionHead::Fork,
+                FunctionPartOfSpeech::Verb,
+            ),
+            (
+                ar("4", vec![text("/"), text("/")]),
+                FunctionHead::ModifierTrain,
+                FunctionPartOfSpeech::Adverb,
+            ),
+        ] {
+            let function = function(decode_gerund_ar(&value, 5..9, 0).unwrap());
+            assert_eq!(function.head, expected);
+            assert_eq!(function.result_pos, pos);
+        }
+        let modifier = ar("4", vec![text("/"), text("/")]);
+        let applied = boxes(vec![modifier, boxes(vec![text("+")])]);
+        let function = function(decode_gerund_ar(&applied, 5..9, 0).unwrap());
+        let FunctionOperand::Function(child) = &function.operands[0] else {
+            panic!();
+        };
+        assert_eq!(
+            function.head,
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+        );
+        assert_eq!(child.head, function.head);
+    }
+
+    #[test]
+    fn serialized_noun_shares_payload_and_recursion_is_bounded() {
+        let value = Value::ints([65_536], (0..65_536).collect())
+            .unwrap()
+            .into_shared();
+        let pointer = match &value.data {
+            Data::Int(v) => v.as_slice().as_ptr(),
+            _ => panic!(),
+        };
+        let representation = noun(value);
+        let decoded = decode_gerund_ar(&representation, 2..6, 0).unwrap();
+        let noun = completed_noun(decoded.into_noun().unwrap().0, "test").unwrap();
+        assert_eq!(
+            match &noun.data {
+                Data::Int(v) => v.as_slice().as_ptr(),
+                _ => panic!(),
+            },
+            pointer
+        );
+        drop(representation);
+        assert_eq!(noun.int_at(65_535).unwrap(), 65_535);
+        let mut deep = text("+");
+        for _ in 0..=MAX_EXPR_DEPTH {
+            deep = boxes(vec![deep]);
+        }
+        assert_eq!(
+            decode_gerund_ar(&deep, 0..1, 0).err().unwrap().kind(),
+            "limit error"
+        );
     }
 }

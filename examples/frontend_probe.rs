@@ -152,6 +152,39 @@ fn inspect_analysis(engine: &rustj::Engine, source: &str) -> rustj::Result<Strin
     ))
 }
 
+/// R explicitly executes parser construction; A remains read-only/static.
+fn inspect_runtime(engine: &mut rustj::Engine, source: &str) -> rustj::Result<String> {
+    use rustj::parser_capture::CaptureEvent;
+    let report = engine.eval_captured(source);
+    report
+        .capture
+        .verify()
+        .map_err(|error| rustj::Error::Unsupported(error.into()))?;
+    report.result?;
+    let entity = report
+        .capture
+        .events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            CaptureEvent::FunctionResult { function, .. } => Some(function),
+            CaptureEvent::Commit {
+                function: Some(function),
+                final_assignment: true,
+                ..
+            } => Some(function),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            rustj::Error::Unsupported("runtime observation requires a function result".into())
+        })?;
+    Ok(format!(
+        "{{\"pos\":{},\"function\":{}}}",
+        pos(entity.result_pos),
+        function(entity)
+    ))
+}
+
 fn main() {
     if std::env::args().any(|a| a == "--rows") {
         rows();
@@ -188,6 +221,8 @@ fn main() {
                     Ok(None) => "{\"silent\":true}".into(),
                     Err(error) => format!("{{\"error\":\"{}\"}}", error.kind()),
                 },
+                "R" => inspect_runtime(&mut engine, &source)
+                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
                 "A" => inspect_analysis(&engine, &source)
                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
                 _ => "{\"transport_error\":\"invalid operation\"}".into(),

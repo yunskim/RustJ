@@ -14,7 +14,7 @@
     "jsrc/r.c": "d344e701c72d9fa6394de92f6b03615f76d36a3aa8b5a9cbd0634be5f7d0d61a"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "c726bfca12f73fabd5d41dfb6ecaf8c4bb358e9f7e296f92404405ecca4f25c0",
+  "probe_sha256": "0fa56157ded288359efb5b7059e21a41136fe87295bc0203f8c8dd8899136f37",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -33,6 +33,9 @@
     "static_read_only": 76,
     "static_modifier_dependencies": 76,
     "static_constructor_error": 78,
+    "runtime_ar_setup_or_target": 46,
+    "runtime_ar_constructor": 39,
+    "runtime_ar_constructor_error": 18,
     "copula_reference": 4
   },
   "mismatches": [],

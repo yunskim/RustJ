@@ -1170,3 +1170,73 @@ fn gerund_leaf_audit_errors_preserve_order_and_quiet_rank_fallback() {
         engine.eval(&format!("constantfn=: {expression}")).unwrap();
     }
 }
+
+#[test]
+fn compound_gerund_ar_success_preserves_original_noun_and_assignment() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = rustj::Engine::new();
+    for representation in [
+        "(<'/'),<(, <'+')",
+        "(<'2'),<((<'+'),<'-')",
+        "(<'3'),<((<'+'),(<'%'),<'#')",
+        "(<'4'),<((<'+'),<'/')",
+        "(<'\"'),<((<'+'),<((<'0'),<1))",
+        "(<((<'4'),<((<'/'),<'/'))),<(, <'+')",
+    ] {
+        engine
+            .eval(&format!("compoundar=: {representation}"))
+            .unwrap();
+        let report = engine.eval_captured("compoundfn=: (,<compoundar)\\");
+        report
+            .result
+            .unwrap_or_else(|error| panic!("{representation}: {error:?}"));
+        report.capture.verify().unwrap();
+        let value = engine.eval("compoundar").unwrap().unwrap().json();
+        let entity = report
+            .capture
+            .events
+            .iter()
+            .find_map(|event| match event {
+                rustj::parser_capture::CaptureEvent::ConstructionSuccess { function, .. } => {
+                    Some(function)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let FunctionOperand::Noun { value: noun, .. } = &entity.operands[0] else {
+            panic!();
+        };
+        let rustj::Data::Boxed(_) = noun.data() else {
+            panic!();
+        };
+        let rustj::Data::Boxed(elements) = noun.data() else {
+            panic!();
+        };
+        assert_eq!(elements[0].json(), value);
+    }
+}
+
+#[test]
+fn compound_ar_errors_follow_constructor_order_and_quiet_rank_fallback() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for (representation, kind) in [
+        ("(<'2'),<((<3),<'')", "length error"),
+        ("(<'2'),<((<''),<3)", "domain error"),
+        ("(<'3'),<((<3),(<''),<'+')", "domain error"),
+        ("(<'4'),<((<3),(<''),<3)", "domain error"),
+        ("(<'2'),<(, <'+')", "length error"),
+        ("(<'/'),<(, <'/')", "domain error"),
+        ("(<'3'),<((<'+'),(<'/'),<'*')", "syntax error"),
+    ] {
+        engine
+            .eval(&format!("compoundar=: {representation}"))
+            .unwrap();
+        let report = engine.eval_captured("protected=: (,<compoundar)\\");
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{representation}");
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("protected"), version);
+        engine.eval("constantfn=: (,<compoundar)\"0").unwrap();
+    }
+}
