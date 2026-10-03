@@ -1066,6 +1066,10 @@ pub(crate) fn parse_runtime_host(
     host: &mut dyn RuntimeParserHost,
     capture: Option<&mut ParseCapture>,
 ) -> Result<Program> {
+    let mut capture = capture;
+    if let Some(capture) = &mut capture {
+        capture.set_source(source);
+    }
     parse_context(
         source,
         &mut ActionContext {
@@ -1348,6 +1352,17 @@ fn expression(
     let span = item.span();
     if let Some(capture) = &mut context.capture {
         capture.result = item.occurrence;
+        let function = match &item.value {
+            ParseValue::Verb(verb) => Some(verb.entity.clone()),
+            ParseValue::Function(function) => Some(function.clone()),
+            _ => None,
+        };
+        if let Some(function) = function {
+            capture.events.push(CaptureEvent::FunctionResult {
+                function,
+                span: span.clone(),
+            });
+        }
     }
     match item.value {
         ParseValue::Noun(expr, height) => Ok((expr, height, assignment)),

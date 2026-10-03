@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OccurrenceId(pub usize);
 
 #[derive(Clone, Debug)]
@@ -57,20 +57,34 @@ pub enum CaptureEvent {
         kind: String,
         span: Range<usize>,
     },
+    FunctionResult {
+        function: Arc<FunctionEntity>,
+        span: Range<usize>,
+    },
     Commit {
         name: String,
         version: NameVersion,
+        previous: Option<NameVersion>,
+        span: Range<usize>,
     },
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ParseCapture {
+    source: String,
     pub events: Vec<CaptureEvent>,
     pub result: Option<OccurrenceId>,
     next_id: usize,
 }
 
 impl ParseCapture {
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+    pub(crate) fn set_source(&mut self, source: &str) {
+        self.source = source.to_owned();
+    }
+
     pub(crate) fn next(&mut self) -> OccurrenceId {
         let id = OccurrenceId(self.next_id);
         self.next_id += 1;
@@ -131,7 +145,7 @@ impl ParseCapture {
                         return Err("construction outcome without matching attempt");
                     }
                 }
-                CaptureEvent::Commit { .. } => {
+                CaptureEvent::Commit { .. } | CaptureEvent::FunctionResult { .. } => {
                     if !attempts.is_empty() || construction.is_some() {
                         return Err("commit before action outcome");
                     }
@@ -146,4 +160,22 @@ impl ParseCapture {
         }
         Ok(())
     }
+}
+
+/// Association sidecars around the existing canonical J Graph, not another IR.
+#[derive(Clone, Debug)]
+pub struct CapturedGraph {
+    pub graph: crate::j_graph_ir::Plan,
+    pub occurrences: Vec<(OccurrenceId, crate::j_graph_ir::ValueId)>,
+    /// Runtime observations are separate from inferred facts and reuse guards.
+    pub observed_facts: Vec<(crate::j_graph_ir::ValueId, GraphFacts)>,
+    pub constructors: Vec<ConstructorOrigin>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConstructorOrigin {
+    pub row: ParseRow,
+    pub function: Arc<FunctionEntity>,
+    pub noun_inputs: Vec<crate::j_graph_ir::ValueId>,
+    pub span: Range<usize>,
 }

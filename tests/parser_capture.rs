@@ -213,3 +213,123 @@ fn malformed_capture_edges_and_orphaned_outcomes_are_rejected() {
     });
     assert!(capture.verify().is_err());
 }
+
+#[test]
+fn capture_adapter_preserves_applications_and_observed_facts_separately() {
+    use rustj::j_graph_ir::{NodeKind, Plan};
+    let mut engine = Engine::new();
+    let report = engine.eval_captured("2+3*4");
+    report.result.unwrap();
+    let graph = Plan::from_capture(&report.capture).unwrap();
+    graph.graph.verify().unwrap();
+    assert_eq!(graph.occurrences.len(), 5);
+    assert_eq!(graph.observed_facts.len(), 5);
+    let root = graph.graph.result.unwrap();
+    let NodeKind::Apply {
+        right, function, ..
+    } = &graph.graph.nodes[root.0].kind
+    else {
+        panic!()
+    };
+    assert_eq!(function.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add));
+    assert!(matches!(
+        graph.graph.nodes[right.0].kind,
+        NodeKind::Apply { .. }
+    ));
+    assert_eq!(
+        graph
+            .graph
+            .static_memory_analysis()
+            .extent(root)
+            .unwrap()
+            .atoms,
+        1
+    );
+}
+
+#[test]
+fn capture_adapter_retains_computed_constructor_dependencies_and_final_entity() {
+    use rustj::j_graph_ir::{NodeKind, Plan};
+    let mut engine = Engine::new();
+    for source in ["f=:+\"(1+0)", "f=:(1+2) + *"] {
+        let report = engine.eval_captured(source);
+        report.result.unwrap();
+        let captured = Plan::from_capture(&report.capture).unwrap();
+        captured.graph.verify().unwrap();
+        let constructor = captured.constructors.last().unwrap();
+        assert_eq!(constructor.noun_inputs.len(), 1);
+        assert!(matches!(
+            captured.graph.nodes[constructor.noun_inputs[0].0].kind,
+            NodeKind::Apply { .. }
+        ));
+        let result = captured.graph.result.unwrap();
+        let NodeKind::VerbValue { function } = &captured.graph.nodes[result.0].kind else {
+            panic!()
+        };
+        assert!(std::sync::Arc::ptr_eq(function, &constructor.function));
+        let write = captured.graph.write.unwrap();
+        assert_eq!(write.name, "f");
+        assert_eq!(write.value, result);
+        assert_eq!(write.proposed, engine.binding_version("f").unwrap());
+    }
+}
+
+#[test]
+fn captured_binding_versions_are_occurrence_witnesses_not_current_workspace_reads() {
+    use rustj::j_graph_ir::{GraphAnalyzability, NodeKind, Plan};
+    let mut engine = Engine::new();
+    engine.eval("a=:1 2 3").unwrap();
+    let old = engine.binding_version("a");
+    let report = engine.eval_captured("a=:a+1");
+    report.result.unwrap();
+    let captured = Plan::from_capture(&report.capture).unwrap();
+    let read = captured
+        .graph
+        .nodes
+        .iter()
+        .find_map(|node| match &node.kind {
+            NodeKind::ReadNoun { version, .. } => Some(*version),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(Some(read), old);
+    assert_eq!(captured.graph.write.as_ref().unwrap().previous, old);
+    assert_ne!(Some(read), engine.binding_version("a"));
+    engine.eval("f=:+").unwrap();
+    let report = engine.eval_captured("f a");
+    report.result.unwrap();
+    let captured = Plan::from_capture(&report.capture).unwrap();
+    assert!(
+        captured
+            .graph
+            .verb_references
+            .iter()
+            .any(|(name, _)| name == "f")
+    );
+    assert_eq!(
+        captured.graph.nodes[captured.graph.result.unwrap().0].analyzability,
+        GraphAnalyzability::RequiresSpecialization
+    );
+}
+
+#[test]
+fn capture_adapter_rejects_failures_and_inconsistent_literal_facts() {
+    use rustj::j_graph_ir::Plan;
+    let mut engine = Engine::new();
+    let failure = engine.eval_captured("'a'+1");
+    assert!(failure.result.is_err());
+    assert!(Plan::from_capture(&failure.capture).is_err());
+    let mut report = engine.eval_captured("2+3");
+    let CaptureEvent::Input { facts, .. } = &mut report.capture.events[0] else {
+        panic!()
+    };
+    facts.shape = Some(vec![2]);
+    facts.rank = Some(1);
+    assert_eq!(
+        Plan::from_capture(&report.capture).unwrap_err().kind(),
+        "unsupported"
+    );
+    let report = engine.eval_captured("NB. empty");
+    let graph = Plan::from_capture(&report.capture).unwrap();
+    assert!(graph.graph.nodes.is_empty());
+}

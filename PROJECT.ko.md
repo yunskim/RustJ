@@ -7512,7 +7512,7 @@ python tools/frontend_stage_conformance.py --binary target/windows-validation/de
 
 **결정:** runtime parser는 jsource처럼 verb application을 실행하여 실제 noun으로 reduce하고, 컴파일러는 별도 capture에서 생산 연산과 input/output 연결을 보존한다. noun이 된다는 이유로 provenance를 버리지 않는다. verb 중심의 tacit 표현은 구조를 노출하는 권장 방식이며 필수 언어 제한이 아니다. 이 절은 F2/P2–P6를 구체화하는 계획이고 별도 roadmap이나 두 번째 canonical IR을 만들지 않는다.
 
-**현재 남은 차이:** runtime rows 0–2는 이제 host를 통해 실제 noun으로 reduce한다. static context는 연산 Expr를 보존한다. capture v0는 source operation과 occurrence 연결을 별도로 보존하며 아직 기존 J Graph로의 adapter가 미완료다. non-final assignment/locale/definition/effect 및 전체 modifier POS는 계속 미완료다. 일반 fork executor 미지원도 frontend construction 지원과 구분한다.
+**현재 남은 차이:** runtime rows 0–2는 이제 host를 통해 실제 noun으로 reduce한다. static context는 연산 Expr를 보존한다. capture v0는 source operation과 occurrence 연결을 별도로 보존하며, 성공 capture를 기존 J Graph로 변환하는 adapter도 구현했다. non-final assignment/locale/definition/effect 및 전체 modifier POS는 계속 미완료다. 일반 fork executor 미지원도 frontend construction 지원과 구분한다.
 
 ##### 다른 언어·배열 프레임워크의 처리
 
@@ -7577,12 +7577,15 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 - [x] P2/P5 `Engine::eval_captured`가 선택적인 `ParseCapture`를 반환한다. record off/on 모두 같은 parser/kernel을 실행하며 input occurrence, 원래 FunctionEntity를 가진 apply attempt, success facts 또는 failure kind/context, constructor의 noun-input 연결, final commit을 순서대로 기록한다. 실패한 경우에도 partial capture를 돌려준다.
 - [x] P3/P5 `f=:+"(1+0)`와 `f=:(1+2) + *`의 computed noun constructor를 runtime에서 지원한다. 값 생산 occurrence와 constructor 입력을 연결한다. 일반 fork 호출 executor 미지원과 static computed-constructor coverage는 별도 경계이며 fake constant로 통과시키지 않는다.
 - [x] recording parity, 실패 후 기존 binding/version 보존, 괄호 전후 occurrence 유지, 큰 입력의 facts-only 기록, row invocation과 이후 lookup의 순서 및 final Literal 반환을 회귀 검증했다.
-- [ ] P5/P8 capture를 기존 J Graph로 변환하고 verifier를 통과시키는 adapter와 constructor provenance sidecar를 연결한다.
+- [x] P5/P8 `j_graph_ir::Plan::from_capture`가 성공 capture를 기존 J Graph로 변환하고 verifier를 통과시킨다. `CapturedGraph`는 occurrence→ValueId, constructor의 computed noun 입력, observed facts를 별도 sidecar로 보존한다. 실패 capture는 완료 graph로 변환하지 않는다.
 - [ ] P4 non-final assignment/locale/definition/effect 및 전체 constructor/result-POS coverage를 확장한다. 17개 definition acceptance ignored는 여전히 미구현이다.
 
 `parser_capture.rs`는 canonical IR을 대체하지 않는 observation log다. input/intermediate 배열 snapshot을 저장하지 않고 dtype/shape·source span·occurrence edge를 저장한다. shared FunctionEntity는 J 의미에 필요한 intrinsic noun operand를 소유하므로 그 lifetime은 capture로 연장될 수 있다. 이를 payload 복사나 buffer/physical scheduling과 혼동하지 않는다. 기록은 실제 한 실행의 관찰이며 purity/binding/value/error guards 없는 compiled replay의 증명이 아니다. capture 켠 상태에서 parser가 실제 값을 계산하는 것과 static analyzer가 실행하지 않는 것은 서로 다른 API 계약이다.
 
-Windows 검증: default/portable 각각 **236 passed / 17 ignored**, fmt/clippy 통과, Python 18 passed. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로의 **2,076문장 중 2,074 passed + 명시적 runtime 경계 2개, failed 0**; stage 7,014 checks와 words 6,618 cases 통과. `examples/capture_probe.rs`는 모든 문장의 capture association/attempt-outcome 순서를 검증한다. 새 두 parser-capture JSON 보고서도 저장한다. 기존 oracle/source pin 구분과 GitHub CI 생략 방침을 유지한다.
+
+**Capture adapter 범위:** source는 capture가 읽기 전용으로 소유한다. source literal은 enqueue payload에서 다시 구성하며, named noun은 관찰 당시 version을 가진 ReadNoun으로 남겨 현재 workspace 값을 다시 읽지 않는다. apply는 기존 Builder를 사용하고 FunctionEntity 및 NameRef를 보존한다. inferred graph facts와 runtime observed facts를 분리하며, 함수 참조는 실제 호출이 성공했더라도 specialization 경계를 유지한다. constructor의 computed noun 의존 관계는 `ConstructorOrigin.noun_inputs`로 보존한다. 이 sidecar를 제외한 일반 graph memory 분석만으로 constructor operand의 완전한 lifetime/physical peak를 추정하지 않는다. 여러 effect·runtime guard·실패 후 continuation·modifier-value graph lowering과 재사용 가능한 실행 계획은 아직 범위 밖이다.
+
+Windows 검증: default/portable 각각 **240 passed / 17 ignored**, fmt/clippy 통과, Python 18 passed. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로의 **2,076문장 중 2,074 passed + 명시적 runtime 경계 2개, failed 0**; stage 7,014 checks와 words 6,618 cases 통과. `examples/capture_probe.rs`는 모든 문장의 capture association/attempt-outcome 순서를 검증하며 성공 문장은 J Graph adapter/verifier도 통과시킨다. 새 두 parser-capture JSON 보고서도 저장한다. 기존 oracle/source pin 구분과 GitHub CI 생략 방침을 유지한다.
 
 <a id="static-frontend-review"></a>
 
@@ -7597,12 +7600,12 @@ Windows 검증: default/portable 각각 **236 passed / 17 ignored**, fmt/clippy 
 | `tokenizer.rs` | `w.c` transition table, raw spans, quote errors, parser-visible comment cutoff | capture 때문에 변경할 사항은 없다. runtime/capture/target 정보를 넣지 않는다 |
 | `enqueuer.rs` | literal construction, core primitive POS, unresolved NAME, lookup/copula flags, word index/span | graph를 만들 필요는 없다. `EnqueueEnvironment`와 flags/provenance를 parser 입구 이후에도 전달하는 contract를 보완한다 |
 | `parser.rs::ParseValue::Noun(Expr, usize)` | Noun class와 원본 표현/의미 구조 | concrete Value carrier와 static noun facts/origin carrier를 명시적으로 구분한다. Expr 하나를 concrete 값처럼 사용하지 않는다. capture origin은 값과 별도이며 보존된 static graph도 버리지 않는다 |
-| `expression()` / queue drain | 같은 queue/stack 규칙과 name의 noun/function 구분 | `resolve_stack_item`이 실제 right-to-left queue→stack entry에서 조회한다. `ParseContext`가 analysis와 runtime noun snapshot을 구분한다. invocation·effect sequencing host는 미완료다. static은 안정된 binding/POS 정보만 사용하며 불명확하면 분석 경계로 남긴다 |
+| `expression()` / queue drain | 같은 queue/stack 규칙과 name의 noun/function 구분 | `resolve_stack_item`이 실제 right-to-left queue→stack entry에서 조회한다. `ParseContext`가 analysis와 runtime noun snapshot을 구분한다. runtime invocation host는 구현했으며 non-final assignment/locale/effect 확장은 미완료다. static은 안정된 binding/POS 정보만 사용하며 불명확하면 분석 경계로 남긴다 |
 | rows 0–2 / `runtime.rs::eval_program` | monad/dyad 의미와 실제 kernel implementation | static action은 application graph와 facts를 만들고, concrete action은 그 지점에서 실행한 noun을 돌려준다. concrete reduction 후 전체 Expr를 다시 실행하여 중복 계산하지 않도록 runtime return contract를 함께 바꾼다 |
-| `completed_noun()` / rows 3–6 | completed FunctionEntity DAG, source operator, ordered operands | 현재 Literal/Group만 concrete noun으로 취급한다. static constructor는 필요한 값이 constant/proven이면 진행하고, 아니면 value-dependent 경계로 남긴다. concrete constructor는 실제 값과 origin을 받아 validation한다 |
+| `completed_noun()` / rows 3–6 | completed FunctionEntity DAG, source operator, ordered operands | `completed_noun`은 Literal/Group만 추출하지만 runtime rows 0–2가 먼저 실제 Literal로 reduce하므로 computed noun constructor도 처리한다. static context의 값 의존 boundary는 유지한다. static constructor는 필요한 값이 constant/proven이면 진행하고, 아니면 value-dependent 경계로 남긴다. concrete constructor는 실제 값과 origin을 받아 validation한다 |
 | `Item` / row 7 / diagnostics | source spans, enqueue의 local/global/to-name 구분 | `Item`이 original-word range/inherited token과 enqueue flags를 보존하며 row 7은 `AssignmentSource`로 target/copula provenance와 flags를 남긴다. pending-final assignment만 표현하는 모델을 runtime assignment action과 구분한다. local 실행 미지원 상태를 유지하면서 metadata를 조용히 global로 해석하지 않는다 |
 | row 8 / graph adapter | 괄호에 따른 reduction boundary | grouping 전후 같은 noun origin을 유지한다. 괄호 자체를 추가 실행 operation으로 만들지 않는다. production 순서·operand slot·original word를 기존 J Graph adapter에 전달한다 |
-| parser API / runtime / analysis | `prepare_semantic/analyze_j_graph(&self, ...)`의 비실행 성격 | `snapshot: bool`은 `ParseContext::{Analysis, Runtime}`으로 대체했다. 실제 invocation/capture semantic host와 return contract는 후속 작업이다. static 분석과 runtime capture는 동일 grammar를 사용하되 실행 권한과 반환 타입을 구분한다 |
+| parser API / runtime / analysis | `prepare_semantic/analyze_j_graph(&self, ...)`의 비실행 성격 | `snapshot: bool`은 `ParseContext::{Analysis, Runtime}`으로 대체했다. `ActionContext`/`RuntimeParserHost`가 lookup/invocation과 optional capture를 통합한다. effectful assignment/locale/definition host 확장은 후속 작업이다. static 분석과 runtime capture는 동일 grammar를 사용하되 실행 권한과 반환 타입을 구분한다 |
 
 이 변경은 tokenizer/enqueuer/parser 파일 분리를 되돌리는 작업이 아니다. 핵심은 **parser의 payload·semantic actions와 metadata 전달**이며, graph/capture를 lexer나 physical `Value`에 넣지 않는다. 근거는 현재 `parser.rs`의 `Noun(Expr, usize)`, `expression`, `completed_noun`, row 7의 `AssignmentSource`, `runtime.rs::eval_program` 및 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)/[w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 계약이다. 이전 구조 검토를 현재 parser 변경에 맞게 갱신했다. kernel/executor 변경은 포함하지 않는다.
 

@@ -858,6 +858,234 @@ impl Plan {
         Ok(plan)
     }
 
+    /// Convert a completed execution observation into the existing J Graph.
+    /// This records provenance, not a reusable executable or permission to replay.
+    pub fn from_capture(
+        capture: &crate::parser_capture::ParseCapture,
+    ) -> Result<crate::parser_capture::CapturedGraph> {
+        use crate::parser_capture::{CaptureEvent, CapturedGraph, ConstructorOrigin};
+        capture
+            .verify()
+            .map_err(|message| Error::Unsupported(format!("invalid capture: {message}")))?;
+        if capture.events.iter().any(|event| {
+            matches!(
+                event,
+                CaptureEvent::ApplyFailure { .. } | CaptureEvent::ConstructionFailure { .. }
+            )
+        }) {
+            return Err(Error::Unsupported(
+                "failed capture is not a completed J graph".into(),
+            ));
+        }
+        let mut builder = Builder {
+            nodes: Vec::new(),
+            regions: Vec::new(),
+            reads: HashMap::new(),
+            noun_facts: &|_| GraphFacts::default(),
+        };
+        let mut values = HashMap::new();
+        let mut occurrences = Vec::new();
+        let mut observed_facts = Vec::new();
+        let mut constructors = Vec::new();
+        let mut pending = None;
+        let mut constructor_inputs = Vec::new();
+        let mut result = None;
+        let mut write = None;
+        for event in &capture.events {
+            match event {
+                CaptureEvent::Input {
+                    id,
+                    name,
+                    version,
+                    span,
+                    facts,
+                } => {
+                    let text = capture.source().get(span.clone()).ok_or_else(|| {
+                        Error::Unsupported("capture input has invalid span".into())
+                    })?;
+                    let mut queue = crate::enqueuer::enqueue(text)?;
+                    if queue.len() != 1 {
+                        return Err(Error::Unsupported(
+                            "capture input is not one enqueue word".into(),
+                        ));
+                    }
+                    let value = if let Some(name) = name {
+                        if !matches!(&queue[0].payload, crate::enqueuer::EnqueuedPayload::Name(n) if *n == name)
+                        {
+                            return Err(Error::Unsupported("capture name/source mismatch".into()));
+                        }
+                        builder.push(
+                            NodeKind::ReadNoun {
+                                name: name.clone(),
+                                version: version.ok_or_else(|| {
+                                    Error::Unsupported("capture read has no version witness".into())
+                                })?,
+                            },
+                            span.clone(),
+                            facts.clone(),
+                            GraphAnalyzability::Static,
+                        )
+                    } else {
+                        let literal = match queue.remove(0).payload {
+                            crate::enqueuer::EnqueuedPayload::Scalar(scalar) => {
+                                scalar.into_value()?
+                            }
+                            crate::enqueuer::EnqueuedPayload::Noun(value) => *value,
+                            _ => {
+                                return Err(Error::Unsupported(
+                                    "capture literal/source mismatch".into(),
+                                ));
+                            }
+                        };
+                        if GraphFacts::of(&literal) != *facts {
+                            return Err(Error::Unsupported(
+                                "capture literal facts mismatch".into(),
+                            ));
+                        }
+                        builder.expression(Expr {
+                            span: span.clone(),
+                            kind: ExprKind::Literal(literal),
+                        })?
+                    };
+                    values.insert(*id, value);
+                    occurrences.push((*id, value));
+                    observed_facts.push((value, facts.clone()));
+                }
+                CaptureEvent::ApplyAttempt {
+                    id,
+                    function,
+                    left,
+                    right,
+                    span,
+                    ..
+                } => {
+                    pending = Some((
+                        *id,
+                        function.clone(),
+                        left.map(|id| values[&id]),
+                        values[right],
+                        span.clone(),
+                    ));
+                }
+                CaptureEvent::ApplySuccess { id, facts } => {
+                    let (attempt, function, left, right, span) =
+                        pending.take().expect("verified attempt");
+                    if attempt != *id {
+                        return Err(Error::Unsupported("capture outcome mismatch".into()));
+                    }
+                    let value = builder.apply_function(function, left, right, span)?;
+                    values.insert(*id, value);
+                    occurrences.push((*id, value));
+                    observed_facts.push((value, facts.clone()));
+                }
+                CaptureEvent::ConstructionAttempt { noun_inputs, .. } => {
+                    constructor_inputs = noun_inputs.iter().map(|id| values[id]).collect();
+                }
+                CaptureEvent::ConstructionSuccess {
+                    row,
+                    function,
+                    span,
+                } => {
+                    constructors.push(ConstructorOrigin {
+                        row: *row,
+                        function: function.clone(),
+                        noun_inputs: std::mem::take(&mut constructor_inputs),
+                        span: span.clone(),
+                    });
+                }
+                CaptureEvent::FunctionResult { function, span } => {
+                    if result.is_some() || capture.result.is_some() {
+                        return Err(Error::Unsupported(
+                            "capture has contradictory results".into(),
+                        ));
+                    }
+                    if function.result_pos != crate::semantic::FunctionPartOfSpeech::Verb {
+                        return Err(Error::Unsupported(
+                            "captured modifier value graph lowering".into(),
+                        ));
+                    }
+                    result = Some(builder.push(
+                        NodeKind::VerbValue {
+                            function: function.clone(),
+                        },
+                        span.clone(),
+                        GraphFacts::default(),
+                        GraphAnalyzability::StaticWithUnknownFacts,
+                    ));
+                }
+                CaptureEvent::Commit {
+                    name,
+                    version,
+                    previous,
+                    span,
+                } => {
+                    let value = result
+                        .or_else(|| capture.result.map(|id| values[&id]))
+                        .ok_or_else(|| {
+                            Error::Unsupported("capture commit without result".into())
+                        })?;
+                    write = Some(Write {
+                        name: name.clone(),
+                        value,
+                        previous: *previous,
+                        proposed: *version,
+                        span: span.clone(),
+                    });
+                }
+                CaptureEvent::ApplyFailure { .. } | CaptureEvent::ConstructionFailure { .. } => {
+                    unreachable!()
+                }
+            }
+        }
+        let result = result.or_else(|| capture.result.map(|id| values[&id]));
+        let mut verb_references = Vec::new();
+        let mut functions: Vec<_> = builder
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.kind {
+                NodeKind::Apply { function, .. } | NodeKind::VerbValue { function } => {
+                    Some(function.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        while let Some(function) = functions.pop() {
+            if !seen.insert(Arc::as_ptr(&function)) {
+                continue;
+            }
+            if let FunctionHead::NameRef(name) = &function.head {
+                verb_references.push((name.clone(), function.span.clone()));
+            }
+            for operand in &function.operands {
+                if let FunctionOperand::Function(child) = operand {
+                    functions.push(child.clone());
+                }
+            }
+        }
+        let graph = Self {
+            header: GraphIrHeader {
+                schema: J_GRAPH_SCHEMA_VERSION,
+                primitive_registry_version: crate::primitive::REGISTRY_VERSION,
+            },
+            source: capture.source().to_owned(),
+            nodes: builder.nodes,
+            regions: builder.regions,
+            result,
+            write,
+            verb_references,
+        };
+        graph.verify().map_err(|message| {
+            Error::Unsupported(format!("captured J graph verification failed: {message}"))
+        })?;
+        Ok(CapturedGraph {
+            graph,
+            occurrences,
+            observed_facts,
+            constructors,
+        })
+    }
+
     pub fn graph_form(&self, value: ValueId) -> Option<&GraphForm> {
         let NodeKind::Apply { form, .. } = &self.nodes.get(value.0)?.kind else {
             return None;

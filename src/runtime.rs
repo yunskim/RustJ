@@ -309,12 +309,15 @@ impl Engine {
             _ => SymbolValue::Noun(self.interpret_ir(expr, pooled, 0)?),
         };
         if let Some(name) = program.assignment {
+            let previous = self.binding_version(&name);
             self.commit_binding(name.clone(), value)?;
             if let Some(capture) = capture {
                 capture
                     .events
                     .push(crate::parser_capture::CaptureEvent::Commit {
                         version: self.binding_version(&name).expect("committed binding"),
+                        previous,
+                        span: program.assignment_span.expect("assignment span"),
                         name,
                     });
             }
