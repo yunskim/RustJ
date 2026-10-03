@@ -11,10 +11,12 @@
     "jsrc/cr.c": "9c2a7976afae1bae96a8fd5027b6df69f83b71a20ff62a94e08d25cabccadde4",
     "jsrc/ap.c": "9a214b1aae8f7c1ff11dc523e744671ede42f6cb284934dda0c2a1843197f380",
     "jsrc/cg.c": "300ba00feddb6d548a01a00c3311653e3106904fe4910e1f3d1c54c8749d5d6b",
-    "jsrc/r.c": "d344e701c72d9fa6394de92f6b03615f76d36a3aa8b5a9cbd0634be5f7d0d61a"
+    "jsrc/r.c": "d344e701c72d9fa6394de92f6b03615f76d36a3aa8b5a9cbd0634be5f7d0d61a",
+    "jsrc/a.c": "972abe3d57881ccc86b4e05ba80171da88f121df0890b4e23837f30e361034e4",
+    "jsrc/sc.c": "1abfd822020758ed28b15011f36d6a2911304bbb1c62361b7cfa78cab0ef54aa"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "0fa56157ded288359efb5b7059e21a41136fe87295bc0203f8c8dd8899136f37",
+  "probe_sha256": "a0f0b99df3f20008d0dab42d7212b8faeac01f45395045fcff29c2de98988272",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -36,6 +38,9 @@
     "runtime_ar_setup_or_target": 46,
     "runtime_ar_constructor": 39,
     "runtime_ar_constructor_error": 18,
+    "runtime_gerund_name_constructor": 9,
+    "runtime_gerund_name_setup_or_target": 14,
+    "runtime_gerund_name_error": 7,
     "copula_reference": 4
   },
   "mismatches": [],

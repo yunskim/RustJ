@@ -67,6 +67,19 @@ def compound_gerund_cases():
     return out
 
 
+def gerund_name_cases():
+    out = ["gerundnamefn=: (,<'gerund_future')\\", "gerundnamefn=: (,<'gerund_future')\"0",
+           'gerund_future=:+', "gerundnamefn=: (,<'gerund_future')\\", 'gerund_future=:-',
+           "gerundnamefn=: (,<'gerund_future')\\", 'gerund_alias=:gerund_future',
+           'gerund_future=:1', "gerundnamefn=: (,<'gerund_alias')\\", 'gerund_name_keep=:+']
+    for binding in ['gerund_future=:1', 'gerund_future=:/', 'gerund_future=:@:']:
+        out += [binding, "gerund_name_keep=: (,<'gerund_future')\\", 'gerund_name_keep i.3',
+                "gerundnamefn=: (,<'gerund_future')\"0"]
+    for name in ['bad+', 'bad name', 'bad_', 'a@']:
+        out += [f"gerund_name_keep=: (,<'{name}')\\", 'gerund_name_keep i.3']
+    return out
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -321,6 +334,7 @@ def cases():
         "gerundkeep=: ((<3),<'')\\", 'gerundkeep i.3', "gerundkeep=: ((<''),<3)\\", 'gerundkeep i.3',
     ])
     fixed.extend(compound_gerund_cases())
+    fixed.extend(gerund_name_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

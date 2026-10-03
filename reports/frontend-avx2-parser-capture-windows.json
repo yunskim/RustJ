@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2477,
+  "cases": 2507,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\javx2.dll",
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "36f8b4f90a4031537f4f4849d72c4f1fde94f35b7ba04439f82268607e33d571",
+  "binary_sha256": "7caf19166a658cc13f9be74bd02961214efccfdc7ff56e95a342ea5eaaaf811f",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2473,
+  "passed": 2503,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -303,6 +303,16 @@
     {
       "index": 1435,
       "source": "tridentalias=:tridentconj",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1691,
+      "source": "gerund_future=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1695,
+      "source": "gerund_future=:@:",
       "reason": "captured modifier value graph lowering"
     }
   ],

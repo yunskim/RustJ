@@ -29,6 +29,9 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
         self.engine.parser_name_binding(name)
     }
+    fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
+        Ok(self.engine.parser_name_binding(name))
+    }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
         self.engine.binding_version(name)
     }

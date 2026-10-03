@@ -7704,6 +7704,18 @@ Windows default/portable 각각 **290 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cf.c hook 및 modifier dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
 
+##### Gerund 이름의 생성 시점 품사 확인 (2026-10-03)
+
+- [x] P3/P4: `r.c::jtfxchar`→`a.c::jtswap`→`sc.c::jtnameref`에 따라 character AR의 ordinary name을 기존 이름 환경에서 생성 시점에 조회한다. 문장 전체의 binding을 미리 snapshot하지 않는다. undefined 이름은 Verb NameRef로, 정의된 함수는 현재 실제 품사의 NameRef로 구성한다. verb의 현재 primitive 값을 고정하거나 alias의 참조를 펼치지 않는다. 기존 extension 이름도 동일한 binding 경로를 사용한다.
+- [x] P3/P6: 현재 noun·adverb·conjunction인 이름은 gerund의 최종 Verb 검사에서 DomainError를 낸다. noun-left rank의 확실한 audit 실패는 기존 constant fallback을 유지한다. 이름 재정의, undefined→verb, verb→noun/modifier, verb alias, 실패 후 target/version 유지와 원래 gerund noun의 함수 표현을 검증한다.
+- [x] P3/P6: alpha로 시작하고 마지막 문자가 `.`/`:`가 아닌 character AR은 이름 검사 경로로 보낸다. ordinary name의 분류·검증은 enqueuer를 재사용하며 잘못된 문자·공백·끝 underscore는 IllFormedName으로 처리한다. primitive 경로와 boxed AR header의 spellin 경로는 구분한다. 이름 환경이 없거나 locative 지원이 필요한 경우에는 Unsupported를 유지한다.
+- [x] P6: 회귀 테스트 3개와 공통 C 비교 문장 30개를 추가했다. stage는 runtime constructor의 함수 표현/POS 9건, 오류 7건, binding 설정·기존 target 실행 14건을 비교한다. source hash에 `a.c`, `sc.c`를 추가했다. decoded Verb NameRef가 값 snapshot을 갖지 않는지, named noun을 사용하는 중첩 fork가 필요한 noun snapshot 없이 성공하지 않는지도 검증한다.
+- [ ] 다음: 복합 AR 내부 named noun의 실제 값 snapshot 및 capture, gerund 이름 조회의 binding/version 관찰, 즉시 noun 실행·capture, train 내부 late modifier 조회를 연결한다. 현재 noun 판별은 품사 검사만 가능하며 값이 필요한 중첩 constructor는 Unsupported다. 원래 noun operand를 유지하는 것만으로 decoded execution auxiliary의 snapshot이나 compiled reuse 조건이 보존되었다고 주장하지 않는다. gerund 실행·Logical lowering, locative/locale/definition scope, 전체 primitive inventory는 별도 미완료다. 최적화/CUDA는 보류한다.
+
+Windows default/portable 각각 **293 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,507문장 중 2,503 passed, 기존 runtime 경계 4개, failed 0**; stage **7,515 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. 현재 gerund 이름 조회는 완전한 capture witness/재사용 guard가 아니다. DLL release pin과 검토 source pin을 구분하며 전체 J/upstream suite나 GitHub CI 실행을 주장하지 않는다.
+
+기준 소스: [r.c fxchar](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [a.c swap](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/a.c#L21), [sc.c nameref](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [sn.c vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

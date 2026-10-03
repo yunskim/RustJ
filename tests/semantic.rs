@@ -706,7 +706,7 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
-    let source = "protected=: (, <'unknownverb') (\\ @: +)";
+    let source = "protected=: (, <'!') (\\ @: +)";
     let report = engine.eval_captured(source);
     assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
     report.capture.verify().unwrap();
@@ -1089,7 +1089,6 @@ fn noun_left_rank_audits_right_rank_before_gerund_and_assignment() {
         ("3\"1 2 3 4", "length error"),
         ("3\"(2 2$0)", "rank error"),
         ("(,<'bad')\"1 2 3 4", "length error"),
-        ("(,<'bad')\"0", "unsupported"),
     ] {
         let source = format!("protected=: {expression}");
         let report = engine.eval_captured(&source);
@@ -1113,7 +1112,6 @@ fn noun_prefix_gerund_audit_matches_rank_length_domain_precedence() {
         ("(0 2$0)\\", "rank error"),
         ("(0$<0)\\", "length error"),
         ("(2 2$<0)\\", "rank error"),
-        ("(, <'unknownverb')\\", "unsupported"),
     ] {
         let source = format!("protected=: {expression}");
         let report = engine.eval_captured(&source);
@@ -1239,4 +1237,61 @@ fn compound_ar_errors_follow_constructor_order_and_quiet_rank_fallback() {
         assert_eq!(engine.binding_version("protected"), version);
         engine.eval("constantfn=: (,<compoundar)\"0").unwrap();
     }
+}
+
+#[test]
+fn gerund_names_use_current_pos_and_allow_undefined_verb_references() {
+    let mut engine = rustj::Engine::new();
+    for source in [
+        "namedfn=: (,<'futureverb')\\",
+        "namedfn=: (,<'futureverb')\"0",
+        "futureverb=:+",
+        "namedfn=: (,<'futureverb')\\",
+        "futureverb=:-",
+        "namedfn=: (,<'futureverb')\\",
+        "gerund_alias=:futureverb",
+        "futureverb=:1",
+        "namedfn=: (,<'gerund_alias')\\",
+    ] {
+        let report = engine.eval_captured(source);
+        report
+            .result
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+        report.capture.verify().unwrap();
+    }
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for binding in ["futureverb=:1", "futureverb=:/", "futureverb=:@:"] {
+        engine.eval(binding).unwrap();
+        let report = engine.eval_captured("protected=: (,<'futureverb')\\");
+        assert_eq!(
+            report.result.unwrap_err().kind(),
+            "domain error",
+            "{binding}"
+        );
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("protected"), version);
+        engine.eval("rankfn=: (,<'futureverb')\"0").unwrap();
+    }
+}
+
+#[test]
+fn gerund_name_audit_rejects_malformed_names_before_lookup() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for name in ["bad+", "bad name", "bad_", "a@"] {
+        let source = format!("protected=: (,<'{name}')\\");
+        let report = engine.eval_captured(&source);
+        assert_eq!(
+            report.result.unwrap_err().kind(),
+            "ill-formed name",
+            "{source}"
+        );
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("protected"), version);
+    }
+    let report = engine.eval_captured("protected=: (,<'fn_base_')\\");
+    assert_eq!(report.result.unwrap_err().kind(), "unsupported");
+    report.capture.verify().unwrap();
 }

@@ -146,6 +146,27 @@ fn resolve_modifier(
     Ok(resolved.function)
 }
 
+/// Read the current construction environment without snapshotting a sentence.
+#[derive(Clone, Copy, Default)]
+struct ConstructionNames<'a> {
+    lookup: NameLookup<'a>,
+    host: Option<&'a dyn RuntimeParserHost>,
+}
+
+impl ConstructionNames<'_> {
+    fn binding(&self, name: &str) -> Result<Option<ParserNameBinding>> {
+        if let Some(host) = self.host {
+            host.gerund_binding(name)
+        } else if let Some(lookup) = self.lookup {
+            Ok(lookup(name))
+        } else {
+            Err(Error::Unsupported(
+                "gerund name construction requires a name environment".into(),
+            ))
+        }
+    }
+}
+
 /// The public parser row supplies a N/V operand. Modifier actions may return
 /// another modifier, so propagate an Item with its actual result POS.
 fn apply_adverb(
@@ -153,6 +174,7 @@ fn apply_adverb(
     operator: Arc<FunctionEntity>,
     span: std::ops::Range<usize>,
     depth: usize,
+    names: ConstructionNames<'_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -173,6 +195,7 @@ fn apply_adverb(
                         modifier_operand(second, span.clone()),
                         span,
                         depth + 1,
+                        names,
                     );
                 }
             }
@@ -188,6 +211,7 @@ fn apply_adverb(
                         left,
                         span,
                         depth + 1,
+                        names,
                     );
                 }
             }
@@ -199,8 +223,13 @@ fn apply_adverb(
             {
                 if first.result_pos == FunctionPartOfSpeech::Adverb {
                     let original = share_modifier_input(left);
-                    let result =
-                        apply_adverb(original.clone(), first.clone(), span.clone(), depth + 1)?;
+                    let result = apply_adverb(
+                        original.clone(),
+                        first.clone(),
+                        span.clone(),
+                        depth + 1,
+                        names,
+                    )?;
                     // A C is tac, not taAV: C must receive both t and the
                     // original input. Never approximate it as a two-item hook.
                     if second.result_pos == FunctionPartOfSpeech::Conjunction {
@@ -210,15 +239,16 @@ fn apply_adverb(
                             original,
                             span,
                             depth + 1,
+                            names,
                         );
                     }
                     let right = modifier_operand(&operator.operands[1], span.clone());
-                    return construct_modifier_bident(result, right, span, depth + 1);
+                    return construct_modifier_bident(result, right, span, depth + 1, names);
                 }
             }
         }
         if operator.operands.len() == 3 {
-            return apply_modifier_trident(left, None, &operator.operands, span, depth + 1);
+            return apply_modifier_trident(left, None, &operator.operands, span, depth + 1, names);
         }
         return Err(Error::Unsupported(
             "derived modifier application semantics".into(),
@@ -239,7 +269,7 @@ fn apply_adverb(
         let (noun, _) = left.into_noun().unwrap();
         let noun_span = noun.span.clone();
         let value = completed_noun(noun, "runtime-dependent prefix gerund operand")?;
-        audit_gerund(&value, noun_span.clone(), depth + 1)?;
+        audit_gerund(&value, noun_span.clone(), depth + 1, names)?;
         return Ok(Item::verb(Verb {
             span: span.clone(),
             target: VerbTarget::Derived,
@@ -276,7 +306,12 @@ fn apply_adverb(
 
 /// cg.c::jtfxeachv(1): decode in element order, then require actual Verb POS.
 /// Retain the J-visible gerund noun rather than execution-only fgh auxiliaries.
-fn audit_gerund(value: &Value, span: std::ops::Range<usize>, depth: usize) -> Result<()> {
+fn audit_gerund(
+    value: &Value,
+    span: std::ops::Range<usize>,
+    depth: usize,
+    names: ConstructionNames<'_>,
+) -> Result<()> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
     }
@@ -290,7 +325,7 @@ fn audit_gerund(value: &Value, span: std::ops::Range<usize>, depth: usize) -> Re
         return Err(Error::Domain);
     };
     for leaf in leaves.iter() {
-        if decode_gerund_ar(leaf, span.clone(), depth + 1)?.class != ParseClass::Verb {
+        if decode_gerund_ar(leaf, span.clone(), depth + 1, names)?.class != ParseClass::Verb {
             return Err(Error::Domain);
         }
     }
@@ -322,9 +357,66 @@ fn gerund_primitive(spelling: &str, span: std::ops::Range<usize>) -> Result<Item
     })
 }
 
+/// r.c::fxchar -> a.c::swap/sc.c::nameref: obtain actual current POS,
+/// then retain ordinary function name references for later execution.
+fn gerund_character(
+    spelling: &str,
+    span: std::ops::Range<usize>,
+    names: ConstructionNames<'_>,
+) -> Result<Item> {
+    let bytes = spelling.as_bytes();
+    if bytes[0].is_ascii_alphabetic() && !matches!(bytes.last(), Some(b'.' | b':')) {
+        if !bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        {
+            return Err(Error::IllFormedName);
+        }
+        let queue = enqueue(spelling)?;
+        if queue.len() != 1
+            || !matches!(queue[0].payload, EnqueuedPayload::Name(name) if name == spelling)
+        {
+            return Err(Error::IllFormedName);
+        }
+        let binding = names.binding(spelling)?;
+        let pos = match binding {
+            Some(ParserNameBinding::Noun(_) | ParserNameBinding::AbstractNoun) => {
+                // The gerund audit can reject noun POS without cloning payloads.
+                // Value-consuming nested constructors remain an explicit boundary.
+                return Ok(Item::noun(
+                    Expr {
+                        span,
+                        kind: ExprKind::ReadName(spelling.into()),
+                    },
+                    0,
+                ));
+            }
+            None => FunctionPartOfSpeech::Verb,
+            Some(ParserNameBinding::Function(pos)) => pos,
+            Some(ParserNameBinding::KnownModifier { function, .. }) => function.result_pos,
+        };
+        let entity = FunctionEntity::name_ref(spelling.into(), pos, span.clone());
+        return Ok(if pos == FunctionPartOfSpeech::Verb {
+            Item::verb(Verb {
+                span,
+                target: VerbTarget::Named(spelling.into()),
+                entity,
+            })
+        } else {
+            Item::function(entity)
+        });
+    }
+    gerund_primitive(spelling, span)
+}
+
 /// r.c::jtfx core AR decoding. Constructor reductions share the parser's
 /// disposition/actions; this is a serialized entity format, not another grammar.
-fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -> Result<Item> {
+fn decode_gerund_ar(
+    value: &Value,
+    span: std::ops::Range<usize>,
+    depth: usize,
+    names: ConstructionNames<'_>,
+) -> Result<Item> {
     use crate::value::Data;
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -339,7 +431,7 @@ fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -
         if bytes.iter().any(|c| !(32..127).contains(c)) {
             return Err(Error::Spelling);
         }
-        return gerund_primitive(std::str::from_utf8(bytes.as_slice()).unwrap(), span);
+        return gerund_character(std::str::from_utf8(bytes.as_slice()).unwrap(), span, names);
     }
     let Data::Boxed(fields) = &value.data else {
         return Err(Error::Domain);
@@ -362,7 +454,7 @@ fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -
         Modifier,
     }
     let head = if matches!(first.data, Data::Boxed(_)) {
-        Head::Entity(decode_gerund_ar(first, span.clone(), depth + 1)?)
+        Head::Entity(decode_gerund_ar(first, span.clone(), depth + 1, names)?)
     } else {
         // u.c::vs audits header rank before converting to literal.
         if first.shape.len() > 1 {
@@ -401,7 +493,8 @@ fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -
     } else {
         &[]
     };
-    let decode = |index: usize| decode_gerund_ar(args[index].as_ref(), span.clone(), depth + 1);
+    let decode =
+        |index: usize| decode_gerund_ar(args[index].as_ref(), span.clone(), depth + 1, names);
     match head {
         Head::Noun => Err(Error::Domain),
         Head::Hook | Head::Modifier => {
@@ -418,9 +511,9 @@ fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -
             let second = decode(1)?;
             let first = decode(0)?;
             if let Some(third) = third {
-                construct_modifier_trident(first, second, third, span, depth + 1)
+                construct_modifier_trident(first, second, third, span, depth + 1, names)
             } else {
-                construct_modifier_bident(first, second, span, depth + 1)
+                construct_modifier_bident(first, second, span, depth + 1, names)
             }
         }
         Head::Fork => {
@@ -439,7 +532,7 @@ fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -
             if third.class != ParseClass::Verb {
                 return Err(Error::Syntax("invalid AR fork third operand".into()));
             }
-            construct_modifier_trident(first, second, third, span, depth + 1)
+            construct_modifier_trident(first, second, third, span, depth + 1, names)
         }
         Head::Entity(operator) => {
             if args.is_empty() {
@@ -458,7 +551,13 @@ fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -
                 return Err(Error::Domain);
             }
             if expected == 1 {
-                apply_adverb(first, operator.into_function().unwrap(), span, depth + 1)
+                apply_adverb(
+                    first,
+                    operator.into_function().unwrap(),
+                    span,
+                    depth + 1,
+                    names,
+                )
             } else {
                 let second = decode(1)?;
                 if !matches!(second.class, ParseClass::Noun | ParseClass::Verb) {
@@ -470,6 +569,7 @@ fn decode_gerund_ar(value: &Value, span: std::ops::Range<usize>, depth: usize) -
                     second,
                     span,
                     depth + 1,
+                    names,
                 )
             }
         }
@@ -500,6 +600,7 @@ fn construct_modifier_bident(
     right: Item,
     span: std::ops::Range<usize>,
     depth: usize,
+    names: ConstructionNames<'_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -514,7 +615,7 @@ fn construct_modifier_bident(
             modifier_train(vec![left, right], pos).map(Item::function)
         }
         BidentDisposition::ImmediateSemanticApply if right.class == ParseClass::Adverb => {
-            apply_adverb(left, right.into_function().unwrap(), span, depth + 1)
+            apply_adverb(left, right.into_function().unwrap(), span, depth + 1, names)
         }
         BidentDisposition::ImmediateSemanticApply => Err(Error::Unsupported(
             "modifier bident requires parser-time noun execution".into(),
@@ -531,6 +632,7 @@ fn construct_modifier_trident(
     third: Item,
     span: std::ops::Range<usize>,
     depth: usize,
+    names: ConstructionNames<'_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -560,6 +662,7 @@ fn construct_modifier_trident(
                 third,
                 span,
                 depth + 1,
+                names,
             )
         }
         TridentDisposition::ImmediateSemanticApply => Err(Error::Unsupported(
@@ -577,6 +680,7 @@ fn apply_conjunction_items(
     right: Item,
     span: std::ops::Range<usize>,
     depth: usize,
+    names: ConstructionNames<'_>,
 ) -> Result<Item> {
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
@@ -596,6 +700,7 @@ fn apply_conjunction_items(
                     right.clone(),
                     span.clone(),
                     depth + 1,
+                    names,
                 )?;
                 let other = match second.result_pos {
                     FunctionPartOfSpeech::Adverb => {
@@ -607,6 +712,7 @@ fn apply_conjunction_items(
                         right,
                         span.clone(),
                         depth + 1,
+                        names,
                     )?, // tcc
                     _ => {
                         return Err(Error::Unsupported(
@@ -614,10 +720,10 @@ fn apply_conjunction_items(
                         ));
                     }
                 };
-                return construct_modifier_bident(result, other, span, depth + 1);
+                return construct_modifier_bident(result, other, span, depth + 1, names);
             }
             operands if operands.len() == 3 => {
-                return apply_modifier_trident(left, Some(right), operands, span, depth + 1);
+                return apply_modifier_trident(left, Some(right), operands, span, depth + 1, names);
             }
             _ => {
                 return Err(Error::Unsupported(
@@ -631,7 +737,7 @@ fn apply_conjunction_items(
             "conjunction child identity requires resolution".into(),
         ));
     }
-    apply_conjunction_at(left, operator, right, span, depth + 1).map(Item::verb)
+    apply_conjunction_at(left, operator, right, span, depth + 1, names).map(Item::verb)
 }
 
 /// cf.c's trident actions construct with actual intermediate POS, in source
@@ -642,6 +748,7 @@ fn apply_modifier_trident(
     operands: &[FunctionOperand],
     span: std::ops::Range<usize>,
     depth: usize,
+    names: ConstructionNames<'_>,
 ) -> Result<Item> {
     use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
     if depth >= MAX_EXPR_DEPTH {
@@ -660,6 +767,7 @@ fn apply_modifier_trident(
             parts[index].clone().into_function().unwrap(),
             span.clone(),
             depth + 1,
+            names,
         )
     };
     let conj = |index: usize| {
@@ -671,10 +779,12 @@ fn apply_modifier_trident(
             })?,
             span.clone(),
             depth + 1,
+            names,
         )
     };
-    let finish =
-        |f: Item, g: Item, h: Item| construct_modifier_trident(f, g, h, span.clone(), depth + 1);
+    let finish = |f: Item, g: Item, h: Item| {
+        construct_modifier_trident(f, g, h, span.clone(), depth + 1, names)
+    };
     match classes {
         [A, A, A] => {
             // taaa
@@ -772,6 +882,7 @@ fn apply_conjunction_at(
     right: Item,
     span: std::ops::Range<usize>,
     depth: usize,
+    names: ConstructionNames<'_>,
 ) -> Result<Verb> {
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let primitive_id = match &operator.head {
@@ -812,7 +923,7 @@ fn apply_conjunction_at(
                 && matches!(value.data, crate::value::Data::Boxed(_))
                 && ranks != Some([63; 3])
             {
-                match audit_gerund(&value, noun_span.clone(), depth + 1) {
+                match audit_gerund(&value, noun_span.clone(), depth + 1, names) {
                     Ok(()) => {}
                     Err(error) if error.kind() == "unsupported" => return Err(error),
                     // cr.c suppresses failed fx audits and uses the noun itself.
@@ -1150,8 +1261,14 @@ fn apply_parse_row(
                 context,
                 row,
             )?;
-            let result = apply_adverb(left, operator, span.clone(), 0)
-                .map_err(|error| error.at(span.clone()))?;
+            let result = apply_adverb(
+                left,
+                operator,
+                span.clone(),
+                0,
+                context.construction_names(),
+            )
+            .map_err(|error| error.at(span.clone()))?;
             stack.insert(1, result.with_span(span));
             true
         }
@@ -1168,8 +1285,15 @@ fn apply_parse_row(
                 context,
                 row,
             )?;
-            let result = apply_conjunction_items(left, operator, right, span.clone(), 0)
-                .map_err(|error| error.at(span.clone()))?;
+            let result = apply_conjunction_items(
+                left,
+                operator,
+                right,
+                span.clone(),
+                0,
+                context.construction_names(),
+            )
+            .map_err(|error| error.at(span.clone()))?;
             stack.insert(1, result.with_span(span));
             true
         }
@@ -1831,6 +1955,11 @@ pub(crate) struct ResolvedModifier {
 
 pub(crate) trait RuntimeParserHost {
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    fn gerund_binding(&self, _name: &str) -> Result<Option<ParserNameBinding>> {
+        Err(Error::Unsupported(
+            "host does not support gerund name lookup".into(),
+        ))
+    }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion>;
     /// Operands have already reduced to actual nouns; execute exactly one call.
     fn apply(&mut self, expression: Expr) -> Result<Value>;
@@ -1878,6 +2007,15 @@ struct ActionContext<'a> {
     host: Option<&'a mut dyn RuntimeParserHost>,
     capture: Option<&'a mut ParseCapture>,
     modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
+}
+
+impl ActionContext<'_> {
+    fn construction_names(&self) -> ConstructionNames<'_> {
+        ConstructionNames {
+            lookup: self.lookup,
+            host: self.host.as_deref(),
+        }
+    }
 }
 
 /// Resolve one ordinary name only when its queue entry reaches the stack.
@@ -2606,13 +2744,15 @@ mod gerund_ar_tests {
                 FunctionPartOfSpeech::Adverb,
             ),
         ] {
-            let function = function(decode_gerund_ar(&value, 5..9, 0).unwrap());
+            let function =
+                function(decode_gerund_ar(&value, 5..9, 0, ConstructionNames::default()).unwrap());
             assert_eq!(function.head, expected);
             assert_eq!(function.result_pos, pos);
         }
         let modifier = ar("4", vec![text("/"), text("/")]);
         let applied = boxes(vec![modifier, boxes(vec![text("+")])]);
-        let function = function(decode_gerund_ar(&applied, 5..9, 0).unwrap());
+        let function =
+            function(decode_gerund_ar(&applied, 5..9, 0, ConstructionNames::default()).unwrap());
         let FunctionOperand::Function(child) = &function.operands[0] else {
             panic!();
         };
@@ -2633,7 +2773,8 @@ mod gerund_ar_tests {
             _ => panic!(),
         };
         let representation = noun(value);
-        let decoded = decode_gerund_ar(&representation, 2..6, 0).unwrap();
+        let decoded =
+            decode_gerund_ar(&representation, 2..6, 0, ConstructionNames::default()).unwrap();
         let noun = completed_noun(decoded.into_noun().unwrap().0, "test").unwrap();
         assert_eq!(
             match &noun.data {
@@ -2649,8 +2790,62 @@ mod gerund_ar_tests {
             deep = boxes(vec![deep]);
         }
         assert_eq!(
-            decode_gerund_ar(&deep, 0..1, 0).err().unwrap().kind(),
+            decode_gerund_ar(&deep, 0..1, 0, ConstructionNames::default())
+                .err()
+                .unwrap()
+                .kind(),
             "limit error"
+        );
+    }
+    #[test]
+    fn decoded_name_reference_keeps_actual_pos_without_capturing_a_verb_value() {
+        let lookup = |name: &str| {
+            if name == "fn" {
+                Some(ParserNameBinding::Function(FunctionPartOfSpeech::Verb))
+            } else {
+                None
+            }
+        };
+        let names = ConstructionNames {
+            lookup: Some(&lookup),
+            host: None,
+        };
+        let decoded = function(decode_gerund_ar(&text("fn"), 3..8, 0, names).unwrap());
+        assert_eq!(decoded.head, FunctionHead::NameRef("fn".into()));
+        assert_eq!(decoded.result_pos, FunctionPartOfSpeech::Verb);
+        assert!(decoded.operands.is_empty());
+        let noun_lookup = |_: &str| Some(ParserNameBinding::Noun(Value::scalar(1)));
+        let names = ConstructionNames {
+            lookup: Some(&noun_lookup),
+            host: None,
+        };
+        assert_eq!(
+            audit_gerund(&boxes(vec![text("fn")]), 3..8, 0, names)
+                .unwrap_err()
+                .kind(),
+            "domain error"
+        );
+        assert_eq!(decoded.result_pos, FunctionPartOfSpeech::Verb);
+        // A named noun inside an AR fork needs a value snapshot. Do not
+        // silently turn its ReadName into a late-bound constant operand.
+        assert_eq!(
+            decode_gerund_ar(
+                &ar("3", vec![text("fn"), text("+"), text("-")]),
+                3..8,
+                0,
+                names
+            )
+            .err()
+            .unwrap()
+            .kind(),
+            "unsupported"
+        );
+        assert_eq!(
+            decode_gerund_ar(&text("fn"), 3..8, 0, ConstructionNames::default())
+                .err()
+                .unwrap()
+                .kind(),
+            "unsupported"
         );
     }
 }
