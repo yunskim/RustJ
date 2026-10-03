@@ -7767,6 +7767,20 @@ Windows default/portable 각각 **306 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [cf.c bident/trident 표와 hook dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L310), [cf.c 즉시 적용 및 modifier 구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L349), [r.c AR decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
 
+##### Definition 입력 수집과 실행 없는 source 구조 (2026-10-03, DEF-1 일부)
+
+- [x] `definition_input.rs`의 `DefinitionInput`/`InputFrame`과 parser의 `frame_definition_input` 경로를 추가했다. ordinary sentence, 추가 입력 필요, 완료된 definition을 구분하고 definition operator·본문의 원본 byte span과 중첩 direct definition 범위를 보존한다. tokenizer의 기존 word formation을 재사용하며 본문 이름을 lookup하거나 noun으로 reduce하지 않는다. 이 구조는 enqueue 이전의 source framing이며 아직 `Program`의 DefinitionCode/FunctionEntity가 아니다.
+- [x] 일반 `{{ ... }}`와 literal mode 1–4의 `m : 'body'`, `m : 0`을 수집한다. quote doubling을 해제한 본문과 LF 포함 quoted body를 보존한다. 문자열·NB. 주석 안의 brace를 구분자로 보지 않고 nested direct definition을 수집한다. block은 C `colon0`에 따라 앞뒤 ASCII 공백만 있는 단독 `)` 줄에서 끝내며 nested DD 안의 `)`는 바깥 block을 닫지 않는다. source API는 CRLF를 보존한다.
+- [x] CLI stdin/script가 같은 physical-line collector를 사용한다. 지원되는 block/direct 입력은 닫는 줄까지 모은 다음 기존 미지원 오류를 한 번 보고하고 입력을 중단한다. incomplete 입력은 EOF에서 source span을 가진 입력 오류를 보고한다. CLI physical-line API는 줄 사이에 LF를 넣으며 원본 CRLF byte 보존은 source API의 계약이다. 본문 문장을 따로 실행하지 않는다.
+- [x] 본문 enqueue의 `ExplicitDefinition` 환경에서 local copula를 global로 승격하지 않고 future name을 Name payload/lookup flag로 유지하는지 확인했다. 이는 local frame·binding·invocation 구현을 뜻하지 않는다. callback/Engine 없이 source 구조만 만들며 definition 본문의 future name이나 side effect를 생성 시점에 실행하지 않는다.
+- [x] 회귀 테스트 7개와 CLI 대기/종료 테스트 1개를 추가했다. nested brace·quote·comment, padded terminator/CRLF, EOF, quote 해제 및 LF body, source span, local enqueue flags를 검증한다. 실제 CLI 프로세스는 닫는 줄 전에는 응답하지 않으며 완료 후 미지원 오류를 내고 본문을 실행하지 않는다. 기존 full-definition acceptance 테스트 **17개는 계속 ignored**이며 성공 capability로 계산하지 않는다.
+- [x] stage에 source projection 14건, C `;:` 대비 body words 20건, C literal decode 대비 quoted body 5건, 입력 경계 golden 5건을 추가했다. C에서는 완료된 direct fixture 및 block과 동등한 explicit string fixture의 구성 가능성을 확인한다. C `m : 0` 입력 callback이나 전체 preparse/control-flow 동등성을 검증했다고 주장하지 않는다. 실제 body 생성·호출 테스트를 통과했다고도 주장하지 않는다. source hash에 `cx.c`, `wc.c`, `io.c`를 추가했다.
+- [ ] 다음: DefinitionCode와 invocation frame을 분리한 semantic constructor 및 body/control-word 구조를 설계·구현하고, 기존 9-row parser에 completed definition entity를 연결한다. `{{)n` 등 tagged DD, 같은 문장의 여러 root DD, computed/grouped colon operands, `define` alias, modes 0/9/13는 현재 source framing 지원 범위 밖이다. unknown scope·callable을 임의로 global/static하게 처리하지 않는다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **314 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture의 기존 **2,805문장 중 2,801 passed, runtime 경계 4개, failed 0**; stage **7,979 checks**, words **6,618 cases** 통과. capture graph 경계 71건(ordered-effect 9, modifier-value 62)과 static 경계 2건을 유지한다. definition 입력 framing의 비교는 full-J 실행 지원과 구분하며 기존 waiver를 늘리지 않았다.
+
+기준 소스: [cx.c colon0 입력 종료](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L796), [cx.c quoted body line 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L841), [cx.c DD token/nesting 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1345), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [io.c definition 입력](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L383).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

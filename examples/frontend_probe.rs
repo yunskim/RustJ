@@ -223,6 +223,35 @@ fn inspect_runtime(
     ))
 }
 
+fn inspect_definition(source: &str) -> rustj::Result<String> {
+    use rustj::definition_input::{DefinitionForm, InputFrame};
+    match rustj::parser::frame_definition_input(source)? {
+        InputFrame::Sentence => Ok("{\"state\":\"sentence\"}".into()),
+        InputFrame::NeedMore => Ok("{\"state\":\"incomplete\"}".into()),
+        InputFrame::Definition(input) => {
+            let (form, mode) = match input.form {
+                DefinitionForm::Direct => ("direct", 9),
+                DefinitionForm::ExplicitString(mode) => ("string", mode),
+                DefinitionForm::ExplicitBlock(mode) => ("block", mode),
+            };
+            let nested = input
+                .nested
+                .iter()
+                .map(|span| format!("[{},{}]", span.start, span.end))
+                .collect::<Vec<_>>()
+                .join(",");
+            Ok(format!(
+                "{{\"state\":\"definition\",\"form\":\"{form}\",\"mode\":{mode},\"body_hex\":\"{}\",\"span\":[{},{}],\"body_span\":[{},{}],\"nested\":[{nested}]}}",
+                hex(input.body_text(source)?.as_bytes()),
+                input.span.start,
+                input.span.end,
+                input.body.start,
+                input.body.end
+            ))
+        }
+    }
+}
+
 fn main() {
     if std::env::args().any(|a| a == "--rows") {
         rows();
@@ -233,6 +262,7 @@ fn main() {
         return;
     }
     let analysis = std::env::args().any(|a| a == "--analysis");
+    let definitions = std::env::args().any(|a| a == "--definitions");
     let mut engine = rustj::Engine::new();
     for line in io::stdin().lock().lines() {
         let line = line.expect("stdin");
@@ -255,9 +285,12 @@ fn main() {
         };
         let output = match bytes.and_then(|b| String::from_utf8(b).ok()) {
             Some(source) => match operation {
-                "" if !analysis => {
-                    inspect(&source).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind()))
-                }
+                "" if !analysis => (if definitions {
+                    inspect_definition(&source)
+                } else {
+                    inspect(&source)
+                })
+                .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
                 "E" => match engine.eval(&source) {
                     Ok(Some(value)) => value.json(),
                     Ok(None) => "{\"silent\":true}".into(),

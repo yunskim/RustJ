@@ -161,3 +161,35 @@ fn human_length_errors_include_semantic_execution_context() {
     assert!(stderr.contains("y: integer, rank 1, shape 3"), "{stderr}");
     assert!(stderr.contains("shapes 2 and 3 do not conform"), "{stderr}");
 }
+
+#[test]
+fn definition_input_waits_for_closing_line_before_reporting_unsupported() {
+    use std::{io::BufRead, sync::mpsc, time::Duration};
+    for (header, closing) in [("f=:{{", "}}"), ("f=:3 : 0", ")")] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rustj"))
+            .arg("--json")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            sender.send(line).unwrap();
+        });
+        writeln!(input, "{header}\nleaked=:99").unwrap();
+        input.flush().unwrap();
+        assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
+        writeln!(input, "{closing}\nleaked").unwrap();
+        drop(input);
+        let response = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(response.contains("unsupported"));
+        reader.join().unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(1));
+    }
+}

@@ -8,6 +8,7 @@ pub mod analysis;
 pub mod bit_storage;
 pub mod compilation;
 pub mod contracts;
+pub mod definition_input;
 pub mod enqueuer;
 pub mod error;
 pub mod execution_semantics;

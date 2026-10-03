@@ -137,9 +137,9 @@ def equivalent(expected, actual):
 
 
 class Probe:
-    def __init__(self, binary, analysis=False):
+    def __init__(self, binary, analysis=False, definitions=False):
         self.analysis = analysis
-        self.p = subprocess.Popen([str(binary)] + (['--analysis'] if analysis else []), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8')
+        self.p = subprocess.Popen([str(binary)] + (['--analysis'] if analysis else ['--definitions'] if definitions else []), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8')
     def inspect(self, source, operation='A'):
         self.p.stdin.write(((operation + ' ') if self.analysis else '') + source.encode('utf-8').hex() + '\n')
         self.p.stdin.flush()
@@ -165,7 +165,7 @@ def run(args):
     observed_rows = [json.loads(x) for x in subprocess.check_output([args.binary, '--rows'], text=True).splitlines()]
     report = {'platform': platform.platform(), 'reference_revision': args.reference_revision,
               'source_review_revision': args.source_revision,
-              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c', 'jsrc/s.c', 'jsrc/jtype.h']},
+              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c', 'jsrc/s.c', 'jsrc/jtype.h', 'jsrc/cx.c', 'jsrc/wc.c', 'jsrc/io.c']},
               'reference_library_sha256': hashlib.sha256(Path(os.environ['J_LIBRARY']).read_bytes()).hexdigest(),
               'probe_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdigest(),
               'checks': {}, 'mismatches': [], 'analysis_coverage_boundaries': [], 'pending': PENDING,
@@ -185,8 +185,47 @@ def run(args):
     for entry in observed_constructors:
         parts = tuple(entry['classes'])
         check('constructor_disposition', list(parts), expected_constructors.get(parts), entry['disposition'])
-    oracle, probe, static_probe = Oracle(), Probe(args.binary), Probe(args.binary, analysis=True)
+    oracle, probe, static_probe, definition_probe = Oracle(), Probe(args.binary), Probe(args.binary, analysis=True), Probe(args.binary, definitions=True)
     try:
+        # Input framing is an execution-free source projection, not a callable
+        # parser. Construct C fixtures only to validate their source/body words.
+        for body in [' y+1 ', "\nNB. }} {{ opaque\ny+1\n", "\ninner=.{{y+1}}\ninner y\n", " 'it''s }}' [ y "]:
+            source = 'f=:{{' + body + '}}'
+            actual = definition_probe.inspect(source)
+            expected = {'state': 'definition', 'form': 'direct', 'mode': 9,
+                        'body_hex': body.encode().hex(), 'span': [3, len(source)],
+                        'body_span': [5, 5+len(body)]}
+            check('definition_input', source, expected, {key:actual.get(key) for key in expected})
+            if oracle.run(source):
+                raise RuntimeError('C rejected direct input fixture: ' + source)
+            for line in body.splitlines():
+                check('definition_body_words', line, oracle.words(line).get('words_hex'), probe.inspect(line).get('raw_words'))
+        for mode, body in [(1, 'u y'), (2, 'u v y'), (3, "counter=:99\ny+1"), (4, 'x+y'), (3, "'it''s }}' [ y")]:
+            quoted = "'" + body.replace("'", "''") + "'"
+            for form, source, start, end in [
+                ('string', f'f=:{mode} : ' + quoted, 7, 7+len(quoted)),
+                ('block', f'f=:{mode} : 0\n' + body + '\n  )  ', 9, 9+len(body)+1),
+            ]:
+                actual = definition_probe.inspect(source)
+                expected_body = body if form == 'string' else body + '\n'
+                expected = {'state': 'definition', 'form': form, 'mode': mode,
+                    'body_hex': expected_body.encode().hex(), 'span': [3, len(source)], 'body_span': [start, end]}
+                check('definition_input', source, expected, {key:actual.get(key) for key in expected})
+                if form == 'string':
+                    literal = oracle.eval(quoted)
+                    check('definition_body_literal', source, literal.get('data'), list(bytes.fromhex(actual.get('body_hex', ''))))
+                oracle.run('counter=:0')
+                error = oracle.run(f'f=:{mode} : ' + quoted)
+                if error or oracle.name_class('f')['class'] != (mode if mode <= 2 else 3):
+                    raise RuntimeError(f'C rejected explicit input fixture: {source}: {error}')
+                if oracle.eval('counter')['data'] != [0]:
+                    raise RuntimeError('C ran definition body during construction')
+                for line in expected_body.splitlines():
+                    check('definition_body_words', line, oracle.words(line).get('words_hex'), probe.inspect(line).get('raw_words'))
+        for source, state in [('f=:{{', 'incomplete'), ('f=:3 : 0', 'incomplete'),
+                              ('f=:3 : 0\ny+1\n) NB. not terminator', 'incomplete'),
+                              ("'{{ }} : define'", 'sentence'), ('NB. {{', 'sentence')]:
+            check('definition_input_boundary', source, {'state':state}, definition_probe.inspect(source))
         literals = ['0', '1', '2', '_3', '0 1 1', '1 2 3', '1 2.5 _3', '_', '__', '_.', '1e_3', "''", "'a'", "'abc'", "'can''t'"]
         primitives = ['+', '-', '*', '%', '$', '$.', '#', ',', '=', '<', '>', '{', '|', 'i.', '|.', '|:', '{.', '}.', 'i:', 'I.', 'e.', 'E.', '/', '\\', '"', '@:']
         for word in literals + primitives:
@@ -512,6 +551,7 @@ def run(args):
     finally:
         probe.close()
         static_probe.close()
+        definition_probe.close()
         oracle.close()
     report['failed'] = len(report['mismatches'])
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)

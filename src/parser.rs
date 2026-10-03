@@ -12,6 +12,9 @@ use crate::{
 };
 use std::sync::Arc;
 
+/// Execution-free source framing before the ordinary enqueue/row pipeline.
+pub use crate::definition_input::{DefinitionInput, InputFrame, frame as frame_definition_input};
+
 /// Original enqueue-word coverage and inherited diagnostic token (zero-based).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseProvenance {

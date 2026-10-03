@@ -38,6 +38,94 @@ fn run(
         }
     }
 }
+fn run_input(
+    engine: &mut Engine,
+    lines: impl Iterator<Item = io::Result<String>>,
+    json: bool,
+    semantic: bool,
+    source_name: &str,
+    stop_on_error: bool,
+    interactive: bool,
+) -> ExitCode {
+    use rustj::definition_input::{DefinitionCollector, InputFrame};
+    let mut pending: Option<(DefinitionCollector, usize)> = None;
+    let mut ok = true;
+    for (index, line) in lines.enumerate() {
+        let line = match line {
+            Ok(line) => line,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        if pending.is_some() || rustj::syntax::has_definition_syntax(&line) {
+            let (collector, start) =
+                pending.get_or_insert_with(|| (DefinitionCollector::default(), index + 1));
+            match collector.push_line(&line) {
+                Ok(InputFrame::NeedMore) => {
+                    if interactive {
+                        eprint!("   ");
+                        let _ = io::stderr().flush();
+                    }
+                    continue;
+                }
+                Ok(_) => {
+                    run(
+                        engine,
+                        collector.source(),
+                        json,
+                        semantic,
+                        source_name,
+                        *start,
+                    );
+                }
+                Err(error) => {
+                    print_input_error(&error, collector.source(), json, source_name, *start);
+                }
+            }
+            eprintln!(
+                "definition execution is not supported; stopping input before any body lines execute"
+            );
+            return ExitCode::FAILURE;
+        }
+        let succeeded = run(engine, &line, json, semantic, source_name, index + 1);
+        ok &= succeeded;
+        if !succeeded && stop_on_error {
+            return ExitCode::FAILURE;
+        }
+        if interactive {
+            eprint!("   ");
+            let _ = io::stderr().flush();
+        }
+    }
+    if let Some((collector, start)) = pending {
+        if let Err(error) = collector.finish() {
+            print_input_error(&error, collector.source(), json, source_name, start);
+        }
+        eprintln!("unterminated definition; stopping input before any body lines execute");
+        return ExitCode::FAILURE;
+    }
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn print_input_error(
+    error: &rustj::Error,
+    source: &str,
+    json: bool,
+    source_name: &str,
+    line: usize,
+) {
+    if json {
+        println!("{{\"error\":\"{}\"}}", error.kind());
+    } else {
+        eprintln!("{}", error.render(source_name, source, line));
+    }
+}
+
 fn main() -> ExitCode {
     let mut json = false;
     let mut semantic = false;
@@ -88,12 +176,15 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        for (index, line) in source.lines().enumerate() {
-            if !run(&mut engine, line, json, semantic, &path, index + 1) {
-                return ExitCode::FAILURE;
-            }
-        }
-        return ExitCode::SUCCESS;
+        return run_input(
+            &mut engine,
+            source.lines().map(|line| Ok(line.to_owned())),
+            json,
+            semantic,
+            &path,
+            true,
+            false,
+        );
     }
     let input = io::stdin();
     let interactive = input.is_terminal() && !json;
@@ -101,33 +192,13 @@ fn main() -> ExitCode {
         eprint!("   ");
         let _ = io::stderr().flush();
     }
-    let mut ok = true;
-    for (index, line) in input.lock().lines().enumerate() {
-        match line {
-            Ok(line) => {
-                let has_definition = rustj::syntax::has_definition_syntax(&line);
-                let succeeded = run(&mut engine, &line, json, semantic, "<stdin>", index + 1);
-                ok &= succeeded;
-                if has_definition {
-                    eprintln!(
-                        "definition syntax is not supported; stopping input before any body lines execute"
-                    );
-                    return ExitCode::FAILURE;
-                }
-            }
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        }
-        if interactive {
-            eprint!("   ");
-            let _ = io::stderr().flush();
-        }
-    }
-    if ok {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    run_input(
+        &mut engine,
+        input.lock().lines(),
+        json,
+        semantic,
+        "<stdin>",
+        false,
+        interactive,
+    )
 }
