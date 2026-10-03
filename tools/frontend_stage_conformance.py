@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal
+from conformance import equal as noun_equal, modifier_trident_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -252,12 +252,12 @@ def run(args):
                                                           'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
         else:
             check('static_value_boundary', source, {'C_success': True, 'rust': {'error': 'unsupported'}}, {'C_success': reference is None, 'rust': actual})
-        for source in ['candidate=: + (@: + @:) -']:
+        for source in ['candidate=: 3 (" /) 1']:
             actual = static_probe.inspect(source)
             reference = oracle.run(source)
             if reference is None and actual == {'error': 'unsupported'}:
                 report['analysis_coverage_boundaries'].append({'source': source,
-                    'reason': 'derived modifier application semantics are not implemented',
+                    'reason': 'noun-left rank constructor semantics are not implemented',
                     'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
             else:
                 check('static_modifier_application_boundary', source,
@@ -290,6 +290,23 @@ def run(args):
         analyze_function('candidate=: + derivedalias -', [('derivedalias', 2)])
         setup('derivedconj=:1', 'derivedconj')
         analyze_function('candidate=: + derivedalias -', [('derivedalias', 2)])
+        for expression in ['+ (+ + @:) -', '+ (3 + @:) -', '+ (@: + @:) -',
+                           '+ (@: / /) -', '+ (+ @: /)', '+ (+ @: @:) -',
+                           '+ (/ + -)', '+ (/ @: -)', '+ (/ @: /) -',
+                           '+ (/ @: @:) -', '+ (@: + -) *', '+ (@: @: -) *',
+                           '+ (@: @: /) -']:
+            analyze_function('candidate=: ' + expression, [])
+        for expression in ['+ (" + @:) 1 2 3 4', '+ (@: + ") 1 2 3 4',
+                           '3 (+ @: /)', '3 (/ @: /) +', '3 (/ @: @:) 1 2 3 4',
+                           '+ (" @: /) 1 2 3 4']:
+            analyze_function('candidate=: ' + expression, [])
+        for expression in modifier_trident_cases():
+            analyze_function('candidate=: ' + expression, [])
+        setup('tridentconj=:@: + @:', 'tridentconj')
+        setup('tridentalias=:tridentconj', 'tridentalias')
+        analyze_function('candidate=: + tridentalias -', [('tridentalias', 2)])
+        setup('tridentconj=:1', 'tridentconj')
+        analyze_function('candidate=: + tridentalias -', [('tridentalias', 2)])
         setup('boundrank=:"1', 'boundrank')
         setup('boundalias=:boundrank', 'boundalias')
         analyze_function('candidate=: - boundrank', [('boundrank', 1)])

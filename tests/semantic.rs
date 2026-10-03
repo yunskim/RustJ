@@ -710,7 +710,7 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
-    let source = "protected=: + (@: + @:) -";
+    let source = "protected=: 3 (\" /) 1";
     let report = engine.eval_captured(source);
     assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
     report.capture.verify().unwrap();
@@ -953,6 +953,106 @@ fn conjunction_sequence_errors_preserve_order_and_do_not_assign() {
         ("+ (@: \") 1 2 3 4", "domain error"),
         ("3 (/@:)", "domain error"),
         ("3 (/ / +) 3", "domain error"),
+    ] {
+        let source = format!("protected=: {expression}");
+        let report = engine.eval_captured(&source);
+        report.capture.verify().unwrap();
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
+        assert_eq!(engine.binding_version("protected"), version);
+        assert_eq!(engine.prepare_semantic(&source).unwrap_err().kind(), kind);
+    }
+}
+
+#[test]
+fn modifier_trident_actions_preserve_intermediate_function_structure() {
+    use rustj::primitive::{AdverbId, ConjunctionId};
+    use rustj::semantic::{ExprKind, FunctionHead};
+    for (source, expected) in [
+        ("+ (+ + @:) -", FunctionHead::Fork),
+        ("+ (3 + @:) -", FunctionHead::Fork),
+        ("+ (@: + @:) -", FunctionHead::Fork),
+        (
+            "+ (@: / /) -",
+            FunctionHead::PrimitiveAdverb(AdverbId::Insert),
+        ),
+        (
+            "+ (+ @: /)",
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+        ),
+        (
+            "+ (+ @: @:) -",
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+        ),
+        ("+ (/ + -)", FunctionHead::Fork),
+        (
+            "+ (/ @: -)",
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+        ),
+        (
+            "+ (/ @: /) -",
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+        ),
+        (
+            "+ (/ @: @:) -",
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+        ),
+        ("+ (@: + -) *", FunctionHead::Fork),
+        (
+            "+ (@: @: -) *",
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+        ),
+        (
+            "+ (@: @: /) -",
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+        ),
+    ] {
+        let program = semantic::parse(source).unwrap_or_else(|error| panic!("{source}: {error:?}"));
+        let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!("{source}");
+        };
+        assert_eq!(verb.entity.head, expected, "{source}");
+        assert_eq!(
+            verb.entity.result_pos,
+            rustj::semantic::FunctionPartOfSpeech::Verb
+        );
+    }
+}
+
+#[test]
+fn trident_conjunction_branches_share_original_input_identity() {
+    use rustj::semantic::{ExprKind, FunctionOperand};
+    let program = semantic::parse("+ (@: + @:) -").unwrap();
+    let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+        panic!();
+    };
+    let FunctionOperand::Function(first) = &verb.entity.operands[0] else {
+        panic!();
+    };
+    let FunctionOperand::Function(last) = &verb.entity.operands[2] else {
+        panic!();
+    };
+    for index in 0..2 {
+        let (FunctionOperand::Function(a), FunctionOperand::Function(b)) =
+            (&first.operands[index], &last.operands[index])
+        else {
+            panic!();
+        };
+        assert!(std::sync::Arc::ptr_eq(a, b));
+    }
+}
+
+#[test]
+fn modifier_trident_errors_stop_before_later_actions_and_assignment() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for (expression, kind) in [
+        ("+ (\" + @:) 1 2 3 4", "length error"),
+        ("+ (@: + \") 1 2 3 4", "domain error"),
+        ("3 (+ @: /)", "domain error"),
+        ("3 (/ @: /) +", "domain error"),
+        ("3 (/ @: @:) 1 2 3 4", "domain error"),
+        ("+ (\" @: /) 1 2 3 4", "length error"),
     ] {
         let source = format!("protected=: {expression}");
         let report = engine.eval_captured(&source);

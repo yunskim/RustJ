@@ -12,6 +12,25 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
+def modifier_trident_cases():
+    """All cf.c derived trident POS productions with core operand samples.
+
+    These are observable constructor/error comparisons, not ptcol trace proof.
+    """
+    spellings = {'N': '3', 'V': '+', 'A': '/', 'C': '@:'}
+    adverbs = ['AAA', 'AVV', 'NCA', 'VCA', 'ACN', 'ACV']
+    conjunctions = ['AAV', 'VVC', 'NVC', 'CVV', 'CVC', 'CAA', 'NCC',
+                    'VCC', 'ACA', 'ACC', 'CCN', 'CCV', 'CCA', 'CCC']
+    for pattern in adverbs + conjunctions:
+        train = '(' + ' '.join(spellings[c] for c in pattern) + ')'
+        for left in ['3', '+']:
+            if pattern in adverbs:
+                yield left + ' ' + train
+            else:
+                for right in ['3', '-']:
+                    yield left + ' ' + train + ' ' + right
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -221,6 +240,24 @@ def cases():
         'tcckeep=: + (@: ") 1 2 3 4', 'tcckeep i.3',
         'tcckeep=: 3 (/ / +) 3', 'tcckeep i.3',
     ])
+    fixed.extend([
+        'tridentfn=: + (+ + @:) -', 'tridentfn=: + (3 + @:) -',
+        'tridentfn=: + (@: + @:) -', 'tridentfn=: + (@: / /) -',
+        'tridentfn=: + (+ @: /)', 'tridentfn=: + (+ @: @:) -',
+        'tridentfn=: + (/ + -)', 'tridentfn=: + (/ @: -)',
+        'tridentfn=: + (/ @: /) -', 'tridentfn=: + (/ @: @:) -',
+        'tridentfn=: + (@: + -) *', 'tridentfn=: + (@: @: -) *',
+        'tridentfn=: + (@: @: /) -',
+        'tridentconj=:@: + @:', 'tridentalias=:tridentconj', 'tridentconj=:1',
+        'tridentfn=: + tridentalias -',
+        'tridentkeep=:+', 'tridentkeep=: + (" + @:) 1 2 3 4', 'tridentkeep i.3',
+        'tridentkeep=: + (@: + ") 1 2 3 4', 'tridentkeep i.3',
+        'tridentkeep=: 3 (+ @: /)', 'tridentkeep i.3',
+        'tridentkeep=: 3 (/ @: /) +', 'tridentkeep i.3',
+        'tridentkeep=: 3 (/ @: @:) 1 2 3 4', 'tridentkeep i.3',
+        'tridentkeep=: + (" @: /) 1 2 3 4', 'tridentkeep i.3',
+    ])
+    fixed.extend('matrixfn=: ' + expression for expression in modifier_trident_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

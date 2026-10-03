@@ -10,7 +10,7 @@
     "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "7e2882f83674c191947d3cfc5a84d80eb130be610f59b8e68fb57c8dc61f2ab1",
+  "probe_sha256": "809a1c96b5f14b5acdc7d7d7ddc4bbf03cdd37a2a69aae2fc5d4fe66c799d8d8",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -24,11 +24,11 @@
     "enqueue_index": 23,
     "parser_function": 131,
     "frontend_error": 17,
-    "static_setup": 17,
-    "static_constructor": 39,
-    "static_read_only": 39,
-    "static_modifier_dependencies": 39,
-    "static_constructor_error": 14,
+    "static_setup": 20,
+    "static_constructor": 70,
+    "static_read_only": 70,
+    "static_modifier_dependencies": 70,
+    "static_constructor_error": 72,
     "copula_reference": 4
   },
   "mismatches": [],
@@ -42,8 +42,8 @@
       }
     },
     {
-      "source": "candidate=: + (@: + @:) -",
-      "reason": "derived modifier application semantics are not implemented",
+      "source": "candidate=: 3 (\" /) 1",
+      "reason": "noun-left rank constructor semantics are not implemented",
       "reference_pos": 3,
       "rust": {
         "error": "unsupported"

@@ -217,14 +217,8 @@ fn apply_adverb(
                 }
             }
         }
-        // taaa: f, then g, then h; stop immediately on the first error.
-        if operator.operands.len() == 3 && operator.operands.iter().all(|operand| matches!(operand, FunctionOperand::Function(f) if f.result_pos == FunctionPartOfSpeech::Adverb)) {
-            let mut result = left;
-            for operand in &operator.operands {
-                let FunctionOperand::Function(adverb) = operand else { unreachable!() };
-                result = apply_adverb(result, adverb.clone(), span.clone(), depth + 1)?;
-            }
-            return Ok(result);
+        if operator.operands.len() == 3 {
+            return apply_modifier_trident(left, None, &operator.operands, span, depth + 1);
         }
         return Err(Error::Unsupported(
             "derived modifier application semantics".into(),
@@ -396,23 +390,8 @@ fn apply_conjunction_items(
                 };
                 return construct_modifier_bident(result, other, span, depth + 1);
             }
-            [
-                FunctionOperand::Function(first),
-                FunctionOperand::Function(second),
-                FunctionOperand::Function(third),
-            ] if first.result_pos == FunctionPartOfSpeech::Adverb
-                && second.result_pos == FunctionPartOfSpeech::Adverb
-                && third.result_pos == FunctionPartOfSpeech::Verb =>
-            {
-                let first = apply_adverb(left, first.clone(), span.clone(), depth + 1)?;
-                let second = apply_adverb(right, second.clone(), span.clone(), depth + 1)?;
-                return construct_modifier_trident(
-                    first,
-                    second,
-                    modifier_operand(&operator.operands[2], span.clone()),
-                    span,
-                    depth + 1,
-                ); // taav
+            operands if operands.len() == 3 => {
+                return apply_modifier_trident(left, Some(right), operands, span, depth + 1);
             }
             _ => {
                 return Err(Error::Unsupported(
@@ -439,6 +418,114 @@ fn apply_conjunction_items(
         );
     };
     apply_conjunction_at(left, operator, right, span).map(Item::verb)
+}
+
+/// cf.c's trident actions construct with actual intermediate POS, in source
+/// action order. Shared inputs survive every branch without payload copies.
+fn apply_modifier_trident(
+    left: Item,
+    right: Option<Item>,
+    operands: &[FunctionOperand],
+    span: std::ops::Range<usize>,
+    depth: usize,
+) -> Result<Item> {
+    use ParseClass::{Adverb as A, Conjunction as C, Noun as N, Verb as V};
+    if depth >= MAX_EXPR_DEPTH {
+        return Err(Error::Limit);
+    }
+    let left = share_modifier_input(left);
+    let right = right.map(share_modifier_input);
+    let parts: Vec<_> = operands
+        .iter()
+        .map(|o| modifier_operand(o, span.clone()))
+        .collect();
+    let classes = [parts[0].class, parts[1].class, parts[2].class];
+    let adv = |index: usize, input: Item| {
+        apply_adverb(
+            input,
+            parts[index].clone().into_function().unwrap(),
+            span.clone(),
+            depth + 1,
+        )
+    };
+    let conj = |index: usize| {
+        apply_conjunction_items(
+            left.clone(),
+            parts[index].clone().into_function().unwrap(),
+            right.clone().ok_or_else(|| {
+                Error::Unsupported("conjunction train requires two inputs".into())
+            })?,
+            span.clone(),
+            depth + 1,
+        )
+    };
+    let finish =
+        |f: Item, g: Item, h: Item| construct_modifier_trident(f, g, h, span.clone(), depth + 1);
+    match classes {
+        [A, A, A] => {
+            // taaa
+            let t = adv(0, left.clone())?;
+            let t = adv(1, t)?;
+            adv(2, t)
+        }
+        [N | V, C, A] => {
+            // tNVca: h first, then f g t
+            let t = adv(2, left.clone())?;
+            finish(parts[0].clone(), parts[1].clone(), t)
+        }
+        [A, V | C, N | V] => {
+            // taVCNV
+            let t = adv(0, left.clone())?;
+            finish(t, parts[1].clone(), parts[2].clone())
+        }
+        [A, A, V] => {
+            // taav
+            let t = adv(0, left.clone())?;
+            let tt = adv(1, right.clone().unwrap())?;
+            finish(t, tt, parts[2].clone())
+        }
+        [N | V, V, C] | [N | V, C, C] => {
+            // tNVvc / tNVcc
+            let t = conj(2)?;
+            finish(parts[0].clone(), parts[1].clone(), t)
+        }
+        [C, V | C, C] => {
+            // tcVCc
+            let t = conj(0)?;
+            let tt = conj(2)?;
+            finish(t, parts[1].clone(), tt)
+        }
+        [C, A, A] => {
+            // tcaa
+            let t = conj(0)?;
+            let t = adv(1, t)?;
+            adv(2, t)
+        }
+        [A, C, A] => {
+            // taca
+            let t = adv(0, left.clone())?;
+            let tt = adv(2, right.clone().unwrap())?;
+            finish(t, parts[1].clone(), tt)
+        }
+        [A, C, C] => {
+            // tacc
+            let t = adv(0, left.clone())?;
+            let tt = conj(2)?;
+            finish(t, parts[1].clone(), tt)
+        }
+        [C, V | C, N | V] => {
+            // tcVCNV
+            let t = conj(0)?;
+            finish(t, parts[1].clone(), parts[2].clone())
+        }
+        [C, C, A] => {
+            // tcca
+            let t = conj(0)?;
+            let tt = adv(2, right.clone().unwrap())?;
+            finish(t, parts[1].clone(), tt)
+        }
+        _ => Err(Error::Unsupported("derived modifier trident action".into())),
+    }
 }
 
 /// Bound values are immutable and shared. Spans here describe their current

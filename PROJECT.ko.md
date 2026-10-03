@@ -7658,6 +7658,17 @@ Windows 검증: default/portable 각각 **275 passed / 17 ignored**, fmt/clippy 
 
 기준 소스: [cf.c tac/tca/tcc/taav 및 modifier train dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c conjunction application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
 
+##### Modifier trident action 확장 (2026-10-03)
+
+- [x] P3/P5: `cf.c`의 `tNVvc`, `tcVCc`, `tcaa`, `tNVca`, `tNVcc`, `taVCNV`, `taca`, `tacc`, `tcVCNV`, `tcca`를 연결하고 기존 `taaa`/`taav`도 동일한 trident dispatch에 통합했다. 각 action의 중간 결과·원래 입력·고정 operand와 적용 순서를 보존한다. 결과는 실제 품사로 bident/trident construction에 전달하며 immutable 함수 DAG를 유지한다.
+- [x] P4/P6: `tcVCc`의 두 conjunction 결과가 원래 함수 입력을 공유하는지, constructor의 첫 오류가 뒤 action과 assignment를 막는지 검증했다. named trident conjunction alias는 원래 이름 재정의 후에도 기존 identity를 유지한다. 중간 noun 실행 및 train 내부 late modifier lookup은 여전히 별도 경계다.
+- [x] P6: 20개 derived trident 품사 production을 `/`, `@:`, `+`, `3` 표본과 noun/verb 입력 조합으로 구성한 68문장을 C와 비교했다. 이 표본 검증은 모든 primitive 및 effect 조합에 대한 완전한 호환성 증명이 아니다. 회귀 테스트 3개, 비교 문장 98개, stage 검사 154개를 추가했다.
+- [ ] 다음: noun-left rank construction, 즉시 noun 실행과 capture, train 내부 late modifier 조회, locale/definition scope를 구현한다. 앞 단계에서 미지원이던 `tcVCc`는 해소했다. tokenizer/enqueuer/parser 우선순위와 최적화·CUDA 보류를 유지한다.
+
+Windows default/portable 각각 **278 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 세 실행 경로에서 **2,319문장 중 2,315 passed, runtime 경계 4개, failed 0**; stage **7,358 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 성공 수와 구분한다. static 경계 2건은 computed rank와 `candidate=: 3 (" /) 1`의 noun-left rank이며 이전 `tcVCc` 경계를 후자로 교체했다. DLL release/source review pin, 지원 부분집합, 실제 실행한 검증 범위를 유지한다. GitHub CI는 생략했다.
+
+기준 소스: [cf.c modifier trident actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
