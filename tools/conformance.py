@@ -112,6 +112,39 @@ def constructor_call_cases():
     return [s.replace('BACKSLASH', chr(92)) for s in out]
 
 
+def late_modifier_cases():
+    out = ['lateadv=:/', 'latetrain=:lateadv /', 'latealias=:latetrain',
+           'latefn=:+latetrain', 'lateadv=:BACKSLASH', 'latefn=:+latetrain',
+           'latefn=:+latealias', 'latekeep=:+', 'lateadv=:@:',
+           'latekeep=:+latetrain', 'latekeep i.3', 'lateadv=:1',
+           'latekeep=:+latetrain', 'latekeep i.3', 'lateadv=:/',
+           'latetriple=:lateadv / /', 'latefn=:+latetriple',
+           'lateadv=:BACKSLASH', 'latefn=:+latetriple',
+           'lateconj=:"', 'latebound=:lateconj 1', 'lateleft=:+lateconj',
+           'latecj=:lateconj /', 'latecjcopy=:latecj', 'latefn=:+latebound',
+           'latefn=:1 lateleft', 'latefn=:+latecj -', 'lateconj=:@:',
+           'latekeep=:+latebound', 'latekeep i.3', 'latefn=:+latecjcopy -',
+           'lateconj=:1', 'latekeep=:+latecj -', 'latekeep i.3']
+    for binding in ['/', 'BACKSLASH']:
+        out += ['lateadv=:' + binding,
+                "latear=:(<((<'4'),<((<'lateadv'),<'/'))),<(,<'+')",
+                'latefn=:(,<latear)BACKSLASH']
+    for binding in ['"', '@:']:
+        out += ['lateconj=:' + binding,
+                "latear=:(<((<'4'),<((<'lateconj'),<'/'))),<((<'+'),<'-')",
+                'latefn=:(,<latear)BACKSLASH']
+    out += ['lateadv=:@:', "latear=:(<((<'4'),<((<'lateadv'),<'/'))),<(,<'+')",
+            'latekeep=:(,<latear)BACKSLASH', 'latekeep i.3']
+    out = [source for source in out if source != 'latekeep i.3']
+    out += ['latebase=:+', 'dynamicadv=:latebase "', 'dynamictrain=:dynamicadv /',
+            'latefn=:1 dynamictrain', 'dynamicadv=:/', 'latefn=:+dynamictrain',
+            'latekeep=:+', 'dynamicadv=:1', 'latekeep=:+dynamictrain', 'latekeep i.3',
+            'dynamicconj=:/ / latebase', 'dynamiccj=:dynamicconj /',
+            'latefn=:+dynamiccj -', 'dynamicconj=:@:', 'latefn=:+dynamiccj -',
+            'dynamicconj=:1', 'latekeep=:+dynamiccj -', 'latekeep i.3']
+    return [source.replace('BACKSLASH', chr(92)) for source in out]
+
+
 def cases():
     fixed = [
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
@@ -369,6 +402,7 @@ def cases():
     fixed.extend(gerund_name_cases())
     fixed.extend(gerund_snapshot_cases())
     fixed.extend(constructor_call_cases())
+    fixed.extend(late_modifier_cases())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

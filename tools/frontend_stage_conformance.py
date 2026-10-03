@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -123,7 +123,7 @@ def run(args):
     observed_rows = [json.loads(x) for x in subprocess.check_output([args.binary, '--rows'], text=True).splitlines()]
     report = {'platform': platform.platform(), 'reference_revision': args.reference_revision,
               'source_review_revision': args.source_revision,
-              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c']},
+              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c', 'jsrc/s.c', 'jsrc/jtype.h']},
               'reference_library_sha256': hashlib.sha256(Path(os.environ['J_LIBRARY']).read_bytes()).hexdigest(),
               'probe_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdigest(),
               'checks': {}, 'mismatches': [], 'analysis_coverage_boundaries': [], 'pending': PENDING,
@@ -387,6 +387,31 @@ def run(args):
             decoded = atomic_function(oracle.representation('calldecoded', 'atomic')['value'])
             source = 'callfn=:(,<callouterar)' + chr(92)
             check('constructor_decoded_snapshot', source, {'decoded': [decoded]}, static_probe.inspect(source, 'D'))
+        for source in late_modifier_cases():
+            if source.startswith(('latefn=:', 'latekeep=:')):
+                error = oracle.run(source)
+                actual = static_probe.inspect(source, 'R')
+                if error:
+                    check('late_modifier_error', source, error, actual)
+                else:
+                    target = source.split('=:', 1)[0].strip()
+                    expected = {'pos': oracle.name_class(target)['class'],
+                        'function': atomic_function(oracle.representation(target, 'atomic')['value'])}
+                    check('late_modifier_constructor', source, expected, actual)
+            else:
+                expected = oracle.eval(source)
+                if 'error' in expected:
+                    raise RuntimeError(f'invalid late modifier fixture: {source}: {expected}')
+                check('late_modifier_setup_or_target', source, expected, static_probe.inspect(source, 'E'))
+        for binding in ['/', chr(92)]:
+            for source in ['lateadv=:' + binding, "latear=:(<((<'4'),<((<'lateadv'),<'/'))),<(,<'+')"]:
+                check('late_modifier_decode_setup', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+            error = oracle.run('latedecoded=:(<latear)5!:0')
+            if error:
+                raise RuntimeError(f'C late modifier decoding failed: {error}')
+            expected = atomic_function(oracle.representation('latedecoded', 'atomic')['value'])
+            source = 'latefn=:(,<latear)' + chr(92)
+            check('late_modifier_decoded_snapshot', source, {'decoded': [expected]}, static_probe.inspect(source, 'D'))
         # C's fix adverb decodes the same AR independently. It is reference-only;
         # Rust D observes the constructor-owned decode, never executes 5!:0.
         for noun in ['7', 'i.4', '<1 2']:

@@ -26,6 +26,18 @@ struct EngineParserHost<'a> {
     pooled: bool,
 }
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn stacked_modifier(
+        &self,
+        name: &str,
+    ) -> Option<(std::sync::Arc<FunctionEntity>, crate::semantic::NameVersion)> {
+        let binding = self.engine.names.get(name)?;
+        let SymbolValue::Modifier(function) = &binding.value else {
+            return None;
+        };
+        function
+            .is_nameless_modifier()
+            .then(|| (function.clone(), binding.version))
+    }
     fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
         self.engine.parser_name_binding(name)
     }

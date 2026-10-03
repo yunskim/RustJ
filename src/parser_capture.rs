@@ -18,6 +18,9 @@ pub struct OccurrenceId(pub usize);
 
 #[derive(Clone, Debug)]
 pub enum CaptureEvent {
+    ModifierStacked {
+        snapshot: crate::semantic::ModifierSnapshot,
+    },
     Input {
         id: OccurrenceId,
         name: Option<String>,
@@ -174,6 +177,18 @@ impl ParseCapture {
         let mut construction = None;
         for (event_index, event) in self.events.iter().enumerate() {
             match event {
+                CaptureEvent::ModifierStacked { snapshot } => {
+                    if !attempts.is_empty()
+                        || construction.is_some()
+                        || snapshot.version.0 == 0
+                        || snapshot.name.is_empty()
+                        || snapshot.function.result_pos != snapshot.expected
+                        || !snapshot.function.is_nameless_modifier()
+                        || self.source.get(snapshot.span.clone()).is_none()
+                    {
+                        return Err("invalid stacked modifier snapshot");
+                    }
+                }
                 CaptureEvent::Input { id, .. } => {
                     if id.0 != next || !attempts.is_empty() || construction.is_some() {
                         return Err("input occurrence is not sequential");
@@ -323,6 +338,7 @@ impl ParseCapture {
 /// Association sidecars around the existing canonical J Graph, not another IR.
 #[derive(Clone, Debug)]
 pub struct CapturedGraph {
+    pub modifier_stack_snapshots: Vec<crate::semantic::ModifierSnapshot>,
     pub graph: crate::j_graph_ir::Plan,
     pub occurrences: Vec<(OccurrenceId, crate::j_graph_ir::ValueId)>,
     /// Runtime observations are separate from inferred facts and reuse guards.

@@ -903,6 +903,7 @@ impl Plan {
         let mut observed_facts = Vec::new();
         let mut constructors = Vec::new();
         let mut modifier_bindings = Vec::new();
+        let mut modifier_stack_snapshots = Vec::new();
         let mut gerund_name_reads = Vec::new();
         let mut constructor_calls = Vec::new();
         let mut pending = None;
@@ -911,6 +912,9 @@ impl Plan {
         let mut write = None;
         for event in &capture.events {
             match event {
+                CaptureEvent::ModifierStacked { snapshot } => {
+                    modifier_stack_snapshots.push(snapshot.clone())
+                }
                 CaptureEvent::Input {
                     id,
                     name,
@@ -1111,6 +1115,7 @@ impl Plan {
             Error::Unsupported(format!("captured J graph verification failed: {message}"))
         })?;
         Ok(CapturedGraph {
+            modifier_stack_snapshots,
             graph,
             occurrences,
             observed_facts,

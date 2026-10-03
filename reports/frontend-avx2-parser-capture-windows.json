@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2582,
+  "cases": 2645,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\javx2.dll",
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "cb855c657eacce12ac50432841d1ebdcffa3caf48380521122cf968316de7a40",
+  "binary_sha256": "ddc6121f9d6afa7b8bbb3dc67c5cbdf54738313ac3e754f0ee3713094f3b5afc",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2578,
+  "passed": 2641,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -313,6 +313,131 @@
     {
       "index": 1695,
       "source": "gerund_future=:@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1782,
+      "source": "lateadv=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1783,
+      "source": "latetrain=:lateadv /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1784,
+      "source": "latealias=:latetrain",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1786,
+      "source": "lateadv=:\\",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1790,
+      "source": "lateadv=:@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1794,
+      "source": "lateadv=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1795,
+      "source": "latetriple=:lateadv / /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1797,
+      "source": "lateadv=:\\",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1799,
+      "source": "lateconj=:\"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1800,
+      "source": "latebound=:lateconj 1",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1801,
+      "source": "lateleft=:+lateconj",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1802,
+      "source": "latecj=:lateconj /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1803,
+      "source": "latecjcopy=:latecj",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1807,
+      "source": "lateconj=:@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1812,
+      "source": "lateadv=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1815,
+      "source": "lateadv=:\\",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1818,
+      "source": "lateconj=:\"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1821,
+      "source": "lateconj=:@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1824,
+      "source": "lateadv=:@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1828,
+      "source": "dynamicadv=:latebase \"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1829,
+      "source": "dynamictrain=:dynamicadv /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1831,
+      "source": "dynamicadv=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1837,
+      "source": "dynamicconj=:/ / latebase",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1838,
+      "source": "dynamiccj=:dynamicconj /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1840,
+      "source": "dynamicconj=:@:",
       "reason": "captured modifier value graph lowering"
     }
   ],

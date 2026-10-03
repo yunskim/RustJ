@@ -310,7 +310,7 @@ fn snapshot_identity_survives_engine_rebinding_and_analysis_does_not_assign() {
         .events
         .iter()
         .find_map(|event| match event {
-            CaptureEvent::ModifierResolved { binding } => Some(&binding.function),
+            CaptureEvent::ModifierStacked { snapshot } => Some(&snapshot.function),
             _ => None,
         })
         .unwrap();

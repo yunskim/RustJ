@@ -163,6 +163,49 @@ fn construction_host<'h>(
 }
 
 impl ConstructionNames<'_, '_> {
+    fn resolve_modifier(
+        self,
+        operator: Arc<FunctionEntity>,
+        span: std::ops::Range<usize>,
+    ) -> Result<Arc<FunctionEntity>> {
+        let FunctionHead::NameRef(name) = &operator.head else {
+            return Ok(operator);
+        };
+        let Some(host) = self.host else {
+            return Err(Error::Unsupported(
+                "late modifier application requires runtime semantic host".into(),
+            )
+            .at(span)
+            .with_context(
+                ErrorContext::phase(DiagnosticPhase::Parse).with_current_name(name.clone()),
+            ));
+        };
+        let resolved = host
+            .borrow_mut()
+            .resolve_modifier(name, operator.result_pos)
+            .map_err(|error| {
+                error.at(span.clone()).with_context(
+                    ErrorContext::phase(DiagnosticPhase::Parse).with_current_name(name.clone()),
+                )
+            })?;
+        if let Some(observations) = self.observations {
+            for (name, version) in resolved.bindings {
+                observations
+                    .borrow_mut()
+                    .push(CaptureEvent::ModifierResolved {
+                        binding: crate::parser_capture::ModifierBinding {
+                            name,
+                            version,
+                            expected: operator.result_pos,
+                            row: self.row.expect("constructor row"),
+                            function: resolved.function.clone(),
+                            span: span.clone(),
+                        },
+                    });
+            }
+        }
+        Ok(resolved.function)
+    }
     fn binding(&self, name: &str) -> Result<Option<ParserNameBinding>> {
         if let Some(host) = self.host {
             host.borrow().gerund_binding(name)
@@ -274,12 +317,12 @@ fn apply_adverb(
         return Err(Error::Limit);
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
+    let operator = names.resolve_modifier(operator, span.clone())?;
     if matches!(operator.head, FunctionHead::ModifierTrain) {
         if let [first, second] = operator.operands.as_slice() {
             // tcNV: u (C n/v) -> u C n/v; tNVc reverses the binding.
             if let FunctionOperand::Function(conjunction) = first {
-                if conjunction.is_known_modifier()
-                    && conjunction.result_pos == FunctionPartOfSpeech::Conjunction
+                if conjunction.result_pos == FunctionPartOfSpeech::Conjunction
                     && (matches!(second, FunctionOperand::Noun { .. })
                         || matches!(second, FunctionOperand::Function(f) if f.result_pos == FunctionPartOfSpeech::Verb))
                 {
@@ -294,8 +337,7 @@ fn apply_adverb(
                 }
             }
             if let FunctionOperand::Function(conjunction) = second {
-                if conjunction.is_known_modifier()
-                    && conjunction.result_pos == FunctionPartOfSpeech::Conjunction
+                if conjunction.result_pos == FunctionPartOfSpeech::Conjunction
                     && (matches!(first, FunctionOperand::Noun { .. })
                         || matches!(first, FunctionOperand::Function(f) if f.result_pos == FunctionPartOfSpeech::Verb))
                 {
@@ -348,7 +390,6 @@ fn apply_adverb(
             "derived modifier application semantics".into(),
         ));
     }
-    // A name-ref inside an older train needs its own binding/effect contract.
     if !operator.is_primitive_modifier() {
         return Err(Error::Unsupported(
             "modifier child identity requires resolution".into(),
@@ -825,6 +866,7 @@ fn apply_conjunction_items(
         return Err(Error::Limit);
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
+    let operator = names.resolve_modifier(operator, span.clone())?;
     if matches!(operator.head, FunctionHead::ModifierTrain) {
         match operator.operands.as_slice() {
             [
@@ -2107,6 +2149,12 @@ pub(crate) struct ResolvedModifier {
 
 pub(crate) trait RuntimeParserHost {
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    fn stacked_modifier(
+        &self,
+        _name: &str,
+    ) -> Option<(Arc<FunctionEntity>, crate::semantic::NameVersion)> {
+        None
+    }
     fn gerund_binding(&self, _name: &str) -> Result<Option<ParserNameBinding>> {
         Err(Error::Unsupported(
             "host does not support gerund name lookup".into(),
@@ -2225,6 +2273,31 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
             Item::function(function).with_span(span)
         }
         Some(ParserNameBinding::Function(pos)) => {
+            if pos != FunctionPartOfSpeech::Verb {
+                if let Some((function, version)) = context
+                    .host
+                    .as_ref()
+                    .and_then(|host| host.stacked_modifier(&name))
+                {
+                    let snapshot = crate::semantic::ModifierSnapshot {
+                        name,
+                        version,
+                        expected: pos,
+                        function: function.clone(),
+                        span: span.clone(),
+                    };
+                    if let Some(capture) = &mut context.capture {
+                        capture.events.push(CaptureEvent::ModifierStacked {
+                            snapshot: snapshot.clone(),
+                        });
+                    }
+                    context.modifier_snapshots.push(snapshot);
+                    let mut stacked = Item::function(function).with_span(span);
+                    stacked.provenance = item.provenance;
+                    stacked.flags = item.flags;
+                    return Ok(stacked);
+                }
+            }
             let entity = FunctionEntity::name_ref(name.clone(), pos, span.clone());
             if pos == FunctionPartOfSpeech::Verb {
                 Item::verb(Verb {

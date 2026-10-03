@@ -13,10 +13,12 @@
     "jsrc/cg.c": "300ba00feddb6d548a01a00c3311653e3106904fe4910e1f3d1c54c8749d5d6b",
     "jsrc/r.c": "d344e701c72d9fa6394de92f6b03615f76d36a3aa8b5a9cbd0634be5f7d0d61a",
     "jsrc/a.c": "972abe3d57881ccc86b4e05ba80171da88f121df0890b4e23837f30e361034e4",
-    "jsrc/sc.c": "1abfd822020758ed28b15011f36d6a2911304bbb1c62361b7cfa78cab0ef54aa"
+    "jsrc/sc.c": "1abfd822020758ed28b15011f36d6a2911304bbb1c62361b7cfa78cab0ef54aa",
+    "jsrc/s.c": "7f45e6523d5651559ade67cbf2a3a109b093ca177f0e20184e52fcb4b8848ffd",
+    "jsrc/jtype.h": "2a6fc646eb60270bbba35a9fbbfc6e50abb1158e63dce81574e67027e287a4c4"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "f1c1c51c9543d5c653eb8be43745b063967599ddfc641f6577ad28e60f01e617",
+  "probe_sha256": "1ce960a50b8d291534209dd775d2791c96d4fbceb5d8f62ce8086815875d84b9",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -46,6 +48,11 @@
     "runtime_constructor_call_error": 8,
     "constructor_decode_setup": 8,
     "constructor_decoded_snapshot": 4,
+    "late_modifier_setup_or_target": 37,
+    "late_modifier_constructor": 23,
+    "late_modifier_error": 3,
+    "late_modifier_decode_setup": 4,
+    "late_modifier_decoded_snapshot": 2,
     "snapshot_setup": 6,
     "decoded_noun_snapshot": 6,
     "snapshot_rebind": 3,

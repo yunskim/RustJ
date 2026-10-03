@@ -7742,6 +7742,19 @@ Windows default/portable 각각 **301 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [cf.c hook의 V N/N V N 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L311), [r.c AR hook/fork decode 순서](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L93), [cg.c 최종 gerund Verb 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c quiet gerund audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
 
+##### Nameless modifier snapshot과 train 내부 지연 조회 (2026-10-03)
+
+- [x] P3/P4: ordinary modifier 이름은 모두 NameRef가 되는 것이 아니다. C의 `VALTYPENAMELESS` lookup에 맞춰 primitive modifier 및 primitive ACV/noun으로만 구성된 modifier train은 queue에서 stack으로 들어갈 때 현재 immutable 함수 값을 공유한다. `adv=:/`를 담은 train은 이후 `adv=:1`에도 기존 값을 유지한다. 일반적인 재귀적 이름 없음·순수성 판정으로 확대하지 않는다.
+- [x] P3/P4: 실제 NameRef를 포함한 train/AR의 modifier child는 실제 adverb/conjunction 적용 시점에 기존 runtime resolver로 조회한다. 같은 품사의 재정의는 반영하고, 저장된 품사와 현재 binding의 품사가 다르면 DomainError를 낸다. undefined 이름 및 alias 오류도 기존 resolver 계약을 따른다. 기존 train의 child를 바꾸거나 전체 DAG를 미리 펼치지 않는다. static/no-host 경로는 필요한 조회에서 Unsupported를 유지한다.
+- [x] P4/P5: stack 시점의 `ModifierStacked`와 실제 적용 시점의 `ModifierResolved`를 구분한다. `CapturedGraph.modifier_stack_snapshots`는 이름·version·품사·함수 값·span을 보존하며 snapshot 이름을 late verb reference로 기록하지 않는다. 실제 조회는 constructor row/span과 현재 binding version을 관찰한다. 두 sidecar 모두 observation이며 compiled reuse guard나 replay 계약이 아니다.
+- [x] P3/P6: character AR의 이름은 `fxchar`의 NameRef 경로를 유지한다. ordinary stack의 nameless shortcut을 AR 이름 decode에 적용하지 않는다. gerund 이름의 생성 시점 품사 확인과 실제 modifier 적용의 지연 조회를 별도 event로 검증한다.
+- [x] P6: 회귀 테스트 4개로 nameless snapshot 유지, nonnameless adverb/conjunction 재정의, 저장 품사 검사, 실패 후 target/version 보존, immutable child 공유 및 AR 조회 순서를 검증했다. 기존 snapshot identity 테스트도 실제 stack 시점에 맞췄다. C 공통 문장 63개와 stage 검사 69건을 추가했으며 source hash에 `s.c`, `jtype.h`를 포함했다.
+- [ ] 다음: 남은 modifier constructor/executor inventory와 explicit/local/locative/definition scope의 frontend 계약을 검토한다. 미지원 callable 및 내부 effect/dependency·compiled reuse 계약, gerund 실행/Logical lowering은 남아 있다. tokenizer/enqueuer/parser에 집중하며 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **305 passed / 17 ignored**, fmt/clippy/build 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,645문장 중 2,641 passed, 기존 runtime 경계 4개, failed 0**; stage **7,689 checks**, words **6,618 cases** 통과. capture graph 경계 **71건(ordered-effect 9, modifier-value 62)**과 static 경계 **2건(computed rank, computed gerund noun)**은 별도 보고한다. 추가 modifier-valued 문장의 graph 경계는 noun 실행 실패나 새 runtime waiver가 아니다. DLL release pin `ded7793fe5795d79eda8e7138dce94aa056edf78`과 검토 source pin을 구분하며 전체 J/upstream suite의 동등성을 주장하지 않는다.
+
+기준 소스: [p.c nameless stack lookup](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L693), [s.c binding 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L739), [jtype.h primitive/nameless flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1334), [cf.c train 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L367), [sc.c 저장 품사 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L138), [r.c character AR](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

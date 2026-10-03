@@ -597,7 +597,9 @@ fn named_modifiers_resolve_at_construction_and_keep_snapshot_dependencies() {
     let alias = engine.eval_captured("alias=:adv");
     alias.result.unwrap();
     alias.capture.verify().unwrap();
-    assert!(alias.capture.events.iter().any(|e| matches!(e, CaptureEvent::ModifierResolved { binding } if binding.name == "adv" && binding.row == rustj::parser::ParseRow::Assignment)));
+    assert!(alias.capture.events.iter().any(
+        |e| matches!(e, CaptureEvent::ModifierStacked { snapshot } if snapshot.name == "adv")
+    ));
     let report = engine.eval_captured("f=:+alias");
     report.result.unwrap();
     report.capture.verify().unwrap();
@@ -608,13 +610,13 @@ fn named_modifiers_resolve_at_construction_and_keep_snapshot_dependencies() {
     );
     assert!(
         graph
-            .modifier_bindings
+            .modifier_stack_snapshots
             .iter()
             .all(|b| b.span == (4.."f=:+alias".len()))
     );
     assert_eq!(
         graph
-            .modifier_bindings
+            .modifier_stack_snapshots
             .iter()
             .map(|b| b.name.as_str())
             .collect::<Vec<_>>(),
@@ -625,7 +627,7 @@ fn named_modifiers_resolve_at_construction_and_keep_snapshot_dependencies() {
             .graph
             .verb_references
             .iter()
-            .any(|(name, _)| name == "alias")
+            .all(|(name, _)| name != "alias")
     );
     engine.eval("adv=:1").unwrap();
     assert_eq!(engine.eval("f i.3").unwrap().unwrap().int_at(0).unwrap(), 3);
@@ -741,11 +743,12 @@ fn named_bound_modifier_application_retains_identity_version_and_current_use_spa
         .events
         .iter()
         .find_map(|event| match event {
-            CaptureEvent::ModifierResolved { binding } if binding.name == "alias" => Some(binding),
+            CaptureEvent::ModifierStacked { snapshot } if snapshot.name == "alias" => {
+                Some(snapshot)
+            }
             _ => None,
         })
         .unwrap();
-    assert_eq!(binding.row, ParseRow::Adverb);
     assert_eq!(binding.version, version);
     assert_eq!(&source[binding.span.clone()], "alias");
     assert!(std::sync::Arc::ptr_eq(
@@ -803,11 +806,12 @@ fn named_derived_conjunction_alias_keeps_identity_after_rebinding() {
         .events
         .iter()
         .find_map(|event| match event {
-            CaptureEvent::ModifierResolved { binding } if binding.name == "alias" => Some(binding),
+            CaptureEvent::ModifierStacked { snapshot } if snapshot.name == "alias" => {
+                Some(snapshot)
+            }
             _ => None,
         })
         .unwrap();
-    assert_eq!(binding.row, ParseRow::Conjunction);
     assert!(std::sync::Arc::ptr_eq(
         &binding.function,
         &snapshot.function
@@ -1224,4 +1228,135 @@ fn constructor_call_shares_identity_payload_and_observes_name_order() {
     drop(engine);
     drop(original);
     assert_eq!(value.int_at(65535).unwrap(), 65535);
+}
+
+#[test]
+fn nameless_modifier_train_keeps_value_after_redefinition() {
+    use rustj::{primitive::AdverbId, semantic::FunctionOperand};
+    let mut engine = Engine::new();
+    engine.eval("adv=:/").unwrap();
+    let report = engine.eval_captured("train=:adv /");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    assert!(report.capture.events.iter().any(
+        |e| matches!(e, CaptureEvent::ModifierStacked { snapshot } if snapshot.name == "adv")
+    ));
+    let train = report
+        .capture
+        .events
+        .iter()
+        .find_map(|e| match e {
+            CaptureEvent::ConstructionSuccess { function, .. } => Some(function.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let FunctionOperand::Function(child) = &train.operands[0] else {
+        panic!()
+    };
+    assert_eq!(child.head, FunctionHead::PrimitiveAdverb(AdverbId::Insert));
+    engine.eval("adv=:1").unwrap();
+    let report = engine.eval_captured("fn=:+train");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let graph = rustj::j_graph_ir::Plan::from_capture(&report.capture).unwrap();
+    assert_eq!(graph.modifier_stack_snapshots[0].name, "train");
+    assert!(std::sync::Arc::ptr_eq(
+        &graph.modifier_stack_snapshots[0].function,
+        &train
+    ));
+}
+
+#[test]
+fn nonnameless_adverb_reference_resolves_current_binding_and_preserves_old_train() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = Engine::new();
+    for source in ["base=:+", "adv=:base \"", "train=:adv /"] {
+        engine.eval(source).unwrap();
+    }
+    let report = engine.eval_captured("fn=:1 train");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let binding = report
+        .capture
+        .events
+        .iter()
+        .find_map(|e| match e {
+            CaptureEvent::ModifierResolved { binding } if binding.name == "train" => Some(binding),
+            _ => None,
+        })
+        .unwrap();
+    let original = binding.function.clone();
+    let FunctionOperand::Function(child) = &original.operands[0] else {
+        panic!()
+    };
+    assert_eq!(child.head, FunctionHead::NameRef("adv".into()));
+    engine.eval("adv=:/").unwrap();
+    let version = engine.binding_version("adv").unwrap();
+    let report = engine.eval_captured("fn=:+train");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let graph = rustj::j_graph_ir::Plan::from_capture(&report.capture).unwrap();
+    assert!(
+        graph
+            .modifier_bindings
+            .iter()
+            .any(|b| b.name == "adv" && b.version == version)
+    );
+    assert_eq!(child.head, FunctionHead::NameRef("adv".into()));
+    assert_eq!(
+        engine.prepare_semantic("+train").unwrap_err().kind(),
+        "unsupported"
+    );
+    engine.eval("keep=:+").unwrap();
+    let target_version = engine.binding_version("keep");
+    engine.eval("adv=:1").unwrap();
+    let report = engine.eval_captured("keep=:+train");
+    assert_eq!(report.result.unwrap_err().kind(), "domain error");
+    report.capture.verify().unwrap();
+    assert_eq!(engine.binding_version("keep"), target_version);
+}
+
+#[test]
+fn nonnameless_conjunction_reference_checks_stored_pos_before_application() {
+    let mut engine = Engine::new();
+    for source in [
+        "base=:+",
+        "conj=:/ / base",
+        "train=:conj /",
+        "fn=:+train -",
+        "conj=:@:",
+    ] {
+        engine.eval(source).unwrap();
+    }
+    let report = engine.eval_captured("fn=:+train -");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    assert!(report.capture.events.iter().any(|e| matches!(e, CaptureEvent::ModifierResolved { binding } if binding.name == "conj" && binding.expected == rustj::semantic::FunctionPartOfSpeech::Conjunction)));
+    engine.eval("keep=:+").unwrap();
+    let version = engine.binding_version("keep");
+    engine.eval("conj=:1").unwrap();
+    let report = engine.eval_captured("keep=:+train -");
+    assert_eq!(report.result.unwrap_err().kind(), "domain error");
+    report.capture.verify().unwrap();
+    assert_eq!(engine.binding_version("keep"), version);
+}
+
+#[test]
+fn gerund_modifier_name_read_precedes_actual_resolution() {
+    let mut engine = Engine::new();
+    for binding in ["adv=:/", "adv=:\\"] {
+        engine.eval(binding).unwrap();
+        engine
+            .eval("ar=:(<((<'4'),<((<'adv'),<'/'))),<(,<'+')")
+            .unwrap();
+        let report = engine.eval_captured("fn=:(,<ar)\\");
+        report.result.unwrap();
+        report.capture.verify().unwrap();
+        let read = report.capture.events.iter().position(|e| matches!(e, CaptureEvent::GerundNameResolved { read, .. } if read.name == "adv")).unwrap();
+        let resolved = report.capture.events.iter().position(|e| matches!(e, CaptureEvent::ModifierResolved { binding } if binding.name == "adv")).unwrap();
+        assert!(read < resolved);
+        assert!(!report.capture.events.iter().any(
+            |e| matches!(e, CaptureEvent::ModifierStacked { snapshot } if snapshot.name == "adv")
+        ));
+    }
 }

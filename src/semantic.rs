@@ -47,6 +47,24 @@ pub struct FunctionEntity {
     pub decoded_gerund: Option<Vec<Arc<FunctionEntity>>>,
 }
 impl FunctionEntity {
+    /// p.c stacks primitive modifiers and cf.c trains of primitive ACVs/nouns
+    /// by value. This is a lookup policy, not an optimizer purity guarantee.
+    pub(crate) fn is_nameless_modifier(&self) -> bool {
+        self.is_primitive_modifier()
+            || (matches!(self.head, FunctionHead::ModifierTrain)
+                && self.operands.iter().all(|operand| match operand {
+                    FunctionOperand::Noun { .. } => true,
+                    FunctionOperand::Function(function) => {
+                        function.operands.is_empty()
+                            && matches!(
+                                function.head,
+                                FunctionHead::PrimitiveVerb(_)
+                                    | FunctionHead::PrimitiveAdverb(_)
+                                    | FunctionHead::PrimitiveConjunction(_)
+                            )
+                    }
+                }))
+    }
     pub(crate) fn with_decoded_gerund(
         mut entity: Arc<Self>,
         decoded: Option<Vec<Arc<FunctionEntity>>>,
