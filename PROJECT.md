@@ -57,6 +57,13 @@ RustJ does not treat all external implementations as having the same authority. 
   - References for morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion, and GPU lowering.
   - Their restricted APL subsets are not inherited as restrictions on RustJ's J semantics.
 
+- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
+  - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family.
+  - Bohrium is a precedent for collecting existing NumPy-style array programs into a delayed intermediate representation and deciding fusion, materialization, and heterogeneous realization later.
+  - Lift is a comparison point for separating high-level map/reduce rewrites from hardware mapping.
+  - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops.
+  - None of these systems define RustJ's J semantics; they are evidence for compiler layering and optimization techniques.
+
 The reference depends on the question being asked:
 
 ```text
@@ -64,6 +71,7 @@ J semantic correctness       → jsource
 array graph/JIT fusion       → ArrayFire
 J↔external GPU adapter       → jsoftware/math_arrayfire
 array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
+rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
 ```
 
 The detailed ArrayFire source observations, RustJ applications, and non-adoptions are recorded in §14.2, **ArrayFire and the J ArrayFire add-on**.
@@ -131,65 +139,72 @@ The semantic meaning of a J program must not depend on the selected backend.
 
 ---
 
-## 3. JAXA design principle — “SQL for neural networks”
+## 3. JAXA design principle — “SQL for array operations”
 
-Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”**
+Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”** RustJ carries the idea forward in the more general sense of J as a **high-level array language / array query language**.
 
-The point was not to imitate SQL syntax or to declare a universal neural-network platform. The recurring idea was:
+The analogy is not a claim that J syntax resembles SQL or that full J is a purely declarative language. Full J has names, assignment, effects, observable errors, and control semantics. The relevant principle is:
 
-> **JAXA specifies logical array intent, not physical execution procedure.**
+> **J source is not an execution plan.**
 
-The SQL analogy concerns the separation between **logical intent** and **physical execution plans**.
+J's array semantics and function composition should preserve **what is being computed** at a high level, while the compiler chooses **how to realize it** subject to J semantic legality.
 
-```text
-logical array intent
+~~~text
+J source / J semantics
         ↓
-legal logical / physical plans
+J Semantic IR / J Graph IR
         ↓
-resource / cost evaluation
+Logical Array / Execution IR
         ↓
-selected execution plan
-```
+equivalence / fusion / logical optimization
+        ↓
+execution planning / route selection
+        ↓
+CPU / SIMD / multicore / GPU / external compiler / library
+~~~
 
-Users should express the computation and the semantic/storage obligations that matter, while the analyzer/compiler/backend decides matters such as:
+At the level of responsibilities, the SQL analogy is:
+
+~~~text
+SQL / relational system          RustJ
+---------------------------      --------------------------------
+query                             J array computation
+logical query plan                J Graph + Logical Execution IR
+logical rewrite                   J-algebra / logical rewrite
+physical planner                  schedule / route / physical planner
+execution engine                  CPU/GPU/runtime/external backend
+~~~
+
+Users should express the computation and semantic/storage obligations that matter, while the analyzer/compiler/backend decides matters such as:
 
 - which equivalent graph form to use;
 - whether to fuse or materialize;
 - which execution basis and route to use;
-- which memory/schedule strategy to use;
-- which target-specific realization to select.
+- which memory/layout/schedule strategy to use;
+- whether CPU, SIMD, multicore, GPU, or another realization is appropriate;
+- whether a verified external compiler or library route should be used.
 
-Another useful line from the earlier JAXA documents was:
+J is unusually useful as a frontend for this model because the source already carries optimization-relevant array structure:
+
+- rank exposes cell/frame boundaries and implicit iteration domains;
+- adverbs, conjunctions, and derived entities preserve reduction, scan, cell-application, and composition structure;
+- hook/fork/train/@: expose producer/consumer, branch/join, and composition topology;
+- reshape/transpose/take/drop allow logical shape/reindex meaning to remain separate from physical materialization;
+- whole-array notation reduces the need to rediscover high-level array intent from scalar loop nests.
+
+A central compiler rule follows: **do not destroy this information too early.** Modifier identity, rank boundaries, and derived structure remain in J Semantic IR/J Graph until Semantic Analyzer/Lowering can normalize them into logical operations such as `Reduce`, `CellApply`, `Scan`, and reindex forms. Explicit loops, threads, blocks, buffers, and device mappings are downstream schedule/physical choices.
+
+Historical JAXA focused mainly on analysis and a restricted vocabulary. RustJ reuses that design work while extending it to **full-J frontend/semantic ownership with incremental optimized-backend coverage**. Analyzable array regions may use aggressive logical/physical planning, while dynamic or effectful regions can remain on semantics-preserving native/runtime routes.
+
+The historical JAXA statements:
+
+> **JAXA specifies logical array intent, not physical execution procedure.**
 
 > **JAXA does not execute fusion — the compiler does.**
 
-RustJ inherits that separation in the following form:
+remain useful origin points. The more precise long-term RustJ framing is therefore not merely “J with GPU support,” but **a heterogeneous array compiler/runtime using J as a high-level array language**.
 
-```text
-J semantics / FunctionEntity
-        ↓
-J Graph IR / Graph Basis
-        ↓
-rewrite / equivalence
-        ↓
-symbolic resource reasoning
-        ↓
-Logical Execution IR / Execution Basis
-        ↓
-physical planning / backend realization
-```
-
-This analogy is not intended to broaden RustJ's current product scope. RustJ's immediate goal remains **a J compiler/runtime that preserves full J semantics**.
-
-“SQL for neural networks” is used here as historical design context for a few concrete principles:
-
-1. Do not unnecessarily encode physical procedure in the source language.
-2. When several semantically equivalent realizations exist, leave room for the compiler to choose.
-3. Establish legality before cost.
-4. Use resource/cost models to choose among legal plans, not to redefine semantics.
-5. Keep logical intent reusable as optimizers and backends improve.
-
-In RustJ, therefore, “SQL for neural networks” is best understood as an inherited compiler separation-of-concerns principle, not as a claim of a broad platform already delivered.
+This framing does not claim that the product scope is already complete. RustJ's immediate goal remains **a J compiler/runtime that preserves full J semantics**; “SQL for array operations” is a design analogy for compiler layering and optimization freedom.
 
 ## 3.1 Core array-model decision — separate Logical Array from Physical Array
 

@@ -685,23 +685,29 @@ RustJ may temporarily lack an implementation route for valid J. That is an imple
 
 # Part XX — Research compilers are evidence, not language specifications
 
-## 20. APEX, Co-dfns, TAIL/Futhark, JAXA
+## 20. APEX, Co-dfns, TAIL/Futhark, Remora, Bohrium, Lift, MLIR Linalg, and JAXA
 
-Research systems provide valuable implementation ideas such as:
+Research systems provide valuable evidence for different parts of the array-compiler problem:
 
-- morphology;
-- SSA;
-- property inference;
-- specialization;
-- high-level parallel IR;
-- graph indexing;
-- nanopass organization;
-- loop fusion;
-- nested-parallel flattening;
-- graph basis;
-- symbolic resource analysis.
+- **APEX**: morphology, SSA, property inference, interprocedural specialization.
+- **Co-dfns**: compact/columnar graph representation, nanopass/data-parallel compiler organization, GPU cost reasoning.
+- **TAIL/Futhark**: typed/rank-aware high-level parallel IR, fusion, nested-parallel flattening, GPU lowering.
+- **Remora**: rank polymorphism, frame/cell semantics, and implicit lifting as a formal array-language model.
+- **Bohrium**: delayed collection of existing NumPy-style array operations so fusion, materialization, and heterogeneous realization can be chosen later.
+- **Lift**: high-level map/reduce rewrite separated from hardware mapping.
+- **MLIR Linalg**: structured operations and implicit iteration preserved until later tiling/vectorization/lowering materializes loops.
+- **JAXA**: logical array intent, graph basis, symbolic resource reasoning, and separation of logical from physical execution.
 
-But restrictions in those systems—such as static scope, static rank, pure subsets, or no execute—are compiler-route preconditions, not RustJ language restrictions.
+Together these systems reinforce several RustJ rules:
+
+1. **J source is not an execution plan.**
+2. Rank, derived entities, trains/composition, reduce/scan, and reindex/shape transforms are optimization-relevant high-level information.
+3. Do not scalarize that structure merely to simplify lowering.
+4. Separate full-J semantic validity from eligibility for any optimized or external route.
+5. Separate logical rewrites from physical schedule/device/materialization choices.
+6. Keep J as the frontend rather than shrinking the language into a compiler-convenience subset.
+
+Restrictions in research systems—such as static scope, static rank, pure subsets, or no execute—are compiler-route preconditions, not RustJ language restrictions.
 
 The question is always:
 

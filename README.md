@@ -8,38 +8,35 @@ It is not a line-by-line translation of `jsource`. RustJ is designed as a compil
 
 `Jaxa` is not the name of a separate component in the current architecture. Ideas developed in the historical `jaxa-analyzer` research repository are incorporated into RustJ's middle-end design.
 
-## JAXA design influence — “SQL for neural networks”
+## JAXA design influence — “SQL for array operations”
 
-Earlier JAXA documents used phrases such as **“SQL for neural networks”** and **“SQL for array operations.”**
+Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”** RustJ now uses the latter as the more general design analogy.
 
-The important point was not SQL syntax or a claim to build a universal neural-network platform. It was a **separation of concerns**:
+The important principle is not SQL-like syntax:
 
-> **Separate logical array intent from physical execution strategy.**
+> **J source is not an execution plan.**
 
-Just as a database user normally does not prescribe join order or index access, an array program should express **what is being computed** as far as possible, while the analyzer/compiler/backend decides how to realize it.
-
-Earlier JAXA documents repeatedly emphasized ideas such as:
-
-- describe logical array intent rather than physical execution procedure;
-- fusion is performed by the compiler, not by the language surface;
-- the same logical computation should remain usable across different execution strategies;
-- when several equivalent forms or plans exist, legality and resource/cost analysis should guide the choice.
-
-RustJ inherits this as a **design principle**:
+J's rank, cell/frame semantics, derived entities, trains/composition, reductions/scans, and shape/reindex operations expose high-level information about **what is being computed**. RustJ tries to preserve that information for as long as possible and lets the compiler choose **how to realize it** subject to semantic legality, resource constraints, and cost.
 
 ```text
-J computation semantics
+J source / semantics
     ↓
-J Graph IR / Graph Basis
+J Semantic IR / J Graph IR
     ↓
-equivalent-form and executability analysis
+Logical Array / Execution IR
     ↓
-resource / cost-aware planning
+logical rewrite / fusion
     ↓
-execution
+execution planning
+    ↓
+CPU / SIMD / multicore / GPU / external route
 ```
 
-RustJ's immediate goal remains **an accurate J compiler/runtime**. “SQL for neural networks” is therefore historical context for why Graph IR, rewrite, resource analysis, and planning are separated this way—not a claim that RustJ is already an NN framework or a general-purpose compiler platform.
+As a relational database separates a query from its physical plan, RustJ separates logical computation from physical realization. Fusion, materialization, layout, scheduling, and device/thread mapping are therefore not fixed by the source expression unless J semantics require them.
+
+Full J is not a purely declarative SQL-like language: names, assignment, effects, observable errors, and control semantics still matter. RustJ preserves **correct J semantics first**, then exploits this “SQL for array operations” optimization freedom inside analyzable array regions.
+
+The long-term framing is therefore broader than **“J with GPU support”**: RustJ aims to be **a heterogeneous array compiler/runtime using J as a high-level array language**. The analyzer and logical/physical separation ideas developed in JAXA are inherited as prior design work rather than retained as a separate current component.
 
 ## Core array model — Logical Array vs Physical Array
 
@@ -102,6 +99,11 @@ In addition to jsource compatibility, RustJ's middle-end design draws from prior
 - **APL → TAIL → Futhark**: typed/rank-aware array IRs, explicit map/reduction nests, loop fusion, nested-parallelism flattening, and GPU lowering.  
   Dyalog'16: https://elsman.com/pdf/Dyalog16.pdf  
   FHPC'16: https://elsman.com/pdf/fhpc16futhark.pdf
+- **Remora**: a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family.
+- **Bohrium**: a precedent for collecting existing NumPy-style array programs into a delayed IR and deciding fusion, materialization, and heterogeneous realization later.
+- **Lift**: a comparison point for separating high-level map/reduce rewrites from hardware mapping.
+- **MLIR Linalg**: a reference for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops.  
+  Docs: https://mlir.llvm.org/docs/Dialects/Linalg/
 
 RustJ does not copy these compilers wholesale. It preserves **full J semantics first** and selectively adopts ideas such as:
 

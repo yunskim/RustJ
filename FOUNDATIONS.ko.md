@@ -2422,15 +2422,21 @@ Differential test:
 
 ---
 
-# Part XX. APEX / Co-dfns / TAIL-Futhark에서 얻은 compiler 설계 규칙
+# Part XX. 배열 언어·IR compiler 연구에서 얻은 설계 규칙
 
-이 절은 2026-09-30 다음 세 계열을 추가 검토해 RustJ middle-end 원칙을 보강한 결과다.
+이 절은 기존 APEX / Co-dfns / TAIL-Futhark 검토에 2026-10-04의 비교 검토를 추가해 RustJ middle-end 원칙을 보강한다.
+
+주요 비교 계열은 다음과 같다.
 
 1. Robert Bernecky의 **APEX: The APL Parallel Executor** source/research lineage.
 2. Aaron W. Hsu의 **The Key to a Data Parallel Compiler**와 현재 Co-dfns source.
 3. Elsman/Henriksen 외의 **APL → TAIL → Futhark** GPU compilation 연구 및 Dyalog'16 발표.
+4. **Remora** — J/APL의 rank-polymorphic 계산 모델을 분리해 frame/cell/implicit lifting을 정형화한 연구 언어.
+5. **Bohrium** — 기존 NumPy-style 프로그램의 array operation을 지연된 IR로 수집해 fusion/materialization과 CPU/GPU 등 실행 방식을 뒤에서 선택한 계열.
+6. **Lift** — map/reduce 같은 high-level functional array pattern을 rewrite하고 hardware mapping을 별도 단계로 탐색하는 연구.
+7. **MLIR Linalg** — structured operation, indexing/iterator semantics와 implicit iteration을 보존하고 tiling/vectorization/lowering에서 explicit loop를 materialize하는 IR 계열.
 
-이 자료들은 모두 array-language compiler를 다루지만 서로 다른 질문에 답한다.
+이 자료들은 모두 array-language/compiler 문제를 다루지만 서로 다른 질문에 답한다.
 
 ~~~text
 APEX
@@ -2444,9 +2450,33 @@ Co-dfns / Hsu
 TAIL / Futhark
   → 분석된 array semantics를 어떤 high-level parallel IR로 보존해야
     fusion/flattening/GPU lowering이 가능한가?
+
+Remora
+  → rank polymorphism과 frame/cell implicit lifting을
+    독립적인 semantic model로 어떻게 정형화하는가?
+
+Bohrium
+  → 기존 array API의 계산을 어떻게 지연 수집하여
+    fusion/materialization/heterogeneous execution을 뒤에서 결정하는가?
+
+Lift
+  → high-level array rewrite와 hardware mapping을 어떻게 분리하는가?
+
+MLIR Linalg
+  → structured computation과 implicit iteration을 얼마나 오래 보존하고
+    언제 loop/tiling/vector lowering으로 materialize하는가?
 ~~~
 
-RustJ는 세 연구의 제한된 APL subset을 그대로 채택하지 않는다. **J semantic completeness는 그대로 유지하고, 각 compiler route가 요구하는 정적 조건은 route precondition 또는 specialization guard로 취급한다.**
+이 비교에서 RustJ에 추가로 확인되는 상위 원칙은 다음과 같다.
+
+- **J source는 execution plan이 아니다.**
+- rank, derived entity, train/composition, reduce/scan, reindex/shape transform은 optimizer가 사용할 수 있는 고수준 정보다.
+- 이런 구조를 scalar loop나 backend kernel로 조기 분해하지 않는다.
+- full J semantics와 특정 optimized route의 eligibility를 분리한다.
+- logical rewrite와 physical schedule/device/materialization 선택을 분리한다.
+- 기존 J를 frontend로 유지하는 것이 목표이며, compiler-friendly subset을 만들기 위해 J semantics를 축소하지 않는다.
+
+RustJ는 이 연구들의 제한된 language subset이나 static assumption을 그대로 채택하지 않는다. **J semantic completeness는 그대로 유지하고, 각 compiler route가 요구하는 정적 조건은 route precondition 또는 specialization guard로 취급한다.**
 
 ## 51. APEX: Array Morphology를 정식 abstract interpretation으로 본다
 

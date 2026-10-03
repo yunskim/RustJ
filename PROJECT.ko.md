@@ -3,7 +3,7 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 문서 갱신일: 2026-10-02
+> 문서 갱신일: 2026-10-04
 >
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
@@ -51,6 +51,13 @@ RustJ는 외부 구현을 하나의 동일한 권위로 취급하지 않고 **�
   - morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion·GPU lowering을 비교하는 연구 구현이다.
   - 이들의 제한된 APL subset을 RustJ의 J semantics 제한으로 가져오지 않는다.
 
+- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
+  - Remora는 J/APL 계열의 rank polymorphism, frame/cell semantics와 implicit lifting을 정형화한 비교 대상이다.
+  - Bohrium은 기존 NumPy-style array program을 지연된 중간 표현으로 모아 fusion/materialization과 heterogeneous execution을 결정한 선례다.
+  - Lift는 high-level map/reduce 등의 rewrite와 hardware mapping을 분리하는 optimizer 연구의 비교 대상이다.
+  - MLIR Linalg는 structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 계층화의 비교 대상이다.
+  - 어느 시스템도 RustJ의 J semantic specification은 아니며, compiler layering과 optimization technique의 근거로만 사용한다.
+
 따라서 reference 우선순위는 목적별로 다르다.
 
 ```text
@@ -58,71 +65,79 @@ J semantic correctness       → jsource
 array graph/JIT fusion       → ArrayFire
 J↔external GPU adapter       → jsoftware/math_arrayfire
 array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
+rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
 ```
 
 ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택 사항은 §13의 **ArrayFire / J ArrayFire add-on / fusion systems** 절을 따른다.
 
 현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, J Graph와 canonical Logical IR 분석, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
 
-### 1.1 JAXA에서 이어받은 설계 원칙 — “NN의 SQL”
+### 1.1 JAXA에서 이어받은 설계 원칙 — “배열 연산의 SQL”
 
-JAXA 문서에서는 **“NN의 SQL”**, **“배열 연산의 SQL”**이라는 비유를 사용했다.
+JAXA 문서에서는 **“NN의 SQL”**, **“배열 연산의 SQL”**이라는 비유를 사용했다. RustJ에서는 이 아이디어를 신경망 전용 표현보다 더 일반적인 **high-level array language / array query language** 관점으로 승계한다.
 
-이 표현의 핵심은 SQL과 비슷한 문법을 만들거나 범용 신경망 플랫폼을 선언하는 것이 아니다. 과거 JAXA 문서에서 반복해서 강조한 핵심은 다음 한 문장에 가깝다.
+이 표현의 핵심은 SQL과 비슷한 문법을 만들거나 J 전체를 순수 declarative language라고 주장하는 것이 아니다. J에는 name lookup, assignment, effect, error/control semantics가 있으므로 full J는 SQL과 같은 순수 질의 언어가 아니다. 비유가 가리키는 것은 다음 한 문장이다.
 
-> **JAXA specifies logical array intent, not physical execution procedure.**
+> **J source is not an execution plan.**
 
-즉 SQL과 닮은 것은 표면 문법이 아니라 **logical intent와 physical execution plan의 분리**다.
+J의 array semantics와 function composition은 가능한 한 **무엇을 계산하는가**를 고수준으로 표현하고, **어떻게 실행하는가**는 semantic legality를 보존하는 범위에서 compiler가 선택한다.
 
-```text
-logical array intent
+~~~text
+J source / J semantics
         ↓
-legal logical / physical plans
+J Semantic IR / J Graph IR
         ↓
-resource / cost evaluation
+Logical Array / Execution IR
         ↓
-selected execution plan
-```
+equivalence / fusion / logical optimization
+        ↓
+execution planning / route selection
+        ↓
+CPU / SIMD / multicore / GPU / external compiler / library
+~~~
+
+SQL 비유의 대응 관계는 역할 수준에서 다음과 같다.
+
+~~~text
+SQL / relational system          RustJ
+---------------------------      --------------------------------
+query                             J array computation
+logical query plan                J Graph + Logical Execution IR
+logical rewrite                   J-algebra / logical rewrite
+physical planner                  schedule / route / physical planner
+execution engine                  CPU/GPU/runtime/external backend
+~~~
 
 사용자는 가능한 한 계산의 의미와 필요한 semantic/storage obligation을 표현하고, 다음 사항은 analyzer/compiler/backend에 맡긴다.
 
 - 어떤 동등한 graph form을 사용할지
 - fusion 또는 materialization을 할지
 - 어떤 실행 basis와 route를 사용할지
-- 어떤 memory/schedule 전략을 사용할지
-- target별로 어떤 realization을 선택할지
+- 어떤 memory/layout/schedule 전략을 사용할지
+- CPU/SIMD/multicore/GPU 중 어느 realization을 선택할지
+- 검증된 external compiler/library route를 사용할지
 
-과거 JAXA 문서의 또 다른 중요한 표현은 다음과 같다.
+J가 이 역할에 유리한 이유는 source 자체에 optimizer가 활용할 수 있는 배열 구조가 풍부하기 때문이다.
+
+- rank는 cell/frame 경계와 implicit iteration domain을 드러낸다.
+- adverb/conjunction/derived entity는 reduce, scan, cell application, composition 같은 고차 구조를 보존한다.
+- hook/fork/train/@:는 producer/consumer, branch/join, composition topology를 source 수준에서 제공한다.
+- reshape/transpose/take/drop 등은 logical shape/reindex 의미와 physical materialization을 분리할 여지를 준다.
+- whole-array notation은 scalar loop에서 고수준 의미를 역추론하는 비용을 줄인다.
+
+따라서 RustJ의 중요한 compiler 원칙은 **이 정보를 너무 일찍 scalar loop, buffer, kernel로 낮추지 않는 것**이다. `/`와 `"` 같은 modifier identity, rank boundary, derived structure는 J Semantic IR/J Graph에서 보존하고, Semantic Analyzer 이후에만 `Reduce`, `CellApply`, `Scan`, reindex 등의 normalized logical operation으로 내린다. explicit loop/thread/block mapping은 더 downstream의 schedule/physical lowering에서 결정한다.
+
+과거 JAXA가 주로 analyzer와 제한된 vocabulary를 대상으로 했다면, RustJ는 그 설계 비용을 승계해 **full-J frontend/semantic ownership + 점진적인 optimized backend coverage**로 확장한다. 분석 가능한 배열 영역은 aggressive logical/physical planning을 사용하고, 동적·effectful 영역은 J semantics를 보존하는 native/runtime route로 남길 수 있다.
+
+과거 JAXA 문서의 표현:
+
+> **JAXA specifies logical array intent, not physical execution procedure.**
 
 > **JAXA does not execute fusion — the compiler does.**
 
-이 원칙은 current RustJ에서 다음 구조로 이어진다.
+는 이 원칙의 역사적 출발점으로 유지한다. 다만 current RustJ에서 더 정확한 장기 프레이밍은 **“GPU를 지원하는 J”가 아니라, J를 고수준 배열 언어로 사용하는 heterogeneous array compiler/runtime**이다.
 
-```text
-J semantics / FunctionEntity
-        ↓
-J Graph IR / Graph Basis
-        ↓
-rewrite / equivalence
-        ↓
-symbolic resource reasoning
-        ↓
-Logical Execution IR / Execution Basis
-        ↓
-physical planning / backend realization
-```
-
-이 비유는 RustJ의 현재 제품 범위를 확대해서 주장하기 위한 것이 아니다. current RustJ의 직접 목표는 **full J semantics를 보존하는 J compiler/runtime**이다.
-
-“NN의 SQL”은 다음을 설명하는 historical design direction으로만 사용한다.
-
-1. source에서 physical procedure를 불필요하게 고정하지 않는다.
-2. 의미적으로 동등한 실행 방법이 있다면 compiler가 선택할 수 있게 한다.
-3. legality를 cost보다 먼저 판단한다.
-4. resource/cost model은 의미를 바꾸는 것이 아니라 합법적인 plan 중에서 선택하는 데 사용한다.
-5. backend나 optimizer가 발전해도 같은 logical intent를 다시 사용할 수 있게 한다.
-
-따라서 이 프로젝트에서 “NN의 SQL”은 **장대한 범용 플랫폼 선언이 아니라, JAXA에서 이어받은 compiler separation-of-concerns 원칙을 설명하는 표현**으로 취급한다.
+이 프레이밍은 제품 범위나 구현 완료를 과장하기 위한 것이 아니다. current RustJ의 직접 목표는 여전히 **full J semantics를 보존하는 J compiler/runtime**이며, “배열 연산의 SQL”은 그 compiler layering과 optimization freedom을 설명하는 설계 비유다.
 
 ### 1.2 핵심 배열 모델 결정 — Logical Array와 Physical Array를 분리한다
 
