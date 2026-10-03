@@ -213,6 +213,14 @@ def cases():
         'leftkeep=:1 2 3 4 (-")', 'leftkeep i.3', 'leftkeep=: \'a\' ((-") /)',
         'leftkeep i.3', 'leftkeep=:3 (/@:)', 'leftkeep i.3',
     ])
+    fixed.extend([
+        'tacfn=: + (/@:)', 'tcafn=: + (@:/) -', 'tccfn=: + (@:@:) -',
+        'taavfn=: + (/ / +) *', 'tcanested=: + ((@:/) -)',
+        'tcadef=:@:/', 'tcaalias=:tcadef', 'tcadef=:1', 'tcafn=: + tcaalias -',
+        'tcckeep=:+', 'tcckeep=: + (" @:) 1 2 3 4', 'tcckeep i.3',
+        'tcckeep=: + (@: ") 1 2 3 4', 'tcckeep i.3',
+        'tcckeep=: 3 (/ / +) 3', 'tcckeep i.3',
+    ])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

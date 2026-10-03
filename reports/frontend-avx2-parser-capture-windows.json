@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 2205,
+  "cases": 2221,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\javx2.dll",
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "ce50edf794902a67a7ee7f10722e46473ea925cc3d2fc23afe170d991dbbe5c0",
+  "binary_sha256": "65adbb16edb193c476ffeee5e14da7aa25eec6563ebe996e5c6c4bfa3aba04d7",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 2201,
+  "passed": 2217,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -283,6 +283,16 @@
     {
       "index": 1386,
       "source": "leftalias=:leftbind",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1410,
+      "source": "tcadef=:@:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1411,
+      "source": "tcaalias=:tcadef",
       "reason": "captured modifier value graph lowering"
     }
   ],

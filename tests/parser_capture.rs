@@ -783,3 +783,34 @@ fn computed_left_bident_input_retains_noun_origin_without_static_execution() {
         "unsupported"
     );
 }
+
+#[test]
+fn named_derived_conjunction_alias_keeps_identity_after_rebinding() {
+    let mut engine = Engine::new();
+    for source in ["conj=:@:/", "alias=:conj", "conj=:1"] {
+        engine.eval(source).unwrap();
+    }
+    let source = "fn=: + alias -";
+    let graph = engine.analyze_j_graph(source).unwrap();
+    graph.verify().unwrap();
+    let snapshot = &graph.modifier_snapshots[0];
+    assert_eq!(snapshot.name, "alias");
+    let report = engine.eval_captured(source);
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    let binding = report
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            CaptureEvent::ModifierResolved { binding } if binding.name == "alias" => Some(binding),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(binding.row, ParseRow::Conjunction);
+    assert!(std::sync::Arc::ptr_eq(
+        &binding.function,
+        &snapshot.function
+    ));
+    assert_eq!(&source[binding.span.clone()], "alias");
+}

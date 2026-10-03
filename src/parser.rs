@@ -116,9 +116,6 @@ fn resolve_modifier(
     context: &mut ActionContext<'_>,
     row: ParseRow,
 ) -> Result<Arc<FunctionEntity>> {
-    if matches!(operator.head, FunctionHead::ModifierTrain) && row == ParseRow::Conjunction {
-        return Err(Error::Unsupported("derived modifier application semantics".into()).at(span));
-    }
     let FunctionHead::NameRef(name) = &operator.head else {
         return Ok(operator);
     };
@@ -163,54 +160,35 @@ fn apply_adverb(
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
     if matches!(operator.head, FunctionHead::ModifierTrain) {
         if let [first, second] = operator.operands.as_slice() {
-            // tcNV: u (C n/v) -> u C n/v.
+            // tcNV: u (C n/v) -> u C n/v; tNVc reverses the binding.
             if let FunctionOperand::Function(conjunction) = first {
-                if conjunction.is_primitive_modifier()
+                if conjunction.is_known_modifier()
                     && conjunction.result_pos == FunctionPartOfSpeech::Conjunction
+                    && (matches!(second, FunctionOperand::Noun { .. })
+                        || matches!(second, FunctionOperand::Function(f) if f.result_pos == FunctionPartOfSpeech::Verb))
                 {
-                    let Some(left) = left.into_verb() else {
-                        return Err(
-                            if matches!(
-                                conjunction.head,
-                                FunctionHead::PrimitiveConjunction(
-                                    crate::primitive::ConjunctionId::Atop
-                                )
-                            ) {
-                                Error::Domain
-                            } else {
-                                Error::Unsupported("noun-left rank constructor semantics".into())
-                            },
-                        );
-                    };
-                    let right = modifier_operand(second, span.clone());
-                    return apply_conjunction_at(left, conjunction.clone(), right, span)
-                        .map(Item::verb);
+                    return apply_conjunction_items(
+                        left,
+                        conjunction.clone(),
+                        modifier_operand(second, span.clone()),
+                        span,
+                        depth + 1,
+                    );
                 }
             }
-            // tNVc: u (n/v C) -> n/v C u.
             if let FunctionOperand::Function(conjunction) = second {
-                if conjunction.is_primitive_modifier()
+                if conjunction.is_known_modifier()
                     && conjunction.result_pos == FunctionPartOfSpeech::Conjunction
                     && (matches!(first, FunctionOperand::Noun { .. })
-                        || matches!(first, FunctionOperand::Function(function) if function.result_pos == FunctionPartOfSpeech::Verb))
+                        || matches!(first, FunctionOperand::Function(f) if f.result_pos == FunctionPartOfSpeech::Verb))
                 {
-                    let fixed = modifier_operand(first, span.clone());
-                    let Some(fixed) = fixed.into_verb() else {
-                        return Err(
-                            if matches!(
-                                conjunction.head,
-                                FunctionHead::PrimitiveConjunction(
-                                    crate::primitive::ConjunctionId::Atop
-                                )
-                            ) {
-                                Error::Domain
-                            } else {
-                                Error::Unsupported("noun-left rank constructor semantics".into())
-                            },
-                        );
-                    };
-                    return apply_conjunction_at(fixed, conjunction.clone(), left, span)
-                        .map(Item::verb);
+                    return apply_conjunction_items(
+                        modifier_operand(first, span.clone()),
+                        conjunction.clone(),
+                        left,
+                        span,
+                        depth + 1,
+                    );
                 }
             }
             // taAV: apply f first, then hook its actual result with g.
@@ -220,31 +198,22 @@ fn apply_adverb(
             ] = operator.operands.as_slice()
             {
                 if first.result_pos == FunctionPartOfSpeech::Adverb {
-                    let result = apply_adverb(left, first.clone(), span.clone(), depth + 1)?;
+                    let original = share_modifier_input(left);
+                    let result =
+                        apply_adverb(original.clone(), first.clone(), span.clone(), depth + 1)?;
                     // A C is tac, not taAV: C must receive both t and the
                     // original input. Never approximate it as a two-item hook.
                     if second.result_pos == FunctionPartOfSpeech::Conjunction {
-                        return Err(Error::Unsupported("adverbial hook tac semantics".into()));
+                        return construct_modifier_trident(
+                            result,
+                            modifier_operand(&operator.operands[1], span.clone()),
+                            original,
+                            span,
+                            depth + 1,
+                        );
                     }
                     let right = modifier_operand(&operator.operands[1], span.clone());
-                    return match bident_disposition(result.class, right.class) {
-                        BidentDisposition::ImmediateSemanticApply
-                            if right.class == ParseClass::Adverb =>
-                        {
-                            apply_adverb(result, second.clone(), span, depth + 1)
-                        }
-                        BidentDisposition::BuildHook => Ok(Item::verb(train_hook(
-                            result.into_verb().unwrap(),
-                            right.into_verb().unwrap(),
-                        ))
-                        .with_span(span)),
-                        BidentDisposition::BuildDerivedModifier(pos) => {
-                            modifier_train(vec![result, right], pos).map(Item::function)
-                        }
-                        _ => Err(Error::Unsupported(
-                            "modifier hook requires immediate semantic execution".into(),
-                        )),
-                    };
+                    return construct_modifier_bident(result, right, span, depth + 1);
                 }
             }
         }
@@ -287,6 +256,191 @@ fn apply_adverb(
     }))
 }
 
+/// Make repeated use of a concrete noun cheap without cloning its payload.
+fn share_modifier_input(mut item: Item) -> Item {
+    fn share(expr: Expr) -> Expr {
+        let kind = match expr.kind {
+            ExprKind::Literal(value) => ExprKind::Literal(value.into_shared()),
+            ExprKind::Group(inner) => ExprKind::Group(Box::new(share(*inner))),
+            other => other,
+        };
+        Expr {
+            span: expr.span,
+            kind,
+        }
+    }
+    if let ParseValue::Noun(expr, height) = item.value {
+        item.value = ParseValue::Noun(share(expr), height);
+    }
+    item
+}
+
+fn construct_modifier_bident(
+    left: Item,
+    right: Item,
+    span: std::ops::Range<usize>,
+    depth: usize,
+) -> Result<Item> {
+    if depth >= MAX_EXPR_DEPTH {
+        return Err(Error::Limit);
+    }
+    match bident_disposition(left.class, right.class) {
+        BidentDisposition::BuildHook => Ok(Item::verb(train_hook(
+            left.into_verb().unwrap(),
+            right.into_verb().unwrap(),
+        ))
+        .with_span(span)),
+        BidentDisposition::BuildDerivedModifier(pos) => {
+            modifier_train(vec![left, right], pos).map(Item::function)
+        }
+        BidentDisposition::ImmediateSemanticApply if right.class == ParseClass::Adverb => {
+            apply_adverb(left, right.into_function().unwrap(), span, depth + 1)
+        }
+        BidentDisposition::ImmediateSemanticApply => Err(Error::Unsupported(
+            "modifier bident requires parser-time noun execution".into(),
+        )),
+        BidentDisposition::SyntaxError => Err(Error::Syntax(
+            "invalid modifier bident application result".into(),
+        )),
+    }
+}
+
+fn construct_modifier_trident(
+    first: Item,
+    second: Item,
+    third: Item,
+    span: std::ops::Range<usize>,
+    depth: usize,
+) -> Result<Item> {
+    if depth >= MAX_EXPR_DEPTH {
+        return Err(Error::Limit);
+    }
+    match trident_disposition(first.class, second.class, third.class) {
+        TridentDisposition::BuildFork if first.class == ParseClass::Verb => {
+            Ok(Item::verb(train_fork(
+                first.into_verb().unwrap(),
+                second.into_verb().unwrap(),
+                third.into_verb().unwrap(),
+            ))
+            .with_span(span))
+        }
+        TridentDisposition::BuildFork => Ok(Item::verb(train_noun_fork(
+            first.into_noun().unwrap().0,
+            second.into_verb().unwrap(),
+            third.into_verb().unwrap(),
+        )?)
+        .with_span(span)),
+        TridentDisposition::BuildDerivedModifier(pos) => {
+            modifier_train(vec![first, second, third], pos).map(Item::function)
+        }
+        TridentDisposition::ImmediateSemanticApply if second.class == ParseClass::Conjunction => {
+            apply_conjunction_items(
+                first,
+                second.into_function().unwrap(),
+                third,
+                span,
+                depth + 1,
+            )
+        }
+        TridentDisposition::ImmediateSemanticApply => Err(Error::Unsupported(
+            "modifier trident requires parser-time noun execution".into(),
+        )),
+        TridentDisposition::SyntaxError => Err(Error::Syntax(
+            "invalid modifier trident application result".into(),
+        )),
+    }
+}
+
+fn apply_conjunction_items(
+    left: Item,
+    operator: Arc<FunctionEntity>,
+    right: Item,
+    span: std::ops::Range<usize>,
+    depth: usize,
+) -> Result<Item> {
+    if depth >= MAX_EXPR_DEPTH {
+        return Err(Error::Limit);
+    }
+    debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
+    if matches!(operator.head, FunctionHead::ModifierTrain) {
+        match operator.operands.as_slice() {
+            [
+                FunctionOperand::Function(first),
+                FunctionOperand::Function(second),
+            ] if first.result_pos == FunctionPartOfSpeech::Conjunction => {
+                let left = share_modifier_input(left);
+                let right = share_modifier_input(right);
+                let result = apply_conjunction_items(
+                    left.clone(),
+                    first.clone(),
+                    right.clone(),
+                    span.clone(),
+                    depth + 1,
+                )?;
+                let other = match second.result_pos {
+                    FunctionPartOfSpeech::Adverb => {
+                        modifier_operand(&operator.operands[1], span.clone())
+                    } // tca
+                    FunctionPartOfSpeech::Conjunction => apply_conjunction_items(
+                        left,
+                        second.clone(),
+                        right,
+                        span.clone(),
+                        depth + 1,
+                    )?, // tcc
+                    _ => {
+                        return Err(Error::Unsupported(
+                            "derived conjunction bident semantics".into(),
+                        ));
+                    }
+                };
+                return construct_modifier_bident(result, other, span, depth + 1);
+            }
+            [
+                FunctionOperand::Function(first),
+                FunctionOperand::Function(second),
+                FunctionOperand::Function(third),
+            ] if first.result_pos == FunctionPartOfSpeech::Adverb
+                && second.result_pos == FunctionPartOfSpeech::Adverb
+                && third.result_pos == FunctionPartOfSpeech::Verb =>
+            {
+                let first = apply_adverb(left, first.clone(), span.clone(), depth + 1)?;
+                let second = apply_adverb(right, second.clone(), span.clone(), depth + 1)?;
+                return construct_modifier_trident(
+                    first,
+                    second,
+                    modifier_operand(&operator.operands[2], span.clone()),
+                    span,
+                    depth + 1,
+                ); // taav
+            }
+            _ => {
+                return Err(Error::Unsupported(
+                    "derived conjunction application semantics".into(),
+                ));
+            }
+        }
+    }
+    if !operator.is_primitive_modifier() {
+        return Err(Error::Unsupported(
+            "conjunction child identity requires resolution".into(),
+        ));
+    }
+    let Some(left) = left.into_verb() else {
+        return Err(
+            if matches!(
+                operator.head,
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
+            ) {
+                Error::Domain
+            } else {
+                Error::Unsupported("noun-left rank constructor semantics".into())
+            },
+        );
+    };
+    apply_conjunction_at(left, operator, right, span).map(Item::verb)
+}
+
 /// Bound values are immutable and shared. Spans here describe their current
 /// application use; the original definition remains on the train identity.
 fn modifier_operand(operand: &FunctionOperand, span: std::ops::Range<usize>) -> Item {
@@ -309,11 +463,6 @@ fn modifier_operand(operand: &FunctionOperand, span: std::ops::Range<usize>) -> 
         }
         FunctionOperand::Function(function) => Item::function(function.clone()).with_span(span),
     }
-}
-
-fn apply_conjunction(left: Verb, operator: Arc<FunctionEntity>, right: Item) -> Result<Verb> {
-    let span = left.span.start..right.span().end;
-    apply_conjunction_at(left, operator, right, span)
 }
 
 fn apply_conjunction_at(
@@ -682,47 +831,22 @@ fn apply_parse_row(
             true
         }
         ParseRow::Conjunction => {
-            if stack
-                .get(1)
-                .is_some_and(|item| item.class == ParseClass::Verb)
-            {
-                let mut phrase: Vec<_> = stack.drain(1..4).collect();
-                let left = phrase.remove(0).into_verb().expect("row 4 left verb");
-                let operator = phrase.remove(0);
-                let operator_span = operator.span();
-                let right = phrase.remove(0);
-                let span = left.span.start..right.span().end;
-                let operator = resolve_modifier(
-                    operator.into_function().expect("row 4 conjunction"),
-                    operator_span,
-                    context,
-                    row,
-                )?;
-                stack.insert(
-                    1,
-                    Item::verb(
-                        apply_conjunction(left, operator, right).map_err(|error| error.at(span))?,
-                    ),
-                );
-                true
-            } else {
-                let operator = resolve_modifier(
-                    stack[2].clone().into_function().expect("row 4 conjunction"),
-                    stack[2].span(),
-                    context,
-                    row,
-                )?;
-                return Err(match operator.head {
-                    FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
-                        Error::Domain
-                    }
-                    _ => Error::Unsupported(
-                        "noun-left conjunction construction requires semantic parser execution"
-                            .into(),
-                    ),
-                }
-                .at(stack[1].span()));
-            }
+            let mut phrase: Vec<_> = stack.drain(1..4).collect();
+            let left = phrase.remove(0);
+            let operator = phrase.remove(0);
+            let operator_span = operator.span();
+            let right = phrase.remove(0);
+            let span = left.span().start..right.span().end;
+            let operator = resolve_modifier(
+                operator.into_function().expect("row 4 conjunction"),
+                operator_span,
+                context,
+                row,
+            )?;
+            let result = apply_conjunction_items(left, operator, right, span.clone(), 0)
+                .map_err(|error| error.at(span.clone()))?;
+            stack.insert(1, result.with_span(span));
+            true
         }
         ParseRow::Fork => {
             let classes = [
@@ -2037,5 +2161,44 @@ mod runtime_action_tests {
             panic!("runtime result must not replay an AST")
         };
         assert_eq!(value.int_at(0).unwrap(), 14);
+    }
+}
+
+#[cfg(test)]
+mod modifier_storage_tests {
+    use super::*;
+    use crate::{storage::CpuStorage, value::Data};
+
+    #[test]
+    fn reused_grouped_noun_shares_owned_payload_without_copy_and_outlives_original() {
+        let value = crate::Value::ints([65_536], (0..65_536).collect()).unwrap();
+        let Data::Int(storage) = &value.data else {
+            panic!();
+        };
+        let pointer = storage.as_slice().as_ptr();
+        let literal = Expr {
+            span: 0..1,
+            kind: ExprKind::Literal(value),
+        };
+        let item = Item::noun(
+            Expr {
+                span: 0..1,
+                kind: ExprKind::Group(Box::new(literal)),
+            },
+            1,
+        );
+        let first = share_modifier_input(item);
+        let second = first.clone();
+        let first = completed_noun(first.into_noun().unwrap().0, "test").unwrap();
+        let second = completed_noun(second.into_noun().unwrap().0, "test").unwrap();
+        let (Data::Int(CpuStorage::Shared(a)), Data::Int(CpuStorage::Shared(b))) =
+            (&first.data, &second.data)
+        else {
+            panic!();
+        };
+        assert!(std::sync::Arc::ptr_eq(a, b));
+        assert_eq!(a.as_ptr(), pointer);
+        drop(first);
+        assert_eq!(second.int_at(65_535).unwrap(), 65_535);
     }
 }

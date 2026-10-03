@@ -252,7 +252,7 @@ def run(args):
                                                           'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
         else:
             check('static_value_boundary', source, {'C_success': True, 'rust': {'error': 'unsupported'}}, {'C_success': reference is None, 'rust': actual})
-        for source in ['candidate=: + (@:/) -', 'candidate=: + (/@:)']:
+        for source in ['candidate=: + (@: + @:) -']:
             actual = static_probe.inspect(source)
             reference = oracle.run(source)
             if reference is None and actual == {'error': 'unsupported'}:
@@ -278,6 +278,18 @@ def run(args):
         analyze_function('candidate=: 1 leftalias', [('leftalias', 1)])
         setup('leftbind=:1', 'leftbind')
         analyze_function('candidate=: 1 leftalias', [('leftalias', 1)])
+        for expression in ['+ (/@:)', '+ (@:/) -', '+ (" /) 1',
+                           '+ (@:@:) -', '+ (" ") 1', '+ (/ / +) *',
+                           '+ ((@:/) -)', '+ ((/@:) /)']:
+            analyze_function('candidate=: ' + expression, [])
+        for expression in ['+ (" @:) 1 2 3 4', '+ (@: ") 1 2 3 4',
+                           '3 (/ / +) 3']:
+            analyze_function('candidate=: ' + expression, [])
+        setup('derivedconj=:@:/', 'derivedconj')
+        setup('derivedalias=:derivedconj', 'derivedalias')
+        analyze_function('candidate=: + derivedalias -', [('derivedalias', 2)])
+        setup('derivedconj=:1', 'derivedconj')
+        analyze_function('candidate=: + derivedalias -', [('derivedalias', 2)])
         setup('boundrank=:"1', 'boundrank')
         setup('boundalias=:boundrank', 'boundalias')
         analyze_function('candidate=: - boundrank', [('boundrank', 1)])

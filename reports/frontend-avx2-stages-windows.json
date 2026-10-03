@@ -10,7 +10,7 @@
     "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "5e0c4589971205e9e6c0bb0be6217b27320c6c2cedcb02c6931265ca0f28b46c",
+  "probe_sha256": "7e2882f83674c191947d3cfc5a84d80eb130be610f59b8e68fb57c8dc61f2ab1",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -24,11 +24,11 @@
     "enqueue_index": 23,
     "parser_function": 131,
     "frontend_error": 17,
-    "static_setup": 14,
-    "static_constructor": 29,
-    "static_read_only": 29,
-    "static_modifier_dependencies": 29,
-    "static_constructor_error": 11,
+    "static_setup": 17,
+    "static_constructor": 39,
+    "static_read_only": 39,
+    "static_modifier_dependencies": 39,
+    "static_constructor_error": 14,
     "copula_reference": 4
   },
   "mismatches": [],
@@ -42,15 +42,7 @@
       }
     },
     {
-      "source": "candidate=: + (@:/) -",
-      "reason": "derived modifier application semantics are not implemented",
-      "reference_pos": 3,
-      "rust": {
-        "error": "unsupported"
-      }
-    },
-    {
-      "source": "candidate=: + (/@:)",
+      "source": "candidate=: + (@: + @:) -",
       "reason": "derived modifier application semantics are not implemented",
       "reference_pos": 3,
       "rust": {

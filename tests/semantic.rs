@@ -710,16 +710,15 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
-    for source in ["protected=: + (@:/) -", "protected=: + (/@:)"] {
-        let report = engine.eval_captured(source);
-        assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
-        report.capture.verify().unwrap();
-        assert_eq!(engine.binding_version("protected"), version);
-        assert_eq!(
-            engine.prepare_semantic(source).unwrap_err().kind(),
-            "unsupported"
-        );
-    }
+    let source = "protected=: + (@: + @:) -";
+    let report = engine.eval_captured(source);
+    assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
+    report.capture.verify().unwrap();
+    assert_eq!(engine.binding_version("protected"), version);
+    assert_eq!(
+        engine.prepare_semantic(source).unwrap_err().kind(),
+        "unsupported"
+    );
 }
 
 #[test]
@@ -872,6 +871,88 @@ fn left_binding_and_sequential_errors_stop_before_assignment() {
         ("1 2 3 4 (-\")", "length error"),
         ("'a' ((-\") /)", "domain error"),
         ("3 (/@:)", "domain error"),
+    ] {
+        let source = format!("protected=: {expression}");
+        let report = engine.eval_captured(&source);
+        report.capture.verify().unwrap();
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
+        assert_eq!(engine.binding_version("protected"), version);
+        assert_eq!(engine.prepare_semantic(&source).unwrap_err().kind(), kind);
+    }
+}
+
+#[test]
+fn adverbial_hook_reuses_original_input_not_the_first_result() {
+    use rustj::semantic::{ExprKind, FunctionHead, FunctionOperand};
+    let program = semantic::parse("+ (/@:)").unwrap();
+    let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+        panic!();
+    };
+    assert_eq!(
+        verb.entity.head,
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
+    );
+    let [
+        FunctionOperand::Function(insert),
+        FunctionOperand::Function(original),
+    ] = verb.entity.operands.as_slice()
+    else {
+        panic!();
+    };
+    assert_eq!(
+        insert.head,
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+    );
+    let FunctionOperand::Function(input) = &insert.operands[0] else {
+        panic!();
+    };
+    assert!(std::sync::Arc::ptr_eq(input, original));
+    assert_eq!(
+        original.head,
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+    );
+}
+
+#[test]
+fn conjunction_actions_produce_completed_insert_hook_and_fork() {
+    use rustj::semantic::{ExprKind, FunctionHead};
+    for (source, head, count) in [
+        (
+            "+ (@:/) -",
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            1,
+        ),
+        ("+ (@:@:) -", FunctionHead::Hook, 2),
+        ("+ (/ / +) *", FunctionHead::Fork, 3),
+        (
+            "+ ((@:/) -)",
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            1,
+        ),
+    ] {
+        let program = semantic::parse(source).unwrap();
+        let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!();
+        };
+        assert_eq!(verb.entity.head, head, "{source}");
+        assert_eq!(verb.entity.operands.len(), count);
+        assert_eq!(
+            verb.entity.result_pos,
+            rustj::semantic::FunctionPartOfSpeech::Verb
+        );
+    }
+}
+
+#[test]
+fn conjunction_sequence_errors_preserve_order_and_do_not_assign() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for (expression, kind) in [
+        ("+ (\" @:) 1 2 3 4", "length error"),
+        ("+ (@: \") 1 2 3 4", "domain error"),
+        ("3 (/@:)", "domain error"),
+        ("3 (/ / +) 3", "domain error"),
     ] {
         let source = format!("protected=: {expression}");
         let report = engine.eval_captured(&source);

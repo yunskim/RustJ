@@ -7646,6 +7646,18 @@ Windows 검증: default/portable 각각 **270 passed / 17 ignored**, fmt/clippy 
 
 기준 소스: [cf.c taAV/tNVc/tac/taaa](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application 및 재삽입](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
 
+##### Adverbial hook 및 derived conjunction 적용 (2026-10-03)
+
+- [x] P3: `cf.c::tac`에 따라 `(A C)`는 먼저 `t=u A`를 구성하고 `t C u`에 원래 입력을 전달한다. `+ (/@:)`의 Insert와 Atop이 같은 입력 함수 객체를 참조하는지 검증한다. 앞 절에서 기록한 `tac` 미지원 경계는 이 단계에서 해소했다.
+- [x] P3/P5: `tca`는 `u C v` 결과에 A를 적용하고, `tcc`는 같은 원래 입력에 첫 C와 둘째 C를 순서대로 적용한 뒤 결과들을 bident로 구성한다. `taav`는 왼쪽·오른쪽 입력에 각각 A를 적용하고 고정 V와 trident를 구성한다. 실제 결과 품사로 hook·insert·fork 또는 modifier를 구성하며 row 4가 완료된 `Item`을 parser stack에 재삽입한다. 알려진 derived conjunction의 left/right binding도 이 경로를 사용한다.
+- [x] P4/P5: 반복 사용되는 concrete noun은 Owned 저장소를 Shared로 전환해 payload를 복사하지 않는다. Group 내부 noun도 처리하며 65,536개 정수의 원래 payload pointer, 공유 identity, 원본 해제 후 수명을 검증한다. deferred expression은 실행하지 않는다. 함수 DAG와 이전 정의는 immutable로 유지하고 현재 사용 span 및 named alias snapshot을 보존한다. binding/version 관찰은 재사용 허용 조건이 아니다.
+- [x] P6: C의 함수 표현·결과 품사, 첫 constructor 오류가 다음 action을 막는 순서, 실패 후 기존 assignment target 유지, 원래 conjunction을 재정의한 뒤 alias identity를 검증한다. 회귀 테스트 5개, C 비교 문장 16개, 정적 stage 검사 36개를 추가했다.
+- [ ] noun-left rank/gerund, 다른 derived conjunction trident(`tcVCc` 등), train 내부 late modifier NameRef 조회·effect 계약, bident/trident의 즉시 noun 실행을 연결한다. 구성된 함수의 kernel 실행 범위와 locale/explicit-local/definition scope는 별도 미완료 항목이다. 최적화는 아직 구현하지 않는다.
+
+Windows 검증: default/portable 각각 **275 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,221문장 중 2,217 passed, 기존 runtime 경계 4개, failed 0**; stage **7,204 checks**, words **6,618 cases** 통과. capture graph 경계 42건(ordered-effect 9건, modifier-value 33건)은 성공 수와 구분한다. static analysis 경계는 computed rank와 `candidate=: + (@: + @:) -`의 `tcVCc` 2건이다. 앞 절의 3건 중 `tac`와 derived conjunction bident 경계는 해소했고, 다른 trident의 실제 C 성공/품사와 Rust Unsupported를 새로 보고한다. stage의 9⁴ 표 검사는 declarative eligibility 비교이며 전체 parser action trace의 증명이 아니다. C DLL release pin과 검토한 source pin을 구분하며 전체 J/upstream suite, CUDA, GitHub CI 실행을 주장하지 않는다.
+
+기준 소스: [cf.c tac/tca/tcc/taav 및 modifier train dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c conjunction application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
