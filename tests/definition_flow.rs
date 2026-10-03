@@ -345,3 +345,83 @@ fn verifier_rejects_fallthrough_marker_on_test_or_final_body() {
         .before_fallthrough_end = true;
     assert!(invalid.verify().is_err());
 }
+
+#[test]
+fn goto_targets_use_label_successor_and_exact_raw_suffix() {
+    let f = code("goto_exit. 1 label_exitt. 2 label_exit. y");
+    assert_eq!(f.monad_controls[0].named_target.as_deref(), Some("exit"));
+    assert_eq!(f.monad_controls[0].go, J::Index(5));
+    let f = code("label_again. y goto_again.");
+    assert_eq!(f.monad_controls[2].go, J::Index(1));
+    for body in ["goto_. label_. y", "goto_1x. label_1x. y"] {
+        assert_eq!(code(body).monad_controls[0].go, J::Index(2));
+    }
+    let f = code("label_same. label_same. y");
+    assert_eq!(f.monad_controls.len(), 3); // duplicates are checked only if referenced
+}
+
+#[test]
+fn goto_audit_rejects_missing_duplicate_and_cross_valence_targets_transactionally() {
+    let mut engine = Engine::new();
+    engine.eval("f=:+").unwrap();
+    let version = engine.binding_version("f");
+    for body in [
+        "goto_missing.",
+        "goto_x. label_xx.",
+        "goto_a. label_a. label_a.",
+        "goto_a.\n:\nlabel_a.",
+    ] {
+        let source = format!("f=:3 : '{body}'");
+        assert_eq!(
+            engine.eval(&source).unwrap_err().kind(),
+            "control error",
+            "{body}"
+        );
+        assert_eq!(engine.binding_version("f"), version);
+    }
+    let f = code("goto_a. label_a.\n:\ngoto_a. label_a.");
+    assert_eq!(f.monad_controls[0].go, J::Index(2));
+    assert_eq!(f.dyad_controls[0].go, J::Index(2));
+}
+
+#[test]
+fn goto_cannot_enter_a_structure_or_sibling_branch_but_can_leave() {
+    let mut e = Engine::new();
+    for body in [
+        "goto_a. if. y do. label_a. y end.",
+        "if. y do. goto_a. else. label_a. y end.",
+        "goto_a. while. y do. label_a. y end.",
+        "goto_a. select. y case. 1 do. label_a. y end.",
+    ] {
+        assert_eq!(
+            e.eval(&format!("f=:3 : '{body}'")).unwrap_err().kind(),
+            "control error",
+            "{body}"
+        );
+    }
+    for body in [
+        "if. y do. goto_a. end. label_a. y",
+        "while. y do. goto_a. end. label_a. y",
+        "if. y do. goto_a. label_a. y end.",
+        "try. y catch. goto_a. label_a. y end.",
+    ] {
+        code(body).verify().unwrap();
+    }
+}
+
+#[test]
+fn named_control_verifier_and_duplicate_error_preserve_source_provenance() {
+    let f = code("goto_a. label_a. y");
+    let mut corrupted = (*f).clone();
+    corrupted.monad_controls[0].named_target = Some("wrong".into());
+    assert!(corrupted.verify().is_err());
+    let mut corrupted = (*f).clone();
+    corrupted.monad_controls[0].go = J::Index(1);
+    assert!(corrupted.verify().is_err());
+    let source = "f=:3 : '''quoted''\ngoto_a.\nlabel_a.\nlabel_a.'";
+    let mut e = Engine::new();
+    let error = e.eval_diagnostic(source).unwrap_err();
+    let start = source.rfind("label_a.").unwrap();
+    assert_eq!(error.kind(), "control error");
+    assert_eq!(error.span(), Some(&(start..start + 8)));
+}

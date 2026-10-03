@@ -45,6 +45,8 @@ pub struct ControlNode {
     /// CBBLOCKEND: followed by a non-select end that falls through, with more code.
     pub before_fallthrough_end: bool,
     pub previous_result: PreviousResult,
+    /// Raw goto/label suffix, excluding the terminating dot; never name lookup.
+    pub named_target: Option<String>,
 }
 
 fn invalid(nodes: &[ControlNode], index: usize) -> Error {
@@ -56,6 +58,7 @@ fn invalid(nodes: &[ControlNode], index: usize) -> Error {
 pub fn audit(nodes: &mut [ControlNode]) -> Result<()> {
     use ControlJump::*;
     use ControlKind::*;
+    audit_goto(nodes)?;
     let mut stack: Vec<usize> = Vec::new();
     let mut tests = 0usize;
     let mut loops = 0usize;
@@ -231,14 +234,9 @@ pub fn audit(nodes: &mut [ControlNode]) -> Result<()> {
                     return Err(invalid(nodes, i));
                 }
             }
-            Word(W::Return | W::Throw) => {}
-            Word(_) => {
-                return Err(
-                    Error::Unsupported("goto/label control audit".into()).at(nodes[i].span.clone())
-                );
-            }
-            Test | DoFor | BreakFor | DoSelect | EndSelect | SelectNested | BreakSelect
-            | ContinueSelect => {
+            Word(W::Return | W::Throw | W::Goto | W::Label) => {}
+            Word(W::Assert) | Test | DoFor | BreakFor | DoSelect | EndSelect | SelectNested
+            | BreakSelect | ContinueSelect => {
                 return Err(Error::Unsupported(
                     "control audit requires unprocessed nodes".into(),
                 ));
@@ -398,6 +396,25 @@ pub fn verify(nodes: &[ControlNode]) -> Result<()> {
         return Err(Error::Unsupported("control target outside valence".into()));
     }
     for (i, node) in nodes.iter().enumerate() {
+        let named = matches!(node.kind, ControlKind::Word(W::Goto | W::Label));
+        if named != node.named_target.is_some() {
+            return Err(Error::Unsupported(
+                "missing or unexpected named control data".into(),
+            ));
+        }
+        if node.kind == ControlKind::Word(W::Goto) {
+            let label = match node.go {
+                ControlJump::Index(target) => target.checked_sub(1).and_then(|i| nodes.get(i)),
+                _ => None,
+            };
+            if label.is_none_or(|label| {
+                label.kind != ControlKind::Word(W::Label) || label.named_target != node.named_target
+            }) {
+                return Err(Error::Unsupported(
+                    "goto does not target its label successor".into(),
+                ));
+            }
+        }
         if node.before_fallthrough_end
             && (node.kind != ControlKind::Body
                 || i + 2 >= nodes.len()
@@ -484,6 +501,71 @@ fn fill_previous_result(nodes: &mut [ControlNode]) -> Result<()> {
             2 => PreviousResult::CannotReturn,
             _ => PreviousResult::Unresolved,
         };
+    }
+    Ok(())
+}
+
+/// congoto runs before conall, so these are the original (unspecialized) kinds.
+fn audit_goto(nodes: &mut [ControlNode]) -> Result<()> {
+    use ControlKind::Word;
+    if !nodes.iter().any(|n| n.kind == Word(W::Goto)) {
+        return Ok(()); // Unreferenced duplicate labels are legal in C.
+    }
+    let mut intervals: Vec<(usize, Option<usize>)> = Vec::new();
+    let mut cursor = 0usize;
+    for (i, node) in nodes.iter().enumerate() {
+        match node.kind {
+            Word(W::End) => {
+                let Some(interval) = intervals.get_mut(cursor) else {
+                    return Err(invalid(nodes, i));
+                };
+                interval.1 = Some(i);
+                while cursor > 0 && intervals[cursor].1.is_some_and(|end| end > 0) {
+                    cursor -= 1;
+                }
+            }
+            Word(W::Case | W::Catch | W::Do | W::Else | W::ElseIf | W::FCase) => {
+                let Some(interval) = intervals.get_mut(cursor) else {
+                    return Err(invalid(nodes, i));
+                };
+                interval.1 = Some(i);
+                intervals.push((i, None));
+                cursor = intervals.len() - 1;
+            }
+            Word(W::For | W::If | W::Select | W::Try | W::While | W::Whilst) => {
+                intervals.push((i, None));
+                cursor = intervals.len() - 1;
+            }
+            _ => {}
+        }
+    }
+    for i in 0..nodes.len() {
+        if nodes[i].kind != Word(W::Goto) {
+            continue;
+        }
+        let name = nodes[i]
+            .named_target
+            .as_ref()
+            .ok_or_else(|| invalid(nodes, i))?;
+        let mut labels = nodes.iter().enumerate().filter(|(_, node)| {
+            node.kind == Word(W::Label) && node.named_target.as_ref() == Some(name)
+        });
+        let Some((target, _)) = labels.next() else {
+            return Err(invalid(nodes, i));
+        };
+        if let Some((duplicate, _)) = labels.next() {
+            return Err(invalid(nodes, duplicate));
+        }
+        let inside = |point: usize, start: usize, end: Option<usize>| {
+            point >= start && end.is_none_or(|end| point < end)
+        };
+        if intervals
+            .iter()
+            .any(|&(start, end)| inside(target, start, end) && !inside(i, start, end))
+        {
+            return Err(invalid(nodes, i));
+        }
+        nodes[i].go = ControlJump::Index(target + 1);
     }
     Ok(())
 }

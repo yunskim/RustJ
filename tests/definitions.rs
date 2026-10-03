@@ -6,8 +6,8 @@ fn definition_forms_are_rejected_without_binding_or_running_the_body() {
     let forms = [
         "f=:{{ {{y+1}} y }}",
         "f=:{{)n literal data }}",
-        "f=:{{ goto_done. label_done. y }}",
-        "f=:3 : 0\ngoto_done.\nleaked=:99\nlabel_done.\n)",
+        "f=:{{ for_i_base_. y do. y end. }}",
+        "f=:3 : 0\nfor_i_base_. y do.\nleaked=:99\nend.\n)",
     ];
     let mut e = Engine::new();
     e.eval("f=:42").unwrap();

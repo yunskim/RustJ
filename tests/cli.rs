@@ -64,8 +64,8 @@ fn script_and_argument_failures_have_nonzero_status() {
 #[test]
 fn unsupported_definitions_never_execute_following_body_lines() {
     for source in [
-        "f=:{{\ngoto_done.\nleaked=:99\nlabel_done.\n}}\nleaked\n",
-        "f=:3 : 0\ngoto_done.\nleaked=:99\nlabel_done.\n)\nleaked\n",
+        "f=:{{\nfor_i_base_. y do.\nleaked=:99\nend.\n}}\nleaked\n",
+        "f=:3 : 0\nfor_i_base_. y do.\nleaked=:99\nend.\n)\nleaked\n",
         "f=:{{ 'unfinished\nleaked=:99\n}}\nleaked\n",
         "f=:verb define\nleaked=:99\n)\nleaked\n",
     ] {

@@ -7834,6 +7834,19 @@ Windows default/portable 각각 **344 passed / 17 ignored**, fmt/clippy/build �
 
 [wc.c CBBLOCKEND and canend](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L238).
 
+##### Goto/label 연결과 구조 진입 audit (2026-10-04, partial DEF-2)
+
+- [x] `congotoblk/congoto/congotochk`를 따라 **conall 이전**에 원래 control kind로 구조 interval을 만들고 target label의 다음 entry를 goto target으로 연결한다. label suffix는 원본 문자열로 보존하며 name lookup을 하지 않는다. 빈 suffix와 숫자로 시작하는 suffix도 일반 J name으로 재분류하지 않는다.
+- [x] 같은 valence에서 target이 없거나 참조된 label이 중복되면 ControlError다. 참조되지 않은 duplicate label은 C처럼 허용한다. target prefix를 정확히 구분하고, 구조 안으로의 진입·sibling branch 이동은 금지하되 구조 밖으로의 이동은 허용한다. malformed interval은 안전한 bounds 검사로 오류 처리한다.
+- [x] verifier가 named suffix와 원본 source 및 label successor 참조를 확인한다. 원본 quoted source의 duplicate label 위치를 보존하고 실패 후 binding을 유지한다. body 호출이나 branchout runtime stack 처리는 구현하지 않았다.
+- [x] pinned `test/ggoto.ijs`의 select/if, while/try, if/for/whilst 3개 template에서 label과 goto를 넣을 수 있는 모든 gap **1,028개**를 비교했다. j64/AVX2 모두 생성 성공 332건·ControlError 696건으로 일치한다. upstream suite 전체 실행이나 private jump trace 비교는 아니다.
+- [x] CLI 문장 단위 corpus에는 한 줄 equivalent를 사용하고, 원본 여러 줄·valence 구분은 stage probe에서 비교한다. 실제 여러 줄 quoted string을 CLI 한 case로 잘못 보내는 transport 문제를 발견해 수정했고, 이후 CR/LF 입력을 거부하는 regression guard를 추가했다. control 정의 생성의 성공을 호출 지원으로 계산하지 않는다.
+- [ ] 다음: nested/tagged/multiple direct definition 및 computed/grouped colon operand의 framing·enqueue provenance를 확장한다. invocation/local frame·scope, Code 본문 structural graph와 A3 lowering은 별도 단계다. for locative name, 최적화·CUDA·GitHub CI는 현재 미지원/보류다.
+
+Windows default/portable 각각 **348 passed / 17 ignored**, fmt/clippy/build 통과. Python **25 passed**(최종 CLI transport regression 포함). j64/AVX2 각각 direct·semantic-reference·parser-capture **4,563 cases / 4,559 passed / 기존 runtime 경계 4 / failed 0**, stage **9,724 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했으며 `test/ggoto.ijs` hash도 추가했다. capture graph 경계 78과 static 경계 2는 별도다. DLL release/source review pin 구분은 이전 절과 동일하다.
+
+Sources: [wc.c goto audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L14), [j.h half-open intervals and DO loop index](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1065), [upstream goto position tests](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/ggoto.ijs).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

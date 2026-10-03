@@ -1,5 +1,5 @@
 import unittest
-from conformance import equal, generated, runtime_coverage_boundary
+from conformance import equal, generated, runtime_coverage_boundary, cases, validate_cli_corpus
 
 class ComparatorTests(unittest.TestCase):
     def test_structure_and_types(self):
@@ -38,3 +38,11 @@ class CoverageBoundaryTests(unittest.TestCase):
         self.assertIsNone(runtime_coverage_boundary('+/entrynoun', reference, {'error': 'unsupported'}))
         self.assertIsNone(runtime_coverage_boundary(source, {'error': 'domain error'}, {'error': 'unsupported'}))
         self.assertIsNone(runtime_coverage_boundary(source, reference, reference))
+
+
+class CliTransportTests(unittest.TestCase):
+    def test_corpus_has_one_physical_sentence_per_cli_request(self):
+        validate_cli_corpus(cases())
+        for body in ["f=:3 : 'goto_a.\nlabel_a.'", "1\r2"]:
+            with self.assertRaisesRegex(ValueError, 'physical line break'):
+                validate_cli_corpus([body])

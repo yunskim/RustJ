@@ -677,6 +677,19 @@ Windows default/portable each: **344 passed / 17 ignored**; fmt/clippy/build pas
 
 [wc.c CBBLOCKEND and canend](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L238).
 
+##### Goto/label resolution and structure-entry audit (2026-10-04, partial DEF-2)
+
+- [x] Follow `congotoblk/congoto/congotochk` **before conall**, building intervals from original control kinds and targeting the successor of the matching label. Preserve raw suffixes without name lookup; empty and digit-leading suffixes are not reclassified as ordinary J names.
+- [x] Missing targets or referenced duplicate labels in the same valence produce ControlError. Unreferenced duplicates remain legal. Match suffixes exactly; reject entry into structures and sibling branches while allowing exits. Malformed intervals use safe bounds checks.
+- [x] Verify named suffix/source consistency and label-successor references. Preserve original quoted-source duplicate-label diagnostics and existing bindings on errors. Body invocation and runtime branchout stack handling remain unimplemented.
+- [x] Compare all **1,028 insertion-gap combinations** for label and goto in three templates from pinned `test/ggoto.ijs`: select/if, while/try and if/for/whilst. Both j64 and AVX2 agree on 332 successful constructions and 696 ControlErrors. This is not the full upstream suite or a private jump trace comparison.
+- [x] The CLI corpus uses single-line equivalents; stage probes compare original multiline source and valence separators. Fix a transport mismatch from sending a multiline quoted definition as one CLI case, and add a regression guard rejecting CR/LF cases. Successful construction is not counted as invocation support.
+- [ ] Next: nested/tagged/multiple direct-definition and computed/grouped colon framing/enqueue provenance. Invocation/local frames, scope, Code structural body graph and A3 lowering remain separate. Locative for names, optimization, CUDA and GitHub CI remain unsupported/deferred.
+
+Windows default/portable each: **348 passed / 17 ignored**; fmt/clippy/build pass. Python: **25 passed**, including the final CLI transport regression. For both j64 and AVX2, direct/semantic-reference/parser-capture: **4,563 cases / 4,559 passed / 4 existing runtime boundaries / 0 failed**; stages: **9,724 checks**; words: **6,618 cases**. All ten report binary/source hashes match, including the added `test/ggoto.ijs` hash. Record 78 capture-graph and 2 static boundaries separately. DLL release and source review pins remain distinct as documented above.
+
+Sources: [wc.c goto audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L14), [j.h half-open intervals and DO loop index](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1065), [upstream goto position tests](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/ggoto.ijs).
+
 <a id="static-frontend-review"></a>
 
 ##### Static-analysis acceptance and existing frontend review (2026-10-03)

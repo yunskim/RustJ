@@ -188,6 +188,15 @@ def definition_flow_bodies():
         'while. y do. for_i. y do. continue. break. end. break. end.',
         'if. if. y do. z end. do. a end.',
         'assert. y', '1 return.', 'throw.',
+        'goto_done. y label_done. y', 'label_again. y goto_again.',
+        'goto_. label_. y', 'goto_1x. label_1x. y',
+        'label_same. label_same. y',
+        'goto_same. label_same. label_same.', 'goto_missing.',
+        'goto_x. label_xx.', 'goto_a. if. y do. label_a. y end.',
+        'if. y do. goto_a. end. label_a. y',
+        'goto_a. label_a.\n:\ngoto_a. label_a.',
+        'goto_a.\n:\nlabel_a.',
+        'try. y catchd. goto_a. label_a. y catcht. y end.',
         '1 while. y do. 2 end.', 'while. y do. 2 end. 3',
         '1 if. y do. 2 end. return.', 'if. y do. y end. 3',
         'try. y catch. y end. 3', 'select. y case. 1 do. y end. 3',
@@ -214,9 +223,31 @@ def control_sequence_matrix():
     return [' '.join(parts) for size in range(1,4) for parts in itertools.product(words,repeat=size)]
 
 
+def goto_position_matrix():
+    """All insertion gaps in the three templates from pinned test/ggoto.ijs.
+
+    Compare construction only; do not execute the intentionally cyclic bodies.
+    """
+    templates = [
+        ['select.', 'if.', 'y', 'do.', '1', 'else.', '0', 'end.',
+         'fcase.', '0', 'do.', "'zero'", 'case.', '1', 'do.', "'one'", 'end.'],
+        ['while.', 'if.', 'y', 'do.', '1', 'elseif.', '2', 'do.', '3', 'end.',
+         'do.', '4', 'try.', '5', 'catch.', '6', 'end.', 'end.'],
+        ['0', 'if.', 'y', 'do.', 'for.', '1', 'do.', '2', 'end.', 'else.',
+         'whilst.', '3', 'do.', '4', 'end.', 'end.'],
+    ]
+    bodies = []
+    for template in templates:
+        for label in range(len(template)+1):
+            labeled = template[:label] + ['label_it.'] + template[label:]
+            for jump in range(len(labeled)+1):
+                bodies.append('\n'.join(labeled[:jump] + ['goto_it.'] + labeled[jump:]))
+    return bodies
+
+
 def definition_flow_cases():
     return ['flowcounter=:0', "flowfn=:3 : 'if. y do. flowcounter=:99 else. 7 end.'", 'flowcounter'] + [
-        sentence for body in definition_flow_bodies()
+        sentence for body in definition_flow_bodies() if '\n' not in body
         for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
 
 
@@ -482,6 +513,7 @@ def cases():
     fixed.extend(definition_code_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
+    fixed.extend("gotomatrix=:3 : '"+body.replace("\n", " ").replace("'", "''")+"'" for body in goto_position_matrix())
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked
@@ -525,6 +557,13 @@ def generated(seed, rounds):
     return out
 
 
+def validate_cli_corpus(corpus):
+    """Each case must be one CLI sentence; multiline source uses stage probes."""
+    for index, source in enumerate(corpus):
+        if '\n' in source or '\r' in source:
+            raise ValueError(f'CLI case {index} contains a physical line break; use a stage probe')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--semantic-reference', action='store_true')
@@ -548,6 +587,7 @@ def main():
               'scope': 'supported subset; upstream suite NOT executed',
               'passed': 0, 'known_deviations': [], 'coverage_boundaries': [], 'failures': []}
     try:
+        validate_cli_corpus(corpus)
         oracle = subprocess.run([sys.executable, str(ROOT / 'tools/oracle.py')], input=''.join(json.dumps(s)+'\n' for s in corpus), text=True, capture_output=True, timeout=120)
         rust = subprocess.run([str(args.binary), '--json'] + (['--semantic-reference'] if args.semantic_reference else []), input='\n'.join(corpus)+'\n', text=True, capture_output=True, timeout=120)
         if oracle.returncode != 0 or rust.returncode not in (0,1):
@@ -566,7 +606,7 @@ def main():
         expected = [json.loads(s) for s in oracle.stdout.splitlines()]
         actual = [json.loads(s) for s in rust.stdout.splitlines()]
         if len(expected) != len(corpus) or len(actual) != len(corpus):
-            raise RuntimeError('incomplete output')
+            raise RuntimeError(f'incomplete output: cases={len(corpus)}, oracle={len(expected)}, rust={len(actual)}')
         for i, (source, a, b) in enumerate(zip(corpus, expected, actual)):
             if equal(a,b):
                 report['passed'] += 1

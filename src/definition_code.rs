@@ -199,7 +199,12 @@ pub fn compile(
                         pending_assert = Some(span);
                         continue;
                     }
-                    if control == W::For {
+                    let named_target = match control {
+                        W::Goto => Some(body[span.start + 5..span.end - 1].to_owned()),
+                        W::Label => Some(body[span.start + 6..span.end - 1].to_owned()),
+                        _ => None,
+                    };
+                    if matches!(control, W::For | W::Goto | W::Label) {
                         queued_words[side] += 1;
                     }
                     let go = if matches!(control, W::Break | W::Continue | W::Throw) {
@@ -219,6 +224,7 @@ pub fn compile(
                         analysis_barrier: false,
                         before_fallthrough_end: false,
                         previous_result: Default::default(),
+                        named_target,
                     });
                 } else {
                     let begin = words.len();
@@ -274,6 +280,7 @@ pub fn compile(
                         analysis_barrier: false,
                         before_fallthrough_end: false,
                         previous_result: Default::default(),
+                        named_target: None,
                     });
                 }
             }
@@ -408,6 +415,26 @@ impl DefinitionCode {
                     return Err(Error::Unsupported(
                         "control source belongs to a different valence".into(),
                     ));
+                }
+                let target = match node.kind {
+                    crate::definition_flow::ControlKind::Word(
+                        crate::definition_control::ControlWord::Goto,
+                    ) => self
+                        .body
+                        .get(node.span.clone())
+                        .and_then(|s| s.strip_prefix("goto_"))
+                        .and_then(|s| s.strip_suffix('.')),
+                    crate::definition_flow::ControlKind::Word(
+                        crate::definition_control::ControlWord::Label,
+                    ) => self
+                        .body
+                        .get(node.span.clone())
+                        .and_then(|s| s.strip_prefix("label_"))
+                        .and_then(|s| s.strip_suffix('.')),
+                    _ => None,
+                };
+                if target != node.named_target.as_deref() {
+                    return Err(Error::Unsupported("invalid named control source".into()));
                 }
                 let line = &self.sentences[position];
                 if self.body.get(node.span.clone()).is_none()
