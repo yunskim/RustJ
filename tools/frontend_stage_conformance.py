@@ -123,7 +123,7 @@ def run(args):
     observed_rows = [json.loads(x) for x in subprocess.check_output([args.binary, '--rows'], text=True).splitlines()]
     report = {'platform': platform.platform(), 'reference_revision': args.reference_revision,
               'source_review_revision': args.source_revision,
-              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c']},
+              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/cg.c', 'jsrc/r.c']},
               'reference_library_sha256': hashlib.sha256(Path(os.environ['J_LIBRARY']).read_bytes()).hexdigest(),
               'probe_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdigest(),
               'checks': {}, 'mismatches': [], 'analysis_coverage_boundaries': [], 'pending': PENDING,
@@ -252,6 +252,19 @@ def run(args):
                                                           'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
         else:
             check('static_value_boundary', source, {'C_success': True, 'rust': {'error': 'unsupported'}}, {'C_success': reference is None, 'rust': actual})
+        # Runtime capture can construct this gerund, but static analysis must
+        # not execute boxing/ravel to obtain its constructor operand.
+        source = "candidate=: (, <'+')\\"
+        actual = static_probe.inspect(source)
+        reference = oracle.run(source)
+        if reference is None and actual == {'error': 'unsupported'}:
+            report['analysis_coverage_boundaries'].append({'source': source,
+                'reason': 'computed gerund noun needs concrete constructor data; analysis does not execute it',
+                'reference_pos': oracle.name_class('candidate')['class'], 'rust': actual})
+        else:
+            check('static_gerund_value_boundary', source,
+                {'C_success': True, 'rust': {'error': 'unsupported'}},
+                {'C_success': reference is None, 'rust': actual})
         for expression in ['- ("1)', '- ("1 2)', '- ("+)', '+ (@:-)']:
             analyze_function('candidate=: ' + expression, [])
         for expression in ['- ("\'a\')', '- ("1 2 3 4)', '- (@:3)']:
@@ -300,6 +313,8 @@ def run(args):
                            '3 (" /) 1', '3 (+ ")', '3 (+ " /)']:
             analyze_function('candidate=: ' + expression, [])
         for expression in ["3\"'a'", '3"1 2 3 4']:
+            analyze_function('candidate=: ' + expression, [])
+        for expression in ['3\\', "'abc'\\", "''\\"]:
             analyze_function('candidate=: ' + expression, [])
         setup('boundrank=:"1', 'boundrank')
         setup('boundalias=:boundrank', 'boundalias')

@@ -706,7 +706,7 @@ fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
-    let source = "protected=: 3 (\\ @: +)";
+    let source = "protected=: (, <'unknownverb') (\\ @: +)";
     let report = engine.eval_captured(source);
     assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
     report.capture.verify().unwrap();
@@ -1096,5 +1096,77 @@ fn noun_left_rank_audits_right_rank_before_gerund_and_assignment() {
         report.capture.verify().unwrap();
         assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
         assert_eq!(engine.binding_version("protected"), version);
+    }
+}
+
+#[test]
+fn noun_prefix_gerund_audit_matches_rank_length_domain_precedence() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for (expression, kind) in [
+        ("3\\", "domain error"),
+        ("'abc'\\", "domain error"),
+        ("(0$0)\\", "length error"),
+        ("''\\", "length error"),
+        ("(2 2$0)\\", "rank error"),
+        ("(0 2$0)\\", "rank error"),
+        ("(0$<0)\\", "length error"),
+        ("(2 2$<0)\\", "rank error"),
+        ("(, <'unknownverb')\\", "unsupported"),
+    ] {
+        let source = format!("protected=: {expression}");
+        let report = engine.eval_captured(&source);
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("protected"), version);
+    }
+    for (source, kind) in [("3\\", "domain error"), ("''\\", "length error")] {
+        assert_eq!(semantic::parse(source).unwrap_err().kind(), kind);
+    }
+}
+
+#[test]
+fn primitive_gerund_construction_preserves_noun_and_fallback_constant() {
+    use rustj::semantic::FunctionOperand;
+    let mut engine = rustj::Engine::new();
+    for source in [
+        "gerundfn=: (, <'+')\\",
+        "gerundfn=: ((<'+'),<'-')\\",
+        "gerundfn=: (, <'+')\"0",
+        "constantfn=: (, <3)\"0",
+    ] {
+        let report = engine.eval_captured(source);
+        report
+            .result
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+        report.capture.verify().unwrap();
+        assert!(report.capture.events.iter().any(|event| matches!(event,
+            rustj::parser_capture::CaptureEvent::ConstructionSuccess { function, .. }
+                if matches!(function.operands.first(), Some(FunctionOperand::Noun { .. })))));
+    }
+}
+
+#[test]
+fn gerund_leaf_audit_errors_preserve_order_and_quiet_rank_fallback() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("protected=:+").unwrap();
+    let version = engine.binding_version("protected");
+    for (expression, kind) in [
+        ("(, <3)\\", "domain error"),
+        ("(, <'')\\", "length error"),
+        ("(, <'/')\\", "domain error"),
+        ("(, <'@:')\\", "domain error"),
+        ("(, <(2 2$'+'))\\", "rank error"),
+        ("((<3),<'')\\", "domain error"),
+        ("((<''),<3)\\", "length error"),
+    ] {
+        let report = engine.eval_captured(&format!("protected=: {expression}"));
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{expression}");
+        report.capture.verify().unwrap();
+        assert_eq!(engine.binding_version("protected"), version);
+    }
+    for expression in ["(, <3)\"0", "(, <'')\"0", "(, <'/')\"0"] {
+        engine.eval(&format!("constantfn=: {expression}")).unwrap();
     }
 }

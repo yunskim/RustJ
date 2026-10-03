@@ -7680,6 +7680,18 @@ Windows default/portable 각각 **283 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [cr.c jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
 
+##### Primitive gerund 구성과 audit 순서 (2026-10-03)
+
+- [x] P3/P6: `ap.c::jtbslash`→`cg.c::jtfxeachv(1)`에 따라 noun에 `\`를 적용할 때 rank→length→boxed type 순서로 검사한다. 비어 있는 rank-2 입력은 RankError, 빈 rank-1 입력은 LengthError, nonempty nonboxed 입력은 DomainError로 처리한다. 이전 blanket Unsupported를 이 검사 범위에서 해소했다.
+- [x] P3/P5: `r.c::jtfx`의 character primitive leaf를 현재 core PrimitiveResolver로 검증한다. char rank→length→ASCII spelling 및 최종 verb POS를 확인한다. primitive 문자열로 구성된 gerund는 PrefixInfix의 noun operand를 그대로 가진 completed Verb로 구성하고 공유 저장소·원래 span을 보존한다. execution-only decoded fgh는 semantic child로 추가하지 않는다.
+- [x] P3/P6: noun-left rank의 gerund 후보는 동일 audit를 사용한다. 확실한 J audit 실패는 `cr.c`처럼 조용히 constant noun으로 되돌리고, 이름/미등록 primitive/compound AR에 대한 구현 미지원은 숨기지 않는다. gerund 원소 순서, 첫 오류, 실패 시 target/version 유지와 fallback을 검증했다.
+- [x] P6: 회귀 테스트 3개, C 비교 문장 38개, stage 오류 검사 3개를 추가했다. source hash에 `ap.c`, `cg.c`, `r.c`를 추가했다. 정적 분석의 computed gerund noun 경계는 runtime constructor 성공과 별도로 보고한다.
+- [ ] 다음: 이름 및 복합 atomic representation의 `fx` decoding/binding, gerund 실행·Logical lowering, 중간 noun 즉시 실행/capture, train 내부 late modifier 조회와 locale/definition scope를 진행한다. 이 단계는 전체 gerund 지원이나 optimizer/CUDA 구현이 아니다.
+
+Windows default/portable 각각 **286 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 세 실행 경로에서 **2,374문장 중 2,370 passed, 기존 runtime 경계 4개, failed 0**; stage **7,382 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 별도다. static 보고 경계 2건은 computed rank와 computed gerund noun으로, 성공 수나 C와의 의미 불일치로 세지 않는다. 완전한 upstream suite나 GitHub CI 실행을 주장하지 않는다.
+
+기준 소스: [ap.c jtbslash](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L940), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

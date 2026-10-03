@@ -230,6 +230,30 @@ fn apply_adverb(
             "modifier child identity requires resolution".into(),
         ));
     }
+    if matches!(left.class, ParseClass::Noun)
+        && matches!(
+            operator.head,
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix)
+        )
+    {
+        let (noun, _) = left.into_noun().unwrap();
+        let noun_span = noun.span.clone();
+        let value = completed_noun(noun, "runtime-dependent prefix gerund operand")?;
+        audit_primitive_gerund(&value)?;
+        return Ok(Item::verb(Verb {
+            span: span.clone(),
+            target: VerbTarget::Derived,
+            entity: FunctionEntity::derived(
+                operator.head.clone(),
+                FunctionPartOfSpeech::Verb,
+                span,
+                vec![FunctionOperand::Noun {
+                    value: value.into_shared(),
+                    span: noun_span,
+                }],
+            ),
+        }));
+    }
     let Some(left) = left.into_verb() else {
         return Err(match operator.head {
             FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => Error::Domain,
@@ -248,6 +272,54 @@ fn apply_adverb(
             vec![FunctionOperand::Function(left.entity)],
         ),
     }))
+}
+
+/// cg.c::jtfxeachv(1), with r.c::jtfx character primitive leaves.
+/// Keep the J-visible gerund noun, not execution-only decoded fgh auxiliaries.
+/// Names and compound ARs require their own decoding/binding contract.
+fn audit_primitive_gerund(value: &Value) -> Result<()> {
+    if value.shape.len() > 1 {
+        return Err(Error::Rank);
+    }
+    if value.is_empty() {
+        return Err(Error::Length);
+    }
+    let crate::value::Data::Boxed(leaves) = &value.data else {
+        return Err(Error::Domain);
+    };
+    for leaf in leaves.iter() {
+        match &leaf.data {
+            crate::value::Data::Char(bytes) => {
+                if leaf.shape.len() > 1 {
+                    return Err(Error::Rank);
+                }
+                if leaf.is_empty() {
+                    return Err(Error::Length);
+                }
+                if bytes.iter().any(|c| !(32..127).contains(c)) {
+                    return Err(Error::Spelling);
+                }
+                let spelling = std::str::from_utf8(bytes.as_slice()).unwrap();
+                let Some(primitive) =
+                    crate::primitive::PrimitiveResolver::core().resolve_core_for_enqueue(spelling)
+                else {
+                    return Err(Error::Unsupported(
+                        "gerund name or unregistered primitive decoding".into(),
+                    ));
+                };
+                if primitive.result_pos != crate::primitive::PrimitivePartOfSpeech::Verb {
+                    return Err(Error::Domain);
+                }
+            }
+            crate::value::Data::Boxed(_) => {
+                return Err(Error::Unsupported(
+                    "compound gerund atomic representation decoding".into(),
+                ));
+            }
+            _ => return Err(Error::Domain),
+        }
+    }
+    Ok(())
 }
 
 /// Make repeated use of a concrete noun cheap without cloning its payload.
@@ -585,7 +657,12 @@ fn apply_conjunction_at(
                 && matches!(value.data, crate::value::Data::Boxed(_))
                 && ranks != Some([63; 3])
             {
-                return Err(Error::Unsupported("noun-left rank gerund audit".into()));
+                match audit_primitive_gerund(&value) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == "unsupported" => return Err(error),
+                    // cr.c suppresses failed fx audits and uses the noun itself.
+                    Err(_) => {}
+                }
             }
             FunctionOperand::Noun {
                 value: value.into_shared(),

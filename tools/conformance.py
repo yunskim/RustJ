@@ -267,6 +267,23 @@ def cases():
         'constantkeep=: 3"(2 2$0)', 'constantkeep i.3',
         "constantkeep=: (,<'bad')\"1 2 3 4", 'constantkeep i.3',
     ])
+    fixed.extend([
+        'prefixkeep=:+', 'prefixkeep=: 3\\', 'prefixkeep i.3',
+        "prefixkeep=: 'abc'\\", 'prefixkeep i.3',
+        'prefixkeep=: (0$0)\\', 'prefixkeep i.3', "prefixkeep=: ''\\", 'prefixkeep i.3',
+        'prefixkeep=: (2 2$0)\\', 'prefixkeep i.3', 'prefixkeep=: (0 2$0)\\', 'prefixkeep i.3',
+        'prefixkeep=: (0$<0)\\', 'prefixkeep i.3', 'prefixkeep=: (2 2$<0)\\', 'prefixkeep i.3',
+    ])
+    fixed.extend([
+        "gerundfn=: (, <'+')\\", "gerundfn=: ((<'+'),<'-')\\",
+        "gerundfn=: (, <'+')\"0", "constantfn=: (, <3)\"0",
+        "constantfn=: (, <'')\"0", "constantfn=: (, <'/')\"0",
+        'gerundkeep=:+', "gerundkeep=: (, <3)\\", 'gerundkeep i.3',
+        "gerundkeep=: (, <'')\\", 'gerundkeep i.3',
+        "gerundkeep=: (, <'/')\\", 'gerundkeep i.3', "gerundkeep=: (, <'@:')\\", 'gerundkeep i.3',
+        "gerundkeep=: (, <(2 2$'+'))\\", 'gerundkeep i.3',
+        "gerundkeep=: ((<3),<'')\\", 'gerundkeep i.3', "gerundkeep=: ((<''),<3)\\", 'gerundkeep i.3',
+    ])
     return fixed
 
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked

@@ -8,10 +8,13 @@
     "jsrc/cf.c": "8b3d39221d9cd214b684d642bb6d204c7eba0df87170c7a13a5924c4944f36b2",
     "jsrc/sn.c": "02c71db4fb9cf49ecde64995cf9300f7c715313919cfdab3fbf86194af0f6d14",
     "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d",
-    "jsrc/cr.c": "9c2a7976afae1bae96a8fd5027b6df69f83b71a20ff62a94e08d25cabccadde4"
+    "jsrc/cr.c": "9c2a7976afae1bae96a8fd5027b6df69f83b71a20ff62a94e08d25cabccadde4",
+    "jsrc/ap.c": "9a214b1aae8f7c1ff11dc523e744671ede42f6cb284934dda0c2a1843197f380",
+    "jsrc/cg.c": "300ba00feddb6d548a01a00c3311653e3106904fe4910e1f3d1c54c8749d5d6b",
+    "jsrc/r.c": "d344e701c72d9fa6394de92f6b03615f76d36a3aa8b5a9cbd0634be5f7d0d61a"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "d9bd70f8bf55129fcf2ed4d2a9ef9f8754e0fac5ff5662c7dd32b6256400864a",
+  "probe_sha256": "c726bfca12f73fabd5d41dfb6ecaf8c4bb358e9f7e296f92404405ecca4f25c0",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -29,7 +32,7 @@
     "static_constructor": 76,
     "static_read_only": 76,
     "static_modifier_dependencies": 76,
-    "static_constructor_error": 75,
+    "static_constructor_error": 78,
     "copula_reference": 4
   },
   "mismatches": [],
@@ -37,6 +40,14 @@
     {
       "source": "candidate=: + analysisrank (#1 2)",
       "reason": "rank operand needs a concrete noun; analysis does not execute it",
+      "reference_pos": 3,
+      "rust": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "source": "candidate=: (, <'+')\\",
+      "reason": "computed gerund noun needs concrete constructor data; analysis does not execute it",
       "reference_pos": 3,
       "rust": {
         "error": "unsupported"
