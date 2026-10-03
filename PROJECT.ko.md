@@ -7599,6 +7599,17 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 
 Windows 검증: default/portable 각각 **250 passed / 17 ignored**, fmt/clippy 통과, Python 20 passed. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로의 **2,139문장 중 2,137 passed + 명시적 runtime 경계 2개, failed 0**; stage 7,014 checks와 words 6,618 cases 통과. `examples/capture_probe.rs`는 모든 문장의 capture association/attempt-outcome 순서를 검증하며 성공 문장은 명시적으로 보고한 graph 경계 13건(ordered-effect 9건, modifier-value 4건)을 제외하고 J Graph adapter/verifier도 통과시킨다. C oracle은 C word formation으로 outer copula와 inner copula/literal/comment를 구분하며 harness 회귀 테스트 2개로 보호한다. parser-capture JSON 보고서도 저장한다. 기존 oracle/source pin 구분과 GitHub CI 생략 방침을 유지한다.
 
+##### 정적 modifier 구성과 분석 의존성 (2026-10-03)
+
+- [x] P3: modifier의 입력 품사만 알려져 있을 때 application 결과를 Verb로 추측하는 경로를 제거했다. `declare_function(name, Adverb/Conjunction)`은 품사 정보만 선언한다. 이 이름을 구성에 사용하면 현재 이름·source span을 가진 `Unsupported` 경계를 반환한다. 단독 modifier의 품사 관찰과 실제 application은 구분한다.
+- [x] P3/P5: `StaticAnalyzer::declare_primitive_modifier`로 core primitive modifier의 실제 의미를 선언한다. `Engine::prepare_semantic/analyze_j_graph`도 현재 workspace의 operand-free primitive modifier와 그 별칭을 읽어 같은 row 3/4 constructor로 구성한다. 알려진 `/`, `\`, `"`, `@:` 등도 각 constructor가 지원하는 operand legality/result POS/error 규칙을 따르며, arbitrary derived/extension modifier 지원을 뜻하지 않는다.
+- [x] P5: `Program.modifier_snapshots`와 J Graph schema **0.4**의 `Plan.modifier_snapshots`에 이름, catalog/Engine-local version, expected POS, 공유 FunctionEntity, 현재 사용 위치를 보존한다. verifier는 source-use span, 이름, version과 primitive modifier 품사를 검증한다. 이 의존성은 intrinsic 함수 identity나 physical allocation 정보에 섞지 않는다. runtime capture의 `ModifierResolved` 관찰과 정적 분석의 binding 가정은 별도 sidecar다. 둘 모두 executable reuse guard가 아니다.
+- [x] P6: 큰 배열은 metadata만으로 분석하고 reduction kernel을 실행하지 않는다. 알려진 modifier 별칭의 의미는 원래 이름의 재대입 후에도 유지된다. 별칭 자체를 바꾸면 새 분석의 version/구성이 달라지지만 기존 graph는 유지된다. 일반 verb 이름은 late NameRef로 남긴다. 최종 대입은 pending proposal이며 workspace/catalog를 변경하지 않는다.
+- [x] P3/P6: Windows stage probe에 별도 setup/읽기 전용 분석 모드를 추가했다. C `5!:1`/`4!:0`과 구성·품사·domain/length 오류를 비교하고, 분석 후 target version 및 modifier 의존성을 검사한다. `candidate=: + analysisrank (#1 2)`는 C가 실행하면 성공하지만 정적 constructor에는 concrete noun이 필요하므로 정확한 source/reason을 `analysis_coverage_boundaries`에 남긴다. 성공 검사에 포함하지 않는다.
+- [ ] arbitrary derived modifier의 실제 의미/result POS, explicit-local/locale/definition scope, ordered-effect graph와 재사용 guard를 확장한다. 값 계산이 필요한 constructor를 fake noun으로 통과시키지 않는다. 이번 단계는 tokenizer/enqueuer/parser의 분석 가능 범위를 확장하며 최적화 변환을 실행하지 않는다.
+
+Windows 검증: default/portable 각각 **256 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로에서 **2,139문장 중 2,137 passed, runtime 경계 2개, failed 0**; stage **7,056 checks**(새 정적 구성·오류·대입 없음·의존성 검사 42건 포함)와 words **6,618 cases** 통과. 정적 값 의존 경계 1건과 기존 capture graph 경계 13건은 성공 수와 별도로 기록한다. 정적 분석 regression 6개를 추가했다. 기존 C DLL release/source review pin 구분, 미완료 definition 테스트 및 GitHub CI 생략 방침을 유지한다.
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

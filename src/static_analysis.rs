@@ -19,6 +19,8 @@ pub enum CatalogKind {
     Noun(GraphFacts),
     /// POS is known, but callable identity remains a J NameRef.
     Function(FunctionPartOfSpeech),
+    /// Known core construction behavior, not only the operator's input POS.
+    PrimitiveModifier(crate::primitive::PrimitiveSemanticId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +106,21 @@ impl StaticAnalyzer {
         self.declare(name, CatalogKind::Function(pos))
     }
 
+    /// Declare registered core modifier semantics without executing its application.
+    pub fn declare_primitive_modifier(
+        &mut self,
+        name: &str,
+        id: crate::primitive::PrimitiveSemanticId,
+    ) -> Result<()> {
+        if !matches!(
+            id,
+            crate::primitive::PrimitiveSemanticId::Adverb(_)
+                | crate::primitive::PrimitiveSemanticId::Conjunction(_)
+        ) {
+            return Err(Error::Domain);
+        }
+        self.declare(name, CatalogKind::PrimitiveModifier(id))
+    }
     fn declare(&mut self, name: &str, kind: CatalogKind) -> Result<()> {
         let words = enqueue(name)?;
         if words.len() != 1 || !matches!(words[0].payload, EnqueuedPayload::Name(n) if n == name) {
@@ -159,6 +176,21 @@ impl StaticAnalyzer {
             self.catalog.get(name).map(|entry| match &entry.kind {
                 CatalogKind::Noun(_) => ParserNameBinding::AbstractNoun,
                 CatalogKind::Function(pos) => ParserNameBinding::Function(*pos),
+                CatalogKind::PrimitiveModifier(id) => {
+                    let function = match id {
+                        crate::primitive::PrimitiveSemanticId::Adverb(id) => {
+                            crate::semantic::FunctionEntity::primitive_adverb(*id, 0..0)
+                        }
+                        crate::primitive::PrimitiveSemanticId::Conjunction(id) => {
+                            crate::semantic::FunctionEntity::primitive_conjunction(*id, 0..0)
+                        }
+                        _ => unreachable!("validated declaration"),
+                    };
+                    ParserNameBinding::KnownModifier {
+                        function,
+                        version: entry.version,
+                    }
+                }
             })
         })?;
         let reductions = program.reductions.clone();

@@ -537,21 +537,21 @@ fn extension_names_enter_as_names_then_join_modifier_rows_by_parser_time_pos() {
     ]));
     let engine = Engine::with_primitive_context(context);
 
-    let adverb = engine.prepare_semantic("f=: + advx").unwrap();
-    let Some(Expr::VerbValue(verb)) = adverb.program.expression.map(|expr| expr.kind) else {
-        panic!("extension adverb should derive a verb");
-    };
-    assert_eq!(verb.entity.head, FunctionHead::NameRef("advx".to_owned()));
-    assert_eq!(verb.entity.result_pos, semantic::FunctionPartOfSpeech::Verb);
-    assert_eq!(verb.entity.operands.len(), 1);
-
-    let conjunction = engine.prepare_semantic("g=: + conjx *").unwrap();
-    let Some(Expr::VerbValue(verb)) = conjunction.program.expression.map(|expr| expr.kind) else {
-        panic!("extension conjunction should derive a verb");
-    };
-    assert_eq!(verb.entity.head, FunctionHead::NameRef("conjx".to_owned()));
-    assert_eq!(verb.entity.result_pos, semantic::FunctionPartOfSpeech::Verb);
-    assert_eq!(verb.entity.operands.len(), 2);
+    for source in ["f=: + advx", "g=: + conjx *"] {
+        let error = engine.prepare_semantic_diagnostic(source).unwrap_err();
+        assert_eq!(error.kind(), "unsupported");
+        assert_eq!(error.context().unwrap().blame_word_index, Some(3));
+        assert!(error.to_string().contains("POS alone is insufficient"));
+    }
+    assert_eq!(engine.binding_version("f"), None);
+    assert_eq!(engine.binding_version("g"), None);
+    // An extension's input POS is still valid information for a value/alias;
+    // it cannot by itself determine the POS/error of its application.
+    let adverb = engine.prepare_semantic("advx").unwrap();
+    assert!(matches!(
+        adverb.program.expression.unwrap().kind,
+        Expr::ModifierValue(_)
+    ));
 }
 
 #[test]

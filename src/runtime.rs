@@ -186,6 +186,19 @@ impl Engine {
             .resolve_extension_binding(name)
             .map(|handle| crate::parser::ParserNameBinding::Function(handle.result_pos.into()))
     }
+    fn parser_analysis_binding(&self, name: &str) -> Option<crate::parser::ParserNameBinding> {
+        if let Some(Binding {
+            value: SymbolValue::Modifier(function),
+            version,
+        }) = self.names.get(name)
+        {
+            return Some(crate::parser::ParserNameBinding::KnownModifier {
+                function: function.clone(),
+                version: *version,
+            });
+        }
+        self.parser_name_binding(name)
+    }
     /// Inspect bindings without execution or mutation. Versions are Engine-local.
     /// Stable machine API: diagnostic wrappers are stripped before return.
     pub fn prepare_semantic(&self, source: &str) -> Result<crate::semantic::BoundProgram> {
@@ -198,7 +211,7 @@ impl Engine {
         source: &str,
     ) -> Result<crate::semantic::BoundProgram> {
         crate::semantic::bind(
-            crate::parser::parse_analysis(source, &|name| self.parser_name_binding(name))?,
+            crate::parser::parse_analysis(source, &|name| self.parser_analysis_binding(name))?,
             |name| self.binding_version(name),
         )
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))

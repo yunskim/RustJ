@@ -42,6 +42,20 @@ pub struct FunctionEntity {
     pub operands: Vec<FunctionOperand>,
 }
 impl FunctionEntity {
+    /// Registered, operand-free core construction semantics known without a call.
+    pub(crate) fn is_primitive_modifier(&self) -> bool {
+        self.operands.is_empty()
+            && matches!(
+                (&self.head, self.result_pos),
+                (
+                    FunctionHead::PrimitiveAdverb(_),
+                    FunctionPartOfSpeech::Adverb
+                ) | (
+                    FunctionHead::PrimitiveConjunction(_),
+                    FunctionPartOfSpeech::Conjunction
+                )
+            )
+    }
     pub(crate) fn primitive(
         id: crate::primitive::PrimitiveId,
         span: std::ops::Range<usize>,
@@ -197,6 +211,8 @@ pub struct Program {
     /// Parser-row provenance, separate from semantic operation payloads.
     pub reductions: Vec<crate::parser::ParseReduction>,
     pub assignment_source: Option<crate::parser::AssignmentSource>,
+    /// Read-only analysis dependencies, outside intrinsic function identity.
+    pub modifier_snapshots: Vec<ModifierSnapshot>,
 }
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
@@ -227,6 +243,17 @@ pub struct PendingWrite {
     pub proposed: NameVersion,
     pub span: std::ops::Range<usize>,
 }
+/// Known construction identity used by a non-executing frontend observation.
+/// Versions are local to its catalog/Engine; no executable guard is implied.
+#[derive(Clone, Debug)]
+pub struct ModifierSnapshot {
+    pub name: String,
+    pub version: NameVersion,
+    pub expected: FunctionPartOfSpeech,
+    pub function: Arc<FunctionEntity>,
+    pub span: std::ops::Range<usize>,
+}
+
 /// Analysis snapshot only. It cannot be executed later as a cached plan.
 #[derive(Clone, Debug)]
 pub struct BoundProgram {

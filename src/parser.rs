@@ -120,7 +120,13 @@ fn resolve_modifier(
         return Ok(operator);
     };
     let Some(host) = context.host.as_mut() else {
-        return Ok(operator);
+        return Err(Error::Unsupported(format!(
+            "static construction needs modifier semantics for {name:?}; POS alone is insufficient"
+        ))
+        .at(span)
+        .with_context(
+            ErrorContext::phase(DiagnosticPhase::Parse).with_current_name(name.clone()),
+        ));
     };
     let resolved = host.resolve_modifier(name, operator.result_pos)?;
     if let Some(capture) = &mut context.capture {
@@ -1158,6 +1164,10 @@ pub(crate) enum ParserNameBinding {
     /// This is not a dummy Value and must never enter concrete execution.
     AbstractNoun,
     Function(FunctionPartOfSpeech),
+    KnownModifier {
+        function: Arc<FunctionEntity>,
+        version: crate::semantic::NameVersion,
+    },
 }
 
 #[cfg(test)]
@@ -1224,6 +1234,7 @@ pub(crate) fn parse_runtime_host(
             lookup: None,
             host: Some(host),
             capture,
+            modifier_snapshots: Vec::new(),
         },
     )
 }
@@ -1233,6 +1244,7 @@ struct ActionContext<'a> {
     lookup: NameLookup<'a>,
     host: Option<&'a mut dyn RuntimeParserHost>,
     capture: Option<&'a mut ParseCapture>,
+    modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
 }
 
 /// Resolve one ordinary name only when its queue entry reaches the stack.
@@ -1280,6 +1292,24 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
             },
             0,
         ),
+        Some(ParserNameBinding::KnownModifier { function, version }) => {
+            if context.mode != ParseContext::Analysis || !function.is_primitive_modifier() {
+                return Err(Error::Unsupported(
+                    "modifier snapshot has no supported static constructor semantics".into(),
+                )
+                .at(span));
+            }
+            context
+                .modifier_snapshots
+                .push(crate::semantic::ModifierSnapshot {
+                    name,
+                    version,
+                    expected: function.result_pos,
+                    function: function.clone(),
+                    span: span.clone(),
+                });
+            Item::function(function).with_span(span)
+        }
         Some(ParserNameBinding::Function(pos)) => {
             let entity = FunctionEntity::name_ref(name.clone(), pos, span.clone());
             if pos == FunctionPartOfSpeech::Verb {
@@ -1319,6 +1349,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
             lookup,
             host: None,
             capture: None,
+            modifier_snapshots: Vec::new(),
         },
     )
 }
@@ -1333,6 +1364,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
             expression: None,
             reductions: Vec::new(),
             assignment_source: None,
+            modifier_snapshots: Vec::new(),
         });
     }
 
@@ -1373,6 +1405,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
         expression: Some(result),
         reductions,
         assignment_source,
+        modifier_snapshots: std::mem::take(&mut context.modifier_snapshots),
     })
 }
 fn expression(
@@ -1745,7 +1778,13 @@ mod stack_entry_tests {
             seen.borrow_mut().push(name.to_owned());
             Some(match name {
                 "x" => ParserNameBinding::AbstractNoun,
-                "adv" => ParserNameBinding::Function(FunctionPartOfSpeech::Adverb),
+                "adv" => ParserNameBinding::KnownModifier {
+                    function: FunctionEntity::primitive_adverb(
+                        crate::primitive::AdverbId::Insert,
+                        0..0,
+                    ),
+                    version: crate::semantic::NameVersion(1),
+                },
                 "f" => ParserNameBinding::Function(FunctionPartOfSpeech::Verb),
                 _ => panic!("unexpected lookup: {name}"),
             })
@@ -1756,7 +1795,12 @@ mod stack_entry_tests {
         let ExprKind::Monad { verb, .. } = program.expression.unwrap().kind else {
             panic!()
         };
-        assert_eq!(verb.entity.head, FunctionHead::NameRef("adv".into()));
+        assert_eq!(
+            verb.entity.head,
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+        );
+        assert_eq!(program.modifier_snapshots.len(), 1);
+        assert_eq!(program.modifier_snapshots[0].name, "adv");
         assert_eq!(verb.entity.result_pos, FunctionPartOfSpeech::Verb);
     }
 }

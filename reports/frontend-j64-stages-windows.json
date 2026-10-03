@@ -10,7 +10,7 @@
     "jsrc/wn.c": "909a90fc330182436f47c8a9f0240d2d788f0ea6e97b6cdeeaca2cb1c754126d"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "c06dafae4f8345a991027dd84c26ed1c413cf3418017691e45b303d483f7807c",
+  "probe_sha256": "bcc3deba6c3cb8dc203a3f5f229fddd0604546d7f882bb89f2784d0a711b25a2",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -24,9 +24,24 @@
     "enqueue_index": 23,
     "parser_function": 111,
     "frontend_error": 15,
+    "static_setup": 8,
+    "static_constructor": 10,
+    "static_read_only": 10,
+    "static_modifier_dependencies": 10,
+    "static_constructor_error": 4,
     "copula_reference": 4
   },
   "mismatches": [],
+  "analysis_coverage_boundaries": [
+    {
+      "source": "candidate=: + analysisrank (#1 2)",
+      "reason": "rank operand needs a concrete noun; analysis does not execute it",
+      "reference_pos": 3,
+      "rust": {
+        "error": "unsupported"
+      }
+    }
+  ],
   "pending": {
     "enqueue": [
       "complex/extended/rational numeric notation",

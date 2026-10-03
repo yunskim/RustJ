@@ -85,39 +85,92 @@ fn inspect(source: &str) -> rustj::Result<String> {
         Err(e) => format!("{{\"error\":\"{}\"}}", e.kind()),
     };
     let parsed = match parse(source) {
-        Ok(p) => match p.expression.map(|e| e.kind) {
-            Some(ExprKind::VerbValue(v)) => {
-                format!("{{\"pos\":3,\"function\":{}}}", function(&v.entity))
-            }
-            Some(ExprKind::ModifierValue(f)) => format!(
-                "{{\"pos\":{},\"function\":{}}}",
-                match f.result_pos {
-                    FunctionPartOfSpeech::Adverb => 1,
-                    FunctionPartOfSpeech::Conjunction => 2,
-                    FunctionPartOfSpeech::Verb => 3,
-                },
-                function(&f)
-            ),
-            _ => "{\"non_function\":true}".to_owned(),
-        },
+        Ok(p) => parse_result(p.expression),
         Err(e) => format!("{{\"error\":\"{}\"}}", e.kind()),
     };
     Ok(format!(
         "{{\"raw_words\":[{raw_words}],\"visible_words\":[{visible_words}],\"enqueue\":{queue},\"parse\":{parsed}}}"
     ))
 }
+fn parse_result(expression: Option<Expr>) -> String {
+    match expression.map(|expr| expr.kind) {
+        Some(ExprKind::VerbValue(verb)) => {
+            format!("{{\"pos\":3,\"function\":{}}}", function(&verb.entity))
+        }
+        Some(ExprKind::ModifierValue(entity)) => format!(
+            "{{\"pos\":{},\"function\":{}}}",
+            pos(entity.result_pos),
+            function(&entity)
+        ),
+        _ => "{\"non_function\":true}".into(),
+    }
+}
+fn pos(value: FunctionPartOfSpeech) -> u8 {
+    match value {
+        FunctionPartOfSpeech::Verb => 3,
+        FunctionPartOfSpeech::Adverb => 1,
+        FunctionPartOfSpeech::Conjunction => 2,
+    }
+}
+fn inspect_analysis(engine: &rustj::Engine, source: &str) -> rustj::Result<String> {
+    let bound = engine.prepare_semantic_diagnostic(source)?;
+    if matches!(
+        bound.program.expression.as_ref().map(|e| &e.kind),
+        Some(ExprKind::VerbValue(_))
+    ) {
+        rustj::j_graph_ir::Plan::from_bound(bound.clone())?
+            .verify()
+            .map_err(rustj::Error::Unsupported)?;
+    }
+    let target = bound
+        .program
+        .assignment
+        .as_deref()
+        .and_then(|name| engine.binding_version(name))
+        .map_or("null".into(), |v| v.0.to_string());
+    let snapshots = bound
+        .program
+        .modifier_snapshots
+        .iter()
+        .map(|s| {
+            format!(
+                "{{\"name_hex\":\"{}\",\"version\":{},\"expected_pos\":{},\"span\":[{},{}]}}",
+                hex(s.name.as_bytes()),
+                s.version.0,
+                pos(s.expected),
+                s.span.start,
+                s.span.end
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok(format!(
+        "{{\"parse\":{},\"snapshots\":[{}],\"target_version\":{target}}}",
+        parse_result(bound.program.expression),
+        snapshots
+    ))
+}
+
 fn main() {
     if std::env::args().any(|a| a == "--rows") {
         rows();
         return;
     }
+    let analysis = std::env::args().any(|a| a == "--analysis");
+    let mut engine = rustj::Engine::new();
     for line in io::stdin().lock().lines() {
         let line = line.expect("stdin");
-        let bytes: Option<Vec<u8>> = if line.len() % 2 == 0 {
-            (0..line.len())
+        let (operation, encoded) = if analysis {
+            line.split_once(' ').unwrap_or(("", ""))
+        } else {
+            ("", line.as_str())
+        };
+        let bytes: Option<Vec<u8>> = if encoded.len() % 2 == 0 {
+            (0..encoded.len())
                 .step_by(2)
                 .map(|i| {
-                    line.get(i..i + 2)
+                    encoded
+                        .get(i..i + 2)
                         .and_then(|s| u8::from_str_radix(s, 16).ok())
                 })
                 .collect()
@@ -125,9 +178,19 @@ fn main() {
             None
         };
         let output = match bytes.and_then(|b| String::from_utf8(b).ok()) {
-            Some(source) => {
-                inspect(&source).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind()))
-            }
+            Some(source) => match operation {
+                "" if !analysis => {
+                    inspect(&source).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind()))
+                }
+                "E" => match engine.eval(&source) {
+                    Ok(Some(value)) => value.json(),
+                    Ok(None) => "{\"silent\":true}".into(),
+                    Err(error) => format!("{{\"error\":\"{}\"}}", error.kind()),
+                },
+                "A" => inspect_analysis(&engine, &source)
+                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
+                _ => "{\"transport_error\":\"invalid operation\"}".into(),
+            },
             None => "{\"transport_error\":\"invalid UTF-8 hex\"}".to_owned(),
         };
         println!("{output}");

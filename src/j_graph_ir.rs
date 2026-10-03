@@ -32,7 +32,7 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 3 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 4 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -332,6 +332,8 @@ pub struct Plan {
     /// semantic source references so later binding/specialization can version
     /// them without reparsing.
     pub verb_references: Vec<(String, Range<usize>)>,
+    /// Non-executing modifier identities/dependencies; executable reuse still needs guards.
+    pub modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
 }
 
 #[derive(Clone, Debug)]
@@ -851,6 +853,7 @@ impl Plan {
             result,
             write,
             verb_references: bound.verb_references,
+            modifier_snapshots: bound.program.modifier_snapshots,
         };
         plan.verify().map_err(|message| {
             Error::Unsupported(format!("J graph IR verification failed: {message}"))
@@ -1089,6 +1092,7 @@ impl Plan {
             result,
             write,
             verb_references,
+            modifier_snapshots: Vec::new(),
         };
         graph.verify().map_err(|message| {
             Error::Unsupported(format!("captured J graph verification failed: {message}"))
@@ -1186,6 +1190,20 @@ impl Plan {
         }
 
         let source_len = self.source.len();
+        for snapshot in &self.modifier_snapshots {
+            let span = &snapshot.span;
+            if span.start >= span.end
+                || span.end > source_len
+                || !self.source.is_char_boundary(span.start)
+                || !self.source.is_char_boundary(span.end)
+                || self.source[span.clone()] != snapshot.name
+                || snapshot.version.0 == 0
+                || snapshot.expected != snapshot.function.result_pos
+                || !snapshot.function.is_primitive_modifier()
+            {
+                return Err("invalid static modifier snapshot".into());
+            }
+        }
         for (index, node) in self.nodes.iter().enumerate() {
             if node.span.start > node.span.end
                 || node.span.end > source_len
