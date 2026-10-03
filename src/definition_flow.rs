@@ -23,6 +23,14 @@ pub enum ControlJump {
     DynamicError,
     Return,
 }
+/// C's canend status of the previous B-block result, not purity or CFG reachability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PreviousResult {
+    #[default]
+    Unresolved,
+    CanReturn,
+    CannotReturn,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ControlNode {
     /// Body-relative bytes; word range indexes the corresponding physical line.
@@ -34,6 +42,9 @@ pub struct ControlNode {
     pub assertion: Option<Range<usize>>,
     /// C accepts some packed-code end pairs without the canonical do. structure.
     pub analysis_barrier: bool,
+    /// CBBLOCKEND: followed by a non-select end that falls through, with more code.
+    pub before_fallthrough_end: bool,
+    pub previous_result: PreviousResult,
 }
 
 fn invalid(nodes: &[ControlNode], index: usize) -> Error {
@@ -150,6 +161,7 @@ pub fn audit(nodes: &mut [ControlNode]) -> Result<()> {
 
                 if matches!(q, Some(Word(W::Catch | W::CatchD | W::CatchT))) {
                     close_try(nodes, &mut stack, i)?;
+                    mark_body_end(nodes, i);
                     continue;
                 }
                 let (Some(j), Some(k)) = (previous, before) else {
@@ -212,6 +224,7 @@ pub fn audit(nodes: &mut [ControlNode]) -> Result<()> {
                 }
                 nodes[j].go = Index(next);
                 stack.truncate(stack.len() - 2);
+                mark_body_end(nodes, i);
             }
             Word(W::Break | W::Continue) => {
                 if loops == 0 {
@@ -235,7 +248,7 @@ pub fn audit(nodes: &mut [ControlNode]) -> Result<()> {
     if let Some(i) = stack.last() {
         return Err(invalid(nodes, *i));
     }
-    verify(nodes)
+    fill_previous_result(nodes)
 }
 
 fn control_tag(kind: ControlKind) -> u16 {
@@ -383,6 +396,94 @@ pub fn verify(nodes: &[ControlNode]) -> Result<()> {
         .any(|node| matches!(node.go, ControlJump::Index(target) if target>nodes.len()))
     {
         return Err(Error::Unsupported("control target outside valence".into()));
+    }
+    for (i, node) in nodes.iter().enumerate() {
+        if node.before_fallthrough_end
+            && (node.kind != ControlKind::Body
+                || i + 2 >= nodes.len()
+                || nodes[i + 1].kind != ControlKind::Word(W::End)
+                || nodes[i + 1].go != ControlJump::Index(i + 2))
+        {
+            return Err(Error::Unsupported(
+                "invalid fallthrough-end metadata".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn mark_body_end(nodes: &mut [ControlNode], end: usize) {
+    if end > 0
+        && end + 1 < nodes.len()
+        && nodes[end].go == ControlJump::Index(end + 1)
+        && nodes[end - 1].kind == ControlKind::Body
+    {
+        nodes[end - 1].before_fallthrough_end = true;
+    }
+}
+
+/// Record wc.c::conall's reverse fixed point without executing or optimizing code.
+/// Mixed successor outcomes or provisional cycles remain Unresolved.
+fn fill_previous_result(nodes: &mut [ControlNode]) -> Result<()> {
+    use ControlKind::*;
+    verify(nodes)?;
+    let n = nodes.len();
+    let mut state = vec![0u8; n];
+    loop {
+        let mut changed = false;
+        for i in (0..n).rev() {
+            let old = state[i];
+            if old & 3 != 0 {
+                continue;
+            }
+            let next = state.get(i + 1).copied().unwrap_or(5);
+            let target = match nodes[i].go {
+                ControlJump::Index(target) => target,
+                ControlJump::DynamicError | ControlJump::Return => n,
+            };
+            let jump = state.get(target).copied().unwrap_or(5);
+            state[i] = match nodes[i].kind {
+                Body | Word(W::Throw) => 10,
+                Word(W::Return) => 5,
+                Word(W::For | W::Select | W::Label) | SelectNested => next,
+                Test | Assert => {
+                    if i + 1 == n || target >= n {
+                        next
+                    } else {
+                        jump & next
+                    }
+                }
+                Word(W::Try | W::Catch | W::CatchD | W::CatchT | W::Do) | DoFor | DoSelect => {
+                    if i + 1 == n || target >= n {
+                        5
+                    } else {
+                        jump & next
+                    }
+                }
+                _ => {
+                    if target >= n {
+                        5
+                    } else if target >= i {
+                        jump
+                    } else if i + 1 == n {
+                        5
+                    } else {
+                        (next & 12) | ((next & jump) >> 2)
+                    }
+                }
+            };
+            changed |= old != state[i];
+        }
+        if !changed {
+            break;
+        }
+    }
+    for (node, value) in nodes.iter_mut().zip(state) {
+        node.previous_result = match value & 3 {
+            1 => PreviousResult::CanReturn,
+            2 => PreviousResult::CannotReturn,
+            _ => PreviousResult::Unresolved,
+        };
     }
     Ok(())
 }

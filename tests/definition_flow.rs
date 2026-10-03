@@ -269,3 +269,79 @@ fn monad_audit_precedes_dyad_enqueue_errors() {
         "ill-formed number"
     );
 }
+
+#[test]
+fn previous_result_status_distinguishes_test_values_from_body_values() {
+    use rustj::definition_flow::PreviousResult::{CanReturn, CannotReturn, Unresolved};
+    let f = code("1 while. y do. 2 end.");
+    let states: Vec<_> = f.monad_controls.iter().map(|n| n.previous_result).collect();
+    assert_eq!(
+        states,
+        vec![
+            CannotReturn,
+            CanReturn,
+            CanReturn,
+            CanReturn,
+            CannotReturn,
+            CanReturn
+        ]
+    );
+    // A later body overwrites the earlier value on both loop successors.
+    let f = code("while. y do. 2 end. 3");
+    assert!(
+        f.monad_controls
+            .iter()
+            .all(|n| n.previous_result == CannotReturn)
+    );
+    // Branches which preserve and overwrite the previous value do not agree.
+    let f = code("1 if. y do. 2 end. return.");
+    assert_eq!(f.monad_controls[2].previous_result, Unresolved);
+    assert_eq!(f.monad_controls[3].previous_result, Unresolved);
+    assert_eq!(f.monad_controls.last().unwrap().previous_result, CanReturn);
+    let f = code("assert. y");
+    assert_eq!(f.monad_controls[0].previous_result, CanReturn);
+    let f = code("throw.");
+    assert_eq!(f.monad_controls[0].previous_result, CannotReturn);
+}
+
+#[test]
+fn fallthrough_end_metadata_observes_select_loop_and_final_end_boundaries() {
+    let f = code("if. y do. y end. 3");
+    assert!(f.monad_controls[3].before_fallthrough_end);
+    let f = code("if. y do. y end.");
+    assert!(!f.monad_controls[3].before_fallthrough_end);
+    let f = code("while. y do. y end. 3");
+    assert!(!f.monad_controls[3].before_fallthrough_end);
+    let f = code("select. y case. 1 do. y end. 3");
+    assert!(f.monad_controls.iter().all(|n| !n.before_fallthrough_end));
+    let f = code("try. y catch. y end. 3");
+    assert!(f.monad_controls[3].before_fallthrough_end);
+    let f = code("if. y do. assert. y end. 3");
+    assert!(f.monad_controls.iter().all(|n| !n.before_fallthrough_end));
+}
+
+#[test]
+fn previous_result_metadata_is_separate_for_each_valence_and_analysis_barrier() {
+    use rustj::definition_flow::PreviousResult::{CanReturn, CannotReturn};
+    let f = code("return.\n:\nx+y");
+    assert_eq!(f.monad_controls[0].previous_result, CanReturn);
+    assert_eq!(f.dyad_controls[0].previous_result, CannotReturn);
+    let f = code("while. if. end.");
+    assert!(f.monad_controls.last().unwrap().analysis_barrier);
+    assert_eq!(f.monad_controls.last().unwrap().previous_result, CanReturn);
+}
+
+#[test]
+fn verifier_rejects_fallthrough_marker_on_test_or_final_body() {
+    let f = code("if. y do. y end. 3");
+    let mut invalid = (*f).clone();
+    invalid.monad_controls[1].before_fallthrough_end = true;
+    assert!(invalid.verify().is_err());
+    let mut invalid = (*f).clone();
+    invalid
+        .monad_controls
+        .last_mut()
+        .unwrap()
+        .before_fallthrough_end = true;
+    assert!(invalid.verify().is_err());
+}

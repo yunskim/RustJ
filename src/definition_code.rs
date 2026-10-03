@@ -217,6 +217,8 @@ pub fn compile(
                         go,
                         assertion: None,
                         analysis_barrier: false,
+                        before_fallthrough_end: false,
+                        previous_result: Default::default(),
                     });
                 } else {
                     let begin = words.len();
@@ -270,6 +272,8 @@ pub fn compile(
                         go: J::DynamicError,
                         assertion,
                         analysis_barrier: false,
+                        before_fallthrough_end: false,
+                        previous_result: Default::default(),
                     });
                 }
             }

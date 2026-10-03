@@ -7823,6 +7823,17 @@ Windows default/portable 각각 **340 passed / 17 ignored**, fmt/clippy/build �
 
 Sources: [wc.c conend / packed interval](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L72), [wc.c try/select](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L111), [wc.c conall](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L177), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [cx.c valence ordering](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264).
 
+##### 이전 B-block 결과 자격 metadata (2026-10-04, partial DEF-2)
+
+- [x] `PreviousResult::{Unresolved, CanReturn, CannotReturn}`를 추가하고 C `conall`의 역방향 고정점과 provisional bit 처리를 따라 기록한다. 대상은 **이전 B-block 결과**이며 현재 test 값, purity, CFG reachability 또는 최적화 허용 여부를 뜻하지 않는다. successor 결과가 일치하지 않거나 cycle이 확정되지 않으면 Unresolved를 유지한다.
+- [x] CBBLOCKEND를 `before_fallthrough_end`로 보존한다. 후속 문장이 있는 non-select fallthrough end 바로 앞의 Body만 표시한다. 마지막 end, backward loop end, select end 및 assert/test를 구분하고 verifier에서 잘못 붙인 marker를 거부한다.
+- [x] 회귀 테스트 4개로 loop·분기·assert/throw/return, valence 독립성, analysis barrier 보존 및 잘못된 참조를 검증했다. C corpus에 생성 사례 6개를 추가했다. 이는 source 기반 metadata 검증이며 C의 private canend trace 비교는 아니다. 실행과 최적화는 추가하지 않았다.
+- [ ] 다음: goto/label target 및 구조 진입 제한을 audit하고 upstream goto 위치 matrix를 native C와 비교한다. invocation frame·scope 및 나머지 definition input 지원은 후속 단계다.
+
+Windows default/portable 각각 **344 passed / 17 ignored**, fmt/clippy/build 통과; Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **3,513 cases / 3,509 passed / 기존 runtime 경계 4 / failed 0**, stage **8,683 checks**, words **6,618 cases**. 보고서 10개의 binary hash를 확인했다. capture graph 경계 78과 static 경계 2, DLL/source review revision 구분 및 upstream full-suite 미실행 상태는 그대로다.
+
+[wc.c CBBLOCKEND and canend](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L238).
+
 <a id="static-frontend-review"></a>
 
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)

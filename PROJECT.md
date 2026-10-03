@@ -666,6 +666,17 @@ Native Windows default/portable each: **340 passed / 17 ignored**; fmt/clippy/bu
 
 Sources: [wc.c conend / packed interval](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L72), [wc.c try/select](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L111), [wc.c conall](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L177), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [cx.c valence ordering](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264).
 
+##### Previous B-block result eligibility metadata (2026-10-04, partial DEF-2)
+
+- [x] Add `PreviousResult::{Unresolved, CanReturn, CannotReturn}`, preserving C conall's reverse fixed point and provisional bits. This describes the **previous B-block result**, not the current test value, purity, CFG reachability or optimization permission. Mixed successor outcomes and unconfirmed cycles remain Unresolved.
+- [x] Preserve CBBLOCKEND as `before_fallthrough_end`: only a Body immediately before a non-select fallthrough end with subsequent code qualifies. Distinguish final ends, backward loop ends, select ends and assert/test nodes. The verifier rejects invalid markers.
+- [x] Four regression tests cover loops, branches, assert/throw/return, independent valences, analysis barriers and corrupted references. Add six native C constructor cases. These are source-based metadata checks, not private C canend trace comparisons. No execution or optimization was added.
+- [ ] Next: goto/label target and structure-entry audit, with native C comparisons of the upstream goto position matrix. Invocation frames, scope and remaining definition input support follow separately.
+
+Windows default/portable each: **344 passed / 17 ignored**; fmt/clippy/build pass; Python: **24 passed**. For both j64 and AVX2, direct/semantic-reference/parser-capture: **3,513 cases / 3,509 passed / 4 existing runtime boundaries / 0 failed**; stages: **8,683 checks**; words: **6,618 cases**. All ten report binary hashes match. The 78 capture-graph and 2 static boundaries, distinct DLL/source review revisions and unexecuted upstream full suite remain unchanged.
+
+[wc.c CBBLOCKEND and canend](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L238).
+
 <a id="static-frontend-review"></a>
 
 ##### Static-analysis acceptance and existing frontend review (2026-10-03)

@@ -24,7 +24,7 @@
     "jsrc/w.h": "9ea93c4f74ee09b42f821f0887a1eab7c0c6ae183c4adb83c04bf59a38281f1b"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "e2826298016dd3d219ce845257399e315432c774f8cee1db99a21656fe2363e2",
+  "probe_sha256": "54e78072f137e45d462a1ece0a570b86c3efc9668c2a543626aa4bb06e00de6e",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -75,7 +75,7 @@
     "definition_constructor": 16,
     "definition_multiline_constructor": 5,
     "definition_valence_error": 2,
-    "definition_flow_constructor": 21,
+    "definition_flow_constructor": 27,
     "definition_flow_error": 25,
     "definition_mode4_discarded_valence": 1,
     "definition_control_entry_limit": 1,
