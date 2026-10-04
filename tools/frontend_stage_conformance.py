@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import empty_scope_cases, empty_scope_multiline_cases, implicit_wrapper_cases, implicit_wrapper_multiline_cases, implicit_call_cases, implicit_call_multiline_cases, implicit_operand_cases, implicit_operand_multiline_cases, equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, explicit_modifier_cases, modifier_scope_cases, modifier_scope_multiline_cases, ordinary_reference_cases, ordinary_reference_multiline_cases, operator_definition_cases, operator_definition_multiline_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
+from conformance import noun_fork_cases, noun_fork_multiline_cases, empty_scope_cases, empty_scope_multiline_cases, implicit_wrapper_cases, implicit_wrapper_multiline_cases, implicit_call_cases, implicit_call_multiline_cases, implicit_operand_cases, implicit_operand_multiline_cases, equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, explicit_modifier_cases, modifier_scope_cases, modifier_scope_multiline_cases, ordinary_reference_cases, ordinary_reference_multiline_cases, operator_definition_cases, operator_definition_multiline_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -592,7 +592,7 @@ def run(args):
             expected = atomic_function(oracle.representation('latedecoded', 'atomic')['value'])
             source = 'latefn=:(,<latear)' + chr(92)
             check('late_modifier_decoded_snapshot', source, {'decoded': [expected]}, static_probe.inspect(source, 'D'))
-        for source in explicit_modifier_cases() + modifier_scope_cases() + modifier_scope_multiline_cases() + ordinary_reference_cases() + ordinary_reference_multiline_cases() + operator_definition_cases() + operator_definition_multiline_cases() + implicit_operand_cases() + implicit_operand_multiline_cases() + implicit_call_cases() + implicit_call_multiline_cases() + implicit_wrapper_cases() + implicit_wrapper_multiline_cases() + empty_scope_cases() + empty_scope_multiline_cases():
+        for source in explicit_modifier_cases() + modifier_scope_cases() + modifier_scope_multiline_cases() + ordinary_reference_cases() + ordinary_reference_multiline_cases() + operator_definition_cases() + operator_definition_multiline_cases() + implicit_operand_cases() + implicit_operand_multiline_cases() + implicit_call_cases() + implicit_call_multiline_cases() + implicit_wrapper_cases() + implicit_wrapper_multiline_cases() + empty_scope_cases() + empty_scope_multiline_cases() + noun_fork_cases() + noun_fork_multiline_cases():
             target = source.split('=:', 1)[0] if '=:' in source else None
             if target is None:
                 check('explicit_modifier_value', source, oracle.eval(source), static_probe.inspect(source, 'E'))

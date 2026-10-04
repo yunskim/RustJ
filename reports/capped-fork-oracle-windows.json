@@ -1,0 +1,385 @@
+{
+  "platform": "nt",
+  "source_review_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+  "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "classification": "reference probes for next frontend milestone; not Rust conformance",
+  "rust_cap_implemented": false,
+  "variants": [
+    {
+      "reference_library": "j.dll",
+      "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+      "observations": [
+        {
+          "source": "[: 7",
+          "result": {
+            "error": "valence error"
+          }
+        },
+        {
+          "source": "3 [: 7",
+          "result": {
+            "error": "valence error"
+          }
+        },
+        {
+          "source": "f=:[: + -",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -7
+            ]
+          }
+        },
+        {
+          "source": "3 f 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -4
+            ]
+          }
+        },
+        {
+          "source": "capname=:[:",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g=:capname + -",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -7
+            ]
+          }
+        },
+        {
+          "source": "capname=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -7
+            ]
+          }
+        },
+        {
+          "source": "capname=:[:",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "alias=:capname",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "chained=:alias + -",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "chained 7",
+          "result": {
+            "error": "valence error"
+          }
+        },
+        {
+          "source": "capname=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "chained 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              0
+            ]
+          }
+        },
+        {
+          "op": "representation",
+          "name": "g",
+          "result": {
+            "kind": "atomic",
+            "value": {
+              "type": 32,
+              "shape": [],
+              "data": [
+                {
+                  "type": 32,
+                  "shape": [
+                    2
+                  ],
+                  "data": [
+                    {
+                      "type": 2,
+                      "shape": [
+                        1
+                      ],
+                      "data": [
+                        51
+                      ]
+                    },
+                    {
+                      "type": 32,
+                      "shape": [
+                        3
+                      ],
+                      "data": [
+                        {
+                          "type": 2,
+                          "shape": [
+                            2
+                          ],
+                          "data": [
+                            91,
+                            58
+                          ]
+                        },
+                        {
+                          "type": 2,
+                          "shape": [
+                            1
+                          ],
+                          "data": [
+                            43
+                          ]
+                        },
+                        {
+                          "type": 2,
+                          "shape": [
+                            1
+                          ],
+                          "data": [
+                            45
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "reference_library": "javx2.dll",
+      "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
+      "observations": [
+        {
+          "source": "[: 7",
+          "result": {
+            "error": "valence error"
+          }
+        },
+        {
+          "source": "3 [: 7",
+          "result": {
+            "error": "valence error"
+          }
+        },
+        {
+          "source": "f=:[: + -",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -7
+            ]
+          }
+        },
+        {
+          "source": "3 f 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -4
+            ]
+          }
+        },
+        {
+          "source": "capname=:[:",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g=:capname + -",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -7
+            ]
+          }
+        },
+        {
+          "source": "capname=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              -7
+            ]
+          }
+        },
+        {
+          "source": "capname=:[:",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "alias=:capname",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "chained=:alias + -",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "chained 7",
+          "result": {
+            "error": "valence error"
+          }
+        },
+        {
+          "source": "capname=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "chained 7",
+          "result": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              0
+            ]
+          }
+        },
+        {
+          "op": "representation",
+          "name": "g",
+          "result": {
+            "kind": "atomic",
+            "value": {
+              "type": 32,
+              "shape": [],
+              "data": [
+                {
+                  "type": 32,
+                  "shape": [
+                    2
+                  ],
+                  "data": [
+                    {
+                      "type": 2,
+                      "shape": [
+                        1
+                      ],
+                      "data": [
+                        51
+                      ]
+                    },
+                    {
+                      "type": 32,
+                      "shape": [
+                        3
+                      ],
+                      "data": [
+                        {
+                          "type": 2,
+                          "shape": [
+                            2
+                          ],
+                          "data": [
+                            91,
+                            58
+                          ]
+                        },
+                        {
+                          "type": 2,
+                          "shape": [
+                            1
+                          ],
+                          "data": [
+                            43
+                          ]
+                        },
+                        {
+                          "type": 2,
+                          "shape": [
+                            1
+                          ],
+                          "data": [
+                            45
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

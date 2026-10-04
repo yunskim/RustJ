@@ -876,18 +876,29 @@ impl Engine {
             }
             FunctionHead::Fork => {
                 let [
-                    FunctionOperand::Function(f),
+                    first,
                     FunctionOperand::Function(g),
                     FunctionOperand::Function(h),
                 ] = function.operands.as_slice()
                 else {
-                    return Err(Error::Unsupported("runtime noun-left fork".into()));
+                    return Err(Error::Domain);
                 };
-                let y = y.into_shared();
-                let x = x.map(Value::into_shared);
-                let hy = self.call_entity(h.clone(), x.clone(), y.clone(), pooled, depth)?;
-                let fy = self.call_entity(f.clone(), x, y, pooled, depth)?;
-                self.call_entity(g.clone(), Some(fy), hy, pooled, depth)
+                match first {
+                    FunctionOperand::Noun { value, .. } => {
+                        // j.h NVV: evaluate only h; f is the constructor's
+                        // frozen noun snapshot, not a later name lookup.
+                        let hy = self.call_entity(h.clone(), x, y, pooled, depth)?;
+                        self.call_entity(g.clone(), Some(value.clone()), hy, pooled, depth)
+                    }
+                    FunctionOperand::Function(f) => {
+                        let y = y.into_shared();
+                        let x = x.map(Value::into_shared);
+                        let hy =
+                            self.call_entity(h.clone(), x.clone(), y.clone(), pooled, depth)?;
+                        let fy = self.call_entity(f.clone(), x, y, pooled, depth)?;
+                        self.call_entity(g.clone(), Some(fy), hy, pooled, depth)
+                    }
+                }
             }
             _ => Err(Error::Unsupported("runtime semantic composition".into())),
         }

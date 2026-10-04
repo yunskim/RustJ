@@ -199,8 +199,7 @@ fn computed_noun_left_fork_constructs_without_erasing_operand_origin() {
     report.capture.verify().unwrap();
     assert!(report.capture.events.iter().any(|event| matches!(event,
         CaptureEvent::ConstructionAttempt { row: ParseRow::Fork, noun_inputs, .. } if noun_inputs.len() == 1)));
-    // Executor support for arbitrary fork calls is tracked separately.
-    assert_eq!(engine.eval("f 4").unwrap_err().kind(), "unsupported");
+    assert_eq!(engine.eval("f 4").unwrap().unwrap().int_at(0).unwrap(), 4);
 }
 
 #[test]

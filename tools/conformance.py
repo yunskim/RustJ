@@ -201,6 +201,21 @@ def modifier_scope_cases():
     ]
 
 
+def noun_fork_cases():
+    return ["nfcomputed=:(1+2) + *", "nfcomputed 4", "(3 + -) 7", "3 (3 + +) 7", "(3 + -) 1 2 3", "(3 + -) i.0",
+            "nfnoun=:1 2 3", "nff=:(nfnoun + -)", "nfnoun=:9", "nff 1 2 3", "nff 1 2", "nff i.0",
+            "nfright=:-", "nff=:(3 + nfright)", "nff 7", "nfright=:+", "nff 7", "nfright=:9", "nff 7",
+            "nfa=:1 : '(3 + u.) y'", "nff=:-nfa", "nff 7", "nff i.0",
+            "nfd=:1 : 'x (3 + u.) y'", "nff=:+nfd", "3 nff 7"]
+
+
+def noun_fork_multiline_cases():
+    return ["nfcount=:0", "nfop=:1 : 0\nnfcount=:nfcount+1\nu y\n)", "nfr=:-nfop",
+            "nff=:(1 2 3 + nfr)", "nff 1 2", "nfcount", "nfr 7", "nfcount",
+            "nfinner=:1 : '(3 + u.) 7'",
+            "nfouter=:1 : 0\nnfn=.-\nnfn nfinner\n)", "+nfouter"]
+
+
 def empty_scope_cases():
     out = ["esa=:1 : 'u./ y'"]
     for op in ['+', '-', '*', '%']:
@@ -806,6 +821,7 @@ def cases():
     fixed.extend(implicit_call_cases())
     fixed.extend(implicit_wrapper_cases())
     fixed.extend(empty_scope_cases())
+    fixed.extend(noun_fork_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())

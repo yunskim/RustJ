@@ -2051,7 +2051,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (empty scope): Windows default/portable each **410 passed / 17 ignored**; fmt/clippy/build pass. Python **27 passed**. Each j64/AVX2 runtime route: **5,130 cases / 5,129 passed / 1 runtime boundary / 0 failed**; stages **10,474 checks**; words **6,618 cases / 0 failed**. Keep 230 capture-graph and 2 static boundaries separate, ten reports and a separate recursion-oracle boundary record. Full upstream/definition acceptance/private C trace equivalence remain unverified.
+- latest frontend validation (noun-left forks): Windows default/portable each **412 passed / 17 ignored**; fmt/clippy/build pass. Python **27 passed**. Each j64/AVX2 runtime route: **5,156 cases / 5,155 passed / 1 runtime boundary / 0 failed**; stages **10,511 checks**; words **6,618 cases / 0 failed**. Keep 234 capture-graph and 2 static boundaries separate, ten reports and a separate recursion-oracle boundary record. Full upstream/definition acceptance/private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
@@ -2454,6 +2454,29 @@ Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06
 An explicit empty-rank C body executed once and changed count to 1; an unknown explicit reduction identity produced DomainError with count still 0. Record these separate j64 probes in `reports/empty-prototype-oracle-windows.json`. Rust remains explicitly Unsupported; do not claim equivalence/purity for these cases. Runtime primitive witnesses do not imply compile-time binding proofs or change analyzer unknown contracts. Full upstream/ignored acceptance/private C trace remain unverified; optimizer/CUDA/Linux/GitHub CI were not run. Next implement noun-left forks.
 
 Sources: [ai.c identities](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ai.c#L368), [ar.c empty reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L505), [cr.c rank execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
+
+#### JE2/P3 implementation — noun-left fork calls and shared snapshots (2026-10-04, partial)
+
+- [x] Verify the `j.h` NVV route and native Windows C: the left noun is a constructor snapshot; execute h before passing that value to g. Compare monads/dyads, rebinding and agreement errors.
+- [x] Reuse the source Fork DAG and CompletedParseResult's shared noun. Invoke only the right child; do not turn the noun into a late name lookup or share inputs unnecessarily for two branches.
+- [x] Check 65,536-atom snapshot pointer/lifetime after rebinding, implicit caller scope, right-side effects committed before join failure and frame recovery.
+- [x] Run both C variants and existing frontend/portable gates. Capped forks, specialized noun-left GraphForm/Logical lowering and general prototype/control/body graphs remain separate work.
+
+Sources: [cf.c noun fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L59), [j.h NVV execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1277).
+
+
+**Noun-fork gate:** native Windows default/portable each **412 passed / 17 ignored**; fmt/clippy/build pass. Python **27 passed**. Each j64/AVX2 runtime route: **5,156 cases / 5,155 passed / 1 runtime boundary / 0 failed**; stages **10,511 checks / 0 failed**; words **6,618 cases / 0 failed**. Keep **234 capture-graph** and **2 static** boundaries separate. Ten actual binary/reference/source report hashes verified; no new waiver. Add **two Rust regressions**, update the existing computed-noun capture regression to verify execution, and add **26 common runtime cases** and **37 stage cases including those**. Full upstream/ignored acceptance/private C trace equivalence remain unverified; optimizer/CUDA/Linux/GitHub CI were not run.
+
+#### JE2/P3 next checklist — capped-fork construction and graph representation
+
+- [x] Review `t.c` registration, `cf.c::jtcap`, capped `j.h` execution and native Windows j64/AVX2. Record finite probes in `reports/capped-fork-oracle-windows.json`; these are not Rust conformance passes.
+- [ ] Register `[:` as a core VERB primitive and return ValenceError for standalone monad/dyad calls. Use general tokenizer/enqueue primitive resolution without new keywords or grammar.
+- [ ] Fix capped semantics at fork construction when the first operand is literal `[:` or a **single name directly bound to `[:` now**. C does not recursively chase name aliases. After `capname=:[:` → `g=:capname + -` → `capname=:+`, g remains capped; a fork through `alias=:capname` does not get that special construction treatment. Add regression coverage.
+- [ ] Preserve ordinary NAME/provenance/binding dependencies and represent construction-time capped meaning as immutable function semantics. Do not reclassify the first name at invocation or freeze ordinary namerefs wholesale. Without binding proof, static/no-host construction remains unknown or an explicit runtime boundary.
+- [ ] Execute h(x,y) followed by monadic g; never invoke the first operand. Preserve the source Fork DAG while representing sequential pipeline structure in Graph IR. Do not claim ParallelBranchCandidate or two retained branch inputs; do not add optimizer execution.
+- [ ] Compare direct/named cap, alias-chain distinctions, rebinding/POS changes, failure effects and returned AR against both C variants. Noun-left GraphForm specialization, general prototype effects/errors/fill, sparse/dyadic insert and full definition/control/body graphs also remain pending.
+
+Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L163), [cf.c single-name cap check](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L38), [j.h capped calls](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249).
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

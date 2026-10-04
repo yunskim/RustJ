@@ -8069,6 +8069,29 @@ Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06
 
 Sources: [ai.c identities](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ai.c#L368), [ar.c empty reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L505), [cr.c rank execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
 
+##### JE2/P3 구현 — noun-left fork 호출과 snapshot 공유 (2026-10-04, partial)
+
+- [x] C `j.h` NVV 경로와 Windows oracle에서 왼쪽 noun은 생성 시 snapshot이고 오른쪽 h 실행 후 g에 넘겨진다는 것을 확인한다. monad/dyad와 이름 재대입·agreement 오류를 대조한다.
+- [x] 기존 parser의 source Fork DAG와 CompletedParseResult의 공유 noun을 그대로 사용한다. 오른쪽 child만 호출하고 왼쪽 값은 지연 이름 조회로 바꾸지 않는다. 두 가지 입력 보존을 위한 불필요한 공유 변환은 하지 않는다.
+- [x] 65,536-atom snapshot의 pointer 유지·이름 재대입 뒤 생존, implicit caller scope, join 실패 전에 commit된 오른쪽 효과와 오류 후 frame 복구를 검증한다.
+- [x] C 양 버전 및 기존 frontend/portable gate를 통과한 뒤 기록한다. capped fork, noun-left GraphForm/Logical lowering 전문화, 일반 prototype/control/body graph는 별도 후속 작업이다.
+
+Sources: [cf.c noun fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L59), [j.h NVV execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1277).
+
+
+**Noun-fork gate:** native Windows default/portable 각각 **412 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,156 cases / 5,155 passed / runtime 경계 1 / failed 0**, stage **10,511 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **234건**, static 경계 **2건**은 별도다. report 10개의 actual binary/reference/source hash를 확인했고 새 waiver는 없다. Rust regression **2개**와 기존 computed-noun capture regression을 실제 실행 결과 검증으로 갱신했다. 공통 runtime **26건**, 이를 포함한 stage **37건**을 추가했다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+##### JE2/P3 다음 체크리스트 — capped fork의 생성 의미와 graph 표현
+
+- [x] C `t.c`의 `[:` 등록, `cf.c::jtcap`, `j.h` capped 실행과 native Windows j64/AVX2를 대조했다. finite probe를 `reports/capped-fork-oracle-windows.json`에 기록했다. 이는 Rust conformance 통과 보고서가 아니다.
+- [ ] `[:`를 core VERB primitive로 등록하고 standalone monad/dyad는 ValenceError로 처리한다. tokenizer/enqueuer의 일반 primitive 경로를 사용하며 새 keyword나 parser 문법을 만들지 않는다.
+- [ ] fork 구성 시 첫 operand가 직접 `[:`이거나 **현재 single name의 직접 binding이 `[:`**이면 capped 의미를 고정한다. C는 이름 alias chain을 재귀 추적하지 않는다. `capname=:[:` → `g=:capname + -` → `capname=:+` 뒤에도 g는 capped이고, `alias=:capname`을 거친 fork는 이 특수 규칙에 포함되지 않는 것을 회귀 검증한다.
+- [ ] ordinary NAME/provenance·binding dependency를 보존하며 construction-time capped 의미를 함수의 불변 의미로 표현한다. runtime에서 첫 이름을 다시 판정하거나 일반 nameref의 late lookup를 전부 freeze하지 않는다. static/no-host 경로는 생성 시 binding proof가 없으면 unknown 또는 명시적 runtime construction 경계를 둔다.
+- [ ] capped fork는 h(x,y) 뒤 g(monad)를 실행하며 첫 operand를 호출하지 않는다. source Fork DAG는 유지하되 Graph IR에서는 순차 pipeline을 표현한다. ParallelBranchCandidate·두 branch 입력 유지 힌트를 부여하지 않으며 optimizer 실행은 추가하지 않는다.
+- [ ] direct/named cap, alias-chain 차이, 재대입·POS 변경·실패 effect 순서와 반환 AR을 C 양 버전으로 검증한다. noun-left GraphForm 전문화·일반 prototype 효과/오류·fill/padding·sparse·dyadic insert·full definition/control/body graph도 미완료다.
+
+Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L163), [cf.c single-name cap 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L38), [j.h capped call](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249).
+
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
 - [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
@@ -9429,7 +9452,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(empty-scope 단계): Windows default/portable 각각 **410 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,130 cases / 5,129 passed / runtime 경계 1 / failed 0**, stage **10,474 checks**, words **6,618 cases / failed 0**. capture graph 경계 230건과 static 경계 2건은 별도다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(noun-left fork 단계): Windows default/portable 각각 **412 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,156 cases / 5,155 passed / runtime 경계 1 / failed 0**, stage **10,511 checks**, words **6,618 cases / failed 0**. capture graph 경계 234건과 static 경계 2건은 별도다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.
