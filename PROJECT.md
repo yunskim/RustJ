@@ -1792,7 +1792,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: the 2026-10-04 JE2 adapter audit stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
+Code/document review baseline: the 2026-10-04 JE2/P3 immediate boundary stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
 - explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
@@ -1819,7 +1819,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (JE2 adapter audit stage): Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Keep 114 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+- latest frontend validation (JE2/P3 immediate boundary stage): Windows default/portable each: **383 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,863 cases / 4,859 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,043 checks**; words: **6,618 cases / 0 failed**. Keep 114 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
@@ -2064,7 +2064,26 @@ Extend the existing explicit/direct all-POS regression to verify the same Functi
 
 **Adapter-audit gate:** Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Keep 114 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 
-Next implementation priority: P3 immediate bident/trident actions returning actual Noun/Function POS through the runtime host. Lock minimal C examples and error/effect order before supporting one action at a time. CUDA, optimizer implementation and GitHub CI remain deferred.
+The following audit corrects this planned priority: supported immediate actions already existed; distinguish them from surface parser row reachability and missing primitive/definition executors.
+
+#### JE2/P3 implementation — immediate constructor results and row reachability correction (2026-10-04, partial)
+
+C cf.c::jthook immediately applies fn==0 V N / N/V A and N V N / N/V C N/V combinations created by invisible modifier execution. RustJ already supports these through construct_modifier_bident/trident in AR decoding and derived modifier execution. Noun calls invoke the runtime host once; modifier actions preserve actual returned POS. Correct the claim that all immediate execution was missing. Complete primitive/definition execution and P3 remain incomplete.
+
+Surface rows 0/2/3/4 consume immediate combinations before rows 5/6. Exhaustively check all **6,561 four-class windows**: Fork selects only NVV/VVV; Hook cannot select immediate/fork dispositions. Replace unreachable Unsupported messages with row-invariant errors. This does not turn static value-dependent Unsupported boundaries into J errors or execute static calls.
+
+Route ConstructionNames::apply_noun success through CompletedParseResult::noun(...).into_item(), preserving one-time freeze, span/height and success/failure observation order. A unit regression checks both bident/trident host calls with owned 256×256 results: exactly one call, actual Noun POS, pointer/shape/span preserved and no copy when retained as a FunctionOperand. Revalidate existing failure/effect/static-no-host coverage. Add **12 C corpus/stage cases** feeding immediate scalar/array noun results into rank construction and comparing domain/length errors.
+
+- [x] Separate immediate actions from surface row eligibility and exhaustively check reachability.
+- [x] Move host noun results through the common completed-result carrier.
+- [x] Compare nested immediate-to-rank cases against C.
+- [ ] Complete primitive/explicit modifier invocation and local/locale/definition scope. Keep 17 ignored definition acceptance tests outside completion evidence.
+
+**Immediate-boundary gate:** Windows default/portable each: **383 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,863 cases / 4,859 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,043 checks**; words: **6,618 cases / 0 failed**. Keep 114 capture-graph and 2 static boundaries separate. All ten report binary/source hashes verified. Source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+
+Next isolate genuinely unsupported explicit adverb/conjunction application with minimal C cases, then implement an invocation boundary preserving operand/local bindings and actual result POS, including noun body results. CUDA, optimizer implementation and GitHub CI remain deferred.
+
+Sources: [cf.c tables](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L292), [immediate invisible-modifier execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L355), [p.c ordered parser rows](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

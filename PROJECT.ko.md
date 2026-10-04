@@ -7674,7 +7674,26 @@ F2의 same-stack 재삽입, P2의 같은 matcher 재순회·runtime/analysis eng
 
 **Adapter-audit gate:** Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
 
-다음 구현 우선순위는 P3의 미지원 immediate bident/trident action이 반환하는 실제 Noun/Function POS와 runtime host 경계다. 먼저 최소 C 사례와 오류/효과 순서를 고정하고 한 action씩 지원한다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
+후속 감사에서 확인한 immediate action의 기존 지원과 surface parser row 도달성은 아래 기록을 따른다. 이 단계의 “미지원 immediate action” 우선순위는 기존 구현을 충분히 구분하지 못한 계획이었다.
+
+##### JE2/P3 구현 — immediate constructor 결과 경계와 row 도달성 정정 (2026-10-04, partial)
+
+C `cf.c::jthook`의 `fn == 0`은 invisible modifier 실행으로 생긴 V N / N/V A 및 N V N / N/V C N/V를 즉시 적용한다. RustJ의 `construct_modifier_bident`/`construct_modifier_trident`는 이미 AR decode와 derived modifier 실행에서 이를 지원한다. V N·N V N은 runtime host를 한 번 호출하여 실제 Noun을 반환하고, adverb/conjunction action은 해당 constructor가 반환한 실제 POS를 유지한다. “immediate executor가 전부 미구현”이라는 P3 설명을 정정한다. 지원 primitive/definition 범위를 넘어서는 실행은 여전히 Unsupported이며 전체 P3 완료를 뜻하지 않는다.
+
+surface parser에서는 ordered rows 0/2/3/4가 이 즉시 적용 조합을 rows 5/6보다 먼저 소비한다. 현재 9개 ParseClass의 모든 6,561 stack window를 검사하여 row 5는 NVV/VVV fork만, row 6은 immediate/fork가 아닌 disposition만 선택함을 고정했다. 도달하지 않는 branch의 Unsupported 문구를 row invariant 오류로 바꿨다. static analysis가 실제 값이 필요한 호출을 임의로 실행하거나 Unsupported를 J 오류로 바꾸는 정책 변경이 아니다.
+
+`ConstructionNames::apply_noun`의 성공 결과를 `CompletedParseResult::noun(...).into_item()`으로 통합한다. 기존 once-freeze, span/height와 ConstructorApply의 성공/오류 observation 순서는 유지한다. 새 unit regression은 bident/trident 두 경로에서 owned 256×256 배열 결과의 payload pointer·shape·span·실제 Noun POS와 host 호출 1회를 확인하고, 후속 FunctionOperand로 이동해도 복사 없이 살아 있음을 검증한다. 기존 실패/효과/정적 no-host 회귀를 함께 재검증한다.
+
+- [x] immediate action과 surface row eligibility를 구분하고 전수 검사한다.
+- [x] host Noun 결과를 공통 completed-result carrier로 이동한다.
+- [x] 즉시 계산한 Noun을 rank constructor에 넣는 C corpus/stage 사례 12개를 추가한다. scalar/array 결과 및 domain/length 실패를 비교한다.
+- [ ] 모든 primitive/explicit modifier 실행과 local/locale/definition invocation을 구현한다. 기존 ignored definition acceptance 17개를 완료 증거로 세지 않는다.
+
+**Immediate-boundary gate:** Windows default/portable 각각 **383 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,863 cases / 4,859 passed / 기존 runtime 경계 4 / failed 0**, stage **10,043 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 JE2 namespace gate와 동일하다. full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+
+다음 단계는 실제 미지원 explicit adverb/conjunction 적용을 최소 C 사례로 분리하고, operand/local name binding과 실제 반환 POS를 보존하는 invocation 경계를 구현하는 것이다. noun 본문 결과도 Function으로 강제하지 않는다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
+
+기준 소스: [cf.c bident/trident table](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L292), [cf.c invisible modifier의 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L355), [p.c ordered parser rows](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
 
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
@@ -8332,8 +8351,8 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] rows 3–4에서 result POS를 RustJ가 임의로 고정하지 않고 **modifier semantic constructor가 반환한 실제 POS**를 다음 parser class로 사용한다.
 - [ ] row 3의 `VERB ADV`와 `NOUN ADV`를 각 adverb의 J construction semantics에 따라 처리한다.
 - [ ] row 4의 `(VERB|NOUN) CONJ (VERB|NOUN)` 전체 parser form을 각 conjunction의 J construction semantics에 따라 처리한다.
-- [x] `cf.c::bidents[]`를 `SyntaxError | ImmediateSemanticApply | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 6의 non-executing modifier 구성은 지원하며, immediate application executor는 별도 미완료다.
-- [x] `cf.c::tridents[]`를 `SyntaxError | ImmediateSemanticApply | BuildFork | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 5 fork와 row 6 non-fork modifier를 구분하며, immediate application executor는 별도 미완료다.
+- [x] `cf.c::bidents[]`를 `SyntaxError | ImmediateSemanticApply | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 6의 non-executing modifier 구성과 AR/derived modifier 내부의 지원된 immediate action은 구현되어 있다. 전체 primitive/definition executor 지원과는 구분한다.
+- [x] `cf.c::tridents[]`를 `SyntaxError | ImmediateSemanticApply | BuildFork | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 5 fork와 row 6 non-fork modifier를 구분한다. AR/derived modifier의 지원된 immediate action은 구현되어 있으나 전체 primitive/definition executor는 미완료다.
 - [ ] VV Hook과 NVV/VVV Fork의 construction boundary를 jsource와 동일하게 만든다.
 - [ ] 긴 train은 별도 `LongTrain` algorithm이 아니라 row 5/6 반복 reduction의 결과로만 형성한다.
 - [ ] modifier application마다 completed entity 하나를 만들고 후속 reduction은 그 entity ref만 보게 한다.
@@ -9018,7 +9037,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드/문서 검토 기준: 2026-10-04 JE2 adapter audit 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
+코드/문서 검토 기준: 2026-10-04 JE2/P3 immediate boundary 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
@@ -9036,7 +9055,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(JE2 adapter audit 단계): Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(JE2/P3 immediate boundary 단계): Windows default/portable 각각 **383 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,863 cases / 4,859 passed / 기존 runtime 경계 4 / failed 0**, stage **10,043 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

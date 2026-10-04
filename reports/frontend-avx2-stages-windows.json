@@ -26,7 +26,7 @@
     "test/g0x.ijs": "347cae3454e26505de6679fc0451b258d7acc99828fe65cc0a2c1f0037a3da6e"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "b96d918cbc3960cbf25ccedfa5e5ac6cde5463c66781b67c0110f8e0b28c9dd7",
+  "probe_sha256": "c88ad9d644727f6aeebe47c4881ec85c63970b6080f9ce249d5dcf8657a33c99",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -59,9 +59,9 @@
     "runtime_gerund_name_constructor": 23,
     "runtime_gerund_name_setup_or_target": 30,
     "runtime_gerund_name_error": 8,
-    "runtime_constructor_call_result": 19,
-    "runtime_constructor_call_setup": 17,
-    "runtime_constructor_call_error": 8,
+    "runtime_constructor_call_result": 23,
+    "runtime_constructor_call_setup": 23,
+    "runtime_constructor_call_error": 10,
     "constructor_decode_setup": 8,
     "constructor_decoded_snapshot": 4,
     "constructor_inventory_setup": 80,

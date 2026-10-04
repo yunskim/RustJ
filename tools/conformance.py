@@ -113,7 +113,8 @@ def constructor_call_cases():
     for inner in calls:
         out += ['callar=:' + inner, "callouterar=:(<'3'),<((<callar),(<'+'),<'-')",
                 'callkeep=:(,<callouterar)BACKSLASH', 'callfn=:(,<callouterar)"0',
-                'callfn=:(,<callar)"0', 'callkeep=:(,<callar)BACKSLASH']
+                'callfn=:(,<callar)"0', 'callkeep=:(,<callar)BACKSLASH',
+                "callrankar=:(<'\"'),<((<'+'),<callar)", 'callfn=:(,<callrankar)BACKSLASH']
     out += ['callinput=:1 2 3', 'callverb=:+', "callar=:(<'4'),<((<'callverb'),<'callinput')",
             "callouterar=:(<'3'),<((<callar),(<'+'),<'-')", 'callfn=:(,<callouterar)BACKSLASH',
             'callinput=:4 5', 'callfn=:(,<callouterar)BACKSLASH']

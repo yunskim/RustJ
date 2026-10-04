@@ -4,12 +4,12 @@
   "rust_path": "parser-capture",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 4851,
+  "cases": 4863,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\j.dll",
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "a438bc9c785837c0ed1d9ebb91b5533b012b76a312be6e636d137d4ed75edc91",
+  "binary_sha256": "3115e523dd0515914d3a289e27f54f3e6b6ea5f0660f0c9f69b8e9db1bcf3a36",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 4847,
+  "passed": 4859,
   "known_deviations": [],
   "coverage_boundaries": [
     {
@@ -316,342 +316,342 @@
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1794,
-      "source": "lateadv=:/",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1795,
-      "source": "latetrain=:lateadv /",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1796,
-      "source": "latealias=:latetrain",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1798,
-      "source": "lateadv=:\\",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1802,
-      "source": "lateadv=:@:",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
       "index": 1806,
       "source": "lateadv=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
       "index": 1807,
-      "source": "latetriple=:lateadv / /",
+      "source": "latetrain=:lateadv /",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1809,
+      "index": 1808,
+      "source": "latealias=:latetrain",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1810,
       "source": "lateadv=:\\",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1811,
-      "source": "lateconj=:\"",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1812,
-      "source": "latebound=:lateconj 1",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1813,
-      "source": "lateleft=:+lateconj",
       "reason": "captured modifier value graph lowering"
     },
     {
       "index": 1814,
-      "source": "latecj=:lateconj /",
+      "source": "lateadv=:@:",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1815,
-      "source": "latecjcopy=:latecj",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1819,
-      "source": "lateconj=:@:",
-      "reason": "captured modifier value graph lowering"
-    },
-    {
-      "index": 1824,
+      "index": 1818,
       "source": "lateadv=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1827,
+      "index": 1819,
+      "source": "latetriple=:lateadv / /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1821,
       "source": "lateadv=:\\",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1830,
+      "index": 1823,
       "source": "lateconj=:\"",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1833,
+      "index": 1824,
+      "source": "latebound=:lateconj 1",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1825,
+      "source": "lateleft=:+lateconj",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1826,
+      "source": "latecj=:lateconj /",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1827,
+      "source": "latecjcopy=:latecj",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1831,
       "source": "lateconj=:@:",
       "reason": "captured modifier value graph lowering"
     },
     {
       "index": 1836,
+      "source": "lateadv=:/",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1839,
+      "source": "lateadv=:\\",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1842,
+      "source": "lateconj=:\"",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1845,
+      "source": "lateconj=:@:",
+      "reason": "captured modifier value graph lowering"
+    },
+    {
+      "index": 1848,
       "source": "lateadv=:@:",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1840,
+      "index": 1852,
       "source": "dynamicadv=:latebase \"",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1841,
+      "index": 1853,
       "source": "dynamictrain=:dynamicadv /",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1843,
+      "index": 1855,
       "source": "dynamicadv=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1849,
+      "index": 1861,
       "source": "dynamicconj=:/ / latebase",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1850,
+      "index": 1862,
       "source": "dynamiccj=:dynamicconj /",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 1852,
+      "index": 1864,
       "source": "dynamicconj=:@:",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2022,
+      "index": 2034,
       "source": "defcode=:{{u y}}",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2023,
+      "index": 2035,
       "source": "defcode=:{{u v y}}",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2024,
+      "index": 2036,
       "source": "defcode=:{{u x+y}}",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2025,
+      "index": 2037,
       "source": "defcode=:{{u}}",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2026,
+      "index": 2038,
       "source": "defcode=:{{v}}",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2031,
+      "index": 2043,
       "source": "defcode=:1 : 'u y'",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2032,
+      "index": 2044,
       "source": "defcode=:2 : 'u v y'",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2037,
+      "index": 2049,
       "source": "defcode=:1 : 'defcounter=:99+u y'",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2039,
+      "index": 2051,
       "source": "defcode=:2 : 'defcounter=:99+u v y'",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2043,
+      "index": 2055,
       "source": "defcode=:{{defcounter=:99+u y}}",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2045,
+      "index": 2057,
       "source": "defcode=:{{defcounter=:99+u v y}}",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2354,
+      "index": 2366,
       "source": "jeouter=:jeinner=:jenoun",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2358,
+      "index": 2370,
       "source": "jeouter=:jeinner=:jeverb",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2359,
+      "index": 2371,
       "source": "jeadv=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2360,
+      "index": 2372,
       "source": "jeadvcopy=:jeadv",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2362,
+      "index": 2374,
       "source": "jeouter=:jeinner=:jeadv",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2363,
+      "index": 2375,
       "source": "jeconj=:\"",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2364,
+      "index": 2376,
       "source": "jeconjcopy=:jeconj",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2366,
+      "index": 2378,
       "source": "jeouter=:jeinner=:jeconj",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2367,
+      "index": 2379,
       "source": "jevalue=:(jenoun=:9)",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2369,
+      "index": 2381,
       "source": "jevalue=:(jeverb=:-) 3",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2371,
+      "index": 2383,
       "source": "jevalue=: +(jeadv=:/) i.4",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2373,
+      "index": 2385,
       "source": "jevalue=: +(jeconj=:\")0 i.4",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2383,
+      "index": 2395,
       "source": "jeverb=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2386,
+      "index": 2398,
       "source": "jeverb=:@:",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2394,
+      "index": 2406,
       "source": "jeexplicitadv=:1 : 'u y'",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2395,
+      "index": 2407,
       "source": "jeexplicitadv_copy=:jeexplicitadv",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2396,
+      "index": 2408,
       "source": "jeexplicitconj=:2 : 'u y'",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2397,
+      "index": 2409,
       "source": "jeexplicitconj_copy=:jeexplicitconj",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2398,
+      "index": 2410,
       "source": "jeadv=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2399,
+      "index": 2411,
       "source": "jeadvcopy=:jeadv",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2400,
+      "index": 2412,
       "source": "jeadv=:\\",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2402,
+      "index": 2414,
       "source": "jeexplicitadvchain=:jeexplicitadv_copy",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2403,
+      "index": 2415,
       "source": "jeexplicitadv=: /",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2408,
+      "index": 2420,
       "source": "jeexplicitconjchain=:jeexplicitconj_copy",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2409,
+      "index": 2421,
       "source": "jeexplicitconj=: \"",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2415,
+      "index": 2427,
       "source": "jebound=:jebase \"",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2416,
+      "index": 2428,
       "source": "jeboundcopy=:jebound",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2417,
+      "index": 2429,
       "source": "jebound=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2426,
+      "index": 2438,
       "source": "jenswap=:/",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2428,
+      "index": 2440,
       "source": "jenswap=:\"",
       "reason": "captured modifier value graph lowering"
     },
     {
-      "index": 2433,
+      "index": 2445,
       "source": "jecomputed_outer=:jecomputed_inner=:1+2",
       "reason": "capture needs ordered assignment/effect graph"
     },
     {
-      "index": 2436,
+      "index": 2448,
       "source": "jecomputed_outer=:(jecomputed_inner=:1+i.65)",
       "reason": "capture needs ordered assignment/effect graph"
     }

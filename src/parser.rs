@@ -293,15 +293,8 @@ impl ConstructionNames<'_, '_> {
                     },
                 });
         }
-        result.map(|value| {
-            Item::noun(
-                Expr {
-                    span,
-                    kind: ExprKind::Literal(value.into_shared()),
-                },
-                0,
-            )
-        })
+        result
+            .and_then(|value| CompletedParseResult::noun(value.into_shared(), span, 0).into_item())
     }
 }
 
@@ -1566,15 +1559,13 @@ fn apply_parse_row(
                         "row 5 fork disposition has invalid parser classes".into(),
                     ));
                 }
-                TridentDisposition::ImmediateSemanticApply => {
-                    return Err(Error::Unsupported(
-                        "row 5 requires parser-time semantic execution".into(),
+                // Ordered row eligibility admits only NVV/VVV here. Immediate
+                // cf.c constructors are invoked by AR/modifier execution, not row 5.
+                TridentDisposition::ImmediateSemanticApply
+                | TridentDisposition::BuildDerivedModifier(_) => {
+                    return Err(Error::Syntax(
+                        "invalid row 5 constructor disposition".into(),
                     ));
-                }
-                TridentDisposition::BuildDerivedModifier(result_pos) => {
-                    return Err(Error::Unsupported(format!(
-                        "row 5 derived modifier result {result_pos:?} is not yet represented"
-                    )));
                 }
                 TridentDisposition::SyntaxError => {
                     return Err(Error::Syntax(
@@ -1594,8 +1585,9 @@ fn apply_parse_row(
                         true
                     }
                     TridentDisposition::ImmediateSemanticApply => {
-                        return Err(Error::Unsupported(
-                            "row 6 trident requires semantic application".into(),
+                        // Rows 2/4 consume NVN and N/V C N/V before row 6.
+                        return Err(Error::Syntax(
+                            "immediate trident must be selected by an earlier row".into(),
                         ));
                     }
                     TridentDisposition::SyntaxError => {
@@ -1622,8 +1614,9 @@ fn apply_parse_row(
                         true
                     }
                     BidentDisposition::ImmediateSemanticApply => {
-                        return Err(Error::Unsupported(
-                            "row 6 requires parser-time semantic execution".into(),
+                        // Rows 0/3 consume VN and N/V A before row 6.
+                        return Err(Error::Syntax(
+                            "immediate bident must be selected by an earlier row".into(),
                         ));
                     }
                     BidentDisposition::SyntaxError => {
@@ -2778,6 +2771,87 @@ mod parser_table_tests {
     }
 
     #[test]
+    fn ordered_rows_exclude_immediate_actions_from_hook_and_fork() {
+        // p.c row precedence must not expose cf.c's invisible execution cases
+        // as surface Hook/Fork actions. Cover every four-class stack window.
+        let classes = [
+            Noun,
+            Verb,
+            Adverb,
+            Conjunction,
+            Name,
+            Assignment,
+            LParen,
+            RParen,
+            Mark,
+        ];
+        let mut hook_windows = 0;
+        let mut fork_windows = 0;
+        for a in classes {
+            for b in classes {
+                for c in classes {
+                    for d in classes {
+                        let window = [a, b, c, d];
+                        match match_parse_row(window) {
+                            Some(ParseRow::Fork) => {
+                                fork_windows += 1;
+                                assert_eq!(
+                                    super::trident_disposition(b, c, d),
+                                    super::TridentDisposition::BuildFork,
+                                    "{window:?}",
+                                );
+                            }
+                            Some(ParseRow::Hook) => {
+                                hook_windows += 1;
+                                if super::is_cavn(d) {
+                                    assert!(
+                                        !matches!(
+                                            super::trident_disposition(b, c, d),
+                                            super::TridentDisposition::ImmediateSemanticApply
+                                                | super::TridentDisposition::BuildFork
+                                        ),
+                                        "{window:?}"
+                                    );
+                                } else {
+                                    assert_ne!(
+                                        super::bident_disposition(b, c),
+                                        super::BidentDisposition::ImmediateSemanticApply,
+                                        "{window:?}",
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        assert!(hook_windows > 0 && fork_windows > 0);
+        for edge in [Mark, Assignment, LParen] {
+            assert_eq!(
+                match_parse_row([edge, Verb, Noun, RParen]),
+                Some(ParseRow::MonadEdge)
+            );
+            for operand in [Noun, Verb] {
+                assert_eq!(
+                    match_parse_row([edge, operand, Adverb, RParen]),
+                    Some(ParseRow::Adverb)
+                );
+                for right in [Noun, Verb] {
+                    assert_eq!(
+                        match_parse_row([edge, operand, Conjunction, right]),
+                        Some(ParseRow::Conjunction)
+                    );
+                }
+            }
+            assert_eq!(
+                match_parse_row([edge, Noun, Verb, Noun]),
+                Some(ParseRow::DyadNVN)
+            );
+        }
+    }
+
+    #[test]
     fn pinned_jsource_bident_dispositions_match_cf_c() {
         use super::BidentDisposition::{
             BuildDerivedModifier as D, BuildHook, ImmediateSemanticApply as I, SyntaxError as S,
@@ -3027,6 +3101,80 @@ mod modifier_storage_tests {
 #[cfg(test)]
 mod gerund_ar_tests {
     use super::*;
+
+    #[test]
+    fn immediate_constructor_moves_large_host_result_without_copying_or_reexecution() {
+        struct Host {
+            output: Option<Value>,
+            dyad: bool,
+            calls: usize,
+        }
+        impl RuntimeParserHost for Host {
+            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
+                None
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                None
+            }
+            fn apply(&mut self, expression: Expr) -> Result<Value> {
+                assert_eq!(matches!(expression.kind, ExprKind::Dyad { .. }), self.dyad);
+                assert_eq!(expression.span, 11..29);
+                self.calls += 1;
+                Ok(self.output.take().expect("exactly one constructor call"))
+            }
+        }
+        for dyad in [false, true] {
+            let output = Value::new(
+                [256, 256],
+                Data::Int(CpuStorage::new((0..65_536).collect())),
+            )
+            .unwrap();
+            let pointer = match &output.data {
+                Data::Int(storage) => storage.as_ptr(),
+                _ => panic!(),
+            };
+            let args = if dyad {
+                vec![noun(Value::scalar(2)), text("+"), noun(Value::scalar(3))]
+            } else {
+                vec![text("+"), noun(Value::scalar(3))]
+            };
+            let serialized = ar("4", args);
+            let mut host = Host {
+                output: Some(output),
+                dyad,
+                calls: 0,
+            };
+            let item = {
+                let bridge = std::cell::RefCell::new(&mut host as &mut dyn RuntimeParserHost);
+                decode_gerund_ar(
+                    &serialized,
+                    11..29,
+                    0,
+                    ConstructionNames {
+                        host: Some(&bridge),
+                        ..ConstructionNames::default()
+                    },
+                )
+                .unwrap()
+            };
+            assert_eq!(host.calls, 1);
+            assert_eq!(item.class, ParseClass::Noun);
+            assert_eq!(item.span(), 11..29);
+            let retained = CompletedParseResult::from_item(item, "immediate result")
+                .unwrap()
+                .into_operand();
+            let FunctionOperand::Noun { value, span } = retained else {
+                panic!()
+            };
+            assert_eq!(span, 11..29);
+            let Data::Int(storage) = &value.data else {
+                panic!()
+            };
+            assert_eq!(storage.as_ptr(), pointer);
+            assert_eq!(value.shape(), &[256, 256]);
+            assert_eq!(value.int_at(65_535).unwrap(), 65_535);
+        }
+    }
 
     #[test]
     fn constructor_call_observes_updated_host_and_static_path_never_executes() {
