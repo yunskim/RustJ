@@ -1862,17 +1862,15 @@ fn modifier_train(phrase: Vec<Item>, result: ParseClass) -> Result<Arc<FunctionE
     let span = phrase.first().unwrap().span().start..phrase.last().unwrap().span().end;
     let mut operands = Vec::with_capacity(phrase.len());
     for item in phrase {
-        let item_span = item.span();
-        operands.push(match item.value {
-            ParseValue::Noun(expr, _) => FunctionOperand::Noun {
-                value: completed_noun(expr, "runtime-dependent modifier train noun operand")?
-                    .into_shared(),
-                span: item_span,
-            },
-            ParseValue::Verb(verb) => FunctionOperand::Function(verb.entity),
-            ParseValue::Function(function) => FunctionOperand::Function(function),
-            _ => return Err(Error::Syntax("invalid modifier train operand".into())),
-        });
+        if !matches!(
+            item.value,
+            ParseValue::Noun(..) | ParseValue::Verb(_) | ParseValue::Function(_)
+        ) {
+            return Err(Error::Syntax("invalid modifier train operand".into()));
+        }
+        let completed =
+            CompletedParseResult::from_item(item, "runtime-dependent modifier train noun operand")?;
+        operands.push(completed.into_operand());
     }
     let result_pos = match result {
         ParseClass::Adverb => FunctionPartOfSpeech::Adverb,
@@ -1995,6 +1993,19 @@ impl CompletedParseResult {
             height,
             verb_adapter,
         })
+    }
+
+    /// Move a completed value into an immutable constructor operand. Freeze
+    /// nouns once so later bound-modifier reuse shares their payload. Retain
+    /// source occurrence provenance without making it function identity.
+    fn into_operand(self) -> FunctionOperand {
+        match self.entity {
+            JEntity::Noun(value) => FunctionOperand::Noun {
+                value: value.into_shared(),
+                span: self.span,
+            },
+            JEntity::Function(function) => FunctionOperand::Function(function),
+        }
     }
 
     fn into_item(self) -> Result<Item> {
@@ -3381,5 +3392,115 @@ mod completed_result_tests {
                 .count(),
             2
         );
+    }
+}
+
+#[cfg(test)]
+mod completed_constructor_operand_tests {
+    use super::*;
+    use crate::{semantic::JEntityRef, storage::CpuStorage, value::Data};
+
+    #[test]
+    fn modifier_train_freezes_grouped_owned_noun_once_and_reuses_after_train_drop() {
+        let value = Value::ints([65536], (0..65536).collect()).unwrap();
+        let Data::Int(data) = value.data() else {
+            panic!()
+        };
+        let pointer = data.as_ptr();
+        let noun = Item::noun(
+            Expr {
+                span: 2..8,
+                kind: ExprKind::Group(Box::new(Expr {
+                    span: 3..7,
+                    kind: ExprKind::Literal(value),
+                })),
+            },
+            1,
+        )
+        .with_span(1..9);
+        let conjunction =
+            FunctionEntity::name_ref("rank".into(), FunctionPartOfSpeech::Conjunction, 10..14);
+        let train = modifier_train(
+            vec![noun, Item::function(conjunction.clone())],
+            ParseClass::Adverb,
+        )
+        .unwrap();
+        assert_eq!(train.span, 1..14);
+        assert_eq!(train.head, FunctionHead::ModifierTrain);
+        assert_eq!(train.result_pos, FunctionPartOfSpeech::Adverb);
+        let operand = &train.operands[0];
+        assert_eq!(operand.span(), &(1..9));
+        let JEntityRef::Noun(value) = operand.as_entity_ref() else {
+            panic!()
+        };
+        let Data::Int(CpuStorage::Shared(data)) = value.data() else {
+            panic!()
+        };
+        assert_eq!(data.as_ptr(), pointer);
+        let uses_before = Arc::strong_count(data);
+        let reused = modifier_operand(operand, 30..40);
+        assert_eq!(Arc::strong_count(data), uses_before + 1);
+        let FunctionOperand::Function(retained) = &train.operands[1] else {
+            panic!()
+        };
+        assert!(Arc::ptr_eq(retained, &conjunction));
+        drop(train);
+        assert_eq!(reused.span(), 30..40);
+        let value = completed_noun(reused.into_noun().unwrap().0, "test").unwrap();
+        let Data::Int(data) = value.data() else {
+            panic!()
+        };
+        assert_eq!(data.as_ptr(), pointer);
+        assert_eq!(value.int_at(65535).unwrap(), 65535);
+    }
+
+    #[test]
+    fn modifier_train_moves_all_function_pos_and_rejects_deferred_nouns() {
+        for (pos, result) in [
+            (FunctionPartOfSpeech::Verb, ParseClass::Adverb),
+            (FunctionPartOfSpeech::Adverb, ParseClass::Conjunction),
+            (FunctionPartOfSpeech::Conjunction, ParseClass::Conjunction),
+        ] {
+            let left =
+                FunctionEntity::name_ref("left".into(), FunctionPartOfSpeech::Conjunction, 0..4);
+            let right = FunctionEntity::name_ref("right".into(), pos, 5..10);
+            let item = if pos == FunctionPartOfSpeech::Verb {
+                Item::verb(Verb {
+                    span: 5..10,
+                    target: VerbTarget::Named("right".into()),
+                    entity: right.clone(),
+                })
+            } else {
+                Item::function(right.clone())
+            };
+            assert_eq!(
+                bident_disposition(ParseClass::Conjunction, pos.into()),
+                BidentDisposition::BuildDerivedModifier(result)
+            );
+            let before = Arc::strong_count(&right);
+            let train = modifier_train(vec![Item::function(left.clone()), item], result).unwrap();
+            assert_eq!(Arc::strong_count(&right), before);
+            assert_eq!(ParseClass::from(train.result_pos), result);
+            let FunctionOperand::Function(child) = &train.operands[1] else {
+                panic!()
+            };
+            assert!(Arc::ptr_eq(child, &right));
+            assert_eq!(child.result_pos, pos);
+            assert_eq!(child.head, FunctionHead::NameRef("right".into()));
+        }
+        for source in ["unknown", "1+2", "(1+2)"] {
+            let noun = parse(source).unwrap().expression.unwrap();
+            let conjunction =
+                FunctionEntity::name_ref("rank".into(), FunctionPartOfSpeech::Conjunction, 20..24);
+            let error = modifier_train(
+                vec![Item::noun(noun, 1), Item::function(conjunction)],
+                ParseClass::Adverb,
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), "unsupported");
+        }
+        let error =
+            modifier_train(vec![Item::mark(0), Item::mark(1)], ParseClass::Adverb).unwrap_err();
+        assert_eq!(error.kind(), "syntax error");
     }
 }

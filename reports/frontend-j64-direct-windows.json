@@ -7,7 +7,7 @@
   "cases": 4827,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\j.dll",
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "79426b45c9961962827a2c355e6462429a8cd9d7b3b91a770baad6e023b212ce",
+  "binary_sha256": "5ca6f53c80d71cf43d151a57e8d2cb63b46e1a6e5d5beeaab4ad1835d9daccbe",
   "scope": "supported subset; upstream suite NOT executed",
   "passed": 4823,
   "known_deviations": [],

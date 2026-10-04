@@ -7566,6 +7566,7 @@ JE1의 최소 API/첫 boundary는 완료이며 runtime `SymbolValue` seam을 JE2
 - [x] `FunctionOperand::as_entity_ref()`로 공통 borrowed JEntityRef를 제공하고 `span()`으로 provenance를 보존한다. noun의 별도 span과 함수 Arc 소유권을 유지하기 위해 owning enum은 유지한다.
 - [ ] parser stack/value model이 noun/function에 대해 공통 entity transport를 사용하되 jsource 9-row class/POS 규칙은 그대로 유지하게 한다. runtime rows 0–2와 row 7의 completed-result transport는 아래 단계에서 완료했고 전체 stack variant 수렴은 별도다.
 - [x] `CompletedParseResult`로 실행 완료 noun과 row 7의 네 RHS class를 JEntity 경계에 연결한다. deferred Expr·NAME·control은 concrete entity로 강제하지 않는다.
+- [x] modifier train의 Noun/Verb/Adverb/Conjunction operand를 같은 completed-result 경계에서 이동하고 noun source span·freeze 정책·함수 DAG identity를 보존한다.
 - [x] assignment가 `JEntity`를 namespace에 write하고 같은 assigned `JEntity`를 expression result로 반환하는 contract를 공통화한다. `Binding.value`와 runtime host boundary를 JEntity로 연결하고 SymbolValue를 제거했다.
 - [ ] name lookup이 binding에서 `JEntity`를 얻은 뒤 expected POS 검사를 수행하고 late-binding/version semantics를 유지하게 한다. top-level runtime lookup과 verb/modifier POS 검사는 완료했으며 전체 local/locale/definition scope는 미완료다.
 - [x] jsource `jtnamerefacv`의 의미적 차이를 회귀로 고정한다: noun name은 lookup 시점 value/snapshot을 전달할 수 있지만 function name은 실행 시 재조회되는 nameref가 필요할 수 있다. JEntity binding에서도 기존 71건과 새 noun/function replacement 11건으로 timing·POS·binding semantics를 유지한다.
@@ -7612,6 +7613,18 @@ runtime rows 0–2는 기존 host.apply를 한 번 실행한 뒤 이 경계로 c
 **Completed-result gate:** Windows default/portable 각각 **373 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,827 cases / 4,823 passed / 기존 runtime 경계 4 / failed 0**, stage **10,007 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같다. full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
 
 다음은 남은 parser value/constructor 경계에서 concrete completed result와 분석용 expression이 중복 전달되는 지점을 검토한다. 전체 stack enum 수렴, local/locale/definition scope 및 explicit body invocation은 미완료다. optimizer·CUDA·GitHub CI는 계속 보류한다.
+
+##### JE2 구현 — modifier constructor operand의 공통 경계 (2026-10-04, partial JE2)
+
+`CompletedParseResult::into_operand()`는 완료 noun을 기존처럼 한 번 `into_shared`하고 원본 occurrence span과 함께 FunctionOperand에 이동한다. 함수는 동일 Arc를 이동하며 occurrence용 Verb adapter를 semantic child에 복제하지 않는다. `modifier_train`의 Noun/Verb/Adverb/Conjunction 변환 중복을 이 경계로 대체했다. production rows 5/6과 gerund AR의 동일 modifier-train 생성 경로에 적용되며, result POS는 기존 cf.c disposition/constructor 결정으로 유지한다. raw NAME/control은 syntax error, deferred call/ReadName은 기존 unsupported로 남긴다.
+
+conjunction rank/right-first audit, noun-left fork, definition constructor, immediate bident/trident application은 각각의 검증 순서·실행 의미가 있어 이번 변경에 합치지 않았다. generic entity collection이나 physical storage 변경도 없다.
+
+새 회귀 2개는 grouped owned 65,536-atom noun이 복사 없이 freeze되고 원본 span을 유지하며 train 해제 뒤 application occurrence에서 재사용되는지 확인한다. 함수 세 POS의 DAG identity/참조 수, cf.c disposition과 result POS, 미계산 noun의 거부 및 control의 syntax error도 확인한다. 기존 runtime noun-origin capture·named array snapshot·nested modifier train tests와 88건 entity-boundary C fixtures를 재검증한다.
+
+**Constructor-operand gate:** Windows default/portable 각각 **375 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,827 cases / 4,823 passed / 기존 runtime 경계 4 / failed 0**, stage **10,007 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같다. full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
+
+다음은 rank/conjunction operand 경계에서 right-before-left 오류 우선순위와 gerund 감사 계약을 먼저 고정한 뒤 공통 transport 사용 여부를 검토한다. JE2 전체 완료와 전체 J parser 지원으로 표시하지 않는다.
 
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
@@ -8955,7 +8968,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드/문서 검토 기준: 2026-10-04, runtime/source `87a1eaa`. 이후 이 절의 문서 정리 commit들은 runtime/source를 변경하지 않는다. 아래 최신 frontend 검증 수치는 `87a1eaa`에 기록된 실행 결과이며, 이번 문서 재검토에서 테스트를 다시 실행했다는 뜻은 아니다.
+코드/문서 검토 기준: 2026-10-04 JE2 constructor-operand 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
@@ -8972,8 +8985,8 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - `facts::RepresentationClassFact`는 Dense/AxisSparse J-visible representation class만 나타내며, stride/offset/device/buffer 같은 physical layout은 포함하지 않는다.
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
-- F1/F2/P1~P7의 jsource-compatible Enqueue/9-row parser cutover는 미완료이며 현재 modifier/train heuristic parser는 transitional implementation이다.
-- 최신 기록 검증(`87a1eaa`): Windows default/portable 각각 **358 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**; j64/AVX2 각각 direct·semantic-reference·parser-capture **4,739 cases / 4,735 passed / 기존 runtime 경계 4 / failed 0**, stage **9,919 checks**, word formation **6,618 cases**. full upstream suite·definition invocation acceptance·private C control trace 동등성은 검증되지 않았다.
+- frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
+- 최신 frontend 검증(JE2 constructor-operand 단계): Windows default/portable 각각 **375 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,827 cases / 4,823 passed / 기존 runtime 경계 4 / failed 0**, stage **10,007 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 §10 JE2 namespace gate와 같다. full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.
