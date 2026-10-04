@@ -2647,6 +2647,60 @@ NameRef(expected = Verb)
 
 처럼 **late binding과 expected part-of-speech contract를 동시에 보존**한다.
 
+#### 4.8.1 실행 전 입력 정보 — ``with (X`Y)`` 후보와 metadata 검사
+
+**사용자 의도:** 실행 전 분석·최적화에 필요한 입력 정보를 어떻게 확보할지 검토한다. `with`/gerund 채택은 필수가 아니며 아직 표면 schema를 확정하지 않는다. 기존 noun metadata 추론, 외부 API/catalog, 파일·데이터셋 header/schema 또는 optional annotation에서 facts를 받아 같은 분석 경계로 전달할 수 있다. header 조회도 실제 I/O이므로 effect를 숨기지 않는다. graph topology는 shape 없이도 일부 분석 가능하고, dtype·rank·extent·차원 관계를 알수록 더 정확한 legality/resource 분석이 가능하다. 값에 의존하는 조건은 metadata로 증명하지 않는다. frontend 작업 우선순위와 optimizer 실행 보류는 유지한다.
+
+**출처 확인(2026-10-04):** `jaxa-analyzer`의 pinned `7275d5ba` 아키텍처 문서 §7.7-2, entry-point 항목에 `X =: 2 3 source with fp16`, `Y =: 2 3 source with fp16`, ``run =: (#@:[ ([ optimizer (''"_)) graph) with (X`Y)`` 제안이 있다. 같은 절의 `with` 항목은 annotation/adjoint/optimizer 묶기를 제안하며, 뒤 항목은 dtype·hardware·tile 정보를 평평하게 섞는 문제를 명시한다. 이는 제안/검토 이력이며 실행 구현 완료의 근거가 아니다. `X/Y`는 여기서 학습 배열 전체가 아니라 **source에 계약을 붙인 entity**로 해석할 후보다. 표준 J의 tie는 verb의 atomic representation을 담는 noun을 만들며 noun operand에서는 concatenation을 수행한다. 따라서 noun으로 binding된 학습 배열에 backtick을 쓴다고 외부 입력 handle이 자동으로 생기지 않는다. [JAXA 원 제안](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md#L861), [J tie](https://www.jsoftware.com/help/dictionary/d610.htm).
+
+**RustJ 설계 예시 — 아직 실행 가능한 extension 문법이 아니다:**
+
+```j
+X =: 2 3 source with fp16
+Y =: 2 3 source with fp16
+run =: graph with (X`Y)
+```
+
+원문의 표면 형태를 유지하되 `source`, `fp16`, `with`는 모두 ordinary binding이다. tokenizer/parser에 spelling별 규칙을 추가하지 않는다. `with`의 semantic adapter는 gerund의 원본 noun·순서·span·NameRef를 보존하고, 등록된 descriptor/annotation capability만 읽는다. 임의 verb를 호출해 metadata를 얻거나 외부 데이터를 로드하지 않는다. capability를 모르면 분석 경계를 보고하고 실제 J 문법을 invalid로 판정하지 않는다. 실제 source 호출의 I/O/state effect는 별도 contract로 남긴다.
+
+`with`를 선택하는 경우의 후보 입력 descriptor는 schema version, input identity/slot, dtype/rank/shape facts 및 provenance를 담는다. dyadic input bundle에서는 두 entry의 좌·우 slot을 명시·검증하고 원문의 X/Y 순서를 보존한다. 단순 두 항목이라는 이유로 adjoint/optimizer 묶기를 입력으로 해석하지 않는다. 함수 이름의 observed target를 쓸 때에는 ordinary NAME late binding 및 별도 runtime binding/version guard가 필요하다. 실제 noun 입력은 parser에서 읽을 때의 snapshot을 유지하며, 이를 function처럼 지연시키지 않는다.
+
+| 정보 종류 | 전달할 내용 | 분석에서 사용하는 방법 | 경계 |
+|---|---|---|---|
+| 입력 계약 | dtype·rank·고정 shape, 이후 기호 차원/동등성 제약 | shape propagation, logical extent/liveness/resource 분석 | 현재는 concrete shape 또는 unknown만 지원; 기호 차원은 미구현 |
+| 입력/상태 역할 | data·parameter·label 등 용도와 명시적 read/write resource | step의 입력·갱신 dependency를 구분 | weight도 배열이며 값 상수가 아니다; 학습용 state/effect 연결 미구현 |
+| numeric 계약 | dtype 및 명시적 cast/연산 precision 규칙 | 합법 kernel/변환의 전제 | fp16 선언만으로 변환·오차·reassociation을 허용하지 않음 |
+| 내용/별칭 조건 | 값 범위·불변성·no-alias 주장과 proof/guard provenance | 증명된 경우만 값 의존/alias 분석에 사용 | metadata만으로 보장하지 않으며 현재 guard 범위에서 제외 |
+| physical profile | device·layout·alignment·tile 등 | Execution/Physical Planner의 별도 입력 | semantic `with` bundle에 넣지 않음 |
+
+큰 데이터셋은 batch별 실제 noun을 입력에 연결한다. IR은 `ReadNoun`와 facts를 보유하고 원소 전체를 literal로 넣지 않는다. 같은 계약의 batch는 같은 분석 구조를 사용할 수 있지만 **실행 계획 재사용에는 별도의 함수·effect·runtime guard가 필요하다.** parameter 값은 step마다 바뀌어도 payload를 compile constant로 고정하지 않는다. contents/pointer/runtime noun version을 무조건 compile-cache key로 삼지 않는다. cache는 graph/contract/schema 및 필요한 semantic/target specialization을 기준으로 설계하고 실제 NAME witness를 별도로 확인한다. 값 의존 결과 크기는 unknown/guard 경계로 남긴다. 학습 pipeline/optimizer 실행 구현은 이번 범위가 아니다.
+
+**이번 구현:** `StaticAnalysis::validate_noun_inputs()`가 사용된 noun 선언과 live `&Value`의 dtype·rank·shape를 검사한다. 배열 원소를 읽거나 clone/retain하지 않으며 supplied metadata만 검사한다. type→rank→extent 순으로 Domain/Rank/Length를 반환하고 missing NAME은 Value, duplicate/extra 입력은 Domain으로 거부한다. unknown facts는 새로운 제약을 만들지 않는다. catalog revision은 runtime witness가 아니며 이 검사는 함수 binding·effect·alias·device·값 범위 또는 전체 실행 안전성을 증명하지 않는다. 현재 runtime 실행 경로에 자동 삽입한 guard도 아니다. `with` 해석은 아직 미구현이다.
+
+체크리스트(기존 frontend 우선순위 유지):
+
+- [x] **WI0** 원 제안과 J tie 의미를 확인하고 입력·adjoint·numeric·physical 정보의 경계를 정본에 통합한다.
+- [x] **WI1** 데이터 없는 noun 분석 결과에 live noun metadata 검사 API를 추가한다. 서로 다른 batch 수용, dtype/rank/extent·missing/duplicate/extra 거부, unknown/partial facts·empty array·함수 미지원 유지 및 payload pointer/refcount 불변을 Windows regression 4개로 검증한다.
+- [ ] **WI2 (선택 후보)** 등록된 source/input descriptor와 typed bundle schema를 정의하고 gerund construction의 원본·순서·lookup timing/provenance를 유지하는 `with` semantic adapter를 구현한다. ordinary noun operand와 잘못된 descriptor를 별도로 검증한다.
+- [ ] **WI3** 전달 문법과 독립적으로 input facts를 static catalog/ReadNoun에 연결하고 함수 late binding·redefinition·POS 변경·unknown capability의 C/frontend regression을 추가한다. annotation 없이도 가능한 추론은 유지한다.
+- [ ] **WI4** 실제 input binding/lifetime 및 guard failure 경로를 연결한다. effect 이전 검증·batch 교체·부분 실패·계약 충돌을 확인한다. 외부 버퍼/mmap/device adapter는 별도 physical 작업이다.
+- [ ] **WI5** 기호 차원·기호 동등성·캐시 전제 및 학습 state contracts를 후속 구현한다. optimizer/CUDA/AD 실행은 계속 보류한다.
+
+비교 근거: [JAX abstract evaluation](https://docs.jax.dev/en/latest/601/jax-primitives.html)은 값 없이 shape/type을 분석하고, [PyTorch export](https://docs.pytorch.org/docs/stable/export)는 input/parameter와 dynamic shape constraints를 구분한다. 이들은 descriptor 기반 분석의 참고이며 J NAME timing을 대체하지 않는다.
+
+##### 입력 정보 문제의 프레임워크 비교 (2026-10-04)
+
+| 프레임워크 | 실행 전 입력 정보를 얻는 방법 | shape 변화/재사용 처리 | RustJ에 참고할 부분과 한계 |
+|---|---|---|---|
+| JAX | `ShapeDtypeStruct`로 실제 원소 없이 trace/lower/compile 가능. static argument는 실제 값 필요 | AOT artifact는 signature에 specialize되어 불일치 입력을 거부. shape polymorphism은 별도 export 경로 | 입력 metadata와 실제 noun을 분리. 값 상수 specialization과 배열 입력을 구별. [AOT](https://docs.jax.dev/en/latest/aot.html), [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) |
+| PyTorch | `torch.compile`은 입력 metadata와 guards를 사용. export는 실제 원소가 없는 FakeTensor/Proxy로 연산을 기록 | compile의 guard가 실패하면 재capture/recompile 가능; dynamic shape는 기호 크기와 제약을 사용. export는 별도 명시 제약 | 관측 facts와 검증 조건을 분리. default static→dynamic generalization을 선택적으로 참고하되 J NAME witness를 유지. [export model](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/programming_model.html), [dynamic shapes](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamic_shapes.html), [guards/recompile](https://github.com/pytorch/pytorch/blob/main/docs/source/user_guide/torch_compiler/torch.compiler_dynamo_overview.md) |
+| TensorFlow | `TensorSpec`/`input_signature`; `get_concrete_function(TensorSpec(...))`로 tensor graph 실행과 tracing 분리 가능 | `None` 차원은 wildcard로 trace 재사용. 고정 signature와 맞지 않는 입력은 거부 | 일부 크기만 미확정으로 둘 수 있음. wildcard 자체는 서로 다른 입력의 차원 동등성을 표현하지 않음. [tf.function](https://www.tensorflow.org/guide/function) |
+| TVM Relax | graph input에 shape/dtype type를 선언하고 symbolic dimension `n`을 연산·함수 사이에 연결 | 기호 관계를 IR에서 추론; 모르는 shape는 runtime shape 표현으로 남길 수 있음 | 단순 unknown과 `X.batch = Y.batch` 관계를 구별하는 후속 abstract domain. [Relax abstraction](https://tvm.apache.org/docs/deep_dive/relax/learning.html), [shape API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html) |
+
+tracing은 frontend/host 코드를 실행할 수 있으므로 “사용자 코드를 전혀 실행하지 않는다”와 같지 않다. descriptor 방식도 데이터 의존 결과 크기·조건·오류를 자동으로 증명하지 않는다. RustJ는 frontend에서 보존한 graph와 known facts를 분석하고, unknown facts 및 J effect/name timing을 유지한다. shape/type 정보가 없더라도 topology 수준 기회를 찾을 수 있으며, 확보한 정보에 따라 legality·logical resource 분석을 정밀하게 한다. 실제 optimization pass는 계속 보류한다.
+
+**WI1 gate:** native Windows default/portable 각각 **396 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 164건 및 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 다시 확인했다. `with` 실행·기호 차원·학습/AD·CUDA·optimizer 실행 완료를 뜻하지 않는다. full upstream/private C trace 및 ignored definition acceptance는 미검증이며 Linux/GitHub CI는 실행하지 않았다. 다음 frontend milestone은 JE2/P3 scoped-reference 미지원 경계의 C 대조를 이어 가며, `with` adapter는 필수 선행 조건으로 만들지 않는다.
+
 ### 4.9 Vocabulary는 이름 목록이 아니라 form + contract다
 
 과거 연구의 중요한 결론은 primitive vocabulary가 단순 whitelist가 아니라는 점이다.
@@ -9091,7 +9145,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드/문서 검토 기준: 2026-10-04 JE2/P3 modifier scope·직선 본문 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
+코드/문서 검토 기준: 2026-10-04 WI1 입력 metadata 검사 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
@@ -9109,7 +9163,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(JE2/P3 modifier scope·직선 본문 단계): Windows default/portable 각각 **392 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks**, words **6,618 cases / failed 0**. capture graph 경계 164건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(WI1 입력 metadata 검사 단계): Windows default/portable 각각 **396 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks**, words **6,618 cases / failed 0**. capture graph 경계 164건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

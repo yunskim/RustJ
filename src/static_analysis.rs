@@ -68,6 +68,58 @@ pub struct StaticAnalysis {
     pub boundaries: Vec<AnalysisBoundary>,
 }
 
+impl StaticAnalysis {
+    /// Check only the noun metadata assumed by this analysis against live inputs.
+    ///
+    /// This borrows arrays without retaining or reading their atoms. It does not
+    /// validate function bindings, effects, physical storage, or executable-plan
+    /// reuse. Catalog versions are not runtime workspace witnesses.
+    pub fn validate_noun_inputs<'a>(
+        &self,
+        inputs: impl IntoIterator<Item = (&'a str, &'a crate::Value)>,
+    ) -> Result<()> {
+        let mut supplied = BTreeMap::new();
+        for (name, value) in inputs {
+            if supplied.insert(name, value).is_some()
+                || !self.inputs.iter().any(|binding| {
+                    binding.name == name && matches!(binding.kind, CatalogKind::Noun(_))
+                })
+            {
+                return Err(Error::Domain);
+            }
+        }
+        for binding in &self.inputs {
+            let CatalogKind::Noun(expected) = &binding.kind else {
+                continue;
+            };
+            let value = supplied
+                .get(binding.name.as_str())
+                .ok_or_else(|| Error::Value(binding.name.clone()))?;
+            let actual = GraphFacts::of(value);
+            // Check type, then rank, then extents. These are input-contract
+            // diagnostics, not the error precedence of a J primitive call.
+            let expected_type = GraphFacts {
+                dtype: expected.dtype,
+                ..GraphFacts::default()
+            };
+            if !expected_type.agrees_with(actual.dtype, None, None) {
+                return Err(Error::Domain);
+            }
+            if expected.rank.is_some_and(|rank| Some(rank) != actual.rank) {
+                return Err(Error::Rank);
+            }
+            if expected
+                .shape
+                .as_ref()
+                .is_some_and(|shape| Some(shape) != actual.shape.as_ref())
+            {
+                return Err(Error::Length);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 pub struct StaticAnalyzer {
     catalog: BTreeMap<String, CatalogBinding>,

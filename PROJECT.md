@@ -931,6 +931,60 @@ Code inspection baseline: documentation checkout `89b87b8`. `src/primitive.rs` p
 
 Small validation candidates are `relu` → `linear`/`flatten` → `conv`/`avgpool2d`. Existing M1–M6/frontend migration order remains authoritative; this inventory does not require all candidates as new prerequisites. Training/AD/state families come later; actual CUDA implementation remains deferred.
 
+### 5.3.4 Pre-execution input information — ``with (X`Y)`` candidate and metadata validation
+
+**User intent:** investigate how input information enables analysis/optimization before execution. with/gerunds are optional candidates, not a required or finalized surface schema. Facts can come from existing noun metadata, an external API/catalog, file/dataset headers/schemas, or optional annotations and converge at one analysis boundary. Header access remains actual I/O with effects. Some topology analysis needs no shapes; dtype/rank/extents/dimension relations enable more precise legality/resource analysis. Metadata does not prove content-dependent conditions. Frontend priorities and deferred optimizer execution remain unchanged.
+
+**Source review (2026-10-04):** the pinned jaxa-analyzer architecture document at `7275d5ba`, §7.7-2 entry-point item, proposes `X =: 2 3 source with fp16`, the corresponding Y definition and ``run ... with (X`Y)``. Nearby items discuss annotation/adjoint/optimizer bundles and warn against mixing dtype, hardware and tile policies. These are research proposals, not completed execution support. Interpret X/Y as candidate source entities carrying contracts, not entire training arrays. Standard J tie packages verb atomic representations but concatenates noun operands; applying backtick to training nouns does not automatically create external-input handles. [Original JAXA proposal](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md#L861), [J tie](https://www.jsoftware.com/help/dictionary/d610.htm).
+
+**RustJ design example, not implemented extension syntax:**
+
+```j
+X =: 2 3 source with fp16
+Y =: 2 3 source with fp16
+run =: graph with (X`Y)
+```
+
+Retain the original surface form using ordinary source/fp16/with bindings. Introduce no spelling-specific frontend rules. A with semantic adapter must preserve source gerund nouns, order, spans and NameRefs and inspect only registered descriptor/annotation capabilities. It must not invoke arbitrary verbs or load data to discover metadata. Unknown capabilities are analysis boundaries, not invalid J syntax. Real source invocation retains its I/O/state contract.
+
+If with is selected, candidate descriptors carry schema version, input identity/slot, dtype/rank/shape facts and provenance. A dyadic input bundle explicitly validates left/right slots while preserving X/Y order. Two entries alone do not identify an input bundle; adjoint/optimizer bundles need distinct typed roles. Specializing an observed function target requires ordinary NAME late-binding semantics and separate runtime witnesses. Real noun inputs retain parser-time snapshots, not function-like delayed lookup.
+
+| Category | Information | Analysis use | Boundary |
+|---|---|---|---|
+| Input contract | dtype, rank, fixed shape; later symbolic dimensions/equality | Shape propagation, logical extent/liveness/resources | Concrete or unknown shapes exist; symbolic dimensions are pending |
+| Input/state role | data/parameter/label and explicit resource reads/writes | Step inputs and update dependencies | Weights remain arrays, not constants; training state/effects are pending |
+| Numeric contract | dtype and explicit casts/arithmetic precision | Preconditions for legal implementations | An fp16 annotation does not authorize conversion, error changes or reassociation |
+| Contents/alias constraints | bounds, immutability, no-alias with proof/guard provenance | Proven value/alias analysis | Not guaranteed by metadata and outside the implemented guard |
+| Physical profile | device, layout, alignment, tile | Separate execution/physical planning input | Excluded from semantic with bundles |
+
+Bind real nouns batch by batch. IR retains ReadNoun and facts rather than embedding dataset contents as literals. Matching batches may share an analysis structure; executable-plan reuse also requires function/effect/runtime guards. Parameters changing each step are not compile constants. Do not indiscriminately key compilation on contents, pointers or runtime noun versions. Design cache keys around graph/contracts/schema and required semantic/target specialization, checking actual NAME witnesses separately. Data-dependent result extents remain unknown/guarded. Training pipeline/optimizer execution is outside this stage.
+
+**Implemented seam:** StaticAnalysis::validate_noun_inputs() checks used noun declarations against live borrowed Values. It reads metadata without reading, cloning or retaining atoms. Type/rank/extent mismatches return Domain/Rank/Length respectively; missing names return Value and duplicate/extra inputs return Domain. Unknown facts add no constraints. Catalog revisions are not runtime witnesses. This API neither validates function bindings/effects/alias/device/value bounds nor proves execution safety; it is not automatically inserted into execution. The with adapter remains unimplemented.
+
+Checklist, preserving existing frontend priorities:
+
+- [x] **WI0** Locate the original proposal and J tie semantics; integrate input/adjoint/numeric/physical boundaries in canonical documents.
+- [x] **WI1** Add live noun metadata validation to data-free analysis reports. Four Windows regressions cover different batches; type/rank/extent and missing/duplicate/extra rejection; unknown/partial facts, empty arrays, unchanged function boundaries and payload pointer/refcount identity.
+- [ ] **WI2 (optional candidate)** Define registered source/input descriptors and typed bundles; implement a with adapter preserving gerund source/order/lookup timing/provenance. Distinguish noun operands and malformed descriptors.
+- [ ] **WI3** Independently of surface syntax, connect input facts to the static catalog/ReadNoun; add C/frontend comparisons for late binding, rebinding/POS changes and unknown capabilities. Retain inference without annotations.
+- [ ] **WI4** Connect actual input binding/lifetime and guard failures before effects, checking batch replacement, partial failure and conflicting contracts. External buffers/mmap/device adapters remain separate physical work.
+- [ ] **WI5** Add symbolic dimensions/equalities, cache preconditions and training state contracts later. Optimizer/CUDA/AD execution remains deferred.
+
+Comparisons: [JAX abstract evaluation](https://docs.jax.dev/en/latest/601/jax-primitives.html) analyzes shapes/types without contents; [PyTorch export](https://docs.pytorch.org/docs/stable/export) distinguishes input/parameter signatures and dynamic shape constraints. These inform descriptor analysis without replacing J NAME timing.
+
+#### Framework comparison for pre-execution input information (2026-10-04)
+
+| Framework | Input information before tensor execution | Shape changes/reuse | RustJ lesson and boundary |
+|---|---|---|---|
+| JAX | ShapeDtypeStruct supports trace/lower/compile without actual atoms; static arguments need actual values | AOT artifacts specialize to signatures and reject mismatches; shape-polymorphic export is a separate route | Separate metadata from real nouns and distinguish value constants from array inputs. [AOT](https://docs.jax.dev/en/latest/aot.html), [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) |
+| PyTorch | torch.compile uses observed metadata/guards; export records operations using data-free FakeTensors/Proxies | Compile guard failure may recapture/recompile; dynamic shapes use symbolic sizes/constraints; export has its own constraints | Separate observed facts from validity checks. Consider optional static-to-dynamic generalization while preserving J NAME witnesses. [Export model](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/programming_model.html), [dynamic shapes](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamic_shapes.html), [guards](https://github.com/pytorch/pytorch/blob/main/docs/source/user_guide/torch_compiler/torch.compiler_dynamo_overview.md) |
+| TensorFlow | TensorSpec/input_signature; get_concrete_function(TensorSpec(...)) separates tracing from tensor graph execution | None dimensions permit trace reuse; incompatible fixed signatures reject inputs | Preserve partially unknown extents. Wildcards alone do not relate dimensions across inputs. [tf.function](https://www.tensorflow.org/guide/function) |
+| TVM Relax | Input shape/dtype types and symbolic n propagate across operators/functions | Symbolic shape relations remain in IR; unknown shapes may use runtime shape expressions | Distinguish unknown from X.batch = Y.batch in a future abstract domain. [Relax](https://tvm.apache.org/docs/deep_dive/relax/learning.html), [shape API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html) |
+
+Tracing can execute frontend/host code; it does not mean no user code executes. Descriptors do not automatically prove content-dependent sizes, branches or errors. RustJ analyzes preserved graphs and known facts while retaining unknowns and J effect/name timing. Topology opportunities may exist without shape/type information; richer facts refine legality and logical resources. Actual optimization passes remain deferred.
+
+**WI1 gate:** native Windows default/portable each **396 passed / 17 ignored**; fmt/clippy/build pass. Python **27 passed**. Each j64/AVX2 runtime route: **4,942 cases / 4,938 passed / 4 existing runtime boundaries / 0 failed**; stages **10,163 checks / 0 failed**; words **6,618 cases / 0 failed**. Keep 164 capture-graph and 2 static boundaries separate. Recheck all ten report binary/source hashes. This does not complete with execution, symbolic dimensions, training/AD, CUDA or optimizer execution. Full upstream/private C trace and ignored definition acceptance remain unverified; Linux/GitHub CI were not run. Continue JE2/P3 scoped-reference C comparisons next; the with adapter is not a mandatory frontend prerequisite.
+
 # Part III — Rank, cells, and array semantics
 
 <a id="logical-physical-array-model"></a>
@@ -1792,7 +1846,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: the 2026-10-04 JE2/P3 modifier scope and straight-line body stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
+Code/document review baseline: the 2026-10-04 WI1 noun input metadata validation seam. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
 - explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
@@ -1819,7 +1873,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (JE2/P3 modifier scope and straight-line body stage): Windows default/portable each: **392 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,942 cases / 4,938 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,163 checks**; words: **6,618 cases / 0 failed**. Keep 164 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+- latest frontend validation (WI1 noun input metadata validation seam): Windows default/portable each: **396 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,942 cases / 4,938 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,163 checks**; words: **6,618 cases / 0 failed**. Keep 164 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
