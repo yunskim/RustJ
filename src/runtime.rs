@@ -635,6 +635,110 @@ impl Engine {
         Err(Error::Limit)
     }
 
+    /// Recognize a direct implicit call without changing ordinary lookup errors.
+    fn implicit_operand(
+        &self,
+        function: &std::sync::Arc<FunctionEntity>,
+    ) -> Result<Option<std::sync::Arc<FunctionEntity>>> {
+        use crate::primitive::PrimitiveId;
+        if !matches!(
+            function.head,
+            FunctionHead::NameRef(_)
+                | FunctionHead::PrimitiveVerb(PrimitiveId::OperandU | PrimitiveId::OperandV)
+        ) {
+            return Ok(None);
+        }
+        let mut current = function.clone();
+        for _ in 0..=crate::semantic::MAX_EXPR_DEPTH {
+            match &current.head {
+                FunctionHead::NameRef(name) => {
+                    let Some(Binding {
+                        value: JEntity::Function(target),
+                        ..
+                    }) = self.visible_binding(name)
+                    else {
+                        return Ok(None);
+                    };
+                    if target.result_pos != FunctionPartOfSpeech::Verb {
+                        return Ok(None);
+                    }
+                    current = target.clone();
+                }
+                FunctionHead::PrimitiveVerb(PrimitiveId::OperandU | PrimitiveId::OperandV) => {
+                    let name = if matches!(
+                        current.head,
+                        FunctionHead::PrimitiveVerb(PrimitiveId::OperandU)
+                    ) {
+                        "u"
+                    } else {
+                        "v"
+                    };
+                    let binding = self
+                        .local_frames
+                        .last()
+                        .and_then(|frame| frame.names.get(name))
+                        .ok_or_else(|| {
+                            Error::Value(name.into()).with_context(
+                                ErrorContext::phase(DiagnosticPhase::Runtime)
+                                    .with_current_name(if name == "u" { "u." } else { "v." }),
+                            )
+                        })?;
+                    let JEntity::Function(target) = &binding.value else {
+                        return Err(Error::Domain);
+                    };
+                    if target.result_pos != FunctionPartOfSpeech::Verb {
+                        return Err(Error::Domain);
+                    }
+                    return Ok(Some(target.clone()));
+                }
+                _ => return Ok(None),
+            }
+        }
+        Err(Error::Limit)
+    }
+
+    fn call_implicit_operand(
+        &mut self,
+        function: std::sync::Arc<FunctionEntity>,
+        x: Option<Value>,
+        y: Value,
+        pooled: bool,
+        depth: usize,
+    ) -> Result<Value> {
+        use crate::semantic::{Expr, ExprKind, Verb, VerbTarget};
+        let span = function.span.clone();
+        let verb = Verb {
+            span: span.clone(),
+            target: VerbTarget::Derived,
+            entity: function,
+        };
+        let right = Box::new(Expr {
+            span: span.clone(),
+            kind: ExprKind::Literal(y),
+        });
+        let kind = if let Some(x) = x {
+            ExprKind::Dyad {
+                verb,
+                left: Box::new(Expr {
+                    span: span.clone(),
+                    kind: ExprKind::Literal(x),
+                }),
+                right,
+            }
+        } else {
+            ExprKind::Monad {
+                verb,
+                argument: right,
+            }
+        };
+        // sc.c unquote resolves u/v in the callee, then executes its value
+        // in the caller's environment. Restore the callee on every J error.
+        let suspended = self.local_frames.pop().expect("implicit operand frame");
+        let result = self.interpret_ir(Expr { span, kind }, pooled, depth + 1);
+        self.local_frames.push(suspended);
+        result
+    }
+
     fn call_explicit_operator(
         &mut self,
         function: std::sync::Arc<FunctionEntity>,
@@ -1017,6 +1121,11 @@ impl Engine {
                     let verb_span = verb.span.clone();
                     let y = self.interpret_ir(*argument, pooled, depth + 1)?;
                     let y_summary = argument_summary(ArgumentRole::Y, &y);
+                    if let Some(function) = self.implicit_operand(&verb.entity)? {
+                        return self
+                            .call_implicit_operand(function, None, y, pooled, depth)
+                            .map_err(|error| error.at(verb_span));
+                    }
                     if let Some(function) = self.explicit_operator(&verb.entity)? {
                         return self
                             .call_explicit_operator(function, None, y, pooled)
@@ -1046,6 +1155,11 @@ impl Engine {
                     let x = self.interpret_ir(*left, pooled, depth + 1)?;
                     let x_summary = argument_summary(ArgumentRole::X, &x);
                     let y_summary = argument_summary(ArgumentRole::Y, &y);
+                    if let Some(function) = self.implicit_operand(&verb.entity)? {
+                        return self
+                            .call_implicit_operand(function, Some(x), y, pooled, depth)
+                            .map_err(|error| error.at(verb_span));
+                    }
                     if let Some(function) = self.explicit_operator(&verb.entity)? {
                         return self
                             .call_explicit_operator(function, Some(x), y, pooled)

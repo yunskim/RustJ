@@ -47,8 +47,8 @@ fn return_fix_uses_final_local_binding_without_fixing_global_publication() {
     engine.eval("a=:1 : 0\npub=:u.\nu.\n)").unwrap();
     engine.eval("f=:-a").unwrap();
     scalar(&mut engine, "f 7", -7);
-    // Raw call-time locatives require caller-scope switching, still a boundary.
-    assert_eq!(engine.eval("pub 7").unwrap_err().kind(), "unsupported");
+    // A raw publication has no operand frame after the modifier returns.
+    assert_eq!(engine.eval("pub 7").unwrap_err().kind(), "value error");
     engine.eval("a=:1 : 'v.'").unwrap();
     assert_eq!(engine.eval("f=:+a").unwrap_err().kind(), "unsupported");
     scalar(&mut engine, "f 7", -7);

@@ -201,6 +201,30 @@ def modifier_scope_cases():
     ]
 
 
+def implicit_call_cases():
+    return [
+        "u. 7", "v. 7", "icu=:1 : 'u. y'", "icf=:-icu", "icf 7", "icf i.4", "icf i.0 3", "3 icf 7",
+        "icc=:2 : 'u. y+v. y'", "icg=:+icc -", "icg 7", "icg i.4",
+        "icd=:1 : 'x u. y'", "icdyad=:+icd", "3 icdyad 7", "1 2 icdyad 3 4", "icdyad 7",
+        "icbad=:3 icu", "icbad 7", "icmissing=:1 : 'v. y'", "icbad=:+icmissing", "icbad 7", "icg 7",
+    ]
+
+
+def implicit_call_multiline_cases():
+    return [
+        "icfn=:+", "icinner=:1 : 'u. 7'",
+        "icouter=:1 : 0\nicfn=.-\nicfn icinner\n)", "+icouter", "icfn 7",
+        "icinner=:1 : 'u 7'", "+icouter",
+        "icinner=:1 : 0\nu=.-\nu. 7\n)", "+icinner",
+        "icpublish=:1 : 0\nicpub=:u.\nu. 7\n)", "-icpublish", "icpub 7",
+        "icinner=:1 : 'u. 7'",
+        "icouter=:1 : 0\nicfn=.-\nictmp=.icfn icinner\nicfn 8\n)", "+icouter", "icfn 7",
+        "iccount=:0", "icfail=:1 : 'u y+1 2 3'",
+        "icinner=:1 : 0\niccount=:iccount+1\nu. 1 2\n)",
+        "icouter=:1 : 0\nicfn=:+icfail\nicfn icinner\n)", "+icouter", "iccount", "icg 7", "icfn 7",
+    ]
+
+
 def implicit_operand_cases():
     return [
         "ia=:1 : 'u.'", "if=:-ia", "if 7", "3 if 7", "if i.4", "if i.0 3",
@@ -734,6 +758,7 @@ def cases():
     fixed.extend(ordinary_reference_cases())
     fixed.extend(operator_definition_cases())
     fixed.extend(implicit_operand_cases())
+    fixed.extend(implicit_call_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
