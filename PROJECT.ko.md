@@ -2742,6 +2742,91 @@ physical inputs: adapter-provided placement/layout/lifetime, separate from this 
 
 이번 변경은 설계 문서 정리다. WI1 이후 새 runtime/optimizer 구현 또는 새 test gate 완료를 주장하지 않는다.
 
+##### 설계 영향과 출처 — 채택할 아이디어와 RustJ 판단의 구분
+
+아래 표는 **설계에 영향을 준 개념의 출처**다. 각 프레임워크가 RustJ의 조건을 그대로 구현한다는 뜻이 아니며, 이 조건은 아직 구현되지 않은 외부 입력/실행 adapter의 명세다. J NAME snapshot/late binding, scalar/empty, sparse/boxed 및 observable error 의미는 RustJ/jsource 경계에서 유지한다.
+
+| 영향을 준 프레임워크/연구 | 참고한 구체적인 방법 | 관련 inventory | RustJ에 적용하는 판단과 차이 |
+|---|---|---|---|
+| JAX | 값 없는 shape/dtype descriptor와 실제 값이 필요한 static argument | IN1–IN3, IN5 | 입력 배열과 compile-time 작은 상수를 분리. ndarray 원소를 만들어 graph 분석하지 않는다. [ShapeDtypeStruct](https://docs.jax.dev/en/latest/_autosummary/jax.ShapeDtypeStruct.html), [AOT/static args](https://docs.jax.dev/en/latest/aot.html) |
+| JAX shape-polymorphic export | 같은 symbolic scope의 기호 차원·동등/범위 조건 | IN3, IN11 | shared B와 독립 unknown을 구별. 기호 scope/provenance를 추적하고 J의 empty dimension을 임의 배제하지 않는다. [기호 shape](https://docs.jax.dev/en/latest/export/shape_poly.html) |
+| TensorFlow | TensorSpec/input_signature, 일부 차원의 wildcard, incompatible signature 검사 | IN1–IN3, IN11 | 고정·미확정 facts를 부분적으로 허용. 단순 wildcard와 입력 사이의 동등 관계는 구별하며 선언을 full J의 필수 조건으로 만들지 않는다. [tf.function](https://www.tensorflow.org/guide/function) |
+| TVM Relax | 입력과 연산 사이의 shape/dtype·기호 관계 전파 | IN1–IN3, IN10 | logical 관계와 physical lowering을 분리하고 이후 symbol analysis의 근거로 사용. TVM의 array agreement를 J에 복사하지 않는다. [Relax](https://tvm.apache.org/docs/deep_dive/relax/learning.html) |
+| PyTorch Dynamo/export | 관측 metadata에 대한 guards, input/parameter/state signature 구분 | IN0–IN3, IN6, IN10–IN11 | specialization에서 사용한 dtype/rank/size/layout 조건을 확인. 실제 J function NAME witness와 noun snapshot timing은 별도로 유지. [Dynamo guards](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamo_overview.html), [export signature](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/api_reference.html) |
+| JAX buffer donation | 호출 후 필요 없는 입력 버퍼를 결과 저장소로 재사용하도록 허용; 호환 결과 필요 | IN9 | ownership transfer를 명시하고 이전 handle의 사용을 차단할 수 있을 때만 후보. donation 허용은 실제 reuse 보장이 아니다. [Donation](https://docs.jax.dev/en/latest/buffer_donation.html) |
+| MLIR One-Shot Bufferize | use-def/alias·read-after-write 충돌 및 writable 여부에 따른 in-place/out-of-place 결정 | IN9–IN10 | live J snapshot/외부 alias를 덮어쓰지 않는다는 증거가 있어야 reuse. 불명확하면 별도 output/copy 또는 지원 route 경계. [Bufferization](https://mlir.llvm.org/docs/Bufferization/) |
+| 역사 JAXA 연구 | source 계약과 entry graph를 gerund/with로 연결하는 표면 아이디어 | IN0–IN3, IN6 | optional 전달 후보만 계승; physical policy를 섞지 않고 등록된 capability와 ordinary binding을 사용. [JAXA 제안](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md#L873) |
+
+##### 입력 metadata 조건 (M0–M8)
+
+이 조건은 **metadata를 정당한 최적화 전제로 사용할 때** 적용한다. dtype/rank/shape만으로 buffer 안전성·함수 의미·내용 불변성까지 증명하지 않는다. 물리 접근 검사는 compiler semantic facts와 별도의 adapter 의무다.
+
+| 조건 | 명세 | 실패/미확정 처리 및 현재 상태 |
+|---|---|---|
+| M0 입력 mapping | 사용되는 각 noun input의 ID/slot/이름을 명확히 연결; 중복·누락·다른 품사 입력을 구별 | WI1 API는 used noun의 missing/duplicate/extra를 검사. 함수/locale 재사용 증명은 별도 |
+| M1 논리 일관성 | shape가 있으면 rank=shape.len; 각 extent는 유효한 비음수 크기; scalar는 rank 0·atom 1, empty는 0 extent·atom 0; count 계산은 overflow-safe | 현재 선언/Value 생성의 해당 검증을 사용. 표현 한계로 처리하며 negative/empty를 임의 shape로 보정하지 않음 |
+| M2 dtype·encoding 연결 | 외부 dtype/byte order/encoding과 J logical dtype의 연결은 adapter가 확인; 변환은 explicit하고 numeric semantics를 보존 | fp32 bytes를 f64 slice로 재해석하지 않음. WI1은 Value의 logical dtype만 확인하며 외부 encoding/import 검사는 미구현 |
+| M3 저장 범위 | 직접 접근 전에 dense byte capacity 또는 strided view의 offset·stride·접근 가능 범위를 overflow-safe하게 확인; alignment/device/backend 요구도 확인 | shape만으로 모든 strided 접근이 안전하다고 가정하지 않음. CPU affine foundation과 향후 external adapter 의무를 구분; WI1의 검사 범위 아님 |
+| M4 unknown·symbolic | unknown에 임의 상수/양수/no-alias를 부여하지 않음. 같은 scope의 symbolic equality/bounds만 필요한 specialization 전제로 사용 | symbolic relation/guard는 WI5 후속. 미확정 조건은 conditional report 또는 지원되는 runtime shape 경계 |
+| M5 근거·유효 기간 | 각 fact에 source/proof/관측 scope를 연결. file header·catalog 선언은 실제 버퍼의 존재/수명/최신성을 보장하지 않음 | 분석용 선언과 runtime witness 분리. actual Value/buffer generation 또는 동등한 소유권 lease에 조건을 연결; 통합 미구현 |
+| M6 검사→사용 일관성 | 검사한 metadata·NAME·storage가 실제 실행 대상과 같아야 함. 외부 reshape/reallocation/mutation 경쟁은 snapshot·lease·synchronization 계약으로 통제 | 매 batch 새 입력의 relevant facts를 확인. 검사 후 변경 가능성이 남으면 해당 specialization/import를 사용하지 않음. WI1의 성공은 이후 호출까지의 보장이 아님 |
+| M7 부분 facts·내용 조건 | 확보된 정보만 refinement. finite/sorted/range 같은 contents 조건은 별도 proof/검사; 표본 통계는 legality 근거가 아님 | 값 없는 schema 분석을 유지. boxed/sparse의 알려지지 않은 child/구조 facts는 unknown; 현재 WI1은 atoms/representation 조건 미검사 |
+| M8 cache/guard 실패 | 최적화가 실제 사용하는 metadata·function/semantic 정책만 cache precondition으로 추적; batch/weight 값·pointer 변경만으로 불필요한 재컴파일하지 않음 | 명시 계약 오류와 specialization miss 구별. effect 후 자동 replay 금지; 재분석/지원 경로 선택은 실제 capability가 있을 때만. dispatcher 미구현 |
+
+##### 소유권과 입력 저장소 조건 (O0–O8)
+
+| 조건 | 명세 | 허용되는 동작과 한계 |
+|---|---|---|
+| O0 import 방식 | owned transfer, shared immutable 또는 borrowed 외부 버퍼를 명시적으로 구별. raw pointer/Arc refcount 하나만으로 외부 독점성을 추론하지 않음 | RustJ가 소유한 버퍼와 외부 aliases의 증거는 다름. unknown ownership은 read-only 후보에도 lifetime/동기화 확인 필요 |
+| O1 수명 | 모든 read/write·transfer가 끝날 때까지 owner/lease 유지. 반환한 view가 입력을 참조하면 그 view의 수명까지 연장 | 이후 GPU/async 경로는 enqueue 시점이 아니라 실제 completion까지 유지해야 함; 현재 해당 실행 미구현 |
+| O2 외부 mutation | J noun snapshot으로 노출한 데이터는 외부 변경으로 뒤에서 바뀌지 않아야 함 | immutable lease, synchronized snapshot copy 또는 explicit state/effect 경로 사용. wrapper가 read-only라는 이유만으로 producer의 쓰기가 차단되었다고 보지 않음 |
+| O3 alias/overlap | 입력 간 views, 외부 alias, 살아 있는 global/boxed noun snapshots 및 graph 내부 소비자를 고려 | alias 부재가 증명되지 않으면 in-place/reuse를 허용하지 않거나 검증된 overlap-safe 구현을 사용. user의 no-alias 주장만으로 safe Rust reference를 만들지 않음 |
+| O4 쓰기 권한 | 실제 backing이 writable이고 semantic operation의 write contract가 있어야 함 | readonly/mmap/protected backing을 덮어쓰지 않음; allocator 선택과 observable state write를 혼동하지 않음 |
+| O5 donation/reuse | 명시 transfer 권한 + live old-value reads 없음 + alias/ownership 증거 + 호환 output representation + J 오류/효과 순서 보존이 필요 | transfer가 성립하면 이전 input handle/alias의 사용이 차단되어야 함. shared noun을 단지 refcount가 낮아 보인다는 이유로 consume하지 않음. output/copy가 여전히 필요할 수 있음 |
+| O6 release 책임 | ownership 이동 또는 borrow의 시작/끝과 release 주체를 명시; transferred owner reference는 정확히 한 번 반환/해제 | validation 실패·부분 import·호출 실패·최종 output 종료에서 누수/double release 방지. metadata만 존재하는 선언은 release할 실제 buffer를 갖지 않음 |
+| O7 zero-copy 전제 | lifetime·mutation·alias·alignment·encoding·layout/backend 접근 조건이 충족될 때만 직접 import | 조건 미충족 시 지원되는 값 보존 copy/conversion을 명시적으로 선택하거나 import 경계 보고. copy 중 외부 writer와의 동기화도 필요; 항상 zero-copy라고 약속하지 않음 |
+| O8 실패·소비 시점 | 실제 호출/효과/ownership transfer 이전 가능한 검증을 완료; transfer commit 시점과 실패 뒤 handle 유효성을 adapter contract에 기록 | 시작 전 실패와 이미 소비/효과가 있는 실패를 구분. generic rollback·재실행을 약속하지 않으며 J transactional assignment 및 live snapshot을 보존 |
+
+M/O 조건은 RustJ의 **채택할 계약과 후속 구현 요구**다. 현재 `StaticAnalysis::validate_noun_inputs()`는 borrowed `&Value`의 dtype/rank/shape와 입력 mapping만 검사한다. 외부 import·lease·encoding/stride capacity·alias·donation·자동 dispatch는 구현 완료가 아니다. 소유권 조건은 physical/runtime 경계에 남고 semantic `with`가 unsafe pointer 접근 권한을 부여하지 않는다.
+
+- [x] **WI0b** 항목별 framework 영향·출처 및 M0–M8/O0–O8 조건을 정본/영어 mirror에 기록한다.
+- [ ] **WI4b** adapter/guard 연결 시 stale metadata·외부 mutation·overlap·readonly backing·잘못된 capacity·donation 후 사용·실패 release·view lifetime 사례를 검증한다. async/device completion은 해당 backend를 구현할 때만 추가한다.
+
+##### 정적 분석 우선: 실제 배열 없이 계약에서 분석한다
+
+**사용자 요구:** 실행 전 최적화의 기반은 정적 분석이다. M/O 조건을 모두 actual buffer의 runtime 검사로만 얻는 구조로 만들지 않는다. 분석 입력은 실제 noun이 아니라 noun의 schema/facts와 parser가 보존한 계산 구조일 수 있다. 외부 API·header가 metadata를 제공하더라도 그 조회 자체의 I/O와 **이후 데이터 없는 정적 graph 분석**은 구별한다. source verb를 호출하거나 dummy/training array를 생성하여 shape를 알아내는 것을 기본 전제로 삼지 않는다. `with`는 이 분석에 필요한 정보를 전달할 수 있는 optional surface일 뿐이다.
+
+```text
+J frontend에서 보존한 graph + input schema + operation/ownership contracts
+    -> static fact propagation / constraints / use-def / liveness
+    -> 분석 보고와 최적화 후보의 legality 전제
+    -> 정적으로 증명되지 않은 필요한 조건만 residual obligations로 보존
+    -> 실행 때 actual inputs 연결 + 필요한 guard/lease 확인
+    -> 지원되는 실행 경로
+```
+
+위 화살표는 설계 단계 구분이며 optimizer 실행·모든 조건 solver·dispatcher의 구현 완료가 아니다. kernel 실행 없이 만드는 정적 보고에는 graph 구조, known/unknown facts, 결과 extent, 자원식/상한, live values와 미해결 조건을 담는다. compiler는 facts를 unknown으로 남겨도 부분 분석할 수 있다. unknown과 unreachable, compile-route boundary와 invalid J를 혼동하지 않는다.
+
+| 정보/조건 | 실행 전에 분석할 수 있는 부분 | 실제 입력이 연결될 때 남을 수 있는 조건 |
+|---|---|---|
+| IN0 / M0 | input slot/POS 및 graph edges, used-input inventory를 syntax/schema에서 결정 | 실제 공급 mapping, ordinary NAME의 current binding/POS/version witness |
+| IN1–IN3 / M1,M4 | declared dtype/rank/shape, small constants와 연산 shape rules로 결과 facts/차원 관계 추론; known 제약은 정적으로 검증 | 공급 metadata가 declared facts 및 미증명 equality/bounds와 일치하는지 확인 |
+| IN4 / M7 | 알려진 boxed child/sparse schema로 applicability/assembly 분석 | actual child schema·stored structure 등 선언에서 증명하지 못한 facts. 값 의존 shape는 unknown 유지 |
+| IN5–IN8 | explicit configuration constants, semantic numeric/effect/state contracts로 legality와 dependency 분석 | 실제 함수 identity/정책, 별도 contents 조건 중 해당 route가 요구하는 것만 확인 |
+| IN9 / O1–O5 | closed graph의 use-def/liveness로 old-value read와 내부 alias 충돌 분석; 명시 ownership 계약 및 managed Rust borrow/lifetime 정보 활용 | 외부 owner의 lease, 외부 alias/mutation·writability·exclusive transfer를 보장하는 adapter 증거. 선언만으로 외부 독점성 증명하지 않음 |
+| IN10 / M2,M3,O7 | known target/representation 계약으로 후보·허용 encoding 및 조건을 도출 | actual backing capacity/strides/device/alignment와 lifetime의 적합성. physical 사실도 정적으로 주어졌으면 이미 증명된 부분은 반복 검사하지 않음 |
+| IN11 / M5,M6,M8,O6,O8 | 각 fact의 provenance/scope와 경계별 proof obligations, cache preconditions, ownership transfer/release 흐름 정리 | 미해결 전제의 witness 유효성 및 검사→사용 안정성. 효과 후 실패는 자동 replay로 복구하지 않음 |
+
+소유권의 정적 분석은 **내부 graph에서 더 이상 읽지 않는다는 사실**과 **외부에서 독점적으로 소유한다는 계약**을 구별한다. 전자는 graph 분석으로 증명할 수 있지만 후자는 외부 adapter의 보장 또는 managed lifetime/ownership 증거가 있어야 한다. runtime alias 체크를 언제나 값싼 일반 해법으로 가정하지 않는다. 보장이 없으면 out-of-place/지원 route 경계를 유지하며 correctness를 희생하지 않는다. 명시 contract에서 가능한 compile-time 증명과 residual guard가 함께 존재할 수 있다.
+
+shape가 concrete하면 일부 logical extent를 정확히 계산하고, symbolic이면 식 또는 proven upper bound를 보고하며, 관계가 unknown이면 그 부분의 수치를 확정하지 않는다. symbolic 분석 자체도 정적 분석이다. concrete layout/schedule이 없으면 실제 peak allocation·성능 수치를 단정하지 않는다. 전체 학습 데이터셋의 원소 수나 내용이 graph 크기에 비례하여 compiler 안에 저장되어야 하는 것은 아니다.
+
+**현재 경계:** `StaticAnalyzer::declare_noun()`/`analyze()`는 실제 arrays 없이 supported syntax와 concrete/unknown facts로 보고를 만든다. WI1 `validate_noun_inputs()`는 후속 입력 적합성 검사의 최소 seam이다. arbitrary per-dimension symbolic facts/constraint solver, ownership obligations의 전체 정적 증명, external leases, optimizer 변환 및 dispatch는 아직 미구현이다. 이러한 후속 작업은 frontend semantic 보존을 전제로 하며 actual data 실행을 정적 분석의 필수 조건으로 추가하지 않는다.
+
+- [x] **WI0c** 정적 facts/proof와 residual runtime obligation을 분류하고 M/O의 정적 분석 역할을 명시한다.
+- [ ] **WI3b** metadata-only 분석에서 shape/resource/use-def 결과와 미해결 조건을 보고한다. regression은 배열 미할당·kernel 미실행 및 unknown 보존, compile-time 제약 충돌/부분 facts refinement를 검증한다.
+- [ ] **WI4c** 정적으로 증명한 조건과 residual guard/adapter 보장을 실행 경계에 연결하되 runtime-only 분석 구조로 바꾸지 않는다. 소유권/lifetime proof 범위와 미확정 external alias를 명시한다.
+
 ##### 입력 정보 문제의 프레임워크 비교 (2026-10-04)
 
 | 프레임워크 | 실행 전 입력 정보를 얻는 방법 | shape 변화/재사용 처리 | RustJ에 참고할 부분과 한계 |

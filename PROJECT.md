@@ -1024,6 +1024,91 @@ Checklist:
 
 This is a design-document update; it claims no runtime/optimizer implementation or new validation gate after WI1.
 
+#### Design influences and sources — framework ideas versus RustJ decisions
+
+This table identifies **concepts that influenced the design**, not frameworks implementing RustJ's exact conditions. The conditions below specify future external-input/execution adapters. Retain J NAME snapshot/late-binding, scalar/empty, sparse/boxed and observable error semantics.
+
+| Framework/research influence | Specific idea | Inventory | RustJ adoption and differences |
+|---|---|---|---|
+| JAX | Data-free shape/dtype descriptors and value-requiring static arguments | IN1–IN3, IN5 | Separate arrays from small compile-time constants; no fabricated input atoms. [ShapeDtypeStruct](https://docs.jax.dev/en/latest/_autosummary/jax.ShapeDtypeStruct.html), [AOT](https://docs.jax.dev/en/latest/aot.html) |
+| JAX shape-polymorphic export | Symbolic dimensions/equality/bounds in a shared scope | IN3, IN11 | Distinguish shared B from independent unknowns; preserve scope/provenance and J empty extents. [Symbolic shapes](https://docs.jax.dev/en/latest/export/shape_poly.html) |
+| TensorFlow | TensorSpec/input_signature, wildcard dimensions, incompatible-input checks | IN1–IN3, IN11 | Permit partial facts; distinguish wildcards from cross-input equalities; no mandatory full-J declarations. [tf.function](https://www.tensorflow.org/guide/function) |
+| TVM Relax | Propagate shape/dtype/symbolic relations across inputs/operators | IN1–IN3, IN10 | Separate logical relations from lowering; do not import TVM agreement semantics into J. [Relax](https://tvm.apache.org/docs/deep_dive/relax/learning.html) |
+| PyTorch Dynamo/export | Guards on observed metadata and input/parameter/state signatures | IN0–IN3, IN6, IN10–IN11 | Check specialized dtype/rank/size/layout; retain separate J NAME witnesses and noun snapshot timing. [Guards](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamo_overview.html), [signatures](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/api_reference.html) |
+| JAX buffer donation | Permission to reuse unneeded input storage for compatible outputs | IN9 | Explicit transfer with unusable old handles; permission does not guarantee actual reuse. [Donation](https://docs.jax.dev/en/latest/buffer_donation.html) |
+| MLIR One-Shot Bufferize | Use-def/alias, read-after-write conflicts and writability guide in-place decisions | IN9–IN10 | Prove no overwrite of live J snapshots/external aliases; otherwise use separate output/copy or supported-route boundary. [Bufferization](https://mlir.llvm.org/docs/Bufferization/) |
+| Historical JAXA research | Source contracts tied to entry graphs using with/gerunds | IN0–IN3, IN6 | Optional surface candidate with registered capabilities/ordinary bindings, excluding physical policies. [Proposal](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md#L873) |
+
+#### Input metadata conditions (M0–M8)
+
+Apply these when using metadata as a justified optimization premise. Dtype/rank/shape alone do not prove buffer safety, function semantics or content immutability. Physical access checks are separate adapter obligations.
+
+| Condition | Contract | Unknown/failure handling and current boundary |
+|---|---|---|
+| M0 Mapping | Connect each used noun ID/slot/name; distinguish missing, duplicate and wrong-POS inputs | WI1 checks missing/duplicate/extra nouns; function/locale reuse proofs remain separate |
+| M1 Logical consistency | Known rank equals shape length; nonnegative valid extents; scalar rank 0/one atom, zero extent/no atoms; overflow-safe counts | Existing declaration/Value validation applies; do not silently normalize invalid/empty shapes |
+| M2 Dtype/encoding | Verify external dtype, byte order and encoding against logical dtype; conversions are explicit and preserve numeric semantics | Never reinterpret fp32 bytes as f64 slices; WI1 checks logical Value dtype only; external import pending |
+| M3 Storage bounds | Before direct access verify dense capacity or strided offset/stride/addressable bounds without overflow, plus alignment/device/backend requirements | Shapes alone do not prove strided safety. Distinguish CPU affine foundations from future external adapters; outside WI1 |
+| M4 Unknown/symbolic | Unknown does not mean constant/positive/no-alias; use only justified same-scope symbolic conditions | Symbolic guards pending with WI5; retain conditional reports/supported runtime shape boundaries |
+| M5 Provenance/validity | Attach source/proof/scope; headers/catalogs do not guarantee buffer existence, lifetime or freshness | Bind premises to actual Value/buffer generation or equivalent ownership lease, not catalog revision; integration pending |
+| M6 Check-to-use stability | Checked metadata/NAME/storage must match execution; control external reshape/reallocation/mutation with snapshot/lease/synchronization | Check relevant facts on each new batch; reject specialization/import if stability is unresolved. WI1 success does not extend across later calls |
+| M7 Partial/content facts | Refine only known facts; finite/sorted/range require separate proof/check; samples are not legality evidence | Keep data-free analysis and unknown boxed/sparse children/structure. WI1 does not check atoms/representation |
+| M8 Cache/guard failure | Track only used metadata/function/semantic premises; changing batch/weight contents or pointers alone need not recompile | Distinguish contract errors from specialization misses; no automatic replay after effects. Supported route/reanalysis needs real capability; dispatcher pending |
+
+#### Ownership and input-storage conditions (O0–O8)
+
+| Condition | Contract | Permitted actions and limitations |
+|---|---|---|
+| O0 Import mode | Distinguish owned transfer, shared immutable and external borrow; raw pointers/Arc counts alone do not prove external exclusivity | Even unknown-owner read-only candidates require lifetime/synchronization evidence |
+| O1 Lifetime | Retain owner/lease until all reads/writes/transfers complete; returned views extend backing lifetime | Future GPU/async paths retain until actual completion, not enqueue; these executors are pending |
+| O2 External mutation | Data exposed as a J noun snapshot must not silently change through producer writes | Immutable lease, synchronized snapshot copy or explicit state/effects; a read-only wrapper does not stop external writers |
+| O3 Alias/overlap | Consider input views, external aliases, live global/boxed snapshots and graph consumers | Without proof use out-of-place or verified overlap-safe implementations; user no-alias assertions alone cannot establish safe Rust references |
+| O4 Writability | Backing must be writable and semantic writes authorized | Never overwrite readonly/mmap/protected backing; physical allocation choices differ from observable state writes |
+| O5 Donation/reuse | Explicit transfer permission, no live old-value reads, ownership/alias proof, compatible output representation and preserved J errors/effects | Old handles/aliases must become unusable after transfer. Low observed refcounts do not justify consuming shared nouns; output/copy may still be necessary |
+| O6 Release responsibility | Specify transfer/borrow boundaries and release owner; return/release each transferred owner reference exactly once | Handle validation/partial import/call failures and final output drop without leaks/double release; metadata-only declarations own no actual buffer |
+| O7 Zero-copy preconditions | Direct import requires lifetime/mutation/alias/alignment/encoding/layout/backend compatibility | Otherwise explicitly choose supported value-preserving copy/conversion or report import boundary. Copies also need writer synchronization; no universal zero-copy guarantee |
+| O8 Failure/consumption timing | Complete possible validation before calls/effects/transfer; specify transfer commit and post-failure handle validity | Distinguish pre-start failures from consumed/effectful failures; no generic rollback/replay promise. Preserve J assignment transactions/live snapshots |
+
+M/O describe **adopted contracts and pending implementation requirements**. StaticAnalysis::validate_noun_inputs() currently checks mapping and borrowed Value dtype/rank/shape only. External import/leases, encoding/stride capacity, alias, donation and automatic dispatch are not implemented. Ownership remains downstream; semantic with grants no unsafe pointer-access permission.
+
+- [x] **WI0b** Record per-item influences/sources and M0–M8/O0–O8 in both canonical documents.
+- [ ] **WI4b** When wiring adapters/guards, validate stale metadata, external mutation, overlap, readonly backing, bad capacity, use after donation, failure release and view lifetimes. Async/device completion tests wait for those backends.
+
+#### Static analysis first: derive facts from contracts without real arrays
+
+**User requirement:** static analysis is the foundation for pre-execution optimization. Do not require every M/O fact to come exclusively from runtime buffer checks. Analyze noun schemas/facts and preserved computation structure without actual nouns. Metadata acquisition through an external API/header may involve I/O; distinguish that from subsequent data-free static graph analysis. Do not default to invoking source verbs or creating dummy/training arrays to discover shapes. with is an optional information carrier.
+
+```text
+Preserved J graph + input schemas + operation/ownership contracts
+    -> static propagation / constraints / use-def / liveness
+    -> reports and candidate legality premises
+    -> residual obligations only for required unproven premises
+    -> actual input binding + required guards/leases
+    -> supported execution route
+```
+
+These are design stages, not completed optimizer/solver/dispatcher support. Data-free reports describe graph structure, known/unknown facts, extents, resource expressions/bounds, live values and unresolved conditions. Partial analysis remains possible with unknown facts. Keep unknown separate from unreachable and compile-route limits separate from invalid J.
+
+| Facts/conditions | Before execution | Possible residual obligations at binding |
+|---|---|---|
+| IN0 / M0 | Schema/syntax determine input slots/POS, edges and used inputs | Supplied mapping and ordinary NAME binding/POS/version witnesses |
+| IN1–IN3 / M1,M4 | Declared dtype/rank/shape, constants and shape rules derive results/relations; statically check known constraints | Actual metadata agrees with declarations and unproven equalities/bounds |
+| IN4 / M7 | Known nested/sparse schemas support applicability/assembly analysis | Actual child schemas/stored structure not already proven; content-dependent shapes stay unknown |
+| IN5–IN8 | Explicit configuration and numeric/effect/state contracts support legality/dependencies | Required actual function/policy identity and separate contents conditions |
+| IN9 / O1–O5 | Closed-graph use-def/liveness identifies old-value reads/internal alias conflicts; use ownership contracts and managed Rust borrow/lifetime evidence | Adapter guarantees external leases/alias/mutation/writability/exclusive transfer; declarations alone cannot prove exclusivity |
+| IN10 / M2,M3,O7 | Known target/representation contracts identify candidates and encoding requirements | Backing capacity/strides/device/alignment/lifetime. Proven static physical conditions need not be repeatedly checked |
+| IN11 / M5,M6,M8,O6,O8 | Track provenance/scopes, boundary proof obligations, cache preconditions and ownership transfer/release flow | Unresolved witness validity and check-to-use stability; no replay after effects |
+
+Distinguish the statically provable absence of later internal reads from external exclusive ownership. The latter requires adapter guarantees or managed ownership/lifetime evidence. Do not assume general runtime alias checking is always cheap or sufficient. Without proof retain out-of-place/supported-route boundaries. Compile-time proofs and residual guards may coexist.
+
+Concrete shapes permit exact logical extents in supported cases; symbolic shapes permit expressions/proven bounds; unknown relations do not justify exact counts. Symbolic analysis is still static analysis. Without concrete layout/schedule do not assert physical peak allocation or performance. Dataset atoms need not be retained in the compiler proportional to dataset size.
+
+**Current boundary:** StaticAnalyzer::declare_noun()/analyze() produce supported-syntax concrete/unknown-fact reports without arrays. WI1 validate_noun_inputs() is the later compatibility-check seam. Arbitrary per-dimension symbols/solvers, full ownership proof obligations, external leases, optimizer transforms and dispatch remain pending. Preserve frontend semantics without requiring data execution for static analysis.
+
+- [x] **WI0c** Classify static facts/proofs versus residual obligations and the static roles of M/O.
+- [ ] **WI3b** Report metadata-only shape/resource/use-def results and unresolved conditions. Cover no input allocation/kernel execution, preserved unknowns, compile-time constraint conflicts and partial-fact refinement.
+- [ ] **WI4c** Connect static proofs and residual guards/adapter guarantees at execution boundaries without making analysis runtime-only. State ownership/lifetime proof scopes and unresolved external aliases.
+
 #### Framework comparison for pre-execution input information (2026-10-04)
 
 | Framework | Input information before tensor execution | Shape changes/reuse | RustJ lesson and boundary |
