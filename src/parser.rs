@@ -56,9 +56,10 @@ fn train_hook(f: Verb, g: Verb) -> Verb {
     }
 }
 
-fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
+fn train_fork(f: Verb, g: Verb, h: Verb, names: ConstructionNames<'_, '_>) -> Result<Verb> {
+    let capped = names.fork_cap(&f.entity)?;
     let span = f.span.start..h.span.end;
-    Verb {
+    let mut verb = Verb {
         span: span.clone(),
         target: VerbTarget::Derived,
         entity: FunctionEntity::derived(
@@ -71,7 +72,15 @@ fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
                 FunctionOperand::Function(h.entity),
             ],
         ),
-    }
+    };
+    Arc::get_mut(&mut verb.entity)
+        .expect("fresh fork")
+        .fork_semantics = Some(if capped {
+        crate::semantic::ForkSemantics::Capped
+    } else {
+        crate::semantic::ForkSemantics::Ordinary
+    });
+    Ok(verb)
 }
 
 /// Parentheses are parser boundaries, not a change to a completed noun's value.
@@ -154,6 +163,7 @@ struct ConstructionNames<'a, 'h> {
     host: Option<&'a std::cell::RefCell<&'h mut dyn RuntimeParserHost>>,
     observations: Option<&'a std::cell::RefCell<Vec<CaptureEvent>>>,
     row: Option<ParseRow>,
+    fork_reads: Option<&'a std::cell::RefCell<Vec<crate::semantic::NameUse>>>,
 }
 
 fn construction_host<'h>(
@@ -164,6 +174,54 @@ fn construction_host<'h>(
 }
 
 impl ConstructionNames<'_, '_> {
+    fn fork_cap(self, first: &FunctionEntity) -> Result<bool> {
+        if matches!(
+            first.head,
+            FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap)
+        ) {
+            return Ok(true);
+        }
+        let FunctionHead::NameRef(name) = &first.head else {
+            return Ok(false);
+        };
+        // cf.c::jtcap inspects only this binding's head, never an alias chain.
+        let binding = if let Some(host) = self.host {
+            host.borrow().fork_cap_binding(name)?
+        } else {
+            match self.lookup.and_then(|lookup| lookup(name)) {
+                Some(ParserNameBinding::KnownVerb { function, version }) => Some((
+                    matches!(
+                        function.head,
+                        FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap)
+                    ),
+                    version,
+                )),
+                _ => None,
+            }
+        };
+        let (capped, version) = binding.ok_or_else(|| {
+            Error::Unsupported("fork construction needs a direct first-name binding witness".into())
+        })?;
+        let read = crate::semantic::NameUse {
+            name: name.clone(),
+            version,
+            span: first.span.clone(),
+        };
+        if let Some(reads) = self.fork_reads {
+            reads.borrow_mut().push(read.clone());
+        }
+        if let Some(observations) = self.observations {
+            observations
+                .borrow_mut()
+                .push(CaptureEvent::ForkNameResolved {
+                    row: self.row.expect("constructor row"),
+                    read,
+                    capped,
+                });
+        }
+        Ok(capped)
+    }
+
     fn resolve_modifier(
         self,
         operator: Arc<FunctionEntity>,
@@ -575,7 +633,8 @@ fn gerund_character(
                 ),
                 Some(ParserNameBinding::AbstractNoun) => (ParseClass::Noun, None),
                 Some(ParserNameBinding::Function(pos)) => ((*pos).into(), None),
-                Some(ParserNameBinding::KnownModifier { function, .. }) => {
+                Some(ParserNameBinding::KnownVerb { function, .. })
+                | Some(ParserNameBinding::KnownModifier { function, .. }) => {
                     (function.result_pos.into(), None)
                 }
                 None => (ParseClass::Verb, None),
@@ -614,7 +673,8 @@ fn gerund_character(
             }
             None => FunctionPartOfSpeech::Verb,
             Some(ParserNameBinding::Function(pos)) => pos,
-            Some(ParserNameBinding::KnownModifier { function, .. }) => function.result_pos,
+            Some(ParserNameBinding::KnownVerb { function, .. })
+            | Some(ParserNameBinding::KnownModifier { function, .. }) => function.result_pos,
         };
         if let Some(function) = names
             .host
@@ -873,7 +933,8 @@ fn construct_modifier_trident(
                 first.into_verb().unwrap(),
                 second.into_verb().unwrap(),
                 third.into_verb().unwrap(),
-            ))
+                names,
+            )?)
             .with_span(span))
         }
         TridentDisposition::BuildFork => Ok(Item::verb(train_noun_fork(
@@ -1559,6 +1620,7 @@ fn apply_parse_row(
                 host: host.as_ref(),
                 observations: context.capture.as_ref().map(|_| &observations),
                 row: Some(row),
+                fork_reads: Some(&context.fork_name_reads),
             };
             let result = apply_adverb(left, operator, span.clone(), 0, names)
                 .map_err(|error| error.at(span.clone()));
@@ -1588,6 +1650,7 @@ fn apply_parse_row(
                 host: host.as_ref(),
                 observations: context.capture.as_ref().map(|_| &observations),
                 row: Some(row),
+                fork_reads: Some(&context.fork_name_reads),
             };
             let result = apply_conjunction_items(left, operator, right, span.clone(), 0, names)
                 .map_err(|error| error.at(span.clone()));
@@ -1611,7 +1674,20 @@ fn apply_parse_row(
                     let f = phrase.remove(0).into_verb().expect("row 5 f");
                     let g = phrase.remove(0).into_verb().expect("row 5 g");
                     let h = phrase.remove(0).into_verb().expect("row 5 h");
-                    stack.insert(1, Item::verb(train_fork(f, g, h)));
+                    let host = construction_host(&mut context.host);
+                    let observations = std::cell::RefCell::new(Vec::new());
+                    let names = ConstructionNames {
+                        lookup: context.lookup,
+                        host: host.as_ref(),
+                        observations: context.capture.as_ref().map(|_| &observations),
+                        row: Some(row),
+                        fork_reads: Some(&context.fork_name_reads),
+                    };
+                    let result = train_fork(f, g, h, names);
+                    if let Some(capture) = &mut context.capture {
+                        capture.events.extend(observations.into_inner());
+                    }
+                    stack.insert(1, Item::verb(result?));
                     true
                 }
                 TridentDisposition::BuildFork
@@ -2317,6 +2393,11 @@ pub(crate) enum ParserNameBinding {
     /// This is not a dummy Value and must never enter concrete execution.
     AbstractNoun,
     Function(FunctionPartOfSpeech),
+    /// Analysis-only direct binding witness. Ordinary lookup still emits NAME.
+    KnownVerb {
+        function: Arc<FunctionEntity>,
+        version: crate::semantic::NameVersion,
+    },
     KnownModifier {
         function: Arc<FunctionEntity>,
         version: crate::semantic::NameVersion,
@@ -2345,6 +2426,12 @@ pub(crate) struct ResolvedModifier {
 
 pub(crate) trait RuntimeParserHost {
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    fn fork_cap_binding(
+        &self,
+        _name: &str,
+    ) -> Result<Option<(bool, crate::semantic::NameVersion)>> {
+        Ok(None)
+    }
     fn enqueue_environment(&self) -> crate::enqueuer::EnqueueEnvironment {
         crate::enqueuer::EnqueueEnvironment::TopLevel
     }
@@ -2419,6 +2506,7 @@ pub(crate) fn parse_runtime_host(
             host: Some(host),
             capture,
             modifier_snapshots: Vec::new(),
+            fork_name_reads: Default::default(),
         },
     )
 }
@@ -2429,6 +2517,7 @@ struct ActionContext<'a> {
     host: Option<&'a mut dyn RuntimeParserHost>,
     capture: Option<&'a mut ParseCapture>,
     modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
+    fork_name_reads: std::cell::RefCell<Vec<crate::semantic::NameUse>>,
 }
 
 /// Resolve one ordinary name only when its queue entry reaches the stack.
@@ -2443,7 +2532,14 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
     } else {
         context.lookup.and_then(|lookup| lookup(&name))
     };
+    let binding = match binding {
+        Some(ParserNameBinding::KnownVerb { function, .. }) => {
+            Some(ParserNameBinding::Function(function.result_pos))
+        }
+        other => other,
+    };
     let mut resolved = match binding {
+        Some(ParserNameBinding::KnownVerb { .. }) => unreachable!("normalized verb witness"),
         Some(ParserNameBinding::Noun(value)) => Item::noun(
             Expr {
                 span,
@@ -2571,6 +2667,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
             host: None,
             capture: None,
             modifier_snapshots: Vec::new(),
+            fork_name_reads: Default::default(),
         },
     )
 }
@@ -2600,6 +2697,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
             reductions: Vec::new(),
             assignment_source: None,
             modifier_snapshots: Vec::new(),
+            fork_name_reads: Default::default(),
         });
     }
 
@@ -2641,6 +2739,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
         reductions,
         assignment_source,
         modifier_snapshots: std::mem::take(&mut context.modifier_snapshots),
+        fork_name_reads: context.fork_name_reads.take(),
     })
 }
 fn expression(
@@ -3478,6 +3577,14 @@ mod gerund_ar_tests {
         );
     }
     #[test]
+    fn fork_first_name_needs_constructor_identity_not_only_pos() {
+        let lookup = |_: &str| Some(ParserNameBinding::Function(FunctionPartOfSpeech::Verb));
+        let error = parse_analysis("f + -", &lookup).unwrap_err();
+        assert_eq!(error.kind(), "unsupported");
+        assert!(error.to_string().contains("binding witness"));
+    }
+
+    #[test]
     fn decoded_name_reference_keeps_actual_pos_without_capturing_a_verb_value() {
         let lookup = |name: &str| {
             if name == "fn" {
@@ -3491,6 +3598,7 @@ mod gerund_ar_tests {
             host: None,
             observations: None,
             row: None,
+            fork_reads: None,
         };
         let decoded = function(decode_gerund_ar(&text("fn"), 3..8, 0, names).unwrap());
         assert_eq!(decoded.head, FunctionHead::NameRef("fn".into()));
@@ -3502,6 +3610,7 @@ mod gerund_ar_tests {
             host: None,
             observations: None,
             row: None,
+            fork_reads: None,
         };
         assert_eq!(
             audit_gerund(&boxes(vec![text("fn")]), 3..8, 0, names)

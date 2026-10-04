@@ -201,6 +201,30 @@ def modifier_scope_cases():
     ]
 
 
+def capped_fork_cases():
+    return ["[: 7", "3 [: 7", "[: 'x'", "[: i.0", "([: + -) 7", "3 ([: + -) 7",
+            "cf=:([: + -)", "cf 1 2 3", "cf i.0", "3 cf 7",
+            "cname=:[:", "cf=:cname + -", "cf 7", "cname=:+", "cf 7",
+            "cname=:9", "cf 7", "cname=:/", "cf 7",
+            "cname=:[:", "calias=:cname", "cchain=:calias + -", "cchain 7",
+            "cname=:+", "cchain 7", "cname=:9", "cchain 7", "cf 7",
+            "ch=:-", "cg=:+", "cf=:[: cg ch", "cf 7", "ch=:+", "cf 7",
+            "cg=:#", "cf 1 2 3", "cg=:9", "cf 7", "ch=:9", "cf 7",
+            "ca=:1 : '(u + -) y'", "cf=:[:ca", "cf 7",
+            "ca=:1 : 'x ([: + u.) y'", "cf=:-ca", "3 cf 7",
+            "cname=:[:", "car=:(<'3'),<((<'cname'),(<'+'),<'-')", "cf=:(,<car)\\",
+            "cname=:+", "cf=:(,<car)\\"]
+
+
+def capped_fork_multiline_cases():
+    return ["ccount=:0", "cinner=:1 : 0\nccount=:(ccount*10)+1\nu y\n)",
+            "couter=:1 : 0\nccount=:(ccount*10)+2\nu y\n)",
+            "ch=:-cinner", "cg=:+couter", "cf=:[: cg ch", "cf 7", "ccount",
+            "ccount=:0", "ch=:[:cinner", "cf 7", "ccount", "ch=:-cinner",
+            "cg=:[:couter", "cf 7", "ccount", "cg=:+couter", "cf 7", "ccount",
+            "cname=:+", "ca=:1 : 0\ncname=.u\n(cname + -) y\n)", "cf=:[:ca", "cf 7", "cname 7"]
+
+
 def noun_fork_cases():
     return ["nfcomputed=:(1+2) + *", "nfcomputed 4", "(3 + -) 7", "3 (3 + +) 7", "(3 + -) 1 2 3", "(3 + -) i.0",
             "nfnoun=:1 2 3", "nff=:(nfnoun + -)", "nfnoun=:9", "nff 1 2 3", "nff 1 2", "nff i.0",
@@ -822,6 +846,7 @@ def cases():
     fixed.extend(implicit_wrapper_cases())
     fixed.extend(empty_scope_cases())
     fixed.extend(noun_fork_cases())
+    fixed.extend(capped_fork_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())

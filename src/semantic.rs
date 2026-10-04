@@ -79,6 +79,12 @@ impl FunctionOperand {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForkSemantics {
+    Ordinary,
+    Capped,
+}
+
 /// Immutable semantic function object. Operands are shared references so large
 /// trains/derived functions form DAGs rather than recursively copied Rust values.
 /// This mirrors the structural role of jsource's common V block + f/g/h links,
@@ -92,6 +98,9 @@ pub struct FunctionEntity {
     /// Constructor-decoded gerund functions. Not source semantic operand edges.
     /// Retains intrinsic noun snapshots independently of the original boxed AR.
     pub decoded_gerund: Option<Vec<Arc<FunctionEntity>>>,
+    /// Constructor-fixed meaning for a Fork. Original source operands survive;
+    /// this is neither a call-site fact nor a late binding/purity proof.
+    pub fork_semantics: Option<ForkSemantics>,
 }
 impl FunctionEntity {
     /// p.c stacks primitive modifiers and cf.c trains of primitive ACVs/nouns
@@ -159,6 +168,7 @@ impl FunctionEntity {
             head: FunctionHead::PrimitiveVerb(id),
             operands: Vec::new(),
             decoded_gerund: None,
+            fork_semantics: None,
         })
     }
 
@@ -173,6 +183,7 @@ impl FunctionEntity {
             head: FunctionHead::NameRef(name),
             operands: Vec::new(),
             decoded_gerund: None,
+            fork_semantics: None,
         })
     }
 
@@ -186,6 +197,7 @@ impl FunctionEntity {
             head: FunctionHead::PrimitiveAdverb(id),
             operands: Vec::new(),
             decoded_gerund: None,
+            fork_semantics: None,
         })
     }
 
@@ -199,6 +211,7 @@ impl FunctionEntity {
             head: FunctionHead::PrimitiveConjunction(id),
             operands: Vec::new(),
             decoded_gerund: None,
+            fork_semantics: None,
         })
     }
 
@@ -208,12 +221,22 @@ impl FunctionEntity {
         span: std::ops::Range<usize>,
         operands: Vec<FunctionOperand>,
     ) -> Arc<Self> {
+        let fork_semantics = matches!(head, FunctionHead::Fork).then(|| {
+            if matches!(operands.first(), Some(FunctionOperand::Function(first))
+                if matches!(first.head, FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap)))
+            {
+                ForkSemantics::Capped
+            } else {
+                ForkSemantics::Ordinary
+            }
+        });
         Arc::new(Self {
             span,
             result_pos,
             head,
             operands,
             decoded_gerund: None,
+            fork_semantics,
         })
     }
 }
@@ -312,6 +335,8 @@ pub struct Program {
     pub assignment_source: Option<crate::parser::AssignmentSource>,
     /// Read-only analysis dependencies, outside intrinsic function identity.
     pub modifier_snapshots: Vec<ModifierSnapshot>,
+    /// Constructor-time single-name cap inspections, not executable namerefs.
+    pub fork_name_reads: Vec<NameUse>,
 }
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
@@ -387,7 +412,10 @@ pub(crate) fn bind(
                 if let FunctionHead::NameRef(name) = &function.head {
                     verb_references.push((name.clone(), function.span.clone()));
                 }
-                for operand in function.operands.iter().rev() {
+                for (index, operand) in function.operands.iter().enumerate().rev() {
+                    if index == 0 && function.fork_semantics == Some(ForkSemantics::Capped) {
+                        continue;
+                    }
                     if let JEntityRef::Function(child) = operand.as_entity_ref() {
                         functions.push(child);
                     }
@@ -406,7 +434,7 @@ pub(crate) fn bind(
         }
     }
     pending.sort_by_key(|(_, span)| span.start);
-    let reads = pending
+    let mut reads = pending
         .into_iter()
         .map(|(name, span)| {
             let version = lookup(&name).ok_or_else(|| Error::Value(name.clone()))?;
@@ -417,6 +445,7 @@ pub(crate) fn bind(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    reads.extend(program.fork_name_reads.iter().cloned());
     let write = if let Some(name) = &program.assignment {
         let previous = lookup(name);
         let proposed = NameVersion(

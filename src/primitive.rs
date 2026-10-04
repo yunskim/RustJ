@@ -1,7 +1,7 @@
 //! Canonical IDs for the currently recognized primitive spellings.
 //! IDs denote a J symbol, not a valence or a physical kernel.
 
-pub const REGISTRY_VERSION: u32 = 4;
+pub const REGISTRY_VERSION: u32 = 5;
 macro_rules! primitives {
     ($($id:ident => $spelling:literal),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -42,6 +42,7 @@ primitives! {
     Find => "E.",
     OperandU => "u.",
     OperandV => "v.",
+    Cap => "[:",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

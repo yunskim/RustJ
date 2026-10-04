@@ -32,7 +32,7 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 4 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 5 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -334,6 +334,7 @@ pub struct Plan {
     pub verb_references: Vec<(String, Range<usize>)>,
     /// Non-executing modifier identities/dependencies; executable reuse still needs guards.
     pub modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
+    pub fork_name_reads: Vec<crate::semantic::NameUse>,
 }
 
 #[derive(Clone, Debug)]
@@ -712,6 +713,29 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
                 g: g.clone(),
             }
         }
+        FunctionHead::Fork
+            if function.fork_semantics == Some(crate::semantic::ForkSemantics::Capped) =>
+        {
+            hints.push(GraphHint::PipelineFusionCandidate);
+            hints.push(GraphHint::IntermediateMaterializationElision);
+            let [
+                _,
+                FunctionOperand::Function(g),
+                FunctionOperand::Function(h),
+            ] = function.operands.as_slice()
+            else {
+                return (
+                    GraphForm::Modifier {
+                        head: function.head.clone(),
+                        operands: function_operands(function),
+                    },
+                    GraphHints::default(),
+                );
+            };
+            GraphForm::Pipeline {
+                stages: vec![h.clone(), g.clone()],
+            }
+        }
         FunctionHead::Fork => {
             hints.push(GraphHint::BranchJoinFusionCandidate);
             hints.push(GraphHint::RetainedValueCandidate);
@@ -872,6 +896,7 @@ impl Plan {
             write,
             verb_references: bound.verb_references,
             modifier_snapshots: bound.program.modifier_snapshots,
+            fork_name_reads: bound.program.fork_name_reads,
         };
         plan.verify().map_err(|message| {
             Error::Unsupported(format!("J graph IR verification failed: {message}"))
@@ -918,6 +943,7 @@ impl Plan {
         let mut modifier_bindings = Vec::new();
         let mut modifier_stack_snapshots = Vec::new();
         let mut gerund_name_reads = Vec::new();
+        let mut fork_name_reads = Vec::new();
         let mut constructor_calls = Vec::new();
         let mut pending = None;
         let mut constructor_inputs = Vec::new();
@@ -1029,6 +1055,9 @@ impl Plan {
                 CaptureEvent::ConstructionAttempt { noun_inputs, .. } => {
                     constructor_inputs = noun_inputs.iter().map(|id| values[id]).collect();
                 }
+                CaptureEvent::ForkNameResolved { read, .. } => {
+                    fork_name_reads.push(read.clone());
+                }
                 CaptureEvent::ModifierResolved { binding } => {
                     modifier_bindings.push(binding.clone())
                 }
@@ -1118,7 +1147,12 @@ impl Plan {
             if let FunctionHead::NameRef(name) = &function.head {
                 verb_references.push((name.clone(), function.span.clone()));
             }
-            for operand in &function.operands {
+            for (index, operand) in function.operands.iter().enumerate() {
+                if index == 0
+                    && function.fork_semantics == Some(crate::semantic::ForkSemantics::Capped)
+                {
+                    continue;
+                }
                 if let FunctionOperand::Function(child) = operand {
                     functions.push(child.clone());
                 }
@@ -1136,6 +1170,7 @@ impl Plan {
             write,
             verb_references,
             modifier_snapshots: Vec::new(),
+            fork_name_reads,
         };
         graph.verify().map_err(|message| {
             Error::Unsupported(format!("captured J graph verification failed: {message}"))
@@ -1236,6 +1271,15 @@ impl Plan {
         }
 
         let source_len = self.source.len();
+        for read in &self.fork_name_reads {
+            if read.version.0 == 0
+                || read.name.is_empty()
+                || read.span.start >= read.span.end
+                || self.source.get(read.span.clone()).is_none()
+            {
+                return Err("invalid fork construction name witness".into());
+            }
+        }
         for snapshot in &self.modifier_snapshots {
             let span = &snapshot.span;
             if span.start >= span.end

@@ -28,6 +28,13 @@ struct EngineParserHost<'a> {
     pooled: bool,
 }
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn fork_cap_binding(&self, name: &str) -> Result<Option<(bool, crate::semantic::NameVersion)>> {
+        Ok(self.engine.visible_binding(name).map(|binding| (
+            matches!(&binding.value, JEntity::Function(function)
+                if matches!(function.head, FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap))),
+            binding.version)))
+    }
+
     fn stacked_modifier(
         &self,
         name: &str,
@@ -119,6 +126,10 @@ struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
 }
 impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
+    fn fork_cap_binding(&self, name: &str) -> Result<Option<(bool, crate::semantic::NameVersion)>> {
+        self.parent.fork_cap_binding(name)
+    }
+
     fn enqueue_environment(&self) -> crate::enqueuer::EnqueueEnvironment {
         crate::enqueuer::EnqueueEnvironment::ExplicitDefinition
     }
@@ -874,6 +885,20 @@ impl Engine {
                 let gy = self.call_entity(g.clone(), None, y.clone(), pooled, depth)?;
                 self.call_entity(f.clone(), Some(x.unwrap_or(y)), gy, pooled, depth)
             }
+            FunctionHead::Fork
+                if function.fork_semantics == Some(crate::semantic::ForkSemantics::Capped) =>
+            {
+                let [
+                    _,
+                    FunctionOperand::Function(g),
+                    FunctionOperand::Function(h),
+                ] = function.operands.as_slice()
+                else {
+                    return Err(Error::Domain);
+                };
+                let hy = self.call_entity(h.clone(), x, y, pooled, depth + 1)?;
+                self.call_entity(g.clone(), None, hy, pooled, depth + 1)
+            }
             FunctionHead::Fork => {
                 let [
                     first,
@@ -963,7 +988,13 @@ impl Engine {
         {
             // Unknown application semantics do not prevent transporting the
             // current POS-bearing function name through a static assignment.
-            if function.result_pos == FunctionPartOfSpeech::Verb || !function.is_known_modifier() {
+            if function.result_pos == FunctionPartOfSpeech::Verb {
+                return Some(crate::parser::ParserNameBinding::KnownVerb {
+                    function: function.clone(),
+                    version: *version,
+                });
+            }
+            if !function.is_known_modifier() {
                 return self.parser_name_binding(name);
             }
             return Some(crate::parser::ParserNameBinding::KnownModifier {
@@ -1490,11 +1521,12 @@ mod entity_binding_tests {
             );
         }
         engine.eval("target=:+").unwrap();
-        let Some(ParserNameBinding::Function(pos)) = engine.parser_analysis_binding("target")
+        let Some(ParserNameBinding::KnownVerb { function, .. }) =
+            engine.parser_analysis_binding("target")
         else {
             panic!()
         };
-        assert_eq!(pos, FunctionPartOfSpeech::Verb);
+        assert_eq!(function.result_pos, FunctionPartOfSpeech::Verb);
         let mut host = EngineParserHost {
             engine: &mut engine,
             pooled: false,

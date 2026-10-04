@@ -37,6 +37,7 @@ fn function(f: &FunctionEntity) -> String {
                 head: f.head.clone(),
                 operands: Vec::new(),
                 decoded_gerund: None,
+                fork_semantics: None,
             };
             let operands = f
                 .operands
@@ -91,9 +92,16 @@ fn function(f: &FunctionEntity) -> String {
     let operands = f
         .operands
         .iter()
-        .map(|operand| match operand {
-            FunctionOperand::Function(child) => function(child),
-            FunctionOperand::Noun { value, .. } => format!("{{\"noun\":{}}}", value.json()),
+        .enumerate()
+        .map(|(index, operand)| {
+            if index == 0 && f.fork_semantics == Some(rustj::semantic::ForkSemantics::Capped) {
+                "{\"head_hex\":\"5b3a\",\"operands\":[]}".to_owned()
+            } else {
+                match operand {
+                    FunctionOperand::Function(child) => function(child),
+                    FunctionOperand::Noun { value, .. } => format!("{{\"noun\":{}}}", value.json()),
+                }
+            }
         })
         .collect::<Vec<_>>()
         .join(",");

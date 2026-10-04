@@ -18,6 +18,12 @@ pub struct OccurrenceId(pub usize);
 
 #[derive(Clone, Debug)]
 pub enum CaptureEvent {
+    /// Direct constructor-time lookup; does not freeze ordinary namerefs.
+    ForkNameResolved {
+        row: ParseRow,
+        read: crate::semantic::NameUse,
+        capped: bool,
+    },
     ModifierStacked {
         snapshot: crate::semantic::ModifierSnapshot,
     },
@@ -191,6 +197,21 @@ impl ParseCapture {
         let mut construction = None;
         for (event_index, event) in self.events.iter().enumerate() {
             match event {
+                CaptureEvent::ForkNameResolved { row, read, .. } => {
+                    if construction != Some(*row)
+                        || !matches!(
+                            row,
+                            ParseRow::Fork | ParseRow::Adverb | ParseRow::Conjunction
+                        )
+                        || !attempts.is_empty()
+                        || read.name.is_empty()
+                        || read.version.0 == 0
+                        || read.span.start >= read.span.end
+                        || self.source.get(read.span.clone()).is_none()
+                    {
+                        return Err("invalid fork construction binding witness");
+                    }
+                }
                 CaptureEvent::ModifierStacked { snapshot } => {
                     if !attempts.is_empty()
                         || construction.is_some()

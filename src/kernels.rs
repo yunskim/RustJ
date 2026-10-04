@@ -240,6 +240,9 @@ fn dimensions(v: &Value) -> Result<Vec<usize>> {
 }
 
 pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
+    if verb == "[:" {
+        return Err(Error::Valence);
+    }
     if verb == "$." {
         return crate::sparse::monad(y);
     }
@@ -370,6 +373,9 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
 }
 
 pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
+    if verb == "[:" {
+        return Err(Error::Valence);
+    }
     if verb == "$." {
         return crate::sparse::dyad(a, b);
     }
