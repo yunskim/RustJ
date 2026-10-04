@@ -142,32 +142,83 @@ fn returned_array_keeps_its_storage_after_local_frame_and_pool_cleanup() {
 }
 
 #[test]
-fn implicit_reference_boundaries_do_not_publish_or_capture_the_wrong_scope() {
+fn ordinary_function_names_can_cross_frames_without_capturing_caller_locals() {
     let mut engine = Engine::new();
-    for definition in [
+    for source in [
         "smf=:+",
-        "sminner=:1 : 'u'",
+        "sminner=:1 : 'u 7'",
+        "smreturn=:1 : 'u'",
         "smcross=:1 : 0\nsmf=.u\nsmf sminner\n)",
-        "smpublish=:1 : 0\nsmf=.u\nsmexport=:smf/\n)",
-        "smambiguous=:1 : 0\nsmf=.smf\nsmf\n)",
-        "smcollisionoperand=:1 : 'smf=.u'",
+        "smescape=:1 : 0\nsmf=.u\nsmf smreturn\n)",
     ] {
-        engine.eval(definition).unwrap();
+        engine.eval(source).unwrap();
     }
     let version = engine.binding_version("smf");
+    // The inner invocation sees global +, not the caller's private -.
+    scalar(&mut engine, "-smcross", 7);
+    engine.eval("smres=:-smescape").unwrap();
+    scalar(&mut engine, "smres 7", 7);
+    assert_eq!(engine.binding_version("smf"), version);
+    engine.eval("smf=:-").unwrap();
+    scalar(&mut engine, "smres 7", -7);
+    engine.eval("smf=:1").unwrap();
+    assert_eq!(engine.eval("smres 7").unwrap_err().kind(), "domain error");
+}
+
+#[test]
+fn published_functions_keep_ordinary_names_and_committed_effects_after_failure() {
+    let mut engine = Engine::new();
     for source in [
-        "+smcross",
-        "+smpublish",
-        "+smambiguous",
-        "smf smcollisionoperand",
+        "smf=:+",
+        "smkeep=:+",
+        "smpublish=:1 : 0\nsmf=.u\nsmexport=:smf/\n)",
+        "smfail=:1 : 0\nsmf=.u\nsmexport=:smf/\n1 2+1 2 3\n)",
     ] {
-        assert_eq!(
-            engine.eval(source).unwrap_err().kind(),
-            "unsupported",
-            "{source}"
-        );
-        assert_eq!(engine.binding_version("smf"), version);
-        assert_eq!(engine.binding_version("smexport"), None);
+        engine.eval(source).unwrap();
     }
+    let version = engine.binding_version("smf");
+    engine.eval("smres=:-smpublish").unwrap();
+    scalar(&mut engine, "smexport 1 2 3", 6);
+    engine.eval("smf=:-").unwrap();
+    scalar(&mut engine, "smexport 1 2 3", 2);
+    engine.eval("smf=:+").unwrap();
+    let keep = engine.binding_version("smkeep");
+    let export = engine.binding_version("smexport");
+    let failure = engine.eval_captured("smkeep=:-smfail");
+    assert_eq!(failure.result.unwrap_err().kind(), "length error");
+    failure.capture.verify().unwrap();
+    assert_eq!(engine.binding_version("smkeep"), keep);
+    assert_ne!(engine.binding_version("smexport"), export);
+    scalar(&mut engine, "smexport 1 2 3", 6);
     scalar(&mut engine, "smf 7", 7);
+    assert_ne!(engine.binding_version("smf"), version);
+    engine.eval("smf=:1").unwrap();
+    assert_eq!(
+        engine.eval("smexport 1 2 3").unwrap_err().kind(),
+        "domain error"
+    );
+}
+
+#[test]
+fn uninitialized_local_and_operand_collision_preserve_late_name_identity() {
+    let mut engine = Engine::new();
+    for source in [
+        "smf=:+",
+        "smself=:1 : 'smf=.smf'",
+        "smcollision=:1 : 'smf=.u'",
+    ] {
+        engine.eval(source).unwrap();
+    }
+    let version = engine.binding_version("smf");
+    engine.eval("smres=:-smself").unwrap();
+    engine.eval("smcollisionresult=:smf smcollision").unwrap();
+    assert_eq!(engine.binding_version("smf"), version);
+    scalar(&mut engine, "smres 7", 7);
+    engine.eval("smf=:-").unwrap();
+    scalar(&mut engine, "smres 7", -7);
+    scalar(&mut engine, "smcollisionresult 7", -7);
+    // Noun lookup still snapshots a value, even in the same source form.
+    engine.eval("smf=:9").unwrap();
+    scalar(&mut engine, "-smself", 9);
+    scalar(&mut engine, "smf", 9);
 }

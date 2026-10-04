@@ -169,19 +169,6 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
         if local {
             let frame = engine.local_frames.last_mut().expect("modifier frame");
             frame.declared.insert(name.to_owned());
-            if let JEntity::Function(function) = &value {
-                let uninitialized = frame
-                    .declared
-                    .iter()
-                    .filter(|name| !frame.names.contains_key(*name))
-                    .cloned()
-                    .collect();
-                if has_declared_reference(function, &uninitialized, 0)? {
-                    return Err(Error::Unsupported(
-                        "uninitialized implicit local function reference".into(),
-                    ));
-                }
-            }
             store_binding(&mut frame.names, &mut engine.pool, name.to_owned(), value)
         } else {
             if engine
@@ -191,17 +178,8 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
             {
                 return Err(Error::Domain);
             }
-            if let JEntity::Function(function) = &value {
-                if has_local_reference(
-                    function,
-                    &engine.local_frames.last().expect("modifier frame").names,
-                    0,
-                )? {
-                    return Err(Error::Unsupported(
-                        "publishing implicit local function reference".into(),
-                    ));
-                }
-            }
+            // Ordinary NameRef is not a reference to this frame's storage.
+            // Preserve it for lookup in the eventual execution environment.
             engine.commit_binding(name.to_owned(), value)
         }
     }
@@ -211,27 +189,8 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
         left: FunctionOperand,
         right: Option<FunctionOperand>,
     ) -> Result<JEntity> {
-        // Implicit locatives spanning two frames need scoped name identities.
-        // Do not replace them by early snapshots or accidentally resolve globals.
-        for operand in std::iter::once(&left).chain(right.as_ref()) {
-            if let FunctionOperand::Function(function) = operand {
-                if has_local_reference(
-                    function,
-                    &self
-                        .parent
-                        .engine
-                        .local_frames
-                        .last()
-                        .expect("modifier frame")
-                        .names,
-                    0,
-                )? {
-                    return Err(Error::Unsupported(
-                        "cross-frame implicit function reference".into(),
-                    ));
-                }
-            }
-        }
+        // Ordinary names in operands remain late references. The callee reads
+        // its own frame then globals, never the caller's private bindings.
         self.parent.apply_definition(operator, left, right)
     }
 }
@@ -270,40 +229,6 @@ fn store_binding(
         pool.retire(value);
     }
     Ok(returned)
-}
-
-fn has_local_reference(
-    function: &FunctionEntity,
-    names: &HashMap<String, Binding>,
-    depth: usize,
-) -> Result<bool> {
-    has_declared_reference(function, &names.keys().cloned().collect(), depth)
-}
-
-fn has_declared_reference(
-    function: &FunctionEntity,
-    names: &HashSet<String>,
-    depth: usize,
-) -> Result<bool> {
-    if depth >= crate::semantic::MAX_EXPR_DEPTH {
-        return Err(Error::Limit);
-    }
-    if matches!(&function.head, FunctionHead::NameRef(name) if names.contains(name)) {
-        return Ok(true);
-    }
-    for operand in &function.operands {
-        if let FunctionOperand::Function(child) = operand {
-            if has_declared_reference(child, names, depth + 1)? {
-                return Ok(true);
-            }
-        }
-    }
-    for child in function.decoded_gerund.iter().flatten() {
-        if has_declared_reference(child, names, depth + 1)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 struct ResolvedVerb {
@@ -442,15 +367,6 @@ impl Engine {
                     local
                         .declared
                         .insert(code.body[pair[0].span.clone()].to_owned());
-                }
-            }
-        }
-        for operand in std::iter::once(&left).chain(right.as_ref()) {
-            if let FunctionOperand::Function(function) = operand {
-                if has_declared_reference(function, &local.declared, 0)? {
-                    return Err(Error::Unsupported(
-                        "operand name collides with explicit local scope".into(),
-                    ));
                 }
             }
         }

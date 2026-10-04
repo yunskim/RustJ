@@ -201,6 +201,35 @@ def modifier_scope_cases():
     ]
 
 
+def ordinary_reference_cases():
+    return [
+        "srfunc=:+", "srself=:1 : 'srfunc=.srfunc'",
+        "srres=:-srself", "srres 7",
+        "srcollision=:1 : 'srfunc=.u'", "srcopy=:srfunc srcollision",
+        "srfunc=:-", "srres 7", "srcopy 7",
+        "srfunc=:9", "srres 7", "srcopy 7", "-srself", "srfunc",
+        "srundefined=:1 : 'srfuture=.srfuture'", "srres=:+srundefined",
+        "srres 7", "srfuture=:-", "srres 7", "srfuture=:0", "srres 7",
+    ]
+
+
+def ordinary_reference_multiline_cases():
+    return [
+        "srfunc=:+", "srkeep=:+",
+        "srinner=:1 : 'u 7'", "srreturn=:1 : 'u'",
+        "srcross=:1 : 0\nsrfunc=.u\nsrfunc srinner\n)", "-srcross",
+        "srescape=:1 : 0\nsrfunc=.u\nsrfunc srreturn\n)",
+        "srres=:-srescape", "srres 7",
+        "srpublish=:1 : 0\nsrfunc=.u\nsrexport=:srfunc/\n)",
+        "srres=:-srpublish", "srexport 1 2 3",
+        "srfunc=:-", "srres 1 2 3", "srexport 1 2 3",
+        "srfunc=:+",
+        "srfail=:1 : 0\nsrfunc=.u\nsrexport=:srfunc/\n1 2+1 2 3\n)",
+        "srkeep=:-srfail", "srexport 1 2 3", "srkeep 7", "srfunc 7",
+        "srfunc=:0", "srexport 1 2 3", "srres 1 2 3",
+    ]
+
+
 def modifier_scope_multiline_cases():
     # Physical newlines belong to the stage probe, never the line CLI corpus.
     cases = [
@@ -652,6 +681,7 @@ def cases():
     fixed.extend(definition_code_cases())
     fixed.extend(explicit_modifier_cases())
     fixed.extend(modifier_scope_cases())
+    fixed.extend(ordinary_reference_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
