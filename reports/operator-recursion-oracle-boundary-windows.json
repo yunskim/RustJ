@@ -1,0 +1,18 @@
+{
+  "platform": "Windows native",
+  "date": "2026-10-04",
+  "context": "Attempted j64 direct full-corpus comparison; recursive operator fixture caused process failure before result comparison.",
+  "relevant_setup": [
+    "orec=:1 : 'orecurse y'",
+    "orecurse=:+orec"
+  ],
+  "source": "orecurse 7",
+  "reference_release_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+  "observed_exception": "OSError: exception: stack overflow",
+  "location": "tools/oracle.py Oracle.run, ctypes JDo call",
+  "normal_J_error_observed": false,
+  "included_in_successful_C_corpus": false,
+  "C_equivalence_claim": false,
+  "followup": "Rust operator recursion depth/failure recovery regression only; normal C recursion-limit comparison remains unverified."
+}

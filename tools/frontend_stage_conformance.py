@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, explicit_modifier_cases, modifier_scope_cases, modifier_scope_multiline_cases, ordinary_reference_cases, ordinary_reference_multiline_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, explicit_modifier_cases, modifier_scope_cases, modifier_scope_multiline_cases, ordinary_reference_cases, ordinary_reference_multiline_cases, operator_definition_cases, operator_definition_multiline_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -168,6 +168,10 @@ def atomic_node(value):
     if value.get('type') != 32 or value.get('shape') != [2] or len(value.get('data', [])) != 2:
         raise ValueError('unrecognized atomic function node')
     head, args = value['data']
+    if head.get('type') == 32:
+        if args.get('type') != 32 or args.get('shape') != [len(args.get('data', []))]:
+            raise ValueError('unrecognized applied operator operands')
+        return {'operator': atomic_node(head), 'operands': [atomic_node(x) for x in args['data']]}
     if head.get('type') != 2:
         raise ValueError('non-character atomic head')
     spelling = bytes(head['data'])
@@ -588,7 +592,7 @@ def run(args):
             expected = atomic_function(oracle.representation('latedecoded', 'atomic')['value'])
             source = 'latefn=:(,<latear)' + chr(92)
             check('late_modifier_decoded_snapshot', source, {'decoded': [expected]}, static_probe.inspect(source, 'D'))
-        for source in explicit_modifier_cases() + modifier_scope_cases() + modifier_scope_multiline_cases() + ordinary_reference_cases() + ordinary_reference_multiline_cases():
+        for source in explicit_modifier_cases() + modifier_scope_cases() + modifier_scope_multiline_cases() + ordinary_reference_cases() + ordinary_reference_multiline_cases() + operator_definition_cases() + operator_definition_multiline_cases():
             target = source.split('=:', 1)[0] if '=:' in source else None
             if target is None:
                 check('explicit_modifier_value', source, oracle.eval(source), static_probe.inspect(source, 'E'))

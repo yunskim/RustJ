@@ -201,6 +201,34 @@ def modifier_scope_cases():
     ]
 
 
+def operator_definition_cases():
+    return [
+        "oa=:1 : 'u y'", "of=:+oa", "of 7", "of i.4", "of i.0 3", "3 of 7",
+        "oc=:2 : 'u y+v y'", "og=:+oc -", "og 7", "og i.4", "3 og 7",
+        "on=:1 : 'm+y'", "ondata=:3", "oh=:ondata on", "oh 7", "oh i.4",
+        "ondata=:9", "oh 7",
+        "od=:1 : 'x u y'", "oi=:+od", "oi 7", "3 oi 7", "1 2 oi 3 4",
+        "olate=:+", "ol=:(olate oa)", "ol 7", "olate=:-", "ol 7", "olate=:0", "ol 7",
+        "okeep=:+", "oe=:1 : 'u y+1 2 3'", "obad=:+oe", "okeep=:obad 1 2", "okeep 7",
+        "odirect=:{{u y}}", "of=:-odirect", "of 7",
+    ]
+
+
+def operator_definition_multiline_cases():
+    return [
+        "opcounter=:0", "opkeep=:+",
+        "opdelayed=:1 : 0\nopcounter=:opcounter+1\nu y\n)",
+        "opverb=:-opdelayed", "opcounter", "opverb 7", "opcounter", "opverb 8", "opcounter",
+        "opdelayed=:1 : 'm+y'", "opverb 9", "opcounter",
+        "opboth=:1 : 0\nu y\n:\nx u y\n)", "opverb=:+opboth", "opverb 7", "3 opverb 7",
+        "opfail=:1 : 0\nopcounter=:opcounter+1\noptmp=.y\n1 2+1 2 3\n)",
+        "opbad=:+opfail", "opkeep=:opbad 7", "opcounter", "opkeep 7",
+        "opnonnoun=:1 : 0\ny\nu\n)", "opbad=:+opnonnoun", "opbad 7",
+        "opconstant=:1 : 0\ny\nm\n)", "opnoun=:i.8", "opverb=:opnoun opconstant",
+        "opnoun=:0", "opverb 1",
+    ]
+
+
 def ordinary_reference_cases():
     return [
         "srfunc=:+", "srself=:1 : 'srfunc=.srfunc'",
@@ -682,6 +710,7 @@ def cases():
     fixed.extend(explicit_modifier_cases())
     fixed.extend(modifier_scope_cases())
     fixed.extend(ordinary_reference_cases())
+    fixed.extend(operator_definition_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())

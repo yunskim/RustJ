@@ -314,11 +314,42 @@ impl Engine {
             return Err(Error::Domain);
         };
         if code.operator_definition {
-            return Err(Error::Unsupported(
-                "explicit operator x/y invocation".into(),
-            ));
+            let operands = std::iter::once(left)
+                .chain(right)
+                .map(|operand| match operand {
+                    FunctionOperand::Noun { value, span } => FunctionOperand::Noun {
+                        value: value.into_shared(),
+                        span,
+                    },
+                    function => function,
+                })
+                .collect();
+            return Ok(JEntity::Function(FunctionEntity::derived(
+                operator.head.clone(),
+                FunctionPartOfSpeech::Verb,
+                operator.span.clone(),
+                operands,
+            )));
         }
-        let (section, controls) = if right.is_some() {
+        self.invoke_definition_body(operator, left, right, None, pooled)
+    }
+
+    fn invoke_definition_body(
+        &mut self,
+        operator: std::sync::Arc<FunctionEntity>,
+        left: FunctionOperand,
+        right: Option<FunctionOperand>,
+        arguments: Option<(Option<Value>, Value)>,
+        pooled: bool,
+    ) -> Result<JEntity> {
+        let FunctionHead::ExplicitDefinition(code) = &operator.head else {
+            return Err(Error::Domain);
+        };
+        let verb_call = arguments.is_some();
+        let dyadic = arguments
+            .as_ref()
+            .map_or(right.is_some(), |(x, _)| x.is_some());
+        let (section, controls) = if dyadic {
             (&code.dyad, &code.dyad_controls)
         } else {
             (&code.monad, &code.monad_controls)
@@ -387,6 +418,22 @@ impl Engine {
                 store_binding(&mut local.names, &mut self.pool, name.to_owned(), value)?;
             }
         }
+        if let Some((x, y)) = arguments {
+            store_binding(
+                &mut local.names,
+                &mut self.pool,
+                "y".into(),
+                JEntity::Noun(y),
+            )?;
+            if let Some(x) = x {
+                store_binding(
+                    &mut local.names,
+                    &mut self.pool,
+                    "x".into(),
+                    JEntity::Noun(x),
+                )?;
+            }
+        }
         self.definition_depth += 1;
         self.local_frames.push(local);
         let result = (|| {
@@ -448,9 +495,11 @@ impl Engine {
             }
             let value =
                 last.ok_or_else(|| Error::Unsupported("empty explicit modifier result".into()))?;
-            // Ordinary NAME references are deliberately not fixed on exit.
-            // cx.c's fix mode targets implicit u./v. locatives; those require
-            // x/y operator invocation, which this executor does not implement.
+            if verb_call && matches!(value, JEntity::Function(_)) {
+                return Err(Error::NounResult);
+            }
+            // Ordinary NAMEs remain late references. Implicit u./v. locative
+            // fixing is a separate, still unsupported return-time contract.
             Ok(value)
         })();
         let departing = self.local_frames.pop().expect("modifier frame");
@@ -461,6 +510,81 @@ impl Engine {
         }
         self.definition_depth -= 1;
         result
+    }
+
+    /// Resolve only ordinary aliases here; body execution must wait for arguments.
+    fn explicit_operator(
+        &self,
+        function: &std::sync::Arc<FunctionEntity>,
+    ) -> Result<Option<std::sync::Arc<FunctionEntity>>> {
+        if !matches!(
+            function.head,
+            FunctionHead::NameRef(_) | FunctionHead::ExplicitDefinition(_)
+        ) {
+            return Ok(None);
+        }
+        let mut current = function.clone();
+        for _ in 0..=crate::semantic::MAX_EXPR_DEPTH {
+            if let FunctionHead::NameRef(name) = &current.head {
+                // Ordinary lookup failures keep the established resolver's
+                // name/error context; this probe only recognizes operator calls.
+                let Some(binding) = self.visible_binding(name) else {
+                    return Ok(None);
+                };
+                let JEntity::Function(target) = &binding.value else {
+                    return Ok(None);
+                };
+                if target.result_pos != FunctionPartOfSpeech::Verb {
+                    return Ok(None);
+                }
+                current = target.clone();
+                continue;
+            }
+            return Ok(
+                matches!(&current.head, FunctionHead::ExplicitDefinition(code)
+                if code.operator_definition && !current.operands.is_empty())
+                .then_some(current),
+            );
+        }
+        Err(Error::Limit)
+    }
+
+    fn call_explicit_operator(
+        &mut self,
+        function: std::sync::Arc<FunctionEntity>,
+        x: Option<Value>,
+        y: Value,
+        pooled: bool,
+    ) -> Result<Value> {
+        let copy_operand = |operand: &FunctionOperand| match operand {
+            FunctionOperand::Function(function) => FunctionOperand::Function(function.clone()),
+            // Deferred construction freezes noun storage before later calls.
+            FunctionOperand::Noun { value, span } => FunctionOperand::Noun {
+                value: value.clone(),
+                span: span.clone(),
+            },
+        };
+        let [left, rest @ ..] = function.operands.as_slice() else {
+            return Err(Error::Domain);
+        };
+        if rest.len() > 1 {
+            return Err(Error::Domain);
+        }
+        let left = copy_operand(left);
+        let right = rest.first().map(copy_operand);
+        let result = self.invoke_definition_body(function, left, right, Some((x, y)), pooled);
+        match result {
+            Ok(JEntity::Noun(value)) => Ok(value),
+            Ok(JEntity::Function(_)) => Err(Error::NounResult),
+            // Body coordinates do not belong to the caller source. A separate
+            // diagnostic source frame is required before preserving body spans.
+            Err(Error::Context { error, mut context }) => {
+                context.span = None;
+                context.blame_word_index = None;
+                Err(error.with_context(*context))
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn parser_name_binding(&self, name: &str) -> Option<crate::parser::ParserNameBinding> {
@@ -802,6 +926,11 @@ impl Engine {
                     let verb_span = verb.span.clone();
                     let y = self.interpret_ir(*argument, pooled, depth + 1)?;
                     let y_summary = argument_summary(ArgumentRole::Y, &y);
+                    if let Some(function) = self.explicit_operator(&verb.entity)? {
+                        return self
+                            .call_explicit_operator(function, None, y, pooled)
+                            .map_err(|error| error.at(verb_span));
+                    }
                     let verb = self.resolve_verb(verb)?;
                     let operation = operation_label(&verb);
                     let call = if let Some(rank) = verb.rank {
@@ -826,6 +955,11 @@ impl Engine {
                     let x = self.interpret_ir(*left, pooled, depth + 1)?;
                     let x_summary = argument_summary(ArgumentRole::X, &x);
                     let y_summary = argument_summary(ArgumentRole::Y, &y);
+                    if let Some(function) = self.explicit_operator(&verb.entity)? {
+                        return self
+                            .call_explicit_operator(function, Some(x), y, pooled)
+                            .map_err(|error| error.at(verb_span));
+                    }
                     let verb = self.resolve_verb(verb)?;
                     let operation = operation_label(&verb);
                     let call = if let Some(rank) = verb.rank {

@@ -118,7 +118,7 @@ fn failed_and_unsupported_bodies_preserve_targets_and_restore_invocation_depth()
         "emkeep=:+",
         "emfail=:1 : '1 2 + 1 2 3'",
         "emscope=:1 : 'u=:9'",
-        "emop=:1 : 'u y'",
+        "emop=:1 : 'if. y do. u y end.'",
         "emmissing=:1 : 'm'",
         "emrecursive=:1 : '+ emrecursive'",
         "emgood=:1 : '7'",
@@ -133,7 +133,7 @@ fn failed_and_unsupported_bodies_preserve_targets_and_restore_invocation_depth()
     for (source, error) in [
         ("emkeep=:+emfail", "length error"),
         ("emkeep=:+emscope", "domain error"),
-        ("emkeep=:+emop", "unsupported"),
+        ("emkeep=:(+emop)7", "unsupported"),
         ("emkeep=:+emmissing", "unsupported"),
         ("emkeep=:+emrecursive", "limit error"),
     ] {

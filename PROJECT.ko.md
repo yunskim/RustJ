@@ -2838,7 +2838,7 @@ shape가 concrete하면 일부 logical extent를 정확히 계산하고, symboli
 
 tracing은 frontend/host 코드를 실행할 수 있으므로 “사용자 코드를 전혀 실행하지 않는다”와 같지 않다. descriptor 방식도 데이터 의존 결과 크기·조건·오류를 자동으로 증명하지 않는다. RustJ는 frontend에서 보존한 graph와 known facts를 분석하고, unknown facts 및 J effect/name timing을 유지한다. shape/type 정보가 없더라도 topology 수준 기회를 찾을 수 있으며, 확보한 정보에 따라 legality·logical resource 분석을 정밀하게 한다. 실제 optimization pass는 계속 보류한다.
 
-**WI1 gate:** native Windows default/portable 각각 **396 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 164건 및 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 다시 확인했다. `with` 실행·기호 차원·학습/AD·CUDA·optimizer 실행 완료를 뜻하지 않는다. full upstream/private C trace 및 ignored definition acceptance는 미검증이며 Linux/GitHub CI는 실행하지 않았다. 이후 ordinary-reference 단계에서 NAME 제한을 해소했으며 implicit locative/operator는 후속 경계다. `with` adapter는 필수 선행 조건으로 만들지 않는다.
+**WI1 gate:** native Windows default/portable 각각 **396 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 164건 및 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 다시 확인했다. `with` 실행·기호 차원·학습/AD·CUDA·optimizer 실행 완료를 뜻하지 않는다. full upstream/private C trace 및 ignored definition acceptance는 미검증이며 Linux/GitHub CI는 실행하지 않았다. 이후 ordinary-reference 단계에서 NAME 제한을 해소했으며 implicit locative와 전체 operator scope는 후속 경계이며 직선 호출은 아래 operator-call 단계에서 지원한다. `with` adapter는 필수 선행 조건으로 만들지 않는다.
 
 <a id="array-compiler-static-analysis"></a>
 
@@ -7945,13 +7945,13 @@ capture에는 `ExplicitModifierApply` invocation marker와 noun 반환의 `Const
 - [x] `u/v`, noun 전용 `m/n`, global late lookup, 반환 함수의 frame 밖 재사용, 오류/재정의/대입 대상 보존을 검증한다.
 - [x] Rust 회귀 3개와 C corpus/stage 사례 **48개**를 추가한다. scalar/matrix/empty/boxed noun, 반환 ADV/CONJ 재적용, gerund operand 및 domain/length 실패를 포함한다.
 - [x] 본문의 simple NAME `=.`/`=:`와 여러 직선 문장은 다음 modifier-scope 단계에서 구현했다. control flow·nested definition scope는 계속 미지원이다.
-- [ ] `x/y`를 쓰는 operator definition은 deferred callable invocation이 필요하므로 미지원이다. unbound 특별 이름은 global fallback으로 해석하지 않고 Unsupported를 유지한다.
+- [x] 이후 operator-call 단계에서 x/y operator의 deferred Verb construction과 직선 호출을 구현했다. unbound 특별 이름의 global fallback 및 전체 scope 지원은 포함하지 않는다.
 - [ ] 현재 recursive parser 기반 호출은 Windows stack 보호를 위해 **8중첩**에서 LimitError를 낸다. 일반 invocation executor의 explicit frame/trampoline과 더 넓은 depth는 후속 작업이다. 오류 뒤 depth가 복구됨을 검증했다.
 - [ ] 본문 graph/source frame 및 전체 local/locale/definition 실행을 연결한다. 기존 ignored definition acceptance 17개는 계속 미완료다.
 
 **Explicit-modifier gate:** Windows default/portable 각각 **386 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,911 cases / 4,907 passed / 기존 runtime 경계 4 / failed 0**, stage **10,091 checks**, words **6,618 cases / failed 0**. capture graph 경계 **147건**(invocation 19·modifier value 109·ordered effect 19)과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`와 실행 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다. Linux/GitHub CI/CUDA 검증은 실행하지 않았다.
 
-이후 modifier-scope 단계에서 local/global assignment dispatch와 여러 직선 문장의 마지막 결과·실패/효과 순서를 구현했다. `x/y` operator callable과 body graph 연결은 별도 후속 경계로 유지한다. CUDA·optimizer 구현·GitHub CI는 보류한다.
+이후 modifier-scope 단계에서 local/global assignment dispatch와 여러 직선 문장의 마지막 결과·실패/효과 순서를 구현했다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. body graph 연결과 전체 callable scope는 후속 경계다. CUDA·optimizer 구현·GitHub CI는 보류한다.
 
 기준 소스: [cx.c modifier 호출 및 local frame](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c u/v와 noun m/n 설치](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L322), [p.c mnuvxy의 by-value resolution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c VXOPR executor 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
 
@@ -7965,7 +7965,7 @@ C 비교로 구분한 이름 규칙:
 
 - **현재 값이 있는 지역 이름**에 `=:`로 대입하면 domain error이다. 지역 이름이 선언만 되어 있고 아직 값이 없으면 global 대입이 허용되며, 그 이후 `=.`로 지역 값을 넣을 수 있다.
 - ordinary 함수 NAME은 본문에서도 실행 시 lookup한다. 이를 반환할 때 마지막 지역 함수 값으로 재귀 치환하지 않는다. frame 종료 후 같은 이름의 global이 없으면 value error이고, 이후 global이 생기면 그 값을 조회한다. `u/v`의 by-value substitution 및 마지막 함수 대입의 실제 RHS 반환과 구별한다.
-- C가 종료 시 fix하는 implicit locative `u./v.`는 ordinary NAME과 다른 경계다. `x/y` operator executor와 함께 후속 구현한다.
+- C가 종료 시 fix하는 implicit locative `u./v.`는 ordinary NAME과 다른 경계다. 아래 x/y 직선 operator executor 구현과 구별하여 후속 구현한다.
 
 체크리스트:
 
@@ -7974,12 +7974,12 @@ C 비교로 구분한 이름 규칙:
 - [x] 직접 정의와 실제 `1/2 : 0` block 입력을 비교한다. block은 C `0!:100` script delivery로 공급하고 Rust에는 같은 원문을 전달한다. JDo 단일 호출로 interactive block을 흉내 내지 않는다.
 - [x] Rust regression **6개**, 공통 C corpus **31건**, stage 전용 **41건**을 추가한다. 지역 noun/function/adverb, ordinary NAME 반환 후 재조회, reserved operand, 대입 실패·효과 순서, 65,536-atom payload의 frame 종료 후 pointer 공유를 포함한다.
 - [x] 아래 ordinary-reference 단계에서 cross-frame 함수 operand, local NAME을 포함한 global publication, 미초기화 local 함수 대입 및 operand/local collision 제한을 해소했다. 실제 implicit locative는 별도 미지원 경계다.
-- [ ] control flow·nested definition framing·locale 및 `x/y` operator callable은 후속 구현한다. 기존 8중첩 제한과 ignored definition acceptance 17개는 유지한다.
+- [ ] control flow·nested definition framing·locale 및 전체 operator wrapper/scope는 후속 구현한다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. 기존 8중첩 제한과 ignored definition acceptance 17개는 유지한다.
 - [ ] 본문 dependency/effect graph와 별도 body/caller diagnostic frame을 연결한다. graph 변환은 계속 `explicit modifier body graph requires invocation scope`를 반환한다. 실행 성공은 static graph 분석 완료를 뜻하지 않는다.
 
 **Modifier-scope gate:** native Windows default/portable 각각 **392 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **164건**(invocation 28·modifier value 117·ordered effect 19)과 static 경계 2건은 별도다. report 10개의 binary/source hash를 확인했다. reviewed source는 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실행 DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`이다. full upstream suite·ignored definition acceptance·private C trace 동등성은 미검증이다. Linux/GitHub CI/CUDA 검증은 실행하지 않았다.
 
-이후 ordinary-reference 단계에서 scoped-reference 사례를 C와 대조하고 ordinary NAME 제한을 해소했다. 이후 `x/y` operator callable, 본문 graph/source frame 및 control flow를 이어 간다. Unsupported 전에 global 효과가 commit될 수 있으므로 이를 안전한 자동 재실행 신호로 사용하지 않는다. optimizer·CUDA 구현·GitHub CI는 보류한다.
+이후 ordinary-reference 단계에서 scoped-reference 사례를 C와 대조하고 ordinary NAME 제한을 해소했다. x/y 직선 호출은 아래 operator-call 단계에서 구현했으며, 본문 graph/source frame 및 control flow는 후속 경계다. Unsupported 전에 global 효과가 commit될 수 있으므로 이를 안전한 자동 재실행 신호로 사용하지 않는다. optimizer·CUDA 구현·GitHub CI는 보류한다.
 
 기준 소스: [p.c 지역 조회와 global fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L631), [s.c bound private name의 global 대입 금지](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L718), [cx.c 중간 noun 결과 요구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L67), [cx.c implicit locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c implicit u/v 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L53), [jerr.h EVNONNOUN](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h), [i.c 오류 문구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/i.c).
 
@@ -7989,13 +7989,30 @@ C 비교로 구분한 이름 규칙:
 - [x] ordinary NameRef를 implicit locative로 오인한 네 제한과 전체 함수 DAG의 이름 membership 재검사를 제거했다. 함수 이름은 expected POS를 가진 late reference로 유지한다. 호출은 현재 frame → global을 조회하며 caller frame을 캡처하거나 탐색하지 않는다. `u/v` operand substitution과 noun snapshot은 그대로다.
 - [x] `smf=.u` 후 `smf`를 안쪽 modifier에 전달하면 안쪽에서 ordinary `smf` 실행은 안쪽 local 또는 global을 조회한다. caller의 지역 `smf`로 고정되지 않는다. `smexport=:smf/`도 ordinary 이름을 보존하고 frame 밖 global 재정의를 반영한다. 미초기화 `smf=.smf`는 RHS의 현재 noun/function 품사를 따르며 noun이면 snapshot, 함수면 NameRef이다. 같은 이름의 operand/local 대입도 유효하다.
 - [x] Rust scope regression은 기존 Unsupported golden 1개를 실제 의미 검증 3개로 교체했다. 재정의·POS mismatch·undefined→defined, 실패 뒤 outer target/version 유지·이미 commit된 global publication과 frame 복구를 검증한다. 공통 single-line C corpus **21건**, stage에 이를 포함한 **45건**을 추가했다. 반환 함수의 C atomic representation과 실제 결과/오류를 비교한다. `af.c`를 검토 소스 hash 목록에 추가했다.
-- [ ] 실제 implicit locative `u./v.`, operator `x/y`, control flow·nested scope와 body graph/source diagnostic frame은 후속 작업이다. 일반 NAME 지원을 implicit-locative fix나 전체 closure 지원으로 확대하지 않는다. static/no-host modifier application은 계속 명시적 경계이며 실행 성공을 정적 분석 완료로 계산하지 않는다.
+- [ ] 실제 implicit locative `u./v.`, 전체 operator wrapper/scope, control flow·nested scope와 body graph/source diagnostic frame은 후속 작업이다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. 일반 NAME 지원을 implicit-locative fix나 전체 closure 지원으로 확대하지 않는다. static/no-host modifier application은 계속 명시적 경계이며 실행 성공을 정적 분석 완료로 계산하지 않는다.
 
 **Ordinary-reference gate:** native Windows default/portable 각각 **398 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,963 cases / 4,959 passed / 기존 runtime 경계 4 / failed 0**, stage **10,208 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **171건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. 보고서 10개의 실제 binary/source hash를 확인했다. reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실행 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·GitHub CI는 보류한다.
 
-다음은 implicit locative와 `x/y` operator의 deferred callable 경계를 C와 대조하고, 실행되지 않는 definition body graph/source frame을 이어 간다. effect가 commit된 뒤 Unsupported가 날 수 있으므로 자동 replay하지 않는다.
+이후 operator-call 단계에서 deferred callable의 직선 호출을 구현했다. implicit locative와 실행되지 않는 definition body graph/source frame은 후속 경계다. effect가 commit된 뒤 Unsupported가 날 수 있으므로 자동 replay하지 않는다.
 
 Sources: [p.c ordinary lookup / mnuvxy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c return-time implicit-locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c hasimploc / fix scope](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L17).
+
+##### JE2/P3 구현 — x/y operator의 deferred verb와 직선 호출 (2026-10-04, partial)
+
+- [x] C `cx.c::jtxop2/VXOPR`처럼 mode 1/2 operator의 operand application은 **본문을 실행하지 않고 Verb를 구성**한다. 기존 `FunctionHead::ExplicitDefinition`과 공유 DefinitionCode를 유지하며 원래 순서의 operand를 붙인다. code의 modifier POS와 적용 결과의 Verb POS를 구별한다. 새로운 modifier 전용 AST나 definition 본문 noun reduction을 만들지 않는다.
+- [x] 반환 verb의 직접/ordinary NAME 호출에 별도 x/y를 설치하고 기존 직선 본문 executor·tokenizer/enqueuer/parser를 공유한다. valence는 modifier operand 수가 아니라 실제 x/y 호출과 DefinitionCode의 monad/dyad section으로 선택한다. 빈 section은 ValenceError, 최종 함수 결과는 EVNONNOUN으로 처리한다. 생성 시 control-flow 본문을 실행하지 않으며, 해당 호출은 아직 Unsupported이다.
+- [x] 호출별 local frame과 u/v 및 noun 전용 m/n을 설치·정리한다. 기존 current-frame→global 조회, ordinary NameRef의 late lookup, global 효과/실패한 outer 대입 보존을 유지한다. 정의 재대입은 이미 생성된 verb의 공유 code를 바꾸지 않고, 함수 operand의 ordinary 이름 재대입은 실행 시 반영한다. primitive 호출에는 새 함수 Arc 복사를 추가하지 않는다.
+- [x] noun operand는 deferred construction에서 공유 저장소로 고정하고 이후 호출에서는 공유한다. 65,536-atom operand의 pointer 보존·이름 재대입 후 생존, code Arc 동일성, 생성/호출 효과 횟수, valence·POS·noun-result 오류와 반복 실패 후 frame 복구를 Rust regression **3개**로 확인했다. 재귀 제한은 기존 Windows **8중첩**을 유지한다.
+- [x] 공통 C corpus **38건**, 이를 포함한 stage **67건**을 추가했다. scalar/vector/empty, noun operand snapshot, named operand 재정의, direct/block/two-valence 정의와 실패 효과를 비교한다. frontend probe와 C `5!:1` adapter는 boxed operator head + operand vector를 보존하여 적용 전 modifier와 적용 후 verb를 구분한다. 기존 nonoperator scope/capture 테스트도 유지한다.
+- [ ] `u./v.` implicit-locative fix, control flow·nested scope, bare mode 3/4 verb invocation의 전체 지원, rank/insert 등 wrapper 안의 operator 실행, body graph/source diagnostic frame과 Logical lowering은 후속 작업이다. static/no-host application은 계속 명시적 경계다. DefinitionCode와 operand graph 보존은 본문 분석·compiled reuse 완료를 뜻하지 않는다.
+
+**Operator-call gate:** native Windows default/portable 각각 **401 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,001 cases / 4,997 passed / 기존 runtime 경계 4 / failed 0**, stage **10,275 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **184건**, static 경계 **2건**은 별도다. 기존 runtime waiver는 추가하지 않았다. 보고서 10개의 binary/reference/source hash를 검증했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 다르다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+**별도 oracle 경계:** 무한 재귀 operator 사례에서 j64 C oracle의 ctypes JDo가 `OSError: exception: stack overflow`로 종료했다. 정상 J LimitError 대조가 아니므로 위 성공 corpus에서 제외하고 `reports/operator-recursion-oracle-boundary-windows.json`에 기록한다. Rust depth-limit/frame-recovery regression만 통과했으며 이 사례의 C 동등성은 주장하지 않는다. 실패한 harness 실행을 successful gate로 계산하지 않았다.
+
+다음은 `u./v.`의 생성·호출 scope와 반환 시 fix를 C와 대조한다. body graph/source frame·control executor는 별도다. optimizer·CUDA·GitHub CI 보류를 유지한다.
+
+Sources: [cx.c jtxop2](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L749), [cx.c operator operand extraction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c x/y/u/v installation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L269), [cx.c result audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L671), [cx.c executor selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
 
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
@@ -9357,7 +9374,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(ordinary-reference 단계): Windows default/portable 각각 **398 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,963 cases / 4,959 passed / 기존 runtime 경계 4 / failed 0**, stage **10,208 checks**, words **6,618 cases / failed 0**. capture graph 경계 171건과 static 경계 2건은 별도다. report 10개의 binary/source hash를 확인했다. source/DLL pin은 JE2 namespace gate와 같고 full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(operator-call 단계): Windows default/portable 각각 **401 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,001 cases / 4,997 passed / 기존 runtime 경계 4 / failed 0**, stage **10,275 checks**, words **6,618 cases / failed 0**. capture graph 경계 184건과 static 경계 2건은 별도다. frontend report 10개와 재귀 oracle 실패의 별도 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

@@ -7,6 +7,29 @@ fn hex(bytes: &[u8]) -> String {
 }
 fn function(f: &FunctionEntity) -> String {
     if let FunctionHead::ExplicitDefinition(code) = &f.head {
+        if !f.operands.is_empty() {
+            let operator = FunctionEntity {
+                span: f.span.clone(),
+                result_pos: code.result_pos,
+                head: f.head.clone(),
+                operands: Vec::new(),
+                decoded_gerund: None,
+            };
+            let operands = f
+                .operands
+                .iter()
+                .map(|operand| match operand {
+                    FunctionOperand::Function(child) => function(child),
+                    FunctionOperand::Noun { value, .. } => format!("{{\"noun\":{}}}", value.json()),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            return format!(
+                "{{\"operator\":{},\"operands\":[{}]}}",
+                function(&operator),
+                operands
+            );
+        }
         let lines: Vec<_> = code
             .representation_lines()
             .into_iter()
