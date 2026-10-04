@@ -11,6 +11,7 @@
     "jsrc/cr.c": "9c2a7976afae1bae96a8fd5027b6df69f83b71a20ff62a94e08d25cabccadde4",
     "jsrc/ap.c": "9a214b1aae8f7c1ff11dc523e744671ede42f6cb284934dda0c2a1843197f380",
     "jsrc/ar.c": "176a98fd5ad8d71527188ee71d41304d829904f72ced7a9980df2014f06f7b99",
+    "jsrc/ai.c": "f9f141117f38248a6a9a35f9dfb6ee5b5f7a889f801cf0d67a943d70a7ca7b8b",
     "jsrc/cg.c": "300ba00feddb6d548a01a00c3311653e3106904fe4910e1f3d1c54c8749d5d6b",
     "jsrc/r.c": "d344e701c72d9fa6394de92f6b03615f76d36a3aa8b5a9cbd0634be5f7d0d61a",
     "jsrc/a.c": "972abe3d57881ccc86b4e05ba80171da88f121df0890b4e23837f30e361034e4",
@@ -29,7 +30,7 @@
     "test/g0x.ijs": "347cae3454e26505de6679fc0451b258d7acc99828fe65cc0a2c1f0037a3da6e"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "7ec9a51356833a1b4c5dcbfc59d25fccacfbccdb11d3ce6be6b6b81169797bd0",
+  "probe_sha256": "be657edae72125e33988507f353465ea57fdb919ef518710f57cc78919fbd1cd",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -77,8 +78,8 @@
     "late_modifier_decode_setup": 4,
     "late_modifier_decoded_snapshot": 2,
     "explicit_modifier_assignment": 21,
-    "explicit_modifier_function": 167,
-    "explicit_modifier_value": 184,
+    "explicit_modifier_function": 185,
+    "explicit_modifier_value": 216,
     "explicit_modifier_error": 9,
     "definition_no_execution_or_transaction": 15,
     "definition_constructor": 22,

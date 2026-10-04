@@ -201,6 +201,24 @@ def modifier_scope_cases():
     ]
 
 
+def empty_scope_cases():
+    out = ["esa=:1 : 'u./ y'"]
+    for op in ['+', '-', '*', '%']:
+        out += ["esf=:"+op+"esa", "esf i.0", "esf i.0 3", "esf 0 2 3$1", "esf 0$'x'", op+"/i.0"]
+    out += ["esfn=:+", "esf=:esfn esa", "esfn=:*", "esf i.0 3",
+            "esa=:1 : 'u.\"0 y'", "esf=:,esa", "esf i.0 3", "esf 0 2 3$1", "esf 0 3$'x'",
+            "esg=:,\"0", "esg i.0 3", "esg 0 3$'x'", "esg=:,\"1", "esg i.0 3",
+            "esg=:,\"_1", "esg i.2 0 3"]
+    return out
+
+
+def empty_scope_multiline_cases():
+    return ["esfn=:+", "esinner=:1 : '(u.\"1) i.0 3'",
+            "esouter=:1 : 0\nesfn=.,\nesfn esinner\n)", "+esouter", "esfn 7",
+            "esinner=:1 : 'u./i.0 3'",
+            "esouter=:1 : 0\nesfn=.*\nesfn esinner\n)", "+esouter", "esfn 7"]
+
+
 def implicit_wrapper_cases():
     return [
         "iwa=:1 : 'u./ y'", "iwf=:-iwa", "iwf 1 2 3 4", "iwf 7", "iwf ,7", "iwf i.3 2",
@@ -787,6 +805,7 @@ def cases():
     fixed.extend(implicit_operand_cases())
     fixed.extend(implicit_call_cases())
     fixed.extend(implicit_wrapper_cases())
+    fixed.extend(empty_scope_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())

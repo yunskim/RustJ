@@ -2051,7 +2051,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (wrappers/trains): Windows default/portable each **408 passed / 17 ignored**; fmt/clippy/build pass. Python **27 passed**. Each j64/AVX2 runtime route: **5,089 cases / 5,088 passed / 1 runtime boundary / 0 failed**; stages **10,424 checks**; words **6,618 cases / 0 failed**. Keep 222 capture-graph and 2 static boundaries separate, ten reports and a separate recursion-oracle boundary record. Full upstream/definition acceptance/private C trace equivalence remain unverified.
+- latest frontend validation (empty scope): Windows default/portable each **410 passed / 17 ignored**; fmt/clippy/build pass. Python **27 passed**. Each j64/AVX2 runtime route: **5,130 cases / 5,129 passed / 1 runtime boundary / 0 failed**; stages **10,474 checks**; words **6,618 cases / 0 failed**. Keep 230 capture-graph and 2 static boundaries separate, ten reports and a separate recursion-oracle boundary record. Full upstream/definition acceptance/private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
@@ -2441,6 +2441,19 @@ Sources: [sc.c local operand/caller switch](https://github.com/jsoftware/jsource
 Two Rust regressions and the existing named-insert provenance regression cover source DAGs, right association, caller locals, rank shape and branch effect/error order. Add **36 common runtime cases** and **57 stage cases including those**. Add no function Arc copying to primitive calls; only the runtime fallback traverses compositions. Do not claim A3 Hook/Fork execution or full body graph lowering. Next compare empty reduction identities and empty rank prototypes with C.
 
 Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L513), [j.h fork execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249), [cr.c rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
+
+#### JE2/P3 implementation — empty identities and pure ravel prototypes (2026-10-04, partial)
+
+- [x] Verify `+ - * %` identities with `ai.c::jtiden` and native Windows C. A user verb can execute once for empty-rank prototype inference and commit global effects.
+- [x] Resolve primitive witnesses through current name/POS and implicit caller scope without executing or claiming analysis of definition bodies. Compute the four witnessed identities through existing kernels and restore caller frames.
+- [x] Infer pure monadic ravel empty-rank output shape/type from logical cell shape, sharing the kernel between primitives and implicit wrappers. Cover negative ranks, multidimensional zero axes, character type and caller-local collisions.
+- [x] Add Rust/both-C regressions; retain separate unknown-user-verb prototype and identity boundaries. General prototype effects/suppressed errors/fill, other primitives, sparse and dyadic insert remain pending.
+
+**Empty-scope gate:** native Windows default/portable each **410 passed / 17 ignored**; fmt/clippy/build pass. Python **27 passed**. Each j64/AVX2 runtime route: **5,130 cases / 5,129 passed / 1 runtime boundary / 0 failed**; stages **10,474 checks / 0 failed**; words **6,618 cases / 0 failed**. Keep **230 capture-graph** and **2 static** boundaries separate. No new waiver. Ten binary/reference/source report hashes verified; add `ai.c` to reviewed sources. Add **two Rust regressions**, **41 common runtime cases** and **50 stage cases including those**.
+
+An explicit empty-rank C body executed once and changed count to 1; an unknown explicit reduction identity produced DomainError with count still 0. Record these separate j64 probes in `reports/empty-prototype-oracle-windows.json`. Rust remains explicitly Unsupported; do not claim equivalence/purity for these cases. Runtime primitive witnesses do not imply compile-time binding proofs or change analyzer unknown contracts. Full upstream/ignored acceptance/private C trace remain unverified; optimizer/CUDA/Linux/GitHub CI were not run. Next implement noun-left forks.
+
+Sources: [ai.c identities](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ai.c#L368), [ar.c empty reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L505), [cr.c rank execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

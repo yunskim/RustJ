@@ -748,6 +748,41 @@ impl Engine {
         result
     }
 
+    /// Resolve only a primitive identity/prototype witness; never execute a
+    /// user definition to guess facts or suppress its observable effects.
+    fn primitive_witness(
+        &mut self,
+        function: &std::sync::Arc<FunctionEntity>,
+        depth: usize,
+    ) -> Result<Option<crate::primitive::PrimitiveId>> {
+        if depth > crate::semantic::MAX_EXPR_DEPTH {
+            return Err(Error::Limit);
+        }
+        if let Some(target) = self.implicit_operand(function)? {
+            let suspended = self.local_frames.pop().expect("implicit witness frame");
+            let result = self.primitive_witness(&target, depth + 1);
+            self.local_frames.push(suspended);
+            return result;
+        }
+        match &function.head {
+            FunctionHead::PrimitiveVerb(id) => Ok(Some(*id)),
+            FunctionHead::NameRef(name) => {
+                let binding = self
+                    .visible_binding(name)
+                    .ok_or_else(|| Error::Value(name.clone()))?;
+                let JEntity::Function(target) = &binding.value else {
+                    return Err(Error::Domain);
+                };
+                if target.result_pos != FunctionPartOfSpeech::Verb {
+                    return Err(Error::Domain);
+                }
+                let target = target.clone();
+                self.primitive_witness(&target, depth + 1)
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn call_composite(
         &mut self,
         function: std::sync::Arc<FunctionEntity>,
@@ -777,6 +812,18 @@ impl Engine {
                 let [FunctionOperand::Function(operand)] = function.operands.as_slice() else {
                     return Err(Error::Unsupported("runtime gerund insert".into()));
                 };
+                if !y.is_sparse() && y.shape().first() == Some(&0) {
+                    use crate::primitive::PrimitiveId;
+                    if let Some(
+                        id @ (PrimitiveId::Add
+                        | PrimitiveId::Subtract
+                        | PrimitiveId::Multiply
+                        | PrimitiveId::Divide),
+                    ) = self.primitive_witness(operand, depth)?
+                    {
+                        return kernels::reduce(id.spelling(), y);
+                    }
+                }
                 crate::logical_executor::apply_reduction(y, |x, y| {
                     self.call_entity(operand.clone(), x, y, pooled, depth)
                 })
@@ -790,6 +837,18 @@ impl Engine {
                     return Err(Error::Unsupported("runtime noun-left rank".into()));
                 };
                 let ranks = crate::semantic::rank_noun_contract(value)?;
+                // Pure ravel's empty-frame result follows only from logical
+                // cell shape. Unknown/explicit verbs retain the prototype boundary.
+                if x.is_none() && !y.is_sparse() {
+                    let rank = crate::logical_executor::cell_rank(y.shape().len(), ranks[0]);
+                    let frame_rank = y.shape().len() - rank;
+                    if y.shape()[..frame_rank].contains(&0)
+                        && self.primitive_witness(operand, depth)?
+                            == Some(crate::primitive::PrimitiveId::Ravel)
+                    {
+                        return kernels::ranked(",", false, ranks[0], y);
+                    }
+                }
                 crate::logical_executor::apply_ranked(ranks, x, y, |x, y| {
                     self.call_entity(operand.clone(), x, y, pooled, depth)
                 })

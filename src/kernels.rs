@@ -476,10 +476,9 @@ fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
     let shape = Shape::from(&y.shape[1..]);
     let cell = count(&shape)?;
     if items == 0 {
-        if !matches!(verb, "+" | "*") {
-            return Err(Error::Unsupported("empty reduction identity".into()));
-        }
-        let fill = if verb == "+" { 0 } else { 1 };
+        // ai.c iden: subtraction shares additive zero; division shares
+        // multiplicative one. This is a right-fold identity, not reassociation.
+        let fill = if matches!(verb, "+" | "-") { 0 } else { 1 };
         let mut data = buffer(cell)?;
         data.resize(cell, fill);
         return Value::new(shape, Data::Bool(CpuStorage::new(data)));
@@ -783,6 +782,14 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
     }
     let frames = count(&y.shape[..f])?;
     if frames == 0 {
+        if verb == "," && !reduction && !y.is_sparse() {
+            // Ravel is pure and preserves atom type/order. Its prototype shape
+            // follows from the cell shape without invoking an unknown verb.
+            let atoms = count(&y.shape[f..])?;
+            let mut shape = y.shape[..f].to_vec();
+            shape.push(atoms);
+            return y.select(shape, std::iter::empty());
+        }
         return Err(Error::Unsupported(
             "rank over empty frame (prototype inference)".into(),
         ));

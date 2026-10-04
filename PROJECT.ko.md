@@ -8056,6 +8056,19 @@ Rust regression 2개와 기존 named-insert provenance regression은 source DAG 
 
 Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L513), [j.h fork execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249), [cr.c rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
 
+##### JE2/P3 구현 — empty identity와 순수 ravel prototype (2026-10-04, partial)
+
+- [x] C `ai.c::jtiden`과 Windows oracle로 `+ - * %`의 identity를 확인했다. empty rank에서 사용자 verb가 prototype 계산용으로 한 번 실행되어 global 효과가 남을 수 있다는 점을 확인했다.
+- [x] primitive witness를 현재 이름/POS·implicit caller scope에서 조회하되 definition 본문을 실행하거나 분석한 것으로 계산하지 않는다. 확인된 네 identity를 기존 kernel 경로로 계산하며 caller frame을 복구한다.
+- [x] 순수 monadic ravel은 cell shape만으로 empty rank output shape/type을 계산한다. primitive와 implicit wrapper가 같은 kernel을 사용한다. negative rank·다차원 zero axes·character type·caller-local collision을 검증한다.
+- [x] Rust와 C 양 버전 회귀를 추가하고 일반 사용자 verb의 prototype 및 empty identity 경계를 별도로 유지한다. 일반 prototype의 효과·suppressed error·fill/padding, 다른 primitive prototype, sparse·dyadic insert는 후속 작업이다.
+
+**Empty-scope gate:** native Windows default/portable 각각 **410 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,130 cases / 5,129 passed / runtime 경계 1 / failed 0**, stage **10,474 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **230건**, static 경계 **2건**은 별도다. 새 waiver는 없다. report 10개의 binary/reference/source hash를 확인했고 `ai.c`를 검토 목록에 추가했다. Rust regression **2개**, 공통 runtime **41건**, 이를 포함한 stage **50건**을 추가했다.
+
+일반 explicit verb의 empty rank에서는 C가 body를 한 번 실행해 count를 1로 만들었으며, unknown explicit reduction identity는 DomainError를 내고 count는 0이었다. 두 경계의 j64 probe는 `reports/empty-prototype-oracle-windows.json`에 별도 기록한다. Rust는 아직 명시적 Unsupported이며 이 두 사례의 동등성/순수성을 주장하지 않는다. runtime primitive witness는 compile-time binding proof를 뜻하지 않고 analyzer의 unknown 계약을 바꾸지 않는다. full upstream·ignored definition acceptance·private C trace는 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다. 다음은 noun-left fork이다.
+
+Sources: [ai.c identities](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ai.c#L368), [ar.c empty reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L505), [cr.c rank execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
+
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
 - [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
@@ -9416,7 +9429,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(wrapper/train 단계): Windows default/portable 각각 **408 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,089 cases / 5,088 passed / runtime 경계 1 / failed 0**, stage **10,424 checks**, words **6,618 cases / failed 0**. capture graph 경계 222건과 static 경계 2건은 별도다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(empty-scope 단계): Windows default/portable 각각 **410 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,130 cases / 5,129 passed / runtime 경계 1 / failed 0**, stage **10,474 checks**, words **6,618 cases / failed 0**. capture graph 경계 230건과 static 경계 2건은 별도다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

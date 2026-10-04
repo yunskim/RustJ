@@ -101,7 +101,7 @@ fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
     crate::semantic::rank_noun_contract(value).ok()
 }
 
-fn cell_rank(array_rank: usize, requested: i64) -> usize {
+pub(crate) fn cell_rank(array_rank: usize, requested: i64) -> usize {
     if requested < 0 {
         array_rank.saturating_sub(usize::try_from(requested.unsigned_abs()).unwrap_or(usize::MAX))
     } else {

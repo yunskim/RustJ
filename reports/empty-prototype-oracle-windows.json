@@ -1,0 +1,200 @@
+{
+  "platform": "nt",
+  "reference_variant": "j64",
+  "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+  "source_review_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+  "classification": "reference probes; not a successful Rust conformance corpus",
+  "C_equivalence_claim_for_user_definition_prototypes": false,
+  "rust_regression": "tests/empty_scope.rs: unknown user definitions remain Unsupported",
+  "observations": [
+    {
+      "setup": "a=:1 : 'u./ y'",
+      "result": null
+    },
+    {
+      "setup": "f=:+a",
+      "result": null
+    },
+    {
+      "source": "f i.0",
+      "result": {
+        "type": 1,
+        "shape": [],
+        "data": [
+          0
+        ]
+      }
+    },
+    {
+      "source": "f i.0 3",
+      "result": {
+        "type": 1,
+        "shape": [
+          3
+        ],
+        "data": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "setup": "a=:1 : 'u./ y'",
+      "result": null
+    },
+    {
+      "setup": "f=:*a",
+      "result": null
+    },
+    {
+      "source": "f i.0 3",
+      "result": {
+        "type": 1,
+        "shape": [
+          3
+        ],
+        "data": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "setup": "a=:1 : 'u./ y'",
+      "result": null
+    },
+    {
+      "setup": "f=:-a",
+      "result": null
+    },
+    {
+      "source": "f i.0",
+      "result": {
+        "type": 1,
+        "shape": [],
+        "data": [
+          0
+        ]
+      }
+    },
+    {
+      "setup": "a=:1 : 'u./ y'",
+      "result": null
+    },
+    {
+      "setup": "f=:%a",
+      "result": null
+    },
+    {
+      "source": "f i.0",
+      "result": {
+        "type": 1,
+        "shape": [],
+        "data": [
+          1
+        ]
+      }
+    },
+    {
+      "setup": "a=:1 : 'u.\"0 y'",
+      "result": null
+    },
+    {
+      "setup": "f=:,a",
+      "result": null
+    },
+    {
+      "source": "f i.0 3",
+      "result": {
+        "type": 4,
+        "shape": [
+          0,
+          3,
+          1
+        ],
+        "data": []
+      }
+    },
+    {
+      "setup": "count=:0",
+      "result": null
+    },
+    {
+      "setup": "a=:1 : 'u y'",
+      "result": null
+    },
+    {
+      "setup": "b=:1 : 0\ncount=:count+1\nu y\n)",
+      "result": null
+    },
+    {
+      "setup": "g=:,b",
+      "result": null
+    },
+    {
+      "setup": "f=:g\"0",
+      "result": null
+    },
+    {
+      "source": "f i.0 3",
+      "result": {
+        "type": 4,
+        "shape": [
+          0,
+          3,
+          1
+        ],
+        "data": []
+      }
+    },
+    {
+      "source": "count",
+      "result": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          1
+        ]
+      }
+    },
+    {
+      "setup": "count=:0",
+      "result": null
+    },
+    {
+      "setup": "b=:1 : 0\ncount=:count+1\nu y\n)",
+      "result": null
+    },
+    {
+      "setup": "g=:+b",
+      "result": null
+    },
+    {
+      "setup": "a=:1 : 'u./ y'",
+      "result": null
+    },
+    {
+      "setup": "f=:g a",
+      "result": null
+    },
+    {
+      "source": "f i.0",
+      "result": {
+        "error": "domain error"
+      }
+    },
+    {
+      "source": "count",
+      "result": {
+        "type": 1,
+        "shape": [],
+        "data": [
+          0
+        ]
+      }
+    }
+  ]
+}
