@@ -1866,11 +1866,17 @@ M6  Add verified external routes such as ArrayFire/MLIR/StableHLO;
 
 The ordering is intentional. Do not grow the optimizer or GPU backend while duplicate canonical IRs and frontend semantic uncertainty remain.
 
-### JE0–JE6 auxiliary semantic track — JEntity / EntityArray
+### JE0–JE6 auxiliary semantic track — JEntity / contextual higher-order views
 
-This track does **not** insert a new milestone into the M0–M6 critical path. JE0 documentation/code audit may proceed alongside M2, but representation migration from JE1 onward starts only after **M2 frontend semantics are stable and M3 has separated logical noun identity from CPU backing**. It is not a prerequisite for the first M4 CPU vertical slice.
+This track does **not** insert a new milestone into the M0–M6 critical path.
 
-Goal: adopt the semantic idea behind jsource's common carrier specifically at the semantic `RHS = NOUN + FUNC` boundary without copying its C allocation/runtime layout. RustJ `JEntity` is `Noun | Function(POS=Verb|Adverb|Conjunction)`. Function entities do not acquire noun-style semantic shape/rank; any future shaped entity view gets its shape from an actual source/container noun such as a boxed gerund representation.
+- JE0 audit proceeds alongside M2.
+- A minimal JE1 `JEntity` boundary carrier may be introduced during M2 when it replaces one duplicated carrier seam (`AssignedValue`/`SymbolValue`/`ParserNameBinding`/`FunctionOperand`) under differential tests. Do not wait for M2 to finish only to perform a broad migration later.
+- JE2 parser/binding/assignment convergence may therefore be part of M2.
+- JE3+ higher-order collection work waits until frontend semantics are stable; changes that interact with noun storage wait for the M3 logical/physical boundary.
+- No JE stage should unnecessarily block the first M4 CPU vertical slice.
+
+Goal: adopt the semantic idea behind jsource's common carrier specifically at the semantic `RHS = NOUN + FUNC` boundary without copying its C allocation/runtime layout. `JEntity` is a thin parser/binding/assignment/operand boundary sum type, not a universal base class for `Value`, `FunctionEntity`, or every IR node. Function entities do not acquire noun-style semantic shape/rank. Higher-order collections start as operator-specific interpretation views; a generic shaped entity collection is extracted only if multiple J semantics require the same abstraction.
 
 #### JE0 — audit current semantic carriers and jsource correspondence
 - [x] Fix the goal: `JEntity` is a semantic abstraction, not a common physical-allocation abstraction.
@@ -1879,13 +1885,20 @@ Goal: adopt the semantic idea behind jsource's common carrier specifically at th
 - [x] Confirm that current jsource does not use AN/AR for functions; do not assign noun-style array shape/rank to FunctionEntity.
 - [x] Recheck assignment/name lookup: assignment can transport Noun/Verb/Adverb/Conjunction RHS values, while noun lookup and function nameref late lookup have different timing semantics.
 - [x] Recheck bident/trident construction: some parser actions produce an immediate Noun, so the generic construction result is `JEntity`, not always Function.
-- [x] Recheck gerund conversion: a boxed noun may preserve its container shape while internal boxes hold function-typed entities; treat any future EntityArray as a contextual shaped view, not a first-class function array.
-- [ ] Inventory `Value`, `FunctionEntity`, `FunctionOperand`, parser stack items, binding/assignment results, `NameRef`, `DefinitionCode`, and gerund views.
+- [x] Recheck gerund conversion: `cg.c::jtfxeachv/jtfxeach` copies source rank/shape into an internal BOX-tagged carrier whose slots may contain function-typed A values; jsource itself says the result only *claims* to be a box array. Treat this as a runtime realization trick, not a semantic precedent for EntityArray.
+- [x] Audit current RustJ carrier duplication: `FunctionOperand`, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, and expression noun/function variants overlap enough that a minimal JEntity can reduce M2 rework.
+- [x] Record that `Verb { target, entity }` and `FunctionEntity` have not fully converged; audit `VerbTarget` before fixing the payload of `JEntity::Function`.
+- [x] Distinguish lexical NAME from executable function nameref: unresolved lexical NAME is not a JEntity, while a resolved function nameref can be a Function JEntity with NameRef identity.
+- [x] Pin this independent audit to current jsource master `0db94e768a845e2583c01d00538c3d16379677bb` (2026-10-03).
+- [ ] Inventory `Value`, `FunctionEntity`, `Verb`/`VerbTarget`, `FunctionOperand`, parser stack items, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, binding results, `NameRef`, `DefinitionCode`, and gerund decode/views.
+- [ ] Keep runtime `p.c` and tacit-translator `pv.c` evidence distinct; do not use translator actions such as `pv.c::jtvis` as the sole oracle for runtime observable semantics.
 - [ ] Record representative jsource differential cases where nouns/functions cross the same parser/binding/assignment boundary.
 - [ ] Identify duplicate noun/function carrier enums and prevent current `CpuStorage` from becoming a canonical JEntity dependency.
 
 #### JE1 — introduce the minimum common JEntity identity
-- [ ] Design minimal `JEntity`/`JEntityRef` semantics with direct semantic variants `Noun` and `Function`, the latter carrying Verb/Adverb/Conjunction POS.
+- [ ] Design minimal `JEntity`/`JEntityRef` as a **boundary carrier**, with direct semantic variants `Noun` and `Function`, the latter carrying Verb/Adverb/Conjunction POS.
+- [ ] Do not use JEntity as a base class that merges `Value` and `FunctionEntity` internals. Start at exactly one well-tested parser/binding/assignment/operand seam.
+- [ ] Decide whether `Arc<FunctionEntity>` is sufficient for `JEntity::Function` or whether any current `Verb`/`VerbTarget` semantics must survive.
 - [ ] Keep lexical NAME, unresolved references, binding/version, and provenance in separate reference/control structures rather than inventing more JEntity POS variants.
 - [ ] Reuse shared `FunctionEntity`; do not duplicate Verb/Adverb/Conjunction payloads.
 - [ ] Keep noun identity logical and free of BufferId/layout/device state.
@@ -1900,20 +1913,21 @@ Goal: adopt the semantic idea behind jsource's common carrier specifically at th
 - [ ] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. A common JEntity carrier must not erase this distinction.
 - [ ] Use the same boundary for explicit/direct definitions across static/runtime paths.
 
-#### JE3 — prove whether a shaped entity-collection view is needed
-- [ ] Prefer `EntityCollectionView` / `EntityArrayView` over a first-class EntityArray type. It is a contextual projection of an existing boxed/internal container, not a new J-visible noun kind.
-- [ ] The view's shape/rank comes only from the source/container noun; never copy it onto FunctionEntity.
-- [ ] Classify real modifier semantics that need homogeneous-POS or mixed interpreted entity collections.
-- [ ] Distinguish a rank-0 container view from claiming that a Function itself has array rank.
-- [ ] Do not invent arbitrary arrays of verbs as a new J language feature.
-- [ ] Preserve train/Hook/Fork DAG structure rather than flattening it into a shaped collection.
-- [ ] Keep ordinary boxed noun semantics recoverable when the interpretation context is absent.
+#### JE3 — prove operator-specific higher-order views before a generic collection
+- [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.
+- [ ] Do not reproduce jsource's fake-BOX/function-payload carrier as RustJ `Value::Boxed` or a new J-visible noun type.
+- [ ] Preserve source boxed-noun shape only where a specific operator's observable semantics require it.
+- [ ] Audit whether current `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>` loses required shape/order/name-binding information for each supported gerund operator.
+- [ ] If an ordered sequence is enough, do not create a shape-bearing view.
+- [ ] Extract a generic `EntityCollectionView` only after at least two independent J semantic use cases require the same shaped-entity algebra.
+- [ ] Preserve Hook/Fork/train DAGs as shared FunctionEntity graphs and never invent arbitrary J-visible arrays of verbs.
 
-Completion: implement a shaped view only if real J semantics (for example gerund interpretation) require preserving source-container shape. A simple function sequence is sufficient otherwise. Function entities themselves remain non-array semantic entities.
+Completion: jsource's internal representation convenience is not sufficient evidence for EntityArray. Generic collection structure requires a demonstrated common J semantic law.
 
 #### JE4 — integrate gerund/boxed higher-order semantics
 - [ ] Preserve gerund as boxed noun plus context-specific interpretation, not a global new POS/atom type.
-- [ ] Create an `EntityCollectionView`/`EntityArrayView` only in modifier contexts that require gerund interpretation, preserving the source boxed noun's shape.
+- [ ] Create an operator-specific `GerundView`/`InterpretedEntitySequence` only where gerund interpretation requires it; retain source boxed-noun shape only when the operator needs it.
+- [ ] Extract a generic `EntityCollectionView` only after JE3 proves cross-operator commonality.
 - [ ] Do not copy container rank/shape onto function entities stored/referenced by the view.
 - [ ] Preserve fix/late-binding/version rules for embedded names/functions.
 - [ ] Compare the current `decoded_gerund` special case with the common entity view and remove it only if semantics remain exact.
@@ -1933,7 +1947,7 @@ Completion: implement a shaped view only if real J semantics (for example gerund
 - [ ] Re-run frontend conformance and J Graph/A3 goldens after migration.
 - [ ] Verify that BufferId/stride/device facts did not leak into the entity layer.
 
-Completion rule: future progress reports for this work use JE0–JE6 item numbers. New requirements are added to this checklist first. If JE3 does not prove a real need for array structure, `EntityArray` remains deferred rather than becoming an architectural obligation.
+Completion rule: future progress reports for this work use JE0–JE6 item numbers. New requirements are added to this checklist first. Minimal JEntity work may land one M2 seam at a time; broad rewrites are prohibited. If JE3 does not prove a common shaped-entity algebra across real J semantics, generic `EntityArray`/`EntityCollectionView` remains deferred.
 
 ## 17.0 Module ownership baseline
 

@@ -869,23 +869,34 @@ parser_action(form, operands)
 
 #### 3.3.1a gerund는 새 atom type이 아니라 contextually interpreted boxed noun이다
 
-J gerund는 boxed noun을 특정 modifier 문맥에서 function/entity sequence로 해석하는 구조다. jsource의 gerund path는 boxed noun의 **원래 rank/shape를 유지한 boxed container**를 만들고, 내부 box slot에는 function-typed `A`가 들어갈 수 있다. 따라서 RustJ가 장기적으로 shaped entity abstraction을 도입한다면, function 자체가 shape를 갖는 모델보다 다음과 같은 **contextual view**가 더 정확하다.
+J gerund의 **J-visible 출발점은 boxed noun**이고, 특정 modifier 문맥이 그 noun을 function/entity sequence로 해석한다.
+
+2026-10-04 재검토한 current jsource `cg.c::jtfxeachv/jtfxeach`는 이 해석 결과를 실행하기 위해 원래 boxed noun의 rank/shape를 복사한 `BOX`-tagged 내부 carrier를 만든다. 그러나 jsource 주석 자체가 이 결과를 **“array of boxes라고 주장하지만 각 box slot에는 function type A가 들어갈 수 있다”**고 설명한다. 즉 이것은 J-visible `array of functions` semantic type의 증거가 아니라 runtime 내부 realization trick이다.
+
+따라서 RustJ는 이 internal representation을 semantic type으로 승격하지 않는다. 기본 모델은 다음과 같다.
 
 ```text
 Boxed Noun
-  shape = noun shape
-  boxes = noun elements
-      + modifier-specific interpretation
+  noun shape/rank
+  ordinary boxed payload
+      + operator-specific interpretation
           ↓
-EntityCollectionView / EntityArrayView
-  shape = source boxed noun shape
-  elements = resolved/interpreted JEntityRef
+GerundView / InterpretedEntitySequence
+  references to interpreted Function/JEntity values
+  source-container shape only when that operator semantics needs it
   origin = boxed noun + interpretation context
 ```
 
-여기서 shape/rank는 **container인 boxed noun의 의미**이며 개별 Verb/Adverb/Conjunction의 속성이 아니다. 이 view를 새로운 J-visible `array of verbs` type으로 만들지 않는다.
+핵심 규칙:
 
-boxed noun 자체를 전역적으로 `Gerund` 또는 `EntityArray`라는 별도 J type으로 바꾸지 않는다. 같은 boxed value가 ordinary data로 쓰이는 문맥과 gerund로 해석되는 문맥을 구분하고, gerund 안의 name/function reference도 fix/late-binding 규칙을 잃지 않는다.
+1. 개별 Verb/Adverb/Conjunction은 noun-style array shape/rank를 갖지 않는다.
+2. gerund interpretation이 shape를 필요로 하면 그 shape는 **source boxed noun**에서 보존한다.
+3. jsource의 function-containing fake-BOX carrier를 RustJ `Value::Boxed`로 복제하지 않는다. RustJ의 `Value::Boxed`는 J noun invariant를 유지한다.
+4. generic `EntityArray`/`EntityArrayView`는 gerund 하나만으로 정당화하지 않는다. 먼저 operator-specific `GerundView` 또는 `InterpretedEntitySequence`로 충분한지 확인한다.
+5. 같은 boxed noun이 ordinary data로 쓰이는 문맥과 gerund로 해석되는 문맥을 분리하고, name/function reference의 fix/late-binding 규칙을 보존한다.
+6. current `decoded_gerund: Vec<FunctionEntity>`처럼 shape를 버리는 cache/view가 각 gerund operator의 observable semantics에 충분한지는 operator별로 검증한다.
+
+즉 jsource에서 가져올 것은 **boxed noun → context-sensitive function interpretation**이라는 semantic rule이고, function A를 BOX payload에 직접 넣는 내부 storage trick은 가져오지 않는다.
 
 ### 3.3.2 Frontend 전체를 jsource-compatible pipeline으로 유지한다
 
@@ -7439,11 +7450,17 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 **M6 완료 조건:** external library/backend가 J semantics를 정의하지 않고, verified Logical IR의 합법적인 realization route 중 하나로만 동작한다.
 
-#### JE0–JE6 — JEntity / EntityArray 상위 추상화 보조 트랙
+#### JE0–JE6 — JEntity / contextual higher-order view 보조 트랙
 
-**목표:** jsource의 공통 `A` 표현에서 **semantic RHS(`NOUN + FUNC`)를 하나의 universe로 다루는 원리**를 참고하되 C runtime allocation 구조를 복제하지 않는다. RustJ의 `JEntity`는 `Noun | Function(POS=Verb|Adverb|Conjunction)`을 묶는다. function 자체에는 noun-style shape/rank를 부여하지 않으며, 필요성이 검증될 때만 boxed noun 등 실제 container가 제공하는 shape를 보존하는 `EntityCollectionView`/`EntityArrayView`를 도입한다.
+**목표:** jsource의 공통 `A` 표현에서 **semantic RHS(`NOUN + FUNC`)를 하나의 carrier로 전달하는 원리**를 참고하되 C runtime allocation 구조를 복제하지 않는다. RustJ의 최소 `JEntity`는 parser/binding/assignment/semantic-operand 경계의 얇은 sum type으로 사용한다. `Value`와 `FunctionEntity`의 내부 모델을 하나로 합치거나 모든 IR node의 공통 base type으로 만들지 않는다. higher-order collection은 gerund 등 실제 operator semantics가 요구할 때 operator-specific view부터 도입한다.
 
-**위상과 실행 순서:** 이 트랙은 M0–M6의 critical path에 새 milestone을 끼워 넣지 않는다. JE0의 문서/코드 감사는 M2와 병행할 수 있지만, 실제 공통 representation migration(JE1 이후)은 **M2 frontend semantics가 안정되고 M3의 logical noun identity가 CPU backing에서 분리된 뒤** 시작한다. 첫 M4 CPU vertical slice를 이 일반화의 선행 완료 조건으로 만들지 않는다.
+**위상과 실행 순서:** 이 트랙은 M0–M6의 critical path에 새 milestone을 끼워 넣지 않는다.
+
+- JE0 감사는 M2와 병행한다.
+- **JE1의 최소 `JEntity` carrier는 M2 중에도 도입할 수 있다.** 단, `AssignedValue`/`SymbolValue`/`ParserNameBinding`/`FunctionOperand` 같은 중복 carrier를 한 seam씩 줄이는 경우에만 한다. full frontend가 끝날 때까지 중복 타입을 더 굳힌 뒤 대규모 migration하는 것을 피한다.
+- JE2 parser/binding/assignment 수렴은 M2 작업 자체와 함께 진행할 수 있지만, jsource compatibility case가 먼저 있어야 한다.
+- gerund/general collection abstraction(JE3+)과 noun storage를 건드리는 migration은 M2가 안정된 뒤 수행하며, physical representation과 결합되는 변경은 M3 경계가 안정된 뒤로 미룬다.
+- 어느 JE 단계도 첫 M4 CPU vertical slice를 불필요하게 막지 않는다.
 
 **jsource에서 채택하는 원리 / 채택하지 않는 구현:**
 
@@ -7467,8 +7484,13 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 - [x] current jsource가 function의 AN/AR를 사용하지 않는 것을 확인하여, function 자체에 noun-style shape/rank를 부여하지 않는 원칙을 고정했다.
 - [x] `p.c` row 7이 noun/verb/adverb/conjunction RHS assignment를 허용하고, `sc.c::jtnamerefacv`가 noun value와 function nameref를 서로 다르게 처리하는 것을 확인해 공통 transport와 lookup timing을 분리했다.
 - [x] `cf.c` bident/trident table에 Function뿐 아니라 즉시 Noun 결과가 존재함을 확인하여 parser construction의 일반 result type을 `JEntity`로 정정했다.
-- [x] `cg.c::jtfxeachv` 계열이 boxed noun의 shape를 보존한 container 내부에 function-typed `A`를 둘 수 있음을 확인해, `EntityArray`를 first-class function array가 아니라 contextual shaped view 후보로 재정의했다.
-- [ ] `Value`, `FunctionEntity`, `FunctionOperand`, parser stack item, binding/assignment result, `NameRef`, `DefinitionCode`, gerund decode/view가 각각 어떤 J entity identity를 보유하는지 inventory를 만든다.
+- [x] `cg.c::jtfxeachv/jtfxeach`가 source boxed noun의 rank/shape를 복사하지만, 결과는 jsource 주석상 **BOX라고 주장하는 내부 carrier에 function-typed A를 넣는 realization trick**임을 확인했다. 이것을 generic semantic `EntityArray`의 직접 선례로 사용하지 않는다.
+- [x] current RustJ에 `FunctionOperand`, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, `ExprKind::{VerbValue,ModifierValue,Literal}` 등 Noun/Function carrier가 중복되어 있음을 확인했다. 최소 `JEntity`는 M2 이후의 장기 리팩터링보다 M2 seam 수렴에도 가치가 있다.
+- [x] current `Verb { target, entity }` wrapper와 `FunctionEntity`의 책임이 완전히 수렴하지 않았음을 확인했다. `JEntity::Function` payload를 확정하기 전에 `VerbTarget`이 semantic identity인지 migration/execution adapter인지 감사한다.
+- [x] lexical NAME과 function nameref를 구분했다. lexical/unresolved NAME은 JEntity가 아니지만, lookup 결과로 만들어진 executable nameref는 POS를 가진 Function entity이므로 `JEntity::Function` 안에서 `NameRef` head로 존재할 수 있다.
+- [x] current jsource 기준 revision을 `0db94e768a845e2583c01d00538c3d16379677bb`(2026-10-03 master)로 고정해 이번 JE 감사의 비교 기준을 기록했다.
+- [ ] `Value`, `FunctionEntity`, `Verb`/`VerbTarget`, `FunctionOperand`, parser stack item, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, binding result, `NameRef`, `DefinitionCode`, gerund decode/view가 각각 어떤 semantic identity와 transport 책임을 보유하는지 inventory를 만든다.
+- [ ] `p.c` runtime parser와 `pv.c` tacit translator의 9-row 계열 코드를 구분해 근거를 기록한다. `pv.c::jtvis` 같은 translator action을 runtime observable semantics의 단독 oracle로 사용하지 않는다.
 - [ ] noun/verb/adverb/conjunction이 같은 parser/binding/assignment 경계를 통과하는 대표 jsource differential 사례를 정리한다.
 - [ ] 현재 `FunctionOperand::{Function,Noun}`와 다른 sum-type/enum 중 사실상 중복된 J-entity carrier를 식별한다.
 - [ ] current `Value`의 `CpuStorage` migration artifact가 `JEntity` API에 새 canonical dependency로 고착되지 않도록 금지 경계를 명시한다.
@@ -7477,7 +7499,9 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 ##### JE1 — 최소 공통 `JEntity` identity 도입
 
-- [ ] `JEntity`/`JEntityRef`의 최소 API를 설계한다. 직접 semantic variants는 `Noun`과 `Function`으로 두고 Function이 `Verb|Adverb|Conjunction` POS를 소유하는 구조를 우선 검토한다.
+- [ ] `JEntity`/`JEntityRef`의 최소 API를 **boundary carrier**로 설계한다. 직접 semantic variants는 `Noun`과 `Function`으로 두고 Function이 `Verb|Adverb|Conjunction` POS를 소유하는 구조를 우선 검토한다.
+- [ ] `JEntity`를 `Value`/`FunctionEntity` 내부 representation을 통합하는 base class로 사용하지 않는다. 최초 적용 seam은 assignment/binding/parser result 또는 `FunctionOperand` 중 differential test가 가장 잘 갖춰진 한 곳으로 제한한다.
+- [ ] `JEntity::Function`이 `Arc<FunctionEntity>`만으로 충분한지, 현재 `Verb`/`VerbTarget` wrapper에서 semantic하게 남겨야 할 것이 있는지 먼저 결정한다.
 - [ ] lexical NAME, unresolved reference, binding/version/provenance를 `JEntity` variant와 분리한 reference/control API로 설계한다.
 - [ ] `Verb`/`Adverb`/`Conjunction`을 별도 payload 복제로 만들지 않고 shared `FunctionEntity` + `FunctionPartOfSpeech` identity를 재사용한다.
 - [ ] noun payload는 logical J noun identity를 가리키며 physical buffer/layout/device를 소유하지 않게 한다.
@@ -7499,23 +7523,25 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 **JE2 완료 조건:** noun과 function의 parser/binding/assignment transport가 하나의 semantic abstraction으로 수렴하고, POS·lookup timing·effect ordering은 jsource-compatible하게 유지된다.
 
-##### JE3 — shaped entity collection view 필요성 및 의미 계약 확정
+##### JE3 — operator-specific higher-order view 필요성 검증
 
-- [ ] 기본 후보를 first-class `EntityArray`가 아니라 `EntityCollectionView`/`EntityArrayView`로 둔다. 이는 J-visible 새 noun type이 아니라 기존 boxed noun·internal constructor 결과의 contextual projection이다.
-- [ ] view의 `shape/rank`는 **source/container noun**에서만 온다. 개별 FunctionEntity에 noun-style shape/rank를 추가하지 않는다.
-- [ ] homogeneous POS view와 mixed interpreted entity sequence가 실제 어떤 modifier semantics에서 필요한지 corpus로 분류한다.
-- [ ] scalar entity(rank-0 view)가 필요한 경우도 container rank-0 의미인지 단일 Function 자체의 rank인지 구분한다.
-- [ ] arbitrary verb array를 새 J language feature처럼 허용하지 않는다는 non-goal을 테스트/문서로 고정한다.
-- [ ] train DAG를 shaped collection으로 평탄화하지 않고 Hook/Fork/derived structure를 shared graph로 유지한다.
-- [ ] 일반 boxed noun과 entity collection view를 동일시하지 않는다. interpretation context가 사라지면 원래 boxed noun semantics로 돌아갈 수 있어야 한다.
+- [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
+- [ ] jsource `jtfxeachv`의 fake-BOX/function payload representation을 RustJ `Value::Boxed`나 새로운 J-visible noun type으로 복제하지 않는다.
+- [ ] view가 shape/rank를 보존해야 하면 source boxed noun에서 가져오고, 그 shape가 실제 selector/agenda/tie 등 observable semantics에 필요한지 operator별로 증명한다.
+- [ ] current `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>`가 shape/order/name-binding 정보를 잃는지 `@.`, grave/tie 계열 등 각 지원 operator에 대해 감사한다.
+- [ ] 단순 ordered sequence면 충분하면 shape-bearing view를 만들지 않는다.
+- [ ] 두 개 이상의 독립적인 J semantic use case가 동일한 shaped-entity algebra를 요구할 때만 generic `EntityCollectionView`를 추출한다.
+- [ ] train/Hook/Fork DAG는 collection으로 flatten하지 않고 shared FunctionEntity graph로 유지한다.
+- [ ] arbitrary verb array를 새 J language feature처럼 허용하지 않는다.
 
-**JE3 완료 조건:** gerund 등 실제 J semantics에서 boxed/source container의 shape를 보존한 entity view가 필요하다는 사례가 확인되어야 한다. 단순 function sequence면 충분하면 shaped view 구현도 보류한다. Function 자체에 array rank/shape를 부여하는 설계는 JE3의 성공 조건이 아니다.
+**JE3 완료 조건:** operator-specific view로 충분한지 먼저 판정하고, generic shaped collection은 실제 공통 semantic law가 발견된 경우에만 추출한다. jsource 내부 representation의 편의만으로 `EntityArray`를 만들지 않는다.
 
 ##### JE4 — gerund/boxed higher-order semantics 통합
 
 - [ ] gerund를 새 global atom/POS type으로 만들지 않고 **boxed noun + modifier-context interpretation**이라는 기존 J semantics를 유지한다.
-- [ ] gerund interpretation이 필요할 때만 boxed noun에서 `EntityCollectionView`/`EntityArrayView`를 만들고 source boxed noun의 shape를 그대로 보존한다.
-- [ ] view 내부에 function-typed entity ref가 있어도 그 function에 container의 rank/shape를 복사하지 않는다.
+- [ ] gerund interpretation이 필요할 때만 boxed noun에서 operator-specific `GerundView`/`InterpretedEntitySequence`를 만든다. source boxed noun의 shape는 해당 operator가 필요할 때만 view metadata로 보존한다.
+- [ ] generic `EntityCollectionView`는 JE3의 공통성 증명이 끝난 뒤에만 추출한다.
+- [ ] view 내부에 function entity ref가 있어도 그 function에 container의 rank/shape를 복사하지 않는다.
 - [ ] gerund 내부 name/function reference의 fix/late-binding/version 규칙을 보존한다.
 - [ ] ordinary boxed data와 gerund interpretation이 같은 payload에서 context에 따라 달라지는 golden test를 추가한다.
 - [ ] 현재 `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>` 특수 필드를 공통 entity view로 대체할 수 있는지 검토하고, 의미 손실이 있으면 유지한다.
@@ -7544,7 +7570,7 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 **JE6 완료 조건:** 기존 observable J semantics와 compiler pipeline 결과가 유지되고, 중복 carrier를 줄였으며, 공통 entity abstraction이 storage/runtime coupling을 새로 만들지 않는다.
 
-**운영 규칙:** 이후 `JEntity`/`EntityArray` 관련 진행 보고는 반드시 `JE0`–`JE6` 항목 번호로 보고한다. 새 요구사항은 임시 TODO로 분산시키지 않고 먼저 이 체크리스트의 적절한 단계에 추가한다. JE3에서 실제 array abstraction의 필요성이 입증되지 않으면 `EntityArray`를 구현 목표로 강제하지 않는다.
+**운영 규칙:** 이후 `JEntity`/higher-order view 관련 진행 보고는 반드시 `JE0`–`JE6` 항목 번호로 보고한다. 새 요구사항은 임시 TODO로 분산시키지 않고 먼저 이 체크리스트의 적절한 단계에 추가한다. 최소 `JEntity`는 M2의 중복 carrier를 줄이는 작은 seam부터 허용하지만 broad rewrite는 금지한다. JE3에서 공통 shaped-entity algebra가 입증되지 않으면 generic `EntityArray`/`EntityCollectionView`를 구현 목표로 강제하지 않는다.
 
 ### A0 — 문서/아키텍처 경계
 
@@ -9399,7 +9425,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 2. **M3/배열 경계**: logical value와 physical representation의 code/API 분리를 수렴시킨다.
 3. **M4/CPU vertical slice**: verified Logical IR → 최소 Schedule/Physical Plan → CPU Physical Executor를 연결한다. [matrix mean 표본](#mean-proof-example)은 implicit cell semantics를 검증하며 analyzer smoke test만으로 실행 완료를 판정하지 않는다.
 4. **M5–M6**: 그 뒤 route/schedule/resource/cost 선택과 검증된 external adapter를 확장한다. 실제 CUDA 구현은 사용자가 재개하기 전까지 보류한다.
-5. **JE0–JE6 보조 트랙**: JE0 감사는 병행 가능하지만 representation migration은 M2+M3 안정화 뒤에만 시작한다. 이 트랙은 M4 첫 CPU vertical slice의 선행 조건이 아니다.
+5. **JE0–JE6 보조 트랙**: JE0과 최소 boundary `JEntity` seam(JE1/JE2 일부)은 M2와 병행할 수 있다. generic higher-order collection과 storage-affecting migration은 M2/M3 안정화 뒤로 미룬다. 이 트랙은 M4 첫 CPU vertical slice의 선행 조건이 아니다.
 
 장기 architecture의 full TargetProfile/mixed-route/async 모델이나 확장 primitive 전체를 첫 CPU slice의 선행 조건으로 삼지 않는다. 해당 의미를 최적화 대상으로 열 때는 [§11의 검증 정책](#validation-policy)과 대응 semantic golden을 먼저 충족한다.
 
