@@ -221,6 +221,10 @@ def verb_rank_cases():
             '1 2 (+"{) i.2 3', '1 2 3 (+"(+"0 0 1)) i.2 3', '1 2 (+"{) i.2 3', '1 2 (+"i.) i.2 3',
             "vra=:1 : ',\"u y'", 'vrf=:+vra', 'vrf i.2 3',
             "vra=:1 : ',\"u. y'", 'vrf=:+vra', 'vrf i.2 3']
+    out += [
+            "vre=:1 : ',\"u.'", 'vref=:+vre', 'vref i.2 3', '(,"vref) i.2 3',
+            "vre=:1 : ',\"u'", 'vreg=:+vre', 'vreg i.2 3',
+            "vre=:1 : '+\"u.'", 'vreh=:-vre', 'vreh 7']
     return out
 
 

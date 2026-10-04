@@ -8171,6 +8171,12 @@ Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1
 
 **Verb-rank gate:** native Windows default/portable 각각 **425 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **5,321 cases / 5,321 passed / runtime 경계 0 / failed 0**, stage **10,757 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **244건**과 static 경계 **2건**은 별도로 남는다. primitive/derived header **39건**과 alias header를 C `b.0`로 대조했다. frontend report 10개의 실제 binary/reference/source hash를 검증했다(`ja.h` 포함). source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. 현재 corpus의 runtime 경계 0은 full J 지원을 뜻하지 않는다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
 
+**반환 경계 후속 검토:** `cx.c`는 explicit modifier가 non-noun을 반환할 때 첫 implicit locative를 fix하고, `af.c::jtfixa`는 치환한 operand로 modifier를 다시 실행해 새 derived entity를 만든다. 따라서 본문에서 `(,"u.) y`를 즉시 실행하면 `u.` header `_`를 쓰지만, `,"u.`를 반환해 `u=+`로 fix한 뒤 실행하면 새 entity의 RHS header 0을 쓴다. `[2,3]` 입력의 ravel 결과는 각각 `[6]`과 `[2,3,1]`이다. 이 재구성은 기존 entity의 rank를 late lookup으로 바꾸는 것과 다르다. C 기본·AVX2와 Rust의 반환 구문 10건을 먼저 직접 대조했고, 동일 결과를 확인했다. 추가 Rust 회귀와 공통 runtime corpus로 이 차이를 보존한다. 런타임 구현 변경은 필요하지 않았다.
+
+**Return-boundary gate:** native Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. C 기본·AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases**, 실패 0. capture graph **250건**, static **2건** 경계는 별도다. report 10개의 실제 source/reference/binary hash를 다시 확인했다. 추가한 10개 공통 구문은 세 runtime 경로와 stage 모두에 포함한다. 위 Verb-rank gate는 이전 단계의 기록이며 이 gate가 최신 검증이다. 미검증 범위와 optimizer/CUDA/Linux/GitHub CI 유보는 동일하다.
+
+Sources: [cx.c modifier return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c implicit operand](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [af.c reconstruct modifier](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193).
+
 **다음 체크리스트:**
 
 - [ ] noun-left rank/gerund runtime과 noun-left GraphForm/Logical 전문화를 C constructor/call 규칙에 맞춰 확장한다.
@@ -9538,7 +9544,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(verb-valued rank 단계): Windows default/portable 각각 **425 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,321 cases / 5,321 passed / runtime 경계 0 / failed 0**, stage **10,757 checks**, words **6,618 cases / failed 0**. capture graph 경계 244건과 static 경계 2건은 별도다. 현재 corpus의 경계 0은 full J 지원을 뜻하지 않는다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(verb-valued rank 반환 경계 단계): Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases / failed 0**. capture graph 경계 250건과 static 경계 2건은 별도다. 현재 corpus의 경계 0은 full J 지원을 뜻하지 않는다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

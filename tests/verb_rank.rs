@@ -254,3 +254,25 @@ fn static_catalog_header_evidence_analyzes_large_arrays_without_input_payloads()
     assert!(call.boundaries.iter().any(|boundary| boundary.reason
         == rustj::static_analysis::BoundaryReason::FunctionSpecialization));
 }
+
+#[test]
+fn implicit_rank_rhs_is_reconstructed_when_a_function_escapes_its_modifier() {
+    let mut engine = Engine::new();
+    // In-body execution observes u.'s header. Escaping performs J's fix/rebuild,
+    // so the new rank entity observes the actual operand's header instead.
+    engine.eval("a=:1 : ',\"u. y'").unwrap();
+    engine.eval("f=:+a").unwrap();
+    assert_eq!(shape(&mut engine, "f i.2 3"), vec![6]);
+    engine.eval("a=:1 : ',\"u.'").unwrap();
+    let report = engine.eval_captured("f=:+a");
+    report.result.unwrap();
+    report.capture.verify().unwrap();
+    assert_eq!(shape(&mut engine, "f i.2 3"), vec![2, 3, 1]);
+    assert_eq!(shape(&mut engine, "(,\"f) i.2 3"), vec![2, 3, 1]);
+    engine.eval("a=:1 : ',\"u'").unwrap();
+    engine.eval("g=:+a").unwrap();
+    assert_eq!(shape(&mut engine, "g i.2 3"), vec![2, 3, 1]);
+    engine.eval("a=:1 : '+\"u.'").unwrap();
+    engine.eval("h=:-a").unwrap();
+    assert_eq!(engine.eval("h 7").unwrap().unwrap().int_at(0).unwrap(), 7);
+}
