@@ -1792,7 +1792,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: the 2026-10-04 JE2 fork/definition stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
+Code/document review baseline: the 2026-10-04 JE2 adapter audit stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
 - explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
@@ -1819,7 +1819,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (JE2 fork/definition stage): Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Record **114 capture-graph boundaries** and 2 static boundaries separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+- latest frontend validation (JE2 adapter audit stage): Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Keep 114 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
@@ -1962,6 +1962,7 @@ The minimum JE1 API and first boundary are complete; SymbolValue convergence is 
 - [x] Move modifier-train Noun/Verb/Adverb/Conjunction operands through the same completed-result boundary, preserving noun source spans/freezing and function DAG identities.
 - [x] Connect rank/@: conjunction operands through completed-result transport, preserving right-before-left audits, quiet gerund fallback and original Expr spans.
 - [x] Connect noun-left fork constants and supported explicit/direct definition mode/body/results through completed-result transport. Definition invocation remains incomplete.
+- [x] Audit remaining adapters after constructor/assignment migration and unify duplicate capture identity inspection through a borrowed helper.
 - [x] Generalize assignment to write and return the same assigned `JEntity`. Binding.value and the runtime host now use JEntity; remove SymbolValue.
 - [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order. Top-level runtime lookup/Verb/Modifier checks are implemented; full local/locale/definition scopes remain incomplete.
 - [x] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. JEntity bindings preserve timing/POS/version semantics under the existing 71 cases plus 11 noun/function replacement cases.
@@ -2041,6 +2042,29 @@ Two unit regressions verify pointer/source span and g/h identities for a grouped
 **Fork/definition gate:** Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Record **114 capture-graph boundaries** and 2 static boundaries separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 
 Next audit remaining completed-result/function-wrapper boundaries, remove only unnecessary adapters, and reconcile frontend F/P checklists with supported versus unimplemented construction/execution. Full stack convergence, local/locale scopes and definition invocation remain incomplete. CUDA, optimizer implementation and GitHub CI remain deferred.
+
+#### JE2 implementation — remaining adapter audit and frontend checklist reconciliation (2026-10-04, partial JE2)
+
+ParseValue::function_entity() borrows completed Verb/Adverb/Conjunction Arcs. Remove duplicated construction-success/final-result capture branches; clone an Arc only when the event must retain function lifetime, as before. Route completed Verb moves through the existing function factory while preserving both Item occurrence and Verb adapter spans. Add no J syntax or execution coverage.
+
+| Retained structure | Reason |
+|---|---|
+| Verb/VerbTarget | Parser occurrence span and runtime target adapter differ from intrinsic FunctionEntity identity |
+| ParseValue/Item | Deferred Expr, lexical NAME/target/control, class/flags/word provenance/occurrence are not concrete JEntity |
+| ParserNameBinding | Lookup observations distinguish noun snapshots, abstract nouns, function POS and known modifier/version |
+| FunctionOperand | Own noun source spans and function DAG Arcs; inspect through borrowed JEntity views |
+| ExprKind | Final Program preserves static computation/dependencies versus completed values/functions |
+| CompletedParseResult | Concrete JEntity moves retain only height/span/Verb occurrence adapters |
+
+AssignedValue/SymbolValue were removed earlier. Do not erase these differences just to reduce enum counts; full stack/scope/invocation convergence remains incomplete.
+
+Reconcile canonical frontend checklist items: **F2** same-stack reinsertion; **P2** rescanning with the same matcher and shared runtime/analysis engine; **P4** ordinary extension NAME and assignment-target separation; **P7** removed flat application loop and shared entry points. These implementation boundaries are checked. **P2 rows 3/4/7 remain partial**: supported adverb/gerund, rank/@:/definition construction, and top-level single-name/chained assignment do not complete all primitive/modifier/target/scope semantics. Full runtime ptcol traces, complete modifier/immediate bident/trident actions, scope/invocation, intrinsic FunctionSemanticInfo and final cutover gates remain unchecked.
+
+Extend the existing explicit/direct all-POS regression to verify the same FunctionEntity/DefinitionCode Arc across ConstructionSuccess→FunctionResult→Commit and final-result observation before final commit. Revalidate the existing 4,851 C cases.
+
+**Adapter-audit gate:** Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Keep 114 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+
+Next implementation priority: P3 immediate bident/trident actions returning actual Noun/Function POS through the runtime host. Lock minimal C examples and error/effect order before supporting one action at a time. CUDA, optimizer implementation and GitHub CI remain deferred.
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

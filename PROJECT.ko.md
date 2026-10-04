@@ -7569,6 +7569,7 @@ JE1의 최소 API/첫 boundary는 완료이며 runtime `SymbolValue` seam을 JE2
 - [x] modifier train의 Noun/Verb/Adverb/Conjunction operand를 같은 completed-result 경계에서 이동하고 noun source span·freeze 정책·함수 DAG identity를 보존한다.
 - [x] rank/@: conjunction operand를 completed-result 경계로 연결하고 right-before-left 검사·gerund quiet fallback·원본 Expr span을 유지한다.
 - [x] noun-left fork의 constant operand와 지원 explicit/direct definition의 mode/body·생성 결과를 completed-result 경계로 연결한다. definition invocation은 별도 미완료다.
+- [x] 생성/대입 경계 이행 후 남은 adapter 책임을 재감사하고 capture의 중복 함수 identity 조회를 borrowed helper로 통합한다.
 - [x] assignment가 `JEntity`를 namespace에 write하고 같은 assigned `JEntity`를 expression result로 반환하는 contract를 공통화한다. `Binding.value`와 runtime host boundary를 JEntity로 연결하고 SymbolValue를 제거했다.
 - [ ] name lookup이 binding에서 `JEntity`를 얻은 뒤 expected POS 검사를 수행하고 late-binding/version semantics를 유지하게 한다. top-level runtime lookup과 verb/modifier POS 검사는 완료했으며 전체 local/locale/definition scope는 미완료다.
 - [x] jsource `jtnamerefacv`의 의미적 차이를 회귀로 고정한다: noun name은 lookup 시점 value/snapshot을 전달할 수 있지만 function name은 실행 시 재조회되는 nameref가 필요할 수 있다. JEntity binding에서도 기존 71건과 새 noun/function replacement 11건으로 timing·POS·binding semantics를 유지한다.
@@ -7651,6 +7652,29 @@ conjunction rank/right-first audit, noun-left fork, definition constructor, imme
 **Fork/definition gate:** Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 **114건**과 static 경계 2건은 runtime pass와 별도로 기록한다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
 
 다음은 남은 completed-result/function wrapper 경계를 다시 감사하여 필요 없는 adapter만 제거하고, frontend F/P 체크리스트의 지원 범위와 미지원 생성/실행 범위를 정리한다. 전체 stack variant 수렴·local/locale scope·definition invocation은 여전히 미완료다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
+
+##### JE2 구현 — 잔여 adapter 감사와 frontend 체크리스트 수렴 (2026-10-04, partial JE2)
+
+`ParseValue::function_entity()`로 Verb/Adverb/Conjunction의 완료 함수 Arc를 빌려 읽는다. construction success와 final function result capture의 중복 분기를 제거했으며, observation event가 함수 수명을 실제로 보유해야 할 때만 기존처럼 Arc를 clone한다. completed Verb의 이동도 기존 function factory로 통합하되 Item occurrence span과 Verb adapter span을 각각 유지한다. 새 J 문법이나 실행 지원을 추가하지 않았다.
+
+| 유지하는 구조 | 유지 이유 |
+|---|---|
+| Verb/VerbTarget | 현재 parser occurrence span과 runtime target adapter를 intrinsic FunctionEntity identity와 구분한다 |
+| ParseValue/Item | deferred Expr, lexical NAME/target/control, class/flags/word provenance/occurrence는 concrete JEntity와 역할이 다르다 |
+| ParserNameBinding | noun snapshot·abstract noun·function POS·known modifier/version은 lookup observation 계약이다 |
+| FunctionOperand | noun source span과 함수 DAG의 owning Arc를 유지하며 borrowed JEntity view로 읽는다 |
+| ExprKind | static computation/dependency와 completed value/function을 최종 Program에서 구분한다 |
+| CompletedParseResult | concrete JEntity 이동에 필요한 height/span/Verb occurrence adapter만 둔다 |
+
+AssignedValue/SymbolValue는 앞 단계에서 제거했다. enum 수를 줄이려고 위 차이를 지우지 않는다. 이 감사로 JE2 전체 stack/scope/invocation 완료를 주장하지 않는다.
+
+F2의 same-stack 재삽입, P2의 같은 matcher 재순회·runtime/analysis engine 공유, P4의 ordinary extension NAME·assignment target 분리, P7의 legacy flat application loop 제거·entry-point 공유를 구현된 범위에 맞게 체크했다. P2 rows 3/4/7은 부분 지원을 명시하고 전체 완료 체크는 유지하지 않는다. full runtime ptcol trace, 전체 modifier/immediate bident/trident semantics, scope와 invocation, intrinsic FunctionSemanticInfo 및 최종 cutover gate는 미완료다. English mirror는 아래 단계 요약으로 같은 상태를 전달한다.
+
+기존 explicit/direct 세 POS 회귀를 확장하여 ConstructionSuccess→FunctionResult→Commit에서 같은 FunctionEntity/DefinitionCode Arc를 유지하고 final result observation이 final commit 앞에 위치하는지 확인한다. C corpus는 기존 4,851건을 그대로 재검증한다.
+
+**Adapter-audit gate:** Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+
+다음 구현 우선순위는 P3의 미지원 immediate bident/trident action이 반환하는 실제 Noun/Function POS와 runtime host 경계다. 먼저 최소 C 사례와 오류/효과 순서를 고정하고 한 action씩 지원한다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
 
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
@@ -8246,7 +8270,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [x] ordinary lookup NAME은 `EnqueueFlags.lookup_name`을 확인한 뒤 parser item 생성 전에 `ParserNameBinding`으로 resolve한다.
 - [x] pinned `cases[]`를 옮긴 `match_parse_row([ParseClass; 4])`가 semantic payload를 보지 않고 parser class만으로 eligibility와 first-match precedence를 결정한다.
 - [ ] matcher row ordering/reduction extent/result reinsertion을 `cases[]`/runtime `ptcol` behavior와 동일하게 구현하고 별도 train/modifier heuristic을 제거한다.
-- [ ] reduction result를 동일 queue/stack representation으로 재삽입한다.
+- [x] 구현된 reduction 결과를 동일 Item stack에 재삽입한다. 원본 word provenance와 occurrence를 reduction pipeline에서 계승하며 전체 runtime ptcol trace 동등성은 P6에서 별도 미완료다.
 - [x] `ParseClass`를 F2 row matcher와 application/modifier reduction의 공통 class domain으로 사용한다.
 
 **F2 완료 조건:** parser는 jsource-compatible enqueue queue를 유일한 입력으로 받아 9-row engine으로 넘길 수 있다.
@@ -8289,15 +8313,15 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [x] row 0 `EDGE VERB NOUN ANY`를 right-to-left stack reducer에서 first-match precedence로 선택하고 monadic `Expr` application으로 defer한다.
 - [x] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 four-class eligibility/reduction extent를 production stack reducer에 구현했다.
 - [x] row 2 `EDGE+AVN NOUN VERB NOUN`을 production stack reducer에서 선택하고 dyadic `Expr` application으로 defer한다.
-- [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV ANY`를 modifier semantic constructor 호출로 구현한다.
-- [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다.
+- [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV ANY`를 modifier semantic constructor 호출로 구현한다. 지원 adverb/gerund 생성은 구현되었으며 전체 primitive·explicit modifier application은 미완료다.
+- [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다. rank/@:/지원 DefinitionConstructor 경계는 구현되었으며 전체 conjunction 및 invocation은 미완료다.
 - [ ] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 Fork construction을 구현한다.
 - [ ] row 6 `EDGE CAVN CAVN ANY`를 Hook/bident/trident semantic dispatch로 구현한다.
-- [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다.
+- [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다. top-level single-name의 네 RHS class와 중간/연속 대입은 구현되었으며 noun/multiple-name target·전체 scope는 미완료다.
 - [x] row 8 `LPAR CAVN RPAR ANY`를 production stack action으로 구현하고 recursive parenthesis parser를 제거했다. grouped noun은 `ExprKind::Group`/depth를, grouped function은 semantic identity를 유지한 채 parser provenance span을 괄호 전체로 보존한다.
-- [ ] 각 reduction 결과를 같은 parser stack에 되돌리고 다시 **동일한 row matcher**로 scan/reduce한다.
+- [x] 구현된 각 reduction 결과를 같은 parser stack에 되돌리고 동일한 match_parse_row로 다시 scan/reduce한다. 미지원 semantic form은 해당 action의 오류/coverage 경계로 남긴다.
 - [ ] row action abstraction이 `ReadyParseValue`와 `RequiresRuntimeSemanticParse`를 구분할 수 있게 하여, 정적 compiler path가 parser-visible runtime dependency를 숨기지 않게 한다.
-- [ ] runtime semantic fallback도 별도 grammar/parser를 만들지 않고 동일한 9-row matcher를 사용하게 한다.
+- [x] runtime semantic host와 analysis가 동일 parse_context/row matcher/action engine을 사용한다. host가 필요한 미지원 form 전체의 executor는 별도 미완료다.
 - [x] 기존 flat-vector modifier/train/application reducer를 삭제하고 production expression reduction을 right-to-left stack + ordered `match_parse_row`로 cutover했다. 아직 미구현 semantic form은 해당 row action에서 명시적으로 남긴다.
 - [ ] one-word sentence의 별도 jsource path와 관찰 가능한 결과가 동일하도록 테스트한다.
 
@@ -8319,13 +8343,13 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 #### P4 — parser-time name resolution과 assignment sequencing
 
-- [ ] enqueue 단계는 ordinary NAME과 lookup metadata를 전달하고 extension 이름을 keyword로 만들지 않는다.
+- [x] enqueue는 ordinary NAME과 lookup metadata를 전달하고 extension 이름을 keyword로 만들지 않는다. F1의 ordinary-name/extension POS 회귀와 같은 계약이다.
 - [ ] parser가 ordinary name을 stack에 넣기 직전에 현재 local/locale binding을 조회해 noun/verb/adverb/conjunction class를 얻는다.
 - [ ] noun name의 by-value resolution과 일반 function/modifier name의 nameref semantics를 구분한다.
 - [ ] jsource의 nameless modifier by-value 최적화는 언어 semantics와 분리하고 RustJ에서 필수로 복제하지 않는다.
 - [ ] named Verb/Adverb/Conjunction이 primitive entity와 동일한 row 0–6 경로에 참여하게 한다.
 - [ ] sentence 시작 시 전체 binding snapshot을 만들지 않고 observable right-to-left lookup/assignment sequencing을 보존한다.
-- [ ] assignment-target NAME은 ordinary name lookup과 별도 취급한다.
+- [x] assignment-target NAME을 enqueue to-name flags와 ParseValue::NameTarget으로 ordinary lookup과 분리한다. 전체 noun/multiple-name assignment와 scope 지원은 별도 미완료다.
 - [ ] `=.` / `=:`의 symbol-table 선택과 assignment result semantics를 테스트한다.
 - [ ] current POS를 가진 nameref가 later resolution 시 다른 POS로 바뀐 경우의 J-compatible error contract를 보존한다.
 - [ ] extension builder(`conv` 등)의 shadow/rebind도 ordinary J name semantics를 따르게 한다.
@@ -8408,9 +8432,9 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 - [ ] Analyzer golden(`(+/ % #) y` 포함)이 새 parser output에서도 동일한 completed entity graph를 입력으로 받는다.
 - [x] old `reduce_modifier_applications` 함수는 현재 source에 없다. row engine이 modifier reductions를 소유한다.
 - [x] old `collapse_verb_trains` 함수는 현재 source에 없다. row engine이 train reductions를 소유한다.
-- [ ] noun/verb application을 수동으로 조립하던 legacy loop를 제거한다.
+- [x] 과거 flat-vector noun/verb application loop를 제거했다. 현재 Expr application 생성은 동일 9-row semantic action 안에 있으며 필요한 의미 구조라 유지한다.
 - [ ] parser-only migration fields와 dead compatibility code를 제거한다.
-- [ ] `parse`, `parse_analysis`, `parse_runtime`가 parser semantics를 하나의 engine에서 공유하게 한다.
+- [x] parse/parse_analysis/parse_runtime_host가 동일 parse_context와 reduction engine을 공유한다. cfg(test) parse_runtime도 같은 parse_with→parse_context를 사용한다.
 - [ ] parser 전환 후 전체 native Windows local 검증을 통과시킨다. GitHub CI는 생략한다.
 
 **P7 완료 조건:** RustJ의 J parser semantics를 정의하는 코드 경로가 하나이며, 그 경로는 jsource-compatible class resolution + 9-row reduction + semantic constructor contract를 따른다.
@@ -8994,7 +9018,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드/문서 검토 기준: 2026-10-04 JE2 fork/definition 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
+코드/문서 검토 기준: 2026-10-04 JE2 adapter audit 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
@@ -9012,7 +9036,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(JE2 fork/definition 단계): Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 **114건**과 static 경계 2건은 runtime pass와 별도로 기록한다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(JE2 adapter audit 단계): Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

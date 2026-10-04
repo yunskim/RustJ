@@ -249,6 +249,41 @@ fn definition_result_transport_preserves_all_pos_without_body_lookup_or_executio
         assert_eq!(code.result_pos, pos);
         assert_eq!(entity.result_pos, pos);
         assert!(entity.operands.is_empty());
+        let (result_index, result) = report
+            .capture
+            .events
+            .iter()
+            .enumerate()
+            .find_map(|(i, e)| match e {
+                CaptureEvent::FunctionResult { function, .. } => Some((i, function)),
+                _ => None,
+            })
+            .unwrap();
+        let commit_index = report
+            .capture
+            .events
+            .iter()
+            .position(|e| {
+                matches!(e,
+            CaptureEvent::Commit { name, .. } if name == "transportdef")
+            })
+            .unwrap();
+        assert!(result_index < commit_index);
+        assert!(std::sync::Arc::ptr_eq(entity, result));
+        let constructed = report
+            .capture
+            .events
+            .iter()
+            .find_map(|e| match e {
+                CaptureEvent::ConstructionSuccess { function, .. } => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(entity, constructed));
+        let FunctionHead::ExplicitDefinition(result_code) = &result.head else {
+            panic!()
+        };
+        assert!(std::sync::Arc::ptr_eq(code, result_code));
         assert_eq!(engine.binding_version("transportcounter"), before);
         assert_eq!(
             engine

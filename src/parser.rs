@@ -1376,11 +1376,11 @@ fn reduce_stack_prefix(
                         facts: crate::j_graph_ir::GraphFacts::of(value),
                     });
                 } else if is_construction {
-                    let function = match &result.value {
-                        ParseValue::Verb(verb) => verb.entity.clone(),
-                        ParseValue::Function(function) => function.clone(),
-                        _ => unreachable!(),
-                    };
+                    let function = result
+                        .value
+                        .function_entity()
+                        .expect("completed construction function")
+                        .clone();
                     capture.events.push(CaptureEvent::ConstructionSuccess {
                         row,
                         function,
@@ -2005,11 +2005,11 @@ impl CompletedParseResult {
                 completed.span = span;
                 return Ok(completed);
             }
-            ParseValue::Verb(verb) => (
-                JEntity::Function(verb.entity),
-                0,
-                Some((verb.span, verb.target)),
-            ),
+            ParseValue::Verb(verb) => {
+                let mut completed = Self::function(verb.entity, verb.span, verb.target);
+                completed.span = span;
+                return Ok(completed);
+            }
             ParseValue::Function(function) => (JEntity::Function(function), 0, None),
             _ => return Err(Error::Syntax("invalid assignment value".into())),
         };
@@ -2072,6 +2072,18 @@ enum ParseValue {
     Control {
         span: std::ops::Range<usize>,
     },
+}
+
+impl ParseValue {
+    /// Borrow only completed function identity. Noun expressions, lexical names
+    /// and control are not functions; observation does not update Arc counts.
+    fn function_entity(&self) -> Option<&Arc<FunctionEntity>> {
+        match self {
+            Self::Verb(verb) => Some(&verb.entity),
+            Self::Function(function) => Some(function),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -2671,11 +2683,7 @@ fn expression(
     let span = item.span();
     if let Some(capture) = &mut context.capture {
         capture.result = item.occurrence;
-        let function = match &item.value {
-            ParseValue::Verb(verb) => Some(verb.entity.clone()),
-            ParseValue::Function(function) => Some(function.clone()),
-            _ => None,
-        };
+        let function = item.value.function_entity().cloned();
         if let Some(function) = function {
             let event = CaptureEvent::FunctionResult {
                 function,
