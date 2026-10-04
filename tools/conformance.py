@@ -251,6 +251,35 @@ def definition_flow_cases():
         for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
 
 
+def entity_boundary_cases():
+    """JE0 RHS transport, snapshots and expected-POS baseline; no new syntax."""
+    out = []
+    for name, rhs, use in [('jenoun', '7', 'jenoun'), ('jeverb', '+', 'jeverb 3'),
+                           ('jeadv', '/', '+jeadv i.4'), ('jeconj', '"', '+jeconj 0 i.4')]:
+        out += [name + '=:' + rhs, name + 'copy=:' + name, use,
+                'jeouter=:jeinner=:' + name]
+    out += ['jevalue=:(jenoun=:9)', 'jenouncopy',
+            'jevalue=:(jeverb=:-) 3', 'jevalue',
+            'jevalue=: +(jeadv=:/) i.4', 'jevalue',
+            'jevalue=: +(jeconj=:")0 i.4', 'jevalue',
+            'jeverb=:+', 'jealias=:jeverb', 'jeverb=:-', 'jealias 3', 'jeguard=:+']
+    for rhs in ['1', '/', '@:']:
+        out += ['jeverb=:' + rhs, 'jeguard=:jealias 3', 'jeguard 3']
+    out += ['jelarge=:i.65', 'jefork=:jelarge + -', 'jelarge=:0',
+            "jedef=:3 : 'y+1'", 'jedefcopy=:jedef',
+            "jeexplicitadv=:1 : 'u y'", 'jeexplicitadv_copy=:jeexplicitadv',
+            "jeexplicitconj=:2 : 'u y'", 'jeexplicitconj_copy=:jeexplicitconj',
+            'jeadv=:/', 'jeadvcopy=:jeadv', 'jeadv=:BACKSLASH', '+jeadvcopy i.4']
+    for name, primitive, call in [('jeexplicitadv', '/', '+jeexplicitadv_copy i.4'),
+                                  ('jeexplicitconj', '"', '+jeexplicitconj_copy 0 i.4')]:
+        out += [name+'chain=:'+name+'_copy', name+'=: '+primitive, call,
+                name+'=:1', 'jeguard=: '+call, 'jeguard 3']
+    out += ['jebase=:+', 'jebound=:jebase "', 'jeboundcopy=:jebound',
+            'jebound=:/', '+jeboundcopy i.4', 'jebound=:1',
+            'jeguard=:+jeboundcopy i.4', 'jeguard 3']
+    return [source.replace('BACKSLASH', chr(92)) for source in out]
+
+
 def noun_direct_cases():
     out = ['nounraw_counter=:0']
     bodies = ['', 'a', 'abc', "'broken", 'NB. if. {{', 'counter=:99',
@@ -547,6 +576,7 @@ def cases():
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
+    fixed.extend(entity_boundary_cases())
     fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
     fixed.extend("gotomatrix=:3 : '"+body.replace("\n", " ").replace("'", "''")+"'" for body in goto_position_matrix())
     return fixed

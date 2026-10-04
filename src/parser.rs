@@ -1665,7 +1665,7 @@ fn apply_parse_row(
             let mut phrase: Vec<_> = stack.drain(0..3).collect();
             let target = phrase.remove(0);
             let copula = phrase.remove(0);
-            let mut value = phrase.remove(0);
+            let value = phrase.remove(0);
             let ParseValue::NameTarget { name, span } = target.value else {
                 return Err(Error::Syntax("row 7 requires a name target".into()));
             };
@@ -1674,12 +1674,9 @@ fn apply_parse_row(
                 copula: copula.provenance.expect("copula provenance"),
                 flags: copula.flags,
             };
-            if context.host.is_some() {
-                let span = value.span();
-                if let ParseValue::Function(function) = &mut value.value {
-                    *function = resolve_modifier(function.clone(), span, context, row)?;
-                }
-            }
+            // p.c row 7 transports the stacked RHS. A nonnameless modifier
+            // remains a POS-bearing NameRef; assigning it is not application.
+            // Nameless modifiers were already stacked by value during lookup.
             if let Some(host) = context.host.as_mut() {
                 if source.flags.local_assignment || !source.flags.global_assignment {
                     return Err(Error::Unsupported(

@@ -207,6 +207,11 @@ impl Engine {
             version,
         }) = self.names.get(name)
         {
+            // Unknown application semantics do not prevent transporting the
+            // current POS-bearing function name through a static assignment.
+            if !function.is_known_modifier() {
+                return self.parser_name_binding(name);
+            }
             return Some(crate::parser::ParserNameBinding::KnownModifier {
                 function: function.clone(),
                 version: *version,

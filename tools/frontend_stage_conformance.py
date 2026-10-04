@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -614,6 +614,23 @@ def run(args):
             check('definition_multiline_constructor', source, expected, static_probe.inspect(source, 'R'))
         for source in ["defcode=:1 : 'u\n:\nv'", "defcode=:{{u\n:\nu}}"]:
             check('definition_valence_error', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+        for source in entity_boundary_cases():
+            # The C name class decides whether to observe AR or actual noun/error.
+            # Execute each original once, including nested/intermediate writes.
+            target = source.split('=:', 1)[0] if '=:' in source else None
+            if target is None:
+                check('entity_boundary_value', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+                continue
+            error = oracle.run(source)
+            info = oracle.name_class(target) if target and not error else {}
+            if info.get('class') in (1, 2, 3):
+                expected = {'pos': info['class'],
+                    'function': atomic_function(oracle.representation(target, 'atomic')['value'])}
+                check('entity_boundary_function', source, expected, static_probe.inspect(source, 'R'))
+            elif error:
+                check('entity_boundary_error', source, error, static_probe.inspect(source, 'E'))
+            elif target:
+                check('entity_boundary_noun_assignment', source, {'silent': True}, static_probe.inspect(source, 'E'))
         for source in noun_direct_cases():
             if source.startswith('nounmixed='):
                 error=oracle.run(source)
