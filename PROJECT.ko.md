@@ -2840,6 +2840,47 @@ tracing은 frontend/host 코드를 실행할 수 있으므로 “사용자 코�
 
 **WI1 gate:** native Windows default/portable 각각 **396 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 164건 및 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 다시 확인했다. `with` 실행·기호 차원·학습/AD·CUDA·optimizer 실행 완료를 뜻하지 않는다. full upstream/private C trace 및 ignored definition acceptance는 미검증이며 Linux/GitHub CI는 실행하지 않았다. 다음 frontend milestone은 JE2/P3 scoped-reference 미지원 경계의 C 대조를 이어 가며, `with` adapter는 필수 선행 조건으로 만들지 않는다.
 
+<a id="array-compiler-static-analysis"></a>
+
+### 4.8.3 배열 컴파일러의 정적 분석 대상과 프레임워크 비교 (2026-10-04)
+
+**분석 대상은 입력 배열뿐 아니라 프로그램의 중간 값·연산·사용 관계·제어 흐름·저장소다.** §4.8.2의 IN0–IN11은 분석의 초기 정보이며 아래 SA0–SA8은 그 정보와 보존한 graph/contract에서 도출할 질문이다. 정적 분석은 실행 전 facts·제약·증명·미해결 조건을 산출한다. fusion, DCE, tiling, buffer 배치는 그 결과를 사용하는 변환이며 분석과 구별한다. XLA도 analysis와 HLO 변환 pass를 구분한다. [XLA analysis passes](https://openxla.org/xla/hlo_passes)
+
+| ID / 분석 대상 | 정적으로 확인할 질문과 산출물 | 최적화에 쓰일 근거 / 미확정 경계 |
+|---|---|---|
+| SA0 — type/rank/shape 관계 | 각 중간 값의 dtype, rank, extent, 차원 동등성·범위, empty 가능성 | 연산 적합성·크기식·specialization의 전제. 기호 크기도 정적 정보지만 제약을 풀지 못하면 unknown을 유지. [JAX symbolic shapes](https://docs.jax.dev/en/latest/export/shape_poly.html) |
+| SA1 — 상수·값의 추상 성질 | 작은 compile-time operand와 그 의존 closure; 증명된 값 범위·조건 | 상수 계산·분기 단순화의 전제. 큰 학습 배열의 내용을 읽는 분석으로 바꾸지 않는다. sorted/unique/finite는 선언만으로 증명되지 않음. [TVM compile-time analysis](https://tvm.apache.org/docs/reference/api/python/relax/analysis.html#tvm.relax.analysis.computable_at_compile_time) |
+| SA2 — use-def / fan-out / 결과 사용 | 값의 생산자·사용자, 공통 입력, 미사용 결과, 마지막 사용 | 공유·fusion·제거 후보와 중간 배열 보존 필요성. 미사용 결과도 effect/error가 있으면 제거를 허용하지 않음. [XLA dataflow](https://openxla.org/xla/hlo_passes) |
+| SA3 — 반복·인덱스·접근 의존성 | iteration domain, 입력/출력 index map, parallel/reduction 축, read/write 충돌 | tiling·vectorization·병렬화의 legality. 간접 gather/scatter와 비affine 접근은 추가 정보가 필요. [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Affine](https://mlir.llvm.org/docs/Dialects/Affine/) |
+| SA4 — 제어 흐름·호출·효과·오류 | branch/region/call 의존성, 상태 read/write, 실행 순서와 speculation 안전성 | 이동·제거·병렬 실행의 전제. effect-free와 안전한 선행 실행은 별개이며 J 오류를 UB로 바꾸지 않는다. [MLIR effects/speculation](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/) |
+| SA5 — alias / mutation / ownership | 같은 저장소를 가리키는 값, overwrite 후 old-value read, escape와 외부 소유권 조건 | in-place/reuse/copy 결정의 전제. 내부 no-later-read는 외부 exclusive ownership 증명이 아님. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) |
+| SA6 — 수명·materialization·메모리 | live range, 보관해야 할 중간 값, 논리 크기식, 선택한 순서에서의 live bytes | materialization 제거·재계산·저장소 재사용의 근거. graph 순서의 추정과 schedule/layout 확정 후 물리 peak를 구별. [XLA scheduling/buffers](https://openxla.org/xla/hlo_to_thunks) |
+| SA7 — 표현·layout·target 적합성 | 논리 reshape/index 관계, 지원 dtype/representation 및 접근 모델; 이후 stride/device/target 제약 | view/copy와 kernel route의 전제. 논리 reshape 증명만으로 외부 버퍼의 zero-copy를 보장하지 않음. [TVM reshape analysis](https://tvm.apache.org/docs/reference/api/python/relax/analysis.html#tvm.relax.analysis.has_reshape_pattern) |
+| SA8 — 자원·코스트·IR 일관성 | 연산량·전송/저장 크기식, 정의/사용·type·region 불변식 검증 | 후보 비교와 잘못된 IR 검출. 비용식은 실측 시간 또는 정확한 물리 메모리가 아님. [XLA cost/verifier](https://openxla.org/xla/hlo_passes) |
+
+#### 같은 질문을 각 프레임워크가 다루는 방식
+
+서로 다른 계층을 비교한다. JAX/PyTorch/TensorFlow는 graph 확보와 입력 제약을 포함하는 frontend이고 XLA는 backend, MLIR은 IR 기반시설이다. 아래는 우열·전체 기능표가 아니라 확인한 분석 방법과 RustJ가 참고할 지점이다. tracing으로 graph를 얻은 뒤의 정적 분석과, RustJ가 소스에서 보존한 graph를 분석하는 방법도 구별한다.
+
+| 프레임워크 / 계층 | 확인한 분석 표현·방법 | 한계 / RustJ에 적용할 부분 |
+|---|---|---|
+| JAX / frontend | symbolic dimension 식·제약으로 shape 관계를 다룸 | 모든 기호 비교를 판정하지 못함. 관계와 미해결 조건을 보존하는 방향을 참고. [Shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) |
+| OpenXLA / backend | HLO value/use, must-alias, cost, verifier; schedule 이후 buffer slice 배치 | 수명은 순서에 의존. 의미 graph·분석·physical 결정을 분리. [Analyses](https://openxla.org/xla/hlo_passes), [buffer assignment](https://openxla.org/xla/hlo_to_thunks) |
+| PyTorch / capture frontend | symbolic sizes와 ShapeEnv/guards로 관측 graph의 shape 전제를 관리 | tracing specialization의 guard와 데이터 의존 제어를 구별. RustJ는 J NAME witness와 source semantics를 별도로 유지. [Dynamic shapes](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamic_shapes.html) |
+| TensorFlow / graph frontend | TensorSpec/input_signature와 graph 함수로 dtype/shape 전제를 표현 | wildcard 차원과 입력 간 동등성은 별개. 입력 계약과 graph 분석을 연결하되 tracing을 필수로 하지 않음. [tf.function](https://www.tensorflow.org/guide/function) |
+| TVM Relax / graph + kernel IR | use-def, compile-time 의존성, reshape index 증명, memory-planning 전후 할당량 추정 API | estimate_memory_usage는 제어 흐름·함수 간 호출을 고려하지 않는 할당량 합계로 과대 추정 가능. 정확한 peak로 인용하지 않음. [Analysis API](https://tvm.apache.org/docs/reference/api/python/relax/analysis.html) |
+| MLIR / structured IR | Linalg index map/iterator, Affine dependence, effect/speculation interface, bufferization | affine 모델 밖의 접근과 외부 alias에 별도 근거 필요. J rank/cell/assembly 의미를 유지한 뒤 이러한 관계를 도출. [Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Affine](https://mlir.llvm.org/docs/Dialects/Affine/), [effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/), [bufferization](https://mlir.llvm.org/docs/Bufferization/) |
+| Futhark / 배열 언어·컴파일러 | size가 있는 배열 type; scan/scatter fusion 사례에서 producer/consumer와 control dependency를 함께 다룸 | regular-array 제한은 RustJ 언어 제한으로 채택하지 않음. 사용 관계는 분석 가능해도 filter 결과 크기는 데이터에 의존. [Language reference](https://futhark.readthedocs.io/en/latest/language-reference.html), [scan-scatter 사례](https://futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html) |
+
+**J syntax에서 얻는 정보의 범위:** `(loss_adjoint [ (loss emit))`의 fork는 같은 인자로부터 두 branch를 만들고 결과 선택/결합 관계를 드러낸다. 이는 SA2/SA4의 분석 입력이며 `adjoint`라는 이름 자체가 parallel 힌트는 아니다. fork만으로 무조건 병렬 실행을 허용하지 않는다. 각 branch의 효과·오류·name lookup·공유 상태 의존성을 확인해야 한다. modifier/train 구조는 SA0/SA3에 rank/cell/반복 관계를 제공할 수 있으나, 구체 인덱스 map과 uniform assembly는 별도 증명한다. 이 해석은 RustJ의 설계 결정이며 위 프레임워크의 J 지원을 주장하지 않는다.
+
+**현재 구현과 후속 경계:** `static_analysis.rs`의 schema 기반 분석, `j_graph_ir.rs`의 보존 graph와 concrete/unknown GraphFacts, `j_graph_memory.rs`의 use/liveness·논리 extent·명시 가정하 graph-order 메모리 추정, `j_graph_resource.rs`의 자원식이 초기 기반이다. canonical Logical IR의 checks/effects/witness/verifier는 후속 분석 계약의 기반이다. 임의 축별 symbolic solver, 일반 loop/index dependence, 완전한 alias/escape/외부 ownership 증명, target별 schedule/물리 peak 분석은 완료되지 않았다. SA 표는 구현 완료 목록이 아니다. optimizer 실행·CUDA는 계속 보류하고 tokenizer/enqueuer/parser의 J 호환성과 graph 보존 작업을 우선한다.
+
+후속 report는 각 fact에 `source node/span + assumptions + proof scope + known/symbolic/unknown + residual obligation`을 연결하고, 메모리는 `logical extent / assumed-order live bytes / physical allocation estimate`를 구분한다. 함수 identity·J prefix agreement·empty/fill/boxed/sparse·numeric policy·관측 가능한 오류/효과를 증명 없이 단순 tensor 규칙으로 치환하지 않는다.
+
+- [x] **WI0d** 배열 컴파일러의 분석 대상 SA0–SA8, 프레임워크별 방법/한계 및 현재 구현 경계를 출처와 함께 정리한다.
+- [ ] **WI3c** frontend graph/facts report에 SA 분류·증명 범위·미해결 조건을 연결하고 현재 지원 부분부터 regression을 추가한다. 일반 solver나 physical scheduler를 frontend 완성의 선행 조건으로 만들지 않는다.
+
 ### 4.9 Vocabulary는 이름 목록이 아니라 form + contract다
 
 과거 연구의 중요한 결론은 primitive vocabulary가 단순 whitelist가 아니라는 점이다.
