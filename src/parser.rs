@@ -92,7 +92,8 @@ fn completed_noun(mut expr: Expr, context: &str) -> Result<Value> {
 
 fn train_noun_fork(noun: Expr, g: Verb, h: Verb) -> Result<Verb> {
     let noun_span = noun.span.clone();
-    let value = completed_noun(noun, "runtime-dependent noun-left fork")?;
+    let operand = CompletedParseResult::from_noun(noun, 0, "runtime-dependent noun-left fork")?
+        .into_operand();
     let span = noun_span.start..h.span.end;
     Ok(Verb {
         span: span.clone(),
@@ -102,10 +103,7 @@ fn train_noun_fork(noun: Expr, g: Verb, h: Verb) -> Result<Verb> {
             FunctionPartOfSpeech::Verb,
             span,
             vec![
-                FunctionOperand::Noun {
-                    value,
-                    span: noun_span,
-                },
+                operand,
                 FunctionOperand::Function(g.entity),
                 FunctionOperand::Function(h.entity),
             ],
@@ -873,8 +871,10 @@ fn apply_conjunction_items(
     if let FunctionHead::DefinitionConstructor(origin) = &operator.head {
         let (left, _) = left.into_noun().ok_or(Error::Domain)?;
         let (right, _) = right.into_noun().ok_or(Error::Domain)?;
-        let mode = completed_noun(left, "computed definition mode")?;
-        let body = completed_noun(right, "computed definition body")?;
+        let mode = CompletedParseResult::from_noun(left, 0, "computed definition mode")?
+            .into_noun_value()?;
+        let body = CompletedParseResult::from_noun(right, 0, "computed definition body")?
+            .into_noun_value()?;
         let expected_mode = match origin.input.form {
             crate::definition_input::DefinitionForm::Direct => 9,
             crate::definition_input::DefinitionForm::NounDirect => return Err(Error::Domain),
@@ -894,21 +894,14 @@ fn apply_conjunction_items(
         }
         let code =
             crate::definition_code::compile(&origin.source, &origin.input, &origin.primitives)?;
+        let result_pos = code.result_pos;
         let function = FunctionEntity::derived(
-            FunctionHead::ExplicitDefinition(code.clone()),
-            code.result_pos,
+            FunctionHead::ExplicitDefinition(code),
+            result_pos,
             span.clone(),
             Vec::new(),
         );
-        return Ok(if code.result_pos == FunctionPartOfSpeech::Verb {
-            Item::verb(Verb {
-                span,
-                target: VerbTarget::Derived,
-                entity: function,
-            })
-        } else {
-            Item::function(function)
-        });
+        return CompletedParseResult::function(function, span, VerbTarget::Derived).into_item();
     }
 
     if matches!(operator.head, FunctionHead::ModifierTrain) {
@@ -1974,12 +1967,43 @@ impl CompletedParseResult {
         }
     }
 
+    fn from_noun(expr: Expr, height: usize, context: &str) -> Result<Self> {
+        let span = expr.span.clone();
+        Ok(Self::noun(completed_noun(expr, context)?, span, height))
+    }
+
+    fn function(
+        entity: Arc<FunctionEntity>,
+        span: std::ops::Range<usize>,
+        target: VerbTarget,
+    ) -> Self {
+        let verb_adapter =
+            (entity.result_pos == FunctionPartOfSpeech::Verb).then(|| (span.clone(), target));
+        Self {
+            entity: JEntity::Function(entity),
+            span,
+            height: 0,
+            verb_adapter,
+        }
+    }
+
+    /// Definition inputs are transient nouns; extracting them does not freeze
+    /// their storage or retain body values in the completed function identity.
+    fn into_noun_value(self) -> Result<Value> {
+        match self.entity {
+            JEntity::Noun(value) => Ok(value),
+            JEntity::Function(_) => Err(Error::Domain),
+        }
+    }
+
     /// Move an already completed RHS. Never evaluate a deferred expression.
     fn from_item(item: Item, context: &str) -> Result<Self> {
         let span = item.span();
         let (entity, height, verb_adapter) = match item.value {
             ParseValue::Noun(expr, height) => {
-                (JEntity::Noun(completed_noun(expr, context)?), height, None)
+                let mut completed = Self::from_noun(expr, height, context)?;
+                completed.span = span;
+                return Ok(completed);
             }
             ParseValue::Verb(verb) => (
                 JEntity::Function(verb.entity),
@@ -3632,5 +3656,134 @@ mod rank_constructor_transport_tests {
         )
         .unwrap_err();
         assert_eq!(error.kind(), "domain error");
+    }
+}
+
+#[cfg(test)]
+mod fork_definition_transport_tests {
+    use super::*;
+    use crate::{storage::CpuStorage, value::Data};
+
+    fn named(name: &str, span: std::ops::Range<usize>) -> Verb {
+        Verb {
+            span: span.clone(),
+            target: VerbTarget::Named(name.into()),
+            entity: FunctionEntity::name_ref(name.into(), FunctionPartOfSpeech::Verb, span),
+        }
+    }
+
+    #[test]
+    fn owned_fork_constant_is_frozen_once_and_shared_after_fork_drops() {
+        let value = Value::ints([65536], (0..65536).collect()).unwrap();
+        let Data::Int(data) = value.data() else {
+            panic!()
+        };
+        let pointer = data.as_ptr();
+        let g = named("g", 10..11);
+        let h = named("h", 12..13);
+        let original_g = g.entity.clone();
+        let original_h = h.entity.clone();
+        let fork = train_noun_fork(
+            Expr {
+                span: 1..9,
+                kind: ExprKind::Group(Box::new(Expr {
+                    span: 2..8,
+                    kind: ExprKind::Literal(value),
+                })),
+            },
+            g,
+            h,
+        )
+        .unwrap();
+        assert_eq!(fork.span, 1..13);
+        let [
+            FunctionOperand::Noun { value, span },
+            FunctionOperand::Function(g),
+            FunctionOperand::Function(h),
+        ] = fork.entity.operands.as_slice()
+        else {
+            panic!()
+        };
+        assert_eq!(span, &(1..9));
+        assert!(Arc::ptr_eq(g, &original_g));
+        assert!(Arc::ptr_eq(h, &original_h));
+        let Data::Int(CpuStorage::Shared(data)) = value.data() else {
+            panic!()
+        };
+        assert_eq!(data.as_ptr(), pointer);
+        let count = Arc::strong_count(data);
+        let first = modifier_operand(&fork.entity.operands[0], 20..30);
+        let second = modifier_operand(&fork.entity.operands[0], 40..50);
+        assert_eq!(Arc::strong_count(data), count + 2);
+        drop(fork);
+        for (item, span) in [(first, 20..30), (second, 40..50)] {
+            assert_eq!(item.span(), span);
+            let value = completed_noun(item.into_noun().unwrap().0, "test").unwrap();
+            let Data::Int(data) = value.data() else {
+                panic!()
+            };
+            assert_eq!(data.as_ptr(), pointer);
+            assert_eq!(value.int_at(65535).unwrap(), 65535);
+        }
+        let error = train_noun_fork(
+            Expr {
+                span: 0..4,
+                kind: ExprKind::ReadName("late".into()),
+            },
+            named("g", 5..6),
+            named("h", 7..8),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), "unsupported");
+    }
+
+    #[test]
+    fn definition_constructor_keeps_class_guards_before_deferred_inputs() {
+        let operator = enqueue("3 : 'y'")
+            .unwrap()
+            .into_iter()
+            .find_map(|word| match word.payload {
+                EnqueuedPayload::Function(f) => Some(f),
+                _ => None,
+            })
+            .unwrap();
+        let deferred = || {
+            Item::noun(
+                Expr {
+                    span: 0..4,
+                    kind: ExprKind::ReadName("late".into()),
+                },
+                0,
+            )
+        };
+        let scalar = |value| {
+            Item::noun(
+                Expr {
+                    span: 0..1,
+                    kind: ExprKind::Literal(Value::scalar(value)),
+                },
+                0,
+            )
+        };
+        let cases = [
+            (deferred(), Item::verb(named("f", 5..6)), "domain error"),
+            (Item::verb(named("f", 0..1)), deferred(), "domain error"),
+            (deferred(), scalar(3), "unsupported"),
+            (scalar(3), deferred(), "unsupported"),
+            (scalar(3), scalar(7), "domain error"),
+        ];
+        for (left, right, kind) in cases {
+            let error = apply_conjunction_items(
+                left,
+                operator.clone(),
+                right,
+                0..9,
+                0,
+                ConstructionNames::default(),
+            )
+            .err()
+            .unwrap();
+            assert_eq!(error.kind(), kind);
+        }
     }
 }

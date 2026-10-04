@@ -1792,7 +1792,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: the 2026-10-04 JE2 rank-operand stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
+Code/document review baseline: the 2026-10-04 JE2 fork/definition stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
 - explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
@@ -1819,7 +1819,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (JE2 rank-operand stage): Windows default/portable each: **378 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,839 cases / 4,835 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,019 checks**; words: **6,618 cases / 0 failed**. Capture-graph boundaries total **110**, including two added fixtures; static boundaries remain 2. Record these separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+- latest frontend validation (JE2 fork/definition stage): Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Record **114 capture-graph boundaries** and 2 static boundaries separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
@@ -1961,6 +1961,7 @@ The minimum JE1 API and first boundary are complete; SymbolValue convergence is 
 - [x] Connect completed runtime nouns and all four row-7 RHS classes through CompletedParseResult/JEntity. Keep deferred Expr, NAME and control separate from concrete entities.
 - [x] Move modifier-train Noun/Verb/Adverb/Conjunction operands through the same completed-result boundary, preserving noun source spans/freezing and function DAG identities.
 - [x] Connect rank/@: conjunction operands through completed-result transport, preserving right-before-left audits, quiet gerund fallback and original Expr spans.
+- [x] Connect noun-left fork constants and supported explicit/direct definition mode/body/results through completed-result transport. Definition invocation remains incomplete.
 - [x] Generalize assignment to write and return the same assigned `JEntity`. Binding.value and the runtime host now use JEntity; remove SymbolValue.
 - [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order. Top-level runtime lookup/Verb/Modifier checks are implemented; full local/locale/definition scopes remain incomplete.
 - [x] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. JEntity bindings preserve timing/POS/version semantics under the existing 71 cases plus 11 noun/function replacement cases.
@@ -2028,6 +2029,18 @@ Two new unit tests verify pointer/Expr spans for an owned 65,536-atom constant a
 **Rank-operand gate:** Windows default/portable each: **378 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,839 cases / 4,835 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,019 checks**; words: **6,618 cases / 0 failed**. Capture-graph boundaries total **110**, including two added fixtures; static boundaries remain 2. Record these separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 
 Next JE2 candidates: noun-left fork and definition-constructor completed-value boundaries, first checking source spans, constructor errors and no-body-execution contracts. Full stack convergence, scopes and definition invocation remain incomplete.
+
+#### JE2 implementation — noun-left fork and definition construction (2026-10-04, partial JE2)
+
+CompletedParseResult::from_noun moves grouped literals under the existing completed_noun rules, preserving Expr span/height. General from_item shares this boundary and restores the existing Item occurrence override. Noun-left fork moves this result through into_operand, preserving source span and g/h DAG identities. Replace its separate owned-noun path with the common one-time freeze policy so later operand reuse shares large constants rather than copying whole arrays. The allocator/physical representation itself is unchanged.
+
+Supported DefinitionConstructor checks both noun classes first, then extracts completed mode/body in the existing order. These transient inputs are neither frozen nor stored as FunctionEntity operands. Preserve mode/body origin matching and semantic code validation. Return the actual Verb/Adverb/Conjunction entity through common function→into_item transport; remove an unnecessary DefinitionCode Arc clone. Preserve code/source provenance without creating invocation/local frames or executing bodies. Computed-definition coverage is not expanded.
+
+Two unit regressions verify pointer/source span and g/h identities for a grouped owned 65,536-atom fork constant, shared survival through two reuses after fork destruction, deferred-noun rejection, and definition class-guard precedence over deferred inputs with existing domain/Unsupported behavior. One integration regression checks explicit/direct construction and commit for every function POS, unchanged body-counter version/value and no body-name input observations. Add **12 C definition corpus/stage cases** covering the same six constructors and counter reads. Entity-boundary fixtures remain separately at 88.
+
+**Fork/definition gate:** Windows default/portable each: **381 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,851 cases / 4,847 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,031 checks**; words: **6,618 cases / 0 failed**. Record **114 capture-graph boundaries** and 2 static boundaries separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+
+Next audit remaining completed-result/function-wrapper boundaries, remove only unnecessary adapters, and reconcile frontend F/P checklists with supported versus unimplemented construction/execution. Full stack convergence, local/locale scopes and definition invocation remain incomplete. CUDA, optimizer implementation and GitHub CI remain deferred.
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

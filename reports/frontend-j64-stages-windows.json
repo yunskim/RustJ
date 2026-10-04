@@ -26,7 +26,7 @@
     "test/g0x.ijs": "347cae3454e26505de6679fc0451b258d7acc99828fe65cc0a2c1f0037a3da6e"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "a88080904ecfe43312974ffba07f18a4fa88e7ef5741426decc0a57e6eb2b075",
+  "probe_sha256": "e9cccda89b36aa6f565d5473920e893c65b7b828b22abd93b52c55ad2f5eac49",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -73,8 +73,8 @@
     "late_modifier_error": 3,
     "late_modifier_decode_setup": 4,
     "late_modifier_decoded_snapshot": 2,
-    "definition_no_execution_or_transaction": 9,
-    "definition_constructor": 16,
+    "definition_no_execution_or_transaction": 15,
+    "definition_constructor": 22,
     "definition_multiline_constructor": 5,
     "definition_valence_error": 2,
     "entity_boundary_noun_assignment": 19,

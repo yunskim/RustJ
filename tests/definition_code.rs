@@ -190,3 +190,76 @@ fn multiple_root_codes_survive_train_construction_without_body_execution() {
     static_engine.prepare_semantic(source).unwrap();
     assert!(static_engine.binding_version("combined").is_none());
 }
+
+#[test]
+fn definition_result_transport_preserves_all_pos_without_body_lookup_or_execution() {
+    use rustj::{parser::ParseClass, parser_capture::CaptureEvent};
+    let mut engine = Engine::new();
+    engine.eval("transportcounter=:0").unwrap();
+    let before = engine.binding_version("transportcounter");
+    for (source, pos) in [
+        (
+            "transportdef=:3 : 'transportcounter=:99+y'",
+            FunctionPartOfSpeech::Verb,
+        ),
+        (
+            "transportdef=:1 : 'transportcounter=:99+u y'",
+            FunctionPartOfSpeech::Adverb,
+        ),
+        (
+            "transportdef=:2 : 'transportcounter=:99+u v y'",
+            FunctionPartOfSpeech::Conjunction,
+        ),
+        (
+            "transportdef=:{{transportcounter=:99+y}}",
+            FunctionPartOfSpeech::Verb,
+        ),
+        (
+            "transportdef=:{{transportcounter=:99+u y}}",
+            FunctionPartOfSpeech::Adverb,
+        ),
+        (
+            "transportdef=:{{transportcounter=:99+u v y}}",
+            FunctionPartOfSpeech::Conjunction,
+        ),
+    ] {
+        let report = engine.eval_captured(source);
+        report.result.unwrap();
+        report.capture.verify().unwrap();
+        let entity = report
+            .capture
+            .events
+            .iter()
+            .find_map(|e| match e {
+                CaptureEvent::Commit {
+                    name,
+                    class,
+                    function: Some(f),
+                    ..
+                } if name == "transportdef" => {
+                    assert_eq!(*class, ParseClass::from(pos));
+                    Some(f)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let FunctionHead::ExplicitDefinition(code) = &entity.head else {
+            panic!()
+        };
+        assert_eq!(code.result_pos, pos);
+        assert_eq!(entity.result_pos, pos);
+        assert!(entity.operands.is_empty());
+        assert_eq!(engine.binding_version("transportcounter"), before);
+        assert_eq!(
+            engine
+                .eval("transportcounter")
+                .unwrap()
+                .unwrap()
+                .int_at(0)
+                .unwrap(),
+            0
+        );
+        assert!(!report.capture.events.iter().any(|e| matches!(e,
+            CaptureEvent::Input { name: Some(name), .. } if name == "transportcounter")));
+    }
+}
