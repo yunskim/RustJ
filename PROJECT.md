@@ -1870,17 +1870,23 @@ The ordering is intentional. Do not grow the optimizer or GPU backend while dupl
 
 This track does **not** insert a new milestone into the M0–M6 critical path. JE0 documentation/code audit may proceed alongside M2, but representation migration from JE1 onward starts only after **M2 frontend semantics are stable and M3 has separated logical noun identity from CPU backing**. It is not a prerequisite for the first M4 CPU vertical slice.
 
-Goal: adopt the semantic idea behind jsource's common J-entity universe without copying its C allocation/runtime layout. Nouns and functions share a top-level semantic identity; `Verb`/`Adverb`/`Conjunction` remain distinct function POS, and physical buffers/layout/device state remain downstream.
+Goal: adopt the semantic idea behind jsource's common carrier specifically at the semantic `RHS = NOUN + FUNC` boundary without copying its C allocation/runtime layout. RustJ `JEntity` is `Noun | Function(POS=Verb|Adverb|Conjunction)`. Function entities do not acquire noun-style semantic shape/rank; any future shaped entity view gets its shape from an actual source/container noun such as a boxed gerund representation.
 
 #### JE0 — audit current semantic carriers and jsource correspondence
 - [x] Fix the goal: `JEntity` is a semantic abstraction, not a common physical-allocation abstraction.
 - [x] Confirm that current `Value`, `FunctionEntity`, and `FunctionOperand` can be mapped to the common-entity idea without copying jsource storage layout.
+- [x] Recheck current jsource `RHS = NOUN + FUNC` and `FUNC = VERB + ADV + CONJ`; scope RustJ `JEntity` to semantic RHS values rather than all `A` block classes.
+- [x] Confirm that current jsource does not use AN/AR for functions; do not assign noun-style array shape/rank to FunctionEntity.
+- [x] Recheck assignment/name lookup: assignment can transport Noun/Verb/Adverb/Conjunction RHS values, while noun lookup and function nameref late lookup have different timing semantics.
+- [x] Recheck bident/trident construction: some parser actions produce an immediate Noun, so the generic construction result is `JEntity`, not always Function.
+- [x] Recheck gerund conversion: a boxed noun may preserve its container shape while internal boxes hold function-typed entities; treat any future EntityArray as a contextual shaped view, not a first-class function array.
 - [ ] Inventory `Value`, `FunctionEntity`, `FunctionOperand`, parser stack items, binding/assignment results, `NameRef`, `DefinitionCode`, and gerund views.
 - [ ] Record representative jsource differential cases where nouns/functions cross the same parser/binding/assignment boundary.
 - [ ] Identify duplicate noun/function carrier enums and prevent current `CpuStorage` from becoming a canonical JEntity dependency.
 
 #### JE1 — introduce the minimum common JEntity identity
-- [ ] Design minimal `JEntity`/`JEntityRef` semantics for Noun vs Function plus actual function POS.
+- [ ] Design minimal `JEntity`/`JEntityRef` semantics with direct semantic variants `Noun` and `Function`, the latter carrying Verb/Adverb/Conjunction POS.
+- [ ] Keep lexical NAME, unresolved references, binding/version, and provenance in separate reference/control structures rather than inventing more JEntity POS variants.
 - [ ] Reuse shared `FunctionEntity`; do not duplicate Verb/Adverb/Conjunction payloads.
 - [ ] Keep noun identity logical and free of BufferId/layout/device state.
 - [ ] Separate entity identity from provenance/binding metadata where appropriate.
@@ -1891,25 +1897,30 @@ Goal: adopt the semantic idea behind jsource's common J-entity universe without 
 - [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules.
 - [ ] Generalize assignment to write and return the same assigned `JEntity`.
 - [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order.
+- [ ] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. A common JEntity carrier must not erase this distinction.
 - [ ] Use the same boundary for explicit/direct definitions across static/runtime paths.
 
-#### JE3 — prove whether EntityArray is actually needed
-- [ ] Decide whether `EntityArray` is a compiler-internal entity collection/view rather than a new J-visible noun kind; default to internal.
-- [ ] Validate homogeneous-POS, heterogeneous collection, and rank-0 entity-array needs against real J semantics.
-- [ ] Keep entity-container shape metadata distinct from J noun shape semantics where required.
+#### JE3 — prove whether a shaped entity-collection view is needed
+- [ ] Prefer `EntityCollectionView` / `EntityArrayView` over a first-class EntityArray type. It is a contextual projection of an existing boxed/internal container, not a new J-visible noun kind.
+- [ ] The view's shape/rank comes only from the source/container noun; never copy it onto FunctionEntity.
+- [ ] Classify real modifier semantics that need homogeneous-POS or mixed interpreted entity collections.
+- [ ] Distinguish a rank-0 container view from claiming that a Function itself has array rank.
 - [ ] Do not invent arbitrary arrays of verbs as a new J language feature.
-- [ ] Preserve train/Hook/Fork DAG structure rather than flattening it into an array.
-- [ ] Implement `EntityArray` only if at least two real semantic use cases require array structure beyond a simple entity sequence.
+- [ ] Preserve train/Hook/Fork DAG structure rather than flattening it into a shaped collection.
+- [ ] Keep ordinary boxed noun semantics recoverable when the interpretation context is absent.
+
+Completion: implement a shaped view only if real J semantics (for example gerund interpretation) require preserving source-container shape. A simple function sequence is sufficient otherwise. Function entities themselves remain non-array semantic entities.
 
 #### JE4 — integrate gerund/boxed higher-order semantics
 - [ ] Preserve gerund as boxed noun plus context-specific interpretation, not a global new POS/atom type.
-- [ ] Create an entity-sequence/EntityArray view only in modifier contexts that require gerund interpretation.
+- [ ] Create an `EntityCollectionView`/`EntityArrayView` only in modifier contexts that require gerund interpretation, preserving the source boxed noun's shape.
+- [ ] Do not copy container rank/shape onto function entities stored/referenced by the view.
 - [ ] Preserve fix/late-binding/version rules for embedded names/functions.
 - [ ] Compare the current `decoded_gerund` special case with the common entity view and remove it only if semantics remain exact.
 
 #### JE5 — keep entity algebra separate from array-execution algebra
 - [ ] Function entities remain semantic entities; an applied verb enters array-execution IR only when it consumes noun input(s) and produces a noun result.
-- [ ] Validate monadic/dyadic verb application and adverb/conjunction derivation through the common entity contract.
+- [ ] Validate monadic/dyadic verb application and modifier derivation through the common entity contract, including parser bident/trident actions that can immediately produce a Noun result.
 - [ ] Keep CellApply/Reduce/Scan/Reindex in the applied array-computation layer.
 - [ ] Keep effect flow orthogonal to entity/value flow.
 - [ ] Ensure J Graph/Logical IR does not depend on EntityArray physical storage/layout.
