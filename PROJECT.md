@@ -1792,7 +1792,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: the 2026-10-04 JE2 constructor-operand stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
+Code/document review baseline: the 2026-10-04 JE2 rank-operand stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
 - explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
@@ -1819,7 +1819,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (JE2 constructor-operand stage): Windows default/portable each: **375 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,827 cases / 4,823 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,007 checks**; words: **6,618 cases / 0 failed**. Keep 108 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C runtime trace equivalence remain unverified.
+- latest frontend validation (JE2 rank-operand stage): Windows default/portable each: **378 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,839 cases / 4,835 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,019 checks**; words: **6,618 cases / 0 failed**. Capture-graph boundaries total **110**, including two added fixtures; static boundaries remain 2. Record these separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
@@ -1960,6 +1960,7 @@ The minimum JE1 API and first boundary are complete; SymbolValue convergence is 
 - [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules. Runtime rows 0–2 and row 7 completed-result transport are implemented below; convergence of all stack variants remains separate.
 - [x] Connect completed runtime nouns and all four row-7 RHS classes through CompletedParseResult/JEntity. Keep deferred Expr, NAME and control separate from concrete entities.
 - [x] Move modifier-train Noun/Verb/Adverb/Conjunction operands through the same completed-result boundary, preserving noun source spans/freezing and function DAG identities.
+- [x] Connect rank/@: conjunction operands through completed-result transport, preserving right-before-left audits, quiet gerund fallback and original Expr spans.
 - [x] Generalize assignment to write and return the same assigned `JEntity`. Binding.value and the runtime host now use JEntity; remove SymbolValue.
 - [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order. Top-level runtime lookup/Verb/Modifier checks are implemented; full local/locale/definition scopes remain incomplete.
 - [x] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. JEntity bindings preserve timing/POS/version semantics under the existing 71 cases plus 11 noun/function replacement cases.
@@ -2015,6 +2016,18 @@ Two new regressions verify zero-copy freezing/source-span retention of a grouped
 **Constructor-operand gate:** Windows default/portable each: **375 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,827 cases / 4,823 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,007 checks**; words: **6,618 cases / 0 failed**. Keep 108 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Source/DLL pins match the namespace gate above. Full upstream tests, definition invocation acceptance and private C runtime trace equivalence remain unverified.
 
 Next lock rank/conjunction right-before-left error precedence and gerund audit contracts before deciding how to reuse common transport there. This does not complete JE2 or full J parsing.
+
+#### JE2 implementation — rank/conjunction operands and error precedence (2026-10-04, partial JE2)
+
+Connect apply_conjunction_at Noun/Verb operands through CompletedParseResult::from_item/into_operand. Check the right operand form first; @: noun-right domain errors precede deferred-noun Unsupported. For rank noun-right, audit rank→length→numeric domain before inspecting the left operand or auditing gerunds. Preserve the original Expr-span versus parser reinsertion-override distinction. Common transport owns existing noun freezing and function DAG moves.
+
+Evidence is pinned [cr.c::jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L733): right-rank extraction precedes the noun-left branch. Only boxed rank-1 nouns are audited as gerunds; skip audits when all requested ranks are RMAX. J fx errors quietly fall back to the constant noun with no partial decoded list. Continue propagating RustJ Unsupported boundaries rather than pretending an unimplemented C feature succeeded. Retain verb-right as its original function operand, separately from noun-left function identity.
+
+Two new unit tests verify pointer/Expr spans for an owned 65,536-atom constant and rank noun, right rank/length/domain precedence over a deferred left, and @: noun-right domain precedence. One capture regression checks no gerund lookup/commit and unchanged binding versions after right errors; quiet audits with valid rank/verb-right; infinite-rank audit skipping; and partial decode removal. Add **12 setup, error/retained-binding use, quiet/RMAX/verb-right construction cases** to compound-gerund C corpus/stages. Entity-boundary fixtures remain separately at 88.
+
+**Rank-operand gate:** Windows default/portable each: **378 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,839 cases / 4,835 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,019 checks**; words: **6,618 cases / 0 failed**. Capture-graph boundaries total **110**, including two added fixtures; static boundaries remain 2. Record these separately from runtime passes. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+
+Next JE2 candidates: noun-left fork and definition-constructor completed-value boundaries, first checking source spans, constructor errors and no-body-execution contracts. Full stack convergence, scopes and definition invocation remain incomplete.
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

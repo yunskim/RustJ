@@ -1400,3 +1400,58 @@ fn ar_constructor_inventory_errors_preserve_target_and_noun_execution_boundary()
         "unsupported"
     );
 }
+
+#[test]
+fn rank_operand_errors_precede_gerund_lookup_and_rmax_skips_quiet_audit() {
+    let mut engine = Engine::new();
+    engine.eval("auditnoun=:7").unwrap();
+    engine
+        .eval("auditar=:(<'3'),<((<'auditnoun'),(<''),<'-')")
+        .unwrap();
+    engine.eval("auditkeep=:+").unwrap();
+    let version = engine.binding_version("auditkeep");
+    for (right, kind) in [
+        ("'x'", "domain error"),
+        ("1 2 3 4", "length error"),
+        ("(2 2$0)", "rank error"),
+    ] {
+        let source = format!("auditkeep=: (,<auditar)\"{right}");
+        let report = engine.eval_captured(&source);
+        report.capture.verify().unwrap();
+        assert_eq!(report.result.unwrap_err().kind(), kind, "{source}");
+        assert_eq!(engine.binding_version("auditkeep"), version);
+        assert!(!report.capture.events.iter().any(|e| matches!(
+            e,
+            CaptureEvent::GerundNameResolved { .. } | CaptureEvent::Commit { .. }
+        )));
+    }
+    for (right, audited) in [("0", true), ("+", true), ("_", false), ("63 63 63", false)] {
+        let source = format!("auditfn=: (,<auditar)\"{right}");
+        let report = engine.eval_captured(&source);
+        report.result.unwrap();
+        report.capture.verify().unwrap();
+        assert_eq!(
+            report.capture.events.iter().any(|e| matches!(e,
+            CaptureEvent::GerundNameResolved { read, .. } if read.name == "auditnoun")),
+            audited
+        );
+        let entity = report
+            .capture
+            .events
+            .iter()
+            .find_map(|e| match e {
+                CaptureEvent::Commit {
+                    function: Some(f), ..
+                } => Some(f),
+                _ => None,
+            })
+            .unwrap();
+        // Failed fx audit is quiet; no partially decoded functions survive.
+        assert!(entity.decoded_gerund.is_none());
+        let rustj::semantic::FunctionOperand::Noun { value, span } = &entity.operands[0] else {
+            panic!()
+        };
+        assert_eq!(value.shape(), [1]);
+        assert_eq!(&source[span.clone()], "(,<auditar)");
+    }
+}

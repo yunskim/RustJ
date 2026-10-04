@@ -1116,53 +1116,55 @@ fn apply_conjunction_at(
     };
     // cr.c::jtqq audits the right rank operand before inspecting noun-left
     // constant/gerund construction. Keep both original operands in the DAG.
-    let ranks;
-    let right_operand = match right.value {
+    let right_span = match &right.value {
         ParseValue::Noun(expr, _) => {
             if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Atop)) {
                 return Err(Error::Domain);
             }
-            let noun_span = expr.span.clone();
-            let value = completed_noun(expr, "runtime-dependent conjunction noun operand")?;
-            ranks = Some(rank_noun_contract(&value)?);
-            FunctionOperand::Noun {
-                span: noun_span,
-                value: value.into_shared(),
-            }
+            expr.span.clone()
         }
-        ParseValue::Verb(verb) => {
-            ranks = None;
-            FunctionOperand::Function(verb.entity)
-        }
+        ParseValue::Verb(_) => right.span(),
         _ => return Err(Error::Syntax("invalid conjunction right operand".into())),
     };
-    let mut decoded = None;
-    let left_operand = match left.value {
-        ParseValue::Verb(verb) => FunctionOperand::Function(verb.entity),
+    let mut right =
+        CompletedParseResult::from_item(right, "runtime-dependent conjunction noun operand")?;
+    // Preserve the constructor's original Expr provenance, independently of
+    // parser reinsertion overrides. Audit before inspecting any left operand.
+    right.span = right_span;
+    let ranks = match &right.entity {
+        JEntity::Noun(value) => Some(rank_noun_contract(value)?),
+        JEntity::Function(_) => None,
+    };
+    let right_operand = right.into_operand();
+
+    let left_span = match &left.value {
+        ParseValue::Verb(_) => left.span(),
         ParseValue::Noun(expr, _) => {
             if !matches!(primitive_id, Some(crate::primitive::ConjunctionId::Rank)) {
                 return Err(Error::Domain);
             }
-            let noun_span = expr.span.clone();
-            let value = completed_noun(expr, "runtime-dependent noun-left rank operand")?;
-            if value.shape.len() == 1
-                && matches!(value.data, crate::value::Data::Boxed(_))
-                && ranks != Some([63; 3])
-            {
-                match audit_gerund(&value, noun_span.clone(), depth + 1, names) {
-                    Ok(functions) => decoded = Some(functions),
-                    Err(error) if error.kind() == "unsupported" => return Err(error),
-                    // cr.c suppresses failed fx audits and uses the noun itself.
-                    Err(_) => {}
-                }
-            }
-            FunctionOperand::Noun {
-                value: value.into_shared(),
-                span: noun_span,
-            }
+            expr.span.clone()
         }
         _ => return Err(Error::Syntax("invalid conjunction left operand".into())),
     };
+    let mut left =
+        CompletedParseResult::from_item(left, "runtime-dependent noun-left rank operand")?;
+    left.span = left_span;
+    let mut decoded = None;
+    if let JEntity::Noun(value) = &left.entity {
+        if value.shape.len() == 1
+            && matches!(value.data, crate::value::Data::Boxed(_))
+            && ranks != Some([63; 3])
+        {
+            match audit_gerund(value, left.span.clone(), depth + 1, names) {
+                Ok(functions) => decoded = Some(functions),
+                Err(error) if error.kind() == "unsupported" => return Err(error),
+                // cr.c suppresses failed fx audits and uses the noun itself.
+                Err(_) => {}
+            }
+        }
+    }
+    let left_operand = left.into_operand();
     let operands = vec![left_operand, right_operand];
     Ok(Verb {
         span: span.clone(),
@@ -3502,5 +3504,133 @@ mod completed_constructor_operand_tests {
         let error =
             modifier_train(vec![Item::mark(0), Item::mark(1)], ParseClass::Adverb).unwrap_err();
         assert_eq!(error.kind(), "syntax error");
+    }
+}
+
+#[cfg(test)]
+mod rank_constructor_transport_tests {
+    use super::*;
+    use crate::{primitive::ConjunctionId, value::Data};
+
+    #[test]
+    fn rank_constructor_moves_both_nouns_and_preserves_expression_provenance() {
+        let left = Value::ints([65536], (0..65536).collect()).unwrap();
+        let right = Value::ints([3], vec![0, 1, 2]).unwrap();
+        let pointer = |value: &Value| {
+            let Data::Int(data) = value.data() else {
+                panic!()
+            };
+            data.as_ptr()
+        };
+        let left_pointer = pointer(&left);
+        let right_pointer = pointer(&right);
+        let verb = apply_conjunction_at(
+            Item::noun(
+                Expr {
+                    span: 1..8,
+                    kind: ExprKind::Literal(left),
+                },
+                0,
+            )
+            .with_span(0..9),
+            FunctionEntity::primitive_conjunction(ConjunctionId::Rank, 9..10),
+            Item::noun(
+                Expr {
+                    span: 11..16,
+                    kind: ExprKind::Literal(right),
+                },
+                0,
+            )
+            .with_span(10..17),
+            0..17,
+            0,
+            ConstructionNames::default(),
+        )
+        .unwrap();
+        let [
+            FunctionOperand::Noun {
+                value: left,
+                span: left_span,
+            },
+            FunctionOperand::Noun {
+                value: right,
+                span: right_span,
+            },
+        ] = verb.entity.operands.as_slice()
+        else {
+            panic!()
+        };
+        assert_eq!(pointer(left), left_pointer);
+        assert_eq!(pointer(right), right_pointer);
+        assert_eq!(left_span, &(1..8));
+        assert_eq!(right_span, &(11..16));
+        assert_eq!(left.int_at(65535).unwrap(), 65535);
+        assert_eq!(right.int_at(2).unwrap(), 2);
+    }
+
+    #[test]
+    fn invalid_right_rank_precedes_deferred_left_and_atop_keeps_domain_precedence() {
+        let deferred = || {
+            Item::noun(
+                Expr {
+                    span: 0..4,
+                    kind: ExprKind::ReadName("late".into()),
+                },
+                0,
+            )
+        };
+        let rank = || FunctionEntity::primitive_conjunction(ConjunctionId::Rank, 4..5);
+        let noun = |value| {
+            Item::noun(
+                Expr {
+                    span: 5..9,
+                    kind: ExprKind::Literal(value),
+                },
+                0,
+            )
+        };
+        for (value, kind) in [
+            (Value::ints([2, 2], vec![0; 4]).unwrap(), "rank error"),
+            (Value::ints([4], vec![0; 4]).unwrap(), "length error"),
+            (
+                Value::new(
+                    [1],
+                    Data::Char(crate::storage::CpuStorage::Owned(vec![b'x'])),
+                )
+                .unwrap(),
+                "domain error",
+            ),
+        ] {
+            let error = apply_conjunction_at(
+                deferred(),
+                rank(),
+                noun(value),
+                0..9,
+                0,
+                ConstructionNames::default(),
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), kind);
+        }
+        let error = apply_conjunction_at(
+            deferred(),
+            rank(),
+            noun(Value::scalar(0)),
+            0..9,
+            0,
+            ConstructionNames::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), "unsupported");
+        let error = apply_conjunction_at(
+            deferred(),
+            FunctionEntity::primitive_conjunction(ConjunctionId::Atop, 4..5),
+            deferred(),
+            0..9,
+            0,
+            ConstructionNames::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), "domain error");
     }
 }

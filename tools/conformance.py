@@ -64,6 +64,14 @@ def compound_gerund_cases():
     for value in invalid:
         out += ['compoundar=: ' + value, 'compoundkeep=: (,<compoundar)\\',
                 'compoundkeep i.3', 'compoundfn=: (,<compoundar)"0']
+    out += ['rankauditnoun=:7',
+            "rankauditar=:(<'3'),<((<'rankauditnoun'),(<''),<'-')",
+            'rankauditkeep=:+']
+    for right in ["'x'", '1 2 3 4', '(2 2$0)']:
+        out += ['rankauditkeep=: (,<rankauditar)"' + right,
+                'rankauditkeep i.3']
+    for right in ['0', '_', '+']:
+        out += ['rankauditfn=: (,<rankauditar)"' + right]
     return out
 
 

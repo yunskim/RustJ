@@ -487,7 +487,7 @@ def run(args):
         # R runs shared runtime parser construction and projects the completed
         # function for comparison with C 5!:1/4!:0. A stays read-only.
         for source in compound_gerund_cases():
-            if source.startswith(('compoundfn=:', 'compoundkeep=:')):
+            if source.startswith(('compoundfn=:', 'compoundkeep=:', 'rankauditfn=:', 'rankauditkeep=:')):
                 error = oracle.run(source)
                 actual = static_probe.inspect(source, 'R')
                 if error:
