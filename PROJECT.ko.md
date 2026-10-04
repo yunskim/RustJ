@@ -3,11 +3,18 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 문서 갱신일: 2026-10-04
+> 문서 갱신일: 2026-10-05
 >
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
 > 그 외 개별 설계 보고서·진행 보고서·체크리스트 Markdown 파일은 새로 만들지 않는다. 기계가 생성한 측정 원자료(JSON/JSONL)는 `reports/`에 별도로 보존한다.
+
+### 빠른 안내 — 현재 우선순위와 문서 읽기
+
+- **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
+- **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
+- **최신 검증:** verb-valued rank 반환 경계 단계의 Windows default/portable 각각 426 passed / 17 ignored, C 기본·AVX2의 세 runtime 경로 각각 5,331 cases / failed 0. capture graph 250건과 static 2건의 경계는 별도이며 full J/upstream 통과를 뜻하지 않는다. 세부 기록은 §10, 최신 요약은 §12를 따른다.
+- **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 ## 1. 프로젝트 목적
 
@@ -1691,6 +1698,51 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 
 
 ---
+
+<a id="dynamic-semantic-boundaries"></a>
+
+### 3.9 동적 의미와 컴파일 경계 계약
+
+이 절은 §3.4/§3.7/§3.8의 순서·이름 의미와 FOUNDATIONS §21/§33을 실행 경로 선택의 조건으로 모은 **설계 계약**이다. 구문별 영구 컴파일 금지 목록을 만들지 않는다. J-valid 여부, graph 구성/부분 분석 가능 여부, 특정 변환의 적법성, 특정 backend의 실행 capability는 서로 다른 판정이다. frontend가 실제 constructor/POS를 아직 확정하지 못하면 source·원인·시점의 경계를 보고하며 가짜 completed graph를 만들지 않는다.
+
+#### 3.9.1 경계별 필요한 근거와 처리
+
+| 경계 | 필요한 근거 | 검사·사용 시점 | 근거가 없거나 무효일 때 | 현재 구현 상태 |
+|---|---|---|---|---|
+| **DB-N noun 입력** | J가 읽은 noun snapshot과 dtype/rank/shape; contents 조건은 별도 | parser가 요구하는 noun read 시점. 외부 분석 metadata는 실제 입력 연결 시 별도 확인 | 확보한 facts만 분석. payload를 상수로 추측하거나 후속 binding으로 기존 noun을 교체하지 않음 | noun snapshot과 WI1 metadata 검사는 존재. WI1은 atoms·binding·effect·storage 안전성 또는 실행 계획 재사용을 증명하지 않음 |
+| **DB-F 이름으로 호출하는 함수** | 실제 lookup 환경, 현재 POS/callable, 전문화가 사용한 binding의 안정성 | J parser-time POS lookup과 call-time late lookup을 각각 보존. 생성 시 복사한 rank/cap 의미는 별도 constructor 사실 | NAME/source DAG와 동적 호출을 보존. 안정성 없는 inline/CSE/hoist/전문화를 거부 | late NAME/POS 처리와 constructor snapshot seam은 일부 구현. catalog version은 runtime witness가 아니며 통합 guard dispatcher 미구현 |
+| **DB-L local/locale 검색·변경** | 호출 frame, local binding 유무, current locale/path, locative와 검색 결과의 유효성 | 실제 의미적 lookup 지점 및 영향 있는 namespace/context 변경 뒤 | runtime lookup/write와 순서를 유지. 단일 referent version만으로 전체 검색 결과를 고정하지 않음 | local/public assignment와 modifier frame 일부 구현. full locale/locative/path guard는 미구현 |
+| **DB-X 문자열 실행 `".`** | 문자열 내용과 실행 환경/POS/효과 계약. 상수 문자열만으로 purity를 증명하지 못함 | 실행 지점. 동적 문자열은 지원되는 shared frontend/JIT 경로가 실제 존재할 때 처리 | opaque runtime 경계. 임의 상수 치환이나 문자열만의 cache key로 실행 환경을 생략하지 않음 | general execute/JIT/cache route는 이 계약으로 지원을 선언하지 않음; 구현·검증 후 capability 등록 |
+| **DB-C 값 의존 modifier/definition 생성** | 필요한 noun 값, constructor 성공/오류, 실제 result POS와 생성 사실 | 해당 parser reduction 지점. semantic runtime action이 이후 이름/POS 해석에 영향을 주면 그 뒤 파싱도 같은 상태를 사용 | 생성 경계에서 shared semantic parsing 요구. 실행하거나 생성하지 않은 결과를 추측하지 않음 | shared parser/runtime constructor와 capture 일부 구현. static 값 부족·full definition/control coverage는 경계 유지 |
+| **DB-E 효과·관찰 가능한 오류** | namespace/resource read/write, I/O/context 변경, error/throw 및 catch 가능성, speculation 계약 | 원래 의미적 실행 순서. 재배치/병렬화/생략 전 legality 확인 | ordering barrier 유지. effect unknown을 pure로, unused result를 unused effect로 간주하지 않음 | 일부 runtime 순서·오류 회귀와 초기 effect 계약 존재. full effect graph/optimizer legality·dispatch 완료를 뜻하지 않음 |
+| **DB-A 값 의존 결과·boxed/sparse·rank assembly** | 실제 연산의 type/shape/구조·empty prototype·fill/assembly 계약 | 필요한 facts를 알 때 분석하고 실행 시 잔여 조건 확인 | unknown 또는 conservative lowering. 검증되지 않은 uniform tensor/affine access로 축소하지 않음 | foundations와 일부 실행/분석 존재. general prototype·heterogeneous assembly·full boxed/sparse 경계는 계속 미완료 |
+
+이 표의 runtime 처리는 **존재하고 검증된 RustJ capability에 한정**한다. 가능한 fallback이 항상 있다고 가정하지 않으며 C 엔진으로 넘기지 않는다. 지원 경로가 없으면 implementation coverage 경계로 보고하고 J-invalid 오류와 구분한다.
+
+#### 3.9.2 허가하지 않는 변환과 guard 실패 계약
+
+- 안정성 근거 없이 NAME을 inline하거나, 문장 시작 환경으로 모든 이름을 고정하지 않는다. `=.`/`=:`/locale 변경·dynamic execute가 lookup에 미치는 영향을 보존한다. unbound local에서 locale로 내려간 lookup도 이후 local binding 생성으로 무효가 될 수 있다.
+- 검사한 binding/metadata가 **사용 시점까지 같은 의미를 갖는다는 근거**를 요구한다. region entry의 version 검사 하나로 충분하다고 가정하지 않는다. 필요한 변경 지점에서 다시 검사하거나, 분석으로 그 사이의 변경 불가능성을 증명한다. concurrency가 있으면 snapshot/lease/synchronization 등 실제 계약이 추가로 필요하다.
+- constructor-fixed rank·cap 정보와 executable binding witness를 섞지 않는다. implicit operand를 fix하여 modifier를 재구성한 **새 entity**의 생성 사실은 원래 entity의 late lookup 변경과 다르다.
+- topology만으로 fork를 병렬 실행하거나 효과·오류가 있는 호출을 CSE/hoist/speculate/delete하지 않는다. Graph IR을 보존·분석할 수 있다는 사실은 해당 변환의 허가가 아니다.
+- specialization guard miss는 J semantic error가 아니다. effect 이전에 재분석하거나 지원 route를 선택한다. 명시 입력 계약 위반과 J 자체의 오류는 각각 별도 정책을 따른다. compiler 분석용 실패를 원래 J 오류 대신 사용자에게 먼저 노출하지 않는다.
+- **effect 이후 문장 전체 자동 replay를 금지한다.** 후속 runtime 전환은 이미 수행한 write/I/O, live noun snapshot, frame/locale 및 parser queue/stack·reduction 위치를 포함하는 정확한 continuation이 구현·검증되었을 때만 허용한다. 그 전에는 effect 이전 경로 선택만 지원하고 중간 전환 capability를 선언하지 않는다.
+- backend precondition miss는 그 route의 거부다. 의미를 검증하지 않은 다른 backend나 native path를 자동으로 성공 가능한 fallback처럼 사용하지 않는다.
+
+#### 3.9.3 unknown 분류와 구현 경계
+
+| 미확정 정보 | 가능한 정적 작업 | 추가로 필요한 조건 |
+|---|---|---|
+| shape/type/extent | 알려진 graph topology, 부분 shape/resource 식과 경계 보고 | 해당 kernel/메모리 분석이 사용하는 잔여 조건 |
+| 함수 identity/POS 또는 constructor 결과 | source/provenance와 아직 확정 가능한 구조 보존 | 실제 lookup/constructor와 안정성 근거. POS가 미확정이면 completed parse를 추측하지 않음 |
+| effect/error/alias | 보수적 ordering·reuse barrier 유지 | 해당 변환을 허용할 legality proof |
+| physical layout/device/capability | Logical 의미와 route 후보 보존 | representation/target adapter 검증. logical facts에 physical 가정을 넣지 않음 |
+
+현재 `GraphAnalyzability`의 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback과 `AnalysisBoundary`는 초기 분류다. **Static은 pure/error-free/reorderable/executable을 뜻하지 않는다.** `validate_noun_inputs()` 성공도 함수·효과·전체 실행 안전성을 뜻하지 않는다. 위 분류를 full guard/continuation/dispatcher의 구현으로 오인하지 않는다.
+
+이행 항목의 정본은 [§10 DB0–DB7 체크리스트](#dynamic-boundary-checklist)에 둔다. 검사 대상과 구현 상태는 위 계약을 따른다.
+
+근거: [FOUNDATIONS §21/§33](FOUNDATIONS.ko.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7의 분류·이행 순서는 RustJ 설계 판단이며 upstream의 완성된 guard 시스템을 복제했다는 뜻이 아니다.
 
 ## 4. J Graph Analyzer와 Execution Semantic Lowering
 
@@ -7576,6 +7628,21 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 ## 10. 구현 계획과 체크리스트
 
 이 절이 앞으로 유일한 구현 체크리스트다.
+
+<a id="dynamic-boundary-checklist"></a>
+
+### DB — 동적 의미와 컴파일 경계 이행 (DB0–DB7)
+
+이 목록은 §10 M2→M3→M4와 WI3/WI4/M5–M8의 연결 지점이며 별도 병렬 backend 구현 계획이 아니다. **M2 frontend 수렴을 먼저 진행한다.** 해당 semantic 변경을 구현할 때 필요한 회귀를 추가하고, 최적화 자체는 별도 승인된 단계에서 진행한다.
+
+- [x] **DB0 계약 문서화:** 경계·검사 시점·변환 금지 조건·실패 처리와 초기 구현/미완료 상태를 정본과 mirror에 통합한다.
+- [ ] **DB1 구조화된 경계 보고:** source span, semantic phase, reason, 필요한 fact/witness, 허용 분석·거부 변환, 필요한 route capability를 기록한다. unknown facts·J-invalid·implementation coverage·route rejection을 구별하며 valid unsupported 사례의 원인을 보존한다.
+- [ ] **DB2 witness 유효성:** parser POS/constructor snapshot/call-time lookup을 구분한다. binding/frame/locale/path와 unbound-search 결과의 의존성을 추적하고 검사→사용 사이 mutation을 확인한다. WI4·M5/M6의 noun metadata 연결과 함께 구현한다.
+- [ ] **DB3 효과·오류 경계:** lookup/write/context/I/O/resource/error를 ordered region 또는 동등한 명시적 의존성으로 연결한다. fork/selector·같은 이름의 두 호출·assignment expression에서 값과 효과의 live-out을 분리한다.
+- [ ] **DB4 첫 실행 경로 선택:** Native CPU slice에서 effect 이전에 필요한 guard를 검사한다. miss 시 J 오류를 만들거나 replay하지 않고 실제 지원 경로/재분석/coverage 경계로 분기한다. 외부 route와 CUDA는 capability 증명 후 별도 확장한다.
+- [ ] **DB5 중간 전환의 선행 조건:** effect 이후 전환이 필요해질 때 continuation 상태·소유권·정확히 한 번 효과·오류 위치 계약을 먼저 명세·검증한다. 완료 전 중간 fallback을 활성화하지 않는다. full continuation을 첫 CPU slice의 무조건적 선행 조건으로 만들지 않는다.
+- [ ] **DB6 Windows 차분 gate:** NAME 재정의/POS 변경, local 미정의→정의, locale/path 변경, noun snapshot 뒤 재대입, 값 의존 constructor, 효과 뒤 오류/guard miss를 C 기본·AVX2와 비교한다. 값/type/shape뿐 아니라 lookup 시점·효과 순서·실패 후 binding과 실행 횟수를 검사한다. 현재 미지원 locale/execute는 별도 coverage로 보고한다.
+- [ ] **DB7 중후반 의미·성능 gate:** 검증된 direct runtime과 Logical/Physical 실행을 같은 입력으로 대조한다. guard hit/miss와 empty/boxed/sparse 경계를 포함하며 성능·복사/할당은 의미 통과 뒤 별도 측정한다. frontend 통과나 메타데이터 분석을 backend 실행/성능 통과로 승격하지 않는다.
 
 ### M — 현재 구조 수렴 실행 순서
 

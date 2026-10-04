@@ -16,6 +16,13 @@ The current implementation is transitional: a limited J frontend, direct CPU exe
 
 ---
 
+### Quick guide — current priority and reading order
+
+- **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
+- **Current priority:** continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
+- **Latest validation:** verb-valued rank return boundary: Windows default/portable each 426 passed / 17 ignored; each C base/AVX2 runtime route 5,331 cases / zero failures. Keep 250 capture-graph and two static boundaries separate; these counts do not establish full J/upstream coverage. See the JE2 stage records and current validation summary.
+- **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
+
 ## 1. Project goal
 
 RustJ aims to implement:
@@ -904,6 +911,50 @@ J Name, BindingVersion, semantic FunctionEntity, and Logical SSA ValueId are dis
 Late-bound function names must retain J semantics unless specialization is justified by a binding/version witness or runtime guard.
 
 Names must not be globally snapshotted at sentence start if doing so changes J's observable right-to-left lookup or assignment behavior.
+
+<a id="dynamic-semantic-boundaries"></a>
+
+### 5.2.1 Dynamic semantic boundary contracts
+
+This **design contract** consolidates name/order semantics and FOUNDATIONS §21/§33 into route-selection conditions. Do not create permanent syntax-level compilation bans. J validity, graph construction/partial analysis, transformation legality and backend execution capability are distinct decisions. If the frontend cannot establish the actual constructor/POS, report source/reason/phase rather than inventing a completed graph.
+
+| Boundary | Required evidence | Check/use point | Missing or invalid evidence | Current implementation |
+|---|---|---|---|---|
+| **DB-N noun inputs** | J-read noun snapshot and dtype/rank/shape; contents conditions separately | Semantic noun-read point; separately validate analysis metadata when actual inputs are bound | Analyze available facts only; neither invent constant payloads nor replace an existing snapshot with a later binding | Noun snapshots and WI1 metadata checks exist. WI1 does not prove atoms/bindings/effects/storage safety or executable-plan reuse |
+| **DB-F named functions** | Actual lookup environment, current POS/callable and binding stability used by specialization | Preserve parser-time POS lookup and call-time late lookup separately; copied rank/cap facts belong to construction | Preserve NAME/source DAG and dynamic calls; reject unproven inline/CSE/hoist/specialization | Partial late-name/POS and constructor snapshots exist. Catalog versions are not runtime witnesses; integrated guard dispatch is pending |
+| **DB-L local/locale lookup and mutation** | Call frame, local binding presence, current locale/path, locatives and search-result validity | Actual semantic lookup point and after relevant namespace/context mutations | Keep runtime lookup/write order; a referent version alone cannot fix the entire search result | Partial local/public assignment and modifier frames exist. Full locale/locative/path guards are pending |
+| **DB-X string execution `".`** | String contents plus execution environment/POS/effects; constant text does not prove purity | Execute point; dynamic strings require an actually supported shared frontend/JIT route | Opaque runtime boundary; do not substitute arbitrary constants or omit environment from a string-only cache key | This contract does not declare general execute/JIT/cache support; register capability after implementation/validation |
+| **DB-C value-dependent modifier/definition construction** | Required noun values, constructor success/errors, actual result POS and construction facts | Corresponding parser reduction; subsequent parsing must use state changed by semantic actions | Require shared semantic parsing at construction; do not guess unexecuted/unconstructed results | Partial shared parser/runtime constructors and capture exist. Static missing-value and full definition/control boundaries remain |
+| **DB-E effects and observable errors** | Namespace/resource reads/writes, I/O/context changes, errors/throw/catch behavior and speculation contracts | Original semantic order; establish legality before reorder/parallelization/elision | Preserve ordering barriers; unknown effects are not pure and unused results do not imply unused effects | Partial runtime order/error regressions and early effect contracts exist; full effect graphs/optimizer legality/dispatch remain incomplete |
+| **DB-A value-dependent results/boxed/sparse/rank assembly** | Operation type/shape/structure, empty prototype and fill/assembly contracts | Analyze known facts; validate residual conditions at execution | Unknown or conservative lowering; do not impose unverified uniform tensors/affine access | Foundations and partial execution/analysis exist; general prototype/heterogeneous assembly/full boxed/sparse boundaries remain |
+
+Runtime handling in this table requires **existing, verified RustJ capability**. Do not assume a fallback always exists or invoke the C engine. Missing support is an implementation-coverage boundary, distinct from invalid J.
+
+**Transformation and guard-failure rules**
+
+- Do not inline unstable NAMEs or freeze all names against the sentence-entry environment. Preserve the lookup consequences of `=.`/`=:`/locale mutation/dynamic execute. An unbound-local lookup that falls through to a locale can become invalid when a local binding is subsequently created.
+- Require evidence that checked bindings/metadata retain their meaning **until use**. One region-entry version check is not automatically sufficient. Recheck at relevant mutation points or prove intervening mutation impossible. Concurrent mutation additionally needs real snapshot/lease/synchronization contracts.
+- Keep constructor-fixed rank/cap facts separate from executable binding witnesses. Fixing implicit operands and reconstructing a **new entity** differs from late lookup changing an existing entity.
+- Topology alone permits neither fork parallelization nor CSE/hoist/speculation/deletion of effectful or observably failing calls. Graph preservation/analysis does not authorize these transforms.
+- A specialization guard miss is not a J error. Reanalyze or select a supported route before effects. Explicit input-contract violations and J errors have distinct policies; compiler-analysis failures must not replace or prematurely expose the original J error.
+- **Never automatically replay the whole sentence after effects.** A later runtime transition requires an implemented/verified exact continuation retaining completed writes/I/O, live noun snapshots, frame/locale and parser queue/stack/reduction position. Until then support only pre-effect selection and do not claim mid-execution transition capability.
+- A backend precondition miss rejects that route. Do not assume an unverified alternative backend/native path is a successful fallback.
+
+**Unknown facts and implementation boundaries**
+
+| Unknown information | Remaining static work | Residual conditions |
+|---|---|---|
+| Shape/type/extent | Known topology, partial shape/resource expressions and boundary reports | Conditions actually used by the kernel/memory analysis |
+| Function identity/POS or constructor result | Source/provenance and already justified structure | Actual lookup/construction and stability; never guess a completed parse when POS is unknown |
+| Effects/errors/alias | Conservative order/reuse barriers | Legality proof for the particular transform |
+| Physical layout/device/capability | Logical meaning and route candidates | Representation/target adapter validation; no physical assumptions in logical facts |
+
+Existing `GraphAnalyzability` states (Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback) and `AnalysisBoundary` are initial classifications. **Static does not mean pure/error-free/reorderable/executable.** `validate_noun_inputs()` does not prove function/effect/whole-execution safety. These classifications are not a completed guard/continuation/dispatcher implementation.
+
+Track implementation in the [DB0–DB7 migration checklist](#dynamic-boundary-checklist); boundary conditions and implementation status are defined above.
+
+Evidence: [FOUNDATIONS §21/§33](FOUNDATIONS.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7 classification/sequencing is a RustJ design decision, not a claim to have copied a complete upstream guard system.
+
 
 ---
 
@@ -2133,6 +2184,21 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 <a id="architecture-migration-checklist"></a>
 
 ## 17. Active migration checklist
+
+<a id="dynamic-boundary-checklist"></a>
+
+### DB — dynamic semantic boundary migration (DB0–DB7)
+
+Connect this checklist to M2→M3→M4 and WI3/WI4/M5–M8; it is not a parallel backend implementation program. **Continue M2 frontend convergence first.** Add regressions with each semantic implementation change; actual optimization belongs to a separately authorized stage.
+
+- [x] **DB0 document contracts:** consolidate boundaries, check points, prohibited unproven transforms, failure handling and initial/pending implementation status in canonical/mirror documents.
+- [ ] **DB1 structured boundary reports:** record source span, semantic phase, reason, required facts/witnesses, permitted analysis/rejected transforms and route capability. Distinguish unknown facts, invalid J, implementation coverage and route rejection while retaining valid-unsupported reasons.
+- [ ] **DB2 witness validity:** separate parser POS, constructor snapshots and call-time lookup. Track binding/frame/locale/path/unbound-search dependencies and mutation between check and use. Connect actual noun metadata through WI4 and M5/M6.
+- [ ] **DB3 effect/error boundaries:** connect lookup/write/context/I/O/resource/errors through ordered regions or equivalent explicit dependencies. Separate value/effect live-outs in forks/selectors, repeated named calls and assignment expressions.
+- [ ] **DB4 initial execution route selection:** check necessary guards before effects in the Native CPU slice. On miss choose actual supported routing/reanalysis/coverage boundaries without invented J errors or replay. Extend external/CUDA routes separately after capability proof.
+- [ ] **DB5 prerequisites for mid-execution transitions:** when needed, specify/verify continuation state, ownership, exactly-once effects and error positions first. Do not enable mid-execution fallback before completion or make full continuations an unconditional prerequisite for the first CPU slice.
+- [ ] **DB6 Windows differential gates:** compare NAME rebinding/POS changes, unbound→bound locals, locale/path changes, noun snapshots followed by rebinding, value-dependent construction and errors/guard misses after effects with C base/AVX2. Check lookup timing, effect order, post-failure bindings and execution counts alongside value/type/shape. Report currently unsupported locale/execute cases separately as coverage.
+- [ ] **DB7 later semantic/performance gates:** compare verified direct runtime with Logical/Physical execution on identical inputs. Include guard hit/miss and empty/boxed/sparse boundaries; measure performance/copies/allocations separately after semantic success. Frontend passes or metadata analysis do not establish backend execution/performance success.
 
 The Korean canonical document contains the authoritative detailed M0–M6 checklist. The English mirror follows the same order:
 
