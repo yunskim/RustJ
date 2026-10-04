@@ -1866,6 +1866,64 @@ M6  Add verified external routes such as ArrayFire/MLIR/StableHLO;
 
 The ordering is intentional. Do not grow the optimizer or GPU backend while duplicate canonical IRs and frontend semantic uncertainty remain.
 
+### JE0–JE6 auxiliary semantic track — JEntity / EntityArray
+
+This track does **not** insert a new milestone into the M0–M6 critical path. JE0 documentation/code audit may proceed alongside M2, but representation migration from JE1 onward starts only after **M2 frontend semantics are stable and M3 has separated logical noun identity from CPU backing**. It is not a prerequisite for the first M4 CPU vertical slice.
+
+Goal: adopt the semantic idea behind jsource's common J-entity universe without copying its C allocation/runtime layout. Nouns and functions share a top-level semantic identity; `Verb`/`Adverb`/`Conjunction` remain distinct function POS, and physical buffers/layout/device state remain downstream.
+
+#### JE0 — audit current semantic carriers and jsource correspondence
+- [x] Fix the goal: `JEntity` is a semantic abstraction, not a common physical-allocation abstraction.
+- [x] Confirm that current `Value`, `FunctionEntity`, and `FunctionOperand` can be mapped to the common-entity idea without copying jsource storage layout.
+- [ ] Inventory `Value`, `FunctionEntity`, `FunctionOperand`, parser stack items, binding/assignment results, `NameRef`, `DefinitionCode`, and gerund views.
+- [ ] Record representative jsource differential cases where nouns/functions cross the same parser/binding/assignment boundary.
+- [ ] Identify duplicate noun/function carrier enums and prevent current `CpuStorage` from becoming a canonical JEntity dependency.
+
+#### JE1 — introduce the minimum common JEntity identity
+- [ ] Design minimal `JEntity`/`JEntityRef` semantics for Noun vs Function plus actual function POS.
+- [ ] Reuse shared `FunctionEntity`; do not duplicate Verb/Adverb/Conjunction payloads.
+- [ ] Keep noun identity logical and free of BufferId/layout/device state.
+- [ ] Separate entity identity from provenance/binding metadata where appropriate.
+- [ ] Add sharing, round-trip, POS-mismatch and error regressions.
+
+#### JE2 — converge parser/binding/assignment transport
+- [ ] Replace or adapt `FunctionOperand::{Function,Noun}` through the common entity boundary without information loss.
+- [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules.
+- [ ] Generalize assignment to write and return the same assigned `JEntity`.
+- [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order.
+- [ ] Use the same boundary for explicit/direct definitions across static/runtime paths.
+
+#### JE3 — prove whether EntityArray is actually needed
+- [ ] Decide whether `EntityArray` is a compiler-internal entity collection/view rather than a new J-visible noun kind; default to internal.
+- [ ] Validate homogeneous-POS, heterogeneous collection, and rank-0 entity-array needs against real J semantics.
+- [ ] Keep entity-container shape metadata distinct from J noun shape semantics where required.
+- [ ] Do not invent arbitrary arrays of verbs as a new J language feature.
+- [ ] Preserve train/Hook/Fork DAG structure rather than flattening it into an array.
+- [ ] Implement `EntityArray` only if at least two real semantic use cases require array structure beyond a simple entity sequence.
+
+#### JE4 — integrate gerund/boxed higher-order semantics
+- [ ] Preserve gerund as boxed noun plus context-specific interpretation, not a global new POS/atom type.
+- [ ] Create an entity-sequence/EntityArray view only in modifier contexts that require gerund interpretation.
+- [ ] Preserve fix/late-binding/version rules for embedded names/functions.
+- [ ] Compare the current `decoded_gerund` special case with the common entity view and remove it only if semantics remain exact.
+
+#### JE5 — keep entity algebra separate from array-execution algebra
+- [ ] Function entities remain semantic entities; an applied verb enters array-execution IR only when it consumes noun input(s) and produces a noun result.
+- [ ] Validate monadic/dyadic verb application and adverb/conjunction derivation through the common entity contract.
+- [ ] Keep CellApply/Reduce/Scan/Reindex in the applied array-computation layer.
+- [ ] Keep effect flow orthogonal to entity/value flow.
+- [ ] Ensure J Graph/Logical IR does not depend on EntityArray physical storage/layout.
+
+#### JE6 — migration cleanup and cost validation
+- [ ] Remove compatibility adapters and duplicate noun/function carriers.
+- [ ] Stabilize ownership/lifetime/API documentation.
+- [ ] Benchmark large derived functions, gerunds, and repeated bindings for deep-copy/refcount regressions.
+- [ ] Extend the compilation-coverage manifest for entity-layer/runtime-fallback boundaries.
+- [ ] Re-run frontend conformance and J Graph/A3 goldens after migration.
+- [ ] Verify that BufferId/stride/device facts did not leak into the entity layer.
+
+Completion rule: future progress reports for this work use JE0–JE6 item numbers. New requirements are added to this checklist first. If JE3 does not prove a real need for array structure, `EntityArray` remains deferred rather than becoming an architectural obligation.
+
 ## 17.0 Module ownership baseline
 
 M0 is complete. The intended dependency direction is:

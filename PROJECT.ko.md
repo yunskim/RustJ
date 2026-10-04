@@ -7451,6 +7451,99 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 **M6 완료 조건:** external library/backend가 J semantics를 정의하지 않고, verified Logical IR의 합법적인 realization route 중 하나로만 동작한다.
 
+#### JE0–JE6 — JEntity / EntityArray 상위 추상화 보조 트랙
+
+**목표:** jsource의 공통 `A`/J-entity 표현 원리를 참고하되 C runtime allocation 구조를 복제하지 않고, RustJ에서 noun·verb·adverb·conjunction을 하나의 **semantic entity universe**로 묶는다. 그 위에서 필요성이 검증될 때만 entity들의 shape/collection을 표현하는 `EntityArray` 계층을 도입한다.
+
+**위상과 실행 순서:** 이 트랙은 M0–M6의 critical path에 새 milestone을 끼워 넣지 않는다. JE0의 문서/코드 감사는 M2와 병행할 수 있지만, 실제 공통 representation migration(JE1 이후)은 **M2 frontend semantics가 안정되고 M3의 logical noun identity가 CPU backing에서 분리된 뒤** 시작한다. 첫 M4 CPU vertical slice를 이 일반화의 선행 완료 조건으로 만들지 않는다.
+
+**jsource에서 채택하는 원리 / 채택하지 않는 구현:**
+
+- 채택: noun과 function entity가 하나의 상위 J-entity universe에 속하고 POS/type가 해석을 결정한다.
+- 채택: derived function은 operand/function identity를 보존하는 first-class entity다.
+- 채택: parser/binding/assignment는 noun뿐 아니라 verb/adverb/conjunction 결과도 하나의 J entity로 전달할 수 있어야 한다.
+- 비채택: jsource `AD/A` allocation header, refcount, virtual/in-place flags, allocator metadata를 semantic identity와 결합하는 방식.
+- 비채택: verb를 noun의 physical atom buffer와 동일한 representation으로 강제하는 방식.
+- 비채택: 공통 entity abstraction이 Logical/Physical Array 경계를 우회하거나 BufferId/device/layout을 semantic layer로 끌어올리는 방식.
+
+##### JE0 — 현행 semantic carrier와 jsource 대응 감사
+
+- [x] 상위 목표를 확정했다: `JEntity`는 noun/function을 묶는 semantic abstraction이고, common physical allocation abstraction이 아니다.
+- [x] jsource의 공통 J-entity 원리와 RustJ의 `Value` / `FunctionEntity` / `FunctionOperand` 구조가 대응 가능함을 설계 수준에서 확인했다.
+- [ ] `Value`, `FunctionEntity`, `FunctionOperand`, parser stack item, binding/assignment result, `NameRef`, `DefinitionCode`, gerund decode/view가 각각 어떤 J entity identity를 보유하는지 inventory를 만든다.
+- [ ] noun/verb/adverb/conjunction이 같은 parser/binding/assignment 경계를 통과하는 대표 jsource differential 사례를 정리한다.
+- [ ] 현재 `FunctionOperand::{Function,Noun}`와 다른 sum-type/enum 중 사실상 중복된 J-entity carrier를 식별한다.
+- [ ] current `Value`의 `CpuStorage` migration artifact가 `JEntity` API에 새 canonical dependency로 고착되지 않도록 금지 경계를 명시한다.
+
+**JE0 완료 조건:** 모든 current semantic carrier와 lifetime/ownership/provenance 책임을 표로 설명할 수 있고, 새 타입을 만들기 전에 어떤 중복을 제거할지와 어떤 차이는 유지할지가 결정되어 있다.
+
+##### JE1 — 최소 공통 `JEntity` identity 도입
+
+- [ ] `JEntity`/`JEntityRef`의 최소 API를 설계한다. 구체 enum 이름보다 `Noun` 대 `Function` 및 result POS를 손실 없이 표현하는 것이 우선이다.
+- [ ] `Verb`/`Adverb`/`Conjunction`을 별도 payload 복제로 만들지 않고 shared `FunctionEntity` + `FunctionPartOfSpeech` identity를 재사용한다.
+- [ ] noun payload는 logical J noun identity를 가리키며 physical buffer/layout/device를 소유하지 않게 한다.
+- [ ] source span/provenance와 binding/version은 entity payload 자체와 필요한 observation/binding metadata를 구분한다.
+- [ ] large derived function/train이 `JEntity` conversion에서 deep-copy되지 않는 sharing test를 추가한다.
+- [ ] noun/verb/adverb/conjunction round-trip 및 POS mismatch/error semantics regression을 추가한다.
+
+**JE1 완료 조건:** parser/binding API가 noun과 function을 공통 entity handle로 전달할 수 있으면서 기존 `FunctionEntity` DAG와 J noun semantic identity를 훼손하지 않는다.
+
+##### JE2 — parser/binding/assignment 경계 수렴
+
+- [ ] `FunctionOperand`를 `JEntity` 기반 operand view로 교체하거나, 동등한 zero-loss adapter를 만든 뒤 중복 enum을 제거할지 결정한다.
+- [ ] parser stack/value model이 noun/function에 대해 공통 entity transport를 사용하되 jsource 9-row class/POS 규칙은 그대로 유지하게 한다.
+- [ ] assignment가 `JEntity`를 namespace에 write하고 같은 assigned `JEntity`를 expression result로 반환하는 contract를 공통화한다.
+- [ ] name lookup이 binding에서 `JEntity`를 얻은 뒤 expected POS 검사를 수행하고 late-binding/version semantics를 유지하게 한다.
+- [ ] explicit/direct definition constructor와 invocation 결과가 같은 entity boundary를 사용하게 한다.
+- [ ] parser/runtime/static path가 서로 다른 entity wrapper를 만들지 않는지 differential/golden으로 확인한다.
+
+**JE2 완료 조건:** noun과 function의 parser/binding/assignment transport가 하나의 semantic abstraction으로 수렴하고, POS·lookup timing·effect ordering은 jsource-compatible하게 유지된다.
+
+##### JE3 — `EntityArray` 필요성 및 의미 계약 확정
+
+- [ ] `EntityArray`가 J-visible noun array인지, compiler-internal entity collection/view인지 명확히 구분한다. 기본 가정은 후자다.
+- [ ] homogeneous POS array, heterogeneous entity collection, scalar entity(rank-0 entity array)의 필요성을 실제 J 사례로 검증한다.
+- [ ] shape/rank가 entity collection의 compiler metadata인지 J-visible noun semantics인지 구분한다.
+- [ ] arbitrary verb array를 새 J language feature처럼 허용하지 않는다는 non-goal을 테스트/문서로 고정한다.
+- [ ] `EntityArray` 도입이 train DAG를 array로 평탄화하지 않고 Hook/Fork/derived structure를 그대로 공유할 수 있게 한다.
+- [ ] 일반 boxed noun과 entity collection을 동일시하지 않는다.
+
+**JE3 완료 조건:** 최소 두 개 이상의 실제 J semantic use case가 단순 `Vec<JEntity>`보다 array abstraction을 요구한다는 근거가 있고, 그렇지 않으면 `EntityArray` 구현을 보류한다.
+
+##### JE4 — gerund/boxed higher-order semantics 통합
+
+- [ ] gerund를 새 global atom/POS type으로 만들지 않고 **boxed noun + modifier-context interpretation**이라는 기존 J semantics를 유지한다.
+- [ ] gerund interpretation이 필요할 때만 boxed noun에서 `EntityArray`/entity-sequence view를 만들 수 있게 한다.
+- [ ] gerund 내부 name/function reference의 fix/late-binding/version 규칙을 보존한다.
+- [ ] ordinary boxed data와 gerund interpretation이 같은 payload에서 context에 따라 달라지는 golden test를 추가한다.
+- [ ] 현재 `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>` 특수 필드를 공통 entity view로 대체할 수 있는지 검토하고, 의미 손실이 있으면 유지한다.
+
+**JE4 완료 조건:** gerund와 boxed data의 문맥적 차이를 잃지 않으면서 higher-order entity collection을 공통 abstraction으로 표현할 수 있다.
+
+##### JE5 — entity algebra와 array-execution algebra의 경계
+
+- [ ] `JEntity` layer와 `Logical Execution IR`의 역할을 분리한다: function entity 자체는 logical array value가 아니고, **적용된 verb가 noun input을 받아 noun result를 만드는 순간** array execution graph로 내려간다.
+- [ ] monadic application을 `JEntity(Verb) × JEntity(Noun) → JEntity(Noun)`, dyadic application을 `Noun × Verb × Noun → Noun`의 semantic contract로 검증한다.
+- [ ] adverb/conjunction application은 entity derivation이며 즉시 physical array execution으로 낮추지 않는다.
+- [ ] `CellApply`/Reduce/Scan/Reindex가 entity layer가 아니라 applied array-computation layer에 남는지 확인한다.
+- [ ] effect flow(namespace/I/O/state)와 entity/value flow를 직교하게 유지한다.
+- [ ] J Graph/Logical IR이 `JEntityArray`의 physical layout이나 entity-container storage를 알 필요가 없다는 verifier/invariant를 둔다.
+
+**JE5 완료 조건:** `JEntity` 일반화가 현재의 “verb application = logical array computation” 모델을 흐리지 않고 오히려 그 경계를 명시적으로 만든다.
+
+##### JE6 — migration cleanup과 비용 검증
+
+- [ ] compatibility adapter와 중복 `Noun|Function` carrier를 제거한다.
+- [ ] public/internal API 이름을 정리하고 `JEntity`/`EntityArray` ownership/lifetime 문서를 고정한다.
+- [ ] large derived function, gerund, repeated binding에서 deep-copy/refcount churn이 악화되지 않는지 benchmark한다.
+- [ ] compiler coverage manifest에 entity-layer 지원/late-binding/runtime fallback 경계를 추가한다.
+- [ ] M2 frontend conformance corpus와 기존 J Graph/A3 golden을 전부 다시 통과시킨다.
+- [ ] Logical/Physical Array invariant에서 BufferId/stride/device가 entity layer로 역류하지 않았는지 구조 검사를 추가한다.
+
+**JE6 완료 조건:** 기존 observable J semantics와 compiler pipeline 결과가 유지되고, 중복 carrier를 줄였으며, 공통 entity abstraction이 storage/runtime coupling을 새로 만들지 않는다.
+
+**운영 규칙:** 이후 `JEntity`/`EntityArray` 관련 진행 보고는 반드시 `JE0`–`JE6` 항목 번호로 보고한다. 새 요구사항은 임시 TODO로 분산시키지 않고 먼저 이 체크리스트의 적절한 단계에 추가한다. JE3에서 실제 array abstraction의 필요성이 입증되지 않으면 `EntityArray`를 구현 목표로 강제하지 않는다.
+
 ### A0 — 문서/아키텍처 경계
 
 - [x] RustJ 내부 compiler stage의 논리적 경계를 확정한다.
@@ -9304,6 +9397,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 2. **M3/배열 경계**: logical value와 physical representation의 code/API 분리를 수렴시킨다.
 3. **M4/CPU vertical slice**: verified Logical IR → 최소 Schedule/Physical Plan → CPU Physical Executor를 연결한다. [matrix mean 표본](#mean-proof-example)은 implicit cell semantics를 검증하며 analyzer smoke test만으로 실행 완료를 판정하지 않는다.
 4. **M5–M6**: 그 뒤 route/schedule/resource/cost 선택과 검증된 external adapter를 확장한다. 실제 CUDA 구현은 사용자가 재개하기 전까지 보류한다.
+5. **JE0–JE6 보조 트랙**: JE0 감사는 병행 가능하지만 representation migration은 M2+M3 안정화 뒤에만 시작한다. 이 트랙은 M4 첫 CPU vertical slice의 선행 조건이 아니다.
 
 장기 architecture의 full TargetProfile/mixed-route/async 모델이나 확장 primitive 전체를 첫 CPU slice의 선행 조건으로 삼지 않는다. 해당 의미를 최적화 대상으로 열 때는 [§11의 검증 정책](#validation-policy)과 대응 semantic golden을 먼저 충족한다.
 
