@@ -1897,6 +1897,8 @@ Goal: adopt the semantic idea behind jsource's common carrier specifically at th
 
 #### JE0 carrier audit and first migration seam (2026-10-04)
 
+The following inventory is the pre-JE1 audit snapshot. The JE1 record below owns the current API and removal of AssignedValue.
+
 | Current carrier | Identity, ownership and lifetime | Metadata and migration decision |
 |---|---|---|
 | `Value` / `Data` | J noun type/shape/atom order; Arc boxed children and shared sparse semantics. Owned dense clones copy; frozen clones share | CPU backing is transitional. JEntity transports Value without adding CpuStorage, host slices, BufferId, layout or device APIs |
@@ -1913,7 +1915,7 @@ Goal: adopt the semantic idea behind jsource's common carrier specifically at th
 | `DefinitionSource` / `DefinitionCode` | Shared source/context/spans and immutable body/valence/control metadata; no invocation locals | Function owns Arc Code. Noun DD remains Value. Assigning an alias does not invoke the body |
 | gerund noun / `decoded_gerund` | Boxed source noun and ordered decoded function Arc vector as execution auxiliary, not source edges | Vector retains order/snapshots but lacks source shape/lookup observations itself; use parent noun/span and capture observations. Audit operator-specific shape needs in JE3; introduce no EntityArray |
 
-Duplicate decision: AssignedValue/SymbolValue is the first concrete RHS seam. FunctionOperand overlaps payload with different provenance. ExprKind, ParserNameBinding, stack/control and binding observations retain distinct roles. JE0 does not implement a JEntity API or complete JE1–JE6.
+Duplicate decision: AssignedValue/SymbolValue is the first concrete RHS seam. FunctionOperand overlaps payload with different provenance. ExprKind, ParserNameBinding, stack/control and binding observations retain distinct roles. JE0 itself did not implement a JEntity API. Track completed JE1 and remaining JE2–JE6 boundaries below.
 
 Evidence: at audit revision `0db94e768a845e2583c01d00538c3d16379677bb`, p.c L87–96 explicitly declares the tacit-translator cases table. Runtime ptcol dispatch and row 7 at L1006–1043 assign the stacked CAVN RHS and leave it on the stack; pv.c::jtvis L158 is a translator action, not a runtime assignment oracle. sc.c::jtnamerefacv L364–397 distinguishes noun values from expected-POS function namerefs. cf.c L292–308 includes immediate `{0,NOUN}` results. cg.c L101–121 uses a source-shaped internal BOX realization, not semantic EntityArray. Native Windows Python confirmed matching declarative row predicates/constructor dispositions between the new and existing reviewed sources; five file hashes are in reports/entity-carrier-source-audit.json. This is neither runtime ptcol trace equivalence nor validation of a DLL built from the new source revision.
 
@@ -1923,24 +1925,38 @@ Compatibility bug fixed during JE0: row 7 resolved every modifier for applicatio
 
 Windows default/portable each: **363 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. For each j64/AVX2 direct/semantic-reference/parser-capture route: **4,810 cases / 4,806 passed / 4 existing runtime boundaries / 0 failed**; stages: **9,990 checks**; words: **6,618 cases**. Record 106 capture-graph boundaries separately from 2 static boundaries. The new source audit pin `0db94e7...`, conformance source pin `13994ff...`, and actual DLL release `ded7793...` are distinct. No claim is made for a newly built revision DLL, full upstream suite, private runtime traces or explicit body invocation acceptance.
 
-**Next:** JE1 at the AssignedValue/runtime-assignment seam. Existing M2 gaps, including semantic nested DD, remain. Neither a broad frontend rewrite nor a JE0/JE1 prerequisite for the first M4 CPU slice is introduced.
+**JE0 handoff:** pass the AssignedValue/runtime-assignment seam to JE1. Existing M2 gaps, including semantic nested DD, remain. Neither a broad frontend rewrite nor a JE0/JE1 prerequisite for the first M4 CPU slice is introduced.
 
 Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006), [translator pv.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/pv.c#L158), [nameref sc.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/sc.c#L364), [constructor cf.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cf.c#L292), [gerund cg.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cg.c#L101).
 
 #### JE1 — introduce the minimum common JEntity identity
-- [ ] Design minimal `JEntity`/`JEntityRef` as a **boundary carrier**, with direct semantic variants `Noun` and `Function`, the latter carrying Verb/Adverb/Conjunction POS.
-- [ ] Do not use JEntity as a base class that merges `Value` and `FunctionEntity` internals. Start at exactly one well-tested parser/binding/assignment/operand seam.
-- [ ] Decide whether `Arc<FunctionEntity>` is sufficient for `JEntity::Function` or whether any current `Verb`/`VerbTarget` semantics must survive.
-- [ ] Keep lexical NAME, unresolved references, binding/version, and provenance in separate reference/control structures rather than inventing more JEntity POS variants.
-- [ ] Reuse shared `FunctionEntity`; do not duplicate Verb/Adverb/Conjunction payloads.
-- [ ] Keep noun identity logical and free of BufferId/layout/device state.
-- [ ] Separate entity identity from provenance/binding metadata where appropriate.
-- [ ] Add sharing, round-trip, POS-mismatch and error regressions.
+- [x] Design minimal `JEntity`/`JEntityRef` as a **boundary carrier**, with direct semantic variants `Noun` and `Function`, the latter carrying Verb/Adverb/Conjunction POS.
+- [x] Do not use JEntity as a base class that merges `Value` and `FunctionEntity` internals. Start at exactly one well-tested parser/binding/assignment/operand seam.
+- [x] Decide whether `Arc<FunctionEntity>` is sufficient for `JEntity::Function` or whether any current `Verb`/`VerbTarget` semantics must survive.
+- [x] Keep lexical NAME, unresolved references, binding/version, and provenance in separate reference/control structures rather than inventing more JEntity POS variants.
+- [x] Reuse shared `FunctionEntity`; do not duplicate Verb/Adverb/Conjunction payloads.
+- [x] Keep noun identity logical and free of BufferId/layout/device state.
+- [x] Separate entity identity from provenance/binding metadata where appropriate.
+- [x] Add sharing, round-trip, POS-mismatch and error regressions.
+
+#### JE1 implementation — minimum JEntity at assignment (2026-10-04)
+
+- Add `semantic::JEntity::{Noun(Value), Function(Arc<FunctionEntity>)}` and borrowed `JEntityRef::{Noun(&Value), Function(&FunctionEntity)}`. Moving the owning carrier preserves payloads; as_ref inspects without copies, allocation or refcount updates. JEntity deliberately has no automatic Clone because cloning an Owned Value can copy the full noun payload. Borrowed Copy/Clone only copies references.
+- `RuntimeParserHost::assign(name, JEntity) -> Result<JEntity>` transports all four row-7 RHS classes through one boundary. Remove AssignedValue. FunctionEntity owns actual POS; add no separate Verb/Modifier payload variants.
+- Keep verb occurrence spans/compatibility targets, noun Expr height, source/provenance/occurrence/assignment flags outside the carrier. Capture Commit identity/class/source and binding versions stay in their existing paths. The host still freezes noun assignment and shares its returned/symbol payload, preserving replacement/pool-retirement policy.
+- Keep SymbolValue as the first-seam compatibility adapter. Verb::from_entity checks Verb POS and reconstructs Primitive/Named/Derived targets and intrinsic span from the shared entity. It copies neither function DAG nor DefinitionCode and does not fix NameRefs to current bindings. Parser reinsertion reuses original occurrence-wrapper span/target.
+- Keep lexical NAME, abstract noun/POS observations, ParserNameBinding, ExprKind, FunctionOperand, symbol table and gerund auxiliaries outside this seam. Add no BufferId/stride/layout/target/device/schedule APIs to JEntity and no noun shape/rank to Function. Existing Value CPU backing remains a migration artifact, not completed logical/physical separation.
+
+Reuse all 71 JE0 differential cases for grouped/chained assignments, noun snapshots, function late lookup, explicit modifier aliases, POS errors and effect/provenance across the production boundary. Extend the 48-level Hook DAG test with JEntity move/borrow round-trip and unchanged refcounts. New tests cover a 65,536-atom Owned noun's payload pointer across move/borrow, explicit Verb/Adverb/Conjunction POS and shared DefinitionCode, and runtime Verb-adapter identity/span/modifier-POS rejection.
+
+**JE1 gate:** Windows default/portable each: **366 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. For each j64/AVX2 direct/semantic-reference/parser-capture route: **4,810 cases / 4,806 passed / 4 existing runtime boundaries / 0 failed**; stages: **9,990 checks**; words: **6,618 cases**. No new language form was added, so rerun all 71 JE0 cases and the complete existing corpus without expansion; verify all ten report binary/source hashes. Keep 106 capture-graph and 2 static boundaries separate. Full upstream tests, definition invocation acceptance, a newly built audit-revision DLL and private C trace equivalence remain unverified. Conformance sources use `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, actual reference DLL release uses `ded7793fe5795d79eda8e7138dce94aa056edf78`, distinct from the JE0 audit pin `0db94e768a845e2583c01d00538c3d16379677bb`.
+
+The minimum JE1 API and first boundary are complete. Next is one JE2 seam reducing SymbolValue duplication. Do not force deferred noun/application structure or lookup observations into concrete JEntity. Explicit body invocation/scope, semantic nested DD, JE3+ higher-order views, broader storage migration and full J conformance remain incomplete. Optimization, CUDA and GitHub CI stay deferred.
 
 #### JE2 — converge parser/binding/assignment transport
 - [ ] Replace or adapt `FunctionOperand::{Function,Noun}` through the common entity boundary without information loss.
 - [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules.
-- [ ] Generalize assignment to write and return the same assigned `JEntity`.
+- [ ] Generalize assignment to write and return the same assigned `JEntity`. JE1 completes the host input/result boundary; replacing namespace SymbolValue is the next seam.
 - [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order.
 - [ ] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. A common JEntity carrier must not erase this distinction.
 - [ ] Use the same boundary for explicit/direct definitions across static/runtime paths.

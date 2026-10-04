@@ -3,7 +3,7 @@ use rustj::{
     Data, Engine,
     parser::ParseClass,
     parser_capture::CaptureEvent,
-    semantic::{FunctionEntity, FunctionHead, FunctionOperand},
+    semantic::{FunctionEntity, FunctionHead, FunctionOperand, JEntity, JEntityRef},
 };
 use std::sync::Arc;
 
@@ -175,12 +175,81 @@ fn large_function_commit_shares_completed_dag_after_host_drops() {
     };
     drop(engine);
     drop(report);
-    let retained = root.clone();
+    let carrier = JEntity::Function(root.clone());
+    let count = Arc::strong_count(&root);
+    let JEntityRef::Function(borrowed) = carrier.as_ref() else {
+        panic!()
+    };
+    assert!(std::ptr::eq(borrowed, root.as_ref()));
+    assert_eq!(Arc::strong_count(&root), count);
+    let JEntity::Function(retained) = carrier else {
+        panic!()
+    };
     assert!(Arc::ptr_eq(&root, &retained));
     let FunctionOperand::Function(child) = &retained.operands[1] else {
         panic!()
     };
     assert!(Arc::ptr_eq(child, &original_child));
+}
+
+#[test]
+fn owning_noun_transport_and_borrowed_inspection_do_not_copy_payload() {
+    let value = rustj::Value::ints([65536], (0..65536).collect()).unwrap();
+    let Data::Int(data) = value.data() else {
+        panic!()
+    };
+    let pointer = data.as_ptr();
+    let carrier = JEntity::Noun(value);
+    let JEntityRef::Noun(borrowed) = carrier.as_ref() else {
+        panic!()
+    };
+    assert_eq!(borrowed.shape(), [65536]);
+    let Data::Int(data) = borrowed.data() else {
+        panic!()
+    };
+    assert_eq!(data.as_ptr(), pointer);
+    let JEntity::Noun(returned) = carrier else {
+        panic!()
+    };
+    let Data::Int(data) = returned.data() else {
+        panic!()
+    };
+    assert_eq!(data.as_ptr(), pointer);
+    assert_eq!(returned.int_at(65535).unwrap(), 65535);
+}
+
+#[test]
+fn function_transport_retains_all_three_pos_and_definition_code() {
+    use rustj::semantic::FunctionPartOfSpeech;
+    let mut engine = Engine::new();
+    for (source, expected) in [
+        ("jetransport=:3 : 'y'", FunctionPartOfSpeech::Verb),
+        ("jetransport=:1 : 'u y'", FunctionPartOfSpeech::Adverb),
+        ("jetransport=:2 : 'u y'", FunctionPartOfSpeech::Conjunction),
+    ] {
+        let report = engine.eval_captured(source);
+        report.result.as_ref().unwrap();
+        report.capture.verify().unwrap();
+        let root = committed(&report);
+        let FunctionHead::ExplicitDefinition(code) = &root.head else {
+            panic!()
+        };
+        let carrier = JEntity::Function(root.clone());
+        let count = Arc::strong_count(&root);
+        let JEntityRef::Function(borrowed) = carrier.as_ref() else {
+            panic!()
+        };
+        assert_eq!(borrowed.result_pos, expected);
+        assert_eq!(Arc::strong_count(&root), count);
+        let JEntity::Function(returned) = carrier else {
+            panic!()
+        };
+        assert!(Arc::ptr_eq(&root, &returned));
+        let FunctionHead::ExplicitDefinition(retained) = &returned.head else {
+            panic!()
+        };
+        assert!(Arc::ptr_eq(code, retained));
+    }
 }
 
 #[test]

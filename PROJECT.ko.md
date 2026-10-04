@@ -7499,6 +7499,8 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 ##### JE0 현행 carrier 감사와 첫 migration seam (2026-10-04)
 
+아래 표는 JE1 이전 감사 snapshot이다. `AssignedValue` 제거와 현재 API는 이어지는 JE1 구현 기록에서 관리한다.
+
 | 현행 carrier | identity·ownership·lifetime | 유지할 metadata와 migration 결정 |
 |---|---|---|
 | `Value` / `Data` | noun의 J type·shape·atom order; boxed child는 `Arc<Value>`, sparse는 shared semantic array. owned dense clone은 payload copy이며 freeze 후 clone은 공유 | CPU payload는 현행 migration artifact다. 미래 `JEntity`는 `Value`를 transport하되 CpuStorage·host slice·BufferId·layout·device API를 새로 노출하지 않는다 |
@@ -7515,7 +7517,7 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 | `DefinitionSource` / `DefinitionCode` | shared original source·primitive context·span, immutable body/valence/control metadata; invocation locals 없음 | Function head가 Arc Code를 소유한다. noun DD는 Value이며 Code가 아니다. alias assignment는 본문 호출이 아니다 |
 | gerund noun / `decoded_gerund` | source는 boxed noun; decode는 ordered `Vec<Arc<FunctionEntity>>` 실행 auxiliary이며 source semantic children이 아니다 | order와 noun snapshots는 보존하지만 Vec 자체에는 source shape·lookup observation이 없다. parent noun/span과 capture observations를 함께 봐야 한다. shaped view의 operator별 충분성은 JE3에 남기며 EntityArray를 만들지 않는다 |
 
-**중복 판정:** `AssignedValue`와 `SymbolValue`가 첫 concrete RHS seam이고, `FunctionOperand`는 payload가 겹치지만 provenance 계약이 다르다. `ExprKind`, `ParserNameBinding`, stack/control, binding observations는 역할이 달라 유지한다. JE0는 JEntity API를 구현한 단계가 아니며 JE1–JE6를 완료로 표시하지 않는다.
+**중복 판정:** `AssignedValue`와 `SymbolValue`가 첫 concrete RHS seam이고, `FunctionOperand`는 payload가 겹치지만 provenance 계약이 다르다. `ExprKind`, `ParserNameBinding`, stack/control, binding observations는 역할이 달라 유지한다. JE0 자체는 JEntity API를 구현한 단계가 아니다. JE1의 완료 상태와 JE2–JE6의 남은 경계는 아래 항목에서 관리한다.
 
 **근거 구분:** 새 감사 revision `0db94e768a845e2583c01d00538c3d16379677bb`의 `p.c` L87–96은 주석상 tacit translator용 `cases[]`다. runtime `p.c`의 ptcol dispatch와 L1006–1043의 row 7은 이미 stacked된 CAVN RHS를 대입하고 그 값을 stack에 남긴다. `pv.c::jtvis` L158은 translator action이므로 runtime 대입 oracle로 사용하지 않는다. `sc.c::jtnamerefacv` L364–397은 noun value와 expected-POS function nameref를 구분한다. `cf.c` L292–308의 `{0,NOUN}`은 construction result가 항상 Function이라는 가정을 반박한다. `cg.c` L101–121의 BOX carrier는 source rank/shape를 가진 내부 realization이며 semantic EntityArray가 아니다. 새/기존 source의 선언형 row predicate와 constructor disposition은 native Windows Python으로 동일함을 확인하고 5개 파일 hash를 `reports/entity-carrier-source-audit.json`에 기록했다. 이것은 runtime ptcol trace 또는 새 revision DLL 검증이 아니다.
 
@@ -7525,29 +7527,43 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 Windows default/portable 각각 **363 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,810 cases / 4,806 passed / 기존 runtime 경계 4 / failed 0**; stage **9,990 checks**, words **6,618 cases**. capture graph 경계는 106으로 따로 기록하며 static 경계 2와 구분한다. 새 source 감사 pin `0db94e7...`, conformance source pin `13994ff...`, 실제 DLL release `ded7793...`는 서로 구분한다. 새 revision DLL·full upstream suite·private runtime trace·explicit body invocation acceptance를 검증했다고 주장하지 않는다.
 
-**다음:** JE1의 `AssignedValue` ↔ runtime assignment 한 seam을 적용한다. semantic nested DD 등 기존 M2 미완료 항목은 유지한다. JE0/JE1을 full frontend rewrite나 첫 M4 CPU slice의 선행조건으로 확장하지 않는다.
+**JE0의 handoff:** `AssignedValue` ↔ runtime assignment 한 seam을 JE1으로 넘겼다. semantic nested DD 등 기존 M2 미완료 항목은 유지한다. JE0/JE1을 full frontend rewrite나 첫 M4 CPU slice의 선행조건으로 확장하지 않는다.
 
 Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006), [translator pv.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/pv.c#L158), [nameref sc.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/sc.c#L364), [constructor cf.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cf.c#L292), [gerund cg.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cg.c#L101).
 
 ##### JE1 — 최소 공통 `JEntity` identity 도입
 
-- [ ] `JEntity`/`JEntityRef`의 최소 API를 **boundary carrier**로 설계한다. 직접 semantic variants는 `Noun`과 `Function`으로 두고 Function이 `Verb|Adverb|Conjunction` POS를 소유하는 구조를 우선 검토한다.
-- [ ] `JEntity`를 `Value`/`FunctionEntity` 내부 representation을 통합하는 base class로 사용하지 않는다. 최초 적용 seam은 assignment/binding/parser result 또는 `FunctionOperand` 중 differential test가 가장 잘 갖춰진 한 곳으로 제한한다.
-- [ ] `JEntity::Function`이 `Arc<FunctionEntity>`만으로 충분한지, 현재 `Verb`/`VerbTarget` wrapper에서 semantic하게 남겨야 할 것이 있는지 먼저 결정한다.
-- [ ] lexical NAME, unresolved reference, binding/version/provenance를 `JEntity` variant와 분리한 reference/control API로 설계한다.
-- [ ] `Verb`/`Adverb`/`Conjunction`을 별도 payload 복제로 만들지 않고 shared `FunctionEntity` + `FunctionPartOfSpeech` identity를 재사용한다.
-- [ ] noun payload는 logical J noun identity를 가리키며 physical buffer/layout/device를 소유하지 않게 한다.
-- [ ] source span/provenance와 binding/version은 entity payload 자체와 필요한 observation/binding metadata를 구분한다.
-- [ ] large derived function/train이 `JEntity` conversion에서 deep-copy되지 않는 sharing test를 추가한다.
-- [ ] noun/verb/adverb/conjunction round-trip 및 POS mismatch/error semantics regression을 추가한다.
+- [x] `JEntity`/`JEntityRef`의 최소 API를 **boundary carrier**로 설계한다. 직접 semantic variants는 `Noun`과 `Function`으로 두고 Function이 `Verb|Adverb|Conjunction` POS를 소유하는 구조를 우선 검토한다.
+- [x] `JEntity`를 `Value`/`FunctionEntity` 내부 representation을 통합하는 base class로 사용하지 않는다. 최초 적용 seam은 assignment/binding/parser result 또는 `FunctionOperand` 중 differential test가 가장 잘 갖춰진 한 곳으로 제한한다.
+- [x] `JEntity::Function`이 `Arc<FunctionEntity>`만으로 충분한지, 현재 `Verb`/`VerbTarget` wrapper에서 semantic하게 남겨야 할 것이 있는지 먼저 결정한다.
+- [x] lexical NAME, unresolved reference, binding/version/provenance를 `JEntity` variant와 분리한 reference/control API로 설계한다.
+- [x] `Verb`/`Adverb`/`Conjunction`을 별도 payload 복제로 만들지 않고 shared `FunctionEntity` + `FunctionPartOfSpeech` identity를 재사용한다.
+- [x] noun payload는 logical J noun identity를 가리키며 physical buffer/layout/device를 소유하지 않게 한다.
+- [x] source span/provenance와 binding/version은 entity payload 자체와 필요한 observation/binding metadata를 구분한다.
+- [x] large derived function/train이 `JEntity` conversion에서 deep-copy되지 않는 sharing test를 추가한다.
+- [x] noun/verb/adverb/conjunction round-trip 및 POS mismatch/error semantics regression을 추가한다.
 
 **JE1 완료 조건:** parser/binding API가 noun과 function을 공통 entity handle로 전달할 수 있으면서 기존 `FunctionEntity` DAG와 J noun semantic identity를 훼손하지 않는다.
+
+##### JE1 구현 — 대입 경계의 최소 JEntity (2026-10-04)
+
+- `semantic::JEntity::{Noun(Value), Function(Arc<FunctionEntity>)}`와 borrowed `JEntityRef::{Noun(&Value), Function(&FunctionEntity)}`를 도입했다. owning carrier를 이동하면 기존 payload를 그대로 넘기며 `as_ref()`는 copy·allocation·refcount update 없이 inspect한다. owning `JEntity`에는 자동 Clone을 제공하지 않는다: 아직 Owned Value의 clone은 전체 noun payload를 복사할 수 있기 때문이다. borrowed view의 Copy/Clone은 참조만 복사한다.
+- `RuntimeParserHost::assign(name, JEntity) -> Result<JEntity>`가 row 7의 Noun/Verb/Adverb/Conjunction을 같은 boundary로 전달한다. 중복 `AssignedValue` enum을 제거했다. 함수의 실제 POS는 FunctionEntity가 소유하며 separate Verb/Modifier payload를 entity에 추가하지 않았다.
+- parser는 verb의 occurrence span/compatibility target, noun의 Expr height, source/provenance·occurrence·assignment flags를 carrier 바깥에 보존한다. capture의 Commit source/class/function identity와 binding version도 기존 경로에 남는다. noun assignment는 기존 host에서 freeze하고 반환·symbol payload를 공유하며 replacement/pool retirement 규칙을 유지한다.
+- runtime `SymbolValue`는 첫 migration의 compatibility adapter로 남는다. `Verb::from_entity`는 Verb POS를 확인하고 shared entity head에서 기존 Primitive/Named/Derived target과 intrinsic span을 복원한다. 이 adapter는 function DAG·DefinitionCode를 복사하거나 NameRef를 현재 함수 값으로 fix하지 않는다. parser reinsertion은 원래 occurrence wrapper의 span/target을 그대로 재사용한다.
+- lexical NAME, abstract noun/POS observations, `ParserNameBinding`, `ExprKind`, `FunctionOperand`, symbol table 및 gerund auxiliary는 이번 seam에 포함하지 않았다. JEntity에 BufferId·stride·layout·target·device·schedule API를 추가하지 않는다. `Value`가 현재 CPU payload를 포함하는 migration artifact는 여전히 남으며 이를 logical/physical 분리 완료로 간주하지 않는다. Function에 noun shape/rank를 추가하지 않았다.
+
+검증은 JE0의 네 품사 grouped/chain assignment·noun snapshot·function late lookup·explicit modifier alias·POS 오류·effect/provenance 비교 71건을 같은 production boundary에서 재사용한다. 기존 48-level Hook DAG test에 JEntity move/borrow round-trip과 refcount 불변을 추가했고, 새 tests는 65,536-atom Owned noun move/borrow 시 payload pointer 유지, explicit Verb/Adverb/Conjunction의 POS·shared DefinitionCode 유지, runtime Verb adapter의 identity/span·modifier POS 거부를 검증한다.
+
+**JE1 gate:** Windows default/portable 각각 **366 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,810 cases / 4,806 passed / 기존 runtime 경계 4 / failed 0**, stage **9,990 checks**, words **6,618 cases**. 새 언어 form을 추가한 변경이 아니므로 JE0의 71건과 전체 기존 corpus를 그대로 재검증했으며 report 10개의 binary/source hash를 확인했다. capture graph 경계 106과 static 경계 2는 별도이고, full upstream suite·definition invocation acceptance·새 audit revision DLL·private C trace 동등성은 미검증이다. conformance source pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실제 reference DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`; JE0 source 감사 `0db94e768a845e2583c01d00538c3d16379677bb`와 구분한다.
+
+JE1의 최소 API/첫 boundary는 완료다. 다음은 JE2에서 runtime `SymbolValue` 중복을 줄이는 한 seam이며, stack의 deferred noun/application structure와 lookup observations를 concrete JEntity로 강제하지 않는다. explicit body invocation·scope, semantic nested DD, JE3+ higher-order views, broader storage migration, full J conformance는 계속 별도 미완료다. optimization·CUDA·GitHub CI는 보류한다.
 
 ##### JE2 — parser/binding/assignment 경계 수렴
 
 - [ ] `FunctionOperand`를 `JEntity` 기반 operand view로 교체하거나, 동등한 zero-loss adapter를 만든 뒤 중복 enum을 제거할지 결정한다.
 - [ ] parser stack/value model이 noun/function에 대해 공통 entity transport를 사용하되 jsource 9-row class/POS 규칙은 그대로 유지하게 한다.
-- [ ] assignment가 `JEntity`를 namespace에 write하고 같은 assigned `JEntity`를 expression result로 반환하는 contract를 공통화한다.
+- [ ] assignment가 `JEntity`를 namespace에 write하고 같은 assigned `JEntity`를 expression result로 반환하는 contract를 공통화한다. JE1에서 host의 input/result boundary는 완료했으며 namespace의 `SymbolValue` 교체는 다음 seam이다.
 - [ ] name lookup이 binding에서 `JEntity`를 얻은 뒤 expected POS 검사를 수행하고 late-binding/version semantics를 유지하게 한다.
 - [ ] jsource `jtnamerefacv`의 의미적 차이를 회귀로 고정한다: noun name은 lookup 시점 value/snapshot을 전달할 수 있지만 function name은 실행 시 재조회되는 nameref가 필요할 수 있다. 공통 `JEntity` wrapper가 이 차이를 없애면 안 된다.
 - [ ] explicit/direct definition constructor와 invocation 결과가 같은 entity boundary를 사용하게 한다.

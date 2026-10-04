@@ -4,7 +4,9 @@ use crate::{
         Result,
     },
     kernels,
-    semantic::{FunctionEntity, FunctionHead, FunctionOperand},
+    semantic::{
+        FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech, JEntity, Verb,
+    },
     value::Value,
 };
 use std::collections::HashMap;
@@ -86,25 +88,21 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         }
         Err(Error::Limit)
     }
-    fn assign(
-        &mut self,
-        name: &str,
-        value: crate::parser::AssignedValue,
-    ) -> Result<crate::parser::AssignedValue> {
-        use crate::parser::AssignedValue;
+    fn assign(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
         let (binding, returned) = match value {
-            AssignedValue::Noun(value) => {
+            JEntity::Noun(value) => {
                 let value = value.into_shared();
                 let returned = value.clone();
-                (SymbolValue::Noun(value), AssignedValue::Noun(returned))
+                (SymbolValue::Noun(value), JEntity::Noun(returned))
             }
-            AssignedValue::Verb(verb) => {
-                (SymbolValue::Verb(verb.clone()), AssignedValue::Verb(verb))
+            JEntity::Function(function) => {
+                let binding = if function.result_pos == FunctionPartOfSpeech::Verb {
+                    SymbolValue::Verb(Verb::from_entity(function.clone())?)
+                } else {
+                    SymbolValue::Modifier(function.clone())
+                };
+                (binding, JEntity::Function(function))
             }
-            AssignedValue::Modifier(function) => (
-                SymbolValue::Modifier(function.clone()),
-                AssignedValue::Modifier(function),
-            ),
         };
         self.engine.commit_binding(name.to_owned(), binding)?;
         Ok(returned)

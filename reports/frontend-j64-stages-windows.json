@@ -26,7 +26,7 @@
     "test/g0x.ijs": "347cae3454e26505de6679fc0451b258d7acc99828fe65cc0a2c1f0037a3da6e"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "41062f2292d7a7fac2e2fdc42cb326371ad9f94a07da57366af82eb5919f8539",
+  "probe_sha256": "50b46a7742f6b4a8217b4fbb1bb1598c837bfca171f7fb26405caf58aa4f2f27",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,

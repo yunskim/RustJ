@@ -7,7 +7,7 @@ use crate::{
     error::{DiagnosticPhase, ErrorContext},
     semantic::{
         Expr, ExprKind, FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech,
-        MAX_EXPR_DEPTH, Program, Verb, VerbTarget, rank_noun_contract,
+        JEntity, MAX_EXPR_DEPTH, Program, Verb, VerbTarget, rank_noun_contract,
     },
 };
 use std::sync::Arc;
@@ -1686,20 +1686,24 @@ fn apply_parse_row(
                 let value_span = value.span();
                 let occurrence = value.occurrence;
                 let class = value.class;
-                let (assigned, height) = match value.value {
+                let (assigned, height, verb_adapter) = match value.value {
                     ParseValue::Noun(expr, height) => (
-                        AssignedValue::Noun(completed_noun(expr, "assignment value")?),
+                        JEntity::Noun(completed_noun(expr, "assignment value")?),
                         height,
+                        None,
                     ),
-                    ParseValue::Verb(verb) => (AssignedValue::Verb(verb), 0),
-                    ParseValue::Function(function) => (AssignedValue::Modifier(function), 0),
+                    ParseValue::Verb(verb) => (
+                        JEntity::Function(verb.entity),
+                        0,
+                        Some((verb.span, verb.target)),
+                    ),
+                    ParseValue::Function(function) => (JEntity::Function(function), 0, None),
                     _ => return Err(Error::Syntax("invalid assignment value".into())),
                 };
                 let previous = host.version(&name);
                 let assigned = host.assign(&name, assigned)?;
                 let function = match &assigned {
-                    AssignedValue::Verb(verb) => Some(verb.entity.clone()),
-                    AssignedValue::Modifier(function) => Some(function.clone()),
+                    JEntity::Function(function) => Some(function.clone()),
                     _ => None,
                 };
                 if let Some(capture) = &mut context.capture {
@@ -1716,15 +1720,24 @@ fn apply_parse_row(
                     });
                 }
                 let result = match assigned {
-                    AssignedValue::Noun(value) => Item::noun(
+                    JEntity::Noun(value) => Item::noun(
                         Expr {
                             span: value_span,
                             kind: ExprKind::Literal(value),
                         },
                         height,
                     ),
-                    AssignedValue::Verb(verb) => Item::verb(verb),
-                    AssignedValue::Modifier(function) => Item::function(function),
+                    JEntity::Function(function)
+                        if function.result_pos == FunctionPartOfSpeech::Verb =>
+                    {
+                        let (span, target) = verb_adapter.ok_or(Error::Domain)?;
+                        Item::verb(Verb {
+                            span,
+                            target,
+                            entity: function,
+                        })
+                    }
+                    JEntity::Function(function) => Item::function(function),
                 };
                 stack.insert(0, result);
                 if queue_exhausted {
@@ -2186,12 +2199,6 @@ pub(crate) fn parse_analysis(
     parse_with(source, Some(lookup), ParseContext::Analysis)
 }
 
-pub(crate) enum AssignedValue {
-    Noun(Value),
-    Verb(Verb),
-    Modifier(Arc<FunctionEntity>),
-}
-
 pub(crate) struct ResolvedModifier {
     pub function: Arc<FunctionEntity>,
     pub bindings: Vec<(String, crate::semantic::NameVersion)>,
@@ -2223,7 +2230,7 @@ pub(crate) trait RuntimeParserHost {
         ))
     }
     /// Return the assigned value with storage shared at the binding boundary.
-    fn assign(&mut self, _name: &str, _value: AssignedValue) -> Result<AssignedValue> {
+    fn assign(&mut self, _name: &str, _value: JEntity) -> Result<JEntity> {
         Err(Error::Unsupported(
             "host does not support parser-time assignment".into(),
         ))
