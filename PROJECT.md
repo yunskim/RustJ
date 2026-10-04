@@ -1957,7 +1957,8 @@ The minimum JE1 API and first boundary are complete; SymbolValue convergence is 
 
 #### JE2 — converge parser/binding/assignment transport
 - [x] Provide the common borrowed JEntityRef through `FunctionOperand::as_entity_ref()` and preserve provenance through `span()`. Retain the owning enum for noun spans and shared function ownership.
-- [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules.
+- [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules. Runtime rows 0–2 and row 7 completed-result transport are implemented below; convergence of all stack variants remains separate.
+- [x] Connect completed runtime nouns and all four row-7 RHS classes through CompletedParseResult/JEntity. Keep deferred Expr, NAME and control separate from concrete entities.
 - [x] Generalize assignment to write and return the same assigned `JEntity`. Binding.value and the runtime host now use JEntity; remove SymbolValue.
 - [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order. Top-level runtime lookup/Verb/Modifier checks are implemented; full local/locale/definition scopes remain incomplete.
 - [x] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. JEntity bindings preserve timing/POS/version semantics under the existing 71 cases plus 11 noun/function replacement cases.
@@ -1986,7 +1987,21 @@ Add an owned 65,536-atom noun pointer/span regression. Extend existing tests for
 
 **Operand seam gate:** Windows default/portable each: **370 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,821 cases / 4,817 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,001 checks**; words: **6,618 cases / 0 failed**. Keep 108 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Source/DLL pins match the namespace gate above. Full upstream tests, definition invocation acceptance and private C runtime trace equivalence remain unverified.
 
-Next JE2 boundary: common transport for completed parser results distinguished from deferred noun/application structure. Full local/locale/definition scopes and explicit body invocation remain incomplete. This does not complete all JE2.
+The next record implements common transport for completed parser results distinguished from deferred noun/application structure. Full local/locale/definition scopes and explicit body invocation remain incomplete. This does not complete all JE2.
+
+#### JE2 implementation — common completed parser-result transport (2026-10-04, partial JE2)
+
+`CompletedParseResult { entity: JEntity, span, height, verb_adapter }` moves completed RHS payloads without copying noun Values or function Arcs. Keep occurrence/height and Verb span/target adapters outside immutable FunctionEntity identity. `from_item` accepts literal or grouped-literal nouns; uncomputed calls and ReadName retain the existing Unsupported boundary. It never evaluates expressions or performs name lookup. Add no JEntity Clone.
+
+Runtime rows 0–2 invoke the existing host.apply exactly once and return the completed noun through this boundary. Without a host, analysis preserves Expr computation structure. Row 7 uses the same boundary for host.assign transport and reconstruction from the returned payload. The existing reduction pipeline owns commit capture, provenance inheritance, POS, lookup timing and effect order. Keep the broader ParseValue Expr/Verb/Function/NAME/control variants, constructor paths and final Program structure.
+
+Source evidence is [runtime p.c row 7](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006), which assigns/returns the stacked RHS. Keep this separate from pv.c tacit translation; this is not a claim to have built a DLL from the new source pin.
+
+Three new unit regressions verify a grouped owned 65,536-atom noun's pointer/occurrence span/height; all function POS identities, NameRef and Verb occurrence adapters; and static call/name preservation plus one apply followed by inner/outer commits in chained assignment. Add **6 computed scalar-chain/grouped-array assignment and binding-read cases**, bringing entity-boundary fixtures to **88**. The invocation-count test observes the Rust host boundary, not private C trace equivalence.
+
+**Completed-result gate:** Windows default/portable each: **373 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,827 cases / 4,823 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,007 checks**; words: **6,618 cases / 0 failed**. Keep 108 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Source/DLL pins match the namespace gate above. Full upstream tests, definition invocation acceptance and private C runtime trace equivalence remain unverified.
+
+Next review remaining parser value/constructor boundaries for duplicated concrete-result versus analysis-expression transport. Full stack-enum convergence, local/locale/definition scopes and explicit body invocation remain incomplete. Optimization, CUDA and GitHub CI remain deferred.
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

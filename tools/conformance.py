@@ -281,6 +281,10 @@ def entity_boundary_cases():
     for rhs in ['+', '/', '"']:
         out += ['jenswap=:'+rhs, 'jensave']
     out += ['jensave=:0', 'jenswap=:1+i.65', 'jenswap']
+    out += ['jecomputed_outer=:jecomputed_inner=:1+2',
+            'jecomputed_inner', 'jecomputed_outer',
+            'jecomputed_outer=:(jecomputed_inner=:1+i.65)',
+            'jecomputed_inner', 'jecomputed_outer']
     return [source.replace('BACKSLASH', chr(92)) for source in out]
 
 

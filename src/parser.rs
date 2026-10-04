@@ -1408,20 +1408,15 @@ fn reduce_stack_prefix(
     }
 }
 
-fn runtime_noun(
-    mut expression: Expr,
-    height: usize,
-    context: &mut ActionContext<'_>,
-) -> Result<Item> {
+fn runtime_noun(expression: Expr, height: usize, context: &mut ActionContext<'_>) -> Result<Item> {
     if let Some(host) = &mut context.host {
         let span = expression.span.clone();
         let value = host.apply(expression)?;
-        expression = Expr {
-            span,
-            kind: ExprKind::Literal(value),
-        };
+        CompletedParseResult::noun(value, span, height).into_item()
+    } else {
+        // Analysis keeps computation structure without invoking the host.
+        Ok(Item::noun(expression, height))
     }
-    Ok(Item::noun(expression, height))
 }
 
 fn apply_parse_row(
@@ -1683,26 +1678,12 @@ fn apply_parse_row(
                         "local parser-time assignment scope".into(),
                     ));
                 }
-                let value_span = value.span();
                 let occurrence = value.occurrence;
                 let class = value.class;
-                let (assigned, height, verb_adapter) = match value.value {
-                    ParseValue::Noun(expr, height) => (
-                        JEntity::Noun(completed_noun(expr, "assignment value")?),
-                        height,
-                        None,
-                    ),
-                    ParseValue::Verb(verb) => (
-                        JEntity::Function(verb.entity),
-                        0,
-                        Some((verb.span, verb.target)),
-                    ),
-                    ParseValue::Function(function) => (JEntity::Function(function), 0, None),
-                    _ => return Err(Error::Syntax("invalid assignment value".into())),
-                };
+                let mut completed = CompletedParseResult::from_item(value, "assignment value")?;
                 let previous = host.version(&name);
-                let assigned = host.assign(&name, assigned)?;
-                let function = match &assigned {
+                completed.entity = host.assign(&name, completed.entity)?;
+                let function = match &completed.entity {
                     JEntity::Function(function) => Some(function.clone()),
                     _ => None,
                 };
@@ -1719,26 +1700,7 @@ fn apply_parse_row(
                         source: source.clone(),
                     });
                 }
-                let result = match assigned {
-                    JEntity::Noun(value) => Item::noun(
-                        Expr {
-                            span: value_span,
-                            kind: ExprKind::Literal(value),
-                        },
-                        height,
-                    ),
-                    JEntity::Function(function)
-                        if function.result_pos == FunctionPartOfSpeech::Verb =>
-                    {
-                        let (span, target) = verb_adapter.ok_or(Error::Domain)?;
-                        Item::verb(Verb {
-                            span,
-                            target,
-                            entity: function,
-                        })
-                    }
-                    JEntity::Function(function) => Item::function(function),
-                };
+                let result = completed.into_item()?;
                 stack.insert(0, result);
                 if queue_exhausted {
                     *assignment = Some(PendingAssignment { name, span, source });
@@ -1989,6 +1951,71 @@ pub fn trident_disposition(
         (C, C, N) | (C, C, V) | (C, C, A) | (C, C, C) => BuildDerivedModifier(C),
 
         _ => SyntaxError,
+    }
+}
+
+/// Concrete parser result transport. Deferred noun expressions, unresolved
+/// names and control items stay in ParseValue; they are not concrete JEntity.
+/// Occurrence adapters belong here, separately from immutable function identity.
+struct CompletedParseResult {
+    entity: JEntity,
+    span: std::ops::Range<usize>,
+    height: usize,
+    verb_adapter: Option<(std::ops::Range<usize>, VerbTarget)>,
+}
+
+impl CompletedParseResult {
+    fn noun(value: Value, span: std::ops::Range<usize>, height: usize) -> Self {
+        Self {
+            entity: JEntity::Noun(value),
+            span,
+            height,
+            verb_adapter: None,
+        }
+    }
+
+    /// Move an already completed RHS. Never evaluate a deferred expression.
+    fn from_item(item: Item, context: &str) -> Result<Self> {
+        let span = item.span();
+        let (entity, height, verb_adapter) = match item.value {
+            ParseValue::Noun(expr, height) => {
+                (JEntity::Noun(completed_noun(expr, context)?), height, None)
+            }
+            ParseValue::Verb(verb) => (
+                JEntity::Function(verb.entity),
+                0,
+                Some((verb.span, verb.target)),
+            ),
+            ParseValue::Function(function) => (JEntity::Function(function), 0, None),
+            _ => return Err(Error::Syntax("invalid assignment value".into())),
+        };
+        Ok(Self {
+            entity,
+            span,
+            height,
+            verb_adapter,
+        })
+    }
+
+    fn into_item(self) -> Result<Item> {
+        Ok(match self.entity {
+            JEntity::Noun(value) => Item::noun(
+                Expr {
+                    span: self.span,
+                    kind: ExprKind::Literal(value),
+                },
+                self.height,
+            ),
+            JEntity::Function(function) if function.result_pos == FunctionPartOfSpeech::Verb => {
+                let (span, target) = self.verb_adapter.ok_or(Error::Domain)?;
+                Item::verb(Verb {
+                    span,
+                    target,
+                    entity: function,
+                })
+            }
+            JEntity::Function(function) => Item::function(function),
+        })
     }
 }
 
@@ -3204,6 +3231,155 @@ mod gerund_ar_tests {
                 .unwrap()
                 .kind(),
             "unsupported"
+        );
+    }
+}
+
+#[cfg(test)]
+mod completed_result_tests {
+    use super::*;
+    use crate::value::Data;
+
+    #[test]
+    fn grouped_owned_noun_moves_without_copy_and_keeps_occurrence_and_height() {
+        let value = Value::ints([65536], (0..65536).collect()).unwrap();
+        let Data::Int(data) = value.data() else {
+            panic!()
+        };
+        let pointer = data.as_ptr();
+        let item = Item::noun(
+            Expr {
+                span: 2..9,
+                kind: ExprKind::Group(Box::new(Expr {
+                    span: 3..8,
+                    kind: ExprKind::Literal(value),
+                })),
+            },
+            7,
+        )
+        .with_span(1..10);
+        let completed = CompletedParseResult::from_item(item, "test").unwrap();
+        assert_eq!(completed.span, 1..10);
+        let item = completed.into_item().unwrap();
+        assert_eq!(item.span(), 1..10);
+        let (expr, height) = item.into_noun().unwrap();
+        assert_eq!(height, 7);
+        let value = completed_noun(expr, "test").unwrap();
+        let Data::Int(data) = value.data() else {
+            panic!()
+        };
+        assert_eq!(data.as_ptr(), pointer);
+        assert_eq!(value.int_at(65535).unwrap(), 65535);
+    }
+
+    #[test]
+    fn function_transport_preserves_identity_pos_and_verb_occurrence_adapter() {
+        for pos in [
+            FunctionPartOfSpeech::Verb,
+            FunctionPartOfSpeech::Adverb,
+            FunctionPartOfSpeech::Conjunction,
+        ] {
+            let root = FunctionEntity::name_ref("late".into(), pos, 3..7);
+            let item = if pos == FunctionPartOfSpeech::Verb {
+                Item::verb(Verb {
+                    span: 20..24,
+                    target: VerbTarget::Named("late".into()),
+                    entity: root.clone(),
+                })
+            } else {
+                Item::function(root.clone())
+            };
+            let count = Arc::strong_count(&root);
+            let completed = CompletedParseResult::from_item(item, "test").unwrap();
+            assert_eq!(Arc::strong_count(&root), count);
+            let item = completed.into_item().unwrap();
+            assert_eq!(item.class, ParseClass::from(pos));
+            assert_eq!(Arc::strong_count(&root), count);
+            match item.value {
+                ParseValue::Verb(verb) => {
+                    assert_eq!(verb.span, 20..24);
+                    assert_eq!(verb.target, VerbTarget::Named("late".into()));
+                    assert!(Arc::ptr_eq(&root, &verb.entity));
+                }
+                ParseValue::Function(function) => assert!(Arc::ptr_eq(&root, &function)),
+                _ => panic!(),
+            }
+            assert_eq!(root.span, 3..7);
+            assert_eq!(root.head, FunctionHead::NameRef("late".into()));
+        }
+    }
+
+    #[test]
+    fn analysis_retains_calls_and_names_until_runtime_completes_them_once() {
+        let program = parse("outer=:inner=:1+2");
+        assert_eq!(program.unwrap_err().kind(), "unsupported");
+        for source in ["1+2", "unknown", "(1+2)"] {
+            let program = parse(source).unwrap();
+            let expr = program.expression.unwrap();
+            assert!(!matches!(expr.kind, ExprKind::Literal(_)));
+            let item = Item::noun(expr, 1);
+            assert_eq!(
+                CompletedParseResult::from_item(item, "test")
+                    .err()
+                    .unwrap()
+                    .kind(),
+                "unsupported"
+            );
+        }
+        struct Host {
+            log: Vec<String>,
+            version: u64,
+        }
+        impl RuntimeParserHost for Host {
+            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
+                panic!("no name reads")
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                Some(crate::semantic::NameVersion(self.version))
+            }
+            fn apply(&mut self, expression: Expr) -> Result<Value> {
+                self.log.push("apply".into());
+                let ExprKind::Dyad { left, right, .. } = expression.kind else {
+                    panic!()
+                };
+                crate::kernels::dyad(
+                    "+",
+                    completed_noun(*left, "test")?,
+                    completed_noun(*right, "test")?,
+                )
+            }
+            fn assign(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
+                self.log.push(format!("assign:{name}"));
+                self.version += 1;
+                Ok(value)
+            }
+        }
+        let mut host = Host {
+            log: vec![],
+            version: 0,
+        };
+        let mut capture = ParseCapture::default();
+        let program =
+            parse_runtime_host("outer=:inner=:1+2", &mut host, Some(&mut capture)).unwrap();
+        capture.verify().unwrap();
+        assert_eq!(host.log, ["apply", "assign:inner", "assign:outer"]);
+        let value = completed_noun(program.expression.unwrap(), "test").unwrap();
+        assert_eq!(value.int_at(0).unwrap(), 3);
+        assert_eq!(
+            capture
+                .events
+                .iter()
+                .filter(|e| matches!(e, CaptureEvent::ApplySuccess { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            capture
+                .events
+                .iter()
+                .filter(|e| matches!(e, CaptureEvent::Commit { .. }))
+                .count(),
+            2
         );
     }
 }
