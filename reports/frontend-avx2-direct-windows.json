@@ -4,44 +4,14 @@
   "rust_path": "direct",
   "seed": 20260926,
   "rounds": 100,
-  "cases": 5053,
+  "cases": 5089,
   "reference_library": "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj-project-docs\\target\\cj-windows\\j64\\javx2.dll",
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "9a697af088842d8e7b74844391fa081ee904698e0a1dc14b727551dfe0e08605",
+  "binary_sha256": "0dc0e9544060b3e672b7ac9b03656e4b151b19d78ccfc1f127994831a361c2e6",
   "scope": "supported subset; upstream suite NOT executed",
-  "passed": 5049,
+  "passed": 5088,
   "known_deviations": [],
   "coverage_boundaries": [
-    {
-      "index": 1255,
-      "source": "(entryverb/ % #) entrynoun",
-      "reference": {
-        "type": 8,
-        "shape": [],
-        "data": [
-          2.0
-        ]
-      },
-      "rust": {
-        "error": "unsupported"
-      },
-      "reason": "named insert inside fork has no runtime executor"
-    },
-    {
-      "index": 1262,
-      "source": "(entryverb/ % #) entrycopy",
-      "reference": {
-        "type": 8,
-        "shape": [],
-        "data": [
-          2.0
-        ]
-      },
-      "rust": {
-        "error": "unsupported"
-      },
-      "reason": "named insert inside fork has no runtime executor"
-    },
     {
       "index": 1372,
       "source": "(+ (\"-)) i.4",
@@ -61,26 +31,6 @@
         "error": "unsupported"
       },
       "reason": "verb-valued rank operand has no runtime executor"
-    },
-    {
-      "index": 1373,
-      "source": "(+ (@:-)) i.4",
-      "reference": {
-        "type": 4,
-        "shape": [
-          4
-        ],
-        "data": [
-          0,
-          -1,
-          -2,
-          -3
-        ]
-      },
-      "rust": {
-        "error": "unsupported"
-      },
-      "reason": "atop has no runtime executor"
     }
   ],
   "failures": [],

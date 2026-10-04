@@ -201,6 +201,33 @@ def modifier_scope_cases():
     ]
 
 
+def implicit_wrapper_cases():
+    return [
+        "iwa=:1 : 'u./ y'", "iwf=:-iwa", "iwf 1 2 3 4", "iwf 7", "iwf ,7", "iwf i.3 2",
+        "iwa=:1 : 'u.\"0 y'", "iwf=:,iwa", "iwf 1 2 3", "iwf i.2 3",
+        "iwa=:1 : '(u. + u.) y'", "iwf=:-iwa", "iwf 7", "iwf 1 2 3", "iwf i.0 3",
+        "iwa=:1 : '(u. u.) y'", "iwf=:-iwa", "iwf 7",
+        "iwa=:1 : '(u. @: u.) y'", "iwf=:-iwa", "iwf 7",
+        "iwc=:2 : '(u. + v.) y'", "iwf=:+iwc -", "iwf 7",
+        "iwd=:1 : 'x (u. + u.) y'", "iwf=:+iwd", "3 iwf 7", "1 2 iwf 3 4",
+        "iwd=:1 : 'x (u. u.) y'", "iwf=:+iwd", "3 iwf 7",
+        "iwd=:1 : 'x (u.\"0) y'", "iwf=:+iwd", "3 iwf 1 2 3", "1 2 iwf 3 4", "1 2 iwf 3 4 5",
+    ]
+
+
+def implicit_wrapper_multiline_cases():
+    return [
+        "iwfn=:+", "iwinner=:1 : 'u./ 1 2 3'",
+        "iwouter=:1 : 0\niwfn=.-\niwfn iwinner\n)", "+iwouter", "iwfn 7",
+        "iwinner=:1 : '(u.\"0) 1 2 3'", "+iwouter",
+        "iwcount=:0", "iwleft=:1 : 0\niwcount=:(iwcount*10)+1\nu y\n)",
+        "iwright=:1 : 0\niwcount=:(iwcount*10)+2\nu y\n)", "iwl=:+iwleft", "iwr=:-iwright",
+        "(iwl + iwr) 7", "iwcount", "iwcount=:0",
+        "iwbad=:1 : 0\niwcount=:(iwcount*10)+3\nu y+1 2 3\n)", "iwb=:+iwbad",
+        "(iwl + iwb) 1 2", "iwcount", "iwl 8", "iwcount",
+    ]
+
+
 def implicit_call_cases():
     return [
         "u. 7", "v. 7", "icu=:1 : 'u. y'", "icf=:-icu", "icf 7", "icf i.4", "icf i.0 3", "3 icf 7",
@@ -759,6 +786,7 @@ def cases():
     fixed.extend(operator_definition_cases())
     fixed.extend(implicit_operand_cases())
     fixed.extend(implicit_call_cases())
+    fixed.extend(implicit_wrapper_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
@@ -771,9 +799,6 @@ def cases():
 # separately; these are neither conformance passes nor C baseline deviations.
 RUNTIME_COVERAGE_BOUNDARIES = {
     '(+ ("-)) i.4': 'verb-valued rank operand has no runtime executor',
-    '(+ (@:-)) i.4': 'atop has no runtime executor',
-    '(entryverb/ % #) entrynoun': 'named insert inside fork has no runtime executor',
-    '(entryverb/ % #) entrycopy': 'named insert inside fork has no runtime executor',
 }
 
 def runtime_coverage_boundary(source, reference, actual):

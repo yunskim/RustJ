@@ -137,6 +137,15 @@ fn execute_ranked_semantic(
     left: Option<Value>,
     right: Value,
 ) -> Result<Value> {
+    apply_ranked(ranks, left, right, |x, y| execute_semantic(function, x, y))
+}
+
+pub(crate) fn apply_ranked(
+    ranks: [i64; 3],
+    left: Option<Value>,
+    right: Value,
+    mut call: impl FnMut(Option<Value>, Value) -> Result<Value>,
+) -> Result<Value> {
     if let Some(left) = left {
         let ar = cell_rank(left.shape().len(), ranks[1]);
         let br = cell_rank(right.shape().len(), ranks[2]);
@@ -144,7 +153,7 @@ fn execute_ranked_semantic(
         let bf = right.shape()[..right.shape().len() - br].to_vec();
 
         if af.is_empty() && bf.is_empty() {
-            return execute_semantic(function, Some(left), right);
+            return call(Some(left), right);
         }
         let (short, frame) = if af.len() <= bf.len() {
             (af.as_slice(), bf.as_slice())
@@ -166,14 +175,14 @@ fn execute_ranked_semantic(
         let cells = (0..frames).map(|i| {
             let x = left.view().cell(ar, i / ad)?.to_owned()?;
             let y = right.view().cell(br, i / bd)?.to_owned()?;
-            execute_semantic(function, Some(x), y)
+            call(Some(x), y)
         });
         assemble_uniform_cells(frame, cells)
     } else {
         let rank = cell_rank(right.shape().len(), ranks[0]);
         let frame_rank = right.shape().len() - rank;
         if frame_rank == 0 {
-            return execute_semantic(function, None, right);
+            return call(None, right);
         }
         let frame = right.shape()[..frame_rank].to_vec();
         let frames = crate::value::count(&frame)?;
@@ -184,7 +193,7 @@ fn execute_ranked_semantic(
         }
         let cells = (0..frames).map(|i| {
             let cell = right.view().cell(rank, i)?.to_owned()?;
-            execute_semantic(function, None, cell)
+            call(None, cell)
         });
         assemble_uniform_cells(frame, cells)
     }
@@ -193,6 +202,16 @@ fn execute_ranked_semantic(
 fn execute_derived_reduction(function: &FunctionEntity, right: Value) -> Result<Value> {
     if let FunctionHead::PrimitiveVerb(id) = function.head {
         return crate::kernels::reduce(id.spelling(), right);
+    }
+    apply_reduction(right, |x, y| execute_semantic(function, x, y))
+}
+
+pub(crate) fn apply_reduction(
+    right: Value,
+    mut call: impl FnMut(Option<Value>, Value) -> Result<Value>,
+) -> Result<Value> {
+    if right.is_sparse() {
+        return Err(Error::Unsupported("sparse derived reduction".into()));
     }
     if right.shape().is_empty() {
         return Ok(right);
@@ -207,7 +226,7 @@ fn execute_derived_reduction(function: &FunctionEntity, right: Value) -> Result<
     let mut out = right.view().cell(cell_rank, items - 1)?.to_owned()?;
     for row in (0..items - 1).rev() {
         let left = right.view().cell(cell_rank, row)?.to_owned()?;
-        out = execute_semantic(function, Some(left), out)?;
+        out = call(Some(left), out)?;
     }
     Ok(out)
 }

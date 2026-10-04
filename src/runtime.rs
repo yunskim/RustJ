@@ -697,7 +697,7 @@ impl Engine {
         Err(Error::Limit)
     }
 
-    fn call_implicit_operand(
+    fn call_entity(
         &mut self,
         function: std::sync::Arc<FunctionEntity>,
         x: Option<Value>,
@@ -731,12 +731,107 @@ impl Engine {
                 argument: right,
             }
         };
-        // sc.c unquote resolves u/v in the callee, then executes its value
-        // in the caller's environment. Restore the callee on every J error.
+        self.interpret_ir(Expr { span, kind }, pooled, depth + 1)
+    }
+
+    fn call_implicit_operand(
+        &mut self,
+        function: std::sync::Arc<FunctionEntity>,
+        x: Option<Value>,
+        y: Value,
+        pooled: bool,
+        depth: usize,
+    ) -> Result<Value> {
         let suspended = self.local_frames.pop().expect("implicit operand frame");
-        let result = self.interpret_ir(Expr { span, kind }, pooled, depth + 1);
+        let result = self.call_entity(function, x, y, pooled, depth);
         self.local_frames.push(suspended);
         result
+    }
+
+    fn call_composite(
+        &mut self,
+        function: std::sync::Arc<FunctionEntity>,
+        x: Option<Value>,
+        y: Value,
+        pooled: bool,
+        depth: usize,
+    ) -> Result<Value> {
+        if depth > crate::semantic::MAX_EXPR_DEPTH {
+            return Err(Error::Limit);
+        }
+        match &function.head {
+            FunctionHead::NameRef(name) => {
+                let Some(Binding {
+                    value: JEntity::Function(target),
+                    ..
+                }) = self.visible_binding(name)
+                else {
+                    return Err(Error::Unsupported("composite name resolution".into()));
+                };
+                self.call_composite(target.clone(), x, y, pooled, depth + 1)
+            }
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+                if x.is_some() {
+                    return Err(Error::Unsupported("dyadic runtime insert".into()));
+                }
+                let [FunctionOperand::Function(operand)] = function.operands.as_slice() else {
+                    return Err(Error::Unsupported("runtime gerund insert".into()));
+                };
+                crate::logical_executor::apply_reduction(y, |x, y| {
+                    self.call_entity(operand.clone(), x, y, pooled, depth)
+                })
+            }
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+                let [
+                    FunctionOperand::Function(operand),
+                    FunctionOperand::Noun { value, .. },
+                ] = function.operands.as_slice()
+                else {
+                    return Err(Error::Unsupported("runtime noun-left rank".into()));
+                };
+                let ranks = crate::semantic::rank_noun_contract(value)?;
+                crate::logical_executor::apply_ranked(ranks, x, y, |x, y| {
+                    self.call_entity(operand.clone(), x, y, pooled, depth)
+                })
+            }
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+                let [
+                    FunctionOperand::Function(outer),
+                    FunctionOperand::Function(inner),
+                ] = function.operands.as_slice()
+                else {
+                    return Err(Error::Domain);
+                };
+                let result = self.call_entity(inner.clone(), x, y, pooled, depth)?;
+                self.call_entity(outer.clone(), None, result, pooled, depth)
+            }
+            FunctionHead::Hook => {
+                let [FunctionOperand::Function(f), FunctionOperand::Function(g)] =
+                    function.operands.as_slice()
+                else {
+                    return Err(Error::Domain);
+                };
+                let y = y.into_shared();
+                let gy = self.call_entity(g.clone(), None, y.clone(), pooled, depth)?;
+                self.call_entity(f.clone(), Some(x.unwrap_or(y)), gy, pooled, depth)
+            }
+            FunctionHead::Fork => {
+                let [
+                    FunctionOperand::Function(f),
+                    FunctionOperand::Function(g),
+                    FunctionOperand::Function(h),
+                ] = function.operands.as_slice()
+                else {
+                    return Err(Error::Unsupported("runtime noun-left fork".into()));
+                };
+                let y = y.into_shared();
+                let x = x.map(Value::into_shared);
+                let hy = self.call_entity(h.clone(), x.clone(), y.clone(), pooled, depth)?;
+                let fy = self.call_entity(f.clone(), x, y, pooled, depth)?;
+                self.call_entity(g.clone(), Some(fy), hy, pooled, depth)
+            }
+            _ => Err(Error::Unsupported("runtime semantic composition".into())),
+        }
     }
 
     fn call_explicit_operator(
@@ -1003,10 +1098,6 @@ impl Engine {
         }
     }
 
-    fn resolve_verb(&self, verb: crate::semantic::Verb) -> Result<ResolvedVerb> {
-        self.resolve_function_entity(&verb.entity, 0)
-    }
-
     fn resolve_function_entity(
         &self,
         function: &FunctionEntity,
@@ -1131,7 +1222,15 @@ impl Engine {
                             .call_explicit_operator(function, None, y, pooled)
                             .map_err(|error| error.at(verb_span));
                     }
-                    let verb = self.resolve_verb(verb)?;
+                    let verb = match self.resolve_function_entity(&verb.entity, 0) {
+                        Ok(verb) => verb,
+                        Err(error) if error.kind() == "unsupported" => {
+                            return self
+                                .call_composite(verb.entity, None, y, pooled, depth)
+                                .map_err(|error| error.at(verb_span));
+                        }
+                        Err(error) => return Err(error),
+                    };
                     let operation = operation_label(&verb);
                     let call = if let Some(rank) = verb.rank {
                         kernels::ranked(verb.id.spelling(), verb.reduce, rank[0], y)
@@ -1165,7 +1264,15 @@ impl Engine {
                             .call_explicit_operator(function, Some(x), y, pooled)
                             .map_err(|error| error.at(verb_span));
                     }
-                    let verb = self.resolve_verb(verb)?;
+                    let verb = match self.resolve_function_entity(&verb.entity, 0) {
+                        Ok(verb) => verb,
+                        Err(error) if error.kind() == "unsupported" => {
+                            return self
+                                .call_composite(verb.entity, Some(x), y, pooled, depth)
+                                .map_err(|error| error.at(verb_span));
+                        }
+                        Err(error) => return Err(error),
+                    };
                     let operation = operation_label(&verb);
                     let call = if let Some(rank) = verb.rank {
                         kernels::ranked_dyad_ranks(verb.id.spelling(), rank[1], rank[2], x, y)

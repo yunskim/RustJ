@@ -8042,6 +8042,20 @@ Rust 회귀 **2개**가 ordinary u와 u.의 caller-local 차이, u/v monad/dyad,
 
 Sources: [sc.c local operand와 caller 환경 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L122), [sc.c implicit primitive 호출](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L433).
 
+##### JE2/P3 구현 — wrapper와 train의 scope-aware 실행 (2026-10-04, partial)
+
+- [x] C `ar.c::jtredg`의 오른쪽 결합, `j.h::FORK1/FORK2`의 오른쪽 가지 우선, rank의 cell/frame·prefix agreement를 검토한다.
+- [x] A3 executor의 rank/reduction cell 알고리즘을 callback seam으로 공유한다. 기존 primitive kernel 경로는 유지하고, Unsupported composition에만 runtime FunctionEntity 실행을 연결한다. operator/rank DAG를 flatten하지 않는다.
+- [x] `/`의 비어 있지 않은 monad, uniform nonempty rank, Hook/Fork/Atop의 monad/dyad에서 실제 child invocation마다 이름과 implicit caller scope를 조회한다. fork input은 공유 noun으로 보존하고 오른쪽 가지 오류 전에 왼쪽 가지를 실행하지 않는다.
+- [x] Rust 및 C 양 버전 corpus에 wrapper·caller-local 충돌·branch effect/error 순서를 추가한다. static unknown 계약과 effect barrier는 유지한다.
+- [ ] empty identity/prototype, heterogenous rank fill/padding, sparse·dyadic insert와 noun-left/capped train은 별도 확인한다. callback의 Unsupported는 commit된 효과가 없는 재실행 허가가 아니다.
+
+**Wrapper/train gate:** Windows default/portable 각각 **408 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,089 cases / 5,088 passed / runtime 경계 1 / failed 0**, stage **10,424 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **222건**, static 경계 **2건**은 별도다. 기존 runtime 경계 3건(Atop 및 fork 안 named insert 2건)을 해소하고 해당 waiver를 제거했다. 새 waiver는 없다. frontend report 10개의 binary/reference/source hash를 확인했고 `ar.c`를 검토 소스 목록에 추가했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+Rust regression 2개와 기존 named-insert provenance regression은 source DAG 보존·오른쪽 결합·caller-local·rank shape와 branch effect/error 순서를 확인한다. 공통 runtime **36건**, 이를 포함한 stage **57건**을 추가했다. primitive 호출에는 함수 Arc 복사를 추가하지 않고, Runtime fallback만 composition을 순회한다. A3의 Hook/Fork executor와 전체 body graph lowering 완료를 주장하지 않는다. 다음은 empty reduction identity와 empty rank prototype을 C와 대조한다.
+
+Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L513), [j.h fork execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249), [cr.c rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
+
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
 - [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
@@ -9402,7 +9416,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(caller-scope 단계): Windows default/portable 각각 **406 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,053 cases / 5,049 passed / 기존 runtime 경계 4 / failed 0**, stage **10,367 checks**, words **6,618 cases / failed 0**. capture graph 경계 204건과 static 경계 2건은 별도다. frontend report 10개와 재귀 oracle 실패의 별도 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(wrapper/train 단계): Windows default/portable 각각 **408 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,089 cases / 5,088 passed / runtime 경계 1 / failed 0**, stage **10,424 checks**, words **6,618 cases / failed 0**. capture graph 경계 222건과 static 경계 2건은 별도다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

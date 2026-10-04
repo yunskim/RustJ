@@ -95,7 +95,7 @@ fn unmatched_parentheses_blame_the_original_control_word() {
 }
 
 #[test]
-fn named_insert_in_fork_retains_structure_despite_runtime_coverage_boundary() {
+fn named_insert_in_fork_retains_structure_and_executes() {
     let mut engine = rustj::Engine::new();
     engine.eval("entryverb=:+").unwrap();
     engine.eval("entrynoun=:1 2 3").unwrap();
@@ -129,5 +129,8 @@ fn named_insert_in_fork_retains_structure_despite_runtime_coverage_boundary() {
             .iter()
             .any(|r| matches!(r.kind, rustj::j_graph_ir::RegionKind::Fork { .. }))
     );
-    assert_eq!(engine.eval(source).unwrap_err().kind(), "unsupported");
+    assert_eq!(
+        engine.eval(source).unwrap().unwrap().float_at(0).unwrap(),
+        2.0
+    );
 }
