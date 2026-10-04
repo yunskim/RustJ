@@ -9,7 +9,7 @@
 > 다음 영역을 변경하기 전에는 반드시 이 문서를 다시 검토한다.
 >
 > - word formation / enqueuer / parser
-> - J Semantic IR / FunctionEntity
+> - J Semantic IR / FunctionEntity / JEntity boundary
 > - interpreter fallback / JIT / AOT 경계
 > - rank / CellApply / hook / fork / modifier lowering
 > - name binding / locale / execute / dynamic semantics
@@ -99,6 +99,30 @@ Physical Array / Representation
 - `ValueId`와 `BufferId`를 동일시하지 않는다.
 - logical value 존재와 materialized memory buffer 존재를 동일시하지 않는다.
 - CPU/GPU placement를 J value identity로 만들지 않는다.
+
+### 1.2 공통 J entity와 array semantics를 혼동하지 않는다
+
+jsource의 공통 `A` handle은 중요한 선례지만, 그 구현을 곧바로 “noun과 verb는 모두 같은 array다”라는 의미론으로 읽으면 안 된다.
+
+```text
+semantic RHS        JEntity = Noun | Function
+function POS        Verb | Adverb | Conjunction
+array semantics     Noun의 J-visible type / shape / ordered atoms
+function semantics  FunctionEntity의 construction / POS / operands / contracts
+reference/control   lexical NAME / NameRef / binding version / provenance
+physical            buffer / layout / device / allocator
+```
+
+따라서 다음은 mandatory invariant다.
+
+- `JEntity`는 parser·binding·assignment·semantic operand 경계의 **얇은 carrier**다. `Value`와 `FunctionEntity`의 내부 모델을 합치지 않는다.
+- lexical NAME/unresolved reference는 JEntity POS가 아니다. lookup 결과로 만들어진 executable function nameref는 FunctionEntity 내부의 `NameRef` identity가 될 수 있다.
+- noun lookup snapshot과 function nameref late lookup의 observable timing 차이를 공통 carrier가 지우면 안 된다.
+- Verb/Adverb/Conjunction 자체에 noun-style shape/rank를 부여하지 않는다.
+- jsource의 gerund 실행용 fake-BOX/function payload carrier는 semantic `EntityArray`의 증거가 아니다.
+- gerund와 유사한 higher-order semantics는 먼저 operator-specific `GerundView` / `InterpretedEntitySequence`로 표현한다.
+- generic `EntityCollectionView`는 둘 이상의 독립적인 J semantics에서 동일한 shaped-entity law가 확인된 뒤에만 추출한다.
+- `JEntity` 도입은 중복 carrier seam을 줄이는 incremental migration이어야 하며, frontend 전체를 한 번에 다시 쓰는 broad rewrite가 되어서는 안 된다.
 - backend가 원하는 broadcasting/layout semantics로 J agreement/rank semantics를 바꾸지 않는다.
 - sparse/boxed의 **J-visible semantic representation**과 CSR/COO/pointer/handle 같은 **backend encoding**을 구분한다.
 - physical realization을 바꾸더라도 같은 logical array semantics를 관찰해야 한다.

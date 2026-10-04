@@ -15,7 +15,7 @@ This document is not an implementation checklist. It explains why RustJ adopts a
 Review these foundations before changing:
 
 - word formation / enqueue / parser behavior;
-- J Semantic IR / FunctionEntity;
+- J Semantic IR / FunctionEntity / JEntity boundary;
 - interpreter / JIT / AOT boundaries;
 - rank / CellApply / hook / fork / modifier lowering;
 - name binding / locale / execute / dynamic semantics;
@@ -103,6 +103,30 @@ Therefore:
 - do not equate `ValueId` with `BufferId`;
 - do not equate existence of a logical value with existence of a materialized buffer;
 - do not make CPU/GPU placement part of J value identity;
+
+### 1.2 Do not confuse a common J entity carrier with array semantics
+
+jsource's common `A` handle is an important precedent, but it is not evidence that nouns and functions share one J-visible array semantics.
+
+```text
+semantic RHS        JEntity = Noun | Function
+function POS        Verb | Adverb | Conjunction
+array semantics     Noun J-visible type / shape / ordered atoms
+function semantics  FunctionEntity construction / POS / operands / contracts
+reference/control   lexical NAME / NameRef / binding version / provenance
+physical            buffer / layout / device / allocator
+```
+
+Mandatory invariants:
+
+- `JEntity` is a **thin boundary carrier** for parser, binding, assignment, and semantic operands. It does not merge the internal models of `Value` and `FunctionEntity`.
+- lexical NAME/unresolved reference is not a JEntity POS. An executable function nameref produced by lookup may remain a `NameRef` identity inside FunctionEntity.
+- a common carrier must not erase the observable timing difference between noun-value lookup/snapshot behavior and function nameref late lookup.
+- Verb/Adverb/Conjunction entities do not receive noun-style shape/rank.
+- jsource's gerund fake-BOX/function-payload carrier is not semantic evidence for `EntityArray`.
+- gerund-like higher-order semantics first use operator-specific `GerundView` / `InterpretedEntitySequence` representations.
+- a generic `EntityCollectionView` is extracted only after the same shaped-entity law appears in multiple independent J semantics.
+- JEntity migration is incremental, one duplicated carrier seam at a time, not a broad frontend rewrite.
 - do not replace J agreement/rank semantics with backend broadcasting/layout semantics;
 - distinguish J-visible sparse/boxed semantics from concrete CSR/COO or pointer/handle encodings;
 - changing physical realization must preserve the same logical array semantics.

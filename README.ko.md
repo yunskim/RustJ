@@ -64,6 +64,29 @@ Physical Array / Representation
 
 RustJ는 J 의미를 먼저 보존한 뒤, downstream planner가 representation·layout·buffer·device를 선택합니다. 상세 결정은 [PROJECT.ko.md](PROJECT.ko.md)의 **“논리 배열과 물리 배열”** 절과 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)의 관련 불변조건을 따릅니다.
 
+### JEntity는 공통 배열 타입이 아니라 semantic boundary carrier
+
+jsource와의 반복 대조 결과, RustJ는 noun과 function을 하나의 **semantic RHS universe**에서 다루되 이를 하나의 physical/runtime array type으로 합치지 않습니다.
+
+```text
+JEntity
+├─ Noun
+└─ Function
+    └─ POS = Verb | Adverb | Conjunction
+```
+
+`JEntity`의 목적은 parser·binding·assignment·semantic operand 경계에서 `Noun | Function`을 손실 없이 전달하는 것입니다. `Value`와 `FunctionEntity` 내부 구조를 합치거나 모든 IR node의 공통 base type으로 쓰지 않습니다.
+
+또한 Verb/Adverb/Conjunction 자체에는 noun-style shape/rank를 부여하지 않습니다. jsource의 common `A`/`AD` allocation header가 function에도 쓰이지만 function의 AN/AR은 semantic array shape/rank가 아닙니다.
+
+gerund도 generic `EntityArray`의 근거로 보지 않습니다. J-visible 출발점은 boxed noun이며, modifier 문맥에서 필요할 때 `GerundView`/`InterpretedEntitySequence`처럼 **operator-specific interpretation view**를 만듭니다. generic `EntityCollectionView`는 둘 이상의 독립적인 J semantics가 같은 shaped-entity algebra를 요구할 때만 추출합니다.
+
+- 공통화: semantic transport/identity 경계
+- 분리 유지: noun value, function entity, lookup/reference, physical storage
+- 금지: function에 noun shape/rank를 붙이는 일반화
+- 보류: generic `EntityArray`/`EntityCollectionView`
+- 우선: M2 중에도 중복 carrier를 한 seam씩 줄이는 최소 `JEntity`
+
 ```text
 J Source
   ↓

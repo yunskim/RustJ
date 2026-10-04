@@ -64,6 +64,29 @@ A single logical value may therefore have multiple physical representations, whi
 
 RustJ preserves J semantics first; downstream planning chooses representation, layout, buffers, and devices. See the **Logical vs Physical Array** sections in [PROJECT.md](PROJECT.md) and [FOUNDATIONS.md](FOUNDATIONS.md).
 
+### JEntity is a semantic boundary carrier, not a common array type
+
+Repeated comparison with current jsource leads RustJ to unify nouns and functions only at the **semantic RHS boundary**, not as one physical/runtime array representation.
+
+```text
+JEntity
+├─ Noun
+└─ Function
+    └─ POS = Verb | Adverb | Conjunction
+```
+
+`JEntity` transports `Noun | Function` losslessly across parser, binding, assignment, and semantic-operand boundaries. It is not a universal base class that merges `Value`, `FunctionEntity`, or every IR node.
+
+Verb/Adverb/Conjunction entities do not acquire noun-style shape/rank. jsource's common `A`/`AD` allocation header is an implementation carrier; function AN/AR fields do not define J array semantics.
+
+Gerunds likewise do not justify a generic `EntityArray`. The J-visible source remains a boxed noun, and modifier contexts may create an operator-specific `GerundView` / `InterpretedEntitySequence`. A generic `EntityCollectionView` is extracted only if multiple independent J semantics demonstrate the same shaped-entity algebra.
+
+- unify semantic transport/identity boundaries;
+- keep noun values, function entities, lookup/reference state, and physical storage distinct;
+- do not assign noun shape/rank to functions;
+- defer generic EntityArray/EntityCollectionView;
+- allow a minimal JEntity seam during M2 when it removes a duplicated, well-tested carrier.
+
 ```text
 J Source
   ↓
