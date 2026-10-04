@@ -2665,13 +2665,7 @@ run =: graph with (X`Y)
 
 `with`를 선택하는 경우의 후보 입력 descriptor는 schema version, input identity/slot, dtype/rank/shape facts 및 provenance를 담는다. dyadic input bundle에서는 두 entry의 좌·우 slot을 명시·검증하고 원문의 X/Y 순서를 보존한다. 단순 두 항목이라는 이유로 adjoint/optimizer 묶기를 입력으로 해석하지 않는다. 함수 이름의 observed target를 쓸 때에는 ordinary NAME late binding 및 별도 runtime binding/version guard가 필요하다. 실제 noun 입력은 parser에서 읽을 때의 snapshot을 유지하며, 이를 function처럼 지연시키지 않는다.
 
-| 정보 종류 | 전달할 내용 | 분석에서 사용하는 방법 | 경계 |
-|---|---|---|---|
-| 입력 계약 | dtype·rank·고정 shape, 이후 기호 차원/동등성 제약 | shape propagation, logical extent/liveness/resource 분석 | 현재는 concrete shape 또는 unknown만 지원; 기호 차원은 미구현 |
-| 입력/상태 역할 | data·parameter·label 등 용도와 명시적 read/write resource | step의 입력·갱신 dependency를 구분 | weight도 배열이며 값 상수가 아니다; 학습용 state/effect 연결 미구현 |
-| numeric 계약 | dtype 및 명시적 cast/연산 precision 규칙 | 합법 kernel/변환의 전제 | fp16 선언만으로 변환·오차·reassociation을 허용하지 않음 |
-| 내용/별칭 조건 | 값 범위·불변성·no-alias 주장과 proof/guard provenance | 증명된 경우만 값 의존/alias 분석에 사용 | metadata만으로 보장하지 않으며 현재 guard 범위에서 제외 |
-| physical profile | device·layout·alignment·tile 등 | Execution/Physical Planner의 별도 입력 | semantic `with` bundle에 넣지 않음 |
+전달할 정보의 상세 분류·필요 수준·현재 구현 경계는 [§4.8.2 입력 정보 명세](#preexecution-input-information)를 따른다.
 
 큰 데이터셋은 batch별 실제 noun을 입력에 연결한다. IR은 `ReadNoun`와 facts를 보유하고 원소 전체를 literal로 넣지 않는다. 같은 계약의 batch는 같은 분석 구조를 사용할 수 있지만 **실행 계획 재사용에는 별도의 함수·effect·runtime guard가 필요하다.** parameter 값은 step마다 바뀌어도 payload를 compile constant로 고정하지 않는다. contents/pointer/runtime noun version을 무조건 compile-cache key로 삼지 않는다. cache는 graph/contract/schema 및 필요한 semantic/target specialization을 기준으로 설계하고 실제 NAME witness를 별도로 확인한다. 값 의존 결과 크기는 unknown/guard 경계로 남긴다. 학습 pipeline/optimizer 실행 구현은 이번 범위가 아니다.
 
@@ -2687,6 +2681,66 @@ run =: graph with (X`Y)
 - [ ] **WI5** 기호 차원·기호 동등성·캐시 전제 및 학습 state contracts를 후속 구현한다. optimizer/CUDA/AD 실행은 계속 보류한다.
 
 비교 근거: [JAX abstract evaluation](https://docs.jax.dev/en/latest/601/jax-primitives.html)은 값 없이 shape/type을 분석하고, [PyTorch export](https://docs.pytorch.org/docs/stable/export)는 input/parameter와 dynamic shape constraints를 구분한다. 이들은 descriptor 기반 분석의 참고이며 J NAME timing을 대체하지 않는다.
+
+<a id="preexecution-input-information"></a>
+
+#### 4.8.2 실행 전 입력 정보 명세 (2026-10-04)
+
+**필요성은 optimization별로 다르다.** full J 실행에 아래 모든 선언을 요구하지 않는다. topology 분석에는 known callable/graph만으로 충분한 부분이 있고, shape/type-dependent lowering에는 해당 facts 또는 runtime 조건이 필요하다. 각 입력에 대해 최소한 **어느 graph 입력인가 + noun이라는 품사 + known/unknown 구분 + facts의 근거/유효 scope**를 연결한다. 그 위에 dtype/rank/shape를 확보한 만큼 분석한다. schema는 `with` 문법과 독립적이며 noun metadata·외부 API/catalog·file header·선택 annotation에서 같은 facts를 얻을 수 있다.
+
+| ID / 분류 | 알고 싶은 정보와 예시 | 필요한 분석·최적화 | 확보/검증 방법과 현재 경계 |
+|---|---|---|---|
+| IN0 입력 식별 | graph input ID, NAME/slot, schema revision, noun snapshot 시점 | graph edge 연결, 잘못된 입력 연결 방지 | catalog/호출 mapping; catalog version은 runtime NAME witness가 아님. 현재 used-input catalog와 missing/duplicate/extra 검사 존재 |
+| IN1 원소 타입 | J logical dtype, numeric category; 외부의 fp16/fp32 등 정밀 dtype은 explicit conversion/encoding 계약과 연결 | type propagation, 합법 연산·kernel 후보, 저장 크기 | noun/header/API. 현재 TypeFact와 dtype 검사 존재; `Value::Float` CPU payload는 f64이며 fp16/fp32 NN 입력 지원을 뜻하지 않음 |
+| IN2 rank·shape | rank=2, shape=[256,784]; scalar/empty 및 unknown 포함 | rank/cell split, agreement, 결과 shape·logical extent | shape가 있으면 rank/count 유도; 현재 concrete shape/unknown·rank 및 shape 검사 지원. J prefix agreement를 NumPy broadcasting으로 바꾸지 않음 |
+| IN3 차원 관계·범위 | X=[B,K], Y=[B,N], W=[K,N]; X.B=Y.B, 0≤B≤1024 | graph 전역 shape 관계, dynamic-size 분석, 메모리 상한·guard | shared symbolic scope/constraint 및 실행 시 metadata 검사 필요. shape 미확정과 동일 기호는 다름. 0/1/empty를 임의 배제하지 않음. 현재 기호 차원/관계 guard 미구현 |
+| IN4 논리 representation·중첩 schema | dense/axis-sparse/boxed; sparse axes/fill schema·stored count, boxed child dtype/shape가 known인지 | sparse/boxed legality, 결과 assembly, 비용/extent 분석 | J-visible facts와 storage encoding 구분. 일부 representation facts 존재하나 WI1 검사는 이 조건을 확인하지 않음. structural count를 sample에서 추정해 semantic proof로 쓰지 않음 |
+| IN5 실행 중 변동과 작은 상수 | 데이터·학습 weight는 runtime 입력; axes/rank/window 등 일부 작은 constructor noun은 값이 필요할 수 있음 | constant folding, modifier construction, relevant specialization key | 값이 필요한 operand만 explicit constant/witness로 제공. 데이터셋·weight 내용을 compile literal/cache key로 넣지 않음; value-dependent constructor는 현재 경계 유지. [JAX static arguments](https://docs.jax.dev/en/latest/aot.html) |
+| IN6 의미상 역할·effect | batch/data/label/parameter/gradient/state, read/write/accumulate, step dependency, 선택 AD target | 상태 갱신 순서, 학습 graph/AD, side-effect legality | 역할은 dtype나 대문자 NAME에서 추정하지 않음. 실제 function/effect contract와 StateResource에 연결; training/AD 통합 미구현. [PyTorch graph signatures](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/api_reference.html) |
+| IN7 값 성질 | KnownRange, finite, nonnegative, sorted, unique, valid indices 등 | bounds/check elimination, search specialization, 값 의존 결과 shape | proof/명시 계약/실행 시 검사. 표본 통계는 cost hint일 뿐 legality proof가 아님; full array 검사에는 O(N) 비용이 들 수 있음. 현재 WI1은 내용 미검사 |
+| IN8 numeric policy | cast, accumulator precision, overflow/promotion, cct/fit, NaN/Inf, reassociation·determinism 허용 범위 | fusion/reduction 재배치·mixed precision의 합법성 | input dtype만으로 결정 불가; 기존 operation/semantic policy에서 확보. float16 선언만으로 J 수치/오류 의미를 바꾸지 않음 |
+| IN9 수명·소유권·alias | 외부 owner/release, 다른 입력과 overlap, read-only/mutation, 호출 후 reuse/ownership donation 가능 여부 | buffer reuse/in-place, 안전한 외부 import, memory retention | adapter/런타임 borrow·ownership 증거 및 liveness 분석. logical noun identity와 physical BufferId 분리. WI1은 수명 보장/alias/donation을 검사하지 않음. [JAX donation](https://docs.jax.dev/en/latest/buffer_donation.html) |
+| IN10 실제 representation·target | device, physical dtype/encoding, strides/offset/layout/alignment, transfer/sharding, target capability | concrete kernel/route/schedule 및 실제 byte/transfer 비용 | representation adapter + TargetProfile에 보관; semantic `with` 입력 계약에 섞지 않음. 관측 layout을 specialize하면 해당 guard 필요. [PyTorch tensor guards](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamo_overview.html) |
+| IN11 facts의 근거·유효성 | unknown/관측/추론/명시 조건/proof, scope/version, runtime guard·충돌 처리 | 최적화 전제 추적, stale specialization 방지, cache reuse | 모든 facts에 provenance 또는 witness 연결. 표본·관측을 영구 상수로 승격하지 않음. caller/locale/NAME witness와 payload snapshot을 구분. 현재 catalog revision은 분석 내 revision만 제공 |
+
+IN0–IN5는 input schema/facts, IN6–IN8은 실제 연산/state 계약과의 연결, IN9–IN10은 runtime/physical 경계, IN11은 전체 facts에 적용되는 provenance다. 모두를 immutable FunctionEntity에 넣지 않는다. argument-dependent facts는 call/analysis에, 증명은 pass의 witness에, physical facts는 downstream representation에 둔다. axis 의미(batch/channel/feature 등)는 descriptor 해석·shape 관계에 유용한 optional label이며 표준 J rank/axis semantics를 대신하지 않는다. 실제 device는 입력 metadata가 될 수 있지만 tile/kernel 선택은 compiler가 도출하는 계획이다.
+
+최적화별 요구 수준:
+
+| 목적 | 주요 정보 | 모를 때의 처리 |
+|---|---|---|
+| topology·공통 입력·분기/합류 후보 발견 | graph/callable identity, input 연결, source provenance | known 구조만 분석; 미확정 callable은 경계로 유지 |
+| 연산 fusion/재배치의 legality | 위 구조 + operation effect/error/numeric/alias 계약, 필요한 shape/type 관계 | topology hint만으로 실행 순서를 바꾸지 않음; proof/guard 없는 후보는 적용하지 않음 |
+| logical memory/resource 분석 | type/rank/shape, sparse/boxed schema, use-def/liveness | 기호식/범위/unknown으로 보고. logical extent 합계를 peak allocation으로 표시하지 않음 |
+| kernel 선택·SIMD/GPU schedule | 합법성 정보 + 실제 representation·target/capability | guarded route 또는 검증된 지원 경로만 사용. unknown을 임의 layout/device로 가정하지 않음 |
+| buffer 재사용·in-place | representation·ownership/alias/lifetime + graph liveness | shared/external owner가 보이면 conservative 처리; 허용만으로 reuse를 보장하지 않음 |
+
+학습 step의 **개념 명세 예시**(현행 dtype/기호 차원/AD 지원을 주장하지 않음):
+
+```text
+X: data,      float32[B,784]
+Y: label,     float32[B,10]
+W: parameter,float32[784,10]   // runtime value changes between steps
+constraints: X.dim0 = Y.dim0, 0 <= B <= 1024
+state: W read -> compute -> explicit update; optimizer state is separate
+constants: only the required axis/window/rank operands
+witness: verify metadata and any specialized NAME/semantic policies before effects
+physical inputs: adapter-provided placement/layout/lifetime, separate from this schema
+```
+
+조건은 실제 program/domain이 허용해야 하며 `B=0` 결과와 오류도 기존 J 의미를 따른다. 사용자가 이미 batch별 step을 정의한 경우 dataset 전체 크기/내용 없이 그 step을 분석할 수 있다. compiler가 전체 데이터셋 reduction·batch statistics를 임의의 minibatch 계산으로 바꾸는 것은 다른 문제이며 별도 equivalence proof가 필요하다. 계약이 같아도 weight의 값은 바뀔 수 있다; 캐시에는 **특정 최적화가 실제로 사용하는 facts만** 넣는다. 값 의존 출력(예: 필터의 결과 길이)은 shape만으로 정확히 알 수 없으며 unknown/후속 shape 계산 경계를 유지한다.
+
+정보 획득 순서는 기존 semantic contract/known literals → 준비된 noun/header/API metadata → 필요한 optional declarations → 합법성을 위해 필요한 proof/runtime guard다. 내용 스캔·별칭 증명·GPU 구현을 기본 입력 명세의 선행 조건으로 요구하지 않는다. specialization guard miss는 곧 J semantic error가 아니며 가능한 재분석/검증된 runtime 경로를 사용한다. 명시 계약 위반의 오류 정책과 단순 optimization precondition miss를 구분해야 한다. WI1 metadata API의 오류는 명시 검사의 결과이며 자동 compiler dispatch 정책이 아니다.
+
+프레임워크 근거: [JAX ShapeDtypeStruct/AOT](https://docs.jax.dev/en/latest/aot.html)·[기호 shape constraints](https://docs.jax.dev/en/latest/export/shape_poly.html), [TensorFlow TensorSpec/input_signature](https://www.tensorflow.org/guide/function), [TVM Relax symbolic shapes](https://tvm.apache.org/docs/deep_dive/relax/learning.html), [PyTorch input/state signatures](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/api_reference.html)·[tensor guards](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamo_overview.html). 이 표의 IN0–IN11 분류와 적용 우선순위는 RustJ 설계 판단이다.
+
+문서 체크리스트:
+
+- [x] **WI0a** 전달 문법과 독립적인 IN0–IN11 inventory, optimization별 최소 정보 및 framework sources를 정리한다.
+- [ ] **WI3a** 필요한 facts의 provenance/refinement와 conflicting/unknown 입력을 검증한다. 동등/범위 기호 차원은 WI5와 함께 처리한다.
+- [ ] **WI4a** guard miss와 explicit contract violation, supported route 선택을 구분하고 effect 전에 검증 가능한 전제를 연결한다. scalar/empty/boxed/sparse·changing batch/weights 및 NAME 변경을 포함한다.
+
+이번 변경은 설계 문서 정리다. WI1 이후 새 runtime/optimizer 구현 또는 새 test gate 완료를 주장하지 않는다.
 
 ##### 입력 정보 문제의 프레임워크 비교 (2026-10-04)
 

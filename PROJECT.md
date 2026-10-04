@@ -949,13 +949,7 @@ Retain the original surface form using ordinary source/fp16/with bindings. Intro
 
 If with is selected, candidate descriptors carry schema version, input identity/slot, dtype/rank/shape facts and provenance. A dyadic input bundle explicitly validates left/right slots while preserving X/Y order. Two entries alone do not identify an input bundle; adjoint/optimizer bundles need distinct typed roles. Specializing an observed function target requires ordinary NAME late-binding semantics and separate runtime witnesses. Real noun inputs retain parser-time snapshots, not function-like delayed lookup.
 
-| Category | Information | Analysis use | Boundary |
-|---|---|---|---|
-| Input contract | dtype, rank, fixed shape; later symbolic dimensions/equality | Shape propagation, logical extent/liveness/resources | Concrete or unknown shapes exist; symbolic dimensions are pending |
-| Input/state role | data/parameter/label and explicit resource reads/writes | Step inputs and update dependencies | Weights remain arrays, not constants; training state/effects are pending |
-| Numeric contract | dtype and explicit casts/arithmetic precision | Preconditions for legal implementations | An fp16 annotation does not authorize conversion, error changes or reassociation |
-| Contents/alias constraints | bounds, immutability, no-alias with proof/guard provenance | Proven value/alias analysis | Not guaranteed by metadata and outside the implemented guard |
-| Physical profile | device, layout, alignment, tile | Separate execution/physical planning input | Excluded from semantic with bundles |
+The [input information inventory in §5.3.5](#preexecution-input-information) specifies categories, requirements and implementation boundaries.
 
 Bind real nouns batch by batch. IR retains ReadNoun and facts rather than embedding dataset contents as literals. Matching batches may share an analysis structure; executable-plan reuse also requires function/effect/runtime guards. Parameters changing each step are not compile constants. Do not indiscriminately key compilation on contents, pointers or runtime noun versions. Design cache keys around graph/contracts/schema and required semantic/target specialization, checking actual NAME witnesses separately. Data-dependent result extents remain unknown/guarded. Training pipeline/optimizer execution is outside this stage.
 
@@ -971,6 +965,64 @@ Checklist, preserving existing frontend priorities:
 - [ ] **WI5** Add symbolic dimensions/equalities, cache preconditions and training state contracts later. Optimizer/CUDA/AD execution remains deferred.
 
 Comparisons: [JAX abstract evaluation](https://docs.jax.dev/en/latest/601/jax-primitives.html) analyzes shapes/types without contents; [PyTorch export](https://docs.pytorch.org/docs/stable/export) distinguishes input/parameter signatures and dynamic shape constraints. These inform descriptor analysis without replacing J NAME timing.
+
+<a id="preexecution-input-information"></a>
+
+### 5.3.5 Pre-execution input information inventory (2026-10-04)
+
+**Requirements depend on the optimization.** Do not require every declaration for full J execution. Known graph/callable structure permits some topology analysis without shapes. Shape/type-dependent lowering needs relevant facts or runtime conditions. At minimum link each graph input to its noun POS, identity/slot, known-versus-unknown state and fact provenance/scope; refine dtype/rank/shape when available. This schema is independent of with and can receive noun metadata, external API/catalog facts, file headers or optional annotations.
+
+| ID / category | Information and examples | Analysis/optimization use | Acquisition/checking and current boundary |
+|---|---|---|---|
+| IN0 Identity | Graph input ID, NAME/slot, schema revision, noun snapshot timing | Connect edges and detect wrong input wiring | Catalog/call mapping; catalog versions are not runtime NAME witnesses. Used-input catalog and missing/duplicate/extra validation exist |
+| IN1 Element type | J logical dtype/numeric category; precise external fp16/fp32 connected to explicit conversion/encoding | Type propagation, legal operations/kernels, storage size | Noun/header/API. TypeFact and dtype validation exist; CPU Value::Float uses f64, not implemented fp16/fp32 NN inputs |
+| IN2 Rank/shape | rank 2, [256,784], scalar/empty/unknown | Rank/cell split, agreement, result shape/logical extents | Derive rank/count from shape. Concrete/unknown facts and rank/shape validation exist. Preserve J prefix agreement |
+| IN3 Dimension relations/bounds | X=[B,K], Y=[B,N], W=[K,N]; shared B, 0≤B≤1024 | Global shape relations, dynamic sizes, memory bounds/guards | Shared symbolic scope/constraints and runtime metadata checks. Unknown differs from equal symbols; do not exclude 0/1/empty by default. Symbolic facts/guards pending |
+| IN4 Logical representation/nesting | Dense/axis-sparse/boxed; sparse axes/fill schema/stored count and known child schemas | Sparse/boxed legality, assembly, cost/extent | Separate J-visible facts from encoding. Some representation facts exist, but WI1 does not check these. Samples are not structural proofs |
+| IN5 Runtime values/small constants | Data/weights remain inputs; some axis/rank/window constructor nouns need actual values | Constant folding, modifier construction, relevant specialization | Supply only required constant values/witnesses. Do not embed datasets/weights or hash contents into general cache keys. Value-dependent constructor boundaries remain. [JAX static args](https://docs.jax.dev/en/latest/aot.html) |
+| IN6 Roles/effects | Batch/data/label/parameter/gradient/state, reads/writes/accumulates, step dependencies, optional AD targets | Updates, training/AD graphs, effect legality | Roles do not follow from dtype or uppercase names. Connect actual contracts and StateResources; training/AD pending. [PyTorch signatures](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/api_reference.html) |
+| IN7 Value properties | Bounds, finite/nonnegative/sorted/unique, valid indices | Check elimination, search specialization, content-dependent shapes | Proof/explicit contract/runtime checks. Sample statistics are cost hints, not legality proofs; full checks may cost O(N). WI1 does not inspect contents |
+| IN8 Numeric policy | Casts, accumulator precision, overflow/promotion, cct/fit, NaN/Inf, reassociation/determinism | Legal fusion/reduction changes and mixed precision | Acquire from operation/semantic policy, not input dtype alone. An fp16 declaration does not change J numeric/error semantics |
+| IN9 Lifetime/ownership/alias | External owner/release, overlap, read-only/mutation, reuse/donation after calls | Buffer reuse/in-place, external import, retained memory | Adapter/runtime ownership evidence plus liveness. Separate logical identity/BufferId. WI1 does not validate these. [JAX donation](https://docs.jax.dev/en/latest/buffer_donation.html) |
+| IN10 Physical representation/target | Device, encoding, strides/offset/layout/alignment, transfer/sharding, capabilities | Concrete kernels/routes/schedules and byte/transfer costs | Adapter and TargetProfile, outside semantic with. Guard any specialized observed layout. [Tensor guards](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamo_overview.html) |
+| IN11 Provenance/validity | Unknown/observed/inferred/declared/proven, scope/version, runtime guard/conflicts | Track preconditions and prevent stale specialization/cache reuse | Associate witnesses/provenance. Do not promote samples/observations into permanent constants. Distinguish NAME witnesses from noun snapshots; current catalog revisions are analysis-local |
+
+IN0–IN5 describe input facts, IN6–IN8 connect operation/state contracts, IN9–IN10 belong to runtime/physical boundaries, and IN11 applies to all facts. Do not put call-dependent input facts into immutable FunctionEntity identity. Keep proofs in analyses and physical facts downstream. Optional axis labels such as batch/channel/feature help interpret descriptors but do not replace J rank/axis semantics. Device placement may be an input fact; tile/kernel selection is a derived plan.
+
+| Optimization goal | Relevant information | When unknown |
+|---|---|---|
+| Topology/common-input/branch-join candidates | Graph/callable identity, inputs, source provenance | Analyze known structure and retain callable boundaries |
+| Fusion/reordering legality | Structure plus operation effects/errors/numeric/alias and required shape/type relations | Do not reorder based on topology alone; retain unapplied candidates without proof/guards |
+| Logical memory/resources | Type/rank/shape, nesting/sparse schema, use-def/liveness | Report expressions/bounds/unknowns, not logical extent sums as peak allocation |
+| Kernel/SIMD/GPU scheduling | Legality plus representation/target capabilities | Use guarded or verified supported routes, never invented layouts/devices |
+| Buffer reuse/in-place | Representation, ownership/alias/lifetime and liveness | Conservatively retain shared/external ownership; permission is not guaranteed reuse |
+
+Conceptual training-step specification, not implemented dtype/symbolic/AD support:
+
+```text
+X: data,      float32[B,784]
+Y: label,     float32[B,10]
+W: parameter,float32[784,10]   // runtime contents change between steps
+constraints: X.dim0 = Y.dim0, 0 <= B <= 1024
+state: W read -> compute -> explicit update; optimizer state is separate
+constants: only required axis/window/rank operands
+witness: check metadata and specialized NAME/semantic policy before effects
+physical inputs: adapter placement/layout/lifetime, outside this schema
+```
+
+Constraints must match the actual program/domain; B=0 follows existing J results/errors. A user-defined batch step can be analyzed without full dataset contents/size. Replacing full-dataset reductions or batch statistics with arbitrary minibatches needs separate equivalence proof. Weights can change despite unchanged contracts. Cache only facts actually used by a specialization. Data-dependent output sizes, such as filtered lengths, remain unknown or require subsequent shape computation.
+
+Acquire facts from existing semantic contracts/literals, prepared noun/header/API metadata, necessary optional declarations, then required proof/runtime guards. Do not require content scans, alias proofs or GPU implementation for the base input schema. A specialization guard miss is not itself a J semantic error: distinguish supported reanalysis/runtime routing from explicit contract violations. WI1 validator errors are explicit check results, not automatic compiler dispatch policy.
+
+Sources: [JAX AOT](https://docs.jax.dev/en/latest/aot.html) and [symbolic constraints](https://docs.jax.dev/en/latest/export/shape_poly.html), [TensorFlow signatures](https://www.tensorflow.org/guide/function), [TVM symbolic shapes](https://tvm.apache.org/docs/deep_dive/relax/learning.html), [PyTorch signatures](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/export/api_reference.html) and [tensor guards](https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_dynamo_overview.html). IN0–IN11 and their adoption priority are RustJ design decisions.
+
+Checklist:
+
+- [x] **WI0a** Document syntax-independent IN0–IN11, per-optimization requirements and framework sources.
+- [ ] **WI3a** Verify fact provenance/refinement and unknown/conflicting inputs; symbolic equalities/bounds belong with WI5.
+- [ ] **WI4a** Distinguish guard misses/contract violations and supported route selection; connect pre-effect checks, covering scalar/empty/boxed/sparse, changing batches/weights and NAME changes.
+
+This is a design-document update; it claims no runtime/optimizer implementation or new validation gate after WI1.
 
 #### Framework comparison for pre-execution input information (2026-10-04)
 
