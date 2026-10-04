@@ -4,9 +4,7 @@ use crate::{
         Result,
     },
     kernels,
-    semantic::{
-        FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech, JEntity, Verb,
-    },
+    semantic::{FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech, JEntity},
     value::Value,
 };
 use std::collections::HashMap;
@@ -33,9 +31,12 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         name: &str,
     ) -> Option<(std::sync::Arc<FunctionEntity>, crate::semantic::NameVersion)> {
         let binding = self.engine.names.get(name)?;
-        let SymbolValue::Modifier(function) = &binding.value else {
+        let JEntity::Function(function) = &binding.value else {
             return None;
         };
+        if function.result_pos == FunctionPartOfSpeech::Verb {
+            return None;
+        }
         function
             .is_nameless_modifier()
             .then(|| (function.clone(), binding.version))
@@ -65,10 +66,11 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
                 .names
                 .get(&current)
                 .ok_or_else(|| Error::Value(current.clone()))?;
-            let SymbolValue::Modifier(function) = &binding.value else {
+            let JEntity::Function(function) = &binding.value else {
                 return Err(Error::Domain);
             };
-            if function.result_pos != expected {
+            if function.result_pos == FunctionPartOfSpeech::Verb || function.result_pos != expected
+            {
                 return Err(Error::Domain);
             }
             bindings.push((current.clone(), binding.version));
@@ -89,30 +91,8 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Err(Error::Limit)
     }
     fn assign(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
-        let (binding, returned) = match value {
-            JEntity::Noun(value) => {
-                let value = value.into_shared();
-                let returned = value.clone();
-                (SymbolValue::Noun(value), JEntity::Noun(returned))
-            }
-            JEntity::Function(function) => {
-                let binding = if function.result_pos == FunctionPartOfSpeech::Verb {
-                    SymbolValue::Verb(Verb::from_entity(function.clone())?)
-                } else {
-                    SymbolValue::Modifier(function.clone())
-                };
-                (binding, JEntity::Function(function))
-            }
-        };
-        self.engine.commit_binding(name.to_owned(), binding)?;
-        Ok(returned)
+        self.engine.commit_binding(name.to_owned(), value)
     }
-}
-
-enum SymbolValue {
-    Noun(Value),
-    Verb(crate::semantic::Verb),
-    Modifier(std::sync::Arc<FunctionEntity>),
 }
 
 struct ResolvedVerb {
@@ -141,7 +121,7 @@ fn operation_label(verb: &ResolvedVerb) -> String {
 }
 
 struct Binding {
-    value: SymbolValue,
+    value: JEntity,
     version: crate::semantic::NameVersion,
 }
 
@@ -186,13 +166,10 @@ impl Engine {
     fn parser_name_binding(&self, name: &str) -> Option<crate::parser::ParserNameBinding> {
         if let Some(binding) = self.names.get(name) {
             return Some(match &binding.value {
-                SymbolValue::Noun(value) => crate::parser::ParserNameBinding::Noun(value.clone()),
-                SymbolValue::Modifier(function) => {
+                JEntity::Noun(value) => crate::parser::ParserNameBinding::Noun(value.clone()),
+                JEntity::Function(function) => {
                     crate::parser::ParserNameBinding::Function(function.result_pos)
                 }
-                SymbolValue::Verb(_) => crate::parser::ParserNameBinding::Function(
-                    crate::semantic::FunctionPartOfSpeech::Verb,
-                ),
             });
         }
         self.primitives
@@ -201,13 +178,13 @@ impl Engine {
     }
     fn parser_analysis_binding(&self, name: &str) -> Option<crate::parser::ParserNameBinding> {
         if let Some(Binding {
-            value: SymbolValue::Modifier(function),
+            value: JEntity::Function(function),
             version,
         }) = self.names.get(name)
         {
             // Unknown application semantics do not prevent transporting the
             // current POS-bearing function name through a static assignment.
-            if !function.is_known_modifier() {
+            if function.result_pos == FunctionPartOfSpeech::Verb || !function.is_known_modifier() {
                 return self.parser_name_binding(name);
             }
             return Some(crate::parser::ParserNameBinding::KnownModifier {
@@ -248,7 +225,7 @@ impl Engine {
         crate::j_graph_ir::Plan::from_bound_with_graph_facts(
             self.prepare_semantic_diagnostic(source)?,
             &|name| match self.names.get(name).map(|binding| &binding.value) {
-                Some(SymbolValue::Noun(value)) => crate::j_graph_ir::GraphFacts::of(value),
+                Some(JEntity::Noun(value)) => crate::j_graph_ir::GraphFacts::of(value),
                 _ => crate::j_graph_ir::GraphFacts::default(),
             },
         )
@@ -281,7 +258,7 @@ impl Engine {
             .get(name)
             .map(|b| &b.value)
         {
-            Some(SymbolValue::Noun(value)) => crate::facts::Facts::of(value),
+            Some(JEntity::Noun(value)) => crate::facts::Facts::of(value),
             _ => crate::facts::Facts::default(),
         })
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))?;
@@ -319,26 +296,32 @@ impl Engine {
         self.names.get(name).map(|binding| binding.version)
     }
 
-    fn commit_binding(&mut self, name: String, value: SymbolValue) -> Result<()> {
+    fn commit_binding(&mut self, name: String, value: JEntity) -> Result<JEntity> {
         let version = crate::semantic::NameVersion(
             self.binding_version(&name)
                 .map_or(0, |v| v.0)
                 .checked_add(1)
                 .ok_or(Error::Limit)?,
         );
+        // Freeze once before sharing; an owned noun clone would copy data.
+        let returned = match value {
+            JEntity::Noun(value) => JEntity::Noun(value.into_shared()),
+            function => function,
+        };
+        let stored = match &returned {
+            JEntity::Noun(value) => JEntity::Noun(value.clone()),
+            JEntity::Function(function) => JEntity::Function(function.clone()),
+        };
         let binding = Binding {
-            value: match value {
-                SymbolValue::Noun(v) => SymbolValue::Noun(v.into_shared()),
-                v => v,
-            },
+            value: stored,
             version,
         };
         if let Some(old) = self.names.insert(name, binding) {
-            if let SymbolValue::Noun(value) = old.value {
+            if let JEntity::Noun(value) = old.value {
                 self.pool.retire(value);
             }
         }
-        Ok(())
+        Ok(returned)
     }
 
     /// Reference execution with stable machine-readable J errors.
@@ -398,11 +381,11 @@ impl Engine {
         // Static binding is an analysis API. Eager lookup here would reorder
         // runtime errors relative to failures in right-hand arguments.
         let value = match expr.kind {
-            crate::semantic::ExprKind::VerbValue(verb) => SymbolValue::Verb(verb),
-            crate::semantic::ExprKind::ModifierValue(function) => SymbolValue::Modifier(function),
-            crate::semantic::ExprKind::Literal(value) => SymbolValue::Noun(value),
+            crate::semantic::ExprKind::VerbValue(verb) => JEntity::Function(verb.entity),
+            crate::semantic::ExprKind::ModifierValue(function) => JEntity::Function(function),
+            crate::semantic::ExprKind::Literal(value) => JEntity::Noun(value),
             // Parentheses only wrap completed nouns; no kernel replay occurs.
-            _ => SymbolValue::Noun(self.interpret_ir(expr, pooled, 0)?),
+            _ => JEntity::Noun(self.interpret_ir(expr, pooled, 0)?),
         };
         if program.assignment.is_some() {
             // Runtime row 7 already committed the value. Even a later parser
@@ -410,11 +393,15 @@ impl Engine {
             Ok(None)
         } else {
             match value {
-                SymbolValue::Noun(value) => Ok(Some(value)),
-                SymbolValue::Verb(_) => Err(Error::Unsupported("verb result display".into())),
-                SymbolValue::Modifier(_) => {
-                    Err(Error::Unsupported("modifier result display".into()))
-                }
+                JEntity::Noun(value) => Ok(Some(value)),
+                JEntity::Function(function) => Err(Error::Unsupported(
+                    if function.result_pos == FunctionPartOfSpeech::Verb {
+                        "verb result display"
+                    } else {
+                        "modifier result display"
+                    }
+                    .into(),
+                )),
             }
         }
     }
@@ -445,13 +432,19 @@ impl Engine {
                             .with_current_name(name.clone()),
                     )
                 })?;
-                let SymbolValue::Verb(target) = &binding.value else {
+                let JEntity::Function(target) = &binding.value else {
                     return Err(Error::Domain.with_context(
                         ErrorContext::phase(DiagnosticPhase::Runtime)
                             .with_current_name(name.clone()),
                     ));
                 };
-                self.resolve_function_entity(&target.entity, depth + 1)
+                if target.result_pos != FunctionPartOfSpeech::Verb {
+                    return Err(Error::Domain.with_context(
+                        ErrorContext::phase(DiagnosticPhase::Runtime)
+                            .with_current_name(name.clone()),
+                    ));
+                }
+                self.resolve_function_entity(target, depth + 1)
             }
             FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
                 let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
@@ -516,7 +509,7 @@ impl Engine {
                 Expr::VerbValue(_) | Expr::ModifierValue(_) => Err(Error::Domain),
                 Expr::ReadName(name) => match self.names.get(&name) {
                     Some(Binding {
-                        value: SymbolValue::Noun(value),
+                        value: JEntity::Noun(value),
                         ..
                     }) => Ok(value.clone()),
                     Some(_) => Err(Error::Domain),
@@ -583,5 +576,137 @@ impl Engine {
             }
         })();
         result.map_err(|error| error.at(span))
+    }
+}
+
+#[cfg(test)]
+mod entity_binding_tests {
+    use super::*;
+    use crate::{Data, parser::ParserNameBinding, semantic::NameVersion};
+    use std::sync::Arc;
+
+    #[test]
+    fn commit_shares_returned_and_stored_rhs_without_noun_copy() {
+        let mut engine = Engine::new();
+        let noun = Value::ints([65536], (0..65536).collect()).unwrap();
+        let Data::Int(data) = noun.data() else {
+            panic!()
+        };
+        let original = data.as_ptr();
+        let returned = engine
+            .commit_binding("rhs".into(), JEntity::Noun(noun))
+            .unwrap();
+        for entity in [&returned, &engine.names["rhs"].value] {
+            let JEntity::Noun(value) = entity else {
+                panic!()
+            };
+            let Data::Int(data) = value.data() else {
+                panic!()
+            };
+            assert_eq!(data.as_ptr(), original);
+            assert_eq!(value.int_at(65535).unwrap(), 65535);
+        }
+        drop(returned);
+        for (index, function) in [
+            FunctionEntity::primitive(crate::primitive::PrimitiveId::Add, 3..4),
+            FunctionEntity::primitive_adverb(crate::primitive::AdverbId::Insert, 5..6),
+            FunctionEntity::primitive_conjunction(crate::primitive::ConjunctionId::Rank, 7..8),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let returned = engine
+                .commit_binding("rhs".into(), JEntity::Function(function.clone()))
+                .unwrap();
+            let JEntity::Function(returned) = returned else {
+                panic!()
+            };
+            let JEntity::Function(stored) = &engine.names["rhs"].value else {
+                panic!()
+            };
+            assert!(Arc::ptr_eq(&returned, stored));
+            assert!(Arc::ptr_eq(&function, stored));
+            assert_eq!(stored.span, function.span);
+            let Some(ParserNameBinding::Function(pos)) = engine.parser_name_binding("rhs") else {
+                panic!()
+            };
+            assert_eq!(pos, function.result_pos);
+            assert_eq!(
+                engine.binding_version("rhs"),
+                Some(NameVersion(index as u64 + 2))
+            );
+        }
+    }
+
+    #[test]
+    fn failed_version_increment_preserves_binding_and_retirement_state() {
+        let mut engine = Engine::with_output_cache_limit(4096);
+        engine.eval("kept=:i.256").unwrap();
+        engine.names.get_mut("kept").unwrap().version = NameVersion(u64::MAX);
+        let before = engine.eval("kept").unwrap().unwrap();
+        let stats = engine.output_cache_stats();
+        for replacement in [
+            JEntity::Noun(Value::scalar(9)),
+            JEntity::Function(FunctionEntity::primitive(
+                crate::primitive::PrimitiveId::Add,
+                0..1,
+            )),
+        ] {
+            assert_eq!(
+                engine
+                    .commit_binding("kept".into(), replacement)
+                    .unwrap_err()
+                    .kind(),
+                "limit error"
+            );
+            assert_eq!(engine.binding_version("kept"), Some(NameVersion(u64::MAX)));
+            assert_eq!(engine.eval("kept").unwrap().unwrap().json(), before.json());
+            assert_eq!(engine.output_cache_stats(), stats);
+        }
+        let report = engine.eval_captured("kept=:2+3");
+        report.capture.verify().unwrap();
+        assert_eq!(report.result.unwrap_err().kind(), "limit error");
+        assert!(
+            !report
+                .capture
+                .events
+                .iter()
+                .any(|event| matches!(event, crate::parser_capture::CaptureEvent::Commit { .. }))
+        );
+        assert_eq!(engine.output_cache_stats(), stats);
+    }
+
+    #[test]
+    fn unified_function_bindings_enforce_lookup_pos_and_error_context() {
+        use crate::parser::RuntimeParserHost;
+        let mut engine = Engine::new();
+        let reference = FunctionEntity::name_ref("target".into(), FunctionPartOfSpeech::Verb, 0..6);
+        for source in ["target=:/", "target=:\""] {
+            engine.eval(source).unwrap();
+            let error = engine.resolve_function_entity(&reference, 0).err().unwrap();
+            assert_eq!(error.kind(), "domain error");
+            assert_eq!(
+                error.context().unwrap().current_name.as_deref(),
+                Some("target")
+            );
+        }
+        engine.eval("target=:+").unwrap();
+        let Some(ParserNameBinding::Function(pos)) = engine.parser_analysis_binding("target")
+        else {
+            panic!()
+        };
+        assert_eq!(pos, FunctionPartOfSpeech::Verb);
+        let mut host = EngineParserHost {
+            engine: &mut engine,
+            pooled: false,
+        };
+        assert!(host.stacked_modifier("target").is_none());
+        assert_eq!(
+            host.resolve_modifier("target", FunctionPartOfSpeech::Adverb)
+                .err()
+                .unwrap()
+                .kind(),
+            "domain error"
+        );
     }
 }

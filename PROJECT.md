@@ -1941,6 +1941,8 @@ Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2
 
 #### JE1 implementation — minimum JEntity at assignment (2026-10-04)
 
+This is the JE1 introduction snapshot. The JE2 record below owns removal of temporary SymbolValue/Verb adapters and the current namespace carrier.
+
 - Add `semantic::JEntity::{Noun(Value), Function(Arc<FunctionEntity>)}` and borrowed `JEntityRef::{Noun(&Value), Function(&FunctionEntity)}`. Moving the owning carrier preserves payloads; as_ref inspects without copies, allocation or refcount updates. JEntity deliberately has no automatic Clone because cloning an Owned Value can copy the full noun payload. Borrowed Copy/Clone only copies references.
 - `RuntimeParserHost::assign(name, JEntity) -> Result<JEntity>` transports all four row-7 RHS classes through one boundary. Remove AssignedValue. FunctionEntity owns actual POS; add no separate Verb/Modifier payload variants.
 - Keep verb occurrence spans/compatibility targets, noun Expr height, source/provenance/occurrence/assignment flags outside the carrier. Capture Commit identity/class/source and binding versions stay in their existing paths. The host still freezes noun assignment and shares its returned/symbol payload, preserving replacement/pool-retirement policy.
@@ -1951,15 +1953,28 @@ Reuse all 71 JE0 differential cases for grouped/chained assignments, noun snapsh
 
 **JE1 gate:** Windows default/portable each: **366 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. For each j64/AVX2 direct/semantic-reference/parser-capture route: **4,810 cases / 4,806 passed / 4 existing runtime boundaries / 0 failed**; stages: **9,990 checks**; words: **6,618 cases**. No new language form was added, so rerun all 71 JE0 cases and the complete existing corpus without expansion; verify all ten report binary/source hashes. Keep 106 capture-graph and 2 static boundaries separate. Full upstream tests, definition invocation acceptance, a newly built audit-revision DLL and private C trace equivalence remain unverified. Conformance sources use `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, actual reference DLL release uses `ded7793fe5795d79eda8e7138dce94aa056edf78`, distinct from the JE0 audit pin `0db94e768a845e2583c01d00538c3d16379677bb`.
 
-The minimum JE1 API and first boundary are complete. Next is one JE2 seam reducing SymbolValue duplication. Do not force deferred noun/application structure or lookup observations into concrete JEntity. Explicit body invocation/scope, semantic nested DD, JE3+ higher-order views, broader storage migration and full J conformance remain incomplete. Optimization, CUDA and GitHub CI stay deferred.
+The minimum JE1 API and first boundary are complete; SymbolValue convergence is handed to JE2. Do not force deferred noun/application structure or lookup observations into concrete JEntity. Explicit body invocation/scope, semantic nested DD, JE3+ higher-order views, broader storage migration and full J conformance remain incomplete. Optimization, CUDA and GitHub CI stay deferred.
 
 #### JE2 — converge parser/binding/assignment transport
 - [ ] Replace or adapt `FunctionOperand::{Function,Noun}` through the common entity boundary without information loss.
 - [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules.
-- [ ] Generalize assignment to write and return the same assigned `JEntity`. JE1 completes the host input/result boundary; replacing namespace SymbolValue is the next seam.
-- [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order.
-- [ ] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. A common JEntity carrier must not erase this distinction.
+- [x] Generalize assignment to write and return the same assigned `JEntity`. Binding.value and the runtime host now use JEntity; remove SymbolValue.
+- [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order. Top-level runtime lookup/Verb/Modifier checks are implemented; full local/locale/definition scopes remain incomplete.
+- [x] Preserve the jsource name-lookup asymmetry: noun names may deliver the looked-up value/snapshot, while function names may require a nameref resolved again at execution. JEntity bindings preserve timing/POS/version semantics under the existing 71 cases plus 11 noun/function replacement cases.
 - [ ] Use the same boundary for explicit/direct definitions across static/runtime paths.
+
+#### JE2 implementation — JEntity namespace and runtime results (2026-10-04, partial JE2)
+
+- Remove runtime SymbolValue; store `Binding { value: JEntity, version: NameVersion }`. Function bindings own only Arc FunctionEntity without duplicated Verb wrapper/span/target. Runtime final results use the same JEntity. ExprKind remains parser computation/dependency structure.
+- `commit_binding(name, JEntity) -> Result<JEntity>` checks version increment first, freezes nouns once, and shares namespace/returned payloads. Functions share the same DAG. Host assignment delegates here; preserve noun replacement/OutputPool retirement. Add no automatic JEntity Clone; explicitly share only frozen Values or function Arcs.
+- Preserve noun lookup snapshots, DAG-owned function POS, by-value nameless modifiers, POS-known static aliases and late modifier NameRef chains/versions. Replace implicit enum-variant class checks with explicit POS checks at lookup. A Verb NameRef rebound to a modifier retains domain error and current_name context.
+- Remove the now-unused Verb::from_entity namespace adapter and its dedicated unit test. Migrate its identity/span/POS guarantees to actual commit/lookup tests. Parser occurrence wrappers/VerbTarget remain separate from intrinsic function identity. Storage representation, Value internals, gerund/views and optimizer/target policy are unchanged.
+
+Three new runtime unit tests verify stored/returned pointers for a 65,536-atom noun and shared identities/versions for all RHS classes; noun/function version-overflow rejection preserving bindings/pool/commit; and unified Function expected-POS/domain/current_name behavior. An integration regression covers cache limits 0/4096, noun→Verb→Adverb→Conjunction replacement with a retained noun alias, bounded retirement after the last alias drops, and noun reassignment. Replace the previous adapter-only test with these production-path checks. Add **11 C corpus/stage replacement cases**, bringing entity-boundary fixtures to **82**.
+
+**Namespace seam gate:** Windows default/portable each: **369 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. For each j64/AVX2 direct/semantic-reference/parser-capture route: **4,821 cases / 4,817 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,001 checks**; words: **6,618 cases**. Keep 108 capture-graph and 2 static boundaries separate. Full upstream tests, definition invocation acceptance and private C runtime trace equivalence remain unverified. Verify all ten report binary/source hashes. Conformance source pin is `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, actual DLL release is `ded7793fe5795d79eda8e7138dce94aa056edf78`; JE0 source audit `0db94e768a845e2583c01d00538c3d16379677bb` is not validation of a newly built DLL.
+
+Remaining JE2: a zero-loss FunctionOperand entity view, completed parser-result transport versus deferred applications, full local/locale/definition scopes, explicit body invocation and broader static/runtime/capture convergence. This namespace seam does not complete all JE2. Next examine a borrowed JEntity view preserving noun operand spans; keep semantic nested DD and existing M2 gaps visible. JE3+ collections, broader storage migration, optimization, CUDA and GitHub CI remain deferred.
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

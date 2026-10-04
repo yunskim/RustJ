@@ -256,55 +256,6 @@ pub enum VerbTarget {
     Derived,
 }
 
-impl Verb {
-    /// Compatibility adapter for the remaining runtime symbol carrier.
-    /// The shared entity is authoritative; this never copies its DAG.
-    pub(crate) fn from_entity(entity: Arc<FunctionEntity>) -> Result<Self> {
-        if entity.result_pos != FunctionPartOfSpeech::Verb {
-            return Err(Error::Domain);
-        }
-        let target = match &entity.head {
-            FunctionHead::PrimitiveVerb(id) => VerbTarget::Primitive(*id),
-            FunctionHead::NameRef(name) => VerbTarget::Named(name.clone()),
-            _ => VerbTarget::Derived,
-        };
-        Ok(Self {
-            span: entity.span.clone(),
-            target,
-            entity,
-        })
-    }
-}
-
-#[cfg(test)]
-mod entity_adapter_tests {
-    use super::*;
-    #[test]
-    fn verb_adapter_preserves_identity_and_rejects_modifier_pos() {
-        let primitive = FunctionEntity::primitive(crate::primitive::PrimitiveId::Add, 3..4);
-        let adapted = Verb::from_entity(primitive.clone()).unwrap();
-        assert!(Arc::ptr_eq(&primitive, &adapted.entity));
-        assert_eq!(
-            adapted.target,
-            VerbTarget::Primitive(crate::primitive::PrimitiveId::Add)
-        );
-        assert_eq!(adapted.span, 3..4);
-        let named = FunctionEntity::name_ref("current".into(), FunctionPartOfSpeech::Verb, 9..16);
-        let adapted = Verb::from_entity(named.clone()).unwrap();
-        assert!(Arc::ptr_eq(&named, &adapted.entity));
-        assert_eq!(adapted.target, VerbTarget::Named("current".into()));
-        assert_eq!(adapted.span, 9..16);
-        for function in [
-            FunctionEntity::primitive_adverb(crate::primitive::AdverbId::Insert, 0..1),
-            FunctionEntity::primitive_conjunction(crate::primitive::ConjunctionId::Rank, 0..1),
-        ] {
-            assert_eq!(
-                Verb::from_entity(function).unwrap_err().kind(),
-                "domain error"
-            );
-        }
-    }
-}
 #[derive(Clone, Debug)]
 pub struct Expr {
     pub span: std::ops::Range<usize>,

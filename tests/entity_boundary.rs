@@ -219,6 +219,46 @@ fn owning_noun_transport_and_borrowed_inspection_do_not_copy_payload() {
 }
 
 #[test]
+fn noun_to_function_replacement_retains_aliases_and_bounded_retirement() {
+    for cache_limit in [0, 4096] {
+        let mut engine = Engine::with_output_cache_limit(cache_limit);
+        engine.eval("jereplaced=:i.256").unwrap();
+        engine.eval("jesaved=:jereplaced").unwrap();
+        for replacement in ["jereplaced=:+", "jereplaced=:/", "jereplaced=:\""] {
+            let report = engine.eval_captured(replacement);
+            report.result.as_ref().unwrap();
+            report.capture.verify().unwrap();
+            assert_eq!(
+                engine
+                    .eval("jesaved")
+                    .unwrap()
+                    .unwrap()
+                    .int_at(255)
+                    .unwrap(),
+                255
+            );
+            assert_eq!(engine.output_cache_stats().0, 0);
+        }
+        engine.eval("jesaved=:0").unwrap();
+        assert_eq!(
+            engine.output_cache_stats().0,
+            if cache_limit == 0 { 0 } else { 2048 }
+        );
+        engine.eval("jereplaced=:1+i.256").unwrap();
+        assert_eq!(
+            engine
+                .eval("jereplaced")
+                .unwrap()
+                .unwrap()
+                .int_at(255)
+                .unwrap(),
+            256
+        );
+        assert!(engine.output_cache_stats().0 <= cache_limit);
+    }
+}
+
+#[test]
 fn function_transport_retains_all_three_pos_and_definition_code() {
     use rustj::semantic::FunctionPartOfSpeech;
     let mut engine = Engine::new();
