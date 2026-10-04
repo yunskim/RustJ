@@ -192,6 +192,65 @@ J is unusually useful as a frontend for this model because the source already ca
 - reshape/transpose/take/drop allow logical shape/reindex meaning to remain separate from physical materialization;
 - whole-array notation reduces the need to rediscover high-level array intent from scalar loop nests.
 
+### Historical origin of JAXA Graph IR — read optimization topology from J notation
+
+JAXA did not begin from the abstract goal of “building a graph compiler.” It began from a concrete observation:
+
+~~~text
+u@:v
+    → input → v → u
+    → producer/consumer chain
+    → kernel-fusion candidate
+
+(f g h) y
+    → f and h branch from the same input and join at g
+    → branch/join topology
+    → branch parallelism / branch-local fusion candidate
+
+(f g) y
+    → the original input and g(y) both feed f
+    → ordered dependency + input-lifetime relation
+    → producer/consumer fusion candidate
+~~~
+
+J combinators such as `@:`, Hook, and Fork are therefore more than compact syntax. They expose **computation dependencies and topology without committing to a physical execution procedure**. JAXA's initial hypothesis was that a compiler should read and preserve this information before lowering it into scalar loops or backend kernels, so that fusion, parallelism, materialization, reuse, and lifetime candidates remain explicit.
+
+That observation motivates RustJ's independent `J Graph IR` layer:
+
+~~~text
+J syntax / FunctionEntity
+        ↓
+syntax-derived computation topology
+        ↓
+J Graph IR
+        ↓
+candidate generation
+  fusion / branch parallelism / materialization / reuse
+        ↓
+semantic legality
+  effects / errors / names / alias / rank contracts
+        ↓
+profitability / resource / target choice
+        ↓
+Logical/Physical realization
+~~~
+
+Three questions must remain separate:
+
+1. **Does the topology expose an optimization candidate?**
+2. **Is the transformation legal under J semantics?**
+3. **Is that legal strategy actually profitable on the chosen target?**
+
+A Fork does not imply that its branches may always execute in parallel, and `@:` does not imply unconditional fusion. Source structure identifies candidates; effect/error/name/alias semantics establish legality; resource and cost models choose a realization.
+
+RustJ does not claim that each ingredient is itself novel. Hook/Fork dataflow, function-level program transformation, graph-based fusion, and high-level array IR all have prior art. The distinctive architectural combination being explored by JAXA/RustJ is to **preserve J's tacit combinator algebra as an independent semantic graph layer, generate optimization candidates directly from that topology, and then separate full-J semantic legality from physical profitability**.
+
+The historical JAXA question is therefore recorded as:
+
+> **If J's function-composition notation already exposes computation topology, why destroy that intent into loops and try to rediscover it later?**
+
+RustJ's J Graph IR is the current implementation answer to that question.
+
 A central compiler rule follows: **do not destroy this information too early.** Modifier identity, rank boundaries, and derived structure remain in J Semantic IR/J Graph until Semantic Analyzer/Lowering can normalize them into logical operations such as `Reduce`, `CellApply`, `Scan`, and reindex forms. Explicit loops, threads, blocks, buffers, and device mappings are downstream schedule/physical choices.
 
 Historical JAXA focused mainly on analysis and a restricted vocabulary. RustJ reuses that design work while extending it to **full-J frontend/semantic ownership with incremental optimized-backend coverage**. Analyzable array regions may use aggressive logical/physical planning, while dynamic or effectful regions can remain on semantics-preserving native/runtime routes.

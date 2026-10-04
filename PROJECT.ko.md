@@ -125,6 +125,65 @@ J가 이 역할에 유리한 이유는 source 자체에 optimizer가 활용할 �
 - reshape/transpose/take/drop 등은 logical shape/reindex 의미와 physical materialization을 분리할 여지를 준다.
 - whole-array notation은 scalar loop에서 고수준 의미를 역추론하는 비용을 줄인다.
 
+#### JAXA Graph IR의 역사적 출발점 — J 표기에서 optimization topology를 읽는다
+
+JAXA의 출발점은 추상적인 “graph compiler를 만들자”가 아니었다. 먼저 다음과 같은 구체적인 관찰이 있었다.
+
+~~~text
+u@:v
+    → input → v → u
+    → producer/consumer chain
+    → kernel-fusion candidate
+
+(f g h) y
+    → 같은 input에서 f/h로 갈라진 뒤 g에서 합류
+    → branch/join topology
+    → branch parallelism / branch-local fusion candidate
+
+(f g) y
+    → 원 input과 g(y)가 f로 들어감
+    → ordered dependency + input-lifetime relation
+    → producer/consumer fusion candidate
+~~~
+
+즉 `@:`, Hook, Fork 같은 J의 function-composition 표기는 단순한 축약 문법이 아니라 **실행 방법을 확정하지 않은 채 계산 의존성과 topology를 source 수준에서 드러내는 표현**으로 볼 수 있다. JAXA는 이 정보를 scalar loop나 backend kernel로 낮추기 전에 compiler가 직접 읽고 보존하면 fusion·parallelism·materialization·lifetime 후보를 훨씬 일찍 발견할 수 있다고 보았다.
+
+이 관찰에서 RustJ의 독립 `J Graph IR`이 나온다.
+
+~~~text
+J syntax / FunctionEntity
+        ↓
+syntax-derived computation topology
+        ↓
+J Graph IR
+        ↓
+candidate generation
+  fusion / branch parallelism / materialization / reuse
+        ↓
+semantic legality
+  effects / errors / names / alias / rank contracts
+        ↓
+profitability / resource / target choice
+        ↓
+Logical/Physical realization
+~~~
+
+여기서 세 단계를 혼동하지 않는다.
+
+1. **topology가 optimization candidate를 드러내는 것**
+2. **그 transformation이 J semantics상 합법임을 증명하는 것**
+3. **실제로 그 strategy가 더 이득인지 선택하는 것**
+
+Fork가 보인다고 두 branch를 무조건 병렬 실행하지 않고, `@:`가 보인다고 무조건 fusion하지 않는다. source structure는 후보의 근거이고, effect/error/name/alias 등의 semantic legality와 cost/resource 판단은 별도 단계다.
+
+이 아이디어의 각 구성 요소 자체를 RustJ의 최초 발명으로 주장하지 않는다. Hook/Fork의 dataflow 의미, function-level program transformation, graph-based fusion과 high-level array IR에는 각각 선행 연구와 구현이 있다. RustJ/JAXA의 설계상 중요한 결합은 **J의 tacit combinator algebra를 독립적인 semantic graph layer로 보존하고, 그 구조 자체에서 optimization candidate를 생성한 뒤 full-J semantic legality와 physical profitability를 분리해서 판단하는 것**이다.
+
+따라서 JAXA의 역사적 핵심 질문은 다음처럼 기록한다.
+
+> **J의 함수 조합 표기가 이미 computation topology를 보여 준다면, 왜 그 의도를 loop로 잃어버린 뒤 다시 추론해야 하는가?**
+
+RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
+
 따라서 RustJ의 중요한 compiler 원칙은 **이 정보를 너무 일찍 scalar loop, buffer, kernel로 낮추지 않는 것**이다. `/`와 `"` 같은 modifier identity, rank boundary, derived structure는 J Semantic IR/J Graph에서 보존하고, Semantic Analyzer 이후에만 `Reduce`, `CellApply`, `Scan`, reindex 등의 normalized logical operation으로 내린다. explicit loop/thread/block mapping은 더 downstream의 schedule/physical lowering에서 결정한다.
 
 과거 JAXA가 주로 analyzer와 제한된 vocabulary를 대상으로 했다면, RustJ는 그 설계 비용을 승계해 **full-J frontend/semantic ownership + 점진적인 optimized backend coverage**로 확장한다. 분석 가능한 배열 영역은 aggressive logical/physical planning을 사용하고, 동적·effectful 영역은 J semantics를 보존하는 native/runtime route로 남길 수 있다.
