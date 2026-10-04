@@ -7695,6 +7695,32 @@ surface parser에서는 ordered rows 0/2/3/4가 이 즉시 적용 조합을 rows
 
 기준 소스: [cf.c bident/trident table](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L292), [cf.c invisible modifier의 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L355), [p.c ordered parser rows](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
 
+##### JE2/P3 구현 — nonoperator explicit modifier의 첫 invocation 경계 (2026-10-04, partial)
+
+rows 3/4와 AR/derived modifier 실행이 `ExplicitDefinition`을 적용할 때 runtime host의 `apply_definition`을 거쳐 실제 `JEntity` 결과를 받는다. `x/y`를 참조하지 않는 mode 1/2에서 선택된 valence의 **단일 Body 문장**을 공유 tokenizer/enqueuer/parser로 실행한다. literal 결과뿐 아니라 `u/`, `m+n`, global noun을 읽는 계산도 기존 semantic kernel 범위에서 실행한다. direct definition의 mode 1/2도 같은 DefinitionCode 경계를 사용한다. definition을 생성·대입하는 단계는 계속 본문을 실행하지 않는다.
+
+`ModifierFrame`은 parent Engine을 빌려 global lookup/semantic calls를 수행하며 전체 symbol table을 복제하거나 global에 operand를 잠시 대입하지 않는다. `u/v`는 실제 operand이고 noun일 때만 `m/n` alias를 정의한다. `RuntimeParserHost::operand_function`은 이 특별 이름의 concrete function substitution만 허용한다. ordinary 함수 NAME의 late lookup·alias 재정의 동작은 유지한다. C `p.c`의 mnuvxy by-value 규칙과 `cx.c`의 operand 설치를 기준으로 했다. gerund의 특별 이름 `u`도 C decoded structure와 대조했다. 일반 gerund 이름을 snapshot으로 바꾸지 않는다.
+
+실제 반환값은 공통 CompletedParseResult를 통해 **Noun/Verb/Adverb/Conjunction의 품사 그대로** 다음 stack reduction에 들어간다. noun 반환을 함수로 강제하거나 capture에서 “completed construction function”으로 가정하던 경로를 제거한다. immutable 함수 Arc 및 noun shared payload를 이동·공유한다. 정적 prepare는 runtime host가 필요한 호출을 실행하지 않고 Unsupported를 유지한다. explicit 정의를 static-known primitive modifier로 분류하지 않는다.
+
+capture에는 `ExplicitModifierApply` invocation marker와 noun 반환의 `ConstructionNounSuccess` occurrence/facts를 추가했다. matching construction attempt·row/POS·sequential occurrence와 실패 후 대입 보존을 검증한다. 본문 내부 dependency/effect graph를 outer graph에 아직 연결하지 않았으므로 J Graph 변환은 `explicit modifier body graph requires invocation scope`라는 경계를 반환한다. **실행 성공은 graph 분석 완료를 뜻하지 않는다.** 본문 source 좌표를 caller source 좌표로 잘못 렌더링하지 않도록 operation/argument context는 유지하고 오류 위치는 outer invocation으로 매핑한다. 별도의 body/caller diagnostic frame은 후속 작업이다.
+
+지원 경계:
+
+- [x] 단일 문장 nonoperator adverb/conjunction의 실제 Noun/Function 반환과 후속 reduction을 지원한다.
+- [x] `u/v`, noun 전용 `m/n`, global late lookup, 반환 함수의 frame 밖 재사용, 오류/재정의/대입 대상 보존을 검증한다.
+- [x] Rust 회귀 3개와 C corpus/stage 사례 **48개**를 추가한다. scalar/matrix/empty/boxed noun, 반환 ADV/CONJ 재적용, gerund operand 및 domain/length 실패를 포함한다.
+- [ ] `=.`/`=:`가 있는 본문, 여러 문장·control flow·nested definition scope는 preflight에서 Unsupported로 유지한다. body 실행의 copula를 TopLevel 규칙으로 잘못 처리하지 않는다.
+- [ ] `x/y`를 쓰는 operator definition은 deferred callable invocation이 필요하므로 미지원이다. unbound 특별 이름은 global fallback으로 해석하지 않고 Unsupported를 유지한다.
+- [ ] 현재 recursive parser 기반 호출은 Windows stack 보호를 위해 **8중첩**에서 LimitError를 낸다. 일반 invocation executor의 explicit frame/trampoline과 더 넓은 depth는 후속 작업이다. 오류 뒤 depth가 복구됨을 검증했다.
+- [ ] 본문 graph/source frame 및 전체 local/locale/definition 실행을 연결한다. 기존 ignored definition acceptance 17개는 계속 미완료다.
+
+**Explicit-modifier gate:** Windows default/portable 각각 **386 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,911 cases / 4,907 passed / 기존 runtime 경계 4 / failed 0**, stage **10,091 checks**, words **6,618 cases / failed 0**. capture graph 경계 **147건**(invocation 19·modifier value 109·ordered effect 19)과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`와 실행 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다. Linux/GitHub CI/CUDA 검증은 실행하지 않았다.
+
+다음 단계는 modifier frame의 local/global assignment dispatch를 분리한 뒤 여러 직선 문장의 마지막 결과와 실패/효과 순서를 구현하는 것이다. `x/y` operator callable과 body graph 연결은 별도 후속 경계로 유지한다. CUDA·optimizer 구현·GitHub CI는 보류한다.
+
+기준 소스: [cx.c modifier 호출 및 local frame](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c u/v와 noun m/n 설치](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L322), [p.c mnuvxy의 by-value resolution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c VXOPR executor 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
+
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
 - [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
@@ -9037,7 +9063,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드/문서 검토 기준: 2026-10-04 JE2/P3 immediate boundary 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
+코드/문서 검토 기준: 2026-10-04 JE2/P3 explicit modifier invocation 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
@@ -9055,7 +9081,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(JE2/P3 immediate boundary 단계): Windows default/portable 각각 **383 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,863 cases / 4,859 passed / 기존 runtime 경계 4 / failed 0**, stage **10,043 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(JE2/P3 explicit modifier invocation 단계): Windows default/portable 각각 **386 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,911 cases / 4,907 passed / 기존 runtime 경계 4 / failed 0**, stage **10,091 checks**, words **6,618 cases / failed 0**. capture graph 경계 147건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
+from conformance import equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, explicit_modifier_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -588,6 +588,20 @@ def run(args):
             expected = atomic_function(oracle.representation('latedecoded', 'atomic')['value'])
             source = 'latefn=:(,<latear)' + chr(92)
             check('late_modifier_decoded_snapshot', source, {'decoded': [expected]}, static_probe.inspect(source, 'D'))
+        for source in explicit_modifier_cases():
+            target = source.split('=:', 1)[0] if '=:' in source else None
+            if target is None:
+                check('explicit_modifier_value', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+                continue
+            error = oracle.run(source)
+            info = oracle.name_class(target) if not error else {}
+            if error:
+                check('explicit_modifier_error', source, error, static_probe.inspect(source, 'E'))
+            elif info.get('class') in (1, 2, 3):
+                expected = {'pos': info['class'], 'function': atomic_function(oracle.representation(target, 'atomic')['value'])}
+                check('explicit_modifier_function', source, expected, static_probe.inspect(source, 'R'))
+            else:
+                check('explicit_modifier_assignment', source, {'silent': True}, static_probe.inspect(source, 'E'))
         for source in definition_code_cases():
             if source.startswith(('defcode=:', 'defalias=:')):
                 error = oracle.run(source)

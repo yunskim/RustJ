@@ -169,6 +169,25 @@ def modifier_inventory_cases():
             yield 'inventoryfn=:(,<inventoryar)' + chr(92)
 
 
+def explicit_modifier_cases():
+    return [
+        "emglobal=:9", "emconstant=:1 : '42'", "emidentity=:1 : 'u'",
+        "emsum=:2 : 'm+n'", "emright=:2 : 'v'", "emreduce=:1 : 'u/'",
+        "emadverb=:1 : '/'", "emconjunction=:1 : '\"'", "emdirect=:{{u/}}",
+        "+emconstant", "+emconstant + 1", "5 emidentity", "(i.2 3) emidentity",
+        "(<1 2) emidentity", "(i.0) emidentity", "2 emsum 3", "1 2 emsum 3 4",
+        "emresult=:+emidentity", "emresult 7", "emresult=:+emreduce", "emresult i.4",
+        "emresult=:+emdirect", "emresult i.4", "emresult=: + emright -", "emresult 7",
+        "emresult=:+emadverb", "+emresult i.4", "emresult=:+emconjunction", "+emresult 0 (7)",
+        "emgerund=:1 : '(,<''u'')\\'", "emresult=:+emgerund",
+        "emlate=:1 : 'emglobal+u'", "3 emlate", "emglobal=:20", "3 emlate",
+        "emalias=:emconstant", "emresult=:+emalias", "emresult",
+        "emconstant=:1 : '17'", "+emalias", "emresult",
+        "emkeep=:+", "emfailure=:1 : 'u+1 2 3'", "emkeep=:1 2 emfailure", "emkeep 7",
+        "emdomain=:1 : 'u+1'", "emkeep=:'x' emdomain", "emkeep 7",
+    ]
+
+
 def definition_code_cases():
     """Construction only: bodies must stay unevaluated and names unresolved."""
     return [
@@ -596,6 +615,7 @@ def cases():
     fixed.extend(late_modifier_cases())
     fixed.extend(modifier_inventory_cases())
     fixed.extend(definition_code_cases())
+    fixed.extend(explicit_modifier_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
@@ -686,6 +706,7 @@ def main():
                 for prefix, reason in [
                     ('ordered-effect graph boundary: ', 'capture needs ordered assignment/effect graph'),
                     ('modifier-value graph boundary: ', 'captured modifier value graph lowering'),
+                    ('explicit-invocation graph boundary: ', 'explicit modifier body graph requires invocation scope'),
                 ]:
                     if line.startswith(prefix):
                         index = int(line[len(prefix):])

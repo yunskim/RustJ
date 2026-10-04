@@ -63,6 +63,18 @@ pub enum CaptureEvent {
         row: ParseRow,
         call: ConstructorCall,
     },
+    /// Execution boundary: body dependencies are not a flattened outer graph.
+    ExplicitModifierApply {
+        row: ParseRow,
+        function: Arc<FunctionEntity>,
+        span: Range<usize>,
+    },
+    ConstructionNounSuccess {
+        row: ParseRow,
+        id: OccurrenceId,
+        facts: GraphFacts,
+        span: Range<usize>,
+    },
     ConstructionSuccess {
         row: ParseRow,
         function: Arc<FunctionEntity>,
@@ -272,6 +284,41 @@ impl ParseCapture {
                     {
                         return Err("invalid constructor call observation");
                     }
+                }
+                CaptureEvent::ExplicitModifierApply {
+                    row,
+                    function,
+                    span,
+                } => {
+                    if construction != Some(*row)
+                        || !matches!(row, ParseRow::Adverb | ParseRow::Conjunction)
+                        || !matches!(
+                            function.head,
+                            crate::semantic::FunctionHead::ExplicitDefinition(_)
+                        )
+                        || function.result_pos
+                            != if *row == ParseRow::Adverb {
+                                crate::semantic::FunctionPartOfSpeech::Adverb
+                            } else {
+                                crate::semantic::FunctionPartOfSpeech::Conjunction
+                            }
+                        || span.start >= span.end
+                        || self.source.get(span.clone()).is_none()
+                    {
+                        return Err("invalid explicit modifier invocation");
+                    }
+                }
+                CaptureEvent::ConstructionNounSuccess { row, id, span, .. } => {
+                    if construction.take() != Some(*row)
+                        || !matches!(row, ParseRow::Adverb | ParseRow::Conjunction)
+                        || id.0 != next
+                        || !ready.insert(*id)
+                        || span.start >= span.end
+                        || self.source.get(span.clone()).is_none()
+                    {
+                        return Err("invalid noun construction outcome");
+                    }
+                    next += 1;
                 }
                 CaptureEvent::ConstructionSuccess { row, .. }
                 | CaptureEvent::ConstructionFailure { row, .. } => {

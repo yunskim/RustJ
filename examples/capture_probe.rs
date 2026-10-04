@@ -25,6 +25,15 @@ fn main() -> ExitCode {
             eprintln!("ordered-effect graph boundary: {verified}");
         } else if report.result.is_ok()
             && report.capture.events.iter().any(|event| {
+                matches!(
+                    event,
+                    rustj::parser_capture::CaptureEvent::ExplicitModifierApply { .. }
+                )
+            })
+        {
+            eprintln!("explicit-invocation graph boundary: {verified}");
+        } else if report.result.is_ok()
+            && report.capture.events.iter().any(|event| {
                 matches!(event,
             rustj::parser_capture::CaptureEvent::FunctionResult { function, .. }
                 if function.result_pos != rustj::semantic::FunctionPartOfSpeech::Verb)

@@ -1792,7 +1792,7 @@ A mismatch in a test harness must first be distinguished from a true semantic mi
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: the 2026-10-04 JE2/P3 immediate boundary stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
+Code/document review baseline: the 2026-10-04 JE2/P3 explicit modifier invocation stage. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
 - explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
@@ -1819,7 +1819,7 @@ Remaining transitions:
 - `physical.rs` provides representation foundations, not a Physical Planner;
 - callable/runtime `reduce/rank` summaries remain migration fields;
 - frontend uses the same ordered 9-row matcher/runtime-analysis reduction engine; the old flat modifier/train heuristic reducer is removed. Supported name/POS/assignment and completed-result boundaries are implemented, but full enqueue/construction/local/locale/definition semantics still gate M2 completion;
-- latest frontend validation (JE2/P3 immediate boundary stage): Windows default/portable each: **383 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,863 cases / 4,859 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,043 checks**; words: **6,618 cases / 0 failed**. Keep 114 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
+- latest frontend validation (JE2/P3 explicit modifier invocation stage): Windows default/portable each: **386 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,911 cases / 4,907 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,091 checks**; words: **6,618 cases / 0 failed**. Keep 147 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Conformance source/DLL pins match the JE2 namespace gate. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified.
 - `RouteRegion` is a class + operation-range prototype;
 - Schedule/Physical Plan, native CPU physical execution and external adapters are not complete.
 
@@ -2084,6 +2084,30 @@ Route ConstructionNames::apply_noun success through CompletedParseResult::noun(.
 Next isolate genuinely unsupported explicit adverb/conjunction application with minimal C cases, then implement an invocation boundary preserving operand/local bindings and actual result POS, including noun body results. CUDA, optimizer implementation and GitHub CI remain deferred.
 
 Sources: [cf.c tables](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L292), [immediate invisible-modifier execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L355), [p.c ordered parser rows](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
+
+#### JE2/P3 implementation — first nonoperator explicit modifier invocation (2026-10-04, partial)
+
+Rows 3/4 and AR/derived modifier execution apply ExplicitDefinition through RuntimeParserHost::apply_definition, returning actual JEntity. Support mode 1/2 without x/y references where the selected valence has one Body sentence. Execute literals and computations such as u/, m+n and global noun reads through the shared frontend and existing semantic kernels. Direct mode 1/2 definitions use the same DefinitionCode boundary. Constructing/assigning a definition still does not execute its body.
+
+ModifierFrame borrows the parent Engine for global lookup/calls; it neither copies the namespace nor temporarily writes operands into globals. Bind u/v and noun-only m/n aliases. operand_function substitutes concrete functions only for these special names, following p.c mnuvxy by-value semantics and cx.c operand installation. Ordinary function names retain late lookup/alias redefinition. Compare the gerund special-name u case with C decoded structure; do not snapshot ordinary gerund names.
+
+CompletedParseResult reinserts actual Noun/Verb/Adverb/Conjunction POS, retaining shared noun payload/function Arcs. Remove the capture assumption that every construction returns Function. Static prepare keeps runtime-required invocation Unsupported; explicit definitions are not static-known primitive modifiers.
+
+Add ExplicitModifierApply markers and ConstructionNounSuccess occurrences/facts, verifying matching attempts, row/POS, sequential IDs and failure/assignment preservation. Body dependency/effect graphs are not yet connected to the outer graph: J Graph conversion reports an explicit invocation-scope boundary rather than claiming analysis completion. Preserve operation/argument diagnostic context but locate body failures at the outer invocation, avoiding body offsets interpreted as caller offsets. Separate body/caller diagnostic frames remain pending.
+
+- [x] Execute single-sentence nonoperator adverbs/conjunctions, reinserting actual noun/function POS.
+- [x] Verify u/v, noun-only m/n, global late lookup, escaped function reuse, errors/redefinition and preserved assignment targets.
+- [x] Add three Rust regressions and **48 C corpus/stage cases** covering scalar/matrix/empty/boxed nouns, returned ADV/CONJ applications, gerund operands and domain/length failures.
+- [ ] Assignment bodies, multiple sentences/control flow and nested definition scopes remain preflight Unsupported; do not execute their copulas using TopLevel semantics.
+- [ ] x/y operator definitions require deferred callable invocation. Unbound special names remain Unsupported rather than falling through to globals.
+- [ ] Recursive shared-parser invocation currently has an **8-level Windows stack bound**, returning LimitError. Verify depth restoration after failure; a general explicit-frame/trampoline executor and wider depth remain pending.
+- [ ] Connect body graph/source frames and complete local/locale/definition invocation. Keep 17 ignored definition acceptance tests incomplete.
+
+**Explicit-modifier gate:** Windows default/portable each: **386 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,911 cases / 4,907 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,091 checks**; words: **6,618 cases / 0 failed**. Keep **147 capture-graph boundaries** (19 invocation, 109 modifier-value, 19 ordered-effect) and 2 static boundaries separate. All ten report binary/source hashes verified. Reviewed source is 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528; executed DLL release is ded7793fe5795d79eda8e7138dce94aa056edf78. Full upstream tests, definition invocation acceptance and private C trace equivalence remain unverified. Linux/GitHub CI/CUDA checks were not run.
+
+Next separate local/global assignment dispatch in modifier frames, then implement final-result and failure/effect ordering across straight-line sentences. x/y operator callables and body graph integration remain separate follow-ups. CUDA, optimizer implementation and GitHub CI remain deferred.
+
+Sources: [cx.c invocation/local frame](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [u/v and noun m/n installation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L322), [p.c special-name resolution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [VXOPR executor selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

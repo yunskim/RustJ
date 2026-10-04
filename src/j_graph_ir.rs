@@ -1012,6 +1012,12 @@ impl Plan {
                     occurrences.push((*id, value));
                     observed_facts.push((value, facts.clone()));
                 }
+                CaptureEvent::ExplicitModifierApply { .. }
+                | CaptureEvent::ConstructionNounSuccess { .. } => {
+                    return Err(Error::Unsupported(
+                        "explicit modifier body graph requires invocation scope".into(),
+                    ));
+                }
                 CaptureEvent::ConstructionAttempt { noun_inputs, .. } => {
                     constructor_inputs = noun_inputs.iter().map(|id| values[id]).collect();
                 }

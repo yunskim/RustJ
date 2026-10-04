@@ -218,6 +218,56 @@ impl ConstructionNames<'_, '_> {
             ))
         }
     }
+    fn apply_definition(
+        self,
+        operator: Arc<FunctionEntity>,
+        left: Item,
+        right: Option<Item>,
+        span: std::ops::Range<usize>,
+    ) -> Result<Item> {
+        let Some(host) = self.host else {
+            return Err(Error::Unsupported(
+                "explicit modifier invocation requires runtime host".into(),
+            ));
+        };
+        let left = CompletedParseResult::from_item(left, "explicit left operand")?.into_operand();
+        let right = right
+            .map(|item| {
+                CompletedParseResult::from_item(item, "explicit right operand")
+                    .map(CompletedParseResult::into_operand)
+            })
+            .transpose()?;
+        if let Some(observations) = self.observations {
+            observations
+                .borrow_mut()
+                .push(CaptureEvent::ExplicitModifierApply {
+                    row: self.row.expect("explicit constructor row"),
+                    function: operator.clone(),
+                    span: span.clone(),
+                });
+        }
+        let entity = host
+            .borrow_mut()
+            .apply_definition(operator, left, right)
+            .map_err(|error| {
+                // Body spans index DefinitionCode.body, not the caller's source.
+                // Keep bounded operation details, but locate this failure at the
+                // outer invocation until diagnostics support separate source frames.
+                let mut context = error.context().cloned().unwrap_or_default();
+                context.span = Some(span.clone());
+                context.blame_word_index = None;
+                error.into_unlocated().with_context(context)
+            })?;
+        match entity {
+            JEntity::Noun(value) => {
+                CompletedParseResult::noun(value.into_shared(), span, 0).into_item()
+            }
+            JEntity::Function(function) => {
+                CompletedParseResult::function(function, span, VerbTarget::Derived).into_item()
+            }
+        }
+    }
+
     fn apply_noun(
         self,
         verb: Verb,
@@ -312,6 +362,9 @@ fn apply_adverb(
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
     let operator = names.resolve_modifier(operator, span.clone())?;
+    if matches!(operator.head, FunctionHead::ExplicitDefinition(_)) {
+        return names.apply_definition(operator, left, None, span);
+    }
     if matches!(operator.head, FunctionHead::ModifierTrain) {
         if let [first, second] = operator.operands.as_slice() {
             // tcNV: u (C n/v) -> u C n/v; tNVc reverses the binding.
@@ -563,6 +616,12 @@ fn gerund_character(
             Some(ParserNameBinding::Function(pos)) => pos,
             Some(ParserNameBinding::KnownModifier { function, .. }) => function.result_pos,
         };
+        if let Some(function) = names
+            .host
+            .and_then(|host| host.borrow().operand_function(spelling))
+        {
+            return CompletedParseResult::function(function, span, VerbTarget::Derived).into_item();
+        }
         let entity = FunctionEntity::name_ref(spelling.into(), pos, span.clone());
         return Ok(if pos == FunctionPartOfSpeech::Verb {
             Item::verb(Verb {
@@ -861,6 +920,9 @@ fn apply_conjunction_items(
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let operator = names.resolve_modifier(operator, span.clone())?;
+    if matches!(operator.head, FunctionHead::ExplicitDefinition(_)) {
+        return names.apply_definition(operator, left, Some(right), span);
+    }
     if let FunctionHead::DefinitionConstructor(origin) = &operator.head {
         let (left, _) = left.into_noun().ok_or(Error::Domain)?;
         let (right, _) = right.into_noun().ok_or(Error::Domain)?;
@@ -1369,16 +1431,28 @@ fn reduce_stack_prefix(
                         facts: crate::j_graph_ir::GraphFacts::of(value),
                     });
                 } else if is_construction {
-                    let function = result
-                        .value
-                        .function_entity()
-                        .expect("completed construction function")
-                        .clone();
-                    capture.events.push(CaptureEvent::ConstructionSuccess {
-                        row,
-                        function,
-                        span: reduction_span.clone(),
-                    });
+                    if let Some(function) = result.value.function_entity() {
+                        capture.events.push(CaptureEvent::ConstructionSuccess {
+                            row,
+                            function: function.clone(),
+                            span: reduction_span.clone(),
+                        });
+                    } else {
+                        let ParseValue::Noun(expr, _) = &result.value else {
+                            unreachable!()
+                        };
+                        let ExprKind::Literal(value) = &expr.kind else {
+                            unreachable!()
+                        };
+                        let id = capture.next();
+                        result.occurrence = Some(id);
+                        capture.events.push(CaptureEvent::ConstructionNounSuccess {
+                            row,
+                            id,
+                            facts: crate::j_graph_ir::GraphFacts::of(value),
+                            span: reduction_span.clone(),
+                        });
+                    }
                 }
             }
             reductions.push(ParseReduction {
@@ -2275,6 +2349,20 @@ pub(crate) struct ResolvedModifier {
 
 pub(crate) trait RuntimeParserHost {
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    /// mnuvxy are value substitutions in p.c, unlike ordinary function names.
+    fn operand_function(&self, _name: &str) -> Option<Arc<FunctionEntity>> {
+        None
+    }
+    fn apply_definition(
+        &mut self,
+        _operator: Arc<FunctionEntity>,
+        _left: FunctionOperand,
+        _right: Option<FunctionOperand>,
+    ) -> Result<JEntity> {
+        Err(Error::Unsupported(
+            "explicit modifier invocation host".into(),
+        ))
+    }
     fn stacked_modifier(
         &self,
         _name: &str,
@@ -2399,6 +2487,18 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
             Item::function(function).with_span(span)
         }
         Some(ParserNameBinding::Function(pos)) => {
+            if let Some(function) = context
+                .host
+                .as_ref()
+                .and_then(|host| host.operand_function(&name))
+            {
+                let mut substituted =
+                    CompletedParseResult::function(function, span, VerbTarget::Derived)
+                        .into_item()?;
+                substituted.provenance = item.provenance;
+                substituted.flags = item.flags;
+                return Ok(substituted);
+            }
             if pos != FunctionPartOfSpeech::Verb {
                 if let Some((function, version)) = context
                     .host
