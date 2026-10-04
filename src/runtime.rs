@@ -28,6 +28,22 @@ struct EngineParserHost<'a> {
     pooled: bool,
 }
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
+        match self.engine.visible_binding(name) {
+            Some(Binding {
+                value: JEntity::Function(function),
+                ..
+            }) => function.innate_ranks(),
+            Some(_) => None,
+            None => self
+                .engine
+                .primitives
+                .resolve_extension_binding(name)
+                .is_none()
+                .then_some([63; 3]),
+        }
+    }
+
     fn fork_cap_binding(&self, name: &str) -> Result<Option<(bool, crate::semantic::NameVersion)>> {
         Ok(self.engine.visible_binding(name).map(|binding| (
             matches!(&binding.value, JEntity::Function(function)
@@ -126,6 +142,10 @@ struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
 }
 impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
+    fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
+        self.parent.function_name_ranks(name)
+    }
+
     fn fork_cap_binding(&self, name: &str) -> Result<Option<(bool, crate::semantic::NameVersion)>> {
         self.parent.fork_cap_binding(name)
     }
@@ -840,14 +860,12 @@ impl Engine {
                 })
             }
             FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
-                let [
-                    FunctionOperand::Function(operand),
-                    FunctionOperand::Noun { value, .. },
-                ] = function.operands.as_slice()
-                else {
+                let [FunctionOperand::Function(operand), _] = function.operands.as_slice() else {
                     return Err(Error::Unsupported("runtime noun-left rank".into()));
                 };
-                let ranks = crate::semantic::rank_noun_contract(value)?;
+                let ranks = function.requested_ranks().ok_or_else(|| {
+                    Error::Unsupported("rank construction has no innate-rank witness".into())
+                })?;
                 // Pure ravel's empty-frame result follows only from logical
                 // cell shape. Unknown/explicit verbs retain the prototype boundary.
                 if x.is_none() && !y.is_sparse() {
@@ -1256,11 +1274,7 @@ impl Engine {
                 Ok(resolved)
             }
             FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
-                let [
-                    FunctionOperand::Function(operand),
-                    FunctionOperand::Noun { value, .. },
-                ] = function.operands.as_slice()
-                else {
+                let [FunctionOperand::Function(operand), _] = function.operands.as_slice() else {
                     return Err(Error::Unsupported("malformed rank semantic entity".into()));
                 };
                 let mut resolved = self.resolve_function_entity(operand, depth + 1)?;
@@ -1269,7 +1283,9 @@ impl Engine {
                         "runtime subset cannot flatten nested rank modifiers".into(),
                     ));
                 }
-                resolved.rank = Some(crate::semantic::rank_noun_contract(value)?);
+                resolved.rank = Some(function.requested_ranks().ok_or_else(|| {
+                    Error::Unsupported("rank construction has no innate-rank witness".into())
+                })?);
                 Ok(resolved)
             }
             FunctionHead::PrimitiveAdverb(_)

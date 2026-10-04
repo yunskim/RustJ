@@ -101,8 +101,67 @@ pub struct FunctionEntity {
     /// Constructor-fixed meaning for a Fork. Original source operands survive;
     /// this is neither a call-site fact nor a late binding/purity proof.
     pub fork_semantics: Option<ForkSemantics>,
+    /// Header copied when a NAME enters the parser stack (sc.c::namerefacv).
+    /// Does not fix the eventual executable binding or imply purity.
+    pub name_ranks: Option<[i64; 3]>,
 }
 impl FunctionEntity {
+    pub(crate) fn with_name_ranks(mut entity: Arc<Self>, ranks: Option<[i64; 3]>) -> Arc<Self> {
+        debug_assert!(matches!(entity.head, FunctionHead::NameRef(_)));
+        Arc::get_mut(&mut entity).expect("fresh nameref").name_ranks = ranks;
+        entity
+    }
+    /// Intrinsic header ranks, separate from call-site rank/frame facts.
+    pub fn innate_ranks(&self) -> Option<[i64; 3]> {
+        self.innate_ranks_at(0)
+    }
+    fn innate_ranks_at(&self, depth: usize) -> Option<[i64; 3]> {
+        if depth > MAX_EXPR_DEPTH || self.result_pos != FunctionPartOfSpeech::Verb {
+            return None;
+        }
+        match self.head {
+            FunctionHead::PrimitiveVerb(id) => Some(id.innate_ranks()),
+            FunctionHead::NameRef(_) => self.name_ranks,
+            FunctionHead::ExplicitDefinition(_) | FunctionHead::Hook | FunctionHead::Fork => {
+                Some([63; 3])
+            }
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+            | FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+                Some([63; 3])
+            }
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
+                Some([63, 0, 63])
+            }
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+                if self.decoded_gerund.is_some() {
+                    return Some([63; 3]);
+                }
+                self.requested_ranks_at(depth + 1)
+                    .map(|ranks| ranks.map(|rank| if rank < 0 { 63 } else { rank }))
+            }
+            _ => None,
+        }
+    }
+    /// cr.c::jtqq request: noun triple or the right verb's fixed header.
+    /// Never execute or resolve the right operand here.
+    pub(crate) fn requested_ranks(&self) -> Option<[i64; 3]> {
+        self.requested_ranks_at(0)
+    }
+    fn requested_ranks_at(&self, depth: usize) -> Option<[i64; 3]> {
+        if depth > MAX_EXPR_DEPTH
+            || !matches!(
+                self.head,
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+            )
+        {
+            return None;
+        }
+        match self.operands.get(1)? {
+            FunctionOperand::Noun { value, .. } => rank_noun_contract(value).ok(),
+            FunctionOperand::Function(function) => function.innate_ranks_at(depth + 1),
+        }
+    }
+
     /// p.c stacks primitive modifiers and cf.c trains of primitive ACVs/nouns
     /// by value. This is a lookup policy, not an optimizer purity guarantee.
     pub(crate) fn is_nameless_modifier(&self) -> bool {
@@ -169,6 +228,7 @@ impl FunctionEntity {
             operands: Vec::new(),
             decoded_gerund: None,
             fork_semantics: None,
+            name_ranks: None,
         })
     }
 
@@ -184,6 +244,7 @@ impl FunctionEntity {
             operands: Vec::new(),
             decoded_gerund: None,
             fork_semantics: None,
+            name_ranks: None,
         })
     }
 
@@ -198,6 +259,7 @@ impl FunctionEntity {
             operands: Vec::new(),
             decoded_gerund: None,
             fork_semantics: None,
+            name_ranks: None,
         })
     }
 
@@ -212,6 +274,7 @@ impl FunctionEntity {
             operands: Vec::new(),
             decoded_gerund: None,
             fork_semantics: None,
+            name_ranks: None,
         })
     }
 
@@ -237,6 +300,7 @@ impl FunctionEntity {
             operands,
             decoded_gerund: None,
             fork_semantics,
+            name_ranks: None,
         })
     }
 }
@@ -337,6 +401,7 @@ pub struct Program {
     pub modifier_snapshots: Vec<ModifierSnapshot>,
     /// Constructor-time single-name cap inspections, not executable namerefs.
     pub fork_name_reads: Vec<NameUse>,
+    pub name_rank_snapshots: Vec<NameRankSnapshot>,
 }
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
@@ -378,6 +443,16 @@ pub struct ModifierSnapshot {
     pub span: std::ops::Range<usize>,
 }
 
+/// Parser-time header observation; version/absence belongs to this sidecar,
+/// not immutable function identity. This is not an executable binding guard.
+#[derive(Clone, Debug)]
+pub struct NameRankSnapshot {
+    pub name: String,
+    pub version: Option<NameVersion>,
+    pub ranks: Option<[i64; 3]>,
+    pub span: std::ops::Range<usize>,
+}
+
 /// Analysis snapshot only. It cannot be executed later as a cached plan.
 #[derive(Clone, Debug)]
 pub struct BoundProgram {
@@ -413,7 +488,15 @@ pub(crate) fn bind(
                     verb_references.push((name.clone(), function.span.clone()));
                 }
                 for (index, operand) in function.operands.iter().enumerate().rev() {
-                    if index == 0 && function.fork_semantics == Some(ForkSemantics::Capped) {
+                    if (index == 0 && function.fork_semantics == Some(ForkSemantics::Capped))
+                        || (index == 1
+                            && matches!(
+                                function.head,
+                                FunctionHead::PrimitiveConjunction(
+                                    crate::primitive::ConjunctionId::Rank
+                                )
+                            ))
+                    {
                         continue;
                     }
                     if let JEntityRef::Function(child) = operand.as_entity_ref() {

@@ -682,7 +682,19 @@ fn gerund_character(
         {
             return CompletedParseResult::function(function, span, VerbTarget::Derived).into_item();
         }
-        let entity = FunctionEntity::name_ref(spelling.into(), pos, span.clone());
+        let ranks = if let Some(host) = names.host {
+            host.borrow().function_name_ranks(spelling)
+        } else {
+            match names.lookup.and_then(|lookup| lookup(spelling)) {
+                Some(ParserNameBinding::KnownVerb { function, .. }) => function.innate_ranks(),
+                None if names.lookup.is_some() => Some([63; 3]),
+                _ => None,
+            }
+        };
+        let entity = FunctionEntity::with_name_ranks(
+            FunctionEntity::name_ref(spelling.into(), pos, span.clone()),
+            ranks,
+        );
         return Ok(if pos == FunctionPartOfSpeech::Verb {
             Item::verb(Verb {
                 span,
@@ -1242,6 +1254,15 @@ fn apply_conjunction_at(
     right.span = right_span;
     let ranks = match &right.entity {
         JEntity::Noun(value) => Some(rank_noun_contract(value)?),
+        JEntity::Function(function)
+            if primitive_id == Some(crate::primitive::ConjunctionId::Rank) =>
+        {
+            Some(function.innate_ranks().ok_or_else(|| {
+                Error::Unsupported(
+                    "verb-valued rank construction needs a stacked innate-rank witness".into(),
+                )
+            })?)
+        }
         JEntity::Function(_) => None,
     };
     let right_operand = right.into_operand();
@@ -2425,6 +2446,10 @@ pub(crate) struct ResolvedModifier {
 }
 
 pub(crate) trait RuntimeParserHost {
+    fn function_name_ranks(&self, _name: &str) -> Option<[i64; 3]> {
+        None
+    }
+
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
     fn fork_cap_binding(
         &self,
@@ -2507,6 +2532,7 @@ pub(crate) fn parse_runtime_host(
             capture,
             modifier_snapshots: Vec::new(),
             fork_name_reads: Default::default(),
+            name_rank_snapshots: Vec::new(),
         },
     )
 }
@@ -2518,6 +2544,7 @@ struct ActionContext<'a> {
     capture: Option<&'a mut ParseCapture>,
     modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
     fork_name_reads: std::cell::RefCell<Vec<crate::semantic::NameUse>>,
+    name_rank_snapshots: Vec<crate::semantic::NameRankSnapshot>,
 }
 
 /// Resolve one ordinary name only when its queue entry reaches the stack.
@@ -2531,6 +2558,17 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
         host.lookup(&name)
     } else {
         context.lookup.and_then(|lookup| lookup(&name))
+    };
+    let (name_ranks, name_version) = if let Some(host) = &context.host {
+        (host.function_name_ranks(&name), host.version(&name))
+    } else {
+        match &binding {
+            Some(ParserNameBinding::KnownVerb { function, version }) => {
+                (function.innate_ranks(), Some(*version))
+            }
+            None if context.lookup.is_some() => (Some([63; 3]), None),
+            _ => (None, None),
+        }
     };
     let binding = match binding {
         Some(ParserNameBinding::KnownVerb { function, .. }) => {
@@ -2628,7 +2666,10 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
                     return Ok(stacked);
                 }
             }
-            let entity = FunctionEntity::name_ref(name.clone(), pos, span.clone());
+            let entity = FunctionEntity::with_name_ranks(
+                FunctionEntity::name_ref(name.clone(), pos, span.clone()),
+                name_ranks,
+            );
             if pos == FunctionPartOfSpeech::Verb {
                 Item::verb(Verb {
                     span,
@@ -2642,9 +2683,30 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
         None => Item::verb(Verb {
             span: span.clone(),
             target: VerbTarget::Named(name.clone()),
-            entity: FunctionEntity::name_ref(name, FunctionPartOfSpeech::Verb, span),
+            entity: FunctionEntity::with_name_ranks(
+                FunctionEntity::name_ref(name, FunctionPartOfSpeech::Verb, span),
+                name_ranks,
+            ),
         }),
     };
+    if let Some(function) = resolved.value.function_entity() {
+        if let (FunctionHead::NameRef(name), FunctionPartOfSpeech::Verb) =
+            (&function.head, function.result_pos)
+        {
+            let snapshot = crate::semantic::NameRankSnapshot {
+                name: name.clone(),
+                version: name_version,
+                ranks: name_ranks,
+                span: function.span.clone(),
+            };
+            if let Some(capture) = &mut context.capture {
+                capture.events.push(CaptureEvent::FunctionNameRank {
+                    snapshot: snapshot.clone(),
+                });
+            }
+            context.name_rank_snapshots.push(snapshot);
+        }
+    }
     resolved.provenance = item.provenance;
     resolved.flags = item.flags;
     Ok(resolved)
@@ -2668,6 +2730,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
             capture: None,
             modifier_snapshots: Vec::new(),
             fork_name_reads: Default::default(),
+            name_rank_snapshots: Vec::new(),
         },
     )
 }
@@ -2698,6 +2761,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
             assignment_source: None,
             modifier_snapshots: Vec::new(),
             fork_name_reads: Default::default(),
+            name_rank_snapshots: Vec::new(),
         });
     }
 
@@ -2740,6 +2804,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
         assignment_source,
         modifier_snapshots: std::mem::take(&mut context.modifier_snapshots),
         fork_name_reads: context.fork_name_reads.take(),
+        name_rank_snapshots: std::mem::take(&mut context.name_rank_snapshots),
     })
 }
 fn expression(

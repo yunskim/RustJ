@@ -8155,10 +8155,28 @@ Sources: [cf.c noun fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5
 
 **다음 체크리스트:**
 
-- [ ] 남은 verb-valued rank operand를 C `cr.c`의 innate rank/constructor 규칙과 대조하고, 고정 constructor rank와 dynamic operand binding을 구분한다.
+- [x] 남은 verb-valued rank operand를 C `cr.c`의 innate rank/constructor 규칙과 대조했다. 아래 verb-valued rank 단계에서 고정 constructor rank와 dynamic operand binding을 구분한다.
 - [ ] noun-left GraphForm/Logical 전문화·일반 empty prototype의 effects/error suppression·heterogeneous fill/padding·sparse·dyadic insert·full definition/control/body graph는 계속 미완료다. 외부 static catalog의 POS-only first NAME은 불충분한 proof이므로 생성 경계를 유지한다.
 
 Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L163), [cf.c single-name cap 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L38), [j.h capped call](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249).
+
+##### JE2/P3 구현 — verb-valued rank의 생성 정보와 실행 이름 분리 (2026-10-05, partial)
+
+- [x] C `cr.c::jtqq`, `sc.c::jtnamerefacv`, `ja.h`의 rank accessor와 core primitive/derived constructor를 검토했다. `u"v`는 오른쪽 verb를 실행하지 않고 **그 함수 객체의 monad/left/right header rank**를 복사한다. negative requested rank와 derived verb의 실제 header rank는 다르다. 예를 들어 `+"_1`의 requested monad rank는 -1이지만 header monad rank는 `_`다. gerund rank-derived verb의 header도 모두 `_`다.
+- [x] ordinary NAME이 parser stack에 들어갈 때 현재 binding의 header rank를 immutable `FunctionEntity.name_ranks`에 복사한다. alias의 기존 header를 읽고 현재 alias target을 따라가지 않는다. 미정의 ordinary name의 C header는 모두 `_`다. 이 metadata는 executable NAME을 고정하거나 pure로 만들지 않는다. 기존 implicit `u.`의 header와 explicit actual operand `u`의 header도 구분한다.
+- [x] 원래 rank conjunction과 두 source operand, NAME/span을 그대로 보존한다. `requested_ranks()`가 noun rank spec 또는 오른쪽 verb header를 읽으며 runtime/name lookup을 수행하지 않는다. 왼쪽 callable의 late binding/POS 검사, nested rank 경계와 기존 prefix agreement·오류 순서는 유지한다. 오른쪽 NAME의 후속 재정의·noun/adverb로의 POS 변경은 이미 생성된 rank를 바꾸지 않는다.
+- [x] constructor header read/version/span은 `Program/Plan.name_rank_snapshots`와 capture `FunctionNameRank` observation으로 별도 기록한다. 오른쪽 rank operand는 executable late-reference 목록에서 제외한다. 이 sidecar는 cache guard나 purity proof가 아니다. primitive registry는 **6**, Graph IR은 **0.6**이며 `GraphForm::Rank.requested_ranks`를 추가한다. source noun인 `rank_spec`과 source RHS function을 혼동하지 않는다.
+- [x] static catalog의 `declare_primitive_verb`가 header 근거를 제공한다. POS만 알려진 RHS 이름은 유효한 J 문법이지만 **Unsupported construction proof 경계**로 남긴다. known header만으로 executable binding을 동결하지 않는다. 입력 payload 없이 `[1_000_000_000_000, 3]` metadata로 ravel-cell 결과 shape를 분석하는 회귀를 추가했다.
+- [x] Rust 회귀 7개는 RHS 비실행, alias·미정의 이름·재대입, lhs late execution, explicit/implicit operand, 음수·비대칭 rank, empty pure ravel, prefix agreement 오류 후 복구, source/capture/Graph/A3 및 대용량 metadata 분석을 검사한다. C `b.0` header projection과 runtime 값/오류를 각각 대조한다. `reports/verb-rank-oracle-windows.json`은 구현 전 **C reference-only 관찰**이며 conformance 보고서와 구분한다.
+
+**Verb-rank gate:** native Windows default/portable 각각 **425 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **5,321 cases / 5,321 passed / runtime 경계 0 / failed 0**, stage **10,757 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **244건**과 static 경계 **2건**은 별도로 남는다. primitive/derived header **39건**과 alias header를 C `b.0`로 대조했다. frontend report 10개의 실제 binary/reference/source hash를 검증했다(`ja.h` 포함). source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. 현재 corpus의 runtime 경계 0은 full J 지원을 뜻하지 않는다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+**다음 체크리스트:**
+
+- [ ] noun-left rank/gerund runtime과 noun-left GraphForm/Logical 전문화를 C constructor/call 규칙에 맞춰 확장한다.
+- [ ] 일반 empty prototype의 effects/error suppression, heterogeneous fill/padding, sparse, dyadic insert 및 full definition/control/body graph는 계속 미완료다. header 정보로 이 실행 경계를 우회하지 않는다.
+
+Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L734), [sc.c NAME header copy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [ja.h rank accessor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ja.h#L745), [t.c primitive headers](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c), [ap.c prefix/infix header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L965), [ar.c insert header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L1009).
 
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
@@ -8401,7 +8419,7 @@ Windows 검증: default/portable 각각 **261 passed / 17 ignored**, fmt/clippy 
 - [x] P4/P5: runtime named derived modifier 조회와 row 7 alias 대입이 immutable train 객체를 공유한다. 원래 이름의 재대입은 이미 구성된 alias/verb를 바꾸지 않는다. Engine 정적 조회와 J Graph verifier도 알려진 train identity를 허용하며 `modifier_snapshots`의 이름/version/POS/current-use span을 유지한다. identity가 알려졌다는 사실은 모든 application을 실행할 수 있다는 보장이 아니다. 품사만 선언한 unknown modifier 경계는 유지한다.
 - [x] P5/P6: 실제 완료 결과는 C처럼 Rank/Atop entity다. inline source의 row 6/row 3 provenance와 capture construction 기록, named train의 공유 identity/version witness를 별도로 보존한다. bound operand는 현재 application 위치에 연결하고 원래 train 객체를 수정하지 않는다. train의 noun은 shared storage로 보존하여 다시 구성할 때 큰 payload를 복사하지 않는다. 이 sidecar는 executable cache guard가 아니다.
 - [x] P6: named alias 변경, target 대입 없음, construction-time domain/length 오류, capture witness를 테스트한다. metadata-only 10^12-element 배열의 `- ("1) x`도 kernel 없이 분석한다. C `5!:1`/`4!:0`의 함수 구조/POS 비교와 runtime value/error corpus를 확장한다.
-- [ ] 왼쪽을 묶은 `tNVc`, noun-input adverb, 연속 adverb·derived conjunction·trident application의 각 action semantics를 연결한다. `(+ ("-)) i.4`와 `(+ (@:-)) i.4`는 frontend construction을 지원하지만 기존 verb-valued rank/Atop 실행기가 미완료다. exact source/C result/Rust `Unsupported`로 runtime 경계를 기록하며 불일치를 임의로 면제하지 않는다. row 6 즉시 application과 locale/explicit-local/definition scope도 계속 남는다.
+- [ ] 왼쪽을 묶은 `tNVc`, noun-input adverb, 연속 adverb·derived conjunction·trident application의 각 action semantics를 연결한다. `(+ ("-)) i.4`와 `(+ (@:-)) i.4`는 후속 rank/Atop 단계에서 실행까지 지원했다. 현재 conformance corpus의 해당 runtime waiver는 제거했지만 전체 modifier 의미의 완료를 뜻하지 않는다. row 6 즉시 application과 locale/explicit-local/definition scope도 계속 남는다.
 
 Windows 검증: default/portable 각각 **266 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,185문장 중 2,181 passed, runtime 경계 4개, failed 0**; stage **7,128 checks**(새 정적 검사 30건)와 words **6,618 cases** 통과. 회귀 테스트 5개를 추가했다. capture graph 경계 38건(ordered-effect 9건, modifier-value 29건), static analysis 경계 3건은 성공 수와 별도로 보고한다. 전체 J/upstream suite, optimizer/CUDA 또는 GitHub CI를 구현·실행했다는 의미는 아니다. C DLL release와 source review pin의 구분을 유지한다.
 
@@ -9520,7 +9538,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(capped fork 단계): Windows default/portable 각각 **418 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,207 cases / 5,206 passed / runtime 경계 1 / failed 0**, stage **10,586 checks**, words **6,618 cases / failed 0**. capture graph 경계 239건과 static 경계 2건은 별도다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(verb-valued rank 단계): Windows default/portable 각각 **425 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,321 cases / 5,321 passed / runtime 경계 0 / failed 0**, stage **10,757 checks**, words **6,618 cases / failed 0**. capture graph 경계 244건과 static 경계 2건은 별도다. 현재 corpus의 경계 0은 full J 지원을 뜻하지 않는다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

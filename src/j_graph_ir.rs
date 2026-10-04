@@ -32,7 +32,7 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 5 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 6 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -335,6 +335,7 @@ pub struct Plan {
     /// Non-executing modifier identities/dependencies; executable reuse still needs guards.
     pub modifier_snapshots: Vec<crate::semantic::ModifierSnapshot>,
     pub fork_name_reads: Vec<crate::semantic::NameUse>,
+    pub name_rank_snapshots: Vec<crate::semantic::NameRankSnapshot>,
 }
 
 #[derive(Clone, Debug)]
@@ -365,6 +366,8 @@ pub enum GraphForm {
     Rank {
         operand: Arc<FunctionEntity>,
         rank_spec: Option<Value>,
+        /// Constructor request from the source noun or the right verb header.
+        requested_ranks: Option<[i64; 3]>,
     },
     Modifier {
         head: FunctionHead,
@@ -807,6 +810,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
             GraphForm::Rank {
                 operand: operand.clone(),
                 rank_spec: noun_operand_value(function),
+                requested_ranks: function.requested_ranks(),
             }
         }
         FunctionHead::ModifierTrain => GraphForm::Modifier {
@@ -897,6 +901,7 @@ impl Plan {
             verb_references: bound.verb_references,
             modifier_snapshots: bound.program.modifier_snapshots,
             fork_name_reads: bound.program.fork_name_reads,
+            name_rank_snapshots: bound.program.name_rank_snapshots,
         };
         plan.verify().map_err(|message| {
             Error::Unsupported(format!("J graph IR verification failed: {message}"))
@@ -944,6 +949,7 @@ impl Plan {
         let mut modifier_stack_snapshots = Vec::new();
         let mut gerund_name_reads = Vec::new();
         let mut fork_name_reads = Vec::new();
+        let mut name_rank_snapshots = Vec::new();
         let mut constructor_calls = Vec::new();
         let mut pending = None;
         let mut constructor_inputs = Vec::new();
@@ -1055,6 +1061,9 @@ impl Plan {
                 CaptureEvent::ConstructionAttempt { noun_inputs, .. } => {
                     constructor_inputs = noun_inputs.iter().map(|id| values[id]).collect();
                 }
+                CaptureEvent::FunctionNameRank { snapshot } => {
+                    name_rank_snapshots.push(snapshot.clone());
+                }
                 CaptureEvent::ForkNameResolved { read, .. } => {
                     fork_name_reads.push(read.clone());
                 }
@@ -1150,6 +1159,13 @@ impl Plan {
             for (index, operand) in function.operands.iter().enumerate() {
                 if index == 0
                     && function.fork_semantics == Some(crate::semantic::ForkSemantics::Capped)
+                    || (index == 1
+                        && matches!(
+                            function.head,
+                            FunctionHead::PrimitiveConjunction(
+                                crate::primitive::ConjunctionId::Rank
+                            )
+                        ))
                 {
                     continue;
                 }
@@ -1171,6 +1187,7 @@ impl Plan {
             verb_references,
             modifier_snapshots: Vec::new(),
             fork_name_reads,
+            name_rank_snapshots,
         };
         graph.verify().map_err(|message| {
             Error::Unsupported(format!("captured J graph verification failed: {message}"))
@@ -1271,6 +1288,17 @@ impl Plan {
         }
 
         let source_len = self.source.len();
+        for snapshot in &self.name_rank_snapshots {
+            if snapshot.name.is_empty()
+                || snapshot.version.is_some_and(|v| v.0 == 0)
+                || snapshot
+                    .ranks
+                    .is_some_and(|ranks| ranks.iter().any(|r| !(0..=63).contains(r)))
+                || self.source.get(snapshot.span.clone()).is_none()
+            {
+                return Err("invalid function-name rank snapshot".into());
+            }
+        }
         for read in &self.fork_name_reads {
             if read.version.0 == 0
                 || read.name.is_empty()

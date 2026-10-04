@@ -18,6 +18,9 @@ pub struct OccurrenceId(pub usize);
 
 #[derive(Clone, Debug)]
 pub enum CaptureEvent {
+    FunctionNameRank {
+        snapshot: crate::semantic::NameRankSnapshot,
+    },
     /// Direct constructor-time lookup; does not freeze ordinary namerefs.
     ForkNameResolved {
         row: ParseRow,
@@ -197,6 +200,18 @@ impl ParseCapture {
         let mut construction = None;
         for (event_index, event) in self.events.iter().enumerate() {
             match event {
+                CaptureEvent::FunctionNameRank { snapshot } => {
+                    if !attempts.is_empty()
+                        || snapshot.name.is_empty()
+                        || snapshot.version.is_some_and(|v| v.0 == 0)
+                        || snapshot
+                            .ranks
+                            .is_some_and(|ranks| ranks.iter().any(|r| !(0..=63).contains(r)))
+                        || self.source.get(snapshot.span.clone()).is_none()
+                    {
+                        return Err("invalid stacked function rank snapshot");
+                    }
+                }
                 CaptureEvent::ForkNameResolved { row, read, .. } => {
                     if construction != Some(*row)
                         || !matches!(

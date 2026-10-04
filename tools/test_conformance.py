@@ -33,7 +33,7 @@ class CoverageBoundaryTests(unittest.TestCase):
     def test_only_exact_unsupported_runtime_forms_are_classified(self):
         reference = {'type': 8, 'shape': [], 'data': [2.0]}
         source = '(+ ("-)) i.4'
-        self.assertIsNotNone(runtime_coverage_boundary(source, reference, {'error': 'unsupported'}))
+        self.assertIsNone(runtime_coverage_boundary(source, reference, {'error': 'unsupported'}))
         self.assertIsNone(runtime_coverage_boundary(source, reference, {'error': 'domain error'}))
         self.assertIsNone(runtime_coverage_boundary('+/entrynoun', reference, {'error': 'unsupported'}))
         for supported in ['(+ (@:-)) i.4', '(entryverb/ % #) entrynoun', '(entryverb/ % #) entrycopy']:

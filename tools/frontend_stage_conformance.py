@@ -16,7 +16,7 @@ import re
 import subprocess
 
 from oracle import Oracle
-from conformance import capped_fork_cases, capped_fork_multiline_cases, noun_fork_cases, noun_fork_multiline_cases, empty_scope_cases, empty_scope_multiline_cases, implicit_wrapper_cases, implicit_wrapper_multiline_cases, implicit_call_cases, implicit_call_multiline_cases, implicit_operand_cases, implicit_operand_multiline_cases, equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, explicit_modifier_cases, modifier_scope_cases, modifier_scope_multiline_cases, ordinary_reference_cases, ordinary_reference_multiline_cases, operator_definition_cases, operator_definition_multiline_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
+from conformance import VERB_RANK_PRIMITIVES, VERB_RANK_DERIVED, verb_rank_cases, verb_rank_multiline_cases, capped_fork_cases, capped_fork_multiline_cases, noun_fork_cases, noun_fork_multiline_cases, empty_scope_cases, empty_scope_multiline_cases, implicit_wrapper_cases, implicit_wrapper_multiline_cases, implicit_call_cases, implicit_call_multiline_cases, implicit_operand_cases, implicit_operand_multiline_cases, equal as noun_equal, modifier_trident_cases, compound_gerund_cases, gerund_name_cases, gerund_snapshot_cases, constructor_call_cases, explicit_modifier_cases, modifier_scope_cases, modifier_scope_multiline_cases, ordinary_reference_cases, ordinary_reference_multiline_cases, operator_definition_cases, operator_definition_multiline_cases, late_modifier_cases, modifier_inventory_cases, definition_code_cases, definition_flow_bodies, control_sequence_matrix, goto_position_matrix, multiple_definition_cases, noun_direct_cases, entity_boundary_cases
 
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
@@ -227,7 +227,7 @@ def run(args):
     observed_rows = [json.loads(x) for x in subprocess.check_output([args.binary, '--rows'], text=True).splitlines()]
     report = {'platform': platform.platform(), 'reference_revision': args.reference_revision,
               'source_review_revision': args.source_revision,
-              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/ar.c', 'jsrc/ai.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c', 'jsrc/s.c', 'jsrc/jtype.h', 'jsrc/cx.c', 'jsrc/t.c', 'jsrc/af.c', 'jsrc/wc.c', 'jsrc/io.c', 'jsrc/jerr.h', 'jsrc/j.h', 'jsrc/w.h', 'test/ggoto.ijs', 'test/g0x.ijs']},
+              'source_hashes': {n: hashlib.sha256((source_dir / n).read_bytes()).hexdigest() for n in ['jsrc/w.c', 'jsrc/p.c', 'jsrc/cf.c', 'jsrc/sn.c', 'jsrc/wn.c', 'jsrc/cr.c', 'jsrc/ap.c', 'jsrc/ar.c', 'jsrc/ai.c', 'jsrc/cg.c', 'jsrc/r.c', 'jsrc/a.c', 'jsrc/sc.c', 'jsrc/s.c', 'jsrc/jtype.h', 'jsrc/cx.c', 'jsrc/t.c', 'jsrc/af.c', 'jsrc/wc.c', 'jsrc/io.c', 'jsrc/jerr.h', 'jsrc/j.h', 'jsrc/ja.h', 'jsrc/w.h', 'test/ggoto.ijs', 'test/g0x.ijs']},
               'reference_library_sha256': hashlib.sha256(Path(os.environ['J_LIBRARY']).read_bytes()).hexdigest(),
               'probe_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdigest(),
               'checks': {}, 'mismatches': [], 'analysis_coverage_boundaries': [], 'pending': PENDING,
@@ -249,6 +249,18 @@ def run(args):
         check('constructor_disposition', list(parts), expected_constructors.get(parts), entry['disposition'])
     oracle, probe, static_probe, definition_probe = Oracle(), Probe(args.binary), Probe(args.binary, analysis=True), Probe(args.binary, definitions=True)
     try:
+        for expression in VERB_RANK_PRIMITIVES + VERB_RANK_DERIVED:
+            source = 'headerfn=:(' + expression + ')'
+            expected = oracle.eval('(' + expression + ') b.0')
+            if 'data' not in expected: raise RuntimeError('invalid C header fixture: ' + expression)
+            ranks = [63 if rank == 'inf' else int(rank) for rank in expected['data']]
+            check('innate_verb_header', source, {'ranks': ranks}, static_probe.inspect(source, 'H'))
+        for source in ['headertarget=:+', 'headeralias=:headertarget', 'headertarget=:#']:
+            check('innate_header_setup', source, oracle.eval(source), static_probe.inspect(source, 'E'))
+        expected = oracle.eval('(headeralias) b.0')
+        check('innate_alias_header_snapshot', 'headerfn=:headeralias',
+              {'ranks': [63 if rank == 'inf' else int(rank) for rank in expected['data']]},
+              static_probe.inspect('headerfn=:headeralias', 'H'))
         fixed_controls = source_control_words((source_dir / 'jsrc/wc.c').read_text())
         check('control_inventory_size', 'wc.c conword fixed inventory', 20, len(fixed_controls))
         control_fixtures = list(fixed_controls) + ['for_item.', 'for_a_b.', 'goto_exit.', 'label_exit.', 'goto_.',
@@ -592,7 +604,7 @@ def run(args):
             expected = atomic_function(oracle.representation('latedecoded', 'atomic')['value'])
             source = 'latefn=:(,<latear)' + chr(92)
             check('late_modifier_decoded_snapshot', source, {'decoded': [expected]}, static_probe.inspect(source, 'D'))
-        for source in explicit_modifier_cases() + modifier_scope_cases() + modifier_scope_multiline_cases() + ordinary_reference_cases() + ordinary_reference_multiline_cases() + operator_definition_cases() + operator_definition_multiline_cases() + implicit_operand_cases() + implicit_operand_multiline_cases() + implicit_call_cases() + implicit_call_multiline_cases() + implicit_wrapper_cases() + implicit_wrapper_multiline_cases() + empty_scope_cases() + empty_scope_multiline_cases() + noun_fork_cases() + noun_fork_multiline_cases() + capped_fork_cases() + capped_fork_multiline_cases():
+        for source in explicit_modifier_cases() + modifier_scope_cases() + modifier_scope_multiline_cases() + ordinary_reference_cases() + ordinary_reference_multiline_cases() + operator_definition_cases() + operator_definition_multiline_cases() + implicit_operand_cases() + implicit_operand_multiline_cases() + implicit_call_cases() + implicit_call_multiline_cases() + implicit_wrapper_cases() + implicit_wrapper_multiline_cases() + empty_scope_cases() + empty_scope_multiline_cases() + noun_fork_cases() + noun_fork_multiline_cases() + capped_fork_cases() + capped_fork_multiline_cases() + verb_rank_cases() + verb_rank_multiline_cases():
             target = source.split('=:', 1)[0] if '=:' in source else None
             if target is None:
                 check('explicit_modifier_value', source, oracle.eval(source), static_probe.inspect(source, 'E'))

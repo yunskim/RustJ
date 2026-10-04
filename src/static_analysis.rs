@@ -21,6 +21,8 @@ pub enum CatalogKind {
     Function(FunctionPartOfSpeech),
     /// Known core construction behavior, not only the operator's input POS.
     PrimitiveModifier(crate::primitive::PrimitiveSemanticId),
+    /// Declared core header evidence. Ordinary calls still retain NameRef.
+    PrimitiveVerb(crate::primitive::PrimitiveId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,6 +160,15 @@ impl StaticAnalyzer {
         self.declare(name, CatalogKind::Function(pos))
     }
 
+    /// Supply a versioned intrinsic header without executing or freezing calls.
+    pub fn declare_primitive_verb(
+        &mut self,
+        name: &str,
+        id: crate::primitive::PrimitiveId,
+    ) -> Result<()> {
+        self.declare(name, CatalogKind::PrimitiveVerb(id))
+    }
+
     /// Declare registered core modifier semantics without executing its application.
     pub fn declare_primitive_modifier(
         &mut self,
@@ -228,6 +239,10 @@ impl StaticAnalyzer {
             self.catalog.get(name).map(|entry| match &entry.kind {
                 CatalogKind::Noun(_) => ParserNameBinding::AbstractNoun,
                 CatalogKind::Function(pos) => ParserNameBinding::Function(*pos),
+                CatalogKind::PrimitiveVerb(id) => ParserNameBinding::KnownVerb {
+                    function: crate::semantic::FunctionEntity::primitive(*id, 0..0),
+                    version: entry.version,
+                },
                 CatalogKind::PrimitiveModifier(id) => {
                     let function = match id {
                         crate::primitive::PrimitiveSemanticId::Adverb(id) => {

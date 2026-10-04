@@ -87,18 +87,15 @@ fn execute_check(check: &SemanticCheck, values: &[Option<Value>]) -> Result<()> 
 }
 
 fn semantic_function_operand(function: &FunctionEntity) -> Option<&std::sync::Arc<FunctionEntity>> {
-    function.operands.iter().find_map(|operand| match operand {
+    match function.operands.first()? {
         FunctionOperand::Function(function) => Some(function),
         FunctionOperand::Noun { .. } => None,
-    })
+    }
 }
 
 fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
-    let value = function.operands.iter().find_map(|operand| match operand {
-        FunctionOperand::Noun { value, .. } => Some(value),
-        FunctionOperand::Function(_) => None,
-    })?;
-    crate::semantic::rank_noun_contract(value).ok()
+    semantic_function_operand(function)?;
+    function.requested_ranks()
 }
 
 pub(crate) fn cell_rank(array_rank: usize, requested: i64) -> usize {

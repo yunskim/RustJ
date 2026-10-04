@@ -281,14 +281,8 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
 }
 
 fn semantic_rank_triplet(function: &FunctionEntity) -> Option<[i64; 3]> {
-    let [
-        FunctionOperand::Function(_),
-        FunctionOperand::Noun { value, .. },
-    ] = function.operands.as_slice()
-    else {
-        return None;
-    };
-    crate::semantic::rank_noun_contract(value).ok()
+    function_operand(function)?;
+    function.requested_ranks()
 }
 
 fn function_operand(function: &FunctionEntity) -> Option<&Arc<FunctionEntity>> {

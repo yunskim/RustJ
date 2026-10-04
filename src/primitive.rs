@@ -1,7 +1,7 @@
 //! Canonical IDs for the currently recognized primitive spellings.
 //! IDs denote a J symbol, not a valence or a physical kernel.
 
-pub const REGISTRY_VERSION: u32 = 5;
+pub const REGISTRY_VERSION: u32 = 6;
 macro_rules! primitives {
     ($($id:ident => $spelling:literal),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -43,6 +43,23 @@ primitives! {
     OperandU => "u.",
     OperandV => "v.",
     Cap => "[:",
+}
+
+impl PrimitiveId {
+    /// C t.c's intrinsic (monad, dyad-left, dyad-right) header ranks.
+    /// 63 is J's unbounded-rank sentinel, not an actual argument rank.
+    pub const fn innate_ranks(self) -> [i64; 3] {
+        use PrimitiveId::*;
+        match self {
+            Add | Subtract | Multiply | Divide | Greater | Magnitude => [0, 0, 0],
+            Equal | Less => [63, 0, 0],
+            Shape | Tally | Reverse | Transpose | Take | Drop => [63, 1, 63],
+            From => [1, 0, 63],
+            IndexOf | Indices => [1, 63, 63],
+            Steps | Find => [0, 63, 63],
+            Sparse | Ravel | Member | OperandU | OperandV | Cap => [63; 3],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

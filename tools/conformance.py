@@ -201,6 +201,37 @@ def modifier_scope_cases():
     ]
 
 
+VERB_RANK_PRIMITIVES = ['+', '-', '*', '%', '$', '$.', '#', ',', '=', '<', '>', '{', '|',
+                        'i.', '|.', '|:', '{.', '}.', 'i:', 'I.', 'e.', 'E.', 'u.', 'v.', '[:']
+VERB_RANK_DERIVED = ['+/', '+\\', '+"_1', '+"_1 0 1', '+@:-', '+ -', '+ % #', '[: + -',
+                     '3 + -', ',"+', '3"+', '(,<\'+\')"0', "3 : 'y'", '(+ ("-))']
+
+
+def verb_rank_cases():
+    out = []
+    for primitive in VERB_RANK_PRIMITIVES:
+        for arg in ['i.2 3', '1 2 3', "'ab'"]:
+            out.append('(,"' + primitive + ') ' + arg)
+    out += ['vr=:+', 'vralias=:vr', 'vr=:#', 'vrf=:,"vralias', 'vrf i.2 3',
+            'vralias=:#', 'vrf i.2 3', 'vralias=:9', 'vrf i.2 3', 'vralias=:/', 'vrf i.2 3',
+            'vrf=:,"(+"_1)', 'vrf i.2 3', 'vrf=:,"(+"1 0 1)', 'vrf i.2 3',
+            'vrf=:,"vrfuture', 'vrf i.2 3', 'vrfuture=:+', 'vrf i.2 3',
+            'vrleft=:-', 'vrf=:vrleft"+', 'vrf 7', 'vrleft=:+', 'vrf 7', 'vrleft=:9', 'vrf 7',
+            '(,"+) i.0 3', '(,"+) 0 3$\'x\'', '(+ ("-)) i.4',
+            '1 2 (+"{) i.2 3', '1 2 3 (+"(+"0 0 1)) i.2 3', '1 2 (+"{) i.2 3', '1 2 (+"i.) i.2 3',
+            "vra=:1 : ',\"u y'", 'vrf=:+vra', 'vrf i.2 3',
+            "vra=:1 : ',\"u. y'", 'vrf=:+vra', 'vrf i.2 3']
+    return out
+
+
+def verb_rank_multiline_cases():
+    return ['vrcount=:0', 'vrop=:1 : 0\nvrcount=:vrcount+1\nu y\n)', 'vrr=:+vrop',
+            'vrf=:,"vrr', 'vrf i.2 3', 'vrcount',
+            'vrinner=:1 : 0\nvrr=.u\n(,"vrr) y\n)', 'vrf=:+vrinner', 'vrf i.2 3',
+            'vrr=:#', 'vra=:1 : 0\nvrr=.u\nvrtemp=.,"vrr\nvrr=.#\nvrtemp y\n)',
+            'vrf=:+vra', 'vrf i.2 3', 'vrr i.2 3']
+
+
 def capped_fork_cases():
     return ["[: 7", "3 [: 7", "[: 'x'", "[: i.0", "([: + -) 7", "3 ([: + -) 7",
             "cf=:([: + -)", "cf 1 2 3", "cf i.0", "3 cf 7",
@@ -847,6 +878,7 @@ def cases():
     fixed.extend(empty_scope_cases())
     fixed.extend(noun_fork_cases())
     fixed.extend(capped_fork_cases())
+    fixed.extend(verb_rank_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
@@ -858,7 +890,7 @@ def cases():
 # Exact newly exercised runtime coverage gaps. Parser correctness is checked
 # separately; these are neither conformance passes nor C baseline deviations.
 RUNTIME_COVERAGE_BOUNDARIES = {
-    '(+ ("-)) i.4': 'verb-valued rank operand has no runtime executor',
+
 }
 
 def runtime_coverage_boundary(source, reference, actual):

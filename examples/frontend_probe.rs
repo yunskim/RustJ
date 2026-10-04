@@ -38,6 +38,7 @@ fn function(f: &FunctionEntity) -> String {
                 operands: Vec::new(),
                 decoded_gerund: None,
                 fork_semantics: None,
+                name_ranks: None,
             };
             let operands = f
                 .operands
@@ -258,6 +259,7 @@ fn inspect_runtime(
     engine: &mut rustj::Engine,
     source: &str,
     decoded: bool,
+    header: bool,
 ) -> rustj::Result<String> {
     use rustj::parser_capture::CaptureEvent;
     let report = engine.eval_captured(source);
@@ -283,6 +285,15 @@ fn inspect_runtime(
         .ok_or_else(|| {
             rustj::Error::Unsupported("runtime observation requires a function result".into())
         })?;
+    if header {
+        let ranks = entity
+            .innate_ranks()
+            .ok_or_else(|| rustj::Error::Unsupported("unknown function header".into()))?;
+        return Ok(format!(
+            "{{\"ranks\":[{},{},{}]}}",
+            ranks[0], ranks[1], ranks[2]
+        ));
+    }
     if decoded {
         let functions = entity
             .decoded_gerund
@@ -413,8 +424,10 @@ fn main() {
                     Ok(None) => "{\"silent\":true}".into(),
                     Err(error) => format!("{{\"error\":\"{}\"}}", error.kind()),
                 },
-                "R" | "D" => inspect_runtime(&mut engine, &source, operation == "D")
-                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
+                "R" | "D" | "H" => {
+                    inspect_runtime(&mut engine, &source, operation == "D", operation == "H")
+                        .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind()))
+                }
                 "Q" => inspect_control_parts(&source)
                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e.kind())),
                 "A" => inspect_analysis(&engine, &source)

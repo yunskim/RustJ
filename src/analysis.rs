@@ -99,20 +99,12 @@ fn execution_basis(callable: &Callable, left: Option<ValueId>) -> ExecutionBasis
 }
 
 fn outer_rank_boundary(function: &FunctionEntity) -> Option<[i64; 3]> {
-    if !matches!(
-        function.head,
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
-    ) {
-        return None;
-    }
-    let [
-        FunctionOperand::Function(_),
-        FunctionOperand::Noun { value, .. },
-    ] = function.operands.as_slice()
-    else {
-        return None;
-    };
-    crate::semantic::rank_noun_contract(value).ok()
+    matches!(
+        function.operands.first(),
+        Some(FunctionOperand::Function(_))
+    )
+    .then(|| function.requested_ranks())
+    .flatten()
 }
 
 fn input_roles(
@@ -358,14 +350,12 @@ impl Builder<'_> {
                 FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
                     if current.result_pos == FunctionPartOfSpeech::Verb =>
                 {
-                    let [
-                        FunctionOperand::Function(base),
-                        FunctionOperand::Noun { value, .. },
-                    ] = current.operands.as_slice()
-                    else {
+                    let [FunctionOperand::Function(base), _] = current.operands.as_slice() else {
                         return Err(Error::Unsupported("malformed rank semantic entity".into()));
                     };
-                    crate::semantic::rank_noun_contract(value)?;
+                    current.requested_ranks().ok_or_else(|| {
+                        Error::Unsupported("rank construction has no innate-rank witness".into())
+                    })?;
                     current = base.clone();
                 }
                 FunctionHead::PrimitiveAdverb(_)
