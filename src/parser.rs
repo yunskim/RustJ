@@ -1735,16 +1735,12 @@ fn apply_parse_row(
             // remains a POS-bearing NameRef; assigning it is not application.
             // Nameless modifiers were already stacked by value during lookup.
             if let Some(host) = context.host.as_mut() {
-                if source.flags.local_assignment || !source.flags.global_assignment {
-                    return Err(Error::Unsupported(
-                        "local parser-time assignment scope".into(),
-                    ));
-                }
                 let occurrence = value.occurrence;
                 let class = value.class;
                 let mut completed = CompletedParseResult::from_item(value, "assignment value")?;
                 let previous = host.version(&name);
-                completed.entity = host.assign(&name, completed.entity)?;
+                completed.entity =
+                    host.assign_scoped(&name, completed.entity, source.flags.local_assignment)?;
                 let function = match &completed.entity {
                     JEntity::Function(function) => Some(function.clone()),
                     _ => None,
@@ -2349,6 +2345,18 @@ pub(crate) struct ResolvedModifier {
 
 pub(crate) trait RuntimeParserHost {
     fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    fn enqueue_environment(&self) -> crate::enqueuer::EnqueueEnvironment {
+        crate::enqueuer::EnqueueEnvironment::TopLevel
+    }
+    fn assign_scoped(&mut self, name: &str, value: JEntity, local: bool) -> Result<JEntity> {
+        if local {
+            return Err(Error::Unsupported(
+                "local parser-time assignment scope".into(),
+            ));
+        }
+        self.assign(name, value)
+    }
+
     /// mnuvxy are value substitutions in p.c, unlike ordinary function names.
     fn operand_function(&self, _name: &str) -> Option<Arc<FunctionEntity>> {
         None
@@ -2568,7 +2576,21 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
 }
 
 fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Program> {
-    let mut queue = enqueue(source)?;
+    let environment = context
+        .host
+        .as_ref()
+        .map_or(crate::enqueuer::EnqueueEnvironment::TopLevel, |host| {
+            host.enqueue_environment()
+        });
+    let mut queue = if environment == crate::enqueuer::EnqueueEnvironment::TopLevel {
+        enqueue(source)?
+    } else {
+        crate::enqueuer::enqueue_in_environment(
+            source,
+            &crate::primitive::PrimitiveContext::core(),
+            environment,
+        )?
+    };
     if queue.is_empty() {
         return Ok(Program {
             source: source.to_owned(),

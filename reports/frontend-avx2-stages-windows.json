@@ -26,7 +26,7 @@
     "test/g0x.ijs": "347cae3454e26505de6679fc0451b258d7acc99828fe65cc0a2c1f0037a3da6e"
   },
   "reference_library_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "probe_sha256": "f89c0dda387ea31562997d814428f684f29d0d051eed8263713a0ed6c749684a",
+  "probe_sha256": "0fbe8b2453a16792123abcb6a990717ecceeafaa098cdcc9dd10e1a0432bb765",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,
@@ -73,10 +73,10 @@
     "late_modifier_error": 3,
     "late_modifier_decode_setup": 4,
     "late_modifier_decoded_snapshot": 2,
-    "explicit_modifier_assignment": 3,
-    "explicit_modifier_function": 22,
-    "explicit_modifier_value": 21,
-    "explicit_modifier_error": 2,
+    "explicit_modifier_assignment": 8,
+    "explicit_modifier_function": 46,
+    "explicit_modifier_value": 62,
+    "explicit_modifier_error": 4,
     "definition_no_execution_or_transaction": 15,
     "definition_constructor": 22,
     "definition_multiline_constructor": 5,

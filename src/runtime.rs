@@ -7,13 +7,14 @@ use crate::{
     semantic::{FunctionEntity, FunctionHead, FunctionOperand, FunctionPartOfSpeech, JEntity},
     value::Value,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct Engine {
     names: HashMap<String, Binding>,
     pool: crate::pool::OutputPool,
     primitives: crate::primitive::PrimitiveContext,
     definition_depth: usize,
+    local_frames: Vec<LocalFrame>,
 }
 
 /// Execution result plus optional source-operation observations, including failure.
@@ -31,7 +32,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         &self,
         name: &str,
     ) -> Option<(std::sync::Arc<FunctionEntity>, crate::semantic::NameVersion)> {
-        let binding = self.engine.names.get(name)?;
+        let binding = self.engine.visible_binding(name)?;
         let JEntity::Function(function) = &binding.value else {
             return None;
         };
@@ -49,7 +50,9 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Ok(self.engine.parser_name_binding(name))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
-        self.engine.binding_version(name)
+        self.engine
+            .visible_binding(name)
+            .map(|binding| binding.version)
     }
     fn apply(&mut self, expression: crate::semantic::Expr) -> Result<Value> {
         self.engine.interpret_ir(expression, self.pooled, 0)
@@ -64,8 +67,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         for _ in 0..=crate::semantic::MAX_EXPR_DEPTH {
             let binding = self
                 .engine
-                .names
-                .get(&current)
+                .visible_binding(&current)
                 .ok_or_else(|| Error::Value(current.clone()))?;
             let JEntity::Function(function) = &binding.value else {
                 return Err(Error::Domain);
@@ -107,62 +109,50 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     }
 }
 
-/// A read-only operand frame. Ordinary globals still resolve in the calling
-/// Engine; mnuv substitute their concrete values without changing that namespace.
+/// Current invocation owns local values separately from the global namespace.
+struct LocalFrame {
+    names: HashMap<String, Binding>,
+    declared: HashSet<String>,
+}
+
 struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
-    left: FunctionOperand,
-    right: Option<FunctionOperand>,
-}
-impl ModifierFrame<'_> {
-    fn operand(&self, name: &str) -> Option<&FunctionOperand> {
-        match name {
-            "u" => Some(&self.left),
-            "v" => self.right.as_ref(),
-            "m" if matches!(self.left, FunctionOperand::Noun { .. }) => Some(&self.left),
-            "n" => self
-                .right
-                .as_ref()
-                .filter(|value| matches!(value, FunctionOperand::Noun { .. })),
-            _ => None,
-        }
-    }
 }
 impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
+    fn enqueue_environment(&self) -> crate::enqueuer::EnqueueEnvironment {
+        crate::enqueuer::EnqueueEnvironment::ExplicitDefinition
+    }
     fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
-        match self.operand(name) {
-            Some(FunctionOperand::Noun { value, .. }) => {
-                Some(crate::parser::ParserNameBinding::Noun(value.clone()))
-            }
-            Some(FunctionOperand::Function(function)) => Some(
-                crate::parser::ParserNameBinding::Function(function.result_pos),
-            ),
-            None => self.parent.lookup(name),
-        }
+        self.parent.lookup(name)
+    }
+    fn stacked_modifier(
+        &self,
+        name: &str,
+    ) -> Option<(std::sync::Arc<FunctionEntity>, crate::semantic::NameVersion)> {
+        self.parent.stacked_modifier(name)
     }
     fn operand_function(&self, name: &str) -> Option<std::sync::Arc<FunctionEntity>> {
-        match self.operand(name) {
-            Some(FunctionOperand::Function(function)) => Some(function.clone()),
+        if !matches!(name, "u" | "v" | "m" | "n") {
+            return None;
+        }
+        match &self
+            .parent
+            .engine
+            .local_frames
+            .last()?
+            .names
+            .get(name)?
+            .value
+        {
+            JEntity::Function(function) => Some(function.clone()),
             _ => None,
         }
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
-        if self.operand(name).is_some() {
-            None
-        } else {
-            self.parent.version(name)
-        }
+        self.parent.version(name)
     }
     fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
-        match self.operand(name) {
-            Some(FunctionOperand::Noun { value, .. }) => {
-                Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone())))
-            }
-            Some(FunctionOperand::Function(function)) => Ok(Some(
-                crate::parser::ParserNameBinding::Function(function.result_pos),
-            )),
-            None => self.parent.gerund_binding(name),
-        }
+        self.parent.gerund_binding(name)
     }
     fn apply(&mut self, expression: crate::semantic::Expr) -> Result<Value> {
         self.parent.apply(expression)
@@ -172,16 +162,48 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
         name: &str,
         expected: FunctionPartOfSpeech,
     ) -> Result<crate::parser::ResolvedModifier> {
-        if let Some(FunctionOperand::Function(function)) = self.operand(name) {
-            if function.result_pos != expected {
+        self.parent.resolve_modifier(name, expected)
+    }
+    fn assign_scoped(&mut self, name: &str, value: JEntity, local: bool) -> Result<JEntity> {
+        let engine = &mut self.parent.engine;
+        if local {
+            let frame = engine.local_frames.last_mut().expect("modifier frame");
+            frame.declared.insert(name.to_owned());
+            if let JEntity::Function(function) = &value {
+                let uninitialized = frame
+                    .declared
+                    .iter()
+                    .filter(|name| !frame.names.contains_key(*name))
+                    .cloned()
+                    .collect();
+                if has_declared_reference(function, &uninitialized, 0)? {
+                    return Err(Error::Unsupported(
+                        "uninitialized implicit local function reference".into(),
+                    ));
+                }
+            }
+            store_binding(&mut frame.names, &mut engine.pool, name.to_owned(), value)
+        } else {
+            if engine
+                .local_frames
+                .last()
+                .is_some_and(|frame| frame.names.contains_key(name))
+            {
                 return Err(Error::Domain);
             }
-            return Ok(crate::parser::ResolvedModifier {
-                function: function.clone(),
-                bindings: Vec::new(),
-            });
+            if let JEntity::Function(function) = &value {
+                if has_local_reference(
+                    function,
+                    &engine.local_frames.last().expect("modifier frame").names,
+                    0,
+                )? {
+                    return Err(Error::Unsupported(
+                        "publishing implicit local function reference".into(),
+                    ));
+                }
+            }
+            engine.commit_binding(name.to_owned(), value)
         }
-        self.parent.resolve_modifier(name, expected)
     }
     fn apply_definition(
         &mut self,
@@ -189,8 +211,99 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
         left: FunctionOperand,
         right: Option<FunctionOperand>,
     ) -> Result<JEntity> {
+        // Implicit locatives spanning two frames need scoped name identities.
+        // Do not replace them by early snapshots or accidentally resolve globals.
+        for operand in std::iter::once(&left).chain(right.as_ref()) {
+            if let FunctionOperand::Function(function) = operand {
+                if has_local_reference(
+                    function,
+                    &self
+                        .parent
+                        .engine
+                        .local_frames
+                        .last()
+                        .expect("modifier frame")
+                        .names,
+                    0,
+                )? {
+                    return Err(Error::Unsupported(
+                        "cross-frame implicit function reference".into(),
+                    ));
+                }
+            }
+        }
         self.parent.apply_definition(operator, left, right)
     }
+}
+
+fn store_binding(
+    names: &mut HashMap<String, Binding>,
+    pool: &mut crate::pool::OutputPool,
+    name: String,
+    value: JEntity,
+) -> Result<JEntity> {
+    let version = crate::semantic::NameVersion(
+        names
+            .get(&name)
+            .map_or(0, |binding| binding.version.0)
+            .checked_add(1)
+            .ok_or(Error::Limit)?,
+    );
+    let returned = match value {
+        JEntity::Noun(value) => JEntity::Noun(value.into_shared()),
+        function => function,
+    };
+    let stored = match &returned {
+        JEntity::Noun(value) => JEntity::Noun(value.clone()),
+        JEntity::Function(function) => JEntity::Function(function.clone()),
+    };
+    if let Some(Binding {
+        value: JEntity::Noun(value),
+        ..
+    }) = names.insert(
+        name,
+        Binding {
+            value: stored,
+            version,
+        },
+    ) {
+        pool.retire(value);
+    }
+    Ok(returned)
+}
+
+fn has_local_reference(
+    function: &FunctionEntity,
+    names: &HashMap<String, Binding>,
+    depth: usize,
+) -> Result<bool> {
+    has_declared_reference(function, &names.keys().cloned().collect(), depth)
+}
+
+fn has_declared_reference(
+    function: &FunctionEntity,
+    names: &HashSet<String>,
+    depth: usize,
+) -> Result<bool> {
+    if depth >= crate::semantic::MAX_EXPR_DEPTH {
+        return Err(Error::Limit);
+    }
+    if matches!(&function.head, FunctionHead::NameRef(name) if names.contains(name)) {
+        return Ok(true);
+    }
+    for operand in &function.operands {
+        if let FunctionOperand::Function(child) = operand {
+            if has_declared_reference(child, names, depth + 1)? {
+                return Ok(true);
+            }
+        }
+    }
+    for child in function.decoded_gerund.iter().flatten() {
+        if has_declared_reference(child, names, depth + 1)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 struct ResolvedVerb {
@@ -236,6 +349,7 @@ impl Engine {
             pool: crate::pool::OutputPool::new(bytes),
             primitives: crate::primitive::PrimitiveContext::core(),
             definition_depth: 0,
+            local_frames: Vec::new(),
         }
     }
     /// Retained payload capacity in bytes and cumulative reuse count.
@@ -260,6 +374,7 @@ impl Engine {
             pool: crate::pool::OutputPool::new(64 * 1024 * 1024),
             primitives,
             definition_depth: 0,
+            local_frames: Vec::new(),
         }
     }
 
@@ -286,24 +401,22 @@ impl Engine {
         if section.is_empty() {
             return Err(Error::Valence);
         }
-        if section.len() != 1
-            || controls
-                .iter()
-                .any(|node| node.kind != crate::definition_flow::ControlKind::Body)
-        {
-            return Err(Error::Unsupported(
-                "explicit modifier control or multiple sentences".into(),
-            ));
-        }
-        let sentence = &code.sentences[section.start];
-        if sentence
-            .words
+        if controls
             .iter()
-            .any(|word| word.flags.local_assignment || word.flags.global_assignment)
+            .any(|node| node.kind != crate::definition_flow::ControlKind::Body)
         {
-            return Err(Error::Unsupported(
-                "explicit modifier assignment scope".into(),
-            ));
+            return Err(Error::Unsupported("explicit modifier control flow".into()));
+        }
+        // Reject unsupported framing before any statement has side effects.
+        for sentence in &code.sentences[section.clone()] {
+            if !matches!(
+                crate::parser::frame_definition_input(&code.body[sentence.span.clone()])?,
+                crate::parser::InputFrame::Sentence
+            ) {
+                return Err(Error::Unsupported(
+                    "nested explicit modifier definition scope".into(),
+                ));
+            }
         }
         // Each invocation currently nests the shared parser. Keep a conservative
         // Windows stack bound until the general executor uses explicit frames.
@@ -311,59 +424,131 @@ impl Engine {
         if self.definition_depth >= MAX_MODIFIER_INVOCATION_DEPTH {
             return Err(Error::Limit);
         }
+        let mut local = LocalFrame {
+            names: HashMap::new(),
+            declared: ["u", "m", "x", "y"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        };
+        if right.is_some() {
+            local.declared.extend(["v".to_owned(), "n".to_owned()]);
+        }
+        for sentence in &code.sentences[section.clone()] {
+            for pair in sentence.words.windows(2) {
+                if pair[1].flags.local_assignment
+                    && pair[0].class == crate::enqueuer::EnqueueClass::Name
+                {
+                    local
+                        .declared
+                        .insert(code.body[pair[0].span.clone()].to_owned());
+                }
+            }
+        }
+        for operand in std::iter::once(&left).chain(right.as_ref()) {
+            if let FunctionOperand::Function(function) = operand {
+                if has_declared_reference(function, &local.declared, 0)? {
+                    return Err(Error::Unsupported(
+                        "operand name collides with explicit local scope".into(),
+                    ));
+                }
+            }
+        }
+        for (name, alias, operand) in [("u", "m", Some(left)), ("v", "n", right)] {
+            if let Some(operand) = operand {
+                let value = match operand {
+                    FunctionOperand::Noun { value, .. } => {
+                        store_binding(
+                            &mut local.names,
+                            &mut self.pool,
+                            alias.to_owned(),
+                            JEntity::Noun(value.clone()),
+                        )?;
+                        JEntity::Noun(value)
+                    }
+                    FunctionOperand::Function(function) => JEntity::Function(function),
+                };
+                store_binding(&mut local.names, &mut self.pool, name.to_owned(), value)?;
+            }
+        }
         self.definition_depth += 1;
+        self.local_frames.push(local);
         let result = (|| {
             let mut frame = ModifierFrame {
                 parent: EngineParserHost {
                     engine: self,
                     pooled,
                 },
-                left,
-                right,
             };
-            // Unbound special names must never fall through to a global alias.
-            // Full undefined-local diagnostics wait for the general scope executor.
-            for word in &sentence.words {
-                let name = &code.body[word.span.clone()];
-                if word.flags.lookup_name
-                    && matches!(name, "u" | "v" | "m" | "n" | "x" | "y")
-                    && frame.operand(name).is_none()
-                {
-                    return Err(Error::Unsupported(
-                        "undefined explicit operand alias".into(),
-                    ));
+            let mut last = None;
+            for (position, sentence) in code.sentences[section.clone()].iter().enumerate() {
+                for word in &sentence.words {
+                    let name = &code.body[word.span.clone()];
+                    if word.flags.lookup_name
+                        && matches!(name, "u" | "v" | "m" | "n" | "x" | "y")
+                        && !frame
+                            .parent
+                            .engine
+                            .local_frames
+                            .last()
+                            .expect("modifier frame")
+                            .names
+                            .contains_key(name)
+                    {
+                        return Err(Error::Unsupported(
+                            "undefined explicit operand alias".into(),
+                        ));
+                    }
+                }
+                let program = crate::parser::parse_runtime_host(
+                    &code.body[sentence.span.clone()],
+                    &mut frame,
+                    None,
+                )?;
+                if let Some(expression) = program.expression {
+                    let assigned = program.assignment.is_some();
+                    let value = match expression.kind {
+                        crate::semantic::ExprKind::Literal(value) => JEntity::Noun(value),
+                        crate::semantic::ExprKind::VerbValue(verb) => {
+                            JEntity::Function(verb.entity)
+                        }
+                        crate::semantic::ExprKind::ModifierValue(function) => {
+                            JEntity::Function(function)
+                        }
+                        _ => JEntity::Noun(crate::parser::RuntimeParserHost::apply(
+                            &mut frame, expression,
+                        )?),
+                    };
+                    if !assigned
+                        && matches!(value, JEntity::Function(_))
+                        && code.sentences[section.start + position + 1..section.end]
+                            .iter()
+                            .any(|next| !next.words.is_empty())
+                    {
+                        return Err(Error::NounResult);
+                    }
+                    last = Some(value);
                 }
             }
-            let body = &code.body[sentence.span.clone()];
-            if !matches!(
-                crate::parser::frame_definition_input(body)?,
-                crate::parser::InputFrame::Sentence
-            ) {
-                return Err(Error::Unsupported(
-                    "nested explicit modifier definition scope".into(),
-                ));
-            }
-            let program = crate::parser::parse_runtime_host(body, &mut frame, None)?;
-            let expression = program
-                .expression
-                .ok_or_else(|| Error::Unsupported("empty explicit modifier result".into()))?;
-            match expression.kind {
-                crate::semantic::ExprKind::Literal(value) => Ok(JEntity::Noun(value)),
-                crate::semantic::ExprKind::VerbValue(verb) => Ok(JEntity::Function(verb.entity)),
-                crate::semantic::ExprKind::ModifierValue(function) => {
-                    Ok(JEntity::Function(function))
-                }
-                _ => Ok(JEntity::Noun(crate::parser::RuntimeParserHost::apply(
-                    &mut frame, expression,
-                )?)),
-            }
+            let value =
+                last.ok_or_else(|| Error::Unsupported("empty explicit modifier result".into()))?;
+            // Ordinary NAME references are deliberately not fixed on exit.
+            // cx.c's fix mode targets implicit u./v. locatives; those require
+            // x/y operator invocation, which this executor does not implement.
+            Ok(value)
         })();
+        let departing = self.local_frames.pop().expect("modifier frame");
+        for binding in departing.names.into_values() {
+            if let JEntity::Noun(value) = binding.value {
+                self.pool.retire(value);
+            }
+        }
         self.definition_depth -= 1;
         result
     }
 
     fn parser_name_binding(&self, name: &str) -> Option<crate::parser::ParserNameBinding> {
-        if let Some(binding) = self.names.get(name) {
+        if let Some(binding) = self.visible_binding(name) {
             return Some(match &binding.value {
                 JEntity::Noun(value) => crate::parser::ParserNameBinding::Noun(value.clone()),
                 JEntity::Function(function) => {
@@ -496,31 +681,14 @@ impl Engine {
     }
 
     fn commit_binding(&mut self, name: String, value: JEntity) -> Result<JEntity> {
-        let version = crate::semantic::NameVersion(
-            self.binding_version(&name)
-                .map_or(0, |v| v.0)
-                .checked_add(1)
-                .ok_or(Error::Limit)?,
-        );
-        // Freeze once before sharing; an owned noun clone would copy data.
-        let returned = match value {
-            JEntity::Noun(value) => JEntity::Noun(value.into_shared()),
-            function => function,
-        };
-        let stored = match &returned {
-            JEntity::Noun(value) => JEntity::Noun(value.clone()),
-            JEntity::Function(function) => JEntity::Function(function.clone()),
-        };
-        let binding = Binding {
-            value: stored,
-            version,
-        };
-        if let Some(old) = self.names.insert(name, binding) {
-            if let JEntity::Noun(value) = old.value {
-                self.pool.retire(value);
-            }
-        }
-        Ok(returned)
+        store_binding(&mut self.names, &mut self.pool, name, value)
+    }
+
+    fn visible_binding(&self, name: &str) -> Option<&Binding> {
+        self.local_frames
+            .last()
+            .and_then(|frame| frame.names.get(name))
+            .or_else(|| self.names.get(name))
     }
 
     /// Reference execution with stable machine-readable J errors.
@@ -625,7 +793,7 @@ impl Engine {
                 rank: None,
             }),
             FunctionHead::NameRef(name) => {
-                let binding = self.names.get(name).ok_or_else(|| {
+                let binding = self.visible_binding(name).ok_or_else(|| {
                     Error::Value(name.clone()).with_context(
                         ErrorContext::phase(DiagnosticPhase::Runtime)
                             .with_current_name(name.clone()),
@@ -706,7 +874,7 @@ impl Engine {
                 Expr::Group(inner) => self.interpret_ir(*inner, pooled, depth + 1),
                 Expr::Literal(v) => Ok(v),
                 Expr::VerbValue(_) | Expr::ModifierValue(_) => Err(Error::Domain),
-                Expr::ReadName(name) => match self.names.get(&name) {
+                Expr::ReadName(name) => match self.visible_binding(&name) {
                     Some(Binding {
                         value: JEntity::Noun(value),
                         ..

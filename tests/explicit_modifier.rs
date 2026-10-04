@@ -132,7 +132,7 @@ fn failed_and_unsupported_bodies_preserve_targets_and_restore_invocation_depth()
 
     for (source, error) in [
         ("emkeep=:+emfail", "length error"),
-        ("emkeep=:+emscope", "unsupported"),
+        ("emkeep=:+emscope", "domain error"),
         ("emkeep=:+emop", "unsupported"),
         ("emkeep=:+emmissing", "unsupported"),
         ("emkeep=:+emrecursive", "limit error"),

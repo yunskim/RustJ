@@ -188,6 +188,41 @@ def explicit_modifier_cases():
     ]
 
 
+def modifier_scope_cases():
+    return [
+        "smt=:90", "smcount=:0", "smkeep=:+", "smlocal=:1 : 'smt=.u+1'",
+        "4 smlocal", "smt", "7 smlocal", "smt", "smglobal=:1 : 'smcount=:smcount+u'",
+        "3 smglobal", "smcount", "smcopy=:1 : 'smt=.smt+u'", "2 smcopy", "3 smcopy", "smt",
+        "smidentity=:1 : 'smt=.u'", "(i.2 3) smidentity", "(<1 2) smidentity",
+        "smfn=:1 : 'smf=.u'", "smresult=:+smfn", "smresult 7",
+        "smoperand=:1 : 'u=:9'", "smkeep=:+smoperand", "smkeep 7",
+        "smrhsfail=:1 : 'smcount=:1 2+1 2 3'", "+smrhsfail", "smcount",
+        "smreplace=:1 : 'u=.m+1'", "4 smreplace", "smcount", "smt",
+    ]
+
+
+def modifier_scope_multiline_cases():
+    # Physical newlines belong to the stage probe, never the line CLI corpus.
+    cases = [
+        "smt=:90", "smf=:99", "smcount=:0", "smkeep=:+",
+        "smmulti=:1 : 0\nsmt=.u+1\nsmt*2\n)", "4 smmulti", "7 smmulti", "smt",
+        "smdirect=:{{smt=.u+1\nsmt*2}}", "4 smdirect", "smt",
+        "smconj=:2 : 0\nsmt=.m+n\nsmt+1\n)", "3 smconj 4", "smt",
+        "smcall=:1 : 0\nsmf=.u\nsmf 7\n)", "-smcall", "smf",
+        "smescape=:1 : 0\nsmf=.u\nsmg=.smf/\nsmf=.-\nsmg\n)",
+        "smresult=:+smescape", "smresult 1 2 3", "smf",
+        "smadvlocal=:1 : 0\nsma=./\nu sma\n)", "smresult=:+smadvlocal", "smresult i.4",
+        "smfail=:1 : 0\nsmcount=:smcount+1\nsmt=.u+1\n1 2+1 2 3\n)",
+        "smkeep=:4 smfail", "smcount", "smt", "smkeep 7",
+        "smcollision=:1 : 0\nsmt=:1\nsmt=.2\nsmt\n)", "+smcollision", "smt",
+        "smcollision2=:1 : 0\nsmt=.1\nsmt=:2\nsmt\n)", "+smcollision2", "smt",
+        "smnonnoun=:1 : 0\n+\nsmcount=:9\n7\n)", "+smnonnoun", "smcount",
+        "smlast=:1 : 0\nsmt=.u\nsmt=.smt+1\n)", "5 smlast", "smt",
+    ]
+
+    return cases
+
+
 def definition_code_cases():
     """Construction only: bodies must stay unevaluated and names unresolved."""
     return [
@@ -616,6 +651,7 @@ def cases():
     fixed.extend(modifier_inventory_cases())
     fixed.extend(definition_code_cases())
     fixed.extend(explicit_modifier_cases())
+    fixed.extend(modifier_scope_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
