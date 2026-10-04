@@ -1956,7 +1956,7 @@ Reuse all 71 JE0 differential cases for grouped/chained assignments, noun snapsh
 The minimum JE1 API and first boundary are complete; SymbolValue convergence is handed to JE2. Do not force deferred noun/application structure or lookup observations into concrete JEntity. Explicit body invocation/scope, semantic nested DD, JE3+ higher-order views, broader storage migration and full J conformance remain incomplete. Optimization, CUDA and GitHub CI stay deferred.
 
 #### JE2 — converge parser/binding/assignment transport
-- [ ] Replace or adapt `FunctionOperand::{Function,Noun}` through the common entity boundary without information loss.
+- [x] Provide the common borrowed JEntityRef through `FunctionOperand::as_entity_ref()` and preserve provenance through `span()`. Retain the owning enum for noun spans and shared function ownership.
 - [ ] Let parser stack/value transport use a common entity handle while preserving jsource 9-row POS/class rules.
 - [x] Generalize assignment to write and return the same assigned `JEntity`. Binding.value and the runtime host now use JEntity; remove SymbolValue.
 - [ ] Preserve expected-POS checks, late binding, binding versions, and observable effect order. Top-level runtime lookup/Verb/Modifier checks are implemented; full local/locale/definition scopes remain incomplete.
@@ -1974,7 +1974,19 @@ Three new runtime unit tests verify stored/returned pointers for a 65,536-atom n
 
 **Namespace seam gate:** Windows default/portable each: **369 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. For each j64/AVX2 direct/semantic-reference/parser-capture route: **4,821 cases / 4,817 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,001 checks**; words: **6,618 cases**. Keep 108 capture-graph and 2 static boundaries separate. Full upstream tests, definition invocation acceptance and private C runtime trace equivalence remain unverified. Verify all ten report binary/source hashes. Conformance source pin is `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, actual DLL release is `ded7793fe5795d79eda8e7138dce94aa056edf78`; JE0 source audit `0db94e768a845e2583c01d00538c3d16379677bb` is not validation of a newly built DLL.
 
-Remaining JE2: a zero-loss FunctionOperand entity view, completed parser-result transport versus deferred applications, full local/locale/definition scopes, explicit body invocation and broader static/runtime/capture convergence. This namespace seam does not complete all JE2. Next examine a borrowed JEntity view preserving noun operand spans; keep semantic nested DD and existing M2 gaps visible. JE3+ collections, broader storage migration, optimization, CUDA and GitHub CI remain deferred.
+Remaining JE2: completed parser-result transport versus deferred applications, full local/locale/definition scopes, explicit body invocation and broader static/runtime/capture convergence. This namespace seam does not complete all JE2. The operand view is completed in the next record; keep semantic nested DD and existing M2 gaps visible. JE3+ collections, broader storage migration, optimization, CUDA and GitHub CI remain deferred.
+
+#### JE2 implementation — borrowed operand view preserving provenance (2026-10-04, partial JE2)
+
+`FunctionOperand::as_entity_ref()` inspects nouns and every function POS through the common JEntityRef. `span()` borrows the stored noun operand source span or function identity span, separately from later application occurrences. Inspection copies no Value, increments no Arc, and allocates no entity. Retain the owning enum to preserve noun provenance and function DAG ownership. Do not generalize it to gerund collections or physical array representations.
+
+Apply the view to nameless-modifier by-value lookup classification and semantic binding's function NameRef DAG traversal. Preserve traversal order and POS/lookup policy. Parser-item materialization still needs the owned shared Arc and retains its existing path.
+
+Add an owned 65,536-atom noun pointer/span regression. Extend existing tests for noun snapshots after host destruction, a 48-level shared DAG, and explicit Verb/Adverb/Conjunction definitions to verify common-view payload identity, function/DefinitionCode reference counts and original provenance. No new J syntax is introduced; reuse the existing 82 entity-boundary C fixtures.
+
+**Operand seam gate:** Windows default/portable each: **370 passed / 17 ignored**; fmt/clippy/build pass. Python: **27 passed**. Each j64/AVX2 direct/semantic-reference/parser-capture route: **4,821 cases / 4,817 passed / 4 existing runtime boundaries / 0 failed**; stages: **10,001 checks**; words: **6,618 cases / 0 failed**. Keep 108 capture-graph and 2 static boundaries separate. Verify all ten report binary/source hashes. Source/DLL pins match the namespace gate above. Full upstream tests, definition invocation acceptance and private C runtime trace equivalence remain unverified.
+
+Next JE2 boundary: common transport for completed parser results distinguished from deferred noun/application structure. Full local/locale/definition scopes and explicit body invocation remain incomplete. This does not complete all JE2.
 
 #### JE3 — prove operator-specific higher-order views before a generic collection
 - [ ] Default to operator-specific `GerundView` / `InterpretedEntitySequence`, not a generic EntityArray.

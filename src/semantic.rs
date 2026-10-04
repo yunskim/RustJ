@@ -60,6 +60,25 @@ pub enum FunctionOperand {
     },
 }
 
+impl FunctionOperand {
+    /// Inspect the concrete RHS without copying a noun or retaining a function.
+    /// Operand provenance remains available separately through `span`.
+    pub fn as_entity_ref(&self) -> JEntityRef<'_> {
+        match self {
+            Self::Noun { value, .. } => JEntityRef::Noun(value),
+            Self::Function(function) => JEntityRef::Function(function),
+        }
+    }
+
+    /// Original operand provenance, not the span of a later application.
+    pub fn span(&self) -> &std::ops::Range<usize> {
+        match self {
+            Self::Noun { span, .. } => span,
+            Self::Function(function) => &function.span,
+        }
+    }
+}
+
 /// Immutable semantic function object. Operands are shared references so large
 /// trains/derived functions form DAGs rather than recursively copied Rust values.
 /// This mirrors the structural role of jsource's common V block + f/g/h links,
@@ -80,18 +99,21 @@ impl FunctionEntity {
     pub(crate) fn is_nameless_modifier(&self) -> bool {
         self.is_primitive_modifier()
             || (matches!(self.head, FunctionHead::ModifierTrain)
-                && self.operands.iter().all(|operand| match operand {
-                    FunctionOperand::Noun { .. } => true,
-                    FunctionOperand::Function(function) => {
-                        function.operands.is_empty()
-                            && matches!(
-                                function.head,
-                                FunctionHead::PrimitiveVerb(_)
-                                    | FunctionHead::PrimitiveAdverb(_)
-                                    | FunctionHead::PrimitiveConjunction(_)
-                            )
-                    }
-                }))
+                && self
+                    .operands
+                    .iter()
+                    .all(|operand| match operand.as_entity_ref() {
+                        JEntityRef::Noun(_) => true,
+                        JEntityRef::Function(function) => {
+                            function.operands.is_empty()
+                                && matches!(
+                                    function.head,
+                                    FunctionHead::PrimitiveVerb(_)
+                                        | FunctionHead::PrimitiveAdverb(_)
+                                        | FunctionHead::PrimitiveConjunction(_)
+                                )
+                        }
+                    }))
     }
     pub(crate) fn with_decoded_gerund(
         mut entity: Arc<Self>,
@@ -366,8 +388,8 @@ pub(crate) fn bind(
                     verb_references.push((name.clone(), function.span.clone()));
                 }
                 for operand in function.operands.iter().rev() {
-                    if let FunctionOperand::Function(child) = operand {
-                        functions.push(child.as_ref());
+                    if let JEntityRef::Function(child) = operand.as_entity_ref() {
+                        functions.push(child);
                     }
                 }
             }

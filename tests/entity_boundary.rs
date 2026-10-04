@@ -190,6 +190,14 @@ fn large_function_commit_shares_completed_dag_after_host_drops() {
         panic!()
     };
     assert!(Arc::ptr_eq(child, &original_child));
+    let count = Arc::strong_count(child);
+    let operand = &retained.operands[1];
+    let JEntityRef::Function(borrowed) = operand.as_entity_ref() else {
+        panic!()
+    };
+    assert!(std::ptr::eq(borrowed, child.as_ref()));
+    assert!(std::ptr::eq(operand.span(), &child.span));
+    assert_eq!(Arc::strong_count(child), count);
 }
 
 #[test]
@@ -289,6 +297,17 @@ fn function_transport_retains_all_three_pos_and_definition_code() {
             panic!()
         };
         assert!(Arc::ptr_eq(code, retained));
+        let operand = FunctionOperand::Function(returned);
+        let count = Arc::strong_count(&root);
+        let code_count = Arc::strong_count(code);
+        let JEntityRef::Function(borrowed) = operand.as_entity_ref() else {
+            panic!()
+        };
+        assert_eq!(borrowed.result_pos, expected);
+        assert!(std::ptr::eq(borrowed, root.as_ref()));
+        assert!(std::ptr::eq(operand.span(), &root.span));
+        assert_eq!(Arc::strong_count(&root), count);
+        assert_eq!(Arc::strong_count(code), code_count);
     }
 }
 
@@ -309,10 +328,11 @@ fn constructor_noun_snapshot_shares_payload_across_rebinding_and_host_drop() {
     drop(original);
     drop(report);
     drop(engine);
-    let FunctionOperand::Noun { value, span } = &root.operands[0] else {
+    let operand = &root.operands[0];
+    let JEntityRef::Noun(value) = operand.as_entity_ref() else {
         panic!()
     };
-    assert_eq!(span, &(8..15));
+    assert_eq!(operand.span(), &(8..15));
     assert_eq!(value.shape(), [65536]);
     assert_eq!(value.int_at(65535).unwrap(), 65535);
     let Data::Int(data) = value.data() else {
@@ -386,4 +406,34 @@ fn explicit_modifier_alias_assignment_retains_nameref_pos_without_body_execution
             0
         );
     }
+}
+
+#[test]
+fn operand_view_preserves_owned_noun_payload_and_independent_source_span() {
+    let value = rustj::Value::ints([65536], (0..65536).collect()).unwrap();
+    let Data::Int(data) = value.data() else {
+        panic!()
+    };
+    let pointer = data.as_ptr();
+    let operand = FunctionOperand::Noun {
+        value,
+        span: 17..29,
+    };
+    let JEntityRef::Noun(borrowed) = operand.as_entity_ref() else {
+        panic!()
+    };
+    let Data::Int(data) = borrowed.data() else {
+        panic!()
+    };
+    assert_eq!(data.as_ptr(), pointer);
+    assert_eq!(borrowed.int_at(65535).unwrap(), 65535);
+    assert_eq!(operand.span(), &(17..29));
+    let FunctionOperand::Noun { value, span } = operand else {
+        panic!()
+    };
+    let Data::Int(data) = value.data() else {
+        panic!()
+    };
+    assert_eq!(data.as_ptr(), pointer);
+    assert_eq!(span, 17..29);
 }
