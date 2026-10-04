@@ -8010,9 +8010,26 @@ Sources: [p.c ordinary lookup / mnuvxy](https://github.com/jsoftware/jsource/blo
 
 **별도 oracle 경계:** 무한 재귀 operator 사례에서 j64 C oracle의 ctypes JDo가 `OSError: exception: stack overflow`로 종료했다. 정상 J LimitError 대조가 아니므로 위 성공 corpus에서 제외하고 `reports/operator-recursion-oracle-boundary-windows.json`에 기록한다. Rust depth-limit/frame-recovery regression만 통과했으며 이 사례의 C 동등성은 주장하지 않는다. 실패한 harness 실행을 successful gate로 계산하지 않았다.
 
-다음은 `u./v.`의 생성·호출 scope와 반환 시 fix를 C와 대조한다. body graph/source frame·control executor는 별도다. optimizer·CUDA·GitHub CI 보류를 유지한다.
+아래 implicit-operand 단계에서 반환 시 fix를 구현했다. caller scope 전환을 포함한 직접 호출과 body graph/source frame·control executor는 후속 작업이다. optimizer·CUDA·GitHub CI 보류를 유지한다.
 
 Sources: [cx.c jtxop2](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L749), [cx.c operator operand extraction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c x/y/u/v installation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L269), [cx.c result audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L671), [cx.c executor selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
+
+##### JE2/P3 구현 — implicit operand의 반환 시 고정 (2026-10-04, partial)
+
+- [x] C `t.c`처럼 `u.`/`v.`를 VERB primitive로 enqueue한다. ordinary NAME이나 extension keyword로 바꾸지 않는다. registry version은 4이다.
+- [x] `cx.c::xop`처럼 direct definition의 mode 판정에서 `u.`는 u, `v.`는 v 사용으로 계산한다. lexical VERB 분류와 adverb/conjunction definition POS는 구별한다.
+- [x] modifier의 직선 본문이 함수를 반환할 때 departing frame의 최종 u/v binding으로 첫 implicit locative를 치환한다. 각 replacement 안으로 더 들어가지 않으며 ordinary NameRef는 유지한다. source operator/operand 순서·decoded gerund를 유지하고 바뀌지 않은 FunctionEntity는 Arc를 공유한다.
+- [x] noun operand를 verb locative로 반환하면 DomainError이다. 미설치 operand의 반환은 C에서 함수 참조가 남을 수 있어 현재 Unsupported 경계이며 ValueError로 단정하지 않는다. 이미 commit된 global publication은 고정하지 않는다. 반환 뒤 ordinary 함수 이름 재정의와 실패 후 frame 복구를 회귀 검증한다.
+- [x] unresolved implicit primitive의 contract는 unknown/effect barrier이며 graph rule은 DynamicOrUnknown이다. 이를 pure 배열 kernel 또는 shape 보존 힌트로 간주하지 않는다.
+- [ ] **다음 단계:** 본문 안의 `u./v.` 호출은 C `sc.c::unquote`의 caller local/global 환경 전환을 구현해야 한다. 현재 명시적 Unsupported 경계이다. global publication의 raw locative 호출, nested invocation scope·scope-specific reference, 전체 control/body graph/source diagnostic frame은 완료하지 않았다. 일반 함수 lookup으로 대체하면 caller-local 이름을 잘못 해석할 수 있다.
+
+Windows C oracle에서 반환 `u.`/`u./`/`v.`, operand의 지역 재대입, ordinary NAME 재정의, 전역 raw locative publication을 확인했다. Rust regression **3개**는 lexical/definition mode, 반환 뒤 호출·오류·frame 복구, fork의 동일 operand Arc 공유와 rank DAG 보존, graph unknown 규칙을 검증한다. 공통 runtime corpus **29건**, 이를 포함한 stage **45건**을 추가했다. raw 호출과 미설치 operand 반환은 새 successful runtime corpus로 계산하지 않는다.
+
+C `5!:1`은 source graph가 아닌 실행 객체의 표현이므로 `u. "0`에서 u를 +로 고정한 뒤 C는 redundant rank를 생략한다. 비교용 frontend probe만 +의 정확한 `[0,0,0]` rank를 생략하며 Semantic IR의 source rank parent는 보존한다. C의 zero-rank +와 rank를 유지하는 ravel을 함께 대조하고, Rust capture에서 rank parent 보존을 확인한다. decoded gerund는 source edge처럼 재귀 고정하지 않고 constructor auxiliary로 유지한다. gerund operator별 AR 재구성과 전체 constructor 특수화는 후속 감사 대상이다. [t.c +의 rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L113), [cr.c rank 재구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L778).
+
+**Implicit-return gate:** native Windows default/portable 각각 **404 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **5,030 cases / 5,026 passed / 기존 runtime 경계 4 / failed 0**, stage **10,320 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **195건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. frontend report 10개의 actual binary/reference/source hash를 검증했으며 `t.c`를 source hash 목록에 추가했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이다. optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+Sources: [t.c primitive 등록](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L221), [cx.c mode 판정](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L766), [cx.c 반환 fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c 첫 implicit reference fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [sc.c caller scope 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L124).
 
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
@@ -9374,7 +9391,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(operator-call 단계): Windows default/portable 각각 **401 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,001 cases / 4,997 passed / 기존 runtime 경계 4 / failed 0**, stage **10,275 checks**, words **6,618 cases / failed 0**. capture graph 경계 184건과 static 경계 2건은 별도다. frontend report 10개와 재귀 oracle 실패의 별도 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(implicit-return 단계): Windows default/portable 각각 **404 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,030 cases / 5,026 passed / 기존 runtime 경계 4 / failed 0**, stage **10,320 checks**, words **6,618 cases / failed 0**. capture graph 경계 195건과 static 경계 2건은 별도다. frontend report 10개와 재귀 oracle 실패의 별도 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

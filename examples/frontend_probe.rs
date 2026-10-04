@@ -6,6 +6,29 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 fn function(f: &FunctionEntity) -> String {
+    // C 5!:1 projects the execution object: cr.c rank construction can
+    // elide a redundant rank around + (t.c declares all three ranks zero).
+    // Keep the source rank entity intact; normalize only this AR observation.
+    if matches!(
+        f.head,
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank)
+    ) {
+        if let [
+            FunctionOperand::Function(operand),
+            FunctionOperand::Noun { value, .. },
+        ] = f.operands.as_slice()
+        {
+            if matches!(
+                operand.head,
+                FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+            ) && value.shape().len() <= 1
+                && (1..=3).contains(&value.len())
+                && (0..value.len()).all(|index| value.float_at(index) == Ok(0.0))
+            {
+                return function(operand);
+            }
+        }
+    }
     if let FunctionHead::ExplicitDefinition(code) = &f.head {
         if !f.operands.is_empty() {
             let operator = FunctionEntity {

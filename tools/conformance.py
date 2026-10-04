@@ -201,6 +201,28 @@ def modifier_scope_cases():
     ]
 
 
+def implicit_operand_cases():
+    return [
+        "ia=:1 : 'u.'", "if=:-ia", "if 7", "3 if 7", "if i.4", "if i.0 3",
+        "ir=:1 : 'u./'", "isum=:+ir", "isum 1 2 3", "isum i.0",
+        "ic=:2 : 'v.'", "ig=:+ic -", "ig 7", "3 ig 7",
+        "iname=:+", "il=:iname ia", "iname=:-", "il 7", "iname=:0", "il 7",
+        "ikeep=:+", "ikeep=:3 ia", "ikeep 7",
+        "id=:{{u.}}", "if=:-id", "if 7", "idc=:{{v.}}", "ig=:+idc -", "ig 7",
+    ]
+
+
+def implicit_operand_multiline_cases():
+    return [
+        "ia=:1 : 0\nu=.-\nu.\n)", "if=:+ia", "if 7",
+        "ia=:1 : 0\nipub=:u.\nu.\n)", "if=:-ia", "if 7",
+        "ia=:1 : 0\nu=.3\nu.\n)", "if=:+ia", "if 7",
+        "ia=:1 : 'u. + u.'", "if=:-ia",
+        "ia=:1 : 'u.\"0'", "if=:+ia", "if 1 2 3",
+        "if=:,ia", "if 1 2 3",
+    ]
+
+
 def operator_definition_cases():
     return [
         "oa=:1 : 'u y'", "of=:+oa", "of 7", "of i.4", "of i.0 3", "3 of 7",
@@ -711,6 +733,7 @@ def cases():
     fixed.extend(modifier_scope_cases())
     fixed.extend(ordinary_reference_cases())
     fixed.extend(operator_definition_cases())
+    fixed.extend(implicit_operand_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())

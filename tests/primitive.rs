@@ -28,7 +28,14 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
             panic!()
         };
         assert_eq!(callable.target, CallTarget::Primitive(id));
-        // Every registered symbol has at least one supported valence contract.
+        // Implicit locatives are recognized primitives with context-dependent
+        // execution, so lexical support must not imply a pure kernel contract.
+        if matches!(id, PrimitiveId::OperandU | PrimitiveId::OperandV) {
+            for valence in [Valence::Monad, Valence::Dyad] {
+                assert_eq!(contracts::for_primitive(id, valence), contracts::unknown());
+            }
+            continue;
+        }
         assert!(
             [Valence::Monad, Valence::Dyad]
                 .into_iter()

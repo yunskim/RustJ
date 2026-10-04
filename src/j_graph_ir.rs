@@ -462,13 +462,20 @@ fn noun_operand_value(function: &FunctionEntity) -> Option<Value> {
 
 fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
     match &function.head {
-        FunctionHead::PrimitiveVerb(id) => GraphRuleRefs {
-            shape: GraphRuleRef::Primitive(*id),
-            dtype: GraphRuleRef::Primitive(*id),
-            rank_cell: GraphRuleRef::Primitive(*id),
-            effect: GraphRuleRef::Primitive(*id),
-            resource: ResourceRuleRef::Unknown,
-        },
+        FunctionHead::PrimitiveVerb(id)
+            if !matches!(
+                id,
+                crate::primitive::PrimitiveId::OperandU | crate::primitive::PrimitiveId::OperandV
+            ) =>
+        {
+            GraphRuleRefs {
+                shape: GraphRuleRef::Primitive(*id),
+                dtype: GraphRuleRef::Primitive(*id),
+                rank_cell: GraphRuleRef::Primitive(*id),
+                effect: GraphRuleRef::Primitive(*id),
+                resource: ResourceRuleRef::Unknown,
+            }
+        }
         FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::ModifierTrain
@@ -480,7 +487,8 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
             effect: GraphRuleRef::StructuralComposition,
             resource: ResourceRuleRef::StructuralComposition,
         },
-        FunctionHead::NameRef(_)
+        FunctionHead::PrimitiveVerb(_)
+        | FunctionHead::NameRef(_)
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_) => GraphRuleRefs {
             shape: GraphRuleRef::DynamicOrUnknown,

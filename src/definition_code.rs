@@ -261,6 +261,16 @@ pub fn compile(
                         if let crate::enqueuer::EnqueuedPayload::Name(name) = &word.payload {
                             names.push((*name).to_owned());
                         }
+                        // cx.c xop counts the implicit-locative primitives as
+                        // operands too; their lexical class remains VERB.
+                        if let crate::enqueuer::EnqueuedPayload::Verb(id) = &word.payload {
+                            use crate::primitive::PrimitiveId;
+                            match id {
+                                PrimitiveId::OperandU => names.push("u".into()),
+                                PrimitiveId::OperandV => names.push("v".into()),
+                                _ => {}
+                            }
+                        }
                         words.push(DefinitionWord {
                             span: span.start + word.span.start..span.start + word.span.end,
                             index: words.len(),

@@ -498,9 +498,14 @@ impl Engine {
             if verb_call && matches!(value, JEntity::Function(_)) {
                 return Err(Error::NounResult);
             }
-            // Ordinary NAMEs remain late references. Implicit u./v. locative
-            // fixing is a separate, still unsupported return-time contract.
-            Ok(value)
+            // cx.c fixes only the first implicit locative on each branch.
+            // Replacement operands and ordinary names remain untouched.
+            match value {
+                JEntity::Function(function) => Ok(JEntity::Function(
+                    frame.parent.engine.fix_implicit_return(&function, 0)?,
+                )),
+                noun => Ok(noun),
+            }
         })();
         let departing = self.local_frames.pop().expect("modifier frame");
         for binding in departing.names.into_values() {
@@ -510,6 +515,87 @@ impl Engine {
         }
         self.definition_depth -= 1;
         result
+    }
+
+    fn fix_implicit_return(
+        &self,
+        function: &std::sync::Arc<FunctionEntity>,
+        depth: usize,
+    ) -> Result<std::sync::Arc<FunctionEntity>> {
+        if depth > crate::semantic::MAX_EXPR_DEPTH {
+            return Err(Error::Limit);
+        }
+        use crate::primitive::PrimitiveId;
+        let operand = match function.head {
+            FunctionHead::PrimitiveVerb(PrimitiveId::OperandU) => Some("u"),
+            FunctionHead::PrimitiveVerb(PrimitiveId::OperandV) => Some("v"),
+            _ => None,
+        };
+        if let Some(name) = operand {
+            let binding = self
+                .local_frames
+                .last()
+                .and_then(|frame| frame.names.get(name))
+                .ok_or_else(|| {
+                    Error::Unsupported("returning an unbound implicit locative".into())
+                })?;
+            let JEntity::Function(target) = &binding.value else {
+                return Err(Error::Domain);
+            };
+            if target.result_pos != FunctionPartOfSpeech::Verb {
+                return Err(Error::Domain);
+            }
+            // Do not recursively fix inside the replacement: that belongs to
+            // the caller's operand scope, not this departing frame.
+            return Ok(target.clone());
+        }
+        if function.operands.is_empty() && function.decoded_gerund.is_none() {
+            return Ok(function.clone());
+        }
+        let mut changed = false;
+        let mut fix = |child: &std::sync::Arc<FunctionEntity>| -> Result<_> {
+            let fixed = self.fix_implicit_return(child, depth + 1)?;
+            changed |= !std::sync::Arc::ptr_eq(child, &fixed);
+            Ok(fixed)
+        };
+        let fixed = function
+            .operands
+            .iter()
+            .map(|operand| match operand {
+                FunctionOperand::Function(child) => fix(child).map(Some),
+                FunctionOperand::Noun { .. } => Ok(None),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        // Decoded gerunds are constructor auxiliaries, not source edges.
+        // Fixing them requires operator-specific AR reconstruction (af.c);
+        // ordinary noun operands must remain noun snapshots.
+        let decoded = function.decoded_gerund.clone();
+        if !changed {
+            return Ok(function.clone());
+        }
+        let operands = function
+            .operands
+            .iter()
+            .zip(fixed)
+            .map(|(operand, fixed)| match operand {
+                FunctionOperand::Function(_) => {
+                    FunctionOperand::Function(fixed.expect("fixed child"))
+                }
+                FunctionOperand::Noun { value, span } => FunctionOperand::Noun {
+                    value: value.clone(),
+                    span: span.clone(),
+                },
+            })
+            .collect();
+        Ok(FunctionEntity::with_decoded_gerund(
+            FunctionEntity::derived(
+                function.head.clone(),
+                function.result_pos,
+                function.span.clone(),
+                operands,
+            ),
+            decoded,
+        ))
     }
 
     /// Resolve only ordinary aliases here; body execution must wait for arguments.
@@ -827,6 +913,11 @@ impl Engine {
         }
 
         match &function.head {
+            FunctionHead::PrimitiveVerb(
+                crate::primitive::PrimitiveId::OperandU | crate::primitive::PrimitiveId::OperandV,
+            ) => Err(Error::Unsupported(
+                "implicit-locative call requires caller-scope execution".into(),
+            )),
             FunctionHead::PrimitiveVerb(id) => Ok(ResolvedVerb {
                 id: *id,
                 reduce: false,
