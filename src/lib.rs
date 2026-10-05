@@ -18,6 +18,7 @@ pub mod execution_semantics;
 pub mod expansion;
 pub mod facts;
 pub mod j_graph_composition;
+pub mod j_graph_fusion;
 pub mod j_graph_ir;
 pub mod j_graph_memory;
 pub mod j_graph_resource;

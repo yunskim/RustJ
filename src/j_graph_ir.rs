@@ -1301,6 +1301,13 @@ impl Plan {
         crate::j_graph_composition::CompositionAnalysis::from_plan(self)
     }
 
+    pub fn fusion_analysis(
+        &self,
+        registry: &crate::j_graph_fusion::FusionRegistry,
+    ) -> std::result::Result<crate::j_graph_fusion::FusionAnalysis, String> {
+        crate::j_graph_fusion::FusionAnalysis::from_plan(self, registry)
+    }
+
     pub fn scan_analysis(&self) -> std::result::Result<crate::j_graph_scan::ScanAnalysis, String> {
         crate::j_graph_scan::ScanAnalysis::from_plan(self)
     }
