@@ -77,7 +77,8 @@ fn append_execution_basis(
             }
         }
         FunctionHead::NameRef(_) => {}
-        FunctionHead::PrimitiveAdverb(_)
+        FunctionHead::VocabularyPrimitive(_)
+        | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_)
@@ -358,7 +359,8 @@ impl Builder<'_> {
                     })?;
                     current = base.clone();
                 }
-                FunctionHead::PrimitiveAdverb(_)
+                FunctionHead::VocabularyPrimitive(_)
+                | FunctionHead::PrimitiveAdverb(_)
                 | FunctionHead::PrimitiveConjunction(_)
                 | FunctionHead::DefinitionConstructor(_)
                 | FunctionHead::ExplicitDefinition(_)

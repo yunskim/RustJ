@@ -420,6 +420,12 @@ fn apply_adverb(
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
     let operator = names.resolve_modifier(operator, span.clone())?;
+    if let FunctionHead::VocabularyPrimitive(id) = operator.head {
+        return Err(Error::Unsupported(format!(
+            "core modifier {} construction",
+            id.spelling()
+        )));
+    }
     if matches!(
         operator.head,
         FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Ident)
@@ -601,6 +607,23 @@ fn gerund_primitive(spelling: &str, span: std::ops::Range<usize>) -> Result<Item
             target: VerbTarget::Derived,
             entity: FunctionEntity::primitive(id, span),
         }),
+        PrimitiveSemanticId::Vocabulary(id) => {
+            let function = FunctionEntity::derived(
+                FunctionHead::VocabularyPrimitive(id),
+                id.part_of_speech().into(),
+                span.clone(),
+                Vec::new(),
+            );
+            if function.result_pos == FunctionPartOfSpeech::Verb {
+                Item::verb(Verb {
+                    span,
+                    target: VerbTarget::Derived,
+                    entity: function,
+                })
+            } else {
+                Item::function(function)
+            }
+        }
         PrimitiveSemanticId::Adverb(id) => {
             Item::function(FunctionEntity::primitive_adverb(id, span))
         }
@@ -1018,6 +1041,12 @@ fn apply_conjunction_items(
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let operator = names.resolve_modifier(operator, span.clone())?;
+    if let FunctionHead::VocabularyPrimitive(id) = operator.head {
+        return Err(Error::Unsupported(format!(
+            "core modifier {} construction",
+            id.spelling()
+        )));
+    }
     match operator.head {
         FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Lev) => {
             verify_discarded_selector_operand(&right)?;

@@ -1288,7 +1288,8 @@ impl Engine {
                 })?);
                 Ok(resolved)
             }
-            FunctionHead::PrimitiveAdverb(_)
+            FunctionHead::VocabularyPrimitive(_)
+            | FunctionHead::PrimitiveAdverb(_)
             | FunctionHead::PrimitiveConjunction(_)
             | FunctionHead::DefinitionConstructor(_)
             | FunctionHead::ExplicitDefinition(_)

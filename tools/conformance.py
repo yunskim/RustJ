@@ -201,6 +201,13 @@ def modifier_scope_cases():
     ]
 
 
+def vocabulary_binding_cases():
+    return ['a.', 'a:', '#a.', '>a:',
+            'nv2verb=:c.', 'nv2alias=:nv2verb', 'nv2verb=:+', 'nv2alias 7',
+            'nv2mod=:t.', 'nv2saved=:nv2mod', 'nv2mod=:"',
+            "nv2decoded=: (, <'!') (\\ @: +)"]
+
+
 def nuvoc_selector_cases():
     return ['2 [. 3', '2 ]. 3', '2 ]:', '2 [. +', '+ ]. 3',
             '(1+2) [. (3*4)', '(1+2) ]. (3*4)', '((1+2) ]. (3*4)) ]:',
@@ -895,6 +902,7 @@ def cases():
     fixed.extend(capped_fork_cases())
     fixed.extend(verb_rank_cases())
     fixed.extend(nuvoc_selector_cases())
+    fixed.extend(vocabulary_binding_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())

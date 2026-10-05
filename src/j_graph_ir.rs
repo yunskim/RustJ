@@ -32,7 +32,7 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 7 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 8 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -492,6 +492,7 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
             resource: ResourceRuleRef::StructuralComposition,
         },
         FunctionHead::PrimitiveVerb(_)
+        | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_) => GraphRuleRefs {
@@ -818,6 +819,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
             operands: function_operands(function),
         },
         FunctionHead::PrimitiveVerb(_)
+        | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_)

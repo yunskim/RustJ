@@ -13,7 +13,7 @@ import os
 import re
 from pathlib import Path
 from oracle import Oracle
-from frontend_stage_conformance import Probe
+from frontend_stage_conformance import Probe, atomic_function, equivalent
 
 
 def source_spellings(source):
@@ -57,7 +57,9 @@ def main():
     args = p.parse_args()
     ws = args.source_directory / 'jsrc/ws.c'
     o, probe = Oracle(), Probe(args.binary)
+    parser_probe = Probe(args.binary, analysis=True)
     entries, failures = [], []
+    parser_checks, noun_checks = 0, 0
     try:
         for word in source_spellings(ws.read_text()):
             error = o.run('vocabprobe=: ' + word)
@@ -82,13 +84,29 @@ def main():
                     status = 'enqueue_pos_verified'
             elif queue != {'error':'unsupported'}:
                 failures.append({'word':word, 'reason':'unexpected enqueue failure', 'actual':queue})
-            entries.append({'word':word, 'c_pos':pos, 'c_error':error, 'rust_enqueue':queue, 'status':status})
+            parser_result = None
+            if status == 'enqueue_pos_verified':
+                if pos == 'Noun':
+                    expected = o.read_noun('vocabprobe')
+                    actual = queue[0]['noun']
+                    noun_checks += 1
+                    if not equivalent(expected, actual):
+                        failures.append({'word':word, 'reason':'core noun payload mismatch', 'expected':expected, 'actual':actual})
+                else:
+                    expected = {'pos': {'Adverb':1,'Conjunction':2,'Verb':3}[pos],
+                                'function':atomic_function(o.representation('vocabprobe','atomic')['value'])}
+                    parser_result = parser_probe.inspect('vocabprobe=: ' + word, 'R')
+                    parser_checks += 1
+                    if not equivalent(expected, parser_result):
+                        failures.append({'word':word, 'reason':'bare core binding/function identity mismatch', 'expected':expected, 'actual':parser_result})
+            entries.append({'word':word, 'c_pos':pos, 'c_error':error, 'rust_enqueue':queue, 'status':status, 'parser_binding':parser_result})
         legacy = [{'word':w, 'c_result':o.run('vocabprobe=: '+w), 'rust_enqueue':probe.inspect(w).get('enqueue')}
                   for w in ['d.', 'D.', 'D:', 't:', '..', '.:', 's:', 'I:']]
         if any(x['c_result'] != {'error':'spelling error'} for x in legacy):
             raise RuntimeError('legacy spelling fixture no longer rejected by C')
     finally:
         probe.close()
+        parser_probe.close()
         o.close()
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     report = {'platform':os.name, 'nuvoc_review_url':'https://code.jsoftware.com/mediawiki/index.php?title=NuVoc&oldid=60409',
@@ -96,6 +114,7 @@ def main():
               'reference_revision':args.reference_revision, 'source_hashes':{rel:digest(args.source_directory/rel) for rel in ['jsrc/ws.c','jsrc/t.c','jsrc/v.c']},
               'reference_sha256':digest(Path(os.environ['J_LIBRARY'])), 'binary_sha256':digest(args.binary),
               'scope':'core spelling candidates from pinned ws.c plus finite/infinite constant functions; not full runtime coverage or a live NuVoc scraper',
+              'parser_binding_checks':parser_checks, 'noun_payload_checks':noun_checks,
               'entries':entries, 'legacy_rejections':legacy, 'failed':len(failures), 'failures':failures,
               'enqueue_pos_verified':sum(x['status']=='enqueue_pos_verified' for x in entries),
               'coverage_boundaries':sum(x['status']=='coverage_boundary' for x in entries),

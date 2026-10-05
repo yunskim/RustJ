@@ -10,35 +10,94 @@
     "jsrc/v.c": "c44f0ae76db03dec81d43a61d57f4293296ca2c97a8008709914614ce0a33ae8"
   },
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "eac8b666d717336c6ae77f68c4c390de0912d8e460820074ef7e2d37a3b28825",
+  "binary_sha256": "745f44a57ac7805259c2f0b9ae4acdabe384f23a4eba699658b8ed6f2cee9a83",
   "scope": "core spelling candidates from pinned ws.c plus finite/infinite constant functions; not full runtime coverage or a live NuVoc scraper",
+  "parser_binding_checks": 140,
+  "noun_payload_checks": 3,
   "entries": [
     {
       "word": "!",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "21",
+          "operands": []
+        }
+      }
     },
     {
       "word": "!.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "212e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "!:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "213a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "\"",
@@ -59,25 +118,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "22",
+          "operands": []
+        }
+      }
     },
     {
       "word": "\".",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "222e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "\":",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "223a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "#",
@@ -98,25 +202,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "23",
+          "operands": []
+        }
+      }
     },
     {
       "word": "#.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "232e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "#:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "233a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "$",
@@ -137,7 +286,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "24",
+          "operands": []
+        }
+      }
     },
     {
       "word": "$.",
@@ -158,25 +314,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "242e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "$:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "243a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "$::",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "243a3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "%",
@@ -197,61 +398,182 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "25",
+          "operands": []
+        }
+      }
     },
     {
       "word": "%.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "252e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "%:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "253a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "&",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "26",
+          "operands": []
+        }
+      }
     },
     {
       "word": "&.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "262e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "&.:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "262e3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "&:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "263a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "*",
@@ -272,25 +594,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "*.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2a2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "*:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2a3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "+",
@@ -311,25 +678,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2b",
+          "operands": []
+        }
+      }
     },
     {
       "word": "+.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2b2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "+:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2b3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": ",",
@@ -350,25 +762,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2c",
+          "operands": []
+        }
+      }
     },
     {
       "word": ",.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2c2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": ",:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2c3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "-",
@@ -389,34 +846,98 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2d",
+          "operands": []
+        }
+      }
     },
     {
       "word": "-.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2d2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "-:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2d3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": ".",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "/",
@@ -437,178 +958,546 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "2f",
+          "operands": []
+        }
+      }
     },
     {
       "word": "/.",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "2f2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "/..",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "2f2e2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "/:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "2f3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "0:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "303a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "1:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "313a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "2:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "323a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "3:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "333a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "4:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "343a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "5:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "353a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "6:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "363a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "7:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "373a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "8:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "383a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "9:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "393a",
+          "operands": []
+        }
+      }
     },
     {
       "word": ":",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": ":.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "3a2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "::",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "3a3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": ";",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3b",
+          "operands": []
+        }
+      }
     },
     {
       "word": ";.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "3b2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": ";:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3b3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "<",
@@ -629,25 +1518,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3c",
+          "operands": []
+        }
+      }
     },
     {
       "word": "<.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3c2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "<:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3c3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "=",
@@ -668,7 +1602,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3d",
+          "operands": []
+        }
+      }
     },
     {
       "word": ">",
@@ -689,43 +1630,126 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3e",
+          "operands": []
+        }
+      }
     },
     {
       "word": ">.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3e2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": ">:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3e3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "?",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3f",
+          "operands": []
+        }
+      }
     },
     {
       "word": "?.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "3f2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "?:",
@@ -736,25 +1760,64 @@
       "rust_enqueue": {
         "error": "unsupported"
       },
-      "status": "source_code_only"
+      "status": "source_code_only",
+      "parser_binding": null
     },
     {
       "word": "@",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "40",
+          "operands": []
+        }
+      }
     },
     {
       "word": "@.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "402e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "@:",
@@ -775,25 +1838,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "403a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "A.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "412e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "C.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "432e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "E.",
@@ -814,70 +1922,210 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "452e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "F.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "462e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "F..",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "462e2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "F.:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "462e3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "F:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "463a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "F:.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "463a2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "F::",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "463a3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "H.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "482e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "I.",
@@ -898,70 +2146,210 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "492e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "L.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "4c2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "L:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "4c3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "M.",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "4d2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "S:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "533a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "T.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "542e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "Z:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5a3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "[",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5b",
+          "operands": []
+        }
+      }
     },
     {
       "word": "[.",
@@ -982,7 +2370,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "5b2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "[:",
@@ -1003,7 +2398,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5b3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "\\",
@@ -1024,34 +2426,98 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "5c",
+          "operands": []
+        }
+      }
     },
     {
       "word": "\\.",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "5c2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "\\:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5c3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "]",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5d",
+          "operands": []
+        }
+      }
     },
     {
       "word": "].",
@@ -1072,7 +2538,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "5d2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "]:",
@@ -1093,34 +2566,98 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "5d3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "^",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "^.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5e2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "^:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "5e3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_",
@@ -1147,115 +2684,344 @@
           }
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": null
     },
     {
       "word": "_1:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f313a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_2:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f323a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_3:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f333a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_4:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f343a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_5:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f353a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_6:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f363a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_7:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f373a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_8:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f383a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_9:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f393a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "_:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "__:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "5f5f3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "`",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "60",
+          "operands": []
+        }
+      }
     },
     {
       "word": "`.",
@@ -1266,52 +3032,411 @@
       "rust_enqueue": {
         "error": "unsupported"
       },
-      "status": "source_code_only"
+      "status": "source_code_only",
+      "parser_binding": null
     },
     {
       "word": "`:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "603a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "a.",
       "c_pos": "Noun",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Noun",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": {
+            "type": 2,
+            "shape": [
+              256
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61,
+              62,
+              63,
+              64,
+              65,
+              66,
+              67,
+              68,
+              69,
+              70,
+              71,
+              72,
+              73,
+              74,
+              75,
+              76,
+              77,
+              78,
+              79,
+              80,
+              81,
+              82,
+              83,
+              84,
+              85,
+              86,
+              87,
+              88,
+              89,
+              90,
+              91,
+              92,
+              93,
+              94,
+              95,
+              96,
+              97,
+              98,
+              99,
+              100,
+              101,
+              102,
+              103,
+              104,
+              105,
+              106,
+              107,
+              108,
+              109,
+              110,
+              111,
+              112,
+              113,
+              114,
+              115,
+              116,
+              117,
+              118,
+              119,
+              120,
+              121,
+              122,
+              123,
+              124,
+              125,
+              126,
+              127,
+              128,
+              129,
+              130,
+              131,
+              132,
+              133,
+              134,
+              135,
+              136,
+              137,
+              138,
+              139,
+              140,
+              141,
+              142,
+              143,
+              144,
+              145,
+              146,
+              147,
+              148,
+              149,
+              150,
+              151,
+              152,
+              153,
+              154,
+              155,
+              156,
+              157,
+              158,
+              159,
+              160,
+              161,
+              162,
+              163,
+              164,
+              165,
+              166,
+              167,
+              168,
+              169,
+              170,
+              171,
+              172,
+              173,
+              174,
+              175,
+              176,
+              177,
+              178,
+              179,
+              180,
+              181,
+              182,
+              183,
+              184,
+              185,
+              186,
+              187,
+              188,
+              189,
+              190,
+              191,
+              192,
+              193,
+              194,
+              195,
+              196,
+              197,
+              198,
+              199,
+              200,
+              201,
+              202,
+              203,
+              204,
+              205,
+              206,
+              207,
+              208,
+              209,
+              210,
+              211,
+              212,
+              213,
+              214,
+              215,
+              216,
+              217,
+              218,
+              219,
+              220,
+              221,
+              222,
+              223,
+              224,
+              225,
+              226,
+              227,
+              228,
+              229,
+              230,
+              231,
+              232,
+              233,
+              234,
+              235,
+              236,
+              237,
+              238,
+              239,
+              240,
+              241,
+              242,
+              243,
+              244,
+              245,
+              246,
+              247,
+              248,
+              249,
+              250,
+              251,
+              252,
+              253,
+              254,
+              255
+            ]
+          }
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": null
     },
     {
       "word": "a:",
       "c_pos": "Noun",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Noun",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": {
+            "type": 32,
+            "shape": [],
+            "data": [
+              {
+                "type": 1,
+                "shape": [
+                  0
+                ],
+                "data": []
+              }
+            ]
+          }
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": null
     },
     {
       "word": "b.",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "622e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "c.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "632e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "e.",
@@ -1332,25 +3457,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "652e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "f.",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "662e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "f:",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "663a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "i.",
@@ -1371,7 +3541,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "692e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "i:",
@@ -1392,88 +3569,266 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "693a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "j.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "6a2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "m.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "6d2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "o.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "6f2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "p.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "702e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "p..",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "702e2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "p:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "703a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "q:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "713a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "r.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "722e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "t.",
       "c_pos": "Conjunction",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 2,
+        "function": {
+          "head_hex": "742e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "u.",
@@ -1494,16 +3849,42 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "752e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "u:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "753a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "v.",
@@ -1524,16 +3905,42 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "762e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "x:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "783a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "{",
@@ -1554,7 +3961,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7b",
+          "operands": []
+        }
+      }
     },
     {
       "word": "{.",
@@ -1575,25 +3989,70 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7b2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "{:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7b3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "{::",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            3
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7b3a3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "|",
@@ -1614,7 +4073,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7c",
+          "operands": []
+        }
+      }
     },
     {
       "word": "|.",
@@ -1635,7 +4101,14 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7c2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "|:",
@@ -1656,16 +4129,42 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7c3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "}",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "7d",
+          "operands": []
+        }
+      }
     },
     {
       "word": "}.",
@@ -1686,43 +4185,126 @@
           "noun": null
         }
       ],
-      "status": "enqueue_pos_verified"
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7d2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "}:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7d3a",
+          "operands": []
+        }
+      }
     },
     {
       "word": "~",
       "c_pos": "Adverb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 1,
+        "function": {
+          "head_hex": "7e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "~.",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7e2e",
+          "operands": []
+        }
+      }
     },
     {
       "word": "~:",
       "c_pos": "Verb",
       "c_error": null,
-      "rust_enqueue": {
-        "error": "unsupported"
-      },
-      "status": "coverage_boundary"
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified",
+      "parser_binding": {
+        "pos": 3,
+        "function": {
+          "head_hex": "7e3a",
+          "operands": []
+        }
+      }
     }
   ],
   "legacy_rejections": [
@@ -1801,7 +4383,7 @@
   ],
   "failed": 0,
   "failures": [],
-  "enqueue_pos_verified": 33,
-  "coverage_boundaries": 110,
+  "enqueue_pos_verified": 143,
+  "coverage_boundaries": 0,
   "source_code_only": 2
 }

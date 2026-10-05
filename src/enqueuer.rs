@@ -108,11 +108,47 @@ fn parse_float(s: &str) -> Result<f64> {
     }
 }
 
+/// C t.c CALP/CACE are permanent immutable nouns, independent of function
+/// construction/execution support. Share payloads across enqueue occurrences.
+fn core_noun(word: &str) -> Option<Value> {
+    use std::sync::OnceLock;
+    static ALPHABET: OnceLock<Value> = OnceLock::new();
+    static ACE: OnceLock<Value> = OnceLock::new();
+    match word {
+        "a." => Some(
+            ALPHABET
+                .get_or_init(|| {
+                    Value::new([256], Data::Char(CpuStorage::new((0..=255).collect())))
+                        .expect("alphabet has 256 bytes")
+                        .into_shared()
+                })
+                .clone(),
+        ),
+        "a:" => Some(
+            ACE.get_or_init(|| {
+                Value::boxed(
+                    Value::new([0], Data::Bool(CpuStorage::new(Vec::new())))
+                        .expect("empty noun has zero atoms"),
+                )
+            })
+            .clone(),
+        ),
+        _ => None,
+    }
+}
+
 fn interpret_word<'a>(
     word: &'a str,
     span: &Range<usize>,
     primitives: &crate::primitive::PrimitiveContext,
 ) -> Result<(EnqueueClass, EnqueuedPayload<'a>, EnqueueFlags)> {
+    if let Some(value) = core_noun(word) {
+        return Ok((
+            EnqueueClass::Noun,
+            EnqueuedPayload::Noun(Box::new(value)),
+            EnqueueFlags::default(),
+        ));
+    }
     let fixed = match word {
         "=:" => Some((
             EnqueueClass::Assignment,
@@ -151,6 +187,22 @@ fn interpret_word<'a>(
                 }
                 (PrimitivePartOfSpeech::Conjunction, PrimitiveSemanticId::Conjunction(id)) => {
                     (EnqueueClass::Conjunction, EnqueuedPayload::Conjunction(id))
+                }
+                (pos, PrimitiveSemanticId::Vocabulary(id)) => {
+                    let class = match pos {
+                        PrimitivePartOfSpeech::Verb => EnqueueClass::Verb,
+                        PrimitivePartOfSpeech::Adverb => EnqueueClass::Adverb,
+                        PrimitivePartOfSpeech::Conjunction => EnqueueClass::Conjunction,
+                    };
+                    (
+                        class,
+                        EnqueuedPayload::Function(crate::semantic::FunctionEntity::derived(
+                            crate::semantic::FunctionHead::VocabularyPrimitive(id),
+                            pos.into(),
+                            span.clone(),
+                            Vec::new(),
+                        )),
+                    )
                 }
                 _ => unreachable!("primitive handle POS must match semantic ID"),
             };

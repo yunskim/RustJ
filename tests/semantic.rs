@@ -702,15 +702,19 @@ fn nested_modifier_train_keeps_completed_child_and_noun_payload() {
 }
 
 #[test]
-fn derived_modifier_application_remains_explicit_and_cannot_commit_fake_verb() {
+fn recognized_gerund_construction_does_not_claim_unimplemented_execution() {
     let mut engine = rustj::Engine::new();
     engine.eval("protected=:+").unwrap();
     let version = engine.binding_version("protected");
     let source = "protected=: (, <'!') (\\ @: +)";
     let report = engine.eval_captured(source);
-    assert_eq!(report.result.unwrap_err().kind(), "unsupported", "{source}");
+    assert!(report.result.unwrap().is_none(), "{source}");
     report.capture.verify().unwrap();
-    assert_eq!(engine.binding_version("protected"), version);
+    assert_ne!(engine.binding_version("protected"), version);
+    assert_eq!(
+        engine.eval("protected 3").unwrap_err().kind(),
+        "unsupported"
+    );
     assert_eq!(
         engine.prepare_semantic(source).unwrap_err().kind(),
         "unsupported"

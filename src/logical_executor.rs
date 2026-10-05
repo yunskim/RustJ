@@ -252,7 +252,8 @@ fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value
         FunctionHead::NameRef(_) => Err(Error::Unsupported(
             "A3 reference executor does not resolve dynamic calls".into(),
         )),
-        FunctionHead::PrimitiveAdverb(_)
+        FunctionHead::VocabularyPrimitive(_)
+        | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_)

@@ -434,7 +434,8 @@ pub(crate) fn infer_semantic_call(
             };
             infer_ranked_semantic_call(operand, ranks, left, right)
         }
-        FunctionHead::NameRef(_)
+        FunctionHead::VocabularyPrimitive(_)
+        | FunctionHead::NameRef(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)
@@ -604,7 +605,8 @@ pub(crate) fn infer_semantic_projection(
             };
             infer_ranked_semantic_projection(operand, ranks, left, right)
         }
-        FunctionHead::NameRef(_)
+        FunctionHead::VocabularyPrimitive(_)
+        | FunctionHead::NameRef(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)

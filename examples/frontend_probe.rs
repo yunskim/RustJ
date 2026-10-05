@@ -81,6 +81,7 @@ fn function(f: &FunctionEntity) -> String {
     }
     let head = match &f.head {
         FunctionHead::PrimitiveVerb(id) => id.spelling(),
+        FunctionHead::VocabularyPrimitive(id) => id.spelling(),
         FunctionHead::PrimitiveAdverb(id) => id.spelling(),
         FunctionHead::PrimitiveConjunction(id) => id.spelling(),
         FunctionHead::Hook => "2",
