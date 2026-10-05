@@ -1545,11 +1545,54 @@ Reduce
 
 rather than being collapsed into one opaque special case.
 
-Whether Scan deserves a separate Graph Basis identity remains an open basis-taxonomy question.
+The independent Scan basis is now a design decision (2026-10-05); implementation and conservative recognition remain open under GF3.
 
 ---
 
 <a id="syntax-graph-hints"></a>
+
+<a id="graph-prior-art-followup"></a>
+
+#### 2026-10-05 prior-art follow-up: small basis and composition algebra
+
+**Audit baseline:** documentation and `src/j_graph_ir.rs` at GitHub main `b00f2263decb4777e84f7670cc3bbd2536618f80`. The preceding prior-art documentation commit is `84b8546`. These are design contracts, not implementation completion claims. The uploaded `붙여넣은 텍스트(1).txt` could not be read because local path/execution tools failed; this restoration uses the retrieved conversation and the user's explicit follow-up list. Attachment reconciliation remains open.
+
+| Item | Verified state | Decision / remaining implementation |
+|---|---|---|
+| Small Graph Basis + composition + witness | Basis layers, Pipeline/Hook/Fork regions and witnessed rewrite seam exist | Avoid a new op for every combination |
+| First-class Scan | Design inventory includes Scan; GraphBasisKind does not. PrefixInfix preserves Window plus operand basis | Commit to an independent Scan basis in the design; recognition, legal transformation and execution remain open |
+| Vertical / horizontal / nested | Pipeline, branch/join and outer-to-inner layers exist | Common composition analysis sidecar and verifier remain open |
+| Fusion algebra / registry | Witnessed E. rewrite registry and target-feasibility bridge exist | General fusion schema, registration and duplicate/conflict validation remain open |
+| Symbolic Work / Depth | ValueAtoms/Requirement/Sum/Max resource expressions and liveness exist | Computation/dependency-depth domain and transfer rules remain open |
+| Multiversion | Specialization/guard design and runtime baseline exist | Version selection, invalidation and bounded cache are long-term work |
+| Streaming / inspector-executor | Window/access/resource seams exist | Streaming contracts and inspection plans are long-term design work, not executable support |
+
+**Scan contract.** Scan preserves a different algorithmic structure from independently recomputing each prefix as Window→Reduce. Keep the original PrefixInfix FunctionEntity, valence, rank/cell boundaries and provenance. Do not classify arbitrary prefix or dyadic infix as Scan. Even insert-compatible monadic prefix requires a witness covering reducer, direction, prefix lengths, shape/assembly, empty/singleton behavior, identity use, integer overflow/promotion, floating-point results and domain/error/effect order. Unknown retains Window→operand. Spelling alone proves neither associativity nor purity. Scan identity and permission for reassociation/parallel-prefix execution are separate.
+
+**Composition analysis.** Vertical describes producer→consumer edges; Horizontal describes independent consumers sharing a logical input; Nested describes computation inside rank/cell/segment boundaries. Relations may overlap, so a mutually exclusive enum or layers list cannot replace topology. The sidecar references node/region/edge identity, input occurrence, use-count/fan-out, live-across values and effect/error dependencies. Ordinary fork may expose a horizontal candidate while retaining observable h→f→g order and constructor subtype. Capped fork is a pipeline; noun-left fork retains a noun plus h. Nested classification does not authorize flattening.
+
+**Fusion registry.** Reuse existing rewrite witnesses/verifiers while keeping this role separate from target lowering registration. Each rule declares stable ID/version, source basis+composition pattern, replacement graph, relevant call facts, proof obligations, witness/provenance mapping, fan-out/retained-value changes, symbolic resource/work-depth transfer and target capability query. Separate discovery, legality, feasibility, profitability and selection. Unknown establishes neither legality nor illegality. Map→Map, Map→Reduce, Map→Scan and common-input Map+Map are initial research candidates, not supported rewrites. Fusion can duplicate shared producers or extend lifetimes; do not assume cost always decreases. Implement an analysis-only seam before execution optimization.
+
+**Symbolic Work/Depth.** Maintain total operations and dependency-path length separately from logical atom/state resources, including symbolic extents, operator costs, Unknown and provenance. Sequence adds both. Legally independent branches sum Work and use max Depth plus join; observable dependencies retain ordered paths. Map multiplies cell work by extent and preserves nested cell depth. Compute ordered Reduce/Scan baseline separately from a proved reassociation candidate. For a unit-cost associative operator, a work-efficient tree candidate may have O(n) Work/O(log n) Depth; this is not a universal J reducer contract. Empty/singleton cases are explicit. Latency, launches, traffic, transfers and synchronization belong to CostEstimate.
+
+**Long-term contracts.** Multiversion connects relevant-fact keys, binding dependencies, guards, bounded caches and widening; guard miss cannot replay observable effects. Streaming requires proved chunk-boundary, carry/state, ordering, termination, bounded-memory and materialization contracts. Inspector-executor declares inspection cost/effects, mutation/alias invalidation and inspection-witness lifetime. These are neither full-J restrictions nor prerequisites for the first M4 CPU slice.
+
+**Prior-art scope.** Futhark fusion documentation supports comparison of vertical/horizontal relations; its 2026 scan-scatter work illustrates an extensible fusion algebra. A compiler's current support limits are not permanent RustJ laws. Work/Span material motivates an analysis domain, not a proof of J numeric/error semantics.
+- https://futhark.readthedocs.io/_/downloads/en/v0.25.4/pdf/
+- https://futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html
+- https://github.com/diku-dk/futhark-book/blob/master/parallel-cost-model.rst
+
+**GF follow-up checklist — preserve M2/M3 and existing A1.5 sequencing**
+- [x] GF0: Audit documentation against GraphBasis implementation and resolve the independent-Scan design decision.
+- [ ] GF1: Reconcile the uploaded original text with this restoration.
+- [ ] GF2: Add an analysis-only CompositionRelation sidecar; regress pipeline, ordinary/capped/noun-left fork, nested rank wiring and observable dependencies.
+- [ ] GF3: Add Scan identity/contract and a conservative recognizer. Retain Window for general prefix/infix and unknown reducers; compare empty/rank/overflow/float/error behavior against C default/AVX2.
+- [ ] GF4: Extend the witnessed rewrite seam with fusion schema/registry/verifier; distinguish candidate generation from executor support.
+- [ ] GF5: Add symbolic WorkDepthExpr and node/region transfers; verify ordered fork, unknown extents/operators, empty/singleton, nesting and duplicated fan-out.
+- [ ] GF6: Connect selection/partition only for executable lowering with lifetime/resource/cost comparison.
+- [ ] GF7: Advance multiversion, streaming and inspector-executor as long-term stages.
+
+**Validation limit:** documentation contracts/checklists only. Local execution failed, so no new Rust/Python/C checks ran. Historical test counts are not validation of this change.
 
 ## 7.3 Syntax-derived graph optimization hints
 
