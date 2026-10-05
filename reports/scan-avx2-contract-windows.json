@@ -6,7 +6,7 @@
   "failed": 0,
   "runtime_prefix_coverage_boundaries": 285,
   "executable_prefix_passes": 0,
-  "binary_sha256": "42a1e15ffda545e777d4d9a9d2706e0afc25e91d20d4fcfd477f50ac559a7cdc",
+  "binary_sha256": "2241692b80cfc5f011bc9e5ca5e2c27c6589cec7112dc7e2d9a9d4555b24eb9a",
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
   "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
   "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",

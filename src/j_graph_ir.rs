@@ -1312,6 +1312,12 @@ impl Plan {
         crate::j_graph_scan::ScanAnalysis::from_plan(self)
     }
 
+    pub fn work_depth_analysis(
+        &self,
+    ) -> std::result::Result<crate::j_graph_work_depth::WorkDepthAnalysis, String> {
+        crate::j_graph_work_depth::WorkDepthAnalysis::from_plan(self)
+    }
+
     pub fn use_counts(&self) -> Vec<usize> {
         let mut counts = vec![0usize; self.nodes.len()];
         for node in &self.nodes {
