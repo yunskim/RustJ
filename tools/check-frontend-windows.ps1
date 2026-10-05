@@ -70,6 +70,11 @@ foreach ($library in $libraries) {
         '--binary', 'target/windows-validation/debug/examples/frontend_probe.exe',
         '--source-directory', $sourceDirectoryPath, '--source-revision', $SourceRevision,
         '--reference-revision', $ReferenceRevision, '--report', "reports/spelling-$variant-windows.json")
+    Write-Output "START $variant name-syntax"
+    Invoke-FrontendCheck $Python @('tools/name_syntax_conformance.py',
+        '--binary', 'target/windows-validation/debug/examples/frontend_probe.exe',
+        '--source-directory', $sourceDirectoryPath, '--source-revision', $SourceRevision,
+        '--reference-revision', $ReferenceRevision, '--report', "reports/name-syntax-$variant-windows.json")
     Write-Output "START $variant scan-contract"
     Invoke-FrontendCheck $Python @('tools/scan_contract_conformance.py',
         '--binary', 'target/windows-validation/debug/examples/scan_contract_probe.exe',

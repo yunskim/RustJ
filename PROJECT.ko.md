@@ -7723,11 +7723,21 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 **NV3a fixed spelling 오류 분류 — 2026-10-05.** `jsrc/ws.c::spellin`과 `jsrc/w.c::jtenqueue`의 순서를 따른다. 설치·검증된 core dictionary가 우선이며, 등록되지 않은 colon inflection 또는 nonnumeric dot inflection은 spelling error다. numeric dot는 numeric constructor로 넘기고, quote와 simple name은 각각의 분류를 유지한다. 한 자리 constant function은 기존 core descriptor를 통과한다. `99:`/`1.5:`/`_99:`는 reviewed C에서 유효한 constant function이 아니므로 spelling error다. 잔여 잘못된 문자·미설치 primitive도 Unsupported가 아닌 spelling error다. obsolete spelling의 임의 예외 목록은 만들지 않는다.
 
-`name_:`는 문법적으로 유효한 by-value/abandon lookup이다. simple-name validation을 거친 뒤 별도 Unsupported 경계로 남긴다. `foo__:`처럼 suffix 제거 후 명백히 ill-formed인 simple name은 ill-formed name으로 보고한다. 전체 locative validation·locale lookup·abandon 효과와 complex/extended/rational numeric grammar는 아직 완료되지 않았다. 따라서 fixed spelling seam인 NV3a만 완료했고 NV3/NV5 전체 완료를 주장하지 않는다. invalid lexical spelling과 valid primitive의 constructor/executor 미지원은 계속 구별한다. 기존 enqueue diagnostic의 phase·source span·word index를 유지한다.
+`name_:`는 문법적으로 유효한 by-value/abandon lookup이다. simple-name validation을 거친 뒤 별도 Unsupported 경계로 남긴다. `foo__:`처럼 suffix 제거 후 명백히 ill-formed인 simple name은 ill-formed name으로 보고한다. bounded locative grammar는 후속 NV3b에서 검증한다. 전체 NAME allocation limit·locale lookup·abandon 효과와 complex/extended/rational numeric grammar는 아직 완료되지 않았다. 따라서 fixed spelling seam인 NV3a만 완료했고 NV3/NV5 전체 완료를 주장하지 않는다. invalid lexical spelling과 valid primitive의 constructor/executor 미지원은 계속 구별한다. 기존 enqueue diagnostic의 phase·source span·word index를 유지한다.
 
 `tools/spelling_conformance.py`는 graphic ASCII 93개(quote 제외) × 7개 suffix의 **651** matrix와 추가 이름/숫자 경계를 양 DLL과 비교한다. 오류 종류·word formation·유효 미지원 경계를 각각 검증하며 primitive 실행 지원이나 전체 name/numeric grammar conformance로 세지 않는다. `tools/vocabulary_audit.py`도 기존 code-only 후보 2개와 legacy 8개의 Rust 오류를 C와 반드시 비교한다. 표준 Windows runner에 spelling report를 추가했다.
 
 **NV3a 검증:** native Windows default/portable 각각 **465 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 spelling **667 cases / failed 0**: 오류 종류 **453**(spelling **426**, number **22**, name **1**, syntax **4**), accepted enqueue controls **208**, valid Unsupported 경계 **6**. 이 중 matrix는 **651**이며, quote grammar와 전체 locative/numeric grammar는 범위 밖이다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**를 유지했다. Scan **285 / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**를 별도로 유지했다. 전체 보고서 16개의 binary/source/DLL hash를 확인했다. spelling pass는 실행 지원이나 GPU 성능 검증이 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+<a id="nv3b-name-syntax"></a>
+
+**NV3b bounded name syntax — 2026-10-05.** `sn.c::vnm/vlocnm`을 참조해 shared enqueue name validator를 보강한다. ASCII letter로 시작하고 alphanumeric/underscore로 구성된 이름에서 simple name, trailing direct locative와 empty/base locale `__`, indirect chains, 최종 numeric debug-frame component 및 그 음수 표기를 구분한다. numeric direct locale의 leading zero·x64의 18자리 제한, 잘못된 중간 숫자/isolated underscore/과도한 underscore를 검사한다. `name_:`는 suffix를 제거한 같은 이름 문법으로 검증한다. validator는 locale·symbol을 조회하거나 noun/function을 생성하지 않고 추가 heap allocation 없이 동작한다.
+
+문법적으로 valid인 locative/by-value name은 계속 Unsupported이며 locale lookup·debug-frame 접근·abandon 효과를 구현했다고 주장하지 않는다. malformed name은 enqueue phase/span/word index를 보존한 ill-formed name이다. NAME 전체·simple-name·locale storage 길이 제한의 오류 우선순위 및 full numeric grammar는 NV3의 잔여 작업이다. 따라서 bounded syntax인 NV3b만 완료하며 전체 NV3/DB2/locales 완료가 아니다. 정의의 `for_name.` 분류도 shared enqueue validator를 통과하므로 이 동일한 bounded syntax 검증을 사용한다.
+
+`tools/name_syntax_conformance.py`는 짧은 `a0_` 조합, direct/indirect/debug-frame 사례, 고정 seed의 mixed-case/digit/underscore 이름 및 각 `name_:` 형태를 생성해 양 DLL과 대조한다. C의 enqueue 오류를 실행 이후 value/locale 오류와 구별한다. 후자의 발생은 이름의 lexical validity만 확인하며 lookup/runtime 성공으로 세지 않는다. `sn.c`·`w.c`·`ws.c`·`jerr.h` source hash와 probe/DLL hash를 보고서에 보존하고 표준 Windows runner에 연결한다.
+
+**NV3b 검증:** native Windows default/portable 각각 **466 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 name syntax **4,030 cases / failed 0**: simple name **1,133**, valid Unsupported name **1,901**, invalid name **996**. spelling **667 / failed 0**와 vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**를 유지했다. Scan **285 / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**를 별도로 유지하고 전체 보고서 18개의 binary/source/DLL hash를 확인했다. lexical validity 확인은 locale runtime 지원이나 실행 conformance pass가 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
 
 <a id="vocabulary-migration-checklist"></a>
 
@@ -7740,6 +7750,9 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [x] **NV2** pinned core inventory의 spelling/POS 인식을 확장하고 semantic construction/실행 capability와 분리한다. descriptor 108개와 실제 noun `a.`/`a:`를 추가했다. C가 수용한 143개 POS, bare function binding/AR 140개와 noun payload 3개가 양 DLL에서 일치했다. inventory pass를 실행 지원으로 승격하지 않는다.
 - [ ] **NV3** invalid/obsolete spelling의 정확한 J 오류를 C `spellin`/enqueue와 대조해 일반화한다. valid 미지원 primitive와 invalid spelling을 구별하며 임의 예외 목록으로 해결하지 않는다.
 - [x] **NV3a** fixed ASCII spelling과 미등록 inflection의 enqueue 오류를 일반화했다. 현대 core dictionary를 우선 조회하고 obsolete 예외 목록 없이 C 오류 분류를 따른다. `name_:`와 유효 미지원 numeric family는 별도 coverage 경계이며 전체 NV3는 미완료다.
+- [x] **NV3b** bounded direct/indirect/debug-frame/by-value 이름 문법을 shared enqueue에서 검증한다. valid lookup은 Unsupported이며 NAME allocation limit·locale 실행·numeric grammar를 남긴다.
+- [ ] **NV3c** NAME 전체·simple-name·locale storage 길이 제한과 enqueue 오류 우선순위를 C `nfs`로 검증한다.
+- [ ] **NV3d** numeric grammar의 valid 미지원 family와 실제 ill-formed number를 C `connum`/`wn.c`로 구별한다.
 - [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
 - [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
 

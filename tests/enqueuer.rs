@@ -169,3 +169,50 @@ fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_fun
         "unsupported"
     );
 }
+
+#[test]
+fn locative_name_syntax_is_checked_before_unsupported_lookup() {
+    for source in [
+        "foo__",
+        "foo_bar_",
+        "foo_0_",
+        "foo_9_",
+        "foo_12_",
+        "foo_a0_",
+        "foo__bar",
+        "foo_bar__baz",
+        "foo__bar__baz",
+        "foo__0",
+        "foo___1",
+        "foo__bar___1",
+        "foo__bar_:",
+    ] {
+        assert_eq!(
+            enqueuer::enqueue(source).unwrap_err().kind(),
+            "unsupported",
+            "{source}"
+        );
+    }
+    for source in [
+        "a_",
+        "foo___",
+        "foo_00_",
+        "foo_01_",
+        "foo_0a_",
+        "foo_1234567890123456789_",
+        "foo__bar_",
+        "foo__bar_baz",
+        "foo__1__bar",
+        "foo____1",
+        "foo___bar",
+        "foo__bar__",
+        "foo_00__:",
+        "foo__bar_baz_:",
+    ] {
+        assert_eq!(
+            enqueuer::enqueue(source).unwrap_err().kind(),
+            "ill-formed name",
+            "{source}"
+        );
+    }
+}

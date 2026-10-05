@@ -221,7 +221,7 @@ fn interpret_word<'a>(
     let numeric = word.as_bytes()[0].is_ascii_digit() || word.starts_with('_');
     if word.ends_with(':') || (!numeric && word.ends_with('.')) {
         if word.as_bytes()[0].is_ascii_alphabetic() && word.ends_with("_:") {
-            validate_simple_name(&word[..word.len() - 2])?;
+            validate_name_syntax(&word[..word.len() - 2])?;
             return Err(Error::Unsupported("J name-by-value/abandon lookup".into()));
         }
         return Err(Error::Spelling);
@@ -306,7 +306,7 @@ fn interpret_word<'a>(
         // a separate name-resolution feature not implemented by this frontend.
         // sn.c::vnm rejects a trailing single underscore without a preceding
         // locale separator. foo__ is a valid base-locale name, still unsupported.
-        validate_simple_name(word)?;
+        validate_name_syntax(word)?;
         if word.ends_with('_') || word.contains("__") {
             return Err(Error::Unsupported("J locative names".into()));
         }
@@ -322,16 +322,57 @@ fn interpret_word<'a>(
     Err(Error::Spelling)
 }
 
-fn validate_simple_name(word: &str) -> Result<()> {
-    if word.is_empty()
-        || !word.as_bytes()[0].is_ascii_alphabetic()
-        || !word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        || (word.ends_with('_') && word.bytes().filter(|&b| b == b'_').count() == 1)
+// Bounded ASCII name grammar from sn.c::vnm/vlocnm, with no locale lookup.
+// NAME allocation length limits and dynamic lookup are separate contracts.
+fn validate_name_syntax(word: &str) -> Result<()> {
+    let bytes = word.as_bytes();
+    if bytes.is_empty()
+        || !bytes[0].is_ascii_alphabetic()
+        || !bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
     {
         return Err(Error::IllFormedName);
     }
-    // Full locative validation belongs to the name-resolution contract.
-    Ok(())
+    let indirect = word.find("__");
+    let valid = if let Some(untrailed) = word.strip_suffix('_') {
+        if let Some(first) = indirect {
+            // Only the final __ can denote the empty/base direct locale.
+            first == word.len() - 2
+        } else if let Some(separator) = untrailed.rfind('_') {
+            let locale = &bytes[separator + 1..bytes.len() - 1];
+            !locale.is_empty()
+                && (locale[0].is_ascii_alphabetic()
+                    || (locale.iter().all(u8::is_ascii_digit)
+                        && (locale.len() == 1 || (locale[0] != b'0' && locale.len() <= 18))))
+        } else {
+            false
+        }
+    } else if let Some(first) = indirect {
+        let mut components = word[first + 2..].split("__").peekable();
+        let mut valid = true;
+        while let Some(component) = components.next() {
+            let part = component.as_bytes();
+            let named = part.first().is_some_and(u8::is_ascii_alphabetic)
+                && part.iter().all(u8::is_ascii_alphanumeric);
+            let digits = part.strip_prefix(b"_").unwrap_or(part);
+            let numeric = components.peek().is_none()
+                && !digits.is_empty()
+                && digits.iter().all(u8::is_ascii_digit);
+            if !named && !numeric {
+                valid = false;
+                break;
+            }
+        }
+        valid
+    } else {
+        true
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(Error::IllFormedName)
+    }
 }
 
 /// Interpret parse-visible words after word formation.
