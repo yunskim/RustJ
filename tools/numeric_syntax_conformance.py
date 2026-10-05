@@ -25,8 +25,24 @@ def numeric_cases():
               '0.0 1x','1j0 1x','2b10 1x','1x _','1x __',
               '99:', '_99:', '1.5:']
     rows = [(w,'reviewed') for w in sorted(set(words))]
-    rows += [(w,'precision') for w in ['2fq','2fqbad','2fqz','2fs','2fh','2fq 1x','1j2 2fq','1.0 2fq']]
-    rows += [(w,'platform-strtod') for w in ['1j0X10','1jNaN','1jInfinity']]
+    quad = ['2fq','2.fq','2.5fq','_2fq','2efq','2E3fq','2fqz',
+            '2fqbad','2fqfq','1e401fq','1e_401fq','1e9223372036854775807fq',
+            '1e_9223372036854775808fq','1e9223372036854775808fq',
+            '1e_9223372036854775809fq','_','__','_.','_fq','_.fq','_.5',
+            '1','1.0','1E2','1e_2','2r3','1x','1j2','2fs','2fh']
+    precision = set(quad + [' '.join(t) for t in itertools.product(quad, repeat=2)])
+    rows += [(w,'precision-reviewed') for w in sorted(precision)]
+    hex_parts = ['0X10','_0X10','0X1.8','0X.8','0X1P2','0X1P_2',
+                 '0X1P9999','0X1P_9999','0X','0X.','0Xz','0X1P',
+                 '0X1P_','0X1Pz','1X10','0X1..2','0X10r2',
+                 'NaN','nan','NAN','Infinity','inf','INF']
+    platform = ['1j' + h for h in hex_parts]
+    platform += ['1j' + h + ' 1j2' for h in hex_parts]
+    platform += ['0X10ad90','_0X1ad90','_0X.8ad90',
+                 '_0X1P_1074ad90','_0X0ad90','0X0ad90','0Xad90','_0Xad90','0Xb1','_0Xb1','_0X0P0ad90']
+    rows += [(w,'platform-reviewed') for w in sorted(set(platform))]
+    rows += [(w,'precision-resource-unknown') for w in ['2.1e_9223372036854775808fq']]
+    rows += [(w,'platform-rounding-unknown') for w in ['_0X1P_9999ad90','_0X1P_1075ad90']]
     return rows
 
 
@@ -42,12 +58,21 @@ def run(args):
             c_result = oracle.run('vocabprobe=: ' + source)
             queue = observed.get('enqueue')
             actual_error = queue.get('error') if isinstance(queue,dict) else None
+            reason_hex = observed.get('enqueue_unsupported_reason_hex')
+            reason = bytes.fromhex(reason_hex).decode() if isinstance(reason_hex, str) else None
             local = []
             if formed != {'words_hex':[source.encode().hex()]} or observed.get('raw_words') != formed.get('words_hex'):
                 local.append('word formation mismatch')
             if c_result is None:
                 if actual_error == 'unsupported':
-                    status = 'valid_payload_boundary' if scope == 'reviewed' else 'unresolved_recognition_boundary'
+                    if reason and reason.startswith(('validated numeric family', 'validated real-family ratio')):
+                        status = 'valid_payload_boundary'
+                    elif reason == 'overflowing integer literal conversion':
+                        status = 'integer_conversion_boundary'
+                    else:
+                        status = 'unresolved_recognition_boundary'
+                    if scope.endswith('-unknown') and status != 'unresolved_recognition_boundary':
+                        local.append('unresolved numeric boundary was claimed validated')
                 elif isinstance(queue,list) and len(queue)==1 and queue[0]['class']=='Noun':
                     status = 'accepted_noun_control'
                 else:
@@ -56,18 +81,19 @@ def run(args):
             elif c_result.get('error') in {'ill-formed number','spelling error'}:
                 if queue == c_result:
                     status = 'error_class_verified'
-                elif actual_error == 'unsupported' and scope != 'reviewed':
+                elif actual_error == 'unsupported' and scope.endswith('-unknown'):
                     status = 'unresolved_error_boundary'
                 else:
                     status = 'failure'
                     local.append('numeric/spelling error class mismatch')
-            elif c_result == {'error':'J error 11'} and scope == 'precision' and actual_error=='unsupported':
+            elif (c_result == {'error':'J error 11'} and scope.startswith('precision')
+                  and actual_error == 'unsupported' and reason == 'C reference precision conversion boundary'):
                 status = 'reference_precision_boundary'
             else:
                 status = 'failure'
                 local.append('unexpected reference or probe result')
             counts[status]+=1
-            entry = {'source':source,'scope':scope,'c_result':c_result,'rust_error':actual_error,
+            entry = {'source':source,'scope':scope,'c_result':c_result,'rust_error':actual_error,'rust_unsupported_reason':reason,
                      'status':status,'failures':local}
             entries.append(entry)
             if local:
@@ -76,7 +102,7 @@ def run(args):
         probe.close()
         oracle.close()
     digest=lambda path:hashlib.sha256(path.read_bytes()).hexdigest()
-    report={'platform':os.name,'scope':'numeric word formation/error recognition; no exact/complex/based payload or full precision/platform-strtod conformance',
+    report={'platform':os.name,'scope':'numeric word formation/error recognition; quad/Windows hex grammar included; no exact/complex/based/quad payload, full resource or rounding conformance',
             'source_revision':args.source_revision,'reference_revision':args.reference_revision,
             'source_hashes':{rel:digest(args.source_directory/rel) for rel in ['jsrc/wn.c','jsrc/ws.c','jsrc/w.c','jsrc/jerr.h']},
             'reference_sha256':digest(Path(os.environ['J_LIBRARY'])),'binary_sha256':digest(args.binary),

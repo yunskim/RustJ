@@ -174,6 +174,7 @@ fn inspect(source: &str) -> rustj::Result<String> {
         .map(|s| format!("\"{}\"", hex(&source.as_bytes()[s.clone()])))
         .collect::<Vec<_>>()
         .join(",");
+    let mut enqueue_unsupported_reason_hex = "null".to_owned();
     let queue = match enqueue(source) {
         Ok(words) => {
             let entries = words.iter().map(|w| {
@@ -186,14 +187,19 @@ fn inspect(source: &str) -> rustj::Result<String> {
             }).collect::<rustj::Result<Vec<_>>>()?;
             format!("[{}]", entries.join(","))
         }
-        Err(e) => format!("{{\"error\":\"{}\"}}", e.kind()),
+        Err(e) => {
+            if let rustj::Error::Unsupported(reason) = e.clone().into_unlocated() {
+                enqueue_unsupported_reason_hex = format!("\"{}\"", hex(reason.as_bytes()));
+            }
+            format!("{{\"error\":\"{}\"}}", e.kind())
+        }
     };
     let parsed = match parse(source) {
         Ok(p) => parse_result(p.expression),
         Err(e) => format!("{{\"error\":\"{}\"}}", e.kind()),
     };
     Ok(format!(
-        "{{\"raw_words\":[{raw_words}],\"visible_words\":[{visible_words}],\"enqueue\":{queue},\"parse\":{parsed}}}"
+        "{{\"raw_words\":[{raw_words}],\"visible_words\":[{visible_words}],\"enqueue\":{queue},\"enqueue_unsupported_reason_hex\":{enqueue_unsupported_reason_hex},\"parse\":{parsed}}}"
     ))
 }
 fn parse_result(expression: Option<Expr>) -> String {

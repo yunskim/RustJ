@@ -7759,6 +7759,18 @@ Windows name differential에 254/255/256/257, 32766/32767 경계, direct/indirec
 
 **NV3d1 검증:** native Windows default/portable 각각 **469 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **1,099 cases / failed 0**: accepted noun controls **110**, lexical error equality **652**, valid payload 경계 **327**, unresolved recognition **5**, C reference precision **4**, unresolved error **1**. 마지막 경계 1건은 C의 ill-formed number와 Rust의 Unknown/Unsupported 차이를 보존한 미완료 검증이며 pass로 바꾸지 않는다. 기존 name syntax **4,125 / failed 0**, spelling **667 / failed 0**, vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 전체 보고서 20개의 binary/source/DLL hash를 확인했다. numeric syntax 검증은 exact/complex/based payload 실행이나 full precision 성공을 뜻하지 않는다. Linux/GitHub CI/CUDA는 실행하지 않았다.
 
+<a id="nv3d2a-quad-hex-recognition"></a>
+
+**NV3d2a quad·Windows hex 문법 검증 — 2026-10-05.** `src/numeric_input.rs`에서 whole-word precision 선택을 유지하면서 `numfq`의 mantissa·fractional scale·소문자 `e`·64-bit exponent·`fq` suffix 및 infinity/NaN 표기를 검증한다. `2fqz`는 이제 C와 같은 ill-formed number다. exponent 자체의 범위 초과와 scale 합산의 signed overflow를 구분하며, 후자는 Unknown으로 보존한다. quad payload 생성과 arbitrary-precision 할당의 자원 오류까지 구현한 것은 아니다.
+
+Windows `strtod`의 hex mantissa·선택적 binary exponent를 Rust에서 검증한다. C `numfd`는 nominal field 끝에 NUL을 넣지 않고 `t >= s+n`을 허용한다. 따라서 `0Xad90`/`0Xb1`은 뒤의 hex digit까지 읽어 유효할 수 있으며, `_0X0ad90`은 magnitude가 음수인 비영 값이 되어 거부된다. 반면 `numbpx`는 `p`/`x` 구분자를 임시 NUL로 바꾸므로 그 앞의 읽기 범위는 좁혀야 한다. field 길이와 실제 읽기 범위를 별도로 전달하여 이 차이를 보존한다. C FFI나 C kernel 의존성을 추가하지 않는다.
+
+음수 hex polar magnitude의 선행 bit/exponent가 기본 IEEE binary64 환경에서 비영 값을 입증할 때만 ill-formed number로 판정한다. 0 mantissa는 허용하고, underflow로 음수 0이 될 수 있는 값·합산 overflow·입증하지 못한 hex ratio 부호는 Unknown으로 남긴다. 변경된 rounding/FTZ 환경, parenthesized NaN payload의 word formation, 전체 플랫폼 `strtod` 확장, 숫자 construction의 자원/오류 동등성은 **NV3d2b**다. 유효한 complex/based/quad 표기의 payload 생성은 여전히 Unsupported다.
+
+근거: pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd`, `numfq`, `numj`, `numbpx`; 실제 Windows DLL과 source revision은 별도로 기록한다. NV3d1의 수치는 당시 검증 기록이며, 당시 미확인 quad/hex 경계는 본 단계에서 아래와 같이 갱신했다.
+
+**NV3d2a 검증:** native Windows default/portable 각각 **471 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,078 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,084**, valid payload 경계 **607**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **3**. unresolved error 경계는 **0**이다. `frontend_probe`는 Unsupported의 원문 이유를 별도 진단 field로 제공한다. 검증된 문법·integer overflow conversion·C precision 미지원·미확인 문법을 실제 진단 이유로 분류하며, 구문 표본의 scope만으로 valid를 주장하지 않는다. 경계 수를 숫자 실행 성공으로 합산하지 않는다. 기존 frontend/runtime/name/spelling/vocabulary/Scan 비교를 유지하고 보고서 20개의 source/DLL/binary hash를 확인했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. Linux/GitHub CI/CUDA는 실행하지 않았다. NV3d/NV3d2 전체 완료로 표시하지 않는다.
+
 <a id="vocabulary-migration-checklist"></a>
 
 ### NV — 현재 J vocabulary 수렴
@@ -7775,6 +7787,8 @@ Windows name differential에 254/255/256/257, 32766/32767 경계, direct/indirec
 - [ ] **NV3d** numeric grammar의 valid 미지원 family와 실제 ill-formed number를 C `connum`/`wn.c`로 구별한다.
 - [x] **NV3d1** whole-word numeric family 선택과 검증된 extended/rational/complex/based 표기의 오류를 일반화했다. payload 생성 미지원과 문법 Unknown을 구분한다.
 - [ ] **NV3d2** dedicated quad grammar·플랫폼별 `strtod` 확장 및 숫자 construction의 resource/error 경계를 검증한다. Unknown 문법을 실제 Invalid로 추측하지 않는다.
+- [x] **NV3d2a** bounded quad·Windows hex 문법과 field/read-window 차이를 양 DLL로 검증했다. payload 실행 지원과 구분한다.
+- [ ] **NV3d2b** resource·scale overflow·rounding/FTZ·NaN payload 및 남은 플랫폼 conversion 경계를 검증한다.
 - [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
 - [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
 

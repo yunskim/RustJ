@@ -281,7 +281,7 @@ fn numeric_families_are_validated_in_whole_word_context_before_unsupported_paylo
 
 #[test]
 fn precision_and_platform_specific_numeric_grammar_keep_explicit_unknown_boundaries() {
-    for source in ["2fq", "2fs", "2fh", "1j0X10"] {
+    for source in ["2fs", "2fh", "2fq 1x"] {
         let error = enqueuer::enqueue(source).unwrap_err();
         assert_eq!(error.kind(), "unsupported", "{source}");
         let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
@@ -294,4 +294,105 @@ fn precision_and_platform_specific_numeric_grammar_keep_explicit_unknown_boundar
     ] {
         enqueuer::enqueue(source).unwrap();
     }
+}
+
+#[test]
+fn quad_numeric_grammar_validates_mantissa_scale_and_machine_exponent() {
+    for source in [
+        "2fq",
+        "_2fq",
+        "2.fq",
+        "2.5fq",
+        "2e_3fq",
+        "2fq _",
+        "2fq __",
+        "2fq _.",
+        "2fq _fq",
+        "2fq _.fq",
+        "1e401fq",
+        "1e_401fq",
+        "1e9223372036854775807fq",
+        "1e_9223372036854775808fq",
+    ] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!("{source}")
+        };
+        assert!(reason.starts_with("validated"), "{source}: {reason}");
+    }
+    for source in [
+        "2fqz",
+        "2fqfq",
+        "2efq",
+        "2E3fq",
+        "2fq _.5",
+        "2fq 2r3",
+        "2fq 2e",
+        "2e__3fq",
+        "2e9223372036854775808fq",
+        "2e_9223372036854775809fq",
+    ] {
+        assert_eq!(
+            enqueuer::enqueue(source).unwrap_err().kind(),
+            "ill-formed number",
+            "{source}"
+        );
+    }
+    let error = enqueuer::enqueue("2.1e_9223372036854775808fq").unwrap_err();
+    let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+        panic!()
+    };
+    assert!(!reason.starts_with("validated"));
+}
+
+#[test]
+fn windows_hex_float_numeric_parts_validate_without_platform_ffi() {
+    for source in [
+        "1j0X10",
+        "1j_0X10",
+        "1j0X1.8",
+        "1j0X.8",
+        "1j0X1P2",
+        "1j0X1P_2",
+        "1j0X1P9999",
+        "1j0X10r2",
+        "0X10ad90",
+        "1jNaN",
+        "1jInfinity",
+        "0Xad90",
+        "0Xb1",
+        "_0X0P0ad90",
+    ] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!("{source}")
+        };
+        assert!(reason.starts_with("validated"), "{source}: {reason}");
+    }
+    for source in [
+        "1j0X",
+        "1j0X.",
+        "1j0Xz",
+        "1j0X1P",
+        "1j0X1P_",
+        "1j0X1Pz",
+        "1j1X10",
+        "1j0X1..2",
+        "_0X1ad90",
+        "_0X.8ad90",
+        "_0X1P_1074ad90",
+        "_0X0ad90",
+        "_0Xad90",
+    ] {
+        assert_eq!(
+            enqueuer::enqueue(source).unwrap_err().kind(),
+            "ill-formed number",
+            "{source}"
+        );
+    }
+    let error = enqueuer::enqueue("_0X1P_9999ad90").unwrap_err();
+    let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+        panic!()
+    };
+    assert!(!reason.starts_with("validated"));
 }

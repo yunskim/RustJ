@@ -96,11 +96,108 @@ fn integer(s: &str, suffix: bool) -> Check {
     }
 }
 
-// Rust's decimal parser consumes the whole field. C strtod additionally accepts
-// platform-dependent hex/NaN-payload forms: keep these explicitly unknown.
-fn decimal(s: &str) -> Check {
-    if s.contains(['X', '(', ')']) || s.to_ascii_lowercase().contains("0x") {
+// Match the hexadecimal part of Windows strtod without constructing a value.
+fn hex_prefix(s: &str) -> Option<(usize, &str, &str)> {
+    let unsigned = s
+        .strip_prefix('_')
+        .or_else(|| s.strip_prefix('+'))
+        .unwrap_or(s);
+    let sign = s.len() - unsigned.len();
+    let body = unsigned
+        .strip_prefix("0x")
+        .or_else(|| unsigned.strip_prefix("0X"))?;
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    let mut digits = 0;
+    while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+        i += 1;
+        digits += 1;
+    }
+    if bytes.get(i) == Some(&b'.') {
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+            i += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+    let mantissa = &body[..i];
+    let mut exponent = "0";
+    if matches!(bytes.get(i), Some(b'p' | b'P')) {
+        let marker = i;
+        i += 1;
+        let start = i;
+        if matches!(bytes.get(i), Some(b'_' | b'+')) {
+            i += 1;
+        }
+        let first_digit = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == first_digit {
+            i = marker;
+        } else {
+            exponent = &body[start..i];
+        }
+    }
+    Some((sign + 2 + i, mantissa, exponent))
+}
+
+// A negative hex magnitude is invalid for polar input only when its leading
+// bit proves it cannot round to zero. Subnormal rounding remains Unknown.
+fn hex_nonnegative(s: &str) -> Check {
+    let Some((_, mantissa, exponent)) = hex_prefix(s) else {
         return Check::Unknown;
+    };
+    if !s.starts_with('_') {
+        return Check::Valid;
+    }
+    let integer_digits = mantissa.split('.').next().unwrap().len();
+    let first = mantissa
+        .bytes()
+        .filter(|b| *b != b'.')
+        .enumerate()
+        .find(|(_, b)| *b != b'0');
+    let Some((index, digit)) = first else {
+        return Check::Valid;
+    };
+    let Ok(exponent) = exponent.replace('_', "-").parse::<i64>() else {
+        return Check::Unknown;
+    };
+    let (Ok(integer_digits), Ok(index)) = (i64::try_from(integer_digits), i64::try_from(index))
+    else {
+        return Check::Unknown;
+    };
+    let nibble = (digit as char).to_digit(16).expect("validated hex digit");
+    let bit = i64::from(31 - nibble.leading_zeros());
+    let leading = integer_digits
+        .checked_sub(index)
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_add(bit))
+        .and_then(|n| n.checked_add(exponent));
+    match leading {
+        Some(n) if n >= -1074 => Check::Invalid,
+        _ => Check::Unknown,
+    }
+}
+
+fn decimal(s: &str, window: &str) -> Check {
+    // Parenthesized NaN payloads require a separate word-formation audit.
+    if s.contains(['(', ')']) {
+        return Check::Unknown;
+    }
+    let unsigned = s
+        .strip_prefix('_')
+        .or_else(|| s.strip_prefix('+'))
+        .unwrap_or(s);
+    if unsigned.starts_with("0x") || unsigned.starts_with("0X") {
+        return match hex_prefix(window) {
+            Some((consumed, _, _)) if consumed >= s.len() => Check::Valid,
+            _ => Check::Invalid,
+        };
     }
     if s.replace('_', "-").parse::<f64>().is_ok() {
         Check::Valid
@@ -108,7 +205,7 @@ fn decimal(s: &str) -> Check {
         Check::Invalid
     }
 }
-fn real(s: &str) -> Check {
+fn real(s: &str, window: &str) -> Check {
     if matches!(s, "_" | "__" | "_.") {
         return Check::Valid;
     }
@@ -116,11 +213,11 @@ fn real(s: &str) -> Check {
         (if n.is_empty() {
             Check::Valid
         } else {
-            decimal(n)
+            decimal(n, window)
         })
-        .and(decimal(d))
+        .and(decimal(d, &window[n.len() + 1..]))
     } else {
-        decimal(s)
+        decimal(s, window)
     }
 }
 fn real_value(s: &str) -> Option<f64> {
@@ -184,27 +281,28 @@ fn rational(s: &str) -> Check {
         integer(s, true)
     }
 }
-fn complex(s: &str) -> Check {
+fn complex(s: &str, window: &str) -> Check {
     if let Some((x, y)) = s.split_once('j') {
-        return real(x).and(real(y));
+        return real(x, window).and(real(y, &window[x.len() + 1..]));
     }
     if let Some((m, angle)) = s.split_once('a') {
         let Some(angle) = angle.strip_prefix('d').or_else(|| angle.strip_prefix('r')) else {
             return Check::Invalid;
         };
-        let check = real(m).and(real(angle));
+        let check = real(m, window).and(real(angle, &window[m.len() + 2..]));
         if check != Check::Valid {
             return check;
         }
         return match real_value(m) {
             Some(x) if x >= 0.0 => Check::Valid,
             Some(_) => Check::Invalid,
+            None if !m.contains('r') => hex_nonnegative(window),
             None => Check::Unknown,
         };
     }
-    real(s)
+    real(s, window)
 }
-fn based(s: &str) -> Check {
+fn based(s: &str, window: &str) -> Check {
     if let Some((base, digits)) = s.split_once('b') {
         let digits = digits.strip_prefix('_').unwrap_or(digits);
         let mut dots = 0;
@@ -222,18 +320,61 @@ fn based(s: &str) -> Check {
         } else {
             Check::Invalid
         };
-        return based(base).and(digit_check);
+        return based(base, window).and(digit_check);
     }
     if let Some((x, y)) = s.split_once('p').or_else(|| s.split_once('x')) {
-        return complex(x).and(complex(y));
+        return complex(x, x).and(complex(y, &window[x.len() + 1..]));
     }
-    complex(s)
+    complex(s, window)
 }
 fn quad(s: &str) -> Check {
-    // Dedicated numfq grammar and its i64 exponent/resource boundaries are
-    // a follow-up. Do not treat an unvalidated precision literal as invalid.
-    let _ = s;
-    Check::Unknown
+    let s = s.strip_suffix("fq").unwrap_or(s);
+    if matches!(s, "_" | "__" | "_.") {
+        return Check::Valid;
+    }
+    let s = s.strip_prefix('_').unwrap_or(s);
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
+        return Check::Invalid;
+    }
+    let mut fraction = 0;
+    if bytes.get(i) == Some(&b'.') {
+        i += 1;
+        let start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        fraction = i - start;
+    }
+    let exponent = if i == bytes.len() {
+        0
+    } else {
+        if bytes.get(i) != Some(&b'e') {
+            return Check::Invalid;
+        }
+        let exponent = s[i + 1..].strip_prefix('+').unwrap_or(&s[i + 1..]);
+        if integer(exponent, false) != Check::Valid {
+            return Check::Invalid;
+        }
+        let Ok(exponent) = exponent.replace('_', "-").parse::<i64>() else {
+            return Check::Invalid;
+        };
+        exponent
+    };
+    // numfq combines fractional scale and a machine-integer exponent. Keep
+    // unproved signed-overflow/resource behavior out of lexical error claims.
+    let Ok(fraction) = i64::try_from(fraction) else {
+        return Check::Unknown;
+    };
+    if exponent.checked_sub(fraction).is_none() {
+        Check::Unknown
+    } else {
+        Check::Valid
+    }
 }
 
 pub(crate) fn validate(source: &str) -> Result<()> {
@@ -253,10 +394,10 @@ pub(crate) fn validate(source: &str) -> Result<()> {
     let mut check = Check::Valid;
     for part in source.split_ascii_whitespace() {
         let next = match mode {
-            Mode::Real => real(part),
+            Mode::Real => real(part, part),
             Mode::Extended => integer(part, true),
             Mode::Rational => rational(part),
-            Mode::Complex => based(part),
+            Mode::Complex => based(part, part),
             Mode::Quad => quad(part),
             Mode::ReferenceBoundary => unreachable!(),
         };
