@@ -1592,6 +1592,7 @@ The independent Scan basis is now a design decision (2026-10-05); GF3 now adds i
 - [x] GF5: Add independent symbolic WorkDepthExpr DAG, ordered successful-path node/region models, separate ordered Scan identity models, fusion source comparison and single-operation duplication hypotheses with verifiers/regressions.
 - [ ] GF5a: Extend effective-rank/cell/segment and general window/reducer models; add parallel Depth/max/tree models only with independence and numeric/error witnesses.
 - [ ] GF6: Connect selection/partition only for executable lowering with lifetime/resource/cost comparison.
+- [x] GF6a: Connect source-only target feasibility with fusion/WorkDepth witnesses in readiness reports. Candidates lacking semantic proof, fused capability or transformed resource/cost remain unselected; full GF6 is still open.
 - [ ] GF7: Advance multiversion, streaming and inspector-executor as long-term stages.
 
 **Initial documentation validation limit:** `e0204d6`/`aba88ff` changed contracts/checklists only; no new Rust/Python/C checks ran then. GF2 validation below is a separate run.
@@ -1607,6 +1608,18 @@ The independent Scan basis is now a design decision (2026-10-05); GF3 now adds i
 - Seven new regressions cover pipeline wiring, unknown-function fork order/fan-out, capped/noun-left distinction, nested rank/window/reduction, repeated input slots, Copy Rank RHS and corrupted sidecars/graphs. The C basis is pinned `jsrc/cf.c::jtfolk`'s nvv/vvv/capped distinction and the existing two-DLL frontend differential corpus; no new private C trace equivalence is claimed.
 
 **GF2 validation:** native Windows default/portable each **442 passed / 17 ignored**, fmt/clippy/build passed; Python **27 passed**. For each j64/AVX2 DLL, all three runtime routes report **5,380 cases / 5,380 passed / failed 0**, stages **10,810 checks / failed 0**, words **6,623 / failed 0**. Vocabulary checks cover 143 POS classifications from 145 candidates, 140 bare-function bindings/ARs and 3 noun payloads, with zero coverage gaps and two code-only rejections. Capture graph boundaries **257** and static boundaries **2** remain separate. A native verifier confirmed binary/source/DLL hashes in all twelve reports. Source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` are distinct. This gate does not establish optimizer/parallel scheduling/CUDA/full-upstream equivalence. No Linux tests or GitHub CI ran.
+
+<a id="gf6a-fusion-readiness"></a>
+
+**GF6a downstream fusion readiness — 2026-10-05.** `src/fusion_planning.rs` / `LoweringRegistry::fusion_readiness(plan,rules,target)` connect GF4 candidates and GF5 models to target-dependent inspection. Keep target metadata out of intrinsic J Graph identity/grammar. Query each source basis layer through the existing LoweringRegistry×TargetCapabilities target-only interface. This is neither resolved-call execution legality nor whole-fused-kernel support.
+
+Reports retain candidate/rule identity, source feasibility, unresolved proof obligations, DeferredUntilLegality fused-target queries, AwaitingSemanticProofs and selected=false. Compare original target/registry/fusion/work-depth witnesses to reject stale/forged selection, erased obligations and asserted cost improvement. Unknown establishes neither legality nor illegality; source Unsupported is not a J language error. Guards/check-to-use/ownership, semantic/error equivalence, actual transformed lowering, lifetime/resource bounds, empirical CostEstimate and selection/partition remain full-GF6 work. A readiness report is not an execution route or fallback/replay plan.
+
+`WorkDepthAnalysis::fusion_envelope_batch()` shares source validation and clones one expression arena, adding only three expressions per candidate (Work sum, Depth sum, Unknown replacement). Preserve source/retained identities and Unknown replacements while avoiding candidate×whole-expression-graph storage. Retain single-envelope inspection; the batch verifier re-derives schema/provenance/source proofs.
+
+Four native Rust regressions cover source capability without fusion selection, changed target/registry invalidation, multi-candidate arena sharing without Scan execution promotion, forged selection/obligations/profitability and no-candidate handling for an unknown valid J graph. The generic GPU target is a metadata-only unit query, not GPU execution/compilation validation.
+
+**GF6a validation:** native Windows default/portable each **463 passed / 17 ignored**, fmt/clippy/build passed; Python **30 passed**. Each j64/AVX2 DLL retains three runtime routes at **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/nouns **3**. Scan **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0** and **285 runtime prefix boundaries / executable prefix passes 0** remain separate. Capture graph boundaries **257** and static boundaries **2** also remain separate; binary/source/DLL hashes in all fourteen reports were checked. This validates readiness, not actual fusion selection, measured performance or GPU execution. No Linux tests, GitHub CI or CUDA ran.
 
 <a id="gf5-work-depth"></a>
 

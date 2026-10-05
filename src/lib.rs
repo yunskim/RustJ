@@ -17,6 +17,7 @@ pub mod error;
 pub mod execution_semantics;
 pub mod expansion;
 pub mod facts;
+pub mod fusion_planning;
 pub mod j_graph_composition;
 pub mod j_graph_fusion;
 pub mod j_graph_ir;

@@ -233,6 +233,45 @@ pub struct WorkDepthAnalysis {
 }
 
 impl WorkDepthAnalysis {
+    /// Batch comparisons share one expression arena. Verify the source once,
+    /// rather than cloning/verifying the whole graph for every small envelope.
+    pub fn fusion_envelope_batch(
+        &self,
+        fusion: &crate::j_graph_fusion::FusionAnalysis,
+        registry: &crate::j_graph_fusion::FusionRegistry,
+        plan: &Plan,
+    ) -> Result<FusionWorkDepthBatch, String> {
+        self.verify(plan)?;
+        fusion.verify(plan, registry)?;
+        let mut expressions = self.expressions.clone();
+        let mut models = Vec::new();
+        for (index, candidate) in fusion.candidates.iter().enumerate() {
+            let operations = &candidate.replacement.operations;
+            let source = WorkDepthExpr {
+                work: expressions.sum(operations.iter().map(|v| self.nodes[v.0].work).collect()),
+                depth: expressions.sum(operations.iter().map(|v| self.nodes[v.0].depth).collect()),
+            };
+            let unknown = expressions.push(WorkDepthExprNode::Unknown {
+                source: *operations.last().ok_or("empty fusion envelope")?,
+                reason: UnknownReason::FusionTransferUnproven,
+            });
+            models.push(FusionWorkDepthView {
+                candidate_index: index,
+                operations: operations.clone(),
+                retained_values: candidate.replacement.retained_values.clone(),
+                source,
+                replacement: WorkDepthExpr {
+                    work: unknown,
+                    depth: unknown,
+                },
+                improvement_proven: false,
+            });
+        }
+        Ok(FusionWorkDepthBatch {
+            expressions,
+            models,
+        })
+    }
     pub fn from_plan(plan: &Plan) -> Result<Self, String> {
         Ok(Self::derive(
             plan,
@@ -474,6 +513,37 @@ impl WorkDepthAnalysis {
             additional: WorkDepthExpr { work, depth },
             duplication_authorized: false,
         })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FusionWorkDepthView {
+    pub candidate_index: usize,
+    pub operations: Vec<ValueId>,
+    pub retained_values: Vec<ValueId>,
+    pub source: WorkDepthExpr,
+    pub replacement: WorkDepthExpr,
+    pub improvement_proven: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FusionWorkDepthBatch {
+    pub expressions: WorkDepthExprGraph,
+    pub models: Vec<FusionWorkDepthView>,
+}
+
+impl FusionWorkDepthBatch {
+    pub fn verify(
+        &self,
+        analysis: &WorkDepthAnalysis,
+        fusion: &crate::j_graph_fusion::FusionAnalysis,
+        registry: &crate::j_graph_fusion::FusionRegistry,
+        plan: &Plan,
+    ) -> Result<(), String> {
+        if *self != analysis.fusion_envelope_batch(fusion, registry, plan)? {
+            return Err("batch fusion Work/Depth models differ from verified source".into());
+        }
+        Ok(())
     }
 }
 

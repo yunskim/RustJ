@@ -238,7 +238,7 @@ pub struct RewritePlanningReport {
     pub early_pruning_allowed: bool,
 }
 
-fn execution_basis_for_graph_basis(
+pub(crate) fn execution_basis_for_graph_basis(
     basis: crate::j_graph_ir::GraphBasisKind,
 ) -> Option<ExecutionBasisKind> {
     use crate::j_graph_ir::GraphBasisKind as G;
