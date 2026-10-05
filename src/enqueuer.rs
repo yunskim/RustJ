@@ -322,8 +322,38 @@ fn interpret_word<'a>(
     Err(Error::Spelling)
 }
 
+// Match sn.c::nfs validation order without allocating a C-style NAME block.
+// Limits are J-visible compatibility checks, not Rust storage restrictions.
+fn validate_name_limits(word: &str) -> Result<()> {
+    if word.is_empty() || word.len() >= 32767 {
+        return Err(Error::IllFormedName);
+    }
+    let (simple_len, locale_len) = if let Some(untrailed) = word.strip_suffix('_') {
+        // nfs attempts the split even for malformed direct locatives. Its
+        // component limit precedes vnm's syntax error for such names.
+        let separator = untrailed.rfind('_').unwrap_or(0);
+        (separator, word.len().saturating_sub(separator + 2))
+    } else if let Some(first) = word.find("__") {
+        let last = word.rfind("__").expect("first indirect separator exists");
+        let terminal = &word[last + 2..];
+        // nfs validates numeric debug-frame text before component sizes.
+        if terminal.as_bytes().first().is_some_and(u8::is_ascii_digit)
+            && !terminal.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err(Error::IllFormedName);
+        }
+        (first, word.len() - first - 2)
+    } else {
+        (word.len(), 0)
+    };
+    if simple_len > 255 || locale_len > 255 {
+        return Err(Error::Limit);
+    }
+    Ok(())
+}
+
 // Bounded ASCII name grammar from sn.c::vnm/vlocnm, with no locale lookup.
-// NAME allocation length limits and dynamic lookup are separate contracts.
+// Check NAME limits before grammar; dynamic lookup remains separate.
 fn validate_name_syntax(word: &str) -> Result<()> {
     let bytes = word.as_bytes();
     if bytes.is_empty()
@@ -334,6 +364,7 @@ fn validate_name_syntax(word: &str) -> Result<()> {
     {
         return Err(Error::IllFormedName);
     }
+    validate_name_limits(word)?;
     let indirect = word.find("__");
     let valid = if let Some(untrailed) = word.strip_suffix('_') {
         if let Some(first) = indirect {

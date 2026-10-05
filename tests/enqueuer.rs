@@ -216,3 +216,40 @@ fn locative_name_syntax_is_checked_before_unsupported_lookup() {
         );
     }
 }
+
+#[test]
+fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
+    let mut cases = vec![
+        ("a".repeat(255), None),
+        ("a".repeat(256), Some("limit error")),
+        ("a".repeat(32766), Some("limit error")),
+        ("a".repeat(32767), Some("ill-formed name")),
+        (format!("{}_b_", "a".repeat(255)), Some("unsupported")),
+        (format!("{}_b_", "a".repeat(256)), Some("limit error")),
+        (format!("a_{}_", "b".repeat(256)), Some("limit error")),
+        (format!("a__{}", "b".repeat(256)), Some("limit error")),
+        (format!("{}__1a", "a".repeat(256)), Some("ill-formed name")),
+        (format!("{}__b_c", "a".repeat(256)), Some("limit error")),
+        (format!("{}_", "a".repeat(256)), Some("ill-formed name")),
+        (format!("{}_", "a".repeat(257)), Some("limit error")),
+    ];
+    let by_value = cases
+        .iter()
+        .map(|(word, expected)| (format!("{word}_:"), Some(expected.unwrap_or("unsupported"))))
+        .collect::<Vec<_>>();
+    cases.extend(by_value);
+    for (word, expected) in cases {
+        let source = format!("2 + {word}");
+        match expected {
+            None => {
+                enqueuer::enqueue(&source).unwrap();
+            }
+            Some(expected) => {
+                let error = enqueuer::enqueue(&source).unwrap_err();
+                assert_eq!(error.kind(), expected, "length {}", word.len());
+                assert_eq!(error.span(), Some(&(4..source.len())));
+                assert_eq!(error.context().unwrap().blame_word_index, Some(2));
+            }
+        }
+    }
+}

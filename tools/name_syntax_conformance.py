@@ -26,13 +26,32 @@ def name_cases():
     return sorted(set(words + [word + '_:' for word in words]))
 
 
+def name_limit_cases():
+    words = []
+    for n in [254, 255, 256, 257, 32766, 32767]:
+        words.append('a' * n)
+    for n in [254, 255, 256, 257]:
+        words += ['a' * n + '_b_', 'a_' + 'b' * n + '_',
+                  'a' * n + '__b', 'a__' + 'b' * n,
+                  'a' * n + '__1a', 'a' * n + '__b_c',
+                  'a' * n + '_', 'a' * n + '___']
+    # In indirect names p is the entire suffix, not each chain component.
+    for n in [251, 252, 253, 254]:
+        words.append('a__' + 'b' * n + '__c')
+    words += ['a' * 255 + '_' + 'b' * 255 + '_',
+              'a' * 255 + '__' + 'b' * 255,
+              'a' * 32765 + '_', 'a' * 32766 + '_',
+              'a' * 32765 + '__1a', 'a' * 32766 + '.']
+    return sorted(set(words + [word + '_:' for word in words if not word.endswith('.')]))
+
+
 def run(args):
     if os.name != 'nt':
         raise RuntimeError('Run on native Windows with the pinned J DLL.')
     oracle, probe = Oracle(), Probe(args.binary)
     entries, failures, counts = [], [], Counter()
     try:
-        for word in name_cases():
+        for word in sorted(set(name_cases() + name_limit_cases())):
             formed = oracle.words(word)
             observed = probe.inspect(word)
             c_result = oracle.run('vocabprobe=: ' + word)
@@ -40,8 +59,8 @@ def run(args):
             local = []
             if formed != {'words_hex': [word.encode().hex()]} or observed.get('raw_words') != formed.get('words_hex'):
                 local.append('word formation mismatch')
-            if c_result == {'error': 'ill-formed name'}:
-                status = 'invalid_name_verified'
+            if c_result and c_result.get('error') in {'ill-formed name', 'limit error', 'spelling error'}:
+                status = {'ill-formed name':'invalid_name_verified', 'limit error':'name_limit_verified', 'spelling error':'spelling_precedence_verified'}[c_result['error']]
                 if actual != c_result:
                     local.append('invalid name error mismatch')
             else:
@@ -68,8 +87,8 @@ def run(args):
         probe.close()
         oracle.close()
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
-    report = {'platform': os.name, 'scope': 'bounded ASCII simple/direct/indirect/debug/by-value name grammar; not locale lookup, allocation limits, abandon effects or runtime support',
-              'seed': 20261005, 'source_revision': args.source_revision, 'reference_revision': args.reference_revision,
+    report = {'platform': os.name, 'scope': 'ASCII name grammar and NAME length/error precedence; not locale lookup, abandon effects or runtime support',
+              'seed': 20261005, 'length_fixture_cases': len(name_limit_cases()), 'source_revision': args.source_revision, 'reference_revision': args.reference_revision,
               'source_hashes': {rel: digest(args.source_directory / rel) for rel in ['jsrc/ws.c', 'jsrc/w.c', 'jsrc/sn.c', 'jsrc/jerr.h']},
               'reference_sha256': digest(Path(os.environ['J_LIBRARY'])), 'binary_sha256': digest(args.binary),
               'cases': len(entries), 'checks': dict(counts), 'entries': entries, 'failed': len(failures), 'failures': failures}
