@@ -187,6 +187,50 @@ Fork가 보인다고 두 branch를 무조건 병렬 실행하지 않고, `@:`가
 
 이 아이디어의 각 구성 요소 자체를 RustJ의 최초 발명으로 주장하지 않는다. Hook/Fork의 dataflow 의미, function-level program transformation, graph-based fusion과 high-level array IR에는 각각 선행 연구와 구현이 있다. RustJ/JAXA의 설계상 중요한 결합은 **J의 tacit combinator algebra를 독립적인 semantic graph layer로 보존하고, 그 구조 자체에서 optimization candidate를 생성한 뒤 full-J semantic legality와 physical profitability를 분리해서 판단하는 것**이다.
 
+##### 관련 선행 연구와 RustJ의 위치
+
+이 출발 관찰 자체에는 직접적인 선행 연구가 있다. 따라서 RustJ의 연구적 위치를 평가할 때 **“J 구문이 최적화 힌트를 제공한다” 자체를 novelty로 주장하지 않는다.** 특히 Bernecky의 APL93 논문은 사용자가 JAXA에서 `@:`, Fork, Hook을 보며 출발한 문제의식과 매우 가깝다. Fork의 양쪽 가지 병렬성, composition의 pipeline 성격, expression-level merging을 통한 중간 배열·저장 비용 축소를 이미 명시적으로 논의한다.
+
+- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
+  - J tacit definition의 Fork에서 `f`와 `h` 계산이 병렬로 진행될 수 있음을 명시하고, tacit form이 data-flow/data-dependency 분석 부담을 줄인다고 설명한다.
+  - expression-level static analysis로 배열 primitive sequence를 interleaved execution으로 합치는 **loop jamming / merging**을 논의한다. 이는 temporary 제거와 fusion 계열의 직접 선례다.
+  - J composition을 cell 결과가 verb에서 verb로 전달되는 **pipeline**으로 설명하며 cell-level 병렬성을 지적한다.
+  - paper: https://www.snakeisland.com/aplhiperf.pdf
+  - DOI: https://doi.org/10.1145/166197.166201
+
+- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
+  - program-combining forms와 그 algebra를 프로그램 변환의 대상으로 보는 function-level 계보의 중요한 선례다.
+  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
+
+- **Accelerate / Futhark / Lift / MLIR Linalg**
+  - Accelerate와 Futhark는 high-level array operations와 dependency structure를 보존해 fusion과 parallel lowering을 수행한다.
+  - Lift는 map/reduce 같은 functional data-parallel pattern의 의미를 rewrite-rule 기반 optimization과 GPU mapping에 사용한다.
+  - MLIR Linalg는 transformation에 필요한 structured semantics를 loop/CFG lowering 전에 보존하고 transformation validity와 profitability를 분리한다.
+  - Accelerate: https://www.acceleratehs.org/publications.html
+  - Futhark: https://futhark.readthedocs.io/
+  - Lift: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
+
+따라서 현재의 보수적인 novelty framing은 다음과 같다.
+
+~~~text
+J syntax가 optimization-relevant structure를 드러낸다
+    → 선행 연구 있음
+
+Fork/Composition/Rank 등에서 parallelism·pipeline을 읽는다
+    → 직접적인 J/APL 선행 연구 있음
+
+high-level array operations를 보존해 fusion/rewrite를 한다
+    → Accelerate / Futhark / Lift / MLIR 등에 선행 연구 있음
+
+full J tacit combinator algebra를
+독립 J Graph IR로 보존하고
+그 topology에서 optimization candidate를 생성한 뒤
+full-J semantic legality와
+physical profitability를 별도 단계로 판단한다
+    → RustJ/JAXA가 탐구하는 distinctive architectural combination
+~~~
+
 따라서 JAXA의 역사적 핵심 질문은 다음처럼 기록한다.
 
 > **J의 함수 조합 표기가 이미 computation topology를 보여 준다면, 왜 그 의도를 loop로 잃어버린 뒤 다시 추론해야 하는가?**
