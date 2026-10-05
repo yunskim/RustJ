@@ -965,7 +965,7 @@ Use [NuVoc](https://code.jsoftware.com/wiki/NuVoc), reviewed 2026-10-05 at [revi
 | `$:` / `$::` | Self-reference / scope-shortening adverb | Recursion/scope contracts; `$::` is not an alias for `$:` |
 | `{{ }}` / `u.` `v.` | Direct-definition framing / caller-context operands | Existing partial frontend/runtime support; not proof of full definitions |
 | `@` / `@:` | Atop / At; rank-sensitive and infinite-rank composition differ | Existing internal `ConjunctionId::Atop` names `@:`; clarify its comment, do not register `@` as an alias |
-| `d.` `D.` `D:` `t:` `..` `.:` `s:` `I:` | Historical spellings rejected by both supplied C variants | Exclude from current coverage; Rust's precise invalid-spelling classification remains NV3 work |
+| `d.` `D.` `D:` `t:` `..` `.:` `s:` `I:` | Historical spellings rejected by both supplied C variants | Exclude from current coverage; fixed spelling errors now match C through NV3a; full name/numeric grammar remains NV3 work |
 
 `s:` is in NuVoc's obsolete section and is rejected by both supplied C DLLs. Internal Symbol storage does not imply current J `s:` support. Distinguish rejected `I:` from current `I.`/`i:`. Keep `E.` Find Matches distinct from `I.` Interval Index. Distinguish NuVoc behavioral rank descriptions from C `b.0` intrinsic headers/IRS behavior; do not replace verified headers solely from the wiki summary. `u"v` and `m"v` Copy Rank remain separate forms. This inventory is a design classification, not proof of full NuVoc frontend/runtime/backend coverage or of a complete execution basis.
 
@@ -2398,6 +2398,16 @@ Connect this checklist to M2→M3→M4 and WI3/WI4/M5–M8; it is not a parallel
 - [ ] **DB6 Windows differential gates:** compare NAME rebinding/POS changes, unbound→bound locals, locale/path changes, noun snapshots followed by rebinding, value-dependent construction and errors/guard misses after effects with C base/AVX2. Check lookup timing, effect order, post-failure bindings and execution counts alongside value/type/shape. Report currently unsupported locale/execute cases separately as coverage.
 - [ ] **DB7 later semantic/performance gates:** compare verified direct runtime with Logical/Physical execution on identical inputs. Include guard hit/miss and empty/boxed/sparse boundaries; measure performance/copies/allocations separately after semantic success. Frontend passes or metadata analysis do not establish backend execution/performance success.
 
+<a id="nv3a-spelling-errors"></a>
+
+**NV3a fixed spelling error classification — 2026-10-05.** Follow `jsrc/ws.c::spellin` and `jsrc/w.c::jtenqueue`: the installed, verified core dictionary takes precedence. An unregistered colon inflection or nonnumeric dot inflection is a spelling error. Numeric dots still enter numeric construction; strings and simple names retain their classification. One-digit constant functions pass through existing descriptors. Reviewed C rejects `99:`/`1.5:`/`_99:` as spelling errors. Remaining invalid characters/uninstalled primitives are spelling errors, not missing execution capabilities. Do not create arbitrary obsolete-word exception lists.
+
+`name_:` is valid by-value/abandon lookup syntax. Validate its simple-name prefix, then retain a separate Unsupported boundary. A plainly malformed prefix such as `foo__:` after suffix removal is an ill-formed name. Complete locative validation/locale lookup/abandon effects and complex/extended/rational numeric grammar remain unfinished. Only NV3a's fixed spelling seam is complete; full NV3/NV5 remain open. Invalid lexical spelling stays distinct from valid primitives' unsupported construction/execution. Preserve enqueue diagnostic phase, source span and word index.
+
+`tools/spelling_conformance.py` compares a **651** matrix of 93 graphic ASCII bases (excluding quote) × 7 suffixes plus additional name/numeric boundaries with both DLLs. Verify error class, word formation and valid unsupported boundaries separately; do not count these as primitive execution or complete name/numeric grammar conformance. `tools/vocabulary_audit.py` now also requires Rust/C error equality for two code-only candidates and eight legacy words. The standard Windows runner includes spelling reports.
+
+**NV3a validation:** native Windows default/portable each **465 passed / 17 ignored**, fmt/clippy/build passed; Python **30 passed**. Each DLL: spelling **667 cases / failed 0**, with **453** error checks (**426** spelling, **22** number, **1** name, **4** syntax), **208** accepted enqueue controls and **6** valid Unsupported boundaries. The matrix contributes **651** cases; quote grammar and full locative/numeric grammar remain outside this scope. Existing three runtime routes each retain **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/nouns **3**. Scan **285 / failed 0** and **285 runtime prefix boundaries / executable prefix passes 0**, capture graph boundaries **257** and static boundaries **2** remain separate. Binary/source/DLL hashes in all sixteen reports were checked. Spelling passes do not establish execution support or GPU performance. No Linux tests, GitHub CI or CUDA ran.
+
 <a id="vocabulary-migration-checklist"></a>
 
 ### NV — current J vocabulary convergence
@@ -2408,6 +2418,7 @@ See the [current vocabulary audit](#current-j-vocabulary). Follow M2 frontend se
 - [x] **NV1** Support `[.`/`].`/`]:` through normal core enqueue/shared constructors; regress noun/verb results, NAME snapshot/late lookup, modifier trains and discarded noun effects/errors.
 - [x] **NV2** Extend pinned core spelling/POS recognition separately from construction/execution capability. Add 108 descriptors and actual `a.`/`a:` nouns. Both DLLs match 143 accepted POS, 140 bare function bindings/ARs and three noun payloads. Inventory passes are not execution support.
 - [ ] **NV3** Generalize precise invalid/obsolete spelling errors against C `spellin`/enqueue. Distinguish valid unsupported primitives from invalid spelling without arbitrary exception lists.
+- [x] **NV3a** Generalize fixed ASCII spelling and unregistered inflection errors after current core dictionary lookup, without obsolete exception lists. Valid unsupported `name_:`/numeric families remain separate coverage boundaries; full NV3 is still open.
 - [ ] **NV4** Review remaining families' valence/rank/construction/effect/error contracts sequentially. Do not collapse Key dyad, Fold, task/pyx, precision or scope semantics to aliases/pure array kernels.
 - [ ] **NV5** Reconcile complete NuVoc forms/structural/control inventories with the support matrix. Update Windows differential gates at each step; separate full J support from limited-corpus success.
 

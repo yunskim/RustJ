@@ -77,6 +77,8 @@ def main():
             status = 'coverage_boundary'
             if error:
                 status = 'source_code_only'
+                if queue != error:
+                    failures.append({'word':word, 'reason':'uninstalled source spelling error mismatch', 'expected':error, 'actual':queue})
             elif isinstance(queue, list):
                 if len(queue) != 1 or queue[0]['class'] != pos:
                     failures.append({'word':word, 'reason':'enqueue POS mismatch', 'expected':pos, 'actual':queue})
@@ -104,6 +106,9 @@ def main():
                   for w in ['d.', 'D.', 'D:', 't:', '..', '.:', 's:', 'I:']]
         if any(x['c_result'] != {'error':'spelling error'} for x in legacy):
             raise RuntimeError('legacy spelling fixture no longer rejected by C')
+        for entry in legacy:
+            if entry['rust_enqueue'] != entry['c_result']:
+                failures.append({'word':entry['word'], 'reason':'legacy spelling error mismatch', 'expected':entry['c_result'], 'actual':entry['rust_enqueue']})
     finally:
         probe.close()
         parser_probe.close()

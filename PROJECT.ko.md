@@ -6398,7 +6398,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 
 - **오래된 설명 수정:** `t.`는 task conjunction, `T.`는 thread/task/debug verb다. task 결과의 pyx/open·오류 전달·공유 namespace 의미를 effect/resource 경계로 다루며 Rust async나 GPU 실행을 이미 지원한다는 뜻이 아니다. [Task](https://code.jsoftware.com/wiki/Vocabulary/tdot), [Threads](https://code.jsoftware.com/wiki/Vocabulary/tcapdot).
 - **누락된 현행 표기 추가:** `c.`, `m.`, `f:`, `/..`, `$::`, Fold 여섯 표기와 `Z:`, Lev/Dex/Ident, `{{ }}` direct definition과 `u.`/`v.` caller-context 의미를 inventory에 포함한다. `/..`는 key를 operand dyad의 왼쪽 인자로 제공하므로 `/.` alias가 아니다. [Key](https://code.jsoftware.com/wiki/Vocabulary/slashdot), [Modular](https://code.jsoftware.com/wiki/Vocabulary/mdot), [Fold](https://code.jsoftware.com/wiki/Vocabulary/fcap).
-- **역사적 표기 분리:** `d.`/`D.`/`D:`/`t:`/`..`/`.:`/`s:`/`I:`는 현재 C 양 버전의 spelling error를 확인했다. 현행 coverage matrix에서 제거했다. Rust enqueue는 아직 일부 invalid spelling도 Unsupported로 보고하므로 정확한 spelling 오류 분류는 아래 NV3의 후속 작업이다. `s:`는 NuVoc obsolete 구역의 symbol verb이며, 양 C DLL에서도 거부했다. 내부 Symbol 타입이 존재하는 것과 현행 J의 `s:` 지원은 별개다. `I:` 역시 현행 `I.`/`i:`와 혼동하지 않는다.
+- **역사적 표기 분리:** `d.`/`D.`/`D:`/`t:`/`..`/`.:`/`s:`/`I:`는 현재 C 양 버전의 spelling error를 확인했다. 현행 coverage matrix에서 제거했다. NV3a에서는 fixed spelling의 오류 분류를 일반화해 Rust도 spelling error로 보고한다. 전체 name/numeric grammar는 아래 NV3의 후속 작업이다. `s:`는 NuVoc obsolete 구역의 symbol verb이며, 양 C DLL에서도 거부했다. 내부 Symbol 타입이 존재하는 것과 현행 J의 `s:` 지원은 별개다. `I:` 역시 현행 `I.`/`i:`와 혼동하지 않는다.
 - **rank/용어 교정:** `@`는 Atop, `@:`는 At다. 내부 `ConjunctionId::Atop`은 기존 `@:` 식별자이며 주석으로 이를 명시했다. `@`를 동등한 alias로 등록하지 않는다. NuVoc의 동작 설명과 C의 `b.0` intrinsic header/IRS 경로를 구분하고 wiki 표의 rank만 보고 이미 검증한 header를 덮어쓰지 않는다. `u"v`/`m"v` Copy Rank도 별도 form이다. [Copy Rank](https://code.jsoftware.com/wiki/Vocabulary/quotev).
 
 **NV1 코드 변경(이전 단계):** `[.`·`].`는 각각 왼쪽·오른쪽 noun/verb를 반환하는 conjunction이며 `]:`는 operand를 반환하는 adverb다. primitive registry **7**, Graph IR **0.7**에 반영했다. 선택된 함수의 원래 entity/NAME·late lookup과 noun snapshot을 유지한다. 선택 전에 필요한 noun reduction·assignment·error를 생략하지 않는다. 이 constructor는 선택 operand 자체를 결과로 내며 전체 구문/constructor provenance는 source·reduction·capture에서 보존한다. 선택 modifier를 새 배열 kernel로 만들지 않는다. tokenizer state machine은 변경할 필요가 없었다. capture의 `ConstructionNounSuccess.selected_input`으로 noun 선택 결과를 원래 dependency node에 연결하고 선택되지 않은 계산 노드도 유지한다. 아직 ordered-effect graph가 필요한 대입은 기존 경계를 유지한다. 정적 parser에서는 선택되지 않은 noun 계산을 보존할 경로가 없으면 명시적 Unsupported로 남기며, J 의미상의 오류로 바꾸거나 해당 계산을 삭제해 실행 가능하다고 승인하지 않는다.
@@ -7719,6 +7719,16 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] **DB6 Windows 차분 gate:** NAME 재정의/POS 변경, local 미정의→정의, locale/path 변경, noun snapshot 뒤 재대입, 값 의존 constructor, 효과 뒤 오류/guard miss를 C 기본·AVX2와 비교한다. 값/type/shape뿐 아니라 lookup 시점·효과 순서·실패 후 binding과 실행 횟수를 검사한다. 현재 미지원 locale/execute는 별도 coverage로 보고한다.
 - [ ] **DB7 중후반 의미·성능 gate:** 검증된 direct runtime과 Logical/Physical 실행을 같은 입력으로 대조한다. guard hit/miss와 empty/boxed/sparse 경계를 포함하며 성능·복사/할당은 의미 통과 뒤 별도 측정한다. frontend 통과나 메타데이터 분석을 backend 실행/성능 통과로 승격하지 않는다.
 
+<a id="nv3a-spelling-errors"></a>
+
+**NV3a fixed spelling 오류 분류 — 2026-10-05.** `jsrc/ws.c::spellin`과 `jsrc/w.c::jtenqueue`의 순서를 따른다. 설치·검증된 core dictionary가 우선이며, 등록되지 않은 colon inflection 또는 nonnumeric dot inflection은 spelling error다. numeric dot는 numeric constructor로 넘기고, quote와 simple name은 각각의 분류를 유지한다. 한 자리 constant function은 기존 core descriptor를 통과한다. `99:`/`1.5:`/`_99:`는 reviewed C에서 유효한 constant function이 아니므로 spelling error다. 잔여 잘못된 문자·미설치 primitive도 Unsupported가 아닌 spelling error다. obsolete spelling의 임의 예외 목록은 만들지 않는다.
+
+`name_:`는 문법적으로 유효한 by-value/abandon lookup이다. simple-name validation을 거친 뒤 별도 Unsupported 경계로 남긴다. `foo__:`처럼 suffix 제거 후 명백히 ill-formed인 simple name은 ill-formed name으로 보고한다. 전체 locative validation·locale lookup·abandon 효과와 complex/extended/rational numeric grammar는 아직 완료되지 않았다. 따라서 fixed spelling seam인 NV3a만 완료했고 NV3/NV5 전체 완료를 주장하지 않는다. invalid lexical spelling과 valid primitive의 constructor/executor 미지원은 계속 구별한다. 기존 enqueue diagnostic의 phase·source span·word index를 유지한다.
+
+`tools/spelling_conformance.py`는 graphic ASCII 93개(quote 제외) × 7개 suffix의 **651** matrix와 추가 이름/숫자 경계를 양 DLL과 비교한다. 오류 종류·word formation·유효 미지원 경계를 각각 검증하며 primitive 실행 지원이나 전체 name/numeric grammar conformance로 세지 않는다. `tools/vocabulary_audit.py`도 기존 code-only 후보 2개와 legacy 8개의 Rust 오류를 C와 반드시 비교한다. 표준 Windows runner에 spelling report를 추가했다.
+
+**NV3a 검증:** native Windows default/portable 각각 **465 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 spelling **667 cases / failed 0**: 오류 종류 **453**(spelling **426**, number **22**, name **1**, syntax **4**), accepted enqueue controls **208**, valid Unsupported 경계 **6**. 이 중 matrix는 **651**이며, quote grammar와 전체 locative/numeric grammar는 범위 밖이다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**를 유지했다. Scan **285 / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**를 별도로 유지했다. 전체 보고서 16개의 binary/source/DLL hash를 확인했다. spelling pass는 실행 지원이나 GPU 성능 검증이 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
 <a id="vocabulary-migration-checklist"></a>
 
 ### NV — 현재 J vocabulary 수렴
@@ -7729,6 +7739,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [x] **NV1** `[.`·`].`·`]:`를 정상 core enqueue·shared parser constructor 경로로 지원하고 noun/verb 결과·NAME snapshot/late lookup·modifier train·discarded noun 효과/오류 회귀를 추가한다.
 - [x] **NV2** pinned core inventory의 spelling/POS 인식을 확장하고 semantic construction/실행 capability와 분리한다. descriptor 108개와 실제 noun `a.`/`a:`를 추가했다. C가 수용한 143개 POS, bare function binding/AR 140개와 noun payload 3개가 양 DLL에서 일치했다. inventory pass를 실행 지원으로 승격하지 않는다.
 - [ ] **NV3** invalid/obsolete spelling의 정확한 J 오류를 C `spellin`/enqueue와 대조해 일반화한다. valid 미지원 primitive와 invalid spelling을 구별하며 임의 예외 목록으로 해결하지 않는다.
+- [x] **NV3a** fixed ASCII spelling과 미등록 inflection의 enqueue 오류를 일반화했다. 현대 core dictionary를 우선 조회하고 obsolete 예외 목록 없이 C 오류 분류를 따른다. `name_:`와 유효 미지원 numeric family는 별도 coverage 경계이며 전체 NV3는 미완료다.
 - [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
 - [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
 

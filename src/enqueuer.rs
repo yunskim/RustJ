@@ -213,7 +213,17 @@ fn interpret_word<'a>(
         return Ok(fixed);
     }
 
-    if word.starts_with("NB..") || word.starts_with("NB.:") {
+    // w.c::jtenqueue checks installed spellin/ds entries first. An
+    // unregistered inflection is a spelling error, except name_: (by-value
+    // lookup/abandon), which is valid syntax with a separate runtime contract.
+    // Numeric dots belong to connum; numeric colons require a registered
+    // one-digit constant function. Do not invent arbitrary obsolete-word lists.
+    let numeric = word.as_bytes()[0].is_ascii_digit() || word.starts_with('_');
+    if word.ends_with(':') || (!numeric && word.ends_with('.')) {
+        if word.as_bytes()[0].is_ascii_alphabetic() && word.ends_with("_:") {
+            validate_simple_name(&word[..word.len() - 2])?;
+            return Err(Error::Unsupported("J name-by-value/abandon lookup".into()));
+        }
         return Err(Error::Spelling);
     }
 
@@ -242,10 +252,7 @@ fn interpret_word<'a>(
         ));
     }
 
-    if word.as_bytes()[0].is_ascii_digit() || word.starts_with('_') {
-        if word.ends_with(':') {
-            return Err(Error::Unsupported(format!("constant verb {word}")));
-        }
+    if numeric {
         let fields = word.split_ascii_whitespace().count();
         let is_float = word
             .split_ascii_whitespace()
@@ -299,9 +306,7 @@ fn interpret_word<'a>(
         // a separate name-resolution feature not implemented by this frontend.
         // sn.c::vnm rejects a trailing single underscore without a preceding
         // locale separator. foo__ is a valid base-locale name, still unsupported.
-        if word.ends_with('_') && word.bytes().filter(|&b| b == b'_').count() == 1 {
-            return Err(Error::IllFormedName);
-        }
+        validate_simple_name(word)?;
         if word.ends_with('_') || word.contains("__") {
             return Err(Error::Unsupported("J locative names".into()));
         }
@@ -312,10 +317,21 @@ fn interpret_word<'a>(
         ));
     }
 
-    Err(Error::Unsupported(format!(
-        "word {word:?} at byte {}",
-        span.start
-    )))
+    // Remaining nonnumeric, nonquoted, nonname words are invalid characters
+    // or uninstalled primitive spellings, not missing execution capabilities.
+    Err(Error::Spelling)
+}
+
+fn validate_simple_name(word: &str) -> Result<()> {
+    if word.is_empty()
+        || !word.as_bytes()[0].is_ascii_alphabetic()
+        || !word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        || (word.ends_with('_') && word.bytes().filter(|&b| b == b'_').count() == 1)
+    {
+        return Err(Error::IllFormedName);
+    }
+    // Full locative validation belongs to the name-resolution contract.
+    Ok(())
 }
 
 /// Interpret parse-visible words after word formation.

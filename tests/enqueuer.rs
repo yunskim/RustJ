@@ -131,3 +131,41 @@ fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsuppor
         ));
     }
 }
+
+#[test]
+fn invalid_inflections_are_j_spelling_errors_with_enqueue_provenance() {
+    for word in [
+        "d.", "D:", "I:", "s:", "?:", "`.", "abc.", "99:", "1.5:", "_99:", "_a:", "!..", "$.:",
+        "NB..", "NB.:", "]::", "&::",
+    ] {
+        let source = format!("  2 + {word}");
+        let error = enqueuer::enqueue(&source).unwrap_err();
+        assert_eq!(error.kind(), "spelling error", "{word}");
+        assert_eq!(error.span(), Some(&(6..source.len())), "{word}");
+        let context = error.context().unwrap();
+        assert_eq!(context.phase, Some(rustj::error::DiagnosticPhase::Enqueue));
+        assert_eq!(context.blame_word_index, Some(2));
+    }
+}
+
+#[test]
+fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_functions() {
+    for source in [
+        "foo", "foo_bar", "with", "1.5", "_.", "__", "0:", "_9:", "__:", "c.", "/..", "$::", "p..",
+        "&.:",
+    ] {
+        enqueuer::enqueue(source).unwrap();
+    }
+    for source in ["foo_:", "foo_bar_:", "foo_bar__:"] {
+        assert_eq!(enqueuer::enqueue(source).unwrap_err().kind(), "unsupported");
+    }
+    assert_eq!(
+        enqueuer::enqueue("foo__:").unwrap_err().kind(),
+        "ill-formed name"
+    );
+    assert_eq!(enqueuer::enqueue("1j2").unwrap_err().kind(), "unsupported");
+    assert_eq!(
+        rustj::Engine::new().eval("c. 1").unwrap_err().kind(),
+        "unsupported"
+    );
+}
