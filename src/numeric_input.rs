@@ -248,7 +248,66 @@ fn real(s: &str, window: &str) -> Check {
         decimal(s, window)
     }
 }
-fn real_value(s: &str) -> Option<f64> {
+// Recognize only exactly representable hex operands for polar ratio signs.
+// Non-exact rounding remains a coverage boundary; no noun is constructed.
+fn exact_hex_value(window: &str) -> Option<f64> {
+    let (_, mantissa, exponent) = hex_prefix(window)?;
+    let mut value = 0_u64;
+    for digit in mantissa.bytes().filter(|b| *b != b'.') {
+        value = value
+            .checked_mul(16)?
+            .checked_add((digit as char).to_digit(16)? as u64)?;
+    }
+    let sign = if window.starts_with('_') {
+        1_u64 << 63
+    } else {
+        0
+    };
+    if value == 0 {
+        return Some(f64::from_bits(sign));
+    }
+    let zeros = value.trailing_zeros();
+    value >>= zeros;
+    let top = 63 - value.leading_zeros();
+    if top > 52 {
+        return None;
+    }
+    let fraction = mantissa.split_once('.').map_or(0, |(_, tail)| tail.len());
+    let exponent = exponent
+        .replace('_', "-")
+        .parse::<i128>()
+        .ok()?
+        .checked_sub(i128::try_from(fraction).ok()?.checked_mul(4)?)?
+        .checked_add(i128::from(zeros))?;
+    let leading = exponent.checked_add(i128::from(top))?;
+    let bits = if (-1022..=1023).contains(&leading) {
+        (((leading + 1023) as u64) << 52) | ((value << (52 - top)) & ((1_u64 << 52) - 1))
+    } else if leading < -1022 {
+        // Exact subnormals are an integer multiple of 2^-1074. An odd
+        // significand requiring a negative shift needs rounding: retain None.
+        let shift = u32::try_from(exponent.checked_add(1074)?).ok()?;
+        value.checked_shl(shift)?
+    } else {
+        return None;
+    };
+    Some(f64::from_bits(sign | bits))
+}
+fn decimal_value(s: &str, window: &str) -> Option<f64> {
+    let unsigned = s
+        .strip_prefix('_')
+        .or_else(|| s.strip_prefix('+'))
+        .unwrap_or(s);
+    if unsigned.starts_with("0x") || unsigned.starts_with("0X") {
+        let (consumed, _, _) = hex_prefix(window)?;
+        if consumed < s.len() {
+            return None;
+        }
+        exact_hex_value(window)
+    } else {
+        s.replace('_', "-").parse().ok()
+    }
+}
+fn real_value(s: &str, window: &str) -> Option<f64> {
     match s {
         "_" => return Some(f64::INFINITY),
         "__" => return Some(f64::NEG_INFINITY),
@@ -256,12 +315,13 @@ fn real_value(s: &str) -> Option<f64> {
         _ => {}
     }
     if let Some((n, d)) = s.split_once('r') {
+        let denominator_window = &window[n.len() + 1..];
         let n = if n.is_empty() {
             0.0
         } else {
-            n.replace('_', "-").parse::<f64>().ok()?
+            decimal_value(n, window)?
         };
-        let d = d.replace('_', "-").parse::<f64>().ok()?;
+        let d = decimal_value(d, denominator_window)?;
         if d == 0.0 {
             let sign = if n.is_sign_negative() ^ d.is_sign_negative() {
                 -1.0
@@ -277,7 +337,7 @@ fn real_value(s: &str) -> Option<f64> {
             Some(n / d)
         }
     } else {
-        s.replace('_', "-").parse().ok()
+        decimal_value(s, window)
     }
 }
 fn rational(s: &str) -> Check {
@@ -321,7 +381,7 @@ fn complex(s: &str, window: &str) -> Check {
         if check != Check::Valid {
             return check;
         }
-        return match real_value(m) {
+        return match real_value(m, window) {
             Some(x) if x >= 0.0 => Check::Valid,
             Some(_) => Check::Invalid,
             None if !m.contains('r') => hex_nonnegative(window),
@@ -433,6 +493,9 @@ pub(crate) fn validate(source: &str) -> Result<()> {
     }
     match check {
         Check::Invalid => Err(Error::IllFormedNumber),
+        Check::Unknown if matches!(mode, Mode::Quad) => Err(Error::Unsupported(
+            "quad scale/exponent construction boundary".into(),
+        )),
         Check::Unknown => Err(Error::Unsupported(
             "numeric recognition requires additional grammar facts".into(),
         )),

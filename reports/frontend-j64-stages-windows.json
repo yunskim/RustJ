@@ -33,7 +33,7 @@
     "test/g0x.ijs": "347cae3454e26505de6679fc0451b258d7acc99828fe65cc0a2c1f0037a3da6e"
   },
   "reference_library_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "probe_sha256": "ce4c684079b61130af7bba3af664f5d7ec27aa0d52d5acc83030d3aae424343a",
+  "probe_sha256": "603efa5c4dcfd8ff3e7ef5e71acdaf4dc4b7c2dceb326e7cb25bbb0f01860581",
   "checks": {
     "row_transport": 1,
     "declarative_rows": 6561,

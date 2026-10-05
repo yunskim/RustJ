@@ -7781,6 +7781,18 @@ Windows `strtod`의 hex mantissa·선택적 binary exponent를 Rust에서 검증
 
 **NV3d2b1 검증:** native Windows default/portable 각각 **473 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,201 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,140**, valid payload 경계 **672**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **1**, NaN word formation 경계 **4**. unresolved error 경계는 **0**이다. 남은 recognition 1건은 `2.1e_9223372036854775808fq`의 scale/exponent 합산 overflow이며 실행 성공이나 정확한 오류 비교 pass가 아니다. NaN 4건은 C syntax error와 Rust payload Unsupported를 별도로 기록한다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, name syntax **4,125**, spelling **667**, vocabulary POS **143**/binding **140**/noun **3**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 보고서 20개의 source/DLL/binary hash를 확인했다. Linux/GitHub CI/CUDA와 변경된 floating-point 환경 검증은 실행하지 않았다.
 
+<a id="nv3d2b2a-exact-hex-ratios"></a>
+
+**NV3d2b2a exact hex ratio와 quad 생성 경계 — 2026-10-05.** polar magnitude에 ratio가 있으면 원래 문자열의 부호만으로 유효성을 판단하지 않는다. `real_value`에 실제 읽기 범위를 전달하고 정확히 binary64로 표현 가능한 hex 피연산자를 내부 부호 검증에 사용한다. u64로 누적 가능한 mantissa에서 trailing zero bit를 제거한 뒤 최대 53개의 유효 bit, normal exponent 범위 또는 정확한 subnormal 배수를 입증한다. 조건을 만족할 때만 `f64::from_bits`로 정확한 내부 피연산자를 만든다. 이는 J noun/complex/quad payload 실행 지원이 아니다. 누적 범위 초과·추가 반올림·hex overflow/underflow 피연산자의 수치 생성은 보수적으로 미지원으로 남긴다.
+
+C `numfd`의 비율 계산을 따라 분모 0은 numerator/denominator의 sign xor로 signed zero 또는 infinity를 만들며, 그 외에는 나눗셈 결과에 `0 <= magnitude` 조건을 적용한다. `_0X1r2ad90`은 오류, `_0X1r_2ad90`은 유효하고 `_0X1P_1074r2ad90`은 결과가 `-0`으로 반올림되어 유효하다. NaN 결과는 거부한다. 분모도 nominal field 뒤의 hex digit을 읽을 수 있으므로 `0X1r0X0ad90`의 분모를 0으로 단정하지 않는다. C FFI를 추가하지 않고 기존 enqueue 오류 span/index와 whole-word numeric mode를 유지한다.
+
+`2.1e_9223372036854775808fq`는 lexical grammar 미확인 대신 **quad scale/exponent construction boundary**로 분류한다. mantissa·suffix·exponent 문법이 확인되어도 C의 signed scale 합산 overflow, 숫자 생성·할당/자원 오류 동등성까지 입증된 것은 아니다. Unsupported 이유와 보고서 category를 분리하며 정확한 J 오류 비교나 숫자 실행 pass로 집계하지 않는다. malformed field가 함께 있으면 기존 ill-formed number 우선순위를 보존한다.
+
+근거: pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd` ratio·signed-zero 처리, `numj`의 polar nonnegative 조건, `numfq` scale 계산과 `numxTEMP` 자원 오류다. 남은 비정확 hex ratio·변경된 rounding/FTZ 환경·quad scale overflow의 정의·payload allocation/자원 오류 동등성은 **NV3d2b2b**다. 해당 경계는 RustJ 구현 범위이며 J 언어의 제한으로 만들지 않는다.
+
+**NV3d2b2a 검증:** native Windows default/portable 각각 **474 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,485 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,244**, valid payload 경계 **850**, integer conversion 경계 **2**, C reference precision 경계 **200**, quad construction 경계 **1**, NaN word formation 경계 **4**, unresolved recognition **1**, unresolved error **1**. 마지막 두 경계는 각각 `_0X1P_1075r1ad90`과 `0X1P9999r0X1P9999ad90`이며, C의 성공/ill-formed number와 Rust의 미지원 차이를 그대로 기록한다. 미확인 경계를 오류 동등성이나 실행 pass로 바꾸지 않는다. exact operand 교차 ratio **280개**, 미확인 conversion **2개**, malformed/quad construction 우선순위 **2개**를 기존 corpus에 추가했다. 기존 frontend/runtime/name/spelling/vocabulary/Scan 비교를 유지하고 보고서 20개의 source/DLL/binary hash를 확인했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. Linux/GitHub CI/CUDA·변경된 FP 환경·메모리 소진 테스트는 실행하지 않았다.
+
 <a id="vocabulary-migration-checklist"></a>
 
 ### NV — 현재 J vocabulary 수렴
@@ -7801,6 +7813,8 @@ Windows `strtod`의 hex mantissa·선택적 binary exponent를 Rust에서 검증
 - [ ] **NV3d2b** resource·scale overflow·rounding/FTZ·NaN payload 및 남은 플랫폼 conversion 경계를 검증한다.
 - [x] **NV3d2b1** 기본 ties-to-even의 hex polar 부호와 NaN 괄호 word 경계를 양 DLL로 검증했다. 매우 큰 exponent의 부호 판정과 숫자 payload 생성은 분리한다.
 - [ ] **NV3d2b2** quad scale overflow·hex ratio 부호·변경된 FP 환경·payload 할당/자원 오류 동등성을 검증한다. 숫자 construction 미지원을 J 오류로 바꾸지 않는다.
+- [x] **NV3d2b2a** exact hex 피연산자의 polar ratio 부호·signed zero·분모 읽기 범위와 quad 생성 경계를 양 DLL로 검증했다.
+- [ ] **NV3d2b2b** 추가 반올림/overflow가 필요한 hex ratio·quad scale 정의·변경된 FP 환경·payload allocation/자원 오류 동등성을 검증한다.
 - [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
 - [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
 

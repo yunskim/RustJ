@@ -8,7 +8,7 @@
     "jsrc/w.c": "8acc4b4918edb61733ae698dcab606feb11bac3398b0bcb6ea4cce4d5c9d20b3"
   },
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "ce4c684079b61130af7bba3af664f5d7ec27aa0d52d5acc83030d3aae424343a",
+  "binary_sha256": "603efa5c4dcfd8ff3e7ef5e71acdaf4dc4b7c2dceb326e7cb25bbb0f01860581",
   "cases": 667,
   "matrix_cases": 651,
   "checks": {

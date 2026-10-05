@@ -342,7 +342,17 @@ fn quad_numeric_grammar_validates_mantissa_scale_and_machine_exponent() {
     let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
         panic!()
     };
-    assert!(!reason.starts_with("validated"));
+    assert_eq!(reason, "quad scale/exponent construction boundary");
+    for word in [
+        "2.1e_9223372036854775808fq 2fqz",
+        "2fqz 2.1e_9223372036854775808fq",
+    ] {
+        let source = format!("3 + {word}");
+        let error = enqueuer::enqueue(&source).unwrap_err();
+        assert_eq!(error.kind(), "ill-formed number", "{source}");
+        assert_eq!(error.span(), Some(&(4..source.len())));
+        assert_eq!(error.context().unwrap().blame_word_index, Some(2));
+    }
 }
 
 #[test]
@@ -461,5 +471,46 @@ fn nan_parentheses_remain_j_tokens_instead_of_c_nan_payloads() {
             reason, "validated numeric family payload construction",
             "{source}"
         );
+    }
+}
+
+#[test]
+fn exact_hex_polar_ratios_follow_division_zero_sign_and_read_windows() {
+    for source in [
+        "0X1r2ad90",
+        "_0X1r_2ad90",
+        "0X0r_2ad90",
+        "_0X0r0ad90",
+        "0X1r0X2ad90",
+        "_0X1r_0X2ad90",
+        "_0X1P_1074r2ad90",
+        "0X1rINFad90",
+        "0X1r0X0ad90",
+    ] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!("{source}")
+        };
+        assert!(reason.starts_with("validated"), "{source}: {reason}");
+    }
+    for source in [
+        "_0X1r2ad90",
+        "_0X1r0ad90",
+        "0X1r_0ad90",
+        "_0X1P_1074r1ad90",
+        "0X1rNANad90",
+    ] {
+        assert_eq!(
+            enqueuer::enqueue(source).unwrap_err().kind(),
+            "ill-formed number",
+            "{source}"
+        );
+    }
+    for source in ["_0X1P_1075r1ad90", "0X1P9999r0X1P9999ad90"] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!("{source}")
+        };
+        assert!(!reason.starts_with("validated"), "{source}: {reason}");
     }
 }

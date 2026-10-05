@@ -41,7 +41,7 @@ def numeric_cases():
     platform += ['0X10ad90','_0X1ad90','_0X.8ad90',
                  '_0X1P_1074ad90','_0X0ad90','0X0ad90','0Xad90','_0Xad90','0Xb1','_0Xb1','_0X0P0ad90']
     rows += [(w,'platform-reviewed') for w in sorted(set(platform))]
-    rows += [(w,'precision-resource-unknown') for w in ['2.1e_9223372036854775808fq']]
+    rows += [(w,'precision-resource-construction') for w in ['2.1e_9223372036854775808fq']]
     rows += [(w,'platform-rounding-reviewed') for w in ['_0X1P_9999ad90','_0X1P_1075ad90']]
     mantissas = ['0', '1', '1.00000000000001', '1.8', '2', '2.0001', '3', '.8', '.80001',
                  '0001.0000000000', '1.00000000000000000000000000000000000001']
@@ -54,6 +54,16 @@ def numeric_cases():
               '_0X1P_170141183460469231731687303715884105729ad90']]
     rows += [(w,'platform-reviewed') for w in ['1jINFINITY','1jinfinity','1j_nan','1jInfinityr2','1jnanr2']]
     rows += [(w,'platform-nan-formation') for w in ['1jNaN(1)','1jnan()','1jNAN(foo)','1j_nan(1)']]
+    numerators = ['0X0','_0X0','0X1','_0X1','0X1.8','_0X1.8',
+                  '0X1P_1074','_0X1P_1074','0X1P1023','_0X1P1023']
+    denominators = ['0','_0','1','_1','2','_2','0X0','_0X0','0X2','_0X2',
+                    '0X1P_1074','0X1P1023','INF','NAN']
+    rows += [(n + 'r' + d + angle,'platform-ratio-reviewed')
+             for n, d, angle in itertools.product(numerators, denominators, ['ad90','ar1'])]
+    rows += [(w,'platform-ratio-unknown') for w in
+             ['_0X1P_1075r1ad90', '0X1P9999r0X1P9999ad90']]
+    rows += [(w,'precision-reviewed') for w in
+             ['2.1e_9223372036854775808fq 2fqz', '2fqz 2.1e_9223372036854775808fq']]
     return rows
 
 
@@ -89,6 +99,8 @@ def run(args):
                 if actual_error == 'unsupported':
                     if reason and reason.startswith(('validated numeric family', 'validated real-family ratio')):
                         status = 'valid_payload_boundary'
+                    elif reason == 'quad scale/exponent construction boundary':
+                        status = 'quad_construction_boundary'
                     elif reason == 'overflowing integer literal conversion':
                         status = 'integer_conversion_boundary'
                     else:
