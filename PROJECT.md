@@ -1561,7 +1561,7 @@ The independent Scan basis is now a design decision (2026-10-05); implementation
 |---|---|---|
 | Small Graph Basis + composition + witness | Basis layers, Pipeline/Hook/Fork regions and witnessed rewrite seam exist | Avoid a new op for every combination |
 | First-class Scan | Design inventory includes Scan; GraphBasisKind does not. PrefixInfix preserves Window plus operand basis | Commit to an independent Scan basis in the design; recognition, legal transformation and execution remain open |
-| Vertical / horizontal / nested | Pipeline, branch/join and outer-to-inner layers exist | Common composition analysis sidecar and verifier remain open |
+| Vertical / horizontal / nested | GF2 adds a common composition sidecar/verifier over pipeline, branch/join and operand paths | Independence witnesses, noun-left graph specialization and execution integration remain open |
 | Fusion algebra / registry | Witnessed E. rewrite registry and target-feasibility bridge exist | General fusion schema, registration and duplicate/conflict validation remain open |
 | Symbolic Work / Depth | ValueAtoms/Requirement/Sum/Max resource expressions and liveness exist | Computation/dependency-depth domain and transfer rules remain open |
 | Multiversion | Specialization/guard design and runtime baseline exist | Version selection, invalidation and bounded cache are long-term work |
@@ -1585,14 +1585,26 @@ The independent Scan basis is now a design decision (2026-10-05); implementation
 **GF follow-up checklist — preserve M2/M3 and existing A1.5 sequencing**
 - [x] GF0: Audit documentation against GraphBasis implementation and resolve the independent-Scan design decision.
 - [ ] GF1: Reconcile the uploaded original text with this restoration.
-- [ ] GF2: Add an analysis-only CompositionRelation sidecar; regress pipeline, ordinary/capped/noun-left fork, nested rank wiring and observable dependencies.
+- [x] GF2: Add an analysis-only CompositionRelation sidecar and verifier. Regress pipeline/ordinary/capped wiring and observable dependencies, the opaque noun-left boundary, nested rank/window/reduction and Copy Rank's header-only RHS. Actual noun-left h→g graph specialization remains a separate existing follow-up.
 - [ ] GF3: Add Scan identity/contract and a conservative recognizer. Retain Window for general prefix/infix and unknown reducers; compare empty/rank/overflow/float/error behavior against C default/AVX2.
 - [ ] GF4: Extend the witnessed rewrite seam with fusion schema/registry/verifier; distinguish candidate generation from executor support.
 - [ ] GF5: Add symbolic WorkDepthExpr and node/region transfers; verify ordered fork, unknown extents/operators, empty/singleton, nesting and duplicated fan-out.
 - [ ] GF6: Connect selection/partition only for executable lowering with lifetime/resource/cost comparison.
 - [ ] GF7: Advance multiversion, streaming and inspector-executor as long-term stages.
 
-**Validation limit:** documentation contracts/checklists only. Local execution failed, so no new Rust/Python/C checks ran. Historical test counts are not validation of this change.
+**Initial documentation validation limit:** `e0204d6`/`aba88ff` changed contracts/checklists only; no new Rust/Python/C checks ran then. GF2 validation below is a separate run.
+
+<a id="gf2-composition-review"></a>
+
+**GF2 code review and implementation — 2026-10-05.** Changes from `b00f226` to `aba88ff` affect only the two PROJECT documents. Compare the new contracts with j_graph_ir, graph memory/resource/rewrite and frontend FunctionEntity. Implement the analysis-only composition seam first; GF3–GF7 Scan/fusion/WorkDepth/execution selection remain open, following FOUNDATIONS' graph/execution separation.
+
+- `src/j_graph_composition.rs` and `Plan::composition_analysis()` derive relations from verified J graphs. Vertical records producer/consumer ValueIds and Left/Right input occurrences. HorizontalCandidate records ordinary-fork region/input/branch identities without proving independence. ObservableOrder preserves constructor subtype, whole-child-invocation completion order and live-across values. Use counts follow `Plan::use_counts()`, including result/write consumers.
+- Nested references the applied owner and original FunctionEntity operand paths for rank/cell, reduction and prefix/window boundaries. It invents no inner applied ValueIds and authorizes no flattening. Copy Rank's right function supplies a constructor header; its body is not a nested computation of the call.
+- Review found that opaque noun-left Modifier forms inherited ordinary-fork ParallelBranch/BranchJoin hints. Remove them and record a RetainedNounBoundary referencing the original snapshot operand. Capped forks remain Pipeline/CappedFork; ordinary forks preserve h→f→g. Noun-left boundaries invent no f invocation; the original entity still owns the snapshot.
+- The sidecar verifier checks the original graph, then re-derives relations to reject extra/missing/stale edges, slots, order, constructors, nested paths and fan-out. Unknown branch effect/error facts retain ObservableOrder. This is not a binding guard, parallelism legality proof or physical schedule.
+- Seven new regressions cover pipeline wiring, unknown-function fork order/fan-out, capped/noun-left distinction, nested rank/window/reduction, repeated input slots, Copy Rank RHS and corrupted sidecars/graphs. The C basis is pinned `jsrc/cf.c::jtfolk`'s nvv/vvv/capped distinction and the existing two-DLL frontend differential corpus; no new private C trace equivalence is claimed.
+
+**GF2 validation:** native Windows default/portable each **442 passed / 17 ignored**, fmt/clippy/build passed; Python **27 passed**. For each j64/AVX2 DLL, all three runtime routes report **5,380 cases / 5,380 passed / failed 0**, stages **10,810 checks / failed 0**, words **6,623 / failed 0**. Vocabulary checks cover 143 POS classifications from 145 candidates, 140 bare-function bindings/ARs and 3 noun payloads, with zero coverage gaps and two code-only rejections. Capture graph boundaries **257** and static boundaries **2** remain separate. A native verifier confirmed binary/source/DLL hashes in all twelve reports. Source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` are distinct. This gate does not establish optimizer/parallel scheduling/CUDA/full-upstream equivalence. No Linux tests or GitHub CI ran.
 
 ## 7.3 Syntax-derived graph optimization hints
 

@@ -9214,7 +9214,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 |---|---|---|
 | 작은 Graph Basis + composition + witness | basis layers, Pipeline/Hook/Fork region, witnessed rewrite seam 있음 | 조합별 새 op를 증식시키지 않는다 |
 | first-class Scan | 설계 inventory에는 존재하지만 GraphBasisKind에는 없음. PrefixInfix는 Window와 operand basis를 보존 | 독립 Scan basis를 설계상 확정. 인식·법적 변환·실행 구현은 별도 미완료 |
-| vertical / horizontal / nested | pipeline, branch/join, outer-to-inner layers 있음 | 공통 composition 분석 sidecar와 verifier 미구현 |
+| vertical / horizontal / nested | GF2의 공통 composition 분석 sidecar/verifier 추가; pipeline, branch/join 및 operand path 보존 | 법적 독립성 witness, noun-left graph 전문화와 실행 연결은 후속 |
 | fusion algebra / registry | 기존 witnessed E. rewrite registry와 target-feasibility 연결 있음 | 일반 fusion rule schema·등록·충돌/중복 검증 미구현 |
 | symbolic Work / Depth | ValueAtoms/Requirement/Sum/Max resource 식과 liveness 있음 | 계산량/의존 깊이 도메인과 전이 규칙 미구현 |
 | multiversion | specialization/guard 설계와 runtime baseline 있음 | 버전 선택·무효화·bounded cache 구현은 장기 후속 |
@@ -9238,14 +9238,26 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 **GF 후속 체크리스트 — M2/M3 및 기존 A1.5 순서를 유지**
 - [x] GF0: 선행연구 설명과 실제 GraphBasis 코드의 차이를 감사하고 Scan의 독립 basis 설계 결정을 정정한다.
 - [ ] GF1: 업로드 원문을 대조하고 위 복원 내용의 누락/차이를 확인한다.
-- [ ] GF2: analysis-only CompositionRelation sidecar를 추가하고 pipeline/ordinary/capped/noun-left fork 및 nested rank의 wiring·observable dependency를 회귀 검증한다.
+- [x] GF2: analysis-only CompositionRelation sidecar와 verifier를 추가했다. pipeline/ordinary/capped fork의 wiring·observable dependency, noun-left 미전개 경계, nested rank/window/reduction 및 Copy Rank의 header-only RHS를 회귀 검증한다. noun-left의 실제 h→g graph 전문화는 기존 후속 항목이며 이번 완료에 포함하지 않는다.
 - [ ] GF3: Scan identity/contract와 conservative recognizer를 추가한다. 일반 prefix/infix 및 unknown reducer는 Window로 유지하고 C 기본·AVX2와 empty/rank/overflow/float/error 차분을 확인한다.
 - [ ] GF4: 기존 witnessed rewrite seam 위에 fusion rule schema/registry/verifier를 연결한다. candidate 생성만 검증하고 executor 지원과 구별한다.
 - [ ] GF5: symbolic WorkDepthExpr와 node/region transfer를 추가한다. effect-ordered fork, unknown extent/operator, empty/singleton, nested composition과 fan-out duplication을 검증한다.
 - [ ] GF6: 실행 가능한 lowering과 lifetime/resource/cost 비교가 갖춰진 후보만 선택/partition에 연결한다.
 - [ ] GF7: multiversion·streaming·inspector-executor는 별도 장기 단계로 진행한다.
 
-**검증 한계:** 이번 변경은 문서 계약/체크리스트만 수정한다. 로컬 실행 환경 오류로 Rust/Python/C 검증을 새로 실행하지 못했다. 기존 보고 수치는 이번 변경의 검증 결과로 재사용하지 않는다.
+**최초 문서 변경의 검증 한계:** `e0204d6`/`aba88ff`는 문서 계약/체크리스트만 수정했고 당시 새 Rust/Python/C 검증을 실행하지 못했다. 아래 GF2 검증은 별도 실행 결과다.
+
+<a id="gf2-composition-review"></a>
+
+**GF2 코드 리뷰 및 구현 — 2026-10-05.** `b00f226`→`aba88ff`의 변경은 PROJECT 두 문서에 한정된다. 새 계약을 `j_graph_ir`, graph memory/resource/rewrite, frontend FunctionEntity와 대조했다. 당장 구현한 범위는 analysis-only composition seam이며 GF3–GF7의 Scan/fusion/WorkDepth/실행 선택을 완료로 표시하지 않는다. FOUNDATIONS의 graph/execution 분리 원칙을 따른다.
+
+- `src/j_graph_composition.rs` 및 `Plan::composition_analysis()`는 verified J graph로부터 관계를 파생한다. Vertical은 producer/consumer ValueId와 Left/Right **입력 occurrence**를 기록한다. HorizontalCandidate는 ordinary fork의 region/input/branch identity를 기록하며 독립성 증명이 아니다. ObservableOrder는 region constructor, 전체 child invocation 완료 순서와 live-across를 보존한다. use-count는 result/write 소비를 포함한 기존 `Plan::use_counts()` 기준이다.
+- Nested는 applied owner ValueId와 원래 FunctionEntity의 operand path로 rank/cell·reduction·prefix/window 경계를 참조한다. inner applied ValueId를 만들어 내거나 flattening을 허용하지 않는다. Copy Rank의 RHS 함수는 constructor header 공급원이므로 RHS 본문을 nested computation으로 열거하지 않는다.
+- 리뷰에서 noun-left fork를 generic Modifier로 남기면서 ordinary fork의 ParallelBranch/BranchJoin 힌트를 전달하는 오류를 발견했다. 해당 힌트를 제거하고 RetainedNounBoundary로 미전개 noun snapshot operand를 참조한다. capped fork는 Pipeline/CappedFork, ordinary fork는 h→f→g이며 noun-left에는 가짜 f 호출을 만들지 않는다. snapshot 저장은 원래 entity가 소유한다.
+- sidecar verifier는 원본 graph verifier를 먼저 호출하고 관계를 재유도해 extra/missing/stale edge·input slot·order·constructor·nested path·fan-out 차이를 거부한다. effect/error가 Unknown인 branch도 ObservableOrder를 유지한다. 이것은 binding guard, legal parallelism proof 또는 physical schedule이 아니다.
+- 신규 회귀 7개는 pipeline wiring, unknown-function fork 순서와 fan-out, capped/noun-left 구분, nested rank/window/reduction, repeated input slots, Copy Rank RHS 및 손상된 sidecar/graph 거부를 검사한다. C oracle 근거는 pinned `jsrc/cf.c::jtfolk`의 nvv/vvv/capped 구분과 기존 양 DLL frontend 차분 corpus다. 새 private C trace 동등성을 주장하지 않는다.
+
+**GF2 검증:** native Windows default/portable 각각 **442 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stage **10,810 checks / failed 0**, words **6,623 / failed 0**. vocabulary는 145 후보 중 143 POS, 140 bare-function binding/AR, 3 noun payload를 확인했으며 coverage 0/code-only rejected 2다. capture graph 경계 **257건**과 static 경계 **2건**은 별도다. 보고서 12개의 binary/source/DLL hash를 native 검증기로 확인했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. 실행 optimizer/parallel scheduling/CUDA/전체 upstream 동등성은 이 게이트의 검증 대상이 아니다. Linux/GitHub CI는 실행하지 않았다.
 
 #### A1.5.1 과거 JAXA 역대조 감사
 

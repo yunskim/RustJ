@@ -755,7 +755,10 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
                         head: function.head.clone(),
                         operands: function_operands(function),
                     },
-                    hints,
+                    // A noun-left fork has a retained noun and one computational branch,
+                    // not two common-input branches. Keep the opaque boundary
+                    // until its graph specialization is implemented.
+                    GraphHints::default(),
                 );
             };
             GraphForm::Fork {
@@ -1286,6 +1289,13 @@ impl Plan {
     pub fn symbolic_resource_analysis(&self) -> crate::j_graph_resource::GraphResourceSummary {
         let memory = self.static_memory_analysis();
         crate::j_graph_resource::analyze(self, &memory)
+    }
+
+    /// Analysis-only overlapping composition relations. No scheduling license.
+    pub fn composition_analysis(
+        &self,
+    ) -> std::result::Result<crate::j_graph_composition::CompositionAnalysis, String> {
+        crate::j_graph_composition::CompositionAnalysis::from_plan(self)
     }
 
     pub fn use_counts(&self) -> Vec<usize> {

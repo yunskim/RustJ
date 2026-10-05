@@ -10,7 +10,7 @@
     "jsrc/v.c": "c44f0ae76db03dec81d43a61d57f4293296ca2c97a8008709914614ce0a33ae8"
   },
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "745f44a57ac7805259c2f0b9ae4acdabe384f23a4eba699658b8ed6f2cee9a83",
+  "binary_sha256": "bd6613812eee7b500dd9ac35d9234912a117bbf6eac91e31bd5895e81cfa68b7",
   "scope": "core spelling candidates from pinned ws.c plus finite/infinite constant functions; not full runtime coverage or a live NuVoc scraper",
   "parser_binding_checks": 140,
   "noun_payload_checks": 3,
