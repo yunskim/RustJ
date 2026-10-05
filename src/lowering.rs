@@ -251,7 +251,7 @@ fn execution_basis_for_graph_basis(
         G::StaticReindex => Some(E::StaticReindex),
         G::DynamicGather => Some(E::Gather),
         G::Search => Some(E::LookupClassify),
-        G::Structured => None,
+        G::Structured | G::Scan => None,
     }
 }
 

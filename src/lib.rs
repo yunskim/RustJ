@@ -22,6 +22,7 @@ pub mod j_graph_ir;
 pub mod j_graph_memory;
 pub mod j_graph_resource;
 pub mod j_graph_rewrite;
+pub mod j_graph_scan;
 pub mod kernels;
 pub mod logical_executor;
 pub mod logical_ir;

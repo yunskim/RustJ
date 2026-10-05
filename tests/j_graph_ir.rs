@@ -172,8 +172,8 @@ fn prefix_infix_exposes_window_graph_basis_without_collapsing_inner_reduction() 
         SymbolicResourceExpr::WindowWorkingSet
     );
 
-    // Scan is intentionally not asserted as a separate Graph Basis yet.
-    // Historical JAXA treated that as an open basis-taxonomy question.
+    // Scan candidates require numeric/call witnesses. An arbitrary Int input
+    // keeps the original Window -> Reduce graph (overflow is not proven).
     graph.verify().unwrap();
 }
 

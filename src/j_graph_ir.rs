@@ -32,7 +32,7 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 8 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 9 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -167,6 +167,9 @@ pub enum GraphBasisKind {
     /// Prefix/window access family. The operand identity remains separate, so
     /// e.g. `(+/)\` becomes Window -> Reduce rather than a fused special case.
     Window,
+    /// Inclusive scan identity in a witnessed analysis candidate. The source
+    /// PrefixInfix graph remains intact; this grants no executable lowering.
+    Scan,
     /// Compile-time-known index remapping such as transpose/reshape/reverse.
     StaticReindex,
     /// Data-dependent indexed access such as general gather.
@@ -1296,6 +1299,10 @@ impl Plan {
         &self,
     ) -> std::result::Result<crate::j_graph_composition::CompositionAnalysis, String> {
         crate::j_graph_composition::CompositionAnalysis::from_plan(self)
+    }
+
+    pub fn scan_analysis(&self) -> std::result::Result<crate::j_graph_scan::ScanAnalysis, String> {
+        crate::j_graph_scan::ScanAnalysis::from_plan(self)
     }
 
     pub fn use_counts(&self) -> Vec<usize> {

@@ -65,5 +65,10 @@ foreach ($library in $libraries) {
         '--binary', 'target/windows-validation/debug/examples/frontend_probe.exe',
         '--source-directory', $sourceDirectoryPath, '--source-revision', $SourceRevision,
         '--reference-revision', $ReferenceRevision, '--report', "reports/vocabulary-$variant-windows.json")
+    Write-Output "START $variant scan-contract"
+    Invoke-FrontendCheck $Python @('tools/scan_contract_conformance.py',
+        '--binary', 'target/windows-validation/debug/examples/scan_contract_probe.exe',
+        '--source-directory', $sourceDirectoryPath, '--source-revision', $SourceRevision,
+        '--reference-revision', $ReferenceRevision, '--report', "reports/scan-$variant-contract-windows.json")
 }
 Write-Output 'WINDOWS_FRONTEND_VALIDATION_SUCCESS'

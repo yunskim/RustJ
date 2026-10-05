@@ -1469,7 +1469,7 @@ A fixed-shape parallel map may replace it only after the necessary uniformity pr
 
 J Graph IR preserves algebraic graph structure for reasoning before execution-specific normalization erases useful J structure.
 
-Current schema: **v0.3**.
+Current schema: **v0.9**. GF2/GF3 add composition and witnessed Scan identity analysis; source Window graphs and execution boundaries remain intact.
 
 It includes:
 
@@ -1545,7 +1545,7 @@ Reduce
 
 rather than being collapsed into one opaque special case.
 
-The independent Scan basis is now a design decision (2026-10-05); implementation and conservative recognition remain open under GF3.
+The independent Scan basis is now a design decision (2026-10-05); GF3 now adds initial Boolean identity candidates; broader recognition remains under GF3a and execution remains separate.
 
 ---
 
@@ -1555,12 +1555,12 @@ The independent Scan basis is now a design decision (2026-10-05); implementation
 
 #### 2026-10-05 prior-art follow-up: small basis and composition algebra
 
-**Audit baseline:** documentation and `src/j_graph_ir.rs` at GitHub main `b00f2263decb4777e84f7670cc3bbd2536618f80`. The preceding prior-art documentation commit is `84b8546`. These are design contracts, not implementation completion claims. The uploaded `붙여넣은 텍스트(1).txt` could not be read because local path/execution tools failed; this restoration uses the retrieved conversation and the user's explicit follow-up list. Attachment reconciliation remains open.
+**Audit baseline:** documentation and `src/j_graph_ir.rs` at GitHub main `b00f2263decb4777e84f7670cc3bbd2536618f80`. The preceding prior-art documentation commit is `84b8546`. The initial audit recorded design contracts, not implementation completion claims; GF2/GF3 implementation and validation are recorded separately below. The uploaded `붙여넣은 텍스트(1).txt` could not be read because local path/execution tools failed; this restoration uses the retrieved conversation and the user's explicit follow-up list. Attachment reconciliation remains open.
 
 | Item | Verified state | Decision / remaining implementation |
 |---|---|---|
 | Small Graph Basis + composition + witness | Basis layers, Pipeline/Hook/Fork regions and witnessed rewrite seam exist | Avoid a new op for every combination |
-| First-class Scan | Design inventory includes Scan; GraphBasisKind does not. PrefixInfix preserves Window plus operand basis | Commit to an independent Scan basis in the design; recognition, legal transformation and execution remain open |
+| First-class Scan | GF3 adds independent GraphBasisKind::Scan with Boolean atomic-prefix identity candidates/verifier; source Window→operand survives | Numeric/rank/representation extension and execution/reassociation/parallel-prefix authorization remain open |
 | Vertical / horizontal / nested | GF2 adds a common composition sidecar/verifier over pipeline, branch/join and operand paths | Independence witnesses, noun-left graph specialization and execution integration remain open |
 | Fusion algebra / registry | Witnessed E. rewrite registry and target-feasibility bridge exist | General fusion schema, registration and duplicate/conflict validation remain open |
 | Symbolic Work / Depth | ValueAtoms/Requirement/Sum/Max resource expressions and liveness exist | Computation/dependency-depth domain and transfer rules remain open |
@@ -1586,7 +1586,8 @@ The independent Scan basis is now a design decision (2026-10-05); implementation
 - [x] GF0: Audit documentation against GraphBasis implementation and resolve the independent-Scan design decision.
 - [ ] GF1: Reconcile the uploaded original text with this restoration.
 - [x] GF2: Add an analysis-only CompositionRelation sidecar and verifier. Regress pipeline/ordinary/capped wiring and observable dependencies, the opaque noun-left boundary, nested rank/window/reduction and Copy Rank's header-only RHS. Actual noun-left h→g graph specialization remains a separate existing follow-up.
-- [ ] GF3: Add Scan identity/contract and a conservative recognizer. Retain Window for general prefix/infix and unknown reducers; compare empty/rank/overflow/float/error behavior against C default/AVX2.
+- [x] GF3: Add first-class Scan basis and Boolean Add/Multiply insert-prefix identity/contract witnesses with conservative recognition. Retain original Window→operand and compare general prefix/infix, unknown reducer and numeric/rank boundaries with C default/AVX2. This does not claim executable prefix support.
+- [ ] GF3a: Extend recognition to integer/float, general reducers, nested rank and sparse with relevant value-property/rank/representation witnesses; Unknown is not proof.
 - [ ] GF4: Extend the witnessed rewrite seam with fusion schema/registry/verifier; distinguish candidate generation from executor support.
 - [ ] GF5: Add symbolic WorkDepthExpr and node/region transfers; verify ordered fork, unknown extents/operators, empty/singleton, nesting and duplicated fan-out.
 - [ ] GF6: Connect selection/partition only for executable lowering with lifetime/resource/cost comparison.
@@ -1605,6 +1606,20 @@ The independent Scan basis is now a design decision (2026-10-05); implementation
 - Seven new regressions cover pipeline wiring, unknown-function fork order/fan-out, capped/noun-left distinction, nested rank/window/reduction, repeated input slots, Copy Rank RHS and corrupted sidecars/graphs. The C basis is pinned `jsrc/cf.c::jtfolk`'s nvv/vvv/capped distinction and the existing two-DLL frontend differential corpus; no new private C trace equivalence is claimed.
 
 **GF2 validation:** native Windows default/portable each **442 passed / 17 ignored**, fmt/clippy/build passed; Python **27 passed**. For each j64/AVX2 DLL, all three runtime routes report **5,380 cases / 5,380 passed / failed 0**, stages **10,810 checks / failed 0**, words **6,623 / failed 0**. Vocabulary checks cover 143 POS classifications from 145 candidates, 140 bare-function bindings/ARs and 3 noun payloads, with zero coverage gaps and two code-only rejections. Capture graph boundaries **257** and static boundaries **2** remain separate. A native verifier confirmed binary/source/DLL hashes in all twelve reports. Source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` are distinct. This gate does not establish optimizer/parallel scheduling/CUDA/full-upstream equivalence. No Linux tests or GitHub CI ran.
+
+<a id="gf3-scan-identity"></a>
+
+**GF3 Scan identity and conservative recognition — 2026-10-05.** `src/j_graph_scan.rs` / `Plan::scan_analysis()` derive independent GraphBasisKind::Scan candidates with ExactBooleanAtomicPrefixV1 witnesses from verified J graphs. Registry remains 8; extend the enum vocabulary with Graph IR schema **0.9**. Preserve the original PrefixInfix FunctionEntity, span, valence, input ValueId and Window→Reduce basis. Candidate output facts remain separate and are not injected into execution lowering. `execution_basis_for_graph_basis(Scan)` returns None, granting no execution capability.
+
+- **Initial proof scope:** direct monadic PrefixInfix of Insert with an operand-free core Add/Multiply reducer, exact Boolean input dtype, consistent shape/rank and checked atom extent. Each Boolean sum lane is bounded by the leading-item count, which must fit i64; Boolean products stay in {0,1}. NameRefs, arbitrary verbs/reducers and Int/Float/boxed/unknown inputs gain no witness. Recognition reads no array payload and copies no large noun to prove legality.
+- **Prefix/assembly:** inclusive leading-axis prefix lengths are 1..n with no artificial identity. Scalars produce shape [1]. Zero/one items or zero total atoms preserve input atoms/type, matching C atomic scan. Singleton/empty Boolean sums therefore remain Bool; nonempty n≥2 sums produce Int. Boolean products remain Bool. Dyadic infix and nested calls lacking effective-rank/cell/frame/assembly facts retain explicit analysis boundaries.
+- **Effects/errors/numerics:** inspect actual bare core identity and Boolean closure/overflow bounds, without guessing associativity from spelling or arbitrary reducers. Insert no new reducer/identity call on scalar/empty/singleton paths. Preserve source order with `parallel_prefix_authorized=false`. Float accumulation order, integer retry/promotion, name/locale effects, sparse/representation conditions and general rank assembly need separate proofs. The witness applies to this verified plan's input facts/provenance and does not replace execution-time binding/metadata guards.
+- **Verification:** validate the source graph, then re-derive contracts, source/input/span, basis, facts, witness and boundaries to reject stale/missing/forged values. Four Rust regressions cover short/scalar/matrix cases, general prefix/infix/numeric/NameRef/rank boundaries, forged parallel permission/dtype/span and unknown/inconsistent/overflow extents.
+- **C differential scope:** add `tools/scan_contract_conformance.py` and `examples/scan_contract_probe.rs` to the Windows runner. Separate **274 identity/type/shape checks** (all Boolean patterns of lengths 0..6, scalar, empty/matrix/3D shapes) from **11 rejected analysis checks** (general prefix/infix/rank, integer overflow, float cancellation/signed zero/infinity, char and boxed). Compare C values with an independent exact Boolean model. Report all **285 runtime prefix boundaries** and **executable prefix passes 0** separately; Unsupported is never an executable equivalence pass. Rejected numeric/error results are C oracle observations, not Rust prefix execution equivalence.
+
+**Sources:** reviewed [ap.c::jtbslash/jtpscan and Boolean prefix kernels](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c), [atomic type dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c), [insert semantics](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c). Keep source pin distinct from actual DLL release. Follow FOUNDATIONS' graph/execution separation and J rank/error preservation.
+
+**GF3 validation:** native Windows default/portable each **446 passed / 17 ignored**, fmt/clippy/build passed; Python **30 passed**. Each j64/AVX2 Scan report has **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**, with **285 runtime prefix boundaries / executable prefix passes 0** separate. Existing three runtime routes each retain **5,380 cases / 5,380 passed / failed 0**; stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/nouns **3**, all failed 0. Existing capture graph boundaries **257** and static boundaries **2** remain separate. A native verifier confirmed binary/source/DLL hashes in all fourteen reports. Source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` are distinct. No Linux tests, GitHub CI, CUDA or new executable optimizer ran.
 
 ## 7.3 Syntax-derived graph optimization hints
 
