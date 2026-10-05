@@ -7749,6 +7749,16 @@ Windows name differential에 254/255/256/257, 32766/32767 경계, direct/indirec
 
 **NV3c 검증:** native Windows default/portable 각각 **467 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 name syntax **4,125 cases / failed 0**: simple name **1,135**, valid Unsupported name **1,927**, invalid name **1,022**, length limit **40**, spelling precedence **1**. 기존 4,030건에 길이/우선순위 fixture **95건**을 추가했다. spelling **667 / failed 0**, vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 전체 보고서 18개의 binary/source/DLL hash를 확인했다. lexical/길이 비교는 locale runtime 성공을 뜻하지 않는다. Linux/GitHub CI/CUDA는 실행하지 않았다.
 
+<a id="nv3d1-numeric-recognition"></a>
+
+**NV3d1 숫자 word 문맥과 오류 검증 — 2026-10-05.** `src/numeric_input.rs`는 enqueue에서 `wn.c::numcase/connum`의 whole-word dispatch를 검증한다. numeric list의 모든 field가 공유하는 complex/based·extended integer·rational·precision 선택을 보존한다. 한 field만 따로 해석하면 `1x`와 `1.0 1x`, `1j2 1x`, `2b10 1x`의 차이를 놓친다. suffix/operand·rational infinity·rectangular/polar complex·based digit·p/x exponent 표기를 검증한 뒤 실제 malformed word는 ill-formed number로 보고한다. 숫자 family 문자 하나의 존재만으로 Unsupported를 선택하던 heuristic은 제거했다. `1xr2`는 C의 `numfd`가 `r2`의 생략된 numerator를 0으로 읽으므로 valid임을 회귀에 포함한다.
+
+검증 상태 Valid/Invalid/Unknown을 구분한다. 검증된 extended/rational/complex/based 표기의 payload 생성은 아직 Unsupported이다. precision과 플랫폼-specific `strtod` hex/NaN payload 등 완전히 검증하지 않은 문법도 별도 Unsupported reason을 유지하며 Invalid로 추측하지 않는다. half/single 및 일부 quad 조합은 supplied C 자체의 nonce boundary이므로 C 성공 또는 J spelling/number 오류로 세지 않는다. 일반 integer/decimal은 기존 constructor로 바로 넘기므로 추가 float parse/normalized string allocation을 하지 않는다. 잘못된 숫자의 enqueue phase·word index·span을 유지하며 runtime target/array IR/physical allocation 정보를 숫자 문법에 도입하지 않는다.
+
+`tools/numeric_syntax_conformance.py`가 scalar 표기와 교차 numeric lists, 잘못된 suffix/missing operand, infinity, 64-bit overflow, colon spelling 우선순위, precision/platform boundaries를 양 DLL과 비교한다. accepted noun controls, verified lexical errors, valid payload boundaries, unresolved recognition/error boundaries, C reference precision boundaries를 분리한다. latter boundaries는 정확한 오류 비교 pass 또는 numeric payload 실행 지원이 아니다. 표준 Windows runner에 추가하고 `wn.c`/`w.c`/`ws.c`/`jerr.h` 및 실제 binary/DLL hash를 보고서에 보존한다.
+
+**NV3d1 검증:** native Windows default/portable 각각 **469 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **1,099 cases / failed 0**: accepted noun controls **110**, lexical error equality **652**, valid payload 경계 **327**, unresolved recognition **5**, C reference precision **4**, unresolved error **1**. 마지막 경계 1건은 C의 ill-formed number와 Rust의 Unknown/Unsupported 차이를 보존한 미완료 검증이며 pass로 바꾸지 않는다. 기존 name syntax **4,125 / failed 0**, spelling **667 / failed 0**, vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 전체 보고서 20개의 binary/source/DLL hash를 확인했다. numeric syntax 검증은 exact/complex/based payload 실행이나 full precision 성공을 뜻하지 않는다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
 <a id="vocabulary-migration-checklist"></a>
 
 ### NV — 현재 J vocabulary 수렴
@@ -7763,6 +7773,8 @@ Windows name differential에 254/255/256/257, 32766/32767 경계, direct/indirec
 - [x] **NV3b** bounded direct/indirect/debug-frame/by-value 이름 문법을 shared enqueue에서 검증한다. valid lookup은 Unsupported이며 NAME 길이 제한은 NV3c에서 다루고 locale 실행·numeric grammar를 남긴다.
 - [x] **NV3c** NAME 전체·simple-name·locale storage 길이 제한과 enqueue 오류 우선순위를 C `nfs` 및 양 Windows DLL로 검증했다.
 - [ ] **NV3d** numeric grammar의 valid 미지원 family와 실제 ill-formed number를 C `connum`/`wn.c`로 구별한다.
+- [x] **NV3d1** whole-word numeric family 선택과 검증된 extended/rational/complex/based 표기의 오류를 일반화했다. payload 생성 미지원과 문법 Unknown을 구분한다.
+- [ ] **NV3d2** dedicated quad grammar·플랫폼별 `strtod` 확장 및 숫자 construction의 resource/error 경계를 검증한다. Unknown 문법을 실제 Invalid로 추측하지 않는다.
 - [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
 - [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
 

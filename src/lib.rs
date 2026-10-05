@@ -31,6 +31,7 @@ pub mod logical_executor;
 pub mod logical_ir;
 pub mod lowering;
 mod numeric;
+mod numeric_input;
 pub mod opportunity;
 pub mod parser;
 pub mod parser_capture;

@@ -253,3 +253,45 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
         }
     }
 }
+
+#[test]
+fn numeric_families_are_validated_in_whole_word_context_before_unsupported_payloads() {
+    for source in [
+        "1x", "1j2", "2r3", "1xr2", "2b102", "2ad90", "2ar1", "1p2", "2x3", "1x 2", "1x 2r3",
+        "1r2 3x", "_r", "_r_3", "2r__", "1.5 2r3", "1j2 1r2",
+    ] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        assert_eq!(error.kind(), "unsupported", "{source}");
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!()
+        };
+        assert!(reason.contains("validated"), "{source}: {reason}");
+    }
+    for word in [
+        "1xx", "1j", "1jj2", "2r", "2rr3", "2r3x", "2b", "2b.", "2b_", "2ad", "_2ad90", "1ax2",
+        "1p", "1z", "1f", "1.0 1x", "1j2 1x", "2b10 1x", "1E3 2r3",
+    ] {
+        let source = format!("2 + {word}");
+        let error = enqueuer::enqueue(&source).unwrap_err();
+        assert_eq!(error.kind(), "ill-formed number", "{word}");
+        assert_eq!(error.span(), Some(&(4..source.len())));
+        assert_eq!(error.context().unwrap().blame_word_index, Some(2));
+    }
+}
+
+#[test]
+fn precision_and_platform_specific_numeric_grammar_keep_explicit_unknown_boundaries() {
+    for source in ["2fq", "2fs", "2fh", "1j0X10"] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        assert_eq!(error.kind(), "unsupported", "{source}");
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!()
+        };
+        assert!(!reason.starts_with("validated"), "{source}: {reason}");
+    }
+    for source in [
+        "123", "_123", "1.25", "1e_2", "1E2", "_", "__", "_.", "1 2 3",
+    ] {
+        enqueuer::enqueue(source).unwrap();
+    }
+}

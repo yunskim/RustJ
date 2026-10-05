@@ -77,12 +77,10 @@ fn numeric_text(s: &str) -> Cow<'_, str> {
 }
 
 fn numeric_failure(s: &str) -> Error {
-    // wn.c::numcase recognizes these alternate families. Do not report a J
-    // lexical error just because RustJ has not implemented their constructors.
-    if s.bytes()
-        .any(|b| matches!(b, b'a' | b'b' | b'j' | b'p' | b'r' | b'x' | b'f'))
-    {
-        Error::Unsupported(format!("numeric literal {s}"))
+    // Whole-word validation already chose the C numeric conversion mode.
+    // A real-mode ratio can be valid while its payload conversion is pending.
+    if s.contains('r') {
+        Error::Unsupported(format!("validated real-family ratio conversion {s}"))
     } else {
         Error::IllFormedNumber
     }
@@ -253,6 +251,7 @@ fn interpret_word<'a>(
     }
 
     if numeric {
+        crate::numeric_input::validate(word)?;
         let fields = word.split_ascii_whitespace().count();
         let is_float = word
             .split_ascii_whitespace()
