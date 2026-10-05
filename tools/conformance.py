@@ -201,6 +201,17 @@ def modifier_scope_cases():
     ]
 
 
+def nuvoc_selector_cases():
+    return ['2 [. 3', '2 ]. 3', '2 ]:', '2 [. +', '+ ]. 3',
+            '(1+2) [. (3*4)', '(1+2) ]. (3*4)', '((1+2) ]. (3*4)) ]:',
+            '(+ [. -) 7', '(+ ]. -) 7', '(+ ]:) 7', '3 (+ [. -) 7',
+            'nsright=:-', 'nsf=:+ ]. nsright', 'nsf 7', 'nsright=:+', 'nsf 7',
+            'nsright=:9', 'nsf 7', 'nsnoun=:9', 'nsg=:nsnoun [. +', 'nsnoun=:3', 'nsg',
+            'nscount=:0', '2 [. (nscount=:3)', 'nscount', '2 [. (1 2+1 2 3)', 'nscount',
+            'nsc=:(]: [.)', 'nsf=:+nsc-', 'nsf 7', 'nsc=:(]: ].)', 'nsf=:+nsc-', 'nsf 7',
+            'nsa=:(]: ]:)', 'nsf=:+nsa', 'nsf 7']
+
+
 VERB_RANK_PRIMITIVES = ['+', '-', '*', '%', '$', '$.', '#', ',', '=', '<', '>', '{', '|',
                         'i.', '|.', '|:', '{.', '}.', 'i:', 'I.', 'e.', 'E.', 'u.', 'v.', '[:']
 VERB_RANK_DERIVED = ['+/', '+\\', '+"_1', '+"_1 0 1', '+@:-', '+ -', '+ % #', '[: + -',
@@ -883,6 +894,7 @@ def cases():
     fixed.extend(noun_fork_cases())
     fixed.extend(capped_fork_cases())
     fixed.extend(verb_rank_cases())
+    fixed.extend(nuvoc_selector_cases())
     fixed.extend(definition_flow_cases())
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())

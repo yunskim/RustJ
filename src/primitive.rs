@@ -1,7 +1,7 @@
 //! Canonical IDs for the currently recognized primitive spellings.
 //! IDs denote a J symbol, not a valence or a physical kernel.
 
-pub const REGISTRY_VERSION: u32 = 6;
+pub const REGISTRY_VERSION: u32 = 7;
 macro_rules! primitives {
     ($($id:ident => $spelling:literal),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -68,12 +68,15 @@ pub enum AdverbId {
     /// J prefix/infix adverb `\`. The derived verb keeps the adverb
     /// identity; monadic prefix vs dyadic infix is resolved at application.
     PrefixInfix,
+    /// Ident `]:` returns its noun or verb operand without invoking it.
+    Ident,
 }
 impl AdverbId {
     pub fn from_spelling(s: &str) -> Option<Self> {
         match s {
             "/" => Some(Self::Insert),
             "\\" => Some(Self::PrefixInfix),
+            "]:" => Some(Self::Ident),
             _ => None,
         }
     }
@@ -81,6 +84,7 @@ impl AdverbId {
         match self {
             Self::Insert => "/",
             Self::PrefixInfix => "\\",
+            Self::Ident => "]:",
         }
     }
 }
@@ -88,13 +92,18 @@ impl AdverbId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ConjunctionId {
     Rank,
+    /// Historical internal name: spelling `@:` is NuVoc At, not rank-sensitive `@` Atop.
     Atop,
+    Lev,
+    Dex,
 }
 impl ConjunctionId {
     pub fn from_spelling(s: &str) -> Option<Self> {
         match s {
             "\"" => Some(Self::Rank),
             "@:" => Some(Self::Atop),
+            "[." => Some(Self::Lev),
+            "]." => Some(Self::Dex),
             _ => None,
         }
     }
@@ -102,6 +111,8 @@ impl ConjunctionId {
         match self {
             Self::Rank => "\"",
             Self::Atop => "@:",
+            Self::Lev => "[.",
+            Self::Dex => "].",
         }
     }
 }

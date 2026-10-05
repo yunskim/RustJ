@@ -13,7 +13,7 @@
 
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **최신 검증:** verb-valued rank 반환 경계 단계의 Windows default/portable 각각 426 passed / 17 ignored, C 기본·AVX2의 세 runtime 경로 각각 5,331 cases / failed 0. capture graph 250건과 static 2건의 경계는 별도이며 full J/upstream 통과를 뜻하지 않는다. 세부 기록은 §10, 최신 요약은 §12를 따른다.
+- **최신 검증:** 현재 vocabulary/선택 modifier 단계의 Windows default/portable 각각 431 passed / 17 ignored, C 기본·AVX2의 세 runtime 경로 각각 5,368 cases / failed 0. capture graph 254건과 static 2건의 경계는 별도이며 full J/upstream 통과를 뜻하지 않는다. vocabulary 후보 145개는 POS 검증 33 / Rust 미지원 110 / source code만 존재하는 거부 후보 2로 분리한다. 세부 기록은 §10 NV, 최신 요약은 §12를 따른다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 ## 1. 프로젝트 목적
@@ -6252,7 +6252,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 #### 4.24.12 J primitive → provisional execution-basis coverage matrix
 
 검토 기준:
-- J 공식 Vocabulary: https://www.jsoftware.com/help/dictionary/vocabul.htm
+- 현재 vocabulary 기준: [NuVoc](https://code.jsoftware.com/wiki/NuVoc), 2026-10-05 확인, [관찰 revision 60409](https://code.jsoftware.com/mediawiki/index.php?title=NuVoc&oldid=60409). 과거 [Dictionary Vocabulary](https://www.jsoftware.com/help/dictionary/vocabul.htm)는 역사적 참고이며 현재 지원 목록으로 사용하지 않는다.
 - jsource 계열 special phrase inventory: https://jsoftware.com/help/dictionary/special.htm
 
 이 표의 목적은 **J의 source primitive를 basis vocabulary로 대체하는 것**이 아니다. source/parser/Semantic IR에서는 원래 J primitive/derived identity를 보존하고, Semantic Analyzer가 call facts를 해석한 뒤 Logical IR에서 다음 basis graph를 만든다.
@@ -6295,11 +6295,12 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | !. | Fit | modifies semantic/numeric/error contract of operand graph | fit/tolerance/fill policy | Control/semantic annotation |
 | !: | Foreign | runtime/foreign semantic route | foreign id, effects/capability | Runtime |
 | / | Insert / Table | monad Reduce(u); dyad IndexSpace/FrameMap → CellApply(u) | reducer order/associativity/identity, rank/assembly | Direct/Compose; reduction identity retained even when non-reassociable |
-| /. | Oblique / Key | oblique SegmentView/Reindex → CellApply; key Classify/GroupBy → SegmentView → CellApply, optionally grouped reduction | grouping equality/order, segment descriptors, assembly | Compose; avoids materialized groups and opens reduce-by-index route |
+| /. /.. | Oblique / Key / Key dyad | oblique SegmentView/Reindex → CellApply; key Classify/GroupBy → SegmentView → CellApply, optionally grouped reduction | grouping equality/order, segment descriptors, assembly | Compose; avoids materialized groups and opens reduce-by-index route |
 | /: \: | Grade Up/Down / Sort | Grade; sort result can be Grade → Gather | comparison order, stability/tolerance, dtype | Direct; radix/merge/small/GPU algorithm identity retained |
 | \ | Prefix / Infix | insert-compatible prefix Scan; general prefix SegmentView(prefix family) → CellApply; infix WindowView/SegmentView → CellApply | window length, order, boundaries, assembly | Direct/Compose |
 | \. | Suffix / Outfix | suffix Scan when legal or segment family; outfix SegmentView + Concat/Assemble → CellApply | same as above | Compose |
 | [ ] [: | Same/Left, Same/Right, Cap | value projection / function-graph semantics | valence, provenance | Control/value; no new compute basis |
+| [. ]. ]: | Lev / Dex conjunction, Ident adverb | constructor에서 기존 noun/verb operand 선택 | 실제 result POS, operand reduction/효과, noun snapshot·verb late binding | Control/value; runtime 배열 kernel이나 병렬 힌트가 아님 |
 | { | Catalogue / From | monad Cartesian IndexSpace + Gather + Assemble; dyad Gather | index bounds, boxed catalogue shapes | Direct/Compose |
 | {. {: }. }: | Head/Tail/Take/Drop/Behead/Curtail | RegularReindex or scalar Gather | bounds, fill, rank | Direct |
 | {:: | Map / Fetch | NestedTraverse to produce leaf paths; fetch = path-guided nested Gather/Open | path validity, boxed structure | Direct + Value/Rep |
@@ -6313,12 +6314,11 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | ? ?. | Roll/Deal | stateful random generation; array shape may use Generate | RNG state/seed, domain, uniqueness for deal | Runtime + optional Generate |
 | a. a: | Alphabet / boxed empty constant | constant/value construction | encoding/value type | Value |
 | A. | Anagram Index / Anagram | permutation rank/unrank cell kernel; application Permute/Gather | permutation validity/range | Structured cell kernel + Direct |
-| b. | Boolean/Basic | scalar/bitwise semantic kernel, optionally Elementwise/Reduce when derived | boolean function id, dtype | Cell kernel |
+| b. | Boolean/bitwise 또는 Verb Info | noun-operand bitwise kernel 또는 function rank/identity/obverse query | operand 종류, function header, numeric domain | Cell kernel/control; 정보 조회와 계산을 구분 |
 | C. | Cycle-Direct / Permute | permutation representation conversion + Permute/Gather | cycle/direct validity | Value/Rep + Direct |
-| d. D. D: | Derivative/Secant family | function transformation producing a new semantic graph or specialized numeric kernel | derivative rules, function purity/domain | Control/Cell kernel |
 | e. | Raze In / Member | monad value traversal/raze-in; dyad Lookup(Membership) | equality/tolerance, boxed semantics | Direct + Value |
-| E. | Member of Interval/pattern occurrence | WindowView → Elementwise(Match) → Reduce/Match as applicable | pattern shape, equality, boundaries | Compose; explicit windows expose fusion |
-| f. | Fix | function semantic specialization/fixing | binding versions | Control |
+| E. | Find Matches (dyad) | WindowView → Elementwise(Match) → Reduce/Match as applicable | pattern shape, equality, boundaries | Compose; explicit windows expose fusion |
+| f. f: | Fix 계열 | function/name fixing 정책을 가진 transformation | binding/POS, fix mode, implicit locative·recursion 범위 | Control; 두 표기의 동등성은 가정하지 않음 |
 | H. | Hypergeometric | CellApply specialized numeric kernel | parameter/domain/numeric policy | Cell kernel |
 | i. | Integers / Index Of | monad IndexSpace/Generate; dyad LookupFirst | shape/integer domain; equality/tolerance | Direct |
 | i: | Steps / Index Of Last | monad Generate; dyad LookupLast | same | Direct |
@@ -6329,20 +6329,37 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 | M. | Memo | memoization/cache around semantic function graph | key equality, effects/purity | Control/runtime |
 | p. p.. | Polynomial roots/evaluation/derivative/integral | specialized cell kernel; evaluation may use Contract/Reduce | coefficient dtype, numeric stability, output shape | Cell kernel; expand only when optimization pays |
 | p: q: | Primes / factorization | CellApply specialized variable-result kernel | integer domain, dynamic result assembly | Cell kernel |
-| s: u: x: | Symbol/Unicode/Extended Precision | representation/runtime conversion or Elementwise conversion | encoding/interning/numeric exactness | Value/Rep/Runtime |
+| u: x: | Unicode/Extended Precision | representation/runtime conversion or Elementwise conversion | encoding/numeric exactness | Value/Rep/Runtime |
 | S: | Spread | NestedTraverse(level selector) → CellApply(u) → FlatAssemble | level selector, heterogeneous result/assembly | Direct/Compose |
-| t. t: T. | Taylor families | function transformation or specialized numeric graph/kernel | order/domain/precision | Control/Cell kernel |
+| c. | Convert to Precision (dyad) | numeric precision conversion | requested precision, logical type/promotion/error | Value/Rep/Cell kernel; 실제 encoding은 downstream |
+| m. | Modular arithmetic conjunction | 허용 operand의 modular numeric kernel 생성 | modulus, integer/exact domain, inverse 존재·오류 | Control/Cell kernel |
+| F. F.. F.: F: F:. F:: Z: | Fold variants / fold status·termination | recurrence/control region + result collection | direction, valence, state/termination, empty/fill·error order | Control; 일반 Reduce/Scan으로 임의 치환하지 않음 |
+| t. T. | Execute as task / thread·task·debug control | task creation, pyx result, synchronization/context effects | capture/namespace, await/open/error point, shared state·resource lifetime | Runtime/control; Taylor 연산이 아니며 fork 병렬 후보와 구별 |
 | constant functions | constant broadcast/Generate when array result required | Generate/constant | dtype/shape from call context | Direct/value |
 | ~ | Reflex/Passive/Evoke | function semantic transformation/name resolution | valence/binding | Control |
 | ^: | Power | Iterate/loop over analyzed basis graph; static count may unroll/fuse | count, fixed-point/inverse semantics, effects | Control; no new array basis |
-| $: | Self-Reference | function/control recursion | binding/function identity | Control |
+| $: $:: | Self-Reference / Shorten self-reference scope | recursion 및 scope transformation | 함수 identity, enclosing self-reference 범위, POS | Control; `$::`는 adverb이며 `$:` alias가 아님 |
 | : :. :: | Explicit/Monad-Dyad, Obverse, Adverse | function/control/exception semantic graph | POS, inverse/obverse, error semantics | Control |
 | =. =: | local/global assignment | binding/effect operation | locale/scope/version/effect ordering | Runtime/control |
 | _ _. _: | infinity/indeterminate constants | constant/value semantics | numeric type | Value |
-| .. .: | Even/Odd conjunction forms | function/control semantics; resulting graph lowers normally | operand POS/valence | Control |
 | NB. | Comment | frontend only | none | frontend, no IR op |
 
-**Coverage conclusion v0.2:** official Vocabulary의 각 entry는 위 basis composition, structured kernel, control/function layer, representation/value layer, runtime semantic layer 중 하나로 분류된다. 현재 이 pass에서는 새로운 array-computation basis family가 필요하다는 반례가 나오지 않았다.
+**Coverage conclusion v0.2 (정정):** 위 표는 검토한 primitive/form의 설계 분류이며 현재 NuVoc 전체의 parser/runtime/backend 지원 증명이 아니다. task/precision/fold/scope·modifier selection을 추가했지만 모든 항목의 semantic expansion·검증은 미완료다. 새로운 array basis가 필요한지는 각 미지원 family의 실제 계약을 검토한 뒤 판정한다.
+
+<a id="current-j-vocabulary"></a>
+
+##### 현재 vocabulary 감사 — NuVoc와 구현 상태 (2026-10-05)
+
+현재 NuVoc index와 관련 개별 페이지를 읽고 pinned `ws.c` spelling→code, `t.c` POS/constructor와 Windows C 기본·AVX2의 `4!:0` 결과를 대조했다. 웹 문서의 최신성, 검토 source pin, 실행 DLL release는 별도 provenance다. wiki를 보고 DLL이 최신 source로 빌드되었다고 주장하거나 POS/rank를 추측하지 않는다. NuVoc 개별 문서 `c.`, ObsoleteSyntax, `[.`, `$::`는 웹 fetch가 실패했으므로 index와 C 근거만 사용했다.
+
+- **오래된 설명 수정:** `t.`는 task conjunction, `T.`는 thread/task/debug verb다. task 결과의 pyx/open·오류 전달·공유 namespace 의미를 effect/resource 경계로 다루며 Rust async나 GPU 실행을 이미 지원한다는 뜻이 아니다. [Task](https://code.jsoftware.com/wiki/Vocabulary/tdot), [Threads](https://code.jsoftware.com/wiki/Vocabulary/tcapdot).
+- **누락된 현행 표기 추가:** `c.`, `m.`, `f:`, `/..`, `$::`, Fold 여섯 표기와 `Z:`, Lev/Dex/Ident, `{{ }}` direct definition과 `u.`/`v.` caller-context 의미를 inventory에 포함한다. `/..`는 key를 operand dyad의 왼쪽 인자로 제공하므로 `/.` alias가 아니다. [Key](https://code.jsoftware.com/wiki/Vocabulary/slashdot), [Modular](https://code.jsoftware.com/wiki/Vocabulary/mdot), [Fold](https://code.jsoftware.com/wiki/Vocabulary/fcap).
+- **역사적 표기 분리:** `d.`/`D.`/`D:`/`t:`/`..`/`.:`/`s:`/`I:`는 현재 C 양 버전의 spelling error를 확인했다. 현행 coverage matrix에서 제거했다. Rust enqueue는 아직 일부 invalid spelling도 Unsupported로 보고하므로 정확한 spelling 오류 분류는 아래 NV3의 후속 작업이다. `s:`는 NuVoc obsolete 구역의 symbol verb이며, 양 C DLL에서도 거부했다. 내부 Symbol 타입이 존재하는 것과 현행 J의 `s:` 지원은 별개다. `I:` 역시 현행 `I.`/`i:`와 혼동하지 않는다.
+- **rank/용어 교정:** `@`는 Atop, `@:`는 At다. 내부 `ConjunctionId::Atop`은 기존 `@:` 식별자이며 주석으로 이를 명시했다. `@`를 동등한 alias로 등록하지 않는다. NuVoc의 동작 설명과 C의 `b.0` intrinsic header/IRS 경로를 구분하고 wiki 표의 rank만 보고 이미 검증한 header를 덮어쓰지 않는다. `u"v`/`m"v` Copy Rank도 별도 form이다. [Copy Rank](https://code.jsoftware.com/wiki/Vocabulary/quotev).
+
+**이번 코드 변경:** `[.`·`].`는 각각 왼쪽·오른쪽 noun/verb를 반환하는 conjunction이며 `]:`는 operand를 반환하는 adverb다. primitive registry **7**, Graph IR **0.7**에 반영했다. 선택된 함수의 원래 entity/NAME·late lookup과 noun snapshot을 유지한다. 선택 전에 필요한 noun reduction·assignment·error를 생략하지 않는다. 이 constructor는 선택 operand 자체를 결과로 내며 전체 구문/constructor provenance는 source·reduction·capture에서 보존한다. 선택 modifier를 새 배열 kernel로 만들지 않는다. tokenizer state machine은 변경할 필요가 없었다. capture의 `ConstructionNounSuccess.selected_input`으로 noun 선택 결과를 원래 dependency node에 연결하고 선택되지 않은 계산 노드도 유지한다. 아직 ordered-effect graph가 필요한 대입은 기존 경계를 유지한다. 정적 parser에서는 선택되지 않은 noun 계산을 보존할 경로가 없으면 명시적 Unsupported로 남기며, J 의미상의 오류로 바꾸거나 해당 계산을 삭제해 실행 가능하다고 승인하지 않는다.
+
+`tools/vocabulary_audit.py`는 pinned `ws.c`에서 core spelling 후보를 추출해 C POS와 Rust enqueue를 대조한다. 구조 토큰·control words·direct-definition framing·이름 전체를 이 primitive 감사 하나로 검증하지 않는다. **word formation pass / enqueue POS verified / Unsupported coverage / runtime conformance**를 각각 구분한다. 원자료는 `reports/vocabulary-*-windows.json`에 보존한다. `ws.c`의 비영(非零) code만으로 설치된 primitive라고 판단하지 않는다. `w.c`는 `ds(e)`의 permanent usecount도 확인한다. `?:`/`` `. ``는 source code 후보지만 검토한 `t.c`에 설치되지 않고 양 DLL이 거부하므로 현행 valid primitive나 Rust 미지원 pass로 세지 않는다. 이 감사는 numeric grammar의 `__`/`_.` 전체 inventory를 다루지 않는다. 검증 숫자는 아래 NV gate에 기록한다. 표준 `tools/check-frontend-windows.ps1 -Avx2`도 양 DLL별 vocabulary 감사를 실행하므로 이후 frontend 검증 때 함께 갱신한다.
 
 ##### jsource special-code inventory와의 교차검증
 
@@ -7644,6 +7661,21 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - [ ] **DB6 Windows 차분 gate:** NAME 재정의/POS 변경, local 미정의→정의, locale/path 변경, noun snapshot 뒤 재대입, 값 의존 constructor, 효과 뒤 오류/guard miss를 C 기본·AVX2와 비교한다. 값/type/shape뿐 아니라 lookup 시점·효과 순서·실패 후 binding과 실행 횟수를 검사한다. 현재 미지원 locale/execute는 별도 coverage로 보고한다.
 - [ ] **DB7 중후반 의미·성능 gate:** 검증된 direct runtime과 Logical/Physical 실행을 같은 입력으로 대조한다. guard hit/miss와 empty/boxed/sparse 경계를 포함하며 성능·복사/할당은 의미 통과 뒤 별도 측정한다. frontend 통과나 메타데이터 분석을 backend 실행/성능 통과로 승격하지 않는다.
 
+<a id="vocabulary-migration-checklist"></a>
+
+### NV — 현재 J vocabulary 수렴
+
+설계 inventory의 정본은 [현재 vocabulary 감사](#current-j-vocabulary)다. M2 frontend 순서에 연결하고 신규 task/fold/GPU executor를 동시에 구현하지 않는다.
+
+- [x] **NV0** NuVoc current index·관련 페이지를 읽고 source spelling/POS·C DLL provenance와 분리한다. 이전 vocabulary matrix의 Taylor·obsolete 항목과 누락된 현행 form을 수정한다.
+- [x] **NV1** `[.`·`].`·`]:`를 정상 core enqueue·shared parser constructor 경로로 지원하고 noun/verb 결과·NAME snapshot/late lookup·modifier train·discarded noun 효과/오류 회귀를 추가한다.
+- [ ] **NV2** 미지원 현행 primitive의 spelling/POS 인식을 확장하고 semantic construction/실행 capability와 분리한다. inventory 감사의 Unsupported 항목을 근거 없이 runtime pass로 처리하지 않는다.
+- [ ] **NV3** invalid/obsolete spelling의 정확한 J 오류를 C `spellin`/enqueue와 대조해 일반화한다. valid 미지원 primitive와 invalid spelling을 구별하며 임의 예외 목록으로 해결하지 않는다.
+- [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
+- [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
+
+**NV gate (2026-10-05):** native Windows default/portable 각각 **431 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. 추가한 공통 구문 **37개**를 포함하여 C 기본·AVX2 각각 세 runtime 경로 **5,368 cases / 5,368 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases**, 실패 0. capture graph **254건**과 static **2건** 경계는 별도다. frontend report 10개와 vocabulary report 2개의 실제 source/reference/binary hash를 확인했다. vocabulary 후보 **145개**에서 **enqueue POS 검증 33 / Rust Unsupported 110 / source code-only 거부 후보 2 (`?:`, `` `. ``)**이며 legacy/invalid 표기 8개는 양 DLL의 spelling error를 확인했다. 이 숫자는 전체 NuVoc/J 실행 지원률이 아니다. NV2–NV5와 DB1–DB7은 미완료이며 ordered effect graph·정적 discarded-noun 보존 경계, 미지원 task/fold/precision/범용 scope 실행을 분리한다. optimizer/CUDA/Linux 실행 테스트/GitHub CI는 계속 유보한다.
+
 ### M — 현재 구조 수렴 실행 순서
 
 이 상위 체크리스트는 **지금 어떤 순서로 구조를 수렴시킬지**를 추적한다. 세부 완료 조건은 아래 A/F/P/G 체크리스트를 그대로 사용하며, 같은 일을 중복 정의하지 않는다.
@@ -8232,7 +8264,7 @@ Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1
 - [x] C `cr.c::jtqq`, `sc.c::jtnamerefacv`, `ja.h`의 rank accessor와 core primitive/derived constructor를 검토했다. `u"v`는 오른쪽 verb를 실행하지 않고 **그 함수 객체의 monad/left/right header rank**를 복사한다. negative requested rank와 derived verb의 실제 header rank는 다르다. 예를 들어 `+"_1`의 requested monad rank는 -1이지만 header monad rank는 `_`다. gerund rank-derived verb의 header도 모두 `_`다.
 - [x] ordinary NAME이 parser stack에 들어갈 때 현재 binding의 header rank를 immutable `FunctionEntity.name_ranks`에 복사한다. alias의 기존 header를 읽고 현재 alias target을 따라가지 않는다. 미정의 ordinary name의 C header는 모두 `_`다. 이 metadata는 executable NAME을 고정하거나 pure로 만들지 않는다. 기존 implicit `u.`의 header와 explicit actual operand `u`의 header도 구분한다.
 - [x] 원래 rank conjunction과 두 source operand, NAME/span을 그대로 보존한다. `requested_ranks()`가 noun rank spec 또는 오른쪽 verb header를 읽으며 runtime/name lookup을 수행하지 않는다. 왼쪽 callable의 late binding/POS 검사, nested rank 경계와 기존 prefix agreement·오류 순서는 유지한다. 오른쪽 NAME의 후속 재정의·noun/adverb로의 POS 변경은 이미 생성된 rank를 바꾸지 않는다.
-- [x] constructor header read/version/span은 `Program/Plan.name_rank_snapshots`와 capture `FunctionNameRank` observation으로 별도 기록한다. 오른쪽 rank operand는 executable late-reference 목록에서 제외한다. 이 sidecar는 cache guard나 purity proof가 아니다. primitive registry는 **6**, Graph IR은 **0.6**이며 `GraphForm::Rank.requested_ranks`를 추가한다. source noun인 `rank_spec`과 source RHS function을 혼동하지 않는다.
+- [x] constructor header read/version/span은 `Program/Plan.name_rank_snapshots`와 capture `FunctionNameRank` observation으로 별도 기록한다. 오른쪽 rank operand는 executable late-reference 목록에서 제외한다. 이 sidecar는 cache guard나 purity proof가 아니다. 당시 primitive registry는 **6**, Graph IR은 **0.6**이며 `GraphForm::Rank.requested_ranks`를 추가한다. source noun인 `rank_spec`과 source RHS function을 혼동하지 않는다.
 - [x] static catalog의 `declare_primitive_verb`가 header 근거를 제공한다. POS만 알려진 RHS 이름은 유효한 J 문법이지만 **Unsupported construction proof 경계**로 남긴다. known header만으로 executable binding을 동결하지 않는다. 입력 payload 없이 `[1_000_000_000_000, 3]` metadata로 ravel-cell 결과 shape를 분석하는 회귀를 추가했다.
 - [x] Rust 회귀 7개는 RHS 비실행, alias·미정의 이름·재대입, lhs late execution, explicit/implicit operand, 음수·비대칭 rank, empty pure ravel, prefix agreement 오류 후 복구, source/capture/Graph/A3 및 대용량 metadata 분석을 검사한다. C `b.0` header projection과 runtime 값/오류를 각각 대조한다. `reports/verb-rank-oracle-windows.json`은 구현 전 **C reference-only 관찰**이며 conformance 보고서와 구분한다.
 
@@ -8240,7 +8272,7 @@ Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1
 
 **반환 경계 후속 검토:** `cx.c`는 explicit modifier가 non-noun을 반환할 때 첫 implicit locative를 fix하고, `af.c::jtfixa`는 치환한 operand로 modifier를 다시 실행해 새 derived entity를 만든다. 따라서 본문에서 `(,"u.) y`를 즉시 실행하면 `u.` header `_`를 쓰지만, `,"u.`를 반환해 `u=+`로 fix한 뒤 실행하면 새 entity의 RHS header 0을 쓴다. `[2,3]` 입력의 ravel 결과는 각각 `[6]`과 `[2,3,1]`이다. 이 재구성은 기존 entity의 rank를 late lookup으로 바꾸는 것과 다르다. C 기본·AVX2와 Rust의 반환 구문 10건을 먼저 직접 대조했고, 동일 결과를 확인했다. 추가 Rust 회귀와 공통 runtime corpus로 이 차이를 보존한다. 런타임 구현 변경은 필요하지 않았다.
 
-**Return-boundary gate:** native Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. C 기본·AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases**, 실패 0. capture graph **250건**, static **2건** 경계는 별도다. report 10개의 실제 source/reference/binary hash를 다시 확인했다. 추가한 10개 공통 구문은 세 runtime 경로와 stage 모두에 포함한다. 위 Verb-rank gate는 이전 단계의 기록이며 이 gate가 최신 검증이다. 미검증 범위와 optimizer/CUDA/Linux/GitHub CI 유보는 동일하다.
+**Return-boundary gate:** native Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. C 기본·AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases**, 실패 0. capture graph **250건**, static **2건** 경계는 별도다. report 10개의 실제 source/reference/binary hash를 다시 확인했다. 추가한 10개 공통 구문은 세 runtime 경로와 stage 모두에 포함한다. 위 Verb-rank gate와 이 Return-boundary gate는 이전 단계의 기록이다. 최신 검증은 NV gate다. 미검증 범위와 optimizer/CUDA/Linux/GitHub CI 유보는 동일하다.
 
 Sources: [cx.c modifier return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c implicit operand](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [af.c reconstruct modifier](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193).
 
@@ -9611,7 +9643,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(verb-valued rank 반환 경계 단계): Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases / failed 0**. capture graph 경계 250건과 static 경계 2건은 별도다. 현재 corpus의 경계 0은 full J 지원을 뜻하지 않는다. frontend report 10개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend 검증(현재 vocabulary/선택 modifier 단계): Windows default/portable 각각 **431 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,368 cases / 5,368 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases / failed 0**. capture graph 경계 254건과 static 경계 2건은 별도다. vocabulary 후보 145개는 POS 검증 33 / Rust 미지원 110 / source code만 존재하는 거부 후보 2로 분리한다. 현재 corpus의 경계 0은 full J 지원을 뜻하지 않는다. frontend report 10개, vocabulary report 2개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.

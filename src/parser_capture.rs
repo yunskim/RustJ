@@ -81,6 +81,8 @@ pub enum CaptureEvent {
     ConstructionNounSuccess {
         row: ParseRow,
         id: OccurrenceId,
+        /// Existing noun occurrence transported by a selector, never a body result.
+        selected_input: Option<OccurrenceId>,
         facts: GraphFacts,
         span: Range<usize>,
     },
@@ -198,6 +200,7 @@ impl ParseCapture {
         let mut attempts = BTreeMap::new();
         let mut next = 0;
         let mut construction = None;
+        let mut construction_inputs = Vec::new();
         for (event_index, event) in self.events.iter().enumerate() {
             match event {
                 CaptureEvent::FunctionNameRank { snapshot } => {
@@ -275,6 +278,7 @@ impl ParseCapture {
                     if construction.replace(*row).is_some() || !attempts.is_empty() {
                         return Err("invalid construction attempt order");
                     }
+                    construction_inputs.clone_from(noun_inputs);
                     if noun_inputs.iter().any(|id| !ready.contains(id)) {
                         return Err("constructor input is unavailable");
                     }
@@ -344,9 +348,16 @@ impl ParseCapture {
                         return Err("invalid explicit modifier invocation");
                     }
                 }
-                CaptureEvent::ConstructionNounSuccess { row, id, span, .. } => {
+                CaptureEvent::ConstructionNounSuccess {
+                    row,
+                    id,
+                    selected_input,
+                    span,
+                    ..
+                } => {
                     if construction.take() != Some(*row)
                         || !matches!(row, ParseRow::Adverb | ParseRow::Conjunction)
+                        || selected_input.is_some_and(|input| !construction_inputs.contains(&input))
                         || id.0 != next
                         || !ready.insert(*id)
                         || span.start >= span.end

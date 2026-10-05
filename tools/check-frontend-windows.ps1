@@ -60,5 +60,10 @@ foreach ($library in $libraries) {
     Write-Output "START $variant words"
     Invoke-FrontendCheck $Python @('tools/word_conformance.py', '--binary', 'target/windows-validation/debug/examples/scan_words.exe',
         '--reference-revision', $ReferenceRevision, '--report', "reports/frontend-$variant-words-windows.json")
+    Write-Output "START $variant vocabulary"
+    Invoke-FrontendCheck $Python @('tools/vocabulary_audit.py',
+        '--binary', 'target/windows-validation/debug/examples/frontend_probe.exe',
+        '--source-directory', $sourceDirectoryPath, '--source-revision', $SourceRevision,
+        '--reference-revision', $ReferenceRevision, '--report', "reports/vocabulary-$variant-windows.json")
 }
 Write-Output 'WINDOWS_FRONTEND_VALIDATION_SUCCESS'

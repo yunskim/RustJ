@@ -32,7 +32,7 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 6 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 7 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -820,7 +820,11 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         FunctionHead::PrimitiveVerb(_)
         | FunctionHead::NameRef(_)
         | FunctionHead::DefinitionConstructor(_)
-        | FunctionHead::ExplicitDefinition(_) => GraphForm::Atomic,
+        | FunctionHead::ExplicitDefinition(_)
+        | FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Ident)
+        | FunctionHead::PrimitiveConjunction(
+            crate::primitive::ConjunctionId::Lev | crate::primitive::ConjunctionId::Dex,
+        ) => GraphForm::Atomic,
     };
     (form, hints)
 }
@@ -1052,8 +1056,30 @@ impl Plan {
                     occurrences.push((*id, value));
                     observed_facts.push((value, facts.clone()));
                 }
-                CaptureEvent::ExplicitModifierApply { .. }
-                | CaptureEvent::ConstructionNounSuccess { .. } => {
+                CaptureEvent::ConstructionNounSuccess {
+                    id,
+                    selected_input,
+                    facts,
+                    ..
+                } => {
+                    let Some(input) = selected_input else {
+                        return Err(Error::Unsupported(
+                            "explicit modifier body graph requires invocation scope".into(),
+                        ));
+                    };
+                    let value = values[input];
+                    if !observed_facts
+                        .iter()
+                        .any(|(node, known)| node == &value && known == facts)
+                    {
+                        return Err(Error::Unsupported("selected noun facts mismatch".into()));
+                    }
+                    values.insert(*id, value);
+                    occurrences.push((*id, value));
+                    observed_facts.push((value, facts.clone()));
+                    constructor_inputs.clear();
+                }
+                CaptureEvent::ExplicitModifierApply { .. } => {
                     return Err(Error::Unsupported(
                         "explicit modifier body graph requires invocation scope".into(),
                     ));

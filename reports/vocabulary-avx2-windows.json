@@ -1,0 +1,1807 @@
+{
+  "platform": "nt",
+  "nuvoc_review_url": "https://code.jsoftware.com/mediawiki/index.php?title=NuVoc&oldid=60409",
+  "nuvoc_review_date": "2026-10-05",
+  "source_review_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+  "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "source_hashes": {
+    "jsrc/ws.c": "67044c6a7d1beb16f95e02cb73ad7edc9030c1e611e99950362ca30a066c084f",
+    "jsrc/t.c": "7e44e8f7ec7ce2bfba8688c1d0d5c7d3dc2f0b630514648b3fd71e45fc34625f",
+    "jsrc/v.c": "c44f0ae76db03dec81d43a61d57f4293296ca2c97a8008709914614ce0a33ae8"
+  },
+  "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
+  "binary_sha256": "eac8b666d717336c6ae77f68c4c390de0912d8e460820074ef7e2d37a3b28825",
+  "scope": "core spelling candidates from pinned ws.c plus finite/infinite constant functions; not full runtime coverage or a live NuVoc scraper",
+  "entries": [
+    {
+      "word": "!",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "!.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "!:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "\"",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "\".",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "\":",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "#",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "#.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "#:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "$",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "$.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "$:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "$::",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "%",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "%.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "%:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "&",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "&.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "&.:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "&:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "*",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "*.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "*:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "+",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "+.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "+:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ",",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": ",.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ",:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "-",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "-.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "-:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ".",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "/",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "/.",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "/..",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "/:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "0:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "1:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "2:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "3:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "4:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "5:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "6:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "7:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "8:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "9:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ":",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ":.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "::",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ";",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ";.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ";:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "<",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "<.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "<:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "=",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": ">",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": ">.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": ">:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "?",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "?.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "?:",
+      "c_pos": null,
+      "c_error": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "source_code_only"
+    },
+    {
+      "word": "@",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "@.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "@:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "A.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "C.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "E.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "F.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "F..",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "F.:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "F:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "F:.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "F::",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "H.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "I.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "L.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "L:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "M.",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "S:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "T.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "Z:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "[",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "[.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "[:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "\\",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "\\.",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "\\:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "]",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "].",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Conjunction",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "]:",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Adverb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "^",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "^.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "^:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_",
+      "c_pos": "Noun",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Noun",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": {
+            "type": 8,
+            "shape": [],
+            "data": [
+              "inf"
+            ]
+          }
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "_1:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_2:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_3:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_4:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_5:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_6:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_7:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_8:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_9:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "_:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "__:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "`",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "`.",
+      "c_pos": null,
+      "c_error": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "source_code_only"
+    },
+    {
+      "word": "`:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "a.",
+      "c_pos": "Noun",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "a:",
+      "c_pos": "Noun",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "b.",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "c.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "e.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "f.",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "f:",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "i.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "i:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "j.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "m.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "o.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "p.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "p..",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "p:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "q:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "r.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "t.",
+      "c_pos": "Conjunction",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "u.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "u:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "v.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "x:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "{",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "{.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "{:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "{::",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "|",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            1
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "|.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "|:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "}",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "}.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": [
+        {
+          "class": "Verb",
+          "span": [
+            0,
+            2
+          ],
+          "index": 0,
+          "lookup": false,
+          "global": false,
+          "local": false,
+          "to_name": false,
+          "noun": null
+        }
+      ],
+      "status": "enqueue_pos_verified"
+    },
+    {
+      "word": "}:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "~",
+      "c_pos": "Adverb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "~.",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    },
+    {
+      "word": "~:",
+      "c_pos": "Verb",
+      "c_error": null,
+      "rust_enqueue": {
+        "error": "unsupported"
+      },
+      "status": "coverage_boundary"
+    }
+  ],
+  "legacy_rejections": [
+    {
+      "word": "d.",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "word": "D.",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "word": "D:",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "word": "t:",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "word": "..",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "word": ".:",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "word": "s:",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    },
+    {
+      "word": "I:",
+      "c_result": {
+        "error": "spelling error"
+      },
+      "rust_enqueue": {
+        "error": "unsupported"
+      }
+    }
+  ],
+  "failed": 0,
+  "failures": [],
+  "enqueue_pos_verified": 33,
+  "coverage_boundaries": 110,
+  "source_code_only": 2
+}

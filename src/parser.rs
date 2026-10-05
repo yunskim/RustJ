@@ -420,6 +420,14 @@ fn apply_adverb(
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Adverb);
     let operator = names.resolve_modifier(operator, span.clone())?;
+    if matches!(
+        operator.head,
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Ident)
+    ) {
+        // v.c::jtlev returns the existing entity. Operand lookup/reduction has
+        // already occurred; do not execute a selected verb or drop noun effects.
+        return Ok(left.with_span(span));
+    }
     if matches!(operator.head, FunctionHead::ExplicitDefinition(_)) {
         return names.apply_definition(operator, left, None, span);
     }
@@ -980,6 +988,23 @@ fn construct_modifier_trident(
     }
 }
 
+/// A static constructor cannot discard an unevaluated noun expression: its
+/// errors/effects precede selection. Runtime nouns already have literal payloads.
+fn verify_discarded_selector_operand(item: &Item) -> Result<()> {
+    if let ParseValue::Noun(expr, _) = &item.value {
+        let mut completed = expr;
+        while let ExprKind::Group(inner) = &completed.kind {
+            completed = inner;
+        }
+        if !matches!(completed.kind, ExprKind::Literal(_)) {
+            return Err(Error::Unsupported(
+                "selector discarded noun requires semantic reduction graph".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn apply_conjunction_items(
     left: Item,
     operator: Arc<FunctionEntity>,
@@ -993,6 +1018,17 @@ fn apply_conjunction_items(
     }
     debug_assert_eq!(operator.result_pos, FunctionPartOfSpeech::Conjunction);
     let operator = names.resolve_modifier(operator, span.clone())?;
+    match operator.head {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Lev) => {
+            verify_discarded_selector_operand(&right)?;
+            return Ok(left.with_span(span));
+        }
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Dex) => {
+            verify_discarded_selector_operand(&left)?;
+            return Ok(right.with_span(span));
+        }
+        _ => {}
+    }
     if matches!(operator.head, FunctionHead::ExplicitDefinition(_)) {
         return names.apply_definition(operator, left, Some(right), span);
     }
@@ -1499,6 +1535,7 @@ fn reduce_stack_prefix(
         if reduced {
             let result = &mut stack[start];
             result.provenance = Some(provenance.clone());
+            let selected_input = is_construction.then_some(result.occurrence).flatten();
             result.occurrence = output.or(retained);
             if let Some(capture) = &mut context.capture {
                 if let Some(id) = output {
@@ -1523,7 +1560,11 @@ fn reduce_stack_prefix(
                         let ParseValue::Noun(expr, _) = &result.value else {
                             unreachable!()
                         };
-                        let ExprKind::Literal(value) = &expr.kind else {
+                        let mut completed = expr;
+                        while let ExprKind::Group(inner) = &completed.kind {
+                            completed = inner;
+                        }
+                        let ExprKind::Literal(value) = &completed.kind else {
                             unreachable!()
                         };
                         let id = capture.next();
@@ -1531,6 +1572,7 @@ fn reduce_stack_prefix(
                         capture.events.push(CaptureEvent::ConstructionNounSuccess {
                             row,
                             id,
+                            selected_input,
                             facts: crate::j_graph_ir::GraphFacts::of(value),
                             span: reduction_span.clone(),
                         });

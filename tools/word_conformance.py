@@ -18,7 +18,7 @@ def main():
         if build.returncode: raise RuntimeError('scan_words build failed:\n'+build.stdout+'\n'+build.stderr)
     prefixes=[b'',b' ',b'1 ',b'+',b'a',b'N',b'NB',b"''",b'1',b'1 2',b"'",b'NB.',b'NB. x',b'\n',b'{',b'}',b'{{',b'}}']
     samples=[prefix+bytes([c]) for prefix in prefixes for c in range(256)]
-    samples += [b'1 NB.. 2',b'1 NB.: 2',b'1 2: 3',b'{{.',b'}}:',b'1\n2',b"'it''s'",b'foo_bar=:2',b'if. x do. y end.',b'1r2 2j3']
+    samples += [b'1 NB.. 2',b'1 NB.: 2',b'1 2: 3',b'{{.',b'}}:',b'1\n2',b"'it''s'",b'foo_bar=:2',b'if. x do. y end.',b'1r2 2j3', b'[. ]. ]:', b'/.. $:: F. F.. F.: F: F:. F::', b'c. f: t. T. m. Z:', b'@ @: &. &.:', b'd. D. D: t: .. .:']
     rng=random.Random(args.seed)
     alphabet=b" NB09a_.'\t\n:{}+()"
     samples += [bytes(rng.choice(alphabet) for _ in range(rng.randrange(50))) for _ in range(args.rounds)]
