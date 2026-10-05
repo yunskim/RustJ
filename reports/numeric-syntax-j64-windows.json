@@ -1,6 +1,6 @@
 {
   "platform": "nt",
-  "scope": "numeric word formation/error recognition; quad/Windows hex grammar included; no exact/complex/based/quad payload, full resource or rounding conformance",
+  "scope": "numeric word formation/error recognition; quad/Windows hex grammar and default round-to-even polar sign included; NaN parentheses checked as J tokens; no exact/complex/based/quad payload, full resource or changed rounding-environment conformance",
   "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
   "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
   "source_hashes": {
@@ -10,15 +10,16 @@
     "jsrc/jerr.h": "70ed09fa0e3ebd92c151b1a352cfeff5ea0cf23ca5eb379f10c8e27ca06f4e0c"
   },
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "3ccce51d5695ce1f3e155a40d2e2668f1d8966fe6d4ff374ea92bf5ed6035f17",
-  "cases": 2078,
+  "binary_sha256": "ce4c684079b61130af7bba3af664f5d7ec27aa0d52d5acc83030d3aae424343a",
+  "cases": 2201,
   "checks": {
     "accepted_noun_control": 182,
-    "error_class_verified": 1084,
-    "valid_payload_boundary": 607,
+    "error_class_verified": 1140,
+    "valid_payload_boundary": 672,
     "integer_conversion_boundary": 2,
     "reference_precision_boundary": 200,
-    "unresolved_recognition_boundary": 3
+    "unresolved_recognition_boundary": 1,
+    "nan_word_formation_boundary": 4
   },
   "entries": [
     {
@@ -21275,20 +21276,1247 @@
     },
     {
       "source": "_0X1P_9999ad90",
-      "scope": "platform-rounding-unknown",
+      "scope": "platform-rounding-reviewed",
       "c_result": null,
       "rust_error": "unsupported",
-      "rust_unsupported_reason": "numeric recognition requires additional grammar facts",
-      "status": "unresolved_recognition_boundary",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
       "failures": []
     },
     {
       "source": "_0X1P_1075ad90",
-      "scope": "platform-rounding-unknown",
+      "scope": "platform-rounding-reviewed",
       "c_result": null,
       "rust_error": "unsupported",
-      "rust_unsupported_reason": "numeric recognition requires additional grammar facts",
-      "status": "unresolved_recognition_boundary",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.80001P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X.8P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0001.0000000000P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X0P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000000000000000000000000000001P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.00000000000001P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1.8P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X2.0001P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X2P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1073ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1073ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1074ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1074ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1075ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1075ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1076ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1076ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1077ad90",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X3P_1077ar1",
+      "scope": "platform-rounding-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P9223372036854775808ad90",
+      "scope": "platform-exponent-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_9223372036854775809ad90",
+      "scope": "platform-exponent-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "_0X1P170141183460469231731687303715884105728ad90",
+      "scope": "platform-exponent-reviewed",
+      "c_result": {
+        "error": "ill-formed number"
+      },
+      "rust_error": "ill-formed number",
+      "rust_unsupported_reason": null,
+      "status": "error_class_verified",
+      "failures": []
+    },
+    {
+      "source": "_0X1P_170141183460469231731687303715884105729ad90",
+      "scope": "platform-exponent-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "1jINFINITY",
+      "scope": "platform-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "1jinfinity",
+      "scope": "platform-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "1j_nan",
+      "scope": "platform-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "1jInfinityr2",
+      "scope": "platform-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "1jnanr2",
+      "scope": "platform-reviewed",
+      "c_result": null,
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "valid_payload_boundary",
+      "failures": []
+    },
+    {
+      "source": "1jNaN(1)",
+      "scope": "platform-nan-formation",
+      "c_result": {
+        "error": "syntax error"
+      },
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "nan_word_formation_boundary",
+      "failures": []
+    },
+    {
+      "source": "1jnan()",
+      "scope": "platform-nan-formation",
+      "c_result": {
+        "error": "syntax error"
+      },
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "nan_word_formation_boundary",
+      "failures": []
+    },
+    {
+      "source": "1jNAN(foo)",
+      "scope": "platform-nan-formation",
+      "c_result": {
+        "error": "syntax error"
+      },
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "nan_word_formation_boundary",
+      "failures": []
+    },
+    {
+      "source": "1j_nan(1)",
+      "scope": "platform-nan-formation",
+      "c_result": {
+        "error": "syntax error"
+      },
+      "rust_error": "unsupported",
+      "rust_unsupported_reason": "validated numeric family payload construction",
+      "status": "nan_word_formation_boundary",
       "failures": []
     }
   ],

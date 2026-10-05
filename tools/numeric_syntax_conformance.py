@@ -42,7 +42,18 @@ def numeric_cases():
                  '_0X1P_1074ad90','_0X0ad90','0X0ad90','0Xad90','_0Xad90','0Xb1','_0Xb1','_0X0P0ad90']
     rows += [(w,'platform-reviewed') for w in sorted(set(platform))]
     rows += [(w,'precision-resource-unknown') for w in ['2.1e_9223372036854775808fq']]
-    rows += [(w,'platform-rounding-unknown') for w in ['_0X1P_9999ad90','_0X1P_1075ad90']]
+    rows += [(w,'platform-rounding-reviewed') for w in ['_0X1P_9999ad90','_0X1P_1075ad90']]
+    mantissas = ['0', '1', '1.00000000000001', '1.8', '2', '2.0001', '3', '.8', '.80001',
+                 '0001.0000000000', '1.00000000000000000000000000000000000001']
+    rounding = {'_0X' + m + 'P_' + str(e) + angle
+                for m, e, angle in itertools.product(mantissas, range(1073,1078), ['ad90', 'ar1'])}
+    rows += [(w,'platform-rounding-reviewed') for w in sorted(rounding)]
+    rows += [(w,'platform-exponent-reviewed') for w in
+             ['_0X1P9223372036854775808ad90','_0X1P_9223372036854775809ad90',
+              '_0X1P170141183460469231731687303715884105728ad90',
+              '_0X1P_170141183460469231731687303715884105729ad90']]
+    rows += [(w,'platform-reviewed') for w in ['1jINFINITY','1jinfinity','1j_nan','1jInfinityr2','1jnanr2']]
+    rows += [(w,'platform-nan-formation') for w in ['1jNaN(1)','1jnan()','1jNAN(foo)','1j_nan(1)']]
     return rows
 
 
@@ -61,9 +72,20 @@ def run(args):
             reason_hex = observed.get('enqueue_unsupported_reason_hex')
             reason = bytes.fromhex(reason_hex).decode() if isinstance(reason_hex, str) else None
             local = []
-            if formed != {'words_hex':[source.encode().hex()]} or observed.get('raw_words') != formed.get('words_hex'):
+            expected_words = [source.encode().hex()]
+            if scope == 'platform-nan-formation':
+                prefix, payload = source[:-1].split('(')
+                expected_words = [prefix.encode().hex(), '28']
+                if payload: expected_words.append(payload.encode().hex())
+                expected_words.append('29')
+            if formed != {'words_hex':expected_words} or observed.get('raw_words') != expected_words:
                 local.append('word formation mismatch')
-            if c_result is None:
+            if scope == 'platform-nan-formation':
+                status = 'nan_word_formation_boundary'
+                if (c_result != {'error':'syntax error'} or actual_error != 'unsupported'
+                    or reason != 'validated numeric family payload construction'):
+                    local.append('NaN parentheses must remain J tokens and a payload/parser coverage boundary')
+            elif c_result is None:
                 if actual_error == 'unsupported':
                     if reason and reason.startswith(('validated numeric family', 'validated real-family ratio')):
                         status = 'valid_payload_boundary'
@@ -102,7 +124,7 @@ def run(args):
         probe.close()
         oracle.close()
     digest=lambda path:hashlib.sha256(path.read_bytes()).hexdigest()
-    report={'platform':os.name,'scope':'numeric word formation/error recognition; quad/Windows hex grammar included; no exact/complex/based/quad payload, full resource or rounding conformance',
+    report={'platform':os.name,'scope':'numeric word formation/error recognition; quad/Windows hex grammar and default round-to-even polar sign included; NaN parentheses checked as J tokens; no exact/complex/based/quad payload, full resource or changed rounding-environment conformance',
             'source_revision':args.source_revision,'reference_revision':args.reference_revision,
             'source_hashes':{rel:digest(args.source_directory/rel) for rel in ['jsrc/wn.c','jsrc/ws.c','jsrc/w.c','jsrc/jerr.h']},
             'reference_sha256':digest(Path(os.environ['J_LIBRARY'])),'binary_sha256':digest(args.binary),

@@ -7765,11 +7765,21 @@ Windows name differential에 254/255/256/257, 32766/32767 경계, direct/indirec
 
 Windows `strtod`의 hex mantissa·선택적 binary exponent를 Rust에서 검증한다. C `numfd`는 nominal field 끝에 NUL을 넣지 않고 `t >= s+n`을 허용한다. 따라서 `0Xad90`/`0Xb1`은 뒤의 hex digit까지 읽어 유효할 수 있으며, `_0X0ad90`은 magnitude가 음수인 비영 값이 되어 거부된다. 반면 `numbpx`는 `p`/`x` 구분자를 임시 NUL로 바꾸므로 그 앞의 읽기 범위는 좁혀야 한다. field 길이와 실제 읽기 범위를 별도로 전달하여 이 차이를 보존한다. C FFI나 C kernel 의존성을 추가하지 않는다.
 
-음수 hex polar magnitude의 선행 bit/exponent가 기본 IEEE binary64 환경에서 비영 값을 입증할 때만 ill-formed number로 판정한다. 0 mantissa는 허용하고, underflow로 음수 0이 될 수 있는 값·합산 overflow·입증하지 못한 hex ratio 부호는 Unknown으로 남긴다. 변경된 rounding/FTZ 환경, parenthesized NaN payload의 word formation, 전체 플랫폼 `strtod` 확장, 숫자 construction의 자원/오류 동등성은 **NV3d2b**다. 유효한 complex/based/quad 표기의 payload 생성은 여전히 Unsupported다.
+음수 hex polar magnitude의 선행 bit/exponent가 기본 IEEE binary64 환경에서 비영 값을 입증할 때만 ill-formed number로 판정한다. 이 checkpoint에서는 0 mantissa를 허용하고, underflow로 음수 0이 될 수 있는 값·합산 overflow·입증하지 못한 hex ratio 부호를 Unknown으로 남겼다. 기본 반올림의 음수 0과 NaN word 경계는 아래 NV3d2b1에서 추가 검증했다. 변경된 rounding/FTZ 환경, parenthesized NaN payload의 word formation, 전체 플랫폼 `strtod` 확장, 숫자 construction의 자원/오류 동등성은 **NV3d2b**다. 유효한 complex/based/quad 표기의 payload 생성은 여전히 Unsupported다.
 
 근거: pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd`, `numfq`, `numj`, `numbpx`; 실제 Windows DLL과 source revision은 별도로 기록한다. NV3d1의 수치는 당시 검증 기록이며, 당시 미확인 quad/hex 경계는 본 단계에서 아래와 같이 갱신했다.
 
 **NV3d2a 검증:** native Windows default/portable 각각 **471 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,078 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,084**, valid payload 경계 **607**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **3**. unresolved error 경계는 **0**이다. `frontend_probe`는 Unsupported의 원문 이유를 별도 진단 field로 제공한다. 검증된 문법·integer overflow conversion·C precision 미지원·미확인 문법을 실제 진단 이유로 분류하며, 구문 표본의 scope만으로 valid를 주장하지 않는다. 경계 수를 숫자 실행 성공으로 합산하지 않는다. 기존 frontend/runtime/name/spelling/vocabulary/Scan 비교를 유지하고 보고서 20개의 source/DLL/binary hash를 확인했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. Linux/GitHub CI/CUDA는 실행하지 않았다. NV3d/NV3d2 전체 완료로 표시하지 않는다.
+
+<a id="nv3d2b1-rounding-nan-words"></a>
+
+**NV3d2b1 기본 반올림과 NaN word 경계 — 2026-10-05.** `hex_nonnegative`는 실제 읽기 범위에서 mantissa의 선행 bit와 나머지 비트를 검사한다. 기본 IEEE binary64 round-to-nearest, ties-to-even에서 `2^-1075` 이하의 음수 magnitude는 `-0`으로 반올림되어 polar 입력으로 유효하다. 정확한 중간값보다 큰 magnitude는 음수 비영 값이므로 ill-formed number다. `_0X1P_1075ad90`과 `_0X1P_9999ad90`은 이제 문법이 확인된 payload 미지원이고, `_0X1.00000000000001P_1075ad90`은 C와 같은 오류다. 긴 mantissa의 끝에 있는 sticky bit도 버리지 않는다. 숫자 payload를 생성하거나 C FFI를 호출하지 않고 이 부호 조건만 검증한다.
+
+`1jNaN(1)`, `1jnan()`, `1jNAN(foo)`, `1j_nan(1)`은 C와 Rust 양쪽에서 숫자 prefix·괄호·선택적 내부 word로 나뉜다. Windows `strtod`의 parenthesized NaN payload 문법을 J 숫자 word로 도입하지 않는다. C의 전체 문장은 syntax error지만 Rust는 앞의 complex noun 생성 미지원에서 멈춘다. 따라서 네 표본은 word formation equality와 **payload/parser coverage boundary**이며 syntax-error 동등성이나 parser 실행 성공으로 집계하지 않는다. 부호 없는/음수 NaN, Infinity, ratio 표기를 별도 숫자 표본에 추가한다.
+
+이 단계는 기본 반올림 환경에서 polar 부호를 검증한 범위다. 외부에서 변경한 rounding/FTZ 환경은 검증하지 않았다. 문법이 확인된 매우 큰 hex exponent도 i128 중간 계산과 부호 보존 saturation으로 polar 부호만 판정한다. 지원하는 64-bit host의 mantissa 길이 보정은 i128 범위보다 작으므로 임계값과의 순서는 보존된다. 이를 실제 숫자 payload 생성 규칙으로 사용하지 않는다. quad fractional-scale 합산 overflow, hex ratio의 변환 후 부호 및 arbitrary-precision payload의 할당/자원 오류 동등성은 **NV3d2b2**로 남긴다. C의 signed overflow를 Rust에서 재현하거나 시스템 메모리를 소진시켜 자원 오류를 추측하지 않는다. 관련 source 근거는 pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd`·`numj`·`numfq`·`numxTEMP`, word formation은 [w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)다.
+
+**NV3d2b1 검증:** native Windows default/portable 각각 **473 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,201 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,140**, valid payload 경계 **672**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **1**, NaN word formation 경계 **4**. unresolved error 경계는 **0**이다. 남은 recognition 1건은 `2.1e_9223372036854775808fq`의 scale/exponent 합산 overflow이며 실행 성공이나 정확한 오류 비교 pass가 아니다. NaN 4건은 C syntax error와 Rust payload Unsupported를 별도로 기록한다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, name syntax **4,125**, spelling **667**, vocabulary POS **143**/binding **140**/noun **3**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 보고서 20개의 source/DLL/binary hash를 확인했다. Linux/GitHub CI/CUDA와 변경된 floating-point 환경 검증은 실행하지 않았다.
 
 <a id="vocabulary-migration-checklist"></a>
 
@@ -7789,6 +7799,8 @@ Windows `strtod`의 hex mantissa·선택적 binary exponent를 Rust에서 검증
 - [ ] **NV3d2** dedicated quad grammar·플랫폼별 `strtod` 확장 및 숫자 construction의 resource/error 경계를 검증한다. Unknown 문법을 실제 Invalid로 추측하지 않는다.
 - [x] **NV3d2a** bounded quad·Windows hex 문법과 field/read-window 차이를 양 DLL로 검증했다. payload 실행 지원과 구분한다.
 - [ ] **NV3d2b** resource·scale overflow·rounding/FTZ·NaN payload 및 남은 플랫폼 conversion 경계를 검증한다.
+- [x] **NV3d2b1** 기본 ties-to-even의 hex polar 부호와 NaN 괄호 word 경계를 양 DLL로 검증했다. 매우 큰 exponent의 부호 판정과 숫자 payload 생성은 분리한다.
+- [ ] **NV3d2b2** quad scale overflow·hex ratio 부호·변경된 FP 환경·payload 할당/자원 오류 동등성을 검증한다. 숫자 construction 미지원을 J 오류로 바꾸지 않는다.
 - [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
 - [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
 

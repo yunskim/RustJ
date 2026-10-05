@@ -146,7 +146,8 @@ fn hex_prefix(s: &str) -> Option<(usize, &str, &str)> {
 }
 
 // A negative hex magnitude is invalid for polar input only when its leading
-// bit proves it cannot round to zero. Subnormal rounding remains Unknown.
+// bit and sticky remainder prove its sign after default round-to-nearest-even.
+// This validates the polar sign, not the rounded numeric payload.
 fn hex_nonnegative(s: &str) -> Check {
     let Some((_, mantissa, exponent)) = hex_prefix(s) else {
         return Check::Unknown;
@@ -163,24 +164,51 @@ fn hex_nonnegative(s: &str) -> Check {
     let Some((index, digit)) = first else {
         return Check::Valid;
     };
-    let Ok(exponent) = exponent.replace('_', "-").parse::<i64>() else {
-        return Check::Unknown;
-    };
-    let (Ok(integer_digits), Ok(index)) = (i64::try_from(integer_digits), i64::try_from(index))
+    // The prefix scanner has already proved the exponent's decimal grammar.
+    // Saturation preserves its sign relative to the zero-rounding threshold:
+    // any usize-sized mantissa offset is far smaller than i128's range on
+    // supported 64-bit hosts. This is not a numeric payload conversion.
+    let exponent = exponent
+        .replace('_', "-")
+        .parse::<i128>()
+        .unwrap_or_else(|_| {
+            if exponent.starts_with('_') {
+                i128::MIN
+            } else {
+                i128::MAX
+            }
+        });
+    let (Ok(integer_digits), Ok(index)) = (i128::try_from(integer_digits), i128::try_from(index))
     else {
         return Check::Unknown;
     };
     let nibble = (digit as char).to_digit(16).expect("validated hex digit");
-    let bit = i64::from(31 - nibble.leading_zeros());
+    let bit = i128::from(31 - nibble.leading_zeros());
     let leading = integer_digits
         .checked_sub(index)
         .and_then(|n| n.checked_sub(1))
         .and_then(|n| n.checked_mul(4))
         .and_then(|n| n.checked_add(bit))
-        .and_then(|n| n.checked_add(exponent));
+        .map(|n| n.saturating_add(exponent));
     match leading {
-        Some(n) if n >= -1074 => Check::Invalid,
-        _ => Check::Unknown,
+        Some(n) if n < -1075 => Check::Valid,
+        Some(-1075) => {
+            // Half the minimum subnormal rounds to even zero. Any lower set
+            // bit puts the magnitude above that midpoint, rounding away from zero.
+            let exact_power = nibble.is_power_of_two()
+                && mantissa
+                    .bytes()
+                    .filter(|b| *b != b'.')
+                    .skip(index as usize + 1)
+                    .all(|b| b == b'0');
+            if exact_power {
+                Check::Valid
+            } else {
+                Check::Invalid
+            }
+        }
+        Some(_) => Check::Invalid,
+        None => Check::Unknown,
     }
 }
 

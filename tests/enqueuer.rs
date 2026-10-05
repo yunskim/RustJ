@@ -390,9 +390,76 @@ fn windows_hex_float_numeric_parts_validate_without_platform_ffi() {
             "{source}"
         );
     }
-    let error = enqueuer::enqueue("_0X1P_9999ad90").unwrap_err();
+    let error = enqueuer::enqueue("2.1e_9223372036854775808fq").unwrap_err();
     let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
         panic!()
     };
     assert!(!reason.starts_with("validated"));
+}
+
+#[test]
+fn hex_polar_magnitude_preserves_round_to_even_zero_and_sticky_remainders() {
+    for source in [
+        "_0X1P_9999ad90",
+        "_0X1P_1076ad90",
+        "_0X1P_1075ad90",
+        "_0X2P_1076ad90",
+        "_0X.8P_1074ad90",
+        "_0X0P9999ad90",
+        "_0X0001.0000000000P_1075ad90",
+        "_0X1P_1075ar1",
+        "_0X1P_9223372036854775809ad90",
+        "_0X1P_170141183460469231731687303715884105729ad90",
+    ] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!("{source}")
+        };
+        assert!(reason.starts_with("validated"), "{source}: {reason}");
+    }
+    for source in [
+        "_0X1.00000000000001P_1075ad90",
+        "_0X1.8P_1075ad90",
+        "_0X2.0001P_1076ad90",
+        "_0X.80001P_1074ad90",
+        "_0X3P_1076ad90",
+        "_0X1P9223372036854775808ad90",
+        "_0X1P170141183460469231731687303715884105728ad90",
+        "_0X1.00000000000000000000000000000000000001P_1075ar1",
+    ] {
+        let error = enqueuer::enqueue(source).unwrap_err();
+        assert_eq!(error.kind(), "ill-formed number", "{source}");
+        assert_eq!(error.span(), Some(&(0..source.len())));
+    }
+    let source = "2.1e_9223372036854775808fq";
+    let error = enqueuer::enqueue(source).unwrap_err();
+    let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+        panic!("{source}")
+    };
+    assert!(!reason.starts_with("validated"), "{source}: {reason}");
+}
+
+#[test]
+fn nan_parentheses_remain_j_tokens_instead_of_c_nan_payloads() {
+    for (source, expected) in [
+        ("1jNaN(1)", vec!["1jNaN", "(", "1", ")"]),
+        ("1jnan()", vec!["1jnan", "(", ")"]),
+        ("1jNAN(foo)", vec!["1jNAN", "(", "foo", ")"]),
+        ("1j_nan(1)", vec!["1j_nan", "(", "1", ")"]),
+    ] {
+        assert_eq!(
+            rustj::tokenizer::word_texts(source).unwrap(),
+            expected,
+            "{source}"
+        );
+        let error = enqueuer::enqueue(source).unwrap_err();
+        assert_eq!(error.span(), Some(&(0..expected[0].len())));
+        let rustj::Error::Unsupported(reason) = error.into_unlocated() else {
+            panic!("{source}")
+        };
+        assert_eq!(
+            reason, "validated numeric family payload construction",
+            "{source}"
+        );
+    }
 }
