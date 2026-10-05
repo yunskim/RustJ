@@ -254,6 +254,50 @@ The branch/join diagram describes an **ordinary VVV fork**. A constructor-fixed 
 
 RustJ does not claim that each ingredient is itself novel. Hook/Fork dataflow, function-level program transformation, graph-based fusion, and high-level array IR all have prior art. The distinctive architectural combination being explored by JAXA/RustJ is to **preserve J's tacit combinator algebra as an independent semantic graph layer, generate optimization candidates directly from that topology, and then separate full-J semantic legality from physical profitability**.
 
+#### Related prior art and RustJ's position
+
+There is direct prior art for the starting observation itself. RustJ therefore does **not** claim novelty for the general proposition that J syntax exposes optimization-relevant information. In particular, Bernecky's APL93 paper is strikingly close to the problem framing that motivated JAXA's use of `@:`, Fork, and Hook: parallel Fork arms, composition as a pipeline, and expression-level merging to reduce intermediate-array and storage overhead.
+
+- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
+  - explicitly observes that the `f` and `h` arms of a J tacit Fork can proceed in parallel, and argues that tacit definition simplifies data-flow/data-dependency analysis;
+  - discusses expression-level **loop jamming / merging**, combining sequences of array primitives into interleaved execution, which directly anticipates temporary-elimination/fusion concerns;
+  - describes J composition as a verb-to-verb **pipeline** and points out cell-level parallelism;
+  - paper: https://www.snakeisland.com/aplhiperf.pdf
+  - DOI: https://doi.org/10.1145/166197.166201
+
+- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
+  - is an important function-level precedent for treating program-combining forms and their algebra as objects of program transformation;
+  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
+
+- **Accelerate / Futhark / Lift / MLIR Linalg**
+  - Accelerate and Futhark preserve high-level array operations and dependency structure for fusion and parallel lowering;
+  - Lift uses the semantics of functional data-parallel patterns such as map/reduce for rewrite-rule optimization and GPU mapping;
+  - MLIR Linalg preserves structured transformation-relevant semantics before loop/CFG lowering and separates transformation validity from profitability;
+  - Accelerate: https://www.acceleratehs.org/publications.html
+  - Futhark: https://futhark.readthedocs.io/
+  - Lift: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
+
+The conservative novelty framing is therefore:
+
+~~~text
+J syntax exposes optimization-relevant structure
+    → direct prior art exists
+
+Fork/Composition/Rank expose parallelism or pipeline structure
+    → direct J/APL prior art exists
+
+high-level array operations are preserved for fusion/rewrite
+    → prior art exists in Accelerate / Futhark / Lift / MLIR
+
+preserve the full-J tacit combinator algebra
+as an independent J Graph IR,
+generate optimization candidates from that topology,
+then separate full-J semantic legality
+from physical profitability
+    → the distinctive architectural combination explored by RustJ/JAXA
+~~~
+
 The historical JAXA question is therefore recorded as:
 
 > **If J's function-composition notation already exposes computation topology, why destroy that intent into loops and try to rediscover it later?**
