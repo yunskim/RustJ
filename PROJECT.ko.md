@@ -3,7 +3,7 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 문서 갱신일: 2026-10-05
+> 문서 갱신일: 2026-10-06
 >
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
@@ -60,8 +60,8 @@ RustJ는 외부 구현을 하나의 동일한 권위로 취급하지 않고 **�
 
 - **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
   - Remora는 J/APL 계열의 rank polymorphism, frame/cell semantics와 implicit lifting을 정형화한 비교 대상이다. 근거: https://arxiv.org/abs/1907.00509
-  - Bohrium은 기존 NumPy-style array program을 지연된 중간 표현으로 모아 fusion/materialization과 heterogeneous execution을 결정한 선례다. 근거/논문 목록: https://bohrium.readthedocs.io/publications.html
-  - Lift는 high-level map/reduce 등의 rewrite와 hardware mapping을 분리하는 optimizer 연구의 비교 대상이다. 근거: https://doi.org/10.1109/CGO.2017.7863730
+  - Bohrium은 기존 NumPy-style array operation을 lazy하게 수집해 fusion, allocation/materialization, host-device data movement와 backend-specific execution을 늦추는 선례다. 이를 각 operation마다 CPU/GPU를 동적으로 선택하는 모델로 과장하지 않는다. 근거/논문 목록: https://bohrium.readthedocs.io/publications.html
+  - Lift는 portable map/reduce pattern에서 OpenCL-specific functional pattern까지 rewrite-driven하게 변환하며 hardware mapping을 점진적으로 구체화하는 optimizer 연구의 비교 대상이다. rewrite와 hardware mapping의 완전한 분리 선례로 해석하지 않는다. 근거: https://doi.org/10.1109/CGO.2017.7863730
   - MLIR Linalg는 structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 계층화의 비교 대상이다. 근거: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
   - 어느 시스템도 RustJ의 J semantic specification은 아니며, compiler layering과 optimization technique의 근거로만 사용한다.
 
@@ -10432,6 +10432,81 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 70. **Implicit loop owns empty and assembly semantics** — fill-cell prototype과 heterogeneous result assembly는 primitive kernel의 우연한 동작이 아니라 CellApply contract다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
+
+### 15.7 문서 완전성 감사 — stage contract가 닫혀 있는가? (2026-10-06)
+
+RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면서 **각 stage 자체의 설명보다 stage 사이의 연결 계약이 흩어지는 문제**가 생겼다. 따라서 “문서가 길다/자세하다”와 “독자가 compiler를 처음부터 끝까지 재구성할 수 있다”를 같은 것으로 보지 않는다.
+
+앞으로 주요 compiler stage는 최소한 다음 질문에 답해야 문서적으로 **닫힌(closed) contract**로 본다.
+
+~~~text
+1. 왜 이 stage가 존재하는가?
+2. 입력은 무엇인가?
+3. 출력은 무엇인가?
+4. 반드시 보존해야 하는 semantic information은 무엇인가?
+5. 이 stage가 결정하면 안 되는 것은 무엇인가?
+6. 앞/뒤 stage와의 contract는 무엇인가?
+7. 대표 source → IR/plan 예제가 있는가?
+8. 현재 구현은 어디까지인가?
+9. 어떤 verifier/test가 그 경계를 증명하는가?
+10. 아직 미구현·미정인 부분은 무엇인가?
+~~~
+
+아래 평가는 **설계의 품질 평가가 아니라 문서 연결 완전성 평가**다. `충분`은 모든 구현이 끝났다는 뜻이 아니며, `부분`은 설계가 틀렸다는 뜻이 아니다.
+
+| Stage / 경계 | 현재 문서 상태 | 이미 강한 부분 | 아직 닫히지 않은 부분 |
+|---|---|---|---|
+| word formation → enqueue → parser | **충분** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reduction, name/assignment sequencing, differential gates | 한 문장을 token→queue→row reduction→completed `JEntity/FunctionEntity`까지 추적하는 짧은 canonical E2E trace는 더 명확히 할 수 있음 |
+| Semantic Construction / binding / dynamic semantics | **충분** | FunctionEntity/JEntity 경계, late NameRef, assignment=value+effect, definition frame, gerund/rank/hook/fork 보존 | explicit-definition control-flow가 A3 region/block으로 넘어가는 실제 handoff 예제는 아직 부분적 |
+| J Semantic → J Graph IR | **충분** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, `@:`/fork 그림, Graph/Execution IR 분리 | hook/rank/reduce/scan을 한 묶음으로 보여 주는 canonical graph-example suite는 아직 분산됨 |
+| Graph analysis → candidate/proof | **부분** | rewrite candidate+witness, fusion candidate+proof obligation, logical memory/resource/work-depth side analysis, target-feasibility 분리 | **proof obligation을 누가 어떤 evidence로 discharge하는지**, candidate state transition, 여러 candidate가 겹칠 때 conflict/selection policy, legality failure의 canonical representation이 아직 없음. 현재 fusion은 `AwaitingSemanticProofs`, `selected=false`임 |
+| J Graph → Execution Semantic Lowering → A3 | **대체로 충분** | direct lowering, Graph/Execution fact drift check, Execution Basis, SemanticCheck, effect/error/speculation, verifier, schema version | A3-v0는 실제로 single-block 중심이다. region/block/control-flow schema 존재와 full control-flow lowering 구현을 구분하는 E2E 예제가 더 필요함 |
+| Route analysis / partition | **부분** | `RouteDecision`, capability/recipe, mixed-route 원칙, RuntimeSemanticFallback, 현재 contiguous class partition 구현 | **region boundary ABI**(live-in/out, representation, transfer/materialization, effect/token, error propagation), region 전체 legality aggregation, native↔runtime/external 전환 규칙이 아직 하나의 계약으로 닫히지 않음 |
+| Schedule / Physical Planner | **부분 — 우선 보완** | logical/schedule/physical 분리, TargetProfile/ResourceEstimate/CostEstimate, G1 physical representation foundation | 실제 canonical `PhysicalPlan` schema와 verifier가 아직 없음. `Bind/View/Materialize/Kernel/Transfer/Sync/Return`, lifetime, buffer reuse witness, schedule candidate identity의 최소 타입 계약을 M4 전에 문서로 먼저 고정해야 함 |
+| Native Executor | **부분** | Executor가 다시 판단하면 안 되는 것, reference logical executor, G4 목표가 명확함 | Physical Plan interpreter/executor의 operation semantics, error/cleanup/async completion contract와 E2E test oracle이 아직 없음 |
+| fallback / guard miss / replay | **부분 — 우선 보완** | valid J와 route eligibility 분리, RuntimeSemanticFallback, effect 후 자동 replay 금지 원칙이 여러 절에 존재 | compile-time route fallback, specialization guard miss, 실행 도중 Unsupported, effect가 이미 commit된 뒤 실패를 **하나의 no-replay/deopt decision table**로 통합하지 못함 |
+| external route / GPU | **계획 수준** | adapter 책임, external IR은 projection, target/lowering capability 분리 | 첫 실제 adapter의 region ABI/round-trip verifier/unsupported diagnostics가 아직 없음. CUDA는 의도적으로 보류 |
+| validation / versioning | **부분** | frontend differential gate가 매우 강함, A3 verifier/header/schema version 존재 | candidate→route→physical 단계의 negative verifier matrix와 serialization upgrade/downgrade policy는 아직 목표 수준 |
+
+#### 15.7.1 가장 먼저 닫을 문서 빈칸
+
+현재 구현 우선순위 M2를 바꾸지 않는다. 다만 이후 단계에서 설계를 다시 추론하지 않도록 다음 문서 계약은 **구현보다 먼저** 닫는다.
+
+1. **Candidate lifecycle / proof discharge**
+   - `Discovered → AwaitingProofs → Legal/Illegal → Costed → Selected/Rejected → Lowered` 같은 개념 상태를 정의한다.
+   - equivalence, effect/error order, rank/cell, resource/work-depth, target capability 각각의 **evidence owner**를 명시한다.
+   - resource/cost side analysis는 legality 완료 전에도 speculative하게 실행할 수 있지만 selection commit은 필요한 legality proof 뒤에만 가능하다는 규칙을 고정한다.
+   - overlapping rewrite/fusion/scan candidates의 conflict와 provenance 보존 규칙을 정한다.
+
+2. **RouteRegion boundary contract**
+   - live-in/live-out SSA value, effect/error ordering edge, representation requirement, transfer/materialization 책임을 명시한다.
+   - `partition_plan`의 현재 contiguous class grouping은 v0 분석 도구이지 최종 mixed-route planner가 아님을 유지한다.
+   - route boundary를 넘을 때 J semantic checks가 누락되거나 중복 실행되지 않는 조건을 정의한다.
+
+3. **M4 최소 PhysicalPlan schema**
+   - 최소 operation을 `Bind`, `View`, `Materialize`, `Kernel`, `Transfer/Sync`(필요 시), `Return`으로 고정할지 검토한다.
+   - 각 op의 input/output, BufferId/lease/lifetime, physical view, last-use, reuse witness와 verifier를 문서로 정의한다.
+   - `physical.rs`의 G1 read-only affine representation과 Physical Planner/Executor를 동일시하지 않는다.
+
+4. **Fallback / no-replay contract**
+   - compile 전 route miss와 runtime guard miss를 구분한다.
+   - effect 없는 guarded region의 재실행 가능 조건과 effect가 commit된 뒤 **자동 replay 금지**를 명시한다.
+   - UnsupportedImplementation, semantic J error, target/capability miss, guard miss를 서로 다른 결과로 유지한다.
+
+5. **한 개의 canonical end-to-end compiler trace**
+   - 예: `(+/ % #) y` 또는 `f @: g` 하나를 선택해
+   - `source → parser construction → Semantic IR → J Graph IR → candidate/proof → A3 → route → minimal PhysicalPlan → CPU result/error`
+   - 를 같은 Value/operation provenance로 끝까지 추적한다.
+   - 아직 구현되지 않은 단계는 가상 완료 그림으로 숨기지 말고 `planned/not implemented`를 표시한다.
+
+#### 15.7.2 문서 유지 규칙
+
+- 새 major stage/type을 추가할 때 위 10개 질문 중 해당 항목을 함께 갱신한다.
+- 구현 타입 이름과 문서의 개념 이름이 다르면 “현재 구현명 / 목표 개념명”을 명시한다.
+- 목표 architecture 그림과 현재 구현 상태를 같은 시제로 쓰지 않는다.
+- framework 비교를 수정하면 `FOUNDATIONS`, `PROJECT`, `README`, `AGENTS`에 같은 주장을 중복해 둔 곳이 없는지 교차 검색한다.
+- 한 stage의 상세 절이 길어질수록 **입력/출력/금지/다음 경계** 요약을 절 앞이나 끝에 유지한다.
+- 문서 감사에서 발견한 항목을 별도 Markdown 보고서로 분리하지 않는다. 이 절과 §10/§16의 기존 체크리스트에 흡수한다.
 
 ---
 
