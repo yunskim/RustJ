@@ -3276,6 +3276,15 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 **설계상 의미:** '비교 정책'을 실행 코드의 명시적 입력으로 캡처하는 첫 단계이고 **J의 `!.t`/전역 `9!:19`를 구현한 것이 아니다**. `FixedRustNearV0`는 현재 Rust CPU 함수의 정체성일 뿐, jsource `cct`-based 구현 동등성 witness가 아니다. 다음 기능을 활성화하려면 `Fit`-derived verb/동적 설정의 semantic ownership, 실제 호출 시점 policy identity + epoch, guarded supported-range proof, 전체 rank/cell·type·error 조건, 적절한 cache key/invalidation 및 독립 J C differential을 각각 충족해야 한다. 자동 TolerantNeighborHash 후보 선택, prepared float hash, LLVM/GPU 경로는 계속 금지한다. P.1 단계 5–7/12는 **[ ] 그대로**다.
 
 
+###### P.8 jsource 기본 비교식의 경계 불일치 — 미해결 의미론 차이 발견 (2026-10-06)
+
+**독립 source-first 재감사:** 고정한 jsource [`jsrc/vcomp.h::TCMPEQ`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vcomp.h), [`jsrc/i.c` 초기화](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/i.c), [`jsrc/viavx.h::jeqd`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.h)를 추가 확인했다. 기본 `jt->cct=1.0-FUZZ`, `FUZZ=2^-44`이며, C 소스의 단일 float 비교식은 `(a > cct*b) != (b <= cct*a)`다. 검색 계열의 tolerant probe 역시 `jeqd`를 통해 `TCMPEQ`를 호출한다. [`jsrc/xa.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/xa.c)에서 `9!:19` 입력은 `0 <= t <= 5.820766091e-11`을 검사하고 `cct=1.0-t`로 저장한다. 유효 범위와 변경 수명은 이 원본에 맞춰야 한다.
+
+**소스 식의 IEEE-754 모델을 통한 실제 반례(실행한 J C 바이너리 아님):** `t=2^-44`, `a=1.0`, `b=1.0-t`이면 현재 RustJ `near`의 `|a-b| <= t*max(...)`는 **true**, 위 jsource C macro를 이진64 연산으로 모델링한 식은 **false**다. `b=1.0+t`에서도 같은 불일치가 나타난다. 이는 반올림·경계의 **strict-vs-inclusive** 차이여서, 수학적으로 같은 허용오차 폭을 논의한 것만으로 기계 수준의 결과 동등성이 보장되지 않는다는 구체적 증거다. 별도 Python IEEE-754 반증 탐색은 **의도적으로 허용오차 경계에 집중한 120,000쌍에서 19,968개의 모델 불일치**를 찾았다. 이 빈도는 일반 입력의 J-vs-Rust mismatch rate가 아니며 C 원본 실행 결과도 아니다. 부호·크기·subnormal·다양한 target CPU는 별도 검증해야 한다.
+
+**코드·승인 상태:** `src/comparison_policy.rs`의 테스트 전용 `source_cct_macro_model` 및 `jsource_cct_macro_model_exposes_fixed_near_boundary_gap`이 이 반례를 기계적 회귀 입력으로 기록했다. `FixedRustNearV0`의 기존 실행 의미는 **의도적으로 변경하지 않았다**. 실제 J C binary/엔진을 사용한 `=, i., i:, e., E.` 경계 검증과 dtype/rank/fit·error 차이를 확정한 뒤, 공통 comparator를 source-equivalent로 교체할지 결정해야 한다. 임의로 float hash를 활성화하거나 source model을 완전한 J runtime oracle로 선언하지 않는다. **P.1 #5 및 #12는 여전히 미완료이며, 이전 P.4의 수학적 후보-상계 증명은 *구 Rust fixed-near comparator*에 한정된다.**
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
