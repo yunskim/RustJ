@@ -1876,6 +1876,71 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 
 현재 `GraphAnalyzability`의 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback과 `AnalysisBoundary`는 초기 분류다. **Static은 pure/error-free/reorderable/executable을 뜻하지 않는다.** `validate_noun_inputs()` 성공도 함수·효과·전체 실행 안전성을 뜻하지 않는다. 위 분류를 full guard/continuation/dispatcher의 구현으로 오인하지 않는다.
 
+#### 3.9.4 Fallback / guard miss / replay decision table
+
+RustJ에서 `fallback`이라는 말을 하나의 의미로 쓰지 않는다. 최소 다음 네 개념을 분리한다.
+
+~~~text
+route fallback
+  실행 시작 전 capability/precondition을 보고 다른 verified route를 선택
+
+guard miss
+  specialization/optimization 가정이 false임을 effect 전에 확인
+
+replay
+  이미 시작한 region/sentence를 처음부터 다시 실행
+
+continuation / deopt
+  이미 완료한 의미적 effect를 보존한 채 정확한 semantic point에서 재개
+~~~
+
+현재 RustJ가 architecture상 일반적으로 허용하는 것은 **실행 전 route fallback**이다. effect 이전 guard miss도 지원 capability가 실제 존재할 때 reanalysis/reselection으로 처리할 수 있다. 일반 replay나 exact continuation/deopt는 구현·검증된 capability가 아니다.
+
+| 발생 상황 | J semantic error인가? | 다른 route 선택 가능? | replay 가능? | 현재 원칙 |
+|---|---|---|---|---|
+| compile/lowering 시 target capability miss | 아니오 | **예**, 아직 실행 전이고 verified alternative가 있으면 | 필요 없음 | route miss로 처리; 없으면 UnsupportedImplementation |
+| specialization guard miss, observable effect 전 | 아니오 | **예**, reanalysis/verified fallback route가 있으면 | 원칙적으로 재실행보다 새 route 선택 | guard miss는 J error로 노출하지 않음 |
+| explicit compiler/API contract violation | J 자체 오류와 별개 | contract가 허용한 정책에 따름 | 자동 replay 아님 | 잘못된 user/compiler contract와 J Domain/Rank 등을 구분 |
+| A3 `SemanticCheck` 또는 semantic call이 내는 J Domain/Length/Rank/Index 등 | **예** | 아니오. 다른 backend로 바꿔 같은 J error를 회피하지 않음 | 아니오 | 원래 error class/precedence를 보고 |
+| backend adapter precondition miss, region 실행 전 | 아니오 | **예**, verified alternative가 있으면 | 필요 없음 | 해당 route만 거부 |
+| native/external implementation Unsupported, 아직 어떤 observable effect도 시작 전 | 아니오 | **조건부**. 전체 region이 untouched이고 대체 route가 검증된 경우만 | v0에서는 route 재선택으로 처리 | implementation coverage 경계 |
+| kernel/external route가 일부 실행된 뒤 implementation failure | 보통 J semantic error가 아님 | 자동으로는 아니오 | **기본 금지** | cleanup 후 implementation failure/Unsupported를 보고; exact transactional contract 없이는 replay 금지 |
+| namespace write/I/O/error-observable effect가 commit된 뒤 실패 | 경우에 따라 별도 J error가 이미 관찰 가능 | 자동으로는 아니오 | **금지** | exact continuation이 구현·검증되기 전에는 중간 fallback capability를 선언하지 않음 |
+| async route가 일부 completion/token을 발행한 뒤 실패 | 자동 J error 아님 | token/resource 상태를 완전히 증명할 때만 | 기본 금지 | future async contract가 completion/effect frontier를 소유해야 함 |
+
+##### `RuntimeSemanticFallback`의 정확한 뜻
+
+현재 `lowering.rs::RouteDecision::RuntimeSemanticFallback`은:
+
+> **이 operation에 현재 native ExecutionBasis realization이 없으므로 semantic/runtime route가 필요하다는 compile-time 분류**
+
+다. 이것은 “native kernel을 실행하다 실패하면 언제든 interpreter로 되돌아간다”는 runtime deoptimization 보장이 아니다. 실제 runtime semantic executor가 해당 form을 지원하지 않으면 최종 결과는 여전히 `UnsupportedImplementation`일 수 있다.
+
+##### fallback commit frontier
+
+future dispatcher는 최소한 다음 frontier를 추적해야 한다.
+
+~~~text
+before_start
+  아무 observable effect/consumer-visible transfer도 없음
+
+guarded_but_uncommitted
+  guards/checks는 수행했지만 replay-sensitive effect 없음
+
+committed
+  namespace write / I/O / externally visible mutation / non-rollback transfer 등이 발생
+~~~
+
+`before_start`와 `guarded_but_uncommitted`에서는 verified alternate route 선택이 가능하다. `committed` 이후에는 exact continuation/transaction rollback 증명이 없는 한 region-start replay를 금지한다.
+
+##### 검증 요구
+
+- guard miss가 J semantic error code로 바뀌지 않는 test
+- effect 이전 route miss가 alternate verified route를 선택하는 test
+- SemanticCheck 실패에서 backend 변경이 error를 숨기지 않는 test
+- namespace write 뒤 Unsupported를 강제로 만들고 write가 두 번 실행되지 않는 negative replay test
+- async/transfer를 도입할 때 completion frontier 이전/이후 실패를 분리하는 test
+
 이행 항목의 정본은 [§10 DB0–DB7 체크리스트](#dynamic-boundary-checklist)에 둔다. 검사 대상과 구현 상태는 위 계약을 따른다.
 
 근거: [FOUNDATIONS §21/§33](FOUNDATIONS.ko.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7의 분류·이행 순서는 RustJ 설계 판단이며 upstream의 완성된 guard 시스템을 복제했다는 뜻이 아니다.
@@ -8303,8 +8368,8 @@ backend / executor
 
 - [ ] Logical payload와 분리된 최소 `Schedule/TransformPlan`을 정의한다.
 - [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
-- [ ] 최소 Physical Plan op를 `Bind/View/Materialize/Kernel/Return` 수준으로 정의한다.
-- [ ] logical ValueId → physical representation/BufferId binding을 구현한다.
+- [ ] §5.2.1의 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return` 수준으로 정의한다.
+- [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
 - [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
 - [ ] G3의 첫 kernel로 contiguous/fixed/general-stride add를 연결한다.
 - [ ] G3 cell mapping과 ExecutionBasis `CellApply`를 physical view iteration에 연결한다.
@@ -10091,14 +10156,17 @@ A3-v2
 
 ### G4 — RustJ-native 최소 Physical Plan과 CPU Executor
 
-- [ ] Buffer bind
-- [ ] View
-- [ ] Materialize
-- [ ] Kernel call
-- [ ] Output ownership
+- [ ] plan-time `PlanBufferId` / `PhysicalViewId` identity와 verifier
+- [ ] `BindInput`
+- [ ] `Check` — A3 SemanticCheck의 error kind/origin/order 보존
+- [ ] `View`
+- [ ] `Materialize`
+- [ ] `Kernel` call — selected lowering recipe만 실행
+- [ ] `Return` / output ownership
 - [ ] last physical use
-- [ ] buffer reuse proof
+- [ ] buffer reuse proof/witness
 - [ ] layout-compatible view 유지
+- [ ] runtime `BufferLease/BufferId` binding과 plan-time identity 분리
 - [ ] CPU executor
 - [ ] source → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan → RustJ-native Schedule/Physical Plan → CPU end-to-end
 
