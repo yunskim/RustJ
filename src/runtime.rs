@@ -830,6 +830,33 @@ impl Engine {
         }
     }
 
+    /// Admit a zero-frame fill-cell only for a resolved primitive or a
+    /// structurally nested Rank of such a primitive. Never execute user
+    /// definitions or guess through unresolved derived operations.
+    fn rank_fill_is_value_only(
+        &mut self,
+        function: &std::sync::Arc<FunctionEntity>,
+        depth: usize,
+    ) -> Result<bool> {
+        if depth > crate::semantic::MAX_EXPR_DEPTH {
+            return Err(Error::Limit);
+        }
+        if self.primitive_witness(function, depth)?.is_some() {
+            return Ok(true);
+        }
+        if !matches!(
+            function.head,
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+        ) || function.requested_ranks().is_none()
+        {
+            return Ok(false);
+        }
+        let [FunctionOperand::Function(child), _] = function.operands.as_slice() else {
+            return Ok(false);
+        };
+        self.rank_fill_is_value_only(child, depth + 1)
+    }
+
     fn call_composite(
         &mut self,
         function: std::sync::Arc<FunctionEntity>,
@@ -897,7 +924,7 @@ impl Engine {
                 // A concrete primitive identity permits the current
                 // value-only fill-cell evaluation. Unknown/user definitions
                 // retain the explicit effect/prototype boundary.
-                let primitive_fill = self.primitive_witness(operand, depth)?.is_some();
+                let primitive_fill = self.rank_fill_is_value_only(operand, depth)?;
                 crate::logical_executor::apply_ranked(ranks, x, y, primitive_fill, |x, y| {
                     self.call_entity(operand.clone(), x, y, pooled, depth)
                 })
