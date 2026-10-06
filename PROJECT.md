@@ -188,6 +188,65 @@ Current `lowering.rs::partition_plan` is only a v0 analysis helper: it classifie
 
 When mixed-route implementation starts, extend it in this order: compute/verify live-ins and live-outs; distinguish value live-out from effect live-out; preserve SemanticCheck/order edges; add region-wide legality and guard ownership; add representation-neutral BridgeRequirement; lower bridges into concrete transfers/materializations; then differential-test target-specific RoutePartitions from the same Logical IR.
 
+
+### 2.1.1 M3-RB proof and verification contract for A3 → RouteBoundary (2026-10-07; design only)
+
+**Scope:** This specifies executable acceptance obligations for the existing §2.1 conceptual RouteBoundary. The current `lowering.rs::partition_plan` emits `RouteRegion { class, operations: Range<usize> }` as an **analysis/candidate partition**, not a certified runnable route or heterogeneous scheduler. Add no new mandatory Route/Parallel/Transfer IR; eventually attach a verified sidecar or equivalent evidence to the existing route boundary. No implementation or tests are claimed here.
+
+**Authority:** Retain an *independently verified, pre-transformation source A3 plan*. `Plan::verify` checks A3 structure, provenance and some SSA constraints, but does **not** independently rederive the truth of arbitrary edited `CallOp.effect`, `possible_errors`, `SpeculationSemantics` or `FactWitness` from J semantics. A transformed/mutated candidate must not certify itself using only its own altered fields. Track original source/primitive registry, operation identities, spans/`j_origin` and witness construction. A fingerprint can catch staleness but is not a semantic proof.
+
+**Conceptual input and decision (no Rust API selected):**
+
+~~~text
+Inputs: immutable verified source A3; candidate RouteRegion coverage;
+  chosen per-region route/target; optional rewrite/fusion witnesses;
+  binding/semantic facts and required runtime guards.
+Outputs: source op/Check/Write mapping; live-ins/outs; value/effect/ordered
+  error dependencies; per-region capability and discharged proofs/guard
+  ownership; representation-neutral bridge and commit/replay obligations.
+
+Verified      Every obligation discharged; selection may commit.
+GuardRequired Guards and safe fallback not yet placed/proven; NOT runnable.
+Rejected      Missing/forged/unsupported evidence; safe alternative
+              reference/runtime route or explicit Unsupported.
+~~~
+
+**Required invariants**
+
+| ID / owner | Required evidence | Reject if |
+|---|---|---|
+| **RB-01 source coverage** | Original single-block A3 operations `[0,N)` must be covered in original order by contiguous non-overlapping RouteRegion ranges. Preserve each source OpId/span/`j_origin`, Checks and result. Non-1:1 rewrites/fusion require independently witnessed whole-operation semantic equivalence | Any gap/overlap/reordered or ungrounded op; accept an empty partition **only for N=0** |
+| **RB-02 values and region liveness** | Compute producer/consumer closure for all operand kinds, including call left/right, `SemanticCheck.constraint` operands, dynamic reads/guards, intermediate and cross-region uses, and `Plan.result` | A zero-result Check still **consumes** inputs; reject missing live-in/out, dangling producer/consumer, stale version or dropped Return |
+| **RB-03 Check completeness** | Every original zero-result `SemanticCheck` has one proven obligation owner: **(a)** execute with J error class and precedence, **(b)** discharge by a sound `FactWitness` tied to stable input facts, or **(c)** use a proven observationally equivalent guard/check | Reject missing, duplicated, moved or reclassified Checks, spurious witness Some or altered first-error precedence. A **proven discharge** need not execute a redundant Check |
+| **RB-04 effect/error order** | Preserve SSA def-use, `Operation.order_after`, Check→Call, observable error/effect ordering and `Plan.write.after`. First J-visible error is defined by J semantics, not CPU/GPU worker completion | Reject dropping a dead-value but error/effect-live call, moving Checks after effects, changing handled errors or arbitrary completion-first error |
+| **RB-05 dynamic NAME and Write** | Distinguish `ReadNoun {symbol,version}` noun snapshots from late function `CallTarget::Dynamic`/NameRef resolution. `Plan.write` is an **independent commit event outside the operations vector**, requiring symbol/value/previous/proposed/span/after obligations | Range coverage alone does not cover Write. Reject stale snapshot/future-read versions, prematurely frozen function targets, dropped/duplicate/reordered write, replay after committed effects |
+| **RB-06 region-wide legality** | `LoweringRegistry::legal_candidates` supplies candidate families, **not** proof that a complete region is runnable. Verify chosen route, primitive/valence, Rank/CellApply/zero-frame fill, error/effect/alias, target features, runtime guards and bridge compatibility for the whole region | Reject op-wise capability aggregation as region proof, treating `ReferenceSequential` as a native CPU kernel, mutating unknown error/effect to NoError/Pure, unsupported boxed/sparse/tolerance, variable result-cell join, illegal reassociation |
+| **RB-07 bridges and fallback** | Route boundary states only J-visible dtype/shape/rank/boxed/sparse and value/effect ordering constraints. Concrete `BufferId`, strides, host↔device transfer, ready/completion tokens belong downstream to Physical/Bridge lowering. Run guards before observable effects | Reject cuts without a feasible legal bridge; late guard; transparent replay after commit; inferring device residency from a logical route |
+| **RB-08 proof freshness and diagnostics** | Tie witnesses to original A3/registry/op/name version and guard-observation time, with explicit unmet obligations and op/region-specific rejection explanations | Reject witness reuse across different ops/input versions, stale registry, forged effect/error summary, unsupported backend/bridge reported Verified |
+
+**Planned positive and one-invariant-negative cases (tests not written/run):**
+
+| Source / reference A3 | Expected accepted obligation | Individually forged plan must be rejected |
+|---|---|---|
+| `1+2` | Literal ValueOnly → Elementwise candidate, complete operands/result; CPU `ReferenceSequential` is **not** proof of a native kernel | Missing result operation, live-in or selected target capability |
+| `1 2+3 4` | Sound PrefixAgreement shape witness may legitimately remove an unnecessary Check | Change input shape/version or claim `witness: Some` without source proof |
+| `1 2+1 2 3` | Zero-result Length Check retained before its call | Drop/duplicate/move Check, map only SSA result, or change error kind |
+| `3 { 10 20 30` | Gather Index Check retains first-error semantics | Drop/relabel/move the Index Check after a selected kernel |
+| `future 3` | Unsupported native call stays RuntimeSemantic candidate | Promote to GPU/native Verified without a route/guard |
+| `a` and `a=:1+2` | Noun snapshot vs independently tracked Write commit and name-version/order obligations | Omit Write due to its position outside op ranges; freeze late function name prematurely; unconditional replay after write |
+| `+/\"1 (2 3$ i.6)` and zero-frame variant | Preserve Rank cell/frame and zero-frame virtual fill until separately proven; no automatic flat parallel map | Drop virtual prototype work or skip result-cell type/shape assembly |
+| Same source with CPU/GPU/External candidates | Compare all partitions to **one authoritative source A3** and its value/error/effect obligations; GPU implementation is deferred | Mark unimplemented GPU runtime, bridge or performance as verified |
+
+**Verification stages and acceptance:**
+
+1. **RB-V0 coverage:** source A3 verify; identity/fused mapping and total partition coverage including genuinely empty blocks; separately test missing, overlapping, reversed and invalid ranges.
+2. **RB-V1 semantics:** cross-boundary def-use/value-live/effect-live, zero-result Checks, final `Plan.result` and separate `Plan.write`, `order_after`/error priority; every Check executed, proof-discharged or equivalently guarded.
+3. **RB-V2 legality/guards:** witness freshness vs immutable A3 and input versions; region-wide target legality, guard-before-effect, commit frontier and safe fallback. GuardRequired does **not** permit execution.
+4. **RB-V3 differential:** compare valid plans and one-field mutations against jsource C, RustJ closed A3 reference where supported, and interpreter for dynamic NAME/state; match values/dtype/shape/logical atom order, first error and effect/name observations. `logical_executor::execute_closed` alone cannot validate dynamic names and Write.
+5. **RB-V4 target variance:** derive candidate CPU/GPU/External RoutePartitions from the same source A3. Static rejection and guard-required cases are valid for currently unavailable GPU/external backends; real device execution, transfer and performance require later M4/M5/M6 gates.
+
+**Status:** RB-01–08 and RB-V0–V4 are **design-complete only**. Implementing/running a certified RouteBoundary verifier, negative tests, jsource differential and reproducible pass evidence is a separate incomplete milestone. Existing `partition_plan` ranges and A3 structural verification alone do not complete M3, M4 or HE-01.
+
 ---
 
 ## 3. JAXA design principle — “SQL for array operations”
@@ -3572,6 +3631,8 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 <a id="architecture-migration-checklist"></a>
 
 ## 17. Active migration checklist
+
+**M3-RB proof boundary (2026-10-07):** [x] Design contract RB-01–08 and verification gates RB-V0–V4 in §2.1.1, covering original A3 op/Check/Write provenance, cross-region liveness, ordered errors and guards without introducing a new IR. [ ] Actual RouteBoundary verifier, one-invariant negative tests and J C/reference differential remain **unimplemented and unverified**. M2→M3→M4 order unchanged.
 
 **I/O tracking:** All storage, slow-I/O and out-of-core acceptance work belongs to the [IO-01–IO-30 checklist](#out-of-core-io-checklist). M2→M3→M4 semantic/CPU baseline remains the project priority; IO-A primary-source audits may proceed concurrently. Do not create another checklist.
 

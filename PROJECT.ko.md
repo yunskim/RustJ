@@ -926,6 +926,68 @@ mixed-route 구현에 착수할 때는 다음 순서로 확장한다.
 7. same Logical IR에 target별 다른 RoutePartition을 만들어 semantic result/error가 같은지 differential 검증
 
 
+##### M3-RB — A3→RouteBoundary 의미 보존 증명 및 검증 계약 (2026-10-07; 문서 설계만)
+
+**범위:** 기존 §2.5.1 RouteBoundary 개념에 검증 가능한 승인 조건을 부여한다. 현행 `lowering.rs::partition_plan`은 `RouteRegion { class, operations: Range<usize> }`라는 **연속 구간 후보 분류기**이지 실행 승인기나 혼합장치 스케줄러가 아니다. 새 필수 Route IR, CPU Parallel IR, Data Movement IR은 만들지 않고, 추후 기존 route contract에 연결되는 검증 증거(sidecar 또는 동등한 형태)를 사용한다.
+
+**권위 기준:** *변환 전 검증된 원본 A3 스냅샷*을 보존하여 비교한다. `Plan::verify`는 구조·schema/registry·SSA의 일부 검증기이며, 임의 수정된 `CallOp.effect`, `possible_errors`, `SpeculationSemantics`, `FactWitness`가 원래 J 의미에 참이라는 독립 인증서가 아니다. 최적화 후보가 수정한 A3를 자기 자신의 유일한 증거로 삼을 수 없다. 원본 source/primitive registry·op identity/`j_origin`/span과 생성자 증명을 연결한다. fingerprint는 stale 감지에는 유용하나 의미론 증명은 아니다.
+
+**승인 인터페이스(개념, 새 Rust 타입 확정 아님):**
+
+~~~text
+Input:
+  immutable verified source A3, proposed RouteRegion coverage
+  chosen route/target, optional rewrite/fusion witnesses
+  semantic facts/guards, required value/effect/bridge obligations
+
+Output:
+  source op/check/write mapping, region live-in/out, value+effect ordering
+  per-region capability + discharged proofs or owned guards
+  representation-neutral bridge obligations and commit/replay restrictions
+
+Verdict:
+  Verified      모든 의무를 이미 증명, 해당 route commit 가능
+  GuardRequired 실행 전 올바른 guard/실패 경로 연결이 필요; 즉시 실행 허가 아님
+  Rejected      위조·누락·미지원·미증명; 안전한 fallback 또는 Unsupported
+~~~
+
+**반드시 검증할 불변조건**
+
+| ID / 소유 | 필요 증거와 검증 의무 | 거부해야 하는 반례 |
+|---|---|---|
+| **RB-01 op coverage** | 원본 단일 블록 `operations[0..N]`을 비중복·무간극·원래 순서의 region range로 **모두** 커버한다. 원본 OpId/span/`j_origin` 대응과 최종 result를 보존한다. Fusion/rewrite로 1:N 또는 N:1 대응이 생기면 별도의 *완전한 의미론적 등가 witness*를 요구한다 | 빠진 op, 중복·겹침 range, 역순, 유효하지 않은 ID, 원본에 없는 op provenance. N=0인 진짜 빈 A3에는 빈 partition을 허용 |
+| **RB-02 value/live-in/out** | Call의 left/right, `SemanticCheck.constraint`의 입력, read/name/guard, 결과의 producer, 다른 region의 소비자, `Plan.result`까지 def-use closure를 계산한다. **Check는 출력 SSA가 없어도 값을 소비**한다 | 결과 값만 쫓아 Check 입력·cross-region producer를 유실, dangling live-in, stale value version, return value 누락 |
+| **RB-03 Check obligations** | 원본의 zero-result `SemanticCheck`마다 **한 소유자**를 부여한다: (a) 원래 J error class·우선순위로 실행, (b) 안정된 입력/생성 경로가 검증된 `FactWitness`로 정당하게 discharge, (c) 오류·관찰 순서 동등성이 입증된 guard/check로 대체 | Check 탈락·중복·오류 class 변경·호출 뒤 이동·자기선언 witness. **증명된 Check 제거는 허용**하지만 Check의 무조건 삭제는 금지 |
+| **RB-04 순서·첫 오류** | SSA def-use, `Operation.order_after`, Check→Call, observable effect/error edge, `Plan.write.after`의 순서 의무를 원본으로부터 보존한다. 첫 J 오류를 worker/GPU 완료 순서로 정의하지 않는다 | 값이 사용되지 않는 실패 가능 op·effect-live branch·Check 삭제, effect 앞뒤 재배열, 첫 오류 변경, error handler/try-catch 관찰 변화 |
+| **RB-05 dynamic NAME와 Write** | `ReadNoun {symbol,version}`의 noun snapshot과 `CallTarget::Dynamic` / function NameRef의 late lookup을 분리한다. `Plan.write`는 **operations vector 밖의 독립 commit event**: symbol/value/previous/proposed/span/after를 반드시 보존 | op 전체를 커버했다는 이유로 Write 생략, 조기 function target 고정, 옛 binding snapshot 재사용, write 중복·순서 역전·effect 이후 무조건 replay |
+| **RB-06 region-wide legality** | `LoweringRegistry::legal_candidates`의 *후보*를 넘어서, 선택 region 전체의 primitive/valence·Rank/CellApply/empty-frame fill, effect/error, target feature, runtime guards, alias/bridge 전제조건을 검증한다 | per-op support의 단순 합집합으로 전체 region 실행 승인, `ReferenceSequential`을 compiler-native kernel로 오인, Unknown effect/error를 Pure/NoError로 몰래 완화, tolerance/boxed/sparse/가변 cell 결과·재결합 미증명 승격 |
+| **RB-07 bridge/fallback** | 경계에는 J-visible dtype/shape/rank/boxed/sparse와 value/effect ordering **요구사항**만 둔다. 구체 `BufferId`/stride/host↔device transfer/ready token은 후속 Physical/Bridge에서 결정한다. Guard는 observable effect 이전에 실행한다 | legal bridge 없는 cut, 뒤늦은 guard, committed effect 이후 producer replay, GPU 메모리 배치의 부재를 무시하고 verified 처리 |
+| **RB-08 proof freshness/diagnostics** | 증거를 원본 A3/registry/op/version/guard 관찰 시점에 묶고, 검증 불가 의무와 Reject 이유를 source op/region에 귀속한다 | 다른 op의 proof 재사용, 바뀐 input/name version에 stale witness 재활용, 거짓 error summary, 미지원 backend/bridge를 Verified 처리 |
+
+**구체적인 테스트 설계 (아직 테스트 코드를 쓰거나 실행하지 않음):**
+
+| A3 기준 소스 | 정상 조건 | 하나씩 위조하여 거부해야 할 사례 |
+|---|---|---|
+| `1+2` | 두 literal의 ValueOnly → Elementwise 후보, result/value live-in 보존; CPU `ReferenceSequential`은 후보이지 native kernel 완성 증거가 아님 | result op 누락, value-live-in 누락, target capability 불일치 |
+| `1 2+3 4` | PrefixAgreement의 생성·입력 shape 증거가 유효하면 Check 불필요 | witness만 Some으로 바꾸거나 실제 shape/version을 변경해 Check 생략 |
+| `1 2+1 2 3` | zero-result Length Check가 Call보다 먼저 발생하고 J Length 유지 | Check 탈락/중복, Return만 보존, Check 뒤로 이동 |
+| `3 { 10 20 30` | Gather의 Index Check/오류 우선순위 유지 | Check를 제거·Length로 변조·커널 뒤로 보냄 |
+| `future 3` | 미지원 native call은 RuntimeSemantic 후보로 남김 | 근거 없는 GPU/native route 승격 |
+| `a`, `a=:1+2` | noun snapshot과 별도 Write commit 및 이름 버전·순서 보존 | write 미매핑, 미래 버전 선읽기, write 이후 무조건 replay |
+| `+/\"1 (2 3$ i.6)` 및 zero-frame 사례 | frame/cell 구분, zero-frame virtual fill 및 결과 type/shape assembly 의무를 보존 | empty frame을 no-op 처리, CellApply를 무증명 고정형 parallel map으로 변경 |
+| 같은 A3의 CPU/GPU/External 후보 | 세 후보 모두 **같은 원본**에 대해 값/타입/Shape/오류/효과 의무를 충족해야 함. GPU 실구현은 별도 보류 | GPU 실행기가 없는 상태에서 실행 완료·성능 검증으로 기록 |
+
+**실행할 검증 단계와 수용 게이트:**
+
+1. **RB-V0 coverage:** 유효 A3 + 빈 블록 포함 모든 op-range 전수 매핑·순서·빈 partition, gap/overlap/invalid ID 음성 검사.
+2. **RB-V1 semantic edges:** value/check/`Plan.write`/result 모두의 live-in/out, `order_after`, first-error, cross-region effect-live mapping을 검사. Check마다 실제 실행/증명된 discharge/동등 guard 하나를 입증.
+3. **RB-V2 legality & guards:** 원본 semantic facts와 witness provenance, target/region-wide legality, guard placement 이전의 effect frontier, fallback safety를 재검증. GuardRequired는 아직 실행 불가.
+4. **RB-V3 differential:** 각 정상 계획과 **단 하나의 invariant를 위조한 계획**을 비교. J 기준 C oracle, RustJ closed A3 reference(지원 입력만), RustJ interpreter의 value/type/Shape/atom/error precedence/effect/name state. Closed A3 executor가 dynamic NAME/Write oracle이 아닌 점을 명시.
+5. **RB-V4 multi-route:** 같은 원본에서 target별 RoutePartition 후보를 만들고 증거를 교차 비교. 미구현 GPU/External은 정적 Rejected/GuardRequired 확인까지만; 실제 device/transfer 성능은 M4/M5/M6 별도 수용으로 둔다.
+
+**완료 판정:** RB-01~08/RB-V0~V4가 정본·영어 미러에 들어간 것은 **M3-RB 설계 명세 완료**뿐이다. **구현/검증 완료**는 실재하는 verifier, 각 negative test의 PASS, 3자 의미론 차분 결과와 증거 기록이 필요하다. `partition_plan`의 range/class, A3 `verify` 통과, 문서 수정만으로 M3·M4·HE-01을 완료 처리하지 않는다.
+
+
 MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 dialect conversion으로 점진적으로 lowering할 수 있으므로 RustJ의 multi-level IR 구조와 특히 잘 맞는다.
 
 향후 RustJ Logical IR 전체를 MLIR tooling 안에서 보존할 필요가 생기면 **RustJ-specific MLIR dialect**를 fidelity-preserving bridge로 둘 수 있다. 다만 v0의 필수 구현은 아니다. 초기 adapter는 안전하게 표현 가능한 op만 기존 `tensor/linalg/arith/scf` 등으로 직접 lowering하고, 의미 손실이 생기는 op는 거부한다. StableHLO는 ML framework/compiler 사이의 portability layer를 목표로 하는 high-level op set이므로 NN/tensor subset의 선택적 export 대상으로 본다. LLVM IR/SPIR-V는 더 낮은 execution target으로 사용한다.
@@ -9972,6 +10034,8 @@ backend / executor
 
 목표: logical value identity에 CPU/GPU/layout identity가 역류하지 않게 하고 representation 선택을 physical planning으로 이동한다.
 
+- [x] **M3-RB 설계 명세(2026-10-07):** §2.5.1의 RB-01~08 의미론 보존·proof/guard·source coverage·Write commit 및 RB-V0~V4 검증 기준을 확정했다. **문서만 완료**.
+- [ ] **M3-RB 실행 검증(구현 보류):** 원본 A3 독립 대조, RouteBoundary validator, Check/effect/error/order negative tests, J oracle 차분 결과를 실행 후 수용한다. 현재 `partition_plan`은 분석 후보 분류기다.
 - [x] `LayoutFact`를 `RepresentationClassFact`로, `Facts.layout`을 `Facts.representation_class`로 바꿔 physical layout과 구분했다.
 - [ ] Dense/Boxed/Sparse처럼 J-visible representation semantics와 row-major/column-major/stride/tile/device 같은 physical representation을 타입/API에서도 구분한다.
 - [ ] 현재 `Value::Data`의 dense `CpuStorage` 직접 소유를 migration artifact로 한정하고, canonical compiler value identity가 CPU backing을 요구하지 않게 한다.
