@@ -9918,12 +9918,12 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [x] 공식 문서 및 ProxyTensor source에서 concrete/symbolic capture, lazy evaluation, graph break/guard, SSA 방식의 차이를 조사했다.
 - [x] 실제 noun reduction + 별도 compilation capture를 결정하고 문법상의 verb-only 제한을 두지 않기로 했다.
 - [x] 현재 deferred parser와 목표 runtime parser의 차이, 아래 implementation/test gate를 정본에 기록했다.
-- [ ] **P2/P4 — runtime row actions:** 하나의 parser context/semantic host가 name lookup, verb invocation, constructor validation을 제공하게 한다. lookup을 실제 right-to-left queue→stack entry로 이동한다. rows 0–2가 실제 Value를 반환하게 하고 성공 noun을 재삽입한다. 미지원 effectful J forms를 full runtime 지원으로 표시하지 않는다.
-- [ ] **P2/P5 — capture carrier:** opt-in recorder, occurrence ids, input/output associations와 ordered attempt/success/error events를 추가한다. raw Value storage/primitive executor에 compiler fields를 넣지 않는다. recording on/off semantic parity를 먼저 확인한다.
-- [ ] **P3/P5 — construction provenance:** rows 3–6의 completed FunctionEntity DAG와 computed noun operands의 origin을 연결한다. 정적 placeholder로 실제 noun validation을 대체하지 않는다. 구체적으로 `f=:+"(1+0)`의 계산 rank operand와 `f=:(1+2) + *`의 noun-left fork를 지원 여부 manifest와 비교한다.
-- [ ] **P4 — names/effects:** same-sentence assignment/name/POS/locale mutation을 현재 지원 범위에서 실행 순서대로 기록한다. 이미 수행된 effects와 pending outer assignment를 구분한다. 미지원 행위는 reason과 partial capture로 남기며 silent approximation을 하지 않는다.
-- [ ] **P5/P8 — graph adapter:** input/constant/read/apply/constructor dependency events에서 기존 J Graph로 연결하고 verifier를 통과시킨다. unresolved/opaque operation은 optimization barrier로 유지하고 array lowering coverage와 구분한다.
-- [ ] **P6 — differential and retention gate:** 아래 검증 matrix를 Windows default/portable, 일반·AVX2 C oracle에서 실행한다. 보고서에 구현 범위·검사 수·known deviations/pending·실제 revisions/hashes를 남긴다. GitHub CI는 사용하지 않는다.
+- [x] **P2/P4 — runtime row actions (지원 subset):** `RuntimeParserHost`가 같은 9-row engine에서 stack-entry name lookup과 rows 0–2 invocation을 수행하고 actual `Value`를 같은 stack에 재삽입한다. 미지원 effectful/locale/definition form은 별도 coverage boundary로 남긴다.
+- [x] **P2/P5 — capture carrier:** opt-in `ParseCapture`, occurrence ids, input/output associations와 ordered attempt/success/failure events가 구현되었다. raw `Value`/primitive executor에 compiler identity를 넣지 않으며 capture parity 회귀를 유지한다.
+- [x] **P3/P5 — construction provenance (지원 subset):** completed FunctionEntity DAG, construction attempt/success, computed noun occurrence origin을 capture에 연결했다. runtime actual noun과 static value-dependent boundary를 구분하며 전체 constructor vocabulary 지원 완료를 뜻하지 않는다.
+- [x] **P4 — names/effects (지원 subset):** same-sentence name lookup/assignment/POS와 이미 commit된 effect 대 pending outer assignment의 순서를 capture/runtime 회귀로 보존한다. 일반 user locale/path와 미지원 effect form은 여전히 별도 경계다.
+- [x] **P5/P8 — graph adapter (성공 capture subset):** capture의 input/constant/read/apply/construction dependency를 기존 J Graph로 변환하고 verifier를 통과시키는 adapter가 구현되었다. failed/opaque/dynamic boundary를 executable complete graph로 승격하지 않는다.
+- [x] **P6 — 지원 corpus differential/capture gate:** Windows default/portable와 j64/AVX2 oracle에서 여러 후속 gate를 반복 실행했고 reports에 coverage boundary와 revision/hash를 남겼다. 이는 full runtime `ptcol` internal trace나 full-J/upstream/locale/definition acceptance 완료를 뜻하지 않는다.
 - [ ] **후속 P5/P8 — static/reuse:** purity·error order·binding/value guards를 확보한 구간에서만 abstract actions, region compilation, safe reuse를 추가한다. capture 실행 경로의 completion gate는 runtime reduction + capture parity + verified J Graph다. 최소 static 분석 gate와 구분하며 production CUDA/JIT를 요구하지 않는다.
 
 ##### 테스트 matrix와 수용 조건
@@ -9940,7 +9940,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 | Memory/identity | 큰 array chain·alias 입력·복수 문장·capture 해제 후 temporary lifetimes 관찰 | per-node full-array copy와 diagnostic array retention 없음. BufferId로 semantic id를 생성하지 않는다. bounded metadata/constant policy 검증 |
 | Reuse safety | shape/binding/POS/constructor 값이 바뀐 입력; branch 양쪽 | guard invalidation 또는 semantic region 실행. 한 번 trace한 branch를 universal program으로 재사용하지 않는다 |
 
-**이번 조사 상태:** 계획/참고자료 정리만 완료했다. parser runtime action·capture API·memory tests는 아직 구현/실행하지 않았으며, 이전 212 tests/7,014 stage checks가 새 capture 구현의 검증 결과를 뜻하지 않는다.
+**역사 상태 주의:** 이 문단을 처음 작성한 2026-10-03 시점에는 계획/참고자료 정리만 완료되어 있었다. 이후 runtime row actions, capture API, successful-capture→J Graph adapter와 지원 corpus differential은 구현·검증되었다. 현재 미완료는 full runtime `ptcol` 내부 trace 동등성, 일반 locale/definition/control/effect coverage, capture 기반 safe static reuse/guard, 그리고 전체 memory-retention/performance gate다. 아래 212 tests/7,014 stage 수치는 당시 gate의 역사 기록이지 최신 검증이 아니다.
 
 #### F0 — jsource word formation 이식
 
@@ -10106,7 +10106,7 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 
 재실행: native Windows에서 `tools/check-windows.ps1` 후 `tools/check-frontend-windows.ps1 -ReferenceDirectory <j.dll/javx2.dll 폴더> -ReferenceRevision <확인한 40자리 commit> -SourceDirectory <jsource checkout> -SourceRevision <검토한 40자리 commit> -Avx2`를 실행한다. 기본 Python 3.13 경로는 `-Python`으로 변경할 수 있다. GitHub CI와 Linux tests는 실행하지 않았다. upstream 전체 suite와 CUDA 검증도 수행하지 않았다.
 
-**남은 gate:** intrinsic FunctionSemanticInfo 저장, full noun/verb modifier semantics, 실제 result POS, P2 runtime action/fallback, P4 우측→좌측 name/assignment timing은 미완료다. 이 증거는 M2 전체 완료를 뜻하지 않는다.
+**현재 남은 gate:** intrinsic FunctionSemanticInfo의 최종 수렴, full noun/verb modifier·immediate constructor semantics, 모든 result POS/primitive coverage, full runtime `ptcol` reachable-state trace, 일반 locale/locative/definition-control scope, noun/multiple assignment target과 static/runtime dynamic-boundary 수렴이 남아 있다. **P2 rows 0–2 RuntimeParserHost/reinsertion과 지원 범위의 우측→좌측 name/assignment sequencing 자체는 이미 구현되었으므로 이를 미구현 항목으로 다시 세지 않는다.** 이 증거는 M2 전체 완료를 뜻하지 않는다.
 
 #### P6 — differential/conformance test matrix
 
