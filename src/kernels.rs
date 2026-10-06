@@ -728,8 +728,14 @@ pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) 
         // corresponding typed fill cells and retain only result type/shape.
         let left_fill = a.rank_fill_cell(ar)?;
         let right_fill = b.rank_fill_cell(br)?;
+        let atomic_shape = if verb == "+" {
+            crate::logical_executor::atomic_add_mixed_char_fill_shape(&left_fill, &right_fill)
+        } else {
+            None
+        };
         let prototype = crate::logical_executor::recover_zero_frame_fill_domain(
             dyad(verb, left_fill, right_fill),
+            atomic_shape.as_deref(),
         )?;
         return prototype.empty_rank_result(frame);
     }
@@ -803,7 +809,7 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
         // Generic jtrank1ex-style fill evaluation for the supported
         // dense primitive subset. Retain the pure-ravel fast path above.
         let fill = y.rank_fill_cell(r)?;
-        let prototype = crate::logical_executor::recover_zero_frame_fill_domain(call(fill))?;
+        let prototype = crate::logical_executor::recover_zero_frame_fill_domain(call(fill), None)?;
         return prototype.empty_rank_result(&y.shape[..f]);
     }
     let evaluate_cell = |i| {
