@@ -85,3 +85,60 @@ fn member_preserves_cell_shapes_and_empty_query_semantics() {
     assert_eq!(eval("(i.0)e.3 4"), eval("0 0"));
     assert_eq!(eval("(i.0)i.3 4"), eval("0 0"));
 }
+
+
+#[test]
+fn engine_prehashed_index_reuses_only_immutable_shared_key_and_mode() {
+    let mut engine = Engine::new();
+    engine.eval("keys=: i. 128").unwrap();
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+
+    assert_eq!(
+        engine.eval("keys i. 17 199").unwrap().unwrap().json(),
+        eval("17 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (1, 0));
+    assert_eq!(
+        engine.eval("keys i. 18 199").unwrap().unwrap().json(),
+        eval("18 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (1, 1));
+
+    // Membership uses the same first-position table as dyadic i.
+    assert_eq!(
+        engine.eval("17 199 e. keys").unwrap().unwrap().json(),
+        eval("1 0")
+    );
+    assert_eq!(engine.index_prehash_stats(), (1, 2));
+
+    // The last-match index cannot silently borrow a first-match prehash.
+    assert_eq!(
+        engine.eval("keys i: 18 199").unwrap().unwrap().json(),
+        eval("18 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (2, 2));
+
+    // A redefined name has a different shared backing, even if the shape
+    // matches. No stale prehash table may answer the new lookup.
+    engine.eval("keys=: 1000 + i. 128").unwrap();
+    assert_eq!(
+        engine.eval("keys i. 1017 17").unwrap().unwrap().json(),
+        eval("17 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (3, 2));
+
+    engine.clear_index_prehash();
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+}
+
+#[test]
+fn reference_execution_does_not_consume_interpreter_prehash() {
+    let mut engine = Engine::new();
+    engine.eval("keys=: i. 128").unwrap();
+    assert_eq!(
+        engine.eval_semantic_reference("keys i. 17 199")
+            .unwrap().unwrap().json(),
+        eval("17 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+}
