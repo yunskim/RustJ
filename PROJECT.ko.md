@@ -1830,6 +1830,8 @@ simple name lookup:
   value error
 ```
 
+위 흐름은 **J semantic target**이다. 현재 runtime definition subset은 `LocalFrame`의 current-frame lookup 후 global namespace fallback까지 구현되어 있고, 일반 user locale/path 해석은 아직 미완료다. compiler-side `execution_semantics::Scope`도 `LocalFrame(u32)` vocabulary를 갖지만 현재 A3 symbol emission은 주로 `CurrentGlobal`에 머문다. 따라서 목표 locale semantics와 현재 implementation coverage를 같은 것으로 읽지 않는다.
+
 definition-time에 local slot/search hint가 존재한다는 사실은 그 name이 항상 local binding이라는 뜻이 아니다. slot이 아직 unbound이면 locale lookup으로 fallback할 수 있다.
 
 assignment도 구분한다.
