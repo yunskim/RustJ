@@ -8866,6 +8866,63 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 
 **정리:** 별도 새 compiler layer는 필요하지 않다. ***M3는 의미론적 적법성의 증거를 소유하고 M4는 그 증거를 변경하지 않고 물리적으로 실현했는지 검증한다.*** 이 명세만으로 M3 검증기/M4 Physical Executor가 만들어졌거나 테스트가 PASS한 것은 아니다. §10의 M3-RB·M4 및 HE-01~09는 **설계 완료와 구현/검증 미완료를 계속 분리**한다.
 
+##### H-A — M3→M4 첫 CPU 경로 실행 승인 판정표 (2026-10-07; 명세만)
+
+**이 절의 역할:** 기존 H-01~09, H-K, HM-V0~V4의 반복이 아니라, 실제 `lowering.rs`의 `RouteDecision`/`RouteRegionClass`와 미래 M4 compiler-native CPU 경로 사이에 **실행 가능한 것과 단지 합법적 후보인 것**의 경계를 확정한다. 현재 `main`에는 `src/physical_plan.rs`가 없으며, `src/physical.rs`는 read-only 표현 기반이다. Draft PR #4의 제한적인 literal identity 코드를 완료된 native Add 실행기로 계산하지 않는다. 구현·테스트 추가 없음.
+
+**기본 승인 흐름(기존 단계의 판정 질문):**
+
+| 순서 | 확인 대상 | 승인하려면 | 증거 부족 시 |
+|---|---|---|---|
+| **A0: SourceA3** | 변환 전 원본 `logical_ir::Plan` | `verify()`, source/provenance와 original Check/Write/오류 의무를 고정하고 변환 후보와 독립 보관 | 손상된 원본/다른 registry → 거부 |
+| **A1: RouteVerified** | `partition_plan`이 분류한 모든 원본 op와 선택할 *특정* region | RB-01~08 coverage, source op/operand/live-in/out, Check 실행·proof discharge·guard 소유, Write/Name/error-order 및 region-wide capability 증거 | `NoKernel`·`NativeExecutionBasis`·`RuntimeSemanticFallback`이라는 분류 자체는 허가 아님 |
+| **A2: ExecutableRoute** | M4가 인수하는 native region | M3가 승인한 **구체적인** realization과 **실제 존재하는 CPU kernel/adapter**, dtype/rank/valence 및 guard 지원; `ReferenceSequential`라는 후보 이름만으로 native 구현을 추정하지 않음 | 유효한 semantic/reference route만 사용하거나 Unsupported. *native 실행 가능*으로 표시 금지 |
+| **A3: PhysicalVerified** | 물리 연산·버퍼·View·Check·Return | 허가된 region/source mapping과 1:1 또는 등가 증명 대응. BindInput/Check/Kernel/Materialize 순서, PlanBufferId≠BufferId, span/encoding/ownership/lease/last-use, CPU Host capacity 검증 | invalid physical plan은 실행 직전에 임의 보정하거나 J 오류로 바꾸지 않고 거부 |
+| **A4: RuntimeReady** | 실제 호출 시점 | input/name snapshot 버전 및 guard 판정, registry lease/generation, capacity·readiness 유효. effect 이전 대체 경로 존재 | stale/guard failure는 **effect 이전에만** 안전한 경로로 변경, commit 이후 자동 재실행 금지 |
+| **A5: AcceptedNativeE2E** | 출력과 관찰 결과 | 실제 compiler-native 결과·dtype·Shape·atom order·첫 J error/effect가 RustJ 순차 및 가능할 때 jsource 기준과 일치, 관련 부정 사례 테스트 통과 | A3 분석 통과, reference route 결과, 문서·테스트 소스 존재는 M4 완료 증거가 아님 |
+
+**같은 A3에서 계획을 구성하는 구체 추적 표본**
+
+~~~text
+J: 1+2
+  Source A3: Literal(1) → ValueId(0)
+             Literal(2) → ValueId(1)
+             Basis(Elementwise, Add) → ValueId(2), result=ValueId(2)
+  Route candidate: ValueOnly(리터럴 구간) → PureArray(Add 구간)
+  M3: 원본 Add, value 연결, PrefixAgreement witness/guard, Check 의무를 대조
+  현행 CPU Lowering: Elementwise의 ReferenceSequential 후보 존재
+  M4 실행 판정: 실제 compiler-native Add 구현/물리 검증/실행 결과 전에는 A2~A5 미승인
+
+J: 1 2+1 2 3
+  Source A3: 두 Literal → zero-result SemanticCheck(Length) → Basis(Add)
+  Route candidate: ValueOnly → SemanticCheck → PureArray
+  M3: Length Check와 Check→Call ordering, operand live-in을 전수 인계
+  M4: Check 실행 또는 독립 증명된 동등 대체 없이 Kernel 선실행 불가
+  기대 관찰: Length error가 원래 시점에 보고되어야 함. 수행되지 않은 물리 경로는 미검증
+
+J: a=:1+2
+  Source A3: 계산 op + 별도 Plan.write {symbol,value,previous,proposed,after}
+  M3: 계산 결과와 Write commit을 서로 다른 의무로 인계
+  M4: 순수 Add region만 인수 가능. 반환값 생성이 assignment commit을 뜻하지 않음
+  전체 문장 완료: 책임이 분명한 RuntimeSemantic/향후 effect owner 필요
+~~~
+
+**지원 상태 판정표:** 현재 코드에 `ReferenceSequential`, `GenericCellLoop`, `MetadataOrIndexReindex` 등 *등록된 후보*가 있다고 해서 CPU Physical Executor가 구현된 것이 아니다. `RouteDecision::NoKernel`은 literal/read/verb-ref가 **같은 종류의 값**이라는 뜻이 아니다(H-K 참고). `TargetCapabilities::gpu_generic()`의 **기능 묘사**는 실제 GPU 장치·런타임 가용성 또는 실행 허가가 아니다. M4-v0 정책은 CPU/Host/Sequential/zero-transfer만 선택하도록 제한하되, 그 제한을 상위 J 언어 의미론/Logical IR에 역류시키지 않는다.
+
+**검증 스펙 HA-V1~HA-V7 (실행은 보류):**
+
+| 테스트 ID | 정상 승인 조건 | 한 항목씩 바꾸어 확인할 거부 조건 |
+|---|---|---|
+| HA-V1 **A3→Route** | `1+2`의 op/region 커버리지, 정확한 result/operands, source origin | native Add op 유실, 두 region overlap, 타 A3 origin을 같은 것으로 가장 |
+| HA-V2 **후보≠커널** | `ReferenceSequential` 후보를 그대로 분석 후보로 표시하고 실제 native 구현이 존재할 때만 A2 승격 | 등록 후보만으로 PhysicalVerified/RuntimeReady/NativeE2E 선언 |
+| HA-V3 **Check→Kernel** | `1 2+1 2 3`의 원본 Length Check를 선행, `3 { 10 20 30`의 Index Check를 선행; first error class 보존 | Check 삭제/중복/후행 배치, Length↔Index 교체, Kernel-first schedule |
+| HA-V4 **witness/guard** | `1 2+3 4`처럼 원래 shape witness가 유효하면 Check 없이 가능; guard 필요 시 효과 전에 완료 | 바뀐 input shape/name version에 과거 증명 재활용, GuardRequired를 실행 승인으로 오인 |
+| HA-V5 **Name/Write** | `a`는 read snapshot 검증, `a=:1+2`는 별도 commit owner 확인 | `ReadNoun`을 상수 literal로 변경, late function lookup 조기 고정, `Plan.write` 삭제/중복·effect 후 replay |
+| HA-V6 **Storage/Return** | 음수 stride/transpose/빈 Shape의 논리 순서·encoding·span, output ownership/lease generation | `ValueId==PlanBufferId` 간주, 미등록/조기 해제 버퍼, overlapping writable view, 잘못된 atom order·dangling Return |
+| HA-V7 **cross-route** | native 부분과 RuntimeSemantic 부분의 M3 global coverage + M4 native local coverage, 오류/effect edge 보존 | native region만 정상이라 전체 표현식 승인, 외부 bridge 미구현 상태에서 M4 전체 실행 성공 주장, GPU 완료 허위 기록 |
+
+**구현 우선순위와 수용 상태:** (1) 기존 M3-RB validator와 독립 source A3 기준의 HA-V1/3/4/5 논리 검증 → (2) M4 선택 recipe의 *실제* 구현 여부·CPU buffer/Check/Return verifier(HA-V2/6) → (3) 독립 reference/jsource의 HA-V7 및 native E2E 수용 → (4) M5/M6의 device/memory/transfer 비용·비동기 검증. **이번에 완료한 것은 이 판정표와 테스트 설계뿐이며**, 현행 코드의 M3/M4/HE-01 실행 승인 체크박스는 그대로 열어 둔다.
+
 ##### 현재 코드와의 대응
 
 현재 `src/physical.rs`는:
@@ -10154,6 +10211,8 @@ backend / executor
 - [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
 - [x] **문서 계약:** §5.2.1에서 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return`으로 정의하고 plan-time/runtime identity·verifier·cleanup 경계를 고정했다.
 - [x] **M4 인계 검증 계약(2026-10-07):** §5.2.1의 H-01~09/HM-V0~V4에서 물리화 전 반드시 필요한 M3 승인, buffer/view/lease, Check/guard/오류 순서와 runtime 재검증을 명문화했다. **문서 완료만** 의미한다.
+- [x] **M3→M4 첫 CPU 경로 승인 판정 명세(2026-10-07):** §5.2.1 H-A의 A0~A5 단계와 HA-V1~7로 `ReferenceSequential` 후보와 실제 compiler-native 실행을 분리하고 Check/Write/guard/region-local 승인 부정 검증을 정의했다. **설계 전용**.
+- [ ] **M3→M4 승인 판정 실행 검증(미착수):** HA-V1~7 verifier·guard 연결 및 jsource/semantic/native 차분 테스트의 실제 PASS 기록.
 - [ ] **구현:** 위 contract를 concrete `PhysicalPlan`/op Rust 타입과 verifier로 구현한다.
 - [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
 - [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
