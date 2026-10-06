@@ -95,11 +95,12 @@ Word formation / tokenizer
    ↓
 Enqueue / glyph-control-name classification
    ↓
-Parser-time name/POS lookup
+J Parser + Semantic Construction  [one integrated frontend stage]
+   │ Queue/Stack reductions · parser-time name/POS lookup
+   │ adverb/conjunction actions · hook/fork/train construction
+   │ noun/verb construction · required binding/runtime-host actions
    ↓
-J parser reductions
-   ↓
-J Semantic Construction IR / FunctionEntity DAG
+J Semantic Construction IR / JEntity / FunctionEntity DAG
    │
    │ nouns / verbs / adverbs / conjunctions
    │ primitive and derived entities
@@ -141,6 +142,8 @@ Route Partition
    ├─ StableHLO-compatible subset → external consumer
    └─ verified library / custom-kernel route
 ```
+
+**Frontend stage-boundary correction (2026-10-07).** Word Formation and Enqueue are preparatory processing phases, but **J Parser and Semantic Construction are not two separately completed compiler passes**. In jsource, queue/stack parsing rules trigger semantic actions and execution interleaved with parsing: name resolution, adverb/conjunction application, derived entities, verb application and assignments. In RustJ, `src/parser.rs` constructs `JEntity`/`FunctionEntity` as reductions happen; `src/semantic.rs` defines target-independent semantic entities and binding/version contracts rather than a mandatory subsequent construction pass. RustJ's analysis-mode `parse` builds semantic structure without executing arbitrary noun kernels; runtime parser/host effects must still match J observation. **J Graph IR and Execution Semantic Lowering remain separate downstream compiler stages.**
 
 The semantic meaning of a J program must not depend on the selected backend.
 
