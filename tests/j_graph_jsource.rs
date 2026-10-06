@@ -69,7 +69,9 @@ fn source_idioms_are_detected_without_fabricating_equivalence_or_execution() {
         ("(+/)\\ 1 2 3", JsourceFamily::WindowAlgorithm),
         ("1 { 10 20 30", JsourceFamily::GatherCopyOrView),
         ("|. 1 2 3", JsourceFamily::ReindexCopyOrView),
-        ("'ana' E. 'banana'", JsourceFamily::SearchAlgorithm),
+        ("3 1 3 2 i. 3 4 1", JsourceFamily::SearchAlgorithm),
+        ("3 1 3 2 i: 3 4 1", JsourceFamily::SearchAlgorithm),
+        ("1 2 3 e. 2 4", JsourceFamily::SearchAlgorithm),
     ] {
         let source_graph = graph(source);
         let opportunities = source_graph.jsource_opportunities();
@@ -130,14 +132,9 @@ fn compilation_bundle_preserves_independent_existing_rewrite_and_fusion_analysis
         .analyze_compilation("'ana' E. 'banana'")
         .unwrap();
     assert_eq!(compilation.graph_rewrites.len(), 1);
-    assert_eq!(compilation.jsource_opportunities.len(), 1);
-    assert_eq!(
-        compilation.jsource_opportunities[0].family,
-        JsourceFamily::SearchAlgorithm
-    );
-    compilation.jsource_opportunities[0]
-        .verify(&compilation.j_graph)
-        .unwrap();
+    // E. belongs to FindViaWindowMatch and must not be mislabeled as i.
+    assert!(!compilation.jsource_opportunities.iter()
+        .any(|c| c.family == JsourceFamily::SearchAlgorithm));
     assert!(compilation.jsource_opportunities.iter().all(|c| !c.selected));
 
     let g = graph("(+/ @: *) 1 2 3");
@@ -178,5 +175,23 @@ fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
                 .any(|c| c.family == JsourceFamily::MeanIdiom),
             "{source} was incorrectly treated as mean"
         );
+    }
+}
+
+#[test]
+fn index_of_family_and_substring_find_keep_distinct_source_provenance() {
+    for source in ["3 1 3 i. 3", "3 1 3 i: 3", "1 2 e. 1 3"] {
+        let plan = graph(source);
+        let candidate = plan.jsource_opportunities().into_iter()
+            .find(|c| c.family == JsourceFamily::SearchAlgorithm)
+            .expect("dyadic index-of or membership must be discovered");
+        candidate.verify(&plan).unwrap();
+        assert!(!candidate.selected);
+    }
+
+    for source in ["i. 4", "i: 4", "'ana' E. 'banana'"] {
+        let plan = graph(source);
+        assert!(!plan.jsource_opportunities().iter()
+            .any(|c| c.family == JsourceFamily::SearchAlgorithm));
     }
 }
