@@ -1424,20 +1424,45 @@ impl Engine {
                                 kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool)
                             }
                             crate::primitive::PrimitiveId::IndexOf
-                                if matches!(x.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_))
-                                    && matches!(y.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_)) =>
+                                if matches!(
+                                    x.data(),
+                                    crate::value::Data::Int(_) | crate::value::Data::Bool(_)
+                                ) && matches!(
+                                    y.data(),
+                                    crate::value::Data::Int(_) | crate::value::Data::Bool(_)
+                                ) =>
                             {
-                                crate::index_ops::index_of_cached(x, y, false, &mut self.exact_search_cache)
+                                crate::index_ops::index_of_cached(
+                                    x,
+                                    y,
+                                    false,
+                                    &mut self.exact_search_cache,
+                                )
                             }
                             crate::primitive::PrimitiveId::Steps
-                                if matches!(x.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_))
-                                    && matches!(y.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_)) =>
+                                if matches!(
+                                    x.data(),
+                                    crate::value::Data::Int(_) | crate::value::Data::Bool(_)
+                                ) && matches!(
+                                    y.data(),
+                                    crate::value::Data::Int(_) | crate::value::Data::Bool(_)
+                                ) =>
                             {
-                                crate::index_ops::index_of_cached(x, y, true, &mut self.exact_search_cache)
+                                crate::index_ops::index_of_cached(
+                                    x,
+                                    y,
+                                    true,
+                                    &mut self.exact_search_cache,
+                                )
                             }
                             crate::primitive::PrimitiveId::Member
-                                if matches!(x.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_))
-                                    && matches!(y.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_)) =>
+                                if matches!(
+                                    x.data(),
+                                    crate::value::Data::Int(_) | crate::value::Data::Bool(_)
+                                ) && matches!(
+                                    y.data(),
+                                    crate::value::Data::Int(_) | crate::value::Data::Bool(_)
+                                ) =>
                             {
                                 crate::index_ops::member_cached(x, y, &mut self.exact_search_cache)
                             }

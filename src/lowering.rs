@@ -8,7 +8,10 @@ use crate::{
     Error, Value,
     compilation::CompilationAnalysis,
     execution_semantics::{AccessFact, AccessRelation, ExecutionBasisKind},
-    logical_ir::{CallOp, ExecutionBasisPayload, IterationDomain, OpId, OpKind, Operation, Plan, SearchDescriptor, SearchOutputKind},
+    logical_ir::{
+        CallOp, ExecutionBasisPayload, IterationDomain, OpId, OpKind, Operation, Plan,
+        SearchDescriptor, SearchOutputKind,
+    },
 };
 use std::ops::Range;
 
@@ -271,7 +274,6 @@ pub struct RewritePlanningReport {
     /// still cannot be early-pruned unless this is true.
     pub early_pruning_allowed: bool,
 }
-
 
 /// An existing canonical A3 call matching a jsource source-graph opportunity.
 /// This describes the *original* execution path, not an optimized jsource route.
@@ -567,16 +569,26 @@ impl LoweringRegistry {
         target: &TargetCapabilities,
     ) -> Vec<SearchAlgorithmReport> {
         use SearchAlgorithm::*;
-        [Sequential, DirectAddress, IndexedHash, ReverseQueryHash,
-         PreparedHash, TolerantNeighborHash]
-            .into_iter()
-            .map(|algorithm| AlgorithmCandidate {
+        [
+            Sequential,
+            DirectAddress,
+            IndexedHash,
+            ReverseQueryHash,
+            PreparedHash,
+            TolerantNeighborHash,
+        ]
+        .into_iter()
+        .map(|algorithm| AlgorithmCandidate {
+            algorithm,
+            readiness: Self::search_algorithm_readiness(
+                output,
+                comparison,
+                indexed_present,
                 algorithm,
-                readiness: Self::search_algorithm_readiness(
-                    output, comparison, indexed_present, algorithm, target
-                ),
-            })
-            .collect()
+                target,
+            ),
+        })
+        .collect()
     }
 
     pub fn capabilities(&self) -> &[ExecutionBasisLoweringCapability] {
@@ -735,7 +747,9 @@ impl LoweringRegistry {
         if analysis.logical.source != analysis.j_graph.source
             || analysis.logical.j_graph_node_count != analysis.j_graph.nodes.len()
         {
-            return Err("jsource planning requires matching J Graph and canonical A3 provenance".into());
+            return Err(
+                "jsource planning requires matching J Graph and canonical A3 provenance".into(),
+            );
         }
 
         analysis
@@ -743,7 +757,8 @@ impl LoweringRegistry {
             .iter()
             .enumerate()
             .map(|(candidate_index, candidate)| {
-                candidate.verify(&analysis.j_graph)
+                candidate
+                    .verify(&analysis.j_graph)
                     .map_err(|err| format!("jsource candidate {candidate_index}: {err}"))?;
                 let linked_calls = analysis
                     .logical

@@ -63,15 +63,21 @@ pub fn plan_search_algorithm(
     workload: SearchWorkload,
     runtime_exact_scalar_guard: bool,
 ) -> SearchPhysicalChoice {
-    use crate::lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R};
     use crate::logical_ir::SearchComparison;
+    use crate::lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R};
 
     // One shared registry legality rule, without a per-lookup registry/vector
     // allocation. Compiler diagnostics can request the full report separately.
     let status = |algorithm| {
-        Some(crate::lowering::LoweringRegistry::search_algorithm_readiness(
-            output, SearchComparison::JEquality, true, algorithm, target,
-        ))
+        Some(
+            crate::lowering::LoweringRegistry::search_algorithm_readiness(
+                output,
+                SearchComparison::JEquality,
+                true,
+                algorithm,
+                target,
+            ),
+        )
     };
     let fallback = SearchPhysicalChoice {
         algorithm: A::Sequential,
@@ -85,7 +91,8 @@ pub fn plan_search_algorithm(
     if !runtime_exact_scalar_guard || fallback.basis == SearchSelectionBasis::Unavailable {
         return fallback;
     }
-    if workload.indexed_items == 0 || workload.query_items == 0
+    if workload.indexed_items == 0
+        || workload.query_items == 0
         || workload.indexed_items.saturating_mul(workload.query_items) <= 32
     {
         return fallback;
@@ -96,14 +103,18 @@ pub fn plan_search_algorithm(
         && (64..=16_384).contains(&workload.indexed_items)
     {
         A::PreparedHash
-    } else if workload.allow_reverse && workload.indexed_items >= 64
+    } else if workload.allow_reverse
+        && workload.indexed_items >= 64
         && workload.indexed_items / 2 > workload.query_items
     {
         A::ReverseQueryHash
     } else if workload.integer_span.is_some_and(|span| {
         span <= 65_536
-            && span <= (workload.indexed_items.saturating_add(workload.query_items)
-                .saturating_mul(4) as u128)
+            && span
+                <= (workload
+                    .indexed_items
+                    .saturating_add(workload.query_items)
+                    .saturating_mul(4) as u128)
     }) {
         A::DirectAddress
     } else {
@@ -118,16 +129,13 @@ pub fn plan_search_algorithm(
         algorithm: choice,
         basis: SearchSelectionBasis::RuntimeExactScalarGuard,
         estimated_table_entries: match choice {
-            A::DirectAddress =>
-                workload.integer_span.unwrap_or(0) as usize,
+            A::DirectAddress => workload.integer_span.unwrap_or(0) as usize,
             A::ReverseQueryHash => workload.query_items,
             A::IndexedHash | A::PreparedHash => workload.indexed_items,
             _ => 0,
         },
     }
 }
-
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BufferId {

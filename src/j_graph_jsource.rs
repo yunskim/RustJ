@@ -122,98 +122,147 @@ const GROUP: &[ProofRequirement] = &[
 /// Rule definitions do not authorize executing an optimization.
 pub const JSOURCE_FAMILY_RULES: &[JsourceFamilyRule] = &[
     JsourceFamilyRule {
-        family: JsourceFamily::ReductionFastPath, stable_id: "jsource.reduce-fast-path",
-        source_file: "jsrc/ar.c", source_symbol: "jtreduce", owner: DecisionOwner::ExecutionAlgorithm,
-        discovery: DiscoveryCoverage::AnalysisOnly, proof_requirements: NUMERIC,
+        family: JsourceFamily::ReductionFastPath,
+        stable_id: "jsource.reduce-fast-path",
+        source_file: "jsrc/ar.c",
+        source_symbol: "jtreduce",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::AnalysisOnly,
+        proof_requirements: NUMERIC,
     },
     JsourceFamilyRule {
-        family: JsourceFamily::MeanIdiom, stable_id: "jsource.mean-idiom",
-        source_file: "jsrc/cf.c", source_symbol: "jtfolk → jtmean",
+        family: JsourceFamily::MeanIdiom,
+        stable_id: "jsource.mean-idiom",
+        source_file: "jsrc/cf.c",
+        source_symbol: "jtfolk → jtmean",
         owner: DecisionOwner::ExecutionSemantics,
-        discovery: DiscoveryCoverage::AnalysisOnly, proof_requirements: NUMERIC,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::WindowAlgorithm, stable_id: "jsource.window-algorithm",
-        source_file: "jsrc/ap.c", source_symbol: "jtbslash/jtmovfslash",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::AnalysisOnly,
+        discovery: DiscoveryCoverage::AnalysisOnly,
         proof_requirements: NUMERIC,
     },
     JsourceFamilyRule {
-        family: JsourceFamily::SearchAlgorithm, stable_id: "jsource.search-algorithm",
-        source_file: "jsrc/vi.c", source_symbol: "indexofsub/jtiobs",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::AnalysisOnly,
-        proof_requirements: GROUP,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::IntervalLookup, stable_id: "jsource.interval-lookup",
-        source_file: "jsrc/viix.c", source_symbol: "interval-index search",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::AnalysisOnly,
-        proof_requirements: ACCESS,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::GatherCopyOrView, stable_id: "jsource.gather-copy-or-view",
-        source_file: "jsrc/vfrom.c", source_symbol: "jtget1cell",
-        owner: DecisionOwner::PhysicalPlanner, discovery: DiscoveryCoverage::AnalysisOnly,
-        proof_requirements: ACCESS,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::ReindexCopyOrView, stable_id: "jsource.reindex-copy-or-view",
-        source_file: "jsrc/vf.c", source_symbol: "reshape virtual/inplace",
-        owner: DecisionOwner::PhysicalPlanner, discovery: DiscoveryCoverage::AnalysisOnly,
-        proof_requirements: ACCESS,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::MapReduceStreaming, stable_id: "jsource.map-reduce-streaming",
-        source_file: "jsrc/va2.c", source_symbol: "jtfslashatg",
-        owner: DecisionOwner::GraphFusion, discovery: DiscoveryCoverage::ExistingAnalyzer,
+        family: JsourceFamily::WindowAlgorithm,
+        stable_id: "jsource.window-algorithm",
+        source_file: "jsrc/ap.c",
+        source_symbol: "jtbslash/jtmovfslash",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::AnalysisOnly,
         proof_requirements: NUMERIC,
     },
     JsourceFamilyRule {
-        family: JsourceFamily::ResultAssemblyDemand, stable_id: "jsource.result-assembly-demand",
-        source_file: "jsrc/result.h", source_symbol: "ZZFLAGWILLBEOPENED/COUNTITEMS",
-        owner: DecisionOwner::ExecutionSemantics, discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
+        family: JsourceFamily::SearchAlgorithm,
+        stable_id: "jsource.search-algorithm",
+        source_file: "jsrc/vi.c",
+        source_symbol: "indexofsub/jtiobs",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::AnalysisOnly,
         proof_requirements: GROUP,
     },
     JsourceFamilyRule {
-        family: JsourceFamily::GroupAggregate, stable_id: "jsource.group-aggregate",
-        source_file: "jsrc/ao.c", source_symbol: "jtkeyct/jtsldot",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
-        proof_requirements: GROUP,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::MatrixContraction, stable_id: "jsource.matrix-contraction",
-        source_file: "jsrc/cip.c", source_symbol: "jtpdt/jtdot",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
-        proof_requirements: NUMERIC,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::GradeRanking, stable_id: "jsource.grade-ranking",
-        source_file: "jsrc/vg.c", source_symbol: "jtgrade1/range dispatch",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
-        proof_requirements: GROUP,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::TolerantHash, stable_id: "jsource.tolerant-hash",
-        source_file: "jsrc/viavx2.c", source_symbol: "tolerant neighbor-bucket hash",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::DownstreamOnly,
-        proof_requirements: GROUP,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::SparseAlgorithm, stable_id: "jsource.sparse-algorithm",
-        source_file: "jsrc/cpdtsp.c", source_symbol: "jtpdtsp",
-        owner: DecisionOwner::ExecutionAlgorithm, discovery: DiscoveryCoverage::DownstreamOnly,
-        proof_requirements: NUMERIC,
-    },
-    JsourceFamilyRule {
-        family: JsourceFamily::BufferOwnership, stable_id: "jsource.buffer-ownership",
-        source_file: "jsrc/vcat.c", source_symbol: "boxed ownership transfer",
-        owner: DecisionOwner::PhysicalPlanner, discovery: DiscoveryCoverage::DownstreamOnly,
+        family: JsourceFamily::IntervalLookup,
+        stable_id: "jsource.interval-lookup",
+        source_file: "jsrc/viix.c",
+        source_symbol: "interval-index search",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::AnalysisOnly,
         proof_requirements: ACCESS,
     },
     JsourceFamilyRule {
-        family: JsourceFamily::NameLookupCache, stable_id: "jsource.name-lookup-cache",
-        source_file: "jsrc/sc.c", source_symbol: "jtunquote short/long caches",
-        owner: DecisionOwner::RuntimeBinding, discovery: DiscoveryCoverage::DownstreamOnly,
+        family: JsourceFamily::GatherCopyOrView,
+        stable_id: "jsource.gather-copy-or-view",
+        source_file: "jsrc/vfrom.c",
+        source_symbol: "jtget1cell",
+        owner: DecisionOwner::PhysicalPlanner,
+        discovery: DiscoveryCoverage::AnalysisOnly,
+        proof_requirements: ACCESS,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::ReindexCopyOrView,
+        stable_id: "jsource.reindex-copy-or-view",
+        source_file: "jsrc/vf.c",
+        source_symbol: "reshape virtual/inplace",
+        owner: DecisionOwner::PhysicalPlanner,
+        discovery: DiscoveryCoverage::AnalysisOnly,
+        proof_requirements: ACCESS,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::MapReduceStreaming,
+        stable_id: "jsource.map-reduce-streaming",
+        source_file: "jsrc/va2.c",
+        source_symbol: "jtfslashatg",
+        owner: DecisionOwner::GraphFusion,
+        discovery: DiscoveryCoverage::ExistingAnalyzer,
+        proof_requirements: NUMERIC,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::ResultAssemblyDemand,
+        stable_id: "jsource.result-assembly-demand",
+        source_file: "jsrc/result.h",
+        source_symbol: "ZZFLAGWILLBEOPENED/COUNTITEMS",
+        owner: DecisionOwner::ExecutionSemantics,
+        discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
+        proof_requirements: GROUP,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::GroupAggregate,
+        stable_id: "jsource.group-aggregate",
+        source_file: "jsrc/ao.c",
+        source_symbol: "jtkeyct/jtsldot",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
+        proof_requirements: GROUP,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::MatrixContraction,
+        stable_id: "jsource.matrix-contraction",
+        source_file: "jsrc/cip.c",
+        source_symbol: "jtpdt/jtdot",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
+        proof_requirements: NUMERIC,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::GradeRanking,
+        stable_id: "jsource.grade-ranking",
+        source_file: "jsrc/vg.c",
+        source_symbol: "jtgrade1/range dispatch",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::AwaitingFrontendOrFacts,
+        proof_requirements: GROUP,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::TolerantHash,
+        stable_id: "jsource.tolerant-hash",
+        source_file: "jsrc/viavx2.c",
+        source_symbol: "tolerant neighbor-bucket hash",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::DownstreamOnly,
+        proof_requirements: GROUP,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::SparseAlgorithm,
+        stable_id: "jsource.sparse-algorithm",
+        source_file: "jsrc/cpdtsp.c",
+        source_symbol: "jtpdtsp",
+        owner: DecisionOwner::ExecutionAlgorithm,
+        discovery: DiscoveryCoverage::DownstreamOnly,
+        proof_requirements: NUMERIC,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::BufferOwnership,
+        stable_id: "jsource.buffer-ownership",
+        source_file: "jsrc/vcat.c",
+        source_symbol: "boxed ownership transfer",
+        owner: DecisionOwner::PhysicalPlanner,
+        discovery: DiscoveryCoverage::DownstreamOnly,
+        proof_requirements: ACCESS,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::NameLookupCache,
+        stable_id: "jsource.name-lookup-cache",
+        source_file: "jsrc/sc.c",
+        source_symbol: "jtunquote short/long caches",
+        owner: DecisionOwner::RuntimeBinding,
+        discovery: DiscoveryCoverage::DownstreamOnly,
         proof_requirements: &[BindingAndLocaleVersion, EffectAndErrorOrdering],
     },
 ];
@@ -284,12 +333,18 @@ fn is_mean_fork(function: &FunctionEntity) -> bool {
         FunctionOperand::Function(reduction),
         FunctionOperand::Function(divide),
         FunctionOperand::Function(count),
-    ] = function.operands.as_slice() else {
+    ] = function.operands.as_slice()
+    else {
         return false;
     };
-    if !matches!(&divide.head, FunctionHead::PrimitiveVerb(PrimitiveId::Divide))
-        || !matches!(&count.head, FunctionHead::PrimitiveVerb(PrimitiveId::Tally))
-        || !matches!(&reduction.head, FunctionHead::PrimitiveAdverb(AdverbId::Insert))
+    if !matches!(
+        &divide.head,
+        FunctionHead::PrimitiveVerb(PrimitiveId::Divide)
+    ) || !matches!(&count.head, FunctionHead::PrimitiveVerb(PrimitiveId::Tally))
+        || !matches!(
+            &reduction.head,
+            FunctionHead::PrimitiveAdverb(AdverbId::Insert)
+        )
     {
         return false;
     }
@@ -305,7 +360,15 @@ fn is_mean_fork(function: &FunctionEntity) -> bool {
 pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
     let mut result = Vec::new();
     for (idx, node) in plan.nodes.iter().enumerate() {
-        let NodeKind::Apply { function, form, valence, left, basis, .. } = &node.kind else {
+        let NodeKind::Apply {
+            function,
+            form,
+            valence,
+            left,
+            basis,
+            ..
+        } = &node.kind
+        else {
             continue;
         };
         let family = match form {
@@ -314,24 +377,46 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
             GraphForm::Atomic => match (&function.head, valence, left) {
                 // E. is substring/window matching, owned by FindViaWindowMatch;
                 // i: is the dyadic last-index member of the index-of family.
-                (FunctionHead::PrimitiveVerb(PrimitiveId::IndexOf | PrimitiveId::Steps | PrimitiveId::Member),
-                    Valence::Dyad, Some(_)) => Some(JsourceFamily::SearchAlgorithm),
-                (FunctionHead::PrimitiveVerb(PrimitiveId::Indices),
-                    Valence::Dyad, Some(_)) => Some(JsourceFamily::IntervalLookup),
-                (FunctionHead::PrimitiveVerb(PrimitiveId::From),
-                    Valence::Dyad, Some(_)) => Some(JsourceFamily::GatherCopyOrView),
-                (FunctionHead::PrimitiveVerb(PrimitiveId::Shape | PrimitiveId::Reverse |
-                    PrimitiveId::Transpose | PrimitiveId::Take | PrimitiveId::Drop),
-                    Valence::Dyad, Some(_)) => Some(JsourceFamily::ReindexCopyOrView),
-                (FunctionHead::PrimitiveVerb(PrimitiveId::Ravel | PrimitiveId::Reverse |
-                    PrimitiveId::Transpose),
-                    Valence::Monad, None) => Some(JsourceFamily::ReindexCopyOrView),
+                (
+                    FunctionHead::PrimitiveVerb(
+                        PrimitiveId::IndexOf | PrimitiveId::Steps | PrimitiveId::Member,
+                    ),
+                    Valence::Dyad,
+                    Some(_),
+                ) => Some(JsourceFamily::SearchAlgorithm),
+                (FunctionHead::PrimitiveVerb(PrimitiveId::Indices), Valence::Dyad, Some(_)) => {
+                    Some(JsourceFamily::IntervalLookup)
+                }
+                (FunctionHead::PrimitiveVerb(PrimitiveId::From), Valence::Dyad, Some(_)) => {
+                    Some(JsourceFamily::GatherCopyOrView)
+                }
+                (
+                    FunctionHead::PrimitiveVerb(
+                        PrimitiveId::Shape
+                        | PrimitiveId::Reverse
+                        | PrimitiveId::Transpose
+                        | PrimitiveId::Take
+                        | PrimitiveId::Drop,
+                    ),
+                    Valence::Dyad,
+                    Some(_),
+                ) => Some(JsourceFamily::ReindexCopyOrView),
+                (
+                    FunctionHead::PrimitiveVerb(
+                        PrimitiveId::Ravel | PrimitiveId::Reverse | PrimitiveId::Transpose,
+                    ),
+                    Valence::Monad,
+                    None,
+                ) => Some(JsourceFamily::ReindexCopyOrView),
                 _ => None,
             },
             _ => None,
         };
         if let Some(family) = family {
-            debug_assert_eq!(family_rule(family).discovery, DiscoveryCoverage::AnalysisOnly);
+            debug_assert_eq!(
+                family_rule(family).discovery,
+                DiscoveryCoverage::AnalysisOnly
+            );
             result.push(JsourceOpportunity {
                 family,
                 source_value: ValueId(idx),
@@ -365,7 +450,12 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
         let Some(node) = plan.nodes.get(region.result.0) else {
             continue;
         };
-        let NodeKind::Apply { valence: Valence::Dyad, basis, .. } = &node.kind else {
+        let NodeKind::Apply {
+            valence: Valence::Dyad,
+            basis,
+            ..
+        } = &node.kind
+        else {
             continue;
         };
         result.push(JsourceOpportunity {

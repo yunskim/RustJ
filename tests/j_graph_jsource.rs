@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use rustj::{
     Engine,
     j_graph_jsource::{
-        family_rule, DecisionOwner, DiscoveryCoverage, JsourceFamily, OpportunityLegality,
-        JSOURCE_CATALOG_VERSION, JSOURCE_FAMILY_RULES, JSOURCE_SOURCE_PIN,
+        DecisionOwner, DiscoveryCoverage, JSOURCE_CATALOG_VERSION, JSOURCE_FAMILY_RULES,
+        JSOURCE_SOURCE_PIN, JsourceFamily, OpportunityLegality, family_rule,
     },
 };
 
@@ -32,8 +32,7 @@ fn reviewed_rules_have_unique_identifiers_and_explicit_ownership() {
             r.pinned_source_url(),
             format!(
                 "https://github.com/jsoftware/jsource/blob/{}/{}",
-                JSOURCE_SOURCE_PIN,
-                r.source_file
+                JSOURCE_SOURCE_PIN, r.source_file
             )
         );
     }
@@ -70,15 +69,15 @@ fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
     // or executing that primitive. A known POS is not a semantic proof.
     for (spelling, expected_pos) in [
         ("/.", Pos::Adverb),      // Key
-        (".", Pos::Conjunction), // Dot/inner product
-        ("/:", Pos::Verb),       // Grade up
-        ("\\:", Pos::Verb),      // Grade down
-        (";.", Pos::Conjunction),// Cut
-        ("&.", Pos::Conjunction),// Under
-        ("M.", Pos::Adverb),     // Explicit memo
-        ("?", Pos::Verb),        // Roll/deal
-        ("?.", Pos::Verb),       // Fixed-seed random variant
-        ("!.", Pos::Conjunction),// Fit/tolerance
+        (".", Pos::Conjunction),  // Dot/inner product
+        ("/:", Pos::Verb),        // Grade up
+        ("\\:", Pos::Verb),       // Grade down
+        (";.", Pos::Conjunction), // Cut
+        ("&.", Pos::Conjunction), // Under
+        ("M.", Pos::Adverb),      // Explicit memo
+        ("?", Pos::Verb),         // Roll/deal
+        ("?.", Pos::Verb),        // Fixed-seed random variant
+        ("!.", Pos::Conjunction), // Fit/tolerance
     ] {
         let handle = PrimitiveResolver::core()
             .resolve_core_for_enqueue(spelling)
@@ -119,7 +118,9 @@ fn source_idioms_are_detected_without_fabricating_equivalence_or_execution() {
     ] {
         let source_graph = graph(source);
         let opportunities = source_graph.jsource_opportunities();
-        let c = opportunities.iter().find(|c| c.family == expected)
+        let c = opportunities
+            .iter()
+            .find(|c| c.family == expected)
             .unwrap_or_else(|| panic!("no {expected:?} from {source}"));
         assert_eq!(c.legality, OpportunityLegality::AwaitingSemanticProofs);
         assert!(!c.selected);
@@ -139,8 +140,11 @@ fn interval_index_is_separate_from_general_index_of_and_monadic_index_space() {
     assert!(!c.iter().any(|c| c.family == JsourceFamily::SearchAlgorithm));
 
     let g = graph("i. 4");
-    assert!(!g.jsource_opportunities().iter()
-        .any(|c| c.family == JsourceFamily::SearchAlgorithm));
+    assert!(
+        !g.jsource_opportunities()
+            .iter()
+            .any(|c| c.family == JsourceFamily::SearchAlgorithm)
+    );
 }
 
 #[test]
@@ -177,25 +181,40 @@ fn compilation_bundle_preserves_independent_existing_rewrite_and_fusion_analysis
         .unwrap();
     assert_eq!(compilation.graph_rewrites.len(), 1);
     // E. belongs to FindViaWindowMatch and must not be mislabeled as i.
-    assert!(!compilation.jsource_opportunities.iter()
-        .any(|c| c.family == JsourceFamily::SearchAlgorithm));
-    assert!(compilation.jsource_opportunities.iter().all(|c| !c.selected));
+    assert!(
+        !compilation
+            .jsource_opportunities
+            .iter()
+            .any(|c| c.family == JsourceFamily::SearchAlgorithm)
+    );
+    assert!(
+        compilation
+            .jsource_opportunities
+            .iter()
+            .all(|c| !c.selected)
+    );
 
     let g = graph("(+/ @: *) 1 2 3");
     let fusion = g.fusion_analysis(&Default::default()).unwrap();
-    assert!(fusion.candidates.iter().any(|c| {
-        c.rule == rustj::j_graph_fusion::FusionRuleId::MapReduce
-    }));
-    assert!(g.jsource_opportunities().iter().all(|c| {
-        c.family != JsourceFamily::MapReduceStreaming
-    }));
+    assert!(
+        fusion
+            .candidates
+            .iter()
+            .any(|c| { c.rule == rustj::j_graph_fusion::FusionRuleId::MapReduce })
+    );
+    assert!(
+        g.jsource_opportunities()
+            .iter()
+            .all(|c| { c.family != JsourceFamily::MapReduceStreaming })
+    );
 }
 
 #[test]
 fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
     let g = graph("(+/ % #) 1 2 3 4");
     let opportunities = g.jsource_opportunities();
-    let mean = opportunities.iter()
+    let mean = opportunities
+        .iter()
         .find(|c| c.family == JsourceFamily::MeanIdiom)
         .expect("exact mean fork should be recognized");
     assert_eq!(mean.legality, OpportunityLegality::AwaitingSemanticProofs);
@@ -204,12 +223,13 @@ fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
     // The enclosing J fork is monadic (one region input), while its
     // join is necessarily the dyadic % on the two monadic branch results.
     // This is the regression: checking the join valence discards the Mean.
-    let region = g.regions.iter()
+    let region = g
+        .regions
+        .iter()
         .find(|r| r.result == mean.source_value)
         .expect("mean candidate must remain anchored to its source region");
     assert_eq!(region.inputs.len(), 1);
-    let rustj::j_graph_ir::NodeKind::Apply { valence, .. } =
-        &g.nodes[region.result.0].kind else {
+    let rustj::j_graph_ir::NodeKind::Apply { valence, .. } = &g.nodes[region.result.0].kind else {
         panic!("fork join must be an application");
     };
     assert_eq!(*valence, rustj::contracts::Valence::Dyad);
@@ -226,7 +246,8 @@ fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
     ] {
         let g = graph(source);
         assert!(
-            !g.jsource_opportunities().iter()
+            !g.jsource_opportunities()
+                .iter()
                 .any(|c| c.family == JsourceFamily::MeanIdiom),
             "{source} was incorrectly treated as mean"
         );
@@ -237,7 +258,9 @@ fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
 fn index_of_family_and_substring_find_keep_distinct_source_provenance() {
     for source in ["3 1 3 i. 3", "3 1 3 i: 3", "1 2 e. 1 3"] {
         let plan = graph(source);
-        let candidate = plan.jsource_opportunities().into_iter()
+        let candidate = plan
+            .jsource_opportunities()
+            .into_iter()
             .find(|c| c.family == JsourceFamily::SearchAlgorithm)
             .expect("dyadic index-of or membership must be discovered");
         candidate.verify(&plan).unwrap();
@@ -246,7 +269,11 @@ fn index_of_family_and_substring_find_keep_distinct_source_provenance() {
 
     for source in ["i. 4", "i: 4", "'ana' E. 'banana'"] {
         let plan = graph(source);
-        assert!(!plan.jsource_opportunities().iter()
-            .any(|c| c.family == JsourceFamily::SearchAlgorithm));
+        assert!(
+            !plan
+                .jsource_opportunities()
+                .iter()
+                .any(|c| c.family == JsourceFamily::SearchAlgorithm)
+        );
     }
 }

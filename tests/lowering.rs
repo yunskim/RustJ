@@ -1,12 +1,11 @@
 use rustj::{
     Engine,
     analysis::ExecutionBasisKind,
+    j_graph_jsource::{JsourceFamily, family_rule},
     logical_ir::{CallOp, EffectSummary, OpKind, SpeculationSemantics},
-    j_graph_jsource::{family_rule, JsourceFamily},
     lowering::{
         BasisTargetFeasibility, JsourceExistingRoute, JsourcePlanningState, LoweringRegistry,
-        RealizationFamily, RewritePlanningState,
-        RewriteTargetFeasibilityKind, TargetCapabilities,
+        RealizationFamily, RewritePlanningState, RewriteTargetFeasibilityKind, TargetCapabilities,
     },
 };
 
@@ -389,11 +388,19 @@ fn jsource_source_evidence_reaches_logical_routes_without_authorizing_specializa
         let reports = registry
             .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
             .unwrap();
-        let report = reports.iter().find(|report| report.family == family)
+        let report = reports
+            .iter()
+            .find(|report| report.family == family)
             .unwrap_or_else(|| panic!("no {family:?} planning report for {source}"));
-        assert_eq!(report.source_value, analysis.jsource_opportunities[report.candidate_index].source_value);
+        assert_eq!(
+            report.source_value,
+            analysis.jsource_opportunities[report.candidate_index].source_value
+        );
         assert_eq!(report.decision_owner, family_rule(family).owner);
-        assert_eq!(report.unresolved_proofs.as_slice(), family_rule(family).proof_requirements);
+        assert_eq!(
+            report.unresolved_proofs.as_slice(),
+            family_rule(family).proof_requirements
+        );
         assert!(!report.unresolved_proofs.is_empty());
         assert_eq!(report.state, JsourcePlanningState::NeedsSemanticProof);
         assert!(!report.linked_calls.is_empty());
@@ -453,11 +460,12 @@ fn jsource_planning_rejects_forged_candidates_and_missing_logical_origins() {
     assert!(reports[0].linked_calls.is_empty());
 
     analysis.jsource_opportunities[0].selected = true;
-    assert!(registry
-        .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
-        .is_err());
+    assert!(
+        registry
+            .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
+            .is_err()
+    );
 }
-
 
 #[test]
 fn registry_separates_search_semantics_guarded_routes_and_unproven_tolerance() {
@@ -468,34 +476,64 @@ fn registry_separates_search_semantics_guarded_routes_and_unproven_tolerance() {
     let plan = Engine::new().analyze_a3("3 1 3 i: 3 4").unwrap();
     let output = plan.result.unwrap();
     let op = &plan.operations[plan.values[output.0].producer.0];
-    let OpKind::Basis { kind, call, payload: ExecutionBasisPayload::LookupClassify { search } } =
-        &op.kind else { panic!("no typed search"); };
+    let OpKind::Basis {
+        kind,
+        call,
+        payload: ExecutionBasisPayload::LookupClassify { search },
+    } = &op.kind
+    else {
+        panic!("no typed search");
+    };
 
     assert_eq!(search.output, SearchOutputKind::LastIndex);
     let registry = LoweringRegistry::a3_v0();
     let cpu = TargetCapabilities::cpu_baseline();
     let reports = registry.search_algorithm_reports(search, &cpu);
-    let status = |algorithm| reports.iter().find(|r| r.algorithm == algorithm)
-        .map(|r| r.readiness);
+    let status = |algorithm| {
+        reports
+            .iter()
+            .find(|r| r.algorithm == algorithm)
+            .map(|r| r.readiness)
+    };
     assert_eq!(status(A::Sequential), Some(R::Baseline));
-    for algorithm in [A::DirectAddress, A::IndexedHash, A::ReverseQueryHash, A::PreparedHash] {
+    for algorithm in [
+        A::DirectAddress,
+        A::IndexedHash,
+        A::ReverseQueryHash,
+        A::PreparedHash,
+    ] {
         assert_eq!(status(algorithm), Some(R::RequiresExactScalarGuard));
     }
     assert_eq!(status(A::TolerantNeighborHash), Some(R::NeedsSemanticProof));
-    assert!(registry.legal_candidates(*kind, call, &cpu)
-        .contains(&RealizationFamily::ReferenceSequential));
-    assert!(registry.search_algorithm_reports(search, &TargetCapabilities::gpu_generic())
-        .iter().all(|r| r.readiness == R::UnsupportedTarget));
+    assert!(
+        registry
+            .legal_candidates(*kind, call, &cpu)
+            .contains(&RealizationFamily::ReferenceSequential)
+    );
+    assert!(
+        registry
+            .search_algorithm_reports(search, &TargetCapabilities::gpu_generic())
+            .iter()
+            .all(|r| r.readiness == R::UnsupportedTarget)
+    );
 
     let plan = Engine::new().analyze_a3("1 3 5 I. 2 4").unwrap();
     let out = plan.result.unwrap();
     let op = &plan.operations[plan.values[out.0].producer.0];
-    let OpKind::Basis { payload: ExecutionBasisPayload::LookupClassify { search }, .. } =
-        &op.kind else { panic!("expected interval lookup"); };
-    assert!(registry.search_algorithm_reports(search, &cpu)
-        .iter().all(|r| r.readiness == R::UnsupportedSearchForm));
+    let OpKind::Basis {
+        payload: ExecutionBasisPayload::LookupClassify { search },
+        ..
+    } = &op.kind
+    else {
+        panic!("expected interval lookup");
+    };
+    assert!(
+        registry
+            .search_algorithm_reports(search, &cpu)
+            .iter()
+            .all(|r| r.readiness == R::UnsupportedSearchForm)
+    );
 }
-
 
 #[test]
 fn jsource_search_report_retains_unproven_algorithm_options() {
@@ -507,18 +545,29 @@ fn jsource_search_report_retains_unproven_algorithm_options() {
         let reports = registry
             .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
             .unwrap();
-        let report = reports.iter()
+        let report = reports
+            .iter()
             .find(|report| report.family == JsourceFamily::SearchAlgorithm)
             .expect("source graph did not retain the i. family");
         assert_eq!(report.state, JsourcePlanningState::NeedsSemanticProof);
-        let linked = report.linked_calls.iter()
+        let linked = report
+            .linked_calls
+            .iter()
             .find(|call| !call.search_algorithms.is_empty())
             .expect("source/A3 search linkage missing");
-        let state = |algorithm| linked.search_algorithms.iter()
-            .find(|r| r.algorithm == algorithm).map(|r| r.readiness);
+        let state = |algorithm| {
+            linked
+                .search_algorithms
+                .iter()
+                .find(|r| r.algorithm == algorithm)
+                .map(|r| r.readiness)
+        };
         assert_eq!(state(A::Sequential), Some(R::Baseline));
         assert_eq!(state(A::DirectAddress), Some(R::RequiresExactScalarGuard));
-        assert_eq!(state(A::ReverseQueryHash), Some(R::RequiresExactScalarGuard));
+        assert_eq!(
+            state(A::ReverseQueryHash),
+            Some(R::RequiresExactScalarGuard)
+        );
         assert_eq!(state(A::TolerantNeighborHash), Some(R::NeedsSemanticProof));
         assert!(!analysis.jsource_opportunities.iter().any(|c| c.selected));
     }

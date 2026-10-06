@@ -105,9 +105,7 @@ impl TolerantExponentCandidateIndex {
 
     fn find(&self, query: f64, order: MatchOrder) -> usize {
         let candidates = self.candidate_positions(query);
-        let predicate = |position: &usize| {
-            crate::kernels::near(self.original[*position], query)
-        };
+        let predicate = |position: &usize| crate::kernels::near(self.original[*position], query);
         match order {
             MatchOrder::First => candidates.iter().find(|pos| predicate(pos)).copied(),
             MatchOrder::Last => candidates.iter().rev().find(|pos| predicate(pos)).copied(),
@@ -118,7 +116,7 @@ impl TolerantExponentCandidateIndex {
 
 #[cfg(test)]
 mod tests {
-    use super::{exponent_bucket, MatchOrder, TolerantExponentCandidateIndex};
+    use super::{MatchOrder, TolerantExponentCandidateIndex, exponent_bucket};
     use crate::kernels::near;
 
     fn reference(values: &[f64], query: f64, mode: MatchOrder) -> usize {
@@ -168,19 +166,27 @@ mod tests {
     #[test]
     fn zero_infinity_nan_and_subnormal_buckets_do_not_lose_matches() {
         let values = [
-            0.0, -0.0,
-            f64::from_bits(1), -f64::from_bits(1),
-            f64::from_bits((1_u64 << 52) - 1), f64::MIN_POSITIVE,
-            f64::INFINITY, f64::NEG_INFINITY, f64::NAN,
-            f64::MAX, -f64::MAX,
+            0.0,
+            -0.0,
+            f64::from_bits(1),
+            -f64::from_bits(1),
+            f64::from_bits((1_u64 << 52) - 1),
+            f64::MIN_POSITIVE,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            f64::MAX,
+            -f64::MAX,
         ];
         let index = TolerantExponentCandidateIndex::new(&values);
         for &query in &values {
             let candidates = index.candidate_positions(query);
             for (position, &source) in values.iter().enumerate() {
                 if near(source, query) {
-                    assert!(candidates.contains(&position),
-                        "lost match {position}: {query:?}");
+                    assert!(
+                        candidates.contains(&position),
+                        "lost match {position}: {query:?}"
+                    );
                 }
             }
             for mode in [MatchOrder::First, MatchOrder::Last] {
@@ -199,13 +205,22 @@ mod tests {
     #[test]
     fn fixed_near_candidate_filter_covers_ieee_neighbor_words_and_first_last() {
         let mut values = vec![
-            0.0, -0.0, f64::INFINITY, f64::NEG_INFINITY,
-            f64::NAN, f64::MAX, -f64::MAX,
+            0.0,
+            -0.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            f64::MAX,
+            -f64::MAX,
         ];
         let anchors = [
-            1_u64, (1_u64 << 52) - 1, 1_u64 << 52,
-            0x3fef_ffff_ffff_ffff, 0x3ff0_0000_0000_0000,
-            0x3fff_ffff_ffff_ffff, 0x4000_0000_0000_0000,
+            1_u64,
+            (1_u64 << 52) - 1,
+            1_u64 << 52,
+            0x3fef_ffff_ffff_ffff,
+            0x3ff0_0000_0000_0000,
+            0x3fff_ffff_ffff_ffff,
+            0x4000_0000_0000_0000,
             0x7fef_ffff_ffff_ffff,
         ];
         for anchor in anchors {
@@ -283,13 +298,18 @@ mod tests {
             let candidates = index.candidate_positions(query);
             for (position, &source) in values.iter().enumerate() {
                 if near(source, query) {
-                    assert!(candidates.binary_search(&position).is_ok(),
-                        "missing near pair {position}, {source:?}, {query:?}");
+                    assert!(
+                        candidates.binary_search(&position).is_ok(),
+                        "missing near pair {position}, {source:?}, {query:?}"
+                    );
                 }
             }
             for mode in [MatchOrder::First, MatchOrder::Last] {
-                assert_eq!(index.find(query, mode), reference(&values, query, mode),
-                    "mismatched tolerant representative at {query:?}");
+                assert_eq!(
+                    index.find(query, mode),
+                    reference(&values, query, mode),
+                    "mismatched tolerant representative at {query:?}"
+                );
             }
         }
     }

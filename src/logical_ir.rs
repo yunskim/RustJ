@@ -422,16 +422,23 @@ pub struct SearchDescriptor {
 pub fn search_descriptor(call: &CallOp) -> Option<SearchDescriptor> {
     use crate::primitive::PrimitiveId;
     let (output, comparison) = match (call.callable.target, call.left) {
-        (CallTarget::Primitive(PrimitiveId::IndexOf), Some(_)) =>
-            (SearchOutputKind::FirstIndex, SearchComparison::JEquality),
-        (CallTarget::Primitive(PrimitiveId::Steps), Some(_)) =>
-            (SearchOutputKind::LastIndex, SearchComparison::JEquality),
-        (CallTarget::Primitive(PrimitiveId::Member), Some(_)) =>
-            (SearchOutputKind::MembershipMask, SearchComparison::JEquality),
-        (CallTarget::Primitive(PrimitiveId::Indices), Some(_)) =>
-            (SearchOutputKind::IntervalIndex, SearchComparison::JOrderedInterval),
-        (CallTarget::Primitive(PrimitiveId::Equal), None) =>
-            (SearchOutputKind::SelfClassify, SearchComparison::JEquality),
+        (CallTarget::Primitive(PrimitiveId::IndexOf), Some(_)) => {
+            (SearchOutputKind::FirstIndex, SearchComparison::JEquality)
+        }
+        (CallTarget::Primitive(PrimitiveId::Steps), Some(_)) => {
+            (SearchOutputKind::LastIndex, SearchComparison::JEquality)
+        }
+        (CallTarget::Primitive(PrimitiveId::Member), Some(_)) => (
+            SearchOutputKind::MembershipMask,
+            SearchComparison::JEquality,
+        ),
+        (CallTarget::Primitive(PrimitiveId::Indices), Some(_)) => (
+            SearchOutputKind::IntervalIndex,
+            SearchComparison::JOrderedInterval,
+        ),
+        (CallTarget::Primitive(PrimitiveId::Equal), None) => {
+            (SearchOutputKind::SelfClassify, SearchComparison::JEquality)
+        }
         _ => return None,
     };
     // Dyadic e. asks whether *left* items belong to the *right* set,
@@ -474,7 +481,9 @@ pub enum ExecutionBasisPayload {
     },
     ConcatAssemble,
     ReplicateCompactExpand,
-    LookupClassify { search: SearchDescriptor },
+    LookupClassify {
+        search: SearchDescriptor,
+    },
     /// Later basis families can retain their identity before their richer
     /// family-specific payload is implemented.
     Deferred,

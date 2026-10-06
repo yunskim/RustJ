@@ -344,18 +344,20 @@ fn partial_view_reports_retained_capacity_and_actual_offset_alignment() {
     assert_eq!(int(&one, &[0]), 2);
 }
 
-
 #[test]
 fn physical_search_planner_uses_registered_routes_with_runtime_guards() {
     use rustj::{
         logical_ir::SearchOutputKind as O,
         lowering::{SearchAlgorithm as A, TargetCapabilities},
-        physical::{plan_search_algorithm, SearchSelectionBasis as B, SearchWorkload},
+        physical::{SearchSelectionBasis as B, SearchWorkload, plan_search_algorithm},
     };
     let cpu = TargetCapabilities::cpu_baseline();
     let mut facts = SearchWorkload {
-        indexed_items: 5, query_items: 7, integer_span: Some(4),
-        immutable_shared_index: false, prehash_available: false,
+        indexed_items: 5,
+        query_items: 7,
+        integer_span: Some(4),
+        immutable_shared_index: false,
+        prehash_available: false,
         allow_reverse: true,
     };
     let chosen = plan_search_algorithm(O::FirstIndex, &cpu, facts, true);
@@ -399,7 +401,13 @@ fn physical_search_planner_uses_registered_routes_with_runtime_guards() {
         B::Unavailable,
     );
     assert_eq!(
-        plan_search_algorithm(O::FirstIndex, &TargetCapabilities::gpu_generic(), facts, true).basis,
+        plan_search_algorithm(
+            O::FirstIndex,
+            &TargetCapabilities::gpu_generic(),
+            facts,
+            true
+        )
+        .basis,
         B::Unavailable,
     );
 }

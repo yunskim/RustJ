@@ -69,14 +69,8 @@ fn exact_search_keeps_wide_range_and_boolean_membership_semantics() {
         eval("_1000000000 0 1000000000 i. 0 1000000000 2 _1000000000 0"),
         eval("1 2 3 0 1")
     );
-    assert_eq!(
-        eval("0 1 0 1 0 1 0 1 e. 0 1"),
-        eval("1 1 1 1 1 1 1 1")
-    );
-    assert_eq!(
-        eval("0 1 0 1 0 1 0 1 i: 0 1 2 0 1"),
-        eval("6 7 8 6 7")
-    );
+    assert_eq!(eval("0 1 0 1 0 1 0 1 e. 0 1"), eval("1 1 1 1 1 1 1 1"));
+    assert_eq!(eval("0 1 0 1 0 1 0 1 i: 0 1 2 0 1"), eval("6 7 8 6 7"));
 }
 
 #[test]
@@ -152,8 +146,11 @@ fn reference_execution_does_not_consume_interpreter_prehash() {
     let mut engine = Engine::new();
     engine.eval("keys=: i. 128").unwrap();
     assert_eq!(
-        engine.eval_semantic_reference("keys i. 17 199")
-            .unwrap().unwrap().json(),
+        engine
+            .eval_semantic_reference("keys i. 17 199")
+            .unwrap()
+            .unwrap()
+            .json(),
         eval("17 128")
     );
     assert_eq!(engine.index_prehash_stats(), (0, 0));
@@ -163,16 +160,7 @@ fn reference_execution_does_not_consume_interpreter_prehash() {
 fn literal_index_family_can_reverse_hash_queries_without_prehashed_binding() {
     // A generated temporary has no retained name-backed Arc. Reverse hashing
     // therefore remains a one-shot choice rather than an implicit prehash.
-    assert_eq!(
-        eval("(i. 128) i. 17 17 199"),
-        eval("17 17 128")
-    );
-    assert_eq!(
-        eval("(i. 128) i: 17 17 199"),
-        eval("17 17 128")
-    );
-    assert_eq!(
-        eval("17 199 e. (i. 128)"),
-        eval("1 0")
-    );
+    assert_eq!(eval("(i. 128) i. 17 17 199"), eval("17 17 128"));
+    assert_eq!(eval("(i. 128) i: 17 17 199"), eval("17 17 128"));
+    assert_eq!(eval("17 199 e. (i. 128)"), eval("1 0"));
 }

@@ -389,23 +389,41 @@ fn direct_a3_lowering_preserves_graph_provenance_versions_and_check_order() {
     assert_eq!(logical_write.after, Some(producer));
 }
 
-
 #[test]
 fn a3_lookup_classify_keeps_j_search_meaning_and_provenance() {
-    use rustj::logical_ir::{
-        ExecutionBasisPayload, SearchComparison, SearchOutputKind,
-    };
+    use rustj::logical_ir::{ExecutionBasisPayload, SearchComparison, SearchOutputKind};
     for (source, output, comparison) in [
-        ("3 1 3 i. 3 4", SearchOutputKind::FirstIndex, SearchComparison::JEquality),
-        ("3 1 3 i: 3 4", SearchOutputKind::LastIndex, SearchComparison::JEquality),
-        ("3 1 3 e. 3 4", SearchOutputKind::MembershipMask, SearchComparison::JEquality),
-        ("1 3 5 I. 2 4", SearchOutputKind::IntervalIndex, SearchComparison::JOrderedInterval),
+        (
+            "3 1 3 i. 3 4",
+            SearchOutputKind::FirstIndex,
+            SearchComparison::JEquality,
+        ),
+        (
+            "3 1 3 i: 3 4",
+            SearchOutputKind::LastIndex,
+            SearchComparison::JEquality,
+        ),
+        (
+            "3 1 3 e. 3 4",
+            SearchOutputKind::MembershipMask,
+            SearchComparison::JEquality,
+        ),
+        (
+            "1 3 5 I. 2 4",
+            SearchOutputKind::IntervalIndex,
+            SearchComparison::JOrderedInterval,
+        ),
     ] {
         let plan = Engine::new().analyze_a3(source).unwrap();
         plan.verify().unwrap();
         let result = plan.result.unwrap();
         let op = &plan.operations[plan.values[result.0].producer.0];
-        let OpKind::Basis { payload: ExecutionBasisPayload::LookupClassify { search }, call, .. } = &op.kind else {
+        let OpKind::Basis {
+            payload: ExecutionBasisPayload::LookupClassify { search },
+            call,
+            ..
+        } = &op.kind
+        else {
             panic!("not a typed search basis: {source}");
         };
         assert_eq!(search.output, output);
@@ -430,8 +448,11 @@ fn a3_verifier_rejects_forged_search_meaning() {
     let mut plan = Engine::new().analyze_a3("3 1 3 i. 3").unwrap();
     let result = plan.result.unwrap();
     let op_id = plan.values[result.0].producer;
-    let OpKind::Basis { payload: ExecutionBasisPayload::LookupClassify { search }, .. } =
-        &mut plan.operations[op_id.0].kind else {
+    let OpKind::Basis {
+        payload: ExecutionBasisPayload::LookupClassify { search },
+        ..
+    } = &mut plan.operations[op_id.0].kind
+    else {
         panic!("expected typed lookup");
     };
     search.output = SearchOutputKind::LastIndex;
