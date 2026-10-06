@@ -9550,6 +9550,8 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **다음 실행 fixture (미실행, IO-01/02/25 수용 선행).** 동일한 임시 파일을 대상으로 정상 `1!:11` 부분 읽기, 끝 위치·길이 경계, negative relative offset, `1!:12` EOF 이후 쓰기, 존재하지 않는 파일과 권한 오류, 처리 중 외부 변경·단축 읽기, 번호형 핸들과 파일명 입력의 오류/해제 차이를 고정 J C binary에서 관찰한다. JMF는 RW/RO/COW·live-ref unmap·mapped boxed 명칭 대비 실제 payload 종류·resize/remap을, Jd/jfiles는 partition/keyed component·serialized byte-range를 별도 원본 fixture로 조사한다. **예상 오류 클래스나 처리 순서를 실행 전에 합격 기준으로 단정하지 않고 observed J behavior를 baseline으로 고정**한다. 결과는 IO 원장의 commit·원본 pin·명령·실행환경·pass/fail/unsupported에 기록한다.
 
+**IO-A 실행형 진단 도구 (2026-10-06).** [tools/file_io_audit.py](tools/file_io_audit.py)에 임시 파일만 사용하는 15개 고정 J C oracle 사례를 작성했다. 전체 읽기·크기, 정상 구간·EOF 0길이·음수 시작·범위 오류, 부분 쓰기·파일 끝 이후 쓰기, 존재하지 않는 파일, 결과가 버려지는 `1!:11` 실패를 포함한다. [tools/test_file_io_audit.py](tools/test_file_io_audit.py)는 fixture 고유성·파일명 quoting·임시 경로 제한·결과/실패 분류를 오프라인 검사하고, [Linux CI](.github/workflows/linux.yml)는 `j64/j64avx2 × default/portable`에서 고정 C library를 빌드한 뒤 비수용 진단 JSON을 artifact로 남기도록 연결했다. `--gate` 없는 실행은 실패 발견을 기록하되 합격이라고 주장하지 않는다. J C oracle 결과를 확인하기 전에는 오류 클래스·플랫폼 종속 EOF hole bytes·mapped boxed 의미를 확정하지 않는다. 소스 pin `0a5101cf`과 CI binary pin `13994ffa`의 `xf.c`·`jmf.ijs`·`gmbx.ijs`·`jfiles.ijs`는 각 파일의 Git blob SHA가 동일함을 교차 확인했다. **이것은 IO-01/02/25의 구현/동등성 수용이 아니며 계속 [ ] 상태다.**
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
@@ -11740,7 +11742,7 @@ A3-v2
 
 **체크리스트 운영 규칙(작업 시마다 적용).** 이 IO-01~IO-30 표가 I/O 구현 및 검증 상태의 단일 원장이다. 기존 표의 ID를 바꾸거나 동일 작업을 별도 계획 파일·새 checklist로 복제하지 않는다. 진행 시 (1) 선행 조건이 충족된 **가장 작은 미완료 실행 단위**를 선정, (2) Jsource/J 애드온/외부 프레임워크의 원본 및 라이선스·적용 가능성을 확정, (3) baseline 의미·negative fixture, (4) 최적화 구현, (5) J C oracle / Rust sync / optimized의 독립 비교 및 메모리·I/O 계측, (6) 해당 행의 증거·미지원·차단 조건을 갱신한다. 소스 검토·계획 완료는 구현 완료가 아니다. 실패·미측정·검증 환경 부재 시 **[ ] 유지**하고 사유를 적는다. 관련 기존 FW/DB/G4/G5 수용 표와 의미·효과/자원 선행 관계를 유지한다.
 
-**현재 다음 작업:** IO-01·IO-25 upstream source pinned 부분 감사와 IO-02 효과/오류 반례 목록은 [§8.5.4](#io-a-source-audit)에서 기록했다. 다음에는 고정 J C binary에서 외부 파일·mapping oracle fixture를 실제 실행하고 오류/효과 순서를 확정한다. **소스 조사만으로는 IO-* 항목을 수용하지 않으며 0/30 [ ] 유지.**
+**현재 다음 작업:** IO-01·IO-25 upstream source pinned 부분 감사와 IO-02 효과/오류 반례 목록은 [§8.5.4](#io-a-source-audit)에서 기록했다. 고정 J C binary의 15개 file-foreign fixture를 CI 진단으로 실행해 결과·오류 선후 관계를 고정한 뒤 JMF/Jd 실행 fixture로 확장한다. **소스 조사만으로는 IO-* 항목을 수용하지 않으며 0/30 [ ] 유지.**
  기존 M2/frontend와 FW-01~04·Rank/CellApply 의미 수렴을 우선한다. IO-A의 조사/모형화는 병행 가능하지만 I/O 경로를 M4 첫 CPU vertical slice의 필수 조건으로 격상하지 않는다. 단계 순서: **IO-A 근거와 안전 계약 → IO-B 동기 reference → IO-C 접근 최소화 → IO-D bounded async → IO-E 재사용/배치 최적화 → IO-F 실증/확장**. 앞 단계 미통과 시 뒤 단계는 설계 후보만 허용한다. [ ]은 *수용 전*, [x]는 변경 commit·실행한 명령/환경·jsource oracle 적용 범위·결과/남은 제한을 같은 행에 기록하고 독립적인 semantic/negative test가 통과했을 때만 사용한다. **아래 작업의 구현·테스트는 아직 수행하지 않았다.**
 
 | ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 · 최소 수용/negative 검증 |
