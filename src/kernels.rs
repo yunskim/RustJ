@@ -772,7 +772,7 @@ pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) 
         let prototype = crate::logical_executor::recover_zero_frame_fill_domain(
             outcome,
             atomic_shape.as_deref(),
-            crate::logical_executor::RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+            Some(crate::logical_executor::VerifiedValueOnlyZeroFrame),
         )?;
         return prototype.empty_rank_result(frame);
     }
@@ -869,7 +869,7 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
         let prototype = crate::logical_executor::recover_zero_frame_fill_domain(
             call(fill),
             None,
-            crate::logical_executor::RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+            Some(crate::logical_executor::VerifiedValueOnlyZeroFrame),
         )?;
         return prototype.empty_rank_result(&y.shape[..f]);
     }
