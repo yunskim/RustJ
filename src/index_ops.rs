@@ -105,11 +105,6 @@ impl ExactScalarIndex {
     }
 }
 
-/// Build a direct index only when table bytes are bounded and reasonably
-/// proportional to the work. Use i128 when measuring the key span: subtracting
-/// arbitrary i64 endpoints can overflow. An empty or tiny search needs no
-/// indexing setup at all.
-
 /// Reverse hash query keys (not the indexed array) and use a single directional
 /// walk of indexed values. A key is resolved exactly once, so first/last
 /// representative and duplicate query semantics do not depend on hash order.
@@ -149,6 +144,10 @@ fn reverse_exact_index(
     Ok(ExactScalarIndex::ReverseHashed(entries))
 }
 
+/// Build a direct index only when table bytes are bounded and reasonably
+/// proportional to the work. Use i128 when measuring the key span: subtracting
+/// arbitrary i64 endpoints can overflow. An empty or tiny search needs no
+/// indexing setup at all.
 fn exact_scalar_index(
     values: &Value,
     items: usize,
