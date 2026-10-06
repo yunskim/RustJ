@@ -20,6 +20,17 @@ from conformance import equal, validate_cli_corpus
 from search_three_way import _run, classify, ROOT
 
 
+# Observed against pinned jsource 13994ffa and both Rust configurations.
+# These eight are *known nonconformance*, never successful semantic checks.
+# A new label must fail the diagnostic CI until reviewed; fixing any of
+# these is reported as a resolved difference and requires doc reconciliation.
+KNOWN_PINNED_CCT_GAPS = frozenset(
+    f"{boundary}:{operation}"
+    for boundary in ("lower_edge", "upper_edge")
+    for operation in ("eq", "first", "last", "member")
+)
+
+
 def j_float(value):
     """Use a round-trip binary64 decimal with J's underscore minus notation."""
     if math.isnan(value):
@@ -115,6 +126,12 @@ def audit(binary, library, revision, report_path):
             "A diagnostic mismatch is never an accepted conformance pass",
         ],
     }
+    observed_gaps = {
+        row["label"] for row in results if row["classification"] != "pass"
+    }
+    report["known_c_rust_gap_labels"] = sorted(observed_gaps & KNOWN_PINNED_CCT_GAPS)
+    report["unexpected_c_rust_gap_labels"] = sorted(observed_gaps - KNOWN_PINNED_CCT_GAPS)
+    report["previously_known_gaps_now_matching"] = sorted(KNOWN_PINNED_CCT_GAPS - observed_gaps)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     return report
@@ -142,14 +159,16 @@ def main():
             "rust_reference_optimized_disagreements"
         ],
         "gate": "DIAGNOSTIC ONLY; J CCT conformance not claimed",
-        "c_rust_mismatch_labels": [
-            row["label"] for row in report["observations"]
-            if row["classification"] != "pass"
-        ],
+        "known_c_rust_gap_labels": report["known_c_rust_gap_labels"],
+        "unexpected_c_rust_gap_labels": report["unexpected_c_rust_gap_labels"],
+        "previously_known_gaps_now_matching": report["previously_known_gaps_now_matching"],
     }, indent=2))
     # Do not treat known language semantic gaps as passing. However, a newly
     # divergent optimized route is a regression against RustJ's own baseline.
-    return int(report["rust_reference_optimized_disagreements"] != 0)
+    return int(
+        report["rust_reference_optimized_disagreements"] != 0
+        or bool(report["unexpected_c_rust_gap_labels"])
+    )
 
 
 if __name__ == "__main__":
