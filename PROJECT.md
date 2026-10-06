@@ -3375,6 +3375,10 @@ Release a buffer only after its last user and all pending I/O/transfers complete
 
 **Next IO-02/IO-25 executable slices (within the existing ledger).** (a) Extend reference fixtures to named versus numeric handles and permissions/close/flush, EOF/short reads and concurrent truncation for `1!:1/2/3/4/11/12`; (b) independently verify loading the pinned J standard/add-on library before smoke-testing JMF RW/RO/COW, live-reference unmap/resize and typed/boxed variants; (c) enable Jd/jfiles executable probes only after their fixture and pinned dependency setup is demonstrably reproducible. Do not classify a missing J add-on bootstrap as J semantics, or promote the C-only 15+6 tests to RustJ implementation acceptance.
 
+**Pinned C matrix confirmation for IO-02 (2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953) completed successfully in the generic check job and all four `j64/j64avx2 × default/portable` reference jobs. Each recorded **15/15** independent C file-foreign fixtures and **6/6** ordered-effect cases (**14 JDo steps**), with zero cases requiring review. This is a repeated C-source semantic witness, not RustJ three-way I/O execution equivalence; the IO implementation acceptance ledger stays unchanged.
+
+**First independent IO-25 JMF smoke attempt (not accepted).** [tools/jmf_smoke.py](tools/jmf_smoke.py) attempts to bootstrap the pinned `jlibrary/bin/profile.ijs` and `load 'jmf'` under an isolated temporary HOME and J C binary, then runs RW(0)→RO(1)→COW(2) **map → empty noun check → unmap-result-zero** on a temporary JMF backing file. [Offline plan checks](tools/test_jmf_smoke.py) and a separate [Linux CI](.github/workflows/linux.yml) non-acceptance diagnostic step are added. Missing library bootstrap or JMF execution is reported as `blocked`, not a J semantic mismatch; CI results were not finalized at this checkpoint. This smoke does **not** validate boxed payloads, write durability/RO-COW mutation behavior, refcount-denied unmap, resize/remap, or Jd partitions. IO-25 remains [ ].
+
 ## 14. Principles retained
 
 Repeated review of `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` confirms that RustJ should preserve the following research ideas:
@@ -4205,7 +4209,7 @@ Completion rule: future progress reports for this work use JE0–JE6 item number
 
 | ID/stage | Checklist | Prerequisite / acceptance evidence |
 |---|---|---|
-| IO-25 / A, M2 parallel | [ ] Cross-audit Jd/jfiles/JMF boxed paths (source checked; J binary/boxed payload validation pending; §13.6) | Pinned jsource and data_jd, executable J oracle for Jd partitions, keyed components, typed vs JMF boxed cases; IO-01/02 |
+| IO-25 / A, M2 parallel | [ ] Cross-audit Jd/jfiles/JMF boxed paths (source pinned, standalone RW/RO/COW smoke added; mapping/boxed/Jd executable acceptance pending; §13.6) | Pinned jsource and data_jd, executable J oracle for Jd partitions, keyed components, typed vs JMF boxed cases; IO-01/02 |
 | IO-26 / B, after M4 | [ ] Verify typed array storage manifest | dtype, shape/order/endian, offsets/length/version, duplicate/overlap/off-end/overflow, empty/scalar and boxed/sparse capability; IO-05/06 |
 | IO-27 / B, after M4 | [ ] Separate read chunk/write shard/layout | Access-axis-specific amplification, coalescing, file count, shard-write cost and contiguous fallback vs Zarr/HDF5; IO-06/08 |
 | IO-28 / B, after M4 | [ ] Prove mmap/SIMD tail/lease safety | EOF page guard, no unproved vector overfetch, OS page granularity, live references on remap/unmap, RO/COW and concurrency; IO-07/08 |
