@@ -3213,7 +3213,7 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 | [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; non-jmf typed boxed mapping is rejected, but JMF-backed boxed regression fixtures exist; scope must be tested per route |
 | [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c), J `1!:11`/`1!:12` | indexed byte-range read/write, sequential baseline based on `fread/fwrite` | effectful foreign I/O is not a pure logical scan and must not be silently rewritten |
 | Jsource in-place/alias machinery | ownership-proved buffer reuse and copy elimination | mapped mutation is not automatically safe in-place reuse |
-| Jd (J data add-on) | partitioning and selective access as investigation candidate | Jd column-file map-on-demand and partition pruning are verified in data_jd source; full-J query semantics remain separate |
+| Jd (J data add-on) | Verified on-demand file-backed columns and partition-column selective reads | Borrow storage/layout and pruning techniques only; do not assume arbitrary J effects or queries can be reordered |
 | [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) | independent async blocking-I/O pool, read-ahead, memory-governed queued jobs, park/resume | do not copy a full database engine |
 | [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
 | [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
@@ -4056,7 +4056,7 @@ Completion rule: future progress reports for this work use JE0–JE6 item number
 
 | ID / stage | Checklist | Acceptance evidence / prerequisite |
 |---|---|---|
-| IO-01 / A, M2 parallel | [ ] Pin Jsource and J add-on source behavior | jmf/xf.c/alias/boxed limits; inspect Jd before asserting pruning; J binary foreign fixture |
+| IO-01 / A, M2 parallel | [ ] Pin Jsource and J add-on source behavior | jmf/xf.c/alias/JMF-boxed branches plus pinned Jd column/partition/jmfx and Jfiles/keyfiles source, confirmed by J binary foreign fixtures |
 | IO-02 / A, M2–M3 | [ ] Define mapped/file J effect and error contract | read/write/resize/flush/close, order, alias, COW and empty Rank; rejection tests for illegal reordering |
 | IO-03 / A, M3 | [ ] Verify layer/identity separation | ValueId, BufferId, StateResource, external object/version, effectful foreign vs pure physical data read |
 | IO-04 / A, M3 | [ ] Establish per-storage capability matrix | offset/alignment/EOF, snapshot, consistency, write durability, unknown as route barrier |
