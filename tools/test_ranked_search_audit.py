@@ -53,7 +53,7 @@ class RankSearchCorpusTests(unittest.TestCase):
 
     def test_rank_adversarial_corpus_keeps_zero_frame_distinct_from_empty_cells(self):
         cases = rank_adversarial_cases()
-        self.assertEqual(len(cases), 24)
+        self.assertEqual(len(cases), 32)
         self.assertEqual(len({label for label, _ in cases}), len(cases))
         validate_cli_corpus([source for _, source in cases])
         by_name = dict(cases)
@@ -66,3 +66,17 @@ class RankSearchCorpusTests(unittest.TestCase):
         self.assertIn('"_1', by_name["negative_rank_reduce"])
         self.assertIn('"99', by_name["oversized_rank_reduce"])
         self.assertIn('+"0 0', by_name["nested_rank_empty"])
+        # Pin the inputs of the C EVINHOMO retry / computational-error
+        # distinction; the exploratory corpus must not treat matches as proof.
+        for label in (
+            "empty_type_mismatch",
+            "empty_type_mismatch_reversed",
+            "empty_char_float_fill",
+            "empty_char_bool_fill",
+            "empty_char_left_real_right",
+            "empty_char_right_real_left",
+            "nonempty_char_int_domain",
+            "positive_frame_empty_char_cells",
+        ):
+            self.assertIn('+"1 1', by_name[label], label)
+        self.assertIn('+"0 0', by_name["nested_rank_nonempty_cells"])
