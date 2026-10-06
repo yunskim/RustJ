@@ -156,9 +156,19 @@ fn execute_ranked_semantic(
         function.head,
         FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Add)
     );
-    apply_ranked(ranks, left, right, primitive_fill, atomic_add, |x, y| {
-        execute_semantic(function, x, y)
-    })
+    let primitive_catenate = matches!(
+        function.head,
+        FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Ravel)
+    );
+    apply_ranked(
+        ranks,
+        left,
+        right,
+        primitive_fill,
+        atomic_add,
+        primitive_catenate,
+        |x, y| execute_semantic(function, x, y),
+    )
 }
 
 /// Interpret only a *value-only, zero-result-frame* fill-cell call.
@@ -203,12 +213,90 @@ pub(crate) fn recover_zero_frame_fill_domain(
     }
 }
 
+/// J dense type priorities from pinned jsrc/j.h::TYPEPRIORITY.
+fn dense_rank_type_priority(code: i32) -> Option<u8> {
+    match code {
+        1 => Some(0), // B01
+        2 => Some(1), // LIT
+        4 => Some(4), // INT
+        8 => Some(8), // FL
+        _ => None,
+    }
+}
+
+/// A narrow internal-EVINHOMO witness for the *concrete catenate verb*.
+/// C jsrc/vf.c + jsrc/cr.c distinguish this from a plain arithmetic Domain.
+/// Only mixed char/numeric dense cells can enter this supported retry.
+/// A normal/user-defined error never acquires retry permission from Domain alone.
+pub(crate) fn inhomogeneous_catenate_retry_type(
+    left: &Value,
+    right: &Value,
+    original_left_has_atoms: bool,
+    original_right_has_atoms: bool,
+) -> Option<i32> {
+    let lt = left.type_code();
+    let rt = right.type_code();
+    if (lt == 2) == (rt == 2) {
+        return None;
+    }
+    let lp = dense_rank_type_priority(lt)?;
+    let rp = dense_rank_type_priority(rt)?;
+    if original_left_has_atoms {
+        Some(lt)
+    } else if original_right_has_atoms {
+        Some(rt)
+    } else if lp > rp {
+        Some(lt)
+    } else {
+        Some(rt)
+    }
+}
+
+/// Simulate pinned cr.c::jtrank2ex's EVINHOMO branch without erasing the
+/// initial error or changing the operands of non-fill real-cell calls.
+/// First call is mandatory for this pure, concrete built-in only. If it fails
+/// with a recognized type-inhomogeneity Domain, rebuild *only the mismatched
+/// type's synthetic fill cell* and retry once, preserving every cell shape.
+pub(crate) fn retry_inhomogeneous_catenate_fill(
+    original_left: &Value,
+    original_right: &Value,
+    left_fill: Value,
+    right_fill: Value,
+    mut call: impl FnMut(Value, Value) -> Result<Value>,
+) -> Result<Value> {
+    let retry_type = inhomogeneous_catenate_retry_type(
+        &left_fill,
+        &right_fill,
+        !original_left.is_empty(),
+        !original_right.is_empty(),
+    );
+    let Some(target) = retry_type else {
+        return call(left_fill, right_fill);
+    };
+    let first = call(left_fill.clone(), right_fill.clone());
+    if !matches!(&first, Err(error) if matches!(error.root(), Error::Domain)) {
+        return first;
+    }
+    let left = if left_fill.type_code() == target {
+        left_fill
+    } else {
+        left_fill.rank_refill_as(target)?
+    };
+    let right = if right_fill.type_code() == target {
+        right_fill
+    } else {
+        right_fill.rank_refill_as(target)?
+    };
+    call(left, right)
+}
+
 pub(crate) fn apply_ranked(
     ranks: [i64; 3],
     left: Option<Value>,
     right: Value,
     primitive_fill: bool,
     atomic_add: bool,
+    primitive_catenate: bool,
     mut call: impl FnMut(Option<Value>, Value) -> Result<Value>,
 ) -> Result<Value> {
     if let Some(left) = left {
@@ -244,8 +332,15 @@ pub(crate) fn apply_ranked(
             let atomic_shape = atomic_add
                 .then(|| atomic_add_mixed_char_fill_shape(&x, &y))
                 .flatten();
+            let outcome = if primitive_catenate {
+                retry_inhomogeneous_catenate_fill(&left, &right, x, y, |x, y| {
+                    call(Some(x), y)
+                })
+            } else {
+                call(Some(x), y)
+            };
             let prototype =
-                recover_zero_frame_fill_domain(call(Some(x), y), atomic_shape.as_deref())?;
+                recover_zero_frame_fill_domain(outcome, atomic_shape.as_deref())?;
             return prototype.empty_rank_result(&frame);
         }
         let ad = crate::value::count(&frame[af.len()..])?;
