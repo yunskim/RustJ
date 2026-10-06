@@ -9981,7 +9981,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] jsource Mark/Edge sentinel을 명시적으로 표현한다.
 - [x] ordinary lookup NAME은 `EnqueueFlags.lookup_name`을 확인한 뒤 parser item 생성 전에 `ParserNameBinding`으로 resolve한다.
 - [x] pinned `cases[]`를 옮긴 `match_parse_row([ParseClass; 4])`가 semantic payload를 보지 않고 parser class만으로 eligibility와 first-match precedence를 결정한다.
-- [ ] matcher row ordering/reduction extent/result reinsertion을 `cases[]`/runtime `ptcol` behavior와 동일하게 구현하고 별도 train/modifier heuristic을 제거한다.
+- [x] `cases[]` 기반 row ordering/reduction extent, 동일 stack reinsertion/rescan과 legacy flat train/modifier heuristic 제거를 production parser에 적용했다. **남은 것은 C runtime `ptcol`의 reachable-state/internal trace 동등성 검증**이며 P6에서 별도로 추적한다.
 - [x] 구현된 reduction 결과를 동일 Item stack에 재삽입한다. 원본 word provenance와 occurrence를 reduction pipeline에서 계승하며 전체 runtime ptcol trace 동등성은 P6에서 별도 미완료다.
 - [x] `ParseClass`를 F2 row matcher와 application/modifier reduction의 공통 class domain으로 사용한다.
 
@@ -10022,13 +10022,13 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 #### P2 — 하나의 9-row reduction engine으로 전환
 
 - **jsource invariant:** conjunction chain은 parse-table 구조상 left-to-right로 결합한다. 예: `u @: v @: w`의 semantic graph는 `(u @: v) @: w`이다.
-- [x] row 0 `EDGE VERB NOUN ANY`를 right-to-left stack reducer에서 first-match precedence로 선택하고 monadic `Expr` application으로 defer한다.
-- [x] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 four-class eligibility/reduction extent를 production stack reducer에 구현했다.
-- [x] row 2 `EDGE+AVN NOUN VERB NOUN`을 production stack reducer에서 선택하고 dyadic `Expr` application으로 defer한다.
+- [x] row 0 `EDGE VERB NOUN ANY`를 first-match로 선택한다. analysis/no-host 경로는 monadic `Expr`를 보존하고, runtime-host 경로는 그 자리에서 실행해 completed noun `Value`를 같은 stack에 재삽입한다.
+- [x] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 four-class eligibility/reduction extent를 구현했다. row 0과 마찬가지로 analysis는 application structure를 보존하고 runtime host는 actual noun으로 reduce/reinsert한다.
+- [x] row 2 `EDGE+AVN NOUN VERB NOUN`을 production stack reducer에서 선택한다. analysis/no-host 경로는 dyadic `Expr`를 보존하고 runtime-host 경로는 actual noun을 계산해 같은 stack에 재삽입한다.
 - [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV ANY`를 modifier semantic constructor 호출로 구현한다. 지원 adverb/gerund 생성은 구현되었으며 전체 primitive·explicit modifier application은 미완료다.
 - [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다. rank/@:/지원 DefinitionConstructor 경계는 구현되었으며 전체 conjunction 및 invocation은 미완료다.
-- [ ] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 Fork construction을 구현한다.
-- [ ] row 6 `EDGE CAVN CAVN ANY`를 Hook/bident/trident semantic dispatch로 구현한다.
+- [x] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 production Fork construction을 구현했다. VVV ordinary/capped 판정과 noun-left fork의 지원 construction을 같은 row action에서 처리하며, 전체 noun/value-dependent/static coverage는 P3에서 계속 추적한다.
+- [x] row 6 `EDGE CAVN CAVN ANY`의 production Hook/bident/trident disposition dispatch를 구현했다. basic Hook과 non-executing modifier train을 구성하고 earlier row가 소유해야 할 immediate action을 invariant로 거부한다. 전체 primitive/definition executor coverage는 P3의 미완료 범위다.
 - [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다. top-level single-name의 네 RHS class와 중간/연속 대입은 구현되었으며 noun/multiple-name target·전체 scope는 미완료다.
 - [x] row 8 `LPAR CAVN RPAR ANY`를 production stack action으로 구현하고 recursive parenthesis parser를 제거했다. grouped noun은 `ExprKind::Group`/depth를, grouped function은 semantic identity를 유지한 채 parser provenance span을 괄호 전체로 보존한다.
 - [x] 구현된 각 reduction 결과를 같은 parser stack에 되돌리고 동일한 match_parse_row로 다시 scan/reduce한다. 미지원 semantic form은 해당 action의 오류/coverage 경계로 남긴다.
