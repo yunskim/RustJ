@@ -68,6 +68,13 @@ jobs:
           python3 tools/search_three_way.py \
             --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
             --report "reports/search-three-way-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: FW-03 CCT boundary diagnostic (not semantic acceptance)
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/tolerance_audit.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/tolerance-audit-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -76,5 +83,6 @@ jobs:
             reports/conformance*
             reports/word-conformance-*.json
             reports/search-three-way-*.json
+            reports/tolerance-audit-*.json
             .reference/manifest*.json
             .reference/build.log
