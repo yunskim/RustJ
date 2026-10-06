@@ -88,7 +88,7 @@ fn member_preserves_cell_shapes_and_empty_query_semantics() {
     assert_eq!(empty_left.len(), 0);
 
     // An empty right lookup set produces false for each left query.
-    assert_eq!(eval("3 4 e.(i.0)"), eval("0 0"));
+    assert_eq!(eval("3 4 e.(i.0)"), eval("0 0 = 1 1"));
     assert_eq!(eval("(i.0)i.3 4"), eval("0 0"));
 }
 
