@@ -36,7 +36,7 @@ class FileIoAuditContractTests(unittest.TestCase):
                          "discarded_missing_read", "zero_length_missing_file"} <= names)
 
     def test_file_name_quoting_escapes_apostrophes(self):
-        self.assertEqual(j_file_argument(Path("/tmp/a'b.dat")), "<'/tmp/a''b.dat'>")
+        self.assertEqual(j_file_argument(Path("/tmp/a'b.dat")), "<'/tmp/a''b.dat'")
 
     def test_never_uses_preexisting_paths(self):
         with tempfile.TemporaryDirectory() as d:
