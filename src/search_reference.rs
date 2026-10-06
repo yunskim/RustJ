@@ -176,6 +176,39 @@ mod tests {
     }
 
     #[test]
+    fn fw03_pinned_default_cct_scalar_boundary_is_order_sensitive_witness() {
+        let left = Value::new([], Data::Float(CpuStorage::new(vec![1.0]))).unwrap();
+        for (literal, value) in [
+            ("0.99999999999994316", 1.0 - 2f64.powi(-44)),
+            ("1.0000000000000568", 1.0 + 2f64.powi(-44)),
+        ] {
+            let query = Value::new([], Data::Float(CpuStorage::new(vec![value]))).unwrap();
+            let reference = index_of(&left, &query, false).unwrap();
+            let optimized = index_ops::index_of(left.clone(), query, false).unwrap();
+            assert_eq!(reference.int_at(0).unwrap(), 1, "reference {literal}");
+            assert_eq!(optimized.int_at(0).unwrap(), 1, "optimized {literal}");
+
+            let source = format!("(1.0) i. ({literal})");
+            let mut engine = crate::Engine::new();
+            assert_eq!(
+                engine
+                    .eval_semantic_reference(&source)
+                    .unwrap()
+                    .unwrap()
+                    .int_at(0)
+                    .unwrap(),
+                1,
+                "CLI semantic-reference {source}"
+            );
+            assert_eq!(
+                engine.eval(&source).unwrap().unwrap().int_at(0).unwrap(),
+                1,
+                "CLI optimized {source}"
+            );
+        }
+    }
+
+    #[test]
     fn sequential_reference_preserves_nontransitive_float_representatives() {
         let t = 2f64.powi(-44);
         for items in [0usize, 1, 3, 32, 100] {
