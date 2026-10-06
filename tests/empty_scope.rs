@@ -53,5 +53,12 @@ fn empty_ravel_rank_preserves_type_shape_and_caller_scope() {
         engine.eval("(g\"0) i.0 3").unwrap_err().kind(),
         "unsupported"
     );
+    // Nested Rank must not extend the intrinsic-only fill permission to an
+    // effectful derived verb, even if the frame has zero ordinary cells.
+    assert_eq!(
+        engine.eval("((g\"0)\"1) i.0 3").unwrap_err().kind(),
+        "unsupported"
+    );
+    assert_eq!(engine.eval("count").unwrap().unwrap().int_at(0).unwrap(), 0);
     assert_eq!(engine.eval("count").unwrap().unwrap().int_at(0).unwrap(), 0);
 }
