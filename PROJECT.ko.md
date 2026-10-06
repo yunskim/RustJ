@@ -2791,7 +2791,7 @@ Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레�
 
 검토 기준: `jsoftware/jsource` source review pin **`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`**. 이 절은 current jsource의 hand-written specialization을 RustJ에 그대로 복제하기 위한 목록이 아니다. jsource가 오랜 기간 축적한 **J-specific optimization knowledge를 추출해 Graph IR의 fact/rewrite 체계와 downstream execution planning으로 재배치하기 위한 source-derived design input**이다.
 
-핵심 해석은 다음과 같다.
+핵심 해석:
 
 ~~~text
 jsource
@@ -2813,7 +2813,7 @@ RustJ
   bufferization / scheduling / CPU-GPU-library realization
 ~~~
 
-따라서 **jsource의 아이디어 대부분은 Graph IR에 “하드코딩된 특수 함수”로 들어가는 것이 아니라, Graph IR에서 발견·증명할 수 있는 일반 규칙으로 승격**한다. 반대로 concrete buffer reuse, cache-blocking, SIMD routine 선택은 Graph IR 이후에 둔다.
+따라서 **jsource의 아이디어 대부분은 Graph IR에 “특수 함수”로 복제하는 것이 아니라, Graph IR에서 발견·증명할 수 있는 일반 규칙으로 승격**한다. concrete buffer reuse, cache-blocking, SIMD routine 선택은 Graph IR 이후에 둔다.
 
 ##### A. source-derived optimization catalog
 
@@ -2821,10 +2821,10 @@ RustJ
 |---|---|---|---|
 | derived verb가 downstream execution에 필요한 성질을 flag로 전달 | `ca.c::jtatop/jtatco`가 `WILLOPEN`, `USESITEMCOUNT`, `RANKATOP` 등을 합성·전파; `jtype.h`의 `VF2*` 정의 | operation의 semantic/execution-relevant property를 composition 전체로 전파한다. C bit flag를 복사하지 말고 typed fact/contract로 표현한다. | **J Graph / call facts** |
 | `@:`/capped fork/atomic reduce-composition을 special form으로 인식 | `ca.c`의 `SPECAT/SPECATCO`, `cf.c::jtfolk`; capped fork 저장형을 `f@:g`와 같은 실행 구조로 다루는 주석 | 서로 다른 J construction이 같은 applied topology를 만들 수 있음을 이용하되 source provenance는 유지한다. composition은 producer-consumer fusion/materialization 후보의 강한 출처다. | **J Graph canonicalization + candidate discovery** |
-| atomic `f/@:g`에서 `g` 전체 결과를 만들지 않고 cell 단위로 처리 | `ca.c::jtatco`가 `jtfslashatg` 선택; `va2.c::jtfslashatg` 주석이 large args에서 cache footprint 절감을 명시 | `Map/transform → Reduce` 계열에서 intermediate materialization을 제거하고 fused/streamed realization 후보를 만든다. 실제 cell chunk/cache schedule은 downstream에서 결정한다. | **Graph fusion candidate → Execution scheduling** |
-| nested rank loop를 합치거나 outer rank loop가 inner rank processing을 흡수 | `jtype.h`의 `VF2RANKATOP1/2`, `VF2RANKONLY1/2`; `ca.c`의 “subsumed into a higher rank loop”; `cr.c`의 IRS/rank path 선택 | rank를 단순 wrapper가 아니라 cell/frame iteration-domain 정보로 보존하고, compatible nested CellApply/rank domains의 absorption/fusion 후보를 만든다. | **Graph/Execution semantic analysis**, concrete loop는 후속 |
+| atomic `f/@:g`에서 `g` 전체 결과를 만들지 않고 cell 단위로 처리 | `ca.c::jtatco`가 `jtfslashatg` 선택; `va2.c::jtfslashatg`가 large args에서 cache footprint 절감을 명시 | transform→reduce 계열에서 intermediate materialization을 제거하고 fused/streamed realization 후보를 만든다. 실제 cell chunk/cache schedule은 downstream에서 결정한다. | **Graph fusion candidate → Execution scheduling** |
+| nested rank loop를 합치거나 outer rank loop가 inner rank processing을 흡수 | `jtype.h`의 `VF2RANKATOP1/2`, `VF2RANKONLY1/2`; `ca.c`의 “subsumed into a higher rank loop”; `cr.c`의 IRS/rank path 선택 | rank를 단순 wrapper가 아니라 cell/frame iteration-domain 정보로 보존하고 compatible nested rank/CellApply domain의 absorption/fusion 후보를 만든다. | **Graph/Execution semantic analysis**, concrete loop는 후속 |
 | `+/%#` fork를 mean으로 특수화 | `cf.c::jtfolk`의 `jtmean` 선택 | syntax identity가 아니라 graph idiom `Divide(Sum(x), Count(x))`를 witnessed high-level candidate로 인식한다. | **Graph rewrite / idiom recognition** |
-| mean이 window/infix 안에 들어가면 moving average 전용 경로 선택 | `ap.c::jtbslash`이 `jtmean`을 보고 `jtmovavg` 선택 | 한 rewrite가 후속 rewrite 기회를 열 수 있으므로 canonicalization/rewrite discovery를 재실행할 수 있어야 한다. | **Graph rewrite fixpoint / rediscovery** |
+| mean이 window/infix 안에 들어가면 moving average 경로 선택 | `ap.c::jtbslash`이 `jtmean`을 보고 `jtmovavg` 선택 | 한 rewrite가 후속 rewrite 기회를 열 수 있으므로 canonicalization/rewrite discovery를 재실행할 수 있어야 한다. | **Graph rewrite fixpoint / rediscovery** |
 | `+/@:*"1 1`을 전용 sum-times rank-1 routine으로 전환 | `cr.c`의 `jtsumattymes1` special case | `Reduce(Add, Mul(...))` + rank/cell contract를 dot-like contraction candidate로 인식한다. generic Dot으로 무조건 치환하지 않고 J numeric/rank/error witness를 요구한다. | **Graph rewrite + execution-basis selection** |
 | `#@,`, `#@[English](PROJECT.md) | **한국어 — 정본(canonical)**
 
@@ -8407,13 +8407,11 @@ Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레�
  등을 데이터 계산 없이 rank/atom-count shortcut으로 처리 | `ca.c`의 `jtnatoms/jtrank` 선택; `v.c::jtrank/jtnatoms` | value가 아니라 shape/rank/item-count만 요구되는 경우 value computation을 피한다. symbolic shape/count algebra와 demand analysis를 둔다. | **Graph fact propagation / shape rewrite** |
 | `BOXATOP/WILLOPEN/ATOPOPEN/USESITEMCOUNT`로 producer와 다음 consumer를 함께 최적화 | `jtype.h` `VF2BOXATOP*`, `VF2WILLOPEN*`, `VF2USESITEMCOUNT*`; `result.h::ZZFLAGWILLBEOPENED/COUNTITEMS`; `ca.c`의 propagation | producer를 독립적으로만 보지 않고 **consumer demand**를 분석한다. box→open, assemble→raze 등의 불필요한 recursion/materialization/pass를 제거할 후보를 만든다. jsource flag 이름은 IR semantic identity로 복제하지 않는다. | **Graph demand/materialization analysis** |
 | ravel 등에서 실제 copy 대신 virtual block 또는 header/shape 조정 | `v.c::jtravel` | reshape/ravel/slice류가 logical view로 표현 가능한지를 분석하고 copy/materialization을 늦춘다. 실제 aliasing/header/stride representation은 Physical layer가 결정한다. | **Logical View opportunity → Physical representation** |
-| comparison/search/set 조합을 전용 알고리즘으로 승격 | `ca.c`의 comparison-combination/`I.@e.` 등 special cases; `cf.c::jtfolk`의 comparison combinations와 `jtintersect` | primitive soup를 유지하는 것만이 정답이 아니다. 충분한 witness가 있으면 graph idiom을 Ranking/Intersection/Search 같은 higher-level algorithm candidate로 승격해 algorithm selection을 연다. | **Graph idiom recognition / algorithm-selection candidate** |
+| comparison/search/set 조합을 전용 알고리즘으로 승격 | `ca.c`의 comparison-combination/`I.@e.` 등 special cases; `cf.c::jtfolk`의 comparison combinations와 `jtintersect` | 충분한 witness가 있으면 primitive graph를 Ranking/Intersection/Search 같은 higher-level algorithm candidate로 승격해 algorithm selection을 연다. | **Graph idiom recognition / algorithm-selection candidate** |
 | use count와 inplaceability를 보고 입력 storage 재사용 | `v.c::jtravel`의 `ASGNINPLACESGN` 및 shape-header reuse; jsource 전반의 `JTINPLACE*` 계열 | SSA/use-def/liveness/alias facts를 이용해 buffer reuse를 계획한다. 이것은 semantic Graph rewrite가 아니라 bufferization/physical memory planning이다. | **후속 Buffer Planner / Physical lowering** |
-| cache footprint, concrete primitive routine, AVX/SIMD 등에 맞춘 special execution path | `va2.c::jtfslashatg`의 cache-footprint 조건 및 각 primitive special entry point | Graph IR은 “fusable/streamable” 같은 freedom과 logical extent를 남기고, concrete chunk size·SIMD·GPU workgroup·library kernel 선택은 target/cost layer에서 결정한다. | **Target lowering / schedule / cost** |
+| cache footprint, concrete primitive routine, AVX/SIMD 등에 맞춘 special execution path | `va2.c::jtfslashatg`의 cache-footprint 조건 및 각 primitive special entry point | Graph IR은 “fusable/streamable” 같은 freedom과 logical extent를 남기고 concrete chunk size·SIMD·GPU workgroup·library kernel 선택은 target/cost layer에서 결정한다. | **Target lowering / schedule / cost** |
 
 ##### B. pinned source links
-
-위 표의 jsource 근거는 모두 같은 source-review revision을 사용한다.
 
 - [`jsrc/ca.c` — `jtatop/jtatco`, special forms, WILLOPEN/USESITEMCOUNT/RANKATOP propagation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L306-L505)
 - [`jsrc/cf.c` — `jtfolk`, capped fork normalization, `+/%# → jtmean`, comparison/intersection specialization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L55-L198)
@@ -8421,12 +8419,10 @@ Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레�
 - [`jsrc/ap.c` — prefix/infix dispatch and `jtmean → jtmovavg`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L950-L963)
 - [`jsrc/va2.c::jtfslashatg` — atomic `f/@:g` cell-at-a-time execution to reduce cache footprint](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1807-L1820)
 - [`jsrc/v.c` — `jtrank/jtnatoms`, ravel virtual block and inplace/header reuse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/v.c#L8-L40)
-- [`jsrc/jtype.h` — BOXATOP/WILLOPEN/USESITEMCOUNT/RANKATOP/RANKONLY flag contracts](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1280-L1320)
+- [`jsrc/jtype.h` — BOXATOP/WILLOPEN/USESITEMCOUNT/RANKATOP/RANKONLY contracts](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1280-L1320)
 - [`jsrc/result.h` — WILLBEOPENED/COUNTITEMS result-assembly contract](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/result.h#L20-L36)
 
 ##### C. RustJ 계층 경계
-
-jsource에서 채굴한 항목을 다음처럼 분리한다.
 
 ~~~text
 1. J Graph IR / graph facts
@@ -8454,13 +8450,10 @@ jsource에서 채굴한 항목을 다음처럼 분리한다.
    - library/custom-kernel selection
 ~~~
 
-특히 다음 두 오류를 피한다.
+두 오류를 피한다.
 
-1. **jsource의 special entry point를 Graph IR node 종류로 일대일 복제하지 않는다.**  
-   예를 들어 `jtfslashatg` 자체가 semantic op가 아니다. RustJ에서는 source graph가 transform→reduce이고, fusion/materialization-elision candidate와 schedule choice가 분리된다.
-
-2. **jsource runtime flag를 그대로 semantic property로 승격하지 않는다.**  
-   `WILLOPEN`, `USESITEMCOUNT`, `RANKATOP`은 매우 유용한 최적화 지식을 담지만 jsource execution architecture에 맞춘 encoding이다. RustJ는 그 의미를 producer-consumer demand, iteration-domain compatibility, result assembly/materialization contract 같은 일반 fact로 옮긴다.
+1. **jsource의 special entry point를 Graph IR node 종류로 일대일 복제하지 않는다.** 예를 들어 `jtfslashatg` 자체가 semantic op가 아니다. RustJ에서는 source graph가 transform→reduce이고 fusion/materialization-elision candidate와 schedule choice가 분리된다.
+2. **jsource runtime flag를 그대로 semantic property로 승격하지 않는다.** `WILLOPEN`, `USESITEMCOUNT`, `RANKATOP`의 의미를 producer-consumer demand, iteration-domain compatibility, result assembly/materialization contract 같은 일반 fact로 옮긴다.
 
 ##### D. 구현 원칙
 
@@ -8470,7 +8463,7 @@ jsource에서 채굴한 항목을 다음처럼 분리한다.
 - rewrite가 새 canonical identity를 만들면 후속 candidate discovery를 다시 실행할 수 있다. `+/%# → Mean → Window(Mean) → MovingAverage candidate`가 대표 사례다.
 - view/materialization freedom은 alias/physical layout을 미리 결정하지 않는다.
 - in-place와 cache/SIMD/GPU realization은 Graph IR correctness와 분리한다.
-- RustJ가 jsource보다 일반적인 graph rule을 갖더라도, jsource differential oracle과 semantic tests를 통과하지 못하면 채택하지 않는다.
+- RustJ가 jsource보다 일반적인 graph rule을 갖더라도 jsource differential oracle과 semantic tests를 통과하지 못하면 채택하지 않는다.
 
 이 절은 **jsource 최적화를 전수 구현했다는 상태 보고가 아니다.** 향후 optimizer 작업에서는 각 catalog 항목을 `source pattern → semantic preconditions → graph candidate/rewrite → downstream realization → C differential regression` 형식의 구현 항목으로 전개한다.
 
