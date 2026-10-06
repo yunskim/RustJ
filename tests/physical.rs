@@ -343,3 +343,63 @@ fn partial_view_reports_retained_capacity_and_actual_offset_alignment() {
     );
     assert_eq!(int(&one, &[0]), 2);
 }
+
+
+#[test]
+fn physical_search_planner_uses_registered_routes_with_runtime_guards() {
+    use rustj::{
+        logical_ir::SearchOutputKind as O,
+        lowering::{SearchAlgorithm as A, TargetCapabilities},
+        physical::{plan_search_algorithm, SearchSelectionBasis as B, SearchWorkload},
+    };
+    let cpu = TargetCapabilities::cpu_baseline();
+    let mut facts = SearchWorkload {
+        indexed_items: 5, query_items: 7, integer_span: Some(4),
+        immutable_shared_index: false, prehash_available: false,
+        allow_reverse: true,
+    };
+    let chosen = plan_search_algorithm(O::FirstIndex, &cpu, facts, true);
+    assert_eq!(chosen.algorithm, A::DirectAddress);
+    assert_eq!(chosen.basis, B::RuntimeExactScalarGuard);
+    assert_eq!(chosen.estimated_table_entries, 4);
+
+    // Target-matched candidate without an exact scalar runtime witness
+    // cannot become a selected implementation.
+    let withheld = plan_search_algorithm(O::FirstIndex, &cpu, facts, false);
+    assert_eq!(withheld.algorithm, A::Sequential);
+    assert_eq!(withheld.basis, B::Reference);
+
+    facts.indexed_items = 100;
+    facts.query_items = 3;
+    facts.integer_span = None;
+    assert_eq!(
+        plan_search_algorithm(O::LastIndex, &cpu, facts, true).algorithm,
+        A::ReverseQueryHash,
+    );
+    facts.allow_reverse = false;
+    assert_eq!(
+        plan_search_algorithm(O::LastIndex, &cpu, facts, true).algorithm,
+        A::IndexedHash,
+    );
+    facts.immutable_shared_index = true;
+    facts.prehash_available = true;
+    assert_eq!(
+        plan_search_algorithm(O::MembershipMask, &cpu, facts, true).algorithm,
+        A::PreparedHash,
+    );
+    facts.indexed_items = 3;
+    facts.query_items = 2;
+    assert_eq!(
+        plan_search_algorithm(O::FirstIndex, &cpu, facts, true).algorithm,
+        A::Sequential,
+    );
+
+    assert_eq!(
+        plan_search_algorithm(O::IntervalIndex, &cpu, facts, true).basis,
+        B::Unavailable,
+    );
+    assert_eq!(
+        plan_search_algorithm(O::FirstIndex, &TargetCapabilities::gpu_generic(), facts, true).basis,
+        B::Unavailable,
+    );
+}
