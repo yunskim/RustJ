@@ -2576,6 +2576,19 @@ Pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` provides type-correct fill cells when th
 
 **Safety barrier.** `ZeroFrameNeedsFill` is neither `ProvenEmptyResult` nor `SafeToElide`. The fill-cell can establish result dtype/shape, raise observable errors or execute effectful/named functions. A zero axis in the A3 `IterationDomain` does not automatically allow kernel skipping, fusion or buffer omission. A later optimization must separately prove result-cell shape/type, purity, error and dynamic-name behavior, guards and fallback; actual selection must pass FW-05–FW-13 resource/cost/execution gates.
 
+**Array-compiler comparison and transfer boundaries (2026-10-06).** These references provide mechanisms for separate RustJ layers, **not** evidence that another compiler already implements J's zero-frame fill-cell semantics.
+
+| Reference | Mechanism | RustJ transfer and limitation |
+|---|---|---|
+| [XLA ZeroSizedHloElimination](https://github.com/openxla/xla/blob/main/xla/hlo/transforms/simplifiers/zero_sized_hlo_elimination.h), [pass guide](https://openxla.org/xla/hlo_passes) | Replaces zero-element HLO results with empty constants | Generate analogous rewrites **only after** result semantics and elision legality are proved. Never suppress J fill-cell evaluation, effects or errors merely because item count is zero |
+| [Futhark size types](https://www.futhark-lang.org/blog/2020-03-15-futhark-0.15.1-released.html) | Encodes element type and sizes as `[n]a`; distinguishes `[0][2]i32` from `[2][0]i32` | Prove result-cell dtype/shape separately from Rank frame geometry; do not erase J dynamic names/effects or heterogeneous result assembly |
+| [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/) | Separates iteration/indexing space from compute payload region | Preserve `CellApply` iteration structure separately from cell computation and result assembly. `tensor.empty` creates an uninitialized-content tensor of a specified shape; it does **not** mean a zero-element tensor |
+| [StableHLO reduce](https://openxla.org/stablehlo/spec#reduce) | Explicit reduction axes, reducer computation, init_values and result types | Apply known-result inference only to the relevant proved subset; do not assume an initialized StableHLO reduction is equivalent to arbitrary J `/` or Rank fill-cell semantics |
+
+**ZF-IR-03 independent evidence ledger (planned; not implemented).** Keep the original J Graph immutable. A recomputable sidecar must independently track (1) graph/value identity, version and dynamic-name validity; (2) J result-cell dtype/shape, boxed/sparse fill and assembly; (3) semantic equivalence of fill-cell evaluation versus reconstructed output; (4) observable effects, errors, precedence and handlers; and (5) a guard ordered before the first observable effect with exact semantic-reference fallback. Each obligation distinguishes `Unknown / Proven(witness) / Guarded(guard+fallback) / Disproven`. Neither `frame=[0]` nor partially known shape upgrades an Unknown obligation to Proven. Guarded by itself never enables selection. FW-05–FW-13 and ZF-IR-04 remain the separate execution-selection gates.
+
+**Work order.** Start with RK-06 adversarial C-oracle Rank/zero-frame fixtures; establish RK-07–10 error/effect/boxed/sparse/assembly semantics; then implement ZF-IR-03 sidecar and Unknown/Guard negative tests; finally validate ZF-IR-04 with independent three-way CPU/physical measurements. This comparison does not advance M3 ahead of M2, or tick ZF-IR-03/04 or FW-06/07.
+
 **Living sub-checklist (under RK-11 and FW-04/JX-04).**
 
 | Gate | Status | Required evidence |
