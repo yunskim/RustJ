@@ -12,6 +12,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ComparisonPolicyIdentity {
     /// Existing CPU `kernels::near` contract; NOT a general J CCT witness.
+    #[cfg(test)]
     FixedRustNearV0,
     /// Pinned jsource C `TCMPEQ`, with initial `cct = 1.0 - 2^-44`.
     PinnedJDefaultCctV0,
@@ -23,6 +24,7 @@ pub(crate) struct ComparisonPolicySnapshot {
 }
 
 impl ComparisonPolicySnapshot {
+    #[cfg(test)]
     pub(crate) const fn fixed_rust_near() -> Self {
         Self {
             identity: ComparisonPolicyIdentity::FixedRustNearV0,
@@ -41,6 +43,7 @@ impl ComparisonPolicySnapshot {
     /// nontransitive hash representative, or jsource's masked-bucket probe.
     pub(crate) fn float_equal(self, a: f64, b: f64) -> bool {
         match self.identity {
+            #[cfg(test)]
             ComparisonPolicyIdentity::FixedRustNearV0 => {
                 a == b
                     || (a.is_finite()
