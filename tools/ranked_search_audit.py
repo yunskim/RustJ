@@ -98,7 +98,12 @@ def main():
         ],
         "gate": "DIAGNOSTIC ONLY: do not count mismatches as passes",
     }, indent=2))
-    return 0
+    # This bounded corpus is a concrete supported subset. Once its
+    # empty-frame semantics are implemented, any regression must fail CI;
+    # the report still retains failures instead of silently waiving them.
+    return int(any(
+        row["classification"] != "pass" for row in report["observations"]
+    ))
 
 
 if __name__ == "__main__":
