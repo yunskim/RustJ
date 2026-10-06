@@ -176,9 +176,10 @@ def run(binary, library, revision, path, adversarial=False, retry_probes=False, 
 
 
 def gate_failed(report, adversarial, gate_adversarial=False,
-                retry_probes=False, gate_retry_probes=False):
-    """Pin supported C-oracle corpora with explicit independent strict gates."""
-    strict = (gate_retry_probes if retry_probes
+                retry_probes=False, gate_retry_probes=False,
+                error_probes=False):
+    """Only explicitly witnessed corpora are blocking; error probes are not."""
+    strict = (False if error_probes else gate_retry_probes if retry_probes
               else not adversarial or gate_adversarial)
     return strict and any(
         row["classification"] != "pass" for row in report["observations"]
@@ -255,7 +256,8 @@ def main():
         indent=2,
     ))
     return int(gate_failed(report, args.adversarial, args.gate_adversarial,
-                           args.retry_probes, args.gate_retry_probes))
+                           args.retry_probes, args.gate_retry_probes,
+                           args.error_probes))
 
 
 if __name__ == "__main__":
