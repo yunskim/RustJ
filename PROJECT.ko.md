@@ -3282,6 +3282,8 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **소스 식의 IEEE-754 모델을 통한 실제 반례(실행한 J C 바이너리 아님):** `t=2^-44`, `a=1.0`, `b=1.0-t`이면 현재 RustJ `near`의 `|a-b| <= t*max(...)`는 **true**, 위 jsource C macro를 이진64 연산으로 모델링한 식은 **false**다. `b=1.0+t`에서도 같은 불일치가 나타난다. 이는 반올림·경계의 **strict-vs-inclusive** 차이여서, 수학적으로 같은 허용오차 폭을 논의한 것만으로 기계 수준의 결과 동등성이 보장되지 않는다는 구체적 증거다. 별도 Python IEEE-754 반증 탐색은 **의도적으로 허용오차 경계에 집중한 120,000쌍에서 19,968개의 모델 불일치**를 찾았다. 이 빈도는 일반 입력의 J-vs-Rust mismatch rate가 아니며 C 원본 실행 결과도 아니다. 부호·크기·subnormal·다양한 target CPU는 별도 검증해야 한다.
 
+**독립 C 재현(전체 J 실행 아님):** pinned `TCMPEQ`의 식을 포함한 작은 C 프로그램을 Debian GCC **14.2.0**, `cc -std=c11 -O0` 및 `-O2`로 각각 컴파일·실행했다. 두 빌드 모두 `(a,b)=(1,1-2^-44)` 및 `(1,1+2^-44)`에서 기존 RustJ 수식 모델은 **true**, upstream C 매크로 수식은 **false**를 반환했다. ±0·Infinity·NaN 검산 사례도 두 빌드에서 일치했다. [`reports/cct-macro-boundary-probe.json`](reports/cct-macro-boundary-probe.json)에 입력·컴파일러·결과·미실행 범위를 기록했다. **Rust 컴파일·전체 jsource 프로그램 실행·J oracle 차등 테스트는 여전히 하지 못했다**(`cargo`, `rustc`, J 인터프리터가 현재 환경에 없음). 이 자료는 소스 매크로 재현이지 J 엔진 통합 검증이 아니다.
+
 **코드·승인 상태:** `src/comparison_policy.rs`의 테스트 전용 `source_cct_macro_model` 및 `jsource_cct_macro_model_exposes_fixed_near_boundary_gap`이 이 반례를 기계적 회귀 입력으로 기록했다. `FixedRustNearV0`의 기존 실행 의미는 **의도적으로 변경하지 않았다**. 실제 J C binary/엔진을 사용한 `=, i., i:, e., E.` 경계 검증과 dtype/rank/fit·error 차이를 확정한 뒤, 공통 comparator를 source-equivalent로 교체할지 결정해야 한다. 임의로 float hash를 활성화하거나 source model을 완전한 J runtime oracle로 선언하지 않는다. **P.1 #5 및 #12는 여전히 미완료이며, 이전 P.4의 수학적 후보-상계 증명은 *구 Rust fixed-near comparator*에 한정된다.**
 
 
