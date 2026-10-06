@@ -3537,17 +3537,17 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 
 | Stage / boundary | Documentation status | Strong coverage today | Main remaining gap |
 |---|---|---|---|
-| word formation → enqueue → parser | **strong** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reductions, name/assignment sequencing, differential gates | A compact canonical trace from tokens through queue/reductions to completed `JEntity/FunctionEntity` would improve orientation |
-| Semantic Construction / binding / dynamic semantics | **strong** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition frames, gerund/rank/train preservation | Concrete explicit-definition control-flow handoff into A3 regions/blocks remains partial |
-| J Semantic → J Graph IR | **strong** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, `@:`/fork diagrams, Graph-vs-Execution distinction | Canonical graph examples for hook/rank/reduce/scan are still distributed across sections |
+| word formation → enqueue → parser | **documentation contract closed / convergence ongoing** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reductions, sequencing/gates, §4.3.1 `+/ y` canonical trace | actual support for locatives/definitions/gerunds/value-dependent constructors remains checklist-driven; orientation ownership is closed |
+| Semantic Construction / binding / dynamic semantics | **documentation contract closed / implementation partial** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition frames, gerund/rank/train preservation, explicit-definition handoff example | InvocationFrame, Branch/CondBranch and value-merge CFG lowering are planned; current A3 Terminator remains Return-only |
+| J Semantic → J Graph IR | **documentation contract closed** | GraphForm/GraphBasis/GraphHint, provenance/applied graph, Graph-vs-Execution distinction, canonical suite for `@:`/ordinary+capped fork/hook/rank/reduce/prefix-infix | remaining gaps are implementation/test coverage per form, not missing stage ownership |
 | graph analysis → candidate/proof | **documentation contract strengthened / implementation partial** | §7.5 defines orthogonal evidence, derived lifecycle, evidence owners, guarded legality, overlap/selection rules | Common `CandidateEvidence/ProofBundle`, per-obligation discharge, and SelectionPlan are **not implemented**; individual proof algorithms land with their verifier/tests |
 | J Graph → execution-semantic lowering → A3 | **mostly strong** | direct lowering, fact-drift checks, Execution Basis, SemanticCheck, effects/errors/speculation, verifier, schema header, canonical mean trace | A3-v0 remains effectively single-block; a concrete explicit-definition control-flow → region/block handoff example is still needed |
 | route analysis / partition | **documentation contract strengthened / implementation partial** | §2.1 defines live-ins/outs, effect live-outs, SemanticChecks, guards, representation-neutral bridges, and region legality | Current `RouteRegion { class, operations }` plus contiguous grouping remains a v0 helper; real bridge/region-wide verification and mixed-route execution are unimplemented |
 | schedule / Physical Planner | **M4-v0 documentation contract fixed / unimplemented** | §17.2.1 defines `PlanBufferId != runtime BufferId`, PhysicalView, BindInput/Check/View/Materialize/Kernel/Return, lifetime/reuse/verifier/error-cleanup | Actual PhysicalPlan types, planner, and executor are unimplemented; Transfer/Sync/async are post-M4 |
 | native executor | **M4-v0 contract mostly closed / unimplemented** | §§17.2/17.2.1 cover op roles, verifier, cleanup/errors, executor non-responsibilities, and the canonical mean planned route | No real Physical Executor or differential E2E test yet; stateful/async execution remains later work |
 | fallback / guard miss / replay | **documentation contract strengthened / dispatcher unimplemented** | §5.2.2 defines route fallback vs guard miss vs replay/continuation, the decision table, commit frontier, and precise RuntimeSemanticFallback meaning | Integrated guard dispatcher, exact continuation, and transactional rollback remain unimplemented and must not be claimed as capabilities |
-| external route / GPU | **planned** | adapter responsibility, external IR as projection, target/lowering separation | First concrete adapter ABI, round-trip verifier, and unsupported diagnostics are not implemented; CUDA remains intentionally deferred |
-| validation / versioning | **partial** | strong frontend differential gates; A3 verifier/schema/provenance fields exist | Candidate→route→physical negative verifier matrix and serialization migration policy remain future work |
+| external route / GPU | **boundary contract fixed / implementation deferred** | §12.2 defines adapter input/capabilities/output, check/error/effect/token mapping, bridge/ownership, round-trip verification and failure classes | production adapters remain unimplemented; CUDA remains intentionally deferred |
+| validation / versioning | **documentation contract strengthened / implementation follows stages** | frontend gates, exact J Graph 0.9/A3 0.4 schema+registry verification, §15.2 negative matrix, §15.3 migration/downgrade policy | Candidate/Route/Physical/External negative verifiers land with their stage implementations; portable serialization is not yet offered |
 
 **First-pass documentation closures completed on 2026-10-06** without changing the current M2 implementation priority:
 
@@ -3559,13 +3559,17 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 
 These are documentation-contract completions, not implementation-completion claims. The canonical trace includes an explicit current stop line before planned M4 Schedule/PhysicalPlan execution.
 
-**Second-pass documentation priorities:**
+**Second-pass documentation closures completed:**
 
-1. Add a compact frontend canonical sentence trace from bytes/word formation through enqueue classes, 9-row reductions, and completed JEntity/FunctionEntity.
-2. Add one explicit-definition control-flow handoff example connecting DefinitionCode/control metadata/invocation frame to planned/current J Graph/A3 region/block boundaries.
-3. Consolidate a canonical J Graph example suite for `@:`, ordinary/capped fork, hook, rank, reduce, prefix/infix/scan candidates, each showing semantic construction, applied nodes, region provenance, candidate, and forbidden premature optimization.
-4. Define the first external-adapter boundary contract when an external route is actually started: region ABI, supported semantics, representation bridge, effect/token/error mapping, round-trip verifier, and unsupported diagnostics. CUDA remains intentionally deferred.
-5. Build a cross-stage negative-verifier matrix for candidate → route → PhysicalPlan, and close serialization upgrade/downgrade/unsupported-version policy when these IRs begin to be stored or exchanged as external artifacts.
+- [x] compact frontend canonical sentence trace — §4.3.1
+- [x] explicit-definition control-flow handoff example — frontend section
+- [x] canonical J Graph example suite — JAXA/J Graph section
+- [x] external-adapter boundary contract — §12.2
+- [x] cross-stage negative-verifier matrix and serialization migration policy — §§15.2–15.3
+
+These remain documentation contracts, not implementation-completion claims. Branch/CondBranch, CandidateEvidence/SelectionPlan, concrete RouteBoundary, PhysicalPlan, and ExternalRegionPlan are target concepts where the corresponding Rust APIs do not yet exist.
+
+Remaining gaps are now mostly **implementation-driven details**: actual proof algorithms/cached-evidence invalidation; concrete explicit-definition CFG types and loop/try/select lowering; concrete RouteBoundary/BridgeRequirement types and executor integration; PhysicalPlan op structs/planner/reuse implementation; per-adapter capability/emission code; intentionally later async/stateful/exact-continuation semantics; and a wire format only when portable artifacts are actually exported. Do not freeze speculative APIs early; derive each from the stage contract using one meaning + one verifier/negative test at a time.
 
 Maintenance rule: whenever a major compiler stage/type or framework-comparison claim changes, update the relevant contract summary and cross-search `FOUNDATIONS`, `PROJECT`, `README`, and `AGENTS` for stale duplicate claims. Keep these audit results inside the canonical project documents rather than spawning separate Markdown review reports.
 
