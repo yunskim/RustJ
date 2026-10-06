@@ -96,11 +96,11 @@ jobs:
           python3 tools/ranked_search_audit.py --retry-probes --gate-retry-probes \
             --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
             --report "reports/rank-inhomo-${{ matrix.variant }}-${{ matrix.backend }}.json"
-      - name: RK-07 error precedence C/Rust diagnostic (non-acceptance)
+      - name: RK-07 pinned 8-case error precedence differential gate
         env:
           J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
         run: |
-          python3 tools/ranked_search_audit.py --error-probes \
+          python3 tools/ranked_search_audit.py --error-probes --gate-error-probes \
             --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
             --report "reports/rank-error-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - uses: actions/upload-artifact@v4
