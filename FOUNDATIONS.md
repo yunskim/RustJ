@@ -505,9 +505,11 @@ The current invariant is:
 J combinator syntax
   -> graph topology + source provenance
   -> optimization opportunity / algebraic candidate
-  -> equivalence + semantic legality proof
-  -> resource / work-depth analysis
-  -> profitability + target planning
+       |- equivalence / semantic proof obligations
+       |- resource / work-depth estimates
+       `- target-capability / lowering-feasibility queries
+  -> all required legality obligations discharged
+  -> profitability + candidate selection
   -> physical realization
 ```
 
@@ -520,6 +522,8 @@ The conceptual evolution from JAXA to current RustJ is therefore:
 > **Do not use J combinators as optimization directives; use J combinator algebra as a provenance-rich optimization IR / graph algebra.**
 
 This strengthens rather than weakens the original idea: RustJ keeps the structure that J already exposes instead of flattening it into generic SSA and rediscovering it later, while correctness and profitability remain independently provable.
+
+**Implementation-status note:** the flow above is the target architecture. Today `j_graph_fusion` creates `FusionCandidate` source envelopes with explicit proof obligations, and `fusion_planning` can inspect source-basis feasibility and work/depth comparisons while keeping the report in `AwaitingSemanticProofs`. `selected` remains false; semantic-proof discharge, profitability-based selection, and committed fused lowering are not yet implemented. Do not read the complete candidate-to-realization flow as already finished.
 
 ---
 
