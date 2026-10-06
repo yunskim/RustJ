@@ -2966,7 +2966,7 @@ RustJ
 | source-derived family / 아이디어 | 현재 RustJ 소유 경계 | 2026-10-06 코드 반영 | 실행 최적화 도입 전 남은 조건 |
 |---|---|---|---|
 | `f/@:g`의 Map→Reduce streaming | 기존 `src/j_graph_fusion.rs` `MapReduce` + `fusion_planning.rs` | **기존 분석을 재사용**, 중복 rewrite 미등록 | per-cell semantics, numeric/dtype, effects, target capability, fallback |
-| `+/%#` mean fork 인식 | 신규 `src/j_graph_jsource.rs` source-pattern analyzer | `FunctionEntity`의 **ordinary Fork + Insert(Add) / Divide / Tally** 완전 일치 시 `MeanIdiom` *후보만 발견* | J rank/cell·empty·dtype·float order·error proof; 실제 `Mean` 실행 op 미구현 |
+| `+/%#` mean fork 인식 | 신규 `src/j_graph_jsource.rs` source-pattern analyzer | `FunctionEntity`의 **단항 호출 ordinary Fork + Insert(Add) / Divide / Tally** 완전 일치 시 `MeanIdiom` *후보만 발견* | J rank/cell·empty·dtype·float order·error proof; 실제 `Mean` 실행 op 미구현 |
 | reduction/window/scan 기법 | 기존 `GraphForm::Reduce/PrefixInfix`, `j_graph_scan.rs` + 신규 source opportunity | `ReductionFastPath`, `WindowAlgorithm` 후보 등록; 기존 Scan witness와 충돌하지 않음 | small-cell, moving aggregate, NaN/overflow, prefix vs infix proof 및 후속 알고리즘 |
 | `i.` / `e.` / `E.` search | `GraphForm::Atomic`, `PrimitiveId`, 기존 `FindViaWindowMatch` rewrite | dyadic Search를 `SearchAlgorithm` source opportunity로 기록; `Find`의 기존 witnessed rewrite 유지 | tolerant equality, key type, prehash legality, algorithm cost |
 | dyadic `I.` interval index | `PrimitiveId::Indices` | monadic indices와 혼동하지 않고 **dyad만 `IntervalLookup`** 후보 등록 | ordering·shape·type·tolerance, search route |
@@ -2990,6 +2990,22 @@ RustJ
 3. **algorithm basis gate:** `GroupReduce`, `Contraction`, `GradeSort`, `IntervalLookup`의 Execution Semantic operation/facts와 J-specific physical routes를 분리한다. J Graph에 `jtsort`, `jtfslashatg` 같은 C 함수 노드를 추가하지 않는다.
 4. **target gate:** CPU vector/BLAS, sparse implementations, GPU library/custom-kernel 경로는 `LoweringRegistry`와 target/resource/cost에서 별도 선택한다. `Unknown`은 실패가 아니라 **보수적 미최적화 경로**다.
 5. **regression gate:** jsource와 empty/sparse, boxed/tolerance, `!.0/!.1`, NaN/overflow, rank/frame, error/locale/cache-invalidating writes를 비교한다. differential과 성능 측정 없이 최적화 완료로 표시하지 않는다.
+
+##### K. 후속 원본 재검토 — 단항 Mean guard와 런타임 최적화 경계 (2026-10-06)
+
+**발견 및 수정:** 고정된 [`cf.c::jtfolk` 98행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L93-L101)은 `(+/ % #)`에서 **`f1=jtmean`만** 지정한다. 이항 executor `f2`를 Mean으로 바꾸지 않는다. 이전 `src/j_graph_jsource.rs`는 fork의 구성만 확인하고 적용 valence를 보지 않아 이항 호출에도 `MeanIdiom`을 만들 수 있었다. 이제 **`NodeKind::Apply`가 `Valence::Monad`인 경우에만** mean 후보를 등록한다. `tests/j_graph_jsource.rs`에는 동일한 fork의 이항 호출에 대한 부정 회귀 사례를 추가했다. 이것은 후보 발견의 정확도 수정이며 mean 수치 동등성·kernel 구현의 증명이 아니다.
+
+**이전 미조사 영역에 대한 2차 소스 감사:** 다음은 새 Graph rewrite를 무조건 등록하는 근거가 아니라 현재 계층에 대한 추가 설계 입력이다.
+
+| jsource 추가 확인 | 확인 위치 | RustJ 해석 및 소유 계층 |
+|---|---|---|
+| parser 행 0–2의 inplace 실행, assignment `zombieval`, 조기 parse 종료 | [`p.c` 10–24행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L10-L24) | **Frontend/Runtime의 이름·대입 시점과 lifetime 관리**. Graph liveness만으로 assignment buffer donation을 선언하지 않는다. |
+| explicit-definition local symbol table 재사용/복제, x/y precomputed bucket, 버려진 인자의 usecount 특수화 | [`cx.c` 270–329행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L270-L329) | **Explicit runtime/binding implementation**. 동적 scope·재진입·인자 alias 증명 전에는 Graph rewrite가 아니다. |
+| 단항 numeric type-dispatch와 실패 유형별 정밀도 변경·재실행, sparse의 별도 fallback | [`va1.c` 313–383행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va1.c#L313-L383) | **Typed semantic error/promotion witness → Execution numeric route**. 단항 함수를 모두 무오류 SIMD kernel로 취급할 수 없다. retry는 effect/order 안전성 검증을 요구한다. |
+| Amend/scatter의 index·sparse·dtype·read-only·usecount 조건부 inplace | [`am.c` 55–89행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L55-L89) · [568–581행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L568-L581) | **Amend semantic access/error contract → guarded Scatter/Buffer planner**. 단순 Gather/View 규칙과 구분하며 alias 및 transactional assignment를 보존한다. |
+| recursive/virtual block과 refcount·allocation lifetime | [`m.c` 743–783행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/m.c#L743-L783) | **Physical allocator/representation 관리**. C refcount flag를 semantic Graph property로 복제하지 않는다. |
+
+**적용 판정:** 단항 Mean의 오검출은 즉시 수정한다. 나머지 다섯 경로는 기존 frontend/runtime, semantic numerical contract, Scatter/Buffer planner의 source-evidence backlog로 둔다. 새로운 J Graph node/실행 최적화가 구현된 것으로 표시하지 않는다. `FOUNDATIONS.ko.md`의 semantic/physical 경계 원칙과 모순되지 않아 해당 파일은 변경하지 않았다. **이번 변경은 pinned C source와 Rust 코드의 정적 검토이며, Rust 테스트·jsource 차등 실행·benchmark는 아직 실행하지 않았다.**
 
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
