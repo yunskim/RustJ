@@ -3203,7 +3203,82 @@ M2–M4 retain their own completion gates; analysis-only success is not native c
 
 For `y =: i. 2 3`, `(+/ % #) y` requires leading-axis reduction `[3 5 7]`, tally `2`, and scalar-rank division yielding `[1.5 2.5 3.5]`. Preserve the semantic Fork and h → f → g observable order. Matching the output shape is insufficient: innate ranks, prefix frame agreement and scalar repetition must be explicit in a shared cell-application contract.
 
-A3 already provides basis payloads, verification and a closed-plan reference executor; the route prototype exists. General innate-rank/implicit-cell assembly and native Schedule/Physical Executor remain incomplete. The existing `canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order` test calls `analyze_a3 + verify` and checks ordering; it is not an execution/E2E test. Add matrix-cell golden/reference comparison before considering fused Mean, then connect the M4 physical route. [Detailed Korean proof case](PROJECT.ko.md#mean-proof-example).
+A3 already provides basis payloads, verification and a closed-plan reference executor; the route prototype exists. General innate-rank/implicit-cell assembly and native Schedule/Physical Executor remain incomplete. The existing `canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order` test calls `analyze_a3 + verify` and checks ordering; it is not an execution/E2E test.
+
+Use this same source as the canonical stage-by-stage compiler trace:
+
+```text
+J source
+  (+/ % #) y
+      |
+      v
+[implemented] parser / Semantic Construction
+  Fork
+    f = +/        // Insert(+) derived Verb
+    g = %
+    h = #
+  preserve source span / operand identity / observable fork order
+      |
+      v
+[implemented] J Graph IR
+  input y
+      +-- h branch: Apply Tally(y) ----------------+
+      `-- f branch: Apply Reduce(Add, y) ----------+
+                                                   v
+                                         Apply Divide(f, h)
+  + Fork region/provenance
+  + branch/join/use/liveness facts
+  + Graph Basis / GraphHint
+      |
+      +--> [implemented analysis] rewrite/fusion/resource/work-depth candidates/side analyses
+      |       candidates do not replace the source graph or commit execution
+      |
+      v
+[implemented] Execution Semantic Lowering -> canonical A3
+  observable order: h -> f -> g
+  Tally(y)
+  Reduce(Add, y)
+  Divide(left=reduce, right=tally)
+    + valence/rank/cell/frame facts
+    + prefix-agreement/repetition constraint or witness
+    + SemanticCheck only when a required constraint remains unresolved
+    + effect/error/speculation/order metadata
+      |
+      v
+[implemented] A3 verification/reference capability
+  Plan::verify()
+  logical_executor::execute_closed() on its supported closed subset
+      |
+      v
+[prototype] route analysis
+  LoweringRegistry::route_operation / partition_plan
+  an op without a native realization may classify as RuntimeSemanticFallback
+  contiguous class grouping is not the final mixed-route plan
+      |
+      -------- current stop line for compiler-native physical execution --------
+      |
+      v
+[planned M4] deterministic CPU Schedule / PhysicalPlan
+  BindInput(y)
+  Check(...)             // only for unresolved A3 SemanticChecks
+  Kernel Tally
+  Kernel Reduce(Add)
+  View/iteration mapping // repeat the right scalar according to J cell semantics
+  Kernel Divide
+  Return(result)
+      |
+      v
+[planned M4 validation]
+  result = 1.5 2.5 3.5
+  + value/error/order differential against jsource
+  + allocation/view/reuse invariants
+```
+
+The generic `Tally + Reduce + CellApply/Divide` path is the correctness baseline. A Mean-style fused/composite form is only a later optimization candidate and must separately satisfy equivalence/rank-cell assembly, numeric/error/effect ordering, fanout/retention, resource/work-depth, target capability, and profitability. Do not read today's `j_graph_fusion`/`fusion_planning` as already selecting or lowering the whole Mean specialization.
+
+Provenance must remain traceable: parser FunctionEntity Fork/operands/span -> J Graph region/value -> A3 `j_origin`; candidates retain source graph/rule/witness provenance; route and PhysicalPlan reference rather than destructively overwrite canonical A3; failures should map back through A3/J Graph provenance to source spans where possible.
+
+Add matrix-cell golden/reference comparison before considering fused Mean, then connect the M4 physical route. [Detailed Korean proof case](PROJECT.ko.md#mean-proof-example).
 
 ## 17.1.2 M2 construction conformance progress (2026-10-02)
 
