@@ -45,6 +45,32 @@ fn recognized_core_functions_preserve_pos_identity_without_execution_claims() {
 }
 
 #[test]
+fn vocabulary_pos_audit_uses_current_source_not_obsolete_dictionary_labels() {
+    use rustj::primitive::{PrimitivePartOfSpeech as Pos, PrimitiveResolver};
+
+    // Independently checked against jsoftware/jsource jsrc/t.c at
+    // 0a5101cfdd834b23a0b89d455e4f327310520a08 (2026-10-05).
+    for (word, expected) in [
+        ("H.", Pos::Conjunction),
+        ("t.", Pos::Conjunction),
+        ("S:", Pos::Conjunction),
+        ("m.", Pos::Conjunction),
+        ("$::", Pos::Adverb),
+        ("M.", Pos::Adverb),
+        ("/.", Pos::Adverb),
+        ("/..", Pos::Adverb),
+        ("c.", Pos::Verb),
+        ("T.", Pos::Verb),
+        ("Z:", Pos::Verb),
+    ] {
+        let handle = PrimitiveResolver::core()
+            .resolve_core_for_enqueue(word)
+            .unwrap_or_else(|| panic!("unrecognized installed primitive: {word}"));
+        assert_eq!(handle.result_pos, expected, "{word}");
+    }
+}
+
+#[test]
 fn recognized_but_unimplemented_calls_and_constructors_are_explicit_boundaries() {
     let mut e = Engine::new();
     for source in [

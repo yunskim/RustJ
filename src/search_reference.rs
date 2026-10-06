@@ -199,6 +199,33 @@ mod tests {
     }
 
     #[test]
+    fn independently_pinned_first_last_and_membership_float_positions() {
+        let tolerance = 2f64.powi(-44);
+        let (a, b, c) = (1.0, 1.0 + 0.75 * tolerance, 1.0 + 1.5 * tolerance);
+        let floats = |values: &[f64]| {
+            Value::new(
+                [values.len()],
+                Data::Float(CpuStorage::new(values.to_vec())),
+            )
+            .unwrap()
+        };
+        let indexed = floats(&[a, b, a, f64::INFINITY, 0.0, -0.0, f64::NAN]);
+        let probes = floats(&[c, a, -0.0, f64::INFINITY, f64::NAN]);
+        let first = index_of(&indexed, &probes, false).unwrap();
+        let last = index_of(&indexed, &probes, true).unwrap();
+        let present = member(&probes, &indexed).unwrap();
+        for (i, &expected) in [1, 0, 4, 3, 7].iter().enumerate() {
+            assert_eq!(first.int_at(i).unwrap(), expected);
+        }
+        for (i, &expected) in [1, 2, 5, 3, 7].iter().enumerate() {
+            assert_eq!(last.int_at(i).unwrap(), expected);
+        }
+        for (i, &expected) in [1, 1, 1, 1, 0].iter().enumerate() {
+            assert_eq!(present.int_at(i).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn sequential_reference_covers_boolean_integer_and_character_cross_types() {
         verify(
             Value::new([4], Data::Bool(CpuStorage::new(vec![0, 1, 1, 0]))).unwrap(),

@@ -145,6 +145,31 @@ fn semantic_reference_search_is_independent_of_index_preparation() {
 }
 
 #[test]
+fn fw02_reference_does_not_build_or_consume_name_prehash() {
+    let mut engine = Engine::new();
+    engine.eval("keys=:i.256").unwrap();
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+    let baseline = engine
+        .eval_semantic_reference("keys i. 17 255 999")
+        .unwrap()
+        .unwrap();
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+    let optimized = engine.eval("keys i. 17 255 999").unwrap().unwrap();
+    assert_eq!(baseline.json(), optimized.json());
+    let (builds, _) = engine.index_prehash_stats();
+    assert_eq!(builds, 1);
+
+    let before = engine.index_prehash_stats();
+    engine
+        .eval_semantic_reference("keys i: 17 255 999")
+        .unwrap();
+    engine
+        .eval_semantic_reference("17 255 999 e. keys")
+        .unwrap();
+    assert_eq!(engine.index_prehash_stats(), before);
+}
+
+#[test]
 fn semantic_reference_preserves_values_and_transactions() {
     let mut direct = Engine::new();
     let mut ir = Engine::new();
