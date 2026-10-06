@@ -8110,6 +8110,100 @@ portable artifact를 만들 경우 text/debug syntax와 portable serialization c
 
 MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable artifact 방식이 참고 모델이다. compatibility를 약속하기 전에도 **version field와 verifier를 처음부터 두는 것**이 migration 비용을 줄인다.
 
+#### 5.7.5 Cross-stage negative verifier matrix
+
+positive E2E test만으로는 compiler boundary를 보호할 수 없다. 각 stage는 “정상 plan이 통과한다”뿐 아니라 **그 stage가 책임지는 잘못된 상태를 반드시 거부한다**는 negative matrix를 가진다.
+
+| Stage / verifier | 반드시 거부해야 하는 forged/invalid state | 현재/계획 상태 |
+|---|---|---|
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.9`와 exact match |
+| rewrite candidate `verify` | stale source span/basis, unregistered rule/witness mismatch, replacement DAG forward reference, fact-rule mismatch, output semantic facts drift | **현재 존재** |
+| scan/fusion analysis verifier | forged source order, unsupported rule version, missing/incorrect witness, external-use/retention/fanout drift, candidate를 근거 없이 `selected`로 위조 | **현재 일부 존재**; proof discharge/selection verifier는 future |
+| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.4`와 exact match |
+| CandidateEvidence / SelectionPlan | stale graph/version evidence, required proof Unknown인데 Selected, Illegal candidate 선택, overlapping incompatible candidates 동시 선택 | **planned** — §4.1.4 |
+| RouteRegion / RouteBoundary | missing live-in/out, value-dead but effect-live dependency drop, SemanticCheck 중복/누락/순서변경, region-wide capability 미증명, guard가 effect 뒤에 배치, bridge requirement 누락 | **planned** — §2.5.1 |
+| PhysicalPlan | invalid plan buffer/view/op id, use-before-bind, view span overflow, selected kernel capability mismatch, unordered Check, unproved writable overlap/reuse, dangling Return | **planned M4** — §5.2.1 |
+| ExternalRegionPlan | source op 누락, check/effect edge drop, declared capability와 emitted op 불일치, incomplete output completion/ownership, unsupported partial module을 success로 표시 | **planned M6** — §5.5.1 |
+
+negative test 이름과 타입은 구현과 함께 정하되, **검증 책임 자체는 stage contract의 일부**다. downstream이 invalid upstream artifact를 관대하게 보정하는 식으로 책임을 이동하지 않는다.
+
+cross-stage forged test의 기본 패턴:
+
+~~~text
+valid source
+  ↓ build valid artifact
+clone artifact
+  ↓ mutate exactly one invariant
+stage.verify() must fail
+  ↓
+error identifies the violated boundary
+  ↓
+no later planner/executor is invoked
+~~~
+
+한 test에서 여러 invariant를 동시에 깨뜨리지 않는다. 어느 verifier가 어떤 invariant를 소유하는지 분명하게 유지한다.
+
+#### 5.7.6 Serialization / schema migration policy
+
+현재 RustJ의 J Graph/A3는 주로 in-process compiler artifact이며 장기 portable serialization compatibility를 약속하지 않는다. 현재 verifier는:
+
+~~~text
+J Graph schema 0.9      exact match required
+A3 schema 0.4           exact match required
+PrimitiveRegistry       current REGISTRY_VERSION exact provenance required
+~~~
+
+를 기본으로 한다. **minor version이 다르다고 자동 호환으로 간주하지 않는다.** 외부 artifact reader가 생기기 전에는 exact-match fail-closed가 올바른 정책이다.
+
+향후 저장/교환 format을 만들 때 다음 정책을 사용한다.
+
+1. **Decode와 migrate를 분리한다.**
+   - wire/file schema를 먼저 안전하게 decode한다.
+   - source version별 explicit migration function이 있을 때만 current in-memory schema로 변환한다.
+   - 알 수 없는 field/op/rule을 추측해 current 의미로 읽지 않는다.
+
+2. **upgrade는 explicit chain만 허용한다.**
+
+~~~text
+v0.n artifact
+   ↓ decode with v0.n schema
+migrate_0_n_to_0_n1
+   ↓
+...
+   ↓
+current schema
+   ↓
+current verifier
+~~~
+
+migration 결과도 반드시 current verifier를 통과해야 한다.
+
+3. **downgrade는 lossless writer가 있을 때만 허용한다.**
+   - 새 semantic field/op/effect를 옛 schema가 표현하지 못하면 downgrade를 거부한다.
+   - field를 조용히 drop해서 옛 artifact를 만들지 않는다.
+
+4. **PrimitiveRegistryVersion mismatch는 schema mismatch와 별도다.**
+   - primitive ID/contract mapping migration이 명시되어 있지 않으면 reject한다.
+   - spelling이 같다는 이유만으로 semantic registry version을 무시하지 않는다.
+
+5. **compiler version은 provenance, schema/registry가 compatibility key다.**
+   - compiler version이 다르더라도 schema/registry+migration contract가 같을 수 있다.
+   - 반대로 같은 compiler version 문자열만으로 compatibility를 보증하지 않는다.
+
+6. **rule/witness registry도 versioned provenance를 유지한다.**
+   - rewrite/fusion/scan witness meaning이 바뀌면 stale cached candidate를 재사용하지 않는다.
+
+7. **PhysicalPlan portable cache는 별도 schema다.**
+   - Logical IR schema와 같은 version으로 묶지 않는다.
+   - target architecture/device/runtime/capability fingerprint를 함께 요구한다.
+   - device-specific cached plan miss는 J error가 아니라 cache/route miss다.
+
+8. **unsupported-version diagnostics는 semantic J error와 분리한다.**
+   - `UnsupportedSchema/Registry/Migration` 계열 compiler diagnostic으로 보고한다.
+   - Domain/Rank/Length 같은 J error로 위장하지 않는다.
+
+pre-1.0 개발 단계에서는 schema를 자주 올릴 수 있다. 그 대신 version bump 없이 semantic field meaning을 바꾸는 것을 금지한다. portable artifact compatibility를 공식 약속하기 전에도 이 규율을 지킨다.
+
 ---
 
 <a id="logical-physical-array-model"></a>
