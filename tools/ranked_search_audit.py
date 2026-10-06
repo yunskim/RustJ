@@ -67,6 +67,16 @@ def rank_adversarial_cases():
         ("negative_rank_add", '(i.0 3) (+"_1 _1) (i.0 3)'),
         ("oversized_rank_add", '(i.0 3) (+"99 99) (i.0 3)'),
         ("empty_type_mismatch", "(0 3 $ 'abc') (+\"1 1) (i.0 3)"),
+        # cr.c::jtrank2ex: distinguish EVINHOMO fill-type retry from
+        # a computational-domain fallback and from real-cell execution.
+        ("empty_type_mismatch_reversed", '(i.0 3) (+"1 1) (0 3 $ \'abc\')'),
+        ("empty_char_float_fill", "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1.5)"),
+        ("empty_char_bool_fill", "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1=1)"),
+        ("empty_char_left_real_right", "(0 3 $ 'abc') (+\"1 1) (i.3)"),
+        ("empty_char_right_real_left", "(i.3) (+"1 1) (0 3 $ 'abc')"),
+        ("nonempty_char_int_domain", "(2 3 $ 'abc') (+\"1 1) (i.2 3)"),
+        ("positive_frame_empty_char_cells", "(2 0 $ 'abc') (+\"1 1) (i.2 0)"),
+        ("nested_rank_nonempty_cells", '(i.2 3) ((+"0 0)"1 1) (i.2 3)'),
         ("empty_division", '(i.0 3) (%"1 1) (i.0 3)'),
         ("empty_zero_cell_rank0_reduce", '+/"0 (i.2 0)'),
         ("empty_bool_member", '(0 3 $ 1) (e."1 1) (0 3 $ 1)'),
