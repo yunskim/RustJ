@@ -9933,6 +9933,10 @@ backend / executor
 - [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
 - [x] **문서 계약:** §5.2.1에서 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return`으로 정의하고 plan-time/runtime identity·verifier·cleanup 경계를 고정했다.
 - [ ] **구현:** 위 contract를 concrete `PhysicalPlan`/op Rust 타입과 verifier로 구현한다.
+
+- [x] **M4-P0 코드 토대(2026-10-07):** `src/physical_plan.rs`에 `PlanBufferId`, `PhysicalViewId`, `ExecutionDevice`와 `MemorySpace`를 분리한 `PhysicalPlan`/op·v0 검증기를 추가했다. `empty_from_a3`와 `identity_literal`은 단일 CPU, host, no-transfer 계획만 만든다. `execute_identity`는 dense literal의 `BindInput → Return`을 runtime `BufferRegistry`/checked affine `PhysicalArray`로 연결하되, 다른 operation을 지원한다고 주장하지 않는다.
+- [ ] **M4-P0 실행 검증:** `tests/physical_plan.rs`에 빈 계획, literal identity vs 독립 A3 reference, stale provenance, buffer/view id·stride·encoding·ownership, use-before-bind/Return, Check/Kernel/write 거부 회귀 테스트를 추가했다. **코드는 추가됐으나 cargo fmt/clippy/default/portable 및 실제 J differential을 실행하지 못했으므로 수용 미완료**다.
+- [ ] **M4-P1 다음 구현:** `View` metadata-only realization + checked backing span, nontrivial `SemanticCheck` order, 선택된 Add `Kernel` capability, `Materialize`/last-use/reuse witness로 위 v0 제한을 하나씩 해제한다.
 - [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
 - [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
 - [ ] G3의 첫 kernel로 contiguous/fixed/general-stride add를 연결한다.
@@ -9972,7 +9976,7 @@ backend / executor
 | 게이트 / 선행 | 상태 | 수용 기준 |
 |---|---|---|
 | HE-00 / M2 병행 | [x] 이종 실행 중심 원칙 및 IREE/Kokkos/MLIR/XLA/Futhark/Rayon 역할 문서화 | 본 결정과 `FOUNDATIONS.ko.md`·`AGENTS.md`에 반영한 **설계 완료만** 뜻함; runtime/benchmark 아님 |
-| HE-01 / M4 | [ ] all-CPU / single-device / zero-transfer `PhysicalPlan` 구현 | 원래 `BindInput/Check/View/Materialize/Kernel/Return` 순차 baseline, `logical_executor` 및 J oracle 의미 대비; M4 완료 게이트에 포함 |
+| HE-01 / M4 | [ ] all-CPU / single-device / zero-transfer `PhysicalPlan` 구현 (**P0 identity 코드 존재, 실행 검증 전**) | 원래 `BindInput/Check/View/Materialize/Kernel/Return` 순차 baseline, `logical_executor` 및 J oracle 의미 대비; M4 완료 게이트에 포함 |
 | HE-02 / M4→M5 | [ ] 실행 위치/메모리 위치/내부 병렬화를 분리한 planner-side contract와 verifier | A3 schema·J Graph·parser 불변, unknown capability와 resource 거절, non-overlap/liveness; multi-device 구현은 요구하지 않음 |
 | HE-03 / M5 | [ ] `ExecutionLegality`/witness/guard **분석**을 기존 lowering 경계에 연결 | Effect·NAME version·alias·error precedence·rank fill·dynamic fallback 반례; IR의 Parallel 축만으로 허가하면 실패 |
 | HE-04 / M5 | [ ] CPU Sequential/SIMD/worker 후보와 measured cost selection | worker count/tiling/compute bandwidth/launch/pool overhead, 반복 병렬 폭발과 nested oversubscription 방지; 모든 후보 합법성 검사 |
