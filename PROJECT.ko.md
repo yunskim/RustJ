@@ -3156,6 +3156,14 @@ RustJ
 
 **경계 반례:** 근사 동등성은 비추이적일 수 있어 `!.ct`/floating/boxed를 exact hash로 보내지 않으며 `TolerantNeighborHash`는 `NeedsSemanticProof`. `I.` interval은 Index-Of 일반 hash 후보가 아니다. unknown J name/POS/locale·effect/error ordering·empty prototype은 sidecar/guard 없이 우회하지 않는다. 이 선택기는 **CPU interpreter exact scalar에 대한 검증 전제 실행 경로**이며 `J Graph candidate commit`, `PhysicalArray` 생성, GPU backend, 일반 A3-to-native codegen과 동일하지 않다.
 
+###### O.2a 동작 예시 — `3 1 3 i: 3 4`
+
+- **J Frontend / Graph IR:** 원문의 dyadic `i:`(Last index) semantics, 3의 마지막 위치 및 4의 not-found sentinel을 보존한다.
+- **A3:** `LookupClassify { search: SearchDescriptor { output: LastIndex, indexed: left SSA ValueId, queried: right SSA ValueId, comparison: JEquality, .. } }`. 아직 해시 알고리즘이 아니다.
+- **Registry:** CPU `Sequential=Baseline`, `IndexedHash/DirectAddress/ReverseQueryHash/PreparedHash=RequiresExactScalarGuard`, `TolerantNeighborHash=NeedsSemanticProof`로 보고한다.
+- **Runtime/Physical:** 양측 Int/Bool 단항 셀임을 실행시 확인하며 `3 × 2 <= 32`이므로 순차 검색을 택한다. 예상 결과는 `2 3`이다. 같은 의미의 큰 입력에서는 검색 크기·범위·prehash 조건에 따라 다른 알고리즘을 고를 수 있지만, 의미론적 Last/missing은 불변이다.
+- **검증 경계:** 해당 입력에 대한 A3/verifier·Registry·Physical 계획 테스트는 **추가만 했고 실행하지 않았다**. 이 예시는 코드 의도와 J 의미의 계약을 보여줄 뿐 실행 성공/성능 측정 증거는 아니다.
+
 ###### O.3 앞으로 공통화할 설계 계약과 검증
 
 이 첫 search-specific adapter에서 확인한 **재사용 가능한 최적화 질문**은 다음과 같다.
