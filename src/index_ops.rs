@@ -526,4 +526,35 @@ mod index_family_tests {
         cache.clear();
         assert_eq!(cache.stats(), (0, 0));
     }
+
+    #[test]
+    fn all_exact_strategies_match_linear_reference_on_duplicate_heavy_inputs() {
+        use super::{index_of, member};
+        for &(items, nqueries) in &[(3, 10), (10, 10), (70, 3), (90, 80), (110, 25)] {
+            let keys = (0..items).map(|i| (i % 11) as i64 - 5).collect::<Vec<_>>();
+            let probes = (0..nqueries)
+                .map(|i| (i % 17) as i64 - 7)
+                .collect::<Vec<_>>();
+            let source = Value::ints([items], keys.clone()).unwrap();
+            let query = Value::ints([nqueries], probes.clone()).unwrap();
+            for last in [false, true] {
+                let found = index_of(source.clone(), query.clone(), last).unwrap();
+                for (q, &key) in probes.iter().enumerate() {
+                    let expected = if last {
+                        keys.iter().rposition(|&v| v == key)
+                    } else {
+                        keys.iter().position(|&v| v == key)
+                    }.unwrap_or(items) as i64;
+                    assert_eq!(found.int_at(q).unwrap(), expected,
+                        "items={items} probes={nqueries} q={q} last={last}");
+                }
+            }
+            let member_result = member(query, source).unwrap();
+            for (q, &key) in probes.iter().enumerate() {
+                let expected = keys.contains(&key) as i64;
+                assert_eq!(member_result.int_at(q).unwrap(), expected,
+                    "membership items={items} probes={nqueries} q={q}");
+            }
+        }
+    }
 }
