@@ -229,7 +229,7 @@ impl Value {
         if self.is_sparse() {
             return Err(Error::Unsupported("sparse rank fill cell".into()));
         }
-        if self.len() != 0 {
+        if !self.is_empty() {
             return self.view().cell(rank, 0)?.to_owned();
         }
         let shape = Shape::from(&self.shape[self.shape.len() - rank..]);
