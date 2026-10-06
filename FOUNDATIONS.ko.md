@@ -652,6 +652,55 @@ FusionRegion / ParallelSchedule
 
 이 구조는 과거 JAXA의 “J 표기가 fusion 구조를 정적으로 보이게 한다”는 장점을 유지하면서, register/shared memory/tile 같은 구체 hardware 결정을 Physical Planner에 늦추는 현행 RustJ 계층화와 양립한다.
 
+### 9.1.1 외부 framework 비교 전후: directive에서 provenance-rich optimization IR로
+
+초기 JAXA의 직관은 강하고 유용했지만, 표현을 그대로 두면 다음처럼 읽힐 위험이 있었다.
+
+~~~text
+@:      → fuse
+hook    → retained-value optimization
+fork    → parallelize
+~~~
+
+즉 **J combinator가 optimization directive처럼 보이는 모델**이다. 이 관찰의 핵심인 “J 문법이 계산 topology와 optimization opportunity를 정적으로 드러낸다”는 점은 옳지만, opportunity와 실제 실행 결정을 너무 가깝게 두면 semantic legality, target feasibility, profitability를 한 단계로 섞게 된다.
+
+MLIR Linalg, TAIL/Futhark, Remora, Bohrium, Lift를 비교하고, 일반적인 first-order execution IR 및 XLA-style fusion IR과 대조한 뒤 RustJ는 이 관점을 다음처럼 일반화한다.
+
+- MLIR Linalg에서처럼 structured computation을 너무 빨리 loop/CFG로 소거하지 않는다.
+- Futhark/Lift 계열처럼 high-level array algebra와 rewrite를 hardware mapping과 분리한다.
+- Bohrium처럼 materialization과 heterogeneous realization은 가능한 한 뒤에서 결정한다.
+- Remora처럼 rank/cell/implicit lifting 구조는 독립적인 semantic/graph 구조로 보존한다.
+- jaxpr 같은 단순 first-order execution IR의 장점은 Execution IR에서 취하되, 그보다 위의 J Graph IR에서는 `@:`, hook, fork 같은 source combinator provenance를 잃지 않는다.
+- XLA의 이미 선택된 `Fusion` operation과 달리 RustJ Graph IR의 fusion 정보는 우선 **후보와 증명 의무**다. candidate가 존재한다는 사실은 fused kernel의 존재나 선택을 뜻하지 않는다.
+
+따라서 현재의 불변식은 다음과 같다.
+
+~~~text
+J combinator syntax
+  ↓
+graph topology + source provenance
+  ↓
+optimization opportunity / algebraic candidate
+  ↓
+equivalence + semantic legality proof
+  ↓
+resource / work-depth analysis
+  ↓
+profitability + target planning
+  ↓
+physical realization
+~~~
+
+예를 들어 `f @: g`는 “반드시 fuse하라”는 명령이 아니다. J Graph IR은 `g`와 `f`의 explicit applied stage를 만들면서 동시에 원래 `@:` composition을 Pipeline region/provenance로 보존하고, pipeline-fusion 및 intermediate-materialization-elision **후보**를 노출한다. 실제 fusion은 후속 proof와 planner가 결정한다.
+
+hook/fork도 마찬가지다. J Graph IR은 fan-out/fan-in, shared input, live-across/retained value, observable branch order를 보존하고 parallel/fusion **후보**를 만들 수 있지만, 그것이 곧 병렬 실행 명령은 아니다. effect/error order, fanout/retention, resource pressure, synchronization과 target capability가 뒤에서 판단된다.
+
+따라서 JAXA에서 RustJ로 이어진 핵심 발전은 다음 문장으로 요약한다.
+
+> **J combinator를 optimization directive로 사용하는 것이 아니라, J combinator algebra를 provenance-rich optimization IR / graph algebra로 사용한다.**
+
+이 표현은 초기 아이디어를 약화시키는 것이 아니다. 오히려 J 문법이 이미 제공하는 구조를 일반 SSA로 평탄화했다가 다시 추론하지 않고 끝까지 보존하면서도, correctness와 profitability를 독립적으로 증명할 수 있게 만든다.
+
 ---
 
 # Part IV. 현재 jsource는 이미 “단순 interpreter”가 아니다
