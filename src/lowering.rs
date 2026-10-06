@@ -511,15 +511,17 @@ impl LoweringRegistry {
         )
     }
 
-    /// Also used at the guarded runtime boundary, which has a resolved
-    /// primitive output meaning without inventing an A3 ValueId.
-    pub fn search_algorithm_reports_for_output(
-        &self,
+    /// Single-route lookup shared by planning reports and the runtime's
+    /// physical cost selector. This is intentionally allocation-free: building
+    /// a full LoweringRegistry per elementary J index lookup would cost more
+    /// than the small search it is meant to optimize.
+    pub fn search_algorithm_readiness(
         output: SearchOutputKind,
         comparison: crate::logical_ir::SearchComparison,
         indexed_present: bool,
+        algorithm: SearchAlgorithm,
         target: &TargetCapabilities,
-    ) -> Vec<SearchAlgorithmReport> {
+    ) -> SearchAlgorithmReadiness {
         use SearchAlgorithm::*;
         use SearchAlgorithmReadiness::*;
 
@@ -530,27 +532,41 @@ impl LoweringRegistry {
                 | SearchOutputKind::MembershipMask
         ) && indexed_present
             && comparison == crate::logical_ir::SearchComparison::JEquality;
+        if !supported_form {
+            UnsupportedSearchForm
+        } else if target.family != TargetFamily::Cpu {
+            UnsupportedTarget
+        } else {
+            match algorithm {
+                Sequential => Baseline,
+                DirectAddress | IndexedHash | ReverseQueryHash | PreparedHash => {
+                    // Known dtype/rank facts alone are not sufficient: actual
+                    // execution must validate the exact scalar item guard.
+                    RequiresExactScalarGuard
+                }
+                TolerantNeighborHash => NeedsSemanticProof,
+            }
+        }
+    }
+
+    /// Enumerate all candidates without choosing one. Useful for compiler
+    /// analysis and diagnostics; the runtime uses the allocation-free method.
+    pub fn search_algorithm_reports_for_output(
+        &self,
+        output: SearchOutputKind,
+        comparison: crate::logical_ir::SearchComparison,
+        indexed_present: bool,
+        target: &TargetCapabilities,
+    ) -> Vec<SearchAlgorithmReport> {
+        use SearchAlgorithm::*;
         [Sequential, DirectAddress, IndexedHash, ReverseQueryHash,
          PreparedHash, TolerantNeighborHash]
             .into_iter()
-            .map(|algorithm| {
-                let readiness = if !supported_form {
-                    UnsupportedSearchForm
-                } else if target.family != TargetFamily::Cpu {
-                    UnsupportedTarget
-                } else {
-                    match algorithm {
-                        Sequential => Baseline,
-                        DirectAddress | IndexedHash | ReverseQueryHash | PreparedHash => {
-                            // Even for literal known-type A3 facts, rank/valence,
-                            // fit/tolerance, errors and storage lifetime must be
-                            // guarded at the *actual* execution boundary.
-                            RequiresExactScalarGuard
-                        }
-                        TolerantNeighborHash => NeedsSemanticProof,
-                    }
-                };
-                SearchAlgorithmReport { algorithm, readiness }
+            .map(|algorithm| SearchAlgorithmReport {
+                algorithm,
+                readiness: Self::search_algorithm_readiness(
+                    output, comparison, indexed_present, algorithm, target
+                ),
             })
             .collect()
     }
