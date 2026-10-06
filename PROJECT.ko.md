@@ -3461,6 +3461,8 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **작업 순서.** RK-06의 C oracle 기준 적대 Rank/empty-frame fixture → RK-07~10 오류/효과/boxed/sparse/조립 검증 → ZF-IR-03 sidecar·Unknown/Guard negative tests → ZF-IR-04 3경로 CPU/물리 승인. M2 우선순위를 바꾸지 않으며 위 계획 문서화만으로 ZF-IR-03/04·FW-06/07의 [ ]를 변경하지 않는다.
 
+**정확한 RK-06 불일치 입력과 결과(추가 검증).** [새 진단 CI 37452934704](https://github.com/yunskim/RustJ/actions/runs/37452934704)의 `j64/default` job 출력에서 `(0 3 $ 'abc') (+"1 1) (i.0 3)`은 pinned jsource의 **정수형(타입코드 4), shape `[0,3]`, 빈 데이터**에 대해 독립 Rust reference/optimized가 모두 **`domain error`**를 반환했다. `(i.0 3) ((+"0 0)"1 1) (i.0 3)`은 C의 **Int(타입코드 4), shape `[0,3]`, 빈 데이터**에 대해 Rust 양 경로가 모두 **`unsupported`**를 반환했다. J 원본의 fill-cell 계산 오류 처리(`cr.c::jtrank2ex`의 비필수 오류 억제·재시도 포함)와 계층적 Rank 재귀 의미론을 독립 확인해야 하며, **빈 결과를 전부 원래 입력 타입으로 처리하거나 단순히 `domain error`를 무시하는 수정은 금지한다.** 위 증거는 `j64/default` job의 실제 세 경로 출력이다.
+
 **지속 체크리스트 (RK-11 및 FW-04/JX-04의 하위 항목).**
 
 | ID | 현재 | 수정·검증 수용 기준 |
