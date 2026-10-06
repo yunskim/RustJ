@@ -759,6 +759,21 @@ pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) 
     let evaluate = |i| {
         let x = a.view().cell(ar, i / ad)?;
         let y = b.view().cell(br, i / bd)?;
+        // A positive outer Rank frame can contain zero-atom scalar frames.
+        // The SIMD view path rejects char/numeric types before noticing
+        // the empty inner frame. Use the pure primitive's rank-0 semantic
+        // path so its pinned-J integer-empty prototype is preserved.
+        if verb == "+"
+            && x.is_empty()
+            && y.is_empty()
+            && matches!(
+                (x.data(), y.data()),
+                (CpuView::Char(_), CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_))
+                    | (CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_), CpuView::Char(_))
+            )
+        {
+            return dyad(verb, x.to_owned()?, y.to_owned()?);
+        }
         match verb {
             "+" => arithmetic_views(Op::Add, x, y),
             "-" => arithmetic_views(Op::Sub, x, y),
