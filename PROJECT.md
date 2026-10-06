@@ -2171,6 +2171,14 @@ A second pinned-source pass also sampled previously unreviewed areas:
 
 Only the Mean false-positive is changed in graph discovery. Other observations remain source-evidence backlog assigned to their respective stages; they do not claim additional implemented graph transformations or exhaustive jsource coverage. `FOUNDATIONS.ko.md` remains consistent with the semantic/physical separation and needs no change. **Rust tests, differential execution and benchmarks have not been run for this change.**
 
+### L. Connect jsource source opportunities to canonical A3 and existing lowering (2026-10-06)
+
+`LoweringRegistry::jsource_planning_reports` first re-verifies the J Graph opportunity against its source plan. It validates both graph and A3 IR and source/node-count consistency, then maps the source `ValueId` to existing canonical A3 calls via `Operation.j_origin`. For an A3 `Basis` call it reports the *existing ordinary* `legal_candidates` for the selected target; for `SemanticCall` it reports the existing semantic-call boundary. **An ordinary CPU/GPU reference route is not a jsource-specialized implementation or an equivalence proof.**
+
+`JsourcePlanningReport` exposes candidate family, source provenance, decision owner, linked `OpId`s, the **entire unresolved** `ProofRequirement` list, and fail-closed status `NeedsLogicalCallLink` or `NeedsSemanticProof`. Type/shape facts, matching source syntax, and legal baseline routes do not silently discharge proof obligations. This is the first conditional-lowering *gate*, not optimized lowering execution. It does not commit a transform, select jsource-specific kernels, insert runtime guards, or make physical layout decisions.
+
+Next: typed family-specific equivalence witnesses and runtime guards (including effect/error/fallback order), parameterized lowering recipes, target/cost decisions, and differential tests. `tests/lowering.rs` adds cases for Reduce, monadic Mean, Gather, IntervalLookup, CPU/GPU route separation, stale provenance and missing A3 origins. These tests **were added but not executed**; CI, Cargo, C differential and performance validation remain unrun.
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
