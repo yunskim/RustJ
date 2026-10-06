@@ -13,6 +13,118 @@ use std::sync::{
 
 static NEXT_REGISTRY: AtomicU64 = AtomicU64::new(1);
 
+/// Physical search-strategy inputs. These are runtime/target facts, never
+/// canonical J values or A3 semantic identities. The index/key span may stay
+/// unknown until the relevant input has been inspected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SearchWorkload {
+    pub indexed_items: usize,
+    pub query_items: usize,
+    pub integer_span: Option<u128>,
+    pub immutable_shared_index: bool,
+    /// A prehash is a permissible candidate only when the caller already owns
+    /// a compatible per-Engine cache. It is not requested by a J name alone.
+    pub prehash_available: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchSelectionBasis {
+    /// No semantics-changing optimization has been selected.
+    Reference,
+    /// Guarded at execution by exact Int/Bool scalar item/value checks.
+    RuntimeExactScalarGuard,
+    /// No legal route is registered for this target or J search form.
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SearchPhysicalChoice {
+    pub algorithm: crate::lowering::SearchAlgorithm,
+    pub basis: SearchSelectionBasis,
+    /// Estimate of temporary dictionary/lookup entries, not bytes or a
+    /// performance measurement; optional allocations may fail and fall back.
+    pub estimated_table_entries: usize,
+}
+
+/// A small deterministic *physical* cost heuristic. Registered candidates are
+/// checked against target and search output meaning first (MLIR-style dynamic
+/// legality). Actual J comparison/rank/effect proof is NOT inferred from the
+/// workload. The caller must have verified exact scalar Int/Bool input shape,
+/// or the only available route is reference sequential execution.
+///
+/// Alternative algorithms are kept visible in the registry; this function
+/// picks one conditional implementation without mutating the canonical IR.
+/// Thresholds are provisional, not TVM-style measured tuning records.
+pub fn plan_search_algorithm(
+    output: crate::logical_ir::SearchOutputKind,
+    target: &crate::lowering::TargetCapabilities,
+    workload: SearchWorkload,
+    runtime_exact_scalar_guard: bool,
+) -> SearchPhysicalChoice {
+    use crate::lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R};
+    use crate::logical_ir::SearchComparison;
+
+    let candidates = crate::lowering::LoweringRegistry::a3_v0()
+        .search_algorithm_reports_for_output(output, SearchComparison::JEquality, true, target);
+    let status = |algorithm| {
+        candidates.iter().find(|c| c.algorithm == algorithm).map(|c| c.readiness)
+    };
+    let fallback = SearchPhysicalChoice {
+        algorithm: A::Sequential,
+        basis: if status(A::Sequential) == Some(R::Baseline) {
+            SearchSelectionBasis::Reference
+        } else {
+            SearchSelectionBasis::Unavailable
+        },
+        estimated_table_entries: 0,
+    };
+    if !runtime_exact_scalar_guard || fallback.basis == SearchSelectionBasis::Unavailable {
+        return fallback;
+    }
+    if workload.indexed_items == 0 || workload.query_items == 0
+        || workload.indexed_items.saturating_mul(workload.query_items) <= 32
+    {
+        return fallback;
+    }
+
+    let choice = if workload.prehash_available
+        && workload.immutable_shared_index
+        && (64..=16_384).contains(&workload.indexed_items)
+    {
+        A::PreparedHash
+    } else if workload.indexed_items >= 64
+        && workload.indexed_items / 2 > workload.query_items
+    {
+        A::ReverseQueryHash
+    } else if workload.integer_span.is_some_and(|span| {
+        span <= 65_536
+            && span <= (workload.indexed_items.saturating_add(workload.query_items)
+                .saturating_mul(4) as u128)
+    }) {
+        A::DirectAddress
+    } else {
+        A::IndexedHash
+    };
+
+    // Semantic proof and target availability trump the cost heuristic.
+    if status(choice) != Some(R::RequiresExactScalarGuard) {
+        return fallback;
+    }
+    SearchPhysicalChoice {
+        algorithm: choice,
+        basis: SearchSelectionBasis::RuntimeExactScalarGuard,
+        estimated_table_entries: match choice {
+            A::DirectAddress =>
+                workload.integer_span.unwrap_or(0) as usize,
+            A::ReverseQueryHash => workload.query_items,
+            A::IndexedHash | A::PreparedHash => workload.indexed_items,
+            _ => 0,
+        },
+    }
+}
+
+
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BufferId {
     registry: u64,
