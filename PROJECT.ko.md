@@ -1872,6 +1872,89 @@ direct/explicit definition의 structured control flow는 장기 Logical IR의 Re
 
 따라서 SSA `ValueId`는 J namespace 자체의 대체물이 아니다. static binding이 증명된 경우에는 SSA value로 낮출 수 있지만, runtime name lookup/assignment semantics가 필요한 곳은 명시적인 name/resource/effect operation 또는 runtime lowering으로 보존한다.
 
+#### 3.7.1 Explicit-definition control-flow handoff example
+
+control-flow handoff의 orientation 표본으로 다음 monadic explicit definition을 사용한다.
+
+```j
+f =: 3 : 'if. y do. 1 else. 0 end.'
+```
+
+이 예제의 목적은 `if.` 자체를 지금 compile한다고 주장하는 것이 아니라, **현재 frontend가 소유하는 정보와 future A3 CFG가 소유해야 할 정보를 분리하는 것**이다.
+
+현재 경계:
+
+~~~text
+source
+  f =: 3 : 'if. y do. 1 else. 0 end.'
+      │
+      ▼
+[현재 구현] DefinitionInput / DefinitionCode
+  source/body
+  definition mode + monad/dyad body ranges
+  sentence/source provenance
+  monad_controls:
+    If / Do / Else / End ...
+  previous-result/control-flow metadata
+      │
+      ▼
+[현재 구현] FunctionEntity
+  head = ExplicitDefinition(DefinitionCode)
+  POS / source / construction identity
+      │
+      ───────── general invocation/body-graph lowering stop line ─────────
+      │
+      ▼
+[planned] InvocationFrame
+  fresh frame per call
+  y binding for monad
+  x/y/u/v/m/n as required by definition kind/valence
+  local table + current locale/path context
+      │
+      ▼
+[planned] definition-body semantic graph / CFG construction
+  entry: evaluate condition sentence under J semantics
+          ├─ true  → then body
+          └─ false → else body
+  merge: preserve J previous-result / return semantics
+  local/name reads and writes remain explicit effects/resources where needed
+      │
+      ▼
+[planned A3 control-flow lowering]
+  Region
+    Block(entry)
+      ... condition ops ...
+      CondBranch(...)      // future terminator, not current A3-v0 API
+    Block(then)
+      ... noun/result ...
+      Branch(merge)
+    Block(else)
+      ... noun/result ...
+      Branch(merge)
+    Block(merge)
+      block argument / phi-like selected result
+      Return(result)
+~~~
+
+현재 `logical_ir::Plan`에 `Function → Region → Block` container는 이미 있지만 **A3-v0의 `Terminator`는 현재 `Return`만 가진다.** 따라서 Region/Block 타입이 존재한다는 사실을 `if./while./try.` CFG lowering이 구현되었다는 뜻으로 해석하지 않는다. `Branch`, `CondBranch`, block argument/phi-like merge는 위 그림에서 **planned concept**이다.
+
+J Graph IR과 CFG도 같은 것으로 취급하지 않는다.
+
+- 각 basic block 안의 analyzable array expression은 J semantic construction에서 **J Graph IR applied computation**으로 보존·분석할 수 있다.
+- `if./while./try.`의 control edge와 invocation frame/namespace/effect semantics는 **definition control-flow / A3 Region-Block** 책임이다.
+- 따라서 J Graph IR을 억지로 generic CFG로 확장하거나, 반대로 A3 CFG가 J combinator provenance를 지워서는 안 된다.
+
+future CFG lowering이 추가될 때 필요한 최소 증명:
+
+1. `DefinitionCode.monad_controls/dyad_controls`와 source/control ranges에서 branch/loop edge를 결정적으로 재구성한다.
+2. valence별 fresh invocation frame과 local-first→locale lookup을 보존한다.
+3. branch merge에서 J의 previous-result/explicit `return.` 의미를 block-result/terminator로 정확히 표현한다.
+4. local/public assignment와 error/throw/catch edge를 ordinary SSA value flow와 분리한다.
+5. recursion은 Function body를 공유하더라도 invocation frame/state는 공유하지 않는다.
+6. verifier가 illegal branch target, missing merge/result, effect-order break, source-control provenance drift를 거부한다.
+
+현재 회귀는 `DefinitionCode` construction과 control-node topology/source metadata를 검사하지만, 이 planned CFG까지의 lowering 완료 증거는 아니다.
+
 ### 3.8 sentence evaluation order와 namespace mutation
 
 J의 parser는 conventional frontend처럼 “문장 전체 AST를 만든 뒤 모든 name을 한 번에 resolve”하는 것으로 의미를 모델링하면 안 된다. current jsource의 `p.c`는 queue를 stack하면서 name lookup, parse reduction, verb execution, assignment를 한 sentence 안에서 진행하며 J의 **우측→좌측 평가 의미**를 실현한다.
