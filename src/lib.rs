@@ -3,6 +3,9 @@
 mod array_ops;
 mod assembly;
 mod index_ops;
+// Research-only tolerant lookup proof harness; never an executable fast path.
+#[cfg(test)]
+mod tolerant_search;
 
 pub mod analysis;
 pub mod bit_storage;
