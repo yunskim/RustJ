@@ -165,6 +165,9 @@ pub struct SemanticCheck {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IterationAxisKind {
+    /// Logical output/frame iteration axis, NOT proof that iterations can run
+    /// concurrently. J effects, errors, aliasing, rank fill and result-cell
+    /// assembly require independent legality witnesses before any CPU/GPU map.
     Parallel,
     Reduction,
 }
