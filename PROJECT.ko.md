@@ -3244,7 +3244,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 | ID / 단계 | 완료 체크 | 수정 대상·실행 작업 | 선행 조건 / 수용 기준·검증 기록 |
 |---|---|---|---|
-| FW-01 / A·M2 | [ ] 프런트엔드 의미론 범위 고정 | `src/tokenizer.rs`, `src/enqueue.rs`, `src/parser.rs`, `src/semantic.rs` 등 **실재 경로 확인 후** 미완료 syntax/POS/name/derived-entity 사건을 분류 | 일반 M2 우선순위를 유지. 기존 지원 subset의 parse/resolve 결과와 C oracle 대조; unsupported와 unresolved을 기록. **검증: 미실행** |
+| FW-01 / A·M2 | [ ] 프런트엔드 의미론 범위 고정 | `src/tokenizer.rs`, `src/enqueuer.rs`, `src/parser.rs`, `src/semantic.rs` 등 **실재 경로 확인 후** 미완료 syntax/POS/name/derived-entity 사건을 분류 | 일반 M2 우선순위를 유지. 기존 지원 subset의 parse/resolve 결과와 C oracle 대조; unsupported와 unresolved을 기록. **검증: 미실행** |
 | FW-02 / A·M2 | [ ] 의미론 실행 모드 분리 | `src/runtime.rs`, `src/kernels.rs`, `src/index_ops.rs`: 현재 `pooled: bool`의 buffer pool 정책과 검색 physical 허가를 직교시킨다. reference `i.`/`i:`/`e.`는 `lookup`의 **순차 실행**만 통과; ranked/cell/derived call이 동작하는 범위에서 우회 없는지 확인 | `eval_semantic_reference`에서 `plan_search_algorithm`/prehash 호출이 **실제로 0회**임을 계측·negative test로 검증. 새 공개 API, 전역 mutable switch 또는 source IR 변경 불필요. **검증: 미실행** |
 | FW-03 / A·M2 | [ ] 언어 비교 의미 정렬 | `src/comparison_policy.rs`, `src/kernels.rs`, 관련 semantic contract: 고정 Rust `near` vs C `TCMPEQ`, 전역 `cct`, `!.t` scope/override, 타입·오류·NaN/±0 등 지원 범위 분명히 한다 | 먼저 실제 **고정 jsource C binary oracle**로 경계 예제를 확인. 동적 설정 미지원이면 `Unknown/Unsupported` 처리하고 tolerant optimization 허가하지 않음. **검증: 미실행** |
 | FW-04 / A·M2 | [ ] 검색 reference 회귀·3방향 fixture | `src/index_ops.rs` 및 기존 differential tests: first/last, membership, 빈 셀·frame, 중복, 타입, 오류·Rank를 **C oracle / 순차 Rust / 최적화 Rust**로 분리한 케이스 구축 | 불일치 분류(언어 의미 vs optimized route), 실패 시 미지원/대체 실행 명시. 2개 Rust 경로가 동일 planner를 사용하면 3방향 증거로 세지 않음. **검증: 미실행** |
