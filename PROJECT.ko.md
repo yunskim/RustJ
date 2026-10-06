@@ -9377,7 +9377,7 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 
 ### 8.5 느린 I/O·Out-of-core 배열 실행 계약 (2026-10-06, 설계 후보 / 구현 미착수)
 
-**목표.** RAM/GPU 용량보다 큰 J noun·신경망 가중치·배열 데이터에 대해 (a) 원래 J 결과·오류·효과 순서를 보존하고, (b) 실제로 읽는 바이트와 복사량을 줄이며, (c) 필요 시 디스크/원격 데이터 이동과 계산을 중첩한다. 이것은 새로운 J syntax나 암묵적 GPU 구현이 아니라, `5의 Physical Planning/Execution Scheduling 확장이다. **최초 native CPU M4 vertical slice의 선행 조건으로 삼지 않는다.** 모든 기능은 `10의 IO-01~IO-24 수용 게이트를 통과하기 전에는 계획/후보일 뿐이다.
+**목표.** RAM/GPU 용량보다 큰 J noun·신경망 가중치·배열 데이터에 대해 (a) 원래 J 결과·오류·효과 순서를 보존하고, (b) 실제로 읽는 바이트와 복사량을 줄이며, (c) 필요 시 디스크/원격 데이터 이동과 계산을 중첩한다. 이것은 새로운 J syntax나 암묵적 GPU 구현이 아니라, [§5 Physical Planning/Execution Scheduling](#out-of-core-io-contract)에 따른 물리 실행 확장이다. **최초 native CPU M4 vertical slice의 선행 조건으로 삼지 않는다.** 모든 기능은 [§10 IO-01~IO-30 수용 게이트](#out-of-core-io-checklist)를 통과하기 전에는 계획/후보일 뿐이다.
 
 **원본/선행 기법 비교(직접 계승 vs 조건부 응용).**
 
@@ -9417,12 +9417,12 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 
 **비용/계측 계약.** `ResourceEstimate`(peak resident, pinned/inflight bytes, open handles, max queued jobs)와 `CostEstimate`(cold/warm bytes, number/seeks/latency, effective bandwidth, CPU cycles, transfer/overlap time)를 분리한다. 성능 게이트에서 wall time, read/write bytes, physical requests, blocking wait, compute time, peak+retained memory, page faults/cache hits, spill count, throughput *및* latency를 비교한다. warm page cache 결과를 cold storage 승리로 포장하지 않는다.
 
-**대표 실행 예.** `W1`·`W2`가 파일에 저장된 순수한 read-only tensor라고 증명되면 physical schedule은 `Prefetch(W1) → Await(W1) → Compute(W1)`와, 그 계산 중 `Prefetch(W2)`를 겹친다. 다음 `Compute(W2)`는 앞 층 결과 및 W2 완료를 모두 기다린다. Logical graph에는 이 I/O 순서를 박지 않는다. 분기/동적 NAME/수정 가능한 weight/관찰 가능한 file effect가 있는 경우 이 순서를 무조건 적용하지 않는다. 수용 작업표는 [`10 IO](#out-of-core-io-checklist).
+**대표 실행 예.** `W1`·`W2`가 파일에 저장된 순수한 read-only tensor라고 증명되면 physical schedule은 `Prefetch(W1) → Await(W1) → Compute(W1)`와, 그 계산 중 `Prefetch(W2)`를 겹친다. 다음 `Compute(W2)`는 앞 층 결과 및 W2 완료를 모두 기다린다. Logical graph에는 이 I/O 순서를 박지 않는다. 분기/동적 NAME/수정 가능한 weight/관찰 가능한 file effect가 있는 경우 이 순서를 무조건 적용하지 않는다. 수용 작업표는 [§10 IO](#out-of-core-io-checklist)를 따른다.
 
 
 #### 8.5.1 독립 재검토 — J 라이브러리·포맷·모델 로더 보강 (2026-10-06)
 
-**발견:** 기존 `8.5는 async read-ahead에 비해 실제 저장 포맷, read-chunk/write-shard 배치, mapped SIMD tail, refcount/unmap, cache 일관성 계약이 약했다. 다음은 원본 구현/공식 설명과 RustJ 후보를 분리한 표이다. 소스나 문서 존재는 RustJ 구현 성공이 아니다.
+**발견:** 기존 §8.5는 async read-ahead에 비해 실제 저장 포맷, read-chunk/write-shard 배치, mapped SIMD tail, refcount/unmap, cache 일관성 계약이 약했다. 다음은 원본 구현/공식 설명과 RustJ 후보를 분리한 표이다. 소스나 문서 존재는 RustJ 구현 성공이 아니다.
 
 | 확인한 출처 | 실제 구조 / 기능 | RustJ 적용·유의사항 |
 |---|---|---|
@@ -9559,7 +9559,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 ## 10. 구현 계획과 체크리스트
 
-이 절이 앞으로 유일한 구현 체크리스트다.
+이 절이 앞으로 유일한 구현 체크리스트다. **저장장치·느린 I/O·Out-of-core 작업은 [§10 IO-01~IO-30](#out-of-core-io-checklist)을 이 절 안의 단일 수용 목록으로 사용한다.** 순차 CPU 기준 실행과 J 의미 수렴은 계속 M2→M3→M4 우선이며, IO-A 조사만 병행할 수 있다.
 
 <a id="dynamic-boundary-checklist"></a>
 
@@ -11627,7 +11627,12 @@ A3-v2
 
 ### IO — 느린 I/O·Out-of-core 실행 이행 계획·수용 체크리스트 (2026-10-06)
 
-**상태: 설계·작업표 작성, 구현/실행 검증 0/30 수용.** 기존 M2/frontend와 FW-01~04·Rank/CellApply 의미 수렴을 우선한다. IO-A의 조사/모형화는 병행 가능하지만 I/O 경로를 M4 첫 CPU vertical slice의 필수 조건으로 격상하지 않는다. 단계 순서: **IO-A 근거와 안전 계약 → IO-B 동기 reference → IO-C 접근 최소화 → IO-D bounded async → IO-E 재사용/배치 최적화 → IO-F 실증/확장**. 앞 단계 미통과 시 뒤 단계는 설계 후보만 허용한다. [ ]은 *수용 전*, [x]는 변경 commit·실행한 명령/환경·jsource oracle 적용 범위·결과/남은 제한을 같은 행에 기록하고 독립적인 semantic/negative test가 통과했을 때만 사용한다. **아래 작업의 구현·테스트는 아직 수행하지 않았다.**
+**상태: 설계·작업표 작성, 구현/실행 검증 0/30 수용.**
+
+**체크리스트 운영 규칙(작업 시마다 적용).** 이 IO-01~IO-30 표가 I/O 구현 및 검증 상태의 단일 원장이다. 기존 표의 ID를 바꾸거나 동일 작업을 별도 계획 파일·새 checklist로 복제하지 않는다. 진행 시 (1) 선행 조건이 충족된 **가장 작은 미완료 실행 단위**를 선정, (2) Jsource/J 애드온/외부 프레임워크의 원본 및 라이선스·적용 가능성을 확정, (3) baseline 의미·negative fixture, (4) 최적화 구현, (5) J C oracle / Rust sync / optimized의 독립 비교 및 메모리·I/O 계측, (6) 해당 행의 증거·미지원·차단 조건을 갱신한다. 소스 검토·계획 완료는 구현 완료가 아니다. 실패·미측정·검증 환경 부재 시 **[ ] 유지**하고 사유를 적는다. 관련 기존 FW/DB/G4/G5 수용 표와 의미·효과/자원 선행 관계를 유지한다.
+
+**현재 다음 작업:** IO-01과 IO-25의 upstream 소스·실행 경로 비교표 및 pinning(조사 가능), IO-02의 J-visible foreign I/O 오류/효과/관찰 가능 순서 정리(조사 가능). **아직 어떠한 IO-* 항목도 구현 또는 oracle 실행을 수용하지 않았으며, 현재 표는 0/30이다.**
+ 기존 M2/frontend와 FW-01~04·Rank/CellApply 의미 수렴을 우선한다. IO-A의 조사/모형화는 병행 가능하지만 I/O 경로를 M4 첫 CPU vertical slice의 필수 조건으로 격상하지 않는다. 단계 순서: **IO-A 근거와 안전 계약 → IO-B 동기 reference → IO-C 접근 최소화 → IO-D bounded async → IO-E 재사용/배치 최적화 → IO-F 실증/확장**. 앞 단계 미통과 시 뒤 단계는 설계 후보만 허용한다. [ ]은 *수용 전*, [x]는 변경 commit·실행한 명령/환경·jsource oracle 적용 범위·결과/남은 제한을 같은 행에 기록하고 독립적인 semantic/negative test가 통과했을 때만 사용한다. **아래 작업의 구현·테스트는 아직 수행하지 않았다.**
 
 | ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 · 최소 수용/negative 검증 |
 |---|---|---|
@@ -12434,6 +12439,8 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 3. **M4/CPU vertical slice**: verified Logical IR → 최소 Schedule/Physical Plan → CPU Physical Executor를 연결한다. [matrix mean 표본](#mean-proof-example)은 implicit cell semantics를 검증하며 analyzer smoke test만으로 실행 완료를 판정하지 않는다.
 4. **M5–M6**: 그 뒤 route/schedule/resource/cost 선택과 검증된 external adapter를 확장한다. 실제 CUDA 구현은 사용자가 재개하기 전까지 보류한다.
 5. **JE0–JE6 보조 트랙**: JE0과 최소 boundary `JEntity` seam(JE1/JE2 일부)은 M2와 병행할 수 있다. generic higher-order collection과 storage-affecting migration은 M2/M3 안정화 뒤로 미룬다. 이 트랙은 M4 첫 CPU vertical slice의 선행 조건이 아니다.
+
+6. **IO-01~IO-30 병행·후속 트랙:** [§8.5 I/O 설계 계약](#out-of-core-io-contract)과 [§10 IO 체크리스트](#out-of-core-io-checklist)를 기준으로, M2 중에는 IO-01·IO-25의 source audit와 IO-02의 효과/오류 계약 검토만 병행한다. 동기 I/O baseline(IO-05~08, IO-26~28)은 첫 native CPU vertical slice 이후, 불필요한 읽기 제거와 cache(IO-09~12, IO-29)는 의미 증명 이후, async/transfer(IO-13~20)는 그다음, 비교/확장(IO-21~24, IO-30)은 실측으로 수용한다. **문서 계획을 구현 완료로 표시하지 않는다.**
 
 장기 architecture의 full TargetProfile/mixed-route/async 모델이나 확장 primitive 전체를 첫 CPU slice의 선행 조건으로 삼지 않는다. 해당 의미를 최적화 대상으로 열 때는 [§11의 검증 정책](#validation-policy)과 대응 semantic golden을 먼저 충족한다.
 
