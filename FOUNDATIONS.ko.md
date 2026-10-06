@@ -703,6 +703,11 @@ hook/fork도 마찬가지다. J Graph IR은 fan-out/fan-in, shared input, live-a
 
 > **J combinator를 optimization directive로 사용하는 것이 아니라, J combinator algebra를 provenance-rich optimization IR / graph algebra로 사용한다.**
 
+이 설계가 가능한 더 근본적인 이유는 **J syntax가 계산 방법의 세부 절차보다 계산 의도와 고수준 배열 구조를 직접 표현하는 데 유리하기 때문**이다. `+/`는 reduction, `f @: g`는 composition/pipeline, hook/fork는 branch/join topology, `u"r`는 cell/rank application이라는 의도를 source가 이미 드러낸다. 따라서 RustJ의 핵심 과제는 일반적인 imperative source에서 graph를 뒤늦게 복원하는 것보다, **J가 이미 표현한 계산 의도와 topology를 가능한 한 잃지 않고 Graph IR에 보존하는 것**이다.
+
+이를 다음 원칙으로 둔다.
+
+> **RustJ Graph IR은 J source에서 computation graph를 새로 발명하는 층이 아니라, J syntax가 이미 명시한 계산 의도·결합 구조·array semantics를 optimization에 사용할 수 있는 형태로 보존하는 층이다.**
 이 표현은 초기 아이디어를 약화시키는 것이 아니다. 오히려 J 문법이 이미 제공하는 구조를 일반 SSA로 평탄화했다가 다시 추론하지 않고 끝까지 보존하면서도, correctness와 profitability를 독립적으로 증명할 수 있게 만든다.
 
 **구현 상태 주의:** 위 흐름은 목표 architecture를 설명한다. 현재 `j_graph_fusion`은 source envelope과 proof obligation을 가진 `FusionCandidate`를 만들고, `fusion_planning`은 source-basis feasibility와 work/depth 비교를 계산하지만 상태는 `AwaitingSemanticProofs`로 유지한다. 현재 `selected`는 false이며 실제 semantic-proof discharge, profitability selector, committed fused lowering은 아직 구현 단계가 아니다. 따라서 문서의 “candidate → legality → profitability → realization”을 현재 모두 완성된 기능으로 읽으면 안 된다.
