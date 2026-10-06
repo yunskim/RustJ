@@ -894,7 +894,11 @@ impl Engine {
                         return kernels::ranked(",", false, ranks[0], y);
                     }
                 }
-                crate::logical_executor::apply_ranked(ranks, x, y, |x, y| {
+                // A concrete primitive identity permits the current
+                // value-only fill-cell evaluation. Unknown/user definitions
+                // retain the explicit effect/prototype boundary.
+                let primitive_fill = self.primitive_witness(operand, depth)?.is_some();
+                crate::logical_executor::apply_ranked(ranks, x, y, primitive_fill, |x, y| {
                     self.call_entity(operand.clone(), x, y, pooled, depth)
                 })
             }
