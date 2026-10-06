@@ -121,6 +121,28 @@ fn key_derived_verb_keeps_operator_and_operand_without_licensing_execution() {
 }
 
 #[test]
+fn semantic_reference_search_is_independent_of_index_preparation() {
+    // The reference executor scans sequentially, never using prehash or a
+    // cost-based physical search selection.
+    for source in [
+        "(i. 128) i. 17 17 199",
+        "(i. 128) i: 17 17 199",
+        "17 199 e. (i. 128)",
+        "3 1 3 2 i. 3 4 1",
+        "3 1 3 2 i: 3 4 1",
+        "(i. 2 3) i. (2 3 $ 3 4 5 0 1 2)",
+        "(i. 2 3) e. (i. 2 3)",
+        "(i. 0) i. 3 4",
+    ] {
+        let mut engine = Engine::new();
+        let reference = engine.eval_semantic_reference(source).map(|v| v.map(|v| v.json()));
+        let actual = engine.eval(source).map(|v| v.map(|v| v.json()));
+        assert_eq!(reference, actual, "FW-02 sequential mismatch: {source}");
+        assert_eq!(engine.index_prehash_stats(), (0, 0), "{source}");
+    }
+}
+
+#[test]
 fn semantic_reference_preserves_values_and_transactions() {
     let mut direct = Engine::new();
     let mut ir = Engine::new();

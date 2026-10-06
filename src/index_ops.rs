@@ -420,6 +420,14 @@ fn lookup(
     let shape = Shape::from(&queries.shape[..frame]);
     let n = count(&shape)?;
 
+    // Explicit supported-dense boundary shared with the sequential oracle.
+    // Generic boxed/sparse equality needs separately verified J semantics.
+    if matches!(indexed.data, Data::Boxed(_) | Data::Sparse(_))
+        || matches!(queries.data, Data::Boxed(_) | Data::Sparse(_))
+    {
+        return Err(Error::Unsupported("reference boxed/sparse index-of".into()));
+    }
+
     if queries.shape.len() < cell_shape.len() || &queries.shape[frame..] != cell_shape {
         return result_from_positions(shape, n, items, result, |_| items);
     }

@@ -231,7 +231,19 @@ pub(crate) fn apply_reduction(
 fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value) -> Result<Value> {
     match &function.head {
         FunctionHead::PrimitiveVerb(id) => match left {
-            Some(left) => crate::kernels::dyad(id.spelling(), left, right),
+            // FW-02: independent dense sequential oracle, no physical routing.
+            Some(left) => match id {
+                crate::primitive::PrimitiveId::IndexOf => {
+                    crate::search_reference::index_of(&left, &right, false)
+                }
+                crate::primitive::PrimitiveId::Steps => {
+                    crate::search_reference::index_of(&left, &right, true)
+                }
+                crate::primitive::PrimitiveId::Member => {
+                    crate::search_reference::member(&left, &right)
+                }
+                _ => crate::kernels::dyad(id.spelling(), left, right),
+            },
             None => crate::kernels::monad(id.spelling(), right),
         },
         FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {

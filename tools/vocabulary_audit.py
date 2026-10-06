@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Audit pinned C core spelling candidates/POS against Rust enqueue without executing verbs.
 
-NuVoc guides the current documentation review. The reproducible spelling inventory
-comes from ws.c, with POS observed by assignment + 4!:0 in the supplied C DLL.
-A Rust Unsupported entry is an explicit coverage boundary, never a POS pass.
+The authoritative reproducible inventory comes from the explicitly pinned
+jsrc/ws.c plus POS observed by assignment + 4!:0 in that same C engine.
+NuVoc may be used as human-readable documentation, but an old wiki revision
+must not be labeled current. A Rust Unsupported entry is a coverage boundary,
+never a POS pass.
 """
 import argparse
 import ast
@@ -114,8 +116,10 @@ def main():
         parser_probe.close()
         o.close()
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
-    report = {'platform':os.name, 'nuvoc_review_url':'https://code.jsoftware.com/mediawiki/index.php?title=NuVoc&oldid=60409',
-              'nuvoc_review_date':'2026-10-05', 'source_review_revision':args.source_revision,
+    report = {'platform':os.name, 'nuvoc_reference_url':'https://code.jsoftware.com/wiki/NuVoc',
+              'nuvoc_review_status':'unverified_dynamic_documentation_not_oracle',
+              'source_of_truth':'pinned_jsource_ws_c_and_executed_C_POS',
+              'source_review_revision':args.source_revision,
               'reference_revision':args.reference_revision, 'source_hashes':{rel:digest(args.source_directory/rel) for rel in ['jsrc/ws.c','jsrc/t.c','jsrc/v.c']},
               'reference_sha256':digest(Path(os.environ['J_LIBRARY'])), 'binary_sha256':digest(args.binary),
               'scope':'core spelling candidates from pinned ws.c plus finite/infinite constant functions; not full runtime coverage or a live NuVoc scraper',
