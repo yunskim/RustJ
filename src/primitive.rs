@@ -1,7 +1,7 @@
 //! Canonical IDs for the currently recognized primitive spellings.
 //! IDs denote a J symbol, not a valence or a physical kernel.
 
-pub const REGISTRY_VERSION: u32 = 8;
+pub const REGISTRY_VERSION: u32 = 9;
 macro_rules! primitives {
     ($($id:ident => $spelling:literal),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -65,6 +65,9 @@ impl PrimitiveId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AdverbId {
     Insert,
+    /// J `/.`: a verb-derived noun group/oblique function. Source identity
+    /// is constructed independently of its monadic/dyadic runtime semantics.
+    Key,
     /// J prefix/infix adverb `\`. The derived verb keeps the adverb
     /// identity; monadic prefix vs dyadic infix is resolved at application.
     PrefixInfix,
@@ -75,6 +78,7 @@ impl AdverbId {
     pub fn from_spelling(s: &str) -> Option<Self> {
         match s {
             "/" => Some(Self::Insert),
+            "/." => Some(Self::Key),
             "\\" => Some(Self::PrefixInfix),
             "]:" => Some(Self::Ident),
             _ => None,
@@ -83,6 +87,7 @@ impl AdverbId {
     pub const fn spelling(self) -> &'static str {
         match self {
             Self::Insert => "/",
+            Self::Key => "/.",
             Self::PrefixInfix => "\\",
             Self::Ident => "]:",
         }
@@ -222,10 +227,6 @@ impl VocabularyPrimitive {
         Self {
             spelling: ".",
             part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "/.",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
         },
         Self {
             spelling: "/..",

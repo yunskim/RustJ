@@ -126,7 +126,9 @@ impl FunctionEntity {
             FunctionHead::ExplicitDefinition(_) | FunctionHead::Hook | FunctionHead::Fork => {
                 Some([63; 3])
             }
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+            FunctionHead::PrimitiveAdverb(
+                crate::primitive::AdverbId::Insert | crate::primitive::AdverbId::Key,
+            )
             | FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
                 Some([63; 3])
             }

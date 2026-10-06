@@ -50,7 +50,7 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
 
 #[test]
 fn registered_adverb_spellings_reach_the_shared_frontend() {
-    for id in [AdverbId::Insert, AdverbId::PrefixInfix] {
+    for id in [AdverbId::Insert, AdverbId::Key, AdverbId::PrefixInfix] {
         let tokens = syntax::lex(id.spelling()).unwrap();
         assert!(matches!(tokens.as_slice(), [Token::Adverb(actual)] if *actual == id));
     }

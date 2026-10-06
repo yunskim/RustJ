@@ -770,6 +770,18 @@ def cases():
         'entrycopy=:entrynoun', 'entrynoun=:9', 'entrycopy',
         'entryverb=:*', '(entryverb/ % #) entrycopy',
     ])
+    # FW-01/JX-02: Key /. is a derived-verb *constructor*, not a
+    # supported GroupBy/Oblique executor. Only construction and noun
+    # binding/alias state are compared against pinned J C.
+    fixed.extend([
+        'keysource=: +/.',
+        'keyalias=: keysource',
+        'keysource=: -',
+        'keymodifier=: /.',
+        'keyderived=: + keymodifier',
+        'keymodifier=: /',
+    ])
+
     # FW-01 / JX-10: source-derived Mean Fork is only an analysis
     # candidate, never an enabled fast path. Compare baseline Rust execution
     # with pinned J C for short, empty, and framed monadic inputs.

@@ -68,7 +68,6 @@ fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
     // jsource enqueue can classify a word before RustJ supports constructing
     // or executing that primitive. A known POS is not a semantic proof.
     for (spelling, expected_pos) in [
-        ("/.", Pos::Adverb),      // Key
         (".", Pos::Conjunction),  // Dot/inner product
         ("/:", Pos::Verb),        // Grade up
         ("\\:", Pos::Verb),       // Grade down
@@ -89,8 +88,17 @@ fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
         );
     }
 
-    // The source catalog must not turn the above POS classifications into
-    // graph candidates or executable optimizations.
+    // Key was promoted to a *constructor*, not to an executable
+    // GroupAggregate optimizer. It must have an explicit Adverb identity.
+    let key = PrimitiveResolver::core().resolve_core_for_enqueue("/.").unwrap();
+    assert_eq!(key.result_pos, Pos::Adverb);
+    assert!(matches!(
+        key.semantic_id,
+        PrimitiveSemanticId::Adverb(rustj::primitive::AdverbId::Key)
+    ));
+
+    // The source catalog must not turn known frontend forms into
+    // executable optimizer candidates without semantic proofs.
     for family in [
         JsourceFamily::GroupAggregate,
         JsourceFamily::MatrixContraction,

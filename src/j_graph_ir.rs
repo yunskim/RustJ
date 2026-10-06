@@ -790,6 +790,15 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
             };
             GraphForm::Reduce { operand }
         }
+        // ao.c::jtsldot constructs a derived verb with distinct monadic
+        // Oblique and dyadic Key semantics. Retain an opaque modifier region,
+        // not a Reduce/Window or an executable GroupBy candidate.
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Key) => {
+            GraphForm::Modifier {
+                head: function.head.clone(),
+                operands: function_operands(function),
+            }
+        }
         FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
             hints.push(GraphHint::WindowStructure);
             let Some(operand) = function_operands(function).into_iter().next() else {

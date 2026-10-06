@@ -48,7 +48,7 @@ fn recognized_core_functions_preserve_pos_identity_without_execution_claims() {
 fn recognized_but_unimplemented_calls_and_constructors_are_explicit_boundaries() {
     let mut e = Engine::new();
     for source in [
-        "c. 1", "2 c. 1", "+ t. 0", "+ /..", "+ @ -", "+ m. 7", "+\"c.", "0: 7",
+        "3/.", "c. 1", "2 c. 1", "+ t. 0", "+ /..", "+ @ -", "+ m. 7", "+\"c.", "0: 7",
     ] {
         assert_eq!(
             e.eval(source).unwrap_err().kind(),
