@@ -3494,6 +3494,37 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **다음 작업:** FW-01/JX-02의 지원되지 않는 **Key `/.` 파생 동사 구성**부터 고정 J C parser/POS·valence와 RustJ `VocabularyPrimitive` 구분을 입력별로 조사한다. 비지원 구문은 `AwaitingFrontendOrFacts`로 유지하고, 반례와 정상/부정 테스트를 확보한 뒤 한 연산군씩 구현한다.
 
+###### Q.4 FW-01/JX-02의 첫 Key `/.` 파생 동사 구성 — 실행과 최적화 허가는 분리 (2026-10-06)
+
+**현황:** `FW-01 [ ]`, `JX-02 [ ]`, `JX-12 [ ]`, `JX-01 [ ]` 유지. `/. `를 **word/POS 인식에서 동사 피연산자 파생 동사의 비실행 구성까지** 이행한 부분 단계다. Key·Oblique의 범용 연산, 명사 gerund의 구성, GroupBy 최적화는 아직 구현·승인되지 않았다.
+
+**고정 원본 계약:** `jsrc/ao.c::jtsldot`는 `u/.`를 하나의 derived verb로 생성하면서 **단항 `jtoblique` / 이항 `jtkey`**를 별도 등록하고 세 innate rank 모두 `RMAX`로 설정한다. 동사 피연산자는 직접 보존하고, **명사 gerund 피연산자는 `fxeachv`로 별도 해석**하므로 '모든 명사 피연산자'가 유효하다는 뜻은 아니다. `jtkeyct`는 분류에 `CCT`와 `indexofsub(IFORKEY)`를 쓰고 group별 실행으로 넘어가며, sparse·boxed·특수 reduction 경로는 guard/fallback이 다르다. 따라서 Key 실행을 일반 해시 GroupBy로 단순 치환하면 안 된다. 이 기록은 고정 SHA `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`의 `ao.c` 및 `cf.c` 확인에 한정한다.
+
+**이번 이행의 세부 체크리스트(전체 FW/JX 게이트와 분리):**
+- [x] `src/primitive.rs`의 `AdverbId::Key` 추가, `/. `를 중복 `VocabularyPrimitive`에서 제거, `REGISTRY_VERSION = 9`. `EnqueueClass::Adverb` 유지. 단독 modifier는 여전히 실행하지 않는다.
+- [x] `src/parser.rs::apply_adverb`의 기존 동사-left 구조 경로에서 `FunctionHead::PrimitiveAdverb(Key)`와 원래 함수 operand를 보존하는 파생 동사 구성. `src/semantic.rs::innate_ranks`에 `[63;3]` 반영.
+- [x] `src/j_graph_ir.rs`에서 Key 파생 함수를 **불투명 `GraphForm::Modifier`**로 표현. Reduce/Window/GroupAggregate 후보를 합성하지 않으며 `JsourceFamily::GroupAggregate`는 `AwaitingFrontendOrFacts` 상태 유지.
+- [x] 정상·부정 Rust 회귀: `tests/semantic.rs::key_derived_verb_keeps_operator_and_operand_without_licensing_execution`, `tests/j_graph_jsource.rs::key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection`, vocabulary/POS 테스트 및 기존 `tests/primitive.rs` 확장. 단항·이항 syntax는 parse되지만 실행은 명시적 `unsupported`; 명사 `3/.`도 지원된다고 가장하지 않음.
+- [x] 고정 J C에 대한 **상태 보존형 구성·binding/alias 6개 fixture**를 `tools/conformance.py`에 추가. [CI 37435150581](https://github.com/yunskim/RustJ/actions/runs/37435150581) **전체 5 job 성공**, [Basis probe 37435150506](https://github.com/yunskim/RustJ/actions/runs/37435150506) 성공. `cargo fmt --check`, Clippy, 기본/portable test, release build 및 Python 도구 테스트가 녹색.
+- [ ] 명사 gerund `m/.` 생성에 필요한 `fxeachv`/AR decoding, 유효·무효 gerund 및 오류 우선순위의 pinned J C 비교.
+- [ ] 단항 Oblique와 이항 Key의 **독립 순차 reference**, group order/representative, tolerance(CCT)·rank·empty·boxed·sparse·effect/error/overflow 차분을 구현.
+- [ ] CPU 특수 recipe/prepare-lifetime·ProofBundle·guard/fallback/무효화·성능 근거. 검증 전에는 GroupBy 실행 경로 선택·최적화 후보 승격 **금지**.
+
+**네 갈래 실제 차분 증거:** `jsource` pinned revision SHA `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`; source-backed OCI/Linux GitHub Actions, seed `20260926`, randomized rounds `100`. `tools/conformance.py`의 보고서에는 동일 pin과 binary/reference SHA256이 포함된다.
+
+| C variant / Rust 구성 | 사례 | 동등 확인 | 기존 좁은 known deviation | 새 실패 |
+|---|---:|---:|---:|---:|
+| `j64` / default | 5,390 | 5,389 | 1 | 0 |
+| `j64` / portable | 5,390 | 5,389 | 1 | 0 |
+| `j64avx2` / default | 5,390 | 5,390 | 0 | 0 |
+| `j64avx2` / portable | 5,390 | 5,390 | 0 | 0 |
+
+`j64`의 known deviation 1건은 앞의 Q.3에서 기록한 별도 rank 연산의 **Int/Float 타입 차이**이며 Key 테스트의 실패가 아니다. 새 6개 fixture는 **파생 동사 생성·이름 바인딩만** 비교하고 `x u/. y` 또는 `u/. y` 실행을 비교하지 않는다. J upstream 전체 테스트 스위트도 실행하지 않았다.
+
+**구현 단위 커밋:** [78ba45a](https://github.com/yunskim/RustJ/commit/78ba45a9bcbc47e15ef57299a77c7131be523cde) 기능·회귀·C fixture, [de5c4dc](https://github.com/yunskim/RustJ/commit/de5c4dc10b11570836794fda42d3adf84a0c10bf) fmt 정리, [d8db5f9](https://github.com/yunskim/RustJ/commit/d8db5f95991f6116e672d41eaee6876d5faa3f19) Graph 후보 부정 회귀, [a4f4dd0](https://github.com/yunskim/RustJ/commit/a4f4dd078c26d4fe157357dbb65f37b56375dff2) fmt 마무리.
+
+**다음 우선순위:** FW-01/JX-02의 범위 밖까지 Key 구현을 성급히 확장하지 않는다. 프런트엔드 미지원 목록을 유지하고 **FW-02의 독립 sequential `i.` 검색 기준선**부터 착수하여 optimized search와 의미론 검증 경로를 분리한다. 이후 FW-10/JX-08의 두 번째 독립 연산 계열로 Key/Reduce를 검증해 공통 인터페이스 필요성을 판단한다.
+
 **체크리스트 사용 규칙.** 각 JX 행은 **(1) C 원본 pin·조건 확인 → (2) J 의미론/unsupported 범위 확정 → (3) Graph 후보 및 source witness → (4) obligation별 proof/Guard·fallback → (5) 독립 reference·negative·C differential → (6) target/resource/실측 선택**의 여섯 열을 통과해야 완료한다. 실제 결과가 없으면 해당 행은 [ ]로 유지하며, 한 번에 **하나의 의미론 변경 + 해당 회귀/반례 하나**를 우선한다. 실패 또는 upstream drift가 발견되면 해당 연산군의 증명을 무효화하고 FW 관련 선행 게이트까지 되돌아간다. 각 완료 행에는 **JX-ID / code commit / 실행 명령·환경 / passed·failed·ignored / jsource commit·실제 oracle 범위 / fallback·negative 결과 / 측정값 / known gaps / 다음 게이트**를 기록한다. 당장은 **JX-01의 출처·범위 추적과 FW-01(M2)**부터 이어가며 특수 최적화를 새로 활성화하지 않는다.
 
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract

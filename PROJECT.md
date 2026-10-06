@@ -2636,6 +2636,37 @@ The one pre-existing J64-specific allowance in `tools/conformance.py::known` is 
 
 **Next increment:** investigate **Key `/.` derived-verb construction** under FW-01/JX-02 against pinned J C parser/POS/valence while preserving the existing Rust vocabulary-only boundary. Keep unimplemented forms `AwaitingFrontendOrFacts`, add positive/negative regression cases, and advance one semantic family at a time.
 
+#### Q.4 First Key `/.` derived-verb construction under FW-01/JX-02 — no execution license (2026-10-06)
+
+**Gates stay open: FW-01 [ ], JX-02 [ ], JX-12 [ ], JX-01 [ ].** This increment promotes `/.` from POS-only vocabulary recognition to **non-executing construction for verb-left `u/.`**. It does **not** implement general Key/Oblique execution, noun-gerund construction, or GroupBy optimization.
+
+**Pinned source contract:** `jsrc/ao.c::jtsldot` constructs one derived verb with **monadic `jtoblique` and dyadic `jtkey`**, all intrinsic ranks `RMAX`. A verb operand is retained directly; a noun gerund is separately decoded using `fxeachv`. This does not authorize arbitrary noun operands. `jtkeyct` performs CCT-sensitive classification via `indexofsub(IFORKEY)` and separately applies the grouped verb; sparse, boxed and specialized reductions have distinct legality and fallback paths. Pinned revision: `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` (`ao.c`, `cf.c`).
+
+**Incremental acceptance checklist (separate from overall FW/JX closure):**
+- [x] Add `AdverbId::Key` to `src/primitive.rs`, remove duplicate `/. ` vocabulary-only descriptor, bump `REGISTRY_VERSION` to 9; keep its POS Adverb, with no runtime-execution assertion.
+- [x] Reuse the existing verb-left `src/parser.rs::apply_adverb` construction path and preserve `FunctionHead::PrimitiveAdverb(Key)` with its function operand. Reflect `[63; 3]` intrinsic ranks in `src/semantic.rs`.
+- [x] Classify the derived verb as **opaque `GraphForm::Modifier`** in `src/j_graph_ir.rs`; never fabricate Reduce, Window or GroupAggregate candidates. Keep `GroupAggregate` at `AwaitingFrontendOrFacts`.
+- [x] Positive/negative tests in `tests/semantic.rs::key_derived_verb_keeps_operator_and_operand_without_licensing_execution`, `tests/j_graph_jsource.rs::key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection`, vocabulary/POS and primitive tests. Both monadic and dyadic calls parse but runtime returns explicit unsupported; noun `3/.` is not falsely accepted.
+- [x] Six stateful constructor/binding/alias J C differential fixtures added to `tools/conformance.py`. [Linux milestone 37435150581](https://github.com/yunskim/RustJ/actions/runs/37435150581) passed all **five jobs**, with formatting, Clippy, Rust default/portable tests, release build and Python tooling green. [Basis probe 37435150506](https://github.com/yunskim/RustJ/actions/runs/37435150506) also passed.
+- [ ] Support upstream noun-gerund `m/.` construction through appropriate `fxeachv`/AR decoding and validate malformed gerunds/error precedence against pinned J C.
+- [ ] Implement independent **sequential** monadic Oblique and dyadic Key semantics; cover CCT nontransitivity, group order/representative, rank, empties, boxed/sparse, effects, error ordering and overflow.
+- [ ] Prove any specialized execution recipe with provenance, ProofBundle, guards, fallback, invalidation and resource measurements; no GroupBy selection until those obligations pass.
+
+**Executed four-way pinned J C differential:** pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, GitHub Actions Linux, seed `20260926`, randomized rounds `100`. Reports record reference revision plus Rust and J C binary SHA256.
+
+| C variant / Rust build | Cases | Matches | Pre-existing narrowly known deviation | New failures |
+|---|---:|---:|---:|---:|
+| `j64` / default | 5,390 | 5,389 | 1 | 0 |
+| `j64` / portable | 5,390 | 5,389 | 1 | 0 |
+| `j64avx2` / default | 5,390 | 5,390 | 0 | 0 |
+| `j64avx2` / portable | 5,390 | 5,390 | 0 | 0 |
+
+The existing J64 deviation is Q.3's unrelated Rank result dtype issue, **not a Key failure**. The six new cases cover **constructor/assignment/alias behavior only**, not evaluation of `x u/. y` or `u/. y`; no claim about the entire upstream J test suite is made.
+
+**Commits:** [78ba45a](https://github.com/yunskim/RustJ/commit/78ba45a9bcbc47e15ef57299a77c7131be523cde) Key constructors and regression fixtures; [de5c4dc](https://github.com/yunskim/RustJ/commit/de5c4dc10b11570836794fda42d3adf84a0c10bf) formatting; [d8db5f9](https://github.com/yunskim/RustJ/commit/d8db5f95991f6116e672d41eaee6876d5faa3f19) opaque Graph negative test; [a4f4dd0](https://github.com/yunskim/RustJ/commit/a4f4dd078c26d4fe157357dbb65f37b56375dff2) final formatting.
+
+**Next priority:** Keep the unsupported frontend inventory explicit and implement **FW-02's independent sequential `i.` reference**, separating semantic validation from existing optimized search strategy. Only later use Key/Reduce as the second independent operation family for FW-10/JX-08 before extracting common optimization interfaces.
+
 **Operating rules.** Each JX gate requires **(1) pinned C source and guards → (2) J semantics/support boundaries → (3) graph provenance and candidates → (4) per-obligation proof/guard/fallback → (5) independent Rust reference, negative tests and real C differential → (6) target/resource/measured-cost decision**. Keep [ ] without actual execution evidence. Prefer **one semantic change plus one related regression/counterexample** at a time. A regression or upstream drift invalidates affected proofs and reopens prior FW gates. For each completed row record **JX-ID / code commit / commands and environment / passed-failed-ignored / jsource commit and executed oracle scope / fallback-negative results / measured metrics / known gaps / next gate**. Next actionable work remains **JX-01 source coverage and FW-01 M2**, not enabling new specializations.
 
 ## 7.5 Candidate lifecycle and proof-discharge contract
