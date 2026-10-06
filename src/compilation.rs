@@ -7,6 +7,9 @@
 pub struct CompilationAnalysis {
     /// J grammar/combinator-aware computation graph.
     pub j_graph: crate::j_graph_ir::Plan,
+    /// Source-backed, analysis-only jsource optimization opportunities.
+    /// These do not authorize a rewrite, physical route, or execution.
+    pub jsource_opportunities: Vec<crate::j_graph_jsource::JsourceOpportunity>,
     /// Target-independent algebraic alternatives discovered from J Graph IR.
     pub graph_rewrites: Vec<crate::j_graph_rewrite::GraphRewriteCandidate>,
     /// Source-vs-replacement resource views in the same target-independent
