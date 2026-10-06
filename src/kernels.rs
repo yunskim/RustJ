@@ -798,9 +798,11 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
             shape.push(atoms);
             return y.select(shape, std::iter::empty());
         }
-        return Err(Error::Unsupported(
-            "rank over empty frame (prototype inference)".into(),
-        ));
+        // Generic jtrank1ex-style fill evaluation for the supported
+        // dense primitive subset. Retain the pure-ravel fast path above.
+        let fill = y.rank_fill_cell(r)?;
+        let prototype = call(fill)?;
+        return prototype.empty_rank_result(&y.shape[..f]);
     }
     let evaluate_cell = |i| {
         let cell = y.view().cell(r, i)?;
