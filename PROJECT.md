@@ -3632,6 +3632,8 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 
 ## 17. Active migration checklist
 
+**M3→M4 evidence handoff (2026-10-07):** [x] Documented H-01–H-09 and HM-V0–HM-V4 under §17.2.1 to distinguish RouteVerified, PhysicalVerified and RuntimeReady, with error/Check/Write/version/ownership and negative/differential obligations. [ ] Verifier implementation, proof discharge and execution/CI validation remain pending; no new runtime or IR was introduced.
+
 **M3-RB proof boundary (2026-10-07):** [x] Design contract RB-01–08 and verification gates RB-V0–V4 in §2.1.1, covering original A3 op/Check/Write provenance, cross-region liveness, ordered errors and guards without introducing a new IR. [ ] Actual RouteBoundary verifier, one-invariant negative tests and J C/reference differential remain **unimplemented and unverified**. M2→M3→M4 order unchanged.
 
 **I/O tracking:** All storage, slow-I/O and out-of-core acceptance work belongs to the [IO-01–IO-30 checklist](#out-of-core-io-checklist). M2→M3→M4 semantic/CPU baseline remains the project priority; IO-A primary-source audits may proceed concurrently. Do not create another checklist.
@@ -4583,6 +4585,70 @@ Error/cleanup contract: Check failures remain J semantic errors; backend impleme
 4. **M5+:** separate ResourceEstimate, predictive CostEstimate, empirical CostProfile and successful-path work/depth from exceptional/effect paths. Defer transfer/migration/async cost selection until executable dependencies and actual hardware evidence support it.
 
 **Decision/priority:** (a) finalize M3 A3→Route Check/effect/witness obligations; (b) M4 CPU/Host zero-transfer verified PhysicalPlan plus a real native Add operation; (c) M5 placement/resource/cost candidates; (d) explicitly resumed M6+ GPU/asynchronous execution. No structural architectural contradiction was identified, but all unsupported or unproven routes must fail closed. Retain M2→M3→M4 ordering, incomplete HE-01–09 acceptance and the explicit CUDA hold.
+
+#### M3→M4 Route-to-Physical handoff and verification contract (2026-10-07; **design only**)
+
+**Purpose.** Join §2.1.1 `M3-RB/RB-01–08` approval obligations to the §17.2.1 PhysicalPlan verifier through a single **evidence chain**. M3 owns J-semantic legality and route admission. M4 checks whether the admitted semantics can be implemented safely by the particular selected buffer/view/kernel ordering. M4 must **not invent missing semantic witnesses**, reclassify J errors, or reinterpret unproven Rank/NAME/order facts. Passing M3 is not sufficient to prove a physical runtime route exists.
+
+**Handoff inputs, outputs and responsibility (conceptual contracts, not new required IR/Rust APIs):**
+
+| Field | M3 provides/guarantees | M4 independently verifies/realizes | If not established |
+|---|---|---|---|
+| **H-01 source authority** | Immutable verified source A3 identity, schema/primitive registry, source op/`j_origin`/version and justified rewrite/fusion mappings | Selected physical ops derive from **that same source**, not a self-certified transformed candidate | Reject stale/forged source mapping |
+| **H-02 admitted route** | Region-wide source coverage, selected route/target capability and selection reason, distinct from a mere `legal_candidates` list | Verify every Kernel/View/Materialize belongs to the admitted region and implemented target-specific recipe/realization | Unsupported native or external realization cannot masquerade as runnable |
+| **H-03 value interface** | Producers, `ValueId` region live-in/out, `Plan.result`, J-visible dtype/shape/rank/boxed/sparse and input snapshot identities | Bind plan-time `PlanBufferId`/`PhysicalViewId`, validate encoding/extent/stride/affine span, Return logical shape/order, and ownership | Reject missing values, incompatible backing, dangling outputs |
+| **H-04 Check disposition** | Every original zero-result `SemanticCheck` is assigned **exactly one** obligation: execute; discharge with sound input-dependent proof; or replace with observationally equivalent checked guard. Retain J error kind and precedence | Bind Check-to-PhysicalOp mapping for those **required to execute**, compare approved dispositions; do not silently reintroduce discharged Checks or invent previously lost ones | Reject omitted/duplicate/late Checks and changed error precedence |
+| **H-05 effects, NAME, Write** | Original `order_after`, effect/error edges, noun snapshot vs late callable NameRef; `Plan.write` as a **separate commit event** and guard-before-effect/replay frontier | Preserve Check/Kernel/Return/commit-handoff order; initial M4 pure CPU executor does **not** own stateful assignment commit | Unproven stateful portions remain RuntimeSemantic; never replay after effect commit |
+| **H-06 guards and readiness** | Witness-input versions, pending `GuardRequired`, guard evaluation time, permitted precommit fallback and commit frontier | Check guard has been legally placed **before effects**, executed with matching binding versions, and has a safe failure path | `GuardRequired` is **not** automatically Verified/Ready; do not execute without guard discharge |
+| **H-07 dependencies/lifetimes** | SSA def/use, cross-region dependencies, Check/effect/first-error precedence, effect-live edges | Real BindInput/allocate → Check → View/Materialize/Kernel → Return, buffer readiness, leases/last-use, overlap/reuse authorization. Explicit completion edges if asynchronous | Reject use-before-def, lifetime violation, unauthorized reorder or overlapping writes |
+| **H-08 memory/device split** | J-visible representation and permitted target *constraints*, not actual physical stride/pointer/device residency | Choose execution device, memory space and device-local schedule **independently**. M4 baseline = CPU/Host/Sequential/zero-transfer; future transfer/readiness in M5+ | Do not invent residency or assume unavailable GPU/bridge support |
+| **H-09 resource/diagnostics** | Semantic/legal preconditions separate from performance preference | Check capacity/peak bytes and physical feasibility independently of predicted cost; report source op/region/plan-buffer reasons | Unknown cost/resource is not free/feasible; defer selection |
+
+**Conceptual admission phases (not an instruction to add enums or another IR):**
+
+~~~text
+original A3 (structurally verified and semantically authoritative)
+  → M3 Route candidate (partition_plan is only a classifier)
+  → M3 RouteVerified + source-op/Check/Write/order/guard/bridge evidence
+       ├─ Rejected: unsupported/forged evidence → another legal route or Unsupported
+       ├─ GuardRequired: no execution until guard placement/failure path is proven
+       └─ Verified: semantic/route obligations only
+  → M4 Physical candidate (selected recipe, buffers, views, ordered ops)
+  → M4 PhysicalVerified (target, storage, check coverage, order, resources)
+  → RuntimeReady (recheck dynamic guards, input versions, leases/capacity)
+  → execution / J-visible error / cleanup
+~~~
+
+`RouteVerified`, `PhysicalVerified` and `RuntimeReady` describe *independent acceptance phases*. Static verification does not discharge runtime name/version/guard/lease preconditions if they can change between planning and use. Supported RuntimeSemantic/external routes need not pass through RustJ's native M4 executor, but must preserve equivalent boundary value/version/Check/error/effect obligations.
+
+**Which verifier owns which proof:**
+
+- **M3 Route verifier**: original A3 correspondence, every zero-result Check disposition, name/read/write/effect/error ordering, region-wide J semantic legality, guard ownership and representation-neutral bridge *admissibility*. It does not choose concrete buffer addresses, strides or devices.
+- **M4 Physical verifier**: independently match the selected physical plan against the admitted source mapping, ordered Check/guard obligations and selected recipe; verify implementation/CPU target capability, affine bounds, plan buffer vs runtime lease identity, encoding, liveness, ownership, output validity and resource feasibility. It does not manufacture or relax J-semantic proof.
+- **Runtime admission / Executor**: at use time recheck actual input/name snapshots and guard outcomes, buffer generations/readiness and supported devices. Reject unverified plans, effect-after-commit transparent replay, and arbitrary relabeling of backend failures as J semantic errors.
+- **Cross-route boundary**: do not require a single RustJ-native PhysicalPlan to contain all RuntimeSemantic/MLIR/external regions. Each logical value, version, Check, observable error/effect and handoff obligation must still be accounted for across routes.
+
+**Proposed one-invariant-negative test matrix (not yet implemented):**
+
+| Case | Valid handoff | Must reject / fail |
+|---|---|---|
+| `1+2` | Original SSA literals → admitted CPU Elementwise candidate → separately verified physical input/result mappings | Treat `ReferenceSequential` *candidate* as a finished native Add kernel; conflate `ValueId` with `PlanBufferId` |
+| `1 2+1 2 3` | A3 zero-result Length Check handed to M4 and executed before the chosen kernel | Drop/duplicate/move Check or reclassify J Length as a backend failure |
+| `1 2+3 4` | A sound PrefixAgreement witness allows Check discharge with source/version fidelity | Reuse stale witness after input shape/name version changes; M4 invents a proof |
+| `3 { 10 20 30` | Index Check and first-error priority maintained | Relabel as Length or schedule Check after kernel/materialization |
+| `a` / `a=:1+2` | Independent noun snapshot and Write commit retained; unsupported stateful pieces stay RuntimeSemantic | Lose Write because it is outside A3 op range, freeze dynamic names early, replay after effect commit |
+| Rank zero frame / 2D reverse, transpose | J shape/atom order/virtual fill decisions owned by M3; M4 verifies physical affine span and copying | Out-of-bounds negative stride; skip virtual fill and infer result shape/type without J proof |
+| Same source with CPU/GPU/External candidates | Shared A3/guard/error semantics; physical device/memory plans vary only under corresponding support | Claim GPU/transfer ready based on all-CPU checks; read from nonready memory; reorder visible errors via async overlap |
+
+**Validation and gate sequence (tests deferred):**
+
+1. **HM-V0 static interface:** cross-check all RB-V0–V2 fields, immutable source bindings, mapped op/Check/Write/guard and selected route versus incoming M4 plan. Reject missing, duplicated, stale or cross-source evidence.
+2. **HM-V1 storage and resource:** verify `ValueId ↔ PlanBufferId ↔ PhysicalViewId ↔ BufferLease` only where proven; affine span, encoding, output ownership, last-use/cleanup/capacity, with distinct static and runtime obligations.
+3. **HM-V2 errors and order:** trace zero-result Checks, first J error, ordered effects, guard-before-effect, commit frontier and fallback through M3→M4→Runtime.
+4. **HM-V3 differential:** compare the same source A3 using jsource C (where available), RustJ reference/semantic execution, and a *real* native Physical execution path. Check value/dtype/shape/atom order, first J error, effects and name state. Unavailable C/native execution remains **unverified**, not passed.
+5. **HM-V4 stage acceptance:** `RouteVerified` is never automatically `PhysicalVerified` or `RuntimeReady`. M4 closes only after executable native operations (e.g. Add with required Checks) and negative/differential tests pass. GPU/async/transfers keep separate M5/M6+ acceptance gates.
+
+**Decision:** No new canonical compiler layer is needed. **M3 owns semantic-legality evidence; M4 checks its faithful physical realization.** This is a design and verification specification only. No code/tests executed, no M3/M4/HE-01 runtime gate completed, and CUDA implementation remains on hold.
 
 Current `src/physical.rs` is only the G1 representation foundation (`BufferRegistry`, `BufferLease`, runtime `BufferId`, and checked read-only affine PhysicalArray). It is not a PhysicalPlan, planner, or physical executor. `logical_executor.rs` is an A3 semantic/reference executor, not the Physical Executor.
 
