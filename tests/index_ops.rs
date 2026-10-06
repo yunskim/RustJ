@@ -88,6 +88,13 @@ fn member_preserves_cell_shapes_and_empty_query_semantics() {
     assert_eq!(empty_left.len(), 0);
 
     // An empty right lookup set produces false for each left query.
+    eprintln!("frontend empty membership parsed={:?}", rustj::semantic::parse("3 4 e.(i.0)").unwrap());
+    eprintln!("frontend empty membership words={:?}", rustj::tokenizer::word_texts("3 4 e.(i.0)").unwrap());
+    for variant in ["3 4 e.(i.0)", "3 4 e. (i. 0)", "3 4 e. i. 0", "3 4 e. (0$0)"] {
+        let normal = Engine::new().eval(variant).map(|v| v.map(|x| x.json()));
+        let reference = Engine::new().eval_semantic_reference(variant).map(|v| v.map(|x| x.json()));
+        eprintln!("frontend empty membership {variant:?} normal={normal:?} reference={reference:?}");
+    }
     assert_eq!(eval("3 4 e.(i.0)"), eval("0 0 = 1 1"));
     assert_eq!(eval("(i.0)i.3 4"), eval("0 0"));
 }
