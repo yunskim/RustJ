@@ -85,10 +85,32 @@ def rank_adversarial_cases():
     ]
 
 
-def run(binary, library, revision, path, adversarial=False):
+
+def rank_inhomo_cases():
+    """RK-07 pinned-C EVINHOMO vs Domain probes; diagnostic, not acceptance.
+
+    Dyadic catenate can report internal inhomogeneous types (unlike +,
+    where a numeric/char domain failure may follow a different path).
+    Keep positive-frame empty cells distinct from zero *result* frames.
+    """
+    return [
+        ("cat_both_empty_char_int", "(0 3 $ 'abc') (,\"1 1) (i.0 3)"),
+        ("cat_both_empty_int_char", "(i.0 3) (,\"1 1) (0 3 $ 'abc')"),
+        ("cat_both_empty_char_float", "(0 3 $ 'abc') (,\"1 1) (0 3 $ 1.5)"),
+        ("cat_both_empty_char_bool", "(0 3 $ 'abc') (,\"1 1) (0 3 $ 1=1)"),
+        ("cat_empty_char_nonempty_int", "(0 3 $ 'abc') (,\"1 1) (i.3)"),
+        ("cat_nonempty_char_empty_int", "('abc') (,\"1 1) (i.0 3)"),
+        ("cat_both_empty_char_char", "(0 3 $ 'abc') (,\"1 1) (0 3 $ 'def')"),
+        ("cat_nonempty_char_int", "(2 3 $ 'abc') (,\"1 1) (i.2 3)"),
+        ("cat_empty_frame_mismatch", "(i.0 3) (,\"1 1) (i.2 3)"),
+        ("cat_positive_frame_empty_cells", "(2 0 $ 'abc') (,\"1 1) (i.2 0)"),
+    ]
+
+def run(binary, library, revision, path, adversarial=False, retry_probes=False):
     if not binary.is_file() or not library.is_file():
         raise FileNotFoundError(f"missing Rust executable or C library: {binary}, {library}")
-    cases = rank_adversarial_cases() if adversarial else ranked_search_cases()
+    cases = (rank_inhomo_cases() if retry_probes else
+             rank_adversarial_cases() if adversarial else ranked_search_cases())
     corpus = [expression for _, expression in cases]
     validate_cli_corpus(corpus)
     expected = _run(
@@ -110,7 +132,9 @@ def run(binary, library, revision, path, adversarial=False):
             "jsource": c, "rust_reference": r, "rust_optimized": o,
         })
     report = {
-        "kind": ("RK-06 pinned-C adversarial Rank corpus (gate selected by CLI)"
+        "kind": ("RK-07 pinned-C internal inhomogeneous fill retry diagnostic"
+                 if retry_probes else
+                 "RK-06 pinned-C adversarial Rank corpus (gate selected by CLI)"
                  if adversarial else "FW-04 bounded Rank three-way regression"),
         "reference_revision": revision,
         "reference_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
@@ -137,12 +161,14 @@ def gate_failed(report, adversarial, gate_adversarial=False):
     )
 
 
-def diagnostic_summary(report, adversarial, gate_adversarial=False):
+def diagnostic_summary(report, adversarial, gate_adversarial=False, retry_probes=False):
     """Report all differences even if the caller does not yet enforce the gate."""
     mismatches = [
         row for row in report["observations"] if row["classification"] != "pass"
     ]
-    if adversarial and gate_adversarial:
+    if retry_probes:
+        gate = "RK-07 EXPLORATORY: pinned-C typing/retry not yet accepted"
+    elif adversarial and gate_adversarial:
         gate = "RK-06 PINNED-C REGRESSION: fail on any mismatch"
     elif adversarial:
         gate = "EXPLORATORY: mismatches remain open, NOT accepted"
@@ -154,7 +180,7 @@ def diagnostic_summary(report, adversarial, gate_adversarial=False):
         "not_matching": [row["name"] for row in mismatches],
         "gate": gate,
     }
-    if adversarial:
+    if adversarial or retry_probes:
         summary["mismatch_observations"] = mismatches
     return summary
 
@@ -168,21 +194,28 @@ def main():
                         help="Select the RK-06 pinned-C adversarial corpus")
     parser.add_argument("--gate-adversarial", action="store_true",
                         help="Fail on an RK-06 mismatch (requires --adversarial)")
+    parser.add_argument("--retry-probes", action="store_true",
+                        help="Select RK-07 exploratory pinned-C inhomogeneous fill probes")
     args = parser.parse_args()
     if args.gate_adversarial and not args.adversarial:
         parser.error("--gate-adversarial requires --adversarial")
+    if args.retry_probes and (args.adversarial or args.gate_adversarial):
+        parser.error("--retry-probes and --adversarial are mutually exclusive")
     library = Path(os.environ.get("J_LIBRARY", str(ROOT / ".reference/bin/linux/j64/libj.so")))
     try:
         report = run(args.binary.resolve(), library.resolve(), args.reference_revision,
-                     args.report, adversarial=args.adversarial)
+                     args.report, adversarial=args.adversarial,
+                     retry_probes=args.retry_probes)
     except (OSError, RuntimeError) as error:
         print(f"FW-04 ranked diagnostic failed: {error}", file=sys.stderr)
         return 1
     print(json.dumps(
-        diagnostic_summary(report, args.adversarial, args.gate_adversarial),
+        diagnostic_summary(report, args.adversarial, args.gate_adversarial,
+                           args.retry_probes),
         indent=2,
     ))
-    return int(gate_failed(report, args.adversarial, args.gate_adversarial))
+    return int(not args.retry_probes and
+               gate_failed(report, args.adversarial, args.gate_adversarial))
 
 
 if __name__ == "__main__":
