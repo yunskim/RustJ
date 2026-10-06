@@ -603,7 +603,20 @@ J syntax
   → optimization opportunity를 정적으로 노출
 ~~~
 
-대표적으로:
+대표적으로, J source의 다음 syntax는 Graph IR에서 다음과 같은 **계산 의도와 topology의 근거**가 된다.
+
+~~~text
+@:     → composition / ordered pipeline
+fork   → fan-out / fan-in
+hook   → retained input + branch/join
+/      → reduction
+\      → prefix/window family
+"      → cell/rank application
+~~~
+
+이 대응은 곧바로 physical execution을 결정한다는 뜻이 아니라, 어떤 구조를 Graph IR에서 보존하고 어떤 optimization candidate를 검토해야 하는지 알려 준다는 뜻이다.
+
+구체적으로:
 
 ~~~text
 f @: g @: h
@@ -697,7 +710,37 @@ physical realization
 
 예를 들어 `f @: g`는 “반드시 fuse하라”는 명령이 아니다. J Graph IR은 `g`와 `f`의 explicit applied stage를 만들면서 동시에 원래 `@:` composition을 Pipeline region/provenance로 보존하고, pipeline-fusion 및 intermediate-materialization-elision **후보**를 노출한다. 실제 fusion은 후속 proof와 planner가 결정한다.
 
+이를 그림으로 보면 두 종류의 정보가 동시에 존재한다.
+
+~~~text
+v0 = input
+ │
+ ▼
+v1 = Apply g(v0)
+ │
+ ▼
+v2 = Apply f(v1)
+
+Region: Pipeline
+  source form = f @: g
+  stages      = [v1, v2]
+  result      = v2
+~~~
+
+위쪽의 `Apply` node들은 실제 data dependency와 per-operation fact analysis를 제공하고, `Pipeline` region은 **이 dataflow가 우연히 만들어진 것이 아니라 원래 J composition에서 왔다는 provenance**를 보존한다.
+
 hook/fork도 마찬가지다. J Graph IR은 fan-out/fan-in, shared input, live-across/retained value, observable branch order를 보존하고 parallel/fusion **후보**를 만들 수 있지만, 그것이 곧 병렬 실행 명령은 아니다. effect/error order, fanout/retention, resource pressure, synchronization과 target capability가 뒤에서 판단된다.
+
+monadic fork의 구조를 단순화하면 다음과 같다.
+
+~~~text
+                 ┌─→ Apply h(y) ─┐
+y ───────────────┤                ├─→ Apply g(...) ─→ result
+                 └─→ Apply f(y) ─┘
+          shared input        join
+~~~
+
+따라서 fork syntax는 **branch가 존재한다는 사실과 join topology**를 일찍 알려 주지만, 두 branch를 실제로 동시에 실행할지는 별도의 legality/cost/target 판단이다.
 
 따라서 JAXA에서 RustJ로 이어진 핵심 발전은 다음 문장으로 요약한다.
 
@@ -708,6 +751,35 @@ hook/fork도 마찬가지다. J Graph IR은 fan-out/fan-in, shared input, live-a
 이를 다음 원칙으로 둔다.
 
 > **RustJ Graph IR은 J source에서 computation graph를 새로 발명하는 층이 아니라, J syntax가 이미 명시한 계산 의도·결합 구조·array semantics를 optimization에 사용할 수 있는 형태로 보존하는 층이다.**
+
+이 발전을 한 그림으로 요약하면 다음과 같다.
+
+~~~text
+                    ┌─ semantic / source provenance
+                    │
+J combinator ───────┼─ graph topology
+                    │
+                    └─ optimization opportunity
+                              │
+                              ▼
+                     algebraic candidates
+                       ├─ rewrite
+                       ├─ fusion
+                       ├─ scan recognition
+                       └─ materialization/parallel candidates
+                              │
+                 ┌────────────┼────────────┐
+                 ▼            ▼            ▼
+             equivalence   resource /    target /
+             + legality    work-depth    lowering facts
+                 └────────────┼────────────┘
+                              ▼
+                     profitability / selection
+                              ▼
+                      physical realization
+~~~
+
+즉 초기의 “J syntax → optimization hint”라는 관찰이 사라진 것이 아니라, **provenance와 graph topology를 보존한 채 proof·cost·target 판단을 뒤에 붙이는 구조**로 일반화되었다.
 이 표현은 초기 아이디어를 약화시키는 것이 아니다. 오히려 J 문법이 이미 제공하는 구조를 일반 SSA로 평탄화했다가 다시 추론하지 않고 끝까지 보존하면서도, correctness와 profitability를 독립적으로 증명할 수 있게 만든다.
 
 **구현 상태 주의:** 위 흐름은 목표 architecture를 설명한다. 현재 `j_graph_fusion`은 source envelope과 proof obligation을 가진 `FusionCandidate`를 만들고, `fusion_planning`은 source-basis feasibility와 work/depth 비교를 계산하지만 상태는 `AwaitingSemanticProofs`로 유지한다. 현재 `selected`는 false이며 실제 semantic-proof discharge, profitability selector, committed fused lowering은 아직 구현 단계가 아니다. 따라서 문서의 “candidate → legality → profitability → realization”을 현재 모두 완성된 기능으로 읽으면 안 된다.
@@ -719,6 +791,35 @@ hook/fork도 마찬가지다. J Graph IR은 fan-out/fan-in, shared input, live-a
 ## 9.2 J Graph IR과 Execution IR은 다른 질문에 답한다
 
 JAXA의 주 관심사는 실행 IR 자체보다 **J 표기를 계산 graph 대수로 사용하는 것**이다.
+
+전체 compiler에서 J Graph IR의 위치를 먼저 보면 다음과 같다.
+
+~~~text
+J source
+   ↓
+word formation / enqueue / parser
+   ↓
+J Semantic Construction IR
+   ↓
+J Graph IR
+   ├─ composition analysis
+   ├─ rewrite candidates
+   ├─ scan recognition
+   ├─ fusion candidates
+   ├─ logical-memory analysis
+   ├─ symbolic resource composition
+   └─ work/depth analysis
+   ↓
+proof / feasibility / cost side analyses
+   ↓
+Execution-oriented Logical IR
+   ↓
+schedule / representation / target lowering
+   ↓
+CPU / GPU / library / runtime route
+~~~
+
+이 그림에서 J Graph IR은 **source의 계산 의도를 보존하는 분석 표면**이고, 아래 단계로 내려갈수록 실행을 위한 선택이 점차 구체화된다.
 
 따라서 RustJ는 다음 두 IR을 의도적으로 구분한다.
 
