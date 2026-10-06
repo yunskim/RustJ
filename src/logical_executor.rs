@@ -333,14 +333,11 @@ pub(crate) fn apply_ranked(
                 .then(|| atomic_add_mixed_char_fill_shape(&x, &y))
                 .flatten();
             let outcome = if primitive_catenate {
-                retry_inhomogeneous_catenate_fill(&left, &right, x, y, |x, y| {
-                    call(Some(x), y)
-                })
+                retry_inhomogeneous_catenate_fill(&left, &right, x, y, |x, y| call(Some(x), y))
             } else {
                 call(Some(x), y)
             };
-            let prototype =
-                recover_zero_frame_fill_domain(outcome, atomic_shape.as_deref())?;
+            let prototype = recover_zero_frame_fill_domain(outcome, atomic_shape.as_deref())?;
             return prototype.empty_rank_result(&frame);
         }
         let ad = crate::value::count(&frame[af.len()..])?;
