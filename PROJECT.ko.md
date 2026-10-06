@@ -3007,6 +3007,22 @@ RustJ
 
 **적용 판정:** 단항 Mean의 오검출은 즉시 수정한다. 나머지 다섯 경로는 기존 frontend/runtime, semantic numerical contract, Scatter/Buffer planner의 source-evidence backlog로 둔다. 새로운 J Graph node/실행 최적화가 구현된 것으로 표시하지 않는다. `FOUNDATIONS.ko.md`의 semantic/physical 경계 원칙과 모순되지 않아 해당 파일은 변경하지 않았다. **이번 변경은 pinned C source와 Rust 코드의 정적 검토이며, Rust 테스트·jsource 차등 실행·benchmark는 아직 실행하지 않았다.**
 
+##### L. jsource 후보 → A3 Logical IR → 기존 LoweringRegistry 연결 (2026-10-06)
+
+**이번 이행 단위:** `src/lowering.rs::LoweringRegistry::jsource_planning_reports`는 각 `JsourceOpportunity`의 출처를 `candidate.verify(&j_graph)`로 다시 확인한 뒤, `Operation.j_origin`으로 연결된 **canonical A3 호출**을 찾는다. `OpKind::Basis`는 **이미 등록된 일반 execution-basis lowering**에 `legal_candidates`로 질의하고, `OpKind::SemanticCall`은 기존 semantic-call 경계로 표시한다. J Graph/A3의 source 및 node-count 정합성과 양쪽 verifier 검사를 선행한다.
+
+| 새 보고 내용 | 소유권 및 검증 경계 |
+|---|---|
+| `JsourcePlanningReport`의 family/source ValueId/span/decision owner | 기존 `JsourceFamilyRule` 및 J Graph provenance 유지 |
+| `JsourceLinkedCall`의 A3 `OpId` 및 현재 대상의 기본 route | **기존 코드 경로 조사**일 뿐 해당 jsource 기법의 특수화 지원을 뜻하지 않음 |
+| `unresolved_proofs` | `ProofRequirement` 전체가 **미충족**. type/shape 또는 기존 CPU reference route만으로 하나도 자동 면제하지 않음 |
+| `NeedsLogicalCallLink` | canonical A3에서 대응 호출이 없는 후보. 실행 연결을 생성하지 않음 |
+| `NeedsSemanticProof` | 대응 호출을 찾아도 equivalence/ordering/guard/fallback/cost가 증명되지 않으면 **최적화 실행 불허** |
+
+이 연결을 통한 **조건부 lowering의 첫 gate**는 `source candidate validation → canonical logical call mapping → existing route legality`다. 단, 이를 *optimized implementation 선택*과 혼동하면 안 된다. **현재 추가한 결과에는 jsource-specialized kernel 선택, guard 삽입, rewrite commit, physical buffer 결정이 없다.** 실제 specialized lowering은 J-visible numerical/rank/empty/error/binding/alias 증명, 실패 전 source fallback, target-resource-cost 확인을 별도 통과한 뒤에만 후속 구현한다. 순서는 `ProofRequirement`별 witness/guard 도입 → 해당 family의 parameterized lowering recipe → guarded A3/Physical 선택 → C differential/benchmark다.
+
+`tests/lowering.rs`에 Reduce, 단항 Mean, Gather, IntervalLookup의 J Graph→A3 origin 연결, CPU/GPU 기존 route와 미증명 분리, 오래된/조작 후보 및 누락된 logical origin을 검증하는 **정적 회귀 테스트를 추가했다. 테스트를 실행했다는 뜻은 아니다.** CI·Cargo·jsource differential·benchmark는 이 변경에서 실행하지 않았다.
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
