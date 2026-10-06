@@ -195,19 +195,24 @@ fn compilation_bundle_preserves_independent_existing_rewrite_and_fusion_analysis
 fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
     let g = graph("(+/ % #) 1 2 3 4");
     let opportunities = g.jsource_opportunities();
-    eprintln!("MEAN_DIAG opportunities={opportunities:?}");
-    for region in &g.regions {
-        eprintln!("MEAN_DIAG region={:?} semantics={:?} operands={:?} valence_result={:?}",
-            region.function.head, region.function.fork_semantics,
-            region.function.operands, region.result);
-    }
     let mean = opportunities.iter()
         .find(|c| c.family == JsourceFamily::MeanIdiom)
         .expect("exact mean fork should be recognized");
     assert_eq!(mean.legality, OpportunityLegality::AwaitingSemanticProofs);
     assert!(!mean.selected);
     mean.verify(&g).unwrap();
-    assert!(g.regions.iter().any(|r| r.result == mean.source_value));
+    // The enclosing J fork is monadic (one region input), while its
+    // join is necessarily the dyadic % on the two monadic branch results.
+    // This is the regression: checking the join valence discards the Mean.
+    let region = g.regions.iter()
+        .find(|r| r.result == mean.source_value)
+        .expect("mean candidate must remain anchored to its source region");
+    assert_eq!(region.inputs.len(), 1);
+    let rustj::j_graph_ir::NodeKind::Apply { valence, .. } =
+        &g.nodes[region.result.0].kind else {
+        panic!("fork join must be an application");
+    };
+    assert_eq!(*valence, rustj::contracts::Valence::Dyad);
 
     // A general fork is not evidence of a mean; syntax must match all
     // three component verb identities and the Insert-derived left operand.
