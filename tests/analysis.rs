@@ -338,10 +338,7 @@ fn empty_frames_and_incompatible_frames_remain_unresolved() {
         e.eval(s).unwrap();
     }
 
-    for (s, expected_shape) in [
-        ("+/\"1 empty", vec![0]),
-        ("empty+\"1 empty", vec![0, 3]),
-    ] {
+    for (s, expected_shape) in [("+/\"1 empty", vec![0]), ("empty+\"1 empty", vec![0, 3])] {
         let p = e.analyze_a3(s).unwrap();
         let result = p.result.unwrap();
         // Static facts remain conservative without a proven result-cell
