@@ -1861,6 +1861,83 @@ Existing `GraphForm/GraphHint`, applied stages, consumer/liveness and symbolic-r
 
 No external framework builds, Rust/C runtime tests, performance measurements, or CUDA validation were performed for this documentation integration. Earlier validation records retain their original scope.
 
+## 7.5 Candidate lifecycle and proof-discharge contract
+
+A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
+
+Conceptually keep orthogonal evidence dimensions:
+
+```text
+CandidateEvidence
+  provenance         Verified | Stale/Invalid
+  equivalence        Unknown | Proven | Disproven | Guarded(GuardId)
+  semantic_legality  per obligation: Unknown | Proven | Disproven | Guarded(GuardId)
+  target_feasibility Unknown | Supported | RequiresFacts | Unsupported
+  resource_state     Unknown | Symbolic | Resolved | ExceedsHardLimit
+  cost_state         Uncosted | Estimated(CostEstimate)
+  selection          Unselected | Selected | Rejected(reason)
+  lowering_state     NotLowered | Lowered(transform/route identity)
+```
+
+A planner may derive a lifecycle summary such as:
+
+```text
+Discovered
+  -> AwaitingProofs
+       -> Illegal
+       -> Legal / GuardedLegal
+            -> Feasible
+            -> Costed
+            -> Selected / Rejected
+            -> Lowered
+```
+
+This is a commit-gate order, not necessarily pass-execution order. Resource/work-depth/cost side analyses may run speculatively before semantic legality is complete; the forbidden action is committing the candidate to an execution plan before all required legality evidence is discharged.
+
+Evidence ownership:
+
+| Evidence | Primary owner | Selection rule |
+|---|---|---|
+| source topology/provenance | J Graph verifier + candidate registry | stale provenance invalidates the candidate |
+| algebraic equivalence | rewrite/scan/fusion witness validator | required equivalence may not remain Unknown at commit |
+| rank/cell/assembly | execution-semantic facts + candidate legality checker | prove or guard before effects |
+| numeric/tolerance/reassociation | primitive/derived numeric contracts | no unlicensed reassociation/relaxation |
+| effect/error ordering | effect/error/speculation analysis | disproven means illegal; post-effect guards cannot justify replay |
+| fanout/retention/alias | graph use/liveness + alias/storage facts | external uses and alias obligations must survive |
+| resource/work-depth | `j_graph_resource` / `j_graph_work_depth` | separate from cost; only hard-limit violations reject feasibility |
+| target/lowering capability | LoweringRegistry × resolved target | source-basis support does not prove composite/fused legality |
+| empirical profitability | CostProfile / planner | may reject a legal candidate without making it semantically invalid |
+| compatibility/selection | Schedule/Transform planner | the selected candidate set must be mutually compatible |
+
+`Guarded(GuardId)` requires a real guard, execution before observable effects, an explicit miss route, replay safety, and cache/provenance linkage. Do not replay a source region automatically after observable effects have committed.
+
+For overlapping candidates, v0 is conservative: two rewrites that replace the same source operations cannot both be selected; overlapping rewrite/fusion candidates require a registered compatibility/composition rule; otherwise apply one candidate, create a new graph/version, and rediscover candidates. Selection belongs to a Transform/Schedule plan, not semantic IR.
+
+Current code implements only part of this model:
+
+```text
+GraphRewriteCandidate
+  provenance + equivalence witness
+
+FusionCandidate
+  proof obligations
+  legality = Unknown
+  resource_transfer_proven = false
+  selected = false
+
+RewritePlanningReport
+  TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting
+
+FusionReadinessReport
+  AwaitingSemanticProofs
+  fused target query deferred
+  selected = false
+```
+
+There is no common `CandidateEvidence`/`ProofBundle`, per-obligation discharge result, compatibility-aware SelectionPlan, or committed transform identity yet. Those names describe target architecture, not completed APIs.
+
+When implementation reaches this area, preserve the project's one-meaning/one-test discipline: add proof-state provenance and stale-evidence verification first; then per-obligation fusion discharge without selection; then a shared legality view for rewrite/scan candidates; then target-hard-feasibility; overlap compatibility; a separate SelectionPlan; and finally committed lowering with provenance verification.
+
 
 # Part V — Rewrite and equivalence
 
