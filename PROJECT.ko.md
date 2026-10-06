@@ -9395,7 +9395,7 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 | FlexGen (ICML 2023) | device/CPU/disk placement와 layer/batch-block scheduling의 I/O 재사용·throughput tradeoff | 안정된 read-only weights와 합법적 scheduling 영역에 한해 중복 로드 감소; J 실행 순서 임의 변경 금지 |
 | TensorFlow `tf.data` | prefetch/parallel map/overlap pipeline | 독립된 데이터 공급 단계의 후속 비교 후보; full J 적용 보장 아님 |
 
-출처(확인 기준 2026-10-06): [Jsource jmf](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) · [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c) · [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) · [Polars optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) · [Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) · [Ray Data execution](https://docs.ray.io/en/latest/data/data-internals.html) · [ZeRO-Infinity](https://www.deepspeed.ai/2020/09/08/zero-infinity.html) · [FlexGen 논문](https://proceedings.mlr.press/v202/sheng23a.html). 프레임워크의 공개된 설계를 참고하는 것이며 해당 기능이 RustJ에 구현됐다는 뜻이 아니다.
+출처(확인 기준 2026-10-06): [Jsource jmf](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) · [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c) · [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) · [Polars optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) · [Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) · [Ray Data execution](https://docs.ray.io/en/latest/data/data-internals.html) · [ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) · [FlexGen 논문](https://proceedings.mlr.press/v202/sheng23a.html). 프레임워크의 공개된 설계를 참고하는 것이며 해당 기능이 RustJ에 구현됐다는 뜻이 아니다.
 
 **계층 소유권·공통 불변조건**
 
