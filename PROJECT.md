@@ -3218,7 +3218,7 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 | [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
 | [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
 | [Ray Data streaming](https://docs.ray.io/en/latest/data/data-internals.html) | block streams, bounded queues, backpressure/spilling accounting | shuffle/reduce barriers remain |
-| [DeepSpeed ZeRO-Infinity](https://www.deepspeed.ai/2020/09/08/zero-infinity.html) | NVMe/CPU/GPU staging and transfer/compute overlap | CUDA work remains deferred |
+| [DeepSpeed ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) | NVMe/CPU/GPU staging and transfer/compute overlap | CUDA work remains deferred |
 | [FlexGen (ICML 2023)](https://proceedings.mlr.press/v202/sheng23a.html) | version-stable weight reuse and layer/batch-block schedules under capacity and latency/throughput constraints | must not reorder visible J effects, late bindings, or failures |
 | TensorFlow `tf.data` | prefetch+parallel data preparation as an additional comparison candidate | not proof of full-J compatibility |
 
