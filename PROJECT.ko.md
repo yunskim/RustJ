@@ -621,7 +621,7 @@ Guarded {
 
 J built-in primitive와 NN/array extension primitive는 **semantic operation 계층에서는 동일한 원칙**으로 관리한다.
 
-예를 들어 `+`, `Reduce(+)`, `MatMul`, `Conv`, `Softmax`, `LayerNorm`, `Attention`은 모두 parser/semantic analysis 이후 target-independent operation으로 표현될 수 있다. RustJ extension primitive는 parser grammar에 하드코딩하지 않는다. **jsource `jtenqueue`가 `spellin(...) -> ds(e)`로 primitive를 가져오는 지점을 일반화한 `PrimitiveResolver`에서 core J primitive와 enabled extension primitive를 함께 resolve한다.** 해당 compile profile에서 primitive로 resolve되지 않은 valid spelling은 기존 J 규칙대로 name/noun/string 등 다음 enqueue classification으로 진행한다.
+예를 들어 `+`, `Reduce(+)`, `MatMul`, `Conv`, `Softmax`, `LayerNorm`, `Attention`은 parser/name binding 이후 target-independent computational entity로 표현될 수 있다. RustJ extension primitive는 parser grammar에 하드코딩하지 않는다. **enqueue-time `PrimitiveResolver`는 core J primitive spelling만 `spellin(...) -> ds(e)`에 대응해 고정하고, alphabetic/project extension은 ordinary J `NAME`으로 enqueue한 뒤 parser-time 정상 name lookup에서 현재 binding/POS를 얻는다.** 그 binding이 extension-derived computational entity로 해석된 뒤 built-in과 같은 semantic/capability/lowering architecture에 참여한다.
 
 하드웨어별 정보는 semantic primitive 정의에 넣지 않는다.
 
@@ -1187,7 +1187,7 @@ extension-derived semantic entity
    - `jtenqueue`의 classification order를 기준으로 한다.
    - primitive lookup, constant construction, name validation, assignment classification, lookup-name marking, result parser class/POS를 같은 semantic 순서로 결정한다.
    - jsource의 pointer low-bit QC tagging은 Rust의 explicit enum/flags로 바꾸되 의미는 보존한다.
-   - extension primitive는 이 단계의 primitive resolver를 확장해 넣는다. parser grammar에는 extension 전용 production을 추가하지 않는다.
+   - enqueue-time primitive resolver는 **core J primitive spelling**의 lookup/classification만 담당한다. extension은 ordinary `NAME`으로 유지하고 parser-time 정상 binding/POS lookup에서 semantic entity를 얻는다. parser grammar에는 extension 전용 production을 추가하지 않는다.
 
 3. **Parser**
    - `p.c::cases[]`와 runtime `ptcol` dispatch의 9-row rule을 기준으로 한다.
@@ -2597,7 +2597,7 @@ Graph 노드/영역의 설계 후보: `Fork`, `Hook`, `Compose`, `CellApply`, `B
 
 각 후보에 source span, syntax origin, 적용 valence/rank, 데이터 edge, 효과 검사 상태를 남긴다. 예를 들어 `ParallelCandidate(origin=Fork)`는 **병렬 후보를 발견한 상태**이지 `ParallelSafe`나 실행 계획 확정 상태가 아니다. 이름이 verb인지 noun인지 모르는 상태에서 토큰 세 개만 보고 fork를 확정하지 않는다.
 
-최신 `main` 기준(`89b87b8`)에서는 `src/j_graph_ir.rs`가 `GraphForm::Pipeline/Hook/Fork/Reduce/PrefixInfix/Rank`와 `GraphHint::ParallelBranchCandidate` 등을 이미 보존한다. `classify_function()`은 leaf kernel 구현을 분석하기 전에 fork에서 병렬 후보를 만든다. 이 사실은 실행 병렬화 완료를 뜻하지 않는다. Bond/Compose/Power/Agenda/Fix의 일반 지원과 S1–S12 전체 최적화는 별도로 검증해야 한다. 자세한 현재 상태는 A1.5를 따른다.
+2026-10-02 프레임워크 비교 당시의 코드 대조 기준(`89b87b8`)에서는 `src/j_graph_ir.rs`가 `GraphForm::Pipeline/Hook/Fork/Reduce/PrefixInfix/Rank`와 `GraphHint::ParallelBranchCandidate` 등을 이미 보존한다. `classify_function()`은 leaf kernel 구현을 분석하기 전에 fork에서 병렬 후보를 만든다. 이 사실은 실행 병렬화 완료를 뜻하지 않는다. Bond/Compose/Power/Agenda/Fix의 일반 지원과 S1–S12 전체 최적화는 별도로 검증해야 한다. 자세한 현재 상태는 A1.5를 따른다.
 
 - [x] 사용자 예의 parallel 후보가 바깥 fork syntax에서 나온다고 명시했다.
 - [x] leaf를 black box로 두고도 얻는 syntax 힌트 S1–S12를 검토했다.
@@ -2766,7 +2766,7 @@ Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레�
 | 2 | parallel/shared/recompute/fusion 후보 비용 | 한 전략을 syntax에서 강제하지 않음 | F3/F6: [XLA 소스](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc), [Halide 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp) |
 | 3 | loop carry/invariant와 branch-local facts | Power/Agenda 구문 지원 후 영역 최적화 | F7/F8: [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX conditionals](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py) |
 
-최신 `main` 기준(`89b87b8`)에는 `src/j_graph_ir.rs`의 explicit stage/branch graph, `GraphForm`/`GraphHint`, use-count/liveness 및 symbolic resource 분석 seam이 있다. F1–F9는 이 구조를 보강할 설계 근거이며 새 최적화 실행의 완료 보고가 아니다. 현재 구현 상세는 A1.5를 따른다. G1–G5 우선순위를 유지하고, 미지원 syntax 전체 구현이나 실제 CUDA 작업을 이번 조사에 포함하지 않는다.
+2026-10-02 프레임워크 비교 당시의 코드 대조 기준(`89b87b8`)에는 `src/j_graph_ir.rs`의 explicit stage/branch graph, `GraphForm`/`GraphHint`, use-count/liveness 및 symbolic resource 분석 seam이 있다. F1–F9는 이 구조를 보강할 설계 근거이며 새 최적화 실행의 완료 보고가 아니다. 현재 구현 상세는 A1.5를 따른다. G1–G5 우선순위를 유지하고, 미지원 syntax 전체 구현이나 실제 CUDA 작업을 이번 조사에 포함하지 않는다.
 
 ##### 4.1.3.5 체크리스트
 
@@ -3141,7 +3141,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 #### 4.6.3 구현 상태와 체크리스트
 
-코드 대조 기준은 현재 문서 작업 checkout `89b87b8`이다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
+이 절의 코드 대조 기준은 **2026-10-02 조사 당시 checkout `89b87b8`**이다. 현재 `main`의 구현 상태를 뜻하지 않으며 최신 상태는 §12/A1.5를 따른다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
 
 - [x] 네 저장소 최신 HEAD를 확인하고 commit 고정 출처로 기능·필요성·품사·채택 상태를 갱신했다.
 - [x] 이전 inventory에서 빠진 forward/backward family, `grad`·`consume`과 후기 cast/storage/registration 어휘를 구분했다.
