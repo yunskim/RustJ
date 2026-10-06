@@ -639,13 +639,15 @@ syntax-derived opportunity
 ~~~text
 J combinator structure
   ↓
-StructuralOpportunity
+StructuralOpportunity / GraphHint
   ↓
-Effect / error / numeric / access proof
+FusionCandidate / parallel-schedule candidate
   ↓
-Target/resource feasibility
+semantic proof + target/resource/cost side analysis
   ↓
-FusionRegion / ParallelSchedule
+legal + profitable candidate selection
+  ↓
+physical lowering / schedule
 ~~~
 
 이다.
@@ -682,13 +684,14 @@ J combinator syntax
 graph topology + source provenance
   ↓
 optimization opportunity / algebraic candidate
-  ↓
-equivalence + semantic legality proof
-  ↓
-resource / work-depth analysis
-  ↓
-profitability + target planning
-  ↓
+  ├─ equivalence / semantic proof obligations
+  ├─ resource / work-depth estimates
+  └─ target-capability / lowering-feasibility queries
+          ↓
+all required legality obligations discharged
+          ↓
+profitability + candidate selection
+          ↓
 physical realization
 ~~~
 
@@ -701,6 +704,8 @@ hook/fork도 마찬가지다. J Graph IR은 fan-out/fan-in, shared input, live-a
 > **J combinator를 optimization directive로 사용하는 것이 아니라, J combinator algebra를 provenance-rich optimization IR / graph algebra로 사용한다.**
 
 이 표현은 초기 아이디어를 약화시키는 것이 아니다. 오히려 J 문법이 이미 제공하는 구조를 일반 SSA로 평탄화했다가 다시 추론하지 않고 끝까지 보존하면서도, correctness와 profitability를 독립적으로 증명할 수 있게 만든다.
+
+**구현 상태 주의:** 위 흐름은 목표 architecture를 설명한다. 현재 `j_graph_fusion`은 source envelope과 proof obligation을 가진 `FusionCandidate`를 만들고, `fusion_planning`은 source-basis feasibility와 work/depth 비교를 계산하지만 상태는 `AwaitingSemanticProofs`로 유지한다. 현재 `selected`는 false이며 실제 semantic-proof discharge, profitability selector, committed fused lowering은 아직 구현 단계가 아니다. 따라서 문서의 “candidate → legality → profitability → realization”을 현재 모두 완성된 기능으로 읽으면 안 된다.
 
 ---
 
