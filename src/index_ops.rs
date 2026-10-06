@@ -62,11 +62,23 @@ pub(crate) fn indices(y: Value) -> Result<Value> {
 }
 
 pub(crate) fn atom_eq(a: &Value, ai: usize, b: &Value, bi: usize) -> bool {
+    atom_eq_with_policy(
+        a, ai, b, bi,
+        crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near(),
+    )
+}
+
+/// All atoms in one search call share the same comparison-policy snapshot.
+/// The snapshot is currently fixed; dynamic J CCT is not yet implemented.
+fn atom_eq_with_policy(
+    a: &Value, ai: usize, b: &Value, bi: usize,
+    policy: crate::comparison_policy::ComparisonPolicySnapshot,
+) -> bool {
     match (&a.data, &b.data) {
         (Data::Char(x), Data::Char(y)) => x[ai] == y[bi],
         (Data::Char(_), _) | (_, Data::Char(_)) => false,
         (Data::Float(_), _) | (_, Data::Float(_)) => {
-            crate::kernels::near(a.float_at(ai).unwrap(), b.float_at(bi).unwrap())
+            policy.float_equal(a.float_at(ai).unwrap(), b.float_at(bi).unwrap())
         }
         _ => a.int_at(ai).unwrap() == b.int_at(bi).unwrap(),
     }
@@ -428,12 +440,15 @@ fn lookup(indexed: Value, queries: Value, result: LookupResult, cache: Option<&m
     } else {
         None
     };
+    let comparison = crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near();
     result_from_positions(shape, n, items, result, |q| {
         if let Some(index) = &exact {
             return index.find(queries.int_at(q).unwrap(), items);
         }
         let equal = |i: usize| {
-            (0..cell).all(|k| atom_eq(&indexed, i * cell + k, &queries, q * cell + k))
+            (0..cell).all(|k| atom_eq_with_policy(
+                &indexed, i * cell + k, &queries, q * cell + k, comparison,
+            ))
         };
         match result {
             LookupResult::Last => (0..items).rev().find(|&i| equal(i)),
@@ -474,10 +489,11 @@ pub(crate) fn find(a: Value, b: Value) -> Result<Value> {
         return Err(Error::Unsupported("E. multidimensional pattern".into()));
     }
     let width = a.len();
+    let comparison = crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near();
     Value::new(
         b.shape.clone(),
         Data::Bool(CpuStorage::generate(b.len(), |i| {
-            (width <= b.len() - i && (0..width).all(|k| atom_eq(&a, k, &b, i + k))) as u8
+            (width <= b.len() - i && (0..width).all(|k| atom_eq_with_policy(&a, k, &b, i + k, comparison))) as u8
         })?),
     )
 }
