@@ -2179,6 +2179,8 @@ Only the Mean false-positive is changed in graph discovery. Other observations r
 
 Next: typed family-specific equivalence witnesses and runtime guards (including effect/error/fallback order), parameterized lowering recipes, target/cost decisions, and differential tests. `tests/lowering.rs` adds cases for Reduce, monadic Mean, Gather, IntervalLookup, CPU/GPU route separation, stale provenance and missing A3 origins. These tests **were added but not executed**; CI, Cargo, C differential and performance validation remain unrun.
 
+<a id="jsource-audit-m"></a>
+
 ### M. Re-audit of previously unlisted jsource optimization families (2026-10-06)
 
 **Method and scope.** On pinned [jsource revision 13994ffa](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc), separately inspected (1) the \`ca.c\` composition and \`cf.c\` hook/fork dispatch tables, (2) implementations and fallback guards in \`ao/cc/v/vi/vg/vrand/vx/vz/va1/vo/a.c\`, and (3) existing RustJ \`j_graph_ir\` / \`j_graph_jsource\` / A3 / lowering boundaries. These paths were missing or overly aggregated in the earlier A/H/K representative catalogs. Source fast paths do **not** establish semantic equivalence, RustJ support or measured gain.
