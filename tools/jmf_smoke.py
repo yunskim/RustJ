@@ -62,6 +62,8 @@ def run(library: Path, revision: str, report_path: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="rustj-jmf-audit-") as d:
         root = Path(d)
         backing_file = root / "array.jmf"
+        preflight_script = root / "script-preflight.ijs"
+        preflight_script.write_text("rustj_loader_probe =: 1\n", encoding="utf-8")
         previous_home = os.environ.get("HOME")
         previous_user = os.environ.get("USER")
         os.environ["HOME"] = str(root)
@@ -71,6 +73,7 @@ def run(library: Path, revision: str, report_path: Path) -> dict:
             oracle = Oracle()
             startup = (
                 f"BINPATH_z_=: {j_file_name(library.parent)}",
+                f"0!:0 <{j_file_name(preflight_script)}",
                 f"0!:0 <{j_file_name(profile)}",
                 # Verify the loaded stdlib actually provides ordinary J's loader.
                 "4!:0 <'load'",
@@ -78,10 +81,10 @@ def run(library: Path, revision: str, report_path: Path) -> dict:
             )
             mapped = jmf_expressions(j_file_name(backing_file))
             for index, expr in enumerate((*startup, *mapped)):
-                kind = ("check" if index == 2 or expr.startswith("'' -: ")
+                kind = ("check" if index == 3 or expr.startswith("'' -: ")
                         or expr.startswith("unmap_jmf_ ") else "run")
                 output = oracle.eval(expr) if kind == "check" else oracle.run(expr)
-                if index == 2:  # 4!:0 <'load' should resolve to a function, not -1.
+                if index == 3:  # 4!:0 <'load' should resolve to a function, not -1.
                     good = (isinstance(output, dict) and output.get("type") == 4
                             and output.get("shape") == []
                             and output.get("data", [-1])[0] != -1)
@@ -94,15 +97,16 @@ def run(library: Path, revision: str, report_path: Path) -> dict:
                 else:
                     good = output is None  # Oracle.run returns None on J success.
                 result["stages"].append({
-                    "name": ["binpath", "profile", "load_available", "jmf_load"][index]
-                            if index < 4 else expr.split(" ")[0],
+                    "name": ["binpath", "file_script_preflight", "profile",
+                             "load_available", "jmf_load"][index]
+                            if index < 5 else expr.split(" ")[0],
                     "expression": expr.replace(str(root), "<temporary-root>"),
                     "outcome": output,
                     "matches_source_expectation": good,
                 })
                 if not good:
                     result["status"] = "blocked"
-                    result["blocker"] = ("bootstrap_or_addon" if index < 4
+                    result["blocker"] = ("bootstrap_or_addon" if index < 5
                                          else "jmf_execution_or_expectation")
                     # Capture J's detailed failure context *before* other
                     # evaluation can replace it. This is a diagnostic, never
@@ -150,6 +154,11 @@ def main() -> int:
         "stage_count", "blocker")}, indent=2))
     if r["status"] != "observed_smoke_match":
         print(json.dumps(r["stages"][-1], ensure_ascii=False))
+        context = r.get("j_error_context")
+        if isinstance(context, dict) and context.get("type") == 2:
+            print("J-error-context:", "".join(chr(b) for b in context.get("data", [])[:3000]))
+        elif context is not None:
+            print("J-error-context:", json.dumps(context, ensure_ascii=False)[:3000])
     return int(a.gate and r["status"] != "observed_smoke_match")
 
 
