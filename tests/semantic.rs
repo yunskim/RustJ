@@ -260,6 +260,55 @@ fn rank_empty_result_recovers_pinned_j_computational_fill_domain_only() {
 }
 
 #[test]
+fn ranked_catenate_inhomogeneous_fill_retry_matches_pinned_j() {
+    // Distinguish the C cr.c EVINHOMO typed retry from an arithmetic
+    // Domain error replaced with scalar 0. The result's cell shape comes
+    // from a second, type-compatible catenate call, even for zero frames.
+    for (source, expected_type, expected_shape) in [
+        ("(0 3 $ 'abc') (,\"1 1) (i.0 3)", 4, vec![0, 6]),
+        ("(i.0 3) (,\"1 1) (0 3 $ 'abc')", 4, vec![0, 6]),
+        ("(0 3 $ 'abc') (,\"1 1) (0 3 $ 1.5)", 8, vec![0, 6]),
+        ("(0 3 $ 'abc') (,\"1 1) (0 3 $ 1=1)", 2, vec![0, 6]),
+        ("(0 3 $ 'abc') (,\"1 1) (i.3)", 4, vec![0, 6]),
+        ("('abc') (,\"1 1) (i.0 3)", 2, vec![0, 6]),
+        ("(2 0 $ 'abc') (,\"1 1) (i.2 0)", 4, vec![2, 0]),
+    ] {
+        let mut engine = Engine::new();
+        let reference = engine
+            .eval_semantic_reference(source)
+            .unwrap_or_else(|error| panic!("reference {source}: {error:?}"))
+            .unwrap();
+        let optimized = engine
+            .eval(source)
+            .unwrap_or_else(|error| panic!("runtime {source}: {error:?}"))
+            .unwrap();
+        assert_eq!(reference.shape(), expected_shape, "{source}");
+        assert_eq!(reference.type_code(), expected_type, "{source}");
+        assert_eq!(reference.len(), 0, "{source}");
+        assert_eq!(optimized.json(), reference.json(), "{source}");
+    }
+
+    // An ordinary populated mixed-type cell is a domain error, and
+    // incompatible frames are length errors *before* retry.
+    let mut engine = Engine::new();
+    for (source, expected_error) in [
+        ("(2 3 $ 'abc') (,\"1 1) (i.2 3)", "domain error"),
+        ("(i.0 3) (,\"1 1) (i.2 3)", "length error"),
+    ] {
+        assert_eq!(
+            engine.eval_semantic_reference(source).unwrap_err().kind(),
+            expected_error,
+            "{source}"
+        );
+        assert_eq!(
+            engine.eval(source).unwrap_err().kind(),
+            expected_error,
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn nested_rank_of_intrinsic_primitive_keeps_zero_frame_cell_shape() {
     // The outer Rank still needs a fill-cell result; an inner Rank of a
     // concrete primitive has a value-only witness, unlike an arbitrary verb.
