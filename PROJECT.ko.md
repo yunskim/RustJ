@@ -11411,17 +11411,17 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 
 | Stage / 경계 | 현재 문서 상태 | 이미 강한 부분 | 아직 닫히지 않은 부분 |
 |---|---|---|---|
-| word formation → enqueue → parser | **충분** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reduction, name/assignment sequencing, differential gates | 한 문장을 token→queue→row reduction→completed `JEntity/FunctionEntity`까지 추적하는 짧은 canonical E2E trace는 더 명확히 할 수 있음 |
-| Semantic Construction / binding / dynamic semantics | **충분** | FunctionEntity/JEntity 경계, late NameRef, assignment=value+effect, definition frame, gerund/rank/hook/fork 보존 | explicit-definition control-flow가 A3 region/block으로 넘어가는 실제 handoff 예제는 아직 부분적 |
-| J Semantic → J Graph IR | **충분** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, `@:`/fork 그림, Graph/Execution IR 분리 | hook/rank/reduce/scan을 한 묶음으로 보여 주는 canonical graph-example suite는 아직 분산됨 |
+| word formation → enqueue → parser | **문서 계약 닫힘 / 구현 수렴 중** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reduction, name/assignment sequencing, differential gates, §3.3.2.2 `+/ y` canonical frontend trace | locative/definition/gerund/value-dependent constructor의 실제 지원 범위는 A0.5 checklist와 differential gate가 결정; orientation contract 자체는 닫힘 |
+| Semantic Construction / binding / dynamic semantics | **문서 계약 닫힘 / 일부 구현 미완료** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition frame, gerund/rank/hook/fork, §3.7.1 explicit-definition control-flow handoff | InvocationFrame, Branch/CondBranch, block-merge/CFG lowering은 **planned**이고 현재 A3 Terminator는 Return만 존재 |
+| J Semantic → J Graph IR | **문서 계약 닫힘** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, Graph/Execution 분리, §4.1.0 canonical suite로 `@:`/ordinary+capped fork/hook/rank/reduce/prefix-infix를 동일 형식 비교 | 남은 gap은 form별 실제 lowering/test coverage이지 stage ownership 설명 부재가 아님 |
 | Graph analysis → candidate/proof | **문서 계약 보강됨 / 구현 부분** | §4.1.4에 orthogonal evidence, derived lifecycle, evidence owner, guarded legality, overlap/selection 규칙을 통합 | 공통 `CandidateEvidence/ProofBundle`·obligation discharge·SelectionPlan은 **미구현**. 개별 proof algorithm의 세부 구현은 해당 optimizer 착수 시 verifier/test와 함께 확정 |
 | J Graph → Execution Semantic Lowering → A3 | **대체로 충분** | direct lowering, Graph/Execution fact drift check, Execution Basis, SemanticCheck, effect/error/speculation, verifier, schema version, canonical mean trace | A3-v0는 실제로 single-block 중심이다. explicit-definition control-flow → region/block handoff의 실제 E2E 예제가 더 필요함 |
 | Route analysis / partition | **문서 계약 보강됨 / 구현 부분** | §2.5.1에 live-in/out, effect live-out, SemanticCheck, guard, representation-neutral bridge, region legality 계약을 통합 | 현재 `RouteRegion { class, operations }`와 contiguous grouping은 v0 helper. 실제 bridge/region-wide verifier와 mixed-route executor는 미구현 |
 | Schedule / Physical Planner | **M4-v0 문서 계약 고정 / 구현 미완료** | §5.2.1에 `PlanBufferId ≠ runtime BufferId`, PhysicalView, BindInput/Check/View/Materialize/Kernel/Return, lifetime/reuse/verifier/error-cleanup 계약을 정의 | 실제 `PhysicalPlan` 타입·planner·executor는 미구현. Transfer/Sync/async는 M4 이후 |
 | Native Executor | **M4-v0 계약 대체로 닫힘 / 구현 미완료** | §5.2.1/§5.3에 op 역할, verifier, cleanup/error, executor non-responsibility, canonical mean planned route를 연결 | 실제 Physical Executor와 differential E2E test가 없음. stateful/async execution contract는 후속 |
 | fallback / guard miss / replay | **문서 계약 보강됨 / dispatcher 미구현** | §3.9.4에 route fallback/guard miss/replay/continuation 구분, decision table, commit frontier, RuntimeSemanticFallback의 정확한 의미를 통합 | integrated guard dispatcher/exact continuation/transaction rollback은 미구현이며 capability로 주장하지 않음 |
-| external route / GPU | **계획 수준** | adapter 책임, external IR은 projection, target/lowering capability 분리 | 첫 실제 adapter의 region ABI/round-trip verifier/unsupported diagnostics가 아직 없음. CUDA는 의도적으로 보류 |
-| validation / versioning | **부분** | frontend differential gate가 매우 강함, A3 verifier/header/schema version 존재 | candidate→route→physical 단계의 negative verifier matrix와 serialization upgrade/downgrade policy는 아직 목표 수준 |
+| external route / GPU | **boundary contract 고정 / 구현 보류** | §5.5.1에 adapter input/capability/output, SemanticCheck/error/effect/token mapping, bridge/ownership, round-trip verifier, failure class를 정의 | production adapter는 미구현. M6까지 implementation gate로만 유지하며 CUDA는 의도적으로 보류 |
+| validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.9/A3 0.4 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
 
 #### 15.7.1 1차 감사에서 닫은 문서 계약
 
@@ -11435,29 +11435,31 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 
 특히 canonical trace에는 **현재 구현 stop line**을 넣어 route prototype 이후의 Schedule/PhysicalPlan/CPU result 구간을 `planned M4`로 표시했다. 목표 architecture 그림을 구현 완료 증거로 사용하지 않는다.
 
-#### 15.7.2 2차 감사에서 남은 문서 우선순위
+#### 15.7.2 2차 감사에서 닫은 문서 계약
 
-1. **Frontend canonical sentence trace**
-   - 짧은 한 문장을 bytes/word formation → enqueue classes → 9-row reduction → completed JEntity/FunctionEntity까지 추적한다.
-   - 현재 상세 절을 대체하지 않고 처음 읽는 사람이 frontend stage contract를 재구성하는 orientation trace로 둔다.
+- [x] **Frontend canonical sentence trace** — §3.3.2.2 `+/ y`
+- [x] **Explicit-definition control-flow handoff** — §3.7.1
+- [x] **Canonical J Graph example suite** — §4.1.0
+- [x] **External adapter boundary contract** — §5.5.1
+- [x] **Cross-stage negative verifier matrix + serialization migration policy** — §5.7.5–§5.7.6
 
-2. **Explicit-definition control-flow handoff**
-   - DefinitionCode/control metadata → invocation frame → J Graph/A3 region/block의 planned/current 경계를 한 예제로 연결한다.
-   - A3에 Region/Block 타입이 존재한다는 사실을 full control-flow lowering 완료로 오해하지 않게 한다.
+이 단계에서도 구현하지 않은 타입/API를 구현 완료처럼 쓰지 않았다. 특히 Branch/CondBranch, CandidateEvidence/SelectionPlan, RouteBoundary concrete type, PhysicalPlan, ExternalRegionPlan은 **target concepts**이며 현재 코드에 모두 존재하는 API가 아니다.
 
-3. **Canonical J Graph example suite**
-   - `@:`, ordinary fork, capped fork, hook, rank, reduce, prefix/infix/scan candidate를 동일한 형식으로 정리한다.
-   - 각 예제마다 source semantic construction / applied nodes / region provenance / candidate / 금지되는 성급한 optimization을 한 화면에 둔다.
+#### 15.7.3 현재 남은 빈칸 — implementation-driven detail
 
-4. **External adapter boundary contract**
-   - 첫 실제 external route 착수 시 region ABI, supported semantic subset, representation bridge, token/effect/error mapping, round-trip verifier, unsupported diagnostic을 한 계약으로 고정한다.
-   - CUDA는 계속 보류하며 이 문서 작업이 CUDA 구현 재개를 뜻하지 않는다.
+1·2차 감사 후 남은 큰 항목은 architecture owner가 없는 빈칸이라기보다 **구현에 들어가야 구체 타입과 proof algorithm을 정할 수 있는 세부사항**이다.
 
-5. **Cross-stage negative verifier matrix + serialization migration**
-   - candidate → route → PhysicalPlan의 invalid-state negative tests를 stage별로 묶는다.
-   - A3/향후 PhysicalPlan을 외부 artifact로 저장하기 시작할 때 upgrade/downgrade/unsupported-version 정책을 별도로 닫는다.
+- 각 fusion/rewrite/scan obligation의 실제 proof algorithm과 cached-evidence invalidation 구현
+- explicit-definition CFG의 concrete Branch/CondBranch/block-argument API와 loop/try/select lowering
+- RouteBoundary/BridgeRequirement의 concrete Rust 타입과 mixed-route executor integration
+- PhysicalPlan concrete op structs, planner algorithm, Buffer reuse implementation
+- 첫 external adapter별 actual capability matrix와 emitted-IR round-trip implementation
+- async token/timepoint, stateful native route, exact continuation/transactional rollback처럼 아직 의도적으로 후순위인 semantics
+- portable artifact를 실제 파일/프로세스 경계로 내보낼 때 선택할 wire format
 
-#### 15.7.3 문서 유지 규칙
+이 항목은 지금 임의 타입을 미리 고정하지 않는다. 해당 구현 단계가 시작될 때 **현재 stage contract → 최소 타입 → verifier/negative test 하나 → 다음 의미** 순서로 구체화한다.
+
+#### 15.7.4 문서 유지 규칙
 
 - 새 major stage/type을 추가할 때 위 10개 질문 중 해당 항목을 함께 갱신한다.
 - 구현 타입 이름과 문서의 개념 이름이 다르면 “현재 구현명 / 목표 개념명”을 명시한다.
