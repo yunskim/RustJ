@@ -3632,6 +3632,8 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 
 ## 17. Active migration checklist
 
+**First CPU-route admission (2026-10-07):** [x] §17.2.1 H-A stages A0–A5 and negative gates HA-V1–HA-V7 distinguish a legal `ReferenceSequential` candidate from an implemented native CPU kernel, checked physical plan, live runtime readiness and independent E2E evidence. [ ] Implementation/execution validation not performed; no M3/M4/HE acceptance change.
+
 **M3→M4 evidence handoff (2026-10-07):** [x] Documented H-01–H-09 and HM-V0–HM-V4 under §17.2.1 to distinguish RouteVerified, PhysicalVerified and RuntimeReady, with error/Check/Write/version/ownership and negative/differential obligations. [ ] Verifier implementation, proof discharge and execution/CI validation remain pending; no new runtime or IR was introduced. Added §17.2.1 H-K/H-KV1–5 to distinguish Literal, ReadNoun and VerbReference despite their shared ValueOnly class; design only.
 
 **M3-RB proof boundary (2026-10-07):** [x] Design contract RB-01–08 and verification gates RB-V0–V4 in §2.1.1, covering original A3 op/Check/Write provenance, cross-region liveness, ordered errors and guards without introducing a new IR. [ ] Actual RouteBoundary verifier, one-invariant negative tests and J C/reference differential remain **unimplemented and unverified**. M2→M3→M4 order unchanged.
@@ -4682,6 +4684,63 @@ original A3 (structurally verified and semantically authoritative)
 5. **HM-V4 stage acceptance:** `RouteVerified` is never automatically `PhysicalVerified` or `RuntimeReady`. M4 closes only after executable native operations (e.g. Add with required Checks) and negative/differential tests pass. GPU/async/transfers keep separate M5/M6+ acceptance gates.
 
 **Decision:** No new canonical compiler layer is needed. **M3 owns semantic-legality evidence; M4 checks its faithful physical realization.** This is a design and verification specification only. No code/tests executed, no M3/M4/HE-01 runtime gate completed, and CUDA implementation remains on hold.
+
+#### H-A — First CPU native-route admission matrix for M3→M4 (2026-10-07; design only)
+
+**Purpose:** Turn H-01–09/H-K/HM-V0–V4 into an explicit answer to “is this *legal to consider*, *physically realizable*, or *actually runnable*?” without restating the whole interface. Current `lowering.rs` only offers `RouteDecision` / contiguous `RouteRegionClass` candidate grouping; current `main` has no `src/physical_plan.rs`. Existing read-only `physical.rs` and the narrow unmerged draft PR #4 identity code are **not** a native Add executor. No implementation or test runs are added.
+
+**Acceptance stages (questions, not new required IR/enums):**
+
+| Stage | Subject and required evidence | If missing |
+|---|---|---|
+| **A0 SourceA3** | Independently verified immutable source `logical_ir::Plan`, original op/Check/Write/error duties, schema/source/primitive-registry provenance, separate from modified candidate | Reject stale or altered authority |
+| **A1 RouteVerified** | RB-01–08 coverage of every source op, live values/result, zero-result Check executions or proved discharges/guard replacements, separate Write, observable ordering and whole-region legality | `NoKernel`, `NativeExecutionBasis`, `RuntimeSemanticFallback` classification is **not** admission |
+| **A2 ExecutableRoute** | *Selected concrete* CPU realization and actually implemented kernel/adapter, matching valence/type/Rank/guards. `ReferenceSequential` as a registered candidate is **not proof** of a compiler-native CPU kernel | Use a separate valid semantic/reference route or Unsupported; do not mark native-ready |
+| **A3 PhysicalVerified** | Per-native-region selected-op mapping, recipe, BindInput/Check/View/Kernel/Materialize/Return dependencies; distinct `PlanBufferId`/`PhysicalViewId`/runtime `BufferId`, checked extents, ownership/liveness, CPU/Host resources | Reject without execution or erroneous J-error relabeling |
+| **A4 RuntimeReady** | At call time, name/input snapshot version, dynamic guard result, lease generation, capacity/readiness and safe fallback frontier are still valid | Reject or change route **before** observable effect; no transparent replay after commit |
+| **A5 AcceptedNativeE2E** | Actual compiler-native output, dtype/Shape/atom order/first J error/effects independently compared against RustJ reference and applicable jsource C oracle; negative tests passed | Parsing, route candidacy, reference execution, documentation and unrun tests do not count as M4 completion |
+
+**Concrete code-grounded traces**
+
+~~~text
+1+2
+  A3: Literal(1) -> ValueId(0), Literal(2) -> ValueId(1),
+      Basis(Elementwise, Add) -> ValueId(2) returned
+  Candidate partition: ValueOnly literals -> PureArray Add
+  M3 obligation: original op/value mapping, PrefixAgreement proof/Check duty
+  Today: Elementwise CPU ReferenceSequential *candidate* exists
+  Still unapproved: A2 native Add implementation, A3 physical plan,
+                    A4 live bindings/leases, A5 native differential
+
+1 2+1 2 3
+  A3: two Literal ops -> zero-result SemanticCheck(Length) -> Basis(Add)
+  Candidate partition: ValueOnly -> SemanticCheck -> PureArray
+  M3 obligation: preserve Check input liveness and error-before-call order
+  M4 may not run Add before proven/equivalent Length Check handling;
+  the physical path is currently unvalidated.
+
+a=:1+2
+  A3: computation operations PLUS separate Plan.write commit event
+  M3 obligation: map both computed value and write symbol/versions/after
+  M4 first pure CPU region may compute a value, not commit assignment;
+  another properly owned runtime/effect route must handle the write.
+~~~
+
+**Decision cautions:** `ReferenceSequential`, `GenericCellLoop` and `MetadataOrIndexReindex` are registered *realization candidates*, not evidence that the native Physical Executor exists. `NoKernel` does not make Literal, ReadNoun and VerbReference interchangeable (H-K). `TargetCapabilities::gpu_generic()` describes a feature set, not a present GPU or a validated runtime. For M4-v0 only select CPU/Host/Sequential/zero-transfer physical policy; do not encode that restriction as J-language or Logical IR semantics.
+
+**HA-V1–HA-V7 planned evidence (none executed):**
+
+| Gate | Positive baseline | One-invariant-at-a-time rejection |
+|---|---|---|
+| **HA-V1 source coverage** | `1+2` retains complete source op/operand/result mapping across regions | Missing Add op, overlap, foreign original-A3 origin |
+| **HA-V2 candidate vs native** | Candidate marked as candidate; A2 only with genuinely implemented native kernel | Treat `ReferenceSequential` registry match as PhysicalVerified/RuntimeReady/E2E |
+| **HA-V3 checks and first errors** | `1 2+1 2 3` Length and `3 { 10 20 30` Index Checks precede their calls | Omit/duplicate/postpone Check, change Length↔Index, schedule kernel first |
+| **HA-V4 proof freshness** | `1 2+3 4` has a valid input-shape witness; a required guard executes before any effect | Reuse stale witness after input/name version change; treat GuardRequired as runnable |
+| **HA-V5 names/commit** | `a` uses validated noun snapshot; `a=:1+2` has separately owned Write commit | Convert ReadNoun into a literal, freeze a late function lookup, discard/duplicate Write or replay after commit |
+| **HA-V6 storage/output** | Reverse/transpose, signed stride and empty Shape preserve J atom order and checked lease/output ownership | Confuse ValueId with PlanBufferId, use stale/free buffer, overlap writes, return dangling view or wrong order |
+| **HA-V7 cross-route** | Whole-program M3 coverage plus native-region-local M4 verification preserve effects/first error | Approve the whole expression using only one native-region success; claim unimplemented bridge/GPU route E2E |
+
+**Implementation order and present status:** First validate immutable A3→Route semantics and HA-V1/3/4/5 (M3), then selected actual CPU realization and Physical verifier HA-V2/6 (M4), then HA-V7 differential and native E2E acceptance, with GPU/transfer/async costs deferred to M5/M6. **Only this admission/test specification is added today**. All implementation, test-pass and HE-01 acceptance gates remain open.
 
 Current `src/physical.rs` is only the G1 representation foundation (`BufferRegistry`, `BufferLease`, runtime `BufferId`, and checked read-only affine PhysicalArray). It is not a PhysicalPlan, planner, or physical executor. `logical_executor.rs` is an A3 semantic/reference executor, not the Physical Executor.
 
