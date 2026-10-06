@@ -222,6 +222,21 @@ fn rank_empty_result_recovers_pinned_j_computational_fill_domain_only() {
         assert_eq!(optimized.json(), baseline.json(), "{source}");
     }
 
+    // Here the outer Rank has two cells, but each cell's intrinsic +
+    // scalar frame is zero. J still synthesizes an INT empty cell, rather
+    // than applying the char/int error from a populated scalar frame.
+    let source = "(2 0 $ 'abc') (+\"1 1) (i.2 0)";
+    let mut engine = Engine::new();
+    let baseline = engine
+        .eval_semantic_reference(source)
+        .expect("reference empty atomic cells")
+        .unwrap();
+    let optimized = engine.eval(source).expect("runtime empty atomic cells").unwrap();
+    assert_eq!(baseline.shape(), &[2, 0]);
+    assert_eq!(baseline.type_code(), 4);
+    assert_eq!(baseline.len(), 0);
+    assert_eq!(optimized.json(), baseline.json());
+
     // Ordinary cells, including a nonempty char/int combination, are NOT
     // covered by a result-zero-frame fill/prototype recovery.
     let source = "(2 3 $ 'abc') (+\"1 1) (i.2 3)";
