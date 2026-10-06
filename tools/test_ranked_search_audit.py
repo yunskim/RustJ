@@ -2,7 +2,8 @@ import unittest
 
 from conformance import validate_cli_corpus
 from ranked_search_audit import (
-    ranked_search_cases, rank_adversarial_cases, diagnostic_summary, gate_failed,
+    ranked_search_cases, rank_adversarial_cases, rank_inhomo_cases,
+    diagnostic_summary, gate_failed,
 )
 
 
@@ -62,6 +63,31 @@ class RankSearchCorpusTests(unittest.TestCase):
         self.assertFalse(
             gate_failed(passing, adversarial=True, gate_adversarial=True)
         )
+
+    def test_rank_inhomo_probes_are_separate_from_accepted_rk06(self):
+        cases = rank_inhomo_cases()
+        self.assertEqual(len(cases), 10)
+        self.assertEqual(len({label for label, _ in cases}), len(cases))
+        validate_cli_corpus([source for _, source in cases])
+        labels = dict(cases)
+        self.assertIn(',"1 1', labels["cat_both_empty_char_int"])
+        self.assertIn("i.3", labels["cat_empty_char_nonempty_int"])
+        self.assertIn("2 0", labels["cat_positive_frame_empty_cells"])
+        self.assertEqual(len(rank_adversarial_cases()), 32)
+        report = {
+            "cases": 1,
+            "classifications": {"rust_semantic_mismatch": 1},
+            "observations": [{
+                "name": "cat_both_empty_char_int",
+                "classification": "rust_semantic_mismatch",
+            }],
+        }
+        summary = diagnostic_summary(
+            report, adversarial=False, retry_probes=True,
+        )
+        self.assertIn("EXPLORATORY", summary["gate"])
+        self.assertEqual(summary["not_matching"], ["cat_both_empty_char_int"])
+        self.assertEqual(len(summary["mismatch_observations"]), 1)
 
     def test_rank_adversarial_corpus_keeps_zero_frame_distinct_from_empty_cells(self):
         cases = rank_adversarial_cases()
