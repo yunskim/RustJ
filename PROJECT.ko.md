@@ -13,7 +13,7 @@
 
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **최신 검증:** NV2 core 인식 단계의 Windows default/portable 각각 435 passed / 17 ignored, C 기본·AVX2의 세 runtime 경로 각각 5,380 cases / failed 0. vocabulary POS 143개·bare 함수 binding/AR 140개·noun payload 3개가 일치했다. capture graph 257건과 static 2건의 경계는 별도이며 full J 실행 지원을 뜻하지 않는다. 세부 기록은 §10 NV2, 최신 요약은 §12를 따른다.
+- **최신 검증:** 2026-10-05 NV3d2b2a 기준 Windows default/portable 각각 **474 passed / 17 ignored**, Python **30 passed**이며, C j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. numeric syntax는 양 DLL 각각 **2,485 cases / failed 0**이지만 unresolved recognition/error 경계가 각 1건 남아 있어 실행 지원이나 정밀 오류 동등성으로 세지 않는다. capture graph **257건**, static **2건**, runtime prefix **285 / executable prefix passes 0**도 별도다. 최신 graph-readiness gate는 GF6a이며 실제 fusion 선택·GPU 실행을 뜻하지 않는다. 세부 기록은 §10 NV3d2b2a/GF6a, 최신 요약은 §12를 따른다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 ## 1. 프로젝트 목적
@@ -2054,7 +2054,7 @@ continuation / deopt
 
 | 발생 상황 | J semantic error인가? | 다른 route 선택 가능? | replay 가능? | 현재 원칙 |
 |---|---|---|---|---|
-| compile/lowering 시 target capability miss | 아니오 | **예**, 아직 실행 전이고 verified alternative가 있으면 | 필요 없음 | route miss로 처리; 없으면 UnsupportedImplementation |
+| compile/lowering 시 target capability miss | 아니오 | **예**, 아직 실행 전이고 verified alternative가 있으면 | 필요 없음 | route miss로 처리; 없으면 개념상 UnsupportedImplementation(현재 concrete API는 `Error::Unsupported`) |
 | specialization guard miss, observable effect 전 | 아니오 | **예**, reanalysis/verified fallback route가 있으면 | 원칙적으로 재실행보다 새 route 선택 | guard miss는 J error로 노출하지 않음 |
 | explicit compiler/API contract violation | J 자체 오류와 별개 | contract가 허용한 정책에 따름 | 자동 replay 아님 | 잘못된 user/compiler contract와 J Domain/Rank 등을 구분 |
 | A3 `SemanticCheck` 또는 semantic call이 내는 J Domain/Length/Rank/Index 등 | **예** | 아니오. 다른 backend로 바꿔 같은 J error를 회피하지 않음 | 아니오 | 원래 error class/precedence를 보고 |
@@ -2070,7 +2070,7 @@ continuation / deopt
 
 > **이 operation에 현재 native ExecutionBasis realization이 없으므로 semantic/runtime route가 필요하다는 compile-time 분류**
 
-다. 이것은 “native kernel을 실행하다 실패하면 언제든 interpreter로 되돌아간다”는 runtime deoptimization 보장이 아니다. 실제 runtime semantic executor가 해당 form을 지원하지 않으면 최종 결과는 여전히 `UnsupportedImplementation`일 수 있다.
+다. 이것은 “native kernel을 실행하다 실패하면 언제든 interpreter로 되돌아간다”는 runtime deoptimization 보장이 아니다. 실제 runtime semantic executor가 해당 form을 지원하지 않으면 최종 결과는 개념상 `UnsupportedImplementation`, 현재 concrete API로는 `Error::Unsupported(...)` / kind `"unsupported"`일 수 있다.
 
 ##### fallback commit frontier
 
@@ -3578,6 +3578,8 @@ JDiagnostic
 ```
 
 `UnsupportedImplementation`은 “J에서 잘못된 프로그램”이 아니라 **현재 RustJ 구현/route가 아직 실행하지 못한다**는 뜻이다.
+
+**용어 주의:** `UnsupportedImplementation`은 이 문서의 **architecture-level 분류명**이다. 현재 Rust 코드의 concrete error variant는 `Error::Unsupported(String)`이고 `Error::kind()`는 `"unsupported"`를 반환한다. 새 enum variant가 이미 존재한다고 가정하지 않는다. 문서·테스트에서 concrete API를 말할 때는 `Error::Unsupported`/`"unsupported"`를 사용하고, J semantic error와 implementation-coverage miss를 구분하는 개념 설명에서만 `UnsupportedImplementation`을 사용한다.
 
 extension registration 자체가 불완전한 경우에는 별도 registry/configuration diagnostic으로 본다.
 
@@ -8903,7 +8905,8 @@ backend / executor
 
 - [ ] Logical payload와 분리된 최소 `Schedule/TransformPlan`을 정의한다.
 - [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
-- [ ] §5.2.1의 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return` 수준으로 정의한다.
+- [x] **문서 계약:** §5.2.1에서 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return`으로 정의하고 plan-time/runtime identity·verifier·cleanup 경계를 고정했다.
+- [ ] **구현:** 위 contract를 concrete `PhysicalPlan`/op Rust 타입과 verifier로 구현한다.
 - [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
 - [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
 - [ ] G3의 첫 kernel로 contiguous/fixed/general-stride add를 연결한다.
@@ -9370,7 +9373,7 @@ Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1
 
 **반환 경계 후속 검토:** `cx.c`는 explicit modifier가 non-noun을 반환할 때 첫 implicit locative를 fix하고, `af.c::jtfixa`는 치환한 operand로 modifier를 다시 실행해 새 derived entity를 만든다. 따라서 본문에서 `(,"u.) y`를 즉시 실행하면 `u.` header `_`를 쓰지만, `,"u.`를 반환해 `u=+`로 fix한 뒤 실행하면 새 entity의 RHS header 0을 쓴다. `[2,3]` 입력의 ravel 결과는 각각 `[6]`과 `[2,3,1]`이다. 이 재구성은 기존 entity의 rank를 late lookup으로 바꾸는 것과 다르다. C 기본·AVX2와 Rust의 반환 구문 10건을 먼저 직접 대조했고, 동일 결과를 확인했다. 추가 Rust 회귀와 공통 runtime corpus로 이 차이를 보존한다. 런타임 구현 변경은 필요하지 않았다.
 
-**Return-boundary gate:** native Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. C 기본·AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases**, 실패 0. capture graph **250건**, static **2건** 경계는 별도다. report 10개의 실제 source/reference/binary hash를 다시 확인했다. 추가한 10개 공통 구문은 세 runtime 경로와 stage 모두에 포함한다. 위 Verb-rank gate와 이 Return-boundary gate는 이전 단계의 기록이다. 최신 검증은 NV2 gate다. 미검증 범위와 optimizer/CUDA/Linux/GitHub CI 유보는 동일하다.
+**Return-boundary gate:** native Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. C 기본·AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases**, 실패 0. capture graph **250건**, static **2건** 경계는 별도다. report 10개의 실제 source/reference/binary hash를 다시 확인했다. 추가한 10개 공통 구문은 세 runtime 경로와 stage 모두에 포함한다. 위 Verb-rank gate와 이 Return-boundary gate는 이전 단계의 기록이다. **당시에는 NV2가 최신 gate였지만 현재 최신 검증은 §10의 NV3d2b2a이며, graph-readiness 이력은 GF6a까지 진행됐다.** 미검증 범위와 optimizer/CUDA/Linux/GitHub CI 유보는 동일하다.
 
 Sources: [cx.c modifier return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c implicit operand](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [af.c reconstruct modifier](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193).
 
@@ -10856,7 +10859,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 - sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
 - G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
 - frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend 검증(NV2 core 인식 단계): Windows default/portable 각각 **435 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,380 cases / 5,380 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases / failed 0**. capture graph 257건과 static 2건의 경계는 별도다. vocabulary 후보 145개 중 POS 검증 143 / enqueue 미지원 0 / code-only 거부 후보 2이며 bare 함수 binding/AR 140개와 noun payload 3개를 비교했다. 실행 지원률을 뜻하지 않는다. frontend report 10개·vocabulary report 2개와 별도 재귀 oracle 경계 기록을 유지한다. full upstream·definition acceptance·private C trace 동등성은 미검증이다.
+- 최신 frontend/numeric 검증은 **NV3d2b2a**다: Windows default/portable 각각 **474 passed / 17 ignored**, fmt/clippy/build 통과, Python **30 passed**. j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. 양 DLL numeric syntax는 각각 **2,485 cases / failed 0**이며 accepted noun controls 182, lexical-error equality 1,244, valid payload boundary 850, integer conversion boundary 2, C reference precision boundary 200, quad construction boundary 1, NaN word-formation boundary 4를 기록한다. unresolved recognition/error 경계가 각 1건 남아 있으므로 이를 성공 실행이나 정확한 오류 동등성으로 세지 않는다. vocabulary POS 143 / bare binding·AR 140 / noun payload 3, capture graph 257, static 2, runtime prefix 285 / executable prefix passes 0은 별도다. 최신 graph-readiness 검증은 **GF6a(463 passed / 17 ignored)**이며 semantic-proof discharge·fusion selection·성능·GPU 실행 완료를 뜻하지 않는다. full upstream·definition acceptance·private C trace·Linux/GitHub CI/CUDA는 여전히 미검증/보류다.
 - MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
 - TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
 - 실제 CUDA storage/kernel은 없다.
@@ -11415,7 +11418,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 | Semantic Construction / binding / dynamic semantics | **문서 계약 닫힘 / 일부 구현 미완료** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition frame, gerund/rank/hook/fork, §3.7.1 explicit-definition control-flow handoff | InvocationFrame, Branch/CondBranch, block-merge/CFG lowering은 **planned**이고 현재 A3 Terminator는 Return만 존재 |
 | J Semantic → J Graph IR | **문서 계약 닫힘** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, Graph/Execution 분리, §4.1.0 canonical suite로 `@:`/ordinary+capped fork/hook/rank/reduce/prefix-infix를 동일 형식 비교 | 남은 gap은 form별 실제 lowering/test coverage이지 stage ownership 설명 부재가 아님 |
 | Graph analysis → candidate/proof | **문서 계약 보강됨 / 구현 부분** | §4.1.4에 orthogonal evidence, derived lifecycle, evidence owner, guarded legality, overlap/selection 규칙을 통합 | 공통 `CandidateEvidence/ProofBundle`·obligation discharge·SelectionPlan은 **미구현**. 개별 proof algorithm의 세부 구현은 해당 optimizer 착수 시 verifier/test와 함께 확정 |
-| J Graph → Execution Semantic Lowering → A3 | **대체로 충분** | direct lowering, Graph/Execution fact drift check, Execution Basis, SemanticCheck, effect/error/speculation, verifier, schema version, canonical mean trace | A3-v0는 실제로 single-block 중심이다. explicit-definition control-flow → region/block handoff의 실제 E2E 예제가 더 필요함 |
+| J Graph → Execution Semantic Lowering → A3 | **문서 계약 대체로 닫힘 / CFG 구현 미완료** | direct lowering, Graph/Execution fact drift check, Execution Basis, SemanticCheck, effect/error/speculation, verifier, schema version, canonical mean trace, §3.7.1 planned/current control-flow handoff | A3-v0는 실제로 single-block/Return-only다. 남은 것은 문서 예제가 아니라 **Branch/CondBranch/block merge를 포함한 executable explicit-definition CFG lowering과 differential E2E** |
 | Route analysis / partition | **문서 계약 보강됨 / 구현 부분** | §2.5.1에 live-in/out, effect live-out, SemanticCheck, guard, representation-neutral bridge, region legality 계약을 통합 | 현재 `RouteRegion { class, operations }`와 contiguous grouping은 v0 helper. 실제 bridge/region-wide verifier와 mixed-route executor는 미구현 |
 | Schedule / Physical Planner | **M4-v0 문서 계약 고정 / 구현 미완료** | §5.2.1에 `PlanBufferId ≠ runtime BufferId`, PhysicalView, BindInput/Check/View/Materialize/Kernel/Return, lifetime/reuse/verifier/error-cleanup 계약을 정의 | 실제 `PhysicalPlan` 타입·planner·executor는 미구현. Transfer/Sync/async는 M4 이후 |
 | Native Executor | **M4-v0 계약 대체로 닫힘 / 구현 미완료** | §5.2.1/§5.3에 op 역할, verifier, cleanup/error, executor non-responsibility, canonical mean planned route를 연결 | 실제 Physical Executor와 differential E2E test가 없음. stateful/async execution contract는 후속 |
@@ -11465,6 +11468,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 - 구현 타입 이름과 문서의 개념 이름이 다르면 “현재 구현명 / 목표 개념명”을 명시한다.
 - 목표 architecture 그림과 현재 구현 상태를 같은 시제로 쓰지 않는다.
 - framework 비교를 수정하면 `FOUNDATIONS`, `PROJECT`, `README`, `AGENTS`에 같은 주장을 중복해 둔 곳이 없는지 교차 검색한다.
+- 새 validation gate를 완료해 정본에 기록할 때 문서 상단 `최신 검증`과 §12 현재 요약도 같은 변경에서 갱신한다. historical gate의 “최신” 표현은 당시 시점임을 명시한다.
 - 한 stage의 상세 절이 길어질수록 **입력/출력/금지/다음 경계** 요약을 절 앞이나 끝에 유지한다.
 - 문서 감사에서 발견한 항목을 별도 Markdown 보고서로 분리하지 않는다. 이 절과 §10/§16의 기존 체크리스트에 흡수한다.
 
