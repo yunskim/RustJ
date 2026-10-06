@@ -1,8 +1,9 @@
 //! Call-local comparison-policy snapshot for the implemented RustJ CPU subset.
 //!
 //! This is a semantic execution input, not an A3 hash/physical strategy.
-//! The interpreter currently exposes only the legacy fixed `near` policy:
-//! no J `!.t` fit or `9!:19` global tolerance change is implemented.
+//! Runtime equality now uses a pinned *default* J CCT snapshot (jsource
+//! `TCMPEQ`); the historical Rust `near` rule remains only as an explicit
+//! regression witness. Neither J `!.t` Fit nor `9!:19` CCT mutation exists.
 //! Keeping an explicit snapshot prevents callers from mistaking a float
 //! dtype or an A3 SearchDescriptor for permission to reuse tolerant tables.
 //! A future dynamic policy must carry a runtime version and be guarded before
@@ -12,6 +13,8 @@
 enum ComparisonPolicyIdentity {
     /// Existing CPU `kernels::near` contract; NOT a general J CCT witness.
     FixedRustNearV0,
+    /// Pinned jsource C `TCMPEQ`, with initial `cct = 1.0 - 2^-44`.
+    PinnedJDefaultCctV0,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +29,13 @@ impl ComparisonPolicySnapshot {
         }
     }
 
+    /// Current default J comparison policy, not dynamic CCT support.
+    pub(crate) const fn pinned_j_default_cct() -> Self {
+        Self {
+            identity: ComparisonPolicyIdentity::PinnedJDefaultCctV0,
+        }
+    }
+
     /// Keep the existing floating predicate *bit-for-bit* on the supported
     /// path. In particular, do not replace it with a divide, min/max ratio,
     /// nontransitive hash representative, or jsource's masked-bucket probe.
@@ -36,6 +46,10 @@ impl ComparisonPolicySnapshot {
                     || (a.is_finite()
                         && b.is_finite()
                         && (a - b).abs() <= 2f64.powi(-44) * a.abs().max(b.abs()))
+            }
+            ComparisonPolicyIdentity::PinnedJDefaultCctV0 => {
+                let cct = 1.0 - 2f64.powi(-44);
+                (a > cct * b) != (b <= cct * a)
             }
         }
     }
@@ -64,6 +78,15 @@ mod tests {
         assert!(legacy.float_equal(a, on_upper_boundary));
         assert!(!source_cct_macro_model(a, on_lower_boundary, cct));
         assert!(!source_cct_macro_model(a, on_upper_boundary, cct));
+        let pinned = ComparisonPolicySnapshot::pinned_j_default_cct();
+        assert_eq!(
+            pinned.float_equal(a, on_lower_boundary),
+            source_cct_macro_model(a, on_lower_boundary, cct)
+        );
+        assert_eq!(
+            pinned.float_equal(a, on_upper_boundary),
+            source_cct_macro_model(a, on_upper_boundary, cct)
+        );
 
         for (x, y) in [
             (0.0, -0.0),
