@@ -12,11 +12,10 @@
 use std::ops::Range;
 
 use crate::{
-    j_graph_ir::{GraphBasis, GraphFacts, GraphForm, NodeKind, Plan, ValueId},
-    primitive::PrimitiveId,
     contracts::Valence,
+    j_graph_ir::{GraphBasis, GraphFacts, GraphForm, NodeKind, Plan, ValueId},
+    primitive::{AdverbId, PrimitiveId},
     semantic::{ForkSemantics, FunctionEntity, FunctionHead, FunctionOperand},
-    primitive::AdverbId,
 };
 
 pub const JSOURCE_SOURCE_PIN: &str = "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528";
@@ -124,7 +123,7 @@ const GROUP: &[ProofRequirement] = &[
 pub const JSOURCE_FAMILY_RULES: &[JsourceFamilyRule] = &[
     JsourceFamilyRule {
         family: JsourceFamily::ReductionFastPath, stable_id: "jsource.reduce-fast-path",
-        source_file: "jsrc/ar.c", source_symbol: "jtreduce", owner: DecisionOwner::ExecutionSemantics,
+        source_file: "jsrc/ar.c", source_symbol: "jtreduce", owner: DecisionOwner::ExecutionAlgorithm,
         discovery: DiscoveryCoverage::AnalysisOnly, proof_requirements: NUMERIC,
     },
     JsourceFamilyRule {
@@ -219,8 +218,22 @@ pub const JSOURCE_FAMILY_RULES: &[JsourceFamilyRule] = &[
     },
 ];
 
+impl JsourceFamilyRule {
+    /// Public, revision-pinned upstream location for source verification.
+    /// The symbol is kept separately because GitHub does not link C symbols
+    /// portably across all supported revisions.
+    pub fn pinned_source_url(&self) -> String {
+        format!(
+            "https://github.com/jsoftware/jsource/blob/{}/{}",
+            JSOURCE_SOURCE_PIN, self.source_file
+        )
+    }
+}
+
 pub fn family_rule(family: JsourceFamily) -> &'static JsourceFamilyRule {
-    JSOURCE_FAMILY_RULES.iter().find(|r| r.family == family)
+    JSOURCE_FAMILY_RULES
+        .iter()
+        .find(|r| r.family == family)
         .expect("every discoverable family must have a source-provenance rule")
 }
 
@@ -261,7 +274,7 @@ impl JsourceOpportunity {
 /// guessing from value-flow alone could accidentally match named/dynamic
 /// functions or a capped/noun-left fork with different semantics.
 fn is_mean_fork(function: &FunctionEntity) -> bool {
-    if !matches!(function.head, FunctionHead::Fork)
+    if !matches!(&function.head, FunctionHead::Fork)
         || function.fork_semantics != Some(ForkSemantics::Ordinary)
     {
         return false;
@@ -273,16 +286,16 @@ fn is_mean_fork(function: &FunctionEntity) -> bool {
     ] = function.operands.as_slice() else {
         return false;
     };
-    if !matches!(divide.head, FunctionHead::PrimitiveVerb(PrimitiveId::Divide))
-        || !matches!(count.head, FunctionHead::PrimitiveVerb(PrimitiveId::Tally))
-        || !matches!(reduction.head, FunctionHead::PrimitiveAdverb(AdverbId::Insert))
+    if !matches!(&divide.head, FunctionHead::PrimitiveVerb(PrimitiveId::Divide))
+        || !matches!(&count.head, FunctionHead::PrimitiveVerb(PrimitiveId::Tally))
+        || !matches!(&reduction.head, FunctionHead::PrimitiveAdverb(AdverbId::Insert))
     {
         return false;
     }
     matches!(
         reduction.operands.as_slice(),
         [FunctionOperand::Function(add)]
-            if matches!(add.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add))
+            if matches!(&add.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add))
     )
 }
 
