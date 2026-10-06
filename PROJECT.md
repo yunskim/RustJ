@@ -2432,6 +2432,24 @@ Hardware lowering applies uniformly to built-in J primitives and extension-deriv
 
 Do not create a special hardware path only for extensions.
 
+## 12.2 External adapter boundary contract
+
+An external adapter is a projection of a verified RouteRegion/Logical IR, not a replacement for RustJ semantics. Its input includes region live-ins/outs, ordered operations and SemanticChecks, effect/error edges, provenance, discharged legality evidence/guards, resolved TargetContext, and logical representation requirements.
+
+Capability queries must distinguish operation/ExecutionBasis/valence, dtype, rank/shape/dynamic-shape conditions, representation/layout preconditions, numeric/tolerance/reassociation policy, effect/token support, error/check representation, alias/mutation, and async/completion semantics. `supports Add` alone is not a sufficient contract.
+
+An adapter result must retain a verifiable projection record: adapter/schema identity, source RouteRegion/A3 provenance, emitted external operations/module, host-side checks, mapped effect/token edges, BridgeRequirements, external handles, completion/ownership contract, and failure classification.
+
+Every A3 SemanticCheck must either run on the RustJ side before launch in the same observable order, lower to an external form proven to preserve the same J error class/precedence, or make the region ineligible for that route. Backend traps/assertions/compile failures are not automatically J Domain/Rank/Length errors.
+
+Pure regions may require no token. Stateful/effectful regions may be projected only when equivalent ordering/resources can be represented. Representation/layout/device choices remain bridge/physical concerns and must not change logical dtype/shape/atom order.
+
+The adapter round-trip verifier checks that every source semantic operation maps to translated work, a retained host check, or an explicit bridge/effect action; live-in/out contracts survive; no checks/effect/error edges are dropped or reordered; emitted forms match declared capabilities; output ownership/completion precedes consumer use; provenance maps back to A3/J Graph/source; and unsupported partial modules are never returned as executable success plans.
+
+Keep failure classes distinct: AdapterUnsupported, AdapterCompileFailure, AdapterRuntimeFailure, and actual JSemanticError. Pre-execution failures may choose a verified alternate route under the no-replay contract; failures after committed effects/transfers do not trigger automatic replay.
+
+This is an implementation gate for future MLIR/StableHLO/ArrayFire/library routes. It does not claim that a production external adapter exists today, and it does not resume CUDA work.
+
 ---
 
 # Part X — Flow–Storage and materialization
