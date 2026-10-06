@@ -3575,6 +3575,43 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 
 **I/O tracking:** All storage, slow-I/O and out-of-core acceptance work belongs to the [IO-01–IO-30 checklist](#out-of-core-io-checklist). M2→M3→M4 semantic/CPU baseline remains the project priority; IO-A primary-source audits may proceed concurrently. Do not create another checklist.
 
+<a id="heterogeneous-execution-checklist"></a>
+
+### HE — Heterogeneous CPU/GPU execution planning (2026-10-07; links M4→M6)
+
+**Decision.** RustJ is a heterogeneous array compiler, not a CPU thread-parallel compiler. CPU workers are a *device-local physical realization*, not a top-level canonical `Parallel IR` or `Parallel Physical Planner`. Retain `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`. Keep this checklist inside §17; do not fork the canonical roadmap or create an additional required IR. **This design decision does not lift the existing CUDA hold.**
+
+**Primary implementation comparisons (inspiration, not adoption of whole dependencies):**
+
+| Reference | Evidence | RustJ adaptation and limit |
+|---|---|---|
+| [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) and [passes](https://iree.dev/reference/mlir-passes/Stream/) | flow → stream → HAL differentiates executable regions, target affinity/resource readiness, async scheduling and backend execution | Plan for device-affinity, readiness/completion and lifetime downstream, not a mandatory new Stream IR |
+| [Kokkos View](https://kokkos.org/kokkos-core-wiki/ProgrammingGuide/View.html) and [Memory Spaces](https://kokkos.org/kokkos-core-wiki/API/core/memory_spaces.html) | ExecutionSpace is independent of MemorySpace; coherence/accessibility need fences | Do not equate executor location and memory residency, and never assume managed memory makes movement free |
+| [MLIR scf.forall](https://mlir.llvm.org/docs/Dialects/SCFDialect/) / [tensor.parallel_insert_slice](https://mlir.llvm.org/docs/Dialects/TensorOps/) | iteration topology, target mapping and disjoint result slices are separate; side effects may be unordered | Preserve A3 iteration shape; require explicit J legality proof for concurrent effects/errors and output assembly |
+| [XLA parallel task assigner](https://github.com/openxla/xla/blob/main/xla/service/cpu/parallel_task_assignment.cc) | internal CPU task count driven by FLOPs, bytes and overhead | Device-local CPU cost input only, not a global mixed-device scheduling model |
+| [Futhark multicore scheduler](https://github.com/diku-dk/futhark/blob/master/rts/c/scheduler.h) / [Rayon](https://docs.rs/rayon/latest/rayon/) | chunk/task amortization and worker scheduling | CPU backend implementation detail; no thread counts in Graph/Logical IR |
+
+**Stage and identity contracts.** (1) `logical_ir.rs` retains J value/shape/rank/CellApply, empty-frame virtual fill, late name/version, comparison/fit, effect and ordered observable errors. `IterationAxisKind::Parallel` is an *opportunity*, never a legality proof. (2) The existing `lowering.rs` legality/witness/guard boundary governs splitting, reordering and concurrency; Unknown is not proof. (3) `RouteRegion` placement (CPU/GPU/external) and the intra-device execution mode (sequential/SIMD/workers/GPU grid) are separate axes. A deterministic all-CPU, sequential, zero-transfer plan is valid. (4) Semantic `ValueId`, plan buffer/version identities, runtime leases/BufferId, memory-space residency and readiness are distinct. (5) Future Physical Execution Plans must represent transfer, computation, synchronization, completion, effect/error order, and ownership/lifetime edges. No concurrent overlapping outputs, check-after-effect, arbitrary first-lane error, or opportunistic resource release. (6) ResourceEstimate, CostEstimate, and empirical CostProfile remain separate; consider critical-path work/depth, memory capacity/bandwidth/residency, bytes and latency of transfers, compute/launch/synchronization overhead, peak in-flight bytes, and overlap only where dependencies allow it. Unknown resource is not feasible, unknown cost is not zero. (7) Native all-CPU M4 first; external MLIR/StableHLO remains independently eligible; CUDA/multi-device and async execution require later verified hardware and an explicit resumption request.
+
+**Single integrated checklist:**
+
+| Gate / phase | State | Acceptance |
+|---|---|---|
+| HE-00 / concurrent with M2 | [x] Architecture comparison and boundary decision recorded | Design only: this section, `FOUNDATIONS`, `AGENTS`; does **not** establish executable parallel/GPU support |
+| HE-01 / M4 | [ ] Single-device, all-CPU, zero-transfer verified PhysicalPlan and end-to-end execution | Original `BindInput/Check/View/Materialize/Kernel/Return` sequential slice vs `logical_executor` and actual J reference |
+| HE-02 / M4→M5 | [ ] Distinct execution device / memory space / intra-device scheduler contracts and verifier | Graph/A3 unchanged, unknown feasibility rejected, live resources and disjoint output checks |
+| HE-03 / M5 | [ ] Semantic ExecutionLegality report and witnesses/guards through existing lowering | Dynamic names, error/effect order, alias, Rank fill, guarded fallback and negative tests |
+| HE-04 / M5 | [ ] CPU sequential/SIMD/worker candidates and observed cost model | Work size, bandwidth, launch/pool overhead, nested oversubscription and output parity |
+| HE-05 / M5 | [ ] Device-memory placement and transfer readiness/cost | Buffer versions, residency, capacity, copy/prefetch/migrate, sync, `IO-20` shared contract |
+| HE-06 / after M5 | [ ] Benchmark/compare a single-CPU baseline against modeled mixed candidates | Distinguish cold/warm, work, copies, transfer and actual runtime; do not claim a GPU implementation |
+| HE-07 / after M6 | [ ] Actual CPU+GPU completion/transfer runtime and end-to-end checks | **Deferred** pending explicit restart and verified device; versions, failures, async, unsupported route |
+| HE-08 / after M6 | [ ] J semantic tests for CellApply/reduce/scan parallelizations | Zero frame vs empty cell, type/shape joining, boxed/sparse, tolerance, reassociation and ordered errors |
+| HE-09 / after M5 | [ ] Explain and validate schedule decisions/measurements | Choice/witness/guard reasons, bytes moved, synchronization, peak residency and J equivalence |
+
+**Sequence:** HE-00 design → existing M2/M3 convergence → M4/HE-01 CPU baseline → HE-02/03 legality and identities → HE-04/05/06 backend-local worker/placement/cost candidates → HE-07/08/09 only when ready. Do not create a duplicate movement model: join the existing IO-20 planner scope. Follow §11 testing and never mark HE-01–09 complete based only on documentation.
+
+---
+
 <a id="dynamic-boundary-checklist"></a>
 
 ### DB — dynamic semantic boundary migration (DB0–DB7)
