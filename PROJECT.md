@@ -3206,7 +3206,7 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 
 ## 13.2 Slow I/O / out-of-core array execution (2026-10-06; design candidate, not implemented)
 
-**Goal.** Evaluate arrays/NN weights larger than RAM/GPU capacity without changing J-visible values, type/shape/atom order, Rank zero-frame prototype behavior, errors or effects. Avoid unnecessary source reads, then overlap bounded I/O with compute. This is a `5/`13 physical planning/scheduling/runtime extension, **not a new J language construct, nor a prerequisite for the first M4 native CPU vertical slice**. The single acceptance checklist is [`17 IO](#out-of-core-io-checklist).
+**Goal.** Evaluate arrays/NN weights larger than RAM/GPU capacity without changing J-visible values, type/shape/atom order, Rank zero-frame prototype behavior, errors or effects. Avoid unnecessary source reads, then overlap bounded I/O with compute. This is a physical planning/scheduling/runtime extension, governed by the canonical §8.5 contract, **not a new J language construct, nor a prerequisite for the first M4 native CPU vertical slice**. The single acceptance checklist is [§17 IO](#out-of-core-io-checklist).
 
 | Source | What is borrowed | What is NOT implied |
 |---|---|---|
@@ -3449,6 +3449,8 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 <a id="architecture-migration-checklist"></a>
 
 ## 17. Active migration checklist
+
+**I/O tracking:** All storage, slow-I/O and out-of-core acceptance work belongs to the [IO-01–IO-30 checklist](#out-of-core-io-checklist). M2→M3→M4 semantic/CPU baseline remains the project priority; IO-A primary-source audits may proceed concurrently. Do not create another checklist.
 
 <a id="dynamic-boundary-checklist"></a>
 
@@ -4045,7 +4047,12 @@ Completion rule: future progress reports for this work use JE0–JE6 item number
 
 ### IO — Slow I/O / out-of-core migration acceptance checklist (2026-10-06)
 
-**Status: documented; 0/30 implementation acceptance gates passed.** Sequence: IO-A primary-source/semantic contract (may proceed during M2) → IO-B synchronous reference (after initial M4 CPU slice) → IO-C proven read minimization → IO-D bounded async → IO-E weight reuse/placement → IO-F measurement/expansion. Do not make this a prerequisite of M2, the generic FW checklist, or the first native CPU vertical slice. [ ] = not accepted even if partial code exists; [x] requires actual change SHA, commands/environment, tests including negative cases, J oracle coverage where relevant, unsupported limits and CI status.
+**Status: documented; 0/30 implementation acceptance gates passed.**
+
+**Checklist operating protocol.** IO-01–IO-30 is the single acceptance ledger for slow-I/O/out-of-core work; retain stable IDs and do not duplicate in new roadmaps. For each iteration: (1) choose the smallest ready unchecked unit by prerequisites, (2) pin original Jsource/add-on and comparison-framework evidence plus rights/capability boundaries, (3) establish baseline semantic and negative fixtures, (4) implement only the legally allowed physical change, (5) compare pinned J C oracle / independent Rust synchronous / optimized routes and measure memory and I/O, and (6) record commit, actual command/environment, results, gaps and blockers in the corresponding row. A source review or design is not implementation acceptance. Preserve [ ] on unexecuted/failed/unsupported gates and cross-link existing FW/DB/G4/G5 gates.
+
+**Next ready investigation (not accepted):** IO-01 and IO-25 source pin/path matrix plus IO-02 observable foreign-file I/O effects, error ordering and mapping contracts. No IO-* implementation or C-oracle gate has been accepted: **0/30**.
+ Sequence: IO-A primary-source/semantic contract (may proceed during M2) → IO-B synchronous reference (after initial M4 CPU slice) → IO-C proven read minimization → IO-D bounded async → IO-E weight reuse/placement → IO-F measurement/expansion. Do not make this a prerequisite of M2, the generic FW checklist, or the first native CPU vertical slice. [ ] = not accepted even if partial code exists; [x] requires actual change SHA, commands/environment, tests including negative cases, J oracle coverage where relevant, unsupported limits and CI status.
 
 | ID / stage | Checklist | Acceptance evidence / prerequisite |
 |---|---|---|
