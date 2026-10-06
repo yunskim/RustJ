@@ -1075,6 +1075,7 @@ impl Engine {
         source: &str,
     ) -> Result<crate::compilation::CompilationAnalysis> {
         let j_graph = self.analyze_j_graph_diagnostic(source)?;
+        let jsource_opportunities = j_graph.jsource_opportunities();
         let graph_rewrites = j_graph.rewrite_candidates();
         let graph_rewrite_resources =
             crate::j_graph_resource::evaluate_rewrite_candidates(&j_graph, &graph_rewrites)
@@ -1092,6 +1093,7 @@ impl Engine {
         .map_err(|error| error.in_phase(DiagnosticPhase::SemanticAnalysis))?;
         Ok(crate::compilation::CompilationAnalysis {
             j_graph,
+            jsource_opportunities,
             graph_rewrites,
             graph_rewrite_resources,
             logical,
