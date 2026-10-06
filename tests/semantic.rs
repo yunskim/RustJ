@@ -170,6 +170,31 @@ fn fw02_reference_does_not_build_or_consume_name_prehash() {
 }
 
 #[test]
+fn zero_frame_rank_search_uses_fill_cell_type_and_shape() {
+    // The fill call is a generic Rank/CellApply semantic requirement, not
+    // a special-case index-of output constructed by the physical planner.
+    for (source, dtype, shape) in [
+        ("(i.0 3) (i.\"1 1) (i.0 3)", 4, vec![0, 3]),
+        ("(i.0 3) (i:\"1 1) (i.0 3)", 4, vec![0, 3]),
+        ("(i.0 3) (e.\"1 1) (i.0 3)", 1, vec![0, 3]),
+    ] {
+        let mut engine = Engine::new();
+        let reference = engine
+            .eval_semantic_reference(source)
+            .unwrap_or_else(|error| panic!("semantic Rank failure for {source}: {error:?}"))
+            .unwrap();
+        let optimized = engine
+            .eval(source)
+            .unwrap_or_else(|error| panic!("optimized Rank failure for {source}: {error:?}"))
+            .unwrap();
+        assert_eq!(reference.type_code(), dtype, "{source}");
+        assert_eq!(reference.shape(), shape, "{source}");
+        assert_eq!(reference.len(), 0, "{source}");
+        assert_eq!(optimized.json(), reference.json(), "{source}");
+    }
+}
+
+#[test]
 fn semantic_reference_preserves_values_and_transactions() {
     let mut direct = Engine::new();
     let mut ir = Engine::new();
