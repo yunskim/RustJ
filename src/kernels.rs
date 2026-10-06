@@ -59,10 +59,9 @@ fn real(op: Op, a: f64, b: f64) -> f64 {
     }
 }
 pub(crate) fn near(a: f64, b: f64) -> bool {
-    a == b
-        || (a.is_finite()
-            && b.is_finite()
-            && (a - b).abs() <= 2f64.powi(-44) * a.abs().max(b.abs()))
+    // One semantic comparator identity for equality and all search modes.
+    // This preserves the existing fixed predicate, not full dynamic J CCT.
+    crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near().float_equal(a, b)
 }
 
 fn int_pair<const OP: u8>(
