@@ -126,12 +126,16 @@ In addition to jsource compatibility, RustJ's middle-end design draws from prior
   FHPC'16: https://elsman.com/pdf/fhpc16futhark.pdf
 - **Remora**: a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family.  
   Paper: https://arxiv.org/abs/1907.00509
-- **Bohrium**: a precedent for collecting existing NumPy-style array programs into a delayed IR and deciding fusion, materialization, and heterogeneous realization later.  
+- **Bohrium**: a precedent for lazily collecting NumPy-style array operations so fusion, allocation/materialization, host-device movement, and backend-specific execution can be delayed. It should not be read as a system that dynamically chooses CPU versus GPU for every operation.  
   Publications: https://bohrium.readthedocs.io/publications.html
-- **Lift**: a comparison point for separating high-level map/reduce rewrites from hardware mapping.  
+- **Lift**: a comparison point for rewrite-driven progression from portable map/reduce patterns toward OpenCL-specific functional patterns and hardware mappings. It is not a strict separation of rewriting from hardware mapping.  
   Paper: https://doi.org/10.1109/CGO.2017.7863730
 - **MLIR Linalg**: a reference for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops.  
   Docs: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+- **JAX / jaxpr**: a contrast point for an explicitly typed, functional, first-order ANF that is convenient for transformations, not a precedent for preserving J source-combinator provenance.  
+  Docs: https://docs.jax.dev/en/latest/601/jaxpr.html
+- **XLA HLO Fusion**: a contrast point for a committed IR representation in which a fusion computation is already grouped. RustJ's `FusionCandidate` is an earlier pre-selection analysis object.  
+  Docs: https://openxla.org/xla/operation_semantics#fusion
 
 RustJ does not copy these compilers wholesale. It preserves **full J semantics first** and selectively adopts ideas such as:
 
