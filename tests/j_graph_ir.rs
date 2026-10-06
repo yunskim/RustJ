@@ -1,3 +1,4 @@
+use rustj::facts::RankFrameExecution;
 use rustj::{
     Engine,
     j_graph_ir::{
@@ -365,4 +366,97 @@ fn nested_regions_do_not_assume_unique_result_ownership() {
     );
     let (_, outermost) = graph.region_for_result(result).expect("outer region");
     assert!(matches!(outermost.kind, RegionKind::Pipeline { .. }));
+}
+
+#[test]
+fn graph_rank_frame_geometry_distinguishes_zero_frames_from_empty_cells() {
+    use rustj::logical_ir::OpKind;
+
+    let mut engine = Engine::new();
+    for binding in [
+        "zero_rows=:i.0 3",
+        "empty_rows=:i.2 0",
+        "zero_inner=:i.2 0 3",
+        "mismatch_left=:i.2 3",
+        "mismatch_right=:i.3 3",
+    ] {
+        engine.eval(binding).unwrap();
+    }
+
+    for (source, expected_frame, expected_cell, kind, empty_cell) in [
+        (
+            "+/\"1 zero_rows",
+            Some(vec![0]),
+            vec![3],
+            RankFrameExecution::ZeroFrameNeedsFill,
+            false,
+        ),
+        (
+            "+/\"1 empty_rows",
+            Some(vec![2]),
+            vec![0],
+            RankFrameExecution::CellsPresent,
+            true,
+        ),
+        (
+            "+/\"1 zero_inner",
+            Some(vec![2, 0]),
+            vec![3],
+            RankFrameExecution::ZeroFrameNeedsFill,
+            false,
+        ),
+        (
+            "mismatch_left (+\"1 1) mismatch_right",
+            None,
+            vec![3],
+            RankFrameExecution::IncompatibleFrames,
+            false,
+        ),
+    ] {
+        let graph = engine.analyze_j_graph(source).unwrap();
+        graph.verify().unwrap();
+        let result = graph.result.unwrap();
+        let rank = graph
+            .rank_frame_plan(result)
+            .unwrap_or_else(|| panic!("missing J Graph Rank frame geometry: {source}"));
+        assert_eq!(rank.result_frame, expected_frame, "{source}");
+        assert_eq!(rank.right_cell, expected_cell, "{source}");
+        assert_eq!(rank.frame_execution(), kind, "{source}");
+        assert_eq!(rank.has_empty_input_cell(), empty_cell, "{source}");
+        assert_eq!(
+            rank.requires_empty_frame_prototype,
+            kind == RankFrameExecution::ZeroFrameNeedsFill,
+            "{source}"
+        );
+        let a3 = engine.analyze_a3(source).unwrap();
+        let a3_result = a3.result.unwrap();
+        let operation = &a3.operations[a3.values[a3_result.0].producer.0].kind;
+        let call = match operation {
+            OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => call,
+            _ => panic!("expected Rank A3 call: {source}"),
+        };
+        assert_eq!(call.rank_plan.as_ref(), Some(&rank), "{source}");
+        if kind == RankFrameExecution::ZeroFrameNeedsFill {
+            // The J Graph and A3 keep output shape/type unknown because
+            // fill-cell evaluation and error/effect semantics are unresolved.
+            assert!(graph.nodes[result.0].facts.shape.is_none(), "{source}");
+        }
+    }
+}
+
+#[test]
+fn graph_rank_geometry_is_not_execution_permission_or_fabricated_for_other_ops() {
+    let engine = Engine::new();
+    let plain = engine.analyze_j_graph("1+2").unwrap();
+    assert!(plain.rank_frame_plan(plain.result.unwrap()).is_none());
+
+    let mut engine = Engine::new();
+    engine.eval("a=:i.0 3").unwrap();
+    let graph = engine.analyze_j_graph("(+/\"1) a").unwrap();
+    let result = graph.result.unwrap();
+    let rank = graph.rank_frame_plan(result).unwrap();
+    assert_eq!(rank.frame_execution(), RankFrameExecution::ZeroFrameNeedsFill);
+    assert!(graph.nodes[result.0].facts.shape.is_none());
+    // Rejecting or permitting zero-frame lowering still requires a separate
+    // proof of the fill-cell's errors, effects and result type.
 }
