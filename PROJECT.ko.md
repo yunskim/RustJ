@@ -3463,6 +3463,8 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **정확한 RK-06 불일치 입력과 결과(추가 검증).** [새 진단 CI 37452934704](https://github.com/yunskim/RustJ/actions/runs/37452934704)의 `j64/default` job 출력에서 `(0 3 $ 'abc') (+"1 1) (i.0 3)`은 pinned jsource의 **정수형(타입코드 4), shape `[0,3]`, 빈 데이터**에 대해 독립 Rust reference/optimized가 모두 **`domain error`**를 반환했다. `(i.0 3) ((+"0 0)"1 1) (i.0 3)`은 C의 **Int(타입코드 4), shape `[0,3]`, 빈 데이터**에 대해 Rust 양 경로가 모두 **`unsupported`**를 반환했다. J 원본의 fill-cell 계산 오류 처리(`cr.c::jtrank2ex`의 비필수 오류 억제·재시도 포함)와 계층적 Rank 재귀 의미론을 독립 확인해야 하며, **빈 결과를 전부 원래 입력 타입으로 처리하거나 단순히 `domain error`를 무시하는 수정은 금지한다.** 위 증거는 `j64/default` job의 실제 세 경로 출력이다.
 
+**RK-06 추가 C-oracle 관찰 항목(작성 완료, CI 검증 대기).** [`a4ffb0c`](https://github.com/yunskim/RustJ/commit/a4ffb0c240e5a4271bb9f20b86627f0f5fca157f), [`b241c97`](https://github.com/yunskim/RustJ/commit/b241c9730e1993cda3a402b9256f1e184d9fc501), [`d5f8a03`](https://github.com/yunskim/RustJ/commit/d5f8a0312952e3d47ee53a48b7eb6b1a67c0d012)에서 `tools/ranked_search_audit.py --adversarial`을 기존 24→**32 입력**으로 확대했다. 새 8건은 char/int 방향, char/float·bool, 한쪽 인자만 빈 frame, 정상 frame의 실제 char/int 셀과 빈 셀, 중첩 Rank 비빈 셀을 포함한다. `jsrc/cr.c::jtrank2ex`의 `EVINHOMO` fill-cell 재시도(원래 데이터 비어 있는지에 따라 타입 선택), *재시도 후* 비필수 계산 오류의 scalar 0 대체, exigent 오류 전달을 **서로 다른 의미론 경계**로 관찰하기 위한 탐색 corpus다. 고정 J oracle의 32건 실제 실행 결과를 확인하기 전에는 어느 사례도 성공으로 간주하지 않으며 RK-06·07·ZF-IR-03은 [ ] 유지. 기존 20건 엄격 회귀 gate는 변경하지 않는다.
+
 **지속 체크리스트 (RK-11 및 FW-04/JX-04의 하위 항목).**
 
 | ID | 현재 | 수정·검증 수용 기준 |
