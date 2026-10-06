@@ -925,14 +925,16 @@ impl Engine {
                 // value-only fill-cell evaluation. Unknown/user definitions
                 // retain the explicit effect/prototype boundary.
                 let primitive_fill = self.rank_fill_is_value_only(operand, depth)?;
-                let atomic_add = self.primitive_witness(operand, depth)?
-                    == Some(crate::primitive::PrimitiveId::Add);
+                let primitive = self.primitive_witness(operand, depth)?;
+                let atomic_add = primitive == Some(crate::primitive::PrimitiveId::Add);
+                let primitive_catenate = primitive == Some(crate::primitive::PrimitiveId::Ravel);
                 crate::logical_executor::apply_ranked(
                     ranks,
                     x,
                     y,
                     primitive_fill,
                     atomic_add,
+                    primitive_catenate,
                     |x, y| self.call_entity(operand.clone(), x, y, pooled, depth),
                 )
             }
