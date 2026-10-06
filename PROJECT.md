@@ -2227,6 +2227,45 @@ Two source-level counterexamples block automatic equivalence:
 
 **Validation limits:** This is a pinned-source plus RustJ design/code **static audit**. No Cargo, CI, J/C differential execution or benchmarks were run. Not an exhaustive audit of every source file, all assembly/architecture microkernels, all build variants or current jsource HEAD; never claim zero omissions or working optimizations based on this section alone.
 
+<a id="jsource-index-family"></a>
+
+### N. Roger Hui's Index-Of family: phased integration in RustJ (2026-10-06)
+
+**Sources.** Roger Hui, *Index-Of, A 30-Year Quest* (J Conference 2014; [bibliographic evidence](https://www.sigapl.org/Articles/APL%20Since%201978_3386319.pdf)) and *Hashing for Tolerant Index-Of* ([Jsoftware, 2010](https://www.jsoftware.com/papers/Hashing.htm)). Actual dispatch, preconditions, fallback and mode ownership were examined in pinned [\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c), [\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c) and [\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c). Neither the historic paper nor the existence of a C specialized routine proves a RustJ optimization legal or profitable.
+
+**Separate J operations from search algorithms.** Dyadic \`i.\` (first match), \`i:\` (last match), \`e.\` (membership), \`~.\` (nub), \`~:\` (nub sieve), \`-.\` (less), \`I.@e.\` (matching positions), and Key classification can share a lookup engine, but result representation, rank/cell/frame, duplicate representative, empty/prototype and tolerance differ. Dyadic \`I.\` is **interval lookup**, not ordinary index-of; \`E.\` is a **substring/window match** owned by existing \`FindViaWindowMatch\`; monadic \`i.\`/\`i:\` generate index spaces. Do not fuse these semantic identities merely because their C implementations share a source file.
+
+| Upstream strategy | Guard and cost premise | RustJ ownership |
+|---|---|---|
+| Sequential scan | Tiny inputs where setup dominates ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1113-L1148)) | Execution algorithm/reference |
+| Direct indexing, bit-packed byte/small integer range | Integer domain span, presence-vs-position table width, initialization and cache locality ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1148-L1238)) | Physical algorithm/cost |
+| Hash and reverse hash | Index-vs-query relative cardinality, duplicate order ([\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850)) | Physical algorithm/cost |
+| Tolerant float/complex/boxed hashing | Runtime cct/\`!.\`, nontransitive approximate equality, +0/-0, NaN, exact insertion, neighboring intervals ([\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L78)) | Equality semantics/proof **before** target algorithm |
+| Boxed sort→binary search | Source \`jtiobs\` is limited to \`ct=0\` and selected boxed shapes ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L735-L840)) | Target algorithm after equivalence witness |
+| Sparse and Key self-classification | Sparse fill/axes, stable first occurrence ([\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c#L68-L106), [\`ao.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L213-L255)) | LookupClassify/GroupBy, representation-specific |
+| Prehash reuse / fused result modes | Dictionary key/type/rank/tolerance/version and lifetime; output index/boolean/compact/count/any/all ([\`vi.c\` modes](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185)) | Execution result intent and costed cache planning |
+
+#### N.1 First implemented slice — preserve canonical IR
+
+- \`src/index_ops.rs\`: \`LookupResult::{First,Last,Membership}\` and a shared \`lookup(indexed,queries,result)\`. Membership now **produces boolean results directly**, without a materialized index-position vector, preserving the prior frame/rank and incompatible-cell behavior.
+- Exact **integer/boolean scalar-only** inputs may use \`ExactScalarIndex::Direct\` or \`Hashed\`; small queries remain sequential. The direct table has a fixed **65,536-entry** ceiling, provisional \`span <= 4 * (indexed items + queries)\` heuristic, and \`items * queries <= 32\` sequential cutoff. Compute key span via \`i128\` to avoid signed overflow; preserve first/last duplicates and not-found. These numbers are **initial heuristic bounds, not benchmark-tuned cost evidence**.
+- Float/boxed/complex or non-scalar cells remain on generic sequential \`atom_eq\` fallback. No tolerance hash is enabled.
+- \`src/j_graph_jsource.rs\`: include dyadic \`i:\` in \`SearchAlgorithm\`; remove \`E.\` from this family (existing FindViaWindowMatch rewrite owns it); keep dyadic \`I.\` and monadic \`i.\`/\`i:\` distinct. Graph candidate legality remains unproven/unselected.
+- Add index tests for duplicate/negative/missing, boolean membership, bounded direct vs hash, extreme i64 key spans, and provenance separation. **Tests were added, not executed; this is static code integration only.**
+
+This is a narrow improvement to the CPU reference path, **not** full upstream \`i.\` support and **not** Graph-driven fast-path commitment.
+
+#### N.2 Necessary extensions, not an IR redesign
+
+Retain \`ExecutionBasisKind::LookupClassify\`, J Graph source identity, canonical A3, and target/cost planner. A3's current \`ExecutionBasisPayload::LookupClassify\` does not yet encode resolved search result/representative/tolerance contracts. Introduce a future **Execution Semantic sidecar** (e.g. \`SearchDescriptor\`) with search relation, first/last/self-classify, output position/presence/compact/count, cell/frame, numeric comparison policy, sortedness/uniqueness witness and prehash versioned key. This must preserve \`FunctionEntity\`, dynamic tolerance and binding provenance.
+
+1. Validate duplicate order, rank/cells, mixed types, box/sparse/empty/fit and J-visible error semantics with a C J oracle before broadening algorithm options.
+2. Extend direct byte/packed-index tables, reverse hash and explicit prehash in separate increments with target cost/alias/cache/key-invalidation evidence; handle GPU resource constraints separately.
+3. Treat tolerant hashing as a dedicated research and equivalence gate: near equality is not generally transitive; matching float hashes and matching equality classes cannot be naively identified. Guard cct, signed zero, NaN, boxed recursion, first/last matches and pre-effect fallback.
+4. Feed proven algorithm recipes into \`LoweringRegistry\` with independent target/resource/cost evidence. Do not treat legal ordinary execution routes as equivalence witnesses for newer specializations.
+5. Require Rust/C differential plus benchmarks for claims of general legality or speed; CI, Cargo, differential runs and performance measurement were **not performed** in this implementation slice.
+
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
