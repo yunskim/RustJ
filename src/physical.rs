@@ -57,12 +57,22 @@ pub struct SearchPhysicalChoice {
 /// Alternative algorithms are kept visible in the registry; this function
 /// picks one conditional implementation without mutating the canonical IR.
 /// Thresholds are provisional, not TVM-style measured tuning records.
+#[cfg(test)]
+thread_local! {
+    // Same-thread test-only witness: reference execution must never invoke
+    // physical search choice, even when the optimized evaluator does.
+    static SEARCH_PLANNER_CALLS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
 pub fn plan_search_algorithm(
     output: crate::logical_ir::SearchOutputKind,
     target: &crate::lowering::TargetCapabilities,
     workload: SearchWorkload,
     runtime_exact_scalar_guard: bool,
 ) -> SearchPhysicalChoice {
+    #[cfg(test)]
+    SEARCH_PLANNER_CALLS.with(|count| count.set(count.get() + 1));
     use crate::logical_ir::SearchComparison;
     use crate::lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R};
 
@@ -561,5 +571,43 @@ impl PhysicalArray {
             CpuView::Char(v) => Some(CpuView::Char(v.get(start..end)?)),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod search_reference_isolation_tests {
+    use super::SEARCH_PLANNER_CALLS;
+    use crate::Engine;
+
+    #[test]
+    fn fw02_semantic_reference_never_calls_physical_search_planner() {
+        let mut engine = Engine::new();
+        engine.eval("keys=:i.256").unwrap();
+        SEARCH_PLANNER_CALLS.with(|count| count.set(0));
+
+        let reference = engine
+            .eval_semantic_reference("keys i. 17 255 999")
+            .unwrap()
+            .unwrap();
+        engine
+            .eval_semantic_reference("keys i: 17 255 999")
+            .unwrap();
+        engine
+            .eval_semantic_reference("17 255 999 e. keys")
+            .unwrap();
+        assert_eq!(
+            SEARCH_PLANNER_CALLS.with(|count| count.get()),
+            0,
+            "reference executor unexpectedly entered physical search planner"
+        );
+
+        // Positive control: an ordinary optimized path must exercise this
+        // counter; otherwise a zero on the reference path proves nothing.
+        let optimized = engine.eval("keys i. 17 255 999").unwrap().unwrap();
+        assert_eq!(reference.json(), optimized.json());
+        assert!(
+            SEARCH_PLANNER_CALLS.with(|count| count.get()) > 0,
+            "test instrumentation must observe an optimized planner call"
+        );
     }
 }
