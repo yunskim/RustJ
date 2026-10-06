@@ -2342,6 +2342,22 @@ Added A3 search-mode/origin and forged-payload verifier tests, registry CPU/GPU/
 
 **Independently researched inputs:** Roger Hui, [*Index-Of, a 30-Year Quest*](https://www.jsoftware.com/papers/indexof/indexof.htm) and [*Hashing for Tolerant Index-Of*](https://www.jsoftware.com/papers/Hashing.htm), grounded against pinned [jsource vi.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [viavx.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850), [viavx2.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L98); Marshall Lochbaum, [*BQN: Implementation of search functions*](https://mlochbaum.github.io/BQN/implementation/primitive/search.html) for small-input SIMD, direct 1/2-byte tables, sparse **table initialization**, one-shot reverse hashing, cache-sensitive hashing, collision monitoring and radix partitioning. **BQN sparse lookup means selective initialization of a dense-address lookup table; it does not mean J axis-sparse array semantics.** BQN is a physical algorithm reference, never a J semantic oracle. §O's MLIR/IREE/TVM/XLA comparison supplies independent legality/target/resource/cost ownership rules.
 
+#### P.0 Stage-aligned deferred optimization policy and M2 priority audit (2026-10-06)
+
+**Finding: the boundaries mostly fit RustJ's design, but the work sequence and early execution specialization require correction.** The canonical project priority is **M2 word formation → enqueue → J parser/name/POS/derived-entity semantic convergence**, then M3 boundaries and an M4 native-CPU vertical slice. `FOUNDATIONS.ko.md` Part XX requires preserving high-level rank/train/reduce/scan and source provenance while separating logical legality from target-specific scheduling, profitability and materialization. **Delayed optimization** does not mean postponing semantic analysis or candidate discovery. It means **postponing commitment to a special executable algorithm until the semantic, target, resource and cost evidence exists.**
+
+| Work area | Audit | Stage gate |
+|---|---|---|
+| J primitive/valence/rank/search semantics; `!.t` and global `cct`, error precedence, first/last, nontransitivity and source-macro counterexamples | **Current semantics work** | Resolve via M2 reference/differential tests and M3 semantic contracts; jsource is an **oracle**, not an architecture to replicate |
+| J Graph topology, A3 `SearchDescriptor`, SSA provenance, `LookupClassify` | **Keep** | Record comparison, rank/frame, input direction, result intent and unknown facts; no physical buckets/hash/SIMD in canonical meaning |
+| `JsourceOpportunity`, `SearchAlgorithmReadiness`, `ComparisonPolicySnapshot` | **Keep only as inert evidence/semantic seams** | Opportunities remain unselected; tolerant route stays `NeedsSemanticProof`. Fixed Rust snapshot does not constitute dynamic J `cct` support |
+| Existing runtime CPU Int/Bool Direct/Hash/Reverse/Prehash | **Limited interpreter optimization; freeze expansion** | Retain only under exact scalar runtime guards and sequential fallback. This is not a verified general PhysicalPlan. Prioritize reverting to reference if a semantic regression appears |
+| Research-only tolerant exponent buckets and BQN SIMD/small-range tables, open addressing, radix/partition, tuning or production tolerant hashing | **Deferred / frozen** | Reassess after M2 semantics, M3 verification, M4 reference CPU slice, J differential and cost measurements. Keep research only under `#[cfg(test)]` |
+
+**Immediate work:** Compare real J C results with Rust reference for `=`, `i.`, `i:`, `e.`, `E.` across default/changed tolerance, rank/cells/frames, boxed/sparse/empty and error order. Record the observed `TCMPEQ` boundary mismatch as a **semantic parity obligation**, not a mandate to port `viavx2.c`. Do not let this research displace the general M2 frontend convergence tasks.
+
+**Resume gate:** Only reconsider executable specializations after validated reference semantics, independently sourced differential evidence, runtime guard/fallback, an M4 CPU baseline, and hard-resource/profitability evidence. P.1 stages 8–11 are **removed from the near-term work queue**; unfinished 5–7/12 remain unchecked. Never introduce a new RustJ IR node or executor path for each jsource C special case.
+
 #### P.1 Phased checklist and gates
 
 | Stage | Checklist item | Owner and acceptance gate | Status |
