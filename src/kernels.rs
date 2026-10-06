@@ -724,9 +724,12 @@ pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) 
     }
     let frames = count(frame)?;
     if frames == 0 {
-        return Err(Error::Unsupported(
-            "dyadic rank over empty frame (prototype inference)".into(),
-        ));
+        // Rank semantics, not an index-of exception: execute once on the
+        // corresponding typed fill cells and retain only result type/shape.
+        let left_fill = a.rank_fill_cell(ar)?;
+        let right_fill = b.rank_fill_cell(br)?;
+        let prototype = dyad(verb, left_fill, right_fill)?;
+        return prototype.empty_rank_result(frame);
     }
     let ad = count(&frame[af.len()..])?;
     let bd = count(&frame[bf.len()..])?;
