@@ -275,3 +275,71 @@ pub(super) fn execute(plan: &PhysicalPlan, logical: &LogicalPlan) -> PlanResult<
     }
     materialize(&remapped)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view(value: Value, kind: ReindexKind) -> PhysicalArray {
+        let (shape, strides, offset) = view_recipe(&value, kind).unwrap();
+        let mut registry = BufferRegistry::new().unwrap();
+        let backing = PhysicalArray::from_value(&mut registry, value).unwrap();
+        // A view owns its lease, independent of the registry's lifetime.
+        PhysicalArray::new(backing.buffer().clone(), shape, strides, offset).unwrap()
+    }
+
+    #[test]
+    fn two_dimensional_reverse_and_transpose_use_distinct_affine_maps() {
+        let input = Value::ints([2, 3], vec![1, 2, 3, 4, 5, 6]).unwrap();
+
+        let reversed = view(input.clone(), ReindexKind::Reverse);
+        assert_eq!(reversed.shape(), [2, 3]);
+        assert_eq!(reversed.strides(), [-3, 1]);
+        assert_eq!(reversed.offset(), 3);
+        let result = materialize(&reversed).unwrap();
+        let expected = Value::ints([2, 3], vec![4, 5, 6, 1, 2, 3]).unwrap();
+        assert_eq!(result.json(), expected.json());
+
+        let transposed = view(input, ReindexKind::Transpose);
+        assert_eq!(transposed.shape(), [3, 2]);
+        assert_eq!(transposed.strides(), [1, 3]);
+        assert_eq!(transposed.offset(), 0);
+        let result = materialize(&transposed).unwrap();
+        let expected = Value::ints([3, 2], vec![1, 4, 2, 5, 3, 6]).unwrap();
+        assert_eq!(result.json(), expected.json());
+    }
+
+    #[test]
+    fn zero_atom_frames_preserve_type_and_shape_without_indexing() {
+        let input = Value::ints([0, 3], vec![]).unwrap();
+        let reversed = view(input.clone(), ReindexKind::Reverse);
+        assert_eq!(reversed.shape(), [0, 3]);
+        assert_eq!(
+            materialize(&reversed).unwrap().json(),
+            input.json()
+        );
+
+        let transposed = view(input, ReindexKind::Transpose);
+        assert_eq!(transposed.shape(), [3, 0]);
+        let expected = Value::ints([3, 0], vec![]).unwrap();
+        assert_eq!(materialize(&transposed).unwrap().json(), expected.json());
+    }
+
+    #[test]
+    fn physical_array_rejects_negative_stride_outside_backing() {
+        let mut registry = BufferRegistry::new().unwrap();
+        let source = PhysicalArray::from_value(
+            &mut registry,
+            Value::ints([3], vec![1, 2, 3]).unwrap(),
+        )
+        .unwrap();
+        let error = PhysicalArray::new(
+            source.buffer().clone(),
+            [3],
+            vec![-1],
+            0,
+        );
+        assert!(matches!(error, Err(Error::Index)));
+    }
+}
