@@ -195,6 +195,23 @@ fn zero_frame_rank_search_uses_fill_cell_type_and_shape() {
 }
 
 #[test]
+fn nested_rank_of_intrinsic_primitive_keeps_zero_frame_cell_shape() {
+    // The outer Rank still needs a fill-cell result; an inner Rank of a
+    // concrete primitive has a value-only witness, unlike an arbitrary verb.
+    let source = "(i.0 3) ((+\"0 0)\"1 1) (i.0 3)";
+    let mut engine = Engine::new();
+    let reference = engine
+        .eval_semantic_reference(source)
+        .expect("closed semantic nested Rank")
+        .unwrap();
+    let optimized = engine.eval(source).expect("runtime nested Rank").unwrap();
+    assert_eq!(reference.shape(), &[0, 3]);
+    assert_eq!(reference.type_code(), 4);
+    assert_eq!(reference.len(), 0);
+    assert_eq!(optimized.json(), reference.json());
+}
+
+#[test]
 fn semantic_reference_preserves_values_and_transactions() {
     let mut direct = Engine::new();
     let mut ir = Engine::new();
