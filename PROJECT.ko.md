@@ -3496,12 +3496,12 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 ###### Q.4 FW-01/JX-02의 첫 Key `/.` 파생 동사 구성 — 실행과 최적화 허가는 분리 (2026-10-06)
 
-**현황:** `FW-01 [ ]`, `JX-02 [ ]`, `JX-12 [ ]`, `JX-01 [ ]` 유지. `/. `를 **word/POS 인식에서 동사 피연산자 파생 동사의 비실행 구성까지** 이행한 부분 단계다. Key·Oblique의 범용 연산, 명사 gerund의 구성, GroupBy 최적화는 아직 구현·승인되지 않았다.
+**현황:** `FW-01 [ ]`, `JX-02 [ ]`, `JX-12 [ ]`, `JX-01 [ ]` 유지. `/.`를 **word/POS 인식에서 동사 피연산자 파생 동사의 비실행 구성까지** 이행한 부분 단계다. Key·Oblique의 범용 연산, 명사 gerund의 구성, GroupBy 최적화는 아직 구현·승인되지 않았다.
 
 **고정 원본 계약:** `jsrc/ao.c::jtsldot`는 `u/.`를 하나의 derived verb로 생성하면서 **단항 `jtoblique` / 이항 `jtkey`**를 별도 등록하고 세 innate rank 모두 `RMAX`로 설정한다. 동사 피연산자는 직접 보존하고, **명사 gerund 피연산자는 `fxeachv`로 별도 해석**하므로 '모든 명사 피연산자'가 유효하다는 뜻은 아니다. `jtkeyct`는 분류에 `CCT`와 `indexofsub(IFORKEY)`를 쓰고 group별 실행으로 넘어가며, sparse·boxed·특수 reduction 경로는 guard/fallback이 다르다. 따라서 Key 실행을 일반 해시 GroupBy로 단순 치환하면 안 된다. 이 기록은 고정 SHA `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`의 `ao.c` 및 `cf.c` 확인에 한정한다.
 
 **이번 이행의 세부 체크리스트(전체 FW/JX 게이트와 분리):**
-- [x] `src/primitive.rs`의 `AdverbId::Key` 추가, `/. `를 중복 `VocabularyPrimitive`에서 제거, `REGISTRY_VERSION = 9`. `EnqueueClass::Adverb` 유지. 단독 modifier는 여전히 실행하지 않는다.
+- [x] `src/primitive.rs`의 `AdverbId::Key` 추가, `/.`를 중복 `VocabularyPrimitive`에서 제거, `REGISTRY_VERSION = 9`. `EnqueueClass::Adverb` 유지. 단독 modifier는 여전히 실행하지 않는다.
 - [x] `src/parser.rs::apply_adverb`의 기존 동사-left 구조 경로에서 `FunctionHead::PrimitiveAdverb(Key)`와 원래 함수 operand를 보존하는 파생 동사 구성. `src/semantic.rs::innate_ranks`에 `[63;3]` 반영.
 - [x] `src/j_graph_ir.rs`에서 Key 파생 함수를 **불투명 `GraphForm::Modifier`**로 표현. Reduce/Window/GroupAggregate 후보를 합성하지 않으며 `JsourceFamily::GroupAggregate`는 `AwaitingFrontendOrFacts` 상태 유지.
 - [x] 정상·부정 Rust 회귀: `tests/semantic.rs::key_derived_verb_keeps_operator_and_operand_without_licensing_execution`, `tests/j_graph_jsource.rs::key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection`, vocabulary/POS 테스트 및 기존 `tests/primitive.rs` 확장. 단항·이항 syntax는 parse되지만 실행은 명시적 `unsupported`; 명사 `3/.`도 지원된다고 가장하지 않음.
