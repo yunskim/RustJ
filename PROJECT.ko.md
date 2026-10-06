@@ -3071,6 +3071,47 @@ RustJ
 
 **미조사 잔여 범위:** assembly/architecture-specific microkernels 전수, 모든 primitive dispatch·runtime allocator, feature flags별 빌드 차이 및 현재 master 전체에 대한 일대일 diff는 완료하지 않았다. 이번 감사 결과를 "jsource 최적화 누락 없음" 또는 full-J support로 해석하지 않는다.
 
+<a id="jsource-index-family"></a>
+
+##### N. Roger Hui의 Index-Of family와 RustJ 단계적 구현 (2026-10-06)
+
+**연구·원본 근거.** Roger Hui, *Index-Of, A 30-Year Quest* (J Conference, 2014; [후대의 서지 기록](https://www.sigapl.org/Articles/APL%20Since%201978_3386319.pdf)) 및 *Hashing for Tolerant Index-Of* ([Jsoftware 논문](https://www.jsoftware.com/papers/Hashing.htm), 2010). RustJ 설계의 실행 근거는 별도로 [고정 jsource \`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c), [\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c), [\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c)의 dispatch/실행/guard이다. 발표의 역사적 중요성과 소스의 구현 상태를 구분한다.
+
+**의미론상 연산 family / 알고리즘 family 구별.** J의 \`x i. y\`(first), \`x i: y\`(last), \`x e. y\`(membership), \`~. y\`(nub), \`~: y\`(nub sieve), \`x -. y\`(less), \`I.@e.\`(indices), \`u/. y\`(Key classification) 등은 equality/search를 공유할 수 있지만 **output convention, representative selection, rank/cell/frame, empty/prototype, tolerance/fit**은 서로 다르다. \`I.\` **이항**은 sorted interval index로 별도 \`IntervalLookup\`; \`E.\`는 연속 부분배열 window match이고 \`FindViaWindowMatch\`가 기존 소유자다. \`E.\`를 일반 \`i.\` 해시 후보로 분류하지 않는다. \`i. 4\`·\`i: 4\`의 단항 Generate도 dyadic 검색과 다른 의미다.
+
+| jsource의 공유 검색 경로 | 선택의 관건 | RustJ 프레임워크 소유 계층 |
+|---|---|---|
+| Sequential scan | 아주 작은 검색 문제에서 해시 구축비 회피; [\`vi.c\` 후보 판정](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1113-L1148) | Execution algorithm/초기 CPU reference |
+| Dense direct indexing, boolean/byte, bit-packed 및 좁은 integer range | \`[min,max]\` 값 범위, index-vs-presence table 폭, 초기화 비용·캐시 한도; [\`vi.c\` small-range 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1148-L1238) | Physical algorithm과 cost, logical membership/position 분리 |
+| General hash (first/last), reverse hashing | 입력·질의 상대 크기, duplicate representative, 해시 방식 및 저장 용량; [\`viavx.c\` reverse 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850) | Execution algorithm/Physical strategy |
+| Tolerance-aware float/complex/boxed search | \`!.ct\`/runtime \`cct\`, **근사동등성의 비추이성**, +0/-0, NaN, 두 인접 bucket 후보·exact insert vs tolerant probe; [\`viavx2.c\` dual-bucket 구현](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L78) | Semantic equality witness **후** target-specific implementation. 단순 표준 \`HashMap<f64, ..>\` 불가 |
+| Boxed sort→binary search fallback | 실제 jsource \`jtiobs\`는 \`ct=0\`과 제한된 boxed 구성만; [\`vi.c\` guard](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L735-L840) | Target algorithm, stable representative/비교 관계 증명 |
+| Sparse search 및 Key self-classification | sparse fill/axes/empty, grouping first-occurrence order; [\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c#L68-L106), [\`ao.c::jtkeyct\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L213-L255) | \`LookupClassify\` / \`GroupBy\` → sparse/group route |
+| Prehash 및 result-mode fused loops | 재사용하는 dictionary의 key equality/rank/tolerance/version, saved-table lifetime, output \`first/last/presence/compact/count/any/all\`; [\`vi.c\` mode 목록](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185) | A3 result intent/provenance → cache/algorithm planning; grouped/count output은 별도 유효성 필요 |
+
+###### N.1 첫 구현 단위 — 기존 IR 변경 없이 실행 경로 개선
+
+2026-10-06 코드 연결:
+
+- \`src/index_ops.rs\`: 내부 \`LookupResult::{First,Last,Membership}\`과 공통 \`lookup(indexed,queries,result)\`로 검색 의도와 materialized output을 분리한다. \`e.\`는 \`i.\`의 정수 위치 배열을 만들지 않고 Boolean 결과를 **직접 생성**한다. 출력 rank·frame과 불일치 셀의 missing/presence semantics는 기존 경로를 보존한다.
+- 같은 파일: **integer/bool scalar**만 \`ExactScalarIndex::Direct\` 또는 \`Hashed\`를 허용한다. 최대 직접 테이블 **65,536 entry**, \`span <= 4 × (indexed items + queries)\`의 단순 memory/work heuristic, \`items × queries <= 32\`면 순차 검색. key span 계산은 \`i128\`으로 overflow를 회피하고, 최초/최후 일치 위치·not-found sentinel을 유지한다. **이 threshold는 측정된 최적 비용이 아니라 보수적인 시작값**이다.
+- Float/complex/boxed/cell 전체 검색은 새 hash/direct 경로를 열지 않고 기존 \`atom_eq\` sequential fallback을 사용한다. 특히 비추이적 tolerant equality를 일반 key-based hash로 바꾸지 않는다.
+- \`src/j_graph_jsource.rs\`: dyadic \`i:\`를 \`SearchAlgorithm\` 후보에 추가, \`E.\`는 제외하고 이미 있는 \`FindViaWindowMatch\` rewrite 책임을 유지. \`I.\` dyad와 단항 \`i./i:\`의 분리는 유지. candidate \`AwaitingSemanticProofs\`/not selected 정책 불변.
+- \`tests/index_ops.rs\`·\`tests/j_graph_jsource.rs\`, \`src/index_ops.rs\` 내부 테스트에 scalar first/last/membership, negative/duplicate/missing, direct-vs-hash/extreme \`i64\`/small-query, Graph 후보 구분 회귀 사례를 추가했다. **이번에는 테스트를 실행하지 않았으며 정적 연결만 점검**한다.
+
+이 변화는 **CPU reference implementation의 제한된 알고리즘 개선**이지 jsource의 모든 searching mode를 구현했거나 Graph 후보에 최적화 실행 권한을 준 것이 아니다. \`JSOURCE_FAMILY_RULES\`의 \`SearchAlgorithm\` 및 \`TolerantHash\`를 그대로 사용하며 새 Graph basis를 추가하지 않는다.
+
+###### N.2 다음 구현 gate — 프레임워크 재설계 필요성
+
+**전면 수정 불필요, 검색 관련 계약의 국소 보강은 필요하다.** 현재 \`ExecutionBasisKind::LookupClassify\` 및 A3 \`ExecutionBasisPayload::LookupClassify\`만으로는 output mode/representative/tolerance의 resolved semantic identity가 충분히 표현되지 않는다. 향후 \`SearchDescriptor\` 같은 **A3/Execution Semantic sidecar**(search relation, first/last/self-classify, output direct/compact/count, cell/frame, comparison policy, sortedness/uniqueness witness, versioned prehash key)를 추가하고, Graph \`FunctionEntity\`의 원래 구성과 변경 가능한 \`!.ct\` semantics를 보존한다.
+
+1. **Proof/semantics:** first/last/Key의 최초 등장 순서·rank/cell/frame/empty, 타입 혼합/box/sparse/tolerance/fit/error precedence를 J/C로 검증한다. 런타임 tolerance 변경은 cached hash를 무효화하거나 key에 포함한다.
+2. **Algorithm extension:** 직결 출력의 경우에만 중간 materialization 제거 증명; 작은 범위의 1/2/4-byte packed/presence table, reverse hashing, 재사용 가능한 prehash를 **비용/메모리·alias·version guard와 함께** 하나씩 도입한다. GPU route는 전송·local memory·불균일 충돌 등의 physical resource 예산이 먼저다.
+3. **Tolerant hashing 별도 연구 gate:** upstream 두 인접 interval 알고리즘을 그대로 이식하지 말고 \`cct\`/0/NaN/boxed·비추이성·일치 우선순위 증명을 갖춘 \`LookupEqualityWitness\` 아래서만 구현한다. guard miss는 효과 이전 generic J search로 돌아간다.
+4. **선택/평가:** \`JsourcePlanningReport\`의 proven/unproven 구분과 결합, \`LoweringRegistry\`의 algorithm-route capability/target/empirical cost를 분리한다. 고정 65,536·32·4× 값은 benchmark와 실측 캐시 profile 전까지 튜닝값으로 취급한다.
+5. **검증:** Rust reference, C J oracle, mixed rank/empty/sparse/box/exact+tolerant/negative-zero/large cardinality 및 differential/bench를 통과한 후에만 추후 search fast path의 일반 적용을 승인한다. **CI·Cargo·차등 실행·성능 측정은 이번 연결 작업에서 실행하지 않았다.**
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
