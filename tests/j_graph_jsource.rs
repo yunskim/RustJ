@@ -195,6 +195,12 @@ fn compilation_bundle_preserves_independent_existing_rewrite_and_fusion_analysis
 fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
     let g = graph("(+/ % #) 1 2 3 4");
     let opportunities = g.jsource_opportunities();
+    eprintln!("MEAN_DIAG opportunities={opportunities:?}");
+    for region in &g.regions {
+        eprintln!("MEAN_DIAG region={:?} semantics={:?} operands={:?} valence_result={:?}",
+            region.function.head, region.function.fork_semantics,
+            region.function.operands, region.result);
+    }
     let mean = opportunities.iter()
         .find(|c| c.family == JsourceFamily::MeanIdiom)
         .expect("exact mean fork should be recognized");
