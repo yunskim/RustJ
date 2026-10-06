@@ -254,11 +254,13 @@ mod tests {
                             let expected_first = indexed_values
                                 .iter()
                                 .position(|item| item == key)
-                                .unwrap_or(indexed_len) as i64;
+                                .unwrap_or(indexed_len)
+                                as i64;
                             let expected_last = indexed_values
                                 .iter()
                                 .rposition(|item| item == key)
-                                .unwrap_or(indexed_len) as i64;
+                                .unwrap_or(indexed_len)
+                                as i64;
                             assert_eq!(first.int_at(position).unwrap(), expected_first);
                             assert_eq!(last.int_at(position).unwrap(), expected_last);
                             assert_eq!(
