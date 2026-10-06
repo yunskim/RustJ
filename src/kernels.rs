@@ -464,9 +464,9 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
             // Pinned J uses the higher-priority dense type for heterogeneous
             // empty catenate cells, without manufacturing a scalar result.
             if a.is_empty() && b.is_empty() {
-                if let Some(target) = crate::logical_executor::inhomogeneous_catenate_retry_type(
-                    &a, &b, false, false,
-                ) {
+                if let Some(target) =
+                    crate::logical_executor::inhomogeneous_catenate_retry_type(&a, &b, false, false)
+                {
                     return a.rank_refill_as(target);
                 }
             }
