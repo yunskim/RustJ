@@ -135,10 +135,12 @@ class FileIoAuditContractTests(unittest.TestCase):
 
     def test_ordered_case_fails_when_observable_preerror_write_occurred(self):
         class BuggyFake:
+            def __init__(self, target):
+                self.target = target
+
             def run(self, expression):
-                # An incorrectly reordered implementation wrote before read failed.
-                file = Path(expression.split("'")[1])
-                file.write_bytes(b"Z" + INITIAL[1:])
+                # Simulate a forbidden write exclusively within the test temp dir.
+                self.target.write_bytes(b"Z" + INITIAL[1:])
                 return {"error": "file not found"}
 
             def eval(self, expression):
@@ -146,7 +148,8 @@ class FileIoAuditContractTests(unittest.TestCase):
 
         case = next(x for x in ordered_cases() if x.name == "right_error_prevents_left_write")
         with tempfile.TemporaryDirectory() as d:
-            result = _run_ordered_case(BuggyFake(), case, Path(d))
+            target = Path(d) / (case.name + ".dat")
+            result = _run_ordered_case(BuggyFake(target), case, Path(d))
             self.assertEqual(result["status"], "requires_review")
             self.assertFalse(result["steps"][0]["checks"]["file_content"])
 
