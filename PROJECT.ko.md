@@ -2140,6 +2140,61 @@ JAXA의 핵심 연구 대상은 첫 번째 middle-end인 **J Graph Analyzer**다
 - generic execution SSA로 먼저 평탄화한 뒤 J topology를 다시 추측
 - concrete bufferization/schedule 선택
 
+#### 4.1.0 Canonical J Graph example suite
+
+J Graph IR을 읽을 때 예제마다 같은 다섯 질문을 사용한다.
+
+~~~text
+1. source semantic construction은 무엇인가?
+2. applied noun graph는 어떻게 생기는가?
+3. 어떤 J provenance / GraphForm / Region을 보존하는가?
+4. 어떤 optimization candidate를 노출할 수 있는가?
+5. syntax만 보고 무엇을 결정하면 안 되는가?
+~~~
+
+| Source form | semantic construction | applied graph / provenance | 가능한 candidate | syntax만으로 결정 금지 |
+|---|---|---|---|---|
+| `f @: g` | Atop conjunction으로 만든 derived Verb | `input → Apply g → Apply f`, `Pipeline` provenance/region | pipeline fusion, intermediate materialization elision | fused kernel 선택, target placement, error/check removal |
+| `(f g h) y` ordinary fork | `FunctionHead::Fork`, original f/g/h 유지 | shared input fan-out → `h(y)` / `f(y)` → dyadic `g`, `Fork` provenance; observable branch order 보존 | parallel branch, branch-join fusion, retained/live-across | 실제 branch 동시 실행, branch 순서 변경 |
+| `([: g h) y` capped fork | source는 여전히 Fork + immutable capped construction fact | first operand는 실행하지 않고 `h(y) → g(...)` pipeline으로 applied topology 파생 | pipeline fusion/materialization 후보 | ordinary fork처럼 parallel/retained candidate를 부여하거나 `[:`를 callable branch로 실행 |
+| `(f g) y` hook | Hook derived Verb | `g(y)`와 retained/shared `y`를 사용해 dyadic `f`; Hook provenance | retained-input/materialization, legal한 경우 branch/join fusion | shared input을 버리거나 임의 재배치 |
+| `u"r y` | Rank conjunction derived Verb; requested rank/source operand 보존 | outer `CellApply` + inner operation basis; `GraphForm::Rank` | cell-level parallelism, nested CellApply fusion/absorption | rank를 physical loop/thread mapping으로 고정, nested rank boundary collapse |
+| `u/ y` | Insert adverb derived Verb | `GraphForm::Reduce`, outer `GraphBasis::Reduce`, operand `u` provenance | reduction realization, legal한 map/reduce fusion | tree reassociation, identity/empty handling 변경, arbitrary parallel reduction |
+| `u\ y` | Prefix/Infix adverb derived Verb | source Prefix/Infix form + Window-family graph basis; prefix/window semantics 보존 | witnessed Scan candidate, window/reduce rewrite | 곧바로 Scan으로 치환, associativity/error/numeric proof 생략 |
+
+대표 topology:
+
+~~~text
+f @: g
+  input ─→ g ─→ f ─→ result
+          └──── Pipeline provenance ────┘
+
+ordinary fork
+                 ┌─→ h(y) ─┐
+  y ─────────────┤          ├─→ g ─→ result
+                 └─→ f(y) ─┘
+                    Fork provenance
+
+capped fork
+  y ─→ h(y) ─→ g ─→ result
+      source Fork provenance + capped construction fact
+      no executable first branch
+
+hook
+  y ────────────────┐
+   └─→ g(y) ────────┴─→ f ─→ result
+      retained/shared input
+~~~
+
+이 suite의 목적은 모든 form을 하나의 generic graph pattern으로 환원하는 것이 아니다. **같은 applied DAG 모양이 우연히 나와도 source construction provenance가 다르면 legality/error/name semantics가 다를 수 있으므로**, J Graph IR은 applied dependency와 J construction identity를 함께 보존한다.
+
+현재 구현 상태를 과장하지 않는다.
+
+- `@:`/ordinary fork/hook/rank/reduce/prefix-infix의 GraphForm/GraphBasis/hint 기반은 존재한다.
+- capped fork는 source Fork를 유지하면서 h→g pipeline으로 분석하고 parallel/retained hint를 붙이지 않는 회귀가 있다.
+- scan은 source prefix/window 의미를 보존한 뒤 별도 witness/analysis가 candidate를 만들며, source를 즉시 Scan op로 파괴하지 않는다.
+- 위 candidate가 존재한다는 사실은 §4.1.4의 proof-discharge/selection lifecycle이 구현 완료됐다는 뜻이 아니다.
+
 <a id="j-graph-opportunities"></a>
 
 #### 4.1.1 J syntax-derived Structural Opportunity IR: 문법을 optimization information source로 사용한다
