@@ -7907,6 +7907,136 @@ library call은 하나의 backend realization이며 primitive identity와 분리
 
 반대로 register allocation, instruction selection, generic tiling/vectorization, machine-code generation처럼 이미 성숙한 외부 compiler가 더 잘하는 부분은 위임할 수 있다.
 
+#### 5.5.1 External adapter boundary contract
+
+external adapter는 RustJ semantic IR의 대체물이 아니라 **verified RouteRegion/Logical IR의 projection**이다. 첫 실제 MLIR/StableHLO/ArrayFire/library adapter를 구현하기 전에 모든 adapter가 공통으로 만족해야 할 boundary를 고정한다.
+
+입력 계약:
+
+~~~text
+ExternalAdapterInput
+  RouteRegion
+    live_in / live_out
+    ordered operations / SemanticChecks
+    effect/error edges
+    provenance
+  discharged legality evidence / guards
+  resolved TargetContext
+  logical representation requirements
+~~~
+
+adapter는 unresolved legality를 backend optimizer가 알아서 해결할 것이라고 가정하지 않는다.
+
+capability query는 최소 다음 축을 분리한다.
+
+~~~text
+AdapterCapability
+  operation / ExecutionBasis / valence
+  dtype classes
+  rank / shape constraints
+  dynamic-shape support
+  representation / layout preconditions
+  numeric/tolerance/reassociation policy
+  effect/token support
+  error/check representation
+  alias / mutation contract
+  async / completion semantics
+~~~
+
+`supports Add` 하나로는 충분하지 않다. 예를 들어 같은 Add라도 rank/cell mapping, dtype promotion, overflow/error semantics, layout/alias requirement가 다르면 다른 capability query가 필요할 수 있다.
+
+출력은 단순 external module bytes가 아니라 RustJ가 검증할 수 있는 projection record를 포함해야 한다.
+
+~~~text
+ExternalRegionPlan
+  adapter_id / adapter_schema_version
+  source RouteRegion + A3 provenance
+  translated external operations/module
+  host-side checks retained
+  mapped effect/token edges
+  BridgeRequirements
+  external input/output handles
+  completion / ownership contract
+  unsupported/compile-failure classification
+~~~
+
+##### SemanticCheck / error mapping
+
+각 A3 `SemanticCheck`는 다음 중 하나여야 한다.
+
+1. external launch 전에 RustJ host/native side에서 원래 순서대로 실행,
+2. external IR이 **같은 J-visible error class와 precedence**를 보장할 수 있을 때 명시적으로 lowering,
+3. 그렇지 않으면 해당 region을 external route에서 거부.
+
+backend assertion/trap을 무조건 J Domain/Rank/Length error로 바꾸지 않는다. external compiler crash/unsupported/kernel launch failure도 J semantic error가 아니다.
+
+##### Effect / token mapping
+
+- pure region은 token 없이 projection할 수 있다.
+- J-visible write/I/O/state ordering이 있는 region은 backend가 equivalent token/resource ordering을 표현할 수 있을 때만 projection한다.
+- StableHLO token/custom_call 같은 escape hatch가 존재한다는 사실만으로 arbitrary J effect support를 선언하지 않는다.
+- host-side effect와 external async operation이 섞이면 completion token이 §2.5.1 RouteBoundary와 §3.9.4 commit frontier에 연결되어야 한다.
+
+##### Representation bridge / ownership
+
+adapter는 J logical value를 backend layout과 동일시하지 않는다.
+
+~~~text
+A3 Logical Value
+  ↓ BridgeRequirement
+Physical/External bridge lowering
+  ↓
+external tensor/array/handle
+  ↓ completion + ownership
+A3 live_out / next RouteRegion
+~~~
+
+row-major/column-major, dense/sparse encoding, device memory, alignment, zero-copy 가능성은 adapter precondition/bridge/Physical Plan 책임이다. semantic dtype/shape/order를 layout에 맞춰 바꾸지 않는다.
+
+##### Round-trip verifier
+
+adapter output은 최소 다음을 검증할 수 있어야 한다.
+
+- input RouteRegion의 모든 semantic operation이 translated op, host-side check, explicit bridge/effect action 중 정확한 대응을 가진다.
+- live-in/out logical dtype/shape/rank/order contract가 projection 전후에 일치한다.
+- dropped/reordered SemanticCheck/effect/error edge가 없다.
+- adapter capability/witness가 실제 emitted external form의 requirement와 일치한다.
+- external output handle의 ownership/completion이 다음 region이 사용하기 전에 확정된다.
+- source A3 op/J Graph/source span으로 provenance를 역추적할 수 있다.
+- unsupported form은 partial external module을 실행 가능한 성공 plan으로 반환하지 않는다.
+
+이 verifier는 external compiler 자체의 optimizer correctness를 재증명하는 것이 아니라, **RustJ가 넘긴 의미와 adapter가 선언한 projection 사이의 계약**을 검증한다.
+
+##### Failure classes
+
+~~~text
+AdapterUnsupported
+  semantic/capability/precondition상 이 route를 만들 수 없음
+
+AdapterCompileFailure
+  backend compiler/API가 plan 생성에 실패
+
+AdapterRuntimeFailure
+  launch/execution/completion infrastructure 실패
+
+JSemanticError
+  RustJ SemanticCheck/operation contract가 정의한 실제 J error
+~~~
+
+앞의 세 항목을 임의로 `JSemanticError`로 재분류하지 않는다. 실행 전 failure이면 §3.9.4에 따라 verified alternate route를 선택할 수 있지만, observable effect/transfer commit 뒤에는 자동 replay하지 않는다.
+
+##### 첫 adapter 구현 gate
+
+- 하나의 small pure-array region만 지원해도 되지만 capability matrix를 명시한다.
+- unsupported dtype/rank/shape/layout가 fail-closed인지 test한다.
+- host-side SemanticCheck가 external launch보다 먼저 같은 error를 내는지 differential test한다.
+- representation copy/view bridge가 logical atom order를 보존하는지 test한다.
+- output ownership/completion 후에만 consumer region이 접근하는지 test한다.
+- adapter plan에서 source provenance가 round-trip되는지 test한다.
+- external backend를 바꾸어도 같은 verified Logical IR의 J result/error가 유지되는지 비교한다.
+
+현재 **실제 production external adapter가 이 계약을 완료했다는 뜻은 아니다.** M6 이전에는 이 절이 implementation gate 역할만 한다.
+
 ### 5.6 외부 IR 선택 원칙
 
 하나의 외부 IR에 전체 RustJ를 맞추지 않는다.
@@ -8706,7 +8836,7 @@ M4 이후에만 optimizer 선택 문제를 키운다.
 
 #### M6 — External/ArrayFire/GPU route
 
-M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 진행한다.
+M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 진행한다. 모든 adapter는 먼저 §5.5.1 External adapter boundary contract를 만족해야 한다.
 
 - [ ] Graph/Execution Basis ↔ ArrayFire capability matrix를 만든다.
 - [ ] ArrayFire route의 dtype/rank/shape/layout/J-semantic precondition을 명시한다.
