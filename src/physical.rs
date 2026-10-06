@@ -48,6 +48,14 @@ pub struct SearchPhysicalChoice {
     pub estimated_table_entries: usize,
 }
 
+#[cfg(test)]
+thread_local! {
+    // Same-thread test-only witness: reference execution must never invoke
+    // physical search choice, even when the optimized evaluator does.
+    static SEARCH_PLANNER_CALLS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
 /// A small deterministic *physical* cost heuristic. Registered candidates are
 /// checked against target and search output meaning first (MLIR-style dynamic
 /// legality). Actual J comparison/rank/effect proof is NOT inferred from the
@@ -57,14 +65,6 @@ pub struct SearchPhysicalChoice {
 /// Alternative algorithms are kept visible in the registry; this function
 /// picks one conditional implementation without mutating the canonical IR.
 /// Thresholds are provisional, not TVM-style measured tuning records.
-#[cfg(test)]
-thread_local! {
-    // Same-thread test-only witness: reference execution must never invoke
-    // physical search choice, even when the optimized evaluator does.
-    static SEARCH_PLANNER_CALLS: std::cell::Cell<usize> =
-        const { std::cell::Cell::new(0) };
-}
-
 pub fn plan_search_algorithm(
     output: crate::logical_ir::SearchOutputKind,
     target: &crate::lowering::TargetCapabilities,
