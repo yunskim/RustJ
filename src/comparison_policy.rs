@@ -45,6 +45,36 @@ impl ComparisonPolicySnapshot {
 mod tests {
     use super::ComparisonPolicySnapshot;
 
+    // Independent model of pinned jsource jsrc/vcomp.h::TCMPEQ.
+    // This is a source-derived numerical oracle, NOT an executed J C binary.
+    fn source_cct_macro_model(a: f64, b: f64, cct: f64) -> bool {
+        (a > cct * b) != (b <= cct * a)
+    }
+
+    #[test]
+    fn jsource_cct_macro_model_exposes_fixed_near_boundary_gap() {
+        let t = 2f64.powi(-44);
+        let cct = 1.0 - t; // jsrc/i.c initializes cct = 1.0 - FUZZ.
+        let legacy = ComparisonPolicySnapshot::fixed_rust_near();
+        let a = 1.0;
+        let on_lower_boundary = a - t;
+        let on_upper_boundary = a + t;
+
+        assert!(legacy.float_equal(a, on_lower_boundary));
+        assert!(legacy.float_equal(a, on_upper_boundary));
+        assert!(!source_cct_macro_model(a, on_lower_boundary, cct));
+        assert!(!source_cct_macro_model(a, on_upper_boundary, cct));
+
+        for (x, y) in [
+            (0.0, -0.0),
+            (f64::INFINITY, f64::INFINITY),
+            (f64::NEG_INFINITY, f64::NEG_INFINITY),
+            (f64::NAN, f64::NAN),
+        ] {
+            assert_eq!(legacy.float_equal(x, y), source_cct_macro_model(x, y, cct));
+        }
+    }
+
     #[test]
     fn fixed_policy_matches_existing_special_values_and_nontransitive_chain() {
         let policy = ComparisonPolicySnapshot::fixed_rust_near();
