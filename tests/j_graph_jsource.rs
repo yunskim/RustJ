@@ -116,6 +116,35 @@ fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
 }
 
 #[test]
+fn key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection() {
+    use rustj::{
+        j_graph_ir::{GraphForm, NodeKind},
+        primitive::AdverbId,
+        semantic::FunctionHead,
+    };
+
+    for source in ["+/. 1 2 3", "1 0 1 +/. 4 5 6"] {
+        let plan = graph(source);
+        plan.verify().unwrap();
+        assert!(
+            plan.nodes.iter().any(|node| matches!(
+                &node.kind,
+                NodeKind::Apply { function, form: GraphForm::Modifier { .. }, .. }
+                    if function.head == FunctionHead::PrimitiveAdverb(AdverbId::Key)
+            )),
+            "{source} lost its opaque Key modifier identity"
+        );
+        assert!(
+            plan.jsource_opportunities().iter().all(|candidate|
+                candidate.family != JsourceFamily::GroupAggregate
+                    && !candidate.selected
+            ),
+            "{source} incorrectly enabled a Key/GroupBy fast path"
+        );
+    }
+}
+
+#[test]
 fn source_idioms_are_detected_without_fabricating_equivalence_or_execution() {
     for (source, expected) in [
         ("+/1 2 3", JsourceFamily::ReductionFastPath),
