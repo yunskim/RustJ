@@ -2589,6 +2589,8 @@ Pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` provides type-correct fill cells when th
 
 **Work order.** Start with RK-06 adversarial C-oracle Rank/zero-frame fixtures; establish RK-07–10 error/effect/boxed/sparse/assembly semantics; then implement ZF-IR-03 sidecar and Unknown/Guard negative tests; finally validate ZF-IR-04 with independent three-way CPU/physical measurements. This comparison does not advance M3 ahead of M2, or tick ZF-IR-03/04 or FW-06/07.
 
+**Exact RK-06 divergent inputs and outputs.** [Diagnostic CI 37452934704](https://github.com/yunskim/RustJ/actions/runs/37452934704), `j64/default` job: `(0 3 $ 'abc') (+"1 1) (i.0 3)` gives pinned J **integer type code 4**, shape `[0,3]`, empty data, but both Rust routes return **`domain error`**. `(i.0 3) ((+"0 0)"1 1) (i.0 3)` gives pinned J **integer type code 4**, shape `[0,3]`, empty data, but both Rust routes return **`unsupported`**. The full `jsrc/cr.c::jtrank2ex` fill-call/error-recovery contract and nested Rank semantics need separate verification. **Do not fix this by automatically inheriting an input type or indiscriminately suppressing errors.** The stated outputs come from the actual three-way diagnostic log.
+
 **Living sub-checklist (under RK-11 and FW-04/JX-04).**
 
 | Gate | Status | Required evidence |
