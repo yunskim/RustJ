@@ -1,10 +1,10 @@
-[English](FOUNDATIONS.md) | **한국어 — 정본(canonical)**
+[English](FOUNDATIONS.md) | **한국어 — 설계 근거 문서** · 프로젝트 설계 정본은 [PROJECT.ko.md](PROJECT.ko.md)
 
 # RustJ 설계 기반 문서: 왜 J를 컴파일하는가
 
-> 문서 성격: **설계 헌법 / mandatory architecture review**
+> 문서 성격: **설계 근거 / mandatory architecture review reference**
 >
-> 이 문서는 구현 체크리스트가 아니다. RustJ가 왜 compiler-oriented architecture를 택하는지, 그 선택이 J의 역사와 의미론에 비추어 정당한지, 어떤 경우에 compiler가 실제로 J에서 후퇴(regression)가 되는지를 설명하는 **기본 판단 문서**다.
+> 이 문서는 구현 체크리스트나 아키텍처 정본이 아니다. RustJ가 왜 compiler-oriented architecture를 택하는지, 그 선택이 J의 역사와 의미론에 비추어 정당한지, 어떤 경우에 compiler가 실제로 J에서 후퇴(regression)가 되는지를 설명하는 **기본 판단 근거**다.
 >
 > 다음 영역을 변경하기 전에는 반드시 이 문서를 다시 검토한다.
 >
@@ -17,7 +17,7 @@
 > - CPU/GPU target 및 target locale
 > - compiler가 지원하지 못하는 J form의 처리 정책
 >
-> 실제 아키텍처와 구현 진행 상태의 권위 문서는 PROJECT.ko.md다. 이 문서는 그 설계가 **왜 그런 방향이어야 하는가**를 규정한다. 두 문서의 원칙이 충돌한다면 조용히 한쪽을 무시하지 말고, 설계 결정 자체를 다시 검토하고 두 문서를 함께 갱신한다.
+> **RustJ의 유일한 설계·아키텍처·구현 상태 정본은 [PROJECT.ko.md](PROJECT.ko.md)다.** 이 문서는 그 설계를 평가할 역사적·의미론적 근거와 불변조건을 제공한다. 이 문서에 등장하는 구체 타입명·모듈명·pass명·IR 자료구조 예시는 원칙을 설명하기 위한 비권위적 표기이며, 실제 채택 구조와 현재 상태는 PROJECT.ko.md만 따른다. 두 문서가 충돌하면 둘을 별도 권위로 취급하지 말고, PROJECT.ko.md의 설계와 이 문서의 근거를 함께 재검토해 불일치를 해소한다.
 
 ---
 
@@ -634,7 +634,7 @@ adjoint/VJP expansion
 
 이 정보는 일반 SSA DAG로 모두 표현 가능하지만, **표현 가능하다는 것과 source가 이미 알려 준 구조를 버려도 된다는 것은 다르다.**
 
-일반 DAG로 먼저 평탄화한 뒤 pipeline/branch/join을 다시 pattern-match하면 J 문법이 제공한 정보를 버렸다가 복원하는 셈이다. RustJ는 따라서 semantic structure를 펼칠 때 target-independent StructuralOpportunity sidecar를 동시에 생성한다.
+일반 DAG로 먼저 평탄화한 뒤 pipeline/branch/join을 다시 pattern-match하면 J 문법이 제공한 정보를 버렸다가 복원하는 셈이다. RustJ는 따라서 semantic structure를 펼칠 때 **target-independent topology와 source provenance를 함께 보존해야 한다.** 그 정보를 어떤 타입·sidecar·region으로 저장할지는 PROJECT.ko.md의 정본 설계가 정한다.
 
 중요한 구분:
 
@@ -652,9 +652,9 @@ syntax-derived opportunity
 ~~~text
 J combinator structure
   ↓
-StructuralOpportunity / GraphHint
+topology + source provenance
   ↓
-FusionCandidate / parallel-schedule candidate
+rewrite / fusion / parallel candidate
   ↓
 semantic proof + target/resource/cost side analysis
   ↓
@@ -687,7 +687,7 @@ MLIR Linalg, TAIL/Futhark, Remora, Bohrium, Lift를 비교하고, 일반적인 f
 - Bohrium처럼 기존 array API의 연산을 lazy하게 수집하여 fusion과 allocation/materialization, host-device data movement를 늦출 수 있다. 다만 Bohrium은 backend를 미리 선택해 사용할 수도 있으므로, 이를 “각 op마다 CPU/GPU를 동적으로 선택하는 체계”의 선례로 과장하지 않는다.
 - Remora는 Graph IR 구조의 직접 선례가 아니라 **rank polymorphism, frame/cell, implicit lifting을 정형화한 semantic model**이다. RustJ가 이 semantic structure를 J Graph IR에 보존하는 것은 RustJ의 별도 설계 결정이다.
 - JAX의 jaxpr은 explicitly typed, functional, first-order ANF라는 execution/transformation IR의 단순성에 대한 좋은 대조점이다. RustJ는 그 장점을 Execution IR에서 참고하되, jaxpr이 J source combinator provenance 보존의 선례라고 주장하지 않는다.
-- XLA HLO의 `Fusion` op는 HLO instruction 집합이 이미 하나의 fusion computation으로 표현된 **committed IR state**다. XLA 자체에도 fusion discovery/costing pass가 있으므로, RustJ와의 차이는 “XLA에는 후보 단계가 없다”가 아니라 **RustJ J Graph IR의 `FusionCandidate`가 그 committed state보다 앞선 pre-selection 분석 객체**라는 점이다.
+- XLA HLO의 `Fusion` op는 HLO instruction 집합이 이미 하나의 fusion computation으로 표현된 **committed IR state**다. XLA 자체에도 fusion discovery/costing pass가 있으므로, RustJ와의 차이는 “XLA에는 후보 단계가 없다”가 아니라 **RustJ가 committed fusion보다 앞선 pre-selection candidate 단계를 유지해야 한다**는 점이다. 구체 candidate 타입과 lifecycle은 PROJECT.ko.md가 정한다.
 
 따라서 현재의 불변식은 다음과 같다.
 
@@ -782,7 +782,7 @@ J combinator ───────┼─ graph topology
 즉 초기의 “J syntax → optimization hint”라는 관찰이 사라진 것이 아니라, **provenance와 graph topology를 보존한 채 proof·cost·target 판단을 뒤에 붙이는 구조**로 일반화되었다.
 이 표현은 초기 아이디어를 약화시키는 것이 아니다. 오히려 J 문법이 이미 제공하는 구조를 일반 SSA로 평탄화했다가 다시 추론하지 않고 끝까지 보존하면서도, correctness와 profitability를 독립적으로 증명할 수 있게 만든다.
 
-**구현 상태 주의:** 위 흐름은 목표 architecture를 설명한다. 현재 `j_graph_fusion`은 source envelope과 proof obligation을 가진 `FusionCandidate`를 만들고, `fusion_planning`은 source-basis feasibility와 work/depth 비교를 계산하지만 상태는 `AwaitingSemanticProofs`로 유지한다. 현재 `selected`는 false이며 실제 semantic-proof discharge, profitability selector, committed fused lowering은 아직 구현 단계가 아니다. 따라서 문서의 “candidate → legality → profitability → realization”을 현재 모두 완성된 기능으로 읽으면 안 된다.
+**구현 상태는 이 문서에서 추적하지 않는다.** candidate discovery, proof discharge, profitability selection, committed lowering의 현재 구현 여부와 모듈/API 이름은 [PROJECT.ko.md](PROJECT.ko.md)를 따른다.
 
 ---
 
@@ -975,7 +975,7 @@ Physical resource planning
 
 이 분리를 지키면 JAXA의 static analyzability 이점을 유지하면서도 CPU/GPU/기타 backend에 공통인 compiler architecture를 보존할 수 있다.
 
-현재 RustJ 구현에서 `j_graph_memory`가 logical extent/liveness/materialization 분석을, `j_graph_resource`가 topology-aware symbolic composition의 최소형을 담당한다.
+구체 분석 모듈의 책임 분리와 현재 구현 범위는 [PROJECT.ko.md](PROJECT.ko.md)를 따른다.
 
 ---
 ## 10. derived function은 실행 가능한 semantic object다
@@ -1683,7 +1683,7 @@ v3 = Divide(v2, v1)
 그리고 optimizer가 별도의 proof/candidate를 만든다.
 
 ~~~text
-FusionCandidate::Mean
+mean specialization / rewrite candidate
 ~~~
 
 중요한 차이:
@@ -2073,7 +2073,7 @@ cross-op fusion
 
 ---
 
-# Part XIV. RustJ의 설계 헌장
+# Part XIV. RustJ 설계 검토의 핵심 원칙
 
 ## 36. 반드시 지켜야 할 12개 원칙
 
@@ -2182,7 +2182,7 @@ core J primitive도 extension과 동일한 target/capability architecture를 사
 
 ---
 
-# Part XVI. 이 문서가 허용하지 않는 설계 주장
+# Part XVI. 이 문서가 경고하는 설계 주장
 
 다음 문장은 근거 없이 사용하면 안 된다.
 
@@ -2609,600 +2609,316 @@ Differential test:
 
 ---
 
-# Part XX. 배열 언어·IR compiler 연구에서 얻은 설계 규칙
+# Part XX. 배열 언어·IR compiler 연구에서 얻은 추가 원칙
 
-이 절은 기존 APEX / Co-dfns / TAIL-Futhark 검토에 2026-10-04의 비교 검토를 추가해 RustJ middle-end 원칙을 보강한다.
+이 절은 APEX / Co-dfns / TAIL-Futhark / Remora / Bohrium / Lift / MLIR Linalg / JAX / XLA를 비교해 **RustJ가 지켜야 할 원칙**을 보강한다.
 
-주요 비교 계열은 다음과 같다.
+> **정본 경계:** 이 절은 특정 Rust 타입, module, pass, cache key, IR enum 또는 구현 순서를 정본으로 정의하지 않는다. 그런 구체 구조와 현재 채택 상태는 [PROJECT.ko.md](PROJECT.ko.md)가 유일한 권위다. 아래의 이름과 도식은 연구 아이디어를 설명하기 위한 개념 예시다.
 
-1. Robert Bernecky의 **APEX: The APL Parallel Executor** source/research lineage.
-2. Aaron W. Hsu의 **The Key to a Data Parallel Compiler**와 현재 Co-dfns source.
-3. Elsman/Henriksen 외의 **APL → TAIL → Futhark** GPU compilation 연구 및 Dyalog'16 발표.
-4. **Remora** — J/APL의 rank-polymorphic 계산 모델을 분리해 frame/cell/implicit lifting을 정형화한 연구 언어.
-5. **Bohrium** — 기존 NumPy-style array operation을 lazy하게 수집해 fusion, allocation/materialization, host-device data movement와 backend-specific execution을 늦추는 runtime/VM 계열.
-6. **Lift** — portable map/reduce pattern과 OpenCL-specific functional pattern을 같은 rewrite-driven IR 계열 안에서 변환하며 optimization과 hardware mapping을 탐색하는 연구.
-7. **MLIR Linalg** — structured operation, indexing/iterator semantics와 implicit iteration을 보존하고 tiling/vectorization/lowering에서 explicit loop를 materialize하는 IR 계열.
-8. **JAX / jaxpr** — tracing으로 얻는 explicitly typed, functional, first-order ANF IR. source combinator provenance보다 transformation-friendly execution form의 비교 기준이다.
-9. **XLA HLO Fusion** — 여러 HLO instruction을 하나의 fusion computation으로 묶은 committed IR representation. RustJ의 pre-selection fusion candidate와 단계 차이를 비교하는 기준이다.
-
-이 자료들은 모두 array-language/compiler 문제를 다루지만 서로 다른 질문에 답한다.
+주요 비교 질문은 다음과 같다.
 
 ~~~text
 APEX
-  → 어떤 array facts를 추론해야 하는가?
-  → SSA/interprocedural analysis/specialization을 어떻게 쓰는가?
+  → array type/rank/shape/value/property를 어떤 data-flow fact로 추론하는가?
 
-Co-dfns / Hsu
-  → compiler graph 자체를 어떻게 compact columnar form으로 보고
-    batch/data-parallel pass로 처리할 수 있는가?
+Co-dfns
+  → compiler graph를 compact/columnar analysis view로 다룰 때 무엇을 얻는가?
 
 TAIL / Futhark
-  → 분석된 array semantics를 어떤 high-level parallel IR로 보존해야
+  → high-level parallel array structure를 얼마나 오래 보존해야
     fusion/flattening/GPU lowering이 가능한가?
 
 Remora
-  → rank polymorphism과 frame/cell implicit lifting을
-    독립적인 semantic model로 어떻게 정형화하는가?
+  → rank polymorphism과 frame/cell lifting을 어떻게 semantic model로 분리하는가?
 
 Bohrium
-  → 기존 array API의 계산을 어떻게 lazy하게 수집하여
-    fusion/allocation/data movement를 evaluation 시점까지 늦추는가?
+  → lazy collection을 통해 fusion/materialization/data movement를 얼마나 늦출 수 있는가?
 
 Lift
-  → portable functional pattern에서 hardware-aware functional pattern으로
-    rewrite하면서 mapping 선택을 어떻게 탐색하는가?
+  → algebraic rewrite와 hardware-aware mapping을 어떻게 같은 탐색 공간에서 다루는가?
 
 MLIR Linalg
-  → structured computation과 implicit iteration을 얼마나 오래 보존하고
-    언제 loop/tiling/vector lowering으로 materialize하는가?
+  → structured operation과 implicit iteration을 언제까지 보존하고
+    어느 단계에서 loop/tiling/vector lowering을 구체화하는가?
 
 JAX / jaxpr
-  → source를 transformation-friendly first-order ANF로 정규화하면
-    어떤 단순성을 얻고 어떤 source provenance는 사라지는가?
+  → first-order SSA/ANF가 transformation을 단순화하는 대신
+    어떤 source-level provenance를 잃는가?
 
 XLA HLO Fusion
-  → fusion이 이미 선택된 뒤의 committed IR representation은 어떤 모습이며,
-    RustJ의 pre-selection candidate와 어디서 경계가 갈리는가?
+  → fusion이 선택된 뒤의 committed representation과
+    선택 전 candidate analysis를 어떻게 구분하는가?
 ~~~
 
-이 비교에서 RustJ에 추가로 확인되는 상위 원칙은 다음과 같다.
+이 비교에서 얻는 상위 원칙은 다음과 같다.
 
 - **J source는 execution plan이 아니다.**
-- rank, derived entity, train/composition, reduce/scan, reindex/shape transform은 optimizer가 사용할 수 있는 고수준 정보다.
+- rank, derived entity, train/composition, reduce/scan, reindex/shape transform은 optimizer가 사용할 고수준 정보다.
 - 이런 구조를 scalar loop나 backend kernel로 조기 분해하지 않는다.
 - full J semantics와 특정 optimized route의 eligibility를 분리한다.
 - logical rewrite와 physical schedule/device/materialization 선택을 분리한다.
-- 기존 J를 frontend로 유지하는 것이 목표이며, compiler-friendly subset을 만들기 위해 J semantics를 축소하지 않는다.
-
-RustJ는 이 연구들의 제한된 language subset이나 static assumption을 그대로 채택하지 않는다. **J semantic completeness는 그대로 유지하고, 각 compiler route가 요구하는 정적 조건은 route precondition 또는 specialization guard로 취급한다.**
+- compiler route의 static assumption을 J 언어 자체의 제약으로 승격하지 않는다.
+- 분석 사실과 그 사실을 정당화하는 provenance/guard를 분리하지 않는다.
 
 직접 비교 근거:
 
 - Remora / *The Semantics of Rank Polymorphism*: https://arxiv.org/abs/1907.00509
-- Bohrium publication index (NumPy CPU/GPU/cluster, vector VM, fusion lineage): https://bohrium.readthedocs.io/publications.html
-- Bohrium lazy evaluation / fusion behavior: https://bohrium.readthedocs.io/faq.html
+- Bohrium publication index: https://bohrium.readthedocs.io/publications.html
+- Bohrium lazy evaluation / fusion: https://bohrium.readthedocs.io/faq.html
 - Lift / *A Functional Data-Parallel IR for High-Performance GPU Code Generation*: https://doi.org/10.1109/CGO.2017.7863730
-- MLIR Linalg structured-operation primer / implicit-loop materialization: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+- MLIR Linalg structured-operation primer: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
 - JAX / *The jaxpr language*: https://docs.jax.dev/en/latest/601/jaxpr.html
-- OpenXLA / HLO `Fusion` operation semantics: https://openxla.org/xla/operation_semantics#fusion
+- OpenXLA / HLO `Fusion`: https://openxla.org/xla/operation_semantics#fusion
 
-이 출처들은 RustJ semantic specification이 아니라 위 compiler 원칙을 검증·비교하기 위한 자료다.
+이 출처들은 RustJ semantic specification이 아니라 compiler 원칙을 비교·검증하기 위한 자료다.
 
-## 51. APEX: Array Morphology를 정식 abstract interpretation으로 본다
+## 51. Array facts는 abstract interpretation의 대상이다
 
-APEX 연구의 가장 중요한 교훈은 array compiler가 단순 dtype inference를 넘어 **type, rank, shape, element count, constant/value knowledge, array property**를 data-flow property로 추적해야 한다는 점이다. APEX는 SSA와 interprocedural/semi-global analysis를 사용해 같은 source name의 서로 다른 값들을 분리하고, array morphology 정보를 반복 전파했다. [APEX-1][APEX-2]
+APEX의 핵심 교훈 중 하나는 array compiler가 단순 dtype inference를 넘어 **type, rank, shape, item/atom count, constant/value knowledge, array property**를 data-flow fact로 추론해야 한다는 점이다. [APEX-1][APEX-2]
 
-RustJ는 기존 `ValueFacts`/`ResolvedCallFacts`를 다음처럼 정식 abstract domain으로 발전시킨다.
-
-~~~text
-ValueFacts
-  TypeFact
-  RankFact
-  ShapeFact
-  ItemCountFact
-  ConstantFact
-  ArrayPropertyFacts
-  ConstraintSet
-  provenance / witness
-~~~
-
-각 fact는 단순 optional field가 아니라 최소한 다음 연산을 갖는 lattice/abstract-domain 구성요소로 본다.
-
-~~~text
-bottom / unknown
-join / merge
-transfer
-refinement
-widening 또는 specialization merge가 필요한 경우의 정책
-~~~
-
-분석기는 local one-shot inference가 아니라 worklist/fixpoint 구조를 가질 수 있어야 한다.
+RustJ가 가져올 원칙은 특정 `ValueFacts` 타입이나 필드 목록이 아니라 다음이다.
 
 ~~~text
 seed facts
    ↓
-node transfer
+transfer / refinement
    ↓
-join
+merge / join
    ↓
-worklist
+필요하면 worklist / fixed point
    ↓
-interprocedural summary/specialization propagation
-   ↓
-fixed point
+call/interprocedural specialization에 전달
 ~~~
 
-**RustJ 결정:** morphology engine은 J Semantic IR 자체가 아니라 Semantic Analyzer 이후 Logical analysis substrate다. parser/FunctionEntity에 actual shape/type facts를 역류시키지 않는다.
+이런 call-dependent fact를 parser가 만든 J semantic identity에 역류시키지 않는다. 구체 fact domain과 lattice 표현은 PROJECT.ko.md가 정한다.
 
-## 52. ArrayPropertyFacts를 first-class analysis domain으로 둔다
+## 52. dtype 이외의 array property도 분석 가치가 있다
 
-APEX의 morphology 연구는 shape/type 외에도 array predicates가 algorithm selection에 중요하다는 점을 보여 준다. RustJ는 다음과 같은 property를 extensible fact domain으로 둔다.
+정렬됨, 유일함, 정수값만 가짐, 값의 범위가 알려짐 같은 성질은 index legality, bounds-check elimination, 알고리즘 선택에 유용할 수 있다.
+
+하지만 원칙은 다음 두 가지다.
+
+1. storage dtype만 보고 더 강한 property를 추측하지 않는다.
+2. property는 실제 증명이나 guard가 있는 분석 사실로 취급하며 J value의 본래 semantic identity와 섞지 않는다.
+
+어떤 property vocabulary를 실제로 채택하는지는 PROJECT.ko.md의 분석 설계에서 결정한다.
+
+## 53. 최적화에 쓰는 사실에는 근거가 필요하다
+
+shape/type/property 사실을 이용해 J-visible check를 제거하거나, specialization/fusion/route를 좁힐 때는 **왜 그 사실이 참인지 추적할 수 있어야 한다.**
+
+개념적으로 근거는 다음과 같은 형태일 수 있다.
 
 ~~~text
-ArrayPropertyFacts
-  IntegralValued
-  NonNegative
-  Unique
-  SortedAscending / SortedDescending
-  Permutation
-  KnownRange
-  AllEqual
-  ...
+constant
+same-as / relation to another value
+reshape/rank/frame constraint
+binding/version evidence
+runtime guard
+derived-by(rule, source)
 ~~~
 
-예를 들어 `f64 [1.0, 2.0, 3.0]`은 storage dtype은 float이지만 `IntegralValued=Proven`일 수 있다. 이 distinction은 index legality, shape argument validation, bounds-check elimination, algorithm specialization에 유용하다.
+핵심은 자료구조 이름이 아니라:
 
-**금지:** property proof가 없는데 dtype만 보고 property를 추측하지 않는다.
-
-## 53. FactWitness: fact와 “왜 참인지”를 함께 보존한다
-
-APEX 연구는 shape 정보의 **origin/provenance**를 추적하면 더 많은 runtime conformability check를 제거할 수 있다는 방향을 제시했다. RustJ는 이를 명시적 구조로 채택한다. [APEX-2]
-
-~~~text
-Fact<T>
-  abstract_value
-  witness
-~~~
-
-예:
-
-~~~text
-ShapeFact = [N,M]
-Witness =
-  Constant
-  SameAs(ValueId, axis)
-  ReshapeConstraint
-  CellApplyFrame
-  BindingVersion
-  RuntimeGuard(GuardId)
-  DerivedFrom(NodeId, RuleId)
-~~~
-
-이를 통해 optimizer는 “shape가 같다”뿐 아니라 “왜 같다고 믿어도 되는가”를 확인할 수 있다.
-
-**RustJ 결정:** check elimination/fusion/specialization은 witness 없는 optimistic fact를 사용하지 않는다.
-
-## 54. SSA는 J namespace를 대체하지 않고 post-semantic dataflow를 표현한다
-
-APEX에서 SSA는 같은 이름이 서로 다른 morphology를 가질 때 분석을 정밀하게 하고 liveness를 명확하게 만드는 데 유용했다. [APEX-2]
-
-RustJ에서도 SSA를 사용하지만 경계는 다음과 같다.
-
-~~~text
-J Name
-  ≠ BindingVersion
-  ≠ SSA ValueId
-~~~
-
-~~~text
-jsource-compatible frontend
-  ↓
-J Semantic IR / binding semantics
-  ↓
-binding/effect resolution
-  ↓
-Logical SSA
-~~~
-
-dynamic locale/name semantics가 남는 경우에는 억지로 SSA local value로 치환하지 않고:
-
-~~~text
-NameRead
-NameWrite
-LocaleResource
-EffectToken
-~~~
-
-으로 표현한다.
-
-**거부:** APEX-style compiler restriction을 이유로 dynamic name/POS를 J에서 금지하지 않는다.
-
-## 55. Call-site specialization은 source clone이 아니라 SpecializationKey/cache로 구현한다
-
-APEX는 동일 function이 서로 다른 call morphology를 받을 때 call-site별 specialized body를 만드는 접근을 사용한다. RustJ는 이를 source/function clone보다는 cacheable specialization으로 일반화한다. [APEX-2]
-
-~~~text
-SpecializationKey
-  FunctionEntityId
-  binding version / guard
-  valence
-  relevant dtype classes
-  effective rank facts
-  relevant shape class
-  relevant ArrayPropertyFacts
-  fit/tolerance/rank policy
-~~~
-
-동일 key는 analyzed region을 재사용한다.
-
-exact shape/constant를 항상 key에 넣으면 specialization explosion이 생기므로, fact마다 **specialization relevance**를 둔다.
-
-~~~text
-dtype      usually relevant
-rank       usually relevant
-exact shape  conditional
-constant     conditional
-Sorted/Unique algorithm-dependent
-~~~
-
-JIT는 같은 cache protocol을 사용하고 runtime facts를 추가 evidence로 제공한다.
-
-## 56. Co-dfns: semantic DAG와 별도로 compact GraphIndex/SoA analysis view를 둔다
-
-Hsu의 *The Key to a Data Parallel Compiler*는 AST node 관계를 **Node Coordinate Matrix**로 encoding하고 Key/grouping 연산과 결합해 subtree computation을 data-parallel하게 수행할 수 있음을 제시한다. [CODFNS-1]
-
-현재 Co-dfns parser도 AST를 object-per-node tree가 아니라 다음과 같은 **inverted/columnar table**로 반환한다. [CODFNS-2]
-
-~~~text
-parent
-depth
-type
-kind
-name
-lex
-varbind
-source start
-source end
-~~~
-
-RustJ는 이 아이디어를 semantic representation 자체로 강제하지 않는다. canonical layer는 immutable shared `FunctionEntity`/Logical DAG로 유지한다.
-
-대신 pass용 sidecar를 둔다.
-
-~~~text
-GraphIndex
-  NodeId[]
-  parent[]
-  depth[]
-  preorder[]
-  subtree_end[]
-  opcode[]
-  entity_id[]
-  scope_id[]
-  def/use index
-  source origin index
-~~~
-
-이 view는 다음을 batch 처리하기 쉽게 한다.
-
-- 같은 op/entity/scope/specialization key별 grouping
-- use-def/liveness
-- bottom-up/top-down summary
-- dependency-level parallel analysis
-- compiler 자체의 SIMD/멀티코어 batch pass
-
-**거부:** 모든 compiler pass를 NCM/Key만으로 작성하거나 semantic DAG를 하나의 dense matrix representation으로 고정하지 않는다. GraphIndex는 derived analysis view다.
-
-## 57. Co-dfns의 nanopass 원칙은 채택하되 pass마다 IR clone을 강제하지 않는다
-
-Co-dfns 관련 논문은 compiler를 작은 fully data-parallel pass들의 composition으로 구성하는 nanopass 성격을 설명한다. [CODFNS-1][CODFNS-3]
-
-RustJ의 Semantic Analyzer/middle-end도 가능한 한 작은 책임으로 나눈다.
-
-~~~text
-ResolveBindings
-InferValueFacts
-ResolveRank
-PlanCellApplication
-InferShape
-InferArrayProperties
-ResolveEffects
-BuildLogicalOps
-ProveUniformAssembly
-DetectFusion
-RouteAnalysis
-~~~
-
-다만 각 pass가 whole IR를 복사해야 한다는 뜻은 아니다. immutable semantic identity + node/value fact tables + invalidation-aware derived caches를 사용한다.
-
-## 58. Co-dfns의 performance model을 CostProfile에 반영한다
-
-Co-dfns의 performance guide는 GPU 비용을 단순 FLOP 수가 아니라 **critical path, kernel count, memory traffic, host↔device transfer, fusion 가능성**으로 설명한다. 또한 GPU와 interpreter에서 같은 primitive라도 성능/복잡도 특성이 달라질 수 있음을 명시한다. [CODFNS-4]
-
-따라서 RustJ cost/resource model은 최소한 다음을 다룬다.
-
-~~~text
-critical_path_depth
-kernel_launch_count
-bytes_read
-bytes_written
-temporary_bytes
-transfer_bytes
-synchronization_points
-parallelism/occupancy opportunity
-arithmetic work
-~~~
-
-이 정보는 semantic contract가 아니라 Schedule/ResourceEstimate/CostEstimate에서 계산한다.
-
-## 59. TAIL: typed array IR의 역할은 J Semantic IR이 아니라 specialized Logical IR에 있다
-
-Dyalog'16 자료와 FHPC'16 논문은 dynamically typed/rank-polymorphic APL을 typed array IL인 TAIL로 내린 뒤 Futhark로 변환한다. TAIL type system은 base type뿐 아니라 rank/shape type 및 polymorphic call의 explicit type/rank instantiation을 표현한다. [TAIL-1][TAIL-2]
-
-RustJ에서 이에 대응하는 층은:
-
-~~~text
-J Semantic IR
-  // J identity/dynamic semantics 보존
-       ↓
-Semantic Analyzer
-       ↓
-Specialized Logical IR
-  resolved dtype/rank
-  shape constraints
-  CellApply plan
-  specialization witness
-~~~
+> **Unknown을 낙관적인 true로 바꾸지 말고, legality에 쓰는 fact에는 provenance·proof·guard 중 적절한 근거가 있어야 한다.**
 
 이다.
 
-**거부:** TAIL의 static assumptions을 parser/J Semantic IR의 언어 제약으로 올리지 않는다.
+## 54. SSA는 J namespace 의미를 대체하지 않는다
 
-## 60. high-level parallel structure를 backend 직전까지 보존한다
+APEX에서 SSA는 value flow와 morphology analysis를 정밀하게 만드는 데 유용했다. RustJ에서도 **semantic resolution 이후의 dataflow**에는 SSA-like single-definition value identity가 유용하다. [APEX-2]
 
-FHPC'16은 APL의 high-level array combinator가 원래의 parallel intent를 보존하며, Futhark로 lowering할 때 map nests와 reduction nests를 explicit하게 만들면 fusion, nested-parallelism flattening, coalesced-memory optimization을 활용할 수 있음을 보여 준다. [TAIL-2]
-
-RustJ Logical IR은 다음 구조를 scalar loop로 너무 빨리 분해하지 않는다.
+하지만 다음은 구분한다.
 
 ~~~text
-CellApply
-MapCells
-Reduce
-Scan
-Window
-Gather / Scatter
-StaticReindex
-OuterProduct
-MatMul
-Conv
-Loop/Power
+J name / namespace binding
+        ≠
+binding version / lookup event
+        ≠
+SSA value identity
 ~~~
 
-특히:
+동적 locale/name/POS 의미를 SSA local value로 강제로 치환하지 않는다. namespace read/write와 effect ordering은 별도의 semantic dependency로 남아야 한다.
+
+classical CFG SSA, block argument/phi-like merge, memory/effect SSA의 실제 도입 위치는 PROJECT.ko.md의 IR 계층 설계가 정한다.
+
+## 55. Call-site specialization은 relevant facts와 guard를 기준으로 한다
+
+APEX의 call-site specialization에서 가져올 원칙은 **호출마다 필요한 정적 사실이 다를 수 있으므로, 유효한 facts에 따라 specialization할 수 있어야 한다**는 것이다. [APEX-2]
+
+반대로 exact shape와 constant를 무조건 모두 specialization identity에 넣으면 variant explosion이 발생한다.
+
+따라서:
+
+- code generation/algorithm choice에 실제로 필요한 fact만 specialization dimension으로 사용한다.
+- dynamic binding이나 runtime fact에 의존하면 필요한 guard/invalidation 계약을 둔다.
+- merge/widening 또는 bounded-cache 정책을 고려한다.
+- source semantics를 specialization 편의 때문에 고정하지 않는다.
+
+구체 cache key·versioning·JIT cache 구조는 PROJECT.ko.md의 책임이다.
+
+## 56. Compact/columnar analysis view는 파생 표현일 수 있다
+
+Co-dfns는 AST/graph 관계를 Node Coordinate Matrix와 inverted/columnar table처럼 다루어 batch/data-parallel compiler pass에 유리한 구조를 보여 준다. [CODFNS-1][CODFNS-2]
+
+RustJ가 가져올 원칙은:
+
+> **canonical semantic graph와 별도로, 분석 목적의 compact index/SoA view를 파생시킬 수 있다.**
+
+이다.
+
+하지만 파생 view가 semantic identity의 새 정본이 되어서는 안 되고, 모든 pass를 matrix/columnar representation에 강제할 필요도 없다. 구체 index structure의 채택 여부는 PROJECT.ko.md가 정한다.
+
+## 57. 작은 pass composition은 유용하지만 IR 복사를 강제하지 않는다
+
+Co-dfns의 nanopass 계열 접근에서 가져올 원칙은 **한 pass가 한 의미를 담당하도록 작게 나누는 것**이다. [CODFNS-1][CODFNS-3]
+
+다만 pass마다 whole IR clone을 만드는 것은 원칙이 아니다. immutable semantic identity, side analysis, fact tables, invalidation-aware cache 등 다양한 구현이 가능하다.
+
+RustJ의 실제 pass inventory와 순서는 PROJECT.ko.md에서 관리한다.
+
+## 58. 비용 모델은 FLOP 수보다 넓어야 한다
+
+Co-dfns와 현대 GPU/compiler 자료는 성능이 단순 arithmetic count만으로 결정되지 않음을 보여 준다. [CODFNS-4]
+
+비용/자원 모델은 필요에 따라 다음을 고려할 수 있다.
+
+- dependency/critical-path depth
+- kernel/dispatch count
+- bytes read/written
+- temporary/materialization volume
+- host↔device transfer
+- synchronization
+- locality/reuse
+- available parallelism
+- arithmetic work
+
+이 정보는 J semantic identity가 아니라 downstream planning/cost evidence다. 실제 metric과 profile 구조는 PROJECT.ko.md가 정한다.
+
+## 59. Typed array IR은 full-J semantic layer보다 downstream에 위치한다
+
+TAIL/Futhark 계열은 dynamically typed/rank-polymorphic array language를 더 정적인 typed/rank-aware IR로 specialize해 최적화하는 선례를 제공한다. [TAIL-1][TAIL-2]
+
+RustJ가 가져올 원칙은 다음 순서다.
 
 ~~~text
-CellApply(Reduce(...))
-Reduce(CellApply(...))
-nested CellApply
+J semantics preserved
+        ↓
+analysis / specialization
+        ↓
+more resolved execution facts
+        ↓
+typed/rank-aware optimized route
 ~~~
 
-같은 nested parallel structure를 보존한다.
+static backend assumption을 parser/J semantics의 언어 요구사항으로 역류시키지 않는다.
 
-flattening, segmented lowering, thread/block mapping은 semantics가 아니라 optimizer/schedule/physical decision이다.
+## 60. High-level parallel structure를 너무 일찍 scalarize하지 않는다
 
-## 61. external backend에는 scalar primitive soup가 아니라 fusion-friendly structure를 넘긴다
+map/cell application, reduce, scan, window, gather/scatter, reindex, contraction과 같은 구조는 backend loop보다 더 많은 optimization information을 가진다. [TAIL-1][TAIL-2]
 
-Futhark가 map/reduce/scan 같은 SOAC 구조를 이용해 fusion/parallel lowering을 수행한다는 점에서, RustJ external adapter도 가능한 한 고수준 operation을 유지해야 한다. [TAIL-1][TAIL-2]
+따라서 J semantic structure에서 얻은 high-level operation identity는 fusion/parallel/schedule 판단에 필요한 동안 보존한다.
 
-따라서 lowering capability는 단순히:
+nested structure를 flatten할지, segmented form으로 내릴지, CPU loop/SIMD/GPU thread에 어떻게 배치할지는 downstream optimization/scheduling 문제다.
 
-~~~text
-supports Add
-~~~
+## 61. External backend에는 가능한 한 구조화된 계산을 넘긴다
 
-만 표현해서는 부족하다.
+backend가 map/reduce/scan/view/reindex 같은 구조를 직접 이해할 수 있다면 scalar primitive soup로 미리 분해하는 것보다 optimization freedom이 크다.
 
-장기적으로 다음과 같이 표현할 수 있어야 한다.
+다만:
 
-~~~text
-supports Map(Add)
-supports Reduce(Add, axis pattern)
-supports nested Map/Reduce
-supports segmented reduction
-supports view/reindex form
-supports shape-polymorphic map under constraints
-~~~
+- backend capability가 부족하면 adapter가 합법적인 decomposition을 선택할 수 있다.
+- backend restriction을 J semantics restriction으로 만들지 않는다.
+- high-level form 보존 자체가 해당 backend route의 legality를 증명하지 않는다.
 
-backend가 이 구조를 표현하지 못하면 route adapter가 decomposition 여부와 cost를 판단한다. backend limitation 때문에 J Semantic IR을 단순화하지 않는다.
+실제 export vocabulary와 capability registry는 PROJECT.ko.md가 정한다.
 
-## 62. parameterized lowering recipe를 정식 개념으로 둔다
+## 62. Lowering은 call facts와 target capability에 따라 parameterized될 수 있다
 
-TAIL→Futhark translation에서 일부 APL primitive는 statically known type/rank 정보를 이용해 specialized code skeleton으로 생성된다. Dyalog'16에서도 constant folding, `take` 내부 branch 제거 같은 예가 제시된다. [TAIL-1][TAIL-2]
+같은 semantic operation도 type/rank/shape/property와 target capability에 따라 다른 realization 후보를 가질 수 있다. [TAIL-1][TAIL-2]
 
-RustJ는:
+예를 들어 logical slice/take 계열은 조건에 따라 view, direct copy, pad+slice, generic kernel 등 서로 다른 realization을 가질 수 있다.
 
-~~~text
-Semantic Op
-+
-ResolvedCallFacts
-+
-Target Capability
-       ↓
-Parameterized Lowering Recipe
-       ↓
-candidate realization(s)
-~~~
+원칙은:
 
-을 허용한다.
+> **semantic operation identity와 realization recipe를 분리하고, realization 선택은 검증된 call facts와 target facts를 사용한다.**
 
-예를 들어 `Take`는:
+이다. 구체 recipe 타입과 registry는 PROJECT.ko.md에서 정의한다.
 
-~~~text
-sign known?
-bounds known?
-fill needed?
-view legal?
-rank/layout?
-~~~
+## 63. Full J 안에서 최적화 가능한 region을 분리할 수 있다
 
-에 따라:
+pure array compiler의 제한을 J 전체에 강제하는 대신, RustJ는 effect/name/dynamic boundary를 보존한 채 **특정 optimized route에 적합한 region을 추출하는 방식**을 사용할 수 있다. [TAIL-2]
 
-~~~text
-ViewTake
-DirectSlice
-PadAndSlice
-GenericTakeKernel
-RuntimeSemanticFallback
-~~~
+중요한 것은 region 이름이나 enum이 아니라 다음 원칙이다.
 
-중 하나가 될 수 있다.
+- effect/error/name dependency를 region boundary에서 잃지 않는다.
+- 특정 route의 precondition이 실패해도 source J를 invalid로 만들지 않는다.
+- 지원되는 다른 route가 없으면 implementation coverage 부족과 J semantic error를 구분한다.
 
-## 63. full J program에서 pure array region을 추출한다
+구체 route partition과 fallback/deopt 계약은 PROJECT.ko.md가 정한다.
 
-Futhark는 pure target이므로 APL 연구는 I/O/effects를 parameter/result boundary로 옮기거나 지원 범위를 제한했다. [TAIL-2]
+## 64. Backend subset은 J language subset이 아니다
 
-RustJ는 full J를 제한하는 대신 이 원리를 **region partition**에 사용한다.
+APEX/Co-dfns/TAIL-Futhark 계열 구현은 각자의 연구 목적 때문에 static scope/rank, limited nested arrays, no execute 등의 제한을 둘 수 있다. [TAIL-1][CODFNS-2]
 
-~~~text
-Full J semantic graph
-      ↓
-EffectAnalysis
-      ↓
-RegionPartition
-  PureArrayRegion
-  GuardedDynamicRegion
-  StatefulRegion
-  RuntimeSemanticRegion
-~~~
-
-external GPU route는 PureArrayRegion 또는 capability가 증명된 region만 받는다.
-
-**핵심:** backend subset은 RustJ language subset이 아니다.
-
-## 64. backend-specific subset restriction을 J language restriction으로 승격하지 않는다
-
-Dyalog'16 발표는 해당 compiler의 제한으로 static scoping/static rank inference, limited nested arrays, whole-program compilation, no execute를 명시한다. [TAIL-1]
-
-Co-dfns manual 역시 현재 compiled subset에 execute, 일부 namespace/free-reference, train 등의 제한이 있음을 명시한다. [CODFNS-2]
-
-RustJ는 이런 제한을 그대로 채택하지 않는다.
+RustJ에서는:
 
 ~~~text
 route cannot lower X
-  ≠ X is invalid J
+    ≠
+X is invalid J
 ~~~
 
-대신:
+라는 원칙을 유지한다.
+
+route miss, specialization guard miss, runtime semantic path, unsupported implementation의 정확한 구분은 PROJECT.ko.md의 실행 경계 계약을 따른다.
+
+## 65. 연구 compiler의 semantic compromise는 그대로 가져오지 않는다
+
+성능을 위해 다음을 J 언어 자체의 규칙으로 만들지 않는다.
+
+- dynamic name/POS 금지
+- 필수 static type/rank declaration
+- backend 편의를 위한 overflow/promotion/empty 의미 변경
+- 증명 없는 runtime check 제거
+- pure backend 때문에 J effect 자체 금지
+
+대신 proof/guard/specialization/route partition/runtime semantic execution 등 **의미를 보존하는 실행 기법**을 사용한다.
+
+## 66. 연구에서 얻는 middle-end의 상위 경계
+
+APEX/Co-dfns/TAIL 계열을 종합하면 RustJ middle-end가 지켜야 할 방향은 다음 정도로 요약된다.
 
 ~~~text
-route precondition fails
-  → another native/external route
-  → guarded JIT
-  → runtime semantic path
-  → UnsupportedImplementation only if RustJ coverage itself is missing
+J semantic identity
+        ↓
+binding/effect-aware analysis
+        ↓
+value/dataflow facts + optional SSA-like form
+        ↓
+high-level array/graph optimization
+        ↓
+proof / specialization / route eligibility
+        ↓
+target-aware schedule / physical realization
 ~~~
 
-로 처리한다.
-
-## 65. APEX/Co-dfns에서 의도적으로 거부하는 semantic compromise
-
-다음은 compiler performance를 이유로 RustJ에 가져오지 않는다.
-
-- dynamic name/POS를 금지해 분석을 단순화
-- type/rank declaration 없이는 합법 J를 실행하지 못하게 함
-- backend representation 때문에 J overflow/promotion/empty semantics 변경
-- runtime conformability/error check를 제거해 fusion을 허용
-- pure external backend가 effect를 지원하지 않는다는 이유로 J effect 자체를 금지
-
-올바른 해법은 각각:
-
-~~~text
-binding/version proof or guard/JIT/runtime
-optional annotation, never mandatory semantics
-semantic-preserving retry/promotion/fallback
-proof-based check elimination or check hoisting
-effect-region partition / runtime semantic route
-~~~
-
-이다.
-
-## 66. 세 연구를 반영한 RustJ middle-end 기준 구조
-
-~~~text
-J Semantic IR
-  immutable FunctionEntity/J values
-  J semantics authoritative
-        ↓
-
-Binding / Effect Analysis
-        ↓
-
-Logical SSA
-  ValueId
-  StateResource
-  LocaleResource
-  EffectToken
-        ↓
-
-GraphIndex / AnalysisIndex
-  compact SoA view for batch passes
-        ↓
-
-MorphologyEngine
-  TypeFact
-  RankFact
-  ShapeFact
-  ItemCountFact
-  ConstantFact
-  ArrayPropertyFacts
-  ConstraintSet
-  FactWitness
-        ↓
-interprocedural fixed point
-        ↓
-
-SpecializationEngine
-  FunctionEntity × RelevantFacts × Guards
-        ↓
-
-High-level Logical Parallel IR
-  CellApply / Map / Reduce / Scan / Reindex / Loop / ...
-        ↓
-
-Optimization Proofs
-  UniformCellResult
-  Fusion
-  ParallelIndependence
-  CheckHoisting
-  MaterializationElision
-  ViewLegality
-        ↓
-
-RoutePartition
-  native / external / library / runtime semantic
-        ↓
-
-Schedule / Physical Plan
-~~~
-
-이 구조는 APEX/Co-dfns/TAIL을 복제하는 것이 아니라, 각 연구에서 검증된 compiler insight를 **full J semantics를 보존하는 RustJ 층 분리**에 맞게 재해석한 것이다.
+이 도식은 **역할 경계**만 설명한다. 실제 RustJ의 IR 이름, pass 순서, analysis sidecar, candidate lifecycle, route partition, module 구성은 [PROJECT.ko.md](PROJECT.ko.md)가 정본이다.
 
 ## 67. 이 절의 architecture review 질문
 
-middle-end 변경 전 다음을 확인한다.
+middle-end 변경을 검토할 때 다음을 질문한다.
 
-- 새 fact는 semantic identity인가, call-dependent morphology인가?
-- fact가 true라는 witness/provenance가 있는가?
-- 새 specialization dimension이 실제 code generation/algorithm choice에 필요한가?
-- specialization explosion을 어떻게 merge/widen할 것인가?
-- semantic DAG를 분석 편의 때문에 특정 matrix/SoA representation에 종속시키고 있지 않은가?
-- high-level parallel structure를 너무 일찍 scalarize하고 있지 않은가?
+- 새 정보는 J semantic identity인가, call-dependent analysis fact인가?
+- legality에 사용하는 fact에는 근거/provenance/guard가 있는가?
+- specialization dimension이 실제 code generation/algorithm choice에 필요한가?
+- variant explosion을 어떻게 제한할 것인가?
+- semantic graph를 분석 편의 때문에 특정 physical/columnar representation에 종속시키고 있지 않은가?
+- high-level array/parallel structure를 너무 일찍 scalarize하고 있지 않은가?
 - external backend restriction을 J language restriction으로 착각하고 있지 않은가?
-- check elimination이 J error semantics를 바꾸지 않는가?
-- fusion의 이득을 arithmetic op 수가 아니라 memory pass/kernel/transfer 관점에서도 평가하는가?
-- nested parallelism flattening은 schedule/optimization proof로 남아 있는가?
+- target/resource/cost fact가 semantic layer로 역류하고 있지 않은가?
 
----
+구체 구현 체크리스트와 현재 상태는 PROJECT.ko.md에서만 관리한다.
 
 ## 68. 추가 소스: APEX / Co-dfns / TAIL-Futhark
 
