@@ -3,7 +3,7 @@
 //! This module must NOT call index_ops, physical search planning, hash tables,
 //! prehash caches, or graph search descriptors. It owns the control flow for
 //! first/last index and membership, while sharing the explicit semantic
-//! comparison-policy snapshot (currently fixed RustJ near, not full J CCT).
+//! comparison-policy snapshot (pinned J default CCT, not dynamic Fit).
 //! It is a supported-dense-subset oracle, not a proof of boxed/sparse J semantics.
 
 use crate::{
@@ -64,7 +64,7 @@ fn lookup(indexed: &Value, query: &Value, mode: SearchMode) -> Result<Value> {
         return Err(Error::Unsupported("reference boxed/sparse index-of".into()));
     }
 
-    let comparison = ComparisonPolicySnapshot::fixed_rust_near();
+    let comparison = ComparisonPolicySnapshot::pinned_j_default_cct();
     let first_or_last = |q: usize| -> usize {
         if !compatible {
             return items;
