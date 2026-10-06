@@ -142,3 +142,21 @@ fn reference_execution_does_not_consume_interpreter_prehash() {
     );
     assert_eq!(engine.index_prehash_stats(), (0, 0));
 }
+
+#[test]
+fn literal_index_family_can_reverse_hash_queries_without_prehashed_binding() {
+    // A generated temporary has no retained name-backed Arc. Reverse hashing
+    // therefore remains a one-shot choice rather than an implicit prehash.
+    assert_eq!(
+        eval("(i. 128) i. 17 17 199"),
+        eval("17 17 128")
+    );
+    assert_eq!(
+        eval("(i. 128) i: 17 17 199"),
+        eval("17 17 128")
+    );
+    assert_eq!(
+        eval("17 199 e. (i. 128)"),
+        eval("1 0")
+    );
+}
