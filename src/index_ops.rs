@@ -85,6 +85,7 @@ enum LookupResult {
 enum ExactScalarIndex {
     Direct { minimum: i64, positions: Vec<usize> },
     Hashed(HashMap<i64, usize>),
+    ReverseHashed(HashMap<i64, usize>),
 }
 
 impl ExactScalarIndex {
@@ -96,7 +97,9 @@ impl ExactScalarIndex {
                 .and_then(|offset| positions.get(offset))
                 .copied()
                 .unwrap_or(missing),
-            Self::Hashed(entries) => entries.get(&key).copied().unwrap_or(missing),
+            Self::Hashed(entries) | Self::ReverseHashed(entries) => {
+                entries.get(&key).copied().unwrap_or(missing)
+            }
         }
     }
 }
@@ -105,14 +108,66 @@ impl ExactScalarIndex {
 /// proportional to the work. Use i128 when measuring the key span: subtracting
 /// arbitrary i64 endpoints can overflow. An empty or tiny search needs no
 /// indexing setup at all.
+
+/// Reverse hash query keys (not the indexed array) and use a single directional
+/// walk of indexed values. A key is resolved exactly once, so first/last
+/// representative and duplicate query semantics do not depend on hash order.
+fn reverse_exact_index(
+    indexed: &Value,
+    items: usize,
+    queries: &Value,
+    result: LookupResult,
+) -> Result<ExactScalarIndex> {
+    let mut entries = HashMap::new();
+    entries.try_reserve(queries.len()).map_err(|_| Error::Limit)?;
+    for q in 0..queries.len() {
+        entries.entry(queries.int_at(q)?).or_insert(items);
+    }
+    let mut remaining = entries.len();
+    if result == LookupResult::Last {
+        for i in (0..items).rev() {
+            if let Some(position) = entries.get_mut(&indexed.int_at(i)?) {
+                if *position == items {
+                    *position = i;
+                    remaining -= 1;
+                    if remaining == 0 { break; }
+                }
+            }
+        }
+    } else {
+        for i in 0..items {
+            if let Some(position) = entries.get_mut(&indexed.int_at(i)?) {
+                if *position == items {
+                    *position = i;
+                    remaining -= 1;
+                    if remaining == 0 { break; }
+                }
+            }
+        }
+    }
+    Ok(ExactScalarIndex::ReverseHashed(entries))
+}
+
 fn exact_scalar_index(
     values: &Value,
     items: usize,
     queries: usize,
     result: LookupResult,
+    query_values: Option<&Value>,
 ) -> Result<Option<ExactScalarIndex>> {
     if items == 0 || queries == 0 || items.saturating_mul(queries) <= 32 {
         return Ok(None);
+    }
+
+    // Reverse hashing indexes the *smaller query set*. We still return indices
+    // into the original indexed argument, respecting first/last occurrence.
+    // It is legal only for exact scalar integers/booleans; callers enforce this.
+    // Build a query-key table and scan indexed values in the direction needed
+    // for the representative. Duplicate queries intentionally share a key.
+    if items >= 64 && items / 2 > queries {
+        return Ok(Some(reverse_exact_index(values, items, query_values.expect(
+            "reverse hashing requires exact scalar query values"
+        ), result)?));
     }
 
     let mut minimum = i64::MAX;
@@ -196,7 +251,7 @@ fn lookup(indexed: Value, queries: Value, result: LookupResult) -> Result<Value>
         && matches!(indexed.data, Data::Int(_) | Data::Bool(_))
         && matches!(queries.data, Data::Int(_) | Data::Bool(_));
     let exact = if exact_scalar {
-        exact_scalar_index(&indexed, items, n, result)?
+        exact_scalar_index(&indexed, items, n, result, Some(&queries))?
     } else {
         None
     };
@@ -248,10 +303,10 @@ mod index_family_tests {
     #[test]
     fn narrow_domain_uses_direct_table_without_changing_duplicate_policy() {
         let source = Value::ints([5], vec![-2, -1, 0, -2, 1]).unwrap();
-        let first = exact_scalar_index(&source, 5, 7, LookupResult::First)
+        let first = exact_scalar_index(&source, 5, 7, LookupResult::First, None)
             .unwrap()
             .unwrap();
-        let last = exact_scalar_index(&source, 5, 7, LookupResult::Last)
+        let last = exact_scalar_index(&source, 5, 7, LookupResult::Last, None)
             .unwrap()
             .unwrap();
         assert!(matches!(first, ExactScalarIndex::Direct { .. }));
@@ -265,7 +320,7 @@ mod index_family_tests {
     #[test]
     fn wide_or_overflowing_i64_domain_uses_hash_without_span_overflow() {
         let source = Value::ints([3], vec![i64::MIN, 0, i64::MAX]).unwrap();
-        let indexed = exact_scalar_index(&source, 3, 12, LookupResult::First)
+        let indexed = exact_scalar_index(&source, 3, 12, LookupResult::First, None)
             .unwrap()
             .unwrap();
         assert!(matches!(indexed, ExactScalarIndex::Hashed(_)));
@@ -278,8 +333,36 @@ mod index_family_tests {
     #[test]
     fn tiny_search_avoids_index_setup() {
         let source = Value::ints([3], vec![1, 2, 3]).unwrap();
-        assert!(exact_scalar_index(&source, 3, 2, LookupResult::Membership)
+        assert!(exact_scalar_index(&source, 3, 2, LookupResult::Membership, None)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn reverse_hash_uses_query_keys_and_preserves_duplicate_representatives() {
+        let source = Value::ints(
+            [100],
+            (0..100).map(|i| if i % 9 == 0 { 7 } else { i as i64 }).collect(),
+        ).unwrap();
+        let queries = Value::ints([3], vec![7, 7, 1000]).unwrap();
+        let first = exact_scalar_index(&source, 100, 3, LookupResult::First, Some(&queries))
+            .unwrap().unwrap();
+        let last = exact_scalar_index(&source, 100, 3, LookupResult::Last, Some(&queries))
+            .unwrap().unwrap();
+        assert!(matches!(first, ExactScalarIndex::ReverseHashed(_)));
+        assert!(matches!(last, ExactScalarIndex::ReverseHashed(_)));
+        assert_eq!(first.find(7, 100), 0);
+        assert_eq!(last.find(7, 100), 99);
+        assert_eq!(first.find(1000, 100), 100);
+    }
+
+    #[test]
+    fn reverse_hash_can_short_circuit_after_all_query_keys_resolve() {
+        let source = Value::ints([200], (0..200).map(i64::from).collect()).unwrap();
+        let queries = Value::ints([2], vec![1, 2]).unwrap();
+        let first = exact_scalar_index(&source, 200, 2, LookupResult::Membership, Some(&queries))
+            .unwrap().unwrap();
+        assert_eq!(first.find(1, 200), 1);
+        assert_eq!(first.find(2, 200), 2);
     }
 }
