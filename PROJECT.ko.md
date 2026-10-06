@@ -3131,6 +3131,55 @@ RustJ
 **추가로 필요한 것:** \`m&i.\` 또는 \`e.&n\`처럼 J의 derived verb 수준으로 prehash 수명을 관리하려면 별도 \`PreparedLookup\`/versioned dictionary identity/semantic equality contract와 guard/miss fallback을 A3 sidecar에 구현해야 한다. 일반 이름/locale·\`!.ct\` tolerance 변경·sparse/boxed까지 이 캐시를 무조건 확대하면 안 된다. Prehash 준비 과정에서 관찰 가능한 error/effect를 건너뛰지 않는다는 증명도 선행해야 한다. 우선 실제 J/C 출력 차등 및 작은/큰 query 비용 측정 후 threshold와 API를 확정한다.
 
 
+<a id="algorithm-planning-migration"></a>
+
+##### O. 타 프레임워크 대조를 통한 Algorithm Planning 확장 — i. family 첫 적용 (2026-10-06)
+
+**프레임워크 결정:** jsource의 C 전용 특수 함수를 개별 J Graph IR 노드로 복제하거나, 그 선택을 모두 `src/index_ops.rs`에 넣지 않는다. `J semantic identity → A3 resolved operation/meaning → target legality + proof/guard evidence → Physical cost/choice → guarded executor/fallback`으로 분리한다. **이 구조는 검색에 대한 첫 구현이며 전체 optimizer의 SelectionPlan/자동 튜너 완성을 의미하지 않는다.** `PROJECT.ko.md`가 정본이고 `PROJECT.md`는 같은 구조의 영문 mirror다.
+
+###### O.1 비교한 프레임워크와 채택·비채택 사항
+
+| 검토한 프레임워크·근거 | 해결 방식 (원본 근거) | RustJ에 채택한 원칙 / 하지 않은 것 |
+|---|---|---|
+| **MLIR Dialect Conversion** ([공식 Dialect Conversion](https://mlir.llvm.org/docs/DialectConversion/)) | `ConversionTarget`가 Legal/Dynamic/Illegal을 분리하고, op/operand/type별 합법성을 판정. `partial conversion`은 나머지를 유지 가능 | **채택:** `SearchAlgorithmReadiness`에서 ordinary baseline, exact-scalar runtime guard, 의미론 증명 필요, target 불가, 다른 연산을 분리한다. 특정 자료형을 안다고 `TolerantNeighborHash`를 승인하지 않는다. **비채택:** J binding/verb identity를 MLIR dialect로 교체하지 않음 |
+| **MLIR Transform dialect** ([공식 문서](https://mlir.llvm.org/docs/Dialects/Transform/)) | transform/control IR을 payload IR과 분리하고 recoverable/irrecoverable 실패를 구별 | **채택:** 분석 및 선택 결과는 canonical A3를 변경하지 않는 별도 report/plan으로 유지; guard 실패와 invalid transform을 별개로 취급. **비채택:** Transform dialect IR 그대로 도입하지 않음 |
+| **IREE Flow→Stream→HAL / Codegen lowering config** ([파이프라인](https://github.com/iree-org/iree/blob/main/docs/website/docs/developers/general/developer-tips.md), [Codegen LoweringConfig](https://iree.dev/reference/mlir-dialects/IREECodegen/), [LLVM CPU pass](https://iree.dev/reference/mlir-passes/CodegenLLVMCPU/)) | execution/dispatch와 device/backend translation 전략, tiling/vector/bufferization을 구분 | **채택:** A3 `SearchDescriptor`에 hash table 크기, buffer, SIMD, GPU device를 넣지 않으며 target 선택은 Registry/Physical로 미룬다. **비채택:** 지원하지 않는 GPU 검색 커널을 형식상 등록하지 않음 |
+| **Apache TVM MetaSchedule** ([공식 tutorial](https://tvm.apache.org/docs/deep_dive/tensor_ir/tutorials/meta_schedule.html)) | `SpaceGenerator → SearchStrategy → CostModel → Builder/Runner → Database`를 분리해 실제 HW 측정 결과로 schedule을 고른다 | **채택:** 합법적인 algorithm 후보/비용 입력/선택 기록을 서로 다른 개념으로 유지. 현재 `SearchPhysicalChoice`의 비용은 **측정값이 아닌 초기 크기 기반 heuristic**. **비채택:** 아직 자동 탐색·벤치 DB·예측 모델은 구현하지 않음 |
+| **XLA GPU Priority Fusion / Cost Model** ([설계 설명](https://github.com/openxla/xla/discussions/10065), [pass 원본](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.h)) | fusion의 합법성과 별도로 estimated `time(unfused)-time(fused)`, memory/compute/launch overhead 등을 근거로 우선순위 결정 | **채택:** semantic proof와 profitability, target feasibility/임시 메모리 사용을 섞지 않음. **비채택:** GPU cost 추정을 임의 상수로 수치화하지 않음 |
+| **Futhark SOAC / incremental flattening** ([2026년 개발 설명](https://www.futhark-lang.org/blog/2026-07-31-full-flattening.html), [scan-scatter fusion](https://www.futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html)) | 고수준 array/dataflow를 보존하고 다양한 flatten/fuse/순차 실행 버전을 target/workload에 따라 선택 | **채택:** 여러 낮은 수준 알고리즘으로 내릴 수 있는 고수준 `LookupClassify`/향후 `GroupBy`·`Reduce` 구조 유지. **비채택:** J의 오류 순서·동적 binding/tolerance 없이 functional fusion 동치식을 사용하지 않음 |
+
+###### O.2 실제 코드로 반영한 세 경계
+
+1. **Execution Semantic Lowering / A3:** `src/logical_ir.rs`의 `ExecutionBasisPayload::LookupClassify { search: SearchDescriptor }`에 **original primitive와 valence에서 도출한** `SearchOutputKind::{FirstIndex,LastIndex,MembershipMask,IntervalIndex,SelfClassify}`, `SearchComparison::{JEquality,JOrderedInterval}`, indexed/queried SSA `ValueId`, original `rank_boundary`를 보유한다. `i.`/ `i:` 이항, `e.` 및 `I.` 이항은 서로 다르다. 모호한/미지원 derived target은 `Deferred`로 남기고 새 실행 의미를 만들지 않는다. `A3_SCHEMA_VERSION`을 **0.4→0.5**로 올렸고 `Plan::verify`는 payload와 현재 `CallOp`이 일치하지 않는 변조를 거부한다. `JEquality`는 **runtime cct/`!.`를 준수할 의미**이지 float bit-exact hash 허가가 아니다.
+2. **LoweringRegistry:** `src/lowering.rs`에서 기존 `ExecutionBasisKind::LookupClassify`에 **ordinary pure CPU reference** route를 등록하고, `SearchAlgorithm::{Sequential,DirectAddress,IndexedHash,ReverseQueryHash,PreparedHash,TolerantNeighborHash}`를 별도 알고리즘 후보로 열거한다. `search_algorithm_reports`는 `SearchDescriptor`에서 `Baseline/RequiresExactScalarGuard/NeedsSemanticProof/UnsupportedTarget/UnsupportedSearchForm` 상태를 계산한다. 현재 다른 J search form, GPU route, TolerantNeighborHash에 대해 근거 없는 실행 가능 상태를 만들지 않는다. 기존 `JsourcePlanningReport`의 source provenance 및 미충족 `ProofRequirement`는 **그대로 유지**하며 실행 승인으로 승격시키지 않는다.
+3. **Physical Search Planner:** `src/physical.rs::plan_search_algorithm`은 실제 runtime/target에서 얻은 `SearchWorkload`(indexed/query 수, `integer_span`, immutable shared index, prehash eligibility, reverse용 query 접근)를 받고 Registry에 후보 상태를 재질의한다. 순차, 좁은 정수 범위 direct, indexed hash, reverse hash, prepared hash를 provisional bound(32 comparisons; direct 최대 65,536 entries 및 `4×(items+queries)`; reverse 최소 64 indexed 및 크기비 2:1; prepared 64~16,384 immutable shared)에 따라 고른다. output의 index 위치/Boolean mask 의미는 변경하지 않고, `SearchPhysicalChoice`에는 selection basis와 estimated **table entries**만 보고한다. 이는 byte-accurate allocation, benchmarked cost, final BufferId/device schedule이 아니다. `src/index_ops.rs`는 경계에서 Int/Bool 단항 item/runtime dtype을 검사한 다음 planner 결정대로 table을 준비한다. 선택적 table `Error::Limit`는 순차 fallback으로 되돌리지만 결과 버퍼 오류는 유지한다.
+
+**경계 반례:** 근사 동등성은 비추이적일 수 있어 `!.ct`/floating/boxed를 exact hash로 보내지 않으며 `TolerantNeighborHash`는 `NeedsSemanticProof`. `I.` interval은 Index-Of 일반 hash 후보가 아니다. unknown J name/POS/locale·effect/error ordering·empty prototype은 sidecar/guard 없이 우회하지 않는다. 이 선택기는 **CPU interpreter exact scalar에 대한 검증 전제 실행 경로**이며 `J Graph candidate commit`, `PhysicalArray` 생성, GPU backend, 일반 A3-to-native codegen과 동일하지 않다.
+
+###### O.3 앞으로 공통화할 설계 계약과 검증
+
+이 첫 search-specific adapter에서 확인한 **재사용 가능한 최적화 질문**은 다음과 같다.
+
+~~~text
+SemanticDescriptor (A3: meaning, input/value origins, comparison, rank)
+  ↓
+AlgorithmCandidateSet (Registry: target legality, proof obligations, runtime guards)
+  ↓
+VerifiedRuntimeFacts (or proven static witnesses; no Unknown→true)
+  ↓
+CostProfile / ResourceBudget (Physical: work, bytes, occupancy/cache/transfer)
+  ↓
+SelectionPlan (separate from semantic IR; overlap + fallback)
+  ↓
+CommittedLowering (only witnessed/guarded, preserves errors/effects)
+~~~
+
+- 검색에서 검증한 인터페이스를 공통 `AlgorithmCandidate<Family>`/proof evidence와 cost model로 일반화하는 것은 **다음 구현 단계**다. Reduce/Scan의 reassociation, GroupBy의 equality/representative, Grade의 tie/order, Contract의 numeric accumulation/precision은 **각기 다른 semantic witness**를 요구한다. `LookupClassify` 전용 enum을 이들에 억지로 재사용하지 않는다.
+- `SearchDescriptor`는 A3 J meaning만 표현하고, 향후 `ComparisonPolicy`를 `cct`/`!.` version guard가 붙은 contract로 구체화한다. Rank/CellApply가 외부 layer인 경우는 nested basis와 A3 call instantiation을 함께 검증한다. prehash 및 locale/name binder는 runtime key/version/lifetime에 귀속한다.
+- target별 등록과 선택은 독립 검증한다: GPU/XLA식 cost model은 **GPU 실제 realization과 hard resource feasibility 등록 후에만** 합법 후보를 비교한다. out-of-budget/Unknown을 단순히 느린 비용으로 처리하지 않는다.
+- 회귀 검사에 A3 `SearchDescriptor`의 mode·indexed/probe origin 및 forged payload 거부, Registry의 target·proof 상태, Physical의 5개 전략/false guard/GPU/Interval 차단을 추가했다. 기존 `i.` first/last/membership/empty/duplicate 및 prehash rebinding 테스트는 별도로 유지한다. **이번 변경에서는 Cargo·CI·jsource differential·benchmark를 실행하지 않았으므로 결과의 실행 검증과 성능 개선을 주장하지 않는다.**
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
@@ -8471,7 +8520,7 @@ positive E2E test만으로는 compiler boundary를 보호할 수 없다. 각 sta
 | J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.9`와 exact match |
 | rewrite candidate `verify` | stale source span/basis, unregistered rule/witness mismatch, replacement DAG forward reference, fact-rule mismatch, output semantic facts drift | **현재 존재** |
 | scan/fusion analysis verifier | forged source order, unsupported rule version, missing/incorrect witness, external-use/retention/fanout drift, candidate를 근거 없이 `selected`로 위조 | **현재 일부 존재**; proof discharge/selection verifier는 future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.4`와 exact match |
+| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.5`와 exact match |
 | CandidateEvidence / SelectionPlan | stale graph/version evidence, required proof Unknown인데 Selected, Illegal candidate 선택, overlapping incompatible candidates 동시 선택 | **planned** — §4.1.4 |
 | RouteRegion / RouteBoundary | missing live-in/out, value-dead but effect-live dependency drop, SemanticCheck 중복/누락/순서변경, region-wide capability 미증명, guard가 effect 뒤에 배치, bridge requirement 누락 | **planned** — §2.5.1 |
 | PhysicalPlan | invalid plan buffer/view/op id, use-before-bind, view span overflow, selected kernel capability mismatch, unordered Check, unproved writable overlap/reuse, dangling Return | **planned M4** — §5.2.1 |
@@ -8501,7 +8550,7 @@ no later planner/executor is invoked
 
 ~~~text
 J Graph schema 0.9      exact match required
-A3 schema 0.4           exact match required
+A3 schema 0.5           exact match required
 PrimitiveRegistry       current REGISTRY_VERSION exact provenance required
 ~~~
 
