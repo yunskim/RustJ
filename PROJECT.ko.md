@@ -3267,6 +3267,15 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 **실행 승인 필요조건(미승인 유지):** CPU finite scalar float 검색에서조차 **비교 정책을 실제로 witness/guard**하고, 모든 가능 일치 위치가 후보로 보존된다는 proof가 있으며, 후보마다 정확히 동일한 semantic comparator로 재검사하고, 최소/최대 원본 위치 및 no-match sentinel을 유지해야 한다. 가드 실패는 observable effect 전에 일반 순차 검색으로 돌아가야 한다. `NaN`/무한대/underflow, 혼합 타입, rank/cell, boxed/sparse, C와 Rust 기본 비교 차이를 회피하는 **명시적 지원 범위**가 필요하다. 지금 단계에서 proof는 고정 Rust `near`에만 제한되고, C differential·동적 policy와 `!.t`의 등가는 **미검증**이다. 따라서 `LoweringRegistry`의 `TolerantNeighborHash=NeedsSemanticProof`와 테스트 전용 배선을 유지한다.
 
 
+###### P.7 고정 비교 정책 스냅샷 구현 — dynamic J CCT 미지원 경계 (2026-10-06)
+
+**구현:** `src/comparison_policy.rs`에 내부 `ComparisonPolicySnapshot`과 유일하게 구성 가능한 `FixedRustNearV0` 식별자를 둔다. 이 스냅샷은 현재 `kernels::near`에서 사용하던 `a == b || finite(a,b) && |a-b| <= 2^-44 max(|a|,|b|)` 식을 그대로 소유한다. `kernels::near`는 이를 호출하도록 위임하며, `src/index_ops.rs::lookup`과 `find`는 **검색 호출당 한 번** 동일 정책을 포착해 각각 `i.`/`i:`/`e.`, `E.`의 atom comparisons에 전달한다. 외부 `expansion.rs` 사용을 위한 `atom_eq` 래퍼는 그대로 유지한다. Graph IR·A3 `SearchDescriptor`·Physical index/table 선택을 수정하지 않았고, float 검색은 여전히 **원본 순차 경로**를 사용한다. Int/Bool exact-only prehash는 float tolerance와 독립이며 변경하지 않았다.
+
+**새 회귀 테스트(작성만, 실행 미확인):** `src/comparison_policy.rs`에서 비추이 연쇄, ±0, NaN, ±Infinity, 최소 subnormal 대 zero를 검사한다. `src/index_ops.rs`의 `fixed_float_policy_preserves_first_last_membership_and_find`는 다중 일치·근사적 비추이성·missing sentinel 및 4가지 검색 결과 `i.`·`i:`·`e.`·`E.`를 독립적으로 확인한다. 기존 연구 harness `src/tolerant_search.rs`는 추가한 정책 모듈과 별개로 test-only다. 입력형 불변성과 정책 동일성은 코드 검토로 확인하되 **Cargo fmt/test/clippy, 실제 jsource 실행, differential/benchmark는 미실행**이다.
+
+**설계상 의미:** '비교 정책'을 실행 코드의 명시적 입력으로 캡처하는 첫 단계이고 **J의 `!.t`/전역 `9!:19`를 구현한 것이 아니다**. `FixedRustNearV0`는 현재 Rust CPU 함수의 정체성일 뿐, jsource `cct`-based 구현 동등성 witness가 아니다. 다음 기능을 활성화하려면 `Fit`-derived verb/동적 설정의 semantic ownership, 실제 호출 시점 policy identity + epoch, guarded supported-range proof, 전체 rank/cell·type·error 조건, 적절한 cache key/invalidation 및 독립 J C differential을 각각 충족해야 한다. 자동 TolerantNeighborHash 후보 선택, prepared float hash, LLVM/GPU 경로는 계속 금지한다. P.1 단계 5–7/12는 **[ ] 그대로**다.
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
