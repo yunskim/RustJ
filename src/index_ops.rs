@@ -505,6 +505,35 @@ mod index_family_tests {
     use crate::Value;
 
     #[test]
+    fn fixed_float_policy_preserves_first_last_membership_and_find() {
+        use crate::{Data, storage::CpuStorage};
+        let t = 2f64.powi(-44);
+        let (a, b, c) = (1.0, 1.0 + 0.75 * t, 1.0 + 1.5 * t);
+        let floats = |values: &[f64]| {
+            Value::new([values.len()], Data::Float(CpuStorage::new(values.to_vec()))).unwrap()
+        };
+        let source = floats(&[a, b, a, f64::INFINITY, 0.0, -0.0, f64::NAN]);
+        let probes = floats(&[c, a, -0.0, f64::INFINITY, f64::NAN]);
+        let first = super::index_of(source.clone(), probes.clone(), false).unwrap();
+        let last = super::index_of(source.clone(), probes.clone(), true).unwrap();
+        let membership = super::member(probes.clone(), source.clone()).unwrap();
+        for (q, &expected) in [1, 0, 4, 3, 7].iter().enumerate() {
+            assert_eq!(first.int_at(q).unwrap(), expected);
+        }
+        for (q, &expected) in [1, 2, 5, 3, 7].iter().enumerate() {
+            assert_eq!(last.int_at(q).unwrap(), expected);
+        }
+        for (q, &expected) in [1, 1, 1, 1, 0].iter().enumerate() {
+            assert_eq!(membership.int_at(q).unwrap(), expected);
+        }
+        // Pattern search E. uses the same fixed comparator for each atom.
+        let found = super::find(floats(&[b]), floats(&[a, c, f64::NAN])).unwrap();
+        for (i, &expected) in [1, 1, 0].iter().enumerate() {
+            assert_eq!(found.int_at(i).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn narrow_domain_uses_direct_table_without_changing_duplicate_policy() {
         let source = Value::ints([5], vec![-2, -1, 0, -2, 1]).unwrap();
         let first = exact_scalar_index(&source, 5, 7, LookupResult::First, None)
