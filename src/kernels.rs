@@ -460,6 +460,16 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
             if a.shape.len() > 1 || b.shape.len() > 1 {
                 return Err(Error::Unsupported("catenate rank > 1".into()));
             }
+            // A *positive outer Rank frame* may contain zero-atom cells.
+            // Pinned J uses the higher-priority dense type for heterogeneous
+            // empty catenate cells, without manufacturing a scalar result.
+            if a.is_empty() && b.is_empty() {
+                if let Some(target) = crate::logical_executor::inhomogeneous_catenate_retry_type(
+                    &a, &b, false, false,
+                ) {
+                    return a.rank_refill_as(target);
+                }
+            }
             assemble(
                 vec![a.len().checked_add(b.len()).ok_or(Error::Limit)?],
                 vec![a, b],
