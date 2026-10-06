@@ -2,7 +2,7 @@ import math
 import unittest
 
 from conformance import validate_cli_corpus
-from tolerance_audit import j_float, tolerance_cases
+from tolerance_audit import KNOWN_PINNED_CCT_GAPS, j_float, tolerance_cases
 
 
 class ToleranceAuditFixtureTests(unittest.TestCase):
@@ -14,6 +14,19 @@ class ToleranceAuditFixtureTests(unittest.TestCase):
         self.assertEqual(j_float(math.inf), "_")
         self.assertEqual(j_float(-math.inf), "__")
         self.assertEqual(j_float(math.nan), "_.")
+
+    def test_known_pinned_default_cct_gaps_are_not_unscoped_waivers(self):
+        self.assertEqual(len(KNOWN_PINNED_CCT_GAPS), 8)
+        self.assertEqual(
+            KNOWN_PINNED_CCT_GAPS,
+            frozenset(
+                f"{boundary}:{operation}"
+                for boundary in ("lower_edge", "upper_edge")
+                for operation in ("eq", "first", "last", "member")
+            ),
+        )
+        self.assertNotIn("outside_upper:eq", KNOWN_PINNED_CCT_GAPS)
+        self.assertNotIn("nontransitive_end:first", KNOWN_PINNED_CCT_GAPS)
 
     def test_boundary_suite_is_stable_and_labeled(self):
         cases = tolerance_cases()
