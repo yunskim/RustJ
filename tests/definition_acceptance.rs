@@ -1,5 +1,6 @@
 //! Positive acceptance contract for definition implementation.
-//! Each ignored test is an UNIMPLEMENTED milestone, never a passing capability.
+//! Each ignored test is an UNIMPLEMENTED or not-yet-revalidated acceptance milestone, never a passing capability.
+//! Some lower-level straight-line definition/runtime subsets now exist; ignore reasons must not claim those subsets are absent.
 //! Run explicitly with: cargo test --test definition_acceptance -- --include-ignored
 use rustj::{Engine, Value, semantic};
 use std::{
@@ -94,7 +95,7 @@ fn cli_collects_a_definition_before_executing_any_body_line() {
 }
 
 #[test]
-#[ignore = "DEF-2/4: direct verbs are not implemented"]
+#[ignore = "DEF-2/4: straight-line direct-call support exists; this full acceptance case has not been revalidated/unignored"]
 fn direct_monad_and_dyad_have_separate_parameter_frames() {
     let mut e = Engine::new();
     define(&mut e, "inc=:{{y+1}}");
@@ -108,7 +109,7 @@ fn direct_monad_and_dyad_have_separate_parameter_frames() {
 }
 
 #[test]
-#[ignore = "DEF-2/4: explicit verbs are not implemented"]
+#[ignore = "DEF-2/4: straight-line explicit-call support exists; multiline/full acceptance remains to be revalidated before unignore"]
 fn explicit_string_and_multiline_bodies_agree() {
     let mut e = Engine::new();
     define(&mut e, "inline=:3 : 'y+1'");
@@ -120,7 +121,7 @@ fn explicit_string_and_multiline_bodies_agree() {
 }
 
 #[test]
-#[ignore = "DEF-2/4: explicit valence sections are not implemented"]
+#[ignore = "DEF-2/4: valence sections exist in DefinitionCode/runtime selection; this acceptance case remains unverified for unignore"]
 fn explicit_colon_line_selects_monad_or_dyad_section() {
     let mut e = Engine::new();
     define(&mut e, "f=:3 : 0\ny+1\n:\nx+y\n)");
@@ -149,7 +150,7 @@ fn nested_direct_verb_does_not_leak_a_local_function() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: local frames and local assignment are not implemented"]
+#[ignore = "DEF-3/4: straight-line LocalFrame/local assignment exists; this broader acceptance case remains to be revalidated before unignore"]
 fn local_shadowing_is_per_call_and_does_not_modify_globals() {
     let mut e = Engine::new();
     define(&mut e, "g=:10");
@@ -161,7 +162,7 @@ fn local_shadowing_is_per_call_and_does_not_modify_globals() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: definition-time parsing must not snapshot future body reads"]
+#[ignore = "DEF-3/4: late body reads exist in supported straight-line scope; this broader acceptance case remains to be revalidated before unignore"]
 fn body_globals_are_resolved_when_called() {
     let mut e = Engine::new();
     define(&mut e, "g=:10");
@@ -175,7 +176,7 @@ fn body_globals_are_resolved_when_called() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: local nouns must snapshot values and preserve array aliases"]
+#[ignore = "DEF-3/4: supported LocalFrame nouns share/snapshot values; this alias acceptance case remains to be revalidated before unignore"]
 fn local_noun_copy_survives_reassignment_without_mutating_argument() {
     let mut e = Engine::new();
     define(&mut e, "source=:i.4");
@@ -186,7 +187,7 @@ fn local_noun_copy_survives_reassignment_without_mutating_argument() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: global assignment in a body is not implemented"]
+#[ignore = "DEF-3/4: straight-line body global assignment exists; this acceptance case remains to be revalidated before unignore"]
 fn definition_construction_does_not_run_global_side_effects() {
     let mut e = Engine::new();
     define(&mut e, "counter=:0");
