@@ -526,6 +526,85 @@ mod rank_fill_error_tests {
     use super::*;
 
     #[test]
+    fn catenate_inhomogeneity_retries_once_and_uses_original_atom_presence() {
+        use crate::storage::CpuStorage;
+        use crate::value::Data;
+
+        let char_empty = Value::new([0, 3], Data::Char(CpuStorage::new(vec![]))).unwrap();
+        let int_empty = Value::ints([0, 3], vec![]).unwrap();
+        let char_fill = char_empty.rank_fill_cell(1).unwrap();
+        let int_fill = int_empty.rank_fill_cell(1).unwrap();
+        assert_eq!(
+            inhomogeneous_catenate_retry_type(&char_fill, &int_fill, false, false),
+            Some(4),
+        );
+
+        let mut calls = 0;
+        let result = retry_inhomogeneous_catenate_fill(
+            &char_empty,
+            &int_empty,
+            char_fill.clone(),
+            int_fill.clone(),
+            |a, b| {
+                calls += 1;
+                crate::kernels::dyad(",", a, b)
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, 2, "initial EVINHOMO and exactly one retry");
+        assert_eq!(result.shape(), &[6]);
+        assert_eq!(result.type_code(), 4);
+        for i in 0..result.len() {
+            assert_eq!(result.int_at(i).unwrap(), 0);
+        }
+
+        let char_nonempty = Value::new(
+            [3],
+            Data::Char(CpuStorage::new(b"abc".to_vec())),
+        )
+        .unwrap();
+        assert_eq!(
+            inhomogeneous_catenate_retry_type(
+                &char_nonempty, &int_fill, true, false,
+            ),
+            Some(2),
+        );
+        let char_result = retry_inhomogeneous_catenate_fill(
+            &char_nonempty,
+            &int_empty,
+            char_nonempty.clone(),
+            int_fill.clone(),
+            |a, b| crate::kernels::dyad(",", a, b),
+        )
+        .unwrap();
+        assert_eq!(char_result.shape(), &[6]);
+        assert_eq!(char_result.type_code(), 2);
+        assert_eq!(char_result.display(), "abc   ");
+
+        let bool_fill = Value::new([3], Data::Bool(CpuStorage::new(vec![0; 3])))
+            .unwrap();
+        assert_eq!(
+            inhomogeneous_catenate_retry_type(&char_fill, &bool_fill, false, false),
+            Some(2),
+        );
+
+        let mut count = 0;
+        let err = retry_inhomogeneous_catenate_fill(
+            &char_empty,
+            &int_empty,
+            char_fill,
+            int_fill,
+            |_, _| {
+                count += 1;
+                Err(Error::Limit)
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.kind(), "limit error");
+        assert_eq!(count, 1, "resource failures must never retry");
+    }
+
+    #[test]
     fn rank_zero_frame_recovery_does_not_erase_exigent_or_unknown_errors() {
         let fallback = recover_zero_frame_fill_domain(Err(Error::Domain), None)
             .expect("J non-exigent computational fill failure");
