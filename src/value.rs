@@ -247,6 +247,14 @@ impl Value {
         Self::new(shape, data)
     }
 
+    /// Assemble a zero-frame result from the type and shape of its fill-cell.
+    /// No atom is copied from that synthetic cell into the final result.
+    pub(crate) fn empty_rank_result(&self, frame: &[usize]) -> Result<Self> {
+        let mut shape = Shape::from(frame);
+        shape.extend_from_slice(&self.shape);
+        self.select(shape, std::iter::empty())
+    }
+
     pub fn select(
         &self,
         shape: impl Into<Shape>,
