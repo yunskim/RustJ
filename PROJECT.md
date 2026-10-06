@@ -1081,6 +1081,57 @@ Runtime handling in this table requires **existing, verified RustJ capability**.
 
 Existing `GraphAnalyzability` states (Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback) and `AnalysisBoundary` are initial classifications. **Static does not mean pure/error-free/reorderable/executable.** `validate_noun_inputs()` does not prove function/effect/whole-execution safety. These classifications are not a completed guard/continuation/dispatcher implementation.
 
+### 5.2.2 Fallback / guard miss / replay decision table
+
+`fallback` is not one operation. Distinguish:
+
+```text
+route fallback
+  choose another verified route before execution starts
+
+guard miss
+  discover before effects that a specialization/optimization premise is false
+
+replay
+  restart an already-started region/sentence from its beginning
+
+continuation / deopt
+  resume at the exact semantic point while retaining already committed effects
+```
+
+RustJ generally permits **pre-execution route fallback**. A pre-effect guard miss may trigger reanalysis/reselection when a real verified capability exists. Generic replay and exact continuation/deoptimization are not currently implemented/verified capabilities.
+
+| Situation | J semantic error? | Alternative route? | Replay? | Current rule |
+|---|---|---|---|---|
+| target capability miss during compile/lowering | no | yes, if execution has not started and a verified alternative exists | unnecessary | route miss; otherwise UnsupportedImplementation |
+| specialization guard miss before observable effects | no | yes, if reanalysis/verified fallback exists | prefer route reselection rather than restart semantics | never expose the miss as a J error |
+| explicit compiler/API contract violation | distinct from J semantics | according to that contract | not automatic | keep contract errors separate from Domain/Rank/etc. |
+| A3 SemanticCheck or semantic call raises Domain/Length/Rank/Index/etc. | **yes** | no; do not switch backend to evade the same J error | no | preserve J class and precedence |
+| backend-adapter precondition miss before region execution | no | yes, with a verified alternative | unnecessary | reject that route only |
+| native/external Unsupported before any observable effect starts | no | conditional, only when the whole region remains untouched and the alternative is verified | v0 treats this as route reselection | implementation-coverage boundary |
+| implementation failure after partial kernel/external execution | normally not a J semantic error | not automatically | **forbidden by default** | cleanup, then report implementation failure/Unsupported unless a transactional contract exists |
+| failure after namespace write/I/O/other observable effect commit | may coexist with already observable J state | not automatically | **forbidden** | do not claim mid-execution fallback without verified exact continuation |
+| async failure after completion/token/resource publication | not automatically a J error | only if completion/effect state is fully proven | forbidden by default | future async contract must own the completion/effect frontier |
+
+Current `lowering.rs::RouteDecision::RuntimeSemanticFallback` means **compile-time classification that this operation needs a semantic/runtime route because no current native ExecutionBasis realization is available**. It does not promise that RustJ may run a native kernel, fail halfway, and jump back to the interpreter. If the semantic/runtime route itself does not support the form, the result may still be `UnsupportedImplementation`.
+
+Future dispatch must distinguish at least these commit frontiers:
+
+```text
+before_start
+  no observable effect or consumer-visible transfer
+
+guarded_but_uncommitted
+  guards/checks may have run, but no replay-sensitive effect
+
+committed
+  namespace write / I/O / visible mutation / non-rollback transfer occurred
+```
+
+Verified alternate-route selection is possible in the first two states. After `committed`, region-start replay is forbidden unless exact continuation or transactional rollback has been implemented and verified.
+
+Required tests include: guard miss never becoming a J error; pre-effect route miss choosing a verified alternative; SemanticCheck errors not disappearing under backend changes; a forced Unsupported after a namespace write proving the write is not executed twice; and future async/transfer tests on both sides of the completion frontier.
+
 Track implementation in the [DB0–DB7 migration checklist](#dynamic-boundary-checklist); boundary conditions and implementation status are defined above.
 
 Evidence: [FOUNDATIONS §21/§33](FOUNDATIONS.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7 classification/sequencing is a RustJ design decision, not a claim to have copied a complete upstream guard system.
