@@ -575,23 +575,14 @@ fn infer_ranked_semantic_projection(
     let Some(right_shape) = &right.shape else {
         return SemanticFacts::default();
     };
-    let (rf, rc) = split(
-        right_shape,
-        if left.is_some() { ranks[2] } else { ranks[0] },
-    );
-    let (lf, lc) = if let Some(left) = left {
-        let Some(shape) = &left.shape else {
-            return SemanticFacts::default();
-        };
-        let (frame, cell) = split(shape, ranks[1]);
-        (Some(frame), Some(cell))
-    } else {
-        (None, None)
-    };
-    let result_frame = match &lf {
-        Some(lf) => agreement(lf, &rf),
-        None => Some(rf.clone()),
-    };
+    let left_shape = left.and_then(|facts| facts.shape.as_deref());
+    if left.is_some() && left_shape.is_none() {
+        return SemanticFacts::default();
+    }
+    let plan = rank_plan_for_shapes(ranks, left_shape, right_shape);
+    let result_frame = plan.result_frame.clone();
+    let rc = plan.right_cell.clone();
+    let lc = plan.left_cell.clone();
     let Some(mut frame) = result_frame else {
         return SemanticFacts::default();
     };
