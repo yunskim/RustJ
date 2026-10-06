@@ -66,8 +66,8 @@ RustJ does not treat all external implementations as having the same authority. 
 
 - **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
   - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family. Source: https://arxiv.org/abs/1907.00509
-  - Bohrium is a precedent for collecting existing NumPy-style array programs into a delayed intermediate representation and deciding fusion, materialization, and heterogeneous realization later. Publications: https://bohrium.readthedocs.io/publications.html
-  - Lift is a comparison point for separating high-level map/reduce rewrites from hardware mapping. Source: https://doi.org/10.1109/CGO.2017.7863730
+  - Bohrium is a precedent for lazily collecting NumPy-style array operations so fusion, allocation/materialization, host-device movement, and backend-specific execution can be delayed. Do not overstate it as dynamically selecting CPU versus GPU for every operation. Publications: https://bohrium.readthedocs.io/publications.html
+  - Lift is a comparison point for rewrite-driven progression from portable map/reduce patterns toward OpenCL-specific functional patterns and increasingly concrete hardware mappings. Do not describe it as a strict separation of rewriting from hardware mapping. Source: https://doi.org/10.1109/CGO.2017.7863730
   - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops. Source: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
   - None of these systems define RustJ's J semantics; they are evidence for compiler layering and optimization techniques.
 
@@ -3084,6 +3084,49 @@ Design work is authored in Korean canonical files first. English mirrors are upd
 Maintenance rules: keep the overall code-inspection/status summary in §16 and completion gates in §17/stage checklists. Put graph research in §7, extension vocabulary in §5.3, the matrix-cell proof in §17.1.1 and validation policy in §15. Date historical audits instead of presenting old v0.1/transition stages as current. Section moves update both languages and cross-links while preserving sources, adoption/support distinctions and unique validation conditions.
 
 If a discrepancy exists, the Korean canonical file is authoritative.
+
+### 18.1 Documentation-completeness audit — are stage contracts closed? (2026-10-06)
+
+RustJ already documents many individual topics in depth, but depth is not the same as an end-to-end architecture that a reader can reconstruct. The recurring gap is **the contract between stages**. A major compiler stage is considered documentation-complete only when the documentation answers:
+
+```text
+1. Why does the stage exist?
+2. What are its inputs?
+3. What are its outputs?
+4. What semantic information must it preserve?
+5. What decisions must it not make?
+6. What are its upstream/downstream contracts?
+7. Is there a representative source-to-IR/plan example?
+8. What is implemented today?
+9. Which verifier/tests prove the boundary?
+10. What remains unimplemented or undecided?
+```
+
+This is a documentation-connectivity audit, not a score of design quality or implementation completion.
+
+| Stage / boundary | Documentation status | Strong coverage today | Main remaining gap |
+|---|---|---|---|
+| word formation → enqueue → parser | **strong** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reductions, name/assignment sequencing, differential gates | A compact canonical trace from tokens through queue/reductions to completed `JEntity/FunctionEntity` would improve orientation |
+| Semantic Construction / binding / dynamic semantics | **strong** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition frames, gerund/rank/train preservation | Concrete explicit-definition control-flow handoff into A3 regions/blocks remains partial |
+| J Semantic → J Graph IR | **strong** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, `@:`/fork diagrams, Graph-vs-Execution distinction | Canonical graph examples for hook/rank/reduce/scan are still distributed across sections |
+| graph analysis → candidate/proof | **partial** | rewrite witnesses, fusion proof obligations, memory/resource/work-depth analyses, target-feasibility separation | No closed proof-discharge owner/state machine, overlapping-candidate conflict policy, or canonical illegal-candidate representation; fusion is still `AwaitingSemanticProofs` with `selected=false` |
+| J Graph → execution-semantic lowering → A3 | **mostly strong** | direct lowering, fact-drift checks, Execution Basis, SemanticCheck, effects/errors/speculation, verifier, schema header | A3-v0 is still effectively single-block; schema support must not be confused with completed control-flow lowering |
+| route analysis / partition | **partial** | `RouteDecision`, capabilities/recipes, mixed-route principle, RuntimeSemanticFallback, current contiguous-class partition | Missing one closed region-boundary ABI for live-ins/outs, representation/transfer/materialization, effects/tokens, errors, and whole-region legality |
+| schedule / Physical Planner | **partial — high priority** | logical/schedule/physical separation, target/resource/cost models, G1 representation foundation | No canonical `PhysicalPlan` schema/verifier yet; M4 needs the minimum Bind/View/Materialize/Kernel/Transfer/Sync/Return contract first |
+| native executor | **partial** | clear non-responsibilities, logical reference executor, G4 goal | Physical-plan op semantics, cleanup/error/async completion, and E2E oracle are not yet closed |
+| fallback / guard miss / replay | **partial — high priority** | language validity vs route eligibility, RuntimeSemanticFallback, scattered no-replay-after-effects rules | Need one decision table separating compile-time route miss, guard miss, runtime Unsupported, J semantic error, and post-effect failure |
+| external route / GPU | **planned** | adapter responsibility, external IR as projection, target/lowering separation | First concrete adapter ABI, round-trip verifier, and unsupported diagnostics are not implemented; CUDA remains intentionally deferred |
+| validation / versioning | **partial** | strong frontend differential gates; A3 verifier/schema/provenance fields exist | Candidate→route→physical negative verifier matrix and serialization migration policy remain future work |
+
+Highest-priority documentation closures, without changing the current M2 implementation priority:
+
+1. Define the candidate lifecycle and proof-discharge ownership: `Discovered → AwaitingProofs → Legal/Illegal → Costed → Selected/Rejected → Lowered`, while allowing speculative resource/cost analysis before legality but forbidding selection before required proofs.
+2. Define the `RouteRegion` boundary contract: live-in/out values, effect/error ordering edges, representation and transfer/materialization obligations, and the fact that today's contiguous-class `partition_plan` is a v0 analysis helper rather than the final mixed-route planner.
+3. Define the minimal M4 PhysicalPlan schema and verifier before implementing it. Keep the current G1 `physical.rs` representation foundation distinct from a planner/executor.
+4. Consolidate fallback/no-replay semantics into one decision table. In particular, distinguish route miss and guard miss from semantic J errors, and forbid automatic replay after observable effects have committed.
+5. Maintain one canonical end-to-end compiler trace—e.g. `(+/ % #) y` or `f @: g`—from source through semantic construction, J Graph IR, candidates/proofs, A3, route, minimal PhysicalPlan, and CPU result/error, explicitly marking unimplemented stages.
+
+Maintenance rule: whenever a major compiler stage/type or framework-comparison claim changes, update the relevant contract summary and cross-search `FOUNDATIONS`, `PROJECT`, `README`, and `AGENTS` for stale duplicate claims. Keep these audit results inside the canonical project documents rather than spawning separate Markdown review reports.
 
 Code identifiers, comments, doc comments, test names, diagnostics, and commit messages remain English unless a specific case requires otherwise.
 
