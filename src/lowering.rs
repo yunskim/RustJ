@@ -503,16 +503,33 @@ impl LoweringRegistry {
         search: &SearchDescriptor,
         target: &TargetCapabilities,
     ) -> Vec<SearchAlgorithmReport> {
+        self.search_algorithm_reports_for_output(
+            search.output,
+            search.comparison,
+            search.indexed.is_some(),
+            target,
+        )
+    }
+
+    /// Also used at the guarded runtime boundary, which has a resolved
+    /// primitive output meaning without inventing an A3 ValueId.
+    pub fn search_algorithm_reports_for_output(
+        &self,
+        output: SearchOutputKind,
+        comparison: crate::logical_ir::SearchComparison,
+        indexed_present: bool,
+        target: &TargetCapabilities,
+    ) -> Vec<SearchAlgorithmReport> {
         use SearchAlgorithm::*;
         use SearchAlgorithmReadiness::*;
 
         let supported_form = matches!(
-            search.output,
+            output,
             SearchOutputKind::FirstIndex
                 | SearchOutputKind::LastIndex
                 | SearchOutputKind::MembershipMask
-        ) && search.indexed.is_some()
-            && search.comparison == crate::logical_ir::SearchComparison::JEquality;
+        ) && indexed_present
+            && comparison == crate::logical_ir::SearchComparison::JEquality;
         [Sequential, DirectAddress, IndexedHash, ReverseQueryHash,
          PreparedHash, TolerantNeighborHash]
             .into_iter()
