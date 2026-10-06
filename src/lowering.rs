@@ -25,6 +25,10 @@ pub enum TargetFamily {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TargetFeature {
     Simd,
+    /// Device-local concurrency capability, not evidence of J-semantic
+    /// reordering legality or an instruction to select CPU worker threads.
+    /// Region/device placement and physical memory residency are planned
+    /// separately from intra-device execution strategy.
     Threads,
     IndexedMemory,
     SubgroupCollective,

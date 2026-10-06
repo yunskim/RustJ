@@ -9943,6 +9943,49 @@ backend / executor
 
 **M4 완료 조건:** 기존 interpreter 직접 실행을 거치지 않는 최소 compiler-native CPU 경로가 하나 이상 동작한다.
 
+<a id="heterogeneous-execution-checklist"></a>
+
+#### HE — 이종 CPU/GPU 실행 계획 수렴 (2026-10-07, M4→M6 연계 체크리스트)
+
+**설계 결정:** RustJ는 **CPU 멀티코어 컴파일러가 아니라 이종 배열 컴파일러**다. CPU thread 병렬화는 Physical Plan의 device-local 실행 전략일 뿐이다. `ParallelLegality` 또는 CPU 전용 `ParallelPhysicalPlanner`를 독립적인 canonical 상위 단계로 도입하지 않는다. 기존 `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`를 유지한다. 이 체크리스트는 본 §10의 기존 M/IO 이행 계획에 통합되며 별도 Markdown이나 새로운 필수 IR을 만들지 않는다.
+
+**교차 프레임워크 감사 (참조 대상과 채택 경계).**
+
+| 참조 | 실제 근거 | RustJ 도입/비도입 |
+|---|---|---|
+| [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) 및 [stream passes](https://iree.dev/reference/mlir-passes/Stream/) | Flow에서 target affinity, resource, asynchronous scheduling을 명시한 Stream으로 내린 뒤 HAL에서 실제 device execution | Route/physical plan에 region affinity, readiness·completion dependency, ownership/lifetime 계약을 **점진적으로 도입**; IREE 전체 스택 또는 새로운 Stream IR 복제 금지 |
+| [Kokkos View](https://kokkos.org/kokkos-core-wiki/ProgrammingGuide/View.html) · [Memory Spaces](https://kokkos.org/kokkos-core-wiki/API/core/memory_spaces.html) | ExecutionSpace와 MemorySpace가 1:1이 아니고 가시성·동기화가 별도 | **장치 실행 위치 ≠ 버퍼 저장 위치**를 별도 물리 사실로; unified/shared memory를 공짜 zero-copy로 간주 금지 |
+| [MLIR scf.forall](https://mlir.llvm.org/docs/Dialects/SCFDialect/) · [tensor.parallel_insert_slice](https://mlir.llvm.org/docs/Dialects/TensorOps/) | 논리적인 병렬 반복·mapping·부분 결과 결합을 분리, 반복 간 side effect ordering은 미보장 | A3 `IterationDomain`과 schedule/device mapping 분리 유지. 독립 출력/조립 J 의미 proof 없이 동시화 금지 |
+| [XLA CPU ParallelTaskAssignment](https://github.com/openxla/xla/blob/main/xla/service/cpu/parallel_task_assignment.cc) | FLOP/byte 기반 task 수와 thread overhead 평가, 내부 병렬화된 kernel 회피 | CPU backend 내부의 작업량·대역폭 비용 참고; GPU/CPU 장치 배치 비용을 CPU thread threshold로 대체 금지 |
+| [Futhark multicore scheduler](https://github.com/diku-dk/futhark/blob/master/rts/c/scheduler.h) · [Rayon](https://docs.rs/rayon/latest/rayon/) | chunk/task amortization, nested work 분배, work stealing | **CPU 실행기 내부** 실행 전략; RustJ logical IR에 thread pool·thread count 인코딩 금지 |
+
+**소유권/경계 계약:**
+1. **Semantic/legality:** `logical_ir.rs`의 J 결과 타입·Shape, Rank/CellApply/zero-frame virtual fill, dynamic names/versions, comparison/fit, alias, effect와 error precedence가 권위다. `IterationAxisKind::Parallel`은 구조적 축이며 **동시 실행 가능하다는 증명이 아니다**. 동시 실행·분할·중복 계산은 기존 `lowering.rs` legality와 별도 witness/guard에서 결정한다; Unknown은 거절 또는 합법 baseline 경로로 유지한다.
+2. **Route/device:** `RouteRegion`의 후보 장치(CPU/GPU/external)와 intra-device schedule(Sequential/SIMD/CPU workers/GPU grid)은 직교한다. full J에 모든 연산이 동일한 backend에 내려가야 한다는 의무가 없다. 단일 CPU/단일 region/all sequential은 정상적으로 유효한 계획이다.
+3. **Placement/memory:** J `ValueId`, plan-time `PlanBufferId`/logical version, runtime `BufferId`/`BufferLease`/memory residency/ready state는 서로 다르다. Host/NUMA/GPU/managed/pinned/file memory 위치가 계산 실행 장치와 별도 축이다. view, no-op, copy, prefetch, migration, materialize 후보를 의미와 비용에 맞춰 고른다. 공유·통합 메모리는 접근권과 coherence/동기화 검증을 없애지 않는다.
+4. **Dependencies/completion:** 후보 Physical Execution Plan은 value/data readiness, effect/order, error precedence, lease/lifetime, transfer/compute completion을 추적한다. 비동기 overlap은 dependency의 critical path와 실제 capability가 증명될 때만 이득으로 계산한다. 같은 output에 대한 중복 write, check-before-effect 위반, 오류의 arbitrary first-thread winner를 금지한다.
+5. **Resource/cost:** `j_graph_work_depth.rs`와 `j_graph_resource.rs`의 target-independent facts를 소비하되 `ResourceEstimate`(가능 여부), `CostEstimate`(예측), 측정 `CostProfile`(관찰)을 합치지 않는다. compute FLOP·byte, memory bandwidth/capacity·residency, intermediate materialization, transfer bytes/latency, launch/sync, queueing와 peak in-flight bytes를 분리해 비교한다. 리소스 Unknown ≠ feasible, 비용 Unknown ≠ zero.
+6. **범위:** 실제 GPU/CUDA·multi-device/async runtime 도입은 기존 M6/CUDA 보류 정책을 따른다. M4 최소 CPU slice에 GPU, NUMA, 새 필수 IR, 범용 혼합 스케줄러를 끼워 넣지 않는다. 외부 MLIR/StableHLO adapter의 독립적인 경로도 유지한다.
+
+**실행 게이트/체크리스트 (이 표 외 중복 작업표 생성 금지):**
+
+| 게이트 / 선행 | 상태 | 수용 기준 |
+|---|---|---|
+| HE-00 / M2 병행 | [x] 이종 실행 중심 원칙 및 IREE/Kokkos/MLIR/XLA/Futhark/Rayon 역할 문서화 | 본 결정과 `FOUNDATIONS.ko.md`·`AGENTS.md`에 반영한 **설계 완료만** 뜻함; runtime/benchmark 아님 |
+| HE-01 / M4 | [ ] all-CPU / single-device / zero-transfer `PhysicalPlan` 구현 | 원래 `BindInput/Check/View/Materialize/Kernel/Return` 순차 baseline, `logical_executor` 및 J oracle 의미 대비; M4 완료 게이트에 포함 |
+| HE-02 / M4→M5 | [ ] 실행 위치/메모리 위치/내부 병렬화를 분리한 planner-side contract와 verifier | A3 schema·J Graph·parser 불변, unknown capability와 resource 거절, non-overlap/liveness; multi-device 구현은 요구하지 않음 |
+| HE-03 / M5 | [ ] `ExecutionLegality`/witness/guard **분석**을 기존 lowering 경계에 연결 | Effect·NAME version·alias·error precedence·rank fill·dynamic fallback 반례; IR의 Parallel 축만으로 허가하면 실패 |
+| HE-04 / M5 | [ ] CPU Sequential/SIMD/worker 후보와 measured cost selection | worker count/tiling/compute bandwidth/launch/pool overhead, 반복 병렬 폭발과 nested oversubscription 방지; 모든 후보 합법성 검사 |
+| HE-05 / M5 | [ ] Device/Memory placement·데이터 이동 비용 표현 | copy/migrate/prefetch/ready dependencies, capacity/residency, transfer+sync bytes/time, overlapping 가능 범위 구분; `IO-20`과 공통 physical planner 사용 |
+| HE-06 / M5 이후 | [ ] 단일 CPU 실측과 가상의 혼합 candidate의 비용·정합성 비교 | 순차 baseline보다 작업이 적지 않으면 병렬·GPU 경로를 기본 선택하지 않음; cold/warm compile/transfer/performance 분리 |
+| HE-07 / M6 이후 | [ ] CPU+GPU runtime completion/transfer 연결 및 end-to-end 검증 | 검증 가능한 실제 GPU와 별도 구현 재개 승인 전 **미착수**. data version, transfer/check order, async failure, invalid device, unsupported route 검증 |
+| HE-08 / M6 이후 | [ ] 병렬 CellApply/Reduction/Scan의 J 의미 회귀 및 부정 사례 | zero-frame virtual cell, positive frame/empty cell, result-cell shape/type join, boxed/sparse, tolerance, floating reassociation, J error priority; 미증명 fold/scan은 순차 유지 |
+| HE-09 / M5 이후 | [ ] 스케줄 단계별 관찰값·벤치마크 및 diagnostic | route+device+memory+worker 선택 이유, unknown/reject/guard 근거, bytes moved, sync count, peak memory, output J equivalence. GPU 실행 완료로 오인 금지 |
+
+**작업 순서:** HE-00(설계) → 기존 M2→M3 수렴 → M4/HE-01 순차 vertical slice → HE-02/03 legality/representation → HE-04/05/06 cost·CPU worker·transfer 후보 → 별도 승인을 전제로 HE-07/08/09. `IO-20`도 이 범용 physical placement/transfer 모델에 합류하며 두 번째 전송 추상화를 만들지 않는다. 모든 실행·성능 수용은 §11 검증 정책과 실제 결과를 따른다. **이 문서 갱신만으로 HE-01~09를 완료 처리하지 않는다.**
+
+---
+
 #### M5 — Route/Schedule/Cost 확장
 
 M4 이후에만 optimizer 선택 문제를 키운다.

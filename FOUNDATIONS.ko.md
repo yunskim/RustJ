@@ -1778,6 +1778,21 @@ implementation candidates
 
 AOT/JIT 모두 이 계약을 공유한다.
 
+### 31.1 병렬화보다 이종 실행을 상위 목표로 둔다 (2026-10-07)
+
+RustJ의 최적화 대상은 CPU thread 수가 아니라 **하나의 J 프로그램에 대한 의미 보존 실행 계획의 총비용**이다. 계산 공간의 논리적 독립성, 실제 장치/메모리 배치, 각 장치 내부 병렬화, 데이터 전송·동기화를 직교한 결정으로 취급한다. `logical_ir::IterationAxisKind::Parallel`은 논리적 축 설명이지 동시 실행 허가가 아니다.
+
+- **의미·적법성:** Graph IR와 A3 Logical IR은 value, shape, rank, CellApply/empty frame, name/version, effect, observable error precedence, access/alias 증거를 보존한다. 후보의 분할·재배열·동시 실행은 별도 proof 또는 guard로 허용한다.
+- **작업/장치:** Route/Physical Planner가 region을 CPU, GPU, external route에 배치할 수 있으나, CPU/GPU 혼합 배치를 요구하지 않는다. 순차 단일 CPU 역시 동일한 계약의 정상적인 후보이다.
+- **메모리/준비:** 실행 장치(Execution Space)와 저장 장소(Memory Space)를 동일시하지 않는다. logical value identity와 plan-time buffer/version, runtime lease/placement를 분리한다. 공유·통합 메모리가 있어도 동기화·이동 비용이 0이라고 가정하지 않는다.
+- **스케줄/완료:** 전송, compute, synchronization, buffer readiness, effect/error ordering을 하나의 의존성 관점에서 검증한다. 비동기 중첩은 그 의존성이 허용할 때만 선택한다.
+- **비용:** work/depth, 메모리 대역폭·용량, residency, transfer bytes/latency, launch, synchronization, critical path와 가능한 overlap을 구분한다. Unknown은 무료 또는 합법으로 간주하지 않는다.
+- **실행기:** CPU 순차·SIMD·멀티코어(Rayon 등)와 GPU kernel/stream은 물리 계획 하위의 별도 realization이다. 새로운 필수 Parallel IR, CPU-only master planner, 별도 J syntax를 도입하지 않는다.
+
+참고 구현을 정확히 구분한다. [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/)은 target affinity, 자원과 비동기 스케줄을 분리하는 **구조 참고**이며 IREE 의존성 도입 결정이 아니다. [Kokkos memory spaces](https://kokkos.org/kokkos-core-wiki/ProgrammingGuide/View.html)는 execution/memory space 분리의 참고다. [MLIR scf.forall](https://mlir.llvm.org/docs/Dialects/SCFDialect/)은 target-independent 병렬 반복과 target mapping을 분리하지만 순서 없는 side effects를 그대로 J의 의미로 복사하지 않는다. [XLA ParallelTaskAssignment](https://github.com/openxla/xla/blob/main/xla/service/cpu/parallel_task_assignment.cc)와 [Futhark multicore scheduler](https://github.com/diku-dk/futhark/blob/master/rts/c/scheduler.h)는 **장치 내부** 분할·비용 모델에만 참고한다.
+
+이 결정은 기존 M2→M3→M4 우선순위를 바꾸지 않는다. M4에서는 all-CPU·zero-transfer 실행 계획으로 수직 경로를 닫고, M5부터 mixed placement 후보의 구조·비용을, M6 이후에 검증 가능한 환경과 별도 승인 아래 실제 GPU/async 실행을 확장한다.
+
 ---
 
 # Part XII. “J 전체를 compile해야 하는가?”에 대한 답
