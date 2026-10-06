@@ -161,7 +161,14 @@ def main() -> int:
     print(json.dumps({k: result[k] for k in (
         "reference_revision", "reference_variant", "checked_cases",
         "matching_source_expectation", "requires_review")}, indent=2))
-    # Diagnostic mode always reports mismatches but never claims acceptance.
+    # Keep failing case details visible in CI logs even without downloading a ZIP.
+    # All filesystem paths are already scrubbed by _probe_one.
+    for item in result["cases"]:
+        if item["status"] == "requires_review":
+            print(json.dumps({key: item[key] for key in
+                  ("case", "outcome", "checks", "file_after_hex")},
+                  ensure_ascii=False))
+    # Diagnostic mode reports mismatches but never claims semantic acceptance.
     return int(args.gate and result["requires_review"] > 0)
 
 
