@@ -10979,47 +10979,50 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 | word formation → enqueue → parser | **충분** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reduction, name/assignment sequencing, differential gates | 한 문장을 token→queue→row reduction→completed `JEntity/FunctionEntity`까지 추적하는 짧은 canonical E2E trace는 더 명확히 할 수 있음 |
 | Semantic Construction / binding / dynamic semantics | **충분** | FunctionEntity/JEntity 경계, late NameRef, assignment=value+effect, definition frame, gerund/rank/hook/fork 보존 | explicit-definition control-flow가 A3 region/block으로 넘어가는 실제 handoff 예제는 아직 부분적 |
 | J Semantic → J Graph IR | **충분** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, `@:`/fork 그림, Graph/Execution IR 분리 | hook/rank/reduce/scan을 한 묶음으로 보여 주는 canonical graph-example suite는 아직 분산됨 |
-| Graph analysis → candidate/proof | **부분** | rewrite candidate+witness, fusion candidate+proof obligation, logical memory/resource/work-depth side analysis, target-feasibility 분리 | **proof obligation을 누가 어떤 evidence로 discharge하는지**, candidate state transition, 여러 candidate가 겹칠 때 conflict/selection policy, legality failure의 canonical representation이 아직 없음. 현재 fusion은 `AwaitingSemanticProofs`, `selected=false`임 |
-| J Graph → Execution Semantic Lowering → A3 | **대체로 충분** | direct lowering, Graph/Execution fact drift check, Execution Basis, SemanticCheck, effect/error/speculation, verifier, schema version | A3-v0는 실제로 single-block 중심이다. region/block/control-flow schema 존재와 full control-flow lowering 구현을 구분하는 E2E 예제가 더 필요함 |
-| Route analysis / partition | **부분** | `RouteDecision`, capability/recipe, mixed-route 원칙, RuntimeSemanticFallback, 현재 contiguous class partition 구현 | **region boundary ABI**(live-in/out, representation, transfer/materialization, effect/token, error propagation), region 전체 legality aggregation, native↔runtime/external 전환 규칙이 아직 하나의 계약으로 닫히지 않음 |
-| Schedule / Physical Planner | **부분 — 우선 보완** | logical/schedule/physical 분리, TargetProfile/ResourceEstimate/CostEstimate, G1 physical representation foundation | 실제 canonical `PhysicalPlan` schema와 verifier가 아직 없음. `Bind/View/Materialize/Kernel/Transfer/Sync/Return`, lifetime, buffer reuse witness, schedule candidate identity의 최소 타입 계약을 M4 전에 문서로 먼저 고정해야 함 |
-| Native Executor | **부분** | Executor가 다시 판단하면 안 되는 것, reference logical executor, G4 목표가 명확함 | Physical Plan interpreter/executor의 operation semantics, error/cleanup/async completion contract와 E2E test oracle이 아직 없음 |
-| fallback / guard miss / replay | **부분 — 우선 보완** | valid J와 route eligibility 분리, RuntimeSemanticFallback, effect 후 자동 replay 금지 원칙이 여러 절에 존재 | compile-time route fallback, specialization guard miss, 실행 도중 Unsupported, effect가 이미 commit된 뒤 실패를 **하나의 no-replay/deopt decision table**로 통합하지 못함 |
+| Graph analysis → candidate/proof | **문서 계약 보강됨 / 구현 부분** | §4.1.4에 orthogonal evidence, derived lifecycle, evidence owner, guarded legality, overlap/selection 규칙을 통합 | 공통 `CandidateEvidence/ProofBundle`·obligation discharge·SelectionPlan은 **미구현**. 개별 proof algorithm의 세부 구현은 해당 optimizer 착수 시 verifier/test와 함께 확정 |
+| J Graph → Execution Semantic Lowering → A3 | **대체로 충분** | direct lowering, Graph/Execution fact drift check, Execution Basis, SemanticCheck, effect/error/speculation, verifier, schema version, canonical mean trace | A3-v0는 실제로 single-block 중심이다. explicit-definition control-flow → region/block handoff의 실제 E2E 예제가 더 필요함 |
+| Route analysis / partition | **문서 계약 보강됨 / 구현 부분** | §2.5.1에 live-in/out, effect live-out, SemanticCheck, guard, representation-neutral bridge, region legality 계약을 통합 | 현재 `RouteRegion { class, operations }`와 contiguous grouping은 v0 helper. 실제 bridge/region-wide verifier와 mixed-route executor는 미구현 |
+| Schedule / Physical Planner | **M4-v0 문서 계약 고정 / 구현 미완료** | §5.2.1에 `PlanBufferId ≠ runtime BufferId`, PhysicalView, BindInput/Check/View/Materialize/Kernel/Return, lifetime/reuse/verifier/error-cleanup 계약을 정의 | 실제 `PhysicalPlan` 타입·planner·executor는 미구현. Transfer/Sync/async는 M4 이후 |
+| Native Executor | **M4-v0 계약 대체로 닫힘 / 구현 미완료** | §5.2.1/§5.3에 op 역할, verifier, cleanup/error, executor non-responsibility, canonical mean planned route를 연결 | 실제 Physical Executor와 differential E2E test가 없음. stateful/async execution contract는 후속 |
+| fallback / guard miss / replay | **문서 계약 보강됨 / dispatcher 미구현** | §3.9.4에 route fallback/guard miss/replay/continuation 구분, decision table, commit frontier, RuntimeSemanticFallback의 정확한 의미를 통합 | integrated guard dispatcher/exact continuation/transaction rollback은 미구현이며 capability로 주장하지 않음 |
 | external route / GPU | **계획 수준** | adapter 책임, external IR은 projection, target/lowering capability 분리 | 첫 실제 adapter의 region ABI/round-trip verifier/unsupported diagnostics가 아직 없음. CUDA는 의도적으로 보류 |
 | validation / versioning | **부분** | frontend differential gate가 매우 강함, A3 verifier/header/schema version 존재 | candidate→route→physical 단계의 negative verifier matrix와 serialization upgrade/downgrade policy는 아직 목표 수준 |
 
-#### 15.7.1 가장 먼저 닫을 문서 빈칸
+#### 15.7.1 1차 감사에서 닫은 문서 계약
 
-현재 구현 우선순위 M2를 바꾸지 않는다. 다만 이후 단계에서 설계를 다시 추론하지 않도록 다음 문서 계약은 **구현보다 먼저** 닫는다.
+현재 구현 우선순위 M2를 바꾸지 않은 채, 2026-10-06 1차 감사에서 다음 다섯 빈칸을 **문서 계약 수준에서** 닫았다. 이는 구현 완료 체크가 아니다.
 
-1. **Candidate lifecycle / proof discharge**
-   - `Discovered → AwaitingProofs → Legal/Illegal → Costed → Selected/Rejected → Lowered` 같은 개념 상태를 정의한다.
-   - equivalence, effect/error order, rank/cell, resource/work-depth, target capability 각각의 **evidence owner**를 명시한다.
-   - resource/cost side analysis는 legality 완료 전에도 speculative하게 실행할 수 있지만 selection commit은 필요한 legality proof 뒤에만 가능하다는 규칙을 고정한다.
-   - overlapping rewrite/fusion/scan candidates의 conflict와 provenance 보존 규칙을 정한다.
+- [x] **Candidate lifecycle / proof discharge** — §4.1.4
+- [x] **RouteRegion boundary contract** — §2.5.1
+- [x] **M4 최소 PhysicalPlan v0 schema / verifier / cleanup contract** — §5.2.1
+- [x] **Fallback / guard miss / no-replay decision table** — §3.9.4
+- [x] **Canonical end-to-end compiler trace** — §4.11.4.12의 `(+/ % #) y`
 
-2. **RouteRegion boundary contract**
-   - live-in/live-out SSA value, effect/error ordering edge, representation requirement, transfer/materialization 책임을 명시한다.
-   - `partition_plan`의 현재 contiguous class grouping은 v0 분석 도구이지 최종 mixed-route planner가 아님을 유지한다.
-   - route boundary를 넘을 때 J semantic checks가 누락되거나 중복 실행되지 않는 조건을 정의한다.
+특히 canonical trace에는 **현재 구현 stop line**을 넣어 route prototype 이후의 Schedule/PhysicalPlan/CPU result 구간을 `planned M4`로 표시했다. 목표 architecture 그림을 구현 완료 증거로 사용하지 않는다.
 
-3. **M4 최소 PhysicalPlan schema**
-   - 최소 operation을 `Bind`, `View`, `Materialize`, `Kernel`, `Transfer/Sync`(필요 시), `Return`으로 고정할지 검토한다.
-   - 각 op의 input/output, BufferId/lease/lifetime, physical view, last-use, reuse witness와 verifier를 문서로 정의한다.
-   - `physical.rs`의 G1 read-only affine representation과 Physical Planner/Executor를 동일시하지 않는다.
+#### 15.7.2 2차 감사에서 남은 문서 우선순위
 
-4. **Fallback / no-replay contract**
-   - compile 전 route miss와 runtime guard miss를 구분한다.
-   - effect 없는 guarded region의 재실행 가능 조건과 effect가 commit된 뒤 **자동 replay 금지**를 명시한다.
-   - UnsupportedImplementation, semantic J error, target/capability miss, guard miss를 서로 다른 결과로 유지한다.
+1. **Frontend canonical sentence trace**
+   - 짧은 한 문장을 bytes/word formation → enqueue classes → 9-row reduction → completed JEntity/FunctionEntity까지 추적한다.
+   - 현재 상세 절을 대체하지 않고 처음 읽는 사람이 frontend stage contract를 재구성하는 orientation trace로 둔다.
 
-5. **한 개의 canonical end-to-end compiler trace**
-   - 예: `(+/ % #) y` 또는 `f @: g` 하나를 선택해
-   - `source → parser construction → Semantic IR → J Graph IR → candidate/proof → A3 → route → minimal PhysicalPlan → CPU result/error`
-   - 를 같은 Value/operation provenance로 끝까지 추적한다.
-   - 아직 구현되지 않은 단계는 가상 완료 그림으로 숨기지 말고 `planned/not implemented`를 표시한다.
+2. **Explicit-definition control-flow handoff**
+   - DefinitionCode/control metadata → invocation frame → J Graph/A3 region/block의 planned/current 경계를 한 예제로 연결한다.
+   - A3에 Region/Block 타입이 존재한다는 사실을 full control-flow lowering 완료로 오해하지 않게 한다.
 
-#### 15.7.2 문서 유지 규칙
+3. **Canonical J Graph example suite**
+   - `@:`, ordinary fork, capped fork, hook, rank, reduce, prefix/infix/scan candidate를 동일한 형식으로 정리한다.
+   - 각 예제마다 source semantic construction / applied nodes / region provenance / candidate / 금지되는 성급한 optimization을 한 화면에 둔다.
+
+4. **External adapter boundary contract**
+   - 첫 실제 external route 착수 시 region ABI, supported semantic subset, representation bridge, token/effect/error mapping, round-trip verifier, unsupported diagnostic을 한 계약으로 고정한다.
+   - CUDA는 계속 보류하며 이 문서 작업이 CUDA 구현 재개를 뜻하지 않는다.
+
+5. **Cross-stage negative verifier matrix + serialization migration**
+   - candidate → route → PhysicalPlan의 invalid-state negative tests를 stage별로 묶는다.
+   - A3/향후 PhysicalPlan을 외부 artifact로 저장하기 시작할 때 upgrade/downgrade/unsupported-version 정책을 별도로 닫는다.
+
+#### 15.7.3 문서 유지 규칙
 
 - 새 major stage/type을 추가할 때 위 10개 질문 중 해당 항목을 함께 갱신한다.
 - 구현 타입 이름과 문서의 개념 이름이 다르면 “현재 구현명 / 목표 개념명”을 명시한다.
