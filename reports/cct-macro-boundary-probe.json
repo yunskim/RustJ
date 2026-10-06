@@ -1,0 +1,72 @@
+{
+  "kind": "standalone-c-source-macro-model-reproduction",
+  "date": "2026-10-06",
+  "upstream": {
+    "repository": "jsoftware/jsource",
+    "commit": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+    "comparison_source": "jsrc/vcomp.h::TCMPEQ",
+    "initial_tolerance_source": "jsrc/i.c",
+    "search_callsite": "jsrc/viavx.h::jeqd"
+  },
+  "scope": "The pinned C macro expression was manually reproduced and compiled; the full jsource interpreter and Rust code were NOT built or executed. Only this subset of binary64 pairs is covered.",
+  "environment": {
+    "compiler": "Debian GCC 14.2.0",
+    "platform": "Linux x86_64",
+    "source_expression": "(a > cct*b) != (b <= cct*a)",
+    "legacy_expression": "a==b || (finite(a)&&finite(b)&&abs(a-b) <= t*max(abs(a),abs(b)))",
+    "t": "2^-44",
+    "cct": "1 - 2^-44",
+    "flags": [
+      "-std=c11 -O0",
+      "-std=c11 -O2"
+    ]
+  },
+  "cases": [
+    {
+      "id": 0,
+      "a": "1",
+      "b": "1 - 2^-44",
+      "legacy": true,
+      "pinned_c_macro": false
+    },
+    {
+      "id": 1,
+      "a": "1",
+      "b": "1 + 2^-44",
+      "legacy": true,
+      "pinned_c_macro": false
+    },
+    {
+      "id": 2,
+      "a": "0",
+      "b": "0",
+      "legacy": true,
+      "pinned_c_macro": true
+    },
+    {
+      "id": 3,
+      "a": "+0",
+      "b": "-0",
+      "legacy": true,
+      "pinned_c_macro": true
+    },
+    {
+      "id": 4,
+      "a": "+inf",
+      "b": "+inf",
+      "legacy": true,
+      "pinned_c_macro": true
+    },
+    {
+      "id": 5,
+      "a": "NaN",
+      "b": "NaN",
+      "legacy": false,
+      "pinned_c_macro": false
+    }
+  ],
+  "result": "Both optimization levels gave identical booleans for every case.",
+  "cargo_test": "not-run-no-toolchain",
+  "native_jsource_test": "not-run-no-J-interpreter",
+  "binaries_are_not_jsoftware": "yes"
+}
