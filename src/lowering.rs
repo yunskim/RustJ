@@ -283,6 +283,9 @@ pub enum JsourceExistingRoute {
 pub struct JsourceLinkedCall {
     pub operation: OpId,
     pub existing: JsourceExistingRoute,
+    /// Optional algorithm families visible at the canonical A3 boundary.
+    /// Guard-needed/unknown entries never imply jsource-specialized execution.
+    pub search_algorithms: Vec<SearchAlgorithmReport>,
 }
 
 /// No source-pattern observation alone authorizes a specialized lowering.
@@ -752,9 +755,18 @@ impl LoweringRegistry {
                             OpKind::SemanticCall(_) => JsourceExistingRoute::SemanticCall,
                             _ => return None,
                         };
+                        let search_algorithms = match &op.kind {
+                            OpKind::Basis {
+                                kind: ExecutionBasisKind::LookupClassify,
+                                payload: ExecutionBasisPayload::LookupClassify { search },
+                                ..
+                            } => self.search_algorithm_reports(search, target),
+                            _ => Vec::new(),
+                        };
                         Some(JsourceLinkedCall {
                             operation: OpId(index),
                             existing,
+                            search_algorithms,
                         })
                     })
                     .collect::<Vec<_>>();
