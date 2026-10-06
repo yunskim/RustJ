@@ -73,7 +73,7 @@ def rank_adversarial_cases():
         ("empty_char_float_fill", "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1.5)"),
         ("empty_char_bool_fill", "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1=1)"),
         ("empty_char_left_real_right", "(0 3 $ 'abc') (+\"1 1) (i.3)"),
-        ("empty_char_right_real_left", "(i.3) (+"1 1) (0 3 $ 'abc')"),
+        ("empty_char_right_real_left", "(i.3) (+\"1 1) (0 3 $ 'abc')"),
         ("nonempty_char_int_domain", "(2 3 $ 'abc') (+\"1 1) (i.2 3)"),
         ("positive_frame_empty_char_cells", "(2 0 $ 'abc') (+\"1 1) (i.2 0)"),
         ("nested_rank_nonempty_cells", '(i.2 3) ((+"0 0)"1 1) (i.2 3)'),
