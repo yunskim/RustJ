@@ -2086,6 +2086,29 @@ Do not make each jsource special entry point a Graph IR node, and do not copy ru
 
 **Independent audit (2026-10-06):** Corrected overgeneralizations about kernel fusion, algebraic Box→Open cancellation and generic Mean/Dot equivalence; documented restricted fallback/type/rank/fit cases, plus reduction, sliding/scan, hash/search, Under/Each and constant-specialization omissions. This is a source/document review, not a RustJ implementation or differential/benchmark run.
 
+### Independent verification using three separate criteria (2026-10-06)
+
+| Review | Independent question | Findings | Limit |
+|---|---|---|---|
+| **1. Source trace** | Which exact constructor/entrypoint/fallback paths exist? | Rechecked pinned `ca/cf/cr/va2/ar/ap/vi/cu`, clarified `C_VIAVX` gate for `jtintersect`, `ct=0`/boxed restrictions for `jtiobs`, and expanded fallback source links. | Not an exhaustive jsource inventory |
+| **2. Semantic counterexamples** | Which apparently similar graph transforms can change J behavior? | Independently checked empty/sparse, rank/frame/cell, `!.`/promotion/NaN/overflow, boxed assembly/virtual alias, dynamic names, effect/error order. Rejected unconditional Mean/Dot/Box→Open/fusion rewrites. | No runtime/differential tests run |
+| **3. IR/document boundary** | Which layer owns discovery, proof and realization? | Compared graph discovery, §7.5 candidate evidence, execution semantic lowering and Physical Planner; their boundary is consistent. Repaired the broken Markdown table. | No implementation/performance claim |
+
+**Revision check:** pinned source baseline `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` is 20 commits behind jsource `master` at `0a5101cfdd834b23a0b89d455e4f327310520a08` (2026-10-05); intervening changes include `ap.c/ar.c/va2.c`. The inspected entry/guard excerpts for `jtmovavg`, `jtmovfslash`, `jtmean`, `jtreduce`, `jtfslashatg`, `jtsumattymes1` matched; this does not verify entire functions or all current-head paths.
+
+### Pending differential-regression matrix (not executed)
+
+| Candidate | Boundaries to test | Required legality result |
+|---|---|---|
+| `f/@:g` | empty/sparse, inplace, dtype mismatch, overflow reversion | value/type/error order and effect-safe fallback |
+| `+/%#` / Window(Mean) | zero/one/multiple cells; int/float/NaN/overflow; window lengths | shape/prototype/dtype/numeric equivalence |
+| `+/@:*"1 1` | mixed-rank/empty/sparse, `!.0`/`!.1`, QP | rank/agreement/result type and fallback |
+| BOXATOP/WILLOPEN/USESITEMCOUNT | nested boxes, nonuniform shapes, raze, sparse and virtual aliases | assembly/usecount/error/order invariants |
+| Search/Under/View | boxed/tolerance/prehash, rebinding, shared/inplace ravel | search identity, inverse binding timing, alias legality |
+| Every rewrite | proof/source version, effect/error order, guard miss | never commit unknown; no replay after effects |
+
+jsource code paths are sources for candidate discovery, not correctness proofs or performance measurements. Unverified candidates must not be marked selected or realized.
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
