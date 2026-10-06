@@ -164,7 +164,14 @@ fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
 
     // A general fork is not evidence of a mean; syntax must match all
     // three component verb identities and the Insert-derived left operand.
-    for source in ["(+/ + #) 1 2 3", "(-/ % #) 1 2 3", "(- + *) 1 2 3"] {
+    // cf.c::jtfolk assigns jtmean to f1 only. A dyadic invocation must
+    // never acquire monadic MeanIdiom provenance merely by sharing the fork.
+    for source in [
+        "(+/ + #) 1 2 3",
+        "(-/ % #) 1 2 3",
+        "(- + *) 1 2 3",
+        "2 (+/ % #) 1 2 3",
+    ] {
         let g = graph(source);
         assert!(
             !g.jsource_opportunities().iter()
