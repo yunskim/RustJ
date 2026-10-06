@@ -15,16 +15,18 @@ use crate::{
     j_graph_ir::{GraphBasis, GraphFacts, GraphForm, NodeKind, Plan, ValueId},
     primitive::PrimitiveId,
     contracts::Valence,
-    semantic::FunctionHead,
+    semantic::{ForkSemantics, FunctionEntity, FunctionHead, FunctionOperand},
+    primitive::AdverbId,
 };
 
 pub const JSOURCE_SOURCE_PIN: &str = "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528";
-pub const JSOURCE_CATALOG_VERSION: u32 = 1;
+pub const JSOURCE_CATALOG_VERSION: u32 = 2;
 
 /// The kind of question this optimization family asks. These are not IR nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum JsourceFamily {
     ReductionFastPath,
+    MeanIdiom,
     WindowAlgorithm,
     SearchAlgorithm,
     IntervalLookup,
@@ -123,6 +125,12 @@ pub const JSOURCE_FAMILY_RULES: &[JsourceFamilyRule] = &[
     JsourceFamilyRule {
         family: JsourceFamily::ReductionFastPath, stable_id: "jsource.reduce-fast-path",
         source_file: "jsrc/ar.c", source_symbol: "jtreduce", owner: DecisionOwner::ExecutionSemantics,
+        discovery: DiscoveryCoverage::AnalysisOnly, proof_requirements: NUMERIC,
+    },
+    JsourceFamilyRule {
+        family: JsourceFamily::MeanIdiom, stable_id: "jsource.mean-idiom",
+        source_file: "jsrc/cf.c", source_symbol: "jtfolk → jtmean",
+        owner: DecisionOwner::ExecutionSemantics,
         discovery: DiscoveryCoverage::AnalysisOnly, proof_requirements: NUMERIC,
     },
     JsourceFamilyRule {
@@ -248,6 +256,36 @@ impl JsourceOpportunity {
     }
 }
 
+/// Witness only the exact ordinary `(+/ % #)` fork construction. The J
+/// function objects retain operand identities; parsing a substring or
+/// guessing from value-flow alone could accidentally match named/dynamic
+/// functions or a capped/noun-left fork with different semantics.
+fn is_mean_fork(function: &FunctionEntity) -> bool {
+    if !matches!(function.head, FunctionHead::Fork)
+        || function.fork_semantics != Some(ForkSemantics::Ordinary)
+    {
+        return false;
+    }
+    let [
+        FunctionOperand::Function(reduction),
+        FunctionOperand::Function(divide),
+        FunctionOperand::Function(count),
+    ] = function.operands.as_slice() else {
+        return false;
+    };
+    if !matches!(divide.head, FunctionHead::PrimitiveVerb(PrimitiveId::Divide))
+        || !matches!(count.head, FunctionHead::PrimitiveVerb(PrimitiveId::Tally))
+        || !matches!(reduction.head, FunctionHead::PrimitiveAdverb(AdverbId::Insert))
+    {
+        return false;
+    }
+    matches!(
+        reduction.operands.as_slice(),
+        [FunctionOperand::Function(add)]
+            if matches!(add.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add))
+    )
+}
+
 /// Enumerate only the patterns the current frontend genuinely represents.
 /// Notably, unavailable Key, Grade and Dot constructors are not fabricated.
 pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
@@ -288,6 +326,29 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
                 selected: false,
             });
         }
+    }
+    for region in &plan.regions {
+        // A source-specific J idiom can span several applied graph nodes. Keep
+        // the region's original provenance and use its join result as the
+        // candidate anchor; do not fuse, rewrite or reorder the branches.
+        if !is_mean_fork(&region.function) {
+            continue;
+        }
+        let Some(node) = plan.nodes.get(region.result.0) else {
+            continue;
+        };
+        let NodeKind::Apply { basis, .. } = &node.kind else {
+            continue;
+        };
+        result.push(JsourceOpportunity {
+            family: JsourceFamily::MeanIdiom,
+            source_value: region.result,
+            source_span: region.span.clone(),
+            source_basis: basis.clone(),
+            source_facts: node.facts.clone(),
+            legality: OpportunityLegality::AwaitingSemanticProofs,
+            selected: false,
+        });
     }
     result
 }
