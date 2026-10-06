@@ -231,7 +231,10 @@ fn rank_empty_result_recovers_pinned_j_computational_fill_domain_only() {
         .eval_semantic_reference(source)
         .expect("reference empty atomic cells")
         .unwrap();
-    let optimized = engine.eval(source).expect("runtime empty atomic cells").unwrap();
+    let optimized = engine
+        .eval(source)
+        .expect("runtime empty atomic cells")
+        .unwrap();
     assert_eq!(baseline.shape(), &[2, 0]);
     assert_eq!(baseline.type_code(), 4);
     assert_eq!(baseline.len(), 0);
