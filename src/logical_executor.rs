@@ -163,9 +163,13 @@ pub(crate) fn apply_ranked(
         let frame = frame.to_vec();
         let frames = crate::value::count(&frame)?;
         if frames == 0 {
-            return Err(Error::Unsupported(
-                "dyadic rank over empty frame (prototype inference)".into(),
-            ));
+            // jsource cr.c evaluates one rank fill-cell to determine result
+            // type and shape, then prepends the empty output frame.
+            // This is not a physical search strategy.
+            let x = left.rank_fill_cell(ar)?;
+            let y = right.rank_fill_cell(br)?;
+            let prototype = call(Some(x), y)?;
+            return prototype.empty_rank_result(&frame);
         }
         let ad = crate::value::count(&frame[af.len()..])?;
         let bd = crate::value::count(&frame[bf.len()..])?;
@@ -184,9 +188,9 @@ pub(crate) fn apply_ranked(
         let frame = right.shape()[..frame_rank].to_vec();
         let frames = crate::value::count(&frame)?;
         if frames == 0 {
-            return Err(Error::Unsupported(
-                "rank over empty frame (prototype inference)".into(),
-            ));
+            let fill = right.rank_fill_cell(rank)?;
+            let prototype = call(None, fill)?;
+            return prototype.empty_rank_result(&frame);
         }
         let cells = (0..frames).map(|i| {
             let cell = right.view().cell(rank, i)?.to_owned()?;
