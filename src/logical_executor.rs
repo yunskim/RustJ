@@ -134,13 +134,19 @@ fn execute_ranked_semantic(
     left: Option<Value>,
     right: Value,
 ) -> Result<Value> {
-    apply_ranked(ranks, left, right, |x, y| execute_semantic(function, x, y))
+    // The current fill path is proven only for built-in primitives. A
+    // user-defined derived function can have observable fill-cell effects.
+    let primitive_fill = matches!(function.head, FunctionHead::PrimitiveVerb(_));
+    apply_ranked(ranks, left, right, primitive_fill, |x, y| {
+        execute_semantic(function, x, y)
+    })
 }
 
 pub(crate) fn apply_ranked(
     ranks: [i64; 3],
     left: Option<Value>,
     right: Value,
+    primitive_fill: bool,
     mut call: impl FnMut(Option<Value>, Value) -> Result<Value>,
 ) -> Result<Value> {
     if let Some(left) = left {
@@ -163,6 +169,11 @@ pub(crate) fn apply_ranked(
         let frame = frame.to_vec();
         let frames = crate::value::count(&frame)?;
         if frames == 0 {
+            if !primitive_fill {
+                return Err(Error::Unsupported(
+                    "rank fill execution for user-defined function".into(),
+                ));
+            }
             // jsource cr.c evaluates one rank fill-cell to determine result
             // type and shape, then prepends the empty output frame.
             // This is not a physical search strategy.
@@ -188,6 +199,11 @@ pub(crate) fn apply_ranked(
         let frame = right.shape()[..frame_rank].to_vec();
         let frames = crate::value::count(&frame)?;
         if frames == 0 {
+            if !primitive_fill {
+                return Err(Error::Unsupported(
+                    "rank fill execution for user-defined function".into(),
+                ));
+            }
             let fill = right.rank_fill_cell(rank)?;
             let prototype = call(None, fill)?;
             return prototype.empty_rank_result(&frame);
