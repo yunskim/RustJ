@@ -285,9 +285,6 @@ impl PhysicalPlan {
                 "empty A3 block requires an empty physical plan",
             ));
         }
-        if logical.operations.len() == 2 {
-            return reindex::verify(self, logical);
-        }
         if logical.write.is_some() || logical.operations.len() != 1 || logical.values.len() != 1 {
             return Err(PhysicalPlanError::Unsupported(
                 "M4 v0 cannot drop A3 operations, writes or SemanticChecks",
@@ -411,26 +408,5 @@ impl PhysicalPlan {
             }
         }
         Err(PhysicalPlanError::Invalid("nonempty plan is missing Return"))
-    }
-}
-
-
-/// A bounded view/materialization physical realization, not a second IR.
-mod reindex;
-
-impl PhysicalPlan {
-    /// Only a dense literal followed by a monadic primitive Reverse/Transpose.
-    pub fn monadic_static_view(logical: &LogicalPlan) -> PlanResult<Self> {
-        reindex::build(logical)
-    }
-
-    /// Execute an identity or monadic reindex through verified CPU physical
-    /// buffers; materialization is explicit at the Value-return boundary.
-    pub fn execute_host_result(&self, logical: &LogicalPlan) -> PlanResult<Option<Value>> {
-        self.verify(logical)?;
-        if logical.operations.len() == 2 {
-            return reindex::execute(self, logical).map(Some);
-        }
-        self.execute_identity(logical)
     }
 }
