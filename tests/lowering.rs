@@ -457,3 +457,41 @@ fn jsource_planning_rejects_forged_candidates_and_missing_logical_origins() {
         .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
         .is_err());
 }
+
+
+#[test]
+fn registry_separates_search_semantics_guarded_routes_and_unproven_tolerance() {
+    use rustj::{
+        logical_ir::{ExecutionBasisPayload, SearchOutputKind},
+        lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R},
+    };
+    let plan = Engine::new().analyze_a3("3 1 3 i: 3 4").unwrap();
+    let output = plan.result.unwrap();
+    let op = &plan.operations[plan.values[output.0].producer.0];
+    let OpKind::Basis { kind, call, payload: ExecutionBasisPayload::LookupClassify { search } } =
+        &op.kind else { panic!("no typed search"); };
+
+    assert_eq!(search.output, SearchOutputKind::LastIndex);
+    let registry = LoweringRegistry::a3_v0();
+    let cpu = TargetCapabilities::cpu_baseline();
+    let reports = registry.search_algorithm_reports(search, &cpu);
+    let status = |algorithm| reports.iter().find(|r| r.algorithm == algorithm)
+        .map(|r| r.readiness);
+    assert_eq!(status(A::Sequential), Some(R::Baseline));
+    for algorithm in [A::DirectAddress, A::IndexedHash, A::ReverseQueryHash, A::PreparedHash] {
+        assert_eq!(status(algorithm), Some(R::RequiresExactScalarGuard));
+    }
+    assert_eq!(status(A::TolerantNeighborHash), Some(R::NeedsSemanticProof));
+    assert!(registry.legal_candidates(*kind, call, &cpu)
+        .contains(&RealizationFamily::ReferenceSequential));
+    assert!(registry.search_algorithm_reports(search, &TargetCapabilities::gpu_generic())
+        .iter().all(|r| r.readiness == R::UnsupportedTarget));
+
+    let plan = Engine::new().analyze_a3("1 3 5 I. 2 4").unwrap();
+    let out = plan.result.unwrap();
+    let op = &plan.operations[plan.values[out.0].producer.0];
+    let OpKind::Basis { payload: ExecutionBasisPayload::LookupClassify { search }, .. } =
+        &op.kind else { panic!("expected interval lookup"); };
+    assert!(registry.search_algorithm_reports(search, &cpu)
+        .iter().all(|r| r.readiness == R::UnsupportedSearchForm));
+}
