@@ -126,12 +126,16 @@ RustJ middle-end는 jsource compatibility 외에도 기존 array-language compil
   FHPC'16: https://elsman.com/pdf/fhpc16futhark.pdf
 - **Remora**: J/APL 계열의 rank polymorphism, frame/cell semantics, implicit lifting을 정형화한 비교 연구.  
   Paper: https://arxiv.org/abs/1907.00509
-- **Bohrium**: 기존 NumPy-style array program을 지연 IR로 수집하고 fusion/materialization/heterogeneous execution을 뒤에서 결정한 선례.  
+- **Bohrium**: 기존 NumPy-style array operation을 lazy하게 수집해 fusion, allocation/materialization, host-device data movement와 backend-specific execution을 늦추는 선례. CPU/GPU를 op마다 동적으로 선택하는 모델로 해석하지 않습니다.  
   Publications: https://bohrium.readthedocs.io/publications.html
-- **Lift**: high-level map/reduce rewrite와 hardware mapping 분리의 비교 연구.  
+- **Lift**: portable map/reduce pattern을 rewrite하여 OpenCL-specific functional pattern까지 점진적으로 hardware mapping을 구체화하는 비교 연구. “rewrite와 hardware mapping의 완전한 분리”로 해석하지 않습니다.  
   Paper: https://doi.org/10.1109/CGO.2017.7863730
 - **MLIR Linalg**: structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 참고 IR.  
   Docs: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+- **JAX / jaxpr**: explicitly typed, functional, first-order ANF라는 transformation-friendly IR의 비교 기준. J combinator provenance 보존의 선례는 아닙니다.  
+  Docs: https://docs.jax.dev/en/latest/601/jaxpr.html
+- **XLA HLO Fusion**: fusion computation이 이미 IR에 묶인 committed representation의 비교 기준. RustJ의 `FusionCandidate`는 그보다 앞선 pre-selection analysis object입니다.  
+  Docs: https://openxla.org/xla/operation_semantics#fusion
 
 이 연구를 그대로 복제하지 않습니다. RustJ는 **full J semantics를 먼저 보존**하고 다음 요소만 middle-end에 흡수합니다.
 
