@@ -42,6 +42,7 @@ pub mod opportunity;
 pub mod parser;
 pub mod parser_capture;
 pub mod physical;
+pub mod physical_plan;
 mod pool;
 pub mod primitive;
 pub mod runtime;
