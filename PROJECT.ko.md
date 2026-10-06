@@ -8768,6 +8768,70 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 
 **결정 및 우선순위:** (1) M3의 원본 A3→Route Check/effect/witness 증거 의무 확정 → (2) M4의 CPU/Host/zero-transfer PhysicalPlan verifier·실제 native Add 경로 → (3) M5 배치·자원·비용 후보 → (4) M6+ 별도 재개된 GPU/비동기 실행. 설계 자체의 구조적 모순은 **발견되지 않았음**; 그러나 위 증거가 없을 때의 fail-closed 실행 경로는 반드시 필요하다. 기존 M2→M3→M4 우선순위, HE-01~09의 미완료 상태, 별도 CUDA 보류는 유지한다.
 
+##### M3→M4 Route-to-Physical 인계 계약 (2026-10-07, **설계만 완료 / 구현 없음**)
+
+**목적:** 위 §2.5.1의 `M3-RB/RB-01~08`과 이 §5.2.1의 `PhysicalPlan` verifier를 하나의 **증거 체인**으로 연결한다. M3가 J 의미의 적법성을 판단하고, M4가 **이미 허가받은 의미를 특정 buffer/view/kernel 순서로 실현해도 안전한지** 검증한다. M4가 누락된 Check/guard, Rank·오류 순서, name/version 증거를 새로 추측하여 M3 판정을 뒤집어서는 안 된다. M3의 합격이 M4의 실제 실행 성공을 보장하지도 않는다.
+
+**입력·출력·소유권 표(새 필수 IR이나 Rust 자료형을 확정하지 않는 개념 계약):**
+
+| 인계 항목 | M3가 제공·보증할 것 | M4가 독립적으로 검증·구체화할 것 | 불충분한 경우 |
+|---|---|---|---|
+| **H-01 원본 기준** | immutable source A3 identity, schema/primitive-registry, source op/`j_origin`, version 및 정당한 rewrite/fusion mapping | 받은 계획이 **같은 원본**에서 나온 것인지, selected physical op가 허용된 mapping에 매달리는지 대조 | stale/바뀐 증거를 사용하지 않고 plan reject |
+| **H-02 Route 확정** | region 전체 coverage, 각 region 선택 route 및 CPU/GPU/external target capability와 선정 이유; 단순 `legal_candidates` 목록과 다름 | 각 `Kernel`/`View`/`Materialize`가 선택된 recipe·target·region에 속하고 *진짜 구현된* realization인지 검사 | 미구현 native kernel/외부 route를 성공으로 위장하지 않고 다른 합법 route나 Unsupported |
+| **H-03 값 경계** | `ValueId`의 producer, region live-in/live-out, `Plan.result`, dtype/shape/rank·J-visible boxed/sparse와 value snapshot identity | plan-time `PlanBufferId`와 `PhysicalViewId` 바인딩, physical encoding·extent/stride/span, 최종 Return의 논리 dtype/shape/order와 input/output ownership 검증 | missing value, 모순된 backing/encoding/shape, dangling return reject |
+| **H-04 Check 의무** | 원본의 zero-result `SemanticCheck`마다 실행·검증된 증거에 의한 discharge·동등 guard 대체 **중 정확히 하나**, J error kind와 original order | 반드시 실행할 Check를 `PhysicalOp::Check` 또는 의미 보존 equivalent에 매핑. **discharged Check를 임의 재삽입하거나 누락된 Check를 추론하지 않음** | coverage/증거 불일치, duplicate/late Check, J error priority 변경 reject |
+| **H-05 효과·이름·Write** | `order_after` 및 effect/error edges, noun read snapshot vs late function NameRef, `Plan.write`(별도 commit), guard-before-effect 및 replay 경계 | 명시된 순서로 물리 Check/Kernel/Return/commit handoff. 첫 M4 pure CPU slice에서는 stateful commit을 **실행기 소유로 만들지 않음** | 증명 안 된 NAME/Write는 RuntimeSemantic 경로; effect 이후 재실행 금지 |
+| **H-06 Guard/실행 준비** | 각 witness 의존 입력 버전과 `GuardRequired` 의무, 평가 시점, 실패 시 합법한 fallback 및 commit frontier | 물리적 plan에서 guard가 해당 연산·효과보다 **먼저** 배치되고 그 실행·결과·binding freshness가 보장되었는지 검사 | `GuardRequired`를 `Verified/Ready`로 자동 승격 금지, 가드 없는 실행 불가 |
+| **H-07 데이터 의존성** | SSA def→use, region cross-value dependencies, Check/effect-first-error precedence와 effect-live edges | BindInput/alloc → Check → View/Materialize/Kernel → Return의 실제 use-before-def, buffer readiness, lease/last-use, overlap/reuse permission. 비동기면 completion edge 추가 | 순차 계획이라도 부적절한 재배열·조기 free·중복 쓰기 reject |
+| **H-08 표현·장치** | J-visible value type/shape/rank/representation 및 허용 target의 **제약**만 제공; source A3에는 device pointer/stride/physical memory 없음 | 실행 장치, 메모리 공간, device-local schedule과 buffer residency를 **각각** 선택. M4 = CPU/Host/Sequential/zero-transfer, M5+에서 transfer/ready/sync 확장 | GPU·외부 backend 또는 residency가 없으면 CPU/합법 fallback, 무근거 transfer 가정 금지 |
+| **H-09 비용·진단** | semantics/legality 결과와 선택 제약; cost 추정이 proof를 대신하지 않음 | physical feasibility/budget/peak bytes, predicted cost 및 선택 근거를 별도 기록, 실패 유형을 source op/region/plan buffer와 연결 | cost Unknown을 무료/실행 가능으로 취급하지 않고 선택 보류 |
+
+**승인 단계와 책임의 단방향성:**
+
+~~~text
+원본 source A3 (Plan::verify 성공 / 독립 의미론 권위)
+  → M3 Route candidate (partition_plan은 아직 후보 분석)
+  → M3 RouteVerified + [원본 연산/Check/Write/순서/guard/bridge 증거]
+      ├─ Rejected: 증거 없음 → 다른 합법 route / Unsupported
+      ├─ GuardRequired: guard와 안전한 실패 경로가 먼저 충족될 때까지 실행 불가
+      └─ Verified: 해당 region의 의미론·Route 적법성만 통과
+  → M4 Physical candidate (선택 recipe / buffer / view / ordered ops)
+  → M4 PhysicalVerified (타깃·storage·순서·resource·coverage 검증)
+  → RuntimeReady (동적 guard, input versions, 실제 lease, capacity 재확인)
+  → 실행 / 오류 / 자원 정리
+~~~
+
+`RouteVerified`, `PhysicalVerified`, `RuntimeReady`는 **개념적 승인 상태**이며 신규 enum/IR 구현 지시가 아니다. 정적으로 `Verified`여도 입력 name/version, guard, buffer lease 등이 실행 시 바뀌면 실행 전 재검증이 필요하다. 정당한 RuntimeSemantic/외부 route는 RustJ-native M4 physical executor를 **반드시** 거칠 필요가 없지만 동일한 경계 의미론 의무를 지켜야 한다.
+
+**검증기 책임 분할(중복 검증과 허위 위임 방지):**
+
+- **M3 Route 검증기:** 원본 A3와 후보 매핑, check coverage/discharge, 순서·오류·effect·Write/NAME, target semantics, guard ownership 및 representation-neutral bridge의 *합법성*을 인증한다. Physical stride·allocation 위치는 결정하지 않는다.
+- **M4 Physical verifier:** M3의 서명 없는 제안/단순 class를 실행권으로 간주하지 않는다. 승인된 source mapping·Check/guard/order obligations와 선택된 physical ops의 **정확한 연결**을 재대조하고, selected recipe·resolved CPU capability, checked affine bounds, buffer/version/ownership/lease, output ownership, temporal safety와 resource feasibility를 확인한다. J semantic proof를 스스로 만들어내지 않는다.
+- **Runtime admission/Executor:** 실제 name/input snapshot/guard outcome, lease generation/readiness, 장치 가능 여부를 **사용 시점**에 확인한다. verifier를 통과하지 않은 계획 실행, 관찰된 효과 뒤의 transparent replay, backend 내부 오류를 근거 없이 J Domain/Rank/Length로 바꾸기는 금지한다.
+- **Cross-route 책임:** 첫 native CPU slice 밖의 runtime/external 부분을 하나의 PhysicalPlan으로 강제로 합칠 필요는 없다. 다만 각 boundary handoff의 value/version/check/error/effect 계약은 통합 검증 기록으로 추적한다.
+
+**검증 표본(각 정상이 확인된 후 불변조건 1개만 위조하는 계획):**
+
+| 사례 | 정상 인계 증거 | 거부·실패로 판정할 변형 |
+|---|---|---|
+| `1+2` | 원본 SSA value/literal → 선택 CPU Elementwise route → 별도 verified physical input/Return mapping | M3에 `ReferenceSequential` 후보만 있는데 M4가 구현되지 않은 native Add를 실행 가능이라고 승인; ValueId/PlanBufferId를 혼동 |
+| `1 2+1 2 3` | zero-result Length Check의 원본 provenance/order를 M3가 전달, M4가 Check→Kernel 이전 실행을 보장 | M3 Check는 승인했으나 M4 plan에서 삭제·중복·Call 뒤 배치; J Length 오류를 구현 오류로 바꿈 |
+| `1 2+3 4` | 입력 shape에 맞는 PrefixAgreement witness가 원본에 고정돼 있다면 합법적 Check discharge | input shape/NAME version 변경 후 과거 witness로 PhysicalVerified; 증거 없는 discharge를 M4가 자체 승인 |
+| `3 { 10 20 30` | Index Check 원래 오류 종류·우선순위와 물리 검사의 대응 | Check를 M4 materialize/Kernel 뒤로 옮기거나 Index 대신 Length로 변경 |
+| `a` 및 `a=:1+2` | name snapshot과 별도 Write event가 M3에 남고, 지원되지 않는 stateful 부분은 RuntimeSemantic 소유 | Return만 물리화하며 Write를 drop, speculative name read, committed assignment 이후 fallback replay |
+| 2D reverse/transpose / empty frame | 의미상 Shape/atom order와 zero-frame fill 의무를 M3가 소유, M4는 signed span/stride/encoding·복사 순서 확인 | 음수 stride OOB, zero-frame CellApply를 아무 계산 없이 결과형 가정, incompatible cell-result join |
+| 같은 source의 CPU/GPU/External 후보 | 공통 A3/guard/error 계약, 배치·storage contract는 route별로 독립 | CPU-only 테스트로 GPU/transfer Ready 주장, 준비되지 않은 메모리에서 read, 미승인 overlap/async error reorder |
+
+**인계 수용 테스트 순서 (테스트 작성·실행은 보류):**
+
+1. **HM-V0 정적 인터페이스:** M3-RB RB-V0~V2 승인 증거의 필드/원본 binding을 M4 입력 계약과 하나씩 대조한다. 누락·중복·stale op/Check/Write/guard, 다른 source의 승인 보고서 재사용을 차단한다.
+2. **HM-V1 타입·자원:** CPU/Host/no-transfer M4 후보의 `ValueId ↔ PlanBufferId ↔ PhysicalViewId ↔ BufferLease` 관계, affine span·encoding·ownership·last-use·output validity·OOM cleanup을 정적/실행 시점으로 나누어 확인한다.
+3. **HM-V2 순서·오류:** zero-result Check, observable effect/order, guarded fallback/commit과 첫 J 오류를 M3→M4→Runtime 세 지점에서 교차 검증한다. guard failure는 실행 전 대체 경로로만 넘긴다.
+4. **HM-V3 3자 차분:** 동일 원본 A3를 기준으로 jsource C(사용 가능할 때), RustJ semantic/reference 경로, native Physical 경로의 값/dtype/Shape/atom order/J error class/우선순위/관찰 state를 비교한다. C 또는 native 경로가 없다면 **미검증**, 대체 통과 처리하지 않는다.
+5. **HM-V4 단계 승인:** M3 `RouteVerified` 증거가 있더라도 별도 `PhysicalVerified`·`RuntimeReady`가 없으면 미승인. M4 완료는 구현된 native Add/Check 등을 통한 E2E와 negative tests가 실제 통과한 후에만; GPU/async/transfer는 M5·M6+ 별도 검증.
+
+**정리:** 별도 새 compiler layer는 필요하지 않다. ***M3는 의미론적 적법성의 증거를 소유하고 M4는 그 증거를 변경하지 않고 물리적으로 실현했는지 검증한다.*** 이 명세만으로 M3 검증기/M4 Physical Executor가 만들어졌거나 테스트가 PASS한 것은 아니다. §10의 M3-RB·M4 및 HE-01~09는 **설계 완료와 구현/검증 미완료를 계속 분리**한다.
+
 ##### 현재 코드와의 대응
 
 현재 `src/physical.rs`는:
@@ -10036,6 +10100,8 @@ backend / executor
 
 - [x] **M3-RB 설계 명세(2026-10-07):** §2.5.1의 RB-01~08 의미론 보존·proof/guard·source coverage·Write commit 및 RB-V0~V4 검증 기준을 확정했다. **문서만 완료**.
 - [ ] **M3-RB 실행 검증(구현 보류):** 원본 A3 독립 대조, RouteBoundary validator, Check/effect/error/order negative tests, J oracle 차분 결과를 실행 후 수용한다. 현재 `partition_plan`은 분석 후보 분류기다.
+- [x] **M3→M4 인계 설계(2026-10-07):** §5.2.1 H-01~09, HM-V0~V4로 RouteVerified 증거 → PhysicalVerified → RuntimeReady의 소유권·검증 의무를 문서화했다. **설계만 완료, 신규 구현 없음.**
+- [ ] **M3→M4 인계 검증(미구현):** 원본 A3-Route-Physical Check/Write coverage, selected realization, guard/freshness 및 negative/differential 테스트의 실제 통과 증거 확보.
 - [x] `LayoutFact`를 `RepresentationClassFact`로, `Facts.layout`을 `Facts.representation_class`로 바꿔 physical layout과 구분했다.
 - [ ] Dense/Boxed/Sparse처럼 J-visible representation semantics와 row-major/column-major/stride/tile/device 같은 physical representation을 타입/API에서도 구분한다.
 - [ ] 현재 `Value::Data`의 dense `CpuStorage` 직접 소유를 migration artifact로 한정하고, canonical compiler value identity가 CPU backing을 요구하지 않게 한다.
@@ -10053,6 +10119,7 @@ backend / executor
 - [ ] Logical payload와 분리된 최소 `Schedule/TransformPlan`을 정의한다.
 - [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
 - [x] **문서 계약:** §5.2.1에서 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return`으로 정의하고 plan-time/runtime identity·verifier·cleanup 경계를 고정했다.
+- [x] **M4 인계 검증 계약(2026-10-07):** §5.2.1의 H-01~09/HM-V0~V4에서 물리화 전 반드시 필요한 M3 승인, buffer/view/lease, Check/guard/오류 순서와 runtime 재검증을 명문화했다. **문서 완료만** 의미한다.
 - [ ] **구현:** 위 contract를 concrete `PhysicalPlan`/op Rust 타입과 verifier로 구현한다.
 - [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
 - [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
