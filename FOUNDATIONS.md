@@ -521,6 +521,11 @@ The conceptual evolution from JAXA to current RustJ is therefore:
 
 > **Do not use J combinators as optimization directives; use J combinator algebra as a provenance-rich optimization IR / graph algebra.**
 
+The deeper reason this architecture is possible is that **J syntax is unusually good at expressing computational intent and high-level array structure rather than only low-level execution steps**. `+/` exposes reduction intent, `f @: g` exposes composition/pipeline structure, hook/fork expose branch/join topology, and `u"r` exposes cell/rank application. RustJ therefore has less need to rediscover graph structure from an imperative execution trace; its primary job is to **preserve the intent and topology that J already made explicit and carry them into Graph IR without erasing them too early**.
+
+Adopt the following principle:
+
+> **RustJ Graph IR is not primarily a layer that invents a computation graph from J source; it is a layer that preserves the computational intent, combinator structure, and array semantics already expressed by J syntax in a form usable by optimization.**
 This strengthens rather than weakens the original idea: RustJ keeps the structure that J already exposes instead of flattening it into generic SSA and rediscovering it later, while correctness and profitability remain independently provable.
 
 **Implementation-status note:** the flow above is the target architecture. Today `j_graph_fusion` creates `FusionCandidate` source envelopes with explicit proof obligations, and `fusion_planning` can inspect source-basis feasibility and work/depth comparisons while keeping the report in `AwaitingSemanticProofs`. `selected` remains false; semantic-proof discharge, profitability-based selection, and committed fused lowering are not yet implemented. Do not read the complete candidate-to-realization flow as already finished.
