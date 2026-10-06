@@ -3577,6 +3577,14 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 
 <a id="heterogeneous-execution-checklist"></a>
 
+### M4-P0 — Verified host identity PhysicalPlan (2026-10-07; partial code, tests not run)
+
+- [x] **Code added:** `src/physical_plan.rs` introduces `PlanBufferId` distinct from runtime `BufferId`, `PhysicalViewId`, independent `ExecutionDevice` / `MemorySpace`, plan buffer/view descriptors, `PhysicalOp` variants, and a fail-closed v0 verifier. `empty_from_a3` supports genuinely empty blocks. `identity_literal` / `execute_identity` use `BufferRegistry` and a checked CPU `PhysicalArray` to realize only a single closed dense literal with `BindInput → Return`, no kernel or transfer.
+- [ ] **Validation pending:** `tests/physical_plan.rs` contains independent logical-executor comparison and one-invariant-at-a-time invalid-plan cases (stale provenance, view, buffer extent/encoding, ownership, order, result, Check/Kernel/stateful A3). Rust fmt/clippy/default/portable tests, C oracle comparison and CI have **not** been run for this change. This is *not* general PhysicalPlan/CPU kernel execution, nor HE-01 acceptance.
+- [ ] **Next slice:** view span and metadata-only reshape/reindex where semantics are proven; ordered A3 Check; selected Add Kernel/capability; materialization and lifetime/reuse witnesses, followed by end-to-end source→PhysicalPlan CPU differential testing.
+
+---
+
 ### HE — Heterogeneous CPU/GPU execution planning (2026-10-07; links M4→M6)
 
 **Decision.** RustJ is a heterogeneous array compiler, not a CPU thread-parallel compiler. CPU workers are a *device-local physical realization*, not a top-level canonical `Parallel IR` or `Parallel Physical Planner`. Retain `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`. Keep this checklist inside §17; do not fork the canonical roadmap or create an additional required IR. **This design decision does not lift the existing CUDA hold.**
@@ -3598,7 +3606,7 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 | Gate / phase | State | Acceptance |
 |---|---|---|
 | HE-00 / concurrent with M2 | [x] Architecture comparison and boundary decision recorded | Design only: this section, `FOUNDATIONS`, `AGENTS`; does **not** establish executable parallel/GPU support |
-| HE-01 / M4 | [ ] Single-device, all-CPU, zero-transfer verified PhysicalPlan and end-to-end execution | Original `BindInput/Check/View/Materialize/Kernel/Return` sequential slice vs `logical_executor` and actual J reference |
+| HE-01 / M4 | [ ] Single-device, all-CPU, zero-transfer verified PhysicalPlan and end-to-end execution (**P0 identity code exists; acceptance pending**) | Original `BindInput/Check/View/Materialize/Kernel/Return` sequential slice vs `logical_executor` and actual J reference |
 | HE-02 / M4→M5 | [ ] Distinct execution device / memory space / intra-device scheduler contracts and verifier | Graph/A3 unchanged, unknown feasibility rejected, live resources and disjoint output checks |
 | HE-03 / M5 | [ ] Semantic ExecutionLegality report and witnesses/guards through existing lowering | Dynamic names, error/effect order, alias, Rank fill, guarded fallback and negative tests |
 | HE-04 / M5 | [ ] CPU sequential/SIMD/worker candidates and observed cost model | Work size, bandwidth, launch/pool overhead, nested oversubscription and output parity |
