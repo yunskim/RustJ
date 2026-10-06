@@ -327,7 +327,7 @@ impl ExactPrehashCache {
         const MAX_PREHASH_ITEMS: usize = 16_384;
         // A prehash requires immutable shared backing; never assume a name,
         // dtype or shape alone provides version/identity.
-        if items < 64 || items > MAX_PREHASH_ITEMS || queries == 0
+        if !(64..=MAX_PREHASH_ITEMS).contains(&items) || queries == 0
             || indexed.shape.len() != 1
             || !matches!(&indexed.data,
                 Data::Int(CpuStorage::Shared(_)) | Data::Bool(CpuStorage::Shared(_)))
