@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from file_io_audit import INITIAL, Probe, _probe_one, cases, j_file_argument, j_file_name
+from file_io_audit import (INITIAL, Probe, _probe_one, _run_ordered_case,
+                           cases, ordered_cases, j_file_argument, j_file_name)
 
 
 class FakeOracle:
@@ -97,6 +98,57 @@ class FileIoAuditContractTests(unittest.TestCase):
             self.assertEqual(result["status"], "requires_review")
             self.assertFalse(result["checks"]["error_class"])
 
+
+
+    def test_ordered_cases_are_independent_and_cover_effect_boundaries(self):
+        cases_ = ordered_cases()
+        self.assertEqual(cases_, ordered_cases())
+        self.assertEqual(len(cases_), 6)
+        self.assertEqual(len({p.name for p in cases_}), len(cases_))
+        self.assertGreaterEqual(sum(len(p.steps) for p in cases_), 14)
+        self.assertIn("completed_write_survives_later_error", {p.name for p in cases_})
+        self.assertIn("right_error_prevents_left_write", {p.name for p in cases_})
+        self.assertIn("discarded_write_has_effect", {p.name for p in cases_})
+        self.assertIn("append_then_tail_read", {p.name for p in cases_})
+        self.assertIn("truncate_then_full_read", {p.name for p in cases_})
+
+    def test_ordered_case_error_prevents_left_write(self):
+        class OrderedFake:
+            def __init__(self):
+                self.calls = []
+
+            def run(self, expression):
+                self.calls.append(expression)
+                return {"error": "file not found"}
+
+            def eval(self, expression):
+                self.calls.append(expression)
+                return {"type": 2, "shape": [1], "data": list(b"B")}
+
+        case = next(x for x in ordered_cases() if x.name == "right_error_prevents_left_write")
+        with tempfile.TemporaryDirectory() as d:
+            fake = OrderedFake()
+            result = _run_ordered_case(fake, case, Path(d))
+            self.assertEqual(result["status"], "matches_source_expectation")
+            self.assertEqual(len(fake.calls), 2)
+            self.assertEqual((Path(d) / (case.name + ".dat")).read_bytes(), INITIAL)
+
+    def test_ordered_case_fails_when_observable_preerror_write_occurred(self):
+        class BuggyFake:
+            def run(self, expression):
+                # An incorrectly reordered implementation wrote before read failed.
+                file = Path(expression.split("'")[1])
+                file.write_bytes(b"Z" + INITIAL[1:])
+                return {"error": "file not found"}
+
+            def eval(self, expression):
+                return {"type": 2, "shape": [1], "data": list(b"B")}
+
+        case = next(x for x in ordered_cases() if x.name == "right_error_prevents_left_write")
+        with tempfile.TemporaryDirectory() as d:
+            result = _run_ordered_case(BuggyFake(), case, Path(d))
+            self.assertEqual(result["status"], "requires_review")
+            self.assertFalse(result["steps"][0]["checks"]["file_content"])
 
 if __name__ == "__main__":
     unittest.main()
