@@ -60,8 +60,8 @@ fn real(op: Op, a: f64, b: f64) -> f64 {
 }
 pub(crate) fn near(a: f64, b: f64) -> bool {
     // One semantic comparator identity for equality and all search modes.
-    // This preserves the existing fixed predicate, not full dynamic J CCT.
-    crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near().float_equal(a, b)
+    // Pinned J default CCT; dynamic 9!:19 and Fit remain unsupported.
+    crate::comparison_policy::ComparisonPolicySnapshot::pinned_j_default_cct().float_equal(a, b)
 }
 
 fn int_pair<const OP: u8>(
