@@ -119,6 +119,23 @@ def run(binary, library, revision, path, adversarial=False):
     return report
 
 
+def diagnostic_summary(report, adversarial):
+    """Expose the exact C/Rust divergence; an exploratory CI pass is not acceptance."""
+    mismatches = [
+        row for row in report["observations"] if row["classification"] != "pass"
+    ]
+    summary = {
+        "cases": report["cases"],
+        "classifications": report["classifications"],
+        "not_matching": [row["name"] for row in mismatches],
+        "gate": ("EXPLORATORY: mismatches remain open, NOT accepted"
+                 if adversarial else "BOUNDED REGRESSION: fail on any mismatch"),
+    }
+    if adversarial:
+        summary["mismatch_observations"] = mismatches
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/rustj")
@@ -134,15 +151,7 @@ def main():
     except (OSError, RuntimeError) as error:
         print(f"FW-04 ranked diagnostic failed: {error}", file=sys.stderr)
         return 1
-    print(json.dumps({
-        "cases": report["cases"],
-        "classifications": report["classifications"],
-        "not_matching": [
-            row["name"] for row in report["observations"] if row["classification"] != "pass"
-        ],
-        "gate": ("EXPLORATORY: mismatches remain open, NOT accepted"
-                 if args.adversarial else "BOUNDED REGRESSION: fail on any mismatch"),
-    }, indent=2))
+    print(json.dumps(diagnostic_summary(report, args.adversarial), indent=2))
     # This bounded corpus is a concrete supported subset. Once its
     # empty-frame semantics are implemented, any regression must fail CI;
     # the report still retains failures instead of silently waiving them.
