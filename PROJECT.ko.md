@@ -3465,6 +3465,16 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **다음 한 단계:** 새 테스트의 실제 default·portable 결과 및 pinned J C의 POS/derived syntax/error 차분을 확보한 뒤 **확인된 의미론 불일치 한 종류 + 회귀 하나**씩 수정한다. FW-01·JX-01 체크는 결과 명령·환경·commit·unsupported 범위가 기록되기 전까지 열어 둔다.
 
+###### Q.2 FW-01 / JX-01 실행 회귀 및 원본 비교 게이트 — 두 번째 이행 기록 (2026-10-06)
+
+**구현 판정: [ ] FW-01 · [ ] JX-01 · [ ] JX-10 유지.** 단항 Mean 후보를 실제로 놓치는 오류를 GitHub Actions [02854b6 진단 로그](https://github.com/yunskim/RustJ/actions/runs/37429620894)에서 재현했다. `(+/ % #) y`는 **전체 Fork 호출은 단항이지만, Graph region의 마지막 `g=%` Apply는 분기 결과 두 개를 받는 이항**이다. 이전 `src/j_graph_jsource.rs::discover`는 join의 `Valence::Monad`를 요구해 Mean 후보를 항상 버렸다. [05dae2d](https://github.com/yunskim/RustJ/commit/05dae2d9c250a466c1f0b89cfdc4b776e72d74c5)는 원래 `RegionKind::Fork` 및 `region.inputs.len()==1`로 **외부 호출의 valence**를 판정하고, join의 `Valence::Dyad`를 확인한다. Graph 실행·순서·원본 function entity는 변경하지 않는다. 고정 `jsrc/cf.c::jtfolk`는 `+/ % #` 패턴에 대해 `f1=jtmean`만 설정하므로 **단항 후보만** 발견하는 제한은 적절하다.
+
+[268c83f](https://github.com/yunskim/RustJ/commit/268c83f656812b2a9fc951cb91c84e5e6f2a368b)는 임시 `MEAN_DIAG` 출력을 제거하고 **outer Fork=단항/inner join=이항** 및 이항 호출의 후보 부재를 테스트한다. 기존 `e.` empty-query 회귀도 [d818a3e](https://github.com/yunskim/RustJ/commit/d818a3e807453327d7cc4cd265dc503acf36d0ec)에서 **Boolean membership 결과**와 **Int `i.` missing sentinel**을 구분해 수정했다. `e.`의 빈 왼쪽 프레임 `[0]` 및 오른쪽 비었을 때 길이 2의 false 결과를 각각 확인한다.
+
+**실제 CI 증거:** Ubuntu GitHub Actions, Rust stable, [268c83f의 Basis compile probe](https://github.com/yunskim/RustJ/actions/runs/37432213914)에서 `cargo test`, `cargo test --features portable`, `cargo build --release`는 **성공**했다. Clippy는 기존 `src/index_ops.rs:330`의 inclusive-range 표현 경고로 실패했다. [dd2c118](https://github.com/yunskim/RustJ/commit/dd2c118de8bb025a2f4fa3f21be9f22063c6be52)로 범위 검사를 동일한 의미의 `(64..=MAX_PREHASH_ITEMS).contains(&items)`로 바꿨고, [37432369878](https://github.com/yunskim/RustJ/actions/runs/37432369878)에서 **default + portable tests / release build / Clippy 모두 통과**했다. 이는 *Rust 회귀 승인*이지 J 언어 전체 의미론 인증이 아니다.
+
+**남은 독립 게이트:** Linux milestone [37432213939](https://github.com/yunskim/RustJ/actions/runs/37432213939)의 `check`는 `cargo fmt --check`에서 실패했다. 포맷 차이는 13개 Rust 소스·테스트 파일에 걸쳐 있으므로 **CI 전체 성공으로 표시하지 않는다**. j64/j64avx2 C reference job 결과와 검사 스위트 성공 여부는 별도 기록한다. [a91dd57](https://github.com/yunskim/RustJ/commit/a91dd5741f298e40782cea9a73801ff6dad0863e)는 `tools/conformance.py::cases`에 **단항 Mean의 보통 배열/길이 1/빈 배열/다차원 배열**을 추가해 pinned J C와 Rust 결과를 차분할 준비를 했다. 이 신규 C 차분 결과는 **아직 승인되지 않았다**. Native J 그래프 의미론 검증·JX-10 특수 실행 선택은 미완료다. 후속 실행에서 실패가 나면 `case + oracle output + Rust output + pin + backend`를 기록해 의미론 차이와 미지원/상위 원본 특수경로 차이를 분리한다.
+
 **체크리스트 사용 규칙.** 각 JX 행은 **(1) C 원본 pin·조건 확인 → (2) J 의미론/unsupported 범위 확정 → (3) Graph 후보 및 source witness → (4) obligation별 proof/Guard·fallback → (5) 독립 reference·negative·C differential → (6) target/resource/실측 선택**의 여섯 열을 통과해야 완료한다. 실제 결과가 없으면 해당 행은 [ ]로 유지하며, 한 번에 **하나의 의미론 변경 + 해당 회귀/반례 하나**를 우선한다. 실패 또는 upstream drift가 발견되면 해당 연산군의 증명을 무효화하고 FW 관련 선행 게이트까지 되돌아간다. 각 완료 행에는 **JX-ID / code commit / 실행 명령·환경 / passed·failed·ignored / jsource commit·실제 oracle 범위 / fallback·negative 결과 / 측정값 / known gaps / 다음 게이트**를 기록한다. 당장은 **JX-01의 출처·범위 추적과 FW-01(M2)**부터 이어가며 특수 최적화를 새로 활성화하지 않는다.
 
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
