@@ -3,7 +3,7 @@ import unittest
 from conformance import validate_cli_corpus
 from ranked_search_audit import (
     ranked_search_cases, rank_adversarial_cases, rank_inhomo_cases,
-    diagnostic_summary, gate_failed,
+    rank_error_cases, diagnostic_summary, gate_failed,
 )
 
 
@@ -105,6 +105,31 @@ class RankSearchCorpusTests(unittest.TestCase):
             gate_failed(passing, adversarial=False, retry_probes=True,
                         gate_retry_probes=True)
         )
+
+    def test_rk07_error_precedence_probes_are_diagnostic_not_accepted(self):
+        cases = rank_error_cases()
+        self.assertEqual(len(cases), 8)
+        self.assertEqual(len(set(name for name, _ in cases)), len(cases))
+        validate_cli_corpus([expr for _, expr in cases])
+        named = dict(cases)
+        self.assertIn('i.0 4', named["zero_frame_cell_length"])
+        self.assertIn('i.2 4', named["positive_frame_cell_length"])
+        self.assertIn('2 3 $ 99', named["positive_frame_index_failure"])
+        mismatch = {"name": "zero_frame_cell_length",
+                    "classification": "rust_semantic_mismatch"}
+        report = {"cases": 1, "observations": [mismatch],
+                  "classifications": {"rust_semantic_mismatch": 1}}
+        summary = diagnostic_summary(
+            report, adversarial=False, error_probes=True,
+        )
+        self.assertIn("EXPLORATORY", summary["gate"])
+        self.assertEqual(summary["mismatch_observations"], [mismatch])
+        self.assertFalse(gate_failed(
+            report, adversarial=False, error_probes=True,
+        ))
+        self.assertTrue(gate_failed(
+            report, adversarial=False, error_probes=False,
+        ))
 
     def test_rank_adversarial_corpus_keeps_zero_frame_distinct_from_empty_cells(self):
         cases = rank_adversarial_cases()
