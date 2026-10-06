@@ -347,15 +347,25 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
         // A source-specific J idiom can span several applied graph nodes. Keep
         // the region's original provenance and use its join result as the
         // candidate anchor; do not fuse, rewrite or reorder the branches.
-        if !is_mean_fork(&region.function) {
+        //
+        // A monadic fork has *one source input*, even though its join applies
+        // g dyadically to the results of f(y) and h(y). The join node's own
+        // valence is therefore never a valid test of the enclosing fork's
+        // call valence (cf.c::jtfolk assigns jtmean to f1, not f2).
+        if !is_mean_fork(&region.function)
+            || region.inputs.len() != 1
+            || !matches!(
+                &region.kind,
+                crate::j_graph_ir::RegionKind::Fork { join_result, .. }
+                    if *join_result == region.result
+            )
+        {
             continue;
         }
         let Some(node) = plan.nodes.get(region.result.0) else {
             continue;
         };
-        // jsource cf.c::jtfolk installs jtmean in f1, never f2.
-        // A dyadic application of the same derived fork is not a Mean idiom.
-        let NodeKind::Apply { valence: Valence::Monad, basis, .. } = &node.kind else {
+        let NodeKind::Apply { valence: Valence::Dyad, basis, .. } = &node.kind else {
             continue;
         };
         result.push(JsourceOpportunity {
