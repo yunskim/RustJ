@@ -9512,6 +9512,30 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 **기존 단일 수용 원장 매핑:** 자료 읽기 제거·공통 scan/cache = IO-09~12·29, 파일/Chunk/Shard 형식 = IO-05~08·26~28, async/backpressure/transfer = IO-13~17·20, weights/checkpoint = IO-18~19, benchmark/선택 = IO-21~24·30, 소스·의미론 = IO-01~04·25. 새 체크리스트를 만들지 않고 [§10 IO-01~IO-30](#out-of-core-io-checklist)의 기존 상태만 갱신한다. 지금은 설계 기록이므로 **0/30 수용** 상태를 유지한다.
 
 
+<a id="unified-data-movement-contract"></a>
+#### 8.5.3 메모리 I/O·디스크 I/O 공통 Planning 계약 — 신규 IR 계층은 당장 만들지 않음 (2026-10-06)
+
+**설계 결정.** 메모리 접근·복사, CPU↔GPU 이동, 파일/매핑된 배열의 구간 읽기·쓰기를 **기존 Physical Planner / Physical Execution Plan의 공통 데이터 이동 분석과 스케줄링 대상으로 취급**한다. `Data Movement IR`이라는 독립적인 신규 계층은 만들지 않는다. 대신 `AccessRegion` 증명, `Effect/Dependency` 계약, physical storage/transfer/ready/lifetime 정보를 기존 단계의 각 소유자가 보유한다. 추후 실제 비동기·복합 route 사례 둘 이상에서 기존 Physical Plan이 의존성·버퍼 수명·스케줄을 안전하게 표현하지 못한다는 구체적 증거가 나올 때에만 별도 resource/stream 실행 IR 추출을 재검토한다. 이것은 §5의 기존 J Graph IR → Verified Logical Execution IR → Physical Plan 구분을 없애는 결정이 아니다.
+
+| 기존 단계 | 이 단계에서 표현하거나 계산하는 것 | 넣어서는 안 되는 것 |
+|---|---|---|
+| J Semantic IR / J Graph IR | J source topology, ValueId·Rank/CellApply·zero-frame 의미, 원본/후보 provenance; pass-local 접근 후보 sidecar는 허용 | BufferId, 파일 offset, DMA, concrete transfer, 물리 layout 및 GraphFacts 자체의 EffectSummary/선택 완료 상태 |
+| Verified Logical Execution IR / 분석 | observable J file/namespace/state effect, error/ordering/guard, 값/효과 liveness, logical `AccessRelation` 및 Unknown/Proven/Guarded 증거 | 임의 file read를 pure 배열 load로 치환하거나, 증명 없는 read omission/reorder 승인 |
+| 기존 Physical Planner / Representation / Schedule | `StorageObject/Version`·`BufferId/Lease` 분리, physical `Region`(buffer slice/byte range), `Read/Write/Copy/Transfer/Materialize/Release`, ready/completion 의존성, layout·placement·byte/resource/cost 추정; 공유 pass 인터페이스 사용 | 모든 접근을 실제 복사로 강제, 효과가 다른 파일과 메모리를 단일 semantics로 취급, target capability 없는 전송 확정 |
+| Executor / Backend | 동기 CPU reference에서 실제 read_at/write_at/buffer copy 실행; 이후 검증된 async token, queue/backpressure, 장치별 구현 | 미완료 I/O의 조기 buffer 해제, file side effect 재실행, 미확정 GPU 실행 지원 주장 |
+
+**공통 추상화의 경계.** `AccessRegion`은 어떤 논리 원소가 필요한지를 설명하며 physical `BufferSlice`와 `FileByteRange`는 다른 concrete region 종류다. 공통 분석은 region interval, producer/consumer, placement, lifetime, alias, ordering, transfer feasibility와 비용을 비교하지만 파일과 메모리를 하나의 alias domain·주소공간·오류 계약으로 뭉개지 않는다. `ValueId`, mutable `StateResource`, external `StorageObjectId/Version`, physical `BufferId/BufferLease`, `IoRequestId/CompletionToken`은 계속 분리한다. 이름은 설계 후보이며 확정 Rust API가 아니다.
+
+**컴파일 타임 vs 런타임.** 컴파일 타임에 proven shape/dtype/access pattern, 사용/수명, 중간 배열 제거, buffer reuse, 필요한 데이터 구간·전송·파이프라인 후보를 계획한다. 런타임은 실제 파일 내용/변경·EOF·권한·데이터 크기, 사용 가능한 RAM/GPU 메모리, 페이지 캐시·대역폭·요청 완료를 확인하고 guard/capability/memory budget을 검사한다. 비용 모델은 memory traffic, file bytes/requests/seeks, transfer, kernel launch, sync, peak/inflight/retained bytes, cold/warm latency를 분리한다. Unknown을 0 비용 또는 재배치 허가로 해석하지 않는다.
+
+**효과 안전성.** (A) proven immutable/version-stable 내부 backing read, (B) J `1!:`의 관찰 가능한 파일 I/O, (C) mutable state/checkpoint publish는 별개다. (A)에서도 실패가 관찰될 수 있으면 speculative read/오류 노출 위치가 보존된다는 별도 증명이 필요하다. (B)의 미사용 읽기라도 존재성/권한/오류를 생략하지 않으며, (C)의 쓰기 완료·durability를 단순 async submit으로 간주하지 않는다. zero-byte/empty frame에서도 J의 virtual fill-cell, dtype/shape 및 필요한 오류 검사는 남긴다.
+
+**프레임워크 역할 분담(직접 복제 금지).** [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/)은 resource·async transfer·parameter/file read/write·ready token의 **물리 실행 그래프** 선례다. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) 및 [Memory Effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/)는 논리값↔버퍼 분리와 operation별 effect/resource interface의 선례다. [XLA GPU architecture](https://openxla.org/xla/gpu_architecture)는 fusion·buffer assignment·layout/transfer를 점진적으로 구체화하는 선례이며 일반적인 J 파일 I/O의 공통 IR은 아니다. [TVM](https://tvm.apache.org/docs/)은 장치 배치·물리 메모리 선택, [DataFusion](https://datafusion.apache.org/)은 파일 scan과 filter/projection pushdown의 선례다. 어떤 프레임워크도 full-J foreign 오류·Rank prototype 계약을 자동으로 해결하지 않는다.
+
+**대표 추적 사례.** `File(A, immutable version) → Slice → Elementwise → Consumer`는 verified access witness가 있을 때 physical byte-range read와 fused CPU 계산으로 낮출 수 있다. 반면 `1!:1`/`1!:11` 결과가 사용되지 않아도 파일 open/EOF/error 등 J-observable 경계가 있다면 dead-data elimination만으로 읽기를 지울 수 없다. CPU↔GPU copy는 같은 planner의 transfer 후보지만 현재 CUDA 구현 유보 상태를 유지한다.
+
+**기존 이행 원장 연결.** 새 `DM-*` 작업표는 만들지 않는다. IO-03(계층/identity/effect interface), IO-09(접근 영역 증명), IO-13·14(동기→비동기 준비/완료), IO-17(재배치·실패·해제 안전), IO-20(공통 memory/file/transfer 자원·비용 planning), IO-22(세 경로·negative 검증)를 기존 [§10 IO 체크리스트](#out-of-core-io-checklist)의 수용 항목으로 사용한다. FW-05~09의 provenance/guard와 DB effect contract를 선행 증명으로 재사용한다. **현 상태: 설계 확정, 구현·실행 증거 없음; IO 0/30 [ ] 유지. M2 frontend와 최초 M4 CPU slice의 필수 조건으로 올리지 않는다.**
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
@@ -11709,26 +11733,26 @@ A3-v2
 |---|---|---|
 | IO-01 / A·M2 병행 | [ ] jsource/J 라이브러리 근거 pin | `jmf.ijs` mapping modes, `xf.c` partial I/O, alias/in-place, boxed mapping 제약, Jd column/ptable/jmfx, Jfiles/keyfiles, JMF boxed 경로별 source pin·행동/미지원 표. C foreign oracle와 파일 fixture; 추측/확인 분리 |
 | IO-02 / A·M2~M3 | [ ] J 파일·mapping의 의미/효과 계약 | read/write/resize/flush/close, 오류·effect order, alias/late file changes, read-only/COW, J boxed/sparse, zero-frame case 목록. reorder/observable read omission 금지 negative test |
-| IO-03 / A·M3 | [ ] 계층 boundary/identity 검증 | `ValueId≠BufferId≠StateResource≠StorageObject`, storage requirement vs materialization, pure data read vs effectful foreign I/O 분리; verifier와 status 명시 |
+| IO-03 / A·M3 | [ ] 기존 IR·공통 data-movement 계약과 identity verifier | J Graph의 source topology vs Verified Logical의 `Effect/Dependency`·`AccessRelation` vs Physical Plan의 buffer/file region·transfer·ready token을 분리. `ValueId≠BufferId≠StateResource≠StorageObject/Version`, foreign effect vs immutable backing read; 새 Data Movement IR 도입 금지. 잘못된 계층의 필드·unknown effect를 거부하는 verifier/negative tests. §8.5.3 연결 |
 | IO-04 / A·M3 | [ ] storage capability matrix | local file, mapped, chunk, remote, GPU는 개별 capability; offset/alignment/EOF/seek/atomic write/consistency. Unknown은 route barrier |
 | IO-05 / B·M4 이후 | [ ] `read_at`/`write_at` 동기 독립 기준 | 일반 파일 offset/length, short read/EOF/overflow/error/permission 포함; 구현 전에 J file foreign과 physical array input 구분. 실제 fixture·C oracle 대조 |
 | IO-06 / B·M4 이후 | [ ] versioned dense chunk reader | shape/element type/endianness/alignment/checked address/last short chunk. 파일보다 작은 메모리 예산으로 1회 순차 scan; baseline과 결과/오류 일치 |
 | IO-07 / B·M4 이후 | [ ] mapped dense array 최소 경로 | read-only/mutable/COW·header/shape·flush/unmap/reference lifetime; mapping과 read_at 결과 비교. non-jmf typed boxed/JMF boxed 경로와 sparse capability를 구분해 검증 |
 | IO-08 / B·M4 이후 | [ ] bounded resident/retained memory 기준 | chunk reader·buffer lease·release; RAM보다 큰 데이터와 작은 예산 조건에서 peak bound, leak/early release/cancel 검사 |
-| IO-09 / C·M4~M5 | [ ] read-range/access analysis와 witness | select/slice/reindex에서 필요한 byte interval과 opaque fallback; dynamic rank·alias·error observable이면 pruning 불허 |
+| IO-09 / C·M4~M5 | [ ] logical access region→physical byte-range witness | select/slice/reindex의 원소 범위를 증명한 뒤에만 `BufferSlice`/`FileByteRange` 접근 최적화 후보 생성; dynamic rank·alias·외부 변경·관찰 가능한 file/error effect·empty prototype은 opaque/barrier. byte omission과 J semantics 독립 검증. §8.5.3 연결 |
 | IO-10 / C·M5 | [ ] scan projection/slice pushdown | source+consumer legality proof/guard, I/O 바이트 수와 결과/오류 측정; Reduce/Rank/sparse/boxed 반례 포함 |
 | IO-11 / C·M5 | [ ] shared scan/subplan reuse | 동일 external object+version/policy/byte range일 때만 cache; changed file/late binding/alias가 cache invalidation 유발 |
 | IO-12 / C·M5 | [ ] immutable snapshot/version contract | file content/version/staleness 검출·error precedence; speculative read는 no-visible-effect 조건에서만 허용 |
-| IO-13 / D·M5 | [ ] portable async facade | sync baseline 위 별도 blocking-I/O workers + completion/failed/cancel state; platform fallback, partial completion/error mapping |
+| IO-13 / D·M5 | [ ] portable async facade + readiness 계약 | 동기 reference 위 blocking-I/O workers와 `Pending/Ready/Failed/Cancelled` 및 완료 토큰. 파일/메모리 transfer는 공통 스케줄러에서 의존성을 분석하되 오류/취소 의미는 별개; portable sync fallback·negative cases. §8.5.3 연결 |
 | IO-14 / D·M5 | [ ] bounded prefetch / double buffer | `Read(n+1)`↔`Compute(n)` overlap, stage dependency/tokens·buffer lease 테스트; serial·parallel 결과 대조 |
 | IO-15 / D·M5 | [ ] governor/backpressure | inflight bytes+queued jobs+resident+kernel temporary memory 공동 예산; slow consumer/high-latency I/O/oversubscription/OOM negative test |
 | IO-16 / D·M5 | [ ] streaming barriers·cleanup | chunked elementwise와 reduction, rank/cell/zero-frame, producer failure/cancel/error precedence; non-streamable operator는 barrier/materialize |
-| IO-17 / D·M5 | [ ] async completion과 effect proof | old data/dirty mapping/short read/abort/retry/early release, work stealing에서도 errors/ownership 유지 |
+| IO-17 / D·M5 | [ ] async completion·buffer lifetime·J effect proof | short/failed read, dirty mapping, cancel/retry, early release, file observable-error order 및 `1!:` 미사용 read 제거 금지; speculative internal immutable read도 오류 노출 위치 증명 요구. 전송 중 buffer 재사용/중복 side effect 금지. §8.5.3 연결 |
 | IO-18 / E·M5 | [ ] mutable weight/checkpoint 정합성 | read snapshot vs write version; partial write, atomic publication/durability/recovery test. 학습 상태 복제·일관성 계약 검증 전 offload 금지 |
 | IO-19 / E·M5 | [ ] weight/scan reuse physical schedule | FlexGen식 layer-block/batch ordering 후보; read bytes↓/cache hit↑, dependency·effect·order unchanged, latency–throughput 별도 평가 |
-| IO-20 / E·M5 | [ ] placement/transfer cost planner | RAM/disk/GPU(비구현 후보)/remote별 bandwidth/seek/latency/peak estimates, hard resource gate vs measured cost 별도 |
+| IO-20 / E·M5 | [ ] 공통 physical data-movement·placement cost planner | 기존 Physical Plan에서 memory copy/CPU↔GPU 후보/file byte-range read/write/transfer를 위치·region·lifetime·ready dependency로 함께 계획. bytes/requests/seek/latency/peak/inflight/compute/overlap 분리; unknown capacity는 hard gate, heuristic cost는 미측정 표시. GPU 실행은 보류. 새 IR 필요성은 2개 실제 실패 사례가 있을 때만 재검토. §8.5.3 연결 |
 | IO-21 / F·M5 | [ ] 파일 크기·access shape 측정 suite | cold/warm, sequential/random, small/large, dense/strided, disk-backed NN weights, sparse/boxed guarded, 0-sized; bytes/wait/peak/time/latency |
-| IO-22 / F·M5 | [ ] differential/correctness suite | C reference(where J semantics exposed) / Rust sync / Rust optimized 3-way; supported subsets·unknown·ignored 명시, crash/permissions/EOF injections |
+| IO-22 / F·M5 | [ ] 3방향 semantic·negative·movement 검증 | C reference(실제 J foreign 효과 있는 영역) / Rust sync / Rust optimized 독립 비교; skipped read vs error precedence, stale version, empty Rank virtual cell, boxed/sparse, alias/early-free/cancel, 중간 copy/전송 bytes 검증. pass/fail/ignored·unsupported 분리. §8.5.3 연결 |
 | IO-23 / F·M5 이후 | [ ] mmap vs read_at vs async 실측 선택 | OS page cache/hard faults, IO bound/compute bound, storage/media/target 차이. 유의미한 실측 이득과 regression 없을 때만 기본 경로 |
 | IO-24 / F·M6 이후 | [ ] 확장 후보 승인 게이트 | io_uring/direct I/O, remote object storage, compression, NVMe↔GPU/pinned DMA, multi-device, Jd adapter. portable implementation·검증 예산 확인 시 별도 소규모 작업으로 승격 |
 
