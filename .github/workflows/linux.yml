@@ -48,6 +48,7 @@ jobs:
         run: |
           mkdir -p reports
           python3 tools/word_conformance.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
             --report "reports/word-conformance-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - name: Differential gate
         env:
@@ -59,7 +60,7 @@ jobs:
             rounds=1000
             seed=$(date -u +%Y%m%d)
           fi
-          python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64
+          python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64 --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
       - uses: actions/upload-artifact@v4
         if: always()
         with:
