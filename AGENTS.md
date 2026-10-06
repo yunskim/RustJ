@@ -13,6 +13,8 @@
   - `FOUNDATIONS.ko.md` (canonical) ↔ `FOUNDATIONS.md` (English mirror)
   - `CLA.ko.md` (canonical) ↔ `CLA.md` (English mirror)
 - Make architecture/design/progress/checklist edits in the `*.ko.md` canonical file first, then update the corresponding English `*.md` mirror in the same change whenever practical.
+- For every major compiler stage or boundary, keep a concise contract answering: purpose, inputs, outputs, semantic information preserved, decisions forbidden at that stage, upstream/downstream contract, representative example, current implementation status, verifier/tests, and known gaps. Depth of prose does not substitute for a closed stage boundary.
+- When changing a framework comparison or cross-cutting architecture claim, cross-search `FOUNDATIONS`, `PROJECT`, `README`, and `AGENTS` for stale duplicate wording before finishing the change.
 - If the two versions ever disagree, the Korean `*.ko.md` file is authoritative.
 - Rust source identifiers, comments, doc comments, diagnostics, tests, commits, and code-facing documentation remain English unless there is a specific reason otherwise.
 - Do not create `AGENTS.ko.md`.
