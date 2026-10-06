@@ -143,6 +143,12 @@ mod tests {
         assert_eq!(index.find(c, MatchOrder::Last), 2);
         assert_eq!(index.find(a, MatchOrder::First), 0);
         assert_eq!(index.find(a, MatchOrder::Last), 1);
+
+        // Coalescing the approximately equal a and b into one hash key
+        // would incorrectly lose b as the only match for c.
+        let without_c = TolerantExponentCandidateIndex::new(&[a, b]);
+        assert_eq!(without_c.find(c, MatchOrder::First), 1);
+        assert_eq!(without_c.find(c, MatchOrder::Last), 1);
     }
 
     #[test]
