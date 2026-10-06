@@ -3124,6 +3124,8 @@ RustJ
 | **실행 경로 분리** | \`src/runtime.rs::Engine::interpret_ir\`에서 \`pooled\`인 일반 primitive dyad \`i.\`/\`i:\`/\`e.\`의 exact scalar 데이터만 cache-aware entry로 보내며 기타 입력·명시 Rank는 기존 \`kernels::dyad\`로 복귀 | \`eval_semantic_reference\`는 cache 사용하지 않음. \`index_prehash_stats() -> (builds,hits)\`, \`clear_index_prehash()\`는 J value 의미를 바꾸지 않는 관측·clear API |
 | **테스트** | \`src/index_ops.rs\` unit: reverse 중복/순서·direct/hash/sequential 참조 대조·Arc identity·rebind; \`tests/index_ops.rs\` integration: 실제 Engine의 cache hit/miss, 멤버십 공유, Last 분리, 새 binding, reference 경로 및 temporary reverse | **작성만 완료.** Cargo/CI/C differential/benchmark 미실행; 정적 연결 확인과 실행 성공을 구분 |
 
+**메모리 안전 fallback:** 선택적 Reverse/Direct/Hash/Prehash 테이블의 `Error::Limit`(준비용 메모리 확보 실패)은 최적화 불허로 처리하여 원래 순차 검색으로 복귀한다. 최종 결과 버퍼의 실제 할당 실패는 별도의 J 실행 오류로 유지한다.
+
 **프레임워크 판정:** canonical \`J Graph → A3 LookupClassify → Physical Planner\`에 새 IR node를 추가하지 않았다. 이 첫 CPU 실행 경로의 비용 threshold(64, 2:1, 16,384)는 실험으로 최적화한 값이 아닌 보수적 초기값이다. 현재 cache는 physical interpreter-local 구현이고 compiler \`JsourcePlanningReport\`의 semantic witness, \`LoweringRegistry\` target-route/cost 선택, guarded optimized transform에 연결되었다고 주장하지 않는다.
 
 **추가로 필요한 것:** \`m&i.\` 또는 \`e.&n\`처럼 J의 derived verb 수준으로 prehash 수명을 관리하려면 별도 \`PreparedLookup\`/versioned dictionary identity/semantic equality contract와 guard/miss fallback을 A3 sidecar에 구현해야 한다. 일반 이름/locale·\`!.ct\` tolerance 변경·sparse/boxed까지 이 캐시를 무조건 확대하면 안 된다. Prehash 준비 과정에서 관찰 가능한 error/effect를 건너뛰지 않는다는 증명도 선행해야 한다. 우선 실제 J/C 출력 차등 및 작은/큰 query 비용 측정 후 threshold와 API를 확정한다.
