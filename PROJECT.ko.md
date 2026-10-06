@@ -1214,7 +1214,80 @@ RustJ
 
 따라서 frontend 단계에서 차이가 허용되는 것은 **representation과 implementation technique**뿐이다. J-visible word formation/classification/parsing behavior는 compatibility 대상이다.
 
-#### 3.3.2.2 Compiler/interpreter/JIT 공통 structured diagnostics
+#### 3.3.2.2 Canonical frontend sentence trace — `+/ y`
+
+frontend orientation 표본은 **이미 noun으로 바인딩된 `y`**에 대해 다음 한 문장을 사용한다.
+
+```j
++/ y
+```
+
+이 표본은 짧지만 word formation, enqueue classification, parser-time name lookup, modifier construction, monadic application을 모두 지난다.
+
+~~~text
+source bytes
+  "+/ y"
+    │
+    ▼
+Word Formation
+  word[0] = "+"
+  word[1] = "/"
+  word[2] = "y"
+    │
+    ▼
+Enqueue
+  0: Verb(Add)
+  1: Adverb(Insert)
+  2: Name("y", lookup_name=true)
+    │
+    ▼
+Parser stack entry for y
+  lookup current sentence environment
+  Name("y") ──lookup──→ Noun snapshot
+    │
+    ▼
+9-row reduction: row 3 / Adverb
+  Verb(+)  Adverb(/)
+        │
+        ▼
+  completed FunctionEntity
+    POS  = Verb
+    head = PrimitiveAdverb(Insert)
+    operand[0] = Function(Add)
+    source provenance = words 0..2
+    │
+    ▼
+stack reinsert + rescan
+    │
+    ▼
+9-row reduction: row 0 / MonadEdge
+  derived Verb(+/)  Noun(y)
+        │
+        ▼
+  Expr::Monad / completed noun result
+    │
+    ├─ runtime parser host: 실제 J value를 계산하여 Noun으로 stack에 재삽입
+    └─ analysis/static path: application structure를 보존하여 후속 J Graph/A3 분석
+~~~
+
+여기서 중요한 경계는 다음과 같다.
+
+- `/`는 enqueue 시점에 `Reduce`가 아니다. **Adverb**이며 row 3이 `+`에 적용해 completed derived Verb `+/`를 만든다.
+- `y`는 enqueue에서 단지 lookup 대상 NAME이다. parser stack에 들어갈 때 **그 시점의 환경**을 읽어 noun snapshot을 얻는다. sentence 시작 시 모든 name을 미리 고정하지 않는다.
+- parser row 3의 결과는 target-independent `FunctionEntity`다. CPU/GPU/fusion 정보가 들어가지 않는다.
+- row 0 application 뒤에야 noun computation이 생긴다. 이 applied computation이 이후 J Graph에서 reduction structure로 분석되고 Execution Semantic Lowering에서 `Reduce(Add)`가 될 수 있다.
+- runtime parser action이 실제 noun을 계산하는 것과 static analyzer가 구조를 보존하는 것은 서로 다른 execution mode지만, **같은 9-row language semantics**를 공유해야 한다.
+
+현재 회귀 근거:
+
+- `tests/enqueuer.rs`는 core Verb/Adverb/Conjunction/Name/assignment의 enqueue class와 lookup flag/source provenance를 검사한다.
+- `tests/parser_provenance.rs::all_nine_rows_preserve_original_word_coverage_and_inherited_tokens`는 `+/`가 `ParseRow::Adverb`로 reduction되고 원 word coverage/token provenance를 유지하는지 검사한다.
+- `src/parser.rs::apply_parse_row`는 row 3 construction과 row 0 monadic application을 분리하고 reduction 뒤 stack rescan을 수행한다.
+- `tests/analysis.rs`의 `+/1 2` 분석 회귀는 derived semantic head가 `PrimitiveAdverb(Insert)`로 남은 채 A3까지 내려가는 것을 검사한다.
+
+이 trace는 frontend 전체 conformance를 대표하는 **orientation example**이지, locative/direct definition/gerund/value-dependent constructor까지 모두 지원된다는 증거가 아니다. 그 범위는 A0.5/F0–F2/P0–P8 checklist와 differential report가 결정한다.
+
+#### 3.3.2.3 Compiler/interpreter/JIT 공통 structured diagnostics
 
 source provenance는 compiler 전용 부가기능이 아니라 frontend semantic infrastructure다. 최신 J의 `d.c` + `eformat_j_` 구조를 참고해 **J error class와 실패 당시의 semantic context를 분리하여 보존한 뒤, 별도 DiagnosticAnalyzer가 설명을 생성**한다. parser conformance 기준 revision은 그대로 유지하고, diagnostic design은 2026-09-30 current jsource master(`1d43f4eb7e43c8243f64dc4e6f31afde4e19d6a9`)의 error-context/eformat 구조도 참고한다.
 
