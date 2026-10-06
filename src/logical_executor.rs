@@ -389,3 +389,36 @@ pub fn execute_closed(plan: &Plan) -> Result<Option<Value>> {
         })
         .transpose()
 }
+
+#[cfg(test)]
+mod rank_fill_error_tests {
+    use super::*;
+
+    #[test]
+    fn rank_zero_frame_recovery_does_not_erase_exigent_or_unknown_errors() {
+        let fallback = recover_zero_frame_fill_domain(Err(Error::Domain))
+            .expect("J non-exigent computational fill failure");
+        assert_eq!(fallback.type_code(), 4);
+        assert_eq!(fallback.shape(), &[]);
+        assert_eq!(fallback.int_at(0).unwrap(), 0);
+
+        // The diagnostic wrapper must not accidentally change the J class.
+        let wrapped = Error::Domain.at(1..4);
+        let fallback = recover_zero_frame_fill_domain(Err(wrapped)).unwrap();
+        assert_eq!(fallback.int_at(0).unwrap(), 0);
+
+        for error in [
+            Error::Length,
+            Error::Rank,
+            Error::Index,
+            Error::Limit,
+            Error::Valence,
+            Error::Value("unresolved".into()),
+            Error::Unsupported("effectful or unknown call".into()),
+        ] {
+            let expected = error.kind();
+            let observed = recover_zero_frame_fill_domain(Err(error)).unwrap_err();
+            assert_eq!(observed.kind(), expected);
+        }
+    }
+}
