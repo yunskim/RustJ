@@ -41,10 +41,44 @@ def ranked_search_cases():
     ]
 
 
-def run(binary, library, revision, path):
+def rank_adversarial_cases():
+    """RK-06 exploratory zero-cardinality witnesses, NOT an acceptance set.
+
+    In particular, [0,3] has no rank-1 cells; [2,0] has two empty rank-1
+    cells. A zero inside a larger frame is neither of those cases.
+    """
+    return [
+        ("zero_frame_front_reduce", '+/"1 (i.0 3)'),
+        ("empty_cells_nonzero_frame_reduce", '+/"1 (i.2 0)'),
+        ("empty_cells_nonzero_frame_add", '(i.2 0) (+"1 1) (i.2 0)'),
+        ("zero_frame_middle_reduce", '+/"1 (i.2 0 3)'),
+        ("zero_frame_middle_add", '(i.2 0 3) (+"1 1) (i.2 0 3)'),
+        ("zero_frame_middle_search", '(i.2 0 3) (i."1 1) (i.2 0 3)'),
+        ("zero_frame_tail_rank0_add", '(i.2 3 0) (+"0 0) (i.2 3 0)'),
+        ("zero_frame_front_ravel", ',"1 (i.0 3)'),
+        ("one_side_empty_left_add", '(i.0 3) (+"1 1) (i.3)'),
+        ("one_side_empty_right_add", '(i.3) (+"1 1) (i.0 3)'),
+        ("one_side_empty_left_search", '(i.0 3) (i."1 1) (i.3)'),
+        ("one_side_empty_right_search", '(i.3) (i."1 1) (i.0 3)'),
+        ("frame_mismatch_empty_vs_full", '(i.0 3) (+"1 1) (i.2 3)'),
+        ("middle_frame_mismatch", '(i.2 0 3) (+"1 1) (i.2 2 3)'),
+        ("negative_rank_reduce", '+/"_1 (i.0 3)'),
+        ("oversized_rank_reduce", '+/"99 (i.0 3)'),
+        ("negative_rank_add", '(i.0 3) (+"_1 _1) (i.0 3)'),
+        ("oversized_rank_add", '(i.0 3) (+"99 99) (i.0 3)'),
+        ("empty_type_mismatch", "(0 3 $ 'abc') (+\"1 1) (i.0 3)"),
+        ("empty_division", '(i.0 3) (%"1 1) (i.0 3)'),
+        ("empty_zero_cell_rank0_reduce", '+/"0 (i.2 0)'),
+        ("empty_bool_member", '(0 3 $ 1) (e."1 1) (0 3 $ 1)'),
+        ("empty_char_index", "(0 3 $ 'abc') (i.\"1 1) (0 3 $ 'abc')"),
+        ("nested_rank_empty", '(i.0 3) ((+"0 0)"1 1) (i.0 3)'),
+    ]
+
+
+def run(binary, library, revision, path, adversarial=False):
     if not binary.is_file() or not library.is_file():
         raise FileNotFoundError(f"missing Rust executable or C library: {binary}, {library}")
-    cases = ranked_search_cases()
+    cases = rank_adversarial_cases() if adversarial else ranked_search_cases()
     corpus = [expression for _, expression in cases]
     validate_cli_corpus(corpus)
     expected = _run(
@@ -66,7 +100,8 @@ def run(binary, library, revision, path):
             "jsource": c, "rust_reference": r, "rust_optimized": o,
         })
     report = {
-        "kind": "FW-04 ranked search diagnostic; NOT an acceptance gate",
+        "kind": ("RK-06 adversarial Rank diagnostic; NOT an acceptance gate"
+                 if adversarial else "FW-04 bounded Rank three-way regression"),
         "reference_revision": revision,
         "reference_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
@@ -89,10 +124,13 @@ def main():
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/rustj")
     parser.add_argument("--reference-revision", required=True)
     parser.add_argument("--report", type=Path, default=ROOT / "reports/ranked-search-audit.json")
+    parser.add_argument("--adversarial", action="store_true",
+                        help="RK-06 exploratory corpus; report mismatches without acceptance")
     args = parser.parse_args()
     library = Path(os.environ.get("J_LIBRARY", str(ROOT / ".reference/bin/linux/j64/libj.so")))
     try:
-        report = run(args.binary.resolve(), library.resolve(), args.reference_revision, args.report)
+        report = run(args.binary.resolve(), library.resolve(), args.reference_revision,
+                     args.report, adversarial=args.adversarial)
     except (OSError, RuntimeError) as error:
         print(f"FW-04 ranked diagnostic failed: {error}", file=sys.stderr)
         return 1
@@ -102,12 +140,13 @@ def main():
         "not_matching": [
             row["name"] for row in report["observations"] if row["classification"] != "pass"
         ],
-        "gate": "DIAGNOSTIC ONLY: do not count mismatches as passes",
+        "gate": ("EXPLORATORY: mismatches remain open, NOT accepted"
+                 if args.adversarial else "BOUNDED REGRESSION: fail on any mismatch"),
     }, indent=2))
     # This bounded corpus is a concrete supported subset. Once its
     # empty-frame semantics are implemented, any regression must fail CI;
     # the report still retains failures instead of silently waiving them.
-    return int(any(
+    return int(not args.adversarial and any(
         row["classification"] != "pass" for row in report["observations"]
     ))
 
