@@ -1,7 +1,9 @@
 import unittest
 
 from conformance import validate_cli_corpus
-from ranked_search_audit import ranked_search_cases, rank_adversarial_cases
+from ranked_search_audit import (
+    ranked_search_cases, rank_adversarial_cases, diagnostic_summary,
+)
 
 
 class RankSearchCorpusTests(unittest.TestCase):
@@ -24,6 +26,30 @@ class RankSearchCorpusTests(unittest.TestCase):
         self.assertIn("i.\"1 1", cases["empty_frame_float"])
         self.assertIn("+/\"1", cases["empty_frame_sum"])
         self.assertIn("+\"1 1", cases["empty_frame_add"])
+
+    def test_exploratory_summary_exposes_unwaived_exact_oracle_differences(self):
+        mismatch = {
+            "name": "empty_type_mismatch",
+            "source": "(0 3 $ 'abc') (+\"1 1) (i.0 3)",
+            "classification": "rust_semantic_mismatch",
+            "jsource": {"type": "domain error"},
+            "rust_reference": {"type": "unsupported"},
+            "rust_optimized": {"type": "unsupported"},
+        }
+        report = {
+            "cases": 2,
+            "classifications": {"pass": 1, "rust_semantic_mismatch": 1},
+            "observations": [
+                {"name": "pass", "classification": "pass"}, mismatch
+            ],
+        }
+        summary = diagnostic_summary(report, adversarial=True)
+        self.assertEqual(summary["not_matching"], ["empty_type_mismatch"])
+        self.assertEqual(summary["mismatch_observations"], [mismatch])
+        self.assertIn("NOT accepted", summary["gate"])
+        bounded = diagnostic_summary(report, adversarial=False)
+        self.assertNotIn("mismatch_observations", bounded)
+        self.assertIn("fail on any mismatch", bounded["gate"])
 
     def test_rank_adversarial_corpus_keeps_zero_frame_distinct_from_empty_cells(self):
         cases = rank_adversarial_cases()
