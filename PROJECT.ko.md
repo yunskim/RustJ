@@ -3432,11 +3432,32 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 | RK-08 / B·M3·FW-07 | [ ] **사용자 정의 동사·효과·동적 이름** | src/runtime.rs에서 동적 이름 조회 시점, fill 동사 실행 횟수, 부작용, 실패 후 재실행 가능성 및 guarded fallback을 정의 | C oracle의 카운터 증가·이름 변경·nested user verb·오류 후 상태 비교. 사전 증명 없는 speculative 실행 금지 유지 |
 | RK-09 / B·M3 | [ ] **boxed·sparse fill/prototype** | src/value.rs·src/storage.rs·src/sparse.rs: box 내부 fill, sparse 축·fill 값과 atom type·shape 보존 | 타입별 C 결과와 비교; 임의 dense/0으로 일반화하거나 미지원 실행을 통과로 세지 않음 |
 | RK-10 / B·M3 | [ ] **이질적 결과 cell·타입 승격·padding** | src/assembly.rs·src/logical_executor.rs·src/kernels.rs: result.h 기준 혼합 dtype·shape, fill/padding, 전체 cell 평가 후 오류 순서를 분리 | mixed result shape, char/numeric, empty cells, size mismatch, error precedence를 C·두 Rust 경로 비교 |
-| RK-11 / C·M3 | [ ] **Rank + 파생 동사/implicit loop 연동** | semantic/Logical/Graph의 원래 modifier 관계와 rank/cell/frame facts 보존; fork/hook/@:/중첩 rank·late name은 실행 가능성과 별개 | negative/oversized rank, modifier composition, frame 반복, late binding의 3경로 테스트. Graph 후보가 승인된 실행으로 자동 변환되지 않음 |
+| RK-11 / C·M3 | [ ] **Rank + 파생 동사/implicit loop 연동** | semantic/Logical/Graph의 원래 modifier 관계와 rank/cell/frame facts 보존; fork/hook/@:/중첩 rank·late name은 실행 가능성과 별개 | negative/oversized rank, modifier composition, frame 반복, late binding의 3경로 테스트. Graph 후보가 승인된 실행으로 자동 변환되지 않음. **빈 frame과 빈 cell의 Graph 의미론·회귀 하위 체크리스트 §P.12 ZF-IR-01~04 참조; RK-11 전체 미완료.** |
 | RK-12 / D·FW-04/JX-04 | [ ] **지원 범위·수용 증거 최종 대조** | RK-06~11 각각에 J 기준·baseline 독립성·Guard·효과/오류·자원 한계 증거를 연결하고 미지원 범위를 명시 | pinned C commit·명령·4조합 CI·cases/실패 분류·reports JSON을 남긴 뒤 해당 단계의 완료 여부를 개별 판정. 상위 FW-04/JX-04는 다른 의무가 남으면 [ ] |
 
 **반복 작업 순서와 상태 갱신 규칙.** RK-06 → RK-07 → RK-08 → RK-09 → RK-10 → RK-11 → RK-12로 진행한다. 매 작업은 ① C 원본의 정상/부정 입력부터 고정 ② C / Rust 독립 semantic reference / Rust 실행 차이를 세 범주로 분류 ③ 가장 작은 공통 의미론 수정 ④ Rust default·portable fmt/clippy/test와 C j64·j64avx2 차분 실행 ⑤ CI 링크·수치·커밋·불일치를 해당 RK 행에 기록한 뒤에만 [x] 처리. **Linux CI 통과만으로 미지원 Rank를 전체 합격 처리하지 않으며** 부정 사례와 실행 효과를 임의로 묵살하지 않는다. M2 프런트엔드 수렴 우선순위는 유지한다. GPU/Hash/Graph 후보 선택은 FW-05~FW-13의 독립 증명·가드·자원·비용 허가 전에 열지 않는다.
 
+
+<a id="rank-graph-zero-frame"></a>
+
+##### P.12 빈 Frame·빈 Cell의 J Graph IR 의미론 — 구조 증거와 실행 생략 허가 분리 (2026-10-06)
+
+**설계 결론.** 빈 배열은 별도의 `EmptyArray` 연산 노드가 아니라 *논리 Shape·타입·원래 Rank/CellApply 적용 관계*에 속한다. `0 3`과 `2 0`은 둘 다 원소 수가 0이지만, rank 1을 적용할 때 전자는 **frame=[0], cell=[3]**(실제 셀 호출 0회, J fill-cell 의미론 필요), 후자는 **frame=[2], cell=[0]**(빈 셀에 대한 실제 호출 2회)이다. 따라서 `element_count == 0`은 **연산 실행이나 효과·오류 평가가 0회**라는 증명이 아니다. 고정 jsource `jsrc/cr.c::jtrank1ex/jtrank2ex`와 §P.10의 fill 계약을 참조한다.
+
+**구현 경계.** `src/facts.rs`의 `rank_plan_for_shapes`는 frame/cell 분해를 단일 구조적 의미론으로 제공하고, `RankPlan::frame_execution()`은 `ZeroFrameNeedsFill / CellsPresent / IncompatibleFrames`만 구별한다. `has_empty_input_cell()`은 별도 속성이다. `src/j_graph_ir.rs::Plan::rank_frame_plan(ValueId)`은 실제 `GraphForm::Rank`이며 requested rank와 입력 Shape을 알 때만 **읽기 전용** RankPlan을 반환한다. `src/facts.rs`의 J Graph projection과 A3 inference가 같은 rank/frame 분해를 사용한다. 기존 `GraphFacts`의 dtype/shape가 빈 frame의 결과에 대해 **Unknown**이면 그대로 남겨두고, J Graph에 물리적 버퍼·실행 결정이나 새로운 형식 노드를 추가하지 않는다.
+
+**의무와 금지 사항.** 구조적 `ZeroFrameNeedsFill`은 `ProvenEmptyResult`도 `SafeToElide`도 아니다. 원본 함수의 부작용·동적 이름·computational/error fallback·boxed/sparse filler·결과 cell 타입/shape를 별도 증명하지 못하면 fill-cell 평가를 생략하는 후보를 선택하지 않는다. A3 `IterationDomain`에 0 크기 frame 축이 보이더라도 kernel 생략/할당 제거/Graph fusion을 자동 허가하지 않는다. 생략 후보와 실제 선택은 FW-05~FW-13의 증거·Guard·자원·비용 게이트에 종속된다.
+
+**지속 체크리스트 (RK-11 및 FW-04/JX-04의 하위 항목).**
+
+| ID | 현재 | 수정·검증 수용 기준 |
+|---|---|---|
+| ZF-IR-01 / M2 | [ ] **Rank/frame 구조 의미론 공통화** | `rank_plan_for_shapes`와 `RankFrameExecution`; 동일 입력에 대해 J Graph와 A3의 frame·cell·빈 frame 분류가 일치해야 함. 코드 커밋 [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398)·[fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11). CI 검증 후 [x] |
+| ZF-IR-02 / M2 | [ ] **J Graph 읽기 전용 조회 + 역방향 검증** | `Plan::rank_frame_plan`([89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d)), `tests/j_graph_ir.rs`([b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871)): `0 3`·`2 0`·중간 0·불일치 frame, Graph와 A3 RankPlan 비교, 비-Rank 조회 None, 결과 미추론 보존. CI 검증 후 [x] |
+| ZF-IR-03 / M3·FW-06/07 | [ ] **빈 결과 생략의 독립 증명 의무** | result-cell 타입·shape·순수성·오류 억제·효과/동적 이름·Guard·fallback을 구별; Unknown→생략 승인 및 frame 0→무조건 kernel 생략을 거부하는 negative test |
+| ZF-IR-04 / M3/M4·FW-11/13 | [ ] **실행 선택·물리 최적화 검증** | pinned C/J, 독립 Rust semantic reference, Rust optimized의 3경로 회귀 및 CPU 측정 후에만 빈 커널/버퍼 생략을 개별 활성화. 2 0의 빈-cell 호출·오류 및 zero-frame fill 오류·효과를 비교. GPU 승인 없음 |
+
+**현 단계 판정:** ZF-IR-01/02는 구현 및 회귀 테스트를 추가했으나 **현 HEAD의 최종 CI 성공 확인 전에는 미완료**로 관리한다. ZF-IR-03/04는 설계·검증 의무만 정의했고 구현/최적화 실행은 시작하지 않았다. 상위 RK-11·FW-04·JX-04 **[ ] 유지**, §P.11의 RK-06~12 순서는 변경하지 않는다.
 
 <a id="jsource-optimization-migration"></a>
 
