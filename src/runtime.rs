@@ -845,7 +845,7 @@ impl Engine {
             return Ok(true);
         }
         if !matches!(
-            function.head,
+            &function.head,
             FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
         ) || function.requested_ranks().is_none()
         {
