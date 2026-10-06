@@ -3200,6 +3200,22 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 - Marshall Lochbaum, [*BQN: Implementation of search functions*](https://mlochbaum.github.io/BQN/implementation/primitive/search.html): 작은 배열 순차/SIMD, lookup table, one-shot hash, reverse hash, lazy/sparse **table initialization**, open-addressing/linear probing, collision observation, partitioning/radix 및 cache 비용을 비교하는 **알고리즘·물리 최적화 참고**. BQN과 J의 비교 동등성, Fit, Rank, Boxed/AxisSparse 의미가 같다고 가정하지 않는다. BQN의 *sparse lookup*은 **직접 주소 테이블 일부만 초기화하는 기법**이며 J sparse array와 다르다.
 - 외부 프레임워크 [§O](#algorithm-planning-migration)의 MLIR dynamic legality, IREE target lowering, TVM measured cost, XLA resource/cost 분리는 **알고리즘 소유권 경계**로 재사용한다. 새로운 IR 계층이나 C 함수별 Graph node를 만들지 않는다.
 
+###### P.0 지연 최적화 정책과 M2 우선순위 검토 (2026-10-06)
+
+**판정: 구조적 분리는 대체로 적합하지만, 작업 우선순위와 일부 조기 실행 전문화는 조정해야 한다.** 프로젝트 최상단의 정본 우선순위는 **M2 word formation → enqueue → J parser/이름·POS·derived entity 의미론 수렴, 이후 M3 경계와 M4 Native CPU vertical slice**이다. `FOUNDATIONS.ko.md` Part XX는 J source를 실행 계획으로 취급하지 않고, 높은 수준의 rank/train/reduce/scan 구조와 source provenance를 보존하며, logical legality와 target-specific profitability/materialization을 분리하라고 규정한다. 여기서 **지연된 최적화**는 모든 분석을 뒤로 미루는 것이 아니라, **특수 실행 알고리즘의 확정·materialization·선택을 충분한 의미론/타깃/비용 증거 이후로 미루는 것**이다.
+
+| 작업 분류 | 현재 판단 | 단계 경계 및 조치 |
+|---|---|---|
+| jsource 검색 family의 primitive/valence/Rank 의미, `!.t`/전역 `cct`, 오류·First/Last·비추이성·원본 C comparator 반례 | **현재 의미론 과제** | M2 의미론/differential 및 M3 semantic contract에서 해결한다. jsource는 **언어 oracle/반례 발견 수단**이며 특수 해시 알고리즘 복사 지시가 아니다 |
+| J Graph source topology·A3 `SearchDescriptor`·원본 SSA provenance·`LookupClassify` | **유지** | 비교 정책/결과 intent/Rank·frame 및 아직 모르는 facts를 보존한다. 임시 table size, bucket, hashing, SIMD를 IR 의미로 승격하지 않는다 |
+| `JsourceOpportunity`, `SearchAlgorithmReadiness`, `ComparisonPolicySnapshot` | **증거/경계에 한해 유지** | 후보 보고는 `selected=false`, 허용되지 않은 tolerance route는 `NeedsSemanticProof`; 현재 snapshot은 고정 Rust 비교식의 identity일 뿐 J 동적 policy 구현이 아니다 |
+| 현재 동작 중인 CPU Int/Bool Direct/Hash/Reverse/Prehash | **기존 제한적 interpreter optimization; 확장 중지** | 실행 시 exact scalar guard·순차 fallback을 지키는 범위에서만 유지. benchmark와 전체 J differential 없이 일반 compiler PhysicalPlan의 완성이나 jsource 동등성이라고 부르지 않는다. 의미론 회귀가 발견되면 우선 reference로 회귀시킨다 |
+| `src/tolerant_search.rs` 연구 bucket, BQN SIMD/작은 범위 table, open-addressing·radix/partition, 임계값 조정, 실전 tolerant hashing | **후순위 / 동결** | M2 의미론이 닫히고 M3 검증 계약, M4 CPU reference vertical slice 및 비교·비용 측정이 마련된 후 독립적으로 평가한다. 후보 연구 코드는 `#[cfg(test)]` 외 실행 경로로 올리지 않는다 |
+
+**지금 당장 진행할 일:** `=, i., i:, e., E.`의 기본/변경 tolerance, Rank·cell/frame·boxed/sparse/empty 및 에러 순서에서 C oracle과 Rust reference 차이를 수집하고, J semantic model/IR 경계를 정리한다. 이미 확인한 `TCMPEQ` 경계 반례는 **의미론 수정이 필요한 검증 입력**이며, jsource의 `viavx2.c` 최적화 구현을 당장 따라 만들 근거가 아니다. M2의 일반 frontend 작업을 이 연구가 장기간 선점하지 않도록 한다.
+
+**재개 조건:** 검증된 reference semantics + source/differential evidence + 명시적 target guard/fallback + M4 기준선 측정 + 상한 자원/비용 근거가 함께 있을 때만 실제 알고리즘 특수화를 검토한다. 이 조건을 충족하기 전 P.1의 8–11단계 작업을 **착수 대상에서 제외**하며, 5–7·12단계의 아직 검증되지 않은 항목을 완료 처리하지 않는다. 새 jsource C special-case마다 RustJ 고유 IR·executor branch를 만드는 설계는 금지한다.
+
 ###### P.1 구현 단계와 수용 기준 (계속 갱신)
 
 | 순서 | 체크 항목 | RustJ 소유 계층·수용 기준 | 현재 상태 |
