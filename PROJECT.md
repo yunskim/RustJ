@@ -2409,6 +2409,15 @@ After fixing a finding, independently re-run the relevant checks and record comm
 **Promotion remains blocked.** Even a CPU scalar-float implementation requires an effective-policy witness/guard, complete candidate superset proof, per-candidate recheck with *the same* semantic comparator, stable min/max original index and no-match sentinel, and guard-miss fallback **before effects**. The support boundary must explicitly handle or reject NaNs, infinities, underflow, mixed dtypes, rank/cells, boxed/sparse and reference mismatch. Current proof covers only RustJ's fixed `near`, not full J or dynamic fit. Without C differential and policy evidence, retain `TolerantNeighborHash = NeedsSemanticProof` and no runtime wiring.
 
 
+#### P.7 Fixed comparison-policy snapshot implementation — dynamic J CCT remains unsupported (2026-10-06)
+
+**Implemented:** A crate-internal `ComparisonPolicySnapshot` in `src/comparison_policy.rs` currently has exactly one constructible identity, `FixedRustNearV0`. It owns the *unchanged* CPU predicate `a==b || finite(a,b) && |a-b| <= 2^-44 max(|a|,|b|)`; `kernels::near` now delegates to this snapshot. `src/index_ops.rs::lookup` captures one policy per search call for `i.`/`i:`/`e.`, while `find` captures one for `E.`; each individual atom comparison uses that shared snapshot. The `atom_eq` adapter used from `expansion.rs` remains present. This does not change J Graph IR, the A3 `SearchDescriptor`, or Physical search selection. Float lookups remain **sequential**, and Int/Bool exact-only prehash remains independent of tolerant comparison.
+
+**Regression coverage authored, execution unverified:** New internal policy tests cover the nontransitive near chain, ±0, NaN, ±infinity, and the minimum subnormal against zero. The `fixed_float_policy_preserves_first_last_membership_and_find` test in `src/index_ops.rs` covers duplicate positions, nontransitive near, the missing sentinel, and all four search outputs. The experimental tolerant candidate harness stays test-only and separate. **Cargo fmt/test/clippy, live jsource, C-vs-Rust differential and benchmarks have not run.**
+
+**Semantic boundary:** This is the first explicit capture of an *implemented* comparator identity, **not** an implementation of J `!.t` or global `9!:19`. The identity `FixedRustNearV0` does not witness equality with upstream jsource's runtime `cct` implementation. Runtime promotion requires fit-derived-verb semantics, global tolerance ownership and call-time policy generation, a supported-range proof and guards, rank/cell/type/error fidelity, cache identity and invalidation, and independent C comparison. TolerantNeighborHash remains unselected; float prehash and GPU/LLVM routes are not activated. P.1 gates 5–7/12 stay **unchecked**.
+
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
