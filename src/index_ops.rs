@@ -3,6 +3,9 @@ use crate::{
     Data, Error, Result, Value,
     storage::{CpuStorage, Shape},
     value::{buffer, count},
+    lowering::{SearchAlgorithm, TargetCapabilities},
+    logical_ir::SearchOutputKind,
+    physical::{plan_search_algorithm, SearchWorkload},
 };
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
@@ -77,6 +80,16 @@ enum LookupResult {
     First,
     Last,
     Membership,
+}
+
+impl LookupResult {
+    fn output_kind(self) -> SearchOutputKind {
+        match self {
+            Self::First => SearchOutputKind::FirstIndex,
+            Self::Last => SearchOutputKind::LastIndex,
+            Self::Membership => SearchOutputKind::MembershipMask,
+        }
+    }
 }
 
 /// A bounded direct-address table is profitable for narrow integer domains.
@@ -155,21 +168,31 @@ fn exact_scalar_index(
     result: LookupResult,
     query_values: Option<&Value>,
 ) -> Result<Option<ExactScalarIndex>> {
-    if items == 0 || queries == 0 || items.saturating_mul(queries) <= 32 {
-        return Ok(None);
-    }
-
-    // Reverse hashing indexes the *smaller query set*. We still return indices
-    // into the original indexed argument, respecting first/last occurrence.
-    // It is legal only for exact scalar integers/booleans; callers enforce this.
-    // Build a query-key table and scan indexed values in the direction needed
-    // for the representative. Duplicate queries intentionally share a key.
-    if let Some(query_values) = query_values {
-        if items >= 64 && items / 2 > queries {
-            return Ok(Some(reverse_exact_index(values, items, query_values, result)?));
+    let target = TargetCapabilities::cpu_baseline();
+    let workload = SearchWorkload {
+        indexed_items: items,
+        query_items: queries,
+        integer_span: None,
+        immutable_shared_index: false,
+        prehash_available: false,
+        allow_reverse: query_values.is_some(),
+    };
+    // A runtime exact-type/shape guard is checked by lookup() before calling
+    // this function. A3 dtype or a jsource pattern alone is never sufficient.
+    let initial = plan_search_algorithm(result.output_kind(), &target, workload, true);
+    match initial.algorithm {
+        SearchAlgorithm::Sequential => return Ok(None),
+        SearchAlgorithm::ReverseQueryHash => {
+            if let Some(query_values) = query_values {
+                return reverse_exact_index(values, items, query_values, result).map(Some);
+            }
+            return Ok(None);
         }
+        _ => {}
     }
 
+    // Only materialize the value-span fact when the decision still needs it.
+    // This work and the physical table are not J-visible operations.
     let mut minimum = i64::MAX;
     let mut maximum = i64::MIN;
     for i in 0..items {
@@ -177,38 +200,46 @@ fn exact_scalar_index(
         minimum = minimum.min(key);
         maximum = maximum.max(key);
     }
-    let span = i128::from(maximum) - i128::from(minimum) + 1;
-    const MAX_DIRECT_ENTRIES: i128 = 65_536;
-    let work_budget = items.saturating_add(queries).saturating_mul(4) as i128;
-    let last = result == LookupResult::Last;
-
-    if span <= MAX_DIRECT_ENTRIES && span <= work_budget {
-        let width = span as usize;
-        let mut positions = Vec::new();
-        positions.try_reserve_exact(width).map_err(|_| Error::Limit)?;
-        positions.resize(width, items);
-        for i in 0..items {
-            let offset = (i128::from(values.int_at(i)?) - i128::from(minimum)) as usize;
-            if last || positions[offset] == items {
-                positions[offset] = i;
+    let span = (i128::from(maximum) - i128::from(minimum) + 1) as u128;
+    let choice = plan_search_algorithm(
+        result.output_kind(),
+        &target,
+        SearchWorkload { integer_span: Some(span), ..workload },
+        true,
+    );
+    match choice.algorithm {
+        SearchAlgorithm::Sequential => Ok(None),
+        SearchAlgorithm::DirectAddress => {
+            let width = choice.estimated_table_entries;
+            let mut positions = Vec::new();
+            positions.try_reserve_exact(width).map_err(|_| Error::Limit)?;
+            positions.resize(width, items);
+            for i in 0..items {
+                let offset = (i128::from(values.int_at(i)?) - i128::from(minimum)) as usize;
+                if result == LookupResult::Last || positions[offset] == items {
+                    positions[offset] = i;
+                }
             }
+            Ok(Some(ExactScalarIndex::Direct { minimum, positions }))
         }
-        return Ok(Some(ExactScalarIndex::Direct { minimum, positions }));
-    }
-
-    let mut entries = HashMap::new();
-    entries.try_reserve(items).map_err(|_| Error::Limit)?;
-    for i in 0..items {
-        let key = values.int_at(i)?;
-        if last {
-            entries.insert(key, i);
-        } else {
-            entries.entry(key).or_insert(i);
+        SearchAlgorithm::IndexedHash | SearchAlgorithm::PreparedHash => {
+            let mut entries = HashMap::new();
+            entries.try_reserve(items).map_err(|_| Error::Limit)?;
+            for i in 0..items {
+                let key = values.int_at(i)?;
+                if result == LookupResult::Last {
+                    entries.insert(key, i);
+                } else {
+                    entries.entry(key).or_insert(i);
+                }
+            }
+            Ok(Some(ExactScalarIndex::Hashed(entries)))
         }
+        // Should not occur: this is a query-side option and the required
+        // probes were handled by the first planning decision.
+        SearchAlgorithm::ReverseQueryHash | SearchAlgorithm::TolerantNeighborHash => Ok(None),
     }
-    Ok(Some(ExactScalarIndex::Hashed(entries)))
 }
-
 
 /// A physical algorithm is optional. Failure to allocate a *search table*
 /// cannot introduce an observable Limit error if the original sequential J
@@ -361,8 +392,31 @@ fn lookup(indexed: Value, queries: Value, result: LookupResult, cache: Option<&m
         && matches!(queries.data, Data::Int(_) | Data::Bool(_));
     let exact: Option<Cow<'_, ExactScalarIndex>> = if exact_scalar {
         if let Some(cache) = cache {
-            if let Some(cached) = cache.get_or_prepare(&indexed, items, n, result)? {
-                Some(Cow::Borrowed(cached))
+            let immutable_shared_index = indexed.shape.len() == 1
+                && matches!(
+                    &indexed.data,
+                    Data::Int(CpuStorage::Shared(_)) | Data::Bool(CpuStorage::Shared(_))
+                );
+            let suggested = plan_search_algorithm(
+                result.output_kind(),
+                &TargetCapabilities::cpu_baseline(),
+                SearchWorkload {
+                    indexed_items: items,
+                    query_items: n,
+                    integer_span: None,
+                    immutable_shared_index,
+                    prehash_available: true,
+                    allow_reverse: true,
+                },
+                true,
+            );
+            if suggested.algorithm == SearchAlgorithm::PreparedHash {
+                if let Some(cached) = cache.get_or_prepare(&indexed, items, n, result)? {
+                    Some(Cow::Borrowed(cached))
+                } else {
+                    optional_exact_scalar_index(&indexed, items, n, result, Some(&queries))?
+                        .map(Cow::Owned)
+                }
             } else {
                 optional_exact_scalar_index(&indexed, items, n, result, Some(&queries))?
                     .map(Cow::Owned)
