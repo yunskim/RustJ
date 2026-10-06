@@ -177,10 +177,11 @@ def run(binary, library, revision, path, adversarial=False, retry_probes=False, 
 
 def gate_failed(report, adversarial, gate_adversarial=False,
                 retry_probes=False, gate_retry_probes=False,
-                error_probes=False):
+                error_probes=False, gate_error_probes=False):
     """Only explicitly witnessed corpora are blocking; error probes are not."""
-    strict = (False if error_probes else gate_retry_probes if retry_probes
-              else not adversarial or gate_adversarial)
+    strict = (gate_error_probes if error_probes else
+              gate_retry_probes if retry_probes else
+              not adversarial or gate_adversarial)
     return strict and any(
         row["classification"] != "pass" for row in report["observations"]
     )
@@ -188,13 +189,15 @@ def gate_failed(report, adversarial, gate_adversarial=False,
 
 def diagnostic_summary(report, adversarial, gate_adversarial=False,
                        retry_probes=False, gate_retry_probes=False,
-                       error_probes=False):
+                       error_probes=False, gate_error_probes=False):
     """Report all differences even if the caller does not yet enforce the gate."""
     mismatches = [
         row for row in report["observations"] if row["classification"] != "pass"
     ]
     if error_probes:
-        gate = "RK-07 ERROR EXPLORATORY: mismatches unwaived; not accepted"
+        gate = ("RK-07 PINNED-C ERROR REGRESSION: fail on any mismatch"
+                if gate_error_probes else
+                "RK-07 ERROR EXPLORATORY: mismatches unwaived; not accepted")
     elif retry_probes:
         gate = ("RK-07 PINNED-C RETRY REGRESSION: fail on any mismatch"
                 if gate_retry_probes else
@@ -230,7 +233,9 @@ def main():
     parser.add_argument("--gate-retry-probes", action="store_true",
                         help="Fail on an RK-07 mismatch (requires --retry-probes)")
     parser.add_argument("--error-probes", action="store_true",
-                        help="Select RK-07 exploratory error-precedence corpus")
+                        help="Select RK-07 error-precedence corpus")
+    parser.add_argument("--gate-error-probes", action="store_true",
+                        help="Fail on an RK-07 error mismatch (requires --error-probes)")
     args = parser.parse_args()
     if args.gate_adversarial and not args.adversarial:
         parser.error("--gate-adversarial requires --adversarial")
@@ -240,6 +245,8 @@ def main():
         parser.error("--gate-retry-probes requires --retry-probes")
     if args.error_probes and (args.retry_probes or args.adversarial):
         parser.error("--error-probes cannot be combined with another corpus")
+    if args.gate_error_probes and not args.error_probes:
+        parser.error("--gate-error-probes requires --error-probes")
     library = Path(os.environ.get("J_LIBRARY", str(ROOT / ".reference/bin/linux/j64/libj.so")))
     try:
         report = run(args.binary.resolve(), library.resolve(), args.reference_revision,
@@ -252,12 +259,12 @@ def main():
     print(json.dumps(
         diagnostic_summary(report, args.adversarial, args.gate_adversarial,
                            args.retry_probes, args.gate_retry_probes,
-                           args.error_probes),
+                           args.error_probes, args.gate_error_probes),
         indent=2,
     ))
     return int(gate_failed(report, args.adversarial, args.gate_adversarial,
                            args.retry_probes, args.gate_retry_probes,
-                           args.error_probes))
+                           args.error_probes, args.gate_error_probes))
 
 
 if __name__ == "__main__":
