@@ -455,7 +455,10 @@ fn graph_rank_geometry_is_not_execution_permission_or_fabricated_for_other_ops()
     let graph = engine.analyze_j_graph("(+/\"1) a").unwrap();
     let result = graph.result.unwrap();
     let rank = graph.rank_frame_plan(result).unwrap();
-    assert_eq!(rank.frame_execution(), RankFrameExecution::ZeroFrameNeedsFill);
+    assert_eq!(
+        rank.frame_execution(),
+        RankFrameExecution::ZeroFrameNeedsFill
+    );
     assert!(graph.nodes[result.0].facts.shape.is_none());
     // Rejecting or permitting zero-frame lowering still requires a separate
     // proof of the fill-cell's errors, effects and result type.
