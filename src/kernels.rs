@@ -95,6 +95,21 @@ pub(crate) fn atomic_with_pool(
     }
     let (shape, ad, bd) = agreement(&a, &b)?;
     let n = count(&shape)?;
+    // + has intrinsic scalar rank. With an empty atom frame, pinned J
+    // cr.c::jtrank2ex0 evaluates a synthetic scalar fill, quietly
+    // replacing a char/numeric domain failure with integer zero. The
+    // resulting vacuous array is INT with the original *atom frame*.
+    // Do not extend this to real (nonempty) cells or unrelated verbs.
+    if n == 0
+        && matches!(op, Op::Add)
+        && matches!(
+            (&a.data, &b.data),
+            (Data::Char(_), Data::Bool(_) | Data::Int(_) | Data::Float(_))
+                | (Data::Bool(_) | Data::Int(_) | Data::Float(_), Data::Char(_))
+        )
+    {
+        return Value::ints(shape, Vec::new());
+    }
     if n == 1 && matches!(op, Op::Add | Op::Sub | Op::Mul | Op::Div) {
         return arithmetic_views(op, a.view(), b.view());
     }
