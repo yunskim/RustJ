@@ -457,10 +457,7 @@ mod rank_fill_cell_tests {
         let fl = ch.rank_refill_as(8).unwrap();
         assert_eq!(fl.type_code(), 8);
         assert_eq!(fl.float_at(2).unwrap(), 0.0);
-        assert_eq!(
-            ch.rank_refill_as(32).unwrap_err().kind(),
-            "unsupported",
-        );
+        assert_eq!(ch.rank_refill_as(32).unwrap_err().kind(), "unsupported",);
         let empty = Value::ints([0, 3], vec![]).unwrap();
         assert_eq!(empty.rank_refill_as(2).unwrap().shape(), &[0, 3]);
     }
