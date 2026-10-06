@@ -32,6 +32,12 @@ def ranked_search_cases():
         ("scalar_left_broadcast", '3 (i."0 0) (i.2 3)'),
         ("frame_mismatch", '(i.2 3) (i."1 1) (i.3 3)'),
         ("empty_frame", '(i.0 3) (i."1 1) (i.0 3)'),
+        ("empty_frame_last", '(i.0 3) (i:"1 1) (i.0 3)'),
+        ("empty_frame_member", '(i.0 3) (e."1 1) (i.0 3)'),
+        ("empty_frame_char", "(0 3 $ 'abc') (i.\"1 1) (0 3 $ 'abc')"),
+        ("empty_frame_float", '(0 3 $ 1.5) (i."1 1) (0 3 $ 1.5)'),
+        ("empty_frame_sum", '+/"1 (i.0 3)'),
+        ("empty_frame_add", '(i.0 3) (+"1 1) (i.0 3)'),
     ]
 
 
