@@ -3103,7 +3103,7 @@ RustJ
 
 ###### N.2 다음 구현 gate — 프레임워크 재설계 필요성
 
-**전면 수정 불필요, 검색 관련 계약의 국소 보강은 필요하다.** 현재 \`ExecutionBasisKind::LookupClassify\` 및 A3 \`ExecutionBasisPayload::LookupClassify\`만으로는 output mode/representative/tolerance의 resolved semantic identity가 충분히 표현되지 않는다. 향후 \`SearchDescriptor\` 같은 **A3/Execution Semantic sidecar**(search relation, first/last/self-classify, output direct/compact/count, cell/frame, comparison policy, sortedness/uniqueness witness, versioned prehash key)를 추가하고, Graph \`FunctionEntity\`의 원래 구성과 변경 가능한 \`!.ct\` semantics를 보존한다.
+**N.2의 초기 확장 계획 중 기초 단계는 O절에서 구현되었다.** A3 `LookupClassify { search: SearchDescriptor }`가 first/last/membership/interval/self-classify 및 indexed/queried origin을 보유한다. 그러나 `!.ct`의 **runtime comparison-policy/version witness**, group/compact/count output, sortedness/uniqueness 및 prepared-lookup key의 완전한 의미론적 증명과 target-independent `CandidateEvidence`는 여전히 후속이다. `FunctionEntity`의 원래 구성·dynamic tolerance·Rank/CellApply 경계를 유지한다.
 
 1. **Proof/semantics:** first/last/Key의 최초 등장 순서·rank/cell/frame/empty, 타입 혼합/box/sparse/tolerance/fit/error precedence를 J/C로 검증한다. 런타임 tolerance 변경은 cached hash를 무효화하거나 key에 포함한다.
 2. **Algorithm extension:** 직결 출력의 경우에만 중간 materialization 제거 증명; 작은 범위의 1/2/4-byte packed/presence table, reverse hashing, 재사용 가능한 prehash를 **비용/메모리·alias·version guard와 함께** 하나씩 도입한다. GPU route는 전송·local memory·불균일 충돌 등의 physical resource 예산이 먼저다.
@@ -9203,7 +9203,7 @@ Logical J value와 physical representation의 분리는 이 전체 pipeline에 �
 - [x] Graph Basis와 Execution Basis를 별도 계층으로 분리했다.
 - [x] Logical Array/J noun과 Physical Array/representation을 별도 계층으로 분리했다.
 - [x] 과거 중복 execution IR 경계를 구조 부채로 식별했고 M1에서 제거했다.
-- [x] `physical.rs`가 아직 Physical Planner가 아니라 read-only CPU affine representation foundation임을 명시했다.
+- [x] `physical.rs`는 read-only CPU affine representation 기반과 제한적 검색 알고리즘 선택기를 제공하지만 전체 Physical Plan/bufferization planner는 아직 없음을 명시했다.
 - [x] `runtime.rs`의 `ResolvedVerb { reduce, rank, ... }` flattening은 과도기 runtime 구현이며 canonical semantic/compiler model이 아님을 확인했다.
 - [x] ArrayFire와 `math_arrayfire`를 semantic oracle이 아니라 execution/fusion/adapter 참고 구현으로 배치했다.
 - [x] compiler module ownership/dependency 표를 코드 구조와 맞춰 확정하고 reverse dependency 금지선을 문서화했다.
@@ -9222,7 +9222,7 @@ Logical J value와 physical representation의 분리는 이 전체 pipeline에 �
 | route legality/capability | `lowering.rs` | verified Logical IR 이후 lowering/route layer | semantic/parser를 target 편의에 맞게 변경하지 않음 |
 | schedule/transform | 아직 없음 | 별도 planner-side representation | canonical Logical IR을 destructive하게 schedule-specific IR로 덮지 않음 |
 | physical representation | `physical.rs`, `storage.rs` | representation layer | semantic facts를 physical layout으로 정의하지 않음 |
-| Physical Plan/bufferization | 아직 없음 | Physical Planner | J parser/FunctionEntity를 직접 해석하지 않음 |
+| Physical Plan/bufferization | **전체 planner는 아직 없음** (CPU 검색 strategy selector만 구현) | Physical Planner | J parser/FunctionEntity를 직접 해석하지 않음 |
 | backend kernels | `kernels.rs`, `numeric.rs`, `simd.rs` 등 | backend realization | kernel 구현 세부가 semantic legality를 정의하지 않음 |
 | interpreter/reference runtime | `runtime.rs`, `logical_executor.rs` | transitional/reference execution | compiler canonical IR의 의미를 runtime flattening으로 정의하지 않음 |
 
@@ -11823,7 +11823,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 | Native Executor | **M4-v0 계약 대체로 닫힘 / 구현 미완료** | §5.2.1/§5.3에 op 역할, verifier, cleanup/error, executor non-responsibility, canonical mean planned route를 연결 | 실제 Physical Executor와 differential E2E test가 없음. stateful/async execution contract는 후속 |
 | fallback / guard miss / replay | **문서 계약 보강됨 / dispatcher 미구현** | §3.9.4에 route fallback/guard miss/replay/continuation 구분, decision table, commit frontier, RuntimeSemanticFallback의 정확한 의미를 통합 | integrated guard dispatcher/exact continuation/transaction rollback은 미구현이며 capability로 주장하지 않음 |
 | external route / GPU | **boundary contract 고정 / 구현 보류** | §5.5.1에 adapter input/capability/output, SemanticCheck/error/effect/token mapping, bridge/ownership, round-trip verifier, failure class를 정의 | production adapter는 미구현. M6까지 implementation gate로만 유지하며 CUDA는 의도적으로 보류 |
-| validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.9/A3 0.4 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
+| validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.9/A3 0.5 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
 
 #### 15.7.1 1차 감사에서 닫은 문서 계약
 
