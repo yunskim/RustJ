@@ -2266,6 +2266,23 @@ Retain \`ExecutionBasisKind::LookupClassify\`, J Graph source identity, canonica
 5. Require Rust/C differential plus benchmarks for claims of general legality or speed; CI, Cargo, differential runs and performance measurement were **not performed** in this implementation slice.
 
 
+
+#### N.3 Second slice: query-side reverse hashing and per-Engine prehash (2026-10-06)
+
+**Provenance.** [Pinned jsource \`viavx.c\` reverse-hash selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850) is conditional on indexed/query sizes and supported modes; [\`vi.c\` prehashed modes](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185) include saved derived-verb table semantics. RustJ borrows **only narrowly scoped algorithms** here; this is not a port of all upstream prehashed derived verbs.
+
+| Implementation | Eligibility and behavior | Explicit guardrail |
+|---|---|---|
+| **Query-side reverse hash** | \`src/index_ops.rs::reverse_exact_index\`: for exact scalar Int/Bool, at least 64 indexed items and indexed/items ratio over 2:1, hash distinct query values then scan the original indexed items once | Forward scan for First/Membership, backward for Last. Stop when all distinct query keys resolve. Duplicate queries share correct positions and absent keys retain the missing sentinel. No tolerance, boxed or multicell hashing |
+| **Engine-local prepared search index** | Retain one \`ExactPrehashCache\` per \`Engine\`. Index only shared immutable Int/Bool vectors, length 64–16,384. First and Membership reuse the same prepared index; Last requires a distinct representative policy | A hit requires identical retained \`Arc\` allocation, dtype, shape and policy. Retaining a shared source clone prevents pointer recycling; new backing after rebinding cannot hit a stale index. Single-entry bounded cache, not a global name cache |
+| **Interpreter integration** | \`runtime.rs::Engine::interpret_ir\` uses cache-aware exact-scalar \`i.\`, \`i:\`, \`e.\` for the regular pooled primitive path. \`index_prehash_stats()\` and \`clear_index_prehash()\` expose limited diagnostics | Other types, explicit rank and \`eval_semantic_reference\` use the existing route; no additional Graph/A3 source transform is committed |
+| **Regression cases** | Unit tests for direct/hash/reverse/linear vs a reference, duplicates, extreme keys, immutable identity and stale-rebind rejection; Engine integration tests for first-to-membership sharing, last-policy separation, temporary reverse and reference bypass | **Added, not executed.** CI/Cargo, C differential and benchmarks were not run |
+
+**Architecture decision:** no new canonical Graph IR or A3 basis node. This remains a narrowly guarded **CPU interpreter implementation path**. The fixed thresholds (64 items, 2:1 size ratio, 16,384 cache items) are provisional, **not** measured optimal costs. It does not assert that JsourcePlanningReport has discharged equivalence proofs or that LoweringRegistry selects these implementations.
+
+**Remaining prehash gate:** explicit J derived prehash such as \`m&i.\` or \`e.&n\` requires a compiler-visible prepared-lookup descriptor, versioned dictionary/key equality/tolerance context, cache lifetime and invalidation, fallback/check ordering and target/cost evidence. Do not extend this immutable Arc-identity cache to dynamic name, locale, boxed, sparse or tolerance-aware domains without independent proofs. Run J/C differential and measurements before widening eligibility.
+
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
