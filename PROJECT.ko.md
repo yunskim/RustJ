@@ -8678,6 +8678,34 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 
 **상태 (2026-10-07):** 본 절의 **조건·검증 프로토콜만 문서 확정**. 모든 새로운 실행/성능 수용은 아직 미검증이며, M4/HE-01~09 미완료 체크박스를 유지한다. 구현 재개 시 각 수용 결과를 기존 §17/HE 체크리스트에 증거 링크로 기록한다.
 
+##### 기존 아키텍처 대조 감사: M4 준비도와 검증 공백 (2026-10-07, 설계 검증 전용)
+
+**결론:** J Graph → verified A3 → target-dependent lowering 후보 → Physical Representation이라는 기존 계층은 **그대로 확장 가능**하다. CPU 전용 Parallel Planner/IR, 새로운 Data Movement IR, GPU 실구현 선행은 필요하지 않다. 단, **A3 구조 검증**, **후보별 적법성 평가**, **원본 A3에서 Physical Plan까지 의미 보존의 증명**은 서로 다르다. 앞 단계의 성공이 뒤 단계의 완전한 실행 허가는 아니다. 아래는 현재 main의 실제 코드와 기존 테스트를 대조한 **정적 감사**이며 신규 테스트를 실행한 것이 아니다.
+
+| 감사 ID / 소유자 | 실제 코드·테스트에서 확인 | 공백과 단계 구분 | 추후 검증 조건 |
+|---|---|---|---|
+| CA-01 / A3 구조·의미 | src/logical_ir.rs의 Plan::verify는 schema·registry provenance, single block, SSA producer/use-before-def, order_after가 앞선 op를 가리키는지, Check가 result를 만들지 않는지, 일부 rank/shape를 검증한다. tests/logical_ir.rs에 관련 회귀가 있다 | **M3→M4의 의미론 증명 미완료.** A3 verifier는 모든 effect/error summary를 J 원본에서 독립 재계산하거나, 삭제된 Check가 없는지 Physical Plan까지 대조하지 않는다. IterationAxisKind::Parallel은 실행 허가가 아니다 | 정상 A3 하나를 복제하여 Check 삭제·중복, order_after 삭제, effect/possible_errors/speculation의 근거 없는 완화, source origin·binding version 위조를 각각 주입한다. 구조 위조와 **구조는 통과할 수 있는 의미론 위조**를 구분하고, 후속 선택·검증에서 모두 차단 |
+| CA-02 / Lowering | src/lowering.rs의 Requirement::satisfied·legal_candidates는 CPU/GPU family·feature, Pure, NoObservableError, EvaluationOrderRelaxed, known access/rank, 재결합 허용을 판정한다. tests/lowering.rs는 안전 조건이 없으면 SIMD/GPU·tree reduce를 닫는 검사를 포함 | **M3 증거 연결 미완료.** 후보 등록·CallOp에 적힌 사실이 곧 guard discharge/전체 Physical Plan의 적법성 인증서는 아니다. ReferenceSequential 후보는 실제 native CPU kernel 완성을 의미하지 않는다 | 근거 없는 effect/error/guard/witness 완화가 최종 선택에서 거부되는지 확인. target·valence·shape·stride·recipe와 proven semantic facts의 교차 검증이 필요 |
+| CA-03 / RoutePartition | lowering.rs의 partition_plan은 ValueOnly/PureArray/SemanticCheck/RuntimeSemantic가 같은 연속된 op를 구간으로 묶는다 | **RouteBoundary verifier 미구현(M3→M4).** 구간 class/range만으로 source op 전수 대응, live-in/out, zero-result Check, effect-live/order edge, guard-before-effect, commit frontier, replay 안전성은 증명되지 않는다 | source A3 모든 op의 정확한 대응(적법한 rewrite/fusion에는 witness 필요), Check·effect·name version·order edge 보존, cross-region consumer readiness를 검증. Check 유실, 순서 반전, dangling live-in, stale version, effect 이후 replay 위조 시 거부 |
+| CA-04 / Physical Representation | src/physical.rs에는 registry/slot/generation BufferId, read-only BufferLease, checked span을 가진 PhysicalArray가 있다. tests/physical.rs는 lease 생존, stale ID, alias, 음수 stride, transpose, zero/singleton axis를 검증 | **M4 구현 미완료.** main에는 plan-time PlanBufferId/PhysicalViewId, mutable output ownership, last-use/reuse proof, PhysicalPlan verifier, memory residency/ready/transfer plan이 없다. 현재 BufferId를 compiler slot으로 재사용하지 않는다 | buffer/view span overflow, 다른 ID 사이 alias, stale generation, overlapping mutable outputs, dangling Return, temporary early free, OOM cleanup과 reuse-after-free를 각각 독립 negative test로 검증. 쓰기·재사용은 증명 전 비활성 |
+| CA-05 / Rank·오류 | src/facts.rs의 RankFrameExecution은 ZeroFrameNeedsFill과 CellsPresent를 구분한다. logical_executor::execute_closed는 Check→Call의 closed-noun 순차 reference다 | **M4/M5 의미론 조건.** reference는 동적 NAME/state에 대한 전체 oracle가 아니다. 일반 CellApply를 uniform map으로 가정하거나 first-error 순서를 worker 완료 순서로 바꾸면 오류 | zero-frame 가상 fill cell, positive-frame empty cell, result-cell dtype/shape join, boxed/sparse, tolerance/fit, overflow·numeric reassociation, first J error, try/catch/effect를 C jsource+RustJ baseline과 비교. 불명확한 연산은 순차 유지 |
+| CA-06 / Device·memory·cost | TargetCapabilities는 CPU/GPU family와 feature를 제공한다. j_graph_work_depth.rs는 successful-path symbolic work/depth, j_graph_resource.rs는 logical resource 정보를 계산한다 | **M5 이후 구현 미완료.** 이 타입만으로 device placement ≠ memory placement, residency/BufferVersion, transfer/sync/timepoint, critical path/실측 비용을 표현·검증했다고 말할 수 없다 | 첫 Physical Plan은 단일 CPU/Host/zero-transfer로 충분. 이후 ready-before-read, copy-after-producer, transfer-before-free, stale version, memory capacity, cost Unknown!=0 및 실제 overlap 증명을 negative test로 확인 |
+
+**독립 교차 감사(두 경로, 정적 코드 검토):**
+
+- 정방향: logical_ir.rs → lowering.rs → physical.rs → facts.rs → j_graph_work_depth.rs, j_graph_resource.rs의 현재 API와 각 단계가 *실제로 보유하는 정보*를 대조했다.
+- 역방향: tests/logical_ir.rs, tests/lowering.rs, tests/physical.rs, logical_executor.rs가 이미 통과하도록 설계된 범위와 아직 부정 검증을 제공하지 못하는 *단계 간 관계*를 대조했다.
+- 두 검토의 일치된 결론은 **대규모 아키텍처 재설계 불필요, RouteBoundary 전체 coverage / guard discharge / PhysicalPlan verifier는 미완료**다. 기존 코드 테스트를 새로 실행하거나 통과 확인했다는 주장이 아니다.
+
+**지금 확정할 계약(실제 구현·새 IR 도입은 보류):**
+
+1. **A3/M3:** verified A3의 구조적 유효성, optimizer가 사용할 semantic witness/guard의 충족, selected physical plan의 전체 적법성을 세 단계로 분리한다. A3에 device/thread/memory layout을 넣지 않는다.
+2. **M3→M4 Route 경계:** A3 source op 전수 매핑, live-in/out, Check/effect/order/late-NAME, guard-before-effect와 commit/replay frontier를 별도의 *검증 결과(sidecar 또는 동등한 기존 route 계약)*로 소유한다. 해당 표현의 Rust 타입/새 계층은 현재 고정하지 않는다.
+3. **M4 Physical:** PlanBufferId와 런타임 BufferId, PhysicalViewId를 분리한다. view/span·buffer ownership/lease/last-use, selected realization, Check coverage, Return을 Physical verifier가 확인해야 한다. ExecutionDevice / MemorySpace / device-local schedule은 서로 다른 결정이다. M4는 CPU/Host/Sequential만 실구현해도 된다.
+4. **M5 이후:** ResourceEstimate, predicted CostEstimate, measured CostProfile, 성공 경로의 work/depth 및 오류/효과 경로를 분리한다. device-memory migration/async overlap은 명시적 의존성·실장치 증명 후에만 비용 선택에 반영한다.
+
+**결정 및 우선순위:** (1) M3의 원본 A3→Route Check/effect/witness 증거 의무 확정 → (2) M4의 CPU/Host/zero-transfer PhysicalPlan verifier·실제 native Add 경로 → (3) M5 배치·자원·비용 후보 → (4) M6+ 별도 재개된 GPU/비동기 실행. 설계 자체의 구조적 모순은 **발견되지 않았음**; 그러나 위 증거가 없을 때의 fail-closed 실행 경로는 반드시 필요하다. 기존 M2→M3→M4 우선순위, HE-01~09의 미완료 상태, 별도 CUDA 보류는 유지한다.
+
 ##### 현재 코드와의 대응
 
 현재 `src/physical.rs`는:
