@@ -833,6 +833,98 @@ partition legality는 단순 op coverage가 아니라 shape/numeric constraint, 
 
 TVM BYOC처럼 external codegen 대상 subgraph를 partition하고 나머지 graph를 기본 pipeline에 남기는 구조를 참고한다. MLIR의 mixed-dialect module도 여러 abstraction/lowering state가 동시에 존재할 수 있다는 점에서 같은 방향을 지원한다.
 
+#### 2.5.1 RouteRegion boundary contract
+
+mixed route의 핵심은 “어떤 op를 어느 backend로 보낼 것인가”보다 **region 경계에서 J semantics를 어떻게 끊김 없이 보존하는가**다. RoutePartition은 physical buffer plan이 아니므로 boundary는 먼저 logical/effect contract로 표현한다.
+
+개념적으로:
+
+~~~text
+RouteBoundary
+  producer_region
+  consumer_region
+  live_in / live_out ValueId
+  effect_order_in / effect_order_out
+  semantic_checks crossing or anchored
+  required witnesses / guards
+  logical representation requirements
+  source / J Graph provenance
+  bridge-lowering responsibility
+~~~
+
+`logical representation requirements`는 `Dense`, sparse/boxed semantics, dtype/shape/rank 같은 **J-visible 또는 route-precondition 수준**의 요구를 뜻한다. 구체 `BufferId`, device pointer, stride/alignment, host↔device copy는 RoutePartition이 아니라 bridge lowering / Physical Plan이 결정한다.
+
+##### boundary legality
+
+region 경계는 다음 조건을 모두 만족할 때만 허용한다.
+
+1. boundary live-in/out이 모두 explicit SSA/logical value로 표현된다.
+2. value가 없어도 관찰 가능한 effect/error dependency가 있으면 explicit ordering edge로 남는다.
+3. `SemanticCheck`를 잘라내거나 두 route에서 중복 실행해 error precedence를 바꾸지 않는다.
+4. producer와 consumer의 representation/precondition 사이에 합법적인 bridge가 존재하거나, 아직 미결이면 partition을 commit하지 않는다.
+5. dynamic guard가 필요하면 guard는 region의 observable effect보다 먼저 평가된다.
+6. region 전체가 선택된 route의 semantic capability를 만족한다. op별 support의 단순 교집합만으로 region legality를 선언하지 않는다.
+7. external/runtime route 실패를 이유로 이미 effect를 수행한 producer region을 자동 replay하지 않는다.
+
+##### live-out은 value만이 아니다
+
+다음 두 경우를 구분한다.
+
+~~~text
+value live-out
+  producer result가 다음 region의 input으로 사용됨
+
+effect live-out
+  반환값은 쓰이지 않아도 write / I/O / error-order dependency가 다음 region의 관찰 결과에 영향을 줌
+~~~
+
+fork/selector에서 선택되지 않은 branch의 값이 dead여도 effect/error가 live-out일 수 있다. RoutePartition은 pure dataflow liveness만 보고 branch나 check를 제거하면 안 된다.
+
+##### bridge lowering
+
+RoutePartition 이후 별도 bridge lowering이 실제 representation 이동을 만든다.
+
+~~~text
+Logical ValueId
+    ↓ route boundary requirement
+Bridge Lowering
+    ├─ no-op compatible handoff
+    ├─ materialize
+    ├─ layout/encoding conversion
+    ├─ host ↔ device transfer
+    ├─ external handle wrap/unwrap
+    └─ synchronization / completion edge
+    ↓
+consumer route representation
+~~~
+
+bridge 비용은 route selection의 cost input이 될 수 있지만, 이미 선택한 route를 정당화하기 위해 semantic constraint를 바꾸면 안 된다.
+
+##### 현재 코드와 목표의 차이
+
+현재 `lowering.rs::partition_plan`은 operation별 `RouteDecision`을 `ValueOnly / SemanticCheck / PureArray / RuntimeSemantic` class로 나눈 뒤 **인접한 같은 class를 contiguous range로 묶는 v0 분석 도구**다.
+
+현재 `RouteRegion`은:
+
+~~~text
+class
+operations: Range<usize>
+~~~
+
+만 가진다. 아직 chosen external route, boundary live-in/out, bridge, effect edge, region-wide legality proof를 소유하지 않는다. 따라서 현재 `partition_plan` 결과를 최종 mixed-route execution plan으로 해석하지 않는다.
+
+##### 구현/검증 순서
+
+mixed-route 구현에 착수할 때는 다음 순서로 확장한다.
+
+1. RouteRegion live-in/live-out 계산 + verifier
+2. value live-out과 effect live-out을 분리하는 회귀
+3. SemanticCheck/order edge가 boundary에서 보존되는지 검증
+4. route-wide legality aggregate와 guard ownership
+5. representation-neutral BridgeRequirement
+6. bridge lowering에서 concrete transfer/materialization 생성
+7. same Logical IR에 target별 다른 RoutePartition을 만들어 semantic result/error가 같은지 differential 검증
+
 
 MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 dialect conversion으로 점진적으로 lowering할 수 있으므로 RustJ의 multi-level IR 구조와 특히 잘 맞는다.
 
