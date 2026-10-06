@@ -209,7 +209,7 @@ impl PhysicalPlan {
             "identity route requires one returned value",
         ))?;
         let source_op = logical.values[result.0].producer;
-        if source_op != OpId(0) || logical.operations[0].results.as_slice() != [result] {
+        if source_op != OpId(0) || logical.operations[0].results.len() != 1 || logical.operations[0].results[0] != result {
             return Err(PhysicalPlanError::Unsupported(
                 "identity route requires the literal to produce the returned value",
             ));
@@ -294,7 +294,7 @@ impl PhysicalPlan {
             "M4 v0 requires one returned literal",
         ))?;
         let source_op = logical.values[result.0].producer;
-        if source_op != OpId(0) || logical.operations[0].results.as_slice() != [result] {
+        if source_op != OpId(0) || logical.operations[0].results.len() != 1 || logical.operations[0].results[0] != result {
             return Err(PhysicalPlanError::Invalid(
                 "result does not match its A3 literal producer",
             ));
