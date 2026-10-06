@@ -25,6 +25,8 @@ pub struct SearchWorkload {
     /// A prehash is a permissible candidate only when the caller already owns
     /// a compatible per-Engine cache. It is not requested by a J name alone.
     pub prehash_available: bool,
+    /// Reverse hashing needs the actual query values available for indexing.
+    pub allow_reverse: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,7 +94,7 @@ pub fn plan_search_algorithm(
         && (64..=16_384).contains(&workload.indexed_items)
     {
         A::PreparedHash
-    } else if workload.indexed_items >= 64
+    } else if workload.allow_reverse && workload.indexed_items >= 64
         && workload.indexed_items / 2 > workload.query_items
     {
         A::ReverseQueryHash
