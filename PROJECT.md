@@ -3175,12 +3175,68 @@ verified logical_ir::Plan
   ↓
 deterministic all-CPU schedule
   ↓
-Bind / View / Materialize / Kernel / Return
+Bind / Check / View / Materialize / Kernel / Return
   ↓
 CPU Physical Executor
 ```
 
 Correctness and boundary ownership come before a sophisticated cost model.
+
+### 17.2.1 Minimal PhysicalPlan v0 contract
+
+Plan-time resource identity must remain distinct from runtime handles:
+
+```text
+Logical ValueId
+    !=
+PlanBufferId        // symbolic/planned storage slot inside PhysicalPlan
+    !=
+physical::BufferId  // checked handle issued by runtime BufferRegistry
+    !=
+raw address
+```
+
+Likewise, buffer identity and view identity are separate. A conceptual `PhysicalViewId` names a checked shape/stride/offset/encoding/access view over a `PlanBufferId`.
+
+The first M4 plan may be limited to one verified single-block pure-array CPU region plus required SemanticChecks. Stateful name/assignment effects may remain on RuntimeSemantic routes; that is an implementation-route limitation, not a restriction on valid J.
+
+Conceptual v0 schema:
+
+```text
+PhysicalPlan
+  source logical schema/provenance
+  resolved CPU target
+  planned buffers
+  physical views
+  ordered/dependency-aware ops
+  outputs
+
+PhysicalOp
+  BindInput
+  Check
+  View
+  Materialize
+  Kernel
+  Return
+
+future/non-M4:
+  Transfer
+  Sync / AsyncToken
+```
+
+`BindInput` attaches a logical input/read to executor-owned runtime storage without implying a copy. `Check` executes an A3 SemanticCheck with the same J error kind/origin/order. `View` is metadata-only. `Materialize` performs an explicit copy/packing while preserving logical atom order. `Kernel` executes an already selected lowering recipe/realization and must not rediscover rank/train/fusion legality. `Return` establishes output ownership. Transfer/Sync are not required for the first CPU slice.
+
+A planned buffer needs at least memory-space/CPU class, encoding, extent or size expression, alignment, ownership class (input/temporary/output), def/use/last-use, and optional reuse witness. A first slice may require fully resolved CPU extents; dynamic sizing remains a route capability rather than a language restriction.
+
+Reuse requires completed last use, no outstanding observing view/lease, compatible size/encoding/alignment/memory space, alias/destination permission, and preserved J effect/error order.
+
+The PhysicalPlan verifier must reject invalid IDs or use-before-def; out-of-bounds views; unbound buffers; dropped/duplicated or reordered SemanticChecks; target-incompatible selected kernels; unproved overlapping writable views; materializations that do not preserve logical atom semantics; reuse without last-use/alias/ownership evidence; dangling returned views; and hidden namespace/write effects in an M4 pure-region plan.
+
+Error/cleanup contract: Check failures remain J semantic errors; backend implementation failures are not silently reclassified as J Domain/Rank/Length errors; executor-owned temporaries are cleaned up without destroying caller inputs; the first pure slice does not own namespace-assignment commit; and no transparent replay occurs after observable effects have committed.
+
+Current `src/physical.rs` is only the G1 representation foundation (`BufferRegistry`, `BufferLease`, runtime `BufferId`, and checked read-only affine PhysicalArray). It is not a PhysicalPlan, planner, or physical executor. `logical_executor.rs` is an A3 semantic/reference executor, not the Physical Executor.
+
+Implement in one-meaning/one-test steps: plan-time buffer/view IDs plus empty-plan verification; BindInput+Return identity E2E; View span verification; Check/error-order regression; one Kernel realization (Add) with capability verification; Materialize ownership/order tests; last-use/reuse witnesses with alias-negative tests; then a multi-op Logical IR → PhysicalPlan → CPU differential case.
 
 ---
 
