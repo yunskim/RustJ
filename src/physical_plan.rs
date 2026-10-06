@@ -134,7 +134,7 @@ impl std::fmt::Display for PhysicalPlanError {
 }
 impl std::error::Error for PhysicalPlanError {}
 
-type PlanResult<T> = std::result::Result<T, PhysicalPlanError>;
+pub type PlanResult<T> = std::result::Result<T, PhysicalPlanError>;
 
 fn dense_encoding(value: &Value) -> Option<Encoding> {
     match value.data() {
