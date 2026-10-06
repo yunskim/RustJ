@@ -21,6 +21,7 @@ pub mod fusion_planning;
 pub mod j_graph_composition;
 pub mod j_graph_fusion;
 pub mod j_graph_ir;
+pub mod j_graph_jsource;
 pub mod j_graph_memory;
 pub mod j_graph_resource;
 pub mod j_graph_rewrite;
