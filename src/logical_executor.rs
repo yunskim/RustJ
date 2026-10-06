@@ -128,6 +128,21 @@ fn assemble_uniform_cells(
     Value::new(shape, builder.finish())
 }
 
+/// Conservative value-only fill witness for a concrete semantic entity.
+/// Nested Rank of an already accepted primitive is another structural
+/// cell-application boundary; dynamic names and user functions remain barred.
+fn has_value_only_rank_fill_semantics(function: &FunctionEntity) -> bool {
+    match &function.head {
+        FunctionHead::PrimitiveVerb(_) => true,
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            function.requested_ranks().is_some()
+                && semantic_function_operand(function)
+                    .is_some_and(|operand| has_value_only_rank_fill_semantics(operand))
+        }
+        _ => false,
+    }
+}
+
 fn execute_ranked_semantic(
     function: &FunctionEntity,
     ranks: [i64; 3],
@@ -136,7 +151,7 @@ fn execute_ranked_semantic(
 ) -> Result<Value> {
     // The current fill path is proven only for built-in primitives. A
     // user-defined derived function can have observable fill-cell effects.
-    let primitive_fill = matches!(function.head, FunctionHead::PrimitiveVerb(_));
+    let primitive_fill = has_value_only_rank_fill_semantics(function);
     apply_ranked(ranks, left, right, primitive_fill, |x, y| {
         execute_semantic(function, x, y)
     })
