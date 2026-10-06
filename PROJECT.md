@@ -2334,6 +2334,50 @@ The reusable concept is *algorithm option + proof/guard state + resource/cost pr
 Added A3 search-mode/origin and forged-payload verifier tests, registry CPU/GPU/proof tests and Physical planner selection/guard tests; existing search/rebinding tests are retained. **These are static repository changes. Cargo tests, CI, jsource/C differential checks and benchmarks were not run; no execution or speed claims are made.**
 
 
+<a id="index-family-roadmap"></a>
+
+### P. Living Index-Of family plan and acceptance checklist — Roger Hui × Marshall Lochbaum (2026-10-06)
+
+**Maintenance rule.** This is the authoritative **living checklist** under [§N](#jsource-index-family), [§O](#algorithm-planning-migration) and candidate lifecycle §7.5; do not create another tracking document. A checked box means code/document presence has been **statically verified**, **not** that tests passed or semantics/performance were validated. Record specific proof/commands/results when checking completion gates. **No Linux-specific milestone is required or created.**
+
+**Independently researched inputs:** Roger Hui, [*Index-Of, a 30-Year Quest*](https://www.jsoftware.com/papers/indexof/) and [*Hashing for Tolerant Index-Of*](https://www.jsoftware.com/papers/Hashing.htm), grounded against pinned [jsource vi.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [viavx.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850), [viavx2.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L98); Marshall Lochbaum, [*BQN: Implementation of search functions*](https://mlochbaum.github.io/BQN/implementation/primitive/search.html) for small-input SIMD, direct 1/2-byte tables, sparse **table initialization**, one-shot reverse hashing, cache-sensitive hashing, collision monitoring and radix partitioning. **BQN sparse lookup means selective initialization of a dense-address lookup table; it does not mean J axis-sparse array semantics.** BQN is a physical algorithm reference, never a J semantic oracle. §O's MLIR/IREE/TVM/XLA comparison supplies independent legality/target/resource/cost ownership rules.
+
+#### P.1 Phased checklist and gates
+
+| Stage | Checklist item | Owner and acceptance gate | Status |
+|---|---|---|---|
+| 0 | [x] Distinguish search identities | Graph/frontend distinguishes dyadic `i.`, `i:`, `e.`, monadic generators, interval `I.`, window `E.` | Source/§N presence only |
+| 1 | [x] Keep search semantic descriptor in A3 | First/last/membership/interval/self, J comparison, index/query direction, SSA origins and Rank remain independent of table layout; schema 0.5/verifier | Code/tests added, not run |
+| 2 | [x] Separate registered algorithm legality and Physical selection | Registry Baseline/Guard/NeedsProof/Unsupported and SearchWorkload/PhysicalChoice; Unknown never implies legal | Code exists, no benchmark |
+| 3 | [x] Guarded basic search implementations | Linear, narrow integer Direct, Hash, reverse query hashing, immutable-Arc per-Engine Prehash, direct membership outputs, allocation-failure fallback | Code exists; C conformance pending |
+| 4 | [x] Research-only nontransitivity/completeness harness **added and wired** | `src/tolerant_search.rs` under `#[cfg(test)]`: near chains, source-first/last, ±1 exponent buckets, ±0, NaN, infinities and subnormals, independently scanned indices | **Not executed; no optimized runtime path** |
+| 5 | [ ] Resolve full J comparison policy | `!.ct`/dynamic cct/version, float/complex/boxed/axis-sparse, exact insert vs tolerant probe, Rank/cell/frame and effect/error precedence with provenance | No discharged proofs |
+| 6 | [ ] Prove candidate-filter completeness | Present fixed `kernels::near` uses t=2^-44. Prove adjacent exponent/sign buckets include every possible match, then recheck all candidates using original comparison and choose min/max original index | Fixed-predicate research only |
+| 7 | [ ] Implement versioned tolerant runtime guard/fallback | Missing tolerance/rank/binding witness → pre-effect sequential reference; prehash key/invalidation includes comparison policy and backing lifetime | Not implemented |
+| 8 | [ ] Evaluate BQN small-array / small-range strategies | SIMD vector search, byte/2-byte direct, packed presence, sparse table initialization; target/memory/source-order guards | Unmeasured |
+| 9 | [ ] Evaluate collisions and large-input fallbacks | Alternative open addressing/linear probing (do not replace current HashMap on faith), collision counters, sorted/radix fallback, cache partitioning | Unimplemented |
+| 10 | [ ] Calibrate one-shot/prehash cost | Indexed/query ratio, distinct key count, initialization/retention, cache residency, repeated-use vs one-shot cost; ResourceEstimate != CostEstimate | Only provisional heuristics |
+| 11 | [ ] Share algorithm candidate infrastructure | Expand Nub/Key/filtered index outputs then use **family-specific** witnesses for Reduce/GroupBy/Grade/Contract. Do not reuse search-only semantics | Partial generic interface |
+| 12 | [ ] Final runtime/differential and benchmark gate | Rust default/portable, J C first/last/NaN/±0/empty/Rank/Boxed/Sparse/`!.ct`/error, independent reference vs fast paths, randomized/adversarial time & memory measures | **Not executed** |
+
+#### P.2 Five independent repeated reviews
+
+- [ ] **A — upstream-first:** separate Hui, pinned jsource dispatch/tolerant implementation and actual J errors/Rank/Fit; do not substitute BQN semantics.
+- [ ] **B — proof-first:** independently show nontransitive approximate equality, sign/exponent bucket completeness under explicit \(0 ≤ t < 1/2\), IEEE-754 edges and first/last **source** index; never prove from the candidate implementation alone.
+- [ ] **C — oracle-first:** compare J C reference, Rust sequential `near`, and candidate filtering separately. Matching the Rust oracle does **not** prove agreement with J C.
+- [ ] **D — boundary-first:** recheck Graph provenance, A3 direction/schema verifier, Registry target/guard/proof, Physical resource/cost and runtime fallback; no GPU/interval/tolerant route enabled on unknown proofs.
+- [ ] **E — performance/adversarial:** test repeated keys, pathological collisions, tolerant chains, nonmatches, small/wide ranges, cache pressure and allocation failure. Do not enable algorithms without measured benefit and acceptable worst cases.
+
+After fixing a finding, independently re-run the relevant checks and record commands, counts, exact upstream revision and measurements before checking a gate. No Linux milestone. Never mark CI/tests passed without actual execution.
+
+#### P.3 Next actions
+
+1. Finish fixed-`near` exponent/sign candidate-completeness mathematics and actually run default/portable research tests when execution is available; otherwise leave execution unchecked.
+2. Establish independent J C oracle parity for first/last, floating, complex/boxed, `!.ct` and empty/ranked cells. Any current Rust `near` deviation blocks tolerant optimized execution.
+3. Benchmark BQN small-input/SIMD, byte tables, selective table initialization, reverse hashing and collision/radix strategies before changing heuristic thresholds or current HashMap.
+4. Keep `TolerantNeighborHash=NeedsSemanticProof` and source opportunity `AwaitingSemanticProofs` until witnessed comparison/guard/fallback and independent differential validation pass.
+
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
