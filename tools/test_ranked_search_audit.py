@@ -2,7 +2,7 @@ import unittest
 
 from conformance import validate_cli_corpus
 from ranked_search_audit import (
-    ranked_search_cases, rank_adversarial_cases, diagnostic_summary,
+    ranked_search_cases, rank_adversarial_cases, diagnostic_summary, gate_failed,
 )
 
 
@@ -50,6 +50,18 @@ class RankSearchCorpusTests(unittest.TestCase):
         bounded = diagnostic_summary(report, adversarial=False)
         self.assertNotIn("mismatch_observations", bounded)
         self.assertIn("fail on any mismatch", bounded["gate"])
+        strict = diagnostic_summary(report, adversarial=True, gate_adversarial=True)
+        self.assertIn("PINNED-C REGRESSION", strict["gate"])
+        self.assertEqual(strict["mismatch_observations"], [mismatch])
+        self.assertFalse(gate_failed(report, adversarial=True))
+        self.assertTrue(gate_failed(report, adversarial=True, gate_adversarial=True))
+        self.assertTrue(gate_failed(report, adversarial=False))
+        passing = {
+            "observations": [{"name": "pass", "classification": "pass"}],
+        }
+        self.assertFalse(
+            gate_failed(passing, adversarial=True, gate_adversarial=True)
+        )
 
     def test_rank_adversarial_corpus_keeps_zero_frame_distinct_from_empty_cells(self):
         cases = rank_adversarial_cases()
