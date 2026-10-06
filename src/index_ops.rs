@@ -4,7 +4,7 @@ use crate::{
     storage::{CpuStorage, Shape},
     value::{buffer, count},
 };
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 pub(crate) fn steps(y: Value) -> Result<Value> {
     if !y.shape.is_empty() {
@@ -82,6 +82,7 @@ enum LookupResult {
 /// A bounded direct-address table is profitable for narrow integer domains.
 /// Other exact scalar domains still use a conventional hash table. Neither
 /// route is legal for tolerant float/boxed comparisons.
+#[derive(Clone)]
 enum ExactScalarIndex {
     Direct { minimum: i64, positions: Vec<usize> },
     Hashed(HashMap<i64, usize>),
@@ -164,10 +165,10 @@ fn exact_scalar_index(
     // It is legal only for exact scalar integers/booleans; callers enforce this.
     // Build a query-key table and scan indexed values in the direction needed
     // for the representative. Duplicate queries intentionally share a key.
-    if items >= 64 && items / 2 > queries {
-        return Ok(Some(reverse_exact_index(values, items, query_values.expect(
-            "reverse hashing requires exact scalar query values"
-        ), result)?));
+    if let Some(query_values) = query_values {
+        if items >= 64 && items / 2 > queries {
+            return Ok(Some(reverse_exact_index(values, items, query_values, result)?));
+        }
     }
 
     let mut minimum = i64::MAX;
@@ -209,6 +210,99 @@ fn exact_scalar_index(
     Ok(Some(ExactScalarIndex::Hashed(entries)))
 }
 
+
+/// One bounded, per-Engine, immutable exact-key prehash. Holding the shared
+/// backing Arc makes pointer identity safe across binding replacement: a
+/// redefined name with a new backing cannot reuse a stale index.
+///
+/// This is an implementation-side cache, not the J M. memo operation or an
+/// A3 semantic assertion. There is deliberately no global cache.
+#[derive(Default)]
+pub(crate) struct ExactPrehashCache {
+    prepared: Option<PreparedExactSearch>,
+    builds: usize,
+    hits: usize,
+}
+
+struct PreparedExactSearch {
+    source: Value,
+    representative: LookupResult,
+    index: ExactScalarIndex,
+}
+
+fn same_shared_exact_source(a: &Value, b: &Value) -> bool {
+    if a.shape != b.shape { return false; }
+    match (&a.data, &b.data) {
+        (Data::Int(CpuStorage::Shared(x)), Data::Int(CpuStorage::Shared(y))) =>
+            Arc::ptr_eq(x, y),
+        (Data::Bool(CpuStorage::Shared(x)), Data::Bool(CpuStorage::Shared(y))) =>
+            Arc::ptr_eq(x, y),
+        _ => false,
+    }
+}
+
+impl ExactPrehashCache {
+    /// Returns counters as (new table builds, successful reused probes).
+    pub(crate) fn stats(&self) -> (usize, usize) {
+        (self.builds, self.hits)
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.prepared = None;
+        self.builds = 0;
+        self.hits = 0;
+    }
+
+    fn get_or_prepare(
+        &mut self,
+        indexed: &Value,
+        items: usize,
+        queries: usize,
+        result: LookupResult,
+    ) -> Result<Option<&ExactScalarIndex>> {
+        const MAX_PREHASH_ITEMS: usize = 16_384;
+        // A prehash requires immutable shared backing; never assume a name,
+        // dtype or shape alone provides version/identity.
+        if items < 64 || items > MAX_PREHASH_ITEMS || queries == 0
+            || indexed.shape.len() != 1
+            || !matches!(&indexed.data,
+                Data::Int(CpuStorage::Shared(_)) | Data::Bool(CpuStorage::Shared(_)))
+        {
+            return Ok(None);
+        }
+        // Membership and First both need the first occurrence. Last is a
+        // distinct cache key, even though the original value is the same.
+        let representative = if result == LookupResult::Last {
+            LookupResult::Last
+        } else {
+            LookupResult::First
+        };
+        let same = self.prepared.as_ref().is_some_and(|prepared|
+            prepared.representative == representative
+                && same_shared_exact_source(&prepared.source, indexed)
+        );
+        if same {
+            self.hits = self.hits.saturating_add(1);
+        } else {
+            // This prehash intentionally builds the *indexed* set, even when
+            // query-side reverse hash would be cheaper for a single query.
+            // Reuse is justified only by subsequent calls to the same Arc.
+            let Some(index) = exact_scalar_index(
+                indexed, items, queries, representative, None
+            )? else {
+                return Ok(None);
+            };
+            self.prepared = Some(PreparedExactSearch {
+                source: indexed.clone(),
+                representative,
+                index,
+            });
+            self.builds = self.builds.saturating_add(1);
+        }
+        Ok(self.prepared.as_ref().map(|prepared| &prepared.index))
+    }
+}
+
 fn result_from_positions(
     shape: Shape,
     queries: usize,
@@ -231,7 +325,7 @@ fn result_from_positions(
 /// Common search contract: the first argument is the index domain, the second
 /// is the query collection. Output mode controls materialization: membership
 /// returns booleans directly, never a temporary index vector.
-fn lookup(indexed: Value, queries: Value, result: LookupResult) -> Result<Value> {
+fn lookup(indexed: Value, queries: Value, result: LookupResult, cache: Option<&mut ExactPrehashCache>) -> Result<Value> {
     let items = indexed.shape.first().copied().unwrap_or(1);
     let cell_shape = if indexed.shape.is_empty() {
         &[][..]
@@ -250,8 +344,18 @@ fn lookup(indexed: Value, queries: Value, result: LookupResult) -> Result<Value>
     let exact_scalar = cell_shape.is_empty()
         && matches!(indexed.data, Data::Int(_) | Data::Bool(_))
         && matches!(queries.data, Data::Int(_) | Data::Bool(_));
-    let exact = if exact_scalar {
-        exact_scalar_index(&indexed, items, n, result, Some(&queries))?
+    let exact: Option<Cow<'_, ExactScalarIndex>> = if exact_scalar {
+        if let Some(cache) = cache {
+            if let Some(cached) = cache.get_or_prepare(&indexed, items, n, result)? {
+                Some(Cow::Borrowed(cached))
+            } else {
+                exact_scalar_index(&indexed, items, n, result, Some(&queries))?
+                    .map(Cow::Owned)
+            }
+        } else {
+            exact_scalar_index(&indexed, items, n, result, Some(&queries))?
+                .map(Cow::Owned)
+        }
     } else {
         None
     };
@@ -271,11 +375,26 @@ fn lookup(indexed: Value, queries: Value, result: LookupResult) -> Result<Value>
 }
 
 pub(crate) fn index_of(a: Value, b: Value, last: bool) -> Result<Value> {
-    lookup(a, b, if last { LookupResult::Last } else { LookupResult::First })
+    lookup(a, b, if last { LookupResult::Last } else { LookupResult::First }, None)
 }
 
 pub(crate) fn member(a: Value, b: Value) -> Result<Value> {
-    lookup(b, a, LookupResult::Membership)
+    lookup(b, a, LookupResult::Membership, None)
+}
+
+
+/// Interpreter-only, name-identity guarded prehash reuse. Reference execution
+/// continues to call the ordinary index_of/member routines.
+pub(crate) fn index_of_cached(
+    a: Value, b: Value, last: bool, cache: &mut ExactPrehashCache
+) -> Result<Value> {
+    lookup(a, b, if last { LookupResult::Last } else { LookupResult::First }, Some(cache))
+}
+
+pub(crate) fn member_cached(
+    a: Value, b: Value, cache: &mut ExactPrehashCache
+) -> Result<Value> {
+    lookup(b, a, LookupResult::Membership, Some(cache))
 }
 
 pub(crate) fn find(a: Value, b: Value) -> Result<Value> {
@@ -364,5 +483,47 @@ mod index_family_tests {
             .unwrap().unwrap();
         assert_eq!(first.find(1, 200), 1);
         assert_eq!(first.find(2, 200), 2);
+    }
+
+    #[test]
+    fn prehash_reuses_immutable_shared_backing_and_first_for_membership() {
+        let source = Value::ints([128], (0..128).map(i64::from).collect())
+            .unwrap().into_shared();
+        let mut cache = super::ExactPrehashCache::default();
+        let first = cache.get_or_prepare(&source, 128, 2, LookupResult::First)
+            .unwrap().unwrap();
+        assert_eq!(first.find(17, 128), 17);
+        assert_eq!(cache.stats(), (1, 0));
+        let copied = source.clone();
+        let member = cache.get_or_prepare(&copied, 128, 2, LookupResult::Membership)
+            .unwrap().unwrap();
+        assert_eq!(member.find(17, 128), 17);
+        assert_eq!(cache.stats(), (1, 1));
+
+        let last = cache.get_or_prepare(&source, 128, 2, LookupResult::Last)
+            .unwrap().unwrap();
+        assert_eq!(last.find(17, 128), 17);
+        assert_eq!(cache.stats(), (2, 1));
+    }
+
+    #[test]
+    fn prehash_rebinding_and_unshared_storage_never_hit_stale_tables() {
+        let source = Value::ints([128], (0..128).map(i64::from).collect())
+            .unwrap().into_shared();
+        let replaced = Value::ints([128], (1000..1128).map(i64::from).collect())
+            .unwrap().into_shared();
+        let mut cache = super::ExactPrehashCache::default();
+        cache.get_or_prepare(&source, 128, 2, LookupResult::First)
+            .unwrap().unwrap();
+        let new_index = cache.get_or_prepare(&replaced, 128, 2, LookupResult::First)
+            .unwrap().unwrap();
+        assert_eq!(new_index.find(17, 128), 128);
+        assert_eq!(new_index.find(1017, 128), 17);
+        assert_eq!(cache.stats(), (2, 0));
+        let unshared = Value::ints([128], (0..128).map(i64::from).collect()).unwrap();
+        assert!(cache.get_or_prepare(&unshared, 128, 2, LookupResult::First)
+            .unwrap().is_none());
+        cache.clear();
+        assert_eq!(cache.stats(), (0, 0));
     }
 }
