@@ -296,6 +296,20 @@ A Fork does not imply that its branches may always execute in parallel, and `@:`
 
 The branch/join diagram describes an **ordinary VVV fork**. A constructor-fixed capped `[: g h` instead follows the sequential pipeline `input → h → g(monad)`; a noun-left fork passes `h(input)` and its fixed noun to g. Interpret constructor meaning and operand POS before assuming two executable branches from a Fork parser row/head. Preserve the original source Fork/NAME DAG.
 
+#### Canonical J Graph example suite
+
+| Source | semantic construction / preserved provenance | applied topology | candidate | never infer from syntax alone |
+|---|---|---|---|---|
+| `f @: g` | Atop-derived Verb + Pipeline provenance | `input → g → f` | fusion/materialization elision | fused kernel, target placement, check removal |
+| `(f g h) y` ordinary fork | Fork with original f/g/h + observable branch order | shared-input fan-out into `h(y)` and `f(y)`, joined by dyadic `g` | parallel-branch, branch/join fusion, retained/live-across | actual concurrent execution or branch reordering |
+| `([: g h) y` capped fork | source Fork plus immutable capped-construction fact | `h(y) → g(monad)`; no executable first branch | pipeline/materialization | ordinary-fork parallel/retained treatment or calling `[:` as a branch |
+| `(f g) y` hook | Hook provenance + shared original input | `g(y)` and retained `y` feed dyadic `f` | retained-input/materialization, legal fusion | dropping the shared input or arbitrary reorder |
+| `u"r y` | Rank-derived Verb, requested-rank provenance | outer CellApply around the inner operation basis | cell parallelism, nested CellApply absorption/fusion | physical loop/thread mapping or rank-boundary collapse |
+| `u/ y` | Insert-derived Verb | Reduce basis with operand `u` provenance | reduction realization, legal map/reduce fusion | tree reassociation, altered empty/identity behavior, arbitrary parallel reduction |
+| `u\ y` | Prefix/Infix-derived Verb | preserved prefix/window family structure | witnessed Scan candidate or window/reduce rewrite | immediate replacement by Scan without associativity/error/numeric proof |
+
+The suite deliberately keeps **source construction identity and applied dependency graph together**. Two forms may happen to lower to similar SSA DAGs while differing in name/effect/error/constructor semantics. Current GraphForm/GraphBasis/hint support and capped-fork/scan regressions do not imply that the candidate proof/selection lifecycle is fully implemented.
+
 RustJ does not claim that each ingredient is itself novel. Hook/Fork dataflow, function-level program transformation, graph-based fusion, and high-level array IR all have prior art. The distinctive architectural combination being explored by JAXA/RustJ is to **preserve J's tacit combinator algebra as an independent semantic graph layer, generate optimization candidates directly from that topology, and then separate full-J semantic legality from physical profitability**.
 
 #### Related prior art and RustJ's position
