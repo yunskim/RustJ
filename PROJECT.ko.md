@@ -9536,6 +9536,20 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **기존 이행 원장 연결.** 새 `DM-*` 작업표는 만들지 않는다. IO-03(계층/identity/effect interface), IO-09(접근 영역 증명), IO-13·14(동기→비동기 준비/완료), IO-17(재배치·실패·해제 안전), IO-20(공통 memory/file/transfer 자원·비용 planning), IO-22(세 경로·negative 검증)를 기존 [§10 IO 체크리스트](#out-of-core-io-checklist)의 수용 항목으로 사용한다. FW-05~09의 provenance/guard와 DB effect contract를 선행 증명으로 재사용한다. **현 상태: 설계 확정, 구현·실행 증거 없음; IO 0/30 [ ] 유지. M2 frontend와 최초 M4 CPU slice의 필수 조건으로 올리지 않는다.**
 
+<a id="io-a-source-audit"></a>
+#### 8.5.4 IO-A 원본 소스 교차 감사 — 부분 조사 증거와 다음 실행 fixture (2026-10-06)
+
+**범위·상태.** IO-01·IO-25의 1차 코드 감사를 pinned source에서 수행했고 IO-02의 effect/error 계약이 요구하는 반례를 도출했다. 이것은 **소스 확인만 완료한 부분 진행**이다. 실제 J 바이너리에서 아래 외부 파일/매핑 fixture를 실행하지 않았으므로 IO-01·02·25는 [ ]이고 IO 전체 수용 0/30을 유지한다. 외부 저장소의 동작은 RustJ 지원 사실이 아니다.
+
+| 고정 원본과 확인 위치 | 원본에서 직접 확인한 내용 | RustJ에서 아직 증명할 사항 |
+|---|---|---|
+| [jsource `xf.c` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/xf.c) `jtjiread` / `jtjiwrite` / `jtixin` | `1!:11`은 file open/size 확인 뒤 index·length를 검사하며 `j≤size, j+length≤size, length≥0`을 확인한다. `1!:12`는 `n=null` 호출이므로 같은 read end-bound를 강제하지 않고 nonnegative 시작 index를 확인한 뒤 write한다. 음수 시작 index는 size 상대 계산을 거친다. `jtrd/jtwa`는 동기 `fread/fwrite` 경로다. | invalid filename/open과 index error 우선순위, EOF/short I/O, write beyond EOF·파일 변경·권한·효과 후 재실행 금지. 단편 소스만으로 동시 truncate의 결과/atomicity를 보장하지 않음 |
+| [jsource `jmf.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) + [`gmbx.ijs`](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) | mapping mode 0=RW, 1=RO, 2=COW가 구분되고 unmap은 live refs에 의해 실패할 수 있다. `additem`은 type 32 boxed에 `not supported for boxed data` 검사를 둔다. 반면 `gmbx.ijs`는 mapped boxed 명칭을 사용하지만 확인한 실제 assertion은 `'' -: q`, `'' -: r`로, 일반 boxed payload의 읽기·쓰기 성공을 입증하지 않는다. | JMF 포맷·타입·모드별 boxed 경계를 실행 oracle로 정확히 구별; copy-on-write commit과 shared write 혼동 금지 |
+| [data_jd `column.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) · [`jmfx.ijs`](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | column map/remap과 타 프로세스 refcount 위험 주석, DB lock 기반 제한을 확인. `jmfx.ijs`의 overread 방어에는 `PAGESIZE=:4096` 가정과 trailing padding 보정이 들어 있다. | RustJ는 페이지 크기·SIMD overfetch를 하드코딩하지 않고 checked span/masked tail 및 remap·lease safety 실측; Jd lock을 J 의미 계약으로 일반화 금지 |
+| [jsource `jfiles.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles/jfiles.ijs) · [data_jd `api_read.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) | jfiles `j_read`는 `3!:2 @ (1!:11)`로 offset 기반 serialized component를 읽으며, `jread`가 directory index에서 범위를 취득한다. Jd `readptable`은 partition 조건으로 대상 table을 결정한다. | serialized component와 typed contiguous mapped backing 구분. Jd의 선택적 읽기를 임의 J verb/foreign read에 자동 적용 금지 |
+
+**다음 실행 fixture (미실행, IO-01/02/25 수용 선행).** 동일한 임시 파일을 대상으로 정상 `1!:11` 부분 읽기, 끝 위치·길이 경계, negative relative offset, `1!:12` EOF 이후 쓰기, 존재하지 않는 파일과 권한 오류, 처리 중 외부 변경·단축 읽기, 번호형 핸들과 파일명 입력의 오류/해제 차이를 고정 J C binary에서 관찰한다. JMF는 RW/RO/COW·live-ref unmap·mapped boxed 명칭 대비 실제 payload 종류·resize/remap을, Jd/jfiles는 partition/keyed component·serialized byte-range를 별도 원본 fixture로 조사한다. **예상 오류 클래스나 처리 순서를 실행 전에 합격 기준으로 단정하지 않고 observed J behavior를 baseline으로 고정**한다. 결과는 IO 원장의 commit·원본 pin·명령·실행환경·pass/fail/unsupported에 기록한다.
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
@@ -11726,13 +11740,13 @@ A3-v2
 
 **체크리스트 운영 규칙(작업 시마다 적용).** 이 IO-01~IO-30 표가 I/O 구현 및 검증 상태의 단일 원장이다. 기존 표의 ID를 바꾸거나 동일 작업을 별도 계획 파일·새 checklist로 복제하지 않는다. 진행 시 (1) 선행 조건이 충족된 **가장 작은 미완료 실행 단위**를 선정, (2) Jsource/J 애드온/외부 프레임워크의 원본 및 라이선스·적용 가능성을 확정, (3) baseline 의미·negative fixture, (4) 최적화 구현, (5) J C oracle / Rust sync / optimized의 독립 비교 및 메모리·I/O 계측, (6) 해당 행의 증거·미지원·차단 조건을 갱신한다. 소스 검토·계획 완료는 구현 완료가 아니다. 실패·미측정·검증 환경 부재 시 **[ ] 유지**하고 사유를 적는다. 관련 기존 FW/DB/G4/G5 수용 표와 의미·효과/자원 선행 관계를 유지한다.
 
-**현재 다음 작업:** IO-01과 IO-25의 upstream 소스·실행 경로 비교표 및 pinning(조사 가능), IO-02의 J-visible foreign I/O 오류/효과/관찰 가능 순서 정리(조사 가능). **아직 어떠한 IO-* 항목도 구현 또는 oracle 실행을 수용하지 않았으며, 현재 표는 0/30이다.**
+**현재 다음 작업:** IO-01·IO-25 upstream source pinned 부분 감사와 IO-02 효과/오류 반례 목록은 [§8.5.4](#io-a-source-audit)에서 기록했다. 다음에는 고정 J C binary에서 외부 파일·mapping oracle fixture를 실제 실행하고 오류/효과 순서를 확정한다. **소스 조사만으로는 IO-* 항목을 수용하지 않으며 0/30 [ ] 유지.**
  기존 M2/frontend와 FW-01~04·Rank/CellApply 의미 수렴을 우선한다. IO-A의 조사/모형화는 병행 가능하지만 I/O 경로를 M4 첫 CPU vertical slice의 필수 조건으로 격상하지 않는다. 단계 순서: **IO-A 근거와 안전 계약 → IO-B 동기 reference → IO-C 접근 최소화 → IO-D bounded async → IO-E 재사용/배치 최적화 → IO-F 실증/확장**. 앞 단계 미통과 시 뒤 단계는 설계 후보만 허용한다. [ ]은 *수용 전*, [x]는 변경 commit·실행한 명령/환경·jsource oracle 적용 범위·결과/남은 제한을 같은 행에 기록하고 독립적인 semantic/negative test가 통과했을 때만 사용한다. **아래 작업의 구현·테스트는 아직 수행하지 않았다.**
 
 | ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 · 최소 수용/negative 검증 |
 |---|---|---|
-| IO-01 / A·M2 병행 | [ ] jsource/J 라이브러리 근거 pin | `jmf.ijs` mapping modes, `xf.c` partial I/O, alias/in-place, boxed mapping 제약, Jd column/ptable/jmfx, Jfiles/keyfiles, JMF boxed 경로별 source pin·행동/미지원 표. C foreign oracle와 파일 fixture; 추측/확인 분리 |
-| IO-02 / A·M2~M3 | [ ] J 파일·mapping의 의미/효과 계약 | read/write/resize/flush/close, 오류·effect order, alias/late file changes, read-only/COW, J boxed/sparse, zero-frame case 목록. reorder/observable read omission 금지 negative test |
+| IO-01 / A·M2 병행 | [ ] jsource/J 라이브러리 근거 pin (원본 코드 일부 검토, 실행 oracle 대기; §8.5.4) | `jmf.ijs` mapping modes, `xf.c` partial I/O, alias/in-place, boxed mapping 제약, Jd column/ptable/jmfx, Jfiles/keyfiles, JMF boxed 경로별 source pin·행동/미지원 표. C foreign oracle와 파일 fixture; 추측/확인 분리 |
+| IO-02 / A·M2~M3 | [ ] J 파일·mapping의 의미/효과 계약 (read/write 범위·오류 우선순위 반례 도출, 실행 관찰 대기; §8.5.4) | read/write/resize/flush/close, 오류·effect order, alias/late file changes, read-only/COW, J boxed/sparse, zero-frame case 목록. reorder/observable read omission 금지 negative test |
 | IO-03 / A·M3 | [ ] 기존 IR·공통 data-movement 계약과 identity verifier | J Graph의 source topology vs Verified Logical의 `Effect/Dependency`·`AccessRelation` vs Physical Plan의 buffer/file region·transfer·ready token을 분리. `ValueId≠BufferId≠StateResource≠StorageObject/Version`, foreign effect vs immutable backing read; 새 Data Movement IR 도입 금지. 잘못된 계층의 필드·unknown effect를 거부하는 verifier/negative tests. §8.5.3 연결 |
 | IO-04 / A·M3 | [ ] storage capability matrix | local file, mapped, chunk, remote, GPU는 개별 capability; offset/alignment/EOF/seek/atomic write/consistency. Unknown은 route barrier |
 | IO-05 / B·M4 이후 | [ ] `read_at`/`write_at` 동기 독립 기준 | 일반 파일 offset/length, short read/EOF/overflow/error/permission 포함; 구현 전에 J file foreign과 physical array input 구분. 실제 fixture·C oracle 대조 |
@@ -11761,7 +11775,7 @@ A3-v2
 
 | ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 / 수용 기준 |
 |---|---|---|
-| IO-25 / A·M2 병행 | [ ] Jd/jfiles/JMF boxed 원본 교차 감사 | jsource pin과 data_jd pin, J binary oracle, ptable pruning·keyfiles·JMF boxed 분기 검증. IO-01·02 연계 |
+| IO-25 / A·M2 병행 | [ ] Jd/jfiles/JMF boxed 원본 교차 감사 (원본 소스 확인, J binary/boxed payload 수용 검증 대기; §8.5.4) | jsource pin과 data_jd pin, J binary oracle, ptable pruning·keyfiles·JMF boxed 분기 검증. IO-01·02 연계 |
 | IO-26 / B·M4 이후 | [ ] Typed array storage metadata 검증 | dtype/shape/order/endian/offset/length/version; invalid overlap/duplicate/off-end/overflow, empty/scalar, sparse/boxed 경계. IO-05·06 연계 |
 | IO-27 / B·M4 이후 | [ ] Read chunk와 write shard 분리 | Zarr/HDF5를 참고해 access axis별 read amplification, coalescing, shard write cost 및 contiguous baseline 비교. IO-06·08 연계 |
 | IO-28 / B·M4 이후 | [ ] mmap·SIMD tail·lifetime 안전성 | EOF next-page, vector overfetch 금지, real page granularity, live lease/remap/unmap/readonly/COW/concurrent readers. IO-07·08 연계 |
