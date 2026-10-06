@@ -1245,6 +1245,38 @@ impl Plan {
         })
     }
 
+    /// Read-only J Graph Rank/frame facts from the original applied form.
+    ///
+    /// Shape geometry is valid even when the output dtype/shape is unknown.
+    /// ZeroFrameNeedsFill does NOT mean the operation is dead: evaluating a
+    /// fill cell can determine result type/shape, raise errors, or have effects.
+    /// No optimizer legality or kernel-elision permission is returned here.
+    pub fn rank_frame_plan(&self, value: ValueId) -> Option<crate::facts::RankPlan> {
+        let NodeKind::Apply {
+            form:
+                GraphForm::Rank {
+                    requested_ranks: Some(ranks),
+                    ..
+                },
+            left,
+            right,
+            ..
+        } = &self.nodes.get(value.0)?.kind
+        else {
+            return None;
+        };
+        let right_shape = self.nodes.get(right.0)?.facts.shape.as_deref()?;
+        let left_shape = match left {
+            Some(left) => Some(self.nodes.get(left.0)?.facts.shape.as_deref()?),
+            None => None,
+        };
+        Some(crate::facts::rank_plan_for_shapes(
+            *ranks,
+            left_shape,
+            right_shape,
+        ))
+    }
+
     pub fn graph_form(&self, value: ValueId) -> Option<&GraphForm> {
         let NodeKind::Apply { form, .. } = &self.nodes.get(value.0)?.kind else {
             return None;
