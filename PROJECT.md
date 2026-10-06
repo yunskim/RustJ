@@ -542,18 +542,23 @@ The declarative class matcher is unified now. Full runtime semantic actions, mod
 
 #### Explicit-definition control-flow handoff
 
-Use `f =: 3 : 'if. y do. 1 else. 0 end.'` as the orientation example. Today DefinitionInput/DefinitionCode retain source/body, valence body ranges, sentence provenance, and control nodes/jump metadata; the semantic FunctionEntity retains `ExplicitDefinition(DefinitionCode)`. General invocation frames and body graph/A3 lowering remain a stop line.
+Use `f =: 3 : 'if. y do. 1 else. 0 end.'` as the orientation example. Today DefinitionInput/DefinitionCode retain source/body, valence body ranges, sentence provenance, and control nodes/jump metadata; the semantic FunctionEntity retains `ExplicitDefinition(DefinitionCode)`. A **runtime straight-line subset already has per-call LocalFrame invocation**, while compiler body-graph/A3 CFG lowering remains the stop line.
 
-Planned handoff:
+Current/planned handoff:
 
 ```text
 DefinitionCode
   source/body + monad/dyad ranges + control metadata
       |
       v
-[planned] fresh InvocationFrame per call
-  y (or x/y/u/v/m/n as required)
-  local table + locale/path context
+[current runtime subset] per-call LocalFrame / straight-line invocation
+  supported mode 1/2
+  x/y/u/v/m/n bindings
+  local-first -> global lookup
+  local/global assignment + cleanup
+  non-Body control remains Unsupported
+      |
+      -------- compiler body-graph / CFG lowering stop line --------
       |
       v
 [planned] body semantic CFG
@@ -570,7 +575,7 @@ DefinitionCode
 
 Current A3 already has Function→Region→Block containers, but its v0 `Terminator` currently has only `Return`. Therefore existing Region/Block types do **not** imply that `if./while./try.` lowering is implemented. Branch/CondBranch and value-merge mechanisms above are planned concepts.
 
-Do not turn J Graph IR into a generic CFG merely to host explicit definitions. Analyzable array expressions inside a basic block may use J Graph applied-computation/provenance analysis; control edges, invocation frames, namespace/effect resources, and block merges belong to definition-control/A3 lowering. Future verification must cover control-source provenance, branch targets, frame independence, local-first→locale lookup, previous-result/return merges, and effect/error ordering.
+Do not turn J Graph IR into a generic CFG merely to host explicit definitions. Analyzable array expressions inside a basic block may use J Graph applied-computation/provenance analysis; control edges, compiler-visible invocation-frame/resource modeling, namespace/effect resources, and block merges belong to definition-control/A3 lowering. Current runtime LocalFrame behavior is semantic evidence that the compiler lowering must preserve, not a substitute for CFG lowering. Future verification must cover control-source provenance, branch targets, frame independence, current local-first lookup semantics plus future locale/path support, previous-result/return merges, and effect/error ordering.
 
 #### Priority and stage equivalence contract (2026-10-03)
 
@@ -3540,7 +3545,7 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 | Stage / boundary | Documentation status | Strong coverage today | Main remaining gap |
 |---|---|---|---|
 | word formation → enqueue → parser | **documentation contract closed / convergence ongoing** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reductions, sequencing/gates, §4.3.1 `+/ y` canonical trace | actual support for locatives/definitions/gerunds/value-dependent constructors remains checklist-driven; orientation ownership is closed |
-| Semantic Construction / binding / dynamic semantics | **documentation contract closed / implementation partial** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition frames, gerund/rank/train preservation, explicit-definition handoff example | InvocationFrame, Branch/CondBranch and value-merge CFG lowering are planned; current A3 Terminator remains Return-only |
+| Semantic Construction / binding / dynamic semantics | **documentation contract closed / general CFG implementation incomplete** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition metadata, **runtime straight-line per-call LocalFrame/invocation subset**, gerund/rank/train preservation, explicit-definition handoff | Runtime frames are not wholly planned. What remains is general control-flow/nested/locale-locative support plus compiled Branch/CondBranch/value-merge CFG lowering; current A3 Terminator remains Return-only |
 | J Semantic → J Graph IR | **documentation contract closed** | GraphForm/GraphBasis/GraphHint, provenance/applied graph, Graph-vs-Execution distinction, canonical suite for `@:`/ordinary+capped fork/hook/rank/reduce/prefix-infix | remaining gaps are implementation/test coverage per form, not missing stage ownership |
 | graph analysis → candidate/proof | **documentation contract strengthened / implementation partial** | §7.5 defines orthogonal evidence, derived lifecycle, evidence owners, guarded legality, overlap/selection rules | Common `CandidateEvidence/ProofBundle`, per-obligation discharge, and SelectionPlan are **not implemented**; individual proof algorithms land with their verifier/tests |
 | J Graph → execution-semantic lowering → A3 | **documentation contract mostly closed / CFG implementation incomplete** | direct lowering, fact-drift checks, Execution Basis, SemanticCheck, effects/errors/speculation, verifier, schema header, canonical mean trace, explicit-definition current/planned handoff example | A3-v0 is still single-block/Return-only. What remains is executable Branch/CondBranch/block-merge lowering plus differential E2E, not a missing documentation example |
