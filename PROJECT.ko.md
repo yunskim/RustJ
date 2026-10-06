@@ -8810,6 +8810,40 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 - **Runtime admission/Executor:** 실제 name/input snapshot/guard outcome, lease generation/readiness, 장치 가능 여부를 **사용 시점**에 확인한다. verifier를 통과하지 않은 계획 실행, 관찰된 효과 뒤의 transparent replay, backend 내부 오류를 근거 없이 J Domain/Rank/Length로 바꾸기는 금지한다.
 - **Cross-route 책임:** 첫 native CPU slice 밖의 runtime/external 부분을 하나의 PhysicalPlan으로 강제로 합칠 필요는 없다. 다만 각 boundary handoff의 value/version/check/error/effect 계약은 통합 검증 기록으로 추적한다.
 
+
+##### H-K — A3 OpKind별 M3→M4 인계 규칙 (2026-10-07; 설계만)
+
+**구체적 공백:** 현행 `lowering.rs::route_operation`은 `Literal`, `ReadNoun`, `VerbReference`를 모두 `NoKernel`로, `partition_plan`은 그 연속 구간을 `RouteRegionClass::ValueOnly`로 합친다. 이 분류는 **실행 후보 grouping**이지 세 OpKind가 동일한 버퍼·호출·이름 의미를 가진다는 뜻이 아니다. M4 승인 여부는 region class뿐 아니라 원본 A3 **OpKind마다** 다르게 확인해야 한다.
+
+| 원본 A3 대상 | M3가 책임지는 증거 | M4가 할 수 있는 일 / 금지되는 일 |
+|---|---|---|
+| `Literal(value)` | 원본 payload, dtype/shape, producer OpId와 result ValueId, source origin | 지원하는 dense CPU literal은 읽기 전용 입력 버퍼로 바인딩 가능. 이를 항상 deep copy할 필요는 없고, 타입·Shape를 임의 변경할 수 없음 |
+| `ReadNoun {symbol,version}` | 원래 J read 시점과 noun snapshot, namespace/scope/버전, observable ordering | `ValueOnly`여도 literal로 간주하거나 나중 값으로 바꿔 읽지 않는다. 런타임 snapshot/guard가 없으면 합법한 RuntimeSemantic 경로에 남긴다 |
+| `VerbReference(Callable)` | FunctionEntity, function POS, primitive/derived callable identity와 동적 NAME lookup | J 함수 참조는 noun의 dense 배열 버퍼가 아니다. `NoKernel`만 보고 `BindInput`용 값이나 kernel operand로 취급 금지; 별도의 function semantics 지원 필요 |
+| `Basis { kind,payload,call }` | 원본 primitive/derived target·valence·Rank/CellApply·fact/error/effect, selected recipe 및 Check/guard 의무 | M3가 승인한 선택 target에 해당 recipe/실제 native 구현이 **존재할 때만** Kernel/View 계획 가능. `legal_candidates`나 `ReferenceSequential`만으로 native 준비 완료 주장 금지 |
+| `SemanticCall(call)` | 정규화되지 않은 호출 의미, dynamic binding, 효과/오류 | 현행은 RuntimeSemanticFallback. 별도의 동등성·지원 증거 없이 임의로 native Basis/Kernel로 승격 금지 |
+| `SemanticCheck(check)` | producer/liveness, zero-result constraint, 원본 error kind/span/order 및 실행·증명된 discharge·동등 guard 중 하나의 소유자 | output SSA가 없더라도 제거 금지. 실행 의무가 있으면 Check를 원래 순서에 반영; 증명된 discharge만 무실행 허용 |
+| `Plan.result / Return` | 마지막 result ValueId, logical type/shape/atom order, cross-region producer | 유효한 output ownership/lease로 Return. Return이 Write commit 완료라는 뜻은 아님 |
+| `Plan.write` (operations 밖) | symbol/value/previous/proposed/span/after와 commit/effect owner | 모든 op range를 포함해도 Write는 자동 포함되지 않는다. 초기 M4 pure slice가 assignment를 commit하거나 Write를 무시·반복 실행하는 일 금지 |
+
+**전역·국소 검증의 구분:** RB-01은 원본 A3 **전체**의 모든 operation과 별도의 Write 사건에 적용된다. 하나의 RustJ-native PhysicalPlan은 이 가운데 **M3가 승인한 native region**만 담당할 수 있다. 전역 coverage는 M3가, 각 native region의 선택 recipe/Buffer·Check·Return coverage는 M4가 책임진다. 다른 RuntimeSemantic/External region은 억지로 동일한 PhysicalPlan에 집어넣지 말고 경계 ValueId·ordering·effect와 연결한다.
+
+**인계 시 세 번 확인할 사실(새 필수 IR이나 데이터 계층 추가 없음):**
+
+1. **M3 RouteVerified:** immutable source A3의 원래 OpKind/Check/Write/ValueId/order와 region의 실제 연산이 일치하는가? GuardRequired는 실행 허가가 아니며 guard 위치·실패 경로를 확정해야 한다.
+2. **M4 PhysicalVerified:** 승인된 native op 각각에 실제 target-compatible recipe 및 물리 Bind/Check/View/Kernel/Materialize/Return 대응이 있는가? `PlanBufferId ≠ PhysicalViewId ≠ runtime BufferId`, affine span, lease, encoding, ownership/last-use가 증명되는가? M4가 M3의 의미 증거를 새로 만들어내지는 않는다.
+3. **RuntimeReady:** 실제 read/name snapshot, input version, guard outcome, lease generation 및 capacity가 **사용 시점**에도 유효한가? 실패하면 observable effect commit **이전**의 안전한 fallback만 허용하고, effect 이후 자동 replay 금지.
+
+**부정 검증 계획 (H-KV1~5; 실행 테스트 미작성):**
+
+- **H-KV1:** `1+2`에서 Literal/Kernel input 대응을 유지해야 함. `VerbReference`를 `ValueOnly`라는 이유로 dense `BindInput`으로 취급하거나 literal producer를 바꾼 경우 거부.
+- **H-KV2:** `a`의 snapshot/version/read 시점, `a=:1+2`의 별도 Write/after를 한 가지만 변형해 거부. 결과 Value만 맞고 Write가 유실돼도 거부.
+- **H-KV3:** `1 2+1 2 3`의 zero-result Length Check는 Call 전에 관찰되어야 함. Check를 버리거나 중복·후행 배치한 physical 계획 거부.
+- **H-KV4:** `future 3`의 SemanticCall을 새 의미론 증거 없이 native 실행으로 가장하거나 `ReferenceSequential` 후보만으로 native kernel 성공 주장 시 거부.
+- **H-KV5:** 같은 원본 A3가 CPU-native와 RuntimeSemantic으로 분할될 때 M3 global coverage와 M4 native-local coverage를 각각 검사; 중간 live-out, 첫 오류, effect-live, final Return 손실 거부.
+
+**상태:** H-K는 기존 H-01~09/HM-V0~V4를 OpKind별로 구체화한 **설계 수용 보조 규칙**이다. 별도 canonical IR, CPU Parallel 레이어나 runtime 구현을 요구하지 않는다. 실제 validator/negative test/차분 결과가 없는 동안 M3/M4/HE-01 완료 항목은 열린 상태로 유지한다.
+
 **검증 표본(각 정상이 확인된 후 불변조건 1개만 위조하는 계획):**
 
 | 사례 | 정상 인계 증거 | 거부·실패로 판정할 변형 |

@@ -3632,7 +3632,7 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 
 ## 17. Active migration checklist
 
-**M3→M4 evidence handoff (2026-10-07):** [x] Documented H-01–H-09 and HM-V0–HM-V4 under §17.2.1 to distinguish RouteVerified, PhysicalVerified and RuntimeReady, with error/Check/Write/version/ownership and negative/differential obligations. [ ] Verifier implementation, proof discharge and execution/CI validation remain pending; no new runtime or IR was introduced.
+**M3→M4 evidence handoff (2026-10-07):** [x] Documented H-01–H-09 and HM-V0–HM-V4 under §17.2.1 to distinguish RouteVerified, PhysicalVerified and RuntimeReady, with error/Check/Write/version/ownership and negative/differential obligations. [ ] Verifier implementation, proof discharge and execution/CI validation remain pending; no new runtime or IR was introduced. Added §17.2.1 H-K/H-KV1–5 to distinguish Literal, ReadNoun and VerbReference despite their shared ValueOnly class; design only.
 
 **M3-RB proof boundary (2026-10-07):** [x] Design contract RB-01–08 and verification gates RB-V0–V4 in §2.1.1, covering original A3 op/Check/Write provenance, cross-region liveness, ordered errors and guards without introducing a new IR. [ ] Actual RouteBoundary verifier, one-invariant negative tests and J C/reference differential remain **unimplemented and unverified**. M2→M3→M4 order unchanged.
 
@@ -4627,6 +4627,39 @@ original A3 (structurally verified and semantically authoritative)
 - **M4 Physical verifier**: independently match the selected physical plan against the admitted source mapping, ordered Check/guard obligations and selected recipe; verify implementation/CPU target capability, affine bounds, plan buffer vs runtime lease identity, encoding, liveness, ownership, output validity and resource feasibility. It does not manufacture or relax J-semantic proof.
 - **Runtime admission / Executor**: at use time recheck actual input/name snapshots and guard outcomes, buffer generations/readiness and supported devices. Reject unverified plans, effect-after-commit transparent replay, and arbitrary relabeling of backend failures as J semantic errors.
 - **Cross-route boundary**: do not require a single RustJ-native PhysicalPlan to contain all RuntimeSemantic/MLIR/external regions. Each logical value, version, Check, observable error/effect and handoff obligation must still be accounted for across routes.
+
+#### H-K: M3→M4 admission by original A3 OpKind (2026-10-07; design only)
+
+**Concrete ambiguity in the current classifier.** In `lowering.rs::route_operation`, `Literal`, `ReadNoun` and `VerbReference` all return `RouteDecision::NoKernel`. Adjacent instances are merged by `partition_plan` into `RouteRegionClass::ValueOnly`. That describes a **candidate grouping**, not proof that these operation kinds share a storage binding, name-resolution or call contract. M4 admission must inspect the **original OpKind**, not only the region class.
+
+| Original A3 operation or event | M3 handoff evidence | M4 permitted realization / prohibition |
+|---|---|---|
+| `Literal(value)` | Original payload/type/shape, producing OpId, resulting ValueId and source origin | May bind a supported dense read-only CPU literal. Do not imply a mandatory deep copy or freely change the logical shape/dtype |
+| `ReadNoun {symbol,version}` | J-visible **read time** and noun snapshot, namespace/scope/version, observable ordering | `ValueOnly` is **not** constant folding permission. Require actual snapshot and version/guard; absent sound runtime binding retain a supported RuntimeSemantic route rather than using a future/stale noun |
+| `VerbReference(Callable)` | FunctionEntity/result POS, primitive/derived function identity, dynamic NameRef lookup obligations | A function reference is **not** a dense J noun buffer. `NoKernel` does not license `BindInput` or arbitrary kernel data operand; require a suitable function-semantic route |
+| `Basis {kind,payload,call}` | Original target/valence, Rank/CellApply/access/facts/effects/errors, selected recipe, Check and proof/guard obligations | Only a **real implemented** compatible native kernel/view on the admitted target is executable. Neither `legal_candidates` nor a `ReferenceSequential` candidate proves native readiness |
+| `SemanticCall(call)` | Non-normalized semantic call, dynamic binding and observable errors/effects | Currently classified as RuntimeSemanticFallback. Do not invent a Basis/native Kernel without separate equivalence and supported route evidence |
+| `SemanticCheck(check)` | Inputs and liveness, zero SSA results, original constraint/J error class/source span/order; one execute/discharge/equivalent-guard owner | No SSA result does **not** mean dead. Execute at the admitted J order when required; omit only if independently discharged by proof |
+| `Plan.result / Return` | Authoritative final ValueId, logical dtype/shape/order and any cross-region producer | Return requires valid output lease/ownership; a Return is not assignment/Write commit |
+| `Plan.write` (outside operations) | symbol/value/previous/proposed/span/after, separate commit and effect ownership | Coverage of all op ranges does **not** cover Write. The first native pure M4 slice cannot silently omit, duplicate or perform an unowned assignment |
+
+**Global versus native-local coverage.** RB-01 requires M3 to account for **every** original A3 operation and its separate Write event, across **all routes**. An M4 RustJ-native PhysicalPlan may implement **only an admitted native region**. M4 verifies that region's realized operations, Check/guard mapping, ValueId interface, and physical outputs; other runtime/external regions are connected by verified boundary values and effect/error edges rather than forced into one physical plan.
+
+**Three distinct admission checkpoints (no new mandatory IR):**
+
+1. **RouteVerified at M3:** Does the original immutable A3's OpKind, source/check/write identity, operand and ordering data match the selected region? A mere class/range or manually changed `CallOp` is not sufficient. GuardRequired is not execution admission.
+2. **PhysicalVerified at M4:** Does each admitted native operation have a real target-compatible recipe and concrete physical Bind/Check/View/Kernel/Materialize/Return correspondence? Distinguish `PlanBufferId`, `PhysicalViewId` and runtime `BufferId`. Verify affine bounds, encoding, ownership, leases, last use and readiness without creating new semantic facts.
+3. **RuntimeReady before use:** Recheck observable noun/name snapshots, input versions, guard outcomes, actual lease generation and capacity **at the point of use**. On failure, permit only an already legal fallback **before observable effect commit**, never transparent replay after it.
+
+**Proposed rejection tests H-KV1–5 (not implemented or run):**
+
+- **H-KV1:** `1+2` preserves literal and Basis operand mapping. Reject interpreting a `VerbReference` as a dense `BindInput` just because its class is `ValueOnly`, or forging a literal producer.
+- **H-KV2:** For `a`, reject changed snapshot/version/read time. For `a=:1+2`, reject a changed/missing independent Write event even if returned SSA value is correct.
+- **H-KV3:** For `1 2+1 2 3`, keep the zero-result Length Check ordered before the call. Reject missing, duplicated, or delayed physical checks.
+- **H-KV4:** Reject silently turning `future 3`'s SemanticCall into a native CPU/GPU kernel without separate proof, or mistaking a `ReferenceSequential` candidate for implemented native Add.
+- **H-KV5:** For mixed CPU-native and RuntimeSemantic regions from the same A3, test **both global M3 coverage and native-local M4 coverage**. Reject loss of a cross-region live-out, first J error, effect-live operation or final Return.
+
+**Acceptance status:** H-K refines existing H-01–09/HM-V0–V4 with explicit per-OpKind tests; it is not a new compiler layer, canonical IR or parallel/GPU implementation. Keep all actual M3/M4/HE-01 runtime and differential acceptance items **open** until verifier and reference-based tests really pass.
 
 **Proposed one-invariant-negative test matrix (not yet implemented):**
 
