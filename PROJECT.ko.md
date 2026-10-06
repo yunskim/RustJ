@@ -9564,6 +9564,8 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **IO-25 JMF 첫 독립 smoke 실행 시도(수용 전).** [tools/jmf_smoke.py](tools/jmf_smoke.py)에 J 원본 `jlibrary/bin/profile.ijs`와 `load 'jmf'` 부트스트랩을 고정 라이브러리·별도 임시 HOME으로 실행하고, 임시 JMF file에 대해 RW(0)→RO(1)→COW(2)를 **각각 map → 빈 noun 비교 → unmap 결과 0**으로 관찰하는 독립 실행 후보를 구현했다. [검증용 JMF 시나리오 테스트](tools/test_jmf_smoke.py)를 추가하고 [Linux CI](.github/workflows/linux.yml)에 비수용 탐색 단계를 연결했다. 원본 J profile/add-on 초기화 또는 JMF mapping이 실패하면 `blocked`를 별도로 기록하며, 이 시점에는 JMF CI 실행 결과/기능 지원을 주장하지 않는다. 이 작은 smoke는 **실제 boxed payload, mutable persistence, RO/COW 쓰기 차이, refs에 의한 unmap 거부, resize/remap, Jd partition** 검증이 아니므로 IO-25 [ ] 유지.
 
+**JMF 부트스트랩 첫 실측 결과(2026-10-07, 미수용).** [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000)의 `j64/default`와 `j64/portable` C job에서 JMF 탐색 단계는 `status=blocked`, `stage_count=2`였으며, 첫 `BINPATH_z_` 설정은 실행되고 `0!:0 <.../jlibrary/bin/profile.ijs`에 `domain error`가 발생했다. **map/unmap까지 도달하지 않았다.** 이 결과를 JMF RW/RO/COW의 부정 결과로 해석하지 않는다. [후속 진단 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3)는 실제 J script loader가 짧은 독립 fixture를 읽을 수 있는지 먼저 검사하고, 실패 원본에 `13!:12` 문맥을 포함하도록 분리했다. 후속 CI 결과는 이 기록 시점 미확정이다. IO-25는 [ ]이다.
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
