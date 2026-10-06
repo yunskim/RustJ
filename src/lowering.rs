@@ -106,11 +106,16 @@ pub enum SearchAlgorithmReadiness {
     UnsupportedSearchForm,
 }
 
+/// Shared registry report shape: other execution families may provide
+/// their own algorithm and proof-status enums without adding Graph IR nodes.
+/// It is deliberately not a committed SelectionPlan or a CostEstimate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SearchAlgorithmReport {
-    pub algorithm: SearchAlgorithm,
-    pub readiness: SearchAlgorithmReadiness,
+pub struct AlgorithmCandidate<A, L> {
+    pub algorithm: A,
+    pub readiness: L,
 }
+
+pub type SearchAlgorithmReport = AlgorithmCandidate<SearchAlgorithm, SearchAlgorithmReadiness>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Requirement {
@@ -565,7 +570,7 @@ impl LoweringRegistry {
         [Sequential, DirectAddress, IndexedHash, ReverseQueryHash,
          PreparedHash, TolerantNeighborHash]
             .into_iter()
-            .map(|algorithm| SearchAlgorithmReport {
+            .map(|algorithm| AlgorithmCandidate {
                 algorithm,
                 readiness: Self::search_algorithm_readiness(
                     output, comparison, indexed_present, algorithm, target
