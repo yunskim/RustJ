@@ -9377,7 +9377,7 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 
 ### 8.5 느린 I/O·Out-of-core 배열 실행 계약 (2026-10-06, 설계 후보 / 구현 미착수)
 
-**목표.** RAM/GPU 용량보다 큰 J noun·신경망 가중치·배열 데이터에 대해 (a) 원래 J 결과·오류·효과 순서를 보존하고, (b) 실제로 읽는 바이트와 복사량을 줄이며, (c) 필요 시 디스크/원격 데이터 이동과 계산을 중첩한다. 이것은 새로운 J syntax나 암묵적 GPU 구현이 아니라, [§5 Physical Planning/Execution Scheduling](#out-of-core-io-contract)에 따른 물리 실행 확장이다. **최초 native CPU M4 vertical slice의 선행 조건으로 삼지 않는다.** 모든 기능은 [§10 IO-01~IO-30 수용 게이트](#out-of-core-io-checklist)를 통과하기 전에는 계획/후보일 뿐이다.
+**목표.** RAM/GPU 용량보다 큰 J noun·신경망 가중치·배열 데이터에 대해 (a) 원래 J 결과·오류·효과 순서를 보존하고, (b) 실제로 읽는 바이트와 복사량을 줄이며, (c) 필요 시 디스크/원격 데이터 이동과 계산을 중첩한다. 이것은 새로운 J syntax나 암묵적 GPU 구현이 아니라, §5의 Physical Planning/Execution Scheduling에 따른 물리 실행 확장이다. **최초 native CPU M4 vertical slice의 선행 조건으로 삼지 않는다.** 모든 기능은 [§10 IO-01~IO-30 수용 게이트](#out-of-core-io-checklist)를 통과하기 전에는 계획/후보일 뿐이다.
 
 **원본/선행 기법 비교(직접 계승 vs 조건부 응용).**
 
@@ -9386,7 +9386,7 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 | Jsource `jlibrary/addons/data/jmf/jmf.ijs` | J noun에 file mapping; R/W·read-only·copy-on-write, header/shape와 unmap 참조 제약. non-jmf typed boxed mapping 제한과 JMF-backed boxed 회귀 fixture가 공존 | mapped dense array backend 후보. mmap=비동기 I/O·zero page fault·J 전체 boxed/sparse 지원으로 해석하지 않음 |
 | Jsource `jsrc/xf.c`, J foreign `1!:11`/`1!:12` | file offset+length의 부분 read/write; 현재 C 경로는 `fread/fwrite` 기반 동기식 | 순차 byte-range 기준 경로와 J-visible foreign I/O 의미 비교. 그래프에서 effectful file foreign을 순수 scan으로 자동 대체 금지 |
 | Jsource `jsrc/v.c` 등 | reference/in-place 가능 조건에 따라 버퍼 재사용·복사 억제 | alias/lifetime proof 후 reuse; mapped write와 implicit in-place를 동일시하지 않음 |
-| Jd (J 데이터 라이브러리) | 분할 저장/선택 스캔을 조사할 후보 | 데이터셋 관리 방식만 검토. Jd column-file on-demand mapping, partition-column read pruning, SIMD mapped-tail 방어를 소스에서 확인. full-J 효과 증명과 구별 |
+| Jd (J 데이터 라이브러리) | 열별 파일 매핑과 파티션 조건별 selective read를 실제 소스에서 확인 | 데이터셋 관리 원리를 참고하되 full-J 의미론으로 일반화하지 않음. Jd column-file on-demand mapping, partition-column read pruning, SIMD mapped-tail 방어를 소스에서 확인 |
 | DuckDB (2026 async I/O) | compute pool·blocking I/O pool 분리, job/read-ahead, 메모리 governor 연동, park/resume | bounded read-ahead·메모리 예약·작업 완료 이벤트. DuckDB 전체 스케줄러 복제 불필요 |
 | Polars Lazy | projection/predicate/slice pushdown, common subplan reuse | 정확한 access/effect/witness가 있을 때만 필요 byte-range 축소; 임의 J verb·reduction에 무조건 적용 금지 |
 | Apache Arrow Dataset Scanner | `batch_readahead`와 `fragment_readahead`의 다른 단위, metadata/pruning | chunk/fragment 단위 선택과 bounded concurrency; 전체 Arrow 데이터모델 복제 불필요 |
