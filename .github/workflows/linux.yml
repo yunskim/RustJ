@@ -96,6 +96,13 @@ jobs:
           python3 tools/ranked_search_audit.py --retry-probes --gate-retry-probes \
             --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
             --report "reports/rank-inhomo-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: RK-07 error precedence C/Rust diagnostic (non-acceptance)
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/ranked_search_audit.py --error-probes \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/rank-error-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -108,5 +115,6 @@ jobs:
             reports/ranked-search-audit-*.json
             reports/rank-adversarial-*.json
             reports/rank-inhomo-*.json
+            reports/rank-error-*.json
             .reference/manifest*.json
             .reference/build.log
