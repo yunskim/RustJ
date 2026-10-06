@@ -29,7 +29,9 @@ def j_float(value):
     if value == -math.inf:
         return "__"
     # J negative numbers use _, including exponents.
-    return format(value, ".17g").replace("-", "_")
+    literal = format(value, ".17g").replace("-", "_")
+    # An integer-looking token would be an INT in J, not binary64.
+    return literal if ("." in literal or "e" in literal) else literal + ".0"
 
 
 def tolerance_cases():
