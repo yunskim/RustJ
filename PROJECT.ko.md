@@ -3188,6 +3188,54 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 - 회귀 검사에 A3 `SearchDescriptor`의 mode·indexed/probe origin 및 forged payload 거부, Registry의 target·proof 상태, Physical의 5개 전략/false guard/GPU/Interval 차단을 추가했다. 기존 `i.` first/last/membership/empty/duplicate 및 prehash rebinding 테스트는 별도로 유지한다. **이번 변경에서는 Cargo·CI·jsource differential·benchmark를 실행하지 않았으므로 결과의 실행 검증과 성능 개선을 주장하지 않는다.**
 
 
+<a id="index-family-roadmap"></a>
+
+##### P. i. family 통합 로드맵·진행 체크리스트 — Roger Hui × Marshall Lochbaum (2026-10-06)
+
+**정본 운영 규칙.** 이 체크리스트는 [§N: i. 원본 및 1·2차 구현](#jsource-index-family), [§O: A3/Registry/Physical 경계](#algorithm-planning-migration), [§4.1.4: proof→selection lifecycle](#)에 종속된 **살아 있는 구현 게이트**다. 항목마다 **근거 / 실행 계층 / 완료 조건 / 검증 상태**를 명시한다. [x]는 **코드·문서가 저장소에 존재함을 정적으로 확인**했음을 뜻할 수 있으며, 테스트 실행·jsource 동등성·성능 달성을 자동으로 의미하지 않는다. 별도 문서를 늘리지 않고 이 절에서 관리하며 완료될 때마다 실제 검증 근거를 기록한다. **Linux milestone은 별도로 만들거나 완료 조건에 넣지 않는다.**
+
+**독립 참고 원본 및 적용 기준:**
+
+- Roger Hui, [*Index-Of, a 30-Year Quest*](https://www.jsoftware.com/papers/indexof/) 및 [*Hashing for Tolerant Index-Of*](https://www.jsoftware.com/papers/Hashing.htm): J의 첫·마지막 일치, Nub/Key의 대표 원소, tolerant comparison 및 소스 실행 모드의 출발점. 실제 동작의 대조 원본은 pinned [jsource `vi.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [`viavx.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850), [`viavx2.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L98). C fast path 자체를 동등성 증명으로 사용하지 않는다.
+- Marshall Lochbaum, [*BQN: Implementation of search functions*](https://mlochbaum.github.io/BQN/implementation/primitive/search.html): 작은 배열 순차/SIMD, lookup table, one-shot hash, reverse hash, lazy/sparse **table initialization**, open-addressing/linear probing, collision observation, partitioning/radix 및 cache 비용을 비교하는 **알고리즘·물리 최적화 참고**. BQN과 J의 비교 동등성, Fit, Rank, Boxed/AxisSparse 의미가 같다고 가정하지 않는다. BQN의 *sparse lookup*은 **직접 주소 테이블 일부만 초기화하는 기법**이며 J sparse array와 다르다.
+- 외부 프레임워크 [§O](#algorithm-planning-migration)의 MLIR dynamic legality, IREE target lowering, TVM measured cost, XLA resource/cost 분리는 **알고리즘 소유권 경계**로 재사용한다. 새로운 IR 계층이나 C 함수별 Graph node를 만들지 않는다.
+
+###### P.1 구현 단계와 수용 기준 (계속 갱신)
+
+| 순서 | 체크 항목 | RustJ 소유 계층·수용 기준 | 현재 상태 |
+|---|---|---|---|
+| 0 | [x] J 검색 family를 원본 이름·valence·의도에 따라 분류 | J Graph/semantic identity: dyadic `i.`/ `i:`/ `e.`와 monadic generate, dyadic `I.` interval, `E.` window find를 혼동하지 않음 | 코드·§N 정적 확인, full-J 미완료 |
+| 1 | [x] 검색 의미와 실행 전략 분리 | A3 `SearchDescriptor` first/last/member/interval/self; `Operation.j_origin`, rank boundary, J equality를 보유하고 Physical table 정보는 배제; A3 schema 0.5/verifier | 구현·회귀 테스트 추가; **실행 미확인** |
+| 2 | [x] 알고리즘 후보·가드 상태와 비용 선택기 분리 | `LoweringRegistry`의 Baseline/Guard/Proof/Unsupported, `physical.rs::plan_search_algorithm`의 `SearchWorkload/Choice`. Unknown→legal 금지. CPU exact scalar에 한정 | 구현·정적 확인; **벤치마크 미실시** |
+| 3 | [x] 기본 검색 전략과 optional cache 준비 | CPU 순차, 좁은 정수 Direct, Hash, query-side Reverse, immutable-Arc per-Engine Prehash; direct Boolean `e.` 결과와 table allocation 실패 시 순차 fallback | `index_ops.rs`/runtime 구현, 아직 conformance 미통과 |
+| 4 | [x] Tolerant equality 반례와 후보 포괄성 **연구 테스트 작성·연결** | `src/tolerant_search.rs`(테스트 전용, `#[cfg(test)]`)에서 비추이성, first/last, 지수 bucket ±1, ±0, NaN, ±Inf, subnormal 및 독립 **linear search index** 대조 | **테스트 코드만 작성**, 실행·C oracle 검증 미완료; 런타임 미연결 |
+| 5 | [ ] J 비교 계약 구체화 | `ComparisonPolicy`: `!.ct`/runtime cct/version, float/complex/boxed/AxisSparse, exact build vs tolerant probe, rank/cell/frame, first/last representative, error/effect precedence를 source-linked witness로 확정 | 의미론적 proof 미완료 |
+| 6 | [ ] Tolerant candidate-filter 완전성 증명 | 현재 fixed `kernels::near(a,b)`의 **t = 2^-44** 조건에서 부호·절대값 지수의 인접 bucket 탐색이 가능한 모든 일치 위치를 포함함을 증명. exact match는 +0/-0·동부호 Infinity 별도, NaN 제외. **원래 predicate로 모든 candidate 재확인·원래 source index로 최솟값/최댓값 선택** | 조건부 수학 논증·연구 코드; 일반 J equality의 증명은 아님 |
+| 7 | [ ] runtime tolerance-guard + miss fallback과 prehash invalidation | C reference/다중 precision·fit/rank·동적 변경에 대한 guard; 실패하면 효과 이전 기존 순차 경로. 인덱스의 `cct`/argument backing identity/version과 lifetime을 검증 | 실행 미구현·미검증 |
+| 8 | [ ] BQN 기반 작은 인자·Small-range 고도화 | 작은 인자별 순차 양방향/SIMD, byte/2-byte 직접 테이블, packed presence, sparse **table initialization**; CPU feature·메모리 상한·first/last 결과가 기존과 같을 때만 선택 | 알고리즘·비용 검증 대기 |
+| 9 | [ ] 대규모 해시 충돌·캐시 개선 | one-shot workload에 맞는 open-addressing/linear-probing **대안**(현재 Rust `HashMap`은 당장 교체 금지); 충돌 계수, 해시/비교 adversarial guard, high-collision sorting/radix fallback, partitioning/캐시 동작 비교 | 성능·구현 대기 |
+| 10 | [ ] BQN reverse/Prehash 선택과 비용 보정 | query/indexed 크기 비율, uniq cardinality, table 초기화·clear 비용, cache residency, reuse 횟수, persistent vs one-shot 준비비를 `ResourceEstimate`와 `CostEstimate`로 분리. hard memory guard가 비용보다 우선 | fixed heuristic만 있음 |
+| 11 | [ ] `i.` 외 가족으로 공통 알고리즘 선택 패턴 이식 | Nub/Key/`I.@e.`의 결과 모드와 순서 계약을 확장한 후, Reduce/GroupBy/Grade/Contract는 **각자 독립 semantic proof**를 둔 generic `AlgorithmCandidate`/SelectionPlan을 사용 | interface prototype 일부만 존재 |
+| 12 | [ ] Release gate: Rust/C differential + 비용 실측 | 기본/portable Rust tests, J C 두 경로의 first/last/NaN/±0/empty/rank/boxed/sparse/`!.ct`/error, 참조 순차 vs 모든 활성 fast path, 무작위·충돌 유도 벤치 및 memory/time 회귀. **측정 전 threshold 고정 최적화 주장 금지** | 수행하지 않음 |
+
+###### P.2 독립 검증 루프 (반복·결과 기록)
+
+- [ ] **A — source-first 독립 검토:** Hui 논문 → 고정 jsource dispatch(`vi.c`)/tolerance(`viavx2.c`)/prehash 모드 → J 오류·Rank·Fit 계약을 추출. BQN 코드를 의미론적 oracle로 대체하지 않음.
+- [ ] **B — mathematics-first 독립 검토:** `a == b || finite ∧ |a-b| ≤ t·max(|a|,|b|)`의 비추이성과 exponent bucket 포괄성, IEEE-754 rounding/underflow/overflow 및 대표 인덱스 순서를 **해시 코드와 별도** 증명. \(0 ≤ t < 1/2\) 같은 가정을 witness로 기록.
+- [ ] **C — reference-first 독립 검토:** 모든 query에 대해 J C oracle, 현재 Rust 순차 near oracle, 후보 인덱스 검색을 3방향 비교한다. **Rust near와 일치한다**는 사실만으로 J C 일치가 성립하지 않음.
+- [ ] **D — compiler-boundary 독립 검토:** Graph candidate → A3 descriptor/verifier → Registry dynamic legality → Physical cost/resource → runtime guard/fallback을 파일별로 읽고 stale origin, `e.` 인자 방향, GPU/Interval/Tolerant 미승인을 다시 확인한다.
+- [ ] **E — adversarial/performance 독립 검토:** high collision, all-identical, near-chain, sorted/unsorted, tiny/massive range, no-match majority, cache-pressure, table build/miss/allocation과 source-order stable output을 계측. speed win이 없는 방안은 보류·폐기한다.
+
+**반복 기준:** 한 번의 점검에서 실패 사례가 나오면 관련 코드·proof/fallback과 회귀 테스트를 수정하고 A~E 중 직접 관련되지 않은 관점에서도 다시 검증한다. [ ]를 [x]로 바꿀 때는 **실행 명령, 환경, 테스트 개수/결과, 비교 원본의 commit 또는 측정 데이터**를 같은 절에 기록한다. Linux 전용 milestone은 생성하지 않는다. CI를 실행하지 않았으면 통과라고 기록하지 않는다.
+
+###### P.3 현재 known gaps / 바로 다음 순서
+
+1. 먼저 연구 harness의 부호·지수 bucket 범위와 `kernels::near` 고정 tolerance에 한한 포괄성 수학 논증을 확정하고 Rust 기본/portable 테스트를 실제로 검증한다(현 환경에서 실행 불가능하면 미검증 유지).
+2. 독립 J C reference로 first/last·float/complex/boxed·`!.ct`와 빈 cell/frame을 확인해 **현재 CPU `near`와 원본 J 차이**를 수집한다. 이 차이가 제거되기 전에는 tolerance-specific optimized route를 절대 열지 않는다.
+3. 그 다음 BQN의 lightweight small-array, byte/2-byte table, sparse table init, collision safeguards를 workload별 실측으로 평가하고 `SearchWorkload`/cost evidence를 확장한다. **BQN의 open addressing을 근거 없이 HashMap 대신 바로 채택하지 않는다.**
+4. Tolerant hashing kernel 활성화는 마지막 단계다. Registry 상태 `NeedsSemanticProof` 및 Graph `AwaitingSemanticProofs`는 proof/guard/fallback 검증 전까지 유지한다.
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
