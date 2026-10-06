@@ -2139,7 +2139,7 @@ This section distinguishes source-derived **design evidence** from actual RustJ 
 | Source-derived idea | Existing RustJ owner | Code status | Gate before execution optimization |
 |---|---|---|---|
 | `f/@:g` Map→Reduce streaming | Existing `j_graph_fusion.rs::MapReduce` and `fusion_planning.rs` | Reuse the existing envelope; do not add a duplicate rewrite | cell/rank, numeric/type, effect/order, target feasibility, fallback |
-| `+/%#` Mean fork | New `j_graph_jsource.rs` source analyzer | Recognize **ordinary Fork of Insert(Add), Divide and Tally** as a source-backed **MeanIdiom candidate only** | shape/cell, empty, numeric order, effects; no Mean kernel yet |
+| `+/%#` Mean fork | New `j_graph_jsource.rs` source analyzer | Recognize **monadically applied ordinary Fork of Insert(Add), Divide and Tally** as a source-backed **MeanIdiom candidate only** | shape/cell, empty, numeric order, effects; no Mean kernel yet |
 | Reduction/window/scan | Existing `GraphForm::Reduce/PrefixInfix`, `j_graph_scan.rs` | Register ReductionFastPath/WindowAlgorithm opportunities, separate from Scan witness | small-cell/window algorithm; NaN/overflow, monad vs dyad |
 | `i.` / `e.` / `E.` search | Primitive identity, existing FindViaWindowMatch rewrite | Dyadic SearchAlgorithm source opportunity; preserve existing Find rewrite | tolerance, hash/sort applicability, cost |
 | Dyadic `I.` interval index | `PrimitiveId::Indices` | Distinct IntervalLookup candidate, not monadic index-space | order/shape/type/tolerance |
@@ -2154,6 +2154,22 @@ This section distinguishes source-derived **design evidence** from actual RustJ 
 - `tests/j_graph_jsource.rs` covers stable source registry, derivation/provenance, forged candidates, exact Mean fork and negative matches, selected Graph patterns and isolation from existing Find rewrite/MapReduce fusion. **Test execution has not yet been verified**.
 
 Deferred work: establish correct J constructor/operand/rank semantics for Key, Dot, Grade, Cut and Under; discharge semantic/effect/alias/numeric witnesses; add execution-specific GroupReduce/Contraction/GradeSort/IntervalLookup operations; select guarded CPU/GPU/sparse/BLAS routes only through target/cost planning; and validate against jsource for empty/sparse/tolerance/`!.`/overflow/rank/error/binding cases. Preserve the current frontend milestone priority. The optimization catalog is **not** an executable jsource-optimization port.
+
+### K. Follow-up source audit: monadic Mean guard and runtime-only optimizations (2026-10-06)
+
+**Concrete correction:** In the pinned [`cf.c::jtfolk`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L93-L101), `(+/ % #)` selects **`f1=jtmean` only**, not a dyadic `f2` specialization. Earlier RustJ discovery matched the derived fork but did not check applied valence, so it could falsely emit `MeanIdiom` for dyadic calls. `src/j_graph_jsource.rs` now requires a **monadic applied node**, and `tests/j_graph_jsource.rs` includes a dyadic negative regression. No mean kernel or numeric-equivalence proof is implied.
+
+A second pinned-source pass also sampled previously unreviewed areas:
+
+| Direct source | Observed mechanism | RustJ boundary |
+|---|---|---|
+| [`p.c` lines 10–24](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L10-L24) | Parse rows 0–2 support inplace execution, assignment `zombieval`, early parse completion | Frontend/runtime binding and lifetime, **not** graph-only donation |
+| [`cx.c` lines 270–329](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L270-L329) | Reuse/clone explicit local symbol tables, precomputed x/y buckets, borrowed/abandoned argument handling | Explicit runtime/binding; respect dynamic scopes and aliasing |
+| [`va1.c` lines 313–383](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va1.c#L313-L383) | Monadic numeric dispatch, retry/promotion by exceptional condition, distinct sparse fallback | Numeric semantic witnesses then guarded execution |
+| [`am.c` lines 55–89](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L55-L89), [568–581](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L568-L581) | Guarded Amend/scatter inplace paths checking indexing, sparse/type/read-only/alias/usecount | Amend semantics then Scatter/Buffer planning; do not conflate with Gather |
+| [`m.c` lines 743–783](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/m.c#L743-L783) | Virtual/recursive storage and allocation/refcount lifetime | Physical allocator/representation; do not copy C flags as graph semantics |
+
+Only the Mean false-positive is changed in graph discovery. Other observations remain source-evidence backlog assigned to their respective stages; they do not claim additional implemented graph transformations or exhaustive jsource coverage. `FOUNDATIONS.ko.md` remains consistent with the semantic/physical separation and needs no change. **Rust tests, differential execution and benchmarks have not been run for this change.**
 
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
