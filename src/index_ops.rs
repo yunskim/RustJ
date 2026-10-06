@@ -67,12 +67,12 @@ pub(crate) fn atom_eq(a: &Value, ai: usize, b: &Value, bi: usize) -> bool {
         ai,
         b,
         bi,
-        crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near(),
+        crate::comparison_policy::ComparisonPolicySnapshot::pinned_j_default_cct(),
     )
 }
 
 /// All atoms in one search call share the same comparison-policy snapshot.
-/// The snapshot is currently fixed; dynamic J CCT is not yet implemented.
+/// Pinned J default CCT only; dynamic J CCT is not yet implemented.
 fn atom_eq_with_policy(
     a: &Value,
     ai: usize,
@@ -473,7 +473,7 @@ fn lookup(
     } else {
         None
     };
-    let comparison = crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near();
+    let comparison = crate::comparison_policy::ComparisonPolicySnapshot::pinned_j_default_cct();
     result_from_positions(shape, n, items, result, |q| {
         if let Some(index) = &exact {
             return index.find(queries.int_at(q).unwrap(), items);
@@ -540,7 +540,7 @@ pub(crate) fn find(a: Value, b: Value) -> Result<Value> {
         return Err(Error::Unsupported("E. multidimensional pattern".into()));
     }
     let width = a.len();
-    let comparison = crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near();
+    let comparison = crate::comparison_policy::ComparisonPolicySnapshot::pinned_j_default_cct();
     Value::new(
         b.shape.clone(),
         Data::Bool(CpuStorage::generate(b.len(), |i| {
