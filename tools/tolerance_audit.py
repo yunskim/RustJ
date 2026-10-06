@@ -142,6 +142,10 @@ def main():
             "rust_reference_optimized_disagreements"
         ],
         "gate": "DIAGNOSTIC ONLY; J CCT conformance not claimed",
+        "c_rust_mismatch_labels": [
+            row["label"] for row in report["observations"]
+            if row["classification"] != "pass"
+        ],
     }, indent=2))
     # Do not treat known language semantic gaps as passing. However, a newly
     # divergent optimized route is a regression against RustJ's own baseline.
