@@ -10841,12 +10841,12 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 ## 12. 현재 검증·구현 상태 요약
 
-코드/문서 검토 기준: 2026-10-04 WI1 입력 metadata 검사 단계. 최신 실행 결과와 잔여 경계는 §10 JE2 및 아래 요약을 함께 따른다. 과거 단계별 gate 수치는 그 시점의 검증 기록이다.
+이 절의 오래된 architecture review anchor는 2026-10-04 WI1 입력 metadata 단계였지만, **현재 구현/검증 상태는 2026-10-05 NV3d2b2a와 GF6a까지의 `main`을 기준으로 아래 항목을 갱신한다.** 과거 단계별 gate 수치는 그 시점의 검증 기록이며 현재 HEAD 상태로 읽지 않는다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
 - parser-produced shared `FunctionEntity`가 primitive, modifier application, hook/fork/train, rank/@: 구조를 보존한다.
-- explicit/direct definition frontend는 immutable `DefinitionCode`, control-flow metadata, multiple root direct definition, raw noun direct definition과 UTF-8/source provenance까지 확장되었다. definition invocation/local frame, nested/other-tagged/computed forms, Code body의 J Graph/A3 lowering은 아직 미완료다.
+- explicit/direct definition frontend는 immutable `DefinitionCode`, control-flow metadata, multiple root direct definition, raw noun direct definition과 UTF-8/source provenance까지 확장되었다. **runtime에는 지원 mode 1/2의 straight-line explicit modifier/direct invocation subset, per-call `LocalFrame`, x/y/u/v/m/n 설치, local/global assignment와 frame cleanup이 구현되어 있다.** 반면 control-flow body(`if./while./try.`), nested definition scope, 전체 locale/locative/operator-wrapper 의미, 일반 definition acceptance와 Code body의 J Graph/A3 CFG lowering은 아직 미완료다.
 - J Graph IR이 별도 canonical analysis surface로 존재하고 Graph Basis, structural opportunity, graph rewrite/resource analysis 기초가 구현되어 있다.
 - **M1 완료:** J Graph lowering이 `logical_ir::Plan`을 직접 생성한다. transition module/container/API는 제거했고 `Engine::analyze/analyze_a3`와 `CompilationAnalysis.logical`은 같은 canonical plan을 사용한다.
 - A3-v0에는 SSA ValueId, Function/Region/Block/Return, Execution Basis payload, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation, verifier가 구현되어 있다.
