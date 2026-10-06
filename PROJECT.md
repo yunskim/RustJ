@@ -2310,6 +2310,14 @@ The first N.2 extension has since landed in §O: A3 `LookupClassify { search: Se
 
 **No semantic shortcut:** approximate tolerance is not generally transitive; `!.ct`, complex/boxed and float values cannot be moved into exact hashing without a separate witness. `I.` interval is not an Index-Of hash family. These changes do not create final GPU codegen, native physical `BufferId` schedules or graph-rewrite commits.
 
+#### O.2a Representative example — `3 1 3 i: 3 4`
+
+- **J Frontend / Graph:** Preserve dyadic `i:` (last-match); 3 resolves to the last occurrence and 4 to the not-found sentinel.
+- **A3:** `LookupClassify { search: SearchDescriptor { output: LastIndex, indexed: left SSA ValueId, queried: right SSA ValueId, comparison: JEquality, .. } }` retains meaning without encoding a hash table.
+- **Registry:** CPU reports `Sequential=Baseline`, exact-scalar `DirectAddress/IndexedHash/ReverseQueryHash/PreparedHash=RequiresExactScalarGuard`, and `TolerantNeighborHash=NeedsSemanticProof`.
+- **Runtime/Physical:** Runtime checks Int/Bool scalar item types. With `3 × 2 <= 32` the candidate is sequential and the expected answer is `2 3`; bigger inputs may use other algorithms while preserving first/last/missing semantics.
+- **Verification:** The regression cases were added **but not executed**. This trace is a contract example, not a performance measurement.
+
 #### O.3 Generalization and verification gates
 
 ~~~text
@@ -2895,7 +2903,7 @@ Positive E2E tests are insufficient. Each stage must reject invalid states owned
 | J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.9 |
 | rewrite candidate verifier | stale source span/basis, unregistered rule/witness mismatch, invalid replacement DAG/facts/output semantics | implemented |
 | scan/fusion analysis verifier | forged order/rule version/witness/retention/fanout or unsupported selected state | partially implemented; proof-discharge/selection verification remains future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.4 |
+| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.5 |
 | CandidateEvidence / SelectionPlan | stale evidence, Selected with required proof Unknown, selected Illegal candidate, incompatible overlapping candidates | planned — §7.5 |
 | RouteRegion / RouteBoundary | missing live-ins/outs, dropped effect-live dependency, duplicated/dropped/reordered SemanticCheck, unproven region capability, post-effect guard, missing bridge | planned — §2.1 |
 | PhysicalPlan | invalid buffer/view/op IDs, use-before-bind, out-of-bounds view, incompatible kernel, unordered Check, unproved overlap/reuse, dangling Return | planned M4 — §17.2.1 |
