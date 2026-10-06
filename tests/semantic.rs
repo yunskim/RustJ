@@ -135,7 +135,9 @@ fn semantic_reference_search_is_independent_of_index_preparation() {
         "(i. 0) i. 3 4",
     ] {
         let mut engine = Engine::new();
-        let reference = engine.eval_semantic_reference(source).map(|v| v.map(|v| v.json()));
+        let reference = engine
+            .eval_semantic_reference(source)
+            .map(|v| v.map(|v| v.json()));
         let actual = engine.eval(source).map(|v| v.map(|v| v.json()));
         assert_eq!(reference, actual, "FW-02 sequential mismatch: {source}");
         assert_eq!(engine.index_prehash_stats(), (0, 0), "{source}");

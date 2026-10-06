@@ -7,10 +7,10 @@
 //! It is a supported-dense-subset oracle, not a proof of boxed/sparse J semantics.
 
 use crate::{
+    Error, Result, Value,
     comparison_policy::ComparisonPolicySnapshot,
     storage::{CpuStorage, Shape},
-    value::{count, Data},
-    Error, Result, Value,
+    value::{Data, count},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,8 +55,8 @@ fn lookup(indexed: &Value, query: &Value, mode: SearchMode) -> Result<Value> {
     let frame_rank = query.shape().len().saturating_sub(item_shape.len());
     let result_shape = Shape::from(&query.shape()[..frame_rank]);
     let query_items = count(&result_shape)?;
-    let compatible = query.shape().len() >= item_shape.len()
-        && &query.shape()[frame_rank..] == item_shape;
+    let compatible =
+        query.shape().len() >= item_shape.len() && &query.shape()[frame_rank..] == item_shape;
     let cell_atoms = count(item_shape)?;
     // Match the current supported-dense contract; do not pretend that
     // recursive boxed equality or sparse-item search has been validated.
@@ -72,15 +72,12 @@ fn lookup(indexed: &Value, query: &Value, mode: SearchMode) -> Result<Value> {
         let matches = |i: usize| -> bool {
             let left = i * cell_atoms;
             let right = q * cell_atoms;
-            (0..cell_atoms).all(|offset| {
-                same_atom(indexed, left + offset, query, right + offset, comparison)
-            })
+            (0..cell_atoms)
+                .all(|offset| same_atom(indexed, left + offset, query, right + offset, comparison))
         };
         match mode {
             SearchMode::Last => (0..items).rev().find(|&i| matches(i)),
-            SearchMode::First | SearchMode::Membership => {
-                (0..items).find(|&i| matches(i))
-            }
+            SearchMode::First | SearchMode::Membership => (0..items).find(|&i| matches(i)),
         }
         .unwrap_or(items)
     };
@@ -93,7 +90,9 @@ fn lookup(indexed: &Value, query: &Value, mode: SearchMode) -> Result<Value> {
         ),
         SearchMode::First | SearchMode::Last => Value::new(
             result_shape,
-            Data::Int(CpuStorage::generate(query_items, |q| first_or_last(q) as i64)?),
+            Data::Int(CpuStorage::generate(query_items, |q| {
+                first_or_last(q) as i64
+            })?),
         ),
     }
 }
@@ -148,7 +147,10 @@ mod tests {
             for queries in [0usize, 1, 2, 17, 130] {
                 let keys = (0..items).map(|i| (i % 7) as i64 - 3).collect();
                 let probes = (0..queries).map(|i| (i % 11) as i64 - 5).collect();
-                verify(Value::ints([items], keys).unwrap(), Value::ints([queries], probes).unwrap());
+                verify(
+                    Value::ints([items], keys).unwrap(),
+                    Value::ints([queries], probes).unwrap(),
+                );
             }
         }
         verify(
@@ -190,11 +192,8 @@ mod tests {
             ];
             let data = (0..items).map(|i| pool[i % pool.len()]).collect();
             let indexed = Value::new([items], Data::Float(CpuStorage::new(data))).unwrap();
-            let queries = Value::new(
-                [pool.len()],
-                Data::Float(CpuStorage::new(pool.to_vec())),
-            )
-            .unwrap();
+            let queries =
+                Value::new([pool.len()], Data::Float(CpuStorage::new(pool.to_vec()))).unwrap();
             verify(indexed, queries);
         }
     }
