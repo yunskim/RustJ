@@ -9554,6 +9554,8 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **첫 CI 진단 오류 분석(수용 아님).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210)의 `j64`와 `j64avx2` 초기 실행은 각각 15개 중 기대값 9개 일치·6개 재검토였다. 여섯 항목 모두 `length error`로, J 의미 차이의 증거가 아니라 **indexed foreign용 파일 인수의 잘못된 boxing**을 원인으로 분리했다. [J Files 원문](https://www.jsoftware.com/help/dictionary/dx001.htm)은 `1!:1 <'name'`과 달리 indexed `1!:11 'name';offset length`, `x 1!:12 'name';offset` 형식을 사용한다. [수정 commit 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a)에서 indexed 파일명 unboxed 전달로 교정하고, `length/rank/syntax` error를 파일 존재 실패로 세던 거짓 양성도 차단했다. [단위테스트 보완 bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) 이후 재검증 결과가 확정되기 전에는 9/15를 기능 통과로 해석하지 않는다. IO-01/02/25와 전체 0/30 미수용 상태 유지.
 
+**고정 J 실행 검증(2026-10-06).** [Linux CI 37470839455](https://github.com/yunskim/RustJ/actions/runs/37470839455)에서 `check` 작업은 성공했고, 실제 실행·로그가 확인된 `j64/default`, `j64/portable`, `j64avx2/default` 각각 **file-foreign 15/15 기대 동작 일치·재검토 0**이었다. `j64avx2/portable`는 이 기록 시점 실행 진행 중이므로 합계에 포함하지 않는다. source-based 15건을 이후 회귀로 고정하기 위해 [workflow 3d476f6](https://github.com/yunskim/RustJ/commit/3d476f6f4f8bd1c925e2216ee856cfdfcd5fc9d2)에 `--gate`를 추가했다. 이 **C oracle 자체의 fixture gate**는 RustJ의 세 경로 비교나 JMF/Jd/boxed/비동기 I/O 구현을 검증하지 않는다. 따라서 IO-01·02·25 및 전체 IO 0/30 [ ] 유지.
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
