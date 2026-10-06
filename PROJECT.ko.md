@@ -3427,6 +3427,42 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 | JX-25 / D·FW-11~17 | **Physical target·자원·실측 cost 승인:** jsource SIMD/AVX, GEMM, hash, view, inplace, memory | src/lowering.rs, src/physical.rs, src/j_graph_resource.rs, src/fusion_planning.rs | baseline CPU와 독립 3방향 검증 후 target capability, hard allocation bytes, measured latency/memory를 분리. 동일 의미·guard/fallback·실측 win 없으면 SIMD/BLAS/GPU route 및 캐시 임계값 변경 보류 |
 | JX-26 / 최종·FW-18 | **반복 독립 검토·미조사 잔여:** primitive numeric/allocator/architecture-specific paths, 새로운 jsource commits | §4.1.3.6 A–M, 이 §Q, §O.5, §P.1, reports/ | **원본 C 진입·fallback / J 의미·반례 / Graph-A3 provenance / guard-effect·runtime / target-cost·bench**를 서로 독립 재검토. commit·OS/toolchain·실행 명령·pass/fail/ignored·oracle pin/범위·known gaps를 남기고 FW/P와 체크 동기화 |
 
+###### Q.1 JX-01/FW-01 정적 source/frontend 감사 (2026-10-06)
+
+**상태:** JX-01 [ ], FW-01 [ ] 유지. 고정 jsource revision에서 현재 registry가 지목한 **C/H 원본 16/16 파일 존재**를 직접 확인했다. 대표 심볼·텍스트는 15개 파일에서 발견했다. `vcat.c`의 `boxed ownership transfer`는 실제 C 심볼이 아닌 설명이므로 일치로 세지 않았다. **파일/심볼 확인은 guard·fallback 전체, 실제 J 실행 또는 최적화 의미론의 증명이 아니다.**
+
+`src/j_graph_jsource.rs::JSOURCE_FAMILY_RULES`의 16개는 **AnalysisOnly 7 / ExistingAnalyzer 1 / AwaitingFrontendOrFacts 4 / DownstreamOnly 4**로 나뉜다.
+
+| family / 현재 발견 상태 | source → pinned C/H | 검증할 조건·reference 복귀 / RustJ 책임·연계 게이트 |
+|---|---|---|
+| `ReductionFastPath` / AnalysisOnly | `f/ y` → `ar.c::jtreduce` | empty/singleton/two-item, identity, overflow → Reduce; ExecutionAlgorithm / JX-10 |
+| `MeanIdiom` / AnalysisOnly | 단항 `(+/ % #) y` → `cf.c::jtfolk`, `ar.c::jtmean` | dyad 제외, rank·FP order → 원 fork; ExecutionSemantics / JX-10 |
+| `WindowAlgorithm` / AnalysisOnly | `f\ y`, `x f\. y` → `ap.c::jtmovfslash` | Scan≠Window, length·NaN/overflow → generic; ExecutionAlgorithm / JX-11 |
+| `SearchAlgorithm` / AnalysisOnly | `i.` / `i:` / `e.` dyad → `vi.c::indexofsub` | first/last/member, CCT·rank·boxed/sparse → sequential; ExecutionAlgorithm / §P·JX-15 |
+| `IntervalLookup` / AnalysisOnly | 이항 `x I. y` → `viix.c` | sortedness/type/empty, 단항과 구별 → baseline; ExecutionAlgorithm / JX-15 |
+| `GatherCopyOrView` / AnalysisOnly | `x { y` → `vfrom.c::jtget1cell` | bounds/alias/contiguity → copy; PhysicalPlanner / JX-20 |
+| `ReindexCopyOrView` / AnalysisOnly | `$` / `|.` / `|:` → `vf.c` | fill/shape/usecount → materialize; PhysicalPlanner / JX-20 |
+| `MapReduceStreaming` / ExistingAnalyzer | `f/@:g` → `va2.c::jtfslashatg` | dense/type/empty/inplace/overflow → generic map/reduce; 기존 GraphFusion / JX-09 |
+| `ResultAssemblyDemand` / AwaitingFrontendOrFacts | box/open/raze → `result.h` | recursive boxes·raze·effect → generic assembly; ExecutionSemantics / JX-17/20 |
+| `GroupAggregate` / AwaitingFrontendOrFacts | `u/.`, `f//.` → `ao.c::jtkeyct/jtsldot` | CCT·group order·representative/type → generic group; ExecutionAlgorithm / JX-12 |
+| `MatrixContraction` / AwaitingFrontendOrFacts | `+/ . *` → `cip.c::jtpdt`, `gemm.c` | rank/Fit/overflow/FP order/sparse → generic dot; ExecutionAlgorithm / JX-13 |
+| `GradeRanking` / AwaitingFrontendOrFacts | `/:`, `\:` → `vg.c` | tie/order/type/axis → generic grade; ExecutionAlgorithm / JX-14 |
+| `TolerantHash` / DownstreamOnly | tolerant search → `viavx2.c` | CCT 비추이성/±0/NaN → sequential; ExecutionAlgorithm / §P·JX-15 |
+| `SparseAlgorithm` / DownstreamOnly | sparse dot/grade/search/from → `cpdtsp.c` 등 | axes/fill/empty/type → sparse reference; ExecutionAlgorithm / JX-21 |
+| `BufferOwnership` / DownstreamOnly | boxed concat/reshape/compress → `vcat.c` 등 | alias/usecount/recursive box → allocating result; PhysicalPlanner / JX-20/22 |
+| `NameLookupCache` / DownstreamOnly | dynamic name/locale → `sc.c::jtunquote` | epoch·locale·reentrancy/invalidation → actual lookup; RuntimeBinding / JX-23 |
+
+**registry 외의 source backlog도 유지:** Cut→Scan→Raze(`cc.c`, JX-17), oblique convolution(`ao.c`, JX-13), char LUT(`v.c`, JX-16), boolean/sparse→indices(`cf.c`, JX-16), RNG order statistic(`vg.c`, JX-14), RNG shape(`vrand.c`, JX-24), Box+Append(`vo.c`, JX-17), 명시적 `M.` memo(`a.c`, JX-24), Under/Each(`cu.c`, JX-19), bound numeric/deadband(`vx.c/vz.c/va1.c`, JX-18), Amend/Scatter(`am.c`, JX-22), assignment/definition fast path(`p.c/cx.c`, JX-22). 이 목록은 §4.1.3.6 H/K/M의 조사 결과로, **새 실행 후보·전수 조사 완료를 의미하지 않는다.**
+
+**FW-01 프런트엔드 구분:**
+- **Word formation:** `src/tokenizer.rs::scan/parse_word_spans`와 `tests/syntax.rs`의 이전 F0 실행 이력은 이번 검사 결과로 재계산하지 않는다.
+- **Enqueue/POS:** `src/primitive.rs`, `src/enqueuer.rs`, `tests/enqueuer.rs`. `/.`, `.`, `/:`, `\:`, `;.`, `&.`, `M.`, `?`, `?.`, `!.`의 기본 품사 분류는 실제 derived constructor·executor·최적화 허가가 아니다. locative/name-by-value·일부 numeric payload는 Unsupported다.
+- **Parser/derived:** `src/parser.rs`, `src/semantic.rs::FunctionEntity`, `tests/semantic.rs`에서 `@:`, Hook/Fork, Rank, Insert/PrefixInfix 일부를 표현한다. Key/Dot/Cut/Under/Memo/Grade 및 동적 NAME·valence·POS·오류/효과 순서의 실행/차분 검증은 남았다.
+- **Source opportunity:** `src/j_graph_jsource.rs::discover`는 단항 Mean만 인정하며 `E.` window와 search를 구분한다. 후보는 모두 아직 legal/selected가 아니다.
+- **추가 회귀 소스:** [커밋 e364535](https://github.com/yunskim/RustJ/commit/e36453575430879e4bc546c62350107a3e698e84)에서 `tests/j_graph_jsource.rs::optimization_vocabulary_pos_is_not_a_compiler_optimization_license`를 추가했다. **Cargo/default·portable/실제 J C oracle은 아직 미확인**.
+
+**다음 한 단계:** 새 테스트의 실제 default·portable 결과 및 pinned J C의 POS/derived syntax/error 차분을 확보한 뒤 **확인된 의미론 불일치 한 종류 + 회귀 하나**씩 수정한다. FW-01·JX-01 체크는 결과 명령·환경·commit·unsupported 범위가 기록되기 전까지 열어 둔다.
+
 **체크리스트 사용 규칙.** 각 JX 행은 **(1) C 원본 pin·조건 확인 → (2) J 의미론/unsupported 범위 확정 → (3) Graph 후보 및 source witness → (4) obligation별 proof/Guard·fallback → (5) 독립 reference·negative·C differential → (6) target/resource/실측 선택**의 여섯 열을 통과해야 완료한다. 실제 결과가 없으면 해당 행은 [ ]로 유지하며, 한 번에 **하나의 의미론 변경 + 해당 회귀/반례 하나**를 우선한다. 실패 또는 upstream drift가 발견되면 해당 연산군의 증명을 무효화하고 FW 관련 선행 게이트까지 되돌아간다. 각 완료 행에는 **JX-ID / code commit / 실행 명령·환경 / passed·failed·ignored / jsource commit·실제 oracle 범위 / fallback·negative 결과 / 측정값 / known gaps / 다음 게이트**를 기록한다. 당장은 **JX-01의 출처·범위 추적과 FW-01(M2)**부터 이어가며 특수 최적화를 새로 활성화하지 않는다.
 
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
