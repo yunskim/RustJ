@@ -2639,7 +2639,7 @@ Unsupported schema/registry/migration is a compiler/artifact diagnostic, never a
 Code/document review baseline: the 2026-10-04 WI1 noun input metadata validation seam. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
-- explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; invocation/local frames, nested/other-tagged/computed forms, and Code-body J Graph/A3 lowering remain incomplete;
+- explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; supported mode-1/2 straight-line invocation uses per-call local frames with x/y/u/v/m/n bindings and local/global assignment, while control-flow/nested scope, full locale/locative/operator-wrapper semantics, other tagged/computed forms, and Code-body J Graph/A3 CFG lowering remain incomplete;
 - J Graph IR as a separate analysis surface;
 - Graph Basis / Execution Basis separation;
 - structural opportunities plus initial graph rewrite/resource analysis;
