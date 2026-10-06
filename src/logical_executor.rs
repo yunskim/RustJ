@@ -209,10 +209,7 @@ pub(crate) fn recover_zero_frame_fill_domain(
     proof: Option<VerifiedValueOnlyZeroFrame>,
 ) -> Result<Value> {
     match outcome {
-        Err(error)
-            if proof.is_some()
-                && matches!(error.root(), Error::Domain) =>
-        {
+        Err(error) if proof.is_some() && matches!(error.root(), Error::Domain) => {
             if let Some(shape) = atomic_add_cell_shape {
                 let n = crate::value::count(shape)?;
                 return Value::ints(shape.to_vec(), crate::value::generate(n, |_| 0)?);
@@ -616,9 +613,8 @@ mod rank_fill_error_tests {
     fn rank_fill_recovery_requires_verified_prototype_origin() {
         for scenario in ["ordinary cell", "unknown or effectful"] {
             let original = Error::Domain.at(1..4);
-            let unchanged =
-                recover_zero_frame_fill_domain(Err(original.clone()), Some(&[3]), None)
-                    .expect_err("an ordinary or unproven Domain is observable");
+            let unchanged = recover_zero_frame_fill_domain(Err(original.clone()), Some(&[3]), None)
+                .expect_err("an ordinary or unproven Domain is observable");
             assert_eq!(unchanged, original, "{scenario}");
         }
 
@@ -652,12 +648,9 @@ mod rank_fill_error_tests {
 
         // The diagnostic wrapper must not accidentally change the J class.
         let wrapped = Error::Domain.at(1..4);
-        let fallback = recover_zero_frame_fill_domain(
-            Err(wrapped),
-            None,
-            Some(VerifiedValueOnlyZeroFrame),
-        )
-        .unwrap();
+        let fallback =
+            recover_zero_frame_fill_domain(Err(wrapped), None, Some(VerifiedValueOnlyZeroFrame))
+                .unwrap();
         assert_eq!(fallback.int_at(0).unwrap(), 0);
 
         for error in [
@@ -670,12 +663,9 @@ mod rank_fill_error_tests {
             Error::Unsupported("effectful or unknown call".into()),
         ] {
             let expected = error.kind();
-            let observed = recover_zero_frame_fill_domain(
-                Err(error),
-                None,
-                Some(VerifiedValueOnlyZeroFrame),
-            )
-            .unwrap_err();
+            let observed =
+                recover_zero_frame_fill_domain(Err(error), None, Some(VerifiedValueOnlyZeroFrame))
+                    .unwrap_err();
             assert_eq!(observed.kind(), expected);
         }
     }
