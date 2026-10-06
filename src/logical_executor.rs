@@ -555,15 +555,9 @@ mod rank_fill_error_tests {
             assert_eq!(result.int_at(i).unwrap(), 0);
         }
 
-        let char_nonempty = Value::new(
-            [3],
-            Data::Char(CpuStorage::new(b"abc".to_vec())),
-        )
-        .unwrap();
+        let char_nonempty = Value::new([3], Data::Char(CpuStorage::new(b"abc".to_vec()))).unwrap();
         assert_eq!(
-            inhomogeneous_catenate_retry_type(
-                &char_nonempty, &int_fill, true, false,
-            ),
+            inhomogeneous_catenate_retry_type(&char_nonempty, &int_fill, true, false,),
             Some(2),
         );
         let char_result = retry_inhomogeneous_catenate_fill(
@@ -578,8 +572,7 @@ mod rank_fill_error_tests {
         assert_eq!(char_result.type_code(), 2);
         assert_eq!(char_result.display(), "abc   ");
 
-        let bool_fill = Value::new([3], Data::Bool(CpuStorage::new(vec![0; 3])))
-            .unwrap();
+        let bool_fill = Value::new([3], Data::Bool(CpuStorage::new(vec![0; 3]))).unwrap();
         assert_eq!(
             inhomogeneous_catenate_retry_type(&char_fill, &bool_fill, false, false),
             Some(2),
