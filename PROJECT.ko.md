@@ -12,7 +12,7 @@
 ### 빠른 안내 — 현재 우선순위와 문서 읽기
 
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
-- **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
+- **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
 - **최신 검증:** 2026-10-05 NV3d2b2a 기준 Windows default/portable 각각 **474 passed / 17 ignored**, Python **30 passed**이며, C j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. numeric syntax는 양 DLL 각각 **2,485 cases / failed 0**이지만 unresolved recognition/error 경계가 각 1건 남아 있어 실행 지원이나 정밀 오류 동등성으로 세지 않는다. capture graph **257건**, static **2건**, runtime prefix **285 / executable prefix passes 0**도 별도다. 최신 graph-readiness gate는 GF6a이며 실제 fusion 선택·GPU 실행을 뜻하지 않는다. 세부 기록은 §10 NV3d2b2a/GF6a, 최신 요약은 §12를 따른다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
@@ -3229,9 +3229,51 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 
 
+
+<a id="framework-migration-checklist"></a>
+
+###### O.5 지연 최적화 프레임워크 이행 계획·체크리스트 (2026-10-06, 살아 있는 작업표)
+
+**목적·범위.** §O.4의 네 관점 독립 검토를 **실제로 수정하고 검사할 수 있는 단일 체크리스트**로 전환한다. `i.` 계열은 최초 검증 사례이고, 최종 목표는 **J 의미론을 유지한 채 다른 연산군에도 적용 가능한 ‘발견 → 증명/가드 → 하드 자원/타깃 판정 → 비용 → 선택 → 실행’ 계약**이다. §P.1은 계속 **검색 알고리즘 자체의 상세 체크리스트**로 유지한다. **이 표가 단계 간 우선순위·완료 판정의 정본**이며, 새 로드맵 Markdown이나 새 범용 optimizer crate를 만들지 않는다.
+
+**현재 진행 상태:** **이행 계획 문서화 완료 / 아래 구현·검증 게이트 0/18 수용.** 기존 `SearchDescriptor`, `AlgorithmCandidate<_,_>`, `GraphRewriteCandidate`, `FusionCandidate`, `ExactPrehashCache` 등은 **활용 가능한 현재 코드**이지 새 계약의 수용 완료를 뜻하지 않는다. **전체 프로젝트 우선순위는 M2 tokenizer → enqueuer → parser/POS/name/derived entity이며, M3/M4를 앞당기는 명분으로 검색 특수 알고리즘을 추가하지 않는다.**
+
+**체크 상태 규칙.** [ ] = 수용 전(코드 일부 존재/작성/검증 대기 포함); [x] = **필요한 코드 + 실제 실행 검증 + 증거 링크를 모두 완료한 경우에만**. 단순 소스·테스트 파일 존재, 내부 Rust reference끼리의 일치, static assertion, 이전 milestone 수치는 완료 근거가 아니다. 각 항목을 완료할 때 같은 표의 **검증 기록**에 `commit SHA | 실제 명령 | 환경/target | pass/fail/ignored | jsource 고정 commit·실제 oracle 실행 범위 | 잔여 제한`을 적는다. CI 실행 여부는 별도 표시하며 실시하지 않았으면 ‘미실행’이라고 쓴다. 여기에 적는 날짜는 계획 작성일이지 완료일이 아니다.
+
+**순서 및 게이트.** A(M2·기준 의미론) → B(M3·증거 인터페이스) → C(M4·독립 CPU 경로) → D(실측 이후 최소 공통 Physical 확장). 각 단계는 **자기 범위 내 이미 지원하는 J 의미론**에 대한 진짜 검증으로 통과시킬 수 있지만, 아직 지원하지 않는 J 형태는 `Unsupported/Unknown`으로 표시해야 한다. ‘full J 완료’를 허위 전제하지 않는다. A의 일반 frontend 미완료 항목이 첫 작업이고, search reference 작업은 이에 종속된 작은 수직 검증 과제로 진행한다. **한 번에 한 의미 + 하나의 회귀/negative test**를 기본 변경 단위로 한다.
+
+| ID / 단계 | 완료 체크 | 수정 대상·실행 작업 | 선행 조건 / 수용 기준·검증 기록 |
+|---|---|---|---|
+| FW-01 / A·M2 | [ ] 프런트엔드 의미론 범위 고정 | `src/tokenizer.rs`, `src/enqueue.rs`, `src/parser.rs`, `src/semantic.rs` 등 **실재 경로 확인 후** 미완료 syntax/POS/name/derived-entity 사건을 분류 | 일반 M2 우선순위를 유지. 기존 지원 subset의 parse/resolve 결과와 C oracle 대조; unsupported와 unresolved을 기록. **검증: 미실행** |
+| FW-02 / A·M2 | [ ] 의미론 실행 모드 분리 | `src/runtime.rs`, `src/kernels.rs`, `src/index_ops.rs`: 현재 `pooled: bool`의 buffer pool 정책과 검색 physical 허가를 직교시킨다. reference `i.`/`i:`/`e.`는 `lookup`의 **순차 실행**만 통과; ranked/cell/derived call이 동작하는 범위에서 우회 없는지 확인 | `eval_semantic_reference`에서 `plan_search_algorithm`/prehash 호출이 **실제로 0회**임을 계측·negative test로 검증. 새 공개 API, 전역 mutable switch 또는 source IR 변경 불필요. **검증: 미실행** |
+| FW-03 / A·M2 | [ ] 언어 비교 의미 정렬 | `src/comparison_policy.rs`, `src/kernels.rs`, 관련 semantic contract: 고정 Rust `near` vs C `TCMPEQ`, 전역 `cct`, `!.t` scope/override, 타입·오류·NaN/±0 등 지원 범위 분명히 한다 | 먼저 실제 **고정 jsource C binary oracle**로 경계 예제를 확인. 동적 설정 미지원이면 `Unknown/Unsupported` 처리하고 tolerant optimization 허가하지 않음. **검증: 미실행** |
+| FW-04 / A·M2 | [ ] 검색 reference 회귀·3방향 fixture | `src/index_ops.rs` 및 기존 differential tests: first/last, membership, 빈 셀·frame, 중복, 타입, 오류·Rank를 **C oracle / 순차 Rust / 최적화 Rust**로 분리한 케이스 구축 | 불일치 분류(언어 의미 vs optimized route), 실패 시 미지원/대체 실행 명시. 2개 Rust 경로가 동일 planner를 사용하면 3방향 증거로 세지 않음. **검증: 미실행** |
+| FW-05 / B·M3 | [ ] 후보 원본·버전 식별 계약 | `src/j_graph_ir.rs`, `src/j_graph_rewrite.rs`, `src/j_graph_fusion.rs`, `src/j_graph_jsource.rs`: 기존 source ID/span/basis에 **graph/schema/rule identity 또는 유효성 검증 수단**을 연결. original J Graph는 불변 | stale graph / changed rule / forged origin을 거부하는 verifier negative tests. 단순 span 일치를 유일한 유효성 증명으로 취급하지 않음. **검증: 미실행** |
+| FW-06 / B·M3 | [ ] obligation별 증거 상태 | §4.1.4의 `CandidateEvidence` 목표를 search/rewrite/fusion **sidecar view 또는 최소 adapter**로 구체화: `Unknown / Proven(witness) / Guarded(guard,fallback) / Disproven`과 provenance를 분리 | 동일 `selected` bool·SearchAlgorithm enum·단일 큰 공통 IR로 합치지 않음. `Unknown`이 legal/selected로 승격되지 않는 negative tests. **검증: 미실행** |
+| FW-07 / B·M3 | [ ] 가드·효과/오류 선후 관계 계약 | `src/lowering.rs`, effect/error/verifier 및 실행 adapter: guard를 **효과 발생 전**에 두고 miss 시 정확한 reference fallback 명시 | Observable effect 뒤 자동 재실행·중복 오류·fallback 누락을 거부. `Guarded` 상태만으로 선택 허가하지 않음. **검증: 미실행** |
+| FW-08 / B·M3 | [ ] 비교 정책·이름·Rank의 동적 witness | `src/logical_ir.rs::SearchDescriptor` 주변 semantic policy 계약과 `comparison_policy.rs`: `!.t`/runtime CCT, dynamic NAME, rank/cell/empty 등이 후보별 어떤 증명을 요구하는지 표준화 | `JEquality`라는 라벨·dtype만으로 `exact hash`를 정당화하지 않음; 미확정 policy/Rank이면 선택 거부·reference 경로. **검증: 미실행** |
+| FW-09 / B·M3 | [ ] 기존 3종 후보에 같은 legality view 투영 | `j_graph_rewrite.rs`, `j_graph_fusion.rs`, `j_graph_jsource.rs` + `fusion_planning.rs`에 provenance/obligation 상태를 **별도 원본 타입을 유지하며** 노출 | 후보 중복·기존 E. window witness를 검색 witness로 오용·unresolved resource를 legal로 처리하는 경우 거부. **검증: 미실행** |
+| FW-10 / B·M3 | [ ] 두 번째 독립 가족 교차 검증 | 기존 Reduce/Scan **또는** GroupBy의 semantic candidate 하나를 선정해 FW-05~09의 증거/가드 인터페이스 적합성 확인 | 단지 두 가족에 enum 이름만 공유하는 것은 불합격. 다른 numeric/대표원소/order proof를 보존하면서 공통성이 실제 입증될 때만 구현 인터페이스 추출; 범용 registry 선행 구축 금지. **검증: 미실행** |
+| FW-11 / C·M4 | [ ] Native CPU semantic vertical slice | 실제 supported subset의 J Graph → A3 verification → baseline CPU execution 경계를 닫고 reference 실행과 비교 | source/error/effect order를 유지. C binary oracle 범위·명령·환경·차분 결과를 기록. **검증: 미실행** |
+| FW-12 / C·M4 | [ ] 기존 exact Int/Bool 경로 독립 검증 | `src/index_ops.rs`, `src/physical.rs`: Sequential / Direct / Indexed / Reverse / Prepared 별 output first/last/member와 allocation failure fallback 확인 | 같은 planner에 의존하지 않는 순차 reference 및 C oracle에 대해 3방향 검증. Rust default/portable는 각각 실제 결과 기재. **검증: 미실행** |
+| FW-13 / C·M4 | [ ] target·hard resource·cost의 독립 승인 | `src/lowering.rs`, `src/physical.rs`, `src/j_graph_resource.rs`: static/runtime exact guard, table **byte** bound, estimated work·temporary allocation, target capability, measured cost를 서로 별도 상태로 보고 | hard limit `Unknown`은 값 0이 아니며 ‘느림’과 ‘불법/부적합’을 혼동하지 않음. 미측정 threshold는 heuristic으로 표시. **검증: 미실행** |
+| FW-14 / D·후순위 | [ ] 물리 recipe의 선택 축 분리 | 충분한 두 가족 증거·실측이 나온 뒤 `SearchAlgorithm`과 `SearchWorkload/Choice`의 축(빌드/순회 방향, hash/direct/SIMD 표현, lifetime, output demand, target)을 재설계할 필요성 판정 | **구체적 공통 사용 사례 2개**와 기존 API migration·동등성 테스트 없는 대대적 분해 금지. J Graph/A3 schema에 물리 선택을 넣지 않음. **검증: 미실행** |
+| FW-15 / D·후순위 | [ ] prepared-state 수명/무효화 계약 | `src/index_ops.rs::ExactPrehashCache`와 향후 다른 가족의 prepared state 비교: backing identity/immutability, first/last representative, policy/version, binding epoch, target, retention | 기존 exact Int/Bool 키에는 무관한 policy를 억지로 넣지 않음. 실제 영향을 주는 속성만 witness/key 포함; rebinding·cache miss·정책 변경 negative tests. **검증: 미실행** |
+| FW-16 / D·후순위 | [ ] 별도 SelectionPlan·충돌/호환성 검사 | §4.1.4 target/semantic/resource/cost evidence로 검증된 후보 집합의 overlap·compatibility 검사와 별도 selection/committed lowering 식별자 | Graph/SSA source와 original witness 보존. legality 없는 선택, overlapping incompatible candidates, stale commit 거부. **검증: 미실행** |
+| FW-17 / D·후순위 | [ ] 실측·타깃 확장 승인 | 독립 cost benchmarking 후에만 jsource/BQN 작은 배열·SIMD·reverse/prehash 조정 및 CPU/외부 route 검토. GPU는 기존 보류 정책 유지 | 동일 semantics + 메모리 상한 + 실측 win + portable fallback+negative tests 통과 시 **개별** 전략 활성화. **검증: 미실행** |
+| FW-18 / 전체 수용 | [ ] 반복 독립 검토·회귀 기록 | A) 원본 J 의미 B) Graph/A3 불변 C) proof·invalidations D) CPU/target/resource E) C·순차·optimized 3방향/성능의 **서로 독립된 재검토**를 수행하고 §P.2와 연결 | 충돌 시 앞 단계 재개; pass/fail/ignored·실행 환경·원본 revision·bench 근거가 남고 기존 §P.1 체크 상태와 모순이 없어야 최종 수용. **검증: 미실행** |
+
+**의존성/중단 규칙.** FW-02가 완료되기 전에는 “optimized/reference 통과”라는 내부 상호 비교만으로 FW-12를 완료하지 않는다. FW-03·08의 dynamic 비교 의미가 미완성인 동안 tolerant hash의 `NeedsSemanticProof`를 변경하지 않는다. FW-05~09에서 공통 증거를 정의했다고 FW-10의 **실제 두 번째 가족 검증**이 된 것은 아니다. FW-11~13이 완료되고 명시적인 메모리·타깃·실측 증거가 없으면 FW-14~17의 물리 전략/비용 임계값 변경을 시작하지 않는다. 버그 수정과 의미론 정확성 보완은 언제나 우선 가능하다.
+
+**검증 진행 로그 템플릿(완료 시 해당 행에 복사):** `FW-ID | 코드 commit | 실행한 명령과 환경 | passed/failed/ignored | 사용한 jsource commit+실제 J 실행 범위 | 확인된 unsupported/known gaps | 다음 게이트`. 계획만 추가한 지금은 모든 실행 검증 항목이 **미실행**이다. 별도 일일 보고 파일 대신 이 절을 갱신하고 영문 §O.5와 체크 상태를 함께 맞춘다.
+
+
+
 <a id="index-family-roadmap"></a>
 
 ##### P. i. family 통합 로드맵·진행 체크리스트 — Roger Hui × Marshall Lochbaum (2026-10-06)
+
+**교차 참조:** [§O.5 프레임워크 이행 계획](#framework-migration-checklist)은 **공통 구조·단계 게이트**를 관리하며, 여기 §P.1은 검색-family 알고리즘별 세부 검증을 관리한다. 두 표의 [x] 규칙은 다르므로 이행 계획의 [x]를 코드 존재만으로 변경하지 않는다.
 
 **정본 운영 규칙.** 이 체크리스트는 [§N: i. 원본 및 1·2차 구현](#jsource-index-family), [§O: A3/Registry/Physical 경계](#algorithm-planning-migration), [§4.1.4: proof→selection lifecycle](#)에 종속된 **살아 있는 구현 게이트**다. 항목마다 **근거 / 실행 계층 / 완료 조건 / 검증 상태**를 명시한다. [x]는 **코드·문서가 저장소에 존재함을 정적으로 확인**했음을 뜻할 수 있으며, 테스트 실행·jsource 동등성·성능 달성을 자동으로 의미하지 않는다. 별도 문서를 늘리지 않고 이 절에서 관리하며 완료될 때마다 실제 검증 근거를 기록한다. **Linux milestone은 별도로 만들거나 완료 조건에 넣지 않는다.**
 
