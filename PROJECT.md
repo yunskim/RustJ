@@ -2378,6 +2378,15 @@ After fixing a finding, independently re-run the relevant checks and record comm
 4. Keep `TolerantNeighborHash=NeedsSemanticProof` and source opportunity `AwaitingSemanticProofs` until witnessed comparison/guard/fallback and independent differential validation pass.
 
 
+#### P.4 Independent review record #1 — restricted float candidate completeness (2026-10-06)
+
+**Math-first, independent of the implementation:** Current RustJ `kernels::near` is `a == b || finite(a,b) && |a-b| <= t * max(|a|,|b|)` with `t=2^-44`. If finite nonzero a,b match, their signs cannot differ: opposite signs make the absolute difference at least the larger magnitude, violating `t<1`. Writing `M=max(|a|,|b|)`, `m=min(|a|,|b|)`, successful comparison implies `m >= (1-t)M > M/2` (`t<1/2`), hence their base-two exponent floors differ by at most one. Therefore **same-sign exponent e-1/e/e+1 buckets form a complete candidate superset** for this limited predicate. Retain *every source index*, validate each returned candidate with the original `near` predicate, and choose the minimum/maximum original position for `i.`/`i:`. Never collapse tolerant chains into equivalence classes. +0/-0 and same-sign infinities use exact equality special cases; NaN never matches.
+
+**Independent numeric falsification attempt, NOT a Rust/C run:** An IEEE-754 JavaScript Number model compared **215 values yielding 1,160 near pairs**, including 132 cross-exponent near pairs and **zero** violations of same-sign/adjacent-exponent candidate coverage. Approximate equality on `(1, 1+0.75t, 1+1.5t)` produced `true,true,false`, confirming nontransitivity. Sampling cannot prove J semantic parity, Rust correctness or performance, and this argument does not authorize dynamic `!.ct`, boxed/complex or Rank-aware matching.
+
+**Source/boundary cross-check:** Lochbaum's BQN work informs tiny-input SIMD, sparse **table** initialization, reverse hashing and large-array partitioning, not J semantics. Pinned jsource `viavx2.c` instead uses adjacent tolerance-aware masked intervals with exact insertion and tolerant probe. The research-only **sign/exponent 3-bucket** approach must **not** be represented as the exact jsource bitmask algorithm. Static provenance/guard/architecture/checklist review passed **13/13 checks**, and `src/tolerant_search.rs` is reachable only under `#[cfg(test)]`, not production runtime. **No Cargo, CI, J C differential or benchmark execution took place; all release/semantic execution gates stay unchecked.**
+
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
