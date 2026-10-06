@@ -9443,6 +9443,51 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 
 **추가 계층 계약:** logical ValueId와 외부 StorageObject/Version, 물리 StorageEncoding(contiguous typed / chunked typed / serialized component / external), ReadChunk, WriteShard, BufferLease, IoCompletion을 서로 구분한다. 이들은 구현을 확정한 Rust 구조체 이름이 아닌 개념이다. File foreign I/O는 J-visible effect이지만, verified immutable storage read의 내부 스케줄은 효과가 없는 경우에 한해 변경 가능하다. Header/shape/index가 존재한다고 J Rank empty-frame fill-cell 의미를 생략하지 않는다. Cache key에는 object/version/byte-range/encoding을 포함하고, peak RSS와 OS page cache는 런타임이 완전히 예약하는 메모리로 주장하지 않는다.
 
+
+<a id="io-framework-execution-comparison"></a>
+
+#### 8.5.2 프레임워크별 I/O 최적화 실행 방식과 RustJ Graph IR 적용 (2026-10-06)
+
+**다섯 가지 최적화 대상.** I/O 최적화는 단순한 비동기 파일 읽기가 아니라 **① 불필요한 읽기 제거, ② 저장/읽기 단위 선택, ③ I/O와 계산 중첩, ④ 읽은 데이터 재사용, ⑤ 메모리·완료·실패 통제**를 조합하는 문제다. 최적화의 장소를 구분해야 한다. J Graph/Verified Logical IR은 필요한 데이터와 의미론적 합법성을 판단하고, Physical Plan·Executor는 byte range, chunk, 배치, prefetch, buffer 수명, 실제 memory/resource budget을 결정한다.
+
+| 프레임워크 / 공식 근거 | 실제 기법과 최적화 계층 | RustJ에서 가져올 부분 / 제약 |
+|---|---|---|
+| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Logical 단계에서 predicate/projection/slice를 scan까지 pushdown, common subplan/scan 재사용 | `AccessRelation`이 필요한 논리 원소/축과 실제 byte range를 증명한 경우 읽기를 제거. IO-09~12; Rank, dynamic binding, observable errors/effects에서는 opaque fallback |
+| [DuckDB async I/O (2026-07-31 발표)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group/CSV byte-boundary를 fetch job/task로 쪼갬. `REGULAR` 계산 pool과 주로 blocking I/O인 `ASYNC` pool 분리; 미완료 scan job은 park 후 깨움. read-ahead 깊이는 temporary-memory budget과 연동 | IO-13~17: bounded job queue, completion/wakeup, read-ahead depth를 resource governor로 축소. 공개 글은 v2.0 개발·출시 예정 기능을 설명하므로 모든 릴리스에서 지원된다고 단정하지 않음 |
+| [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) | Physical resource IR에서 `stream.async.parameter.load`는 새 resource, `read`는 기존 allocation 채움, `gather`는 여러 parameter archive range 결합. `timepoint`/`await`로 이용 가능 시점과 순서 명시 | IO-13~18·20의 직접 선례: immutable weights `Load/Gather → Await → Consumer`. IREE에서 speculative한 parameter read를 J의 관찰 가능한 `1!:` file foreign과 동치화 금지 |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | `batch_readahead`와 `fragment_readahead`를 따로 조정 | IO-14~16: chunk 내부와 여러 저장 source 간의 선행 읽기 수준을 분리하고 decoded/inflight buffers 예산화 |
+| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | 연산자 output queue에 block reference streaming; downstream backpressure, memory-aware task scheduling, spill | IO-15~17: 큐가 차면 생산 속도를 제한. Reduction/shuffle처럼 경계가 필요한 경우 무조건 streaming하지 않음 |
+| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | 물리 chunk·shard 및 캐시/축 접근 패턴으로 read amplification와 재사용 결정 | IO-26~29: `LogicalShape` ≠ `ReadChunk` ≠ `WriteShard`; 작은 slice도 chunk 전체 decode가 필요한지 측정 |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | 모델 가중치의 mmap/비-mmap·residency 등 로딩 전략 선택 | IO-23·30: mmap이 항상 최적이라고 가정하지 않음. page fault, cold/warm cache, RAM pressure, SSD/remote, reuse별 비교 |
+| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) · [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | CPU/NVMe/GPU Offload·prefetch·transfer/compute overlap; FlexGen은 layer/batch-block scheduling으로 weights 반복 로드 감소 | IO-18~20: immutable/version-stable weights에서만 재사용/선행 읽기를 후보화. 훈련의 mutable optimizer/gradient/checkpoint는 별도 snapshot 계약 |
+| [TensorFlow tf.data](https://www.tensorflow.org/guide/data_performance) | `prefetch`·parallel map을 통한 input-producer와 모델 연산의 파이프라인 중첩 | IO-14~16: 독립 producer/consumer의 비교 사례. J의 임의 verb/cell 평가를 재배열하는 일반적 허가는 아님 |
+| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | 저장할 state의 staging/async persistence 분리 | IO-18: mutable state의 snapshot·write completion·publishing·failure/recovery를 명시. 비동기 제출만으로 durability 성공을 보고하지 않음 |
+
+**같은 Logical Graph에서 다른 Physical Schedule을 선택하는 예.** `X → MatMul(W1) → Activation → MatMul(W2) → Y`의 J-visible 의존성을 유지한다. 외부 파일의 `W1`/`W2`가 **변하지 않는 read-only/versioned 데이터임이 증명**된 경우, 아래 physical 계획을 생성할 수 있다. 다른 모델에서 임의로 실행되는 것이라고 가정하지 않으며, 실제 구현 이전 설계 예시다.
+
+~~~text
+Logical / semantic value flow
+X ──> MatMul(W1) ──> Activation ──> MatMul(W2) ──> Y
+
+Physical / possible overlap
+Reserve(W1) ──> Read(W1) ──> Ready(W1) ──> Compute(L1) ──> Activation ──┐
+Reserve(W2) ──> Read(W2) ──> Ready(W2) ─────────────────────────────────┤
+                                                                        ▼
+                                                                  Compute(L2) ──> Y
+            Read(W2) and Compute(L1) can overlap (if budget allows)
+Compute(L2) awaits BOTH Activation and Ready(W2).
+Release(buffer) follows last use AND all pending I/O/transfer completions.
+~~~
+
+**차용 방법의 핵심 차이.** Polars 방식은 **필요 없는 byte를 아예 요청하지 않도록** 만드는 기법이다. IREE 방식은 **읽기·전송·완료 토큰을 Physical DAG의 명시적 의존성**으로 만드는 기법이다. DuckDB·Arrow·Ray 방식은 **그 DAG의 읽기 요청을 bounded queue·backpressure·memory budget 아래에서 실행**하는 기법이다. DeepSpeed·FlexGen 방식은 **합법적 계산 순서/배치에서 weights의 생존 구간과 재사용을 늘려** 실제 반복 I/O를 줄인다. 이 기법들은 대체 관계가 아닌 계층별 조합 후보이다.
+
+**의미론 경계와 비용 계약.** (A) verified immutable 저장소의 내부 물리 read, (B) J `1!:11`/`1!:12` 등 관찰 가능한 foreign I/O, (C) 수정 가능한 weights·checkpoint 쓰기를 별도로 모델링한다. A에서만 access witness/guard를 통한 범위 pruning, speculative prefetch, range coalescing을 허용한다. B는 J effect/error 순서, C는 version/snapshot/commit/durability 계약을 지킨다. 빈 Frame의 read bytes가 0이어도 J Rank의 가상 Cell·fill·dtype·shape 및 오류 판단은 생략하지 않는다. boxed/sparse, dynamic NAME/Rank, alias, stale file, EOF/short read 및 실패의 조기 관찰은 negative fixture 대상이다.
+
+성능은 **cold/warm 실제 읽은 bytes, request 수, seek/latency, blocked I/O 시간, compute time, page faults, prefetch overlap, peak·retained memory/RSS, spill, 전체 throughput, 개별 호출 latency**를 따로 측정한다. Read-ahead 자체는 필요한 byte를 줄이지 못하며 메모리를 더 사용한다. 작은 range를 합치면 요청 수는 줄지만 초과 읽기가 발생할 수 있다. OS page cache/RSS는 모든 바이트를 RustJ governor에서 정확히 예약할 수 있는 메모리라고 주장하지 않는다. **의미론·자원 안전 → 실측 비용 → 실행 후보 선택** 순서를 유지한다.
+
+**기존 단일 수용 원장 매핑:** 자료 읽기 제거·공통 scan/cache = IO-09~12·29, 파일/Chunk/Shard 형식 = IO-05~08·26~28, async/backpressure/transfer = IO-13~17·20, weights/checkpoint = IO-18~19, benchmark/선택 = IO-21~24·30, 소스·의미론 = IO-01~04·25. 새 체크리스트를 만들지 않고 [§10 IO-01~IO-30](#out-of-core-io-checklist)의 기존 상태만 갱신한다. 지금은 설계 기록이므로 **0/30 수용** 상태를 유지한다.
+
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
@@ -11626,6 +11671,8 @@ A3-v2
 <a id="out-of-core-io-checklist"></a>
 
 ### IO — 느린 I/O·Out-of-core 실행 이행 계획·수용 체크리스트 (2026-10-06)
+
+**I/O 프레임워크 처리·실행 구조 상세:** [§8.5.2](#io-framework-execution-comparison)에서 기존 30개 게이트의 계층별 근거를 설명한다. 완료 판정은 이 표만 사용한다.
 
 **상태: 설계·작업표 작성, 구현/실행 검증 0/30 수용.**
 
