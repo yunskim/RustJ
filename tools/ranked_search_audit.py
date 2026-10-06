@@ -110,7 +110,7 @@ def run(binary, library, revision, path, adversarial=False):
             "jsource": c, "rust_reference": r, "rust_optimized": o,
         })
     report = {
-        "kind": ("RK-06 adversarial Rank diagnostic; NOT an acceptance gate"
+        "kind": ("RK-06 pinned-C adversarial Rank corpus (gate selected by CLI)"
                  if adversarial else "FW-04 bounded Rank three-way regression"),
         "reference_revision": revision,
         "reference_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
@@ -129,17 +129,30 @@ def run(binary, library, revision, path, adversarial=False):
     return report
 
 
-def diagnostic_summary(report, adversarial):
-    """Expose the exact C/Rust divergence; an exploratory CI pass is not acceptance."""
+def gate_failed(report, adversarial, gate_adversarial=False):
+    """Known pinned-C cases become a true CI gate only when explicitly selected."""
+    strict = not adversarial or gate_adversarial
+    return strict and any(
+        row["classification"] != "pass" for row in report["observations"]
+    )
+
+
+def diagnostic_summary(report, adversarial, gate_adversarial=False):
+    """Report all differences even if the caller does not yet enforce the gate."""
     mismatches = [
         row for row in report["observations"] if row["classification"] != "pass"
     ]
+    if adversarial and gate_adversarial:
+        gate = "RK-06 PINNED-C REGRESSION: fail on any mismatch"
+    elif adversarial:
+        gate = "EXPLORATORY: mismatches remain open, NOT accepted"
+    else:
+        gate = "BOUNDED REGRESSION: fail on any mismatch"
     summary = {
         "cases": report["cases"],
         "classifications": report["classifications"],
         "not_matching": [row["name"] for row in mismatches],
-        "gate": ("EXPLORATORY: mismatches remain open, NOT accepted"
-                 if adversarial else "BOUNDED REGRESSION: fail on any mismatch"),
+        "gate": gate,
     }
     if adversarial:
         summary["mismatch_observations"] = mismatches
@@ -152,8 +165,12 @@ def main():
     parser.add_argument("--reference-revision", required=True)
     parser.add_argument("--report", type=Path, default=ROOT / "reports/ranked-search-audit.json")
     parser.add_argument("--adversarial", action="store_true",
-                        help="RK-06 exploratory corpus; report mismatches without acceptance")
+                        help="Select the RK-06 pinned-C adversarial corpus")
+    parser.add_argument("--gate-adversarial", action="store_true",
+                        help="Fail on an RK-06 mismatch (requires --adversarial)")
     args = parser.parse_args()
+    if args.gate_adversarial and not args.adversarial:
+        parser.error("--gate-adversarial requires --adversarial")
     library = Path(os.environ.get("J_LIBRARY", str(ROOT / ".reference/bin/linux/j64/libj.so")))
     try:
         report = run(args.binary.resolve(), library.resolve(), args.reference_revision,
@@ -161,13 +178,11 @@ def main():
     except (OSError, RuntimeError) as error:
         print(f"FW-04 ranked diagnostic failed: {error}", file=sys.stderr)
         return 1
-    print(json.dumps(diagnostic_summary(report, args.adversarial), indent=2))
-    # This bounded corpus is a concrete supported subset. Once its
-    # empty-frame semantics are implemented, any regression must fail CI;
-    # the report still retains failures instead of silently waiving them.
-    return int(not args.adversarial and any(
-        row["classification"] != "pass" for row in report["observations"]
+    print(json.dumps(
+        diagnostic_summary(report, args.adversarial, args.gate_adversarial),
+        indent=2,
     ))
+    return int(gate_failed(report, args.adversarial, args.gate_adversarial))
 
 
 if __name__ == "__main__":
