@@ -149,7 +149,7 @@ Pure/effect region partition
 ParameterizedLoweringRecipe
 ```
 
-각 연구 compiler의 static-rank/static-scope/no-execute/pure-subset 제한은 RustJ language restriction이 아니라 **특정 compiler route의 precondition**으로만 취급합니다. 상세 근거와 거부 항목은 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md) Part XX, 구현 계약과 체크리스트는 [PROJECT.ko.md](PROJECT.ko.md) 4.24.3–4.24.10/A2/A3를 따릅니다.
+이들 연구 compiler에서 **각기 나타나는** static-rank, static-scope, no-execute, pure-subset 등의 제한은 RustJ language restriction이 아니라 **특정 compiler route의 precondition**으로만 취급합니다. 모든 비교 대상이 이 제한을 전부 공유한다는 뜻은 아닙니다. 상세 근거와 거부 항목은 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md) Part XX, 구현 계약과 체크리스트는 [PROJECT.ko.md](PROJECT.ko.md) 4.24.3–4.24.10/A2/A3를 따릅니다.
 
 ## 현재 상태
 
