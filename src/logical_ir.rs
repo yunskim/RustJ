@@ -434,9 +434,17 @@ pub fn search_descriptor(call: &CallOp) -> Option<SearchDescriptor> {
             (SearchOutputKind::SelfClassify, SearchComparison::JEquality),
         _ => return None,
     };
+    // Dyadic e. asks whether *left* items belong to the *right* set,
+    // unlike i./i:/I. which search left using right-side queries.
+    // A3 must preserve this direction before any physical hash strategy.
+    let (indexed, queried) = if output == SearchOutputKind::MembershipMask {
+        (Some(call.right), call.left?)
+    } else {
+        (call.left, call.right)
+    };
     Some(SearchDescriptor {
-        indexed: call.left,
-        queried: call.right,
+        indexed,
+        queried,
         output,
         comparison,
         rank_boundary: call.instantiation.rank_boundary,
