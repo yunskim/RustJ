@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod array_ops;
+mod comparison_policy;
 mod assembly;
 mod index_ops;
 // Research-only tolerant lookup proof harness; never an executable fast path.
