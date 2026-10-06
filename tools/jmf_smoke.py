@@ -104,6 +104,14 @@ def run(library: Path, revision: str, report_path: Path) -> dict:
                     result["status"] = "blocked"
                     result["blocker"] = ("bootstrap_or_addon" if index < 4
                                          else "jmf_execution_or_expectation")
+                    # Capture J's detailed failure context *before* other
+                    # evaluation can replace it. This is a diagnostic, never
+                    # evidence that the mapped-array semantics failed.
+                    if isinstance(output, dict) and "error" in output:
+                        try:
+                            result["j_error_context"] = oracle.eval("13!:12''")
+                        except (ValueError, RuntimeError) as error:
+                            result["j_error_context_unavailable"] = str(error)
                     break
             else:
                 result["status"] = "observed_smoke_match"
