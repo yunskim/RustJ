@@ -1400,6 +1400,8 @@ J-valid, implementation coverage missing
     → UnsupportedImplementation
 ~~~
 
+여기서 `UnsupportedImplementation`은 architecture-level 분류명이다. 현재 Rust concrete API는 `Error::Unsupported(String)` / kind `"unsupported"`를 사용하며, 별도 `UnsupportedImplementation` enum variant가 구현되어 있다고 해석하지 않는다.
+
 compiler coverage와 language validity를 섞는 순간 언어가 축소된다.
 
 ---
@@ -1528,7 +1530,7 @@ w.c의 state machine을 compatibility oracle로 사용한다. [S1]
 
 jtenqueue의 classification order와 primitive/name/noun/assignment semantics를 따른다. [S1]
 
-extension primitive는 parser keyword가 아니라 jtenqueue의 primitive acquisition 지점을 일반화한 PrimitiveResolver에서 넣는다.
+extension 이름은 parser keyword가 아니며 **enqueue에서 primitive로 고정하지 않는다.** `PrimitiveResolver`는 core J primitive spelling의 enqueue-time `spellin -> ds` 대응을 맡고, alphabetic/project extension은 ordinary J `NAME` + lookup metadata로 들어가 parser-time 정상 name lookup에서 현재 noun/verb/adverb/conjunction binding을 얻는다. 그 binding이 computational semantic entity로 해석된 뒤에만 target-independent lowering key와 downstream capability를 연결한다.
 
 ### Parser
 
