@@ -2909,6 +2909,29 @@ RustJ
 - **설계 경계:** J Graph에는 원 식과 후보/provenance를 남기고, Execution Semantic Lowering에서 call-dependent facts/equivalence를 discharge하며, Physical Planner가 buffer/cache/SIMD/GPU execution을 선택한다. source의 fast path가 존재한다는 사실은 RustJ에서 무조건 rewrite하라는 proof가 아니다.
 - **범위:** 위 catalog는 조사한 source 영역에서 검증한 **대표 최적화 계열**이며 jsource 전체의 exhaustive inventory 또는 RustJ 구현 완료를 뜻하지 않는다. 이번 검토는 source/doc audit이고 Rust/C differential 또는 benchmark는 실행하지 않았다.
 
+##### F. 별도 기준으로 실시한 3회 검증 (2026-10-06)
+
+| 독립 검증 | 출발 질문 | 확인한 근거·결론 | 남은 한계 |
+|---|---|---|---|
+| **1. 원본 구현 추적** | jsource의 각 경로가 실제 존재하며 언제 실행되는가? | `ca/cf/cr/va2/ar/ap/vi/cu`에서 construction → entrypoint → fallback을 대조했다. `jtintersect`의 `C_VIAVX` 조건, `jtiobs`의 `ct=0`/boxed 제한을 보완하고 `jtfslashatg` fallback 근거 링크를 확장했다. | 대표 source paths만 확인; 전체 jsource 특수화 목록은 아님 |
+| **2. 의미론·반례 검증** | 동일한 graph 패턴이어도 J에서 불법인 변환은 무엇인가? | empty/sparse, rank/frame/cell, `!.`·numeric promotion·NaN·overflow, virtual alias/boxed Result Assembly, dynamic name/effect/error ordering을 독립적으로 반례 범주로 구성했다. 일반적인 Mean/Dot/Box→Open/fusion의 무조건 치환은 기각한다. | J/C differential oracle과 runtime tests는 미실행 |
+| **3. 계층·문서 정합성** | 설계에서 누구에게 분석·증명·실현 책임이 있는가? | §4.1.3의 발견, §4.1.4의 candidate evidence/legality/selection, §4.2의 Execution Semantic Lowering, 후속 Physical Planner를 대조했다. Graph candidate와 실행 commitment가 분리돼 있고, 이 절의 Markdown table 단절을 수정했다. | 구체 RustJ 구현 상태나 성능 향상을 검증한 것은 아님 |
+
+**Source revision 재확인:** 고정된 소스 검토 기준은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`이다. 2026-10-05의 jsource `master` HEAD `0a5101cfdd834b23a0b89d455e4f327310520a08`는 이 기준보다 20 commit 앞서고 `ap.c/ar.c/va2.c` 변경을 포함한다. 두 revision의 `jtmovavg`, `jtmovfslash`, `jtmean`, `jtreduce`, `jtfslashatg`, `jtsumattymes1`의 **검토한 진입·핵심 guard 발췌는 동일**했다. 이는 함수 전체, 모든 동작 경로 또는 jsource 전체에 변화가 없다는 증명이 아니다.
+
+##### G. 이후 optimizer 구현 시 필요한 차등 검증 항목 — 아직 미실행
+
+| 대상 후보 | 반드시 비교할 경계 | 증명/실행 확인점 |
+|---|---|---|
+| `f/@:g` | 빈 배열·sparse, in-place 우세, result dtype 불일치, overflow reversion | source/result 동일, error order, effect 이전 fallback, 불법 재실행 없음 |
+| `+/%#` 및 Window(Mean) | 길이 0/1/다중 cell, 정수·실수·NaN·overflow, window 길이 0/1/초과 | cell 길이·prototype·dtype·숫자 동등성 |
+| `+/@:*"1 1` | mixed rank, empty/sparse, `!.0`·`!.1`, QP | rank/agreement, dtype/result shape, fallback |
+| BOXATOP/WILLOPEN/USESITEMCOUNT | 중첩 박스·다양한 cell shape·raze·sparse·virtual alias | Result Assembly와 재귀화·usecount·검사 순서 |
+| Search/Under/View | boxed rank/tolerance, prehash reuse, 이름 재바인딩, shared/in-place ravel | 검색 결과, inverse 시점, alias/pristinity |
+| 모든 rewrite | source graph 버전, proof witness, effect/error dependency, guard miss | Unknown이면 commit 금지; side effect 이후 replay 금지 |
+
+**결론:** jsource 소스는 optimization 후보를 발견하는 근거이지 RustJ rewrite의 correctness proof나 측정된 속도 향상의 증거가 아니다. 검증하지 않은 후보는 candidate로 남기며 선택된 transform으로 표시하지 않는다.
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
