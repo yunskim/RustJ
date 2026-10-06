@@ -2040,36 +2040,16 @@ No external framework builds, Rust/C runtime tests, performance measurements, or
 
 ## 7.4.3 jsource-derived optimization principles and RustJ placement
 
-Review baseline: `jsoftware/jsource` source pin **`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`**. This is not a plan to clone jsource's hand-written special entry points one-for-one. It mines long-accumulated J-specific optimization knowledge and relocates it into RustJ's graph facts/rewrites and downstream execution planning.
-
-~~~text
-jsource
-  derived verb / train structure
-      ↓
-  propagated flags + special-form recognition
-      ↓
-  specialized entry point / rank path / virtual block / inplace path
-
-RustJ
-  J semantic construction + applied J Graph
-      ↓
-  target-independent facts / provenance / rewrite candidates
-      ↓
-  proof / demand / rank-shape / materialization analysis
-      ↓
-  Execution Semantic Lowering
-      ↓
-  bufferization / scheduling / CPU-GPU-library realization
-~~~
+Review baseline: `jsoftware/jsource` source pin **`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`**. This is not a plan to clone jsource's hand-written special entry points one-for-one. It mines accumulated J-specific optimization knowledge and relocates it into RustJ graph facts/rewrites and downstream execution planning.
 
 | jsource observation | Direct source | Generalized RustJ idea | Placement |
 |---|---|---|---|
-| Derived verbs propagate execution-relevant properties | `ca.c::jtatop/jtatco`; `jtype.h` `VF2*` | Propagate semantic/execution-relevant traits through composition as typed facts/contracts rather than copying C bit flags. | **J Graph / call facts** |
+| Derived verbs propagate execution-relevant properties | `ca.c::jtatop/jtatco`; `jtype.h` `VF2*` | Propagate semantic/execution-relevant traits through composition as typed facts/contracts instead of copying C bit flags. | **J Graph / call facts** |
 | `@:`/capped-fork/special-form recognition | `ca.c` `SPECAT/SPECATCO`; `cf.c::jtfolk` | Canonicalize equivalent applied topology while retaining source provenance; expose composition as fusion/materialization candidates. | **J Graph canonicalization + discovery** |
-| Atomic `f/@:g` avoids full intermediate materialization | `ca.c::jtatco` selects `jtfslashatg`; `va2.c::jtfslashatg` explicitly cites cache-footprint savings | Recognize transform→reduce fusion/streaming candidates; defer cell chunking/cache schedule. | **Graph fusion candidate → execution scheduling** |
+| Atomic `f/@:g` avoids full intermediate materialization | `ca.c::jtatco`; `va2.c::jtfslashatg` explicitly cites cache-footprint savings | Recognize transform→reduce fusion/streaming candidates; defer cell chunking/cache schedule. | **Graph fusion candidate → execution scheduling** |
 | Nested rank loops can be subsumed | `jtype.h` `VF2RANKATOP*/RANKONLY*`; `ca.c`; `cr.c` | Preserve cell/frame iteration domains and discover compatible rank-domain absorption/fusion. | **Graph/execution semantic analysis**, concrete loop later |
 | `+/%#` gets `jtmean` | `cf.c::jtfolk` | Recognize witnessed `Divide(Sum(x),Count(x))` → mean-style idiom. | **Graph rewrite / idiom recognition** |
-| Mean under infix/window becomes moving average | `ap.c::jtbslash` chooses `jtmovavg` | Re-run canonicalization/candidate discovery after rewrites because one identity can unlock another. | **Graph rewrite rediscovery/fixpoint** |
+| Mean under infix/window becomes moving average | `ap.c::jtbslash` chooses `jtmovavg` | Re-run candidate discovery after rewrites because one canonical identity can unlock another. | **Graph rewrite rediscovery/fixpoint** |
 | `+/@:*"1 1` gets `jtsumattymes1` | `cr.c` special case | Recognize dot-like contraction candidates only with J numeric/rank/error witnesses. | **Graph rewrite + execution-basis selection** |
 | `#@,`, `#@**English mirror** | [한국어 — canonical](PROJECT.ko.md)
 
@@ -6152,49 +6132,26 @@ Existing `GraphForm/GraphHint`, applied stages, consumer/liveness and symbolic-r
 No external framework builds, Rust/C runtime tests, performance measurements, or CUDA validation were performed for this documentation integration. Earlier validation records retain their original scope.
 
  shortcut to rank/atom count | `ca.c`; `v.c::jtrank/jtnatoms` | Use symbolic shape/rank/count algebra and demand analysis to avoid value computation. | **Graph facts / shape rewrite** |
-| `BOXATOP/WILLOPEN/ATOPOPEN/USESITEMCOUNT` use downstream demand | `jtype.h`, `result.h`, `ca.c` | Analyze producer-consumer demand; eliminate unnecessary recursion/materialization/passes instead of encoding these jsource flags as semantic identity. | **Graph demand/materialization analysis** |
-| Ravel can use virtual blocks/header reshaping | `v.c::jtravel` | Represent view opportunities and delay copying; choose actual alias/header/stride representation physically. | **Logical view opportunity → physical representation** |
-| Comparison/search/set combinations get specialized algorithms | `ca.c`; `cf.c::jtfolk` including `jtintersect` | Promote witnessed primitive graphs to higher-level ranking/intersection/search candidates for algorithm selection. | **Graph idiom recognition / algorithm selection** |
-| Use count and inplaceability drive storage reuse | `v.c::jtravel` `ASGNINPLACESGN`; broader `JTINPLACE*` machinery | Use SSA/use-def/liveness/alias facts for buffer reuse. This is not a semantic graph rewrite. | **Buffer planner / physical lowering** |
-| Cache footprint/SIMD/special primitive routines influence execution path | `va2.c::jtfslashatg` and specialized entry points | Keep fusion/streaming freedom and logical extent in graph IR; choose chunking, SIMD, GPU workgroup, library kernels later. | **Target lowering / schedule / cost** |
+| `BOXATOP/WILLOPEN/ATOPOPEN/USESITEMCOUNT` exploit downstream demand | `jtype.h`, `result.h`, `ca.c` | Analyze producer-consumer demand and remove unnecessary recursion/materialization/passes instead of making jsource flags semantic identity. | **Graph demand/materialization analysis** |
+| Ravel can use virtual blocks/header reshaping | `v.c::jtravel` | Represent view opportunities and delay copies; choose concrete alias/header/stride representation physically. | **Logical view opportunity → physical representation** |
+| Comparison/search/set combinations get specialized algorithms | `ca.c`; `cf.c::jtfolk`, including `jtintersect` | Promote witnessed primitive graphs to higher-level ranking/intersection/search candidates for algorithm selection. | **Graph idiom recognition / algorithm selection** |
+| Use count and inplaceability drive storage reuse | `v.c::jtravel` `ASGNINPLACESGN`; broader `JTINPLACE*` machinery | Use SSA/use-def/liveness/alias facts for buffer reuse; this is not a semantic graph rewrite. | **Buffer planner / physical lowering** |
+| Cache footprint/SIMD/special routines influence the execution path | `va2.c::jtfslashatg` and specialized entry points | Keep fusion/streaming freedom and logical extent in graph IR; select chunking, SIMD, GPU workgroups, and libraries later. | **Target lowering / schedule / cost** |
 
 Pinned sources:
 
-- [`jsrc/ca.c` — `jtatop/jtatco`, special forms, propagated WILLOPEN/USESITEMCOUNT/RANKATOP](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L306-L505)
-- [`jsrc/cf.c` — `jtfolk`, capped fork normalization, `+/%# → jtmean`, comparison/intersection specialization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L55-L198)
-- [`jsrc/cr.c` — rank/IRS selection and `+/@:*"1 1 → jtsumattymes1`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L779-L799)
-- [`jsrc/ap.c` — prefix/infix dispatch and `jtmean → jtmovavg`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L950-L963)
-- [`jsrc/va2.c::jtfslashatg` — atomic `f/@:g` cell-at-a-time execution to reduce cache footprint](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1807-L1820)
-- [`jsrc/v.c` — `jtrank/jtnatoms`, ravel virtual block and inplace/header reuse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/v.c#L8-L40)
+- [`jsrc/ca.c` — `jtatop/jtatco`, special forms and propagated flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L306-L505)
+- [`jsrc/cf.c` — `jtfolk`, capped-fork normalization, mean and intersection specializations](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L55-L198)
+- [`jsrc/cr.c` — rank/IRS selection and `jtsumattymes1`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L779-L799)
+- [`jsrc/ap.c` — prefix/infix dispatch and moving average](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L950-L963)
+- [`jsrc/va2.c::jtfslashatg` — cache-footprint-oriented cell-at-a-time execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1807-L1820)
+- [`jsrc/v.c` — rank/atom-count shortcuts, virtual ravel and inplace/header reuse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/v.c#L8-L40)
 - [`jsrc/jtype.h` — BOXATOP/WILLOPEN/USESITEMCOUNT/RANKATOP/RANKONLY contracts](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1280-L1320)
 - [`jsrc/result.h` — WILLBEOPENED/COUNTITEMS result-assembly contract](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/result.h#L20-L36)
 
-Layer boundary:
+The layer boundary is deliberate: Graph IR/facts own provenance, rank/cell/frame topology, shape/count, demand, logical-view opportunities and semantic traits; graph optimization owns fusion, rank-domain absorption, shape/count simplification, materialization elimination and idiom recognition; execution/physical planning owns explicit loops, buffer reuse, concrete views, cache blocking, SIMD/multicore/GPU mapping and library/custom-kernel selection.
 
-~~~text
-J Graph IR / graph facts
-  provenance, rank/cell/frame, shape/count, demand, logical view opportunities, semantic traits
-
-Graph optimization
-  composition/reduction fusion candidates
-  rank-domain absorption
-  shape/count simplification
-  box/open/materialization elimination
-  mean/moving-average/dot-like/ranking/intersection recognition
-  candidate rediscovery after rewrites
-
-Execution Semantic Lowering / Physical planning
-  explicit loops
-  bufferization/inplace reuse
-  concrete view/alias representation
-  cache blocking/chunking
-  SIMD/multicore/GPU workgroup
-  library/custom-kernel selection
-~~~
-
-Do not make each jsource special entry point a Graph IR node, and do not copy runtime flags such as `WILLOPEN` or `RANKATOP` as semantic identity. Extract the underlying producer-consumer demand, iteration-domain compatibility, materialization, and result-assembly facts instead.
-
-Each RustJ rewrite still requires its own witness for J-visible dtype, rank/frame/cell, empty/prototype, fit/tolerance, overflow/promotion, and effect/error order. jsource special cases are optimization-source evidence, not sufficient correctness proofs. This section records design input only; it does not claim these optimizations are implemented.
+Do not make each jsource special entry point a Graph IR node, and do not copy runtime flags such as `WILLOPEN` or `RANKATOP` as semantic identity. Each rewrite still requires its own witness for J-visible dtype, rank/frame/cell, empty/prototype, fit/tolerance, overflow/promotion, and effect/error order. jsource special cases are optimization-source evidence, not sufficient correctness proofs. This section records design input only; it does not claim these optimizations are implemented.
 
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
