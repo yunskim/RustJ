@@ -63,6 +63,50 @@ fn reviewed_rules_have_unique_identifiers_and_explicit_ownership() {
 }
 
 #[test]
+fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
+    use rustj::primitive::{PrimitivePartOfSpeech as Pos, PrimitiveResolver, PrimitiveSemanticId};
+
+    // jsource enqueue can classify a word before RustJ supports constructing
+    // or executing that primitive. A known POS is not a semantic proof.
+    for (spelling, expected_pos) in [
+        ("/.", Pos::Adverb),      // Key
+        (".", Pos::Conjunction), // Dot/inner product
+        ("/:", Pos::Verb),       // Grade up
+        ("\\:", Pos::Verb),      // Grade down
+        (";.", Pos::Conjunction),// Cut
+        ("&.", Pos::Conjunction),// Under
+        ("M.", Pos::Adverb),     // Explicit memo
+        ("?", Pos::Verb),        // Roll/deal
+        ("?.", Pos::Verb),       // Fixed-seed random variant
+        ("!.", Pos::Conjunction),// Fit/tolerance
+    ] {
+        let handle = PrimitiveResolver::core()
+            .resolve_core_for_enqueue(spelling)
+            .unwrap_or_else(|| panic!("missing known J vocabulary {spelling}"));
+        assert_eq!(handle.result_pos, expected_pos, "{spelling}");
+        assert!(
+            matches!(handle.semantic_id, PrimitiveSemanticId::Vocabulary(_)),
+            "{spelling} must remain a vocabulary identity until its semantic implementation exists"
+        );
+    }
+
+    // The source catalog must not turn the above POS classifications into
+    // graph candidates or executable optimizations.
+    for family in [
+        JsourceFamily::GroupAggregate,
+        JsourceFamily::MatrixContraction,
+        JsourceFamily::GradeRanking,
+        JsourceFamily::ResultAssemblyDemand,
+    ] {
+        assert_eq!(
+            family_rule(family).discovery,
+            DiscoveryCoverage::AwaitingFrontendOrFacts,
+            "{family:?} is source-audited, not frontend-proven"
+        );
+    }
+}
+
+#[test]
 fn source_idioms_are_detected_without_fabricating_equivalence_or_execution() {
     for (source, expected) in [
         ("+/1 2 3", JsourceFamily::ReductionFastPath),
