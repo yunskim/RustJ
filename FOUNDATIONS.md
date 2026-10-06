@@ -994,6 +994,21 @@ When a fact is used to remove a J-visible check or narrow a route, retain a witn
 
 # Part XXIV — Parallelization
 
+## 24.0 Heterogeneous execution is the parent planning problem (2026-10-07)
+
+RustJ optimizes the total cost of a semantics-preserving execution plan, **not CPU thread count or maximum parallelism**. Logical independence, region/device placement, memory-space placement and value readiness, transfers/synchronization, and intra-device parallel scheduling are separate decisions. `logical_ir::IterationAxisKind::Parallel` describes a logical iteration opportunity; it does not authorize concurrency.
+
+- **Legality:** J value/rank/CellApply/empty-frame, dynamic binding/version, access/alias, effect and observable error ordering must remain guarded or proven independently of any device selection. Unknown facts never authorize execution.
+- **Placement:** CPU, GPU, and external routes are candidate realizations; a single-device, deterministic, sequential, no-transfer plan is fully valid.
+- **Memory:** execution spaces and memory spaces are not in one-to-one correspondence. Keep semantic ValueId separate from plan buffer/version identities and runtime leases. Shared/unified memory does not imply no movement, coherence cost or synchronization.
+- **Scheduling:** model transfer/computation readiness, ownership/lifetime, checks, completion and ordered effects/errors as explicit dependencies; count async overlap only when the dependency graph permits it.
+- **Cost:** compare resource feasibility and critical-path runtime costs (compute, bandwidth, memory capacity/residency, transfers, launch/sync, allocation). Unknown empirical cost is not zero.
+- **Backend:** Rayon/Futhark/XLA worker policies belong inside a CPU (or device-local) realization. Never make a mandatory Parallel IR, CPU-only master planner or GPU-specific runtime a prerequisite for the minimal native CPU slice.
+
+[IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) informs target/async-resource scheduling, [Kokkos execution and memory spaces](https://kokkos.org/kokkos-core-wiki/ProgrammingGuide/View.html) inform separate placement axes, and [MLIR scf.forall](https://mlir.llvm.org/docs/Dialects/SCFDialect/) illustrates target-independent parallel iteration. These are architectural references, not new RustJ dependencies or authorization to change J error/effect semantics. [XLA](https://github.com/openxla/xla/blob/main/xla/service/cpu/parallel_task_assignment.cc) and [Futhark](https://github.com/diku-dk/futhark/blob/master/rts/c/scheduler.h) inform **intra-device** task cost and work partitioning only.
+
+Retain M2→M3→M4 priority: first an all-CPU zero-transfer executable slice, then M5 placement/cost candidates, then M6+ mixed CPU/GPU and asynchronous execution only when the underlying device environment and J conformance can be verified.
+
 ## 24. Parallelism is conditional
 
 J's array semantics expose parallel opportunities, but not every syntactically array-shaped expression is freely parallelizable.
