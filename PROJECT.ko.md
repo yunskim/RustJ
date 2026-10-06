@@ -4605,6 +4605,106 @@ CellApply2
 | verifier / reference execution | `Plan::verify()`와 `logical_executor::execute_closed()`가 존재한다 | closed-plan reference 실행을 named/environment 전체 지원 또는 Physical Executor로 오인하지 않는다 |
 | route / physical execution | `LoweringRegistry`와 contiguous route-partition prototype이 존재한다 | 선택된 native Schedule/Physical Plan/CPU Physical Executor는 M4 이후의 미완료 경계다 |
 
+###### 같은 표본의 stage-by-stage compiler trace
+
+이 표본은 앞으로 문서와 구현에서 **한 source를 처음부터 끝까지 같은 provenance로 추적하는 canonical trace**로 사용한다. 현재 구현된 경계와 planned 경계를 섞지 않는다.
+
+~~~text
+J source
+  (+/ % #) y
+      │
+      ▼
+[현재 구현] parser / Semantic Construction
+  Fork
+    f = +/        // Insert(+) derived Verb
+    g = %
+    h = #
+  source span / operand identity / observable fork order 보존
+      │
+      ▼
+[현재 구현] J Graph IR
+  input y
+      ├─ h branch: Apply Tally(y) ──────────────┐
+      └─ f branch: Apply Reduce(Add, y) ────────┤
+                                                ▼
+                                      Apply Divide(f, h)
+  + Fork region/provenance
+  + branch/join/use/liveness facts
+  + Graph Basis / GraphHint
+      │
+      ├─→ [현재 분석] rewrite/fusion/resource/work-depth 후보·side analysis
+      │       candidate는 source graph를 대체하거나 실행을 확정하지 않음
+      │
+      ▼
+[현재 구현] Execution Semantic Lowering → canonical A3
+  observable order: h → f → g
+  Tally(y)
+  Reduce(Add, y)
+  Divide(left=reduce, right=tally)
+    + valence/rank/cell/frame facts
+    + prefix-agreement / repetition constraint or witness
+    + SemanticCheck only when a required constraint remains unresolved
+    + effect/error/speculation/order metadata
+      │
+      ▼
+[현재 구현] A3 verifier / reference execution capability
+  Plan::verify()
+  logical_executor::execute_closed() on its supported closed subset
+      │
+      ▼
+[현재 프로토타입] route analysis
+  LoweringRegistry::route_operation / partition_plan
+  native realization이 없는 op은 RuntimeSemanticFallback class일 수 있음
+  contiguous class grouping은 아직 final mixed-route plan이 아님
+      │
+      ───────────── 현재 compiler-native physical 실행의 stop line ─────────────
+      │
+      ▼
+[planned M4] deterministic CPU Schedule / PhysicalPlan
+  BindInput(y)
+  Check(...)             // A3에 unresolved SemanticCheck가 있을 때만
+  Kernel Tally
+  Kernel Reduce(Add)
+  View/iteration mapping // right scalar를 J cell semantics에 따라 반복, 필요 시 metadata-only
+  Kernel Divide
+  Return(result)
+      │
+      ▼
+[planned M4 validation]
+  result = 1.5 2.5 3.5
+  + jsource와 value/error/order differential
+  + allocation/view/reuse invariants
+~~~
+
+중요한 점은 **Mean이라는 fused operation이 correctness baseline이 아니라는 것**이다. 이 표본의 첫 compiler-native 성공 조건은 위 generic `Tally + Reduce + CellApply/Divide` 경로다.
+
+그 이후에만 다음과 같은 optimization candidate를 별도로 고려할 수 있다.
+
+~~~text
+source generic graph
+  Tally + Reduce(Add) + CellApply(Divide)
+          │
+          └─→ possible Mean-style fused/composite candidate
+                 equivalence / rank-cell assembly
+                 numeric + error/effect order
+                 fanout/retention
+                 resource/work-depth
+                 target capability
+                 profitability
+                 모두 필요한 proof 이후에만 select
+~~~
+
+현재 `j_graph_fusion`의 등록 규칙이나 `fusion_planning`이 이 Mean specialization 전체를 이미 선택·lowering한다고 해석하지 않는다. 이 부분은 **future optimization example**이며, 먼저 generic graph의 semantic/physical E2E가 검증되어야 한다.
+
+##### 이 trace의 provenance 연결 규칙
+
+- parser `FunctionEntity`의 Fork/operand/source span을 J Graph region과 연결한다.
+- 각 J Graph `ValueId`는 A3 operation의 `j_origin`으로 추적 가능해야 한다.
+- candidate는 source graph/version과 rule/witness provenance를 가진다.
+- RoutePartition과 PhysicalPlan은 canonical A3를 destructive하게 덮어쓰지 않고 source logical operation/provenance를 참조한다.
+- Physical `Kernel`/`Check` 실패를 보고할 때 가능한 한 A3 op → J Graph origin → source span으로 역추적한다.
+- planned M4 trace가 실제 구현되기 전에는 이 그림의 PhysicalPlan 구간을 구현 완료 증거로 사용하지 않는다.
+
 shape `[3]` 추론만으로 `%`의 prefix agreement와 residual-frame repetition을 구현했다고 판정하지 않는다. 이 표본의 semantic contract 검증은 다음으로 좁힌다.
 
 - [ ] primitive/derived callable의 valence별 innate `RankSpec`과 explicit `"`가 공통 CellApplicationPlanner를 사용한다.
