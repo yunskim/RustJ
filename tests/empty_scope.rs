@@ -60,5 +60,4 @@ fn empty_ravel_rank_preserves_type_shape_and_caller_scope() {
         "unsupported"
     );
     assert_eq!(engine.eval("count").unwrap().unwrap().int_at(0).unwrap(), 0);
-    assert_eq!(engine.eval("count").unwrap().unwrap().int_at(0).unwrap(), 0);
 }
