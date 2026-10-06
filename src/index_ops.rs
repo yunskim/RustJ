@@ -238,3 +238,48 @@ pub(crate) fn find(a: Value, b: Value) -> Result<Value> {
         })?),
     )
 }
+
+
+#[cfg(test)]
+mod index_family_tests {
+    use super::{ExactScalarIndex, LookupResult, exact_scalar_index};
+    use crate::Value;
+
+    #[test]
+    fn narrow_domain_uses_direct_table_without_changing_duplicate_policy() {
+        let source = Value::ints([5], vec![-2, -1, 0, -2, 1]).unwrap();
+        let first = exact_scalar_index(&source, 5, 7, LookupResult::First)
+            .unwrap()
+            .unwrap();
+        let last = exact_scalar_index(&source, 5, 7, LookupResult::Last)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(first, ExactScalarIndex::Direct { .. }));
+        assert!(matches!(last, ExactScalarIndex::Direct { .. }));
+        assert_eq!(first.find(-2, 5), 0);
+        assert_eq!(last.find(-2, 5), 3);
+        assert_eq!(first.find(1, 5), 4);
+        assert_eq!(first.find(i64::MAX, 5), 5);
+    }
+
+    #[test]
+    fn wide_or_overflowing_i64_domain_uses_hash_without_span_overflow() {
+        let source = Value::ints([3], vec![i64::MIN, 0, i64::MAX]).unwrap();
+        let indexed = exact_scalar_index(&source, 3, 12, LookupResult::First)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(indexed, ExactScalarIndex::Hashed(_)));
+        assert_eq!(indexed.find(i64::MIN, 3), 0);
+        assert_eq!(indexed.find(0, 3), 1);
+        assert_eq!(indexed.find(i64::MAX, 3), 2);
+        assert_eq!(indexed.find(4, 3), 3);
+    }
+
+    #[test]
+    fn tiny_search_avoids_index_setup() {
+        let source = Value::ints([3], vec![1, 2, 3]).unwrap();
+        assert!(exact_scalar_index(&source, 3, 2, LookupResult::Membership)
+            .unwrap()
+            .is_none());
+    }
+}
