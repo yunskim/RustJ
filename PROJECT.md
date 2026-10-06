@@ -2132,6 +2132,29 @@ These families need different layers: source syntax/graph identity permits candi
 
 This additional review searched the pinned `jsrc/` source inventory and sampled source files in grade/sort, group/key, inner product/GEMM, tolerant hash/index, cut, data movement, sparse, and name caching. **It does not establish that no other jsource optimizations exist.** In particular, a complete inventory of `p.c` parser/assignment paths, `cx.c` explicit definitions, primitive numeric `va1/v0/v1/v2`, allocator/amend `m.c/am.c`, and all SIMD/assembly microkernels remains unverified. Suggested first research priorities are high-level Key/GroupReduce, Contraction, Grade/Ranking, and IntervalLookup identities, followed by their legality witnesses and target-specific algorithms. This was a source/document audit, **not** J/RustJ differential execution or a benchmark.
 
+### J. Framework-native RustJ integration (2026-10-06)
+
+This section distinguishes source-derived **design evidence** from actual RustJ code integration. No verified performance improvement or semantically committed transform is claimed.
+
+| Source-derived idea | Existing RustJ owner | Code status | Gate before execution optimization |
+|---|---|---|---|
+| `f/@:g` Map→Reduce streaming | Existing `j_graph_fusion.rs::MapReduce` and `fusion_planning.rs` | Reuse the existing envelope; do not add a duplicate rewrite | cell/rank, numeric/type, effect/order, target feasibility, fallback |
+| `+/%#` Mean fork | New `j_graph_jsource.rs` source analyzer | Recognize **ordinary Fork of Insert(Add), Divide and Tally** as a source-backed **MeanIdiom candidate only** | shape/cell, empty, numeric order, effects; no Mean kernel yet |
+| Reduction/window/scan | Existing `GraphForm::Reduce/PrefixInfix`, `j_graph_scan.rs` | Register ReductionFastPath/WindowAlgorithm opportunities, separate from Scan witness | small-cell/window algorithm; NaN/overflow, monad vs dyad |
+| `i.` / `e.` / `E.` search | Primitive identity, existing FindViaWindowMatch rewrite | Dyadic SearchAlgorithm source opportunity; preserve existing Find rewrite | tolerance, hash/sort applicability, cost |
+| Dyadic `I.` interval index | `PrimitiveId::Indices` | Distinct IntervalLookup candidate, not monadic index-space | order/shape/type/tolerance |
+| Dyadic From and static reindex | `DynamicGather/StaticReindex` | GatherCopyOrView/ReindexCopyOrView candidates only, **not universal zero-copy** | bounds, alias/ownership, fill, stride/gather |
+| GroupReduce, full dot/GEMM, Grade/Ranking | Future J Graph/source-identity support + Execution Semantic Lowering | Source provenance, owner and obligations registered; do not fabricate executable nodes | frontend semantic support and differential proof |
+| Tolerant hash, sparse, buffer reuse and name cache | Execution/Physical planner and binding runtime | `DownstreamOnly` or `AwaitingFrontendOrFacts`; never mislabeled graph algebra | tolerance/sparse/alias/locale version, fallback |
+
+- `src/j_graph_jsource.rs` owns pinned source references, stable IDs, owner, coverage and proof obligations. `Plan::jsource_opportunities()` reports source `ValueId`, span, basis and facts without mutating the graph.
+- `CompilationAnalysis::jsource_opportunities` is populated in `runtime.rs::analyze_compilation_diagnostic`, alongside existing rewrites and Logical IR; it **does not select/execute** opportunities.
+- All opportunities are `AwaitingSemanticProofs`, `selected=false`. `verify(&Plan)` checks derivability/provenance against the graph, **not full numeric equivalence**.
+- Existing MapReduce fusion remains solely owned by `j_graph_fusion`; GroupAggregate, MatrixContraction and GradeRanking are registry-only until their constructors and proofs exist.
+- `tests/j_graph_jsource.rs` covers stable source registry, derivation/provenance, forged candidates, exact Mean fork and negative matches, selected Graph patterns and isolation from existing Find rewrite/MapReduce fusion. **Test execution has not yet been verified**.
+
+Deferred work: establish correct J constructor/operand/rank semantics for Key, Dot, Grade, Cut and Under; discharge semantic/effect/alias/numeric witnesses; add execution-specific GroupReduce/Contraction/GradeSort/IntervalLookup operations; select guarded CPU/GPU/sparse/BLAS routes only through target/cost planning; and validate against jsource for empty/sparse/tolerance/`!.`/overflow/rank/error/binding cases. Preserve the current frontend milestone priority. The optimization catalog is **not** an executable jsource-optimization port.
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
