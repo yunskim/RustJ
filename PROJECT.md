@@ -3201,6 +3201,39 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 
 # Part XI — Historical JAXA inheritance audit
 
+
+<a id="out-of-core-io-contract"></a>
+
+## 13.2 Slow I/O / out-of-core array execution (2026-10-06; design candidate, not implemented)
+
+**Goal.** Evaluate arrays/NN weights larger than RAM/GPU capacity without changing J-visible values, type/shape/atom order, Rank zero-frame prototype behavior, errors or effects. Avoid unnecessary source reads, then overlap bounded I/O with compute. This is a `5/`13 physical planning/scheduling/runtime extension, **not a new J language construct, nor a prerequisite for the first M4 native CPU vertical slice**. The single acceptance checklist is [`17 IO](#out-of-core-io-checklist).
+
+| Source | What is borrowed | What is NOT implied |
+|---|---|---|
+| [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; general boxed mapped arrays are not established |
+| [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c), J `1!:11`/`1!:12` | indexed byte-range read/write, sequential baseline based on `fread/fwrite` | effectful foreign I/O is not a pure logical scan and must not be silently rewritten |
+| Jsource in-place/alias machinery | ownership-proved buffer reuse and copy elimination | mapped mutation is not automatically safe in-place reuse |
+| Jd (J data add-on) | partitioning and selective access as investigation candidate | concrete Jd pruning/consistency behavior still needs primary-source confirmation |
+| [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) | independent async blocking-I/O pool, read-ahead, memory-governed queued jobs, park/resume | do not copy a full database engine |
+| [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
+| [Ray Data streaming](https://docs.ray.io/en/latest/data/data-internals.html) | block streams, bounded queues, backpressure/spilling accounting | shuffle/reduce barriers remain |
+| [DeepSpeed ZeRO-Infinity](https://www.deepspeed.ai/2020/09/08/zero-infinity.html) | NVMe/CPU/GPU staging and transfer/compute overlap | CUDA work remains deferred |
+| [FlexGen (ICML 2023)](https://proceedings.mlr.press/v202/sheng23a.html) | version-stable weight reuse and layer/batch-block schedules under capacity and latency/throughput constraints | must not reorder visible J effects, late bindings, or failures |
+| TensorFlow `tf.data` | prefetch+parallel data preparation as an additional comparison candidate | not proof of full-J compatibility |
+
+**Ownership and stage contract.** J Semantic/J Graph IR owns J semantics, data+effect dependencies and unknown/opaque facts, but not file offsets, chunk sizes or queues. Verified Logical IR may produce guarded/witnessed byte-access and reuse candidates only if exact J semantics permit. Native Physical Planner/Schedule owns storage placement, byte ranges, materialization, chunk and job boundaries, prefetch, transfer, memory budget, cost and completion edges. Runtime initially owns synchronous `read_at`/`write_at` and chunk iteration; later it owns request pending/ready/error/cancel, exact lease lifetime, finite queues, and backpressure. An external adapter must declare the actual I/O/effect/ownership capabilities and decline unsupported routes.
+
+**Keep identities separate.** `ValueId` is logical SSA; `StateResource` is a mutable semantic resource; `BufferId/BufferLease` owns runtime memory; proposed `StorageObjectId/Version` identifies external backing bytes and consistency; proposed `IoRequestId/CompletionToken` identifies I/O completion. The latter names are not accepted Rust APIs. Semantic `StorageRequirement` is not Physical `MaterializationDecision`.
+
+**Legality.** Preserve J Rank/CellApply empty-frame/prototype, boxed/sparse, tolerance, error precedence, late-bound names and observable foreign I/O. Use checked offset/extent/shape arithmetic. Define short-read, EOF, permission, stale-version, non-atomic file update and cancellation behavior. Unknown access or mutability is an optimization barrier; no speculative I/O that reorders an observable failure/effect, no transparent replay after committed effects. A zero-byte data read never excuses required zero-cell J shape/type derivation.
+
+**Execution route.** Baseline is portable synchronous file/chunk CPU execution. Proven projection/slice/range pruning comes next. Then memory-reserved bounded async read-ahead, double buffering, `Read(n+1)` overlapped with `Compute(n)`, explicit dependency/completion and release; memory pressure reduces depth. Use a scheduling/weight-reuse candidate only when input data is read-only/version-stable and reordering is semantically legal. mmap competes with `read_at`, not universally replaces it; page faults and cache behavior are measured. `io_uring`, remote storage, direct I/O and device DMA remain optional later capabilities.
+
+**Writes/checkpoints.** A J foreign file write, shared mapped mutation and an optimizer checkpoint have different visible effects. Checkpoint design needs explicit immutable version capture, temporary write, platform-specific flush/durability, publication/recovery, cancellation and partial-write behavior. Never declare save success before the required durability level, or change J-visible effect/error timing silently.
+
+**Cost and evidence.** Keep `ResourceEstimate` (peak/resident/inflight bytes, handles, queue budget) separate from `CostEstimate` (bytes, seeks/requests, bandwidth/latency, compute time, transfer/overlap). Compare cold vs warm cache, byte counts, wait, CPU compute, page faults, peak+retained memory, spilling, throughput *and* per-input latency. A feature exists only after code+independent semantic/negative tests+recorded commands and J C oracle coverage, as specified in the `17 checklist.
+
 ## 14. Principles retained
 
 Repeated review of `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` confirms that RustJ should preserve the following research ideas:
@@ -3982,6 +4015,42 @@ Completion: jsource's internal representation convenience is not sufficient evid
 - [ ] Verify that BufferId/stride/device facts did not leak into the entity layer.
 
 Completion rule: future progress reports for this work use JE0–JE6 item numbers. New requirements are added to this checklist first. Minimal JEntity work may land one M2 seam at a time; broad rewrites are prohibited. If JE3 does not prove a common shaped-entity algebra across real J semantics, generic `EntityArray`/`EntityCollectionView` remains deferred.
+
+
+<a id="out-of-core-io-checklist"></a>
+
+### IO — Slow I/O / out-of-core migration acceptance checklist (2026-10-06)
+
+**Status: documented; 0/24 implementation acceptance gates passed.** Sequence: IO-A primary-source/semantic contract (may proceed during M2) → IO-B synchronous reference (after initial M4 CPU slice) → IO-C proven read minimization → IO-D bounded async → IO-E weight reuse/placement → IO-F measurement/expansion. Do not make this a prerequisite of M2, the generic FW checklist, or the first native CPU vertical slice. [ ] = not accepted even if partial code exists; [x] requires actual change SHA, commands/environment, tests including negative cases, J oracle coverage where relevant, unsupported limits and CI status.
+
+| ID / stage | Checklist | Acceptance evidence / prerequisite |
+|---|---|---|
+| IO-01 / A, M2 parallel | [ ] Pin Jsource and J add-on source behavior | jmf/xf.c/alias/boxed limits; inspect Jd before asserting pruning; J binary foreign fixture |
+| IO-02 / A, M2–M3 | [ ] Define mapped/file J effect and error contract | read/write/resize/flush/close, order, alias, COW and empty Rank; rejection tests for illegal reordering |
+| IO-03 / A, M3 | [ ] Verify layer/identity separation | ValueId, BufferId, StateResource, external object/version, effectful foreign vs pure physical data read |
+| IO-04 / A, M3 | [ ] Establish per-storage capability matrix | offset/alignment/EOF, snapshot, consistency, write durability, unknown as route barrier |
+| IO-05 / B, after M4 | [ ] Independent synchronous read_at/write_at baseline | offsets, short read/EOF, overflow, permission/error tests; J file foreign semantics not conflated |
+| IO-06 / B, after M4 | [ ] Versioned dense chunk reader | dtype/shape/order/endian/checked offsets, final partial chunk, bounded large scan |
+| IO-07 / B, after M4 | [ ] Minimal mapped dense route | RO/RW/COW, header/shape, unmap/refcounts, read_at equivalence, boxed/sparse limitation |
+| IO-08 / B, after M4 | [ ] Resident/retained-memory bound | buffer leases and release, lower budget than dataset, early-release/leak/cancel tests |
+| IO-09 / C, M4–M5 | [ ] Access-range witnesses | select/slice/reindex, opaque fallback, mutable/errors/rank barriers |
+| IO-10 / C, M5 | [ ] Proven projection/slice pushdown | reduce bytes without value/error changes; reduction/boxed/sparse counterexamples |
+| IO-11 / C, M5 | [ ] Reusable/versioned scan cache | same object/version/policy/range only; invalidation on mutation/rebinding |
+| IO-12 / C, M5 | [ ] Immutable snapshot and stale-detection policy | no speculative external reads with observable side effects |
+| IO-13 / D, M5 | [ ] Portable async facade | separate blocking I/O workers, completion/error/cancel, synchronous fallback |
+| IO-14 / D, M5 | [ ] Bounded prefetch/double buffer | overlap and token/lease correctness, async vs sync differential |
+| IO-15 / D, M5 | [ ] Memory governor/backpressure | account queued, in-flight and runtime temp bytes; slow-consumer/OOM tests |
+| IO-16 / D, M5 | [ ] Streaming legality/barriers | reduction, rank, zero-frame, nonstreamable materialization, ordering/cancel |
+| IO-17 / D, M5 | [ ] Completion/cleanup/side-effect proof | short I/O, retries, cancellation, dirty mapping, exactly-once effects |
+| IO-18 / E, M5 | [ ] Mutable weights/checkpoint consistency | version capture, atomic publish/durability/recovery/partial writes |
+| IO-19 / E, M5 | [ ] Legal weight/scan reuse scheduling | reuse helps bytes/cache, no effect/order changes, latency/throughput separated |
+| IO-20 / E, M5 | [ ] Placement and transfer estimates | memory/disk/remote/future GPU, resource hard gates vs measured cost |
+| IO-21 / F, M5 | [ ] Cold/warm benchmark matrix | sequential/random, large/small, NN weights, views, boxed/sparse/empty |
+| IO-22 / F, M5 | [ ] Independent three-way correctness tests | pinned C J oracle / Rust sync / optimized; failures and unsupported separated |
+| IO-23 / F, M5 | [ ] Benchmark-backed mmap/read_at/async selection | page faults, bytes/requests, peak RAM, regressions, storage differences |
+| IO-24 / F, after M6 | [ ] Optional extension approval gate | io_uring/direct I/O, object store, compression, DMA/GPU, multiple devices and Jd adapters after capabilities and portability proven |
+
+**Acceptance log:** `IO-ID | code commit | pinned source | command/OS/target/storage | C oracle / Rust sync / optimized counts | cold/warm bytes/wall time/peak | failures/unsupported | CI evidence | next gate`. No [x] based solely on design prose or file existence.
 
 ## 17.0 Module ownership baseline
 
