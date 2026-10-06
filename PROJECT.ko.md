@@ -3485,6 +3485,10 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **판정:** 상기 10건의 `EVINHOMO` 지원 dense 부분집합만 통과. **RK-07 전체·RK-08~12·ZF-IR-03/04·FW-06/07은 계속 [ ]**. 나머지 미검증 결과를 일반적인 일치·최적화 허가로 취급하지 않는다.
 
+**RK-07 — 오류 우선순위 독립 C-oracle 8건(2026-10-06).** [탐색 CI 37463314265](https://github.com/yunskim/RustJ/actions/runs/37463314265)에서 고정 원본 C j64/j64avx2 × Rust default/portable **5/5 작업 성공**, 각 환경 **8/8** 3경로 일치(총 32/32, mismatch 0). 기존 E1/E2의 `EVINHOMO` 10건과 RK-06의 32건을 변경하지 않고 `--error-probes`를 별도로 추가했다. 입력은 (1) 결과 Frame 0 아래의 inner-cell Length, (2) 빈 char/정수 혼합 셀 길이 불일치, (3) 양수 Frame 실제 셀 Length, (4) Frame prefix Length 선행, (5) 빈 Frame 및 실제 셀 Index, (6) Frame 유무별 나눗셈을 구분한다. [`a84a508`](https://github.com/yunskim/RustJ/commit/a84a5084f3a4318f1f26dc95b0428e10317064cd)·[`cce5dec`](https://github.com/yunskim/RustJ/commit/cce5decdbbec2d6577c415d5696f8d7775738b10)에서 corpus와 부정 증거 보존 테스트를 추가했다. [`ba90688`](https://github.com/yunskim/RustJ/commit/ba9068801554e5836d9b57111e8e937440c23172)·[`970f6b0`](https://github.com/yunskim/RustJ/commit/970f6b07c09ed3969cfc158005c12a2795ce5010)·[`c90701d`](https://github.com/yunskim/RustJ/commit/c90701de2b456e556fb256128e976a7556793930)에서 `--error-probes --gate-error-probes`를 고정 8건 엄격 CI 게이트로 승격했으며, 최종 게이트 CI 결과 확인 전에는 **RK-07 전체 [ ]**를 유지한다.
+
+**RK-07-E4 원본 exigent 오류 분리 원칙.** 고정 [`jsrc/jerr.h` L7–55, L87–90](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h#L87-L90)에서 `EXIGENTERROR`는 `EVALLOC`, `EVWSFULL`, `EVVALENCE`, `EVNONCE`, `EVVALUE`, `EVTHROW`, `EVSTACK`, `EVSYSTEM` 등 반드시 전파해야 할 원본 C 코드의 **선별적 집합**이다. 반면 `EVDOMAIN`, `EVLENGTH`, `EVINDEX`, `EVRANK`, `EVLIMIT`, `EVINHOMO`는 그 목록 밖에 있지만, 이 사실만으로 모든 Rust 오류를 억제할 수는 없다. RustJ `Error::Limit`는 원본 `EVLIMIT`와 자원·할당 실패를 정확히 분리하지 못하고, `Error::Unsupported`도 원본의 `EVNONCE`와 동치가 아니기 때문이다. 그러므로 **오류 종류 + 발생 단계 + 원본 내부 코드 + 효과 가능성**을 별도 witness로 갖기 전에는 이 두 Rust 오류를 억제·재시도하지 않는다. 다음 구현 작업은 오류 provenance를 구별하는 내부 분류(E4), 오류 선행 순서·exigent 전파의 추가 C 테스트, 사용자 정의 동사의 효과/동적 이름(E5)이다. 8건의 유한 차분 일치를 모든 non-exigent 오류의 복구 증거 또는 Graph IR 실행 생략 허가로 확장하지 않는다.
+
 **지속 체크리스트 (RK-11 및 FW-04/JX-04의 하위 항목).**
 
 | ID | 현재 | 수정·검증 수용 기준 |
