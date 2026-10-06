@@ -9560,6 +9560,10 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **IO-02/IO-25 다음 검증 순서(기존 원장의 하위 실행 단위).** (a) `1!:1/2/3/4/11/12`의 파일명 vs 번호 핸들, 권한·close·flush, EOF/short read, 동시 truncate 효과를 실제 file fixtures로 확장; (b) 고정 `jlibrary`를 로드하는 J bootstrap을 분리 검증하고 `jmf` RW/RO/COW 및 refs/unmap/resize·typed/boxed 변형을 별도 smoke oracle로 수행; (c) Jd/jfiles는 테스트 fixture/원본 버전·의존성 확보 후 독립 단계로 실행. 원본 라이브러리 초기화 실패를 J 의미 실패로 오분류하거나 C oracle 15+6 일치를 RustJ 구현 수용으로 승격하지 않는다.
 
+**IO-02 전체 고정 C matrix 재확인(2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953)의 `check` 및 `j64/default`, `j64/portable`, `j64avx2/default`, `j64avx2/portable` 네 reference job은 모두 **success**. 각 reference job은 독립 파일 사례 **15/15**, 순서 시나리오 **6/6(14 JDo step)**, `requires_review=0`, `ordered_requires_review=0`으로 동일하게 통과했다. 이는 조합별 C oracle probe 결과이며 RustJ의 같은 세 연산 경로를 비교하는 시험이 아니고 IO 수용점수는 변하지 않는다.
+
+**IO-25 JMF 첫 독립 smoke 실행 시도(수용 전).** [tools/jmf_smoke.py](tools/jmf_smoke.py)에 J 원본 `jlibrary/bin/profile.ijs`와 `load 'jmf'` 부트스트랩을 고정 라이브러리·별도 임시 HOME으로 실행하고, 임시 JMF file에 대해 RW(0)→RO(1)→COW(2)를 **각각 map → 빈 noun 비교 → unmap 결과 0**으로 관찰하는 독립 실행 후보를 구현했다. [검증용 JMF 시나리오 테스트](tools/test_jmf_smoke.py)를 추가하고 [Linux CI](.github/workflows/linux.yml)에 비수용 탐색 단계를 연결했다. 원본 J profile/add-on 초기화 또는 JMF mapping이 실패하면 `blocked`를 별도로 기록하며, 이 시점에는 JMF CI 실행 결과/기능 지원을 주장하지 않는다. 이 작은 smoke는 **실제 boxed payload, mutable persistence, RO/COW 쓰기 차이, refs에 의한 unmap 거부, resize/remap, Jd partition** 검증이 아니므로 IO-25 [ ] 유지.
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
@@ -11785,7 +11789,7 @@ A3-v2
 
 | ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 / 수용 기준 |
 |---|---|---|
-| IO-25 / A·M2 병행 | [ ] Jd/jfiles/JMF boxed 원본 교차 감사 (원본 소스 확인, J binary/boxed payload 수용 검증 대기; §8.5.4) | jsource pin과 data_jd pin, J binary oracle, ptable pruning·keyfiles·JMF boxed 분기 검증. IO-01·02 연계 |
+| IO-25 / A·M2 병행 | [ ] Jd/jfiles/JMF boxed 원본 교차 감사 (소스 확인·JMF RW/RO/COW smoke 구축, 원본 mapping·boxed/Jd 실행 수용 검증 대기; §8.5.4) | jsource pin과 data_jd pin, J binary oracle, ptable pruning·keyfiles·JMF boxed 분기 검증. IO-01·02 연계 |
 | IO-26 / B·M4 이후 | [ ] Typed array storage metadata 검증 | dtype/shape/order/endian/offset/length/version; invalid overlap/duplicate/off-end/overflow, empty/scalar, sparse/boxed 경계. IO-05·06 연계 |
 | IO-27 / B·M4 이후 | [ ] Read chunk와 write shard 분리 | Zarr/HDF5를 참고해 access axis별 read amplification, coalescing, shard write cost 및 contiguous baseline 비교. IO-06·08 연계 |
 | IO-28 / B·M4 이후 | [ ] mmap·SIMD tail·lifetime 안전성 | EOF next-page, vector overfetch 금지, real page granularity, live lease/remap/unmap/readonly/COW/concurrent readers. IO-07·08 연계 |
