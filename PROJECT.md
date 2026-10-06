@@ -1009,12 +1009,12 @@ These static-analysis gates do not wait for completion of all runtime-capture wo
 - [x] Research real/symbolic tracing, lazy evaluation, graph breaks/guards and compiler SSA using official references and ProxyTensor source.
 - [x] Adopt actual noun reduction plus separate compilation capture; no verb-only syntax restriction.
 - [x] Record current implementation gaps and acceptance gates in both canonical documents.
-- [ ] **P2/P4 runtime actions:** one parser semantic host/context supplies name lookup, invocation and constructor validation. Resolve at right-to-left stack entry; rows 0–2 return actual nouns. Do not claim unsupported effectful forms are implemented.
-- [ ] **P2/P5 capture carrier:** add opt-in occurrence ids, associations and ordered attempt/success/failure events, without compiler fields in physical Value storage or primitive executors. Establish capture-on/off parity first.
-- [ ] **P3/P5 construction origins:** connect completed FunctionEntity structure and computed noun operands. Cover `f=:+"(1+0)` and `f=:(1+2) + *` using actual values rather than placeholders and an explicit support manifest.
-- [ ] **P4 names/effects:** capture supported same-sentence assignment, binding/POS/locale changes in semantic order; distinguish prior effects from pending outer commit and report incomplete coverage.
-- [ ] **P5/P8 graph adapter:** translate input/constant/read/apply/constructor dependencies into verified existing J Graph. Keep opaque operations as optimization barriers with separate lowering coverage.
-- [ ] **P6 validation:** Windows default/portable and ordinary/AVX2 C differential, including recorded coverage, revisions/hashes and pending/deviations; no GitHub CI.
+- [x] **P2/P4 runtime actions (supported subset):** `RuntimeParserHost` now supplies stack-entry lookup and rows 0–2 invocation through the shared nine-row engine, returning actual Values to the same stack. Unsupported effectful/locale/definition forms remain explicit coverage boundaries.
+- [x] **P2/P5 capture carrier:** opt-in ParseCapture occurrence ids, associations and ordered attempt/success/failure events are implemented without compiler identity in Value storage or primitive executors; capture parity is regression-tested.
+- [x] **P3/P5 construction origins (supported subset):** completed FunctionEntity structure, construction attempt/success and computed-noun occurrence origins are connected; runtime values remain distinct from static value-dependent boundaries. This is not complete constructor-vocabulary support.
+- [x] **P4 names/effects (supported subset):** supported same-sentence lookup/assignment/POS and committed-effect versus pending-outer-commit ordering are captured/regression-tested. General user locales/paths and unsupported effects remain boundaries.
+- [x] **P5/P8 graph adapter (successful-capture subset):** successful capture dependencies translate into the existing J Graph and pass its verifier. Failed/opaque/dynamic boundaries are not promoted to executable complete graphs.
+- [x] **P6 supported-corpus differential/capture gate:** later Windows default/portable plus j64/AVX2 gates repeatedly record coverage boundaries and revisions/hashes. This does not prove full runtime `ptcol` internal traces, full J, locales or definition acceptance.
 - [ ] **Later P5/P8 static/reuse:** require purity, error ordering and binding/value guards before abstract actions, region compilation or replay. The capture execution path completes at runtime reduction + capture parity + verified J Graph; this is separate from minimum static-analysis acceptance and requires no production JIT/CUDA.
 
 ##### Regression/acceptance matrix
@@ -1031,7 +1031,7 @@ These static-analysis gates do not wait for completion of all runtime-capture wo
 | Memory | Large array chains, alias inputs, multiple statements, release capture and observe lifetimes | No full-array copy per node, no diagnostic retention, bounded facts/constants; buffer identities remain separate |
 | Reuse | Changed shape/binding/POS/constructor values and both branches | Guard invalidation or semantic execution; one traced branch is not reused universally |
 
-**Status:** research and plan only. Runtime actions, capture API and retention tests are not implemented/run by this change. Earlier 212 Rust tests and 7,014 stage checks are not evidence for this new capture implementation.
+**Historical-status note:** when this subsection was first written on 2026-10-03, it was research/plan only. Later work implemented runtime row actions, the capture API, successful-capture→J Graph adaptation and supported-corpus differentials. Remaining gaps include full runtime `ptcol` internal-trace equivalence, general locale/definition/control/effect coverage, safe capture-based static reuse/guards, and the full memory-retention/performance gate. The 212-test / 7,014-stage figures below are historical, not the latest validation.
 
 
 ---
