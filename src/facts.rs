@@ -288,7 +288,11 @@ pub fn rank_plan_for_shapes(
 ) -> RankPlan {
     let (right_frame, right_cell) = split(
         right_shape,
-        if left_shape.is_some() { ranks[2] } else { ranks[0] },
+        if left_shape.is_some() {
+            ranks[2]
+        } else {
+            ranks[0]
+        },
     );
     let (left_frame, left_cell) = match left_shape {
         Some(shape) => {
