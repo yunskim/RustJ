@@ -12,7 +12,7 @@
 ### 빠른 안내 — 현재 우선순위와 문서 읽기
 
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
-- **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
+- **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
 - **최신 검증:** 2026-10-05 NV3d2b2a 기준 Windows default/portable 각각 **474 passed / 17 ignored**, Python **30 passed**이며, C j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. numeric syntax는 양 DLL 각각 **2,485 cases / failed 0**이지만 unresolved recognition/error 경계가 각 1건 남아 있어 실행 지원이나 정밀 오류 동등성으로 세지 않는다. capture graph **257건**, static **2건**, runtime prefix **285 / executable prefix passes 0**도 별도다. 최신 graph-readiness gate는 GF6a이며 실제 fusion 선택·GPU 실행을 뜻하지 않는다. 세부 기록은 §10 NV3d2b2a/GF6a, 최신 요약은 §12를 따른다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
@@ -9372,6 +9372,53 @@ FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조
 
 ---
 
+
+<a id="out-of-core-io-contract"></a>
+
+### 8.5 느린 I/O·Out-of-core 배열 실행 계약 (2026-10-06, 설계 후보 / 구현 미착수)
+
+**목표.** RAM/GPU 용량보다 큰 J noun·신경망 가중치·배열 데이터에 대해 (a) 원래 J 결과·오류·효과 순서를 보존하고, (b) 실제로 읽는 바이트와 복사량을 줄이며, (c) 필요 시 디스크/원격 데이터 이동과 계산을 중첩한다. 이것은 새로운 J syntax나 암묵적 GPU 구현이 아니라, `5의 Physical Planning/Execution Scheduling 확장이다. **최초 native CPU M4 vertical slice의 선행 조건으로 삼지 않는다.** 모든 기능은 `10의 IO-01~IO-24 수용 게이트를 통과하기 전에는 계획/후보일 뿐이다.
+
+**원본/선행 기법 비교(직접 계승 vs 조건부 응용).**
+
+| 출처 / 원본 | 검증한 아이디어 | RustJ 차용 범위 / 금지되는 비약 |
+|---|---|---|
+| Jsource `jlibrary/addons/data/jmf/jmf.ijs` | J noun에 file mapping; R/W·read-only·copy-on-write, header/shape와 unmap 참조 제약. 실제 구현에 일반 boxed mapping 제한 존재 | mapped dense array backend 후보. mmap=비동기 I/O·zero page fault·J 전체 boxed/sparse 지원으로 해석하지 않음 |
+| Jsource `jsrc/xf.c`, J foreign `1!:11`/`1!:12` | file offset+length의 부분 read/write; 현재 C 경로는 `fread/fwrite` 기반 동기식 | 순차 byte-range 기준 경로와 J-visible foreign I/O 의미 비교. 그래프에서 effectful file foreign을 순수 scan으로 자동 대체 금지 |
+| Jsource `jsrc/v.c` 등 | reference/in-place 가능 조건에 따라 버퍼 재사용·복사 억제 | alias/lifetime proof 후 reuse; mapped write와 implicit in-place를 동일시하지 않음 |
+| Jd (J 데이터 라이브러리) | 분할 저장/선택 스캔을 조사할 후보 | 데이터셋 관리 방식만 검토. Jd의 구체적인 partition pruning 보장을 검증하지 않은 상태에서 채택됐다고 주장하지 않음 |
+| DuckDB (2026 async I/O) | compute pool·blocking I/O pool 분리, job/read-ahead, 메모리 governor 연동, park/resume | bounded read-ahead·메모리 예약·작업 완료 이벤트. DuckDB 전체 스케줄러 복제 불필요 |
+| Polars Lazy | projection/predicate/slice pushdown, common subplan reuse | 정확한 access/effect/witness가 있을 때만 필요 byte-range 축소; 임의 J verb·reduction에 무조건 적용 금지 |
+| Apache Arrow Dataset Scanner | `batch_readahead`와 `fragment_readahead`의 다른 단위, metadata/pruning | chunk/fragment 단위 선택과 bounded concurrency; 전체 Arrow 데이터모델 복제 불필요 |
+| Ray Data | streaming block queues, downstream backpressure, spill/resource account | 독립 실행 단계의 bounded queue·pressure handling. shuffle/reduce barrier를 무시한 임의 streaming 금지 |
+| DeepSpeed ZeRO-Infinity | CPU/NVMe/GPU offload와 transfer/compute overlap, prefetch | 추후 placement-aware weight prefetch; GPU runtime 보류 정책 유지 |
+| FlexGen (ICML 2023) | device/CPU/disk placement와 layer/batch-block scheduling의 I/O 재사용·throughput tradeoff | 안정된 read-only weights와 합법적 scheduling 영역에 한해 중복 로드 감소; J 실행 순서 임의 변경 금지 |
+| TensorFlow `tf.data` | prefetch/parallel map/overlap pipeline | 독립된 데이터 공급 단계의 후속 비교 후보; full J 적용 보장 아님 |
+
+출처(확인 기준 2026-10-06): [Jsource jmf](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) · [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c) · [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) · [Polars optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) · [Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) · [Ray Data execution](https://docs.ray.io/en/latest/data/data-internals.html) · [ZeRO-Infinity](https://www.deepspeed.ai/2020/09/08/zero-infinity.html) · [FlexGen 논문](https://proceedings.mlr.press/v202/sheng23a.html). 프레임워크의 공개된 설계를 참고하는 것이며 해당 기능이 RustJ에 구현됐다는 뜻이 아니다.
+
+**계층 소유권·공통 불변조건**
+
+| 계층 | 입력/출력과 책임 | 금지 |
+|---|---|---|
+| J Semantic IR / J Graph IR | J noun의 type/shape/atom-order, boxed/sparse, Rank zero-frame prototype, access/effect/error 순서; 순수한 기회 후보만 sidecar로 표시 | 파일 offset·chunk 크기·prefetch queue·장치 DMA를 J-visible 연산 의미로 삽입 금지 |
+| Verified Logical IR / analyzer | `AccessRelation`·필요 데이터 범위/재사용 가능성, unknown/opaque, purity와 `FactWitness/Guard` 유지. index/select/view에 대해 합법적 범위 pruning 후보 생성 | arbitrary verb/semantic error가 관찰 가능한 입력을 검사 없이 생략 금지 |
+| Physical Planner / Schedule | `StorageSource`(Owned/Mapped/Chunked/Remote 후보), placement, byte-range, Read/Prefetch/Transfer/Materialize/Release, dependency, memory budget, cost 후보 | speculative I/O의 J-visible error/효과 재배치, semantic `StorageRequirement`을 materialization으로 동치화 금지 |
+| Executor / Runtime | 처음에는 동기 `read_at`/`write_at` + chunk iteration; 이후 pending/ready/error/cancel completion, pinned lease, backpressure, finite queues | buffer lifetime을 I/O completion 전에 종료, 외부 변경된 bytes를 version 불변으로 가정, 완료 전 쓰기를 성공으로 보고 금지 |
+| External adapters | 실제 backend의 read/write/async/mmap capability, errors, alignment, atomic/ordering, ownership을 선언 | J semantics 또는 non-CPU 성능을 암묵적 fallback 능력으로 가장 금지 |
+
+**별도 identity.** `ValueId`는 J 논리값, `StateResource`는 변경 가능한 가중치/파일 상태의 의미적 identity, `BufferId/BufferLease`는 실제 메모리 소유자, `StorageObjectId/Version`은 외부 backing object와 읽기 일관성, `IoRequestId/CompletionToken`은 I/O 요청·완료를 식별한다. 하나로 합치지 않는다. `StorageObjectId/Version` 및 `IoRequestId`는 **명명 후보**이고 확정 Rust 타입/API가 아니다.
+
+**읽기 계획과 정당성.** offset/length 계산은 checked arithmetic·overflow 검사, 정렬·EOF/short read·stale version·권한 실패를 정의한다. read-only immutable input 또는 스냅샷 증명 없는 speculative prefetch는 효과·오류 순서에 영향을 줄 수 있으므로 금지/보수적 barrier를 둔다. chunk size·layout을 바꾸어도 J shape/rank, boxed/sparse, empty frame/fill-cell result, tolerant comparison, 예외 발생 위치가 달라지면 안 된다. 빈 결과의 데이터 byte-range는 0일 수 있지만 J Rank의 가상 cell 실행/형식 추론 의무는 독립이다.
+
+**실행 원칙.** 우선 동기 contiguous/chunked CPU 경로로 correctness baseline을 만든다. 다음에 source access proof로 scan bytes를 줄인다. 그 뒤 bounded async I/O queue와 적어도 2개의 버퍼로 `Read(n+1)`과 `Compute(n)`를 overlap한다. prefetch는 예약 memory budget와 consumer progress/backpressure로 제한하고, request-completion을 `AsyncToken/Timepoint`/equivalent dependency로 명시한다. weight reuse/batch-block schedule은 read-only/version stable, dependency/effect/latency-policy 합법성 증명 후에만 선택한다. `mmap`은 독립 후보이며 page-fault 비용·page cache·주소공간·unmap·COW semantics를 직접 측정한다. `io_uring`·direct I/O·remote object store·GPU DMA는 portable baseline 이전의 요구사항이 아니다.
+
+**쓰기는 읽기와 분리.** J foreign 파일 쓰기·mapped shared write의 observable effect와 checkpoint persistence는 동일하지 않다. checkpoint는 immutable snapshot/version capture → 임시 파일/쓰기 완료 → 필요한 flush/fsync 계약 → atomic publish/rename 가능성 검사 → 성공 반환으로 구분한다. 플랫폼별 durability 보장과 crash consistency를 실제 지원 범위로 한정한다. delayed save로 user-visible state/error 순서가 바뀌면 최적화 금지. cancellation/partial write/retry에서 중복 side effect와 파일 파손을 검사한다.
+
+**비용/계측 계약.** `ResourceEstimate`(peak resident, pinned/inflight bytes, open handles, max queued jobs)와 `CostEstimate`(cold/warm bytes, number/seeks/latency, effective bandwidth, CPU cycles, transfer/overlap time)를 분리한다. 성능 게이트에서 wall time, read/write bytes, physical requests, blocking wait, compute time, peak+retained memory, page faults/cache hits, spill count, throughput *및* latency를 비교한다. warm page cache 결과를 cold storage 승리로 포장하지 않는다.
+
+**대표 실행 예.** `W1`·`W2`가 파일에 저장된 순수한 read-only tensor라고 증명되면 physical schedule은 `Prefetch(W1) → Await(W1) → Compute(W1)`와, 그 계산 중 `Prefetch(W2)`를 겹친다. 다음 `Compute(W2)`는 앞 층 결과 및 W2 완료를 모두 기다린다. Logical graph에는 이 I/O 순서를 박지 않는다. 분기/동적 NAME/수정 가능한 weight/관찰 가능한 file effect가 있는 경우 이 순서를 무조건 적용하지 않는다. 수용 작업표는 [`10 IO](#out-of-core-io-checklist).
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
@@ -11550,6 +11597,42 @@ A3-v2
 - [ ] Windows default/portable 전체 회귀
 - [ ] 지원 layout/type/operation 표 갱신
 - [ ] tiled/placement/transfer/completion 확장 경계 확인
+
+
+<a id="out-of-core-io-checklist"></a>
+
+### IO — 느린 I/O·Out-of-core 실행 이행 계획·수용 체크리스트 (2026-10-06)
+
+**상태: 설계·작업표 작성, 구현/실행 검증 0/24 수용.** 기존 M2/frontend와 FW-01~04·Rank/CellApply 의미 수렴을 우선한다. IO-A의 조사/모형화는 병행 가능하지만 I/O 경로를 M4 첫 CPU vertical slice의 필수 조건으로 격상하지 않는다. 단계 순서: **IO-A 근거와 안전 계약 → IO-B 동기 reference → IO-C 접근 최소화 → IO-D bounded async → IO-E 재사용/배치 최적화 → IO-F 실증/확장**. 앞 단계 미통과 시 뒤 단계는 설계 후보만 허용한다. [ ]은 *수용 전*, [x]는 변경 commit·실행한 명령/환경·jsource oracle 적용 범위·결과/남은 제한을 같은 행에 기록하고 독립적인 semantic/negative test가 통과했을 때만 사용한다. **아래 작업의 구현·테스트는 아직 수행하지 않았다.**
+
+| ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 · 최소 수용/negative 검증 |
+|---|---|---|
+| IO-01 / A·M2 병행 | [ ] jsource/J 라이브러리 근거 pin | `jmf.ijs` mapping modes, `xf.c` partial I/O, alias/in-place, boxed mapping 제약, Jd 후보별 실제 source pin·행동/미지원 표. C foreign oracle와 파일 fixture; 추측/확인 분리 |
+| IO-02 / A·M2~M3 | [ ] J 파일·mapping의 의미/효과 계약 | read/write/resize/flush/close, 오류·effect order, alias/late file changes, read-only/COW, J boxed/sparse, zero-frame case 목록. reorder/observable read omission 금지 negative test |
+| IO-03 / A·M3 | [ ] 계층 boundary/identity 검증 | `ValueId≠BufferId≠StateResource≠StorageObject`, storage requirement vs materialization, pure data read vs effectful foreign I/O 분리; verifier와 status 명시 |
+| IO-04 / A·M3 | [ ] storage capability matrix | local file, mapped, chunk, remote, GPU는 개별 capability; offset/alignment/EOF/seek/atomic write/consistency. Unknown은 route barrier |
+| IO-05 / B·M4 이후 | [ ] `read_at`/`write_at` 동기 독립 기준 | 일반 파일 offset/length, short read/EOF/overflow/error/permission 포함; 구현 전에 J file foreign과 physical array input 구분. 실제 fixture·C oracle 대조 |
+| IO-06 / B·M4 이후 | [ ] versioned dense chunk reader | shape/element type/endianness/alignment/checked address/last short chunk. 파일보다 작은 메모리 예산으로 1회 순차 scan; baseline과 결과/오류 일치 |
+| IO-07 / B·M4 이후 | [ ] mapped dense array 최소 경로 | read-only/mutable/COW·header/shape·flush/unmap/reference lifetime; mapping과 read_at 결과 비교. boxed/sparse 직접 mmap은 금지/Unsupported로 명시 |
+| IO-08 / B·M4 이후 | [ ] bounded resident/retained memory 기준 | chunk reader·buffer lease·release; RAM보다 큰 데이터와 작은 예산 조건에서 peak bound, leak/early release/cancel 검사 |
+| IO-09 / C·M4~M5 | [ ] read-range/access analysis와 witness | select/slice/reindex에서 필요한 byte interval과 opaque fallback; dynamic rank·alias·error observable이면 pruning 불허 |
+| IO-10 / C·M5 | [ ] scan projection/slice pushdown | source+consumer legality proof/guard, I/O 바이트 수와 결과/오류 측정; Reduce/Rank/sparse/boxed 반례 포함 |
+| IO-11 / C·M5 | [ ] shared scan/subplan reuse | 동일 external object+version/policy/byte range일 때만 cache; changed file/late binding/alias가 cache invalidation 유발 |
+| IO-12 / C·M5 | [ ] immutable snapshot/version contract | file content/version/staleness 검출·error precedence; speculative read는 no-visible-effect 조건에서만 허용 |
+| IO-13 / D·M5 | [ ] portable async facade | sync baseline 위 별도 blocking-I/O workers + completion/failed/cancel state; platform fallback, partial completion/error mapping |
+| IO-14 / D·M5 | [ ] bounded prefetch / double buffer | `Read(n+1)`↔`Compute(n)` overlap, stage dependency/tokens·buffer lease 테스트; serial·parallel 결과 대조 |
+| IO-15 / D·M5 | [ ] governor/backpressure | inflight bytes+queued jobs+resident+kernel temporary memory 공동 예산; slow consumer/high-latency I/O/oversubscription/OOM negative test |
+| IO-16 / D·M5 | [ ] streaming barriers·cleanup | chunked elementwise와 reduction, rank/cell/zero-frame, producer failure/cancel/error precedence; non-streamable operator는 barrier/materialize |
+| IO-17 / D·M5 | [ ] async completion과 effect proof | old data/dirty mapping/short read/abort/retry/early release, work stealing에서도 errors/ownership 유지 |
+| IO-18 / E·M5 | [ ] mutable weight/checkpoint 정합성 | read snapshot vs write version; partial write, atomic publication/durability/recovery test. 학습 상태 복제·일관성 계약 검증 전 offload 금지 |
+| IO-19 / E·M5 | [ ] weight/scan reuse physical schedule | FlexGen식 layer-block/batch ordering 후보; read bytes↓/cache hit↑, dependency·effect·order unchanged, latency–throughput 별도 평가 |
+| IO-20 / E·M5 | [ ] placement/transfer cost planner | RAM/disk/GPU(비구현 후보)/remote별 bandwidth/seek/latency/peak estimates, hard resource gate vs measured cost 별도 |
+| IO-21 / F·M5 | [ ] 파일 크기·access shape 측정 suite | cold/warm, sequential/random, small/large, dense/strided, disk-backed NN weights, sparse/boxed guarded, 0-sized; bytes/wait/peak/time/latency |
+| IO-22 / F·M5 | [ ] differential/correctness suite | C reference(where J semantics exposed) / Rust sync / Rust optimized 3-way; supported subsets·unknown·ignored 명시, crash/permissions/EOF injections |
+| IO-23 / F·M5 이후 | [ ] mmap vs read_at vs async 실측 선택 | OS page cache/hard faults, IO bound/compute bound, storage/media/target 차이. 유의미한 실측 이득과 regression 없을 때만 기본 경로 |
+| IO-24 / F·M6 이후 | [ ] 확장 후보 승인 게이트 | io_uring/direct I/O, remote object storage, compression, NVMe↔GPU/pinned DMA, multi-device, Jd adapter. portable implementation·검증 예산 확인 시 별도 소규모 작업으로 승격 |
+
+**Acceptance log 양식:** `IO-ID | code commit | jsource/library pin | command + OS/target + storage | J C oracle / Rust synchronous / optimized counts | measured cold/warm bytes/time/peak | failures/unsupported | CI 여부 | next gate`. 단순 기법 소개나 파일 존재만으로 [x] 금지. 성능은 의미·자원 안전 통과 후 평가하고, 미지원은 조용한 fallback 성공으로 계산하지 않는다. [`8.5 소유권과 실행 계약](#out-of-core-io-contract) 참조.
 
 ### C — frontend / 언어 의미 확장
 
