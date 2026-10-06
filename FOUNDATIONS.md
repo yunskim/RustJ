@@ -491,12 +491,13 @@ That view correctly notices that J syntax exposes topology and optimization oppo
 
 After comparing MLIR Linalg, TAIL/Futhark, Remora, Bohrium, Lift, and contrasting RustJ with simple first-order execution IRs and XLA-style fusion IRs, RustJ adopts a stricter separation:
 
-- preserve structured computation instead of erasing it into loops/CFG too early;
-- separate high-level array algebra and rewrites from hardware mapping;
-- defer materialization and heterogeneous realization decisions;
-- preserve rank/cell/implicit-lifting structure as semantic/graph information;
-- take the simplicity benefits of jaxpr-like first-order execution IR in Execution IR, while retaining `@:`, hook, fork, and other source-combinator provenance in J Graph IR;
-- treat fusion information in J Graph IR as a candidate plus proof obligations, not as an already-selected fused operation.
+- preserve structured computation instead of erasing it into loops/CFG too early, following the same broad lesson as MLIR Linalg;
+- follow Futhark in retaining high-level nested parallel/SOAC structure through fusion and before later flattening/memory-aware dialects;
+- read Lift more precisely as a rewrite-driven progression from portable functional patterns toward hardware-aware/OpenCL-specific functional patterns, rather than as a strict separation of rewriting from hardware mapping;
+- use Bohrium as evidence that lazy array-operation collection can defer fusion, allocation/materialization, and host-device movement, without claiming that Bohrium dynamically chooses CPU versus GPU for every operation;
+- use Remora as semantic evidence for rank polymorphism, frame/cell structure, and implicit lifting; preserving that semantic structure in J Graph IR is a RustJ design choice, not a Remora graph-IR precedent;
+- take the simplicity benefits of JAX jaxpr's explicitly typed, functional, first-order ANF for Execution IR, while not treating jaxpr as a precedent for preserving J source-combinator provenance;
+- contrast RustJ's pre-selection `FusionCandidate` with XLA HLO's committed `Fusion` op. XLA also has fusion discovery and costing passes, so the distinction is IR stage, not an absence of candidate/planning logic in XLA.
 
 The current invariant is:
 
@@ -752,7 +753,7 @@ RustJ may temporarily lack an implementation route for valid J. That is an imple
 
 # Part XX — Research compilers are evidence, not language specifications
 
-## 20. APEX, Co-dfns, TAIL/Futhark, Remora, Bohrium, Lift, MLIR Linalg, and JAXA
+## 20. APEX, Co-dfns, TAIL/Futhark, Remora, Bohrium, Lift, MLIR Linalg, JAX/jaxpr, XLA HLO, and JAXA
 
 Research systems provide valuable evidence for different parts of the array-compiler problem:
 
@@ -760,9 +761,11 @@ Research systems provide valuable evidence for different parts of the array-comp
 - **Co-dfns**: compact/columnar graph representation, nanopass/data-parallel compiler organization, GPU cost reasoning.
 - **TAIL/Futhark**: typed/rank-aware high-level parallel IR, fusion, nested-parallel flattening, GPU lowering.
 - **Remora**: rank polymorphism, frame/cell semantics, and implicit lifting as a formal array-language model.
-- **Bohrium**: delayed collection of existing NumPy-style array operations so fusion, materialization, and heterogeneous realization can be chosen later.
-- **Lift**: high-level map/reduce rewrite separated from hardware mapping.
+- **Bohrium**: lazy collection/evaluation of existing NumPy-style array operations, enabling delayed fusion, allocation/materialization, and host-device movement with backend-specific execution.
+- **Lift**: rewrite-driven transformation from portable data-parallel patterns toward increasingly hardware-aware/OpenCL-specific functional patterns.
 - **MLIR Linalg**: structured operations and implicit iteration preserved until later tiling/vectorization/lowering materializes loops.
+- **JAX / jaxpr**: an explicitly typed, functional, first-order ANF used as a contrast point for transformation-friendly execution normalization rather than source-combinator provenance.
+- **XLA HLO Fusion**: a committed IR representation of a grouped fusion computation, useful for contrasting RustJ's earlier pre-selection fusion candidates.
 - **JAXA**: logical array intent, graph basis, symbolic resource reasoning, and separation of logical from physical execution.
 
 Together these systems reinforce several RustJ rules:
@@ -780,8 +783,11 @@ Direct comparison sources:
 
 - Remora, *The Semantics of Rank Polymorphism*: https://arxiv.org/abs/1907.00509
 - Bohrium publication index (NumPy CPU/GPU/cluster, vector VM, fusion lineage): https://bohrium.readthedocs.io/publications.html
+- Bohrium lazy evaluation / fusion behavior: https://bohrium.readthedocs.io/faq.html
 - Lift, *A Functional Data-Parallel IR for High-Performance GPU Code Generation*: https://doi.org/10.1109/CGO.2017.7863730
 - MLIR Linalg structured-operation primer / implicit-loop materialization: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+- JAX, *The jaxpr language*: https://docs.jax.dev/en/latest/601/jaxpr.html
+- OpenXLA, HLO `Fusion` operation semantics: https://openxla.org/xla/operation_semantics#fusion
 
 These are comparison evidence for compiler principles, not RustJ's J semantic specification.
 
