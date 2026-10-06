@@ -12,6 +12,9 @@ use std::collections::{HashMap, HashSet};
 pub struct Engine {
     names: HashMap<String, Binding>,
     pool: crate::pool::OutputPool,
+    /// A bounded physical exact-search table, keyed by immutable Arc identity.
+    /// Never inferred from a J name string or parser binding version.
+    exact_search_cache: crate::index_ops::ExactPrehashCache,
     primitives: crate::primitive::PrimitiveContext,
     definition_depth: usize,
     local_frames: Vec<LocalFrame>,
@@ -303,6 +306,7 @@ impl Engine {
         Self {
             names: HashMap::new(),
             pool: crate::pool::OutputPool::new(bytes),
+            exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
             primitives: crate::primitive::PrimitiveContext::core(),
             definition_depth: 0,
             local_frames: Vec::new(),
@@ -317,6 +321,17 @@ impl Engine {
         self.pool.clear();
     }
 
+    /// Exact scalar search prehash statistics (builds, reuse hits).
+    /// A cache hit requires matching immutable storage identity and first/last mode.
+    pub fn index_prehash_stats(&self) -> (usize, usize) {
+        self.exact_search_cache.stats()
+    }
+
+    /// Drop the retained search table; does not affect any J value or binding.
+    pub fn clear_index_prehash(&mut self) {
+        self.exact_search_cache.clear();
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -328,6 +343,7 @@ impl Engine {
         Self {
             names: HashMap::new(),
             pool: crate::pool::OutputPool::new(64 * 1024 * 1024),
+            exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
             primitives,
             definition_depth: 0,
             local_frames: Vec::new(),
@@ -1406,6 +1422,24 @@ impl Engine {
                             }
                             crate::primitive::PrimitiveId::Multiply => {
                                 kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool)
+                            }
+                            crate::primitive::PrimitiveId::IndexOf
+                                if matches!(x.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_))
+                                    && matches!(y.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_)) =>
+                            {
+                                crate::index_ops::index_of_cached(x, y, false, &mut self.exact_search_cache)
+                            }
+                            crate::primitive::PrimitiveId::Steps
+                                if matches!(x.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_))
+                                    && matches!(y.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_)) =>
+                            {
+                                crate::index_ops::index_of_cached(x, y, true, &mut self.exact_search_cache)
+                            }
+                            crate::primitive::PrimitiveId::Member
+                                if matches!(x.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_))
+                                    && matches!(y.data(), crate::value::Data::Int(_) | crate::value::Data::Bool(_)) =>
+                            {
+                                crate::index_ops::member_cached(x, y, &mut self.exact_search_cache)
                             }
                             _ => kernels::dyad(verb.id.spelling(), x, y),
                         }
