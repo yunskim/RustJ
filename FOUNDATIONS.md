@@ -467,6 +467,19 @@ SIMD/GPU lanes must not expose arbitrary lane-local error behavior if J defines 
 
 J notation exposes useful algebraic structure.
 
+At a high level, several J forms already expose **computational intent and topology**:
+
+```text
+@:     -> composition / ordered pipeline
+fork   -> fan-out / fan-in
+hook   -> retained input + branch/join
+/      -> reduction
+\      -> prefix/window family
+"      -> cell/rank application
+```
+
+This does not mean that syntax directly determines physical execution. It means the source already tells Graph IR which structure should be preserved and which optimization opportunities are worth analyzing.
+
 If RustJ immediately lowers every expression to scalar arithmetic or backend-like loops, it loses:
 
 - rewrite opportunities;
@@ -515,7 +528,37 @@ J combinator syntax
 
 For example, `f @: g` is not a command to fuse. J Graph IR exposes the applied `g` and `f` stages while retaining the original `@:` composition as pipeline provenance, which can yield fusion and intermediate-materialization-elision candidates. A later proof/planning layer decides whether fusion is legal and worthwhile.
 
+The two kinds of information coexist:
+
+```text
+v0 = input
+ |
+ v
+v1 = Apply g(v0)
+ |
+ v
+v2 = Apply f(v1)
+
+Region: Pipeline
+  source form = f @: g
+  stages      = [v1, v2]
+  result      = v2
+```
+
+The `Apply` nodes carry concrete data dependencies and per-operation facts, while the Pipeline region preserves the fact that this dataflow **originated as J composition rather than merely happening to have the same SSA shape**.
+
 Hook and fork are analogous: J Graph IR preserves fan-out/fan-in, shared input, live-across/retained values, and observable branch order. These structures may create parallel/fusion candidates, but they do not command parallel execution.
+
+A simplified monadic fork looks like:
+
+```text
+                 +-> Apply h(y) -+
+y ---------------+               +-> Apply g(...) -> result
+                 +-> Apply f(y) -+
+          shared input        join
+```
+
+The syntax therefore exposes branch and join topology early, while actual concurrent execution remains a separate legality/cost/target decision.
 
 The conceptual evolution from JAXA to current RustJ is therefore:
 
@@ -526,9 +569,74 @@ The deeper reason this architecture is possible is that **J syntax is unusually 
 Adopt the following principle:
 
 > **RustJ Graph IR is not primarily a layer that invents a computation graph from J source; it is a layer that preserves the computational intent, combinator structure, and array semantics already expressed by J syntax in a form usable by optimization.**
+
+The evolution can be summarized as:
+
+```text
+                    +-- semantic / source provenance
+                    |
+J combinator --------+-- graph topology
+                    |
+                    +-- optimization opportunity
+                              |
+                              v
+                     algebraic candidates
+                       |- rewrite
+                       |- fusion
+                       |- scan recognition
+                       `- materialization/parallel candidates
+                              |
+                 +------------+------------+
+                 v            v            v
+             equivalence   resource /    target /
+             + legality    work-depth    lowering facts
+                 +------------+------------+
+                              v
+                     profitability / selection
+                              v
+                      physical realization
+```
+
+The original observation, “J syntax exposes optimization hints,” is therefore not discarded. It is generalized into a design that preserves provenance and graph topology while proof, cost, and target decisions happen later.
 This strengthens rather than weakens the original idea: RustJ keeps the structure that J already exposes instead of flattening it into generic SSA and rediscovering it later, while correctness and profitability remain independently provable.
 
 **Implementation-status note:** the flow above is the target architecture. Today `j_graph_fusion` creates `FusionCandidate` source envelopes with explicit proof obligations, and `fusion_planning` can inspect source-basis feasibility and work/depth comparisons while keeping the report in `AwaitingSemanticProofs`. `selected` remains false; semantic-proof discharge, profitability-based selection, and committed fused lowering are not yet implemented. Do not read the complete candidate-to-realization flow as already finished.
+
+### 11.2 Where J Graph IR sits in the compiler
+
+```text
+J source
+   |
+   v
+word formation / enqueue / parser
+   |
+   v
+J Semantic Construction IR
+   |
+   v
+J Graph IR
+   |- composition analysis
+   |- rewrite candidates
+   |- scan recognition
+   |- fusion candidates
+   |- logical-memory analysis
+   |- symbolic resource composition
+   `- work/depth analysis
+   |
+   v
+proof / feasibility / cost side analyses
+   |
+   v
+Execution-oriented Logical IR
+   |
+   v
+schedule / representation / target lowering
+   |
+   v
+CPU / GPU / library / runtime route
+```
+
+J Graph IR is the analysis surface that preserves source-level computational intent. Decisions become progressively more execution-specific only as the compiler moves downward from this layer.
 
 ---
 
