@@ -492,7 +492,7 @@ mod index_family_tests {
 
     #[test]
     fn reverse_hash_can_short_circuit_after_all_query_keys_resolve() {
-        let source = Value::ints([200], (0..200).map(i64::from).collect()).unwrap();
+        let source = Value::ints([200], (0..200).map(|i| i as i64).collect()).unwrap();
         let queries = Value::ints([2], vec![1, 2]).unwrap();
         let first = exact_scalar_index(&source, 200, 2, LookupResult::Membership, Some(&queries))
             .unwrap().unwrap();
@@ -502,7 +502,7 @@ mod index_family_tests {
 
     #[test]
     fn prehash_reuses_immutable_shared_backing_and_first_for_membership() {
-        let source = Value::ints([128], (0..128).map(i64::from).collect())
+        let source = Value::ints([128], (0..128).map(|i| i as i64).collect())
             .unwrap().into_shared();
         let mut cache = super::ExactPrehashCache::default();
         let first = cache.get_or_prepare(&source, 128, 2, LookupResult::First)
@@ -523,9 +523,9 @@ mod index_family_tests {
 
     #[test]
     fn prehash_rebinding_and_unshared_storage_never_hit_stale_tables() {
-        let source = Value::ints([128], (0..128).map(i64::from).collect())
+        let source = Value::ints([128], (0..128).map(|i| i as i64).collect())
             .unwrap().into_shared();
-        let replaced = Value::ints([128], (1000..1128).map(i64::from).collect())
+        let replaced = Value::ints([128], (1000..1128).map(|i| i as i64).collect())
             .unwrap().into_shared();
         let mut cache = super::ExactPrehashCache::default();
         cache.get_or_prepare(&source, 128, 2, LookupResult::First)
@@ -535,7 +535,7 @@ mod index_family_tests {
         assert_eq!(new_index.find(17, 128), 128);
         assert_eq!(new_index.find(1017, 128), 17);
         assert_eq!(cache.stats(), (2, 0));
-        let unshared = Value::ints([128], (0..128).map(i64::from).collect()).unwrap();
+        let unshared = Value::ints([128], (0..128).map(|i| i as i64).collect()).unwrap();
         assert!(cache.get_or_prepare(&unshared, 128, 2, LookupResult::First)
             .unwrap().is_none());
         cache.clear();
