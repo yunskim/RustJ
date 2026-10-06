@@ -3258,6 +3258,51 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 
 **Clarified abstraction.** Distinguish logical ValueId, physical external StorageObject/Version, StorageEncoding (typed contiguous, typed chunked, serialized components, external adapters), ReadChunk, WriteShard, BufferLease and IoCompletion. These are concepts, *not* committed Rust APIs. Observable J foreign-file I/O cannot be silently rewritten as a pure read of versioned immutable array backing. An empty data region can require no file bytes and still require J Rank fill-cell/shape inference. Cache keys need source/version/range/encoding; memory budgeting must account for decoded/pinned/inflight/kernel buffers while reporting OS page cache/RSS separately.
 
+
+<a id="io-framework-execution-comparison"></a>
+
+## 13.4 Framework I/O optimization mechanisms and RustJ graph-to-physical scheduling (2026-10-06)
+
+**Five independent concerns.** Efficient out-of-core execution combines (1) skipping unnecessary reads, (2) choosing physical read/storage granularity, (3) overlapping reads with computation, (4) reusing already loaded bytes and (5) memory, readiness and failure control. These concerns are owned by different stages. J Semantic/J Graph/Verified Logical IR defines observable J semantics, access and legality proof; Physical Planning/Scheduling/Execution chooses byte ranges, chunks, transfers, buffer lifetime, inflight requests and resource budgets. The table is a source-informed set of design candidates, **not evidence of implemented RustJ functionality**.
+
+| Framework / primary documentation | Mechanism and owning layer | RustJ application and limits |
+|---|---|---|
+| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Predicate, projection and slice pushdown into scans; common subplan/file scan elimination in logical planning | IO-09–12: only prune bytes when `AccessRelation` and witnesses preserve J semantics; otherwise opaque fallback for Rank, dynamic lookup, errors and effects |
+| [DuckDB async I/O announcement (2026-07-31)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group / CSV scan jobs and range fetch tasks; separate `REGULAR` compute and primarily blocking `ASYNC` I/O pools; parked consumers resume at completion. Read-ahead depth negotiates with the temporary-memory manager | IO-13–17: bounded requests, readiness/wakeups, adaptive prefetch under pressure. Announced development/version behavior must not be assumed present in every release |
+| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | `stream.async.parameter.load` creates a resource; `read` fills an allocation; `gather` assembles several parameter archive ranges. Timepoints and await dependencies encode availability and ordering in the physical resource graph | IO-13–18/20: physical `ParameterLoad/Gather → Await → Consumer` for immutable weights; IREE's hoistable parameter loads do not authorize speculation of observable J `1!:` file foreign calls |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | Separate `batch_readahead` and `fragment_readahead` scan concurrency | IO-14–16: independently bound read-ahead at chunk/fragment levels and account for decoded buffers |
+| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | Stream block references through operator queues; schedule only when resources and backpressure permit; spill when needed | IO-15–17: bounded queues, slow-consumer pressure, distinction between spill, workers' working memory and nonstreamable barriers |
+| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) / [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | Chunk/shard layout and decoded chunk caching trade read amplification, file count and reuse | IO-26–29: `LogicalShape`, `ReadChunk` and `WriteShard` remain independent. Small slices may still require decoding entire chunks |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Mapped vs unmapped model loading and residency tradeoffs | IO-23/30: measure page faults, cold/warm cache, resident memory, local/remote throughput rather than mandate mmap |
+| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) / [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | Parameter/optimizer-state offload and prefetch between NVMe, CPU and GPU; layer/batch scheduling to reuse weights at throughput/latency tradeoffs | IO-18–20: only legally reorder loads of immutable/version-stable weights; mutable gradients, checkpointing and J effects need different contracts |
+| [TensorFlow tf.data guide](https://www.tensorflow.org/guide/data_performance) | Input prefetch and parallel-map overlap producer and consumer | IO-14–16: helpful producer/consumer precedent, not permission to reorder arbitrary J cell/verb evaluation |
+| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | Stage mutable state and perform asynchronous persistence | IO-18: snapshot/version/write completion/publish/recovery, not success merely because an asynchronous operation was submitted |
+
+**Two disk-backed weight layers — meaning versus realization.** The logical array computation is `X → MatMul(W1) → Activation → MatMul(W2) → Y`. Provided W1 and W2 are proven immutable/version-stable physical inputs, the physical scheduler may overlap a read of W2 with computing Layer 1. It cannot start Layer 2 before both the activation result and W2's readiness token are available. This is a candidate, not the current implementation.
+
+~~~text
+Logical (J semantics)
+X ---> MatMul(W1) ---> Activation ---> MatMul(W2) ---> Y
+
+Physical candidate
+Reserve W1 -> Read W1 -> Ready W1 -> Compute L1 -> Activation --+
+Reserve W2 -> Read W2 -> Ready W2 ------------------------------+
+                                                               |
+                                                          Compute L2 -> Y
+Read W2 may overlap Compute L1, within the resource budget.
+Compute L2 awaits BOTH Activation and Ready W2.
+Release a buffer only after its last user and all pending I/O/transfers complete.
+~~~
+
+**Why these optimizations compose rather than replace one another.** Polars minimizes the requested bytes; IREE makes physical data movement/readiness explicit; DuckDB/Arrow/Ray manage request scheduling and backpressure; DeepSpeed/FlexGen seek profitable placement and reuse. Read-ahead can hide wait time but does not intrinsically reduce bytes, and merging many small byte ranges trades fewer requests for potential over-reading.
+
+**Semantic and failure guardrails.** Distinguish (A) an internal read of an immutable/versioned storage object, (B) observable J foreign I/O such as `1!:11`/`1!:12`, and (C) mutable weight/checkpoint persistence. Only A admits a proof/guard-authorized speculative prefetch or pruning. B preserves J effect and error ordering; C additionally needs snapshot, version, commit, publication and durability semantics. A zero-byte read does not eliminate J Rank zero-cell fill/prototype, dtype, shape or error obligations. Boxed/sparse, dynamic NAME/Rank, alias changes, stale files, EOF/short reads and premature exposure of speculative failures remain negative-test barriers.
+
+**Resource and cost accounting.** Bound queued + in-flight + decoded + pinned + temporary + output/retained buffers; report OS page cache and allocator RSS independently of runtime reservations. For cold/warm runs record actual bytes and I/O requests, seek/latency, blocking wait, CPU/GPU work, page faults, overlapped time, peak/retained memory, spilling, batch throughput and single-call latency. Approval order stays *semantic conformance → resource safety → measured cost-based route selection*.
+
+**Existing acceptance checklist mapping (no new checklist):** IO-09–12/29 for pruning and cache; IO-05–08/26–28 for storage and chunk/shard representation; IO-13–17/20 for async, transfer and backpressure; IO-18–19 for weights/checkpoint; IO-21–24/30 for comparative measurements; IO-01–04/25 for original-source and semantic contracts. Continue using the [IO-01–IO-30 single acceptance ledger](#out-of-core-io-checklist); writing this design section **does not advance implementation acceptance beyond 0/30**.
+
+
 ## 14. Principles retained
 
 Repeated review of `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` confirms that RustJ should preserve the following research ideas:
@@ -4046,6 +4091,8 @@ Completion rule: future progress reports for this work use JE0–JE6 item number
 <a id="out-of-core-io-checklist"></a>
 
 ### IO — Slow I/O / out-of-core migration acceptance checklist (2026-10-06)
+
+**Framework execution comparison:** [§13.4](#io-framework-execution-comparison) explains the stage-by-stage optimization mechanisms; all acceptance evidence stays in the 30-row ledger below.
 
 **Status: documented; 0/30 implementation acceptance gates passed.**
 
