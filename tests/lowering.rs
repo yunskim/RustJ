@@ -495,3 +495,31 @@ fn registry_separates_search_semantics_guarded_routes_and_unproven_tolerance() {
     assert!(registry.search_algorithm_reports(search, &cpu)
         .iter().all(|r| r.readiness == R::UnsupportedSearchForm));
 }
+
+
+#[test]
+fn jsource_search_report_retains_unproven_algorithm_options() {
+    use rustj::lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R};
+
+    let registry = LoweringRegistry::a3_v0();
+    for source in ["3 1 3 i. 3 4", "3 1 3 i: 3 4", "3 1 3 e. 3 4"] {
+        let analysis = Engine::new().analyze_compilation(source).unwrap();
+        let reports = registry
+            .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
+            .unwrap();
+        let report = reports.iter()
+            .find(|report| report.family == JsourceFamily::SearchAlgorithm)
+            .expect("source graph did not retain the i. family");
+        assert_eq!(report.state, JsourcePlanningState::NeedsSemanticProof);
+        let linked = report.linked_calls.iter()
+            .find(|call| !call.search_algorithms.is_empty())
+            .expect("source/A3 search linkage missing");
+        let state = |algorithm| linked.search_algorithms.iter()
+            .find(|r| r.algorithm == algorithm).map(|r| r.readiness);
+        assert_eq!(state(A::Sequential), Some(R::Baseline));
+        assert_eq!(state(A::DirectAddress), Some(R::RequiresExactScalarGuard));
+        assert_eq!(state(A::ReverseQueryHash), Some(R::RequiresExactScalarGuard));
+        assert_eq!(state(A::TolerantNeighborHash), Some(R::NeedsSemanticProof));
+        assert!(!analysis.jsource_opportunities.iter().any(|c| c.selected));
+    }
+}
