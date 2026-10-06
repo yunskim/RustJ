@@ -526,6 +526,38 @@ The declarative class matcher is unified now. Full runtime semantic actions, mod
 
 `src/tokenizer.rs` owns word formation; `src/enqueuer.rs` owns word interpretation and environment flags; `src/parser.rs` owns class matching, stack reductions, construction and parser-time name/POS resolution. `src/semantic.rs` owns semantic objects, intrinsic rank-construction contracts and binding/version models. `scanner` and the old `semantic::parse` APIs are compatibility re-exports, not duplicate grammars. No stage chooses a backend or schedule.
 
+#### Explicit-definition control-flow handoff
+
+Use `f =: 3 : 'if. y do. 1 else. 0 end.'` as the orientation example. Today DefinitionInput/DefinitionCode retain source/body, valence body ranges, sentence provenance, and control nodes/jump metadata; the semantic FunctionEntity retains `ExplicitDefinition(DefinitionCode)`. General invocation frames and body graph/A3 lowering remain a stop line.
+
+Planned handoff:
+
+```text
+DefinitionCode
+  source/body + monad/dyad ranges + control metadata
+      |
+      v
+[planned] fresh InvocationFrame per call
+  y (or x/y/u/v/m/n as required)
+  local table + locale/path context
+      |
+      v
+[planned] body semantic CFG
+  entry condition
+    |- true  -> then block
+    `- false -> else block
+  merge preserves J previous-result / return semantics
+      |
+      v
+[planned] A3 Region/Block CFG
+  CondBranch / Branch + block-argument or phi-like result merge
+  Return
+```
+
+Current A3 already has Function→Region→Block containers, but its v0 `Terminator` currently has only `Return`. Therefore existing Region/Block types do **not** imply that `if./while./try.` lowering is implemented. Branch/CondBranch and value-merge mechanisms above are planned concepts.
+
+Do not turn J Graph IR into a generic CFG merely to host explicit definitions. Analyzable array expressions inside a basic block may use J Graph applied-computation/provenance analysis; control edges, invocation frames, namespace/effect resources, and block merges belong to definition-control/A3 lowering. Future verification must cover control-source provenance, branch targets, frame independence, local-first→locale lookup, previous-result/return merges, and effect/error ordering.
+
 #### Priority and stage equivalence contract (2026-10-03)
 
 Complete tokenizer → enqueuer → parser fidelity before other implementation work. Use the existing F0–F2/P0–P7 checklist; CUDA execution remains deferred. Rust-native representation is allowed, but semantic projections must match jsource.
