@@ -381,7 +381,7 @@ fn jsource_source_evidence_reaches_logical_routes_without_authorizing_specializa
     let registry = LoweringRegistry::a3_v0();
     for (source, family) in [
         ("+/1 2 3", JsourceFamily::ReductionFastPath),
-        ("( +/ % # ) 1 2 3", JsourceFamily::MeanIdiom),
+        ("(+/ % #) 1 2 3", JsourceFamily::MeanIdiom),
         ("1 { 10 20 30", JsourceFamily::GatherCopyOrView),
         ("1 3 5 I. 2 4", JsourceFamily::IntervalLookup),
     ] {
@@ -393,7 +393,7 @@ fn jsource_source_evidence_reaches_logical_routes_without_authorizing_specializa
             .unwrap_or_else(|| panic!("no {family:?} planning report for {source}"));
         assert_eq!(report.source_value, analysis.jsource_opportunities[report.candidate_index].source_value);
         assert_eq!(report.decision_owner, family_rule(family).owner);
-        assert_eq!(report.unresolved_proofs, family_rule(family).proof_requirements);
+        assert_eq!(report.unresolved_proofs.as_slice(), family_rule(family).proof_requirements);
         assert!(!report.unresolved_proofs.is_empty());
         assert_eq!(report.state, JsourcePlanningState::NeedsSemanticProof);
         assert!(!report.linked_calls.is_empty());
