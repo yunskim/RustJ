@@ -3210,10 +3210,10 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 
 | Source | What is borrowed | What is NOT implied |
 |---|---|---|
-| [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; general boxed mapped arrays are not established |
+| [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; non-jmf typed boxed mapping is rejected, but JMF-backed boxed regression fixtures exist; scope must be tested per route |
 | [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c), J `1!:11`/`1!:12` | indexed byte-range read/write, sequential baseline based on `fread/fwrite` | effectful foreign I/O is not a pure logical scan and must not be silently rewritten |
 | Jsource in-place/alias machinery | ownership-proved buffer reuse and copy elimination | mapped mutation is not automatically safe in-place reuse |
-| Jd (J data add-on) | partitioning and selective access as investigation candidate | concrete Jd pruning/consistency behavior still needs primary-source confirmation |
+| Jd (J data add-on) | partitioning and selective access as investigation candidate | Jd column-file map-on-demand and partition pruning are verified in data_jd source; full-J query semantics remain separate |
 | [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) | independent async blocking-I/O pool, read-ahead, memory-governed queued jobs, park/resume | do not copy a full database engine |
 | [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
 | [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
@@ -3233,6 +3233,26 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 **Writes/checkpoints.** A J foreign file write, shared mapped mutation and an optimizer checkpoint have different visible effects. Checkpoint design needs explicit immutable version capture, temporary write, platform-specific flush/durability, publication/recovery, cancellation and partial-write behavior. Never declare save success before the required durability level, or change J-visible effect/error timing silently.
 
 **Cost and evidence.** Keep `ResourceEstimate` (peak/resident/inflight bytes, handles, queue budget) separate from `CostEstimate` (bytes, seeks/requests, bandwidth/latency, compute time, transfer/overlap). Compare cold vs warm cache, byte counts, wait, CPU compute, page faults, peak+retained memory, spilling, throughput *and* per-input latency. A feature exists only after code+independent semantic/negative tests+recorded commands and J C oracle coverage, as specified in the `17 checklist.
+
+
+## 13.3 Independent source re-audit: J storage libraries, physical file formats, model loaders (2026-10-06)
+
+**New gap identified.** The first I/O plan concentrated on async read-ahead; separate contracts for physical storage encoding, read-chunk vs write-shard granularity, mapped SIMD tails, remap/refcounts, and cache invalidation were under-specified. Evidence from upstream projects is not evidence of RustJ feature completion. All of the following is proposed pending [§17 IO acceptance](#out-of-core-io-checklist).
+
+| Primary source | Verified mechanism | Adopt or defer |
+|---|---|---|
+| [J jfiles/keyfiles](https://github.com/jsoftware/jsource/tree/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles) | serialized component storage using byte-range indexed read and keyed components | Keep serialized arbitrary J noun distinct from typed dense mmap, avoid copying full Jfiles format |
+| [Jd column.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) | on-demand column mapping, remap/resize; source calls out multi-process reference-count dangers | Verify lease/alias/remap/ownership safety, not a universal global DB lock |
+| [Jd api_read.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) · [ptable tutorial](https://www.jsoftware.com/jd_tuts.html) | partition-column-based table pruning | Use as selective array/partition-access inspiration only with J access, effect and error witnesses |
+| [Jd jmfx.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | padding file endings to avoid SIMD overfetch faults; historical 4-KiB page assumption | Cautionary case: require safe vector tails, checked mapping spans, actual OS granularity and lifecycle validation; do not copy hard-coded padding |
+| [Zarr 3](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 cache](https://docs.h5py.org/en/stable/high/file.html) | independent read chunk and write shard layout, chunk cache/eviction | Physical shape and IO granularity need not equal J logical shape; benchmark amplification and per-workload layouts |
+| [Safetensors](https://github.com/safetensors/safetensors/blob/main/README.md) | tensor dtype/shape/byte offsets and optional slice access, zero-size payload | Validate metadata/offsets/endian/empty/scalar. Do not make a new canonical RustJ disk format mandatory |
+| [llama.cpp loader](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | mmap vs no-mmap/mlock/direct I/O/NUMA/lazy tensor row policies | Choose storage load strategy from page faults, RAM pressure and access/reuse costs, not global mmap dogma |
+| DuckDB, Polars, Arrow, Ray, ZeRO-Infinity, FlexGen | skip unnecessary bytes, bounded job/batch read-ahead, backpressure, staged weights and reuse | Physical optimization order: prune bytes → version and alias safety → bounded scheduling → overlap → proven reuse |
+
+**Corrected JMF boxed scope.** [jmf.ijs](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) rejects *non-JMF typed boxed* mapping, while [JMF-backed boxed tests](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) exist and [mbx.c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/mbx.c) says “not supported.” Neither blanket all-boxed-supported nor all-boxed-unsupported is justified without a C-oracle check of the specific representation and operations.
+
+**Clarified abstraction.** Distinguish logical ValueId, physical external StorageObject/Version, StorageEncoding (typed contiguous, typed chunked, serialized components, external adapters), ReadChunk, WriteShard, BufferLease and IoCompletion. These are concepts, *not* committed Rust APIs. Observable J foreign-file I/O cannot be silently rewritten as a pure read of versioned immutable array backing. An empty data region can require no file bytes and still require J Rank fill-cell/shape inference. Cache keys need source/version/range/encoding; memory budgeting must account for decoded/pinned/inflight/kernel buffers while reporting OS page cache/RSS separately.
 
 ## 14. Principles retained
 
@@ -4021,7 +4041,7 @@ Completion rule: future progress reports for this work use JE0–JE6 item number
 
 ### IO — Slow I/O / out-of-core migration acceptance checklist (2026-10-06)
 
-**Status: documented; 0/24 implementation acceptance gates passed.** Sequence: IO-A primary-source/semantic contract (may proceed during M2) → IO-B synchronous reference (after initial M4 CPU slice) → IO-C proven read minimization → IO-D bounded async → IO-E weight reuse/placement → IO-F measurement/expansion. Do not make this a prerequisite of M2, the generic FW checklist, or the first native CPU vertical slice. [ ] = not accepted even if partial code exists; [x] requires actual change SHA, commands/environment, tests including negative cases, J oracle coverage where relevant, unsupported limits and CI status.
+**Status: documented; 0/30 implementation acceptance gates passed.** Sequence: IO-A primary-source/semantic contract (may proceed during M2) → IO-B synchronous reference (after initial M4 CPU slice) → IO-C proven read minimization → IO-D bounded async → IO-E weight reuse/placement → IO-F measurement/expansion. Do not make this a prerequisite of M2, the generic FW checklist, or the first native CPU vertical slice. [ ] = not accepted even if partial code exists; [x] requires actual change SHA, commands/environment, tests including negative cases, J oracle coverage where relevant, unsupported limits and CI status.
 
 | ID / stage | Checklist | Acceptance evidence / prerequisite |
 |---|---|---|
@@ -4031,7 +4051,7 @@ Completion rule: future progress reports for this work use JE0–JE6 item number
 | IO-04 / A, M3 | [ ] Establish per-storage capability matrix | offset/alignment/EOF, snapshot, consistency, write durability, unknown as route barrier |
 | IO-05 / B, after M4 | [ ] Independent synchronous read_at/write_at baseline | offsets, short read/EOF, overflow, permission/error tests; J file foreign semantics not conflated |
 | IO-06 / B, after M4 | [ ] Versioned dense chunk reader | dtype/shape/order/endian/checked offsets, final partial chunk, bounded large scan |
-| IO-07 / B, after M4 | [ ] Minimal mapped dense route | RO/RW/COW, header/shape, unmap/refcounts, read_at equivalence, boxed/sparse limitation |
+| IO-07 / B, after M4 | [ ] Minimal mapped dense route | RO/RW/COW, header/shape, unmap/refcounts, read_at equivalence, JMF-backed boxed/non-jmf typed boxed capability distinction, plus sparse limitations |
 | IO-08 / B, after M4 | [ ] Resident/retained-memory bound | buffer leases and release, lower budget than dataset, early-release/leak/cancel tests |
 | IO-09 / C, M4–M5 | [ ] Access-range witnesses | select/slice/reindex, opaque fallback, mutable/errors/rank barriers |
 | IO-10 / C, M5 | [ ] Proven projection/slice pushdown | reduce bytes without value/error changes; reduction/boxed/sparse counterexamples |
@@ -4049,6 +4069,18 @@ Completion rule: future progress reports for this work use JE0–JE6 item number
 | IO-22 / F, M5 | [ ] Independent three-way correctness tests | pinned C J oracle / Rust sync / optimized; failures and unsupported separated |
 | IO-23 / F, M5 | [ ] Benchmark-backed mmap/read_at/async selection | page faults, bytes/requests, peak RAM, regressions, storage differences |
 | IO-24 / F, after M6 | [ ] Optional extension approval gate | io_uring/direct I/O, object store, compression, DMA/GPU, multiple devices and Jd adapters after capabilities and portability proven |
+
+
+**Additional acceptance gates IO-25–IO-30** (added in discovery order, executed by prerequisite stage; retain IO-01–IO-24):
+
+| ID/stage | Checklist | Prerequisite / acceptance evidence |
+|---|---|---|
+| IO-25 / A, M2 parallel | [ ] Cross-audit Jd/jfiles/JMF boxed paths | Pinned jsource and data_jd, executable J oracle for Jd partitions, keyed components, typed vs JMF boxed cases; IO-01/02 |
+| IO-26 / B, after M4 | [ ] Verify typed array storage manifest | dtype, shape/order/endian, offsets/length/version, duplicate/overlap/off-end/overflow, empty/scalar and boxed/sparse capability; IO-05/06 |
+| IO-27 / B, after M4 | [ ] Separate read chunk/write shard/layout | Access-axis-specific amplification, coalescing, file count, shard-write cost and contiguous fallback vs Zarr/HDF5; IO-06/08 |
+| IO-28 / B, after M4 | [ ] Prove mmap/SIMD tail/lease safety | EOF page guard, no unproved vector overfetch, OS page granularity, live references on remap/unmap, RO/COW and concurrency; IO-07/08 |
+| IO-29 / C, M5 | [ ] Bounded decoded chunk cache | Identity/version/range key, lease-safe eviction, invalidation on mutation and strided/cache-thrash tests; IO-09–12 |
+| IO-30 / F, after M5 | [ ] Benchmark workload-dependent loading | mmap vs buffered read/async, cold/warm local/remote, NN weights, major faults/RSS/latency/throughput and budget stress; IO-21/23 |
 
 **Acceptance log:** `IO-ID | code commit | pinned source | command/OS/target/storage | C oracle / Rust sync / optimized counts | cold/warm bytes/wall time/peak | failures/unsupported | CI evidence | next gate`. No [x] based solely on design prose or file existence.
 
