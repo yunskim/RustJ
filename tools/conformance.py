@@ -770,6 +770,16 @@ def cases():
         'entrycopy=:entrynoun', 'entrynoun=:9', 'entrycopy',
         'entryverb=:*', '(entryverb/ % #) entrycopy',
     ])
+    # FW-01 / JX-10: source-derived Mean Fork is only an analysis
+    # candidate, never an enabled fast path. Compare baseline Rust execution
+    # with pinned J C for short, empty, and framed monadic inputs.
+    fixed.extend([
+        '(+/ % #) 1 2 3 4',
+        '(+/ % #) i. 1',
+        '(+/ % #) i. 0',
+        '(+/ % #) i. 2 3',
+    ])
+
     # P2/P3: concrete row results are available to subsequent constructors.
     fixed.extend([
         'computedrank=:+"(1+0)', 'computedrank i.2 3',
