@@ -667,11 +667,12 @@ fork    → parallelize
 MLIR Linalg, TAIL/Futhark, Remora, Bohrium, Lift를 비교하고, 일반적인 first-order execution IR 및 XLA-style fusion IR과 대조한 뒤 RustJ는 이 관점을 다음처럼 일반화한다.
 
 - MLIR Linalg에서처럼 structured computation을 너무 빨리 loop/CFG로 소거하지 않는다.
-- Futhark/Lift 계열처럼 high-level array algebra와 rewrite를 hardware mapping과 분리한다.
-- Bohrium처럼 materialization과 heterogeneous realization은 가능한 한 뒤에서 결정한다.
-- Remora처럼 rank/cell/implicit lifting 구조는 독립적인 semantic/graph 구조로 보존한다.
-- jaxpr 같은 단순 first-order execution IR의 장점은 Execution IR에서 취하되, 그보다 위의 J Graph IR에서는 `@:`, hook, fork 같은 source combinator provenance를 잃지 않는다.
-- XLA의 이미 선택된 `Fusion` operation과 달리 RustJ Graph IR의 fusion 정보는 우선 **후보와 증명 의무**다. candidate가 존재한다는 사실은 fused kernel의 존재나 선택을 뜻하지 않는다.
+- Futhark처럼 nested SOAC/map/reduce/scan 같은 고수준 parallel structure를 fusion 이전과 flattening 이전에 보존하고, 이후 별도 IR 단계에서 parallel mapping과 memory information을 점진적으로 구체화한다.
+- Lift에서는 portable한 map/reduce pattern부터 OpenCL-specific functional pattern까지 **같은 rewrite-driven 표현 공간에서 점진적으로 hardware mapping을 구체화**한다. 따라서 Lift를 “high-level rewrite와 hardware mapping의 완전한 분리” 선례로 읽지 않고, hardware-aware mapping 자체도 algebraic rewrite 대상으로 만들 수 있다는 근거로 사용한다.
+- Bohrium처럼 기존 array API의 연산을 lazy하게 수집하여 fusion과 allocation/materialization, host-device data movement를 늦출 수 있다. 다만 Bohrium은 backend를 미리 선택해 사용할 수도 있으므로, 이를 “각 op마다 CPU/GPU를 동적으로 선택하는 체계”의 선례로 과장하지 않는다.
+- Remora는 Graph IR 구조의 직접 선례가 아니라 **rank polymorphism, frame/cell, implicit lifting을 정형화한 semantic model**이다. RustJ가 이 semantic structure를 J Graph IR에 보존하는 것은 RustJ의 별도 설계 결정이다.
+- JAX의 jaxpr은 explicitly typed, functional, first-order ANF라는 execution/transformation IR의 단순성에 대한 좋은 대조점이다. RustJ는 그 장점을 Execution IR에서 참고하되, jaxpr이 J source combinator provenance 보존의 선례라고 주장하지 않는다.
+- XLA HLO의 `Fusion` op는 HLO instruction 집합이 이미 하나의 fusion computation으로 표현된 **committed IR state**다. XLA 자체에도 fusion discovery/costing pass가 있으므로, RustJ와의 차이는 “XLA에는 후보 단계가 없다”가 아니라 **RustJ J Graph IR의 `FusionCandidate`가 그 committed state보다 앞선 pre-selection 분석 객체**라는 점이다.
 
 따라서 현재의 불변식은 다음과 같다.
 
@@ -2505,9 +2506,11 @@ Differential test:
 2. Aaron W. Hsu의 **The Key to a Data Parallel Compiler**와 현재 Co-dfns source.
 3. Elsman/Henriksen 외의 **APL → TAIL → Futhark** GPU compilation 연구 및 Dyalog'16 발표.
 4. **Remora** — J/APL의 rank-polymorphic 계산 모델을 분리해 frame/cell/implicit lifting을 정형화한 연구 언어.
-5. **Bohrium** — 기존 NumPy-style 프로그램의 array operation을 지연된 IR로 수집해 fusion/materialization과 CPU/GPU 등 실행 방식을 뒤에서 선택한 계열.
-6. **Lift** — map/reduce 같은 high-level functional array pattern을 rewrite하고 hardware mapping을 별도 단계로 탐색하는 연구.
+5. **Bohrium** — 기존 NumPy-style array operation을 lazy하게 수집해 fusion, allocation/materialization, host-device data movement와 backend-specific execution을 늦추는 runtime/VM 계열.
+6. **Lift** — portable map/reduce pattern과 OpenCL-specific functional pattern을 같은 rewrite-driven IR 계열 안에서 변환하며 optimization과 hardware mapping을 탐색하는 연구.
 7. **MLIR Linalg** — structured operation, indexing/iterator semantics와 implicit iteration을 보존하고 tiling/vectorization/lowering에서 explicit loop를 materialize하는 IR 계열.
+8. **JAX / jaxpr** — tracing으로 얻는 explicitly typed, functional, first-order ANF IR. source combinator provenance보다 transformation-friendly execution form의 비교 기준이다.
+9. **XLA HLO Fusion** — 여러 HLO instruction을 하나의 fusion computation으로 묶은 committed IR representation. RustJ의 pre-selection fusion candidate와 단계 차이를 비교하는 기준이다.
 
 이 자료들은 모두 array-language/compiler 문제를 다루지만 서로 다른 질문에 답한다.
 
@@ -2529,15 +2532,24 @@ Remora
     독립적인 semantic model로 어떻게 정형화하는가?
 
 Bohrium
-  → 기존 array API의 계산을 어떻게 지연 수집하여
-    fusion/materialization/heterogeneous execution을 뒤에서 결정하는가?
+  → 기존 array API의 계산을 어떻게 lazy하게 수집하여
+    fusion/allocation/data movement를 evaluation 시점까지 늦추는가?
 
 Lift
-  → high-level array rewrite와 hardware mapping을 어떻게 분리하는가?
+  → portable functional pattern에서 hardware-aware functional pattern으로
+    rewrite하면서 mapping 선택을 어떻게 탐색하는가?
 
 MLIR Linalg
   → structured computation과 implicit iteration을 얼마나 오래 보존하고
     언제 loop/tiling/vector lowering으로 materialize하는가?
+
+JAX / jaxpr
+  → source를 transformation-friendly first-order ANF로 정규화하면
+    어떤 단순성을 얻고 어떤 source provenance는 사라지는가?
+
+XLA HLO Fusion
+  → fusion이 이미 선택된 뒤의 committed IR representation은 어떤 모습이며,
+    RustJ의 pre-selection candidate와 어디서 경계가 갈리는가?
 ~~~
 
 이 비교에서 RustJ에 추가로 확인되는 상위 원칙은 다음과 같다.
@@ -2555,8 +2567,11 @@ RustJ는 이 연구들의 제한된 language subset이나 static assumption을 �
 
 - Remora / *The Semantics of Rank Polymorphism*: https://arxiv.org/abs/1907.00509
 - Bohrium publication index (NumPy CPU/GPU/cluster, vector VM, fusion lineage): https://bohrium.readthedocs.io/publications.html
+- Bohrium lazy evaluation / fusion behavior: https://bohrium.readthedocs.io/faq.html
 - Lift / *A Functional Data-Parallel IR for High-Performance GPU Code Generation*: https://doi.org/10.1109/CGO.2017.7863730
 - MLIR Linalg structured-operation primer / implicit-loop materialization: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+- JAX / *The jaxpr language*: https://docs.jax.dev/en/latest/601/jaxpr.html
+- OpenXLA / HLO `Fusion` operation semantics: https://openxla.org/xla/operation_semantics#fusion
 
 이 출처들은 RustJ semantic specification이 아니라 위 compiler 원칙을 검증·비교하기 위한 자료다.
 
