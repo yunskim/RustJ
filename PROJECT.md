@@ -2358,6 +2358,8 @@ Added A3 search-mode/origin and forged-payload verifier tests, registry CPU/GPU/
 
 **Resume gate:** Only reconsider executable specializations after validated reference semantics, independently sourced differential evidence, runtime guard/fallback, an M4 CPU baseline, and hard-resource/profitability evidence. P.1 stages 8–11 are **removed from the near-term work queue**; unfinished 5–7/12 remain unchecked. Never introduce a new RustJ IR node or executor path for each jsource C special case.
 
+**Reference-path independence gap discovered on review:** `eval_semantic_reference` disables pooling/cache, not the ordinary exact-scalar Physical search planner inside `index_ops::lookup`. The semantic reference is not yet an independent sequential oracle. See revised P.3.
+
 #### P.1 Phased checklist and gates
 
 | Stage | Checklist item | Owner and acceptance gate | Status |
@@ -2386,13 +2388,14 @@ Added A3 search-mode/origin and forged-payload verifier tests, registry CPU/GPU/
 
 After fixing a finding, independently re-run the relevant checks and record commands, counts, exact upstream revision and measurements before checking a gate. No Linux milestone. Never mark CI/tests passed without actual execution.
 
-#### P.3 Next actions
+#### P.3 Next actions — reordered for M2 semantics (2026-10-06)
 
-1. Finish fixed-`near` exponent/sign candidate-completeness mathematics and actually run default/portable research tests when execution is available; otherwise leave execution unchecked.
-2. Establish independent J C oracle parity for first/last, floating, complex/boxed, `!.ct` and empty/ranked cells. Any current Rust `near` deviation blocks tolerant optimized execution.
-3. Benchmark BQN small-input/SIMD, byte tables, selective table initialization, reverse hashing and collision/radix strategies before changing heuristic thresholds or current HashMap.
-4. Keep `TolerantNeighborHash=NeedsSemanticProof` and source opportunity `AwaitingSemanticProofs` until witnessed comparison/guard/fallback and independent differential validation pass.
+1. **Finish M2 first.** Converge J word formation, enqueue, parser, name/POS resolution and derived-entity semantics, with actual regression execution. Search-optimization research must not displace the general frontend milestones.
+2. **Restore an independent reference interpreter path.** `eval_semantic_reference(...)` disables pooling, but `kernels::dyad("i."/"i:"/"e.")` calls `index_ops::lookup(..., None)`, which **still invokes `optional_exact_scalar_index` and `plan_search_algorithm`**. Thus the current semantic reference avoids prehash yet can still select Direct/IndexedHash/ReverseQueryHash. Separate strictly sequential, specification-oriented search from optional Physical search decisions and test both paths against the same J inputs. **No implementation change or passing test is claimed here.**
+3. **Verify J semantics independently.** Compare actual J C oracle results for `=`, `i.`, `i:`, `e.`, `E.`, `!.ct`, `9!:18/9!:19`, default-CCT macro boundaries, rank/cell/frame/empty, boxed/sparse and error precedence. This is a semantic-parity obligation, not a reason to port jsource's specialized hash implementations.
+4. **Retain Graph/A3/Registry evidence; defer Physical commitment.** Preserve source topology, comparison intent, provenance and unknown proof facts. Freeze expansion of existing Int/Bool runtime specializations. Reconsider BQN SIMD/small-range direct tables/radix/collision strategies, tolerance buckets and heuristic tuning only after M2/M3 semantics, M4 baseline CPU reference validation, differential evidence and measurements. `TolerantNeighborHash` remains `NeedsSemanticProof` and unselected.
 
+**Independent-verification rule:** Matching an optimized path against a so-called semantic reference that shares its Physical planner is not a valid independent correctness gate. Require three-way comparison against a truly sequential semantic baseline and actual J C oracle, in addition to error/effect/fallback and resource/cost checks.
 
 #### P.4 Independent review record #1 — restricted float candidate completeness (2026-10-06)
 
