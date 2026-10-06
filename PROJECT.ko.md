@@ -8649,6 +8649,35 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 - first M4 pure slice에서는 namespace assignment commit을 Physical Executor가 소유하지 않는다. stateful write를 native route에 넣을 때 별도 effect/commit contract를 추가한다.
 - observable effect가 commit된 뒤 transparent replay하는 fallback은 금지한다.
 
+##### M4→M5 구현 선행조건과 검증 프로토콜 (2026-10-07, **설계만 확정**)
+
+**범위:** 실제 PhysicalPlan/Executor/View/Kernel/Transfer를 지금 구현하지 않는다. 본 절은 기존 §5.2.1의 계약, §17 M4 구현 항목, HE-01~HE-09, IO-20에 적용할 **수용 조건과 검증 증거**다. 별도 Parallel IR, Data Movement IR, 중복 체크리스트는 만들지 않는다. 기존 Draft PR #4의 제한적인 identity 구현은 검증된 전체 M4 경로로 취급하지 않으며 완료 수용과 구별한다.
+
+**컴파일러 경계의 의무와 검증 방법**
+
+| 경계 | 실행 전 필요한 조건·증거 | 수용/거부 검증 | 조건 미충족 시 |
+|---|---|---|---|
+| **A3 → Route/Physical** | \`logical_ir::Plan::verify\` 성공, schema/primitive-registry/source origin 일치, 한 region 내 포함된 모든 value/check/effect/order edge 목록, 해당 route의 capability·guard/witness 확보 | A3 op 하나씩 추적하는 source→physical mapping; plan에서 Check 하나 삭제·복제·재배열, producer 위조, stale version/guard 위조 시 verifier가 **반드시 거부** | Unknown을 Supported로 치환하지 않음. 해당 region을 합법한 reference/runtime route로 유지하거나 Unsupported |
+| **장치·메모리 독립성** | \`ExecutionDevice\`, \`MemorySpace\`, intra-device schedule은 서로 독립한 물리 결정. plan-time \`PlanBufferId\`/view와 runtime \`BufferId\`/lease, logical \`ValueId\` 분리. M4는 CPU+Host+zero-transfer | logical/semantic IR에 thread 수·CUDA stream·buffer address가 없는지 구조 검토; 서로 다른 메모리 위치와 동일 execution device를 **미래 확장 가능**하게 식별; M4 plan에는 Transfer/Sync가 없음을 검사 | 혼합 실행 능력이 없으면 단일 CPU 경로만 지원; J 의미를 바꾸지 않음 |
+| **BindInput** | 실제 dense noun의 dtype·shape·encoding·extent·version/owner가 source value와 일치, readonly lease 유효, alias 여부 추적, implicit deep copy 없음 | 바뀐 binding version·stale buffer generation·미등록 BufferId·타인 registry·잘못된 encoding을 각각 하나씩 위조하여 reject; 입력 버퍼 원본 불변 확인 | 입력을 파괴하거나 임의 재바인딩하지 않고 route 거부 |
+| **View** | 대상 primitive/Rank·axis 의미가 증명됨, logical shape/atom order 유지; \`shape×stride+offset\`의 최소/최대 backing byte 범위를 부호 있는 checked 연산으로 계산하고 encoding/alignment 적합성 확인. 빈 frame과 빈 cell은 구분 | scalar, rank 1/2/3, \`0 3\`·\`3 0\`·singleton, negative stride, transpose/reverse, overflow·zero stride·OOB 위조. **View는 실제 메모리를 복사하거나 쓰지 않았는지** 확인 | 불확실한 view를 실행하지 않음; 합법한 Materialize/다른 route를 별도 선택 |
+| **SemanticCheck / 오류** | A3 Check마다 유일한 provenance, 실행 위치, 의존성, 원래 J error kind 및 error precedence. Guard는 관찰 가능 effect 전 평가; 복구/handler가 오류를 볼 수 있음 | 두 개 이상 Check의 순서 변경, 한 Check 누락·중복, invalid Rank/Length/Index, effect/NAME rebinding/try-catch 관찰 사례. Reference executor와 **오류 종류·첫 오류·부수효과 횟수·상태** 비교 | 물리화 대상 제외; arbitrary first-thread error 또는 GPU trap→J error 임의 변환 금지 |
+| **Kernel (첫 Add)** | \`ParameterizedLoweringRecipe\`/registered realization이 resolved target에 합법, valence·rank/cell·prefix agreement·J 타입 승격·overflow/fit·alias·stride 및 전처리 Check 충족. Logical IR의 Parallel 축은 동시 실행 허가 증거 아님 | scalar/vector/matrix, 서로 다른 dtype, bool/int/float, integer overflow/promotion, NaN/Inf, length error, empty arrays, SIMD tail, stride mismatch. 등록하지 않은 recipe 또는 shape/target capability mismatch는 verifier reject; **기존 semantic interpreter를 호출한 결과를 native kernel 통과로 세지 않음** | 기존 reference/지원 route 선택, kernel 미지원은 J Domain error가 아님 |
+| **Materialize / Return** | view의 **J 논리 원소 순서**로 allocation·copy, output type/shape 보존; backing/lease와 output ownership, temp last-use 확인 | transpose/reverse의 physical address order와 J atom order 비교, empty/boxed/sparse(지원하지 않는 경우 reject), output dangling/temporary 조기 해제, read-only input mutation 및 조립 에러 비교 | incomplete result를 반환하지 않음; 실패 시 호출자 입력 보존 |
+| **Reuse / resource** | def/use/last-use, outstanding view/lease, non-overlap proof, encoding/size/alignment/memory-space 호환, check/effect precedence, budget 상한이 모두 충족 | reuse 중 live alias·overlap write·buffer size 부족·allocation 실패·exception cleanup 등 각 invariant 하나씩 위조; reclaimed resource에 대한 subsequent use 거부 | reuse 비활성화, 안전한 별도 버퍼 사용 또는 route 거부 |
+| **CPU↔GPU / I/O 후속(M5+)** | region/device placement, memory residency/version, transfer bytes, ready/completion, sync, ownership/lifetime, host effect/error 의존성 및 capacity. 외부 backend도 계약을 유지 | 가상 plan verifier 수준에서 stale data/transfer 누락/copy-before-producer/read-before-ready/transfer-after-free/중복 commit을 reject. 실제 GPU 결과 동등성·성능은 **검증 가능한 실장치와 명시적 재개 조건** 이후만 수행 | CPU/단일 장치 계획만 합법; 복합 장치 실행을 완료로 주장하지 않음 |
+
+**공통 검증 절차와 완료 판정**
+
+1. **A3 정상 계획 생성·검증 → Physical 계획 생성·검증 → 제한된 CPU 실행** 순서를 지키고, 검증되지 않은 plan은 실행기까지 도달할 수 없게 한다. 정상 사례를 복제해 **불변 조건 하나만** 훼손하는 음성 검증을 기본 패턴으로 삼는다. verifier 실패 이유와 source op/provenance를 기록한다.
+2. **3자 의미론 비교:** 동일 입력에 대해 (a) jsource C 기준 실행, (b) RustJ \`logical_executor::execute_closed\`/해당 의미론 기준 경로, (c) 신규 Physical Executor의 값·dtype·Shape·원소 순서·J error class/precedence를 비교한다. C 기준의 해당 기능이 현지 환경에 없으면 미검증으로 남기며 RustJ 내부 2자 비교로 대체 완료 처리하지 않는다.
+3. **범위·부정 사례:** zero-frame Rank virtual fill vs positive-frame empty cell, 복합 CellApply 결과 type/shape join, boxed/sparse, tolerance/fit, numeric reassociation, late NAME/assignment/effects, 예외·resource cleanup은 독립 regression으로 분리한다. 미지원 subtype은 **지원 범위 밖**으로 보고하며 J 문법/의미론 제한으로 바꾸지 않는다.
+4. **기계적 테스트:** 구현 시 \`cargo fmt --check\`, default/portable \`cargo test\`, \`cargo clippy\`와 재현 가능한 Linux/Windows 경로를 실행하고 커밋 SHA·플랫폼·스레드/feature·케이스 수·passed/failed/ignored를 기록한다. 실행하지 않은 테스트와 CI 결과는 성공으로 보고하지 않는다.
+5. **비용은 의미론 통과 후:** Sequential CPU를 zero-transfer baseline으로 두고, 실행 시간 외 bytes read/written/moved, allocation/peak residency, kernel/transfer launch, sync, guard misses, fallback 횟수, critical path를 별도 측정한다. \`ResourceEstimate\`와 \`CostEstimate\`와 실측 \`CostProfile\`을 혼합하거나 Unknown을 0으로 두지 않는다.
+6. **M4 수용 게이트:** Check·View·Kernel(Add)·Materialize 중 최소 하나의 **실제 compiler-native 연산 경로가 필요 Check를 포함하여** A3→verified PhysicalPlan→CPU에서 실행되고, 음성 verifier와 jsource differential이 통과해야 한다. 단일 literal \`BindInput→Return\`, 설계 문서 또는 테스트 소스만으로는 M4 전체/HE-01을 완료하지 않는다. M5의 mixed placement와 M6 GPU·async 실구현은 M4의 선행 필수 조건이 아니다.
+
+**상태 (2026-10-07):** 본 절의 **조건·검증 프로토콜만 문서 확정**. 모든 새로운 실행/성능 수용은 아직 미검증이며, M4/HE-01~09 미완료 체크박스를 유지한다. 구현 재개 시 각 수용 결과를 기존 §17/HE 체크리스트에 증거 링크로 기록한다.
+
 ##### 현재 코드와의 대응
 
 현재 `src/physical.rs`는:
