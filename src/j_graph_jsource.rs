@@ -312,7 +312,9 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
             GraphForm::Reduce { .. } => Some(JsourceFamily::ReductionFastPath),
             GraphForm::PrefixInfix { .. } => Some(JsourceFamily::WindowAlgorithm),
             GraphForm::Atomic => match (&function.head, valence, left) {
-                (FunctionHead::PrimitiveVerb(PrimitiveId::IndexOf | PrimitiveId::Member | PrimitiveId::Find),
+                // E. is substring/window matching, owned by FindViaWindowMatch;
+                // i: is the dyadic last-index member of the index-of family.
+                (FunctionHead::PrimitiveVerb(PrimitiveId::IndexOf | PrimitiveId::Steps | PrimitiveId::Member),
                     Valence::Dyad, Some(_)) => Some(JsourceFamily::SearchAlgorithm),
                 (FunctionHead::PrimitiveVerb(PrimitiveId::Indices),
                     Valence::Dyad, Some(_)) => Some(JsourceFamily::IntervalLookup),
