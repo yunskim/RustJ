@@ -79,7 +79,7 @@ def run(library: Path, revision: str, report_path: Path) -> dict:
             mapped = jmf_expressions(j_file_name(backing_file))
             for index, expr in enumerate((*startup, *mapped)):
                 kind = ("check" if index == 2 or expr.startswith("'' -: ")
-                        else "run")
+                        or expr.startswith("unmap_jmf_ ") else "run")
                 output = oracle.eval(expr) if kind == "check" else oracle.run(expr)
                 if index == 2:  # 4!:0 <'load' should resolve to a function, not -1.
                     good = (isinstance(output, dict) and output.get("type") == 4
@@ -87,6 +87,10 @@ def run(library: Path, revision: str, report_path: Path) -> dict:
                             and output.get("data", [-1])[0] != -1)
                 elif expr.startswith("'' -: "):
                     good = output == EMPTY_TRUE
+                elif expr.startswith("unmap_jmf_ "):
+                    # JMF unmap returns 0 for successful unmap; JDo success alone
+                    # would incorrectly accept its nonzero failure codes.
+                    good = output == {"type": 4, "shape": [], "data": [0]}
                 else:
                     good = output is None  # Oracle.run returns None on J success.
                 result["stages"].append({
