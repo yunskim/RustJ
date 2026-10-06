@@ -3236,6 +3236,15 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 4. Tolerant hashing kernel 활성화는 마지막 단계다. Registry 상태 `NeedsSemanticProof` 및 Graph `AwaitingSemanticProofs`는 proof/guard/fallback 검증 전까지 유지한다.
 
 
+###### P.4 독립 검토 기록 #1 — 제한된 float search 후보 완전성 (2026-10-06)
+
+**의미론·수학 관점 (코드 구현과 독립):** 현재 RustJ `kernels::near`는 `a == b || finite(a,b) && |a-b| <= t * max(|a|,|b|)`이고 `t = 2^-44`. `a,b`가 0이 아닌 유한수이며 비교가 성공했다면 서로 부호가 다를 수 없다(반대 부호이면 차이는 두 절대값의 합으로 `t<1` 조건을 위반). `M=max(|a|,|b|)`, `m=min(|a|,|b|)`이면 `M-m <= t M`이므로 `m >= (1-t)M > M/2`(`t<1/2`). 따라서 이진 지수 `floor(log2 |a|)`와 `floor(log2 |b|)` 차이는 최대 1. **query와 동일 부호인 지수 `e-1,e,e+1` bucket은 성공 가능한 source 항목을 누락하지 않는 필요조건**이다. 결과는 bucket 대표값이 아니라 **모든 원본 index를 취합한 뒤 원래 `near`로 재검사**하고, `i.`은 최소 원본 index, `i:`는 최대 원본 index를 택한다. 비추이적 연쇄 `a≈b≈c`, `a≉c`에서 앞의 원소 하나로 bucket을 대표시키는 방식은 불허한다. +0/-0, 동부호 ±Infinity는 exact equality로 별도 취급하고 NaN은 불일치한다.
+
+**수치 반증 탐색 (Rust/C 테스트 아님):** 동일한 IEEE-754 `f64` 의미를 JavaScript 숫자 모델로 모사해 **215개 값의 1,160개 일치 쌍**을 조사했다. 지수 경계를 넘는 일치 쌍은 132개, 같은 부호·지수차 ≤1 필요조건을 어긴 사례는 **0개**였다. `(1,1+0.75t,1+1.5t)`에서 근사 동등성은 `true,true,false`로 비추이성을 확인했다. **표본 확인은 일반 수학 증명·Rust 테스트 실행·J C 비교·성능 보증을 대신하지 않는다.** 이 절에서 확인한 것은 고정된 현재 Rust `near`에만 적용되며 J `!.ct`/복소수/박스/Rank 등에는 자동 일반화하지 않는다.
+
+**계층·소스 독립 검토:** BQN 원문은 작은 인자 SIMD, sparse **table** initialization, reverse lookup과 large-input partitioning의 알고리즘 참고로만 사용한다. 실제 C의 tolerant 해시(`viavx2.c`)는 두 인접 tolerance 구간과 exact insert / tolerant probe를 활용하므로, 연구용 **부호·지수 3-bucket** 설계를 jsource의 bitmask 알고리즘과 동일하다고 주장하지 않는다. A3/Registry/Physical/Runtime/문서의 provenance/guard/비승격·체크리스트 항목 **13개 정적 확인을 통과**했다. `src/tolerant_search.rs`는 **`#[cfg(test)]` 등록만** 되어 있으며 실제 Runtime을 호출하지 않는다. **Cargo/CI/C differential/benchmark를 수행하지 않았으므로 P.1의 실행 수용 게이트는 계속 [ ]로 둔다.**
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
