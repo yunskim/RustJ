@@ -215,6 +215,38 @@ impl Value {
             _ => Err(Error::Domain),
         }
     }
+    /// Build one representative rank cell when a result frame has zero items.
+    ///
+    /// jsource cr.c's generic rank path evaluates a fill-cell to determine
+    /// the type and shape of the empty result. An existing nonempty argument
+    /// contributes its first real cell; an empty dense argument contributes
+    /// a cell of type-correct fills. This intentionally does not interpret
+    /// boxed or sparse J prototypes.
+    pub(crate) fn rank_fill_cell(&self, rank: usize) -> Result<Self> {
+        if rank > self.shape.len() {
+            return Err(Error::Rank);
+        }
+        if self.is_sparse() {
+            return Err(Error::Unsupported("sparse rank fill cell".into()));
+        }
+        if self.len() != 0 {
+            return self.view().cell(rank, 0)?.to_owned();
+        }
+        let shape = Shape::from(&self.shape[self.shape.len() - rank..]);
+        let atoms = count(&shape)?;
+        let data = match &self.data {
+            Data::Bool(_) => Data::Bool(CpuStorage::generate(atoms, |_| 0)?),
+            Data::Int(_) => Data::Int(CpuStorage::generate(atoms, |_| 0)?),
+            Data::Float(_) => Data::Float(CpuStorage::generate(atoms, |_| 0.0)?),
+            Data::Char(_) => Data::Char(CpuStorage::generate(atoms, |_| b' ')?),
+            Data::Boxed(_) => {
+                return Err(Error::Unsupported("boxed rank fill cell".into()));
+            }
+            Data::Sparse(_) => unreachable!(),
+        };
+        Self::new(shape, data)
+    }
+
     pub fn select(
         &self,
         shape: impl Into<Shape>,
