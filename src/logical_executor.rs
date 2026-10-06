@@ -616,7 +616,6 @@ mod rank_fill_error_tests {
         assert_eq!(count, 1, "resource failures must never retry");
     }
 
-
     #[test]
     fn rank_fill_recovery_requires_verified_prototype_origin() {
         for origin in [
@@ -624,12 +623,9 @@ mod rank_fill_error_tests {
             RankFillCallOrigin::UnknownOrEffectful,
         ] {
             let original = Error::Domain.at(1..4);
-            let unchanged = recover_zero_frame_fill_domain(
-                Err(original.clone()),
-                Some(&[3]),
-                origin,
-            )
-            .expect_err("an ordinary or unproven Domain is observable");
+            let unchanged =
+                recover_zero_frame_fill_domain(Err(original.clone()), Some(&[3]), origin)
+                    .expect_err("an ordinary or unproven Domain is observable");
             assert_eq!(unchanged, original);
         }
 
@@ -656,7 +652,7 @@ mod rank_fill_error_tests {
             None,
             RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
         )
-            .expect("J non-exigent computational fill failure");
+        .expect("J non-exigent computational fill failure");
         assert_eq!(fallback.type_code(), 4);
         assert_eq!(fallback.shape(), &[]);
         assert_eq!(fallback.int_at(0).unwrap(), 0);
@@ -667,7 +663,8 @@ mod rank_fill_error_tests {
             Err(wrapped),
             None,
             RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(fallback.int_at(0).unwrap(), 0);
 
         for error in [
