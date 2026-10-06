@@ -90,7 +90,9 @@ fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
 
     // Key was promoted to a *constructor*, not to an executable
     // GroupAggregate optimizer. It must have an explicit Adverb identity.
-    let key = PrimitiveResolver::core().resolve_core_for_enqueue("/.").unwrap();
+    let key = PrimitiveResolver::core()
+        .resolve_core_for_enqueue("/.")
+        .unwrap();
     assert_eq!(key.result_pos, Pos::Adverb);
     assert!(matches!(
         key.semantic_id,

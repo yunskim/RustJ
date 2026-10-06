@@ -86,27 +86,33 @@ fn key_derived_verb_keeps_operator_and_operand_without_licensing_execution() {
     let Some(Expr::VerbValue(key)) = parsed.expression.map(|expr| expr.kind) else {
         panic!("u/. should construct a derived verb");
     };
-    assert_eq!(key.entity.head, FunctionHead::PrimitiveAdverb(AdverbId::Key));
+    assert_eq!(
+        key.entity.head,
+        FunctionHead::PrimitiveAdverb(AdverbId::Key)
+    );
     // ao.c::jtsldot installs RMAX for monad and both dyadic ranks.
     assert_eq!(key.entity.innate_ranks(), Some([63; 3]));
-    let [rustj::semantic::FunctionOperand::Function(operand)] =
-        key.entity.operands.as_slice() else {
+    let [rustj::semantic::FunctionOperand::Function(operand)] = key.entity.operands.as_slice()
+    else {
         panic!("Key must preserve its construction-time verb operand");
     };
     assert_eq!(operand.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add));
 
-    for (source, expected_dyad) in [
-        ("+/. 1 2 3", false),
-        ("1 0 1 +/. 4 5 6", true),
-    ] {
+    for (source, expected_dyad) in [("+/. 1 2 3", false), ("1 0 1 +/. 4 5 6", true)] {
         let program = semantic::parse(source).unwrap();
         match (expected_dyad, program.expression.unwrap().kind) {
             (false, Expr::Monad { verb, .. }) | (true, Expr::Dyad { verb, .. }) => {
-                assert_eq!(verb.entity.head, FunctionHead::PrimitiveAdverb(AdverbId::Key));
+                assert_eq!(
+                    verb.entity.head,
+                    FunctionHead::PrimitiveAdverb(AdverbId::Key)
+                );
             }
             _ => panic!("Key parsed with wrong application valence: {source}"),
         }
-        assert_eq!(Engine::new().eval(source).unwrap_err().kind(), "unsupported");
+        assert_eq!(
+            Engine::new().eval(source).unwrap_err().kind(),
+            "unsupported"
+        );
     }
 
     // A noun-left gerund is accepted by upstream ao.c::jtsldot only after a
