@@ -2,8 +2,10 @@ use rustj::{
     Engine,
     analysis::ExecutionBasisKind,
     logical_ir::{CallOp, EffectSummary, OpKind, SpeculationSemantics},
+    j_graph_jsource::{family_rule, JsourceFamily},
     lowering::{
-        BasisTargetFeasibility, LoweringRegistry, RealizationFamily, RewritePlanningState,
+        BasisTargetFeasibility, JsourceExistingRoute, JsourcePlanningState, LoweringRegistry,
+        RealizationFamily, RewritePlanningState,
         RewriteTargetFeasibilityKind, TargetCapabilities,
     },
 };
@@ -372,4 +374,86 @@ fn lowering_recipe_keeps_semantic_parameters_but_not_schedule_choices() {
     );
     assert_eq!(recipes[0].iteration_domain.axes.len(), 1);
     assert_eq!(recipes[0].iteration_domain.axes[0].extent, Some(3));
+}
+
+#[test]
+fn jsource_source_evidence_reaches_logical_routes_without_authorizing_specialization() {
+    let registry = LoweringRegistry::a3_v0();
+    for (source, family) in [
+        ("+/1 2 3", JsourceFamily::ReductionFastPath),
+        ("( +/ % # ) 1 2 3", JsourceFamily::MeanIdiom),
+        ("1 { 10 20 30", JsourceFamily::GatherCopyOrView),
+        ("1 3 5 I. 2 4", JsourceFamily::IntervalLookup),
+    ] {
+        let analysis = Engine::new().analyze_compilation(source).unwrap();
+        let reports = registry
+            .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
+            .unwrap();
+        let report = reports.iter().find(|report| report.family == family)
+            .unwrap_or_else(|| panic!("no {family:?} planning report for {source}"));
+        assert_eq!(report.source_value, analysis.jsource_opportunities[report.candidate_index].source_value);
+        assert_eq!(report.decision_owner, family_rule(family).owner);
+        assert_eq!(report.unresolved_proofs, family_rule(family).proof_requirements);
+        assert!(!report.unresolved_proofs.is_empty());
+        assert_eq!(report.state, JsourcePlanningState::NeedsSemanticProof);
+        assert!(!report.linked_calls.is_empty());
+        assert!(report.linked_calls.iter().all(|call| {
+            analysis.logical.operations[call.operation.0].j_origin == Some(report.source_value)
+        }));
+        assert!(analysis.jsource_opportunities.iter().all(|c| !c.selected));
+    }
+}
+
+#[test]
+fn jsource_planning_keeps_existing_routes_distinct_from_specialized_algorithms() {
+    let analysis = Engine::new().analyze_compilation("1 { 10 20 30").unwrap();
+    let registry = LoweringRegistry::a3_v0();
+    let report = registry
+        .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
+        .unwrap()
+        .into_iter()
+        .find(|report| report.family == JsourceFamily::GatherCopyOrView)
+        .unwrap();
+    assert!(report.linked_calls.iter().any(|call| matches!(
+        &call.existing,
+        JsourceExistingRoute::Basis {
+            kind: ExecutionBasisKind::Gather,
+            realizations,
+        } if realizations.contains(&RealizationFamily::ReferenceSequential)
+    )));
+    // The existing ordinary route must not discharge jsource proof obligations.
+    assert_eq!(report.state, JsourcePlanningState::NeedsSemanticProof);
+
+    let gpu = registry
+        .jsource_planning_reports(&analysis, &TargetCapabilities::gpu_generic())
+        .unwrap();
+    assert!(gpu.iter().any(|report| {
+        report.family == JsourceFamily::GatherCopyOrView
+            && report.state == JsourcePlanningState::NeedsSemanticProof
+            && report.linked_calls.iter().all(|call| {
+                matches!(&call.existing, JsourceExistingRoute::Basis { realizations, .. } if realizations.is_empty())
+            })
+    }));
+}
+
+#[test]
+fn jsource_planning_rejects_forged_candidates_and_missing_logical_origins() {
+    let registry = LoweringRegistry::a3_v0();
+    let mut analysis = Engine::new().analyze_compilation("1 { 10 20 30").unwrap();
+    let source_value = analysis.jsource_opportunities[0].source_value;
+    for op in &mut analysis.logical.operations {
+        if op.j_origin == Some(source_value) {
+            op.j_origin = None;
+        }
+    }
+    let reports = registry
+        .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
+        .unwrap();
+    assert_eq!(reports[0].state, JsourcePlanningState::NeedsLogicalCallLink);
+    assert!(reports[0].linked_calls.is_empty());
+
+    analysis.jsource_opportunities[0].selected = true;
+    assert!(registry
+        .jsource_planning_reports(&analysis, &TargetCapabilities::cpu_baseline())
+        .is_err());
 }
