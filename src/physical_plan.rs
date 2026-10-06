@@ -327,7 +327,7 @@ impl PhysicalPlan {
         let view = &self.views[0];
         if view.buffer != PlanBufferId(0)
             || view.encoding != encoding
-            || view.shape != value.shape()
+            || view.shape.as_slice() != value.shape()
             || view.strides != row_major_strides(value.shape())?
             || view.offset != 0
             || view.access != ViewAccess::ReadOnly
@@ -383,8 +383,8 @@ impl PhysicalPlan {
                     let array = PhysicalArray::from_value(&mut registry, shared.clone())
                         .map_err(PhysicalPlanError::Storage)?;
                     let spec = &self.views[0];
-                    if array.shape() != spec.shape
-                        || array.strides() != spec.strides
+                    if array.shape() != spec.shape.as_slice()
+                        || array.strides() != spec.strides.as_slice()
                         || array.offset() != spec.offset
                         || array.encoding() != spec.encoding
                     {
