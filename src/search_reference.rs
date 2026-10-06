@@ -226,6 +226,54 @@ mod tests {
     }
 
     #[test]
+    fn exhaustive_small_integer_search_has_independent_position_witnesses() {
+        // FW-04 seed: enumerate 4,840 small (indexed, query) pairs. Assert
+        // independently known positions, then compare all three optimized routes.
+        // This is Rust-only evidence, not the pinned J C differential oracle.
+        fn digits(mut encoded: usize, len: usize) -> Vec<i64> {
+            (0..len)
+                .map(|_| {
+                    let digit = (encoded % 3) as i64;
+                    encoded /= 3;
+                    digit
+                })
+                .collect()
+        }
+        for indexed_len in 0..=4usize {
+            for query_len in 0..=3usize {
+                for ix in 0..3usize.pow(indexed_len as u32) {
+                    let indexed_values = digits(ix, indexed_len);
+                    let indexed = Value::ints([indexed_len], indexed_values.clone()).unwrap();
+                    for qx in 0..3usize.pow(query_len as u32) {
+                        let query_values = digits(qx, query_len);
+                        let query = Value::ints([query_len], query_values.clone()).unwrap();
+                        let first = index_of(&indexed, &query, false).unwrap();
+                        let last = index_of(&indexed, &query, true).unwrap();
+                        let membership = member(&query, &indexed).unwrap();
+                        for (position, key) in query_values.iter().enumerate() {
+                            let expected_first = indexed_values
+                                .iter()
+                                .position(|item| item == key)
+                                .unwrap_or(indexed_len) as i64;
+                            let expected_last = indexed_values
+                                .iter()
+                                .rposition(|item| item == key)
+                                .unwrap_or(indexed_len) as i64;
+                            assert_eq!(first.int_at(position).unwrap(), expected_first);
+                            assert_eq!(last.int_at(position).unwrap(), expected_last);
+                            assert_eq!(
+                                membership.int_at(position).unwrap(),
+                                i64::from(expected_first != indexed_len as i64)
+                            );
+                        }
+                        verify(indexed.clone(), query);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn sequential_reference_covers_boolean_integer_and_character_cross_types() {
         verify(
             Value::new([4], Data::Bool(CpuStorage::new(vec![0, 1, 1, 0]))).unwrap(),
