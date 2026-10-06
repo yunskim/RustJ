@@ -2415,6 +2415,120 @@ Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레�
 
 이번 변경은 문서만 작성했다. 외부 프레임워크 빌드, Rust/C 실행 테스트, 성능 측정 또는 CUDA 검증은 수행하지 않았다.
 
+#### 4.1.4 Candidate lifecycle와 proof-discharge contract
+
+J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
+
+개념적으로 candidate는 다음의 **직교한 evidence 축**을 가진다.
+
+~~~text
+CandidateEvidence
+  provenance        Verified | Stale/Invalid
+  equivalence       Unknown | Proven | Disproven | Guarded(GuardId)
+  semantic_legality obligation별 Unknown | Proven | Disproven | Guarded(GuardId)
+  target_feasibility Unknown | Supported | RequiresFacts | Unsupported
+  resource_state    Unknown | Symbolic | Resolved | ExceedsHardLimit
+  cost_state        Uncosted | Estimated(CostEstimate)
+  selection         Unselected | Selected | Rejected(reason)
+  lowering_state    NotLowered | Lowered(Transform/Route identity)
+~~~
+
+이 축을 하나의 선형 enum으로 저장할 필요는 없다. planner/UI가 다음과 같은 **derived lifecycle summary**를 만들 수는 있다.
+
+~~~text
+Discovered
+   ↓ source/provenance verification
+AwaitingProofs
+   ├─→ Illegal
+   └─→ Legal or GuardedLegal
+          ↓ hard target/resource feasibility
+       Feasible
+          ↓ cost evidence
+       Costed
+          ↓ compatibility + global/local choice
+       Selected / Rejected
+          ↓ committed lowering
+       Lowered
+~~~
+
+단, 이 화살표는 분석 pass의 실행 순서를 강제하지 않는다. resource/work-depth/cost 분석은 legality proof가 끝나기 전에도 **speculative side analysis**로 계산할 수 있다. 금지되는 것은 필요한 legality proof가 끝나기 전에 candidate를 실행 plan으로 **commit**하는 것이다.
+
+##### Evidence owner
+
+| Evidence / 질문 | 주 소유자 | 의미 | selection에 대한 규칙 |
+|---|---|---|---|
+| source topology / provenance | J Graph verifier + candidate registry | candidate가 현재 source/region/rule version에서 실제로 유도되었는가 | stale provenance면 즉시 폐기 |
+| algebraic equivalence | rewrite/scan/fusion rule의 witness validator | source와 replacement/composite identity가 같은가 | 필요한 equivalence가 Unknown이면 commit 금지 |
+| rank/cell/assembly | Execution semantic facts + candidate legality checker | CellApply/assembly/error 의미가 보존되는가 | Proven 또는 effect 이전 Guard 필요 |
+| numeric / tolerance / reassociation | primitive/derived numeric contract | overflow, `!.`, tolerance, floating-order contract가 보존되는가 | semantic relaxation 없이는 임의 reassociation 금지 |
+| effect / error ordering | effect/error/speculation analysis | observable write/error 순서를 바꾸어도 되는가 | Disproven이면 candidate illegal; guard가 effect 뒤라면 사용 불가 |
+| fanout / retention / alias | graph use/liveness + alias/storage facts | producer 복제, retained value, reuse가 합법인가 | external use를 잃거나 alias proof 없으면 해당 transform 금지 |
+| resource / work-depth | `j_graph_resource` / `j_graph_work_depth` | symbolic state, internal traffic, work/depth, hard resource need | cost와 분리. hard target limit 초과만 feasibility 거부 근거 |
+| target/lowering capability | LoweringRegistry × resolved target | 해당 op/region을 실제 realization으로 내릴 수 있는가 | source-basis support만으로 fused/composite legality를 추정하지 않음 |
+| empirical profitability | CostProfile / planner | legal candidates 중 무엇이 유리한가 | legal candidate를 단지 느리다는 이유로 semantic invalid로 만들지 않음 |
+| final compatibility/selection | Schedule/Transform planner | 후보들의 겹침·순서·route를 함께 선택 | selected set 전체가 상호 호환되어야 함 |
+
+##### Guarded legality
+
+`Guarded(GuardId)`는 “증명하지 못했지만 일단 실행”이라는 뜻이 아니다. 다음 조건을 모두 만족해야 한다.
+
+1. guard가 transformation이 의존하는 fact를 실제로 검증한다.
+2. guard는 해당 region의 observable effect보다 먼저 실행된다.
+3. guard miss의 대체 route가 명시되어 있다.
+4. miss 후 원래 J semantics를 재실행해도 중복 effect가 생기지 않는다.
+5. guard identity/provenance가 specialization/candidate cache와 연결된다.
+
+effect가 이미 commit된 뒤에는 guard miss/Unsupported를 이유로 source region을 자동 replay하지 않는다.
+
+##### Candidate overlap과 selection
+
+candidate overlap은 곧바로 오류도 아니고 곧바로 composition 가능도 아니다. v0에서는 보수적으로 다음을 적용한다.
+
+- 같은 source operation을 **대체**하는 두 rewrite는 동시에 select하지 않는다.
+- rewrite와 fusion이 같은 source operations를 겹쳐 소유하면 registered compatibility/composition rule이 없는 한 동시에 commit하지 않는다.
+- 둘 다 유용할 수 있으면 먼저 하나를 선택·적용해 **새 graph/version**을 만든 뒤 그 결과에서 candidate discovery를 다시 수행할 수 있다.
+- candidate의 profitability 비교 때문에 원 source graph/witness를 파괴하지 않는다.
+- `CandidateId`/analysis-local index는 특정 Plan/graph version에 귀속되며 source/registry version이 바뀌면 재검증한다.
+- selection 결과는 semantic IR 자체가 아니라 별도 Transform/Schedule plan이다.
+
+##### 현재 코드와 목표 계약의 대응
+
+현재 구현은 이 전체 lifecycle의 일부만 갖는다.
+
+~~~text
+GraphRewriteCandidate
+  provenance + equivalence witness
+  target-independent
+
+FusionCandidate
+  proof obligations
+  legality = Unknown
+  resource_transfer_proven = false
+  selected = false
+
+RewritePlanningReport
+  TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting
+
+FusionReadinessReport
+  AwaitingSemanticProofs
+  fused target query deferred
+  selected = false
+~~~
+
+아직 공통 `CandidateEvidence`/`ProofBundle`, obligation별 proof discharge 결과, compatibility-aware selection plan, committed transform identity는 구현되어 있지 않다. 위 타입 이름은 목표 개념을 설명하며 현재 API 완료를 주장하지 않는다.
+
+##### 구현 시 분리 순서
+
+현재 M2 frontend 우선순위를 바꾸지 않는다. optimizer 단계에 착수할 때는 다음처럼 **한 번에 한 의미 + 한 verifier/test**로 추가한다.
+
+1. proof 결과의 공통 state/provenance 표현 + stale evidence verifier
+2. fusion obligation별 discharge 결과를 기록하되 selection은 하지 않음
+3. rewrite/scan 후보에도 동일한 legality view를 투영
+4. target hard-feasibility와 semantic legality를 합치지 않는 readiness view
+5. candidate compatibility/overlap 검사
+6. costed candidate set에서 별도 SelectionPlan 생성
+7. selected candidate만 committed transform/lowering으로 넘기고 source provenance를 검증
+
 ### 4.2 Execution Semantic Lowering의 책임
 
 - J Graph node를 explicit execution dataflow로 전개
