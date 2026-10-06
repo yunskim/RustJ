@@ -3475,6 +3475,25 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **남은 독립 게이트:** Linux milestone [37432213939](https://github.com/yunskim/RustJ/actions/runs/37432213939)의 `check`는 `cargo fmt --check`에서 실패했다. 포맷 차이는 13개 Rust 소스·테스트 파일에 걸쳐 있으므로 **CI 전체 성공으로 표시하지 않는다**. j64/j64avx2 C reference job 결과와 검사 스위트 성공 여부는 별도 기록한다. [a91dd57](https://github.com/yunskim/RustJ/commit/a91dd5741f298e40782cea9a73801ff6dad0863e)는 `tools/conformance.py::cases`에 **단항 Mean의 보통 배열/길이 1/빈 배열/다차원 배열**을 추가해 pinned J C와 Rust 결과를 차분할 준비를 했다. 이 신규 C 차분 결과는 **아직 승인되지 않았다**. Native J 그래프 의미론 검증·JX-10 특수 실행 선택은 미완료다. 후속 실행에서 실패가 나면 `case + oracle output + Rust output + pin + backend`를 기록해 의미론 차이와 미지원/상위 원본 특수경로 차이를 분리한다.
 
+###### Q.3 FW-01/JX-01 GitHub CI 녹색 검증과 기준선 기록 (2026-10-06)
+
+**코드/검증 커밋:** [89bbfd0](https://github.com/yunskim/RustJ/commit/89bbfd0e55163c90b5059e90d10b0ba0bd87ded5). GitHub Actions [Linux milestone 37433098574](https://github.com/yunskim/RustJ/actions/runs/37433098574)의 **5개 job이 모두 성공**했다. `check`는 Python 도구 테스트, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `cargo test --features portable`, `cargo build --release`, milestone 예제 실행을 모두 통과했다. [Basis compile probe 37433098567](https://github.com/yunskim/RustJ/actions/runs/37433098567)도 완료·성공했다. 이전 포맷 오류는 GitHub CI rustfmt 제안 104 hunk / 13 파일을 **의미론 변경 없이** 원자적으로 적용하여 제거했다.
+
+**고정 J C 차분 실행:** 같은 Linux milestone의 참조 job 네 개 모두 성공했다. CI는 실제 `jsource` commit `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`을 fetch·빌드했으며, [ed56b33](https://github.com/yunskim/RustJ/commit/ed56b336dd198b661cb1e4e80814488b4d890a57)부터 `tools/conformance.py`와 `tools/word_conformance.py` 보고서의 `reference_revision`에도 이 SHA를 기록한다.
+
+| 고정 C variant × Rust backend | 실행 케이스 | 일치(pass) | 예외로 이미 기록된 known deviation | 예상 밖 failure |
+|---|---:|---:|---:|---:|
+| j64 × default | 5,384 | 5,383 | 1 | 0 |
+| j64 × portable | 5,384 | 5,383 | 1 | 0 |
+| j64avx2 × default | 5,384 | 5,384 | 0 | 0 |
+| j64avx2 × portable | 5,384 | 5,384 | 0 | 0 |
+
+이 known deviation은 **`(i.2 3) -"1 0 (i.2 3 4)`에서 동일한 값·형상이나 J64가 Float, Rust가 Int를 내는 기존의 한정된 타입 차이**로, `tools/conformance.py::known`에 사례·type·shape guard가 박혀 있다. 신규 단항 `(+/ % #)`의 보통 길이·길이 1·빈 배열·rank/frame 네 차분 사례는 이 예외에 해당하지 않고 정상 통과했다. `failed=0`는 이 **supported subset**과 known deviation 분리 기준으로만 유효하다. J upstream 전체 테스트 스위트나 모든 numeric/locale/effect 의미론을 증명한 것은 아니다.
+
+**체크리스트 상태는 [ ] FW-01 / [ ] JX-01 / [ ] JX-10을 그대로 유지한다.** 이번에 끝난 것은 해당 부분집합에 대한 Mean source-candidate 회귀 및 독립 C 차분 **하위 검증**이다. FW-01은 Key/Dot/Cut/Grade/Under/Memo 등 미구현 frontend constructor, rank/effect/error 및 다른 단일 단계의 C 차분 검토가 남아 있다. JX-01은 고정 원본 source family의 **각 guard·fallback 전수 범위**를 확정해야 하며, JX-10은 proof/Guard/순차-특수 3방향 검증과 성능 실측 전에는 최적화 실행을 승인할 수 없다.
+
+**다음 작업:** FW-01/JX-02의 지원되지 않는 **Key `/.` 파생 동사 구성**부터 고정 J C parser/POS·valence와 RustJ `VocabularyPrimitive` 구분을 입력별로 조사한다. 비지원 구문은 `AwaitingFrontendOrFacts`로 유지하고, 반례와 정상/부정 테스트를 확보한 뒤 한 연산군씩 구현한다.
+
 **체크리스트 사용 규칙.** 각 JX 행은 **(1) C 원본 pin·조건 확인 → (2) J 의미론/unsupported 범위 확정 → (3) Graph 후보 및 source witness → (4) obligation별 proof/Guard·fallback → (5) 독립 reference·negative·C differential → (6) target/resource/실측 선택**의 여섯 열을 통과해야 완료한다. 실제 결과가 없으면 해당 행은 [ ]로 유지하며, 한 번에 **하나의 의미론 변경 + 해당 회귀/반례 하나**를 우선한다. 실패 또는 upstream drift가 발견되면 해당 연산군의 증명을 무효화하고 FW 관련 선행 게이트까지 되돌아간다. 각 완료 행에는 **JX-ID / code commit / 실행 명령·환경 / passed·failed·ignored / jsource commit·실제 oracle 범위 / fallback·negative 결과 / 측정값 / known gaps / 다음 게이트**를 기록한다. 당장은 **JX-01의 출처·범위 추적과 FW-01(M2)**부터 이어가며 특수 최적화를 새로 활성화하지 않는다.
 
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract

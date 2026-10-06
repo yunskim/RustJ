@@ -2617,6 +2617,25 @@ After fixing a finding, independently re-run the relevant checks and record comm
 
 **Remaining independent gates:** [Linux milestone 37432213939](https://github.com/yunskim/RustJ/actions/runs/37432213939) check still fails `cargo fmt --check`, with formatting differences across 13 Rust files. Do not claim entire CI green; record j64/j64avx2 reference jobs separately. [a91dd57](https://github.com/yunskim/RustJ/commit/a91dd5741f298e40782cea9a73801ff6dad0863e) adds `tools/conformance.py::cases` for **ordinary, singleton, empty and framed monadic Mean** C-versus-Rust differentials. Their **new pinned J C results have not yet been accepted**. Record case, C result, Rust result, exact pin, variant, backend and limitations before closing any FW/JX gate. No new specialized execution is enabled.
 
+#### Q.3 FW-01/JX-01 green CI and pinned J C differential evidence (2026-10-06)
+
+**Code/test commit:** [89bbfd0](https://github.com/yunskim/RustJ/commit/89bbfd0e55163c90b5059e90d10b0ba0bd87ded5). All **five jobs** in [Linux milestone 37433098574](https://github.com/yunskim/RustJ/actions/runs/37433098574) completed **successfully**. The check job passed Python tooling tests, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, default/portable `cargo test`, release build, and milestone execution. [Basis compile probe 37433098567](https://github.com/yunskim/RustJ/actions/runs/37433098567) passed as well. Formatting debt was resolved by applying exactly 104 rustfmt CI hunks across 13 Rust source/test files in one semantics-preserving commit.
+
+**Pinned J C differential:** All four Linux reference jobs succeeded against built pinned `jsource` commit `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`. Since [ed56b33](https://github.com/yunskim/RustJ/commit/ed56b336dd198b661cb1e4e80814488b4d890a57), the `conformance.py` and `word_conformance.py` reports explicitly carry the oracle `reference_revision` SHA.
+
+| C variant × Rust backend | Cases | Exact passes | Narrow known deviation | Unexpected failures |
+|---|---:|---:|---:|---:|
+| j64 × default | 5,384 | 5,383 | 1 | 0 |
+| j64 × portable | 5,384 | 5,383 | 1 | 0 |
+| j64avx2 × default | 5,384 | 5,384 | 0 | 0 |
+| j64avx2 × portable | 5,384 | 5,384 | 0 | 0 |
+
+The one pre-existing J64-specific allowance in `tools/conformance.py::known` is the fixed case `(i.2 3) -"1 0 (i.2 3 4)`: identical values/shape but Float in J64 versus Int in Rust. It is constrained by exact source, dtype and shape, not a blanket exception. **New monadic Mean Fork fixtures** (ordinary, singleton, empty, rank/frame) do **not** match that allowance and passed. The `failed=0` claim is limited to this **supported subset** and the explicitly separated known deviation; upstream's entire J test suite and all numeric/locale/effect semantics were not proven.
+
+**Gates stay open: FW-01 [ ], JX-01 [ ], JX-10 [ ].** The Mean region-candidate fix and J C differential are valuable **sub-gate evidence**, not complete M2 frontend semantics or enabled optimized Mean execution. FW-01 still needs unsupported Key/Dot/Cut/Grade/Under/Memo derived construction, rank/effect/error precedence, and real differential coverage beyond the subset. JX-01 needs a bounded audit of upstream guards and fallbacks per source family; JX-10 needs obligation proofs, guards, sequential-vs-specialized testing, and measured benefit before selection.
+
+**Next increment:** investigate **Key `/.` derived-verb construction** under FW-01/JX-02 against pinned J C parser/POS/valence while preserving the existing Rust vocabulary-only boundary. Keep unimplemented forms `AwaitingFrontendOrFacts`, add positive/negative regression cases, and advance one semantic family at a time.
+
 **Operating rules.** Each JX gate requires **(1) pinned C source and guards → (2) J semantics/support boundaries → (3) graph provenance and candidates → (4) per-obligation proof/guard/fallback → (5) independent Rust reference, negative tests and real C differential → (6) target/resource/measured-cost decision**. Keep [ ] without actual execution evidence. Prefer **one semantic change plus one related regression/counterexample** at a time. A regression or upstream drift invalidates affected proofs and reopens prior FW gates. For each completed row record **JX-ID / code commit / commands and environment / passed-failed-ignored / jsource commit and executed oracle scope / fallback-negative results / measured metrics / known gaps / next gate**. Next actionable work remains **JX-01 source coverage and FW-01 M2**, not enabling new specializations.
 
 ## 7.5 Candidate lifecycle and proof-discharge contract
