@@ -8,7 +8,7 @@ use crate::{
     Error, Value,
     compilation::CompilationAnalysis,
     execution_semantics::{AccessFact, AccessRelation, ExecutionBasisKind},
-    logical_ir::{CallOp, ExecutionBasisPayload, IterationDomain, OpId, OpKind, Operation, Plan},
+    logical_ir::{CallOp, ExecutionBasisPayload, IterationDomain, OpId, OpKind, Operation, Plan, SearchDescriptor, SearchOutputKind},
 };
 use std::ops::Range;
 
@@ -81,6 +81,35 @@ pub enum RealizationFamily {
     ExternalLibrary,
     /// Execute a witnessed graph rewrite as one composite reference route.
     ReferenceRewriteComposite,
+}
+
+/// Algorithm choices are not semantic J verbs and do not add A3 basis kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SearchAlgorithm {
+    Sequential,
+    DirectAddress,
+    IndexedHash,
+    ReverseQueryHash,
+    PreparedHash,
+    TolerantNeighborHash,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchAlgorithmReadiness {
+    /// Existing ordinary CPU behavior, never a new J equivalence claim.
+    Baseline,
+    /// An executor must prove/guard exact Int/Bool scalar cells before use.
+    RequiresExactScalarGuard,
+    /// Float/boxed/sparse/rank-specific behavior has no registered proof.
+    NeedsSemanticProof,
+    UnsupportedTarget,
+    UnsupportedSearchForm,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SearchAlgorithmReport {
+    pub algorithm: SearchAlgorithm,
+    pub readiness: SearchAlgorithmReadiness,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -364,6 +393,10 @@ impl LoweringRegistry {
             ],
         );
 
+        // Existing interpreter baseline for known pure search primitives;
+        // algorithm-specific routing still requires separate semantic guards.
+        add(LookupClassify, ReferenceSequential, vec![Target(Cpu), Pure]);
+
         add(IndexSpace, ReferenceSequential, vec![Target(Cpu), Pure]);
         add(
             IndexSpace,
@@ -459,6 +492,50 @@ impl LoweringRegistry {
             });
 
         registry
+    }
+
+    /// Enumerate target-dependent search strategies without committing them.
+    /// MLIR-style dynamic legality: a target-matched specialized recipe still
+    /// needs a *runtime* exact scalar proof; tolerance hashing needs separate
+    /// J equality, rank, error-order and first/last witness validation.
+    pub fn search_algorithm_reports(
+        &self,
+        search: &SearchDescriptor,
+        target: &TargetCapabilities,
+    ) -> Vec<SearchAlgorithmReport> {
+        use SearchAlgorithm::*;
+        use SearchAlgorithmReadiness::*;
+
+        let supported_form = matches!(
+            search.output,
+            SearchOutputKind::FirstIndex
+                | SearchOutputKind::LastIndex
+                | SearchOutputKind::MembershipMask
+        ) && search.indexed.is_some()
+            && search.comparison == crate::logical_ir::SearchComparison::JEquality;
+        [Sequential, DirectAddress, IndexedHash, ReverseQueryHash,
+         PreparedHash, TolerantNeighborHash]
+            .into_iter()
+            .map(|algorithm| {
+                let readiness = if !supported_form {
+                    UnsupportedSearchForm
+                } else if target.family != TargetFamily::Cpu {
+                    UnsupportedTarget
+                } else {
+                    match algorithm {
+                        Sequential => Baseline,
+                        DirectAddress | IndexedHash | ReverseQueryHash | PreparedHash => {
+                            // Even for literal known-type A3 facts, rank/valence,
+                            // fit/tolerance, errors and storage lifetime must be
+                            // guarded at the *actual* execution boundary.
+                            RequiresExactScalarGuard
+                        }
+                        TolerantNeighborHash => NeedsSemanticProof,
+                    }
+                };
+                SearchAlgorithmReport { algorithm, readiness }
+            })
+            .collect()
     }
 
     pub fn capabilities(&self) -> &[ExecutionBasisLoweringCapability] {
