@@ -1412,6 +1412,30 @@ impl Engine {
                     let operation = operation_label(&verb);
                     let call = if let Some(rank) = verb.rank {
                         kernels::ranked_dyad_ranks(verb.id.spelling(), rank[1], rank[2], x, y)
+                    } else if !pooled
+                        && matches!(
+                            verb.id,
+                            crate::primitive::PrimitiveId::IndexOf
+                                | crate::primitive::PrimitiveId::Steps
+                                | crate::primitive::PrimitiveId::Member
+                        )
+                    {
+                        // The semantic-reference interpreter must not route
+                        // through kernels::dyad -> index_ops::lookup and its
+                        // physical planner. Keep ordered scalar/cell search
+                        // independent of direct/reverse/prepared hash.
+                        match verb.id {
+                            crate::primitive::PrimitiveId::IndexOf => {
+                                crate::search_reference::index_of(&x, &y, false)
+                            }
+                            crate::primitive::PrimitiveId::Steps => {
+                                crate::search_reference::index_of(&x, &y, true)
+                            }
+                            crate::primitive::PrimitiveId::Member => {
+                                crate::search_reference::member(&x, &y)
+                            }
+                            _ => unreachable!(),
+                        }
                     } else if pooled && !x.is_sparse() && !y.is_sparse() {
                         match verb.id {
                             crate::primitive::PrimitiveId::Add => {
