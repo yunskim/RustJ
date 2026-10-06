@@ -234,6 +234,37 @@ pub struct RankPlan {
     pub result_frame: Option<Vec<usize>>,
     pub requires_empty_frame_prototype: bool,
 }
+
+/// Semantic rank-cell cardinality; this never authorizes skipping a call.
+///
+/// A zero *frame* requires J fill-cell evaluation even though it produces no
+/// ordinary result cells. A positive frame can contain empty *cells*; those
+/// cells still have to be evaluated (for example +/ over each empty row).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RankFrameExecution {
+    IncompatibleFrames,
+    ZeroFrameNeedsFill,
+    CellsPresent,
+}
+
+impl RankPlan {
+    pub fn frame_execution(&self) -> RankFrameExecution {
+        match &self.result_frame {
+            None => RankFrameExecution::IncompatibleFrames,
+            Some(frame) if frame.contains(&0) => RankFrameExecution::ZeroFrameNeedsFill,
+            Some(_) => RankFrameExecution::CellsPresent,
+        }
+    }
+
+    /// Structural fact only: an empty cell is not an empty result frame.
+    pub fn has_empty_input_cell(&self) -> bool {
+        self.left_cell
+            .as_deref()
+            .is_some_and(|cell| cell.contains(&0))
+            || self.right_cell.contains(&0)
+    }
+}
+
 fn split(shape: &[usize], requested: i64) -> (Vec<usize>, Vec<usize>) {
     let cell_rank = if requested < 0 {
         shape
@@ -247,6 +278,42 @@ fn split(shape: &[usize], requested: i64) -> (Vec<usize>, Vec<usize>) {
     let frame_rank = shape.len() - cell_rank;
     (shape[..frame_rank].to_vec(), shape[frame_rank..].to_vec())
 }
+/// Split known J shapes into Rank frame/cell geometry without evaluating
+/// the operand or inferring the *result* type. Used identically by the
+/// J-grammar graph view and A3 execution-basis analysis.
+pub fn rank_plan_for_shapes(
+    ranks: [i64; 3],
+    left_shape: Option<&[usize]>,
+    right_shape: &[usize],
+) -> RankPlan {
+    let (right_frame, right_cell) = split(
+        right_shape,
+        if left_shape.is_some() { ranks[2] } else { ranks[0] },
+    );
+    let (left_frame, left_cell) = match left_shape {
+        Some(shape) => {
+            let (frame, cell) = split(shape, ranks[1]);
+            (Some(frame), Some(cell))
+        }
+        None => (None, None),
+    };
+    let result_frame = match &left_frame {
+        Some(frame) => agreement(frame, &right_frame),
+        None => Some(right_frame.clone()),
+    };
+    let requires_empty_frame_prototype = result_frame
+        .as_ref()
+        .is_some_and(|frame| frame.contains(&0));
+    RankPlan {
+        left_frame,
+        left_cell,
+        right_frame,
+        right_cell,
+        result_frame,
+        requires_empty_frame_prototype,
+    }
+}
+
 fn cell(input: &Facts, shape: Vec<usize>) -> Facts {
     Facts {
         dtype: input.dtype,
@@ -338,32 +405,15 @@ fn infer_ranked_semantic_call(
     let Some(right_shape) = &right.shape else {
         return (Facts::default(), None);
     };
-    let (rf, rc) = split(
-        right_shape,
-        if left.is_some() { ranks[2] } else { ranks[0] },
-    );
-    let (lf, lc) = if let Some(left) = left {
-        let Some(shape) = &left.shape else {
-            return (Facts::default(), None);
-        };
-        let (frame, cell) = split(shape, ranks[1]);
-        (Some(frame), Some(cell))
-    } else {
-        (None, None)
-    };
-    let result_frame = match &lf {
-        Some(lf) => agreement(lf, &rf),
-        None => Some(rf.clone()),
-    };
-    let empty = result_frame.as_ref().is_some_and(|f| f.contains(&0));
-    let plan = RankPlan {
-        left_frame: lf,
-        left_cell: lc.clone(),
-        right_frame: rf,
-        right_cell: rc.clone(),
-        result_frame: result_frame.clone(),
-        requires_empty_frame_prototype: empty,
-    };
+    let left_shape = left.and_then(|facts| facts.shape.as_deref());
+    if left.is_some() && left_shape.is_none() {
+        return (Facts::default(), None);
+    }
+    let plan = rank_plan_for_shapes(ranks, left_shape, right_shape);
+    let result_frame = plan.result_frame.clone();
+    let empty = plan.requires_empty_frame_prototype;
+    let rc = plan.right_cell.clone();
+    let lc = plan.left_cell.clone();
     let Some(mut frame) = result_frame else {
         return (Facts::default(), Some(plan));
     };
