@@ -23,7 +23,7 @@ pub struct IrSchemaVersion {
     pub minor: u16,
 }
 
-pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 4 };
+pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 5 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrProvenance {
@@ -388,6 +388,61 @@ pub enum WindowShapeSpec {
     PatternShape { pattern: ValueId },
 }
 
+/// J-observable index/search result, independent of hash representation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchOutputKind {
+    FirstIndex,
+    LastIndex,
+    MembershipMask,
+    IntervalIndex,
+    SelfClassify,
+}
+
+/// The primitive's comparison meaning, not permission to treat floats as
+/// exact hash keys. Any !. override/runtime cct remains a semantic input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchComparison {
+    JEquality,
+    JOrderedInterval,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchDescriptor {
+    /// None only for monadic self-classification, which has no search-domain operand.
+    pub indexed: Option<ValueId>,
+    pub queried: ValueId,
+    pub output: SearchOutputKind,
+    pub comparison: SearchComparison,
+    /// Inherited semantic rank specification; not an inferred storage layout.
+    pub rank_boundary: Option<[i64; 3]>,
+}
+
+/// Build the *meaning* of LookupClassify from resolved primitive identity and
+/// valence. This is not an optimized implementation or a hash-legality proof.
+pub fn search_descriptor(call: &CallOp) -> Option<SearchDescriptor> {
+    use crate::primitive::PrimitiveId;
+    let (output, comparison) = match (call.callable.target, call.left) {
+        (CallTarget::Primitive(PrimitiveId::IndexOf), Some(_)) =>
+            (SearchOutputKind::FirstIndex, SearchComparison::JEquality),
+        (CallTarget::Primitive(PrimitiveId::Steps), Some(_)) =>
+            (SearchOutputKind::LastIndex, SearchComparison::JEquality),
+        (CallTarget::Primitive(PrimitiveId::Member), Some(_)) =>
+            (SearchOutputKind::MembershipMask, SearchComparison::JEquality),
+        (CallTarget::Primitive(PrimitiveId::Indices), Some(_)) =>
+            (SearchOutputKind::IntervalIndex, SearchComparison::JOrderedInterval),
+        (CallTarget::Primitive(PrimitiveId::Equal), None) =>
+            (SearchOutputKind::SelfClassify, SearchComparison::JEquality),
+        _ => return None,
+    };
+    Some(SearchDescriptor {
+        indexed: call.left,
+        queried: call.right,
+        output,
+        comparison,
+        rank_boundary: call.instantiation.rank_boundary,
+    })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecutionBasisPayload {
     IndexSpace {
@@ -411,7 +466,7 @@ pub enum ExecutionBasisPayload {
     },
     ConcatAssemble,
     ReplicateCompactExpand,
-    LookupClassify,
+    LookupClassify { search: SearchDescriptor },
     /// Later basis families can retain their identity before their richer
     /// family-specific payload is implemented.
     Deferred,
@@ -452,7 +507,9 @@ fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPaylo
         }
         ExecutionBasisKind::ConcatAssemble => ExecutionBasisPayload::ConcatAssemble,
         ExecutionBasisKind::ReplicateCompactExpand => ExecutionBasisPayload::ReplicateCompactExpand,
-        ExecutionBasisKind::LookupClassify => ExecutionBasisPayload::LookupClassify,
+        ExecutionBasisKind::LookupClassify => search_descriptor(call)
+            .map(|search| ExecutionBasisPayload::LookupClassify { search })
+            .unwrap_or(ExecutionBasisPayload::Deferred),
         _ => ExecutionBasisPayload::Deferred,
     }
 }
