@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use rustj::{
     Engine,
     j_graph_jsource::{
-        family_rule, DiscoveryCoverage, JsourceFamily, OpportunityLegality,
+        family_rule, DecisionOwner, DiscoveryCoverage, JsourceFamily, OpportunityLegality,
         JSOURCE_CATALOG_VERSION, JSOURCE_FAMILY_RULES, JSOURCE_SOURCE_PIN,
     },
 };
@@ -28,6 +28,14 @@ fn reviewed_rules_have_unique_identifiers_and_explicit_ownership() {
         assert!(!r.source_symbol.is_empty());
         assert!(!r.proof_requirements.is_empty());
         assert_eq!(family_rule(r.family), r);
+        assert_eq!(
+            r.pinned_source_url(),
+            format!(
+                "https://github.com/jsoftware/jsource/blob/{}/{}",
+                JSOURCE_SOURCE_PIN,
+                r.source_file
+            )
+        );
     }
     for family in [
         JsourceFamily::GroupAggregate,
@@ -40,6 +48,10 @@ fn reviewed_rules_have_unique_identifiers_and_explicit_ownership() {
             DiscoveryCoverage::AwaitingFrontendOrFacts
         );
     }
+    assert_eq!(
+        family_rule(JsourceFamily::ReductionFastPath).owner,
+        DecisionOwner::ExecutionAlgorithm
+    );
     assert_eq!(
         family_rule(JsourceFamily::MapReduceStreaming).discovery,
         DiscoveryCoverage::ExistingAnalyzer
