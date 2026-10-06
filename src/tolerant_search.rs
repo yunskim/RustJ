@@ -186,6 +186,71 @@ mod tests {
         assert_eq!(index.find(0.0, MatchOrder::Last), 1);
     }
 
+    // Additional IEEE-754 word-space coverage. This is deliberately an
+    // independent linear oracle, not a comparison against a second hash.
+    // It exercises adjacent representable words on both sides of powers of
+    // two, including subnormal/normal and maximum-finite boundaries.
+    #[test]
+    fn fixed_near_candidate_filter_covers_ieee_neighbor_words_and_first_last() {
+        let mut values = vec![
+            0.0, -0.0, f64::INFINITY, f64::NEG_INFINITY,
+            f64::NAN, f64::MAX, -f64::MAX,
+        ];
+        let anchors = [
+            1_u64, (1_u64 << 52) - 1, 1_u64 << 52,
+            0x3fef_ffff_ffff_ffff, 0x3ff0_0000_0000_0000,
+            0x3fff_ffff_ffff_ffff, 0x4000_0000_0000_0000,
+            0x7fef_ffff_ffff_ffff,
+        ];
+        for anchor in anchors {
+            for offset in [-512_i64, -256, -1, 0, 1, 256, 512] {
+                if let Some(bits) = anchor.checked_add_signed(offset) {
+                    for sign in [0_u64, 1_u64 << 63] {
+                        values.push(f64::from_bits(bits | sign));
+                    }
+                }
+            }
+        }
+
+        // Fixed PRNG seed; no external crate, nondeterminism or platform
+        // dependence. Include the bit patterns exactly (including NaNs).
+        let mut state = 0x1a2b_3c4d_5e6f_7890_u64;
+        for _ in 0..2_048 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            values.push(f64::from_bits(state));
+        }
+
+        let index = TolerantExponentCandidateIndex::new(&values);
+        let mut queries = values.iter().take(120).copied().collect::<Vec<_>>();
+        queries.extend(values.iter().skip(120).step_by(17).copied());
+        for query in queries {
+            let candidates = index.candidate_positions(query);
+            // The reference enumerates *every* original source position
+            // without looking at buckets. Missing positions use len().
+            for (position, &source) in values.iter().enumerate() {
+                if near(source, query) {
+                    assert!(
+                        candidates.binary_search(&position).is_ok(),
+                        "lost near source at {position}: {source:?} vs {query:?}"
+                    );
+                }
+            }
+            assert!(
+                candidates.windows(2).all(|w| w[0] < w[1]),
+                "candidate positions must be unique and in source order"
+            );
+            for order in [MatchOrder::First, MatchOrder::Last] {
+                assert_eq!(
+                    index.find(query, order),
+                    reference(&values, query, order),
+                    "wrong ordered representative for query {query:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn independent_linear_reference_agrees_on_adversarial_float_grid() {
         let t = 2_f64.powi(-44);
