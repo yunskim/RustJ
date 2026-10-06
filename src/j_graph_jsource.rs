@@ -14,7 +14,8 @@ use std::ops::Range;
 use crate::{
     j_graph_ir::{GraphBasis, GraphFacts, GraphForm, NodeKind, Plan, ValueId},
     primitive::PrimitiveId,
-    semantic::{FunctionHead, Valence},
+    contracts::Valence,
+    semantic::FunctionHead,
 };
 
 pub const JSOURCE_SOURCE_PIN: &str = "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528";
