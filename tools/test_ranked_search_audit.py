@@ -130,6 +130,21 @@ class RankSearchCorpusTests(unittest.TestCase):
         self.assertTrue(gate_failed(
             report, adversarial=False, error_probes=False,
         ))
+        strict = diagnostic_summary(
+            report, adversarial=False, error_probes=True,
+            gate_error_probes=True,
+        )
+        self.assertIn("PINNED-C ERROR REGRESSION", strict["gate"])
+        self.assertEqual(strict["mismatch_observations"], [mismatch])
+        self.assertTrue(gate_failed(
+            report, adversarial=False, error_probes=True,
+            gate_error_probes=True,
+        ))
+        matched = {"observations": [{"classification": "pass"}]}
+        self.assertFalse(gate_failed(
+            matched, adversarial=False, error_probes=True,
+            gate_error_probes=True,
+        ))
 
     def test_rank_adversarial_corpus_keeps_zero_frame_distinct_from_empty_cells(self):
         cases = rank_adversarial_cases()
