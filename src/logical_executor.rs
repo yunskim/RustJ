@@ -197,12 +197,26 @@ pub(crate) fn atomic_add_mixed_char_fill_shape(left: &Value, right: &Value) -> O
     long.starts_with(short).then(|| long.to_vec())
 }
 
+/// The location and semantic authorization of a failed cell call cannot be
+/// inferred from a public J error kind. In particular, Domain from a real
+/// cell or an unknown/effectful function is not a zero-frame fill failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RankFillCallOrigin {
+    VerifiedValueOnlyZeroFrame,
+    OrdinaryCell,
+    UnknownOrEffectful,
+}
+
 pub(crate) fn recover_zero_frame_fill_domain(
     outcome: Result<Value>,
     atomic_add_cell_shape: Option<&[usize]>,
+    origin: RankFillCallOrigin,
 ) -> Result<Value> {
     match outcome {
-        Err(error) if matches!(error.root(), Error::Domain) => {
+        Err(error)
+            if origin == RankFillCallOrigin::VerifiedValueOnlyZeroFrame
+                && matches!(error.root(), Error::Domain) =>
+        {
             if let Some(shape) = atomic_add_cell_shape {
                 let n = crate::value::count(shape)?;
                 return Value::ints(shape.to_vec(), crate::value::generate(n, |_| 0)?);
@@ -337,7 +351,11 @@ pub(crate) fn apply_ranked(
             } else {
                 call(Some(x), y)
             };
-            let prototype = recover_zero_frame_fill_domain(outcome, atomic_shape.as_deref())?;
+            let prototype = recover_zero_frame_fill_domain(
+                outcome,
+                atomic_shape.as_deref(),
+                RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+            )?;
             return prototype.empty_rank_result(&frame);
         }
         let ad = crate::value::count(&frame[af.len()..])?;
@@ -363,7 +381,11 @@ pub(crate) fn apply_ranked(
                 ));
             }
             let fill = right.rank_fill_cell(rank)?;
-            let prototype = recover_zero_frame_fill_domain(call(None, fill), None)?;
+            let prototype = recover_zero_frame_fill_domain(
+                call(None, fill),
+                None,
+                RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+            )?;
             return prototype.empty_rank_result(&frame);
         }
         let cells = (0..frames).map(|i| {
@@ -594,9 +616,46 @@ mod rank_fill_error_tests {
         assert_eq!(count, 1, "resource failures must never retry");
     }
 
+
+    #[test]
+    fn rank_fill_recovery_requires_verified_prototype_origin() {
+        for origin in [
+            RankFillCallOrigin::OrdinaryCell,
+            RankFillCallOrigin::UnknownOrEffectful,
+        ] {
+            let original = Error::Domain.at(1..4);
+            let unchanged = recover_zero_frame_fill_domain(
+                Err(original.clone()),
+                Some(&[3]),
+                origin,
+            )
+            .expect_err("an ordinary or unproven Domain is observable");
+            assert_eq!(unchanged, original);
+        }
+
+        // Even a verified zero-frame call never converts a resource or
+        // unsupported-function failure into an integer prototype.
+        for error in [Error::Limit, Error::Unsupported("unknown call".into())] {
+            let expected = error.clone();
+            assert_eq!(
+                recover_zero_frame_fill_domain(
+                    Err(error),
+                    Some(&[3]),
+                    RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+                )
+                .unwrap_err(),
+                expected,
+            );
+        }
+    }
+
     #[test]
     fn rank_zero_frame_recovery_does_not_erase_exigent_or_unknown_errors() {
-        let fallback = recover_zero_frame_fill_domain(Err(Error::Domain), None)
+        let fallback = recover_zero_frame_fill_domain(
+            Err(Error::Domain),
+            None,
+            RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+        )
             .expect("J non-exigent computational fill failure");
         assert_eq!(fallback.type_code(), 4);
         assert_eq!(fallback.shape(), &[]);
@@ -604,7 +663,11 @@ mod rank_fill_error_tests {
 
         // The diagnostic wrapper must not accidentally change the J class.
         let wrapped = Error::Domain.at(1..4);
-        let fallback = recover_zero_frame_fill_domain(Err(wrapped), None).unwrap();
+        let fallback = recover_zero_frame_fill_domain(
+            Err(wrapped),
+            None,
+            RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+        ).unwrap();
         assert_eq!(fallback.int_at(0).unwrap(), 0);
 
         for error in [
@@ -617,7 +680,12 @@ mod rank_fill_error_tests {
             Error::Unsupported("effectful or unknown call".into()),
         ] {
             let expected = error.kind();
-            let observed = recover_zero_frame_fill_domain(Err(error), None).unwrap_err();
+            let observed = recover_zero_frame_fill_domain(
+                Err(error),
+                None,
+                RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+            )
+            .unwrap_err();
             assert_eq!(observed.kind(), expected);
         }
     }
