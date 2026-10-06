@@ -410,8 +410,15 @@ fn a3_lookup_classify_keeps_j_search_meaning_and_provenance() {
         };
         assert_eq!(search.output, output);
         assert_eq!(search.comparison, comparison);
-        assert_eq!(search.indexed, call.left);
-        assert_eq!(search.queried, call.right);
+        if output == SearchOutputKind::MembershipMask {
+            // e. is "x belongs to y": index right, query left.
+            assert_eq!(search.indexed, Some(call.right));
+            assert_eq!(search.queried, call.left.unwrap());
+        } else {
+            // i./i:/I. index left, query right.
+            assert_eq!(search.indexed, call.left);
+            assert_eq!(search.queried, call.right);
+        }
         assert_eq!(search.rank_boundary, call.instantiation.rank_boundary);
     }
 }
