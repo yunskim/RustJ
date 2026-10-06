@@ -95,7 +95,40 @@ mod tests {
             (f64::NAN, f64::NAN),
         ] {
             assert_eq!(legacy.float_equal(x, y), source_cct_macro_model(x, y, cct));
+            assert_eq!(pinned.float_equal(x, y), source_cct_macro_model(x, y, cct));
         }
+    }
+
+    #[test]
+    fn pinned_default_cct_matches_source_model_for_tolerant_chain() {
+        let t = 2f64.powi(-44);
+        let cct = 1.0 - t;
+        let policy = ComparisonPolicySnapshot::pinned_j_default_cct();
+        let points = [
+            1.0,
+            1.0 + 0.75 * t,
+            1.0 + 1.5 * t,
+            -1.0,
+            0.0,
+            -0.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            f64::from_bits(1),
+        ];
+        for &left in &points {
+            for &right in &points {
+                assert_eq!(
+                    policy.float_equal(left, right),
+                    source_cct_macro_model(left, right, cct),
+                    "default CCT mismatch: {left:?} vs {right:?}"
+                );
+            }
+        }
+        // CCT is not a transitive equivalence relation; exact hash is illegal.
+        assert!(policy.float_equal(points[0], points[1]));
+        assert!(policy.float_equal(points[1], points[2]));
+        assert!(!policy.float_equal(points[0], points[2]));
     }
 
     #[test]
