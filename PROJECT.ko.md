@@ -9936,7 +9936,9 @@ backend / executor
 
 - [x] **M4-P0 코드 토대(2026-10-07):** `src/physical_plan.rs`에 `PlanBufferId`, `PhysicalViewId`, `ExecutionDevice`와 `MemorySpace`를 분리한 `PhysicalPlan`/op·v0 검증기를 추가했다. `empty_from_a3`와 `identity_literal`은 단일 CPU, host, no-transfer 계획만 만든다. `execute_identity`는 dense literal의 `BindInput → Return`을 runtime `BufferRegistry`/checked affine `PhysicalArray`로 연결하되, 다른 operation을 지원한다고 주장하지 않는다.
 - [ ] **M4-P0 실행 검증:** `tests/physical_plan.rs`에 빈 계획, literal identity vs 독립 A3 reference, stale provenance, buffer/view id·stride·encoding·ownership, use-before-bind/Return, Check/Kernel/write 거부 회귀 테스트를 추가했다. **코드는 추가됐으나 cargo fmt/clippy/default/portable 및 실제 J differential을 실행하지 못했으므로 수용 미완료**다.
-- [ ] **M4-P1 다음 구현:** `View` metadata-only realization + checked backing span, nontrivial `SemanticCheck` order, 선택된 Add `Kernel` capability, `Materialize`/last-use/reuse witness로 위 v0 제한을 하나씩 해제한다.
+- [x] **M4-P1 코드 구현(2026-10-07, 검증 대기):** `src/physical_plan/reindex.rs`에 단항 primitive `|.`(Reverse)·`|:`(Transpose)의 `BindInput → View → Materialize → Return` 경로를 추가했다. `lowering.rs`의 `MetadataOrIndexReindex` CPU capability를 확인하고, A3 call·value chain·pure effect·known rank·unresolved constraints·원본 타입을 검사한다. 입력 버퍼와 메타데이터 view는 같은 `BufferLease`를 공유하며 출력 경계에서 별도 host 배열로 J 원소 순서대로 명시적으로 복사한다. 이 구현은 아직 다중 operation 일반 스케줄러, 전송 또는 실제 GPU code가 아니다.
+- [ ] **M4-P1 검증 게이트:** `tests/physical_plan.rs`에 Reverse/Transpose A3 reference 대비와 forged view/stride/span/order/ownership 회귀를, `reindex.rs` unit test에 2차원 reverse/transpose·0-atom shape·negative-stride backing bound를 추가했다. **CI와 실제 cargo 테스트 결과가 확인되기 전까지 미완료**. 원래 `PhysicalPlan` M4 완료 체크도 열어 둔다.
+- [ ] **M4-P2 후속 단계:** `SemanticCheck`의 증명된 순서 있는 실행과 error class 보존, 선택된 Add `Kernel` capability, 일반 bufferization/last-use/reuse witness를 하나씩 구현한다. 기존 CPU 의미론 baseline 및 J C oracle과 비교한다.
 - [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
 - [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
 - [ ] G3의 첫 kernel로 contiguous/fixed/general-stride add를 연결한다.
