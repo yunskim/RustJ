@@ -144,6 +144,50 @@ Route Partition
 
 The semantic meaning of a J program must not depend on the selected backend.
 
+## 2.1 Route-region boundary contract
+
+Mixed routing is not mainly about assigning operations to backends; it is about preserving J semantics across region boundaries. RoutePartition is not a physical-buffer plan, so a boundary is first expressed as a logical/effect contract.
+
+```text
+RouteBoundary
+  producer_region
+  consumer_region
+  live_in / live_out ValueId
+  effect_order_in / effect_order_out
+  anchored/crossing SemanticChecks
+  required witnesses / guards
+  logical representation requirements
+  source / J Graph provenance
+  bridge-lowering responsibility
+```
+
+`logical representation requirements` means J-visible or route-precondition information such as dense/sparse/boxed semantics, dtype, shape, and rank. Concrete BufferIds, pointers, strides/alignment, and host-device copies belong to bridge lowering or a Physical Plan.
+
+A cut is legal only when: all live-ins/outs are explicit; effect/error dependencies survive even without value live-outs; SemanticChecks are neither dropped nor duplicated in a way that changes precedence; a legal representation bridge exists or remains uncommitted; dynamic guards run before observable effects; region-wide semantic capability is proven rather than inferred from per-op support alone; and a failed external/runtime route never causes automatic replay after producer effects have committed.
+
+Value liveness and effect liveness are distinct. A fork/selector branch may have a dead result but still carry observable writes, I/O, or error ordering. Route partitioning must not delete such dependencies merely because pure dataflow liveness says the value is unused.
+
+Bridge lowering happens after route partition:
+
+```text
+Logical ValueId
+    -> route-boundary requirement
+Bridge Lowering
+    |- compatible no-op handoff
+    |- materialize
+    |- layout/encoding conversion
+    |- host <-> device transfer
+    |- external-handle wrap/unwrap
+    `- synchronization/completion edge
+    -> consumer-route representation
+```
+
+Bridge cost may influence route selection, but it must never change the semantic constraints merely to justify an already chosen route.
+
+Current `lowering.rs::partition_plan` is only a v0 analysis helper: it classifies operations as `ValueOnly`, `SemanticCheck`, `PureArray`, or `RuntimeSemantic` and merges adjacent operations with the same class. Current `RouteRegion` contains only `class` and an operation range; it does not yet own a chosen external route, boundary live-ins/outs, a bridge, effect edges, or a region-wide legality proof. Do not treat it as the final mixed-route execution plan.
+
+When mixed-route implementation starts, extend it in this order: compute/verify live-ins and live-outs; distinguish value live-out from effect live-out; preserve SemanticCheck/order edges; add region-wide legality and guard ownership; add representation-neutral BridgeRequirement; lower bridges into concrete transfers/materializations; then differential-test target-specific RoutePartitions from the same Logical IR.
+
 ---
 
 ## 3. JAXA design principle — “SQL for array operations”
