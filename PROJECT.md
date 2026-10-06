@@ -2580,12 +2580,12 @@ Pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` provides type-correct fill cells when th
 
 | Gate | Status | Required evidence |
 |---|---|---|
-| ZF-IR-01 / M2 | [ ] **Common Rank geometry** | Shared frame split and `RankFrameExecution` with Graph/A3 structural agreement. Implemented in [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398) and [fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11); check only after final CI |
-| ZF-IR-02 / M2 | [ ] **Read-only Graph query and negative tests** | `Plan::rank_frame_plan` [89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d), tests [b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871) distinguishing `0 3`, `2 0`, inner zero and incompatible frame; Graph=A3; non-Rank=None; output remains unknown |
+| ZF-IR-01 / M2 | [x] **Common Rank geometry** | Shared frame split and `RankFrameExecution` with Graph/A3 structural agreement. Implemented in [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398) and [fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11); [Linux CI 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) check and four oracle jobs passed |
+| ZF-IR-02 / M2 | [x] **Read-only Graph query and negative tests** | `Plan::rank_frame_plan` [89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d), tests [b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871) distinguishing `0 3`, `2 0`, inner zero and incompatible frame; Graph=A3; non-Rank=None; output remains unknown |
 | ZF-IR-03 / M3·FW-06/07 | [ ] **Independent proof for empty-result elision** | Result-cell dtype/shape, effects, errors, names, guards and fallback; prohibit Unknown→skip and frame-zero→automatic kernel skip with negative tests |
 | ZF-IR-04 / M3/M4·FW-11/13 | [ ] **Executed lowering and resource proof** | Compare pinned C, independent Rust semantic reference and optimized Rust, then measure CPU cost before enabling any individual kernel/buffer elision; preserve nonempty frames of empty cells. No GPU permission |
 
-**Status:** ZF-IR-01/02 code/tests exist but are awaiting a successful final-head CI before being checked. ZF-IR-03/04 are unimplemented. RK-11, FW-04 and JX-04 remain [ ]; §P.11 RK-06–RK-12 precedence is unchanged.
+**Status (2026-10-06):** ZF-IR-01/02 **2/4 checked**, supported by [Linux milestone run 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) at [`e9f821d`](https://github.com/yunskim/RustJ/commit/e9f821d0658005a1545131d31c31fb53d3521b26): **all 5/5 jobs passed**, including default/portable Rust checks and j64/j64avx2 × default/portable differential jobs. This is a regression of the unchanged execution path, NOT proof or execution of zero-frame kernel elision. ZF-IR-03/04 are unimplemented. RK-11, FW-04 and JX-04 remain [ ]; §P.11 RK-06–RK-12 precedence is unchanged.
 
 <a id="jsource-optimization-migration"></a>
 
