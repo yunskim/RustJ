@@ -69,65 +69,158 @@ pub(crate) fn atom_eq(a: &Value, ai: usize, b: &Value, bi: usize) -> bool {
     }
 }
 
-pub(crate) fn index_of(a: Value, b: Value, last: bool) -> Result<Value> {
-    let items = a.shape.first().copied().unwrap_or(1);
-    let cell_shape = if a.shape.is_empty() {
-        &[][..]
-    } else {
-        &a.shape[1..]
-    };
-    let frame = b.shape.len().saturating_sub(cell_shape.len());
-    let shape = Shape::from(&b.shape[..frame]);
-    let n = count(&shape)?;
-    if b.shape.len() < cell_shape.len() || &b.shape[frame..] != cell_shape {
-        return Value::new(shape, Data::Int(CpuStorage::generate(n, |_| items as i64)?));
+
+/// J Index-Of output intent; the search index is an implementation detail,
+/// not a new J value or a new Graph IR operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LookupResult {
+    First,
+    Last,
+    Membership,
+}
+
+/// A bounded direct-address table is profitable for narrow integer domains.
+/// Other exact scalar domains still use a conventional hash table. Neither
+/// route is legal for tolerant float/boxed comparisons.
+enum ExactScalarIndex {
+    Direct { minimum: i64, positions: Vec<usize> },
+    Hashed(HashMap<i64, usize>),
+}
+
+impl ExactScalarIndex {
+    fn find(&self, key: i64, missing: usize) -> usize {
+        match self {
+            Self::Direct { minimum, positions } => key
+                .checked_sub(*minimum)
+                .and_then(|delta| usize::try_from(delta).ok())
+                .and_then(|offset| positions.get(offset))
+                .copied()
+                .unwrap_or(missing),
+            Self::Hashed(entries) => entries.get(&key).copied().unwrap_or(missing),
+        }
     }
-    let cell = count(cell_shape)?;
-    // Exact integer/bool scalar items admit hashing without float tolerance issues.
-    if cell_shape.is_empty()
-        && matches!(a.data, Data::Int(_) | Data::Bool(_))
-        && matches!(b.data, Data::Int(_) | Data::Bool(_))
-    {
-        let mut table = HashMap::new();
-        table.try_reserve(items).map_err(|_| Error::Limit)?;
+}
+
+/// Build a direct index only when table bytes are bounded and reasonably
+/// proportional to the work. Use i128 when measuring the key span: subtracting
+/// arbitrary i64 endpoints can overflow. An empty or tiny search needs no
+/// indexing setup at all.
+fn exact_scalar_index(
+    values: &Value,
+    items: usize,
+    queries: usize,
+    result: LookupResult,
+) -> Result<Option<ExactScalarIndex>> {
+    if items == 0 || queries == 0 || items.saturating_mul(queries) <= 32 {
+        return Ok(None);
+    }
+
+    let mut minimum = i64::MAX;
+    let mut maximum = i64::MIN;
+    for i in 0..items {
+        let key = values.int_at(i)?;
+        minimum = minimum.min(key);
+        maximum = maximum.max(key);
+    }
+    let span = i128::from(maximum) - i128::from(minimum) + 1;
+    const MAX_DIRECT_ENTRIES: i128 = 65_536;
+    let work_budget = items.saturating_add(queries).saturating_mul(4) as i128;
+    let last = result == LookupResult::Last;
+
+    if span <= MAX_DIRECT_ENTRIES && span <= work_budget {
+        let width = span as usize;
+        let mut positions = Vec::new();
+        positions.try_reserve_exact(width).map_err(|_| Error::Limit)?;
+        positions.resize(width, items);
         for i in 0..items {
-            let key = a.int_at(i)?;
-            if last {
-                table.insert(key, i);
-            } else {
-                table.entry(key).or_insert(i);
+            let offset = (i128::from(values.int_at(i)?) - i128::from(minimum)) as usize;
+            if last || positions[offset] == items {
+                positions[offset] = i;
             }
         }
-        return Value::new(
-            shape,
-            Data::Int(CpuStorage::generate(n, |i| {
-                *table.get(&b.int_at(i).unwrap()).unwrap_or(&items) as i64
-            })?),
-        );
+        return Ok(Some(ExactScalarIndex::Direct { minimum, positions }));
     }
-    Value::new(
-        shape,
-        Data::Int(CpuStorage::generate(n, |q| {
-            let matches = |i: usize| (0..cell).all(|k| atom_eq(&a, i * cell + k, &b, q * cell + k));
-            if last {
-                (0..items).rev().find(|&i| matches(i))
-            } else {
-                (0..items).find(|&i| matches(i))
-            }
-            .unwrap_or(items) as i64
-        })?),
-    )
+
+    let mut entries = HashMap::new();
+    entries.try_reserve(items).map_err(|_| Error::Limit)?;
+    for i in 0..items {
+        let key = values.int_at(i)?;
+        if last {
+            entries.insert(key, i);
+        } else {
+            entries.entry(key).or_insert(i);
+        }
+    }
+    Ok(Some(ExactScalarIndex::Hashed(entries)))
+}
+
+fn result_from_positions(
+    shape: Shape,
+    queries: usize,
+    items: usize,
+    result: LookupResult,
+    mut position: impl FnMut(usize) -> usize,
+) -> Result<Value> {
+    match result {
+        LookupResult::Membership => Value::new(
+            shape,
+            Data::Bool(CpuStorage::generate(queries, |q| (position(q) != items) as u8)?),
+        ),
+        LookupResult::First | LookupResult::Last => Value::new(
+            shape,
+            Data::Int(CpuStorage::generate(queries, |q| position(q) as i64)?),
+        ),
+    }
+}
+
+/// Common search contract: the first argument is the index domain, the second
+/// is the query collection. Output mode controls materialization: membership
+/// returns booleans directly, never a temporary index vector.
+fn lookup(indexed: Value, queries: Value, result: LookupResult) -> Result<Value> {
+    let items = indexed.shape.first().copied().unwrap_or(1);
+    let cell_shape = if indexed.shape.is_empty() {
+        &[][..]
+    } else {
+        &indexed.shape[1..]
+    };
+    let frame = queries.shape.len().saturating_sub(cell_shape.len());
+    let shape = Shape::from(&queries.shape[..frame]);
+    let n = count(&shape)?;
+
+    if queries.shape.len() < cell_shape.len() || &queries.shape[frame..] != cell_shape {
+        return result_from_positions(shape, n, items, result, |_| items);
+    }
+
+    let cell = count(cell_shape)?;
+    let exact_scalar = cell_shape.is_empty()
+        && matches!(indexed.data, Data::Int(_) | Data::Bool(_))
+        && matches!(queries.data, Data::Int(_) | Data::Bool(_));
+    let exact = if exact_scalar {
+        exact_scalar_index(&indexed, items, n, result)?
+    } else {
+        None
+    };
+    result_from_positions(shape, n, items, result, |q| {
+        if let Some(index) = &exact {
+            return index.find(queries.int_at(q).unwrap(), items);
+        }
+        let equal = |i: usize| {
+            (0..cell).all(|k| atom_eq(&indexed, i * cell + k, &queries, q * cell + k))
+        };
+        match result {
+            LookupResult::Last => (0..items).rev().find(|&i| equal(i)),
+            LookupResult::First | LookupResult::Membership => (0..items).find(|&i| equal(i)),
+        }
+        .unwrap_or(items)
+    })
+}
+
+pub(crate) fn index_of(a: Value, b: Value, last: bool) -> Result<Value> {
+    lookup(a, b, if last { LookupResult::Last } else { LookupResult::First })
 }
 
 pub(crate) fn member(a: Value, b: Value) -> Result<Value> {
-    let items = b.shape.first().copied().unwrap_or(1) as i64;
-    let positions = index_of(b, a, false)?;
-    Value::new(
-        positions.shape.clone(),
-        Data::Bool(CpuStorage::generate(positions.len(), |i| {
-            (positions.int_at(i).unwrap() < items) as u8
-        })?),
-    )
+    lookup(b, a, LookupResult::Membership)
 }
 
 pub(crate) fn find(a: Value, b: Value) -> Result<Value> {
