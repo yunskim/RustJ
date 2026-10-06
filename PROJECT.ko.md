@@ -3256,6 +3256,17 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 **검증 상태 및 다음 게이트.** 이 환경에서 Rust/Cargo 실행 환경을 확보하지 못했으므로 `cargo test tolerant_search`, `cargo test --features portable tolerant_search`, `cargo fmt --check`, `cargo clippy`, jsource C 비교 및 성능 측정은 **미실행**으로 유지한다. P.1의 5–7, 12와 P.2의 C/E는 완료 처리하지 않는다. 다음 증거는 서로 다른 `!.ct` 설정, float/complex/boxed/Rank·empty 경계에 대한 **실제 C 결과**와 Rust 결과 차등, tolerance policy/version witness, 그리고 guard miss 시 원래 순차 의미를 보존하는 조건이다. `TolerantNeighborHash`의 `NeedsSemanticProof`는 변경하지 않았고 Physical 선택·런타임 실행에 연결하지 않았다.
 
 
+###### P.6 원본 J 비교 정책·증명 경계 — source-first 독립 검토 (2026-10-06)
+
+**확인 가능한 J 의미론 원본:** J Dictionary의 [Equal (=)](https://www.jsoftware.com/help/dictionary/d000.htm)은 유한 float/complex 비교 기본 허용오차를 `2^-44`로 설명하고 `!.t` 재정의를 명시한다. [Fit (!.)](https://www.jsoftware.com/docs/help806/dictionary/d411.htm)에는 `i.`, `i:`, `e.`, `E.` 등의 fit 대상이 열거되어 있고, [전역 매개변수 9!:18/9!:19](https://www.jsoftware.com/help/dictionary/dx009.htm)는 tolerance 조회/변경 계약이다. 즉 기본 값이 우연히 현재 `kernels::near`의 상수와 일치해도 **실행 시 적용되는 비교 정책의 동일성**을 추정할 수 없다.
+
+**확인한 pinned C 알고리즘:** [jsource `viavx2.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c)는 `TFINDXYT`에서 원본 버킷과 인접 tolerance 구간을 모두 읽고, `IOFT`에서 `PUSHCCT(1.0)`로 table을 **불허용오차 비교로 구성한 다음** 검색 시 허용오차를 사용한다. `IIDOT`·`IICO`는 서로 다른 representative selection(최소/최대 원본 위치)을 갖는다. 이것은 **인접 구간의 후보를 모두 확인해야 한다는 source 증거**이지, 연구 중인 3개 이진 지수 bucket 구현과 동일하다는 증거가 아니다. 단일 approximate-equivalence 대표로 중복 항목을 삭제하면 `a≈b`, `b≈c`, `a≉c`에서 `[a,b] i. c`의 유일한 일치 위치를 잃는다. 이 부정 사례를 별도 연구 테스트에 추가했다.
+
+**제안하는 `ComparisonPolicy` 증명 입력(설계 전용, 미구현):** (1) 호출할 때 해석된 J primitive/valence와 `!.t` override 유무, (2) 현재 `9!:19` 정책 값 및 의미론적 버전/소유 경계(호출 전/후 변경 포함), (3) argument dtype과 rank/cell/frame, boxed/sparse 구조, (4) 사용한 equality predicate의 정체성과 NaN/±0/Infinity/복소수 규칙, (5) 허용되는 tolerance 범위와 검증 witness, (6) source 값·원본 인덱스·First/Last/Presence 결과 모드, (7) 관찰 가능한 오류·효과 경계 및 순차 fallback을 기록해야 한다. 정책·입력·임시 테이블 lifetime이 바뀌면 prepared index를 재사용하지 않는다. A3 `SearchDescriptor`에는 **의미·정책 출처만** 보존하고, 테이블 구조와 비용은 Physical 소유다.
+
+**실행 승인 필요조건(미승인 유지):** CPU finite scalar float 검색에서조차 **비교 정책을 실제로 witness/guard**하고, 모든 가능 일치 위치가 후보로 보존된다는 proof가 있으며, 후보마다 정확히 동일한 semantic comparator로 재검사하고, 최소/최대 원본 위치 및 no-match sentinel을 유지해야 한다. 가드 실패는 observable effect 전에 일반 순차 검색으로 돌아가야 한다. `NaN`/무한대/underflow, 혼합 타입, rank/cell, boxed/sparse, C와 Rust 기본 비교 차이를 회피하는 **명시적 지원 범위**가 필요하다. 지금 단계에서 proof는 고정 Rust `near`에만 제한되고, C differential·동적 policy와 `!.t`의 등가는 **미검증**이다. 따라서 `LoweringRegistry`의 `TolerantNeighborHash=NeedsSemanticProof`와 테스트 전용 배선을 유지한다.
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
