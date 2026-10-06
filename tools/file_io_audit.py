@@ -31,40 +31,53 @@ class Probe:
     after_prefix: bytes | None = None
     after_suffix: bytes | None = None
     expect_error: bool = False
+    expected_error: str | None = None
 
 
 def cases() -> tuple[Probe, ...]:
-    """Deterministic independent cases; every file begins in a fresh state."""
+    """Deterministic independent cases; every file begins in a fresh state.
+
+    J's 1!:11/1!:12 examples use 'name';index (unboxed left name),
+    while 1!:1/1!:4 use <'name'. See the J Files foreign reference.
+    """
     return (
         Probe("full_read", "1!:1 {file}", inspect="eval",
               noun={"type": 2, "shape": [8], "data": list(INITIAL)}),
         Probe("file_size", "1!:4 {file}", inspect="eval",
               noun={"type": 4, "shape": [], "data": [8]}),
-        Probe("partial_read", "1!:11 ({file};2 3)", inspect="eval",
+        Probe("partial_read", "1!:11 ({name};2 3)", inspect="eval",
               noun={"type": 2, "shape": [3], "data": list(b"CDE")}),
-        Probe("negative_start_read", "1!:11 ({file};_2 2)", inspect="eval",
+        Probe("negative_start_read", "1!:11 ({name};_2 2)", inspect="eval",
               noun={"type": 2, "shape": [2], "data": list(b"GH")}),
-        Probe("zero_length_at_eof", "1!:11 ({file};8 0)"),
-        Probe("zero_length_empty_file", "1!:11 ({file};0 0)", initial=b"", after=b""),
-        Probe("read_past_eof", "1!:11 ({file};7 2)", expect_error=True),
-        Probe("read_negative_length", "1!:11 ({file};2 _1)", expect_error=True),
-        Probe("write_inside", "'xy' 1!:12 ({file};2)", after=b"ABxyEFGH"),
-        Probe("write_outside_start", "'XY' 1!:12 ({file};_9)", expect_error=True),
-        Probe("write_beyond_eof", "'XY' 1!:12 ({file};10)",
+        Probe("zero_length_at_eof", "1!:11 ({name};8 0)"),
+        Probe("zero_length_empty_file", "1!:11 ({name};0 0)", initial=b"", after=b""),
+        Probe("read_past_eof", "1!:11 ({name};7 2)",
+              expect_error=True, expected_error="index error"),
+        Probe("read_negative_length", "1!:11 ({name};2 _1)",
+              expect_error=True, expected_error="index error"),
+        Probe("write_inside", "'xy' 1!:12 ({name};2)", after=b"ABxyEFGH"),
+        Probe("write_outside_start", "'XY' 1!:12 ({name};_9)",
+              expect_error=True, expected_error="index error"),
+        Probe("write_beyond_eof", "'XY' 1!:12 ({name};10)",
               after=None, after_size=12, after_prefix=INITIAL, after_suffix=b"XY"),
-        Probe("missing_file", "1!:11 ({file};0 1)", initial=None, after=None, expect_error=True),
-        Probe("missing_file_bad_range", "1!:11 ({file};9 2)", initial=None, after=None,
+        Probe("missing_file", "1!:11 ({name};0 1)", initial=None, after=None, expect_error=True),
+        Probe("missing_file_bad_range", "1!:11 ({name};9 2)", initial=None, after=None,
               expect_error=True),
-        Probe("zero_length_missing_file", "1!:11 ({file};0 0)", initial=None, after=None,
+        Probe("zero_length_missing_file", "1!:11 ({name};0 0)", initial=None, after=None,
               expect_error=True),
-        Probe("discarded_missing_read", "0 [ (1!:11 ({file};0 1))",
+        Probe("discarded_missing_read", "0 [ (1!:11 ({name};0 1))",
               initial=None, after=None, expect_error=True),
     )
 
 
+def j_file_name(path: Path) -> str:
+    """Unboxed J string name for indexed file foreign x;y argument pairs."""
+    return "'" + str(path).replace("'", "''") + "'"
+
+
 def j_file_argument(path: Path) -> str:
-    """Box a file name as a J literal; never interpolate unescaped source."""
-    return "<'" + str(path).replace("'", "''") + "'"
+    """Box only whole-file foreign arguments (1!:1 / 1!:4)."""
+    return "<" + j_file_name(path)
 
 
 def _as_json_bytes(value):
@@ -75,7 +88,7 @@ def _probe_one(oracle: Oracle, probe: Probe, directory: Path) -> dict:
     path = directory / (probe.name + ".dat")
     if probe.initial is not None:
         path.write_bytes(probe.initial)
-    expression = probe.j.format(file=j_file_argument(path))
+    expression = probe.j.format(file=j_file_argument(path), name=j_file_name(path))
     outcome = oracle.eval(expression) if probe.inspect == "eval" else oracle.run(expression)
     exists = path.exists()
     data = path.read_bytes() if exists else None
@@ -85,6 +98,15 @@ def _probe_one(oracle: Oracle, probe: Probe, directory: Path) -> dict:
         "error_presence": observed_error == probe.expect_error,
         "file_exists": exists == (probe.initial is not None),
     }
+    if probe.expected_error is not None:
+        checks["error_class"] = isinstance(outcome, dict) and outcome.get("error") == probe.expected_error
+    elif probe.expect_error:
+        # A malformed J foreign argument yields length/rank/syntax error too.
+        # Merely seeing *some* error is not proof a file access was attempted.
+        checks["not_argument_or_syntax_failure"] = (
+            isinstance(outcome, dict) and
+            outcome.get("error") not in {"length error", "rank error", "syntax error"}
+        )
     if not probe.expect_error and expected_noun is not None:
         checks["noun_value"] = outcome == expected_noun
     if probe.after is not None:
