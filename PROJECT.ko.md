@@ -1902,14 +1902,16 @@ source
   head = ExplicitDefinition(DefinitionCode)
   POS / source / construction identity
       │
-      ───────── general invocation/body-graph lowering stop line ─────────
-      │
       ▼
-[planned] InvocationFrame
-  fresh frame per call
-  y binding for monad
-  x/y/u/v/m/n as required by definition kind/valence
-  local table + current locale/path context
+[현재 runtime subset] per-call LocalFrame / straight-line invocation
+  supported mode 1/2
+  fresh LocalFrame per call
+  x/y/u/v/m/n binding
+  local-first → global lookup
+  local/global assignment + cleanup
+  control node가 Body 이외이면 Unsupported
+      │
+      ───────── compiler body-graph / CFG lowering stop line ─────────
       │
       ▼
 [planned] definition-body semantic graph / CFG construction
@@ -1947,13 +1949,13 @@ J Graph IR과 CFG도 같은 것으로 취급하지 않는다.
 future CFG lowering이 추가될 때 필요한 최소 증명:
 
 1. `DefinitionCode.monad_controls/dyad_controls`와 source/control ranges에서 branch/loop edge를 결정적으로 재구성한다.
-2. valence별 fresh invocation frame과 local-first→locale lookup을 보존한다.
+2. 현재 runtime `LocalFrame`의 per-call 독립성, x/y/u/v/m/n binding, local-first lookup 의미를 compiler CFG에서도 보존하고, 향후 locale/path 지원이 추가될 때 같은 resource/effect contract로 확장한다.
 3. branch merge에서 J의 previous-result/explicit `return.` 의미를 block-result/terminator로 정확히 표현한다.
 4. local/public assignment와 error/throw/catch edge를 ordinary SSA value flow와 분리한다.
 5. recursion은 Function body를 공유하더라도 invocation frame/state는 공유하지 않는다.
 6. verifier가 illegal branch target, missing merge/result, effect-order break, source-control provenance drift를 거부한다.
 
-현재 회귀는 `DefinitionCode` construction과 control-node topology/source metadata를 검사하지만, 이 planned CFG까지의 lowering 완료 증거는 아니다.
+현재 회귀와 runtime tests는 `DefinitionCode` construction/control metadata뿐 아니라 **지원 straight-line invocation의 LocalFrame·scope·assignment/effect 동작도 일부 검사한다.** 그러나 control-flow body를 J Graph/A3 CFG로 낮추는 planned compiler 경계의 완료 증거는 아니다.
 
 ### 3.8 sentence evaluation order와 namespace mutation
 
@@ -11415,7 +11417,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 | Stage / 경계 | 현재 문서 상태 | 이미 강한 부분 | 아직 닫히지 않은 부분 |
 |---|---|---|---|
 | word formation → enqueue → parser | **문서 계약 닫힘 / 구현 수렴 중** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reduction, name/assignment sequencing, differential gates, §3.3.2.2 `+/ y` canonical frontend trace | locative/definition/gerund/value-dependent constructor의 실제 지원 범위는 A0.5 checklist와 differential gate가 결정; orientation contract 자체는 닫힘 |
-| Semantic Construction / binding / dynamic semantics | **문서 계약 닫힘 / 일부 구현 미완료** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition frame, gerund/rank/hook/fork, §3.7.1 explicit-definition control-flow handoff | InvocationFrame, Branch/CondBranch, block-merge/CFG lowering은 **planned**이고 현재 A3 Terminator는 Return만 존재 |
+| Semantic Construction / binding / dynamic semantics | **문서 계약 닫힘 / 일반 CFG 구현 미완료** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition metadata, **runtime straight-line per-call LocalFrame/invocation subset**, gerund/rank/hook/fork, §3.7.1 handoff | runtime frame 전체가 planned인 것은 아니다. 미완료는 control-flow/nested/locale·locative 일반화와 Branch/CondBranch/block-merge를 포함한 compiled A3 CFG이며 현재 A3 Terminator는 Return만 존재 |
 | J Semantic → J Graph IR | **문서 계약 닫힘** | GraphForm/GraphBasis/GraphHint, provenance, applied graph, Graph/Execution 분리, §4.1.0 canonical suite로 `@:`/ordinary+capped fork/hook/rank/reduce/prefix-infix를 동일 형식 비교 | 남은 gap은 form별 실제 lowering/test coverage이지 stage ownership 설명 부재가 아님 |
 | Graph analysis → candidate/proof | **문서 계약 보강됨 / 구현 부분** | §4.1.4에 orthogonal evidence, derived lifecycle, evidence owner, guarded legality, overlap/selection 규칙을 통합 | 공통 `CandidateEvidence/ProofBundle`·obligation discharge·SelectionPlan은 **미구현**. 개별 proof algorithm의 세부 구현은 해당 optimizer 착수 시 verifier/test와 함께 확정 |
 | J Graph → Execution Semantic Lowering → A3 | **문서 계약 대체로 닫힘 / CFG 구현 미완료** | direct lowering, Graph/Execution fact drift check, Execution Basis, SemanticCheck, effect/error/speculation, verifier, schema version, canonical mean trace, §3.7.1 planned/current control-flow handoff | A3-v0는 실제로 single-block/Return-only다. 남은 것은 문서 예제가 아니라 **Branch/CondBranch/block merge를 포함한 executable explicit-definition CFG lowering과 differential E2E** |
