@@ -2836,7 +2836,7 @@ RustJ
 | scan/infix는 일반 Window 반복과 별도 specialization이 있음 | `ap.c::jtbslash`, `jtpscan`, `jtmovfslash`의 sum/min/max/boolean/XOR 등 specialized paths | prefix Scan과 moving Window를 구분한다. sliding algorithm 후보는 access overlap/carry를 추적하되 부동소수점 순서·NaN·overflow fallback을 고려한다. | **Graph Scan/Window → specialized schedule** |
 | index-of/membership/nub/search는 prehash·sort+binary search 등 서로 다른 구현을 사용 | `vi.c`의 `IPHIDOT/IPHEPS/...` mode, `jtiobs` sorting path | prehash mode 정의와 실제 fast-path eligibility는 다르다. `jtiobs`는 `ct=0` tolerance와 특정 boxed 고차원·numeric-box 형태에 제한된다. type/rank/tolerance·반복 검색·비용에 따라 hash/sort/generic route를 선택한다. | **Graph Search candidate → Execution algorithm/cost selection** |
 | under/each는 단순 일반 역함수 실행 외 special structural path가 있음 | `cu.c`의 `u&.>` fast path, `u&.,`/index/cut의 `jtsunder`, `nameless(wvb)` inverse precomputation | forward/inner/inverse 의미, 동적 이름의 binding 시점, effect/alias를 보존한다. static inverse caching/structural route에는 증명 또는 가드가 필요하다. | **J Graph Under provenance → Execution lowering** |
-| noun·상수 결합이 특정 산술 경로 선택을 가능하게 함 | `ca.c::jtatop/jtatco`의 `2&^.` floor/ceil-log와 `m&|@^` modular-power 등 | bound operand를 specialization fact로 활용한다. arbitrary algebraic rewrite 대신 도메인·정확도·overflow·numeric type에 대한 witness를 요구한다. | **Graph bound-constant candidate → numeric specialized route** |
+| noun·상수 결합이 특정 산술 경로 선택을 가능하게 함 | `ca.c::jtatop/jtatco`의 `2&^.` floor/ceil-log와 modulus-bound modular-power 등 | bound operand를 specialization fact로 활용한다. arbitrary algebraic rewrite 대신 도메인·정확도·overflow·numeric type에 대한 witness를 요구한다. | **Graph bound-constant candidate → numeric specialized route** |
 
 ##### B. pinned source links
 
