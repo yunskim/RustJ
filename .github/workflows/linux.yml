@@ -69,6 +69,14 @@ jobs:
             --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
             --gate \
             --report "reports/file-io-audit-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: IO-25 JMF loader and mapped-mode probe (non-acceptance)
+        continue-on-error: true
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/jmf_smoke.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/jmf-smoke-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - name: FW-04 pinned search three-way differential gate
         env:
           J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
@@ -120,6 +128,7 @@ jobs:
             reports/word-conformance-*.json
             reports/search-three-way-*.json
             reports/file-io-audit-*.json
+            reports/jmf-smoke-*.json
             reports/tolerance-audit-*.json
             reports/ranked-search-audit-*.json
             reports/rank-adversarial-*.json
