@@ -10536,8 +10536,8 @@ ResourceEstimate / bufferization
 
 
 
-- [ ] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다.
-- [ ] Enqueue는 extension도 ordinary NAME/lookup metadata로 처리하고, parser-time normal name lookup이 현재 binding의 품사를 결정하게 한다.
+- [x] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다. **F1/P4 현재 구현:** extension catalog가 있어도 enqueue는 NAME으로 유지하고 parser/runtime name environment가 binding/POS를 해석한다.
+- [x] Enqueue는 extension도 ordinary NAME/lookup metadata로 처리하고, parser-time normal name lookup이 현재 binding의 품사를 결정하게 한다. `tests/enqueuer.rs`의 extension-like spelling 회귀와 F1 checklist를 근거로 한다.
 - [ ] parameterized adverb(`conv`, `linear` 등)와 그 결과 derived computational verb/op identity를 분리한다.
 - [ ] built-in과 extension-derived computational entity가 공유하는 semantic capability interface를 정의한다.
 - [ ] extension builder(adverb/conjunction/verb) identity와 derived computational entity identity를 분리한다.
