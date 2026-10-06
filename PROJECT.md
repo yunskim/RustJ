@@ -2560,11 +2560,32 @@ Pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` provides type-correct fill cells when th
 | RK-08 / B·M3/FW-07 | [ ] User-defined effects, dynamic name resolution | Runtime witness, lookup time, observable prototype call count, post-effect replay and guarded fallback contracts | C-vs-Rust counter/binding/late-name tests; never speculate user code |
 | RK-09 / B·M3 | [ ] Boxed and sparse filler/prototype | value.rs/storage.rs/sparse.rs implement J prototype, fill value, axes and dtype semantics | Pinned C positive/negative suite; no zero-filled fake support |
 | RK-10 / B·M3 | [ ] Heterogeneous cell result assembly | assembly.rs/logical_executor.rs/kernels.rs: promotions, shape padding, error precedence as in result.h | Mixed type/shape, empty cells, char/numeric, errors and effect order |
-| RK-11 / C·M3 | [ ] Derived Rank and implicit loops | Preserve semantic operands and rank/cell/frame on fork/hook/@:/nested Rank/late names; no premature Graph route selection | Rank, frame repeat, late binding and modifier three-way fixtures |
+| RK-11 / C·M3 | [ ] Derived Rank and implicit loops | Preserve semantic operands and rank/cell/frame on fork/hook/@:/nested Rank/late names; no premature Graph route selection | Rank, frame repeat, late binding and modifier three-way fixtures. See §P.12 ZF-IR-01–04 for the narrower Graph empty-frame contract; broader RK-11 remains unchecked. |
 | RK-12 / D·FW-04/JX-04 | [ ] Scoped final semantic acceptance | For supported RK-06–11 claims: independent C / Rust reference / runtime, guard/effect/error/resource proof and explicit unsupported scope | Record pinned commit, 4 CI variants, command, case counts, classifications and JSON artifacts before marking each subgate complete; broader FW/JX remain [ ] where duties remain |
 
 **Iteration order and checklist use.** RK-06 → RK-07 → RK-08 → RK-09 → RK-10 → RK-11 → RK-12. For every gate: (1) pin positive and negative C cases, (2) classify C vs independent Rust baseline vs execution, (3) make the smallest shared semantic change, (4) run default/portable fmt, Clippy and tests plus both pinned C builds, and (5) append evidence to that RK row *before* ticking it. A passing subset cannot waive failures or turn on hash/GPU/Graph candidates without separate FW-05–FW-13 proof/guard/resource/cost authorization. M2 frontend convergence remains the overall priority.
 
+
+<a id="rank-graph-zero-frame"></a>
+
+### P.12 Zero-frame versus empty-cell semantics in J Graph IR — structural facts are not permission to elide evaluation (2026-10-06)
+
+**Decision.** Empty arrays remain ordinary logical arrays with J-visible type, shape and original Rank/CellApply semantics, not a new `EmptyArray` operation. Both `0 3` and `2 0` have zero atoms, but at rank 1 the former has **frame=[0], cell=[3]** (no ordinary cell iterations, but J fill-cell semantics apply); the latter has **frame=[2], cell=[0]** (two actual calls on empty cells). Therefore `element_count == 0` never by itself proves that there are no observable computations, errors or effects. Consult pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` and §P.10.
+
+**Implementation boundary.** The shared pure `src/facts.rs::rank_plan_for_shapes` produces frame/cell structure; `RankPlan::frame_execution()` distinguishes `ZeroFrameNeedsFill / CellsPresent / IncompatibleFrames`; `has_empty_input_cell()` is a separate structural fact. `src/j_graph_ir.rs::Plan::rank_frame_plan(ValueId)` exposes a **read-only** view only for an applied `GraphForm::Rank` with known requested ranks and argument shapes. J Graph projection and A3 analysis use the same frame decomposition. Unknown output-cell dtype/shape stays unknown. No physical buffer identity, execution selection, extra graph node or premature optimizer is introduced.
+
+**Safety barrier.** `ZeroFrameNeedsFill` is neither `ProvenEmptyResult` nor `SafeToElide`. The fill-cell can establish result dtype/shape, raise observable errors or execute effectful/named functions. A zero axis in the A3 `IterationDomain` does not automatically allow kernel skipping, fusion or buffer omission. A later optimization must separately prove result-cell shape/type, purity, error and dynamic-name behavior, guards and fallback; actual selection must pass FW-05–FW-13 resource/cost/execution gates.
+
+**Living sub-checklist (under RK-11 and FW-04/JX-04).**
+
+| Gate | Status | Required evidence |
+|---|---|---|
+| ZF-IR-01 / M2 | [ ] **Common Rank geometry** | Shared frame split and `RankFrameExecution` with Graph/A3 structural agreement. Implemented in [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398) and [fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11); check only after final CI |
+| ZF-IR-02 / M2 | [ ] **Read-only Graph query and negative tests** | `Plan::rank_frame_plan` [89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d), tests [b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871) distinguishing `0 3`, `2 0`, inner zero and incompatible frame; Graph=A3; non-Rank=None; output remains unknown |
+| ZF-IR-03 / M3·FW-06/07 | [ ] **Independent proof for empty-result elision** | Result-cell dtype/shape, effects, errors, names, guards and fallback; prohibit Unknown→skip and frame-zero→automatic kernel skip with negative tests |
+| ZF-IR-04 / M3/M4·FW-11/13 | [ ] **Executed lowering and resource proof** | Compare pinned C, independent Rust semantic reference and optimized Rust, then measure CPU cost before enabling any individual kernel/buffer elision; preserve nonempty frames of empty cells. No GPU permission |
+
+**Status:** ZF-IR-01/02 code/tests exist but are awaiting a successful final-head CI before being checked. ZF-IR-03/04 are unimplemented. RK-11, FW-04 and JX-04 remain [ ]; §P.11 RK-06–RK-12 precedence is unchanged.
 
 <a id="jsource-optimization-migration"></a>
 
