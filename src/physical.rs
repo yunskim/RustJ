@@ -66,10 +66,12 @@ pub fn plan_search_algorithm(
     use crate::lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R};
     use crate::logical_ir::SearchComparison;
 
-    let candidates = crate::lowering::LoweringRegistry::a3_v0()
-        .search_algorithm_reports_for_output(output, SearchComparison::JEquality, true, target);
+    // One shared registry legality rule, without a per-lookup registry/vector
+    // allocation. Compiler diagnostics can request the full report separately.
     let status = |algorithm| {
-        candidates.iter().find(|c| c.algorithm == algorithm).map(|c| c.readiness)
+        Some(crate::lowering::LoweringRegistry::search_algorithm_readiness(
+            output, SearchComparison::JEquality, true, algorithm, target,
+        ))
     };
     let fallback = SearchPhysicalChoice {
         algorithm: A::Sequential,
