@@ -3433,7 +3433,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 | RK-09 / B·M3 | [ ] **boxed·sparse fill/prototype** | src/value.rs·src/storage.rs·src/sparse.rs: box 내부 fill, sparse 축·fill 값과 atom type·shape 보존 | 타입별 C 결과와 비교; 임의 dense/0으로 일반화하거나 미지원 실행을 통과로 세지 않음 |
 | RK-10 / B·M3 | [ ] **이질적 결과 cell·타입 승격·padding** | src/assembly.rs·src/logical_executor.rs·src/kernels.rs: result.h 기준 혼합 dtype·shape, fill/padding, 전체 cell 평가 후 오류 순서를 분리 | mixed result shape, char/numeric, empty cells, size mismatch, error precedence를 C·두 Rust 경로 비교 |
 | RK-11 / C·M3 | [ ] **Rank + 파생 동사/implicit loop 연동** | semantic/Logical/Graph의 원래 modifier 관계와 rank/cell/frame facts 보존; fork/hook/@:/중첩 rank·late name은 실행 가능성과 별개 | negative/oversized rank, modifier composition, frame 반복, late binding의 3경로 테스트. Graph 후보가 승인된 실행으로 자동 변환되지 않음 |
-| RK-12 / D·FW-04/JX-04 | [ ] **지원 범위·수용 증거 최종 대조** | RK-06~11 각각에 J 기준·baseline 독립성·Guard·효과/오류·자원 한계 증거를 연결하고 미지원 범위를 명시 | pinned C commit·명령·4조합 CI·cases/실패 분류·reports JSON 남긴 후 각 행 개별 [x]. 상위 FW-04/JX-04는 다른 의무가 남으면 [ ] |
+| RK-12 / D·FW-04/JX-04 | [ ] **지원 범위·수용 증거 최종 대조** | RK-06~11 각각에 J 기준·baseline 독립성·Guard·효과/오류·자원 한계 증거를 연결하고 미지원 범위를 명시 | pinned C commit·명령·4조합 CI·cases/실패 분류·reports JSON을 남긴 뒤 해당 단계의 완료 여부를 개별 판정. 상위 FW-04/JX-04는 다른 의무가 남으면 [ ] |
 
 **반복 작업 순서와 상태 갱신 규칙.** RK-06 → RK-07 → RK-08 → RK-09 → RK-10 → RK-11 → RK-12로 진행한다. 매 작업은 ① C 원본의 정상/부정 입력부터 고정 ② C / Rust 독립 semantic reference / Rust 실행 차이를 세 범주로 분류 ③ 가장 작은 공통 의미론 수정 ④ Rust default·portable fmt/clippy/test와 C j64·j64avx2 차분 실행 ⑤ CI 링크·수치·커밋·불일치를 해당 RK 행에 기록한 뒤에만 [x] 처리. **Linux CI 통과만으로 미지원 Rank를 전체 합격 처리하지 않으며** 부정 사례와 실행 효과를 임의로 묵살하지 않는다. M2 프런트엔드 수렴 우선순위는 유지한다. GPU/Hash/Graph 후보 선택은 FW-05~FW-13의 독립 증명·가드·자원·비용 허가 전에 열지 않는다.
 
