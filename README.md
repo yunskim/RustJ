@@ -174,7 +174,7 @@ RustJ's long-term **language-semantics goal is the full J language**. Not every 
 
 Extension primitives are ordinary J name bindings rather than reserved keywords. For example, the historical `conv` prototype is modeled as a parameterized adverb that produces a derived Conv computational verb/op after parameters are applied.
 
-The actual part of speech of an ordinary name is not permanently fixed during enqueue. The parser performs normal J lookup against the current local/locale binding when the name is used, while preserving late-bound nameref semantics for verbs, adverbs, and conjunctions.
+The actual part of speech of an ordinary name is not permanently fixed during enqueue. The parser performs normal J name-environment lookup when the name is used, while preserving late-bound nameref semantics for verbs, adverbs, and conjunctions. **The current definition-runtime subset implements current `LocalFrame` → global-namespace lookup; general user locale/path lookup is still incomplete.**
 
 `with` remains a conjunction extension bound to an ordinary J name and carries typed semantic annotations/contracts only. Physical policy such as tile, device, and register choices does not belong in `with`.
 
