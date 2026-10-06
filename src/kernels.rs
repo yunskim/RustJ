@@ -768,8 +768,13 @@ pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) 
             && y.is_empty()
             && matches!(
                 (x.data(), y.data()),
-                (CpuView::Char(_), CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_))
-                    | (CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_), CpuView::Char(_))
+                (
+                    CpuView::Char(_),
+                    CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_)
+                ) | (
+                    CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_),
+                    CpuView::Char(_)
+                )
             )
         {
             return dyad(verb, x.to_owned()?, y.to_owned()?);
