@@ -135,10 +135,12 @@ fn key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection
             "{source} lost its opaque Key modifier identity"
         );
         assert!(
-            plan.jsource_opportunities().iter().all(|candidate|
-                candidate.family != JsourceFamily::GroupAggregate
-                    && !candidate.selected
-            ),
+            plan.jsource_opportunities()
+                .iter()
+                .all(
+                    |candidate| candidate.family != JsourceFamily::GroupAggregate
+                        && !candidate.selected
+                ),
             "{source} incorrectly enabled a Key/GroupBy fast path"
         );
     }
