@@ -289,11 +289,12 @@ Word formation / tokenizer
    ↓
 Enqueue / glyph-control-name classification + lookup hints
    ↓
-J parser-time name lookup / part-of-speech resolution
+J Parser + Semantic Construction  [하나의 통합 프런트엔드 단계]
+   │ Queue/Stack reductions · parser-time name/POS lookup
+   │ adverb/conjunction actions · hook/fork/train construction
+   │ noun/verb construction · 필요한 binding/runtime-host actions
    ↓
-semantic binding
-   ↓
-J Semantic Construction IR / FunctionEntity
+J Semantic Construction IR / JEntity / FunctionEntity
    │
    │ noun / verb / adverb / conjunction
    │ primitive / derived verb
@@ -348,6 +349,8 @@ Route Partition / Export
 
 route boundaries are bridged after representation requirements are known
 ```
+
+**프런트엔드 레이어 경계(2026-10-07 교정):** 여기서 Word Formation과 Enqueue는 파서에 입력을 만드는 *처리 단계*이며, **J Parser와 Semantic Construction을 서로 독립적으로 완료되는 두 compiler pass로 정의하지 않는다.** jsource의 파서 규칙은 queue/stack 이동과 grammar action을 반복하면서 adverb/conjunction의 파생 함수 구성, verb 적용, name lookup 및 assignment 등 **파싱과 의미 동작/실행을 엮어 수행**한다. RustJ의 `src/parser.rs` 역시 reductions와 함께 `JEntity`/`FunctionEntity`를 구성한다. `src/semantic.rs`는 의미 객체·binding/version의 **타입/계약 모듈**이지 파싱이 끝난 뒤 별도로 반드시 실행되는 Semantic Construction pass가 아니다. 다만 RustJ 분석용 `parse`는 임의의 noun kernel을 실행하지 않고 의미 구조를 구성하며, runtime parser/host 경로의 관찰 가능 동작은 jsource와 맞춰야 한다. 이후 `J Graph IR`와 `Execution Semantic Lowering`은 **별개의 compiler 단계**로 유지한다.
 
 핵심 원칙은 **J의 고수준 배열 변환 구조를 Semantic Analyzer가 보기 전에 없애지 않고, analyzer/lowering 단계가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
 
