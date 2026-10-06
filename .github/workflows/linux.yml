@@ -61,12 +61,13 @@ jobs:
             seed=$(date -u +%Y%m%d)
           fi
           python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64 --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
-      - name: IO-02 pinned file foreign behavior diagnostic (non-acceptance)
+      - name: IO-02 pinned C foreign fixture gate (not RustJ I/O acceptance)
         env:
           J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
         run: |
           python3 tools/file_io_audit.py \
             --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --gate \
             --report "reports/file-io-audit-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - name: FW-04 pinned search three-way differential gate
         env:
