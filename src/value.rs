@@ -378,3 +378,52 @@ impl Value {
         }
     }
 }
+
+#[cfg(test)]
+mod rank_fill_cell_tests {
+    use super::{Data, Value};
+    use crate::storage::CpuStorage;
+
+    #[test]
+    fn dense_empty_rank_cells_have_j_type_fills_and_result_shape() {
+        let integer = Value::ints([0, 3], vec![]).unwrap();
+        let fill = integer.rank_fill_cell(1).unwrap();
+        assert_eq!(fill.shape(), &[3]);
+        assert_eq!(fill.type_code(), 4);
+        for index in 0..3 {
+            assert_eq!(fill.int_at(index).unwrap(), 0);
+        }
+        let empty_result = fill.empty_rank_result(&[0]).unwrap();
+        assert_eq!(empty_result.shape(), &[0, 3]);
+        assert_eq!(empty_result.type_code(), 4);
+        assert_eq!(empty_result.len(), 0);
+
+        let character = Value::new([0, 2], Data::Char(CpuStorage::new(vec![]))).unwrap();
+        let char_fill = character.rank_fill_cell(1).unwrap();
+        assert_eq!(char_fill.type_code(), 2);
+        assert_eq!(char_fill.shape(), &[2]);
+        assert_eq!(char_fill.display(), "  ");
+
+        let floating = Value::new([0, 2], Data::Float(CpuStorage::new(vec![]))).unwrap();
+        let float_fill = floating.rank_fill_cell(1).unwrap();
+        assert_eq!(float_fill.type_code(), 8);
+        assert_eq!(float_fill.float_at(0).unwrap(), 0.0);
+        assert_eq!(float_fill.float_at(1).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn nonempty_rank_argument_reuses_actual_first_cell_not_fill() {
+        let value = Value::ints([2, 3], vec![5, 6, 7, 8, 9, 10]).unwrap();
+        let fill = value.rank_fill_cell(1).unwrap();
+        assert_eq!(fill.shape(), &[3]);
+        assert_eq!(fill.int_at(0).unwrap(), 5);
+        assert_eq!(fill.int_at(1).unwrap(), 6);
+        assert_eq!(fill.int_at(2).unwrap(), 7);
+    }
+
+    #[test]
+    fn unknown_boxed_fill_is_not_guessed() {
+        let boxed = Value::new([0], Data::Boxed(CpuStorage::new(vec![]))).unwrap();
+        assert_eq!(boxed.rank_fill_cell(0).unwrap_err().kind(), "unsupported");
+    }
+}
