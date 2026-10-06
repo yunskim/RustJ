@@ -8,7 +8,7 @@ use crate::{
     Error, Value,
     compilation::CompilationAnalysis,
     execution_semantics::{AccessFact, AccessRelation, ExecutionBasisKind},
-    logical_ir::{CallOp, ExecutionBasisPayload, IterationDomain, OpKind, Operation, Plan},
+    logical_ir::{CallOp, ExecutionBasisPayload, IterationDomain, OpId, OpKind, Operation, Plan},
 };
 use std::ops::Range;
 
@@ -236,6 +236,48 @@ pub struct RewritePlanningReport {
     /// Mirrors the rule's proof contract. A report reaching ReadyForCosting
     /// still cannot be early-pruned unless this is true.
     pub early_pruning_allowed: bool,
+}
+
+
+/// An existing canonical A3 call matching a jsource source-graph opportunity.
+/// This describes the *original* execution path, not an optimized jsource route.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum JsourceExistingRoute {
+    Basis {
+        kind: ExecutionBasisKind,
+        realizations: Vec<RealizationFamily>,
+    },
+    SemanticCall,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JsourceLinkedCall {
+    pub operation: OpId,
+    pub existing: JsourceExistingRoute,
+}
+
+/// No source-pattern observation alone authorizes a specialized lowering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JsourcePlanningState {
+    /// The source graph candidate has no matching executable A3 call.
+    NeedsLogicalCallLink,
+    /// Source provenance and A3 origin are connected, but no J equivalence
+    /// witness, fallback/guard, or dedicated optimized lowering is registered.
+    NeedsSemanticProof,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JsourcePlanningReport {
+    pub candidate_index: usize,
+    pub family: crate::j_graph_jsource::JsourceFamily,
+    pub source_value: crate::j_graph_ir::ValueId,
+    pub source_span: Range<usize>,
+    pub decision_owner: crate::j_graph_jsource::DecisionOwner,
+    /// The *full* outstanding obligations, not proofs inferred from shape
+    /// metadata, source syntax, or a generic lowering's availability.
+    pub unresolved_proofs: Vec<crate::j_graph_jsource::ProofRequirement>,
+    pub linked_calls: Vec<JsourceLinkedCall>,
+    pub state: JsourcePlanningState,
 }
 
 pub(crate) fn execution_basis_for_graph_basis(
@@ -556,6 +598,73 @@ impl LoweringRegistry {
             composite_requires_call_facts,
             overall,
         }
+    }
+
+    /// Connect source-backed optimization opportunities to canonical A3 calls
+    /// and the target's already registered *ordinary* lowering routes.
+    ///
+    /// Deliberately fail closed: a source idiom, matching A3 origin, known
+    /// dtype/shape, and a legal reference/SIMD route do NOT prove the proposed
+    /// jsource-specialized algorithm equivalent. No selected fast path is
+    /// returned, and no candidate changes the canonical execution plan.
+    pub fn jsource_planning_reports(
+        &self,
+        analysis: &CompilationAnalysis,
+        target: &TargetCapabilities,
+    ) -> std::result::Result<Vec<JsourcePlanningReport>, String> {
+        analysis.j_graph.verify()?;
+        analysis.logical.verify().map_err(|err| err.to_string())?;
+        if analysis.logical.source != analysis.j_graph.source
+            || analysis.logical.j_graph_node_count != analysis.j_graph.nodes.len()
+        {
+            return Err("jsource planning requires matching J Graph and canonical A3 provenance".into());
+        }
+
+        analysis
+            .jsource_opportunities
+            .iter()
+            .enumerate()
+            .map(|(candidate_index, candidate)| {
+                candidate.verify(&analysis.j_graph)
+                    .map_err(|err| format!("jsource candidate {candidate_index}: {err}"))?;
+                let linked_calls = analysis
+                    .logical
+                    .operations
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, op)| op.j_origin == Some(candidate.source_value))
+                    .filter_map(|(index, op)| {
+                        let existing = match &op.kind {
+                            OpKind::Basis { kind, call, .. } => JsourceExistingRoute::Basis {
+                                kind: *kind,
+                                realizations: self.legal_candidates(*kind, call, target),
+                            },
+                            OpKind::SemanticCall(_) => JsourceExistingRoute::SemanticCall,
+                            _ => return None,
+                        };
+                        Some(JsourceLinkedCall {
+                            operation: OpId(index),
+                            existing,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let state = if linked_calls.is_empty() {
+                    JsourcePlanningState::NeedsLogicalCallLink
+                } else {
+                    JsourcePlanningState::NeedsSemanticProof
+                };
+                Ok(JsourcePlanningReport {
+                    candidate_index,
+                    family: candidate.family,
+                    source_value: candidate.source_value,
+                    source_span: candidate.source_span.clone(),
+                    decision_owner: candidate.rule().owner,
+                    unresolved_proofs: candidate.rule().proof_requirements.to_vec(),
+                    linked_calls,
+                    state,
+                })
+            })
+            .collect()
     }
 
     pub fn rewrite_planning_reports(
