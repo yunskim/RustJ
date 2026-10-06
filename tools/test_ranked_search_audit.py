@@ -88,6 +88,23 @@ class RankSearchCorpusTests(unittest.TestCase):
         self.assertIn("EXPLORATORY", summary["gate"])
         self.assertEqual(summary["not_matching"], ["cat_both_empty_char_int"])
         self.assertEqual(len(summary["mismatch_observations"]), 1)
+        strict = diagnostic_summary(
+            report, adversarial=False, retry_probes=True,
+            gate_retry_probes=True,
+        )
+        self.assertIn("PINNED-C RETRY REGRESSION", strict["gate"])
+        self.assertTrue(
+            gate_failed(report, adversarial=False, retry_probes=True,
+                        gate_retry_probes=True)
+        )
+        self.assertFalse(
+            gate_failed(report, adversarial=False, retry_probes=True)
+        )
+        passing = {"observations": [{"classification": "pass"}]}
+        self.assertFalse(
+            gate_failed(passing, adversarial=False, retry_probes=True,
+                        gate_retry_probes=True)
+        )
 
     def test_rank_adversarial_corpus_keeps_zero_frame_distinct_from_empty_cells(self):
         cases = rank_adversarial_cases()
