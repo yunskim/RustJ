@@ -2285,6 +2285,47 @@ Retain \`ExecutionBasisKind::LookupClassify\`, J Graph source identity, canonica
 **Remaining prehash gate:** explicit J derived prehash such as \`m&i.\` or \`e.&n\` requires a compiler-visible prepared-lookup descriptor, versioned dictionary/key equality/tolerance context, cache lifetime and invalidation, fallback/check ordering and target/cost evidence. Do not extend this immutable Arc-identity cache to dynamic name, locale, boxed, sparse or tolerance-aware domains without independent proofs. Run J/C differential and measurements before widening eligibility.
 
 
+<a id="algorithm-planning-migration"></a>
+
+### O. Algorithm-planning framework extension informed by MLIR, IREE, TVM, XLA and Futhark (2026-10-06)
+
+**Architecture decision:** do not turn jsource's special C entry points into J Graph node kinds or leave their choice exclusively in `index_ops.rs`. Preserve `J semantic identity → A3 meaning → target legality / proof evidence → Physical cost/selection → guarded executor with fallback`. This is the first search-family slice, **not** completion of a whole-compiler optimizer or auto-tuner.
+
+#### O.1 Comparison and adopted boundaries
+
+| Framework / verified reference | Actual mechanism | Adopt / explicitly defer |
+|---|---|---|
+| **MLIR Dialect Conversion** ([official reference](https://mlir.llvm.org/docs/DialectConversion/)) | ConversionTarget marks Legal/Dynamic/Illegal per operation and may leave unsupported operations in partial conversion | Distinguish baseline legality, runtime guard, semantic proof, target rejection and mismatched J operation in `SearchAlgorithmReadiness`. Do **not** replace J function/locale semantics with dialect legality |
+| **MLIR Transform dialect** ([official reference](https://mlir.llvm.org/docs/Dialects/Transform/)) | Transform/control IR acts on separate payload IR and distinguishes recoverable from irrecoverable failures | Leave J Graph/A3 semantics unchanged when reporting candidate/selection; keep guard miss separate from invalid transform. Do not import the dialect itself |
+| **IREE Flow/Stream/HAL and Codegen** ([phases](https://github.com/iree-org/iree/blob/main/docs/website/docs/developers/general/developer-tips.md), [LoweringConfig](https://iree.dev/reference/mlir-dialects/IREECodegen/)) | Separate dispatch/stream semantics, backend lowering configs, tiling/vectorization and bufferization | Keep hash size, SIMD, buffers and GPU scheduling out of semantic `SearchDescriptor`; do not claim unsupported GPU search kernels |
+| **TVM MetaSchedule** ([official tutorial](https://tvm.apache.org/docs/deep_dive/tensor_ir/tutorials/meta_schedule.html)) | SpaceGenerator, SearchStrategy, CostModel, Builder/Runner and measured tuning database are separate | Separate legal candidates, workload facts, selection and eventual measured feedback. Current bounds are **heuristics, not a tuned cost model or database** |
+| **XLA GPU priority fusion** ([design discussion](https://github.com/openxla/xla/discussions/10065), [pass source](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.h)) | Estimate compute/memory/kernel-launch impact and rank feasible fusion choices by modeled benefit | Cost/profitability does not legalize semantics; defer device cost ranking until the device route exists |
+| **Futhark SOAC / incremental flattening** ([2026 design](https://www.futhark-lang.org/blog/2026-07-31-full-flattening.html), [fusion discussion](https://www.futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html)) | Retain high-level array dataflow and select among sequential/flattened/fused implementations using shape and machine constraints | Retain high-level `LookupClassify` and later GroupBy/Reduce identity, but do not assume J errors, dynamic names and fit semantics satisfy unrestricted functional fusion identities |
+
+#### O.2 Implemented three-way ownership
+
+1. **A3 Execution Semantic Lowering:** `ExecutionBasisPayload::LookupClassify { search: SearchDescriptor }` now retains original primitive/valence-derived `FirstIndex/LastIndex/MembershipMask/IntervalIndex/SelfClassify`, J equality vs ordered interval comparison, indexed/probe SSA `ValueId` and rank-boundary identity. Unknown or nonprimitive derived calls remain `Deferred`. `A3_SCHEMA_VERSION` increases **0.4→0.5**; `Plan::verify` rejects a descriptor that differs from the originating `CallOp`. `JEquality` refers to actual J comparison semantics, **not** permission for exact float hashing.
+2. **LoweringRegistry:** a reference CPU capability for known pure `LookupClassify` calls, plus `SearchAlgorithm::{Sequential,DirectAddress,IndexedHash,ReverseQueryHash,PreparedHash,TolerantNeighborHash}` reports. `SearchAlgorithmReadiness` differentiates `Baseline`, `RequiresExactScalarGuard`, `NeedsSemanticProof`, `UnsupportedTarget`, `UnsupportedSearchForm`. Interval lookup and unsupported GPU/Tolerant Hash are not enabled by mere registration. Existing `JsourcePlanningReport` source proofs remain unresolved and are **not** promoted to executable optimized transformations.
+3. **Physical strategy:** `physical.rs::plan_search_algorithm` receives an explicit `SearchWorkload` (indexed/query counts, key span if measured, shared immutable backing, prehash eligibility, available reverse-query values) and target. It queries the registry and returns a guarded or reference `SearchPhysicalChoice` with **estimated temporary table entries, not a byte-accurate resource model or measured timings**. Initial thresholds: sequential ≤32 pair comparisons, direct ≤65,536 entries and ≤4× total work, reverse ≥64 indexed with size ratio over 2:1, prepared 64–16,384 immutable shared entries. `index_ops.rs` checks actual Int/Bool scalar types/cells before following the Physical selector. Optional table-allocation failure returns to sequential reference, while real result allocation errors remain observable.
+
+**No semantic shortcut:** approximate tolerance is not generally transitive; `!.ct`, complex/boxed and float values cannot be moved into exact hashing without a separate witness. `I.` interval is not an Index-Of hash family. These changes do not create final GPU codegen, native physical `BufferId` schedules or graph-rewrite commits.
+
+#### O.3 Generalization and verification gates
+
+~~~text
+A3 SemanticDescriptor (meaning, operands, rank, comparison)
+ → AlgorithmCandidateSet (legal target, proof/guard obligations)
+ → VerifiedRuntimeFacts or proven static witness (Unknown is not true)
+ → CostProfile/ResourceBudget (work, bytes, transfer/occupancy)
+ → SelectionPlan (independent of canonical semantic IR)
+ → Guarded CommittedLowering (fallback before effects/errors)
+~~~
+
+The reusable concept is *algorithm option + proof/guard state + resource/cost profile + fallback*. Generic algorithm-candidate evidence for Reduce/Scan, GroupBy, Grade and Contract remains future work: each family needs its own associative/tolerance, representative, ordering and numeric-precision proof rather than reusing search-specific enums. Runtime tolerance/fit policy, versioned prehash keys and nested Rank/CellApply legality also remain to be discharged. Do not select a GPU route until implementation/target hard-resource legality exists.
+
+Added A3 search-mode/origin and forged-payload verifier tests, registry CPU/GPU/proof tests and Physical planner selection/guard tests; existing search/rebinding tests are retained. **These are static repository changes. Cargo tests, CI, jsource/C differential checks and benchmarks were not run; no execution or speed claims are made.**
+
+
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
@@ -2868,7 +2909,7 @@ Current J Graph/A3 artifacts are primarily in-process and do not promise long-te
 
 ```text
 J Graph schema 0.9   exact match
-A3 schema 0.4        exact match
+A3 schema 0.5        exact match
 PrimitiveRegistry    current REGISTRY_VERSION provenance
 ```
 
