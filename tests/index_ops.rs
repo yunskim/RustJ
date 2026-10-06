@@ -82,23 +82,26 @@ fn exact_search_keeps_wide_range_and_boolean_membership_semantics() {
 #[test]
 fn member_preserves_cell_shapes_and_empty_query_semantics() {
     assert_eq!(eval("(i.2 3)e.(i.2 3)"), eval("1 1"));
-    // x e. y has the frame of x; an empty left query stays empty.
-    let empty_left = Engine::new().eval("(i.0)e.3 4").unwrap().unwrap();
-    assert_eq!(empty_left.shape(), &[0]);
-    assert_eq!(empty_left.len(), 0);
 
-    // An empty right lookup set produces false for each left query.
-    eprintln!("frontend empty membership parsed={:?}", rustj::semantic::parse("3 4 e.(i.0)").unwrap());
-    eprintln!("frontend empty membership words={:?}", rustj::tokenizer::word_texts("3 4 e.(i.0)").unwrap());
-    for variant in ["3 4 e.(i.0)", "3 4 e. (i. 0)", "3 4 e. i. 0", "3 4 e. (0$0)"] {
-        let normal = Engine::new().eval(variant).map(|v| v.map(|x| x.json()));
-        let reference = Engine::new().eval_semantic_reference(variant).map(|v| v.map(|x| x.json()));
-        eprintln!("frontend empty membership {variant:?} normal={normal:?} reference={reference:?}");
-    }
-    assert_eq!(eval("3 4 e.(i.0)"), eval("0 0 = 1 1"));
-    assert_eq!(eval("(i.0)i.3 4"), eval("0 0"));
+    // x e. y is Boolean and retains the frame of the left query x.
+    let empty_query = Engine::new().eval("(i.0)e.3 4").unwrap().unwrap();
+    assert_eq!(empty_query.type_code(), 1);
+    assert_eq!(empty_query.shape(), &[0]);
+
+    // If the indexed right side is empty, each left query is false.
+    let missing = Engine::new().eval("3 4 e.(i.0)").unwrap().unwrap();
+    assert_eq!(missing.type_code(), 1);
+    assert_eq!(missing.shape(), &[2]);
+    assert_eq!(missing.int_at(0).unwrap(), 0);
+    assert_eq!(missing.int_at(1).unwrap(), 0);
+
+    // Index-of uses an integer missing sentinel, not Boolean false.
+    let index = Engine::new().eval("(i.0)i.3 4").unwrap().unwrap();
+    assert_eq!(index.type_code(), 4);
+    assert_eq!(index.shape(), &[2]);
+    assert_eq!(index.int_at(0).unwrap(), 0);
+    assert_eq!(index.int_at(1).unwrap(), 0);
 }
-
 
 #[test]
 fn engine_prehashed_index_reuses_only_immutable_shared_key_and_mode() {
