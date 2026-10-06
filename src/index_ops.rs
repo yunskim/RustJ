@@ -63,7 +63,10 @@ pub(crate) fn indices(y: Value) -> Result<Value> {
 
 pub(crate) fn atom_eq(a: &Value, ai: usize, b: &Value, bi: usize) -> bool {
     atom_eq_with_policy(
-        a, ai, b, bi,
+        a,
+        ai,
+        b,
+        bi,
         crate::comparison_policy::ComparisonPolicySnapshot::fixed_rust_near(),
     )
 }
@@ -71,7 +74,10 @@ pub(crate) fn atom_eq(a: &Value, ai: usize, b: &Value, bi: usize) -> bool {
 /// All atoms in one search call share the same comparison-policy snapshot.
 /// The snapshot is currently fixed; dynamic J CCT is not yet implemented.
 fn atom_eq_with_policy(
-    a: &Value, ai: usize, b: &Value, bi: usize,
+    a: &Value,
+    ai: usize,
+    b: &Value,
+    bi: usize,
     policy: crate::comparison_policy::ComparisonPolicySnapshot,
 ) -> bool {
     match (&a.data, &b.data) {
@@ -446,9 +452,15 @@ fn lookup(indexed: Value, queries: Value, result: LookupResult, cache: Option<&m
             return index.find(queries.int_at(q).unwrap(), items);
         }
         let equal = |i: usize| {
-            (0..cell).all(|k| atom_eq_with_policy(
-                &indexed, i * cell + k, &queries, q * cell + k, comparison,
-            ))
+            (0..cell).all(|k| {
+                atom_eq_with_policy(
+                    &indexed,
+                    i * cell + k,
+                    &queries,
+                    q * cell + k,
+                    comparison,
+                )
+            })
         };
         match result {
             LookupResult::Last => (0..items).rev().find(|&i| equal(i)),
@@ -510,7 +522,11 @@ mod index_family_tests {
         let t = 2f64.powi(-44);
         let (a, b, c) = (1.0, 1.0 + 0.75 * t, 1.0 + 1.5 * t);
         let floats = |values: &[f64]| {
-            Value::new([values.len()], Data::Float(CpuStorage::new(values.to_vec()))).unwrap()
+            Value::new(
+                [values.len()],
+                Data::Float(CpuStorage::new(values.to_vec())),
+            )
+            .unwrap()
         };
         let source = floats(&[a, b, a, f64::INFINITY, 0.0, -0.0, f64::NAN]);
         let probes = floats(&[c, a, -0.0, f64::INFINITY, f64::NAN]);
