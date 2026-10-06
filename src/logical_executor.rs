@@ -152,7 +152,11 @@ fn execute_ranked_semantic(
     // Admit only a concrete primitive or a structural Rank chain above one.
     // Unknown and user-defined functions may execute observable fill effects.
     let primitive_fill = has_value_only_rank_fill_semantics(function);
-    apply_ranked(ranks, left, right, primitive_fill, |x, y| {
+    let atomic_add = matches!(
+        function.head,
+        FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Add)
+    );
+    apply_ranked(ranks, left, right, primitive_fill, atomic_add, |x, y| {
         execute_semantic(function, x, y)
     })
 }
@@ -165,9 +169,36 @@ fn execute_ranked_semantic(
 /// Never call this on ordinary (including empty) cells or user-defined verbs.
 /// EVINHOMO type retry, other non-exigent classes, and effectful definitions
 /// remain separate semantic obligations (RK-07/RK-08).
-pub(crate) fn recover_zero_frame_fill_domain(outcome: Result<Value>) -> Result<Value> {
+/// The primitive + has J scalar cells even when an enclosing Rank applies
+/// whole vector cells. A char/numeric scalar fill failure produces one
+/// integer-zero result per atom, not one scalar for the entire outer cell.
+/// This is a verified *shape witness* for this primitive only.
+pub(crate) fn atomic_add_mixed_char_fill_shape(left: &Value, right: &Value) -> Option<Vec<usize>> {
+    let left_char = left.type_code() == 2;
+    let right_char = right.type_code() == 2;
+    if left_char == right_char {
+        return None;
+    }
+    let (short, long) = if left.shape().len() <= right.shape().len() {
+        (left.shape(), right.shape())
+    } else {
+        (right.shape(), left.shape())
+    };
+    long.starts_with(short).then(|| long.to_vec())
+}
+
+pub(crate) fn recover_zero_frame_fill_domain(
+    outcome: Result<Value>,
+    atomic_add_cell_shape: Option<&[usize]>,
+) -> Result<Value> {
     match outcome {
-        Err(error) if matches!(error.root(), Error::Domain) => Ok(Value::scalar(0)),
+        Err(error) if matches!(error.root(), Error::Domain) => {
+            if let Some(shape) = atomic_add_cell_shape {
+                let n = crate::value::count(shape)?;
+                return Value::ints(shape.to_vec(), crate::value::generate(n, |_| 0)?);
+            }
+            Ok(Value::scalar(0))
+        }
         other => other,
     }
 }
@@ -177,6 +208,7 @@ pub(crate) fn apply_ranked(
     left: Option<Value>,
     right: Value,
     primitive_fill: bool,
+    atomic_add: bool,
     mut call: impl FnMut(Option<Value>, Value) -> Result<Value>,
 ) -> Result<Value> {
     if let Some(left) = left {
@@ -209,7 +241,13 @@ pub(crate) fn apply_ranked(
             // This is not a physical search strategy.
             let x = left.rank_fill_cell(ar)?;
             let y = right.rank_fill_cell(br)?;
-            let prototype = recover_zero_frame_fill_domain(call(Some(x), y))?;
+            let atomic_shape = atomic_add
+                .then(|| atomic_add_mixed_char_fill_shape(&x, &y))
+                .flatten();
+            let prototype = recover_zero_frame_fill_domain(
+                call(Some(x), y),
+                atomic_shape.as_deref(),
+            )?;
             return prototype.empty_rank_result(&frame);
         }
         let ad = crate::value::count(&frame[af.len()..])?;
@@ -235,7 +273,7 @@ pub(crate) fn apply_ranked(
                 ));
             }
             let fill = right.rank_fill_cell(rank)?;
-            let prototype = recover_zero_frame_fill_domain(call(None, fill))?;
+            let prototype = recover_zero_frame_fill_domain(call(None, fill), None)?;
             return prototype.empty_rank_result(&frame);
         }
         let cells = (0..frames).map(|i| {
@@ -396,7 +434,7 @@ mod rank_fill_error_tests {
 
     #[test]
     fn rank_zero_frame_recovery_does_not_erase_exigent_or_unknown_errors() {
-        let fallback = recover_zero_frame_fill_domain(Err(Error::Domain))
+        let fallback = recover_zero_frame_fill_domain(Err(Error::Domain), None)
             .expect("J non-exigent computational fill failure");
         assert_eq!(fallback.type_code(), 4);
         assert_eq!(fallback.shape(), &[]);
@@ -404,7 +442,7 @@ mod rank_fill_error_tests {
 
         // The diagnostic wrapper must not accidentally change the J class.
         let wrapped = Error::Domain.at(1..4);
-        let fallback = recover_zero_frame_fill_domain(Err(wrapped)).unwrap();
+        let fallback = recover_zero_frame_fill_domain(Err(wrapped), None).unwrap();
         assert_eq!(fallback.int_at(0).unwrap(), 0);
 
         for error in [
@@ -417,7 +455,7 @@ mod rank_fill_error_tests {
             Error::Unsupported("effectful or unknown call".into()),
         ] {
             let expected = error.kind();
-            let observed = recover_zero_frame_fill_domain(Err(error)).unwrap_err();
+            let observed = recover_zero_frame_fill_domain(Err(error), None).unwrap_err();
             assert_eq!(observed.kind(), expected);
         }
     }
