@@ -210,6 +210,22 @@ fn exact_scalar_index(
 }
 
 
+/// A physical algorithm is optional. Failure to allocate a *search table*
+/// cannot introduce an observable Limit error if the original sequential J
+/// lookup can execute without that table. Output-buffer errors remain errors.
+fn optional_exact_scalar_index(
+    values: &Value,
+    items: usize,
+    queries: usize,
+    result: LookupResult,
+    query_values: Option<&Value>,
+) -> Result<Option<ExactScalarIndex>> {
+    match exact_scalar_index(values, items, queries, result, query_values) {
+        Err(Error::Limit) => Ok(None),
+        result => result,
+    }
+}
+
 /// One bounded, per-Engine, immutable exact-key prehash. Holding the shared
 /// backing Arc makes pointer identity safe across binding replacement: a
 /// redefined name with a new backing cannot reuse a stale index.
@@ -286,7 +302,7 @@ impl ExactPrehashCache {
             // This prehash intentionally builds the *indexed* set, even when
             // query-side reverse hash would be cheaper for a single query.
             // Reuse is justified only by subsequent calls to the same Arc.
-            let Some(index) = exact_scalar_index(
+            let Some(index) = optional_exact_scalar_index(
                 indexed, items, queries, representative, None
             )? else {
                 return Ok(None);
@@ -348,11 +364,11 @@ fn lookup(indexed: Value, queries: Value, result: LookupResult, cache: Option<&m
             if let Some(cached) = cache.get_or_prepare(&indexed, items, n, result)? {
                 Some(Cow::Borrowed(cached))
             } else {
-                exact_scalar_index(&indexed, items, n, result, Some(&queries))?
+                optional_exact_scalar_index(&indexed, items, n, result, Some(&queries))?
                     .map(Cow::Owned)
             }
         } else {
-            exact_scalar_index(&indexed, items, n, result, Some(&queries))?
+            optional_exact_scalar_index(&indexed, items, n, result, Some(&queries))?
                 .map(Cow::Owned)
         }
     } else {
