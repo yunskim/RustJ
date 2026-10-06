@@ -2959,6 +2959,38 @@ RustJ
 - **우선 적용 순서 제안:** (1) 고수준 `Key/GroupReduce`, `Contraction`, `Grade/Ranking`, `IntervalLookup` 후보·provenance를 표현할 수 있는지 확인; (2) J rank/tolerance/group ordering/numeric error witness 정의; (3) `Hash/Search`, sparse, view/gather, physical buffer, name cache 등 execution-route 별로 독립 구현·jsource 차등 시험. current frontend/optimizer gate를 건너뛰어 착수했다는 뜻은 아니다.
 - **검증 경계:** 이 절은 GitHub 소스/설계 문서 검사다. native J 실행, RustJ differential test, CPU/GPU benchmark를 수행하지 않았으며 각 효익·동등성·fallback 적법성은 미검증이다.
 
+##### J. RustJ 프레임워크에 맞춘 구현 연결 (2026-10-06)
+
+이 절부터는 H–I의 source survey를 **현 RustJ 소스 코드 경계에 적용한 결과**를 기록한다. 전수 J semantics 증명이나 jsource 성능 재현을 의미하지 않는다.
+
+| source-derived family / 아이디어 | 현재 RustJ 소유 경계 | 2026-10-06 코드 반영 | 실행 최적화 도입 전 남은 조건 |
+|---|---|---|---|
+| `f/@:g`의 Map→Reduce streaming | 기존 `src/j_graph_fusion.rs` `MapReduce` + `fusion_planning.rs` | **기존 분석을 재사용**, 중복 rewrite 미등록 | per-cell semantics, numeric/dtype, effects, target capability, fallback |
+| `+/%#` mean fork 인식 | 신규 `src/j_graph_jsource.rs` source-pattern analyzer | `FunctionEntity`의 **ordinary Fork + Insert(Add) / Divide / Tally** 완전 일치 시 `MeanIdiom` *후보만 발견* | J rank/cell·empty·dtype·float order·error proof; 실제 `Mean` 실행 op 미구현 |
+| reduction/window/scan 기법 | 기존 `GraphForm::Reduce/PrefixInfix`, `j_graph_scan.rs` + 신규 source opportunity | `ReductionFastPath`, `WindowAlgorithm` 후보 등록; 기존 Scan witness와 충돌하지 않음 | small-cell, moving aggregate, NaN/overflow, prefix vs infix proof 및 후속 알고리즘 |
+| `i.` / `e.` / `E.` search | `GraphForm::Atomic`, `PrimitiveId`, 기존 `FindViaWindowMatch` rewrite | dyadic Search를 `SearchAlgorithm` source opportunity로 기록; `Find`의 기존 witnessed rewrite 유지 | tolerant equality, key type, prehash legality, algorithm cost |
+| dyadic `I.` interval index | `PrimitiveId::Indices` | monadic indices와 혼동하지 않고 **dyad만 `IntervalLookup`** 후보 등록 | ordering·shape·type·tolerance, search route |
+| dyadic `{` 및 static reindex | `GraphBasisKind::DynamicGather/StaticReindex`, physical buffer route | `GatherCopyOrView`, `ReindexCopyOrView` 후보 기록. **zero-copy를 단정하지 않음** | bounds, alias/ownership, result shape, fill, target stride/gather support |
+| Key/GroupReduce, full `+/ . *`, Grade/Ranking | `J Graph`의 향후 source identity + Execution Semantic Lowering | source 파일·심볼·proof obligations만 **catalog 등록**, 가짜 applied graph node/실행 후보 생성 없음 | 해당 J constructor/typed semantic support, source graph canonicalization, jsource differential |
+| tolerant hash, sparse, buffer reuse, name-ref cache | typed semantic facts / Execution/Physical planner / binding runtime | 발견 registry에 **`DownstreamOnly` 또는 `AwaitingFrontendOrFacts`** 표시; graph algebraic rewrite로 위장하지 않음 | tolerance/sparse/alias/locale-version, fallback 및 cost contracts |
+
+**실제 코드 연결 및 불변 조건**
+
+- `src/j_graph_jsource.rs`: pinned source evidence, family stable ID, 책임 계층, discovery coverage, proof requirement를 소유한다. `Plan::jsource_opportunities()`는 **원래 J Graph의 source id, span, basis, facts**를 보존한 sidecar만 산출하며 source graph를 변경하지 않는다.
+- `src/compilation.rs`의 `CompilationAnalysis::jsource_opportunities`와 `src/runtime.rs::analyze_compilation_diagnostic`으로 분석 결과를 기존 rewrite/Logical IR과 **병렬 제공**한다. 최적화 실행 경로에 자동 연결하지 않는다.
+- candidate의 legality는 `AwaitingSemanticProofs`, `selected=false`로 고정된다. `verify(&Plan)`는 source/provenance/evidence 상태를 재도출하여 변조·오래된 후보를 거부한다. 이 verifier는 **J 수치적 동등성 검증기가 아니다**.
+- `MapReduceStreaming`은 이미 `j_graph_fusion`이 책임진다. 독립된 동일 후보를 자동 추가하지 않는다.
+- `GroupAggregate`, `MatrixContraction`, `GradeRanking`의 source registry가 존재해도 해당 J 구문이 RustJ에서 파싱/실행 가능하다는 뜻은 아니다.
+- `tests/j_graph_jsource.rs`는 registry 불변성, source provenance, 후보 변조 거부, mean fork exact-match/부정 사례, 일부 기본 graph 패턴, 기존 Find rewrite·MapReduce fusion의 분리를 검사하도록 추가했다. **실제 Rust 테스트 실행 결과는 아직 확인하지 못했다.**
+
+**후속 구현 계획—현재 M2/frontend 단계 우선순위를 앞서지 않는다**
+
+1. **source-coverage gate:** `Key (/.), Dot (.), Grade (/:, \:), Cut (;.), Under (&.)`의 정확한 품사·derived-verb operand·rank 계약이 구현되기 전에는 candidate를 임의 생성하지 않는다.
+2. **witness gate:** source optimization마다 `Semantics + RankCellAssembly + DType/Numeric/!. + Sparse/Empty + Effect/Error + Alias/Fanout` proof를 작성한다. 실행 전에 guard miss는 source fallback이 있어야 하고 effect 이후 replay는 금지한다.
+3. **algorithm basis gate:** `GroupReduce`, `Contraction`, `GradeSort`, `IntervalLookup`의 Execution Semantic operation/facts와 J-specific physical routes를 분리한다. J Graph에 `jtsort`, `jtfslashatg` 같은 C 함수 노드를 추가하지 않는다.
+4. **target gate:** CPU vector/BLAS, sparse implementations, GPU library/custom-kernel 경로는 `LoweringRegistry`와 target/resource/cost에서 별도 선택한다. `Unknown`은 실패가 아니라 **보수적 미최적화 경로**다.
+5. **regression gate:** jsource와 empty/sparse, boxed/tolerance, `!.0/!.1`, NaN/overflow, rank/frame, error/locale/cache-invalidating writes를 비교한다. differential과 성능 측정 없이 최적화 완료로 표시하지 않는다.
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
