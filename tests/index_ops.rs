@@ -44,3 +44,44 @@ fn membership_and_overlapping_pattern() {
     assert_eq!(eval("'abcd' E. 'ab'"), eval("0 0"));
     assert_eq!(eval("2 2 E. 2 2 2"), eval("1 1 0"));
 }
+
+#[test]
+fn direct_range_index_preserves_first_last_missing_and_negative_keys() {
+    // At least 33 comparisons force an index; the narrow domain admits a
+    // bounded direct-address table rather than a general HashMap.
+    assert_eq!(
+        eval("_2 _1 0 _2 1 i. _2 1 3 _1 _2 1 3"),
+        eval("0 4 5 1 0 4 5")
+    );
+    assert_eq!(
+        eval("_2 _1 0 _2 1 i: _2 1 3 _1 _2 1 3"),
+        eval("3 4 5 1 3 4 5")
+    );
+    assert_eq!(
+        eval("_2 1 10 1 _2 1 10 e. _2 _1 0 1"),
+        eval("1 1 0 1 1 1 0")
+    );
+}
+
+#[test]
+fn exact_search_keeps_wide_range_and_boolean_membership_semantics() {
+    assert_eq!(
+        eval("_1000000000 0 1000000000 i. 0 1000000000 2 _1000000000 0"),
+        eval("1 2 3 0 1")
+    );
+    assert_eq!(
+        eval("0 1 0 1 0 1 0 1 e. 0 1"),
+        eval("1 1 1 1 1 1 1 1")
+    );
+    assert_eq!(
+        eval("0 1 0 1 0 1 0 1 i: 0 1 2 0 1"),
+        eval("6 7 8 6 7")
+    );
+}
+
+#[test]
+fn member_preserves_cell_shapes_and_empty_query_semantics() {
+    assert_eq!(eval("(i.2 3)e.(i.2 3)"), eval("1 1"));
+    assert_eq!(eval("(i.0)e.3 4"), eval("0 0"));
+    assert_eq!(eval("(i.0)i.3 4"), eval("0 0"));
+}
