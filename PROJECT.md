@@ -470,6 +470,35 @@ Insert(Rank(+, 1))
 
 must survive parsing and downstream analysis.
 
+#### 4.3.1 Canonical frontend sentence trace — `+/ y`
+
+Assume `y` is already bound to a noun. This compact sentence crosses word formation, enqueue classification, parser-time name lookup, modifier construction, and monadic application:
+
+```text
+source: "+/ y"
+  -> words: "+"  "/"  "y"
+  -> enqueue:
+       Verb(Add)
+       Adverb(Insert)
+       Name("y", lookup_name=true)
+  -> parser stack entry:
+       Name("y") -> current-environment Noun snapshot
+  -> row 3 / Adverb:
+       Verb(+) + Adverb(/)
+       -> completed FunctionEntity
+          POS=Verb
+          head=PrimitiveAdverb(Insert)
+          operand[0]=Function(Add)
+  -> stack reinsert + rescan
+  -> row 0 / MonadEdge:
+       derived Verb(+/) + Noun(y)
+       -> Expr::Monad / completed noun result
+```
+
+`/` is not `Reduce` at enqueue time; it is an Adverb, and row 3 constructs the derived verb. `y` is not pre-snapshotted at sentence start; its NAME lookup occurs at parser-stack entry. Only after monadic application does an applied noun computation exist that J Graph/A3 may later analyze as reduction structure and lower toward `Reduce(Add)`.
+
+Runtime parser actions may execute the call and reinsert a noun value, while static/analysis mode retains application structure; both must share the same nine-row language semantics. Existing enqueuer/parser-provenance tests cover class/lookup/provenance and row-3 behavior, while `+/1 2` analysis coverage verifies that the derived semantic head remains `PrimitiveAdverb(Insert)` through lowering. This is an orientation trace, not proof that locatives, direct definitions, gerunds, and all value-dependent constructors are complete.
+
 ### 4.4 Frontend migration checklist
 
 Authoritative checklist: `PROJECT.ko.md`, section A0.5.
