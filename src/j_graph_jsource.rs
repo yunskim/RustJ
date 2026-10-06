@@ -270,6 +270,7 @@ impl JsourceOpportunity {
 }
 
 /// Witness only the exact ordinary `(+/ % #)` fork construction. The J
+/// mean specialization is *monadic only* (jsource cf.c: f1=jtmean);
 /// function objects retain operand identities; parsing a substring or
 /// guessing from value-flow alone could accidentally match named/dynamic
 /// functions or a capped/noun-left fork with different semantics.
@@ -350,7 +351,9 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
         let Some(node) = plan.nodes.get(region.result.0) else {
             continue;
         };
-        let NodeKind::Apply { basis, .. } = &node.kind else {
+        // jsource cf.c::jtfolk installs jtmean in f1, never f2.
+        // A dyadic application of the same derived fork is not a Mean idiom.
+        let NodeKind::Apply { valence: Valence::Monad, basis, .. } = &node.kind else {
             continue;
         };
         result.push(JsourceOpportunity {
