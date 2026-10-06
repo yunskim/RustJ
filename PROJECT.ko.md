@@ -3448,6 +3448,19 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **의무와 금지 사항.** 구조적 `ZeroFrameNeedsFill`은 `ProvenEmptyResult`도 `SafeToElide`도 아니다. 원본 함수의 부작용·동적 이름·computational/error fallback·boxed/sparse filler·결과 cell 타입/shape를 별도 증명하지 못하면 fill-cell 평가를 생략하는 후보를 선택하지 않는다. A3 `IterationDomain`에 0 크기 frame 축이 보이더라도 kernel 생략/할당 제거/Graph fusion을 자동 허가하지 않는다. 생략 후보와 실제 선택은 FW-05~FW-13의 증거·Guard·자원·비용 게이트에 종속된다.
 
+**타 배열 컴파일러 비교와 적용 경계(2026-10-06).** 아래 네 모델은 동일한 J 의미론을 구현했다는 근거가 아니라 서로 다른 *분석·최적화 단계*의 참고 자료다.
+
+| 참고 시스템 | 확인한 접근 | RustJ 적용과 한계 |
+|---|---|---|
+| [XLA ZeroSizedHloElimination](https://github.com/openxla/xla/blob/main/xla/hlo/transforms/simplifiers/zero_sized_hlo_elimination.h), [패스 설명](https://openxla.org/xla/hlo_passes) | 원소 수 0의 HLO 출력을 빈 상수로 대체 | **빈 결과의 의미론 및 생략 적법성을 먼저 증명한 경우**에만 유사한 후보 생성. J의 fill-cell·효과·오류 무시 금지 |
+| [Futhark 크기 타입](https://www.futhark-lang.org/blog/2020-03-15-futhark-0.15.1-released.html) | `[n]a`처럼 배열 크기·원소 타입을 표현; `[0][2]i32`와 `[2][0]i32` 구별 | Rank frame 기하와 독립적으로 **결과 cell의 dtype/shape**를 증명하는 분석을 참고. J 동적 이름/효과/이질적 조립은 별도 |
+| [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/) | 인덱싱·반복 공간과 region의 계산 본문을 분리 | `CellApply` 반복 구조를 실제 cell 적용·결과 조립과 분리해 보존. `tensor.empty`는 원소 수가 0이라는 뜻이 아니라 내용 미지정 텐서 생성 |
+| [StableHLO reduce](https://openxla.org/stablehlo/spec#reduce) | 축·reducer·init_values·결과 형식을 명시 | 결과 형식이 계약으로 확정되는 reduction에만 별도 추론 적용. J 일반 `/`와 Rank fill-cell을 초기값 기반 reduction으로 무조건 치환하지 않음 |
+
+**ZF-IR-03의 추가 상세 계약(계획·미구현).** `RankPlan::frame_execution()`은 작업 생략 허가가 아니다. 불변 원본 J Graph 옆에 재계산 가능한 증명 sidecar를 두고 (1) graph/value 출처·원본 버전/동적 이름, (2) 결과-cell J dtype/shape·boxed/sparse fill·조립, (3) fill-cell 결과를 재구성하는 의미론, (4) 효과·오류 종류/순서·핸들러, (5) 최초 관찰 가능 효과 이전 Guard와 정확한 semantic reference fallback을 **각각** `Unknown / Proven(witness) / Guarded(guard+fallback) / Disproven`으로 구별한다. 구조상 `frame=[0]`이거나 일부 결과 Shape을 안다는 사실만으로 `Unknown`이 `Proven`이 되지 않는다. `Guarded` 역시 guard/fallback 검증 전에 선택 불가. 원본은 불변, 실행 선택은 FW-05~FW-13과 ZF-IR-04 뒤에만 둔다.
+
+**작업 순서.** RK-06의 C oracle 기준 적대 Rank/empty-frame fixture → RK-07~10 오류/효과/boxed/sparse/조립 검증 → ZF-IR-03 sidecar·Unknown/Guard negative tests → ZF-IR-04 3경로 CPU/물리 승인. M2 우선순위를 바꾸지 않으며 위 계획 문서화만으로 ZF-IR-03/04·FW-06/07의 [ ]를 변경하지 않는다.
+
 **지속 체크리스트 (RK-11 및 FW-04/JX-04의 하위 항목).**
 
 | ID | 현재 | 수정·검증 수용 기준 |
