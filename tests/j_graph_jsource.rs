@@ -14,7 +14,7 @@ fn graph(source: &str) -> rustj::j_graph_ir::Plan {
 
 #[test]
 fn reviewed_rules_have_unique_identifiers_and_explicit_ownership() {
-    assert_eq!(JSOURCE_CATALOG_VERSION, 1);
+    assert_eq!(JSOURCE_CATALOG_VERSION, 2);
     assert_eq!(
         JSOURCE_SOURCE_PIN,
         "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528"
@@ -136,4 +136,28 @@ fn compilation_bundle_preserves_independent_existing_rewrite_and_fusion_analysis
     assert!(g.jsource_opportunities().iter().all(|c| {
         c.family != JsourceFamily::MapReduceStreaming
     }));
+}
+
+#[test]
+fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
+    let g = graph("(+/ % #) 1 2 3 4");
+    let opportunities = g.jsource_opportunities();
+    let mean = opportunities.iter()
+        .find(|c| c.family == JsourceFamily::MeanIdiom)
+        .expect("exact mean fork should be recognized");
+    assert_eq!(mean.legality, OpportunityLegality::AwaitingSemanticProofs);
+    assert!(!mean.selected);
+    mean.verify(&g).unwrap();
+    assert!(g.regions.iter().any(|r| r.result == mean.source_value));
+
+    // A general fork is not evidence of a mean; syntax must match all
+    // three component verb identities and the Insert-derived left operand.
+    for source in ["(+/ + #) 1 2 3", "(-/ % #) 1 2 3", "(- + *) 1 2 3"] {
+        let g = graph(source);
+        assert!(
+            !g.jsource_opportunities().iter()
+                .any(|c| c.family == JsourceFamily::MeanIdiom),
+            "{source} was incorrectly treated as mean"
+        );
+    }
 }
