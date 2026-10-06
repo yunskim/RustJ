@@ -9552,6 +9552,8 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **IO-A 실행형 진단 도구 (2026-10-06).** [tools/file_io_audit.py](tools/file_io_audit.py)에 임시 파일만 사용하는 15개 고정 J C oracle 사례를 작성했다. 전체 읽기·크기, 정상 구간·EOF 0길이·음수 시작·범위 오류, 부분 쓰기·파일 끝 이후 쓰기, 존재하지 않는 파일, 결과가 버려지는 `1!:11` 실패를 포함한다. [tools/test_file_io_audit.py](tools/test_file_io_audit.py)는 fixture 고유성·파일명 quoting·임시 경로 제한·결과/실패 분류를 오프라인 검사하고, [Linux CI](.github/workflows/linux.yml)는 `j64/j64avx2 × default/portable`에서 고정 C library를 빌드한 뒤 비수용 진단 JSON을 artifact로 남기도록 연결했다. `--gate` 없는 실행은 실패 발견을 기록하되 합격이라고 주장하지 않는다. J C oracle 결과를 확인하기 전에는 오류 클래스·플랫폼 종속 EOF hole bytes·mapped boxed 의미를 확정하지 않는다. 소스 pin `0a5101cf`과 CI binary pin `13994ffa`의 `xf.c`·`jmf.ijs`·`gmbx.ijs`·`jfiles.ijs`는 각 파일의 Git blob SHA가 동일함을 교차 확인했다. **이것은 IO-01/02/25의 구현/동등성 수용이 아니며 계속 [ ] 상태다.**
 
+**첫 CI 진단 오류 분석(수용 아님).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210)의 `j64`와 `j64avx2` 초기 실행은 각각 15개 중 기대값 9개 일치·6개 재검토였다. 여섯 항목 모두 `length error`로, J 의미 차이의 증거가 아니라 **indexed foreign용 파일 인수의 잘못된 boxing**을 원인으로 분리했다. [J Files 원문](https://www.jsoftware.com/help/dictionary/dx001.htm)은 `1!:1 <'name'`과 달리 indexed `1!:11 'name';offset length`, `x 1!:12 'name';offset` 형식을 사용한다. [수정 commit 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a)에서 indexed 파일명 unboxed 전달로 교정하고, `length/rank/syntax` error를 파일 존재 실패로 세던 거짓 양성도 차단했다. [단위테스트 보완 bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) 이후 재검증 결과가 확정되기 전에는 9/15를 기능 통과로 해석하지 않는다. IO-01/02/25와 전체 0/30 미수용 상태 유지.
+
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
