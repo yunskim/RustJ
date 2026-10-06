@@ -866,27 +866,27 @@ JAXA의 역사적 연구에서 말한 `basis verb`는 주로 **J Graph IR의 gra
 ~~~text
 J Function / Derived Verb
         ↓
-GraphBasis composition
+graph-level structured operation
         ↓
-Logical Execution lowering
+execution-semantic lowering
         ↓
-ExecutionBasis composition
+normalized executable operation family
         ↓
 backend / library / custom kernel
 ~~~
 
-예를 들어 `conv`를 graph level에서 black box로 남긴다는 과거 결정은 **GraphBasis에서 convolution의 구조적 정체성을 보존한다**는 뜻이다. 이것은 execution lowering에서 convolution을 더 작은 operation으로 분해하지 말라는 뜻이 아니다.
+예를 들어 convolution의 구조적 정체성을 graph level에서 보존한다는 것은 execution lowering에서 반드시 하나의 opaque operation으로 남겨야 한다는 뜻이 아니다.
 
 ~~~text
-GraphBasis::Conv
-  → ExecutionBasis::WindowView + Contract
-  → ExecutionBasis::Reindex + Elementwise + Reduce
+Structured Conv
+  → Window/View + Contraction
+  → Reindex + Elementwise + Reduce
   → library/custom fused realization
 ~~~
 
-어느 경로를 택하더라도 Graph IR의 원래 Conv identity와 equivalence/provenance를 잃지 않는다. 즉 **graph black-box 보존과 execution decomposition은 서로 모순되지 않는다.**
+어느 경로를 택하더라도 원래 graph identity와 equivalence/provenance를 잃지 않는다. 즉 **graph black-box 보존과 execution decomposition은 서로 모순되지 않는다.**
 
-문법이 정보의 **근원**이라는 말과 parser node가 optimization metadata를 **소유**한다는 말은 다르다. parser/FunctionEntity는 J construction semantics를 정확히 보존하고, J Graph IR builder가 그 구조를 applied noun graph와 결합해 GraphForm/GraphHint를 결정적으로 유도한다. 이렇게 하면 JAXA의 정적 정보 이점을 살리면서 target/cost/pass-local fact가 parser 의미 객체로 역류하는 것을 막을 수 있다.
+문법이 정보의 **근원**이라는 말과 parser node가 optimization metadata를 **소유**한다는 말은 다르다. parser/semantic entity는 J construction semantics를 정확히 보존하고, graph analysis가 그 구조를 applied noun graph와 결합해 topology/provenance 정보를 유도한다. 이렇게 하면 JAXA의 정적 정보 이점을 살리면서 target/cost/pass-local fact가 parser 의미 객체로 역류하는 것을 막을 수 있다. 구체 graph/basis 타입 이름은 PROJECT.ko.md가 정한다.
 
 ### Logical Execution IR
 
@@ -894,9 +894,9 @@ GraphBasis::Conv
 
 > 선택된 J graph를 J observable semantics를 보존하면서 정확히 실행하려면 어떤 operation과 dependency가 필요한가?
 
-여기서는 CellApply, Reduce, Gather, `ExecutionBasisKind` / `ExecutionBasisPayload`, ResolvedInstantiation, SemanticCheck, EffectSummary, AccessFact 같은 **실행 계약**이 중심이다.
+여기서는 cell application, reduction, gather/contract 같은 normalized operation과 rank/shape/effect/error/access 관련 **실행 계약**이 중심이다.
 
-하나의 J Graph node가 여러 execution op로 펼쳐질 수 있다. 따라서 execution op는 `j_origin`을 보존하지만 J Graph IR을 대체하지 않는다.
+하나의 J Graph node가 여러 execution operation으로 펼쳐질 수 있다. 따라서 execution layer는 원래 J Graph의 source/provenance 대응을 보존하지만 J Graph IR을 대체하지 않는다.
 
 ### 중요한 비대칭
 
@@ -910,7 +910,7 @@ Execution IR  →  J Graph IR
 
 그러므로 pipeline/hook/fork 정보를 후자의 generic DAG에서 다시 pattern-match하는 것을 주 경로로 삼으면 안 된다. J 문법이 이미 준 정보를 전자에서 잃지 않는 것이 우선이다.
 
-StructuralOpportunity는 두 IR 사이의 bridge다. source는 J Graph IR의 GraphForm/GraphHint이고, execution lowering이 이를 concrete execution values에 투영하여 legality/resource analysis가 사용할 수 있게 한다.
+J Graph에서 보존한 topology/provenance 정보는 두 IR 사이의 bridge가 된다. execution lowering은 이 정보를 concrete execution values에 대응시켜 legality/resource analysis가 사용할 수 있게 해야 한다. 그 bridge의 실제 자료구조는 PROJECT.ko.md가 정한다.
 
 ### 최적화도 두 층으로 나뉜다
 
@@ -1615,15 +1615,15 @@ J Semantic IR
 분석 후:
 
 ~~~text
-ResolvedCallFacts
+resolved call facts
   effective rank
   frame
   cell
   agreement
   repetition
 
-Logical
-  CellApply(...)
+logical execution
+  cell application(...)
 ~~~
 
 이 경계가 RustJ의 핵심이다.
