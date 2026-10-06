@@ -247,6 +247,26 @@ impl Value {
         Self::new(shape, data)
     }
 
+    /// Rebuild a rank fill-cell at a J dense type chosen by cr.c's
+    /// EVINHOMO retry. Deliberately discard input values: jtfiller builds
+    /// default fillers of the target type, it does not cast the old data.
+    /// Boxed/sparse retries remain unsupported until their J contract is
+    /// separately witnessed.
+    pub(crate) fn rank_refill_as(&self, target_type: i32) -> Result<Self> {
+        if self.is_sparse() || matches!(self.data, Data::Boxed(_)) {
+            return Err(Error::Unsupported("boxed/sparse rank refill".into()));
+        }
+        let atoms = count(&self.shape)?;
+        let data = match target_type {
+            1 => Data::Bool(CpuStorage::generate(atoms, |_| 0)?),
+            2 => Data::Char(CpuStorage::generate(atoms, |_| b' ')?),
+            4 => Data::Int(CpuStorage::generate(atoms, |_| 0)?),
+            8 => Data::Float(CpuStorage::generate(atoms, |_| 0.0)?),
+            _ => return Err(Error::Unsupported("rank refill target type".into())),
+        };
+        Self::new(self.shape.clone(), data)
+    }
+
     /// Assemble a zero-frame result from the type and shape of its fill-cell.
     /// No atom is copied from that synthetic cell into the final result.
     pub(crate) fn empty_rank_result(&self, frame: &[usize]) -> Result<Self> {
@@ -419,6 +439,30 @@ mod rank_fill_cell_tests {
         assert_eq!(fill.int_at(0).unwrap(), 5);
         assert_eq!(fill.int_at(1).unwrap(), 6);
         assert_eq!(fill.int_at(2).unwrap(), 7);
+    }
+
+    #[test]
+    fn rank_refill_uses_target_type_default_not_original_values() {
+        let source = Value::ints([3], vec![11, 22, 33]).unwrap();
+        let ch = source.rank_refill_as(2).unwrap();
+        assert_eq!(ch.type_code(), 2);
+        assert_eq!(ch.shape(), &[3]);
+        assert_eq!(ch.display(), "   ");
+        let int = ch.rank_refill_as(4).unwrap();
+        assert_eq!(int.type_code(), 4);
+        assert_eq!(int.shape(), &[3]);
+        for i in 0..3 {
+            assert_eq!(int.int_at(i).unwrap(), 0);
+        }
+        let fl = ch.rank_refill_as(8).unwrap();
+        assert_eq!(fl.type_code(), 8);
+        assert_eq!(fl.float_at(2).unwrap(), 0.0);
+        assert_eq!(
+            ch.rank_refill_as(32).unwrap_err().kind(),
+            "unsupported",
+        );
+        let empty = Value::ints([0, 3], vec![]).unwrap();
+        assert_eq!(empty.rank_refill_as(2).unwrap().shape(), &[0, 3]);
     }
 
     #[test]
