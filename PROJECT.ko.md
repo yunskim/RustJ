@@ -7294,6 +7294,152 @@ Schedule Plan은 여러 후보를 가질 수 있고 CostProfile/autotuning/backe
 - backend kernel/library 선택
 - async lifetime/resource information
 
+#### 5.2.1 M4 최소 PhysicalPlan v0 contract
+
+M4의 첫 CPU vertical slice를 구현하기 전에 **compiler plan의 resource identity와 runtime handle을 분리한 최소 schema**를 문서로 고정한다.
+
+가장 중요한 구분:
+
+~~~text
+Logical ValueId
+    ≠
+PlanBufferId        // compiler PhysicalPlan 안의 symbolic/planned storage slot
+    ≠
+physical::BufferId  // runtime BufferRegistry가 발급하는 checked handle
+    ≠
+raw address
+~~~
+
+현재 `physical::BufferId`는 registry identity + slot + generation을 가진 **runtime handle**이다. compiler가 lifetime/reuse를 계획하기 위해 사용하는 slot identity와 그대로 동일시하지 않는다. 실제 구현명은 달라질 수 있지만, plan-time identity와 executor-time lease/handle의 계층은 분리한다.
+
+또한 하나의 planned buffer 위에 여러 physical view가 존재할 수 있으므로 buffer identity와 view identity도 분리한다.
+
+~~~text
+PlanBufferId
+  storage/resource identity
+
+PhysicalViewId
+  PlanBufferId
+  logical shape
+  strides
+  offset
+  encoding
+  access mode
+~~~
+
+##### v0 PhysicalPlan
+
+첫 M4 범위는 **verified single-block pure-array CPU region + 필요한 SemanticCheck**로 제한할 수 있다. assignment/name mutation 같은 stateful effect는 첫 slice에서 RuntimeSemantic region에 남겨도 되며, 이것은 J language restriction이 아니다.
+
+개념 schema:
+
+~~~text
+PhysicalPlan
+  source_logical_schema / provenance
+  resolved CPU target
+  planned buffers
+  physical views
+  ordered/dependency-aware ops
+  outputs
+
+PhysicalOp
+  BindInput
+  Check
+  View
+  Materialize
+  Kernel
+  Return
+
+future / non-M4:
+  Transfer
+  Sync / AsyncToken
+~~~
+
+각 op의 역할:
+
+- **BindInput** — logical input/read value를 executor가 가진 runtime storage/lease와 연결한다. deep copy를 뜻하지 않는다.
+- **Check** — A3 `SemanticCheck`를 J error kind/origin/order와 함께 실행한다. optimizer 편의를 위해 kernel 안으로 숨기거나 제거하지 않는다.
+- **View** — transpose/reverse/slice 등 합법한 metadata-only physical view를 만든다. 새 backing allocation을 의미하지 않는다.
+- **Materialize** — consumer requirement나 layout/alias 조건 때문에 logical atom order를 보존한 실제 copy/packing을 만든다. 이유/provenance를 남긴다.
+- **Kernel** — 이미 선택된 `ParameterizedLoweringRecipe/RealizationFamily`를 입력/output view에 적용한다. rank/hook/fork/fusion legality를 executor에서 다시 판단하지 않는다.
+- **Return** — 최종 physical view/ownership을 logical result로 넘긴다. temporary를 output으로 잘못 재사용하지 않게 ownership을 확정한다.
+- **Transfer/Sync** — GPU/mixed-route에서만 필요할 수 있으며 M4 CPU v0의 필수 op가 아니다.
+
+##### planned buffer와 lifetime
+
+각 planned buffer는 최소 다음 정보가 필요하다.
+
+~~~text
+BufferRequirement
+  memory space / CPU class
+  encoding
+  extent or size expression
+  alignment requirement
+  ownership class: input | temporary | output
+  def / physical uses / last use
+  optional reuse witness
+~~~
+
+M4 첫 slice가 fully-resolved CPU extent만 지원해도 된다. dynamic extent 지원이 없다는 사실을 J semantic restriction으로 올리지 않고 route capability로 둔다.
+
+buffer reuse는 별도 semantic transform이 아니라 physical decision이다. 같은 `PlanBufferId` 또는 storage slot을 재사용하려면:
+
+1. 이전 physical value의 last use가 끝났고,
+2. outstanding view/lease가 그 storage를 관찰하지 않으며,
+3. encoding/size/alignment/memory-space requirement가 맞고,
+4. alias/destination contract가 허용하며,
+5. J-visible effect/error order를 바꾸지 않는다는
+
+reuse witness가 필요하다.
+
+##### PhysicalPlan verifier
+
+executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는 다음을 검사한다.
+
+- 모든 buffer/view/op id가 유효하고 use가 definition 뒤에 있다.
+- 모든 view의 shape/stride/offset span이 backing extent 안에 있고 encoding/dtype contract가 맞다.
+- buffer가 bind/allocation되기 전에 사용되지 않는다.
+- `Check`의 ordering edge와 source origin이 A3 SemanticCheck에서 유도되었고 누락/중복되지 않는다.
+- Kernel의 chosen realization이 resolved target과 lowering capability에 맞고 필요한 input/output view contract를 만족한다.
+- write 가능한 overlapping views가 proof 없이 동시에 사용되지 않는다.
+- Materialize가 logical atom order/value semantics를 보존한다.
+- reuse는 last-use + alias/ownership witness 없이는 허용하지 않는다.
+- Return은 유효한 output ownership/view를 가리키고 temporary lifetime 이후 dangling view를 만들지 않는다.
+- M4 pure-region plan에는 숨은 namespace/write effect가 없다.
+
+##### error / cleanup contract
+
+- `Check` 실패는 원래 J semantic error로 보고한다.
+- Kernel/library 자체의 implementation failure를 임의의 J Domain/Rank/Length error로 바꾸지 않는다.
+- plan 실패 시 executor-owned temporary lease/resource는 정리하되 caller-owned input은 파괴하지 않는다.
+- first M4 pure slice에서는 namespace assignment commit을 Physical Executor가 소유하지 않는다. stateful write를 native route에 넣을 때 별도 effect/commit contract를 추가한다.
+- observable effect가 commit된 뒤 transparent replay하는 fallback은 금지한다.
+
+##### 현재 코드와의 대응
+
+현재 `src/physical.rs`는:
+
+~~~text
+BufferRegistry / BufferLease / runtime BufferId
+checked read-only affine PhysicalArray
+shape / strides / offset / encoding validation
+~~~
+
+을 제공하는 **G1 representation foundation**이다. 아직 `PhysicalPlan`, plan-time buffer slot, planner, physical executor가 아니다. `logical_executor.rs`도 A3 semantic/reference executor이지 Physical Executor가 아니다.
+
+##### 구현 순서 — 한 번에 한 의미 + 한 verifier/test
+
+1. plan-time `PlanBufferId`/`PhysicalViewId`와 empty plan verifier
+2. `BindInput + Return`만으로 identity plan E2E
+3. `View` + span verifier, transpose/reverse metadata-only 회귀
+4. `Check` + J error class/order regression
+5. `Kernel` 한 종류(Add) + selected lowering capability verification
+6. `Materialize` + logical-order copy/ownership test
+7. last-use + reuse witness, alias negative tests
+8. 여러 op를 연결한 verified Logical IR → PhysicalPlan → CPU result differential test
+
+이 순서는 G4를 구현할 때의 최소 vertical slice이며 full GPU resource model을 선행 조건으로 만들지 않는다.
+
 ### 5.3 RustJ-native Executor
 
 이 절은 Route A에만 적용한다. RustJ-native Executor는 이미 정해진 Physical Plan을 수행한다. 외부 compiler/runtime route는 각 시스템의 executor/runtime가 자체 lower-level scheduling을 수행할 수 있다.
