@@ -3023,6 +3023,8 @@ RustJ
 
 `tests/lowering.rs`에 Reduce, 단항 Mean, Gather, IntervalLookup의 J Graph→A3 origin 연결, CPU/GPU 기존 route와 미증명 분리, 오래된/조작 후보 및 누락된 logical origin을 검증하는 **정적 회귀 테스트를 추가했다. 테스트를 실행했다는 뜻은 아니다.** CI·Cargo·jsource differential·benchmark는 이 변경에서 실행하지 않았다.
 
+<a id="jsource-audit-m"></a>
+
 ##### M. jsource 재감사: 기존 catalog 밖의 구조적·수치적·상태적 최적화 (2026-10-06)
 
 **감사 방법과 범위.** 같은 [jsource 고정 revision](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc)에서 (1) \`ca.c\`의 \`@/@:/&:\` 조합 dispatch 및 \`cf.c\`의 hook/fork construction, (2) \`ao/cc/v/vi/vg/vrand/vx/vz/va1/vo/a.c\`의 실제 실행·reversion 경로, (3) RustJ의 \`j_graph_ir.rs\`, \`j_graph_jsource.rs\`, \`analysis.rs\`, \`logical_ir.rs\`, \`execution_semantics.rs\`, \`lowering.rs\` 경계를 **서로 다른 출발점으로 대조**했다. 앞선 A/H/K의 대표 최적화 목록에는 다음 구조·소유권이 개별 항목으로 **빠져 있거나 충분히 분리되지 않았다.** 원본 dispatch의 존재는 RustJ parser 지원, 의미론적 등가성 또는 성능 개선의 증명이 아니다.
@@ -7289,7 +7291,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 
 근거: [ws.c spelling codes](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ws.c), [t.c permanent nouns·POS·VF2NAMELESS](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L81), [w.c installed primitive check](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c#L140). source pin과 실행 DLL provenance의 분리는 유지한다.
 
-**jsource 특수 경로 누락 재감사:** 아래 basis 대응 외에 확인된 convolution (\`f//.@:(g/)\`), Cut–Scan–Raze, byte LUT, boolean-index, order-statistic, shape-RNG, boxed link, explicit \`M.\`, numeric exactness, hook comparisons는 [§4.1.3.6 M](#)의 source-guard/ownership 표를 기준으로 한다. 이 목록을 새로운 basis IR node의 필연적 추가로 해석하지 않는다.
+**jsource 특수 경로 누락 재감사:** 아래 basis 대응 외에 확인된 convolution (\`f//.@:(g/)\`), Cut–Scan–Raze, byte LUT, boolean-index, order-statistic, shape-RNG, boxed link, explicit \`M.\`, numeric exactness, hook comparisons는 [§4.1.3.6 M](#jsource-audit-m)의 source-guard/ownership 표를 기준으로 한다. 이 목록을 새로운 basis IR node의 필연적 추가로 해석하지 않는다.
 
 ##### jsource special-code inventory와의 교차검증
 
