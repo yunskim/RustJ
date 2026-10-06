@@ -3452,12 +3452,12 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 | ID | 현재 | 수정·검증 수용 기준 |
 |---|---|---|
-| ZF-IR-01 / M2 | [ ] **Rank/frame 구조 의미론 공통화** | `rank_plan_for_shapes`와 `RankFrameExecution`; 동일 입력에 대해 J Graph와 A3의 frame·cell·빈 frame 분류가 일치해야 함. 코드 커밋 [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398)·[fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11). CI 검증 후 [x] |
-| ZF-IR-02 / M2 | [ ] **J Graph 읽기 전용 조회 + 역방향 검증** | `Plan::rank_frame_plan`([89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d)), `tests/j_graph_ir.rs`([b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871)): `0 3`·`2 0`·중간 0·불일치 frame, Graph와 A3 RankPlan 비교, 비-Rank 조회 None, 결과 미추론 보존. CI 검증 후 [x] |
+| ZF-IR-01 / M2 | [x] **Rank/frame 구조 의미론 공통화** | `rank_plan_for_shapes`와 `RankFrameExecution`; 동일 입력에 대해 J Graph와 A3의 frame·cell·빈 frame 분류가 일치해야 함. 코드 커밋 [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398)·[fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11). [Linux CI 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) check + 4 reference jobs 성공 |
+| ZF-IR-02 / M2 | [x] **J Graph 읽기 전용 조회 + 역방향 검증** | `Plan::rank_frame_plan`([89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d)), `tests/j_graph_ir.rs`([b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871)): `0 3`·`2 0`·중간 0·불일치 frame, Graph와 A3 RankPlan 비교, 비-Rank 조회 None, 결과 미추론 보존. [Linux CI 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) 5 jobs 성공 |
 | ZF-IR-03 / M3·FW-06/07 | [ ] **빈 결과 생략의 독립 증명 의무** | result-cell 타입·shape·순수성·오류 억제·효과/동적 이름·Guard·fallback을 구별; Unknown→생략 승인 및 frame 0→무조건 kernel 생략을 거부하는 negative test |
 | ZF-IR-04 / M3/M4·FW-11/13 | [ ] **실행 선택·물리 최적화 검증** | pinned C/J, 독립 Rust semantic reference, Rust optimized의 3경로 회귀 및 CPU 측정 후에만 빈 커널/버퍼 생략을 개별 활성화. 2 0의 빈-cell 호출·오류 및 zero-frame fill 오류·효과를 비교. GPU 승인 없음 |
 
-**현 단계 판정:** ZF-IR-01/02는 구현 및 회귀 테스트를 추가했으나 **현 HEAD의 최종 CI 성공 확인 전에는 미완료**로 관리한다. ZF-IR-03/04는 설계·검증 의무만 정의했고 구현/최적화 실행은 시작하지 않았다. 상위 RK-11·FW-04·JX-04 **[ ] 유지**, §P.11의 RK-06~12 순서는 변경하지 않는다.
+**현 단계 판정·검증(2026-10-06):** ZF-IR-01/02 **2/4 완료**. [Linux milestone run 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951), HEAD [`e9f821d`](https://github.com/yunskim/RustJ/commit/e9f821d0658005a1545131d31c31fb53d3521b26)에서 **check(기본/portable 테스트·fmt·clippy) + pinned j64/j64avx2 × default/portable 총 5/5 jobs 성공**을 확인했다. 이 기존 차분 실행은 **변경되지 않은 실행기의 회귀**에 대한 결과이지 ZF-IR 기반 kernel-elision 최적화를 실행·검증했다는 뜻이 아니다. ZF-IR-03/04는 구현되지 않았고, 상위 RK-11·FW-04·JX-04 **[ ] 유지**. §P.11의 RK-06~12 순서는 변경하지 않는다.
 
 <a id="jsource-optimization-migration"></a>
 
