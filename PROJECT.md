@@ -2569,6 +2569,42 @@ After fixing a finding, independently re-run the relevant checks and record comm
 | JX-25 / D·FW-11–17 | **Physical target, hard resources and measured costs:** jsource SIMD/AVX, GEMM, hash, view, inplace | src/lowering.rs, src/physical.rs, src/j_graph_resource.rs, src/fusion_planning.rs | After independent baseline/three-way testing, separate capabilities, hard allocation bytes and measured latency/memory. Defer SIMD/BLAS/GPU/cache-tuning without semantic proof, guard/fallback and measured gain |
 | JX-26 / final·FW-18 | **Independent repeated audit and uncovered upstream paths:** numeric primitive/allocator/architecture-specific paths, new jsource commits | §7.4.3 A–M, §Q, §O.5, §P.1, reports/ | Separately audit **pinned C dispatch/fallback, J counterexamples, Graph-A3 provenance, guard-effect/runtime, target-cost/bench**. Record commit, environment/commands, pass/fail/ignored, pinned oracle scope and gaps; synchronize FW/P state |
 
+#### Q.1 Initial JX-01/FW-01 static source/frontend audit (2026-10-06)
+
+**Status: JX-01 [ ], FW-01 [ ] remain open.** We fetched all **16/16 pinned upstream C/H files** referenced by the current family registry. Representative text/symbols were found in 15; the `vcat.c` entry `boxed ownership transfer` is a descriptive label, **not** a literal C symbol. File/symbol presence does not prove the full guards, fallbacks, J semantics, runtime correctness, or performance.
+
+`src/j_graph_jsource.rs::JSOURCE_FAMILY_RULES` includes **16 families**: **AnalysisOnly 7 / ExistingAnalyzer 1 / AwaitingFrontendOrFacts 4 / DownstreamOnly 4**.
+
+| Family / discovery state | J form → pinned jsource evidence | Obligations and baseline fallback / RustJ owner·JX gate |
+|---|---|---|
+| `ReductionFastPath` / AnalysisOnly | `f/ y` → `ar.c::jtreduce` | empty/singleton/two-item, identity, overflow → Reduce; ExecutionAlgorithm / JX-10 |
+| `MeanIdiom` / AnalysisOnly | monadic `(+/ % #) y` → `cf.c::jtfolk`, `ar.c::jtmean` | exclude dyad; rank/FP order → original fork; ExecutionSemantics / JX-10 |
+| `WindowAlgorithm` / AnalysisOnly | `f\ y`, `x f\. y` → `ap.c::jtmovfslash` | Scan vs Window, length/NaN/overflow → generic; ExecutionAlgorithm / JX-11 |
+| `SearchAlgorithm` / AnalysisOnly | dyadic `i.` / `i:` / `e.` → `vi.c::indexofsub` | first/last/member, CCT/rank/boxed/sparse → sequential; ExecutionAlgorithm / §P·JX-15 |
+| `IntervalLookup` / AnalysisOnly | dyadic `x I. y` → `viix.c` | sortedness/type/empty, not monad → baseline; ExecutionAlgorithm / JX-15 |
+| `GatherCopyOrView` / AnalysisOnly | `x { y` → `vfrom.c::jtget1cell` | bounds/alias/contiguity → copying; PhysicalPlanner / JX-20 |
+| `ReindexCopyOrView` / AnalysisOnly | `$` / `|.` / `|:` → `vf.c` | fill/shape/usecount → materialize; PhysicalPlanner / JX-20 |
+| `MapReduceStreaming` / ExistingAnalyzer | `f/@:g` → `va2.c::jtfslashatg` | dense/type/empty/inplace/overflow → generic map-reduce; existing GraphFusion / JX-09 |
+| `ResultAssemblyDemand` / AwaitingFrontendOrFacts | box/open/raze → `result.h` | recursive boxes/raze checks/effects → generic assembly; ExecutionSemantics / JX-17/20 |
+| `GroupAggregate` / AwaitingFrontendOrFacts | `u/.`, `f//.` → `ao.c::jtkeyct/jtsldot` | CCT/group order/representative/type → generic group; ExecutionAlgorithm / JX-12 |
+| `MatrixContraction` / AwaitingFrontendOrFacts | `+/ . *` → `cip.c::jtpdt`, `gemm.c` | rank/Fit/overflow/FP order/sparse → generic dot; ExecutionAlgorithm / JX-13 |
+| `GradeRanking` / AwaitingFrontendOrFacts | `/:`, `\:` → `vg.c` | ties/order/type/axis → generic grade; ExecutionAlgorithm / JX-14 |
+| `TolerantHash` / DownstreamOnly | tolerant search → `viavx2.c` | CCT nontransitivity/±0/NaN → sequential; ExecutionAlgorithm / §P·JX-15 |
+| `SparseAlgorithm` / DownstreamOnly | sparse dot/grade/index/from → `cpdtsp.c` etc. | axes/fill/empty/type → sparse reference; ExecutionAlgorithm / JX-21 |
+| `BufferOwnership` / DownstreamOnly | boxed concat/reshape/compress → `vcat.c` etc. | alias/usecount/recursive boxes → allocate; PhysicalPlanner / JX-20/22 |
+| `NameLookupCache` / DownstreamOnly | late name/locale → `sc.c::jtunquote` | epoch/locale/reentrancy/invalidation → actual lookup; RuntimeBinding / JX-23 |
+
+**Tracked source families deliberately outside the registry:** §7.4.3 H/K/M includes Cut→Scan→Raze (`cc.c`, JX-17), oblique convolution (`ao.c`, JX-13), char-map LUT (`v.c`, JX-16), boolean/sparse→indices (`cf.c`, JX-16), RNG-pivot order statistics (`vg.c`, JX-14), RNG shape (`vrand.c`, JX-24), Box+Append (`vo.c`, JX-17), explicit `M.` memo (`a.c`, JX-24), Under/Each (`cu.c`, JX-19), bound numeric/deadband (`vx.c/vz.c/va1.c`, JX-18), Amend/Scatter (`am.c`, JX-22), assignment/explicit-definition fast paths (`p.c/cx.c`, JX-22). These are **source evidence backlogs**, not 16 additional executable or exhaustively audited families.
+
+**FW-01 frontend boundary:**
+- **Word formation:** `src/tokenizer.rs::scan/parse_word_spans` and `tests/syntax.rs`. Previous F0 differential results are history, **not** a rerun.
+- **Enqueue/POS:** `src/primitive.rs`, `src/enqueuer.rs`, `tests/enqueuer.rs` recognize `/.`, `.`, `/:`, `\:`, `;.`, `&.`, `M.`, `?`, `?.`, `!.` as vocabulary POS, **not** as proof of supported derived constructor, runtime, or optimization. Locatives/name-by-value and some numeric payloads remain Unsupported.
+- **Derived parser:** `src/parser.rs`, `src/semantic.rs::FunctionEntity`, `tests/semantic.rs` represent portions of `@:`, Hook/Fork, Rank, Insert/PrefixInfix. Key/Dot/Cut/Under/Memo/Grade construction/execution, late NAME, valence/POS and error/effect order require C differential evidence.
+- **Source opportunities:** `src/j_graph_jsource.rs::discover` limits Mean to the monad and keeps `E.` window separate from ordinary index search. Candidate discovery does not authorize execution.
+- **Regression source added:** [commit e364535](https://github.com/yunskim/RustJ/commit/e36453575430879e4bc546c62350107a3e698e84), `tests/j_graph_jsource.rs::optimization_vocabulary_pos_is_not_a_compiler_optimization_license`. **No Rust default/portable or real pinned C oracle pass yet verified**.
+
+**Next acceptance increment:** execute that regression under default/portable Rust, gather real pinned J C POS/derived syntax/error fixtures, then fix **one confirmed semantic discrepancy with one negative regression**. Do not check off JX-01/FW-01 before recording actual commands, environment, source pin, results, and unsupported boundaries.
+
 **Operating rules.** Each JX gate requires **(1) pinned C source and guards → (2) J semantics/support boundaries → (3) graph provenance and candidates → (4) per-obligation proof/guard/fallback → (5) independent Rust reference, negative tests and real C differential → (6) target/resource/measured-cost decision**. Keep [ ] without actual execution evidence. Prefer **one semantic change plus one related regression/counterexample** at a time. A regression or upstream drift invalidates affected proofs and reopens prior FW gates. For each completed row record **JX-ID / code commit / commands and environment / passed-failed-ignored / jsource commit and executed oracle scope / fallback-negative results / measured metrics / known gaps / next gate**. Next actionable work remains **JX-01 source coverage and FW-01 M2**, not enabling new specializations.
 
 ## 7.5 Candidate lifecycle and proof-discharge contract
