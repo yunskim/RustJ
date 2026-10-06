@@ -3112,6 +3112,23 @@ RustJ
 5. **검증:** Rust reference, C J oracle, mixed rank/empty/sparse/box/exact+tolerant/negative-zero/large cardinality 및 differential/bench를 통과한 후에만 추후 search fast path의 일반 적용을 승인한다. **CI·Cargo·차등 실행·성능 측정은 이번 연결 작업에서 실행하지 않았다.**
 
 
+
+###### N.3 두 번째 구현 단위 — Reverse Hashing과 per-Engine Prehash (2026-10-06)
+
+**대응 근거.** [jsource \`viavx.c::indexofsub\`의 reverse hash 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850)은 indexed/query cardinality와 지원 모드에 따라 반대 방향에 검색 테이블을 세운다. [\`vi.c\`의 prehash mode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185)는 파생 함수의 저장 테이블과 특정 비교 계약을 포함한다. 아래 RustJ 구현은 그 **기본 개념을 제한적으로 차용**한 것이며 C의 prehashed derived verb 전체를 재현하지 않는다.
+
+| 구현 항목 | 실제 경로와 조건 | 보존 계약 / 제한 |
+|---|---|---|
+| **질의측 Reverse Hashing** | \`src/index_ops.rs::reverse_exact_index\`: indexed 원소 ≥64, \`indexed.len()/2 > query count\`, 단항 셀 \`Int/Bool\` 양측만. 작은 **질의 집합**의 distinct key를 \`HashMap\`에 넣고 원 indexed 배열을 한 번 스캔 | First/Membership은 앞→뒤, Last는 뒤→앞. distinct query key가 모두 해결되면 조기 종료. 중복 질의·없는 값은 각각 같은 position/not-found sentinel을 받는다. float tolerance/boxed/multicell은 제외 |
+| **저장소 identity 기반 per-Engine Prehash** | \`ExactPrehashCache\` 하나를 \`Engine\` 내부에 유지. 양측 exact \`Int/Bool\`, indexed rank=1, 64~16,384 items, indexed backing이 \`CpuStorage::Shared(Arc<_>)\`일 때만 사전 빌드. \`i.\`/Membership은 First 공용, \`i:\`는 Last 별도 | **같은 Arc allocation + dtype/shape + First/Last 모드**가 맞아야 hit. 원 source \`Value\`를 공유 clone으로 cache에 보유하여 포인터 재사용/수명 혼동을 차단. binding 재정의로 새 storage가 생기면 재빌드. 오직 한 table만 보존하므로 메모리 상한 제한 |
+| **실행 경로 분리** | \`src/runtime.rs::Engine::interpret_ir\`에서 \`pooled\`인 일반 primitive dyad \`i.\`/\`i:\`/\`e.\`의 exact scalar 데이터만 cache-aware entry로 보내며 기타 입력·명시 Rank는 기존 \`kernels::dyad\`로 복귀 | \`eval_semantic_reference\`는 cache 사용하지 않음. \`index_prehash_stats() -> (builds,hits)\`, \`clear_index_prehash()\`는 J value 의미를 바꾸지 않는 관측·clear API |
+| **테스트** | \`src/index_ops.rs\` unit: reverse 중복/순서·direct/hash/sequential 참조 대조·Arc identity·rebind; \`tests/index_ops.rs\` integration: 실제 Engine의 cache hit/miss, 멤버십 공유, Last 분리, 새 binding, reference 경로 및 temporary reverse | **작성만 완료.** Cargo/CI/C differential/benchmark 미실행; 정적 연결 확인과 실행 성공을 구분 |
+
+**프레임워크 판정:** canonical \`J Graph → A3 LookupClassify → Physical Planner\`에 새 IR node를 추가하지 않았다. 이 첫 CPU 실행 경로의 비용 threshold(64, 2:1, 16,384)는 실험으로 최적화한 값이 아닌 보수적 초기값이다. 현재 cache는 physical interpreter-local 구현이고 compiler \`JsourcePlanningReport\`의 semantic witness, \`LoweringRegistry\` target-route/cost 선택, guarded optimized transform에 연결되었다고 주장하지 않는다.
+
+**추가로 필요한 것:** \`m&i.\` 또는 \`e.&n\`처럼 J의 derived verb 수준으로 prehash 수명을 관리하려면 별도 \`PreparedLookup\`/versioned dictionary identity/semantic equality contract와 guard/miss fallback을 A3 sidecar에 구현해야 한다. 일반 이름/locale·\`!.ct\` tolerance 변경·sparse/boxed까지 이 캐시를 무조건 확대하면 안 된다. Prehash 준비 과정에서 관찰 가능한 error/effect를 건너뛰지 않는다는 증명도 선행해야 한다. 우선 실제 J/C 출력 차등 및 작은/큰 query 비용 측정 후 threshold와 API를 확정한다.
+
+
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
