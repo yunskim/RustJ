@@ -195,6 +195,53 @@ fn zero_frame_rank_search_uses_fill_cell_type_and_shape() {
 }
 
 #[test]
+fn rank_empty_result_recovers_pinned_j_computational_fill_domain_only() {
+    // Pinned J cr.c::jtrank2ex: the fill-cell domain failure does not escape
+    // when the result frame has zero cells. The result uses integer scalar 0
+    // as its prototype (not either argument's char/float/bool dtype).
+    for source in [
+        "(0 3 $ 'abc') (+\"1 1) (i.0 3)",
+        "(i.0 3) (+\"1 1) (0 3 $ 'abc')",
+        "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1.5)",
+        "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1=1)",
+        "(0 3 $ 'abc') (+\"1 1) (i.3)",
+        "(i.3) (+\"1 1) (0 3 $ 'abc')",
+    ] {
+        let mut engine = Engine::new();
+        let baseline = engine
+            .eval_semantic_reference(source)
+            .unwrap_or_else(|error| panic!("reference {source}: {error:?}"))
+            .unwrap();
+        let optimized = engine
+            .eval(source)
+            .unwrap_or_else(|error| panic!("runtime {source}: {error:?}"))
+            .unwrap();
+        assert_eq!(baseline.type_code(), 4, "{source}");
+        assert_eq!(baseline.shape(), &[0, 3], "{source}");
+        assert_eq!(baseline.len(), 0, "{source}");
+        assert_eq!(optimized.json(), baseline.json(), "{source}");
+    }
+
+    // Ordinary cells, including a nonempty char/int combination, are NOT
+    // covered by a result-zero-frame fill/prototype recovery.
+    let source = "(2 3 $ 'abc') (+\"1 1) (i.2 3)";
+    let mut engine = Engine::new();
+    assert_eq!(
+        engine.eval_semantic_reference(source).unwrap_err().kind(),
+        "domain error"
+    );
+    assert_eq!(engine.eval(source).unwrap_err().kind(), "domain error");
+
+    // Prefix frame validation is prior to the fill-call recovery.
+    let source = "(i.0 3) (+\"1 1) (i.2 3)";
+    assert_eq!(
+        engine.eval_semantic_reference(source).unwrap_err().kind(),
+        "length error"
+    );
+    assert_eq!(engine.eval(source).unwrap_err().kind(), "length error");
+}
+
+#[test]
 fn nested_rank_of_intrinsic_primitive_keeps_zero_frame_cell_shape() {
     // The outer Rank still needs a fill-cell result; an inner Rank of a
     // concrete primitive has a value-only witness, unlike an arbitrary verb.
