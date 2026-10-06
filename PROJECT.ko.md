@@ -3216,6 +3216,8 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **재개 조건:** 검증된 reference semantics + source/differential evidence + 명시적 target guard/fallback + M4 기준선 측정 + 상한 자원/비용 근거가 함께 있을 때만 실제 알고리즘 특수화를 검토한다. 이 조건을 충족하기 전 P.1의 8–11단계 작업을 **착수 대상에서 제외**하며, 5–7·12단계의 아직 검증되지 않은 항목을 완료 처리하지 않는다. 새 jsource C special-case마다 RustJ 고유 IR·executor branch를 만드는 설계는 금지한다.
 
+**지연 최적화 재검토에서 드러난 기준선 혼합:** `eval_semantic_reference`는 캐시 사용을 끄지만 `index_ops::lookup`의 일반 exact scalar Physical search planner는 여전히 호출한다. 'reference path'라는 명칭이 최적화와 독립인 순차 oracle을 보장하지 않는다. P.3에서 M2 우선 과제로 분리한다.
+
 ###### P.1 구현 단계와 수용 기준 (계속 갱신)
 
 | 순서 | 체크 항목 | RustJ 소유 계층·수용 기준 | 현재 상태 |
@@ -3244,13 +3246,14 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **반복 기준:** 한 번의 점검에서 실패 사례가 나오면 관련 코드·proof/fallback과 회귀 테스트를 수정하고 A~E 중 직접 관련되지 않은 관점에서도 다시 검증한다. [ ]를 [x]로 바꿀 때는 **실행 명령, 환경, 테스트 개수/결과, 비교 원본의 commit 또는 측정 데이터**를 같은 절에 기록한다. Linux 전용 milestone은 생성하지 않는다. CI를 실행하지 않았으면 통과라고 기록하지 않는다.
 
-###### P.3 현재 known gaps / 바로 다음 순서
+###### P.3 현재 known gaps / 바로 다음 순서 — M2 우선으로 재정렬 (2026-10-06)
 
-1. 먼저 연구 harness의 부호·지수 bucket 범위와 `kernels::near` 고정 tolerance에 한한 포괄성 수학 논증을 확정하고 Rust 기본/portable 테스트를 실제로 검증한다(현 환경에서 실행 불가능하면 미검증 유지).
-2. 독립 J C reference로 first/last·float/complex/boxed·`!.ct`와 빈 cell/frame을 확인해 **현재 CPU `near`와 원본 J 차이**를 수집한다. 이 차이가 제거되기 전에는 tolerance-specific optimized route를 절대 열지 않는다.
-3. 그 다음 BQN의 lightweight small-array, byte/2-byte table, sparse table init, collision safeguards를 workload별 실측으로 평가하고 `SearchWorkload`/cost evidence를 확장한다. **BQN의 open addressing을 근거 없이 HashMap 대신 바로 채택하지 않는다.**
-4. Tolerant hashing kernel 활성화는 마지막 단계다. Registry 상태 `NeedsSemanticProof` 및 Graph `AwaitingSemanticProofs`는 proof/guard/fallback 검증 전까지 유지한다.
+1. **M2 frontend 수렴이 우선:** word formation → enqueue → parser/name/POS/derived entity의 실제 미해결 의미론과 회귀 검증을 먼저 마무리한다. 검색 최적화 연구는 frontend 작업을 선점하지 않는다.
+2. **독립적인 의미론 기준선 복구:** `eval_semantic_reference(...)`는 `pooled=false`지만, `kernels::dyad("i."/"i:"/"e.")`가 `index_ops::lookup(..., None)`을 호출하고 그 내부에서 **여전히 `optional_exact_scalar_index` → `plan_search_algorithm`**을 실행한다. 따라서 지금의 `semantic reference`는 **prehash를 피할 뿐 Direct/IndexedHash/ReverseQueryHash 선택에서 독립적이지 않다**. M2/M3 기준선으로 사용할 때는 순차·명세 중심 검색과 optional physical strategy를 실제로 분리하고 동일 J 입력에 두 경로가 일치하는지 검사해야 한다. 코드 변경 및 테스트 통과는 **아직 미실행**.
+3. **J 언어 의미를 독립 검증:** `=`, `i.`, `i:`, `e.`, `E.`, `!.ct`, `9!:18/9!:19`의 원본 J C 결과를 수집하고 기본 비교식 `near`와 `TCMPEQ` 경계 차이, rank/cell/frame/empty/boxed/sparse/error를 참조 실행과 대조한다. 이 작업은 특수 해시 알고리즘 복제가 아니라 의미론 정확성 검증이다.
+4. **Graph/A3/Registry 보존, Physical commitment 연기:** source topology·comparison intent·provenance·unknown proof facts와 실행 합법성 보고는 보존한다. P.1의 기존 Int/Bool 특수 실행은 현재 구현물로만 취급하고 후속 확장을 동결한다. BQN SIMD/작은 direct table/radix/충돌 전략, tolerant bucket 활성화, 휴리스틱 튜닝은 M2/M3 의미론 안정화와 M4 기준 CPU 실행·실측 뒤에만 재검토한다. `TolerantNeighborHash`는 `NeedsSemanticProof` 상태를 유지하며 Runtime/Physical 실행 경로에 올리지 않는다.
 
+**검증 정책:** semantic-reference와 optimized 경로가 동일한 내부 planner를 공유하는 동안 두 결과의 일치는 독립적인 최적화 검증 증거가 아니다. 추후 확인된 C oracle 및 순차 semantics 기준선과의 **3방향 비교**, 오류/효과 순서, fallback, 실제 비용 측정을 별도 gate로 둔다.
 
 ###### P.4 독립 검토 기록 #1 — 제한된 float search 후보 완전성 (2026-10-06)
 
