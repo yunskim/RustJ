@@ -338,9 +338,14 @@ fn empty_frames_and_incompatible_frames_remain_unresolved() {
         e.eval(s).unwrap();
     }
 
-    for s in ["+/\"1 empty", "empty+\"1 empty"] {
+    for (s, expected_shape) in [
+        ("+/\"1 empty", vec![0]),
+        ("empty+\"1 empty", vec![0, 3]),
+    ] {
         let p = e.analyze_a3(s).unwrap();
         let result = p.result.unwrap();
+        // Static facts remain conservative without a proven result-cell
+        // prototype, even though the interpreter can execute a fill cell.
         assert_eq!(p.values[result.0].facts, Facts::default());
         assert!(
             result_call(&p)
@@ -349,7 +354,10 @@ fn empty_frames_and_incompatible_frames_remain_unresolved() {
                 .unwrap()
                 .requires_empty_frame_prototype
         );
-        assert!(matches!(e.eval(s), Err(rustj::Error::Unsupported(_))));
+        let value = e.eval(s).unwrap().unwrap();
+        assert_eq!(value.type_code(), 4, "{s}");
+        assert_eq!(value.shape(), expected_shape, "{s}");
+        assert_eq!(value.len(), 0, "{s}");
     }
 
     let p = e.analyze_a3("a+\"1 b").unwrap();
