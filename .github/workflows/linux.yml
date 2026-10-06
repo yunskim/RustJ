@@ -61,6 +61,13 @@ jobs:
             seed=$(date -u +%Y%m%d)
           fi
           python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64 --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
+      - name: FW-04 pinned search three-way differential gate
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/search_three_way.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/search-three-way-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -68,5 +75,6 @@ jobs:
           path: |
             reports/conformance*
             reports/word-conformance-*.json
+            reports/search-three-way-*.json
             .reference/manifest*.json
             .reference/build.log
