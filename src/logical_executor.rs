@@ -149,8 +149,8 @@ fn execute_ranked_semantic(
     left: Option<Value>,
     right: Value,
 ) -> Result<Value> {
-    // The current fill path is proven only for built-in primitives. A
-    // user-defined derived function can have observable fill-cell effects.
+    // Admit only a concrete primitive or a structural Rank chain above one.
+    // Unknown and user-defined functions may execute observable fill effects.
     let primitive_fill = has_value_only_rank_fill_semantics(function);
     apply_ranked(ranks, left, right, primitive_fill, |x, y| {
         execute_semantic(function, x, y)
