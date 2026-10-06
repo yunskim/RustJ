@@ -3188,6 +3188,45 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 - 회귀 검사에 A3 `SearchDescriptor`의 mode·indexed/probe origin 및 forged payload 거부, Registry의 target·proof 상태, Physical의 5개 전략/false guard/GPU/Interval 차단을 추가했다. 기존 `i.` first/last/membership/empty/duplicate 및 prehash rebinding 테스트는 별도로 유지한다. **이번 변경에서는 Cargo·CI·jsource differential·benchmark를 실행하지 않았으므로 결과의 실행 검증과 성능 개선을 주장하지 않는다.**
 
 
+
+###### O.4 검색 계열을 통한 공통 프레임워크 역설계 — 독립 4관점 재검토 (2026-10-06)
+
+**검토 질문과 판정.** jsource `i.` family를 *어떻게 해시로 구현할까*보다 **왜 한 의미론적 연산에 여러 실행 알고리즘·결과 소비 형태·재사용 수명이 존재하며, RustJ 전체가 이를 어떤 경계로 표현해야 하는가**의 사례로 사용한다. **프레임워크의 큰 층 구분은 이미 옳다. 하지만 ‘검색 의미론 ↔ 후보의 증거 ↔ 자료구조 준비/수명 ↔ 비용/선택 ↔ 독립 실행 기준선’ 사이의 실행 가능한 연결 계약이 미완성**이다. 별도 검색 전용 IR, `vi.c` 모드별 연산, 즉각적인 범용 optimizer 또는 새로운 공통 crate를 추가하지 않는다. 기존 §O.3과 §4.1.4의 모델을 **구현 가능한 소규모 인터페이스 계약**으로 점진적으로 닫는다.
+
+**검토 A — 원본 의미론에서 독립 출발.** pinned [jsource `vi.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c)는 `IIDOT`(first), `IICO`(last), `IEPS`(membership), `INUB/INUBSV`(nub·nub sieve), `IIFBEPS`(`I.@e.`), 관련 집계/마스크 및 `IPH...` prehash 모드를 공통 검색 내부 엔진의 변형으로 다룬다. **재사용할 관찰:** domain을 검사하는 계산, 비교 정책, source-order 대표 위치, 결과 요구(output demand), 재사용 가능한 탐색 상태가 서로 구분된다. **재사용하지 않을 것:** C의 mode bit/entrypoint, 해시 배치, SIMD 분기, `viavx2.c`의 tolerant bitmask를 J 언어 의미나 Graph IR 구조로 고정하는 일. 특히 `i.`/ `i:`의 단항 생성형, `I.` 이항 interval, `E.` window find, Nub/Key는 **동일 verb가 아니라 별도의 observable J contract**다. 연산별 의미를 보존한 뒤 legality가 증명된 공통 하위 연산이나 multi-op region만 재사용한다.
+
+**검토 B — RustJ 계층/IR에서 독립 출발.** 현재 `src/logical_ir.rs::SearchDescriptor`는 원본 `ValueId`, `indexed/queried` 방향, first/last/membership/interval/self-classify intent, `JEquality` 또는 ordered-interval 의미, rank boundary를 보유한다. `src/j_graph_jsource.rs`는 후보 발견만 하고 미증명·미선택 상태를 유지한다. 이것은 **보존**한다. 다만 `JEquality`라는 표식만으로 실제 `!.t`/전역 `cct`, 비교 타입 승격, boxed/complex/sparse, rank/cell/frame·empty prototype·error-order 증거가 성립하지 않는다. `E.`는 이미 별도 window rewrite candidate의 의미 영역이므로, C에서 내부 검색 루틴을 공유한다는 이유로 `LookupClassify`에 흡수하지 않는다. `I.@e.`와 membership-consumer 합성은 **복수 원본 graph node/consumer demand/provenance를 가진 region 후보**이며 primitive 하나를 새로운 특수 IR opcode로 대체하지 않는다.
+
+**검토 C — 물리 실행/비용에서 독립 출발.** [BQN 검색 구현 설명](https://mlochbaum.github.io/BQN/implementation/primitive/search.html)에서 normal/reverse/sparse-table lookup은 **탐색 대상과 query의 어느 쪽에서 자료구조를 만들고 순회하는가**, one-shot vs persistent hash는 **준비 비용과 상태 수명**, direct lookup/hash/SIMD는 **실제 자료구조/타깃**, membership/index/first/last는 **관찰 결과**가 다르다. 현재 `src/lowering.rs::SearchAlgorithm`의 `DirectAddress/IndexedHash/ReverseQueryHash/PreparedHash/TolerantNeighborHash`는 첫 세 축을 **하나의 열거형에 혼합**하고 있다. 현행 제한된 CPU 구현은 유지할 수 있으나 범용화 시 ‘알고리즘 열거형을 모든 다른 primitive에 복사’하면 안 된다. 향후 후보 recipe의 직교한 선택 축을 **(1) 탐색·순회 방향 (2) 키/테이블 표현 (3) 구축·재사용/무효화 수명 (4) 출력 materialization/consumer (5) 대상·자원/비용**으로 *설명*하고, 실제 조합은 검증된 후보만 등록한다. 이것은 **후일 optimizer/Physical 전용 표현**이며 J Graph 또는 A3 스키마 변경 요구가 아니다. 임의 Cartesian-product 후보 폭발도 금지한다.
+
+**검토 D — 반례/독립 oracle에서 독립 출발.** `src/index_ops.rs::lookup`의 `None` cache 경로도 `optional_exact_scalar_index` → `plan_search_algorithm`을 호출하므로 `Engine::eval_semantic_reference`는 **캐시 없는 reference일 뿐 엄밀한 sequential reference가 아니다**. `near`와 pinned C `TCMPEQ`의 이진64 경계 차이는 comparator identity 없이 최적화 동등성을 주장할 수 없다는 반례다. 비추이적인 tolerant equality는 대표 원소 하나의 해시 등가류로 축약할 수 없고, first/last와 nub/group 대표 선택의 proof도 다르다. 입력 변경·NAME rebinding·정책 변경·backend 전환·empty cell·guard 실패 시 어느 캐시/후보가 무효인지 증명 없이는 reuse하지 않는다. **언어 oracle=실제 jsource C**, **Rust 순차 semantic baseline**, **선택된 RustJ optimized route**의 세 경로가 독립적이어야 한다.
+
+**계층별 증분 확장 계약 — 입력 / 유지할 정보 / 해당 계층에서 금지할 결정**
+
+| 계층 | 유지·도출해야 할 최소 계약 | 금지 및 지금의 작업 |
+|---|---|---|
+| M2 Parser / FunctionEntity | primitive/derived identity, valence, source binding, `!.t`/동적 설정의 observable scope | C mode/CPU 특수 함수로 파싱 결과를 교체 금지; **M2 일반 parser 작업 우선** |
+| J Graph / Analyzer | 원본 topology, query/domain role, producer/consumer·fanout·source provenance, composition 후보 | output demand를 잃거나 multi-op fusion을 일찍 확정하지 않음 |
+| Execution semantics / A3 | first/last/member/interval/window/group의 **별도** 결과 의미, frame/cell/shape/empty, 비교 정책 계약, 오류·효과 | hash/direct/prehash/target을 J equality 또는 `SearchDescriptor` 안에 내장하지 않음 |
+| Candidate discovery / proof (§4.1.4) | `RuleId`, source graph version/region, semantic obligation별 `Unknown/Proven/Disproven/Guarded`, exact runtime witness | observed source idiom이나 기본 dtype만으로 legal 선언 금지; stale candidate 폐기 |
+| Target/resource/cost | runtime 또는 정적 근거로 검증한 dtype/item shape/count/range, table byte upper bound, build/probe/reuse, memory tier/transfer, target capability | 추정 work를 측정 시간으로 오인, unknown resource를 zero/cheap로 오인 금지 |
+| 선택 계획 / index-state lifetime | candidate compatibility, direction/representation, 일회성·persistent 인덱스의 backing/policy identity/epoch, escape/invalidation, failure-before-effect fallback | J Graph를 변형해 cache/selection을 저장하거나 J 이름만으로 prepared state를 영속화하지 않음 |
+| Executor / verification | 순차 reference, guarded route, J C oracle와 동일 결과/오류·효과 순서, 기록된 선택 원인 | 순차 oracle 내부에서 Physical 선택기 재호출 금지; guard miss 후 observable effect 재실행 금지 |
+
+**최소 공통 프레임워크 확장 순서(현재 구현 지시가 아닌 수용 게이트):**
+
+1. **M2:** `i.` family를 위한 새 hash가 아니라 search/reference의 *독립된 순차 baseline*과 실 J C differential, CCT·fit·Rank 등의 의미론 불일치 분류를 먼저 닫는다. 기존 `SearchDescriptor`의 방향·output 검증은 보존한다.
+2. **M3:** §4.1.4의 **후보 provenance + obligation별 proof/guard + invalidation** 공통 evidence를 기존 search/rewrite/fusion 분석 sidecar에 투영할 최소 인터페이스를 정한다. `Unknown`을 완료로 해석하지 않는 verifier/negative test를 하나씩 만든다. **완전한 범용 registry를 먼저 설계하지 않는다.**
+3. **M4:** 독립 CPU reference vertical slice와 기존 Int/Bool guard된 Physical route를 같은 J oracle로 검증한다. `SearchAlgorithm`·`PreparedHash` 등의 기존 enum을 일단 유지하며, 부하/표본 비용 없이 임계값을 바꾸지 않는다.
+4. **최적화 착수 시:** 두 번째 독립 가족(예: Reduce/Scan의 reassociation, GroupBy의 대표 원소)에서 **실제 동일한 증거·수명·selection 인터페이스가 필요함을 증명한 후에만** 공통 `CandidateEvidence`/recipe/SelectionPlan으로 추출한다. `SearchDescriptor`나 search mode enum을 generic operator로 포장하지 않는다.
+5. **이후:** one-shot vs reusable index, reverse-query 구축, materialization-elision, table footprint, GPU/외부 route 등의 물리 후보는 **full-J legality + target/resource hard gate + 실제 측정** 후에만 별도 plan으로 commit한다.
+
+**반복 독립 검사와 실패 조건:** (A) jsource 실행 모드 이름을 제거해도 semantic descriptor가 J 결과를 결정하는가? (B) 모든 선택 후보를 비활성화해도 reference는 올바른가? (C) 비교 정책만 바꾸거나 source binding을 교체했을 때 캐시/guard가 무효로 되는가? (D) 동일 입력을 CPU/외부 adapter로 내릴 때 J Graph/A3가 불변인가? (E) 단일 search output이 아닌 `I.@e.`/Nub/Key/consumer fusion에서도 잘못된 범용화 없이 witness가 재사용되는가? **현재 답:** (A)의 의도/분리 일부 구현, (B) 독립 baseline 부재, (C) 동적 정책 미지원, (D) 구조 규정은 있으나 각 target 실행 미검증, (E) 해당 derived family semantic coverage 미완료. 따라서 공통 범용 optimizer ‘완료’나 search-specialized 성능 이득을 주장할 수 없다.
+
+**이번 검토 범위:** 파일별 read-only 정적 점검 + pinned jsource 원본 + BQN/MLIR 설계 대조. **Rust/Cargo 실행, 전체 J binary differential, benchmark 또는 optimizer 새로운 API 구현은 하지 않았다.** 이 결정은 §P.0의 특수 코드 확장 동결 및 §P.3의 M2 우선순위를 **강화**하며 대체하지 않는다.
+
+
+
 <a id="index-family-roadmap"></a>
 
 ##### P. i. family 통합 로드맵·진행 체크리스트 — Roger Hui × Marshall Lochbaum (2026-10-06)
