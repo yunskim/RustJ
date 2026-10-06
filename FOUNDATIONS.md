@@ -477,6 +477,49 @@ If RustJ immediately lowers every expression to scalar arithmetic or backend-lik
 
 Therefore J Graph IR should preserve J-derived graph meaning before execution-specific normalization.
 
+### 11.1 From optimization directives to a provenance-rich optimization IR
+
+The early JAXA intuition was useful but could be read too strongly:
+
+```text
+@:      -> fuse
+hook    -> retained-value optimization
+fork    -> parallelize
+```
+
+That view correctly notices that J syntax exposes topology and optimization opportunity, but it risks collapsing opportunity, semantic legality, target feasibility, and profitability into one decision.
+
+After comparing MLIR Linalg, TAIL/Futhark, Remora, Bohrium, Lift, and contrasting RustJ with simple first-order execution IRs and XLA-style fusion IRs, RustJ adopts a stricter separation:
+
+- preserve structured computation instead of erasing it into loops/CFG too early;
+- separate high-level array algebra and rewrites from hardware mapping;
+- defer materialization and heterogeneous realization decisions;
+- preserve rank/cell/implicit-lifting structure as semantic/graph information;
+- take the simplicity benefits of jaxpr-like first-order execution IR in Execution IR, while retaining `@:`, hook, fork, and other source-combinator provenance in J Graph IR;
+- treat fusion information in J Graph IR as a candidate plus proof obligations, not as an already-selected fused operation.
+
+The current invariant is:
+
+```text
+J combinator syntax
+  -> graph topology + source provenance
+  -> optimization opportunity / algebraic candidate
+  -> equivalence + semantic legality proof
+  -> resource / work-depth analysis
+  -> profitability + target planning
+  -> physical realization
+```
+
+For example, `f @: g` is not a command to fuse. J Graph IR exposes the applied `g` and `f` stages while retaining the original `@:` composition as pipeline provenance, which can yield fusion and intermediate-materialization-elision candidates. A later proof/planning layer decides whether fusion is legal and worthwhile.
+
+Hook and fork are analogous: J Graph IR preserves fan-out/fan-in, shared input, live-across/retained values, and observable branch order. These structures may create parallel/fusion candidates, but they do not command parallel execution.
+
+The conceptual evolution from JAXA to current RustJ is therefore:
+
+> **Do not use J combinators as optimization directives; use J combinator algebra as a provenance-rich optimization IR / graph algebra.**
+
+This strengthens rather than weakens the original idea: RustJ keeps the structure that J already exposes instead of flattening it into generic SSA and rediscovering it later, while correctness and profitability remain independently provable.
+
 ---
 
 # Part XII — Graph Basis vs Execution Basis
