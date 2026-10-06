@@ -748,8 +748,19 @@ pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) 
         } else {
             None
         };
+        let outcome = if verb == "," {
+            crate::logical_executor::retry_inhomogeneous_catenate_fill(
+                &a,
+                &b,
+                left_fill,
+                right_fill,
+                |x, y| dyad(verb, x, y),
+            )
+        } else {
+            dyad(verb, left_fill, right_fill)
+        };
         let prototype = crate::logical_executor::recover_zero_frame_fill_domain(
-            dyad(verb, left_fill, right_fill),
+            outcome,
             atomic_shape.as_deref(),
         )?;
         return prototype.empty_rank_result(frame);
