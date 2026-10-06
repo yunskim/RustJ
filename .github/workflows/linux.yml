@@ -61,6 +61,13 @@ jobs:
             seed=$(date -u +%Y%m%d)
           fi
           python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64 --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
+      - name: IO-02 pinned file foreign behavior diagnostic (non-acceptance)
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/file_io_audit.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/file-io-audit-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - name: FW-04 pinned search three-way differential gate
         env:
           J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
@@ -111,6 +118,7 @@ jobs:
             reports/conformance*
             reports/word-conformance-*.json
             reports/search-three-way-*.json
+            reports/file-io-audit-*.json
             reports/tolerance-audit-*.json
             reports/ranked-search-audit-*.json
             reports/rank-adversarial-*.json
