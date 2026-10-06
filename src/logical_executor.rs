@@ -197,24 +197,20 @@ pub(crate) fn atomic_add_mixed_char_fill_shape(left: &Value, right: &Value) -> O
     long.starts_with(short).then(|| long.to_vec())
 }
 
-/// The location and semantic authorization of a failed cell call cannot be
-/// inferred from a public J error kind. In particular, Domain from a real
-/// cell or an unknown/effectful function is not a zero-frame fill failure.
+/// Explicit proof token for a value-only fill-cell call on a zero result
+/// frame. No error code, input dtype or zero atom count may synthesize it.
+/// Ordinary cells and unresolved/effectful calls pass no token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RankFillCallOrigin {
-    VerifiedValueOnlyZeroFrame,
-    OrdinaryCell,
-    UnknownOrEffectful,
-}
+pub(crate) struct VerifiedValueOnlyZeroFrame;
 
 pub(crate) fn recover_zero_frame_fill_domain(
     outcome: Result<Value>,
     atomic_add_cell_shape: Option<&[usize]>,
-    origin: RankFillCallOrigin,
+    proof: Option<VerifiedValueOnlyZeroFrame>,
 ) -> Result<Value> {
     match outcome {
         Err(error)
-            if origin == RankFillCallOrigin::VerifiedValueOnlyZeroFrame
+            if proof.is_some()
                 && matches!(error.root(), Error::Domain) =>
         {
             if let Some(shape) = atomic_add_cell_shape {
@@ -354,7 +350,7 @@ pub(crate) fn apply_ranked(
             let prototype = recover_zero_frame_fill_domain(
                 outcome,
                 atomic_shape.as_deref(),
-                RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+                Some(VerifiedValueOnlyZeroFrame),
             )?;
             return prototype.empty_rank_result(&frame);
         }
@@ -384,7 +380,7 @@ pub(crate) fn apply_ranked(
             let prototype = recover_zero_frame_fill_domain(
                 call(None, fill),
                 None,
-                RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+                Some(VerifiedValueOnlyZeroFrame),
             )?;
             return prototype.empty_rank_result(&frame);
         }
@@ -618,15 +614,12 @@ mod rank_fill_error_tests {
 
     #[test]
     fn rank_fill_recovery_requires_verified_prototype_origin() {
-        for origin in [
-            RankFillCallOrigin::OrdinaryCell,
-            RankFillCallOrigin::UnknownOrEffectful,
-        ] {
+        for scenario in ["ordinary cell", "unknown or effectful"] {
             let original = Error::Domain.at(1..4);
             let unchanged =
-                recover_zero_frame_fill_domain(Err(original.clone()), Some(&[3]), origin)
+                recover_zero_frame_fill_domain(Err(original.clone()), Some(&[3]), None)
                     .expect_err("an ordinary or unproven Domain is observable");
-            assert_eq!(unchanged, original);
+            assert_eq!(unchanged, original, "{scenario}");
         }
 
         // Even a verified zero-frame call never converts a resource or
@@ -637,7 +630,7 @@ mod rank_fill_error_tests {
                 recover_zero_frame_fill_domain(
                     Err(error),
                     Some(&[3]),
-                    RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+                    Some(VerifiedValueOnlyZeroFrame),
                 )
                 .unwrap_err(),
                 expected,
@@ -650,7 +643,7 @@ mod rank_fill_error_tests {
         let fallback = recover_zero_frame_fill_domain(
             Err(Error::Domain),
             None,
-            RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+            Some(VerifiedValueOnlyZeroFrame),
         )
         .expect("J non-exigent computational fill failure");
         assert_eq!(fallback.type_code(), 4);
@@ -662,7 +655,7 @@ mod rank_fill_error_tests {
         let fallback = recover_zero_frame_fill_domain(
             Err(wrapped),
             None,
-            RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+            Some(VerifiedValueOnlyZeroFrame),
         )
         .unwrap();
         assert_eq!(fallback.int_at(0).unwrap(), 0);
@@ -680,7 +673,7 @@ mod rank_fill_error_tests {
             let observed = recover_zero_frame_fill_domain(
                 Err(error),
                 None,
-                RankFillCallOrigin::VerifiedValueOnlyZeroFrame,
+                Some(VerifiedValueOnlyZeroFrame),
             )
             .unwrap_err();
             assert_eq!(observed.kind(), expected);
