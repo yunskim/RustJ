@@ -157,6 +157,21 @@ fn execute_ranked_semantic(
     })
 }
 
+/// Interpret only a *value-only, zero-result-frame* fill-cell call.
+/// Pinned jsource jsrc/cr.c::jtrank1ex/jtrank2ex substitutes a scalar 0
+/// after non-exigent computation failure. RustJ currently coalesces several
+/// J internal errors into Domain; handle only that verified public error class
+/// here, while leaving resource/unsupported/unknown errors observable.
+/// Never call this on ordinary (including empty) cells or user-defined verbs.
+/// EVINHOMO type retry, other non-exigent classes, and effectful definitions
+/// remain separate semantic obligations (RK-07/RK-08).
+pub(crate) fn recover_zero_frame_fill_domain(outcome: Result<Value>) -> Result<Value> {
+    match outcome {
+        Err(error) if matches!(error.root(), Error::Domain) => Ok(Value::scalar(0)),
+        other => other,
+    }
+}
+
 pub(crate) fn apply_ranked(
     ranks: [i64; 3],
     left: Option<Value>,
@@ -194,7 +209,7 @@ pub(crate) fn apply_ranked(
             // This is not a physical search strategy.
             let x = left.rank_fill_cell(ar)?;
             let y = right.rank_fill_cell(br)?;
-            let prototype = call(Some(x), y)?;
+            let prototype = recover_zero_frame_fill_domain(call(Some(x), y))?;
             return prototype.empty_rank_result(&frame);
         }
         let ad = crate::value::count(&frame[af.len()..])?;
@@ -220,7 +235,7 @@ pub(crate) fn apply_ranked(
                 ));
             }
             let fill = right.rank_fill_cell(rank)?;
-            let prototype = call(None, fill)?;
+            let prototype = recover_zero_frame_fill_domain(call(None, fill))?;
             return prototype.empty_rank_result(&frame);
         }
         let cells = (0..frames).map(|i| {
