@@ -2591,6 +2591,41 @@ Frontend compatibility should eventually provide separate differential gates for
 
 A mismatch in a test harness must first be distinguished from a true semantic mismatch.
 
+## 15.2 Cross-stage negative verifier matrix
+
+Positive E2E tests are insufficient. Each stage must reject invalid states owned by that stage:
+
+| Stage | Required rejection examples | Status |
+|---|---|---|
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.9 |
+| rewrite candidate verifier | stale source span/basis, unregistered rule/witness mismatch, invalid replacement DAG/facts/output semantics | implemented |
+| scan/fusion analysis verifier | forged order/rule version/witness/retention/fanout or unsupported selected state | partially implemented; proof-discharge/selection verification remains future |
+| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.4 |
+| CandidateEvidence / SelectionPlan | stale evidence, Selected with required proof Unknown, selected Illegal candidate, incompatible overlapping candidates | planned — §7.5 |
+| RouteRegion / RouteBoundary | missing live-ins/outs, dropped effect-live dependency, duplicated/dropped/reordered SemanticCheck, unproven region capability, post-effect guard, missing bridge | planned — §2.1 |
+| PhysicalPlan | invalid buffer/view/op IDs, use-before-bind, out-of-bounds view, incompatible kernel, unordered Check, unproved overlap/reuse, dangling Return | planned M4 — §17.2.1 |
+| ExternalRegionPlan | missing source op, dropped check/effect edge, capability/emission mismatch, incomplete completion/ownership, partial unsupported module reported as success | planned external-route gate — §12.2 |
+
+Use one-mutated-invariant negative tests: build a valid artifact, clone it, break exactly one invariant, require that stage's verifier to reject it, and never invoke a later planner/executor. Do not make downstream layers repair invalid upstream artifacts.
+
+## 15.3 Serialization / schema migration policy
+
+Current J Graph/A3 artifacts are primarily in-process and do not promise long-term portable binary compatibility. Today the verifiers require exact schema and primitive-registry provenance:
+
+```text
+J Graph schema 0.9   exact match
+A3 schema 0.4        exact match
+PrimitiveRegistry    current REGISTRY_VERSION provenance
+```
+
+Do not assume minor-version compatibility implicitly. When external storage/interchange is introduced, decoding and migration are separate: decode using the artifact's known schema; apply an explicit version-to-version migration chain only when implemented; then run the current verifier. Unknown fields/ops/rules are never guessed into current meaning.
+
+Downgrade is allowed only through an explicit lossless writer. If an older schema cannot represent a newer semantic field/op/effect, reject the downgrade rather than silently dropping it. PrimitiveRegistry version migration is separate from IR schema migration; identical spelling does not justify ignoring contract/ID changes.
+
+Compiler version is provenance; schema/registry plus explicit migration contracts define compatibility. Rewrite/fusion/scan rule/witness registries also need versioned provenance so cached candidates become stale when meanings change. A future portable PhysicalPlan cache has its own schema plus target/device/runtime/capability fingerprint, not the Logical IR schema.
+
+Unsupported schema/registry/migration is a compiler/artifact diagnostic, never a J Domain/Rank/Length error. Before 1.0, schemas may change frequently, but semantic field meaning must not change without a version bump.
+
 ---
 
 # Part XIII — Current implementation status
