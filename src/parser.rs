@@ -655,6 +655,16 @@ fn gerund_character(
         {
             return Err(Error::IllFormedName);
         }
+        // Gerund name decoding bypasses the ordinary parser-stack NAME arm.
+        // Do not resolve locatives through a flat symbol table or silently
+        // accept an unresolved dynamic NameRef before locale-aware P4 exists.
+        if queue[0].flags.name_form != crate::enqueuer::NameForm::Simple
+            || queue[0].flags.name_by_value
+        {
+            return Err(Error::Unsupported(
+                "gerund locative/by-value lookup requires P4 locale semantics".into(),
+            ));
+        }
         let binding = names.binding(spelling)?;
         if let Some(observations) = names.observations {
             let (class, facts) = match &binding {
