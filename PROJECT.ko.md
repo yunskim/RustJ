@@ -2240,9 +2240,9 @@ Runtime: supply values at semantic read points, execute, commit b at its write p
 
 **이번 확인:** native Windows `static_explain 'data + data * data'`를 `data: Float[1000000000000]` metadata만으로 실행해 `ReadNoun` 3개·`Apply` 2개의 graph를 생성했다. 데이터 배열이나 해당 multiply/add 결과를 계산한 것이 아니다. 이것은 현재의 지연 graph 구성 증거이며 full runtime binding guard·allocation 계측·M4 end-to-end 검증은 아니다. 기존 execution-free semantic 회귀 2건은 default/portable 각각 통과했고 `git diff --check`도 통과했다. 이번에는 문서만 변경했으며 전체 suite·fmt/clippy·GitHub CI를 실행하지 않았다. 다음 구현 우선순위는 이 지연 경로를 실제 CPU 실행으로 닫는 것이며, eager capture를 compiler의 유일한 입력으로 만드는 것이 아니다.
 
-#### 3.7.7 SemanticHandoff v1 논리 데이터 구조 확정 (2026-10-07; 구현 전)
+#### 3.7.7 SemanticHandoff v1 논리 데이터 구조 확정 (2026-10-07; 논리 계약·첫 구현)
 
-**현재 계획의 부족과 이번 결정:** 앞 절들은 정보·순서·경계 계약이었으며 구체 carrier가 구현되지는 않았다. 이제 parser→analyzer 전달 단위를 **`SemanticHandoff` 하나**로 정한다. `program`은 reduction으로 구성한 의미 결과, `context`는 reduction 전 입력·해석 맥락, `origins`는 둘의 연결이다. 아래는 **목표 Rust schema**이며 현재 `src/semantic.rs::Program`을 이미 바꿨다는 뜻이 아니다. 변경은 NP-01/02/04의 단계적 이행으로 수행하고, 같은 stage에 두 의미 정본을 영구 유지하지 않는다.
+**현재 계획의 부족과 이번 결정:** 앞 절들은 정보·순서·경계 계약이었으며 구체 carrier가 구현되지는 않았다. 이제 parser→analyzer 전달 단위를 **`SemanticHandoff` 하나**로 정한다. `program`은 reduction으로 구성한 의미 결과, `context`는 reduction 전 입력·해석 맥락, `origins`는 둘의 연결이다. 아래는 **논리 계약을 표현한 목표 Rust schema**다. 첫 구현은 기존 `Program` + `frontend: Option<Arc<FrontendContext>>`에 대응시키며 실제 필드·검증 범위는 이 절 끝의 구현 표에 명시한다. arena로 Program 전체를 이미 교체했다는 뜻은 아니다. 변경은 NP-01/02/04의 단계적 이행으로 수행하고, 같은 stage에 두 의미 정본을 영구 유지하지 않는다.
 
 **확정 범위:** 아래 필드와 참조 관계는 논리 계약이다. `Vec/Box/Arc`, 정수 ID 폭, arena 배치, 직렬화 형식은 구현 예시이며 고정하지 않는다. 의미 결과와 reduction 이전 맥락을 모두 보존하되, 원본 AST를 별도로 다시 구성하거나 중간 배열 값을 계산할 의무는 없다.
 
@@ -2323,7 +2323,7 @@ struct NodeOrigin {
 | `WordRecord` | `span: SourceSpan`, `class: EnqueueClass`, `flags: EnqueueFlags`, `environment: EnqueueEnvironment`, `expansion_origin: Option<WordId>`; spelling은 해당 immutable source로 읽음. DD 확장에서 같은 span인 word도 다른 WordId. 확장문은 별도 SourceRecord와 parent mapping 유지 |
 | `ItemProducer` | `Word(WordId)`, `NameUse(NameUseId)`, `Reduction(ReductionId)`, `Mark`; NAME lookup으로 품사가 바뀌면 이전 ItemRecord를 수정하지 않고 새 item 생성. 실제 reduction window의 context item과 consumed item을 구분 |
 | `NameSyntax` | `word: WordId`, `address: Simple/Direct/Indirect`, `components: Box<[NameComponent]>`, `read_mode: Ordinary/ByValue/ByValueAndAbandon`, `special_operand: Option<ImplicitOperand>`; component는 `kind: SimplePart/NamedLocale/NumericLocale/HolderName/DebugFrame` + 원 source span. direct/indirect와 read_mode는 직교. 실제 locale/frame identity는 여기에 넣지 않음 |
-| `JPos`, `NameUsePhase`, `NamePolicy` | POS=`Noun/Verb/Adverb/Conjunction`. Phase=`StackRead/StackPOS/ConstructorRead/CallLookup/AssignmentTarget/Abandon`. Policy=`CaptureAtRead/LateAtCall/CaptureAtConstruction/Assignment/ReadAndAbandon`. `expected_pos=None`는 미확정 요구이고 Noun 가정이 아님. 하나의 NAME에 stack POS와 call lookup 등 여러 use 존재 |
+| `JPos`, `NameUsePhase`, `NamePolicy` | POS=`Noun/Verb/Adverb/Conjunction`. Phase=`StackRead/StackPOS/ConstructorRead/CallLookup/AssignmentTarget/Abandon`. Policy=`CaptureAtRead/LateAtCall/ResolveAtConstruction/CaptureAtConstruction/Assignment/ReadAndAbandon`. `expected_pos=None`는 미확정 요구이고 Noun 가정이 아님. 하나의 NAME에 stack POS와 call lookup 등 여러 use 존재. 아래 첫 구현의 stack policy는 앞의 세 가지에 한정 |
 | `NameObservation` | `origin: Catalog/Runtime`, `outcome: Noun/Function/Missing/JError`, `pos: Option<JPos>`, `lookup: Option<LookupWitness>`, constructor-fixed ranks/POS 등 작은 metadata. 실제 noun은 필요한 semantic Literal/constructor operand가 소유하며 observation에 payload를 복제하지 않음. Catalog/Runtime 어느 관찰도 자동 proof가 아님 |
 | `LookupWitness` | `engine`, `frame_instance`, `start_locale`, `found_locale`, `execution_locale`, `binding_stamp`, `dependencies`. stamp=`scope_instance/symbol_generation/revision`; dependencies=`LocalPresent/LocalAbsent/LocalePathEpoch/HolderRead/NamespaceEpoch` typed records. 미확보 witness는 None으로 드러내고 flat NameVersion으로 채우지 않음. 실제 runtime 관찰과 future GuardRecipe는 다른 타입/소유자 |
 | `SemanticEvent` | `kind: NameUse/Constructor/Call/Write/Check`, `owner: ItemId`, `node: Option<NodeId>`, `after: Box<[EventId]>`, `effect: NamespaceRead/NamespaceWrite/ArrayCall/UnknownCall/Constructor`, `realization: Planned/Observed`. compile-time 계획과 runtime 실행 사건 구분; constructor·call의 potential error 순서도 edge로 유지. 기본 보수적 순서 이후 완화는 별도 proof 필요 |
@@ -2349,7 +2349,50 @@ struct NodeOrigin {
 4. **NP-04/05: Graph/A3 origin adapter.** parent/operand/function-use와 각 name use가 다음 단계까지 이어지는 golden 및 fold/CSE origin 유실 부정 테스트. admission verifier 미완료 시 Complete handoff만으로 NAME 특수화를 실행하지 않는다.
 5. **NP-06/07: C differential.** noun/verb/modifier·rank/gerund/fork·assignment/locative의 POS/값/오류/namespace 결과와 Rust handoff/context projections 비교. C에서 관찰할 수 없는 내부 queue/lookup는 source-derived fixture 또는 별도 계측 증거로 표시하며 값 비교 통과를 내부 trace 동등성으로 승격하지 않는다.
 
-**완료 판정:** 현재는 **v1 구조·필드·소유권·소비 규칙·이행 순서를 결정한 상태**다. `SemanticHandoff` 타입, arena migration, parser emission, context/origin verifier 모두 미구현이다. 기존 17건 static-analysis 회귀와 runtime NAME audit는 이 신규 schema의 통과 증거가 아니다. 다음 구현 단위는 1번의 실제 Rust 타입·verifier·부정 테스트이며, 이후 2번을 닫기 전 downstream이 schema v1 지원을 선언하지 않는다.
+**최우선 구현 slice — parser 결과와 NAME scope (2026-10-07):** 논리 handoff의 실제 carrier는 기존 `semantic::Program`이다. 그 `expression/assignment/FunctionEntity`가 유일한 의미 정본이고, `frontend_context::FrontendContext`는 동일 parser action에서 만든 immutable 구조·출처 index다. index의 `Literal`에는 배열 payload가 없으며 독립 executor가 아니다. `Expr.origin`이 두 구조를 직접 연결한다. source span으로 결과를 재구성하거나 두 번째 parsing을 수행하지 않는다.
+
+~~~text
+Program
+  expression: Expr { origin: NodeId?, kind: J semantic expression }
+  assignment / constructor snapshots / shared FunctionEntity DAG
+  frontend: Arc<FrontendContext>?
+
+FrontendContext
+  schema=1, unit: FrontendUnitId, realization: Deferred | Observed
+  source, words: WordRecord[]
+  items: ItemRecord[], nodes: NodeRecord[], origins: NodeOrigin[]
+  name_uses: NameUseRecord[], reductions: ReductionRecord[]
+  steps: Stack | FrontMark | Reduce, pending: PendingAction?, root: ItemId?
+  complete: bool
+~~~
+
+| 확인할 조건 | 실제 구현·검증과 제한 |
+|---|---|
+| reduction 전 맥락과 결과 모두 보존 | WordId/ItemId/NodeId/ReductionId/NameUseId를 구분. NAME 치환은 새 item. reduction은 실제 4-slot window, consumed IDs, produced ID를 기록. 없는 suffix slot은 virtual Mark로 해석. parentheses는 같은 semantic node에 여러 item/reduction origin을 연결 |
+| parsing 중 사용 가능 | 현재 matcher/action에서 기록하며 `FrontendContext::verify`가 right-to-left queue→stack과 FRONT MARK 시점, row 선택, 입력·출력·node 연결을 replay. `parse_frontend` 실패는 `FrontendFailure {error, context}`로 성공 prefix와 pending row/window 보존. 성공하지 않은 action의 가짜 output 없음. 이는 runtime continuation이 아님 |
+| noun·verb·modifier NAME 시점 | `NameResolution=NounValue/FunctionValue/FunctionReference`, `NamePolicy=CaptureAtRead/LateAtCall/ResolveAtConstruction`. 실제 resolve branch가 정책을 기록. `u`가 또 다른 NameRef 값을 치환한 경우도 FunctionValue이며 u 자체를 late lookup으로 바꾸지 않음. CatalogClass/RuntimeClass/DiagnosticAssumption 및 optional binding version/lookup 관찰 구분. 진단용 noun 가정은 실행 POS proof가 아님 |
+| local/global 실제 관찰 | `LookupObservation {engine, frame, search, local_state, found, binding_version}`. Search=GlobalOnly/CurrentFrameThenGlobal; local_state=NoFrame/Bound/DeclaredUnbound/Absent; found=Local(scope)/Global(scope)/Extension/Missing. Engine/global namespace와 invocation frame은 비재사용 ScopeInstanceId. 같은 spelling·version=1이어도 다른 frame의 binding을 합치지 않음 |
+| explicit/direct definition local name | `DefinitionCode.name_plan`의 monad/dyad별 `DefinitionScopePlan`에 local 선언 목록, 원 sentence/word/span과 ReadCurrentFrameThenGlobal/LocalAssignmentTarget/GlobalAssignmentTarget, dynamic assignment target 위치를 보존. 생성 시 body lookup/POS/값 계산 없음. actual invocation은 이 local 선언 목록을 사용하며 u/v/m/n/x/y는 invocation operand/argument로 따로 공급 |
+| 선언과 실제 binding 구분 | `t=.t+u`에서 미초기화 local t의 RHS는 global fallback 가능하고 대입 뒤 읽기는 local. 선언은 read를 local SSA로 고정하는 증거가 아님. ordinary local function NAME은 late reference를 보존하며 반환 후 caller frame을 closure처럼 캡처하지 않음. implicit operand의 function value 치환과 구별 |
+| 후속 최적화 입력 | J Graph의 각 node에 `parser_origins: [NodeId]`, 같은 context Arc 유지. A3 `parser_provenance`는 기존 operation.j_origin→Graph ID→parser NodeId 체인을 보존. derived-function 확장의 생성 node는 보수적인 enclosing call origins를 유지하므로 가장 작은 source occurrence의 유일 매핑으로 주장하지 않음. Context/Graph/A3 verifier는 누락·범위 오류·source 불일치를 거부 |
+| 메모리·실행 경계 | analysis는 context를 항상 보존, runtime은 capture를 요청한 경우에 기록. 일반 runtime body는 추적 비용을 강제하지 않음. 함수는 기존 Arc 공유, 중간 배열을 context에 복제하지 않음. gerund singleton boxed header는 반복적으로 벗겨 기존 depth/rank/empty 순서와 limit를 유지하면서 Windows 재귀 stack 증가를 방지 |
+
+**NAME 관련 최적화 금지 규칙:** `DefinitionScopePlan`은 source inventory이지 닫힌 local 집합·현재 POS·값 proof가 아니다. computed assignment, execute, 제어 흐름이 만들 수 있는 추가 이름을 배제하지 않는다. local 부재·global fallback을 lookup 삭제/hoist에 활용하려면 frame liveness, symbol generation, namespace/local epoch, locale/path 및 의미적 read 시점까지 별도 witness/guard가 필요하다. 현재 `LookupObservation`이나 flat binding version만으로 그 최적화를 허용하지 않는다. actual C name lookup의 buckets/lookaside는 저장 방식이며 RustJ가 복제할 계약은 lookup 결과·시점·fallback이다.
+
+**수용 체크리스트:**
+
+- [x] 논리 결과/입력/NAME ID 관계와 소유 범위 확정; context schema/unit 검증.
+- [x] 기존 9개 action에서 emission; action 전 window와 완료 result 연결; failure prefix와 pending action.
+- [x] source-derived C `p.c::cases` literal mask 표와 9^4=6,561개 class window의 first-row 선택 비교. C 내부 실행 trace를 계측한 검증과 구별.
+- [x] 같은 구조의 queue/stack replay, 잘못된 producer/operand/origin·scope 관찰 부정 테스트.
+- [x] Graph/A3까지 출처 전달 및 origin 유실 거부; metadata만 있는 10^12-element noun의 deferred 분석.
+- [x] explicit/direct local declaration·global fallback·shadowing·global write·반환된 ordinary function NAME·implicit operand 치환 회귀.
+- [ ] 완전한 LookupWitness/GuardRecipe, constructor별 모든 NAME use의 독립 event ID, function operand path별 provenance, multi-unit inlining origin merge.
+- [ ] source expansion entry 전체와 typed BoundaryDemand/정확한 runtime continuation, Program 전체 arena 저장 전환. 현 실패 context를 실행 가능한 continuation으로 사용하지 않음.
+
+이 slice는 **지원 중인 parsing action과 compilation 경로의 구조 보존**을 닫는다. full-J/locale/control executor 또는 NAME 특수화 실행 적법성 완료를 의미하지 않는다. 상세 실행 검증 결과는 아래에 기록한다.
+
+**실행 검증 (2026-10-07, Windows native):** default와 portable 각각 **560 passed / 17 ignored / 0 failed**. 신규 frontend 통합 회귀 15개와 library 전체 68개를 포함한다. `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings` 통과. Python audit 분류·전달 회귀 8개와 oracle protocol 회귀 9개 통과. C j64/AVX2 × Rust direct/semantic-reference 비교에서 explicit/direct NAME scope 10 fixture의 **40 observation 모두 일치** (`reports/name-scope-handoff-windows.json`); 기존 NAME 26 fixture는 **64 일치 / 40 미지원**, semantic boundary 10 fixture는 **36 일치 / 4 미지원**. 각 observation은 setup/error 후 read를 포함하는 문장 sequence이며 C 내부 event trace나 compiled route 검증이 아니다. 여러 줄 explicit block setup만 C script 입력으로 전달하고 양쪽 원문은 동일하게 보존한다. 보고서는 binary/DLL hash와 source/asset revision 차이를 기록한다. 미지원 locale·execute 등은 통과로 계산하지 않는다. GPU/Linux/remote CI 검증은 실행하지 않았다.
 
 ### 3.8 sentence evaluation order와 namespace mutation
 

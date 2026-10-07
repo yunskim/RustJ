@@ -9,7 +9,113 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
+mod scope_provenance_tests {
+    use super::*;
+    use crate::frontend_context::{
+        FoundScope, LocalLookupState, NamePolicy, ScopeInstanceId, ScopeSearch,
+    };
+
+    fn parse_frame(engine: &mut Engine, source: &str) -> crate::semantic::Program {
+        let mut capture = crate::parser_capture::ParseCapture::default();
+        let mut host = ModifierFrame {
+            parent: EngineParserHost {
+                engine,
+                pooled: false,
+            },
+        };
+        let program =
+            crate::parser::parse_runtime_host(source, &mut host, Some(&mut capture)).unwrap();
+        program.frontend.as_ref().unwrap().verify().unwrap();
+        program
+    }
+
+    #[test]
+    fn declared_unbound_local_falls_back_then_local_write_shadows_without_global_commit() {
+        let mut engine = Engine::new();
+        engine.eval("shared=:10").unwrap();
+        let global_version = engine.binding_version("shared");
+        let frame = ScopeInstanceId::fresh();
+        engine.local_frames.push(LocalFrame {
+            instance: frame,
+            names: HashMap::new(),
+            declared: ["shared".to_owned()].into_iter().collect(),
+        });
+        let program = parse_frame(&mut engine, "shared=.shared+1");
+        let context = program.frontend.unwrap();
+        let read = &context.name_uses[0];
+        let lookup = read.lookup.as_ref().unwrap();
+        assert_eq!(lookup.search, ScopeSearch::CurrentFrameThenGlobal);
+        assert_eq!(lookup.frame, Some(frame));
+        assert_eq!(lookup.local_state, LocalLookupState::DeclaredUnbound);
+        assert_eq!(lookup.found, FoundScope::Global(engine.namespace_instance));
+        assert!(context.words.iter().any(|word| word.flags.local_assignment));
+        assert_eq!(engine.binding_version("shared"), global_version);
+        let later = parse_frame(&mut engine, "shared").frontend.unwrap();
+        let lookup = later.name_uses[0].lookup.as_ref().unwrap();
+        assert_eq!(lookup.local_state, LocalLookupState::Bound);
+        assert_eq!(lookup.found, FoundScope::Local(frame));
+        let mut bad = (*later).clone();
+        bad.name_uses[0].lookup.as_mut().unwrap().found =
+            FoundScope::Global(engine.namespace_instance);
+        assert!(bad.verify().is_err());
+        engine.local_frames.pop();
+        assert_eq!(
+            engine.eval("shared").unwrap().unwrap().int_at(0).unwrap(),
+            10
+        );
+    }
+
+    #[test]
+    fn frame_instances_distinguish_equal_local_versions_and_implicit_function_substitution() {
+        let mut engine = Engine::new();
+        let mut observations = Vec::new();
+        for _ in 0..2 {
+            engine.local_frames.push(LocalFrame {
+                instance: ScopeInstanceId::fresh(),
+                names: HashMap::new(),
+                declared: ["f".to_owned(), "u".to_owned()].into_iter().collect(),
+            });
+            parse_frame(&mut engine, "f=.+");
+            let ordinary = parse_frame(&mut engine, "f").frontend.unwrap();
+            assert_eq!(ordinary.name_uses[0].policy, NamePolicy::LateAtCall);
+            observations.push(ordinary.name_uses[0].lookup.clone().unwrap());
+            parse_frame(&mut engine, "u=.+");
+            let implicit = parse_frame(&mut engine, "u").frontend.unwrap();
+            assert_eq!(
+                implicit.name_uses[0].policy,
+                NamePolicy::CaptureAtRead,
+                "{:#?}",
+                implicit
+            );
+            assert!(matches!(
+                implicit.name_uses[0].lookup.as_ref().unwrap().found,
+                FoundScope::Local(_)
+            ));
+            // u substitutes the supplied entity even when that entity is itself
+            // an ordinary late NameRef. The u lookup must not become late.
+            parse_frame(&mut engine, "u=.f");
+            let implicit_alias = parse_frame(&mut engine, "u").frontend.unwrap();
+            assert_eq!(
+                implicit_alias.name_uses[0].policy,
+                NamePolicy::CaptureAtRead
+            );
+            assert_eq!(
+                implicit_alias.name_uses[0].resolution,
+                crate::frontend_context::NameResolution::FunctionValue
+            );
+            engine.local_frames.pop();
+        }
+        assert_ne!(observations[0].frame, observations[1].frame);
+        assert_eq!(
+            observations[0].binding_version,
+            observations[1].binding_version
+        );
+    }
+}
+
 pub struct Engine {
+    namespace_instance: crate::frontend_context::ScopeInstanceId,
     names: HashMap<String, Binding>,
     pool: crate::pool::OutputPool,
     /// A bounded physical exact-search table, keyed by immutable Arc identity.
@@ -31,6 +137,9 @@ struct EngineParserHost<'a> {
     pooled: bool,
 }
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
+        Some(self.engine.lookup_observation(name))
+    }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
         match self.engine.visible_binding(name) {
             Some(Binding {
@@ -137,6 +246,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
 
 /// Current invocation owns local values separately from the global namespace.
 struct LocalFrame {
+    instance: crate::frontend_context::ScopeInstanceId,
     names: HashMap<String, Binding>,
     declared: HashSet<String>,
 }
@@ -145,6 +255,9 @@ struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
 }
 impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
+    fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
+        self.parent.lookup_observation(name)
+    }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
         self.parent.function_name_ranks(name)
     }
@@ -304,6 +417,7 @@ impl Engine {
     /// Limits retained integer payload bytes. Zero disables caching.
     pub fn with_output_cache_limit(bytes: usize) -> Self {
         Self {
+            namespace_instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
             pool: crate::pool::OutputPool::new(bytes),
             exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
@@ -341,6 +455,7 @@ impl Engine {
     /// consulted only during parser-time name lookup after user bindings.
     pub fn with_primitive_context(primitives: crate::primitive::PrimitiveContext) -> Self {
         Self {
+            namespace_instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
             pool: crate::pool::OutputPool::new(64 * 1024 * 1024),
             exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
@@ -428,6 +543,7 @@ impl Engine {
             return Err(Error::Limit);
         }
         let mut local = LocalFrame {
+            instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
             declared: ["u", "m", "x", "y"]
                 .into_iter()
@@ -437,17 +553,14 @@ impl Engine {
         if right.is_some() {
             local.declared.extend(["v".to_owned(), "n".to_owned()]);
         }
-        for sentence in &code.sentences[section.clone()] {
-            for pair in sentence.words.windows(2) {
-                if pair[1].flags.local_assignment
-                    && pair[0].class == crate::enqueuer::EnqueueClass::Name
-                {
-                    local
-                        .declared
-                        .insert(code.body[pair[0].span.clone()].to_owned());
-                }
-            }
-        }
+        let name_plan = if dyadic {
+            &code.name_plan.dyad
+        } else {
+            &code.name_plan.monad
+        };
+        local
+            .declared
+            .extend(name_plan.local_declarations.iter().cloned());
         for (name, alias, operand) in [("u", "m", Some(left)), ("v", "n", right)] {
             if let Some(operand) = operand {
                 let value = match operand {
@@ -760,6 +873,7 @@ impl Engine {
             entity: function,
         };
         let right = Box::new(Expr {
+            origin: None,
             span: span.clone(),
             kind: ExprKind::Literal(y),
         });
@@ -767,6 +881,7 @@ impl Engine {
             ExprKind::Dyad {
                 verb,
                 left: Box::new(Expr {
+                    origin: None,
                     span: span.clone(),
                     kind: ExprKind::Literal(x),
                 }),
@@ -778,7 +893,15 @@ impl Engine {
                 argument: right,
             }
         };
-        self.interpret_ir(Expr { span, kind }, pooled, depth + 1)
+        self.interpret_ir(
+            Expr {
+                origin: None,
+                span,
+                kind,
+            },
+            pooled,
+            depth + 1,
+        )
     }
 
     fn call_implicit_operand(
@@ -1191,6 +1314,37 @@ impl Engine {
             .last()
             .and_then(|frame| frame.names.get(name))
             .or_else(|| self.names.get(name))
+    }
+
+    fn lookup_observation(&self, name: &str) -> crate::frontend_context::LookupObservation {
+        use crate::frontend_context::{
+            FoundScope, LocalLookupState, LookupObservation, ScopeSearch,
+        };
+        let frame = self.local_frames.last();
+        let local_state = match frame {
+            None => LocalLookupState::NoFrame,
+            Some(frame) if frame.names.contains_key(name) => LocalLookupState::Bound,
+            Some(frame) if frame.declared.contains(name) => LocalLookupState::DeclaredUnbound,
+            Some(_) => LocalLookupState::Absent,
+        };
+        let found = match frame {
+            Some(frame) if frame.names.contains_key(name) => FoundScope::Local(frame.instance),
+            _ if self.names.contains_key(name) => FoundScope::Global(self.namespace_instance),
+            _ if self.primitives.resolve_extension_binding(name).is_some() => FoundScope::Extension,
+            _ => FoundScope::Missing,
+        };
+        LookupObservation {
+            engine: self.namespace_instance,
+            frame: frame.map(|frame| frame.instance),
+            search: if frame.is_some() {
+                ScopeSearch::CurrentFrameThenGlobal
+            } else {
+                ScopeSearch::GlobalOnly
+            },
+            local_state,
+            found,
+            binding_version: self.visible_binding(name).map(|binding| binding.version),
+        }
     }
 
     /// Reference execution with stable machine-readable J errors.

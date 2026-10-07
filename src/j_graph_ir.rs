@@ -325,6 +325,9 @@ pub struct Region {
 
 #[derive(Clone, Debug)]
 pub struct Plan {
+    /// Parser-owned context and explicit origins, never reconstructed from spans.
+    pub frontend: Option<Arc<crate::frontend_context::FrontendContext>>,
+    pub parser_origins: Vec<Vec<crate::frontend_context::NodeId>>,
     pub header: GraphIrHeader,
     pub source: String,
     pub nodes: Vec<Node>,
@@ -884,6 +887,7 @@ impl Plan {
 
         let mut builder = Builder {
             nodes: Vec::new(),
+            parser_origins: Vec::new(),
             regions: Vec::new(),
             reads,
             noun_facts,
@@ -908,6 +912,8 @@ impl Plan {
             .transpose()?;
 
         let plan = Self {
+            frontend: bound.program.frontend,
+            parser_origins: builder.parser_origins,
             header: GraphIrHeader {
                 schema: J_GRAPH_SCHEMA_VERSION,
                 primitive_registry_version: crate::primitive::REGISTRY_VERSION,
@@ -956,6 +962,7 @@ impl Plan {
         }
         let mut builder = Builder {
             nodes: Vec::new(),
+            parser_origins: Vec::new(),
             regions: Vec::new(),
             reads: HashMap::new(),
             noun_facts: &|_| GraphFacts::default(),
@@ -1036,6 +1043,7 @@ impl Plan {
                             ));
                         }
                         builder.expression(Expr {
+                            origin: None,
                             span: span.clone(),
                             kind: ExprKind::Literal(literal),
                         })?
@@ -1216,6 +1224,8 @@ impl Plan {
             }
         }
         let graph = Self {
+            frontend: None,
+            parser_origins: builder.parser_origins,
             header: GraphIrHeader {
                 schema: J_GRAPH_SCHEMA_VERSION,
                 primitive_registry_version: crate::primitive::REGISTRY_VERSION,
@@ -1377,6 +1387,29 @@ impl Plan {
     }
 
     pub fn verify(&self) -> std::result::Result<(), String> {
+        if self.parser_origins.len() != self.nodes.len() {
+            return Err("J graph parser-origin coverage mismatch".into());
+        }
+        if let Some(frontend) = &self.frontend {
+            frontend.verify()?;
+            if frontend.source.as_ref() != self.source {
+                return Err("J graph/parser source mismatch".into());
+            }
+            if !frontend.complete {
+                return Err("incomplete parser context in J graph".into());
+            }
+            if self.parser_origins.iter().any(|origins| {
+                origins.is_empty() || origins.iter().any(|id| id.0 >= frontend.nodes.len())
+            }) {
+                return Err("missing or invalid J graph parser origin".into());
+            }
+        } else if self
+            .parser_origins
+            .iter()
+            .any(|origins| !origins.is_empty())
+        {
+            return Err("parser origins without owning context".into());
+        }
         if self.header.schema != J_GRAPH_SCHEMA_VERSION {
             return Err("unsupported J Graph IR schema version".into());
         }
@@ -1746,6 +1779,7 @@ impl Plan {
 
 struct Builder<'a> {
     nodes: Vec<Node>,
+    parser_origins: Vec<Vec<crate::frontend_context::NodeId>>,
     regions: Vec<Region>,
     reads: HashMap<(String, usize, usize), NameVersion>,
     noun_facts: &'a dyn Fn(&str) -> GraphFacts,
@@ -1760,6 +1794,7 @@ impl Builder<'_> {
         analyzability: GraphAnalyzability,
     ) -> ValueId {
         let id = ValueId(self.nodes.len());
+        self.parser_origins.push(Vec::new());
         self.nodes.push(Node {
             kind,
             span,
@@ -1774,8 +1809,10 @@ impl Builder<'_> {
     }
 
     fn expression(&mut self, expression: Expr) -> Result<ValueId> {
+        let origin = expression.origin;
+        let first_new_node = self.nodes.len();
         let span = expression.span;
-        match expression.kind {
+        let result = match expression.kind {
             ExprKind::Group(inner) => self.expression(*inner),
             ExprKind::Literal(value) => {
                 let semantic_facts = SemanticFacts::of(&value);
@@ -1826,7 +1863,18 @@ impl Builder<'_> {
                 let left = self.expression(*left)?;
                 self.apply_function(verb.entity, Some(left), right, span)
             }
+        }?;
+        if let Some(origin) = origin {
+            for origins in &mut self.parser_origins[first_new_node..] {
+                if !origins.contains(&origin) {
+                    origins.push(origin);
+                }
+            }
+            if !self.parser_origins[result.0].contains(&origin) {
+                self.parser_origins[result.0].push(origin);
+            }
         }
+        Ok(result)
     }
 
     fn apply_function(

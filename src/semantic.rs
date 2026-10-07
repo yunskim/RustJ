@@ -372,6 +372,8 @@ pub enum VerbTarget {
 
 #[derive(Clone, Debug)]
 pub struct Expr {
+    /// Parser semantic occurrence, not a physical buffer or a source-span key.
+    pub origin: Option<crate::frontend_context::NodeId>,
     pub span: std::ops::Range<usize>,
     pub kind: ExprKind,
 }
@@ -395,6 +397,9 @@ pub enum ExprKind {
 }
 #[derive(Clone, Debug)]
 pub struct Program {
+    /// Immutable parser inputs, reductions and NAME/result links. Runtime-only
+    /// evaluation may omit this index; analysis always retains it.
+    pub frontend: Option<Arc<crate::frontend_context::FrontendContext>>,
     pub source: String,
     pub assignment: Option<String>,
     pub assignment_span: Option<std::ops::Range<usize>>,

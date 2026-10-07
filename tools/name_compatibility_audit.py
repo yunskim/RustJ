@@ -51,6 +51,40 @@ BOUNDARY_FIXTURES = [
     ("late_target_pos_change", ["f=:+", "g=:f", "f=:7", "g 3"]),
 ]
 
+# Both definition spellings must preserve the same NAME timing and scope rules.
+SCOPE_FIXTURES = [
+    ("explicit_local_fallback", ["t=:10", "add=:1 : 't=.t+u'", "2 add", "3 add", "t"]),
+    ("direct_local_fallback", ["t=:10", "add=:{{ t=.t+u }}", "2 add", "3 add", "t"]),
+    ("explicit_local_function_escape", ["t=:+", "make=:1 : 0\nt=.u\nt/\n)",
+                                        "res=:-make", "res 1 2 3", "t=:-", "res 1 2 3"]),
+    ("direct_local_function_escape", ["t=:+", "make=:{{ t=.u\nt/ }}",
+                                      "res=:-make", "res 1 2 3", "t=:-", "res 1 2 3"]),
+    ("explicit_global_write", ["a=:10", "set=:1 : 'a=:u'", "3 set", "a"]),
+    ("direct_global_write", ["a=:10", "set=:{{ a=:u }}", "3 set", "a"]),
+    ("explicit_local_global_collision", ["a=:10", "bad=:1 : 0\na=.u\na=:7\na\n)", "3 bad", "a"]),
+    ("direct_local_global_collision", ["a=:10", "bad=:{{ a=.u\na=:7\na }}", "3 bad", "a"]),
+    ("top_level_local_copula_is_global", ["outside=.7", "outside"]),
+    ("callee_does_not_capture_caller_local", ["f=:+", "inner=:1 : 'u 7'",
+                                             "outer=:{{ f=.u\nf inner }}", "-outer", "f 7"]),
+]
+
+# Only these assignment setup blocks need script input (JDo has no interactive
+# block-input callback). Keep original source identical on both sides and never
+# script-wrap value queries, whose noun results must remain observable.
+SCRIPT_SETUPS = {source for name, sources in SCOPE_FIXTURES
+                 if name in {"explicit_local_function_escape", "explicit_local_global_collision"}
+                 for source in sources if " : 0\n" in source}
+
+
+def reference_trace(oracle, sources):
+    outcomes, transports = [], []
+    for source in sources:
+        script = source in SCRIPT_SETUPS
+        outcomes.append((oracle.run_script(source) or {"silent": True})
+                        if script else oracle.eval(source))
+        transports.append("script" if script else "sentence")
+    return outcomes, transports
+
 
 def compare_trace(sources, expected, actual):
     if len(expected) != len(sources) or len(actual) > len(sources):
@@ -86,19 +120,22 @@ def main():
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--rust-revision", required=True)
     parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--boundary-fixtures-only", action="store_true")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--boundary-fixtures-only", action="store_true")
+    selection.add_argument("--scope-fixtures-only", action="store_true")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Use native Windows Python, J DLLs and Rust binary")
     assets = args.assets_root.resolve()
-    fixtures = BOUNDARY_FIXTURES if args.boundary_fixtures_only else FIXTURES
+    fixtures = (BOUNDARY_FIXTURES if args.boundary_fixtures_only else
+                SCOPE_FIXTURES if args.scope_fixtures_only else FIXTURES)
     records = []
     for variant in ["j.dll", "javx2.dll"]:
         os.environ["J_LIBRARY"] = str(assets / "target/cj-windows/j64" / variant)
         for name, sources in fixtures:
             oracle = Oracle()
             try:
-                reference = [oracle.eval(source) for source in sources]
+                reference, transports = reference_trace(oracle, sources)
             finally:
                 oracle.close()
             for route in ["direct", "semantic-reference"]:
@@ -106,6 +143,7 @@ def main():
                 status, differences = compare_trace(sources, reference, actual)
                 records.append({"case": name, "variant": variant, "route": route,
                                 "status": status, "sources": sources, "reference": reference,
+                                "reference_transport": transports,
                                 "rust": actual, "differences": differences,
                                 "unobserved_suffix": sources[len(actual):]})
     sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
@@ -119,7 +157,8 @@ def main():
         "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
         "reference_sha256": {name: sha(assets / "target/cj-windows/j64" / name)
                              for name in ["j.dll", "javx2.dll"]},
-        "fixture_set": "semantic-boundaries" if args.boundary_fixtures_only else "names",
+        "fixture_set": ("semantic-boundaries" if args.boundary_fixtures_only else
+                        "name-scopes" if args.scope_fixtures_only else "names"),
         "fixtures": len(fixtures), "observations": len(records), "counts": counts, "records": records,
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)

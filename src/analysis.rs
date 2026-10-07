@@ -164,6 +164,17 @@ pub(crate) fn lower_graph(
     graph: crate::j_graph_ir::Plan,
     noun_facts: &dyn Fn(&str) -> Facts,
 ) -> Result<Plan> {
+    graph
+        .verify()
+        .map_err(|message| Error::Unsupported(format!("invalid J graph before A3: {message}")))?;
+    let parser_provenance =
+        graph
+            .frontend
+            .clone()
+            .map(|context| crate::frontend_context::ParserProvenance {
+                context,
+                graph_nodes: graph.parser_origins.clone(),
+            });
     let source = graph.source.clone();
     let graph_node_count = graph.nodes.len();
     let graph_result = graph.result;
@@ -294,7 +305,8 @@ pub(crate) fn lower_graph(
     let Builder {
         symbols, logical, ..
     } = builder;
-    let plan = logical.finish(symbols, opportunities, result, write);
+    let mut plan = logical.finish(symbols, opportunities, result, write);
+    plan.parser_provenance = parser_provenance;
     plan.verify()
         .map_err(|error| Error::Unsupported(error.to_string()))?;
     Ok(plan)

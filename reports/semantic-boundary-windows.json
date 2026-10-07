@@ -1,8 +1,8 @@
 {
   "scope": "Bounded observable sentence/value/error audit; not full NAME, event, Graph/A3 or compiled-route conformance",
   "platform": "win32",
-  "rust_revision": "beb4e62",
-  "rust_binary_sha256": "53711a0bf0e23eaca734db7cbea7f8d021b6e761d4958118064e0a68fd829fbb",
+  "rust_revision": "a09fd81+frontend-context-working-tree",
+  "rust_binary_sha256": "6f311da8b836bc44b1f8f2a36dc040c0ed1982d29ff1f8db9386e8ecb7c806ea",
   "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
   "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
   "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
@@ -59,6 +59,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -133,6 +139,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -192,6 +204,10 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -238,6 +254,10 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -278,6 +298,9 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "type": 4,
@@ -313,6 +336,9 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "type": 4,
@@ -348,6 +374,9 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "type": 4,
@@ -382,6 +411,9 @@
             12
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence"
       ],
       "rust": [
         {
@@ -427,6 +459,11 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -477,6 +514,11 @@
             2
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence"
       ],
       "rust": [
         {
@@ -533,6 +575,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -591,6 +639,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -629,6 +683,9 @@
           "error": "length error"
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "error": "length error"
@@ -650,6 +707,9 @@
           "error": "length error"
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "error": "length error"
@@ -686,6 +746,12 @@
             5
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
       ],
       "rust": [
         {
@@ -737,6 +803,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -774,6 +846,9 @@
             3
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence"
       ],
       "rust": [
         {
@@ -814,6 +889,9 @@
             3
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence"
       ],
       "rust": [
         {
@@ -863,6 +941,12 @@
           "error": "domain error"
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -904,6 +988,12 @@
         {
           "error": "domain error"
         }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
       ],
       "rust": [
         {
@@ -963,6 +1053,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1037,6 +1133,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1096,6 +1198,10 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1142,6 +1248,10 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1182,6 +1292,9 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "type": 4,
@@ -1217,6 +1330,9 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "type": 4,
@@ -1252,6 +1368,9 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "type": 4,
@@ -1286,6 +1405,9 @@
             12
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence"
       ],
       "rust": [
         {
@@ -1331,6 +1453,11 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1381,6 +1508,11 @@
             2
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence"
       ],
       "rust": [
         {
@@ -1437,6 +1569,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1495,6 +1633,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1533,6 +1677,9 @@
           "error": "length error"
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "error": "length error"
@@ -1554,6 +1701,9 @@
           "error": "length error"
         }
       ],
+      "reference_transport": [
+        "sentence"
+      ],
       "rust": [
         {
           "error": "length error"
@@ -1590,6 +1740,12 @@
             5
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
       ],
       "rust": [
         {
@@ -1641,6 +1797,12 @@
           ]
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1678,6 +1840,9 @@
             3
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence"
       ],
       "rust": [
         {
@@ -1718,6 +1883,9 @@
             3
           ]
         }
+      ],
+      "reference_transport": [
+        "sentence"
       ],
       "rust": [
         {
@@ -1767,6 +1935,12 @@
           "error": "domain error"
         }
       ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
       "rust": [
         {
           "silent": true
@@ -1808,6 +1982,12 @@
         {
           "error": "domain error"
         }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
       ],
       "rust": [
         {

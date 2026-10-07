@@ -38,8 +38,84 @@ pub struct DefinitionSentence {
     pub line: usize,
     pub words: Vec<DefinitionWord>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefinitionNameRole {
+    /// A declaration does not prebind a read: unbound locals can fall back globally.
+    ReadCurrentFrameThenGlobal,
+    LocalAssignmentTarget,
+    GlobalAssignmentTarget,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefinitionNameOccurrence {
+    pub sentence: usize,
+    pub word: usize,
+    pub span: Range<usize>,
+    pub role: DefinitionNameRole,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DefinitionScopePlan {
+    /// Literal simple-name =. targets for this valence; not a closed-world proof.
+    /// Implicit operands/arguments are supplied separately by each invocation.
+    pub local_declarations: Vec<String>,
+    pub occurrences: Vec<DefinitionNameOccurrence>,
+    /// Computed/noun assignment targets cannot be guessed from name spelling.
+    pub dynamic_assignment_targets: Vec<(usize, usize)>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DefinitionNamePlan {
+    pub monad: DefinitionScopePlan,
+    pub dyad: DefinitionScopePlan,
+}
+
+fn scope_plan(
+    body: &str,
+    sentences: &[DefinitionSentence],
+    range: Range<usize>,
+) -> DefinitionScopePlan {
+    let mut plan = DefinitionScopePlan::default();
+    let mut declarations = std::collections::BTreeSet::new();
+    for sentence_index in range {
+        let sentence = &sentences[sentence_index];
+        for (word_index, word) in sentence.words.iter().enumerate() {
+            if word.class == EnqueueClass::Assignment
+                && (word_index == 0 || sentence.words[word_index - 1].class != EnqueueClass::Name)
+            {
+                plan.dynamic_assignment_targets
+                    .push((sentence_index, word_index));
+            }
+            if word.class != EnqueueClass::Name {
+                continue;
+            }
+            let role = match sentence.words.get(word_index + 1) {
+                Some(copula) if copula.class == EnqueueClass::Assignment => {
+                    if copula.flags.local_assignment {
+                        declarations.insert(body[word.span.clone()].to_owned());
+                        DefinitionNameRole::LocalAssignmentTarget
+                    } else {
+                        DefinitionNameRole::GlobalAssignmentTarget
+                    }
+                }
+                _ => DefinitionNameRole::ReadCurrentFrameThenGlobal,
+            };
+            plan.occurrences.push(DefinitionNameOccurrence {
+                sentence: sentence_index,
+                word: word_index,
+                span: word.span.clone(),
+                role,
+            });
+        }
+    }
+    plan.local_declarations = declarations.into_iter().collect();
+    plan
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefinitionCode {
+    pub name_plan: DefinitionNamePlan,
     pub source: Arc<str>,
     pub body: Arc<str>,
     pub source_span: Range<usize>,
@@ -388,6 +464,10 @@ pub fn compile(
         }
     }
     let code = DefinitionCode {
+        name_plan: DefinitionNamePlan {
+            monad: scope_plan(&body, &sentences, monad.clone()),
+            dyad: scope_plan(&body, &sentences, dyad.clone()),
+        },
         source: Arc::from(source),
         body,
         source_span: input.span.clone(),
@@ -408,10 +488,32 @@ pub fn compile(
 impl DefinitionCode {
     /// Verify source/word/control references before consuming this code in analysis.
     pub fn verify(&self) -> Result<()> {
+        for sentence in &self.sentences {
+            if self.body.get(sentence.span.clone()).is_none()
+                || sentence
+                    .words
+                    .iter()
+                    .any(|word| self.body.get(word.span.clone()).is_none())
+            {
+                return Err(Error::Unsupported(
+                    "definition NAME source outside body".into(),
+                ));
+            }
+        }
         for range in [&self.monad, &self.dyad] {
             if self.sentences.get(range.clone()).is_none() {
                 return Err(Error::Unsupported(
                     "definition valence range outside source lines".into(),
+                ));
+            }
+        }
+        for (plan, range) in [
+            (&self.name_plan.monad, &self.monad),
+            (&self.name_plan.dyad, &self.dyad),
+        ] {
+            if plan != &scope_plan(&self.body, &self.sentences, range.clone()) {
+                return Err(Error::Unsupported(
+                    "definition NAME plan does not match source/valence".into(),
                 ));
             }
         }

@@ -759,7 +759,7 @@ Keep acceptance under NP-02/04/05/07 and M3→M4: kernel/allocation-free analysi
 
 **Executed check:** native Windows `static_explain 'data + data * data'` produced three ReadNoun and two Apply nodes using only declared Float[1000000000000] metadata, with no data/result arrays computed. This proves the existing deferred graph path, not runtime binding guards, instrumented allocation bounds or M4 end-to-end execution. Two existing execution-free semantic regressions passed each on default/portable; `git diff --check` passed. This is a documentation-only change; the full suite, fmt/clippy and GitHub CI were not run. Close this path into actual CPU execution next; do not make eager capture the sole compiler input.
 
-#### SemanticHandoff v1: decided logical parser output (2026-10-07; not implemented)
+#### SemanticHandoff v1: decided logical parser output (2026-10-07; logical contract and first implementation)
 
 Canonical §3.7.7 fixes the logical parser→analyzer contract. Earlier sections specified information and boundaries without a concrete carrier. The output is one `SemanticHandoff`; it retains both the semantic reduction result and the inputs/context before reduction, with explicit links between them. This is a target replacement of existing Program storage, not an additional mandatory IR stage or a second semantic authority. Container types, integer widths, arena layout and serialization remain implementation choices.
 
@@ -802,7 +802,7 @@ The remaining logical records and rules are:
 | WordRecord | SourceSpan, enqueue class/flags/environment, optional expansion-origin WordId. Equal spans do not imply equal expanded word occurrences. |
 | ItemProducer | Word / NameUse / Reduction / Mark. NAME class resolution creates a new immutable item; the previous occurrence is retained. Inspected window and consumed items are distinct. |
 | NameSyntax | WordId, Simple/Direct/Indirect address, components with kind and SourceSpan, Ordinary/ByValue/ByValueAndAbandon read mode, optional implicit operand. Runtime locale/frame identities are not syntax. |
-| NameUse | Phase StackRead/StackPOS/ConstructorRead/CallLookup/AssignmentTarget/Abandon; policy CaptureAtRead/LateAtCall/CaptureAtConstruction/Assignment/ReadAndAbandon. POS is Noun/Verb/Adverb/Conjunction; missing POS is not assumed noun. A spelling occurrence may have several uses. |
+| NameUse | Phase StackRead/StackPOS/ConstructorRead/CallLookup/AssignmentTarget/Abandon; policy CaptureAtRead/LateAtCall/ResolveAtConstruction/CaptureAtConstruction/Assignment/ReadAndAbandon. POS is Noun/Verb/Adverb/Conjunction; missing POS is not assumed noun. A spelling occurrence may have several uses. The first implementation below restricts stack policies to the first three. |
 | NameObservation | Catalog/Runtime origin, Noun/Function/Missing/JError outcome, optional POS and LookupWitness, small constructor metadata. Observations are not automatic runtime proofs; noun payload is not duplicated here. |
 | LookupWitness | Engine, frame instance, start/found/execution locale, binding stamp (scope instance, symbol generation, revision), typed LocalPresent/LocalAbsent/LocalePathEpoch/HolderRead/NamespaceEpoch dependencies. Missing evidence remains explicit, not a fabricated flat NameVersion. Future GuardRecipe is separate. |
 | SemanticEvent | NameUse/Constructor/Call/Write/Check kind, owner ItemId, optional NodeId, predecessor EventIds, NamespaceRead/NamespaceWrite/ArrayCall/UnknownCall/Constructor effect, Planned/Observed realization. Preserve potential error order; weakening conservative dependencies requires proof. |
@@ -819,7 +819,43 @@ Graph/A3 adapters retain target node→original `(unit, NodeId)` sets and share 
 
 Migration uses existing NP gates: (1) implement logical types and verifier, including bad-ID/producer/origin/event/demand negative tests; (2) emit records from the existing parser matcher and actions, replacing Expr storage through adapters without permanently retaining two authorities; (3) connect actual error-bearing lookup/witness APIs, preserving explicit unsupported boundaries; (4) retain origins through Graph/A3 and reject lost provenance; (5) compare C-visible POS, values, errors and namespace effects. Unobservable C internals require source-derived or instrumented evidence and are not proved by matching values. Structural verification is not an independent proof of J semantics.
 
-**Status:** logical structure, fields, ownership relationships and consumption rules are decided. Rust types, parser emission, arena migration and the new verifier remain unimplemented. Previous static-analysis/runtime audits are not tests of this new schema. The first implementation unit is types plus verifier and negative tests, followed by parser emission; no eager capture is required to obtain compiler context.
+**Implemented priority slice — parser output and NAME scope (2026-10-07).** The actual carrier is existing `semantic::Program` plus `frontend: Option<Arc<FrontendContext>>`. Program's expression/assignment/shared FunctionEntity DAG remains the sole semantic authority. Context is an immutable structural/provenance index emitted by the same parser actions; its Literal descriptor has no array payload and is not independently executable. `Expr.origin` links the structures directly. This implements the logical contract without requiring immediate whole-Program arena migration or a second parser pass.
+
+~~~text
+Program: expression (Expr.origin), assignment, constructor snapshots, functions,
+         frontend: Arc<FrontendContext>?
+FrontendContext: schema=1, unit, realization=Deferred|Observed,
+         source, words, items, nodes, origins, name_uses, reductions,
+         steps=Stack|FrontMark|Reduce, pending?, root?, complete
+~~~
+
+| Requirement | Actual realization and limit |
+|---|---|
+| Before/after reduction | Distinct Word/Item/Node/Reduction/NameUse IDs; NAME substitution creates another item. Record the actual four-slot window, consumed IDs and produced ID. Absent suffix slots denote virtual Marks. Parentheses preserve multiple item/reduction origins for one result. |
+| Usable during parsing | Emission occurs inside the existing matcher/actions. Context verification replays right-to-left queue/stack, FRONT MARK timing, row choice and operand/result links. `parse_frontend` returns FrontendFailure with a completed prefix and pending action/window on failure, without inventing an output. This is not a runtime continuation. |
+| NAME timing | NameResolution=NounValue/FunctionValue/FunctionReference; policy=CaptureAtRead/LateAtCall/ResolveAtConstruction. Record the actual resolve branch, not a guess from the returned function head: u may substitute a value that is itself another NameRef. CatalogClass/RuntimeClass/DiagnosticAssumption and optional binding version/lookup observations stay distinct. Diagnostic noun assumptions are not POS execution proofs. |
+| Runtime scope | LookupObservation contains engine, frame, GlobalOnly/CurrentFrameThenGlobal search, NoFrame/Bound/DeclaredUnbound/Absent local state, Local(scope)/Global(scope)/Extension/Missing result and binding version. Engine/global namespace and invocation frames have nonreused ScopeInstanceIds. Equal spelling/version=1 in different frames does not identify one binding. |
+| Definition source scope | DefinitionCode.name_plan has separate monad/dyad DefinitionScopePlans: literal local declarations, source sentence/word/span, ReadCurrentFrameThenGlobal/LocalAssignmentTarget/GlobalAssignmentTarget roles, and dynamic assignment target positions. Construction performs no body lookup or POS/value evaluation. Invocation consumes the declaration inventory and supplies implicit operands/arguments separately. Explicit/direct spellings share this contract. |
+| Declaration versus binding | In t=.t+u, declared-but-uninitialized t can read the global binding; later reads see local t. Declaration does not freeze a read into local SSA. Ordinary local function names remain late references on return rather than capturing a caller frame as a closure; implicit function-value substitution is separate. |
+| Optimization handoff | Every J Graph node retains parser-origin NodeId sets and the same context Arc. A3 parser_provenance closes operation.j_origin→Graph ID→parser NodeId. Derived expansion retains conservative enclosing-call origins, not a claimed unique smallest source occurrence. Verifiers reject missing/out-of-range origins and source mismatches. |
+| Memory and execution | Analysis retains context; runtime records it when capture is requested, without imposing tracing on ordinary body evaluation. Existing function Arcs are shared and intermediate array payloads are not copied into context. Singleton boxed gerund headers are peeled iteratively with the existing depth/rank/empty/error checks to avoid increased Windows recursive stack usage. |
+
+DefinitionScopePlan is a source inventory, not a closed local set or proof of current POS/value. Computed assignments, execute and control flow can introduce names. Removing/hoisting lookup on a local-absence/global-fallback assumption requires independent frame-liveness, symbol-generation, namespace/local-epoch, locale/path and semantic-read witnesses/guards. LookupObservation or a flat binding version alone does not authorize specialization. C buckets/lookaside are implementation details; lookup result, timing and fallback are the contract.
+
+Acceptance checklist:
+
+- [x] Decide logical input/result/NAME identities and ownership; verify context schema/unit.
+- [x] Emit from all nine existing parser actions, retain pre-action windows and result links, and preserve pending failure context.
+- [x] Compare all 9^4=6,561 class windows against a literal-mask transcription of pinned C p.c::cases; distinguish source-derived row evidence from instrumented C execution traces.
+- [x] Replay queue/stack and reject fabricated producer/operand/origin/scope observations.
+- [x] Preserve provenance into Graph/A3 and reject lost origins; keep trillion-element metadata-only analysis deferred.
+- [x] Regress explicit/direct declarations, fallback, shadowing, global writes, escaped ordinary function references and implicit operand substitution.
+- [ ] Complete LookupWitness/GuardRecipe, individual events for every constructor NAME use, function operand-path provenance and multi-unit inlining origin merging.
+- [ ] Complete expansion source entries, typed demands/exact runtime continuations and whole-Program arena migration. A failed context is not an executable continuation.
+
+This closes structural preservation for currently supported parser actions and compilation paths, not full-J/locale/control execution or NAME-specialization admission. Executed validation is recorded below.
+
+**Executed validation (2026-10-07, native Windows):** default and portable each **560 passed / 17 ignored / 0 failed**, including 15 new frontend integration regressions and 68 total library tests. `cargo fmt --all` and `cargo clippy --all-targets --all-features -- -D warnings` passed. Python audit classification/transport tests: 8; oracle protocol tests: 9, all passed. C j64/AVX2 × Rust direct/semantic-reference comparison: all **40 observations matched** across 10 explicit/direct NAME scope fixtures (`reports/name-scope-handoff-windows.json`); existing 26 NAME fixtures: **64 matched / 40 unsupported**; 10 semantic boundary fixtures: **36 matched / 4 unsupported**. Each observation is a sentence sequence including setup and post-error reads, not an internal C event trace or compiled-route test. Only multiline explicit block setups use C script transport, retaining identical original source on both sides. Reports record binary/DLL hashes and distinct source/asset revisions. Unsupported locale/execute cases are not passes. GPU/Linux/remote CI checks were not run.
 
 #### Frontend file ownership
 

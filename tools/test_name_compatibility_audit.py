@@ -1,10 +1,33 @@
 """Protect audit classification from silently counting missing coverage as passes."""
 import unittest
 
-from name_compatibility_audit import compare_trace
+from name_compatibility_audit import SCRIPT_SETUPS, compare_trace, reference_trace
 
 
 class AuditClassification(unittest.TestCase):
+    def test_block_setup_uses_script_and_preserves_original_source(self):
+        calls = []
+        class FakeOracle:
+            def run_script(self, source):
+                calls.append(("script", source))
+            def eval(self, source):
+                calls.append(("sentence", source))
+                return {"data": [7]}
+        block = sorted(SCRIPT_SETUPS)[0]
+        sources = [block, "a", "adv=:{{ a=.u\na }}"]
+        outcomes, transports = reference_trace(FakeOracle(), sources)
+        self.assertEqual(transports, ["script", "sentence", "sentence"])
+        self.assertEqual(calls, list(zip(transports, sources)))
+        self.assertEqual(outcomes[0], {"silent": True})
+        self.assertEqual(outcomes[1], {"data": [7]})
+
+    def test_script_setup_error_is_preserved(self):
+        class FakeOracle:
+            def run_script(self, source):
+                return {"error": "syntax error"}
+        outcomes, _ = reference_trace(FakeOracle(), [sorted(SCRIPT_SETUPS)[0]])
+        self.assertEqual(outcomes, [{"error": "syntax error"}])
+
     def test_complete_match(self):
         self.assertEqual(compare_trace(["a"], [{"data": [1]}], [{"data": [1]}]),
                          ("matched", []))

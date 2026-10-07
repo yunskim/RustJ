@@ -606,6 +606,7 @@ pub struct Function {
 
 #[derive(Clone, Debug)]
 pub struct Plan {
+    pub parser_provenance: Option<crate::frontend_context::ParserProvenance>,
     pub header: IrHeader,
     pub source: String,
     pub symbols: Vec<Symbol>,
@@ -805,6 +806,7 @@ impl PlanBuilder {
     ) -> Self {
         Self {
             plan: Plan {
+                parser_provenance: None,
                 header: IrHeader::current(),
                 source,
                 symbols: Vec::new(),
@@ -1049,6 +1051,26 @@ impl Plan {
 
     pub fn verify(&self) -> std::result::Result<(), VerifyError> {
         let fail = |operation: Option<OpId>, message: String| VerifyError { operation, message };
+        if let Some(provenance) = &self.parser_provenance {
+            if provenance.context.source.as_ref() != self.source {
+                return Err(fail(None, "A3/parser source mismatch".into()));
+            }
+            provenance
+                .context
+                .verify()
+                .map_err(|message| fail(None, message))?;
+            if !provenance.context.complete
+                || provenance.graph_nodes.len() != self.j_graph_node_count
+                || provenance.graph_nodes.iter().any(|nodes| {
+                    nodes.is_empty()
+                        || nodes
+                            .iter()
+                            .any(|node| node.0 >= provenance.context.nodes.len())
+                })
+            {
+                return Err(fail(None, "invalid A3 parser provenance".into()));
+            }
+        }
         let source_len = self.source.len();
 
         if self.header.schema != A3_SCHEMA_VERSION {
