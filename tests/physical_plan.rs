@@ -4,8 +4,8 @@ use rustj::{
     logical_ir::{OpId, ValueId},
     physical::Encoding,
     physical_plan::{
-        BufferOwnership, MemorySpace, PhysicalOp, PhysicalPlan, PhysicalPlanError,
-        PhysicalViewId, PlanBufferId, ViewAccess,
+        BufferOwnership, MemorySpace, PhysicalOp, PhysicalPlan, PhysicalPlanError, PhysicalViewId,
+        PlanBufferId, ViewAccess,
     },
 };
 
@@ -32,7 +32,9 @@ fn m4_empty_a3_plan_requires_no_buffers_views_or_execution() {
     assert!(physical.views.is_empty());
 
     let mut forged = physical.clone();
-    forged.operations.push(PhysicalOp::Check { source_op: OpId(0) });
+    forged
+        .operations
+        .push(PhysicalOp::Check { source_op: OpId(0) });
     assert!(matches!(
         forged.verify(&logical),
         Err(PhysicalPlanError::Invalid(_))
