@@ -11395,6 +11395,8 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
 - [x] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 modifier/parser class 경로에 참여하는 테스트를 만들었다.
 
+- [ ] **F1↔P4 locative 정상 수용(2026-10-07 검토):** 유효한 J direct `name_locale_`, indirect `name__holder`, 호환 `name__`(`name_base_`)는 **문법 오류가 아니며 영구 `Unsupported` 처리 대상도 아니다**. `sn.c::vnm/nfs`로 이름을 검증하고 `w.c::jtenqueue`의 NMLOC/NMILOC·`=.`의 global promotion을 보존한다. 단순 이름의 문자열 key로 속여서 다른 locale과 충돌시키지 않는다. F1의 syntax/name queue와 P4의 locale lookup/assignment는 **연계 구현 후 수용**한다. 현재 RustJ의 유효 locative에 대한 `Unsupported`는 명백한 **미구현 상태**이지 승인된 최종 동작이 아니다.
+
 **F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
 
 #### F2 — jsource parse queue skeleton
@@ -11492,6 +11494,8 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] deferred noun value가 뒤 row 3/4 modifier construction의 실제 operand value로 필요한 경우 정적 placeholder로 construction을 완료하지 않는다.
 - [ ] v0에서는 이러한 dynamic parse dependency를 `RuntimeSemanticParse`/coverage fallback으로 보내고, 정적 compile 성공으로 오인하지 않는다.
 - [ ] 추후 guard/multiversion을 추가하더라도 observable reduction/order/error semantics가 runtime semantic baseline과 같음을 요구한다.
+
+- [ ] **P4-locative J 실행 의미(위 F1 연계):** direct는 지정 locale의 symbol을 읽고/쓴다; indirect는 현재 binding의 boxed locale string을 **해당 조회·대입 시점**에 읽는다; `name__`은 `name_base_`로 귀착한다. locative `=.`/`=:`는 explicit definition 안에서도 global이다. RHS는 원래 실행 locale에서 평가하고 지정 locale에 기록한다. locative로 호출한 function의 current-locale 교체·복원, locale search path, local frame 분리, observable NAME/POS/error/effect/assignment 순서를 테스트한다. 미정의 이름·잘못된 locale 값은 J의 실제 오류를 C oracle로 판정하며 미지원으로 포장하지 않는다. **수용:** pinned J C의 positive/negative·rebind·nested explicit-definition 차분; direct/indirect·읽기/대입·출처 span을 모두 보전해야 한다. 문법만 인정하거나 구문 뒤 일괄 `Unsupported`를 던지는 방식은 P4 통과 아님.
 
 **P4 완료 조건:** parser 결과가 spelling이 아니라 그 시점의 J binding, assignment state, parse row에 의해 결정된다.
 
