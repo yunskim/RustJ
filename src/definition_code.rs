@@ -114,11 +114,55 @@ fn scope_plan(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefinitionSourceMap {
+    start: usize,
+    len: usize,
+    /// Decoded byte positions where the original contains a doubled quote.
+    escaped_quotes: Vec<usize>,
+}
+
+impl DefinitionSourceMap {
+    fn new(source: &str, input: &DefinitionInput, body: &str) -> Self {
+        let mut escaped_quotes = Vec::new();
+        let start = if matches!(input.form, DefinitionForm::ExplicitString(_)) {
+            let bytes = &source.as_bytes()[input.body.start + 1..input.body.end - 1];
+            let (mut original, mut decoded) = (0, 0);
+            while original < bytes.len() {
+                let doubled = bytes[original] == b'\'' && bytes.get(original + 1) == Some(&b'\'');
+                if doubled {
+                    escaped_quotes.push(decoded);
+                }
+                original += 1 + usize::from(doubled);
+                decoded += 1;
+            }
+            input.body.start + 1
+        } else {
+            input.body.end - body.len()
+        };
+        Self {
+            start,
+            len: body.len(),
+            escaped_quotes,
+        }
+    }
+
+    /// Map decoded body byte boundaries to the immutable original source.
+    pub fn original_span(&self, span: Range<usize>) -> Option<Range<usize>> {
+        if span.start > span.end || span.end > self.len {
+            return None;
+        }
+        let boundary = |n| self.start + n + self.escaped_quotes.partition_point(|&q| q < n);
+        Some(boundary(span.start)..boundary(span.end))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefinitionCode {
     pub name_plan: DefinitionNamePlan,
     pub source: Arc<str>,
     pub body: Arc<str>,
     pub source_span: Range<usize>,
+    pub source_map: DefinitionSourceMap,
     pub form: DefinitionForm,
     /// Resolved explicit mode, including direct definition inference.
     pub mode: u8,
@@ -491,6 +535,7 @@ pub fn compile(
         }
     }
     let code = DefinitionCode {
+        source_map: DefinitionSourceMap::new(source, input, &body),
         name_plan: DefinitionNamePlan {
             monad: scope_plan(&body, &sentences, monad.clone()),
             dyad: scope_plan(&body, &sentences, dyad.clone()),
@@ -515,6 +560,26 @@ pub fn compile(
 impl DefinitionCode {
     /// Verify source/word/control references before consuming this code in analysis.
     pub fn verify(&self) -> Result<()> {
+        let mapped = self
+            .source_map
+            .original_span(0..self.body.len())
+            .and_then(|span| self.source.get(span));
+        if mapped.is_none_or(|text| {
+            if matches!(self.form, DefinitionForm::ExplicitString(_)) {
+                let mut original = text.bytes();
+                let matches = self.body.bytes().all(|byte| {
+                    original.next() == Some(byte)
+                        && (byte != b'\'' || original.next() == Some(b'\''))
+                });
+                !matches || original.next().is_some()
+            } else {
+                text != self.body.as_ref()
+            }
+        }) {
+            return Err(Error::Unsupported(
+                "definition source map does not match body".into(),
+            ));
+        }
         for sentence in &self.sentences {
             if self.body.get(sentence.span.clone()).is_none()
                 || sentence

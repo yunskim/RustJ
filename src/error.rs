@@ -1,4 +1,4 @@
-use std::{fmt, ops::Range};
+use std::{fmt, ops::Range, sync::Arc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiagnosticPhase {
@@ -110,6 +110,25 @@ impl ArgumentSummary {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DiagnosticFrameKind {
+    #[default]
+    DefinitionBody,
+    DefinitionCall,
+}
+
+/// Source-owned coordinates, distinct from the current caller's span/index.
+/// Ordered from the innermost failure to outer definition callsites.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticSourceFrame {
+    pub kind: DiagnosticFrameKind,
+    pub source: Arc<str>,
+    pub definition_span: Range<usize>,
+    pub span: Range<usize>,
+    /// Index in the failing/calling control fragment's queue, not the entire body.
+    pub blame_word_index: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ErrorContext {
     pub phase: Option<DiagnosticPhase>,
     pub span: Option<Range<usize>>,
@@ -122,6 +141,7 @@ pub struct ErrorContext {
     pub valence: Option<DiagnosticValence>,
     pub arguments: Vec<ArgumentSummary>,
     pub details: Vec<FailureDetail>,
+    pub source_frames: Vec<DiagnosticSourceFrame>,
 }
 
 impl ErrorContext {
@@ -190,6 +210,7 @@ impl ErrorContext {
             self.arguments = outer.arguments;
         }
         self.details.extend(outer.details);
+        self.source_frames.extend(outer.source_frames);
     }
 }
 
@@ -349,6 +370,32 @@ impl Error {
     pub fn render(&self, source_name: &str, source: &str, base_line: usize) -> String {
         let diagnostic = self.diagnostic(source);
         let mut out = String::new();
+
+        for frame in &diagnostic.context.source_frames {
+            let location = SourceLocation::from_span(&frame.source, frame.span.clone());
+            let begin = frame.source[..location.byte_span.start]
+                .rfind('\n')
+                .map_or(0, |n| n + 1);
+            let end = frame.source[location.byte_span.start..]
+                .find('\n')
+                .map_or(frame.source.len(), |n| location.byte_span.start + n);
+            let label = match frame.kind {
+                DiagnosticFrameKind::DefinitionBody => "definition failure",
+                DiagnosticFrameKind::DefinitionCall => "called from definition",
+            };
+            out.push_str(&format!(
+                "  {label}, line {}, column {}\n    {}\n    {}{}\n",
+                location.line,
+                location.column,
+                &frame.source[begin..end],
+                " ".repeat(location.column.saturating_sub(1)),
+                "^".repeat(if location.line == location.end_line {
+                    location.end_column.saturating_sub(location.column).max(1)
+                } else {
+                    1
+                })
+            ));
+        }
 
         if let Some(location) = &diagnostic.location {
             let display_line = base_line + location.line.saturating_sub(1);

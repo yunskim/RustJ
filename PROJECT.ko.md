@@ -13564,3 +13564,31 @@ RustJ의 공개 오픈소스 배포 경로는 GNU General Public License version
 Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으로 유지한다. 이번 Co-dfns pinned manual URL은 열리지 않아 새 소스 재검증 완료로 세지 않았다. 이번 신규 확인의 직접 근거는 MLIR/JAX 공식 자료다.
 
 이번 감사 도구 검증: Windows default/portable 각각 **608 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. runtime 변경은 없다. 새 62개 관측의 미지원 차이는 기존 304 matched 보고서의 수용 사례와 별도로 유지한다.
+
+
+## Frontend 감사 보완 실행 계획 (2026-10-07)
+
+기존 F1/P4/P8/A0.6/A1–A3 체크리스트를 원장으로 사용한다. 현재 지원 subset E2E 완료는 유지하며 frontend에서 CFG를 만들지 않는다. 아래 순서는 기존 항목의 실행 순서이며 각 단계의 구현·독립 검증 후에만 완료로 표시한다.
+
+| 순서 | 기존 소유 항목 | 실행 범위·수용 조건 | 상태 |
+|---|---|---|---|
+| 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 진행 중 |
+| 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
+| 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 미완료 |
+| 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
+| 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
+
+1단계 데이터 계약: ErrorContext에 source-owned 진단 frame chain을 추가하고 caller-relative span/word-index의 기존 의미는 유지한다. primary body 위치는 DefinitionCode의 sparse quote source map으로 원문에 대응한다. source는 Arc로 공유하고 noun payload를 진단에 복사하지 않는다. frame chain은 진단 정보이며 J semantic identity·CFG·resume 토큰이 아니다. 렌더러는 body 실패와 각 정의 호출 위치, 마지막 외부 caller를 함께 표시한다. 단계 1의 완료는 다른 단계의 미지원을 해결했다는 뜻이 아니다. Windows default/portable, fmt/clippy, Python 및 bounded C 감사로 검증하고 기계 원자료를 reports에 남긴다. CUDA/GitHub CI는 계속 유보한다.
+
+A0.6 실행 체크리스트 — 첫 수정 범위:
+
+- [x] `DefinitionSourceMap`: decoded body byte range를 원문으로 대응. doubled quote만 sparse 위치 목록으로 보존하고 전체 body/source 일치를 verifier에서 확인한다.
+- [x] `DiagnosticSourceFrame`: `kind`, 공유 `source: Arc<str>`, `definition_span`, 원문 `span`, fragment queue 기준 `blame_word_index`를 보존한다. `ErrorContext.source_frames`는 가장 안쪽 실패 → 바깥 정의 호출 순서다. 기존 caller span/word-index 의미는 유지한다.
+- [x] ordinary/modifier/nested 정의의 statement/control 실행 실패를 source frame으로 전달하고 렌더링한다. escaped quote·UTF-8·CRLF·source 재정의 수명·실패한 대입·catch 회귀를 추가한다.
+- [x] 최종 소스 기준 native Windows default/portable 각각 **612 passed / 0 failed / 0 ignored**, fmt/clippy 통과, Python **67 passed**. 정의 호출/loop/nested/NAME scope C 비교 **304/304 일치**. Frontend 감사 **38 matched / 24 runtime_gap**는 기존 미지원 경계를 유지한다. `reports/definition-*-windows.json`, `reports/frontend-contract-audit-windows.json`에 바이너리·소스 hash와 결과를 기록했다. C 오류 위치/문자열 동등성은 검증하지 않았으며 source frame은 Rust 회귀 테스트로 검증했다.
+- [ ] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 현재 경로에는 정밀 body 위치가 없을 수 있다.
+- [ ] source-unit/file identity와 nested source의 최상위 원문까지 이어지는 provenance를 확장한다. 현재 frame 위치는 각 DefinitionCode가 소유한 source 단위 기준이며 파일 전체 좌표를 보장하지 않는다.
+- [ ] 순서 2: 오류 분류와 단계별 admission 계약을 보완한다.
+- [ ] 순서 3: NAME·effect·modifier의 후속 IR 전달 계약을 보완한다.
+- [ ] 순서 4–6: NAME 표현력, 수치 literal, modifier 호환성을 독립 C 비교와 함께 확장한다.

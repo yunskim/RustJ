@@ -5294,6 +5294,35 @@ Existing Co-dfns/APEX/TAIL-Futhark research remains historical FOUNDATIONS evide
 
 Audit-tool validation: native Windows default/portable each **608 passed / zero failed / zero ignored**, Python **67 passed**, fmt/clippy pass. No runtime change. Keep gaps in the new 62 observations separate from the preceding 304 matched acceptance observations.
 
+
+
+## Frontend audit remediation execution plan (2026-10-07)
+
+Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset frontend E2E remains complete; CFG construction stays downstream. This table sequences existing work; completion requires implementation and independent validation.
+
+| Order | Existing owner | Scope / acceptance | Status |
+|---|---|---|---|
+| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
+| 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
+| 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | Pending |
+| 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
+| 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
+
+Step 1 adds source-owned diagnostic frames to ErrorContext while preserving caller-relative span/word semantics. DefinitionCode maps body offsets through a sparse escaped-quote map. Share source through Arc, never copy noun payloads for diagnostics. The frame chain is diagnostic metadata, not function identity, CFG or a resume token. Render primary body failure, definition callsites and external caller. Validate on native Windows default/portable, fmt/clippy/Python and bounded C audits; CUDA/GitHub CI remain deferred. Step 1 completion does not close other compatibility gaps.
+
+A0.6 execution checklist — first implementation slice:
+
+- [x] `DefinitionSourceMap` maps decoded body byte ranges to original source, stores only doubled-quote positions, and verifies the entire body/source correspondence.
+- [x] `DiagnosticSourceFrame` preserves kind, shared `source: Arc<str>`, definition span, original source span and fragment-queue blame word. `ErrorContext.source_frames` runs from the innermost failure to outer definition callsites; existing caller span/word semantics remain intact.
+- [x] Preserve/render statement/control failures across ordinary/modifier/nested invocation. Add escaped-quote, UTF-8, CRLF, source lifetime after redefinition, failed-assignment and catch regressions.
+- [x] Final-source native Windows default/portable: **612 passed / 0 failed / 0 ignored** each; fmt/clippy passed; Python **67 passed**. Definition calls/loops/nested/NAME scopes: **304/304 C matches**. Frontend audit retains **38 matched / 24 runtime_gap** at existing unsupported boundaries. Binary/source hashes and results are in `reports/definition-*-windows.json` and `reports/frontend-contract-audit-windows.json`. C diagnostic location/text equality is not tested; Rust regression tests validate the source frames.
+- [ ] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Precise body locations may still be absent on these paths.
+- [ ] Extend source-unit/file identity and nested provenance back to top-level original input. Current frames use each DefinitionCode's owned source unit, not guaranteed whole-file coordinates.
+- [ ] Order 2: refine error categories and structured stage admission.
+- [ ] Order 3: refine downstream NAME/effect/modifier handoff.
+- [ ] Orders 4–6: expand NAME expressiveness, numeric literals and modifiers with independent C comparisons.
+
 ## License policy
 
 RustJ's public open-source distribution path is GNU General Public License version 3, `GPL-3.0-only`.

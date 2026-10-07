@@ -117,6 +117,8 @@ def main():
                                 "status": "matched" if matches else "runtime_gap"})
     report = {"scope": "Bounded admission, handoff and error audit; gaps are findings, not passes. C diagnostic locations are not compared.",
               "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "rust_source_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+                                     for p in sorted(Path("src").rglob("*.rs"))},
               "probe_sha256": hashlib.sha256(args.probe.read_bytes()).hexdigest(),
               "audit_source_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
                                       for p in [Path(__file__), Path("examples/frontend_contract_probe.rs")]},

@@ -1131,6 +1131,28 @@ impl Engine {
                     Ok(Some(next)) => pc = next,
                     Ok(None) => break,
                     Err(error) => {
+                        // Statement-parser spans are fragment-relative. Preserve
+                        // original definition coordinates before caller relocation.
+                        let mut context = error.context().cloned().unwrap_or_default();
+                        let relative = context.span.clone().unwrap_or(0..node.span.len());
+                        let body_span =
+                            node.span.start + relative.start..node.span.start + relative.end;
+                        if let Some(span) = code.source_map.original_span(body_span) {
+                            context
+                                .source_frames
+                                .push(crate::error::DiagnosticSourceFrame {
+                                    kind: if context.source_frames.is_empty() {
+                                        crate::error::DiagnosticFrameKind::DefinitionBody
+                                    } else {
+                                        crate::error::DiagnosticFrameKind::DefinitionCall
+                                    },
+                                    source: code.source.clone(),
+                                    definition_span: code.source_span.clone(),
+                                    span,
+                                    blame_word_index: context.blame_word_index,
+                                });
+                        }
+                        let error = error.into_unlocated().with_context(context);
                         // Unsupported is an implementation boundary, never a
                         // J error that catch. can turn into a successful value.
                         if matches!(error.root(), Error::Unsupported(_)) {
