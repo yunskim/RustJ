@@ -516,100 +516,195 @@ pub fn execute_closed(plan: &Plan) -> Result<Option<Value>> {
 /// Execute explicit logical inputs, never resolve them through a namespace.
 /// Arity and declared input facts are admission checks before any operations.
 pub fn execute_with_inputs(plan: &Plan, inputs: Vec<Value>) -> Result<Option<Value>> {
-    plan.verify()
-        .map_err(|error| Error::Unsupported(error.to_string()))?;
+    let outputs: Vec<_> = plan.result.into_iter().collect();
+    execute_outputs(plan, inputs, &outputs)
+        .result
+        .map(|mut values| values.pop())
+}
 
-    let expected = plan
-        .operations
-        .iter()
-        .filter(|op| matches!(op.kind, OpKind::Input { .. }))
-        .count();
-    if inputs.len() != expected {
-        return Err(Error::Unsupported("A3 array input arity mismatch".into()));
-    }
-    for operation in &plan.operations {
-        if let OpKind::Input { index } = operation.kind {
-            let facts = &plan.values[operation.results[0].0].facts;
-            let actual = crate::facts::SemanticFacts::of(&inputs[index]);
-            let expected = crate::j_graph_ir::GraphFacts {
-                dtype: facts.dtype,
-                shape: facts.shape.clone(),
-                rank: facts.rank,
-            };
-            if !expected.agrees_with(actual.dtype, actual.shape.as_deref(), actual.rank) {
-                return Err(Error::Unsupported("A3 array input facts mismatch".into()));
-            }
+/// Completion is an operation-list prefix, never a schedule completion order.
+pub(crate) struct Progress {
+    pub result: Result<Vec<Value>>,
+    pub completed_operations: usize,
+}
+
+/// Explicit region exports are independent of the plan's ordinary single
+/// result. The enclosing verified boundary owns their semantic mapping.
+pub(crate) fn execute_outputs(plan: &Plan, inputs: Vec<Value>, outputs: &[ValueId]) -> Progress {
+    let mut completed_operations = 0;
+    let result = (|| -> Result<Vec<Value>> {
+        plan.verify()
+            .map_err(|error| Error::Unsupported(error.to_string()))?;
+        if outputs.iter().any(|value| value.0 >= plan.values.len()) {
+            return Err(Error::Unsupported("A3 export value is unavailable".into()));
         }
-    }
-    let mut inputs: Vec<_> = inputs.into_iter().map(Some).collect();
 
-    let mut values = vec![None; plan.values.len()];
-    let mut uses = vec![0; plan.values.len()];
-    for operation in &plan.operations {
-        match &operation.kind {
-            OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
-                uses[call.right.0] += 1;
-                if let Some(left) = call.left {
-                    uses[left.0] += 1;
+        let expected = plan
+            .operations
+            .iter()
+            .filter(|op| matches!(op.kind, OpKind::Input { .. }))
+            .count();
+        if inputs.len() != expected {
+            return Err(Error::Unsupported("A3 array input arity mismatch".into()));
+        }
+        for operation in &plan.operations {
+            if let OpKind::Input { index } = operation.kind {
+                let facts = &plan.values[operation.results[0].0].facts;
+                let actual = crate::facts::SemanticFacts::of(&inputs[index]);
+                let expected = crate::j_graph_ir::GraphFacts {
+                    dtype: facts.dtype,
+                    shape: facts.shape.clone(),
+                    rank: facts.rank,
+                };
+                if !expected.agrees_with(actual.dtype, actual.shape.as_deref(), actual.rank) {
+                    return Err(Error::Unsupported("A3 array input facts mismatch".into()));
                 }
             }
-            OpKind::SemanticCheck(check) => {
-                for value in check.constraint.values().into_iter().flatten() {
-                    uses[value.0] += 1;
-                }
-            }
-            _ => {}
         }
-    }
-    if let Some(result) = plan.result {
-        uses[result.0] += 1;
-    }
+        let mut inputs: Vec<_> = inputs.into_iter().map(Some).collect();
 
-    for operation in &plan.operations {
-        match &operation.kind {
-            OpKind::Input { index } => {
-                store_single_result(
-                    operation,
-                    inputs[*index].take().expect("verified input"),
-                    &mut values,
-                    &uses,
-                )?;
-            }
-            OpKind::Literal(value) => {
-                store_single_result(operation, value.clone(), &mut values, &uses)?;
-            }
-            OpKind::ReadNoun { .. } => {
-                return Err(Error::Unsupported(
-                    "A3 closed reference executor cannot read names".into(),
-                ));
-            }
-            OpKind::VerbReference(_) => {
-                return Err(Error::Domain);
-            }
-            OpKind::SemanticCheck(check) => {
-                execute_check(check, &values)?;
-                for value in check.constraint.values().into_iter().flatten() {
-                    uses[value.0] -= 1;
-                    if uses[value.0] == 0 {
-                        values[value.0] = None;
+        let mut values = vec![None; plan.values.len()];
+        let mut uses = vec![0; plan.values.len()];
+        for operation in &plan.operations {
+            match &operation.kind {
+                OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
+                    uses[call.right.0] += 1;
+                    if let Some(left) = call.left {
+                        uses[left.0] += 1;
                     }
                 }
-            }
-            OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
-                let right = consume(&mut values, &mut uses, call.right)?;
-                let left = call
-                    .left
-                    .map(|left| consume(&mut values, &mut uses, left))
-                    .transpose()?;
-                let result = execute_semantic(&call.callable.semantic, left, right)?;
-                store_single_result(operation, result, &mut values, &uses)?;
+                OpKind::SemanticCheck(check) => {
+                    for value in check.constraint.values().into_iter().flatten() {
+                        uses[value.0] += 1;
+                    }
+                }
+                _ => {}
             }
         }
-    }
+        for result in outputs {
+            uses[result.0] += 1;
+        }
 
-    plan.result
-        .map(|result| consume(&mut values, &mut uses, result))
-        .transpose()
+        for operation in &plan.operations {
+            match &operation.kind {
+                OpKind::Input { index } => {
+                    store_single_result(
+                        operation,
+                        inputs[*index].take().expect("verified input"),
+                        &mut values,
+                        &uses,
+                    )?;
+                }
+                OpKind::Literal(value) => {
+                    store_single_result(operation, value.clone(), &mut values, &uses)?;
+                }
+                OpKind::ReadNoun { .. } => {
+                    return Err(Error::Unsupported(
+                        "A3 closed reference executor cannot read names".into(),
+                    ));
+                }
+                OpKind::VerbReference(_) => {
+                    return Err(Error::Domain);
+                }
+                OpKind::SemanticCheck(check) => {
+                    execute_check(check, &values)?;
+                    for value in check.constraint.values().into_iter().flatten() {
+                        uses[value.0] -= 1;
+                        if uses[value.0] == 0 {
+                            values[value.0] = None;
+                        }
+                    }
+                }
+                OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
+                    let right = consume(&mut values, &mut uses, call.right)?;
+                    let left = call
+                        .left
+                        .map(|left| consume(&mut values, &mut uses, left))
+                        .transpose()?;
+                    let result = execute_semantic(&call.callable.semantic, left, right)?;
+                    store_single_result(operation, result, &mut values, &uses)?;
+                }
+            }
+            completed_operations += 1;
+        }
+
+        outputs
+            .iter()
+            .map(|result| consume(&mut values, &mut uses, *result))
+            .collect()
+    })();
+    Progress {
+        result,
+        completed_operations,
+    }
+}
+
+#[cfg(test)]
+mod batch_export_tests {
+    use super::*;
+
+    #[test]
+    fn multiple_exports_and_duplicate_uses_preserve_intermediate_values() {
+        let engine = crate::Engine::new();
+        let effects = engine.prepare_name_effects("1+2+3").unwrap();
+        let function = effects
+            .steps()
+            .iter()
+            .find_map(|step| {
+                if let crate::name_effect_ir::Operation::Apply { function, .. } = step.operation {
+                    Some(effects.function(function).clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let graph = crate::j_graph_ir::Plan::from_array_calls(
+            "1+2+3".into(),
+            2,
+            vec![
+                crate::j_graph_ir::ArrayCall {
+                    function: function.clone(),
+                    left: Some(crate::j_graph_ir::ValueId(0)),
+                    right: crate::j_graph_ir::ValueId(1),
+                    span: 0..5,
+                },
+                crate::j_graph_ir::ArrayCall {
+                    function,
+                    left: Some(crate::j_graph_ir::ValueId(2)),
+                    right: crate::j_graph_ir::ValueId(0),
+                    span: 0..5,
+                },
+            ],
+        )
+        .unwrap();
+        let plan =
+            crate::analysis::lower_graph(graph, &|_| crate::facts::Facts::default()).unwrap();
+        let results: Vec<_> = plan
+            .operations
+            .iter()
+            .filter(|op| matches!(op.kind, OpKind::Basis { .. } | OpKind::SemanticCall(_)))
+            .map(|op| op.results[0])
+            .collect();
+        let retained = Value::ints([2], vec![1, 2]).unwrap().into_shared();
+        let progress = execute_outputs(
+            &plan,
+            vec![retained.clone(), Value::scalar(1)],
+            &[results[0], results[1], results[0]],
+        );
+        assert_eq!(progress.completed_operations, plan.operations.len());
+        let values = progress.result.unwrap();
+        assert_eq!(
+            values.iter().map(Value::display).collect::<Vec<_>>(),
+            ["2 3", "3 5", "2 3"]
+        );
+        assert_eq!(retained.display(), "1 2");
+        let invalid = execute_outputs(&plan, vec![retained, Value::scalar(1)], &[ValueId(999)]);
+        assert!(invalid.result.is_err());
+        assert_eq!(
+            invalid.completed_operations, 0,
+            "export admission precedes execution"
+        );
+    }
 }
 
 #[cfg(test)]

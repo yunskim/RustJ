@@ -1850,7 +1850,72 @@ impl Engine {
                 }
             }
             uses[plan.result().0] += 1;
-            for (index, step) in plan.steps().iter().enumerate() {
+            let mut index = 0;
+            while index < plan.steps().len() {
+                if let Some(batch) = arrays.and_then(|arrays| arrays.batch_at_step(index)) {
+                    // Replace all parent uses inside this batch with one import.
+                    // A parent value with later uses is shared; otherwise it moves.
+                    let mut inputs: Vec<_> = batch
+                        .inputs()
+                        .iter()
+                        .map(|(id, count)| {
+                            uses[id.0] -= count - 1;
+                            let JEntity::Noun(value) = consume(&mut values, &mut uses, *id) else {
+                                unreachable!("verified array batch input")
+                            };
+                            value
+                        })
+                        .collect();
+                    // Only immutable literal payloads may be supplied ahead of
+                    // their zero-operation transport checkpoint. No lookup,
+                    // constructor or computation is performed here.
+                    inputs.extend(
+                        batch
+                            .constants()
+                            .iter()
+                            .map(|(_, node)| plan.literal(*node).clone()),
+                    );
+                    let exports: Vec<_> = batch.outputs().iter().map(|(_, value)| *value).collect();
+                    let progress =
+                        crate::logical_executor::execute_outputs(batch.logical(), inputs, &exports);
+                    match progress.result {
+                        Ok(results) => {
+                            // Internal uses are satisfied by batch SSA, not parent slots.
+                            for step in &plan.steps()[batch.steps()] {
+                                for id in step.operation.inputs() {
+                                    if !batch.inputs().iter().any(|(input, _)| *input == id) {
+                                        uses[id.0] -= 1;
+                                    }
+                                }
+                            }
+                            for ((id, _), value) in batch.outputs().iter().zip(results) {
+                                values[id.0] = Some(JEntity::Noun(if uses[id.0] > 1 {
+                                    value.into_shared()
+                                } else {
+                                    value
+                                }));
+                            }
+                            completed = batch
+                                .checkpoints()
+                                .last()
+                                .expect("nonempty verified batch")
+                                .success;
+                            index = batch.steps().end;
+                            continue;
+                        }
+                        Err(error) => {
+                            let failed = batch
+                                .checkpoints()
+                                .iter()
+                                .find(|point| point.operations.end > progress.completed_operations)
+                                .expect("verified batch failure checkpoint");
+                            completed = failed.entry;
+                            let step = &plan.steps()[failed.step];
+                            return Err(error.at(step.span.clone()).blamed_on_word(step.blame.0));
+                        }
+                    }
+                }
+                let step = &plan.steps()[index];
                 let observation = match &step.operation {
                     Operation::Read { name, .. }
                     | Operation::Take { name, .. }
@@ -1890,26 +1955,6 @@ impl Engine {
                             let JEntity::Noun(y) = consume(&mut values, &mut uses, *right) else {
                                 unreachable!("verified noun operand")
                             };
-                            if let Some(arrays) = arrays {
-                                let mut inputs =
-                                    Vec::with_capacity(1 + usize::from(left.is_some()));
-                                if let Some(left) = left {
-                                    let JEntity::Noun(x) = consume(&mut values, &mut uses, *left)
-                                    else {
-                                        unreachable!("verified noun operand")
-                                    };
-                                    inputs.push(x);
-                                }
-                                inputs.push(y);
-                                let value = crate::logical_executor::execute_with_inputs(
-                                    arrays.region_at_step(index).logical(),
-                                    inputs,
-                                )?
-                                .ok_or_else(|| {
-                                    Error::Unsupported("array region has no result".into())
-                                })?;
-                                return Ok(Some(JEntity::Noun(value)));
-                            }
                             let literal = |value| crate::semantic::Expr {
                                 origin: None,
                                 span: step.span.clone(),
@@ -1974,6 +2019,7 @@ impl Engine {
                     }
                 }
                 completed = step.after;
+                index += 1;
             }
             if plan.program().has_assignment() {
                 return Ok(None);

@@ -13699,10 +13699,17 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 - [x] 각 primitive Apply를 입력 SSA 매핑·원래 parser step·진입/성공 token을 가진 검증된 배열 region으로 낮춘다. 초기에는 한 Apply 단위로 오류 경계를 유지한다.
 - [x] Logical open-input 실행을 추가하고 NAME read/write/dynamic call을 region 안에서 거절한다. 실행 전에 모든 region을 검증하며 실패 후 다른 경로로 replay하지 않는다.
 - [x] 기존 순서 있는 semantic route와 새 Logical route의 값·오류·삭제·실패 token을 비교하고 두 C DLL의 공통 사례를 갱신한다.
-- [ ] 후속으로 연속 pure Apply의 다중 결과 region 및 내부 성공 위치를 표현하여 batching을 검토한다. token 경계 밖의 fusion/hoisting은 허용하지 않는다.
+- [x] 후속으로 연속 pure Apply의 다중 결과 region 및 내부 성공 위치를 표현하여 batching을 검토한다. token 경계 밖의 fusion/hoisting은 허용하지 않는다.
 
 
 ### NAME 배열 region의 구현 계약 — 2026-10-08
+
+다중 Apply batching 실행 체크리스트:
+
+- [x] Apply와 그 사이의 immutable literal/primitive-function 전달만 하나의 Graph/Logical batch로 묶고 Read/Take/Commit·그 외 parser step은 넘지 않는다. 외부 입력과 batch 밖에서 필요한 결과를 명시한다.
+- [x] 각 Apply의 Logical operation 범위와 원래 step·진입/성공 token을 checkpoint로 보존한다. literal/function 전달은 zero-operation checkpoint다. 오류 시 내부 완료 위치에서 부모 오류·성공 token을 복원하며 replay하지 않는다.
+- [x] 외부 입력은 한 번 이동하고 내부 SSA 수명·외부 alias·live-out을 보존한다. batch 생성은 비실행이며 검사 순서를 이동하지 않는다.
+- [x] 성공·첫/후속 Apply 실패·NAME 경계·live-out·변조 거절을 회귀 및 Windows default/portable·두 C DLL로 검증한다.
 
 `Engine::prepare_name_arrays`는 검증된 ordered NAME plan의 각 primitive Apply를 `ArrayRegion`으로 낮춘다. `ArrayPlan`은 원래 effect plan과 immutable region 목록을 보유하며, 각 region은 `step`, 진입/성공 `EffectToken`, 입력 NAME SSA `ValueId` 목록, 출력 `ValueId`, J Graph와 Logical plan을 가진다. 원래 parser step·span·blame은 부모 effect step에 남는다. Graph Input의 index는 이 입력 목록의 순서이며 NAME 조회나 저장된 literal이 아니다. 실제 조회/Take 결과는 해당 token에 도달한 실행에서 공급한다.
 
@@ -13710,8 +13717,30 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 
 Graph schema **0.10**, A3 schema **0.6**에 명시적 `Input { index }`를 추가했다. `logical_executor::execute_with_inputs`는 실행 전 입력 개수와 알려진 dtype/shape/rank를 확인한다. 모든 값의 사용 횟수에는 semantic check와 최종 결과도 포함한다. 마지막 사용에서는 소유권을 이동하고, 중복 사용에서만 shared handle을 만든다. 4,096개 integer 배열의 +1 회귀는 고유 입력의 실제 data pointer 재사용과 외부 alias가 남은 경우의 원본 보존을 확인한다. 이는 복사 제거의 증거이며 C 대비 속도 우위를 측정한 결과는 아니다.
 
-초기 지원 범위는 부모 ordered NAME plan과 같다. local definition frame·locative·중간 대입·modifier 생성·dynamic verb call은 여전히 별도 게이트다. 기본 eval 및 기존 pure Graph admission을 넓히지 않았다. 다음 체크리스트의 다중 Apply batching은 미구현이다. 이번 region은 Apply 하나의 오류 경계를 유지하며 fusion·GPU 실행·비동기 스케줄을 도입하지 않는다.
+최초 배열 연결 단계의 지원 범위는 부모 ordered NAME plan과 같다. local definition frame·locative·중간 대입·modifier 생성·dynamic verb call은 별도 게이트다. 기본 eval 및 기존 pure Graph admission을 넓히지 않았다. 최초 단계는 Apply 하나의 오류 경계를 유지했으며, 다중 Apply batching은 아래 후속 계약으로 구현했다. fusion·GPU 실행·비동기 스케줄은 도입하지 않는다.
 
 배열 연결 단계 최종 검증: Windows default/portable 각각 **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 이번 Rust 회귀는 integration 8개와 verifier unit 1개다. region 경계/입력 SSA·검사 변조 거절, 실제 저장소 재사용·alias 보존, shared fanout, shape/generation이 바뀐 계획 재사용, 오류 span/parser blame·실패 token을 확인했다. `reports/name-effects-windows.json`은 **19 fixtures × DLL 2 × route 2 = 76/76 matched**다. semantic/Logical 두 경로 모두 표시된 한 문장만 계획으로 실행하며 setup/check는 일반 eval이다.
 
 기존 최종 바이너리 감사는 **548 matched / 16 unsupported_gap**, 별도 frontend 감사는 **50 matched / 18 runtime_gap**으로 유지됐다. 이 gap을 해결했다고 주장하지 않는다. 8개 보고서의 소스·바이너리·DLL hash **520건**이 최종 파일과 일치했다. C 소스 pin과 실제 DLL release는 앞 단계와 같으며 same-source rebuild/full J conformance·C 오류 위치/문구 동등성을 뜻하지 않는다. 테스트는 이 컴퓨터의 Windows에서만 실행했고 GitHub CI·Linux·GPU 검증은 하지 않았다.
+
+### 다중 Apply batch 전달·실행 계약 — 2026-10-08
+
+`ArrayPlan::batches()`는 private immutable `ArrayBatch` 목록을 반환한다. 기존 per-Apply `regions()`는 원래 경계를 검토할 수 있도록 남긴다. 실행에는 batch의 통합 J Graph/Logical plan과 SSA 작업 공간을 사용한다. `Read/Take/Commit`과 미지원 step을 넘어 묶지 않으며, 처음·마지막 Apply 사이의 immutable Literal/사용되지 않는 Function 값 전달만 내부에 포함한다. source span에서 순서를 추측하지 않고 ordered effect step을 따른다.
+
+| 전달 항목 | 계약 |
+| --- | --- |
+| steps | 원래 effect plan의 연속 step 범위. 각 Apply와 사이의 값 전달 step 모두 포함한다. |
+| inputs | `(부모 ValueId, 대체하는 사용 횟수)` 목록. 실제 조회 결과는 한 번 import하고, 내부 fanout은 Logical SSA가 관리한다. |
+| constants | `(부모 ValueId, 원래 Program literal NodeId)` 목록. 일반 inputs 뒤의 Graph/Logical Input으로 공급한다. 고정된 immutable payload handle만 미리 공유하며 NAME 조회·동적 noun 계산·정의/constructor 실행은 하지 않는다. |
+| outputs | batch 밖에서 사용되는 `(부모 ValueId, Logical ValueId)` 목록. 내부 전용 중간값은 export하지 않는다. 이 계약은 다중 결과를 표현할 수 있으며 기존 Logical plan의 단일 result/스키마를 변경하지 않는다. |
+| checkpoints | 각 원래 step의 `step`, Logical operation range, 진입/성공 token. Apply의 range는 해당 semantic check와 call을 포함한다. Literal/Function 전달은 zero-operation range로 원래 성공 위치를 유지한다. |
+| failure | Logical executor는 성공한 operation prefix 길이를 반환한다. 부모는 해당 checkpoint에서 실패 span/parser blame과 마지막 성공 effect token을 복원한다. 이전 NAME 삭제는 유지하고 실패 뒤 Commit은 실행하지 않는다. 다른 경로로 replay하지 않는다. |
+| verification | 실행 전 원래 effect plan에서 canonical batch를 다시 유도해 입력·literal payload 연결·exports·checkpoint·원래 FunctionEntity·SSA·facts·검사/순서를 검증한다. 임의 최적화 계획을 받아들이는 witness 계약은 아직 아니다. |
+
+예: `b=:1+2+a_:`는 Take(a) 뒤 두 덧셈을 하나의 batch로 실행한다. 첫 결과는 내부 SSA이고 마지막 결과만 b의 Commit으로 넘긴다. `b=:a_:+1+2+3`은 오른쪽 덧셈 batch와 Take 뒤 왼쪽 덧셈 batch로 나뉜다. `b=:1 2+a_:+3`은 Take와 첫 덧셈 성공 뒤 두 번째 덧셈에서 length error가 나면 삭제를 유지하고 b를 보존한다. 실패 위치는 batch 전체가 아니라 실제 실패한 Apply다.
+
+실행은 기존 semantic kernel을 사용한다. 마지막 사용의 move, shared fanout 및 export 수명을 함께 계산하며, 중간 결과를 export하면 후속 in-place kernel이 그 결과를 변조할 수 없다. 순차 CPU이며 kernel fusion·physical schedule·GPU 실행은 하지 않는다. 다음 단계는 verified batch에서의 합법적인 fusion/bufferization 후보 분석과 비용·오류 순서 witness이며, local frame·중간 대입·modifier 확장은 독립 게이트로 유지한다.
+
+batch 단계 최종 검증: Windows default/portable 각각 **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. Rust 회귀는 integration 5개와 unit 2개를 추가했다. 내부 checkpoint·상수/입력 매핑·외부 alias·현재 shape 재조회·실제 고유 data pointer의 두 연산 연속 재사용, 첫/후속 검사·kernel 실패 후 정확한 부모 token/span/parser blame·NAME 상태, 다중/중복 export 및 변조 거절을 확인했다. Pointer 재사용은 복사 제거의 증거이며 성능 벤치마크나 C 대비 우위는 주장하지 않는다.
+
+`reports/name-effects-windows.json`: **26 fixtures × DLL 2 × semantic/Logical route 2 = 104/104 matched**. 새 batch 정상·NAME 경계·첫/후속 length·삭제 후 length/domain·alias 사례 7개는 **28/28** 일치다. 기존 감사 **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**을 유지했고 보고서의 소스/바이너리/DLL hash **528건**이 일치했다. source pin과 DLL release는 앞 단계와 같다. full J·C 진단 문구/위치·성능·Linux·GPU·GitHub CI 검증은 아니다. 기본 eval 및 부모 NAME plan의 admission 범위는 확대하지 않았다.

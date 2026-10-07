@@ -5429,10 +5429,17 @@ The planned pure-array J Graph/Logical connection is implemented by the follow-u
 - [x] Lower each primitive Apply into a verified region with input SSA mapping, original parser step and entry/success tokens. Initially retain one Apply per error boundary.
 - [x] Add open-input Logical execution; reject NAME reads/writes/dynamic calls inside regions. Verify every region before effects; never retry another route after failure.
 - [x] Compare semantic and Logical routes for values/errors/deletion/failure tokens; extend both C DLL comparisons.
-- [ ] Next examine batching consecutive pure Applies with multiple outputs and internal success positions. Never fuse/hoist outside token boundaries.
+- [x] Next examine batching consecutive pure Applies with multiple outputs and internal success positions. Never fuse/hoist outside token boundaries.
 
 
 ### Implemented NAME array-region contract — 2026-10-08
+
+Multi-Apply batching execution checklist:
+
+- [x] Combine Applies and intervening immutable literal/primitive-function transport into one Graph/Logical batch, never crossing Read/Take/Commit or other parser steps. Declare external inputs and live-outs.
+- [x] Preserve each Apply's Logical operation range and original step/entry/success token as a checkpoint. Literal/function transport has zero-operation checkpoints. Restore parent failure and success position from internal progress, without replay.
+- [x] Move each external input once; preserve internal SSA lifetimes, external aliases and live-outs. Preparation never executes kernels or moves checks.
+- [x] Verify success, first/later Apply failure, NAME boundaries, live-outs and tampering with regressions, Windows default/portable and both C DLLs.
 
 `Engine::prepare_name_arrays` lowers each primitive Apply in a verified ordered NAME plan into an `ArrayRegion`. Immutable `ArrayPlan` retains the effect plan and regions. Each region carries its parent `step`, entry/success `EffectToken`, input NAME SSA `ValueId` list, output `ValueId`, J Graph and Logical plan. Original parser step/span/blame remain on the parent effect step. Graph Input indices map to that list; they are neither NAME reads nor stored literals. Runtime lookup/Take results are supplied only when their effect tokens are reached.
 
@@ -5440,11 +5447,33 @@ The planned pure-array J Graph/Logical connection is implemented by the follow-u
 
 Graph schema **0.10** and A3 schema **0.6** add explicit `Input { index }`. `logical_executor::execute_with_inputs` validates arity and known dtype/shape/rank before execution. Use counts include semantic checks and the final result. Last use moves ownership; only repeated use introduces shared handles. A 4,096-integer +1 regression verifies actual data-pointer reuse for unique input and preservation when an external alias remains. This proves copy elimination, not measured performance superiority over C.
 
-Scope remains that of the parent ordered NAME plan. Local definition frames, locatives, intermediate writes, modifier construction and dynamic verb calls are separate gates. Default eval and existing pure Graph admission remain unchanged. Multi-Apply batching in the checklist remains unimplemented. Each region retains one Apply error boundary; fusion, GPU execution and async scheduling are not introduced.
+The initial array-connection scope remains that of the parent ordered NAME plan. Local definition frames, locatives, intermediate writes, modifier construction and dynamic verb calls are separate gates. Default eval and existing pure Graph admission remain unchanged. The initial implementation retained one Apply error boundary; multi-Apply batching is implemented by the follow-up contract below. Fusion, GPU execution and async scheduling are not introduced.
 
 Final array-connection validation: native Windows default/portable each **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight integration regressions and one verifier unit regression. They cover region/input SSA and check tampering, actual storage reuse/alias preservation, shared fanout, reuse after shape/generation changes, and error span/parser blame/failure tokens. `reports/name-effects-windows.json`: **19 fixtures × two DLLs × two routes = 76/76 matched**. Both semantic and Logical routes execute only the marked sentence through a plan; setup/check use ordinary eval.
 
 Existing final-binary audits remain **548 matched / 16 unsupported_gap**; the separate frontend audit remains **50 matched / 18 runtime_gap**. These gaps are not closed. All **520 source/binary/DLL hashes** across eight reports match final files. C source pin and actual DLL release are unchanged; this is not a same-source rebuild, full J conformance or equivalence of C diagnostic locations/text. Validation ran only on this computer's Windows; GitHub CI, Linux and GPU were not tested.
+
+### Multi-Apply batch handoff/execution contract — 2026-10-08
+
+`ArrayPlan::batches()` returns private immutable `ArrayBatch` objects. Existing per-Apply `regions()` remain available for inspection of original boundaries. Execution uses a combined J Graph/Logical plan and one SSA workspace per batch. Batches never cross Read/Take/Commit or unsupported steps. Only immutable Literal/unused Function transport between first and last Apply is included. Order follows effect steps, never source-span heuristics.
+
+| Field | Contract |
+| --- | --- |
+| steps | Contiguous parent effect-step range including Applies and intervening value transport. |
+| inputs | `(parent ValueId, replaced use count)` list. Import actual lookup results once; Logical SSA manages internal fanout. |
+| constants | `(parent ValueId, original Program literal NodeId)` list, supplied as Graph/Logical Inputs after ordinary imports. Only immutable payload handles are shared early; no NAME lookup, dynamic noun computation, definition or constructor executes. |
+| outputs | `(parent ValueId, Logical ValueId)` values used outside the batch. Internal-only intermediates are not exported. Supports multiple results without changing the existing single-result Logical plan/schema. |
+| checkpoints | Original step, Logical operation range, entry/success token for every step. Apply ranges include semantic checks and the call. Literal/Function transport has zero-operation ranges preserving original success positions. |
+| failure | Logical execution reports the successfully completed operation prefix. Parent restores failing Apply span/parser blame and last successful effect token. Earlier NAME deletion remains; later Commit does not run. No replay through another route. |
+| verification | Before effects, derive canonical batches from the original effect plan and authenticate input/literal payload links, exports, checkpoints, original FunctionEntity, SSA, facts, checks and ordering. This does not yet admit arbitrary optimized plans via equivalence witnesses. |
+
+Example: `b=:1+2+a_:` performs Take(a), then both additions in one batch. The first result stays internal; only the last is exported to Commit(b). `b=:a_:+1+2+3` splits the right additions from the addition after Take. In `b=:1 2+a_:+3`, a length error in the second addition after successful Take/first addition retains deletion and preserves b. Failure provenance identifies the actual Apply, not the whole batch.
+
+Execution reuses existing semantic kernels. Last-use moves, shared fanout and export lifetimes are counted together; exporting an intermediate prevents a later in-place kernel from mutating it. Execution is sequential CPU, without kernel fusion, physical scheduling or GPU execution. Next is legal fusion/bufferization candidate analysis over verified batches, including cost and error-order witnesses. Local frames, intermediate writes and modifiers remain independent gates.
+
+Final batch validation: native Windows default/portable each **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added five integration and two unit regressions. Coverage includes internal checkpoints, constant/input mapping, external aliases, current-shape reuse, actual unique data-pointer reuse across two operations, first/later check/kernel failures with exact parent token/span/parser blame/NAME post-state, multiple/duplicate exports and tampering rejection. Pointer reuse proves copy elimination; no performance benchmark or advantage over C is claimed.
+
+`reports/name-effects-windows.json`: **26 fixtures × two DLLs × semantic/Logical routes = 104/104 matched**. Seven new batch cases covering success, NAME boundaries, first/later length failures, length/domain after deletion and alias preservation match **28/28**. Existing audits remain **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**. All **528 source/binary/DLL hashes** match final files. Source pin and DLL release are unchanged. This is not full J, C diagnostic text/location, performance, Linux, GPU or GitHub CI validation. Default eval and parent NAME-plan admission scope are unchanged.
 
 ## License policy
 

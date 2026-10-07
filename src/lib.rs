@@ -37,6 +37,7 @@ pub mod kernels;
 pub mod logical_executor;
 pub mod logical_ir;
 pub mod lowering;
+pub mod name_array_batches;
 pub mod name_array_regions;
 pub mod name_effect_ir;
 pub mod name_guards;

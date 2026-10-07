@@ -33,6 +33,13 @@ FIXTURES = [
     ("explicit_adverb_transfer", ["f=:1 : 'u/'"], "saved=:f_:", ["f 0", "+saved 1 2 3"]),
     ("explicit_conjunction_transfer", ["f=:2 : 'u@:v'"], "saved=:f_:", ["f 0", "h=:-saved+", "h 3"]),
     ("late_inner_alias", ["base=:+", "alias=:base"], "saved=:alias_:", ["base=:-", "saved 3"]),
+    ("batch_chain", [], "b=:1+2+3 4", ["b"]),
+    ("batch_name_boundary", ["a=:7"], "b=:a_:+1+2+3", ["a+0", "b"]),
+    ("batch_first_length", ["a=:7 8 9", "b=:99"], "b=:a_:+1+2 3+4 5 6", ["a+0", "b"]),
+    ("batch_later_length", ["a=:7 8 9", "b=:99"], "b=:a_:+1 2+3 4 5+6", ["a+0", "b"]),
+    ("batch_after_take_length", ["a=:7 8 9", "b=:99"], "b=:1 2+a_:+3", ["a+0", "b"]),
+    ("batch_after_take_domain", ["a=:7 8 9", "b=:99"], "b=:'x'+a_:+3", ["a+0", "b"]),
+    ("batch_alias", ["a=:i.6", "saved=:a"], "b=:1+2+a_:", ["a+0", "saved", "b"]),
 ]
 
 

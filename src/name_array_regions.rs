@@ -44,6 +44,7 @@ impl ArrayRegion {
 pub struct ArrayPlan {
     effects: Plan,
     regions: Vec<ArrayRegion>,
+    batches: Vec<crate::name_array_batches::ArrayBatch>,
 }
 
 fn invalid() -> Error {
@@ -83,7 +84,12 @@ impl ArrayPlan {
                 })())
             })
             .collect::<Result<Vec<_>>>()?;
-        let plan = Self { effects, regions };
+        let batches = crate::name_array_batches::build(&effects)?;
+        let plan = Self {
+            effects,
+            regions,
+            batches,
+        };
         plan.verify()?;
         Ok(plan)
     }
@@ -93,15 +99,22 @@ impl ArrayPlan {
     pub fn regions(&self) -> &[ArrayRegion] {
         &self.regions
     }
-    pub(crate) fn region_at_step(&self, step: usize) -> &ArrayRegion {
-        &self.regions[self
-            .regions
-            .binary_search_by_key(&step, |region| region.step)
-            .expect("verified region step")]
+    pub fn batches(&self) -> &[crate::name_array_batches::ArrayBatch] {
+        &self.batches
+    }
+    pub(crate) fn batch_at_step(
+        &self,
+        step: usize,
+    ) -> Option<&crate::name_array_batches::ArrayBatch> {
+        self.batches
+            .binary_search_by_key(&step, |batch| batch.steps().start)
+            .ok()
+            .map(|index| &self.batches[index])
     }
     pub fn verify(&self) -> Result<()> {
         use crate::{execution_semantics::CallTarget, j_graph_ir::NodeKind, logical_ir::OpKind};
         self.effects.verify()?;
+        crate::name_array_batches::verify(&self.batches, &self.effects)?;
         let calls: Vec<_> = self
             .effects
             .steps()

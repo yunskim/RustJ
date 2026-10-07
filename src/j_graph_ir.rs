@@ -875,6 +875,15 @@ fn analyzability_for(
     }
 }
 
+/// Internal batch construction: operands address external inputs followed by
+/// prior call results. Physical placement and NAME lookup are excluded.
+pub(crate) struct ArrayCall {
+    pub function: Arc<FunctionEntity>,
+    pub left: Option<ValueId>,
+    pub right: ValueId,
+    pub span: Range<usize>,
+}
+
 impl Plan {
     pub(crate) fn from_array_call(
         source: String,
@@ -882,11 +891,25 @@ impl Plan {
         dyadic: bool,
         span: Range<usize>,
     ) -> Result<Self> {
-        if !matches!(function.head, FunctionHead::PrimitiveVerb(_)) || !function.operands.is_empty()
-        {
-            return Err(Error::Unsupported(
-                "array region requires a primitive call".into(),
-            ));
+        Self::from_array_calls(
+            source,
+            1 + usize::from(dyadic),
+            vec![ArrayCall {
+                function,
+                left: dyadic.then_some(ValueId(0)),
+                right: ValueId(usize::from(dyadic)),
+                span,
+            }],
+        )
+    }
+
+    pub(crate) fn from_array_calls(
+        source: String,
+        input_count: usize,
+        calls: Vec<ArrayCall>,
+    ) -> Result<Self> {
+        if calls.is_empty() {
+            return Err(Error::Unsupported("empty array batch".into()));
         }
         let mut builder = Builder {
             nodes: Vec::new(),
@@ -895,17 +918,27 @@ impl Plan {
             reads: HashMap::new(),
             noun_facts: &|_| GraphFacts::default(),
         };
-        let mut input = |index| {
+        for index in 0..input_count {
             builder.push(
                 NodeKind::Input { index },
-                span.clone(),
+                calls[0].span.clone(),
                 GraphFacts::default(),
                 GraphAnalyzability::StaticWithUnknownFacts,
-            )
-        };
-        let left = dyadic.then(|| input(0));
-        let right = input(usize::from(dyadic));
-        let result = builder.apply_function(function, left, right, span)?;
+            );
+        }
+        let mut result = ValueId(0);
+        for call in calls {
+            if !matches!(call.function.head, FunctionHead::PrimitiveVerb(_))
+                || !call.function.operands.is_empty()
+                || call.right.0 >= builder.nodes.len()
+                || call.left.is_some_and(|left| left.0 >= builder.nodes.len())
+            {
+                return Err(Error::Unsupported(
+                    "invalid array batch primitive call".into(),
+                ));
+            }
+            result = builder.apply_function(call.function, call.left, call.right, call.span)?;
+        }
         let plan = Self {
             frontend: None,
             parser_origins: builder.parser_origins,
