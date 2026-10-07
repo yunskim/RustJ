@@ -620,6 +620,44 @@ The declarative class matcher is unified now. Full runtime semantic actions, mod
 
 **Positive/negative matrix:** `NJ-V01` simple/direct/indirect/base/abandon names vs invalid/limit/spelling; `NJ-V02` env 0/1/2 and locative `=.`; `NJ-V03` local shadow/unbound fallback/one-level path/missing or invalid locale error; `NJ-V04` indirect holder rebind/invalid value, numeric/erased locales; `NJ-V05` locative invocation current-locale switch and restoration with path-found functions; `NJ-V06` noun snapshot vs late NameRef/POS changes and by-value abandon; `NJ-V07` computed/multiple assignment, local/global name collision and first observable J error/effect. Record `source revision | C DLL/binary variant/hash | Rust SHA | positive and one-mutated-negative | value/POS/locale/path/effect/error | PASS/FAIL/UNRUN`. All full acceptance gates **remain UNRUN**, notwithstanding smaller existing frontend regressions.
 
+#### NAME execution timing versus preserved optimization provenance (2026-10-07; design only)
+
+**Decision:** Follow pinned jsource [`w.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [`p.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [`s.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c) and [`sn.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c). A noun NAME is looked up and replaced with its actual value **when pushed on the parser stack**. Normal Verb NAME gets its POS inspected for parse-row selection but generally retains `nameref` until execution/call-time. Adverb/Conjunction/gerund/fork constructors sometimes read and fix an operand **at construction time**; locatives and `name_:` have distinct effects. RustJ must retain NAME provenance for optimizers **without moving any of those semantic events**. The proposed carrier names below are contracts, not currently implemented Rust structs or required new IR layers.
+
+| NAME | J-visible execution | Optimizer provenance |
+|---|---|---|
+| Noun | Snapshot noun at precise parser-stack read; a later rebind does not alter that value | Original occurrence/spelling/form/source span, read-time resolved frame/locale/path, semantic event, SSA result and observed dtype/Shape/rank |
+| Normal Verb | Expected POS at parsing, late `FunctionHead::NameRef` lookup at use; preserve missing binding/POS errors | Candidate primitive/rank hint, original NameRef, call-time lookup obligation—not a prematurely fixed target |
+| Modifier/gerund/fork | Distinguish construction-time operand capture from ordinary later NameRef | Separate capture-event and late-reference records, no one-size-fits-all eager/deferred policy |
+| Locative/special | Direct/indirect lookup, invocation locale context, `name_:` by-value/abandon | Holder dependencies, local shadow, start/found/execution locale, path/versions, effect/error edges |
+
+**Separate identities, potentially as sidecars on existing data structures:**
+
+~~~text
+NameOccurrence {id, original_spelling, form: Simple|Direct|Indirect|ByValueAbandon|Special,
+                enqueue_word_index, source_span, parse_use_site}
+NameResolutionEvent {occurrence_id,
+   time: StackNounRead|StackPOS|ConstructorRead|CallLookup|AssignmentTarget|LocaleRead|Abandon,
+   outcome: NounSnapshot(value_id)|FunctionRef(expected_pos)|CapturedConstructor(entity)|
+            MissingNameRef|WriteResult|JError,
+   witness?: {frame, local_presence_or_absence, start_locale, path_order,
+              found_locale, execution_locale, symbol_generation, binding_version,
+              observed_pos, indirect_holder_reads, locale_path_epochs},
+   effect_error_edges, diagnostics}
+OptimizationNameEvidence {event_id, candidate_callable_family?, observed_dtype_shape_rank?,
+  constructor_fixed_facts?, status: Observed|ProvenStable|GuardRequired|Unknown, guard_footprint?}
+~~~
+
+Source occurrence, lookup event, JEntity/SSA value, candidate hint and physical BufferId are **not interchangeable**. Even the same spelling in one sentence can refer to different symbols as frames, local shadows, current/search paths or indirect holders change. A flat `NameVersion` cannot validate a **negative local lookup**, locale/path changes or holder rebinds.
+
+**Semantics and reuse example:** Once a runtime parser has read noun `a`, `NameRead(a,event#A) -> SSA v0` retains its origin; later rebinding `a` does **not** change v0, and a re-used execution must not read `a` again for event#A. Conversely, compiling when `a` has a particular value does **not** allow future runs to reuse that stale analysis-time snapshot; each invocation must respect the original J read point or prove a guard/continuation. If `f` changes from `+` to `*`, `NameRef(f)` must re-resolve (or verify a correct call-time binding/locale/path guard), regardless of an earlier Add-family *hint*.
+
+**Owners:** F1 EnqueuedWord retains syntactic NAME identity only, never binding/POS. P4 `resolve_stack_item` executes the noun snapshot and captures its event; function parser POS and late NameRef remain distinct. `RuntimeParserHost::lookup(&str)->Option` needs a `Result<Option<...>>`-equivalent error path for invalid locale lookup. Semantic `NameUse/BoundProgram/ModifierSnapshot/NameRankSnapshot` distinguish observed from executable proof. J Graph `NodeKind::ReadNoun` and `VerbValue/Apply(NameRef)` retain source/event links and `RequiresSpecialization` for dynamic names. A3 `ReadNoun`, `VerbReference`, Write, SemanticCheck and order_after own executable read/value/effect order; current `Symbol{name,scope=CurrentGlobal|LocalFrame}` lacks full locale identity. M3+ may consume hints but requires separately validated `BindingStabilityProof/GuardRecipe` through actual use. Do not hoist name reads or replay after effects on a guard miss.
+
+**Frameworks:** [MLIR SymbolRef/SymbolTable](https://mlir.llvm.org/docs/SymbolsAndSymbolTables/) separates symbolic uses and SSA values; [LLVM MemorySSA](https://llvm.org/docs/MemorySSA.html) models dependency/clobber and movement legality; [Truffle Assumptions](https://www.graalvm.org/truffle/javadoc/com/oracle/truffle/api/Assumption.html) invalidate speculative optimization; [JAX captured constants](https://docs.jax.dev/en/latest/internals/constants.html) illustrate separating constant carriers, but JAX [global-capture behavior](https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html) **must not** become J's name semantics. Reuse structural concepts, never their different language rules.
+
+**Pending gates / negative tests (all UNRUN):** `NP-01/NP-V01` source occurrence and separate scopes not conflated by spelling; `NP-02/NP-V02` precise noun snapshot vs POS/late NameRef/constructor timing; `NP-03/NP-V03` error-bearing locale/local/path/holder and negative-lookup witness; `NP-04/NP-V04` Parser→J Graph→A3 provenance survives literal folding; `NP-05/NP-V05` Observed≠ProvenStable, actual guard and effect/error-order proof; `NP-06/NP-V06` locative, by-value abandon, modifier capture and assignment/POS/error semantics; `NP-07/NP-V07` pinned C `j64/j64avx2` against runtime/parser events and actual Rust semantic/graph/route behavior, normal and one-mutated-negative test. Record `source pin | occurrence/event→SSA | J oracle | PASS/FAIL/UNRUN | guard owner | CI SHA`. The design does not complete implementation of F1/P4/P5/M3.
+
 #### Frontend file ownership
 
 `src/tokenizer.rs` owns word formation; `src/enqueuer.rs` owns word interpretation and environment flags; `src/parser.rs` owns class matching, stack reductions, construction and parser-time name/POS resolution. `src/semantic.rs` owns semantic objects, intrinsic rank-construction contracts and binding/version models. `scanner` and the old `semantic::parse` APIs are compatibility re-exports, not duplicate grammars. No stage chooses a backend or schedule.
