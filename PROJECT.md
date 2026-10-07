@@ -5307,7 +5307,7 @@ Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset fr
 | 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
 | 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
 | 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
-| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime complete; direct nameless application/ordered lowering/locatives pending |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effect plan implemented; direct nameless application/effect-to-Graph integration/locatives pending |
 | 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
 | 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
 
@@ -5355,7 +5355,7 @@ Example: after `f=:+`, `Engine::parse_frontend("g=:f_:")` returns a `VerbValue` 
 
 If non-executing modifier application or first-fork-operand cap inspection needs the actual abandon result, do not guess it. `h=:-c_:+` retains NAME information and pending Conjunction row; `f=:(cap_: + *)` retains pending Fork row and stops with Unsupported. Runtime parsing can fetch the actual value and perform construction. This does not implement deferred modifier-constructor IR. Binding and Graph builder/verifier reject TakeName anywhere in function DAGs; fact/effect inference remains Unknown. Hand-constructed BoundProgram or capture cannot promote it to a pure function constant/call.
 
-User clarification: tokenizer/enqueue do not immediately read/delete `name_:`. Preserve base name, abandon flag and original span/word index. Non-executing parsing builds noun `ExprKind::TakeName { name, single_word }`, distinct from ordinary ReadName. Binding/Graph/Logical reject ordered NAME effects without executing them. Runtime semantic parsing alone fetches the value and deletes the found scope at C's stack-entry point. Compiled deferral must prove the same lookup/effect/error order.
+User clarification: tokenizer/enqueue do not immediately read/delete `name_:`. Preserve base name, abandon flag and original span/word index. Non-executing parsing builds noun `ExprKind::TakeName { name, single_word }`, distinct from ordinary ReadName. Existing binding/Graph/Logical reject ordered NAME effects without executing them. Default runtime semantic parsing fetches the value and deletes the found scope at C's stack-entry point. The new explicit NAME effect plan below preserves that order; compiled deferral must prove the same lookup/effect/error order.
 
 - [x] Enqueue flag, deferred noun expression, NAME policy and original context links.
 - [x] Runtime noun/verb/adverb by-value results, actual local/global deletion, missing/error ordering and deletion/recreation ABA guard regressions. Separate late namerefs inside returned functions remain late.
@@ -5392,6 +5392,36 @@ Example: after `c=:@:`, `d=:(c_:)` deletes `c` and stores `@:` in `d`; subsequen
 Final transfer validation: native Windows default/portable each **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. `tests/name_abandon.rs` now has 17 tests, with three new regressions. `reports/name-abandon-windows.json`: **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**. Seven new successful transfer/local-bare fixtures match **28/28** across both DLLs/routes. The original four inline gaps plus twelve new grouped/nested-assignment/local inline gaps represent four error-difference cases, never counted as passes. Existing separate audits remain **416/416**; combined **548 matched / 16 unsupported_gap**. Frontend remains **34 cases / 68 observations = 50 matched / 18 runtime_gap**. Reports identify final source/binary/DLL hashes. Full J, C diagnostic locations, Linux, GPU and GitHub CI were not tested.
 
 Next independent unit: ordered NAME effect IR for noun/function TakeName. Represent lookup-time scope/binding identity, by-value results, actual deletion/single-word exceptions, subsequent read/write/failure order and nameless application admission before widening Graph/Logical admission.
+
+### Initial ordered NAME effect execution unit
+
+- [x] Lower Program plus explicit parser step/item/node edges into ordered lookup/TakeName/primitive apply/final single NAME write operations. Never infer execution order from AST traversal or sorted spans.
+- [x] Separate SSA values from successful effect tokens. Failure stops the chain without replaying or rolling back prior deletion. Observe actual scope/generation/version and deletion outcomes at execution.
+- [x] Initially support top-level simple names, noun primitive calls, function TakeName transfer and a final single assignment. Check catalog POS reuse before effects; missing TakeName errors occur at lookup, while initially missing ordinary nouns fail POS admission. Never freeze values/versions.
+- [x] Verify forged/reversed tokens, invalid value edges and omitted effects; test ordering, failures, reuse, function transfer and effect-free admission. Keep existing J Graph/Logical pure-route admission unchanged.
+- [x] Run Windows default/portable, fmt/clippy, Python and both C DLL comparisons; update outcomes. Local definition frames/locatives, modifier construction, dynamic verb calls and intermediate writes remain follow-ups.
+
+Concrete handoff contract:
+
+| Item | Contract |
+| --- | --- |
+| Purpose/input | `Engine::prepare_name_effects` lowers non-executing Program using a read-only catalog. Preparation executes no kernels, definition bodies or lookup/deletion effects. |
+| Output | Private immutable `name_effect_ir::Plan` retains Program, shared literal/function payloads, `Step { operation, output: Option<ValueId>, before: EffectToken, after: EffectToken, parser_step, span, blame }` and result ValueId. Operations are Literal/Function/Read/Take/Apply/Commit. |
+| Order | Explicit FrontendContext Stack/Reduce steps determine order. Parentheses alias values; a final single assignment commits. Follow item/node edges; spans only diagnose. Program remains the literal/function semantic authority; FrontendContext is never executed. |
+| Execution/errors | `Engine::execute_name_effects(&Plan)` verifies and checks POS admission, then runs each step once. It returns `Execution { result, completed: EffectToken, names: Vec<NameObservation> }`. Failure stops the chain without parser replay. Observations contain step, before/after LookupObservation and deleted, never array payloads. |
+| Reuse | Catalog POS is a precondition. Missing ordinary noun names or changed POS reject before effects. A missing TakeName binding fails at its actual step, not preflight. Values/shapes/versions/generations are not frozen. Catalog lookup failures during preparation are dynamic-parsing admission failures, not executed value errors. |
+| Example | After `a=:7`, `a_:+a` lowers to Read(a), primitive + value, Take(a), Apply(+), yielding 14. The right noun snapshots before left abandon deletes the binding. In `a_:+1 2+1 2 3`, length error precedes Take, so the binding survives. |
+| Initial scope | Top-level simple-name noun snapshot/Take, primitive noun operations, function Take transfer and a final single NAME assignment. Function transfer stores the actual execution-time value and preserves inner late NameRefs. |
+| Exclusions/downstream | No local definition frames, locales/locatives, modifier construction, dynamic verb application or intermediate/multiple/noun-target writes. Direct nameless conjunction application is not executed by this plan. This explicit API does not widen default eval or existing pure J Graph/Logical admission. Next connect pure array regions between effects to Graph/Logical. |
+| Ownership/verification | Freeze literals once and share between Program/plan. Move at last use; share only for multiple uses. `Plan::verify` re-derives operations from original parser edges, detecting omitted/reordered effects, forged tokens/SSA edges/provenance without running a J kernel or parser. |
+
+POS boundary example: prepare `b=:a` while `a=:7`, then delete a. The old noun plan rejects before execution, because a fresh J parse may store the missing ordinary NAME as a verb reference. This is admission, not an emulated J error; another route can be chosen before effects. In contrast, an actual `a+a_:` plan's lookup failure after right Take is an executed value error and retains deletion. Both C DLLs confirm the bare/assignment sentence outcome and deleted state.
+
+Final validation, 2026-10-08: native Windows default/portable each **647 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight Rust integration regressions, one verifier unit regression and two Python audit-adapter regressions. `reports/name-effects-windows.json`: **19 fixtures × two C DLLs = 38/38 matched**. Only the marked effect sentence executes through the new plan; setup/check use ordinary eval. Compared values/errors, deletion/failed final assignment, array alias/reshape/search, verb/adverb/conjunction and explicit-definition transfer, and inner late alias behavior. No failed plan retries through ordinary execution.
+
+Refreshed existing audits on final binaries: abandon **132 matched / 16 unsupported_gap**, assignment/definition/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**. These existing gaps have not closed. The new plan's 38 comparisons are separate from the existing two runtime routes. Reports record source/binary/probe/DLL hashes; the recorded C source pin and actual DLL release are not a same-source rebuild. Linux, GPU, full J, C diagnostic locations and GitHub CI were not tested.
+
+Next execution unit: lower pure array parts of this semantic effect plan to J Graph/Logical, connected by token boundaries. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
 
 ## License policy
 

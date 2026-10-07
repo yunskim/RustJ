@@ -13577,7 +13577,7 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 | 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 진행 중 |
 | 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
 | 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
-| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime 완료; nameless 직접 적용/ordered lowering/locatives 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과 계획 구현; nameless 직접 적용/효과 계획의 Graph 연결/locatives 미완료 |
 | 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
 | 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
 
@@ -13625,7 +13625,7 @@ Frontend 감사 갱신: **31 cases / 62 observations = 42 matched / 20 runtime_g
 
 비실행 modifier 적용과 fork 첫 항의 cap 판정에 실제 abandon 결과가 필요한 경우에는 값을 추측하지 않는다. `h=:-c_:+`는 NAME 정보와 pending Conjunction row를, `f=:(cap_: + *)`는 pending Fork row를 보존하고 Unsupported로 멈춘다. runtime parser는 실제 값을 가져온 뒤 해당 생성 과정을 정상 수행할 수 있다. 아직 deferred modifier constructor IR이 구현됐다는 뜻은 아니다. binding과 Graph builder/verifier는 함수 DAG 안의 TakeName도 찾아 거절하고, 사실 추론·effect 분류는 Unknown을 유지한다. 수동 구성한 BoundProgram이나 capture로도 이를 순수 함수 상수/호출로 승격할 수 없다.
 
-사용자 확인: tokenizer/enqueuer는 `name_:`를 즉시 조회·삭제하지 않는다. 기본 이름·abandon flag·원래 span/word index를 넘긴다. 비실행 parser는 noun의 `ExprKind::TakeName { name, single_word }`를 만들어 일반 ReadName과 구분한다. ordered NAME effect IR이 없는 binding/Graph/Logical 경계는 거절하며 조회·삭제를 실행하지 않는다. Runtime semantic parser만 C와 같은 stack-entry 순서로 값을 가져오고 실제 발견한 scope를 삭제한다. 삭제를 뒤로 옮기는 compiled route는 동일한 lookup/effect/error 순서를 입증해야 한다.
+사용자 확인: tokenizer/enqueuer는 `name_:`를 즉시 조회·삭제하지 않는다. 기본 이름·abandon flag·원래 span/word index를 넘긴다. 비실행 parser는 noun의 `ExprKind::TakeName { name, single_word }`를 만들어 일반 ReadName과 구분한다. ordered NAME effect IR이 없는 기존 binding/Graph/Logical 경계는 거절하며 조회·삭제를 실행하지 않는다. 기본 Runtime semantic parser는 C와 같은 stack-entry 순서로 값을 가져오고 실제 발견한 scope를 삭제한다. 아래의 새 명시적 NAME 효과 계획도 해당 순서를 보존하며, 삭제를 옮기는 compiled route는 동일한 lookup/effect/error 순서를 입증해야 한다.
 
 - [x] enqueue flag, deferred noun expression, NAME policy와 원래 context 연결.
 - [x] runtime noun/verb/adverb by-value 반환, 실제 local/global scope 삭제, missing/error 순서, 삭제 후 재대입 ABA guard 회귀. 함수 값 내부의 별도 late nameref는 그대로 유지한다.
@@ -13662,3 +13662,33 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 이름 이관 단계 최종 검증: Windows default/portable 각각 **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. `tests/name_abandon.rs`는 17개 테스트이며 이번에 세 회귀 테스트를 추가했다. `reports/name-abandon-windows.json`은 **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**이다. 새 정상 이관·local bare 사례 7개는 두 DLL·두 route의 **28/28** 일치다. 기존 직접 적용 4건과 추가 괄호/내부 대입/local 직접 적용 12건을 합친 네 종류의 오류 차이는 통과로 세지 않는다. 기존 별도 감사 **416/416**과 합하면 **548 matched / 16 unsupported_gap**다. frontend 감사는 **34 cases / 68 observations = 50 matched / 18 runtime_gap**으로 유지된다. report는 최종 소스·실행 파일/DLL hash를 기록한다. full J·C 오류 위치·Linux·GPU·GitHub CI 검증은 수행하지 않았다.
 
 다음 독립 구현 단위는 noun/function TakeName의 ordered NAME effect IR이다. lookup 시점의 scope/binding identity, by-value 결과, 실제 삭제와 single-word 특례, 후속 조회·대입·실패 순서 및 nameless 적용 admission을 명시적으로 표현한 뒤 Graph/Logical admission을 확대한다.
+
+### Ordered NAME effect IR 첫 실행 단위
+
+- [x] `Program`과 명시적인 parser step/item/node 연결에서 조회·TakeName·primitive apply·최종 단일 NAME write를 순서 있는 의미 계획으로 낮춘다. AST 순회나 span 정렬로 실행 순서를 추측하지 않는다.
+- [x] SSA 값과 성공 효과 token을 분리한다. 실패 시 다음 token/연산을 실행하지 않으며 이미 끝난 삭제를 replay/rollback하지 않는다. lookup의 실제 scope·generation·version 및 삭제 결과는 실행 관측으로 보존한다.
+- [x] 초기 실행 범위는 top-level 단순 NAME, noun primitive 연산, 함수형 TakeName 값 이관 및 최종 단일 대입이다. catalog POS 재사용 조건은 실행 전 검사하고 TakeName의 missing 오류는 실제 조회 순서에서 발생시킨다. ordinary noun의 초기 missing은 POS admission 실패다. 실제 값/version은 고정하지 않는다.
+- [x] 위조/역순 token·잘못된 값 edge·효과 누락을 verifier로 검출하고 순서·오류·계획 재사용·함수 이관·무부작용 admission을 테스트한다. 기존 J Graph/Logical의 pure-route admission은 확대하지 않는다.
+- [x] Windows default/portable·fmt/clippy·Python과 두 C DLL 비교 후 체크리스트·결과를 갱신한다. local definition frame/locative·modifier 생성·동적 verb 호출·중간 write는 다음 확장 범위다.
+
+구체적인 전달 계약:
+
+| 항목 | 계약 |
+| --- | --- |
+| 목적·입력 | `Engine::prepare_name_effects`가 읽기 전용 catalog를 사용한 비실행 `Program`을 받아 `name_effect_ir::Plan`으로 lowering한다. 준비 과정에서 kernel·정의 본문·조회/삭제 효과를 실행하지 않는다. |
+| 출력 | private immutable Plan은 원래 Program, 공유 literal/function payload, `Step { operation, output: Option<ValueId>, before: EffectToken, after: EffectToken, parser_step, span, blame }` 및 결과 ValueId를 보존한다. `Operation`은 Literal/Function/Read/Take/Apply/Commit이다. |
+| 순서 | `FrontendContext.steps`의 명시적 Stack/Reduce 순서에서 lowering한다. 괄호는 값 alias, 최종 단일 대입은 Commit이다. 원래 item/node 연결을 따르고 source span은 진단용으로만 사용한다. function/literal payload의 의미 권위는 Program이다. FrontendContext는 실행하지 않는다. |
+| 실행·오류 | `Engine::execute_name_effects(&Plan)`은 검증과 POS admission 후 각 step을 한 번 실행한다. `Execution { result, completed: EffectToken, names: Vec<NameObservation> }`을 반환한다. 실패 token 이후의 연산을 실행하거나 parser로 replay하지 않는다. 관측에는 step, 조회 전/후 LookupObservation과 deleted가 있으며 배열 payload는 보관하지 않는다. |
+| 재사용 조건 | 준비 당시 품사는 실행 전 조건이다. 현재 ordinary noun 이름이 없거나 품사가 바뀌면 효과 전에 Unsupported다. TakeName이 실행 전에 사라졌다면 missing 오류는 실제 Take step까지 미룬다. value·shape·version·generation을 상수로 고정하지 않는다. 준비 시 catalog 조회 실패도 실행된 value error로 보고하지 않고 dynamic parsing이 필요한 admission 실패로 구분한다. |
+| 예시 | `a=:7` 이후 `a_:+a` → Read(a), primitive + 값, Take(a), Apply(+), 결과 14. 먼저 오른쪽 a를 snapshot하고 왼쪽 abandon이 실제 binding을 삭제한다. `a_:+1 2+1 2 3`은 먼저 length error로 끝나므로 Take는 실행되지 않는다. |
+| 초기 범위 | top-level simple NAME의 noun snapshot/Take와 primitive noun 연산, 함수형 Take의 별도 이름 이관, 마지막 단일 NAME 대입. 함수 이관은 실제 실행 시 함수 값을 저장하고 내부 late NameRef는 유지한다. |
+| 금지·후속 | local definition frame·locale/locative·modifier constructor·dynamic verb application·중간/다중/noun target write는 admission하지 않는다. nameless conjunction의 직접 적용도 이 계획으로 실행하지 않는다. 이 경로는 명시적 API이며 기본 eval이나 기존 pure J Graph/Logical의 admission을 확대하지 않는다. 다음에는 효과 사이의 pure array 영역을 Graph/Logical로 연결한다. |
+| 소유권·검증 | literal은 한 번 공유 상태로 만들고 Program과 계획이 공유한다. 값 사용 횟수에 따라 마지막 사용은 move하고, 여러 사용에만 공유 상태를 만든다. `Plan::verify`는 원래 parser 연결에서 명령을 다시 유도하여 효과 누락/재배열, token·SSA edge·provenance 불일치를 검출한다. 검증은 J kernel이나 parser를 재실행하지 않는다. |
+
+품사 경계의 중요한 예는 `a=:7`일 때 준비한 `b=:a`다. 준비 후 a를 삭제하면 기존 noun 계획은 실행 전에 거절한다. 새 J parse의 `b=:a`는 missing ordinary NAME을 verb 참조로 저장할 수 있기 때문이다. 이 admission 거절은 J 오류를 흉내 낸 것이 아니며, 실행 전 다른 경로를 선택할 수 있는 명시적 경계다. 반면 실제 계획 안에서 `a+a_:`의 오른쪽 Take 후 조회 실패는 실행된 value error이며 삭제를 되돌리지 않는다. 두 C DLL의 bare·대입 문장도 해당 결과와 삭제 상태를 확인했다.
+
+2026-10-08 최종 검증: Windows default/portable 각각 **647 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 새 Rust 회귀는 8개 integration + 1개 verifier unit이며 Python 감사 어댑터 회귀 2개를 추가했다. `reports/name-effects-windows.json`: **19 fixtures × C DLL 2 = 38/38 matched**. effect로 표시한 한 문장만 새 계획으로 실행하며 setup/check는 일반 eval이다. 값·오류·삭제/실패한 최종 대입·array alias/reshape/search·verb/adverb/conjunction 및 explicit 정의 값 이관·내부 late alias를 비교했다. 실패 시 ordinary eval로 재시도하는 fallback은 없다.
+
+기존 감사도 최종 바이너리로 갱신했다. abandon **132 matched / 16 unsupported_gap**, 문자열 대입·정의/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**이다. 기존 미지원 건은 줄었다고 주장하지 않는다. 새 계획 감사는 기존 runtime 두 route와 구분한 별도 38건이다. source/binary/probe/DLL hash를 보고서에 기록하며 참고 C 소스 pin과 실제 DLL release가 같은 소스 재빌드를 뜻하지 않는 기존 제한을 유지한다. Linux·GPU·full J·C 오류 위치·GitHub CI는 검증하지 않았다.
+
+다음 실행 단위는 이 의미 효과 계획에서 pure array 부분을 J Graph/Logical로 내리고 token 경계로 연결하는 것이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.

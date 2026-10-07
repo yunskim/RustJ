@@ -1750,6 +1750,201 @@ impl Engine {
             .map_err(Error::into_unlocated)
     }
 
+    /// Lower without executing kernels, reading noun payloads or deleting names.
+    /// Unlike BoundProgram, this bounded route carries ordered NAME effects.
+    pub fn prepare_name_effects(&self, source: &str) -> Result<crate::name_effect_ir::Plan> {
+        let program = self.parse_frontend(source).map_err(|failure| {
+            // A catalog lookup failure is an admission failure, not an
+            // executed J error that may overtake an earlier runtime action.
+            if failure.error.kind() == "value error" {
+                let mut error = Error::Unsupported("ordered NAME requires dynamic parsing".into());
+                if let Some(context) = failure.error.context() {
+                    error = error.with_context(context.clone());
+                }
+                error.in_phase(DiagnosticPhase::SemanticAnalysis)
+            } else {
+                failure.error
+            }
+        })?;
+        crate::name_effect_ir::Plan::from_program(program)
+    }
+
+    /// Execute verified semantic operations once. No parser replay or fallback
+    /// occurs after effects. Binding transitions are observations, not guards.
+    pub fn execute_name_effects(
+        &mut self,
+        plan: &crate::name_effect_ir::Plan,
+    ) -> crate::name_effect_ir::Execution {
+        use crate::name_effect_ir::{EffectToken, Execution, NameObservation, Operation, ValueId};
+        fn consume(values: &mut [Option<JEntity>], uses: &mut [usize], id: ValueId) -> JEntity {
+            uses[id.0] -= 1;
+            if uses[id.0] == 0 {
+                values[id.0].take().expect("verified ready value")
+            } else {
+                match values[id.0].as_ref().expect("verified ready value") {
+                    JEntity::Noun(value) => JEntity::Noun(value.clone()),
+                    JEntity::Function(function) => JEntity::Function(function.clone()),
+                }
+            }
+        }
+        let mut completed = EffectToken(0);
+        let mut names = Vec::new();
+        let result = (|| -> Result<Option<Value>> {
+            plan.verify()?;
+            if !self.local_frames.is_empty() {
+                return Err(Error::Unsupported("ordered NAME definition frame".into()));
+            }
+            // Only POS is a parse-specialization precondition. Do not prefetch
+            // payloads or report missing-name errors ahead of the effect chain.
+            for step in plan.steps() {
+                if let Operation::Read { name, expected } | Operation::Take { name, expected, .. } =
+                    &step.operation
+                {
+                    let observation = self.lookup_observation(name);
+                    if observation
+                        .binding_class
+                        .is_some_and(|class| class != *expected)
+                        || matches!(
+                            observation.found,
+                            crate::frontend_context::FoundScope::Extension
+                        )
+                        || (matches!(step.operation, Operation::Read { .. })
+                            && observation.binding_class.is_none())
+                    {
+                        return Err(Error::Unsupported(
+                            "ordered NAME POS precondition changed".into(),
+                        ));
+                    }
+                }
+            }
+            let mut values: Vec<Option<JEntity>> = (0..plan.value_count()).map(|_| None).collect();
+            let mut uses = vec![0; plan.value_count()];
+            for step in plan.steps() {
+                for input in step.operation.inputs() {
+                    uses[input.0] += 1;
+                }
+            }
+            uses[plan.result().0] += 1;
+            for (index, step) in plan.steps().iter().enumerate() {
+                let observation = match &step.operation {
+                    Operation::Read { name, .. }
+                    | Operation::Take { name, .. }
+                    | Operation::Commit { name, .. } => Some((name, self.lookup_observation(name))),
+                    _ => None,
+                };
+                let mut deleted = false;
+                let value = (|| -> Result<Option<JEntity>> {
+                    Ok(match &step.operation {
+                        Operation::Literal(node) => {
+                            Some(JEntity::Noun(plan.literal(*node).clone()))
+                        }
+                        Operation::Function(node) => {
+                            Some(JEntity::Function(plan.function(*node).clone()))
+                        }
+                        Operation::Read { name, .. } => Some(match self.visible_binding(name) {
+                            Some(Binding {
+                                value: JEntity::Noun(value),
+                                ..
+                            }) => JEntity::Noun(value.clone()),
+                            Some(_) => return Err(Error::Domain),
+                            None => return Err(Error::Value(name.clone())),
+                        }),
+                        Operation::Take {
+                            name, single_word, ..
+                        } => {
+                            let (entity, removed) = self.take_binding(name, *single_word)?;
+                            deleted = removed;
+                            Some(entity)
+                        }
+                        Operation::Apply {
+                            primitive,
+                            function,
+                            left,
+                            right,
+                        } => {
+                            let JEntity::Noun(y) = consume(&mut values, &mut uses, *right) else {
+                                unreachable!("verified noun operand")
+                            };
+                            let literal = |value| crate::semantic::Expr {
+                                origin: None,
+                                span: step.span.clone(),
+                                kind: crate::semantic::ExprKind::Literal(value),
+                            };
+                            let verb = crate::semantic::Verb {
+                                span: step.span.clone(),
+                                target: crate::semantic::VerbTarget::Primitive(*primitive),
+                                entity: plan.function(*function).clone(),
+                            };
+                            let kind = if let Some(left) = left {
+                                let JEntity::Noun(x) = consume(&mut values, &mut uses, *left)
+                                else {
+                                    unreachable!("verified noun operand")
+                                };
+                                crate::semantic::ExprKind::Dyad {
+                                    verb,
+                                    left: Box::new(literal(x)),
+                                    right: Box::new(literal(y)),
+                                }
+                            } else {
+                                crate::semantic::ExprKind::Monad {
+                                    verb,
+                                    argument: Box::new(literal(y)),
+                                }
+                            };
+                            Some(JEntity::Noun(self.interpret_ir(
+                                crate::semantic::Expr {
+                                    origin: None,
+                                    span: step.span.clone(),
+                                    kind,
+                                },
+                                true,
+                                0,
+                            )?))
+                        }
+                        Operation::Commit { name, value } => {
+                            let value = consume(&mut values, &mut uses, *value);
+                            self.commit_binding(name.clone(), value)?;
+                            None
+                        }
+                    })
+                })();
+                if let Some((name, before)) = observation {
+                    names.push(NameObservation {
+                        step: index,
+                        before,
+                        after: self.lookup_observation(name),
+                        deleted,
+                    });
+                }
+                let value = value
+                    .map_err(|error| error.at(step.span.clone()).blamed_on_word(step.blame.0))?;
+                if let (Some(output), Some(value)) = (step.output, value) {
+                    if uses[output.0] > 0 {
+                        values[output.0] = Some(match value {
+                            JEntity::Noun(value) if uses[output.0] > 1 => {
+                                JEntity::Noun(value.into_shared())
+                            }
+                            value => value,
+                        });
+                    }
+                }
+                completed = step.after;
+            }
+            if plan.program().has_assignment() {
+                return Ok(None);
+            }
+            match consume(&mut values, &mut uses, plan.result()) {
+                JEntity::Noun(value) => Ok(Some(value)),
+                JEntity::Function(_) => Err(Error::Unsupported("function result display".into())),
+            }
+        })();
+        Execution {
+            result,
+            completed,
+            names,
+        }
+    }
+
     pub fn prepare_semantic_diagnostic(
         &self,
         source: &str,
