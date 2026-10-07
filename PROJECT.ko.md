@@ -2240,6 +2240,117 @@ Runtime: supply values at semantic read points, execute, commit b at its write p
 
 **이번 확인:** native Windows `static_explain 'data + data * data'`를 `data: Float[1000000000000]` metadata만으로 실행해 `ReadNoun` 3개·`Apply` 2개의 graph를 생성했다. 데이터 배열이나 해당 multiply/add 결과를 계산한 것이 아니다. 이것은 현재의 지연 graph 구성 증거이며 full runtime binding guard·allocation 계측·M4 end-to-end 검증은 아니다. 기존 execution-free semantic 회귀 2건은 default/portable 각각 통과했고 `git diff --check`도 통과했다. 이번에는 문서만 변경했으며 전체 suite·fmt/clippy·GitHub CI를 실행하지 않았다. 다음 구현 우선순위는 이 지연 경로를 실제 CPU 실행으로 닫는 것이며, eager capture를 compiler의 유일한 입력으로 만드는 것이 아니다.
 
+#### 3.7.7 SemanticHandoff v1 논리 데이터 구조 확정 (2026-10-07; 구현 전)
+
+**현재 계획의 부족과 이번 결정:** 앞 절들은 정보·순서·경계 계약이었으며 구체 carrier가 구현되지는 않았다. 이제 parser→analyzer 전달 단위를 **`SemanticHandoff` 하나**로 정한다. `program`은 reduction으로 구성한 의미 결과, `context`는 reduction 전 입력·해석 맥락, `origins`는 둘의 연결이다. 아래는 **목표 Rust schema**이며 현재 `src/semantic.rs::Program`을 이미 바꿨다는 뜻이 아니다. 변경은 NP-01/02/04의 단계적 이행으로 수행하고, 같은 stage에 두 의미 정본을 영구 유지하지 않는다.
+
+**확정 범위:** 아래 필드와 참조 관계는 논리 계약이다. `Vec/Box/Arc`, 정수 ID 폭, arena 배치, 직렬화 형식은 구현 예시이며 고정하지 않는다. 의미 결과와 reduction 이전 맥락을 모두 보존하되, 원본 AST를 별도로 다시 구성하거나 중간 배열 값을 계산할 의무는 없다.
+
+~~~rust
+struct SemanticHandoff {
+    schema: u32,                         // 1; readers reject unknown versions
+    unit: FrontendUnitId,                 // owner of all local IDs
+    program: Program,                     // sole semantic program
+    context: Arc<FrontendContext>,
+    origins: Vec<NodeOrigin>,
+    status: HandoffStatus,                // Complete or Blocked(DemandId)
+}
+
+// Target shape of the existing Program, not an additional compiler IR stage.
+struct Program {
+    nodes: Vec<SemanticNode>,             // NodeId indexes this arena
+    root: Option<NodeId>,
+}
+enum SemanticNode {
+    Literal(Value),                       // source/required concrete noun only
+    ReadNoun(NameUseId),                   // deferred semantic read
+    FunctionUse(Arc<FunctionEntity>),      // shared completed J function DAG
+    Monad { function: NodeId, argument: NodeId },
+    Dyad { function: NodeId, left: NodeId, right: NodeId },
+    WriteName { target: NameUseId, value: NodeId, event: EventId },
+}
+
+struct FrontendContext {
+    sources: Vec<SourceRecord>,            // original and expansion sources
+    words: Vec<WordRecord>,               // WordId = expanded enqueue index
+    items: Vec<ItemRecord>,               // immutable parser occurrences
+    reductions: Vec<ReductionRecord>,
+    names: Vec<NameSyntax>,
+    name_uses: Vec<NameUseRecord>,
+    observations: Vec<NameObservation>,
+    events: Vec<SemanticEvent>,
+    demands: Vec<BoundaryDemand>,
+    function_origins: Vec<FunctionOperandOrigin>,
+}
+struct ItemRecord {
+    producer: ItemProducer,               // Word | NameUse | Reduction | Mark
+    class: ParseClass,
+    semantic: Option<NodeId>,             // None for syntax/control items
+    word_range: Range<usize>,
+    blame_word: Option<WordId>,
+}
+struct ReductionRecord {
+    row: ParseRow,
+    window: [Option<ItemId>; 4],          // inspected stack window before action
+    consumed: Box<[ItemId]>,
+    produced: ItemId,
+    name_uses: Box<[NameUseId]>,
+    events: Box<[EventId]>,
+}
+struct NameUseRecord {
+    syntax: NameSyntaxId,
+    input_item: ItemId,
+    phase: NameUsePhase,
+    expected_pos: Option<JPos>,
+    policy: NamePolicy,
+    event: EventId,
+    observation: Option<ObservationId>,
+}
+struct NodeOrigin {
+    node: NodeId,
+    items: Box<[ItemId]>,
+    reductions: Box<[ReductionId]>,
+    name_uses: Box<[NameUseId]>,
+}
+~~~
+
+**보조 타입도 v1 논리 계약에 포함한다.** 아래 필드와 variant로 연결 관계를 명시한다.
+
+| 타입 | v1 필드/variant와 의미 |
+|---|---|
+| ID들 | `FrontendUnitId`는 비재사용 unit identity. `SourceId/NodeId/WordId/ItemId/ReductionId/NameSyntaxId/NameUseId/ObservationId/EventId/DemandId`는 서로 구분되는 local identity. 모든 외부 link는 `(unit, local_id)`. Expr의 이동 위치·Arc 주소·source spelling을 ID로 사용하지 않음. ID 폭과 저장 방식은 구현 선택 |
+| `SourceRecord`, `SourceSpan` | source는 `text`, `parent: Option<SourceSpan>`을 소유. 최초 source의 parent는 None, DD 등 생성 source는 생성 원인 span을 가리킴. 모든 source span은 `source: SourceId`와 `bytes: Range<usize>`로 구성하여 원문/확장문을 구분 |
+| `WordRecord` | `span: SourceSpan`, `class: EnqueueClass`, `flags: EnqueueFlags`, `environment: EnqueueEnvironment`, `expansion_origin: Option<WordId>`; spelling은 해당 immutable source로 읽음. DD 확장에서 같은 span인 word도 다른 WordId. 확장문은 별도 SourceRecord와 parent mapping 유지 |
+| `ItemProducer` | `Word(WordId)`, `NameUse(NameUseId)`, `Reduction(ReductionId)`, `Mark`; NAME lookup으로 품사가 바뀌면 이전 ItemRecord를 수정하지 않고 새 item 생성. 실제 reduction window의 context item과 consumed item을 구분 |
+| `NameSyntax` | `word: WordId`, `address: Simple/Direct/Indirect`, `components: Box<[NameComponent]>`, `read_mode: Ordinary/ByValue/ByValueAndAbandon`, `special_operand: Option<ImplicitOperand>`; component는 `kind: SimplePart/NamedLocale/NumericLocale/HolderName/DebugFrame` + 원 source span. direct/indirect와 read_mode는 직교. 실제 locale/frame identity는 여기에 넣지 않음 |
+| `JPos`, `NameUsePhase`, `NamePolicy` | POS=`Noun/Verb/Adverb/Conjunction`. Phase=`StackRead/StackPOS/ConstructorRead/CallLookup/AssignmentTarget/Abandon`. Policy=`CaptureAtRead/LateAtCall/CaptureAtConstruction/Assignment/ReadAndAbandon`. `expected_pos=None`는 미확정 요구이고 Noun 가정이 아님. 하나의 NAME에 stack POS와 call lookup 등 여러 use 존재 |
+| `NameObservation` | `origin: Catalog/Runtime`, `outcome: Noun/Function/Missing/JError`, `pos: Option<JPos>`, `lookup: Option<LookupWitness>`, constructor-fixed ranks/POS 등 작은 metadata. 실제 noun은 필요한 semantic Literal/constructor operand가 소유하며 observation에 payload를 복제하지 않음. Catalog/Runtime 어느 관찰도 자동 proof가 아님 |
+| `LookupWitness` | `engine`, `frame_instance`, `start_locale`, `found_locale`, `execution_locale`, `binding_stamp`, `dependencies`. stamp=`scope_instance/symbol_generation/revision`; dependencies=`LocalPresent/LocalAbsent/LocalePathEpoch/HolderRead/NamespaceEpoch` typed records. 미확보 witness는 None으로 드러내고 flat NameVersion으로 채우지 않음. 실제 runtime 관찰과 future GuardRecipe는 다른 타입/소유자 |
+| `SemanticEvent` | `kind: NameUse/Constructor/Call/Write/Check`, `owner: ItemId`, `node: Option<NodeId>`, `after: Box<[EventId]>`, `effect: NamespaceRead/NamespaceWrite/ArrayCall/UnknownCall/Constructor`, `realization: Planned/Observed`. compile-time 계획과 runtime 실행 사건 구분; constructor·call의 potential error 순서도 edge로 유지. 기본 보수적 순서 이후 완화는 별도 proof 필요 |
+| `BoundaryDemand` | `kind: NeedNameClass/NeedConstructorValue/NeedConstructorResult/NeedNamespaceAction/NeedDynamicSemantics/NeedCallableProof`, `at_item: ItemId`, `row: Option<ParseRow>`, `required_nodes: Box<[NodeId]>`, `after: Box<[EventId]>`, `reason: typed reason`; v0에서 runtime continuation을 갖춘 척하지 않음 |
+| `HandoffStatus` | `Complete`는 semantic construction complete일 뿐 execution admitted가 아님. `Blocked(DemandId)`는 prefix를 담은 inspection artifact이며 complete graph/실행 계획으로 낮추지 않음. actual JError는 별도 진단 결과; demand/Unknown과 혼합하지 않음 |
+| `FunctionOperandOrigin` | `owner: NodeId`, `operand_path: [operand index]`, `items: [ItemId]`, `name_uses: [NameUseId]`; shared FunctionEntity DAG 안의 특정 operand 사용을 구별. 같은 함수 identity를 공유해도 owner/path별 NAME 맥락은 합치지 않음. 빈 path는 함수 root 사용 |
+
+**대입·그룹·미완성 reduction:** `WriteName`은 문장 끝뿐 아니라 표현식 내부에도 존재하며 assigned entity를 결과로 산출한다. event가 namespace write의 의미 시점을 보존한다. 괄호는 의미 중립이면 새 semantic node를 강제하지 않지만 Item/Reduction/origin에는 남긴다. ReductionRecord는 완료된 reduction만 기록한다. 실패/중단 직전 window는 BoundaryDemand의 `window: [Option<ItemId>; 4]`에 보존하며, Blocked 상태에서 완성된 결과를 꾸며내지 않는다.
+
+**Noun capture의 의미:** `CaptureAtRead`는 J의 의미적 read 시점에 binding/value identity를 고정한다는 계약이지 compiler에서 배열 내용을 즉시 계산하라는 지시가 아니다. 읽은 noun이 deferred computation의 결과이면 그 값의 semantic identity와 순서 의존성을 보존한다. 이후 rebinding으로 그 read의 대상을 바꾸지 않는다. 함수의 `LateAtCall`은 호출 시점 lookup이며 둘을 같은 name 문자열만으로 합치지 않는다.
+
+**NodeId와 함수 identity:** arena는 기존 `Expr` tree의 저장 방식을 점진적으로 대체하는 것이며 함수 DAG를 복제하지 않는다. 같은 `Arc<FunctionEntity>`를 두 번 사용하는 경우 `FunctionUse` NodeId와 parser ItemId는 각각 별개다. 함수의 intrinsic operand identity에 call-site NAME/guard/target 정보를 넣지 않는다. Noun 연산 결과는 Monad/Dyad node이지 `JEntity::Noun`의 가짜 concrete Value가 아니다. NodeOrigin은 many-to-many여서 parentheses/NAME 치환처럼 여러 item이 같은 결과를 지시하는 경우도 표현한다.
+
+**고정 연결 예(`a+c*d`, 각 입력 Noun POS 계약):** words는 W0=a,W1=+,W2=c,W3=*,W4=d. queue-origin NAME item과 stack-read 후 Noun item은 다른 ItemId이고 NameUse로 연결한다. R0은 `DyadNVN`, consumed=`[c의 noun item, * item, d의 noun item]`, produced=P0(Noun, semantic=Nmul). R1은 consumed=`[a의 noun item,+ item,P0]`, produced=P1(Noun, semantic=Nadd). Nmul origin은 R0/관련 NAME uses, Nadd origin은 R1/관련 NAME uses를 가리킨다. **span이 같다는 이유로 항목을 연결하거나 reduction 이전 맥락을 덮어쓰지 않는다.**
+
+**Downstream 계약:** Graph/A3는 `(FrontendUnitId, NodeId)`를 origin key로 사용한다. 각 adapter가 target node → **원 semantic NodeId 집합**의 mapping을 산출하고 같은 `Arc<FrontendContext>`를 공유한다. Fusion/CSE는 origin 합집합, inlining은 caller/callee unit mapping을 유지한다. NodeOrigin과 NAME use를 원 spelling으로 다시 추측하지 않는다. Layout/BufferId·schedule·GPU placement·CostProfile은 이 schema에 들어가지 않는다. 변환 후 필요한 semantic program은 검증용으로 참조/보존하되 원 AST·runtime 중간 배열 전체를 복제하지 않는다.
+
+**v1 verifier와 이행 계획(기존 NP/DB 게이트):**
+
+1. **NP-01/04: 타입·저장소·verifier를 먼저 구현.** ID 범위/unit, producer/output 역참조, 이전 입력 occurrence 보존, 원 words coverage와 실제 matcher window/row, source/expansion span, callable/noun edge 종류, roots/origins coverage, event edge cycle, unresolved demand와 Complete의 모순을 검사한다. fabricated producer/node link 하나만 바꿔도 거부하는 부정 테스트 필수. 이 검사는 J 의미의 독립 증명은 아님.
+2. **NP-02/04: parser emission.** 같은 matcher/action에서 Word→Item→NameUse→Reduction→SemanticNode를 함께 기록한다. 기존 Program/ParseReduction/NameUse/ParseCapture 소비자는 migration adapter를 거쳐 비교한다. Capture는 runtime 검증용으로 유지하고 compiler context를 만들기 위해 eager 실행하지 않는다. Arena 전환 시 기존 Expr를 두 번째 정본으로 남기지 않는다.
+3. **NP-03/05: 실제 lookup API와 witness 연결.** catalog 관찰과 runtime witness를 구별하고 error-bearing locale lookup을 연결. 없는 locale/path/frame 증거를 가짜 값으로 채우지 않는다. concrete lookup support 미완료인 form은 demand/coverage 경계로 유지한다.
+4. **NP-04/05: Graph/A3 origin adapter.** parent/operand/function-use와 각 name use가 다음 단계까지 이어지는 golden 및 fold/CSE origin 유실 부정 테스트. admission verifier 미완료 시 Complete handoff만으로 NAME 특수화를 실행하지 않는다.
+5. **NP-06/07: C differential.** noun/verb/modifier·rank/gerund/fork·assignment/locative의 POS/값/오류/namespace 결과와 Rust handoff/context projections 비교. C에서 관찰할 수 없는 내부 queue/lookup는 source-derived fixture 또는 별도 계측 증거로 표시하며 값 비교 통과를 내부 trace 동등성으로 승격하지 않는다.
+
+**완료 판정:** 현재는 **v1 구조·필드·소유권·소비 규칙·이행 순서를 결정한 상태**다. `SemanticHandoff` 타입, arena migration, parser emission, context/origin verifier 모두 미구현이다. 기존 17건 static-analysis 회귀와 runtime NAME audit는 이 신규 schema의 통과 증거가 아니다. 다음 구현 단위는 1번의 실제 Rust 타입·verifier·부정 테스트이며, 이후 2번을 닫기 전 downstream이 schema v1 지원을 선언하지 않는다.
+
 ### 3.8 sentence evaluation order와 namespace mutation
 
 J의 parser는 conventional frontend처럼 “문장 전체 AST를 만든 뒤 모든 name을 한 번에 resolve”하는 것으로 의미를 모델링하면 안 된다. current jsource의 `p.c`는 queue를 stack하면서 name lookup, parse reduction, verb execution, assignment를 한 sentence 안에서 진행하며 J의 **우측→좌측 평가 의미**를 실현한다.

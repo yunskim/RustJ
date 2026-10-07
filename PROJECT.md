@@ -759,6 +759,68 @@ Keep acceptance under NP-02/04/05/07 and M3→M4: kernel/allocation-free analysi
 
 **Executed check:** native Windows `static_explain 'data + data * data'` produced three ReadNoun and two Apply nodes using only declared Float[1000000000000] metadata, with no data/result arrays computed. This proves the existing deferred graph path, not runtime binding guards, instrumented allocation bounds or M4 end-to-end execution. Two existing execution-free semantic regressions passed each on default/portable; `git diff --check` passed. This is a documentation-only change; the full suite, fmt/clippy and GitHub CI were not run. Close this path into actual CPU execution next; do not make eager capture the sole compiler input.
 
+#### SemanticHandoff v1: decided logical parser output (2026-10-07; not implemented)
+
+Canonical §3.7.7 fixes the logical parser→analyzer contract. Earlier sections specified information and boundaries without a concrete carrier. The output is one `SemanticHandoff`; it retains both the semantic reduction result and the inputs/context before reduction, with explicit links between them. This is a target replacement of existing Program storage, not an additional mandatory IR stage or a second semantic authority. Container types, integer widths, arena layout and serialization remain implementation choices.
+
+~~~text
+SemanticHandoff {
+  schema, unit,
+  program: { nodes, root? },
+  context: {
+    sources, words, items, reductions, names, name_uses,
+    observations, events, demands, function_origins
+  },
+  origins, status: Complete | Blocked(DemandId)
+}
+
+SemanticNode =
+  Literal(Value) | ReadNoun(NameUseId) | FunctionUse(FunctionEntity)
+  | Monad(function: NodeId, argument: NodeId)
+  | Dyad(function: NodeId, left: NodeId, right: NodeId)
+  | WriteName(target: NameUseId, value: NodeId, event: EventId)
+
+ItemRecord { producer, class, semantic?: NodeId, word_range, blame_word? }
+ReductionRecord {
+  row, window: [ItemId?; 4], consumed: [ItemId], produced: ItemId,
+  name_uses: [NameUseId], events: [EventId]
+}
+NameUseRecord {
+  syntax: NameSyntaxId, input_item: ItemId, phase, expected_pos?, policy,
+  event: EventId, observation?: ObservationId
+}
+NodeOrigin { node: NodeId, items, reductions, name_uses }
+FunctionOperandOrigin { owner: NodeId, operand_path, items, name_uses }
+~~~
+
+The remaining logical records and rules are:
+
+| Record | Required content and interpretation |
+|---|---|
+| IDs | Distinct local Source/Node/Word/Item/Reduction/NameSyntax/NameUse/Observation/Event/Demand identities, owned by a nonreused FrontendUnitId. External references carry `(unit, local_id)`; spelling, pointer address and movable Expr position are not identities. |
+| SourceRecord / SourceSpan | Immutable text and optional parent expansion span; a span contains SourceId and byte range. Generated DD text has its own source and parent mapping. |
+| WordRecord | SourceSpan, enqueue class/flags/environment, optional expansion-origin WordId. Equal spans do not imply equal expanded word occurrences. |
+| ItemProducer | Word / NameUse / Reduction / Mark. NAME class resolution creates a new immutable item; the previous occurrence is retained. Inspected window and consumed items are distinct. |
+| NameSyntax | WordId, Simple/Direct/Indirect address, components with kind and SourceSpan, Ordinary/ByValue/ByValueAndAbandon read mode, optional implicit operand. Runtime locale/frame identities are not syntax. |
+| NameUse | Phase StackRead/StackPOS/ConstructorRead/CallLookup/AssignmentTarget/Abandon; policy CaptureAtRead/LateAtCall/CaptureAtConstruction/Assignment/ReadAndAbandon. POS is Noun/Verb/Adverb/Conjunction; missing POS is not assumed noun. A spelling occurrence may have several uses. |
+| NameObservation | Catalog/Runtime origin, Noun/Function/Missing/JError outcome, optional POS and LookupWitness, small constructor metadata. Observations are not automatic runtime proofs; noun payload is not duplicated here. |
+| LookupWitness | Engine, frame instance, start/found/execution locale, binding stamp (scope instance, symbol generation, revision), typed LocalPresent/LocalAbsent/LocalePathEpoch/HolderRead/NamespaceEpoch dependencies. Missing evidence remains explicit, not a fabricated flat NameVersion. Future GuardRecipe is separate. |
+| SemanticEvent | NameUse/Constructor/Call/Write/Check kind, owner ItemId, optional NodeId, predecessor EventIds, NamespaceRead/NamespaceWrite/ArrayCall/UnknownCall/Constructor effect, Planned/Observed realization. Preserve potential error order; weakening conservative dependencies requires proof. |
+| BoundaryDemand | NeedNameClass/NeedConstructorValue/NeedConstructorResult/NeedNamespaceAction/NeedDynamicSemantics/NeedCallableProof kind, at_item, optional row, inspected four-item window, required NodeIds, predecessor events and typed reason. This does not claim an implemented runtime continuation. |
+| Origins | NodeOrigin is many-to-many. FunctionOperandOrigin additionally identifies an operand path within a particular function use, so shared intrinsic function identity does not erase nested NAME occurrence context. |
+
+WriteName returns the assigned entity and may occur inside an expression, not only at its end. Its event fixes the namespace write point. Parentheses may share a semantic node while retaining distinct item/reduction provenance. ReductionRecord represents a completed action; a blocked attempt retains its window in BoundaryDemand. Complete means semantic construction completed, not execution admitted. Blocked prefixes are inspection artifacts, not executable complete graphs; actual J errors remain separate diagnostics.
+
+CaptureAtRead fixes binding/value identity at the semantic read point; it does not require the compiler to compute array contents. A read of a deferred result preserves its semantic value identity and ordering dependency through later rebinding. LateAtCall denotes function lookup at invocation; equal name spelling does not merge these distinct uses.
+
+For `a+c*d` under a noun-POS contract, queue NAME items and resolved noun items have different ItemIds. The first dyadic reduction consumes the noun c, verb *, noun d items and produces an item pointing to the deferred multiplication NodeId. The next reduction consumes a, + and that produced item, producing the addition NodeId. Origins explicitly link both results to reductions and NAME uses; spans are never used to guess these links. No intermediate array is required.
+
+Graph/A3 adapters retain target node→original `(unit, NodeId)` sets and share the immutable context. Fusion/CSE union origins; inlining retains caller/callee unit mappings. Shared FunctionEntity DAGs keep intrinsic identity separate from each use's NodeId, operand-path origin, NAME witnesses and guards. Buffer/layout/schedule/GPU decisions stay downstream.
+
+Migration uses existing NP gates: (1) implement logical types and verifier, including bad-ID/producer/origin/event/demand negative tests; (2) emit records from the existing parser matcher and actions, replacing Expr storage through adapters without permanently retaining two authorities; (3) connect actual error-bearing lookup/witness APIs, preserving explicit unsupported boundaries; (4) retain origins through Graph/A3 and reject lost provenance; (5) compare C-visible POS, values, errors and namespace effects. Unobservable C internals require source-derived or instrumented evidence and are not proved by matching values. Structural verification is not an independent proof of J semantics.
+
+**Status:** logical structure, fields, ownership relationships and consumption rules are decided. Rust types, parser emission, arena migration and the new verifier remain unimplemented. Previous static-analysis/runtime audits are not tests of this new schema. The first implementation unit is types plus verifier and negative tests, followed by parser emission; no eager capture is required to obtain compiler context.
+
 #### Frontend file ownership
 
 `src/tokenizer.rs` owns word formation; `src/enqueuer.rs` owns word interpretation and environment flags; `src/parser.rs` owns class matching, stack reductions, construction and parser-time name/POS resolution. `src/semantic.rs` owns semantic objects, intrinsic rank-construction contracts and binding/version models. `scanner` and the old `semantic::parse` APIs are compatibility re-exports, not duplicate grammars. No stage chooses a backend or schedule.
