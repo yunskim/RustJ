@@ -1423,6 +1423,37 @@ Current `lowering.rs::RouteDecision::RuntimeSemanticFallback` means **compile-ti
 
 Future dispatch must distinguish at least these commit frontiers:
 
+#### First-CPU-route boundary decisions and acceptance (2026-10-07)
+
+Canonical §3.9.5 makes the first CPU route **pre-execution admission only**. This is a route profile, not a J language restriction. Proposed demand names below are contracts, not implemented Rust enums/dispatcher capabilities. Current StaticAnalyzer Unsupported/AnalysisBoundary covers only part of the seam.
+
+| Decision point | Continue criterion | Otherwise |
+|---|---|---|
+| NAME queue→stack, resolve_stack_item | POS evidence matches the semantic lookup and no preceding namespace effect invalidates it | NeedNameClass with occurrence/context/effect dependencies. Missing catalog metadata is not a J Value error or an actual undefined-name fallback. |
+| Rows 0–2, analysis runtime_noun | Known callable POS/valence and noun-result structure | Keep Monad/Dyad expressions. No atom demand for unknown shape. Unresolved target retains NameRef and NeedCallableProof for execution admission. |
+| Rows 3/4, noun-left fork/gerund/definition constructors | Required concrete operands, or a verified symbolic constructor preserving result POS/errors | NeedConstructorValue/Result with exact operand/use and constructor identity. Computed rank `(1+0)` is currently an analysis boundary; verified constant evaluation could discharge it later. |
+| Row 7 | Single static final outer assignment; deferred RHS, runtime commit | NeedNamespaceAction for intermediate/computed/multiple/local/locale actions. Do not continue lookup against a stale catalog. |
+| Execute/unknown explicit modifier/opaque call | Actual source/POS/effect semantics available | NeedDynamicSemantics; never assume purity. |
+| Graph→A3→physical execution admission | All demands discharged, correctly scoped name/POS/nested-call/error/input/lifetime evidence and supported route | NeedsGuardOrRoute/UnsupportedRoute. Graph construction is not execution permission. |
+
+Proposed result fields: `kind | span/word/occurrence | parser row/use | required value/POS/callable | dependency/effect frontier | evidence | selected action`. Continue permits graph construction; ExecuteAllowed is a separate verdict.
+
+**v0 dispatch:** analyze the whole candidate sentence without modifying the workspace. Admit only a closed region without internal namespace writes, unknown effects or dynamic construction requests, with actual proofs/guards and target capability. A terminal write commits only after success. Otherwise select an actually supported runtime route before any sentence execution, or report compiler coverage refusal. No C fallback. Guard misses are not J errors. No prefix-execute/resume, effectful replay, fake concrete nouns or assumed fallback executors. General continuations remain disabled pending exact-state/exactly-once validation. `a+a=:2` may be rejected by this compiler profile while its runtime evaluation must still yield 4 and final a=2.
+
+| Acceptance layer / existing gates | Required evidence and one-mutated negative | Current status |
+|---|---|---|
+| Analysis / NP-02/04, DB-C | Pure/unknown-shape expressions stay deferred; computed constructor and non-final write stop without commits. Reject fake literal operands or stale-catalog continuation. | Existing 14 plus 3 new static-analysis regressions; no typed demand API yet. |
+| Admission verifier / NP-03/05 | Scope/timing of name/POS/constructor/call/input proofs, source mapping, no unresolved demands, error order/lifetimes and actual route. Remove a guard, swap scope stamp, drop nested NAME dependency/order edge, or mark an unresolved demand Ready. | **Unimplemented/UNRUN**; Plan structural verification/catalog versions are insufficient. |
+| Actual C/runtime/compiled differential / NP-07, DB-E, M4 | dtype/shape/data, POS/first error, namespace/effects/aliases. Reject result 3 for assignment/read, early missing-left error, repeated committed effects, stale callable. | Current runtime subset tested; **compiled-route and internal NAME/effect traces UNRUN**. |
+
+[Boundary audit](tools/name_compatibility_audit.py) `--boundary-fixtures-only` and [Windows results](reports/semantic-boundary-windows.json) pin **10 fixtures × C j64/AVX2 × Rust direct/semantic-reference = 40 observations: 36 matched, 4 unsupported gaps**. Neither Rust path is compiled execution. Source and DLL pins differ; actual binary hashes are recorded.
+
+Fixtures: `b=:a+a*a` preserves a; `i.n` accepts unknown analysis result shape; literal/computed rank both execute to [3,12] but the latter stops analysis; `a+a=:2` and a writing modifier yield 4/final a=2; `missing+(1 2+1 2 3)` raises Length before Value; a modifier writes count=5 before a later Length error and the count remains 5; `". '1+2'` is C=3/Rust Unsupported; rebinding a referenced verb to a noun produces Domain. These pin runtime outcomes and analysis boundaries, not resumable-parser correctness or admission completion. Add no competing checklist; use NP/DB/M3→M4 gates. First close one deferred pure region through Graph/A3 to admitted CPU execution with kernel/allocation instrumentation and C comparison, then expand by the specified negative tests.
+
+Windows validation: static_analysis **17/17 default and 17/17 portable**, Python audit classification **6/6**, oracle protocol **9/9**, fmt, clippy (`--all-targets --all-features -D warnings`) and diff checks passed. Full Rust/upstream J suites, Linux, GPU and GitHub CI were not run. To prevent NAME risk from being deferred into later optimizations, **do not admit specialization based only on observed NAME metadata before the admission verifier and the negative tests above are implemented and passing.**
+
+The remaining frontier description applies to the future dispatcher:
+
 ```text
 before_start
   no observable effect or consumer-visible transfer

@@ -2384,6 +2384,53 @@ committed
 
 이행 항목의 정본은 [§10 DB0–DB7 체크리스트](#dynamic-boundary-checklist)에 둔다. 검사 대상과 구현 상태는 위 계약을 따른다.
 
+#### 3.9.5 경계 판정 알고리즘과 검증 수용 조건 — 첫 CPU route (2026-10-07)
+
+**적용 범위:** §3.7.6의 전달 계약을 첫 CPU route의 실행 전 admission에 적용한다. 일반 J의 언어 제한이 아니며, 다음 판정의 `Need...`는 J 오류가 아니라 **이 compiler route의 정보/구현 요구**다. 현재 `StaticAnalyzer`의 Unsupported/AnalysisBoundary는 일부 seam만 구현하며 아래의 구조화된 admission 결과와 dispatcher는 아직 없다. 문서만으로 실행 허가를 발행하지 않는다.
+
+**판정 지점은 다음으로 고정한다.** 같은 9-row matcher를 쓰되 각 action 직전에 아래 정보를 검사한다. Deferred noun의 dtype/shape가 Unknown이라는 이유만으로 값을 계산하지 않는다.
+
+| 판정 지점 / 코드 seam | Continue 조건 | 충족하지 못하면 반환할 요구 |
+|---|---|---|
+| queue NAME → stack, `resolve_stack_item` | 현재 의미적 lookup에 해당하는 POS가 입력 계약/증거로 정해졌고 앞선 namespace effect가 그 전제를 바꾸지 않음 | `NeedNameClass`: occurrence·lookup context·선행 effect 의존성. 누락된 catalog 항목을 J Value 오류로 바꾸지 않음; 실제 미정의 NAME의 J fallback과도 구분 |
+| row 0–2, `runtime_noun`의 **분석 경로** | callable POS/valence와 noun-result 구조를 알 수 있음 | 기본은 `Expr::Monad/Dyad` 생성. 값 자체를 요구하지 않음. callable target 미확정이면 NameRef를 유지하고 별도 `NeedCallableProof`로 실행 admission을 보류 |
+| row 3/4 및 noun-left fork/gerund/definition 생성, `completed_noun`/`CompletedParseResult`/`resolve_modifier` | constructor에 실제 필요한 operand가 concrete이거나 검증된 symbolic constructor가 의미·result POS·오류 조건을 완전히 표현 | `NeedConstructorValue` 또는 `NeedConstructorResult`: 필요한 operand/use, 검사할 값·POS, constructor identity. 현재 computed rank operand `(1+0)`도 이 분석 경계에 해당; 향후 검증된 constant evaluation은 이 요구를 해소할 수 있음 |
+| row 7 대입, `apply_parse_row` | 단일 정적 target의 **최종 outer assignment**, RHS는 지연 graph에 남고 commit은 실행 성공 후 | 중간/계산된/복수 target·local/locale 변화는 `NeedNamespaceAction`. 현재 분석기는 non-final assignment에서 중단. symbolic namespace forwarding이 검증되기 전 기존 catalog로 후속 이름을 읽지 않음 |
+| `".`·미확정 explicit modifier/opaque call 등 | 분석기가 해당 source/POS/효과 계약을 실제로 보유 | `NeedDynamicSemantics`: dynamic source/constructor/call와 원 위치. 임의 pure 가정 금지 |
+| graph→A3→physical admission | 모든 요구가 해소됐고 실제 route가 지원되며 name/POS·nested-call 효과·error order·입력/수명 계약이 검증됨 | `NeedsGuardOrRoute`/`UnsupportedRoute`. graph가 만들어졌다는 사실만으로 실행하지 않음 |
+
+제안 admission 결과에는 `kind | span/word/occurrence | parser row/use | required value/POS/callable | dependency/effect frontier | available evidence | selected action`을 담는다. **현재 Rust enum으로 구현됐다는 뜻은 아니다.** `Continue`는 graph 구성 허용이고 `ExecuteAllowed`는 별도 최종 판정이다. POS만 알아도 graph를 만들 수 있지만 함수 target·본문의 이름/효과·오류 계약 없이는 inline/fusion/native 실행을 허가하지 않는다.
+
+**v0 dispatch는 실행 전에 한 번 결정한다.** 후보 문장 전체를 실제 workspace를 수정하지 않고 분석한다. 내부 namespace write/unknown-effect call/동적 구성 요구가 없고 필요한 proof·guard 및 target capability가 닫힌 구간만 compiled route에 수용한다. 유일하게 허용한 terminal write도 실제 commit은 실행 후다. 요구가 남으면 원 source를 **처음부터 아직 실행하지 않은 상태로** 지원되는 runtime route에 넘기거나 compiler coverage 거부를 반환한다. Runtime route의 실제 capability 확인은 필수이며 C fallback은 없다. Guard miss는 route 거부이지 J Domain/Value 오류가 아니다.
+
+**v0에서 하지 않는 일:** prefix 실행 후 parser 중간 재개, 효과 이후 문장 전체 replay, 계산하지 않은 operand를 concrete JEntity로 운반, backend가 미지원인 call을 존재하지 않는 fallback에 위임. 따라서 처음에는 `a+a=:2` 같은 구간을 native compile하지 않아도 되지만, 지원되는 runtime 경로에서는 반드시 J 결과 `4`, 최종 `a=2`를 낸다. 이후 그 form의 compiler 수용은 ordered symbolic namespace/write와 verifier가 구현됐을 때 확장한다. 일반 continuation은 별도 후속 capability이며 state snapshot+exactly-once 테스트 전에는 활성화하지 않는다.
+
+**수용은 세 층으로 분리한다.** 다음은 기존 NP/DB/M3→M4 게이트의 테스트 상세이며 경쟁 checklist가 아니다.
+
+| 층 / 연결 게이트 | 통과해야 하는 관찰 | 반드시 실패시킬 단일 변이 | 현재 증거 |
+|---|---|---|---|
+| Analysis boundary / NP-02/04, DB-C | pure apply·unknown shape는 지연 graph, computed constructor·non-final write는 boundary, 분석 중 binding commit 없음 | deferred operand를 literal로 위장하거나 중간 write 뒤 이전 catalog read로 계속하기 | `tests/static_analysis.rs`의 기존 14 + 신규 3 회귀. API는 아직 구조화된 demand를 반환하지 않음 |
+| Plan admission verifier / NP-03/05 | NAME/POS/constructor·입력·call effect 증거의 범위/시점, complete source mapping, 실행 전에 해소된 요구, error order와 수명, 지원되는 route | 하나의 guard 삭제, 다른 locale/frame stamp로 교체, nested NameRef dependency 누락, order edge 제거, 미해소 demand를 Ready로 변경 | **미구현/UNRUN**. `Plan::verify`의 구조 검사나 catalog version만으로 이 게이트를 대체할 수 없음 |
+| C↔Rust 실제 compiled route / NP-07, DB-E, M4 | 값의 type/shape/data, 결과 POS·첫 오류, 효과 전후 namespace·alias와 source 관찰이 C/runtime/compiled 경로에서 동일 | `a+a=:2`를 3으로 계산, missing-left 오류를 right Length보다 먼저 노출, committed count를 0 또는 10으로 만들기, rebind 후 stale 함수 실행 | C↔현재 runtime 일부는 실행. **compiled route 및 NAME event/내부 effect trace 차분은 UNRUN** |
+
+**oracle fixture를 먼저 고정했다:** [boundary audit](tools/name_compatibility_audit.py)의 `--boundary-fixtures-only` 및 [Windows 결과](reports/semantic-boundary-windows.json). 다음 10 fixtures × C j64/AVX2 × Rust direct/semantic-reference = **40건: 36 matched, 4 unsupported_gap**. 두 runtime 경로는 컴파일 경로가 아니다. Source와 DLL asset pin은 별개이고 실제 DLL/binary hash를 기록한다.
+
+| fixture / 핵심 관찰 | C와 현재 runtime | compiler 수용에서의 요구 |
+|---|---|---|
+| `b=:a+a*a`, 기존 a 유지 | `[0,2,6]`, a=`[0,1,2]` 일치 | graph→A3에서 중간 배열 미실행; alias 보존; 실제 route 검증 |
+| `n=:4` 뒤 `i.n` | `[0,1,2,3]` 일치 | unknown result shape는 parser value demand가 아님 |
+| `(+/"1) i.2 3` / `(+/"(1+0)) i.2 3` | 둘 다 `[3,12]` 일치 | literal은 구성 가능, computed operand는 현재 analysis boundary |
+| `a=:1` 뒤 `a+a=:2` | 결과 4, a=2 일치 | v0 중간 namespace write 경계; 기존 a=1로 parse를 계속하지 않음 |
+| `adv=:1 : 'a=:u'` 뒤 `a+2 adv` | 결과 4, a=2 일치 | modifier 실행이 후속 lookup을 바꾸는 경계 |
+| `missing+(1 2+1 2 3)` | **Length 오류**, missing Value보다 먼저 | semantic error order를 유지; admission miss가 J error를 먼저 발생시키지 않음 |
+| `count=:0`, `adv=:1 : 'count=:count+u'`, `(1 2+1 2 3)+5 adv`, `count` | Length 오류 후 **count=5** 일치 | effect-before-error 보존, 실행 누락으로 0 또는 replay로 10을 만들면 실패 |
+| `". '1+2'` | C=3, Rust Unsupported | dynamic semantic route 자체 미지원; 자동 fallback 성공 주장 금지 |
+| `f=:+`, `g=:f`, `f=:7`, `g 3` | Domain 오류 일치 | POS/target guard와 정확한 semantic error/route-miss 구분 |
+
+여기서 검증한 것은 **경계 입력에 대한 기존 runtime의 외부 동작**과 **현재 분석기의 중단/지연 동작**이다. 재개 state, typed demand API, admission verifier 및 compiled route가 통과했다고 기록하지 않는다. 후속 구현의 첫 완료 기준은 pure 입력 한 구간에서 `Deferred Program -> Graph -> A3 -> admitted CPU execution`이 kernel-call counter/할당 계측·C 값 비교로 닫히는 것이며, 이후 위의 한-변이 부정 테스트로 각 경계를 확장한다.
+
+이번 Windows 검증: `static_analysis` **17/17 default 및 17/17 portable**, Python audit 분류 **6/6**·oracle protocol **9/9**, fmt·clippy(`--all-targets --all-features -D warnings`)·diff 검사 통과. 전체 Rust/upstream J suite·Linux·GPU·GitHub CI는 실행하지 않았다. NAME 처리의 위험을 후속 최적화에 떠넘기지 않기 위해, **admission verifier가 구현되고 위 부정 테스트를 통과하기 전에는 NAME 관찰 metadata만으로 특수화 실행을 수용하지 않는다.**
+
 근거: [FOUNDATIONS §21/§33](FOUNDATIONS.ko.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7의 분류·이행 순서는 RustJ 설계 판단이며 upstream의 완성된 guard 시스템을 복제했다는 뜻이 아니다.
 
 ## 4. J Graph Analyzer와 Execution Semantic Lowering

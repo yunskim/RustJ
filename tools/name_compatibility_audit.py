@@ -35,6 +35,22 @@ FIXTURES = [(name, setup + [query]) for name, setup, query, _, _ in CASES] + [
     ("invalid_name", ["foo_ 1"]),
 ]
 
+# Boundary probes pin observable runtime behavior. They do not test a future
+# admission verifier or parser continuation and must never be reported as such.
+BOUNDARY_FIXTURES = [
+    ("pure_array_region", ["a=:i.3", "b=:a+a*a", "b", "a"]),
+    ("shape_unknown_is_not_a_parse_demand", ["n=:4", "i.n"]),
+    ("literal_rank_constructor", ['(+/"1) i.2 3']),
+    ("computed_rank_constructor", ['(+/"(1+0)) i.2 3']),
+    ("assignment_then_name_read", ["a=:1", "a+a=:2", "a"]),
+    ("modifier_write_then_left_read", ["a=:1", "adv=:1 : 'a=:u'", "a+2 adv", "a"]),
+    ("right_error_precedes_missing_left_name", ["missing+(1 2+1 2 3)"]),
+    ("effect_survives_later_error", ["count=:0", "adv=:1 : 'count=:count+u'",
+                                   "(1 2+1 2 3)+5 adv", "count"]),
+    ("dynamic_source_request", ['". \'1+2\'']),
+    ("late_target_pos_change", ["f=:+", "g=:f", "f=:7", "g 3"]),
+]
+
 
 def compare_trace(sources, expected, actual):
     if len(expected) != len(sources) or len(actual) > len(sources):
@@ -70,14 +86,16 @@ def main():
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--rust-revision", required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--boundary-fixtures-only", action="store_true")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Use native Windows Python, J DLLs and Rust binary")
     assets = args.assets_root.resolve()
+    fixtures = BOUNDARY_FIXTURES if args.boundary_fixtures_only else FIXTURES
     records = []
     for variant in ["j.dll", "javx2.dll"]:
         os.environ["J_LIBRARY"] = str(assets / "target/cj-windows/j64" / variant)
-        for name, sources in FIXTURES:
+        for name, sources in fixtures:
             oracle = Oracle()
             try:
                 reference = [oracle.eval(source) for source in sources]
@@ -101,11 +119,12 @@ def main():
         "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
         "reference_sha256": {name: sha(assets / "target/cj-windows/j64" / name)
                              for name in ["j.dll", "javx2.dll"]},
-        "fixtures": len(FIXTURES), "observations": len(records), "counts": counts, "records": records,
+        "fixture_set": "semantic-boundaries" if args.boundary_fixtures_only else "names",
+        "fixtures": len(fixtures), "observations": len(records), "counts": counts, "records": records,
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"fixtures": len(FIXTURES), "observations": len(records), "counts": counts}))
+    print(json.dumps({"fixtures": len(fixtures), "observations": len(records), "counts": counts}))
     # Completing an audit is not a conformance pass. Counts always expose gaps.
     return 0
 
