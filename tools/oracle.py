@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 ERRORS = {4: 'ill-formed name', 5: 'ill-formed number', 16: 'spelling error', 3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
-          13: 'open quote', 14: 'rank error', 19: 'syntax error', 21: 'value error', 37: 'valence error', 23: 'control error', 34: 'noun result was required'}
+          13: 'open quote', 14: 'rank error', 19: 'syntax error', 21: 'value error', 37: 'valence error', 23: 'control error', 34: 'noun result was required', 31: 'read-only data'}
 
 PARSER_OBSERVE_OPS = {'eval', 'sentence', 'name_class', 'representation', 'words'}
 

@@ -1207,6 +1207,17 @@ impl Plan {
                 }
             };
             let check_callable = |callable: &Callable| {
+                if (callable.target == CallTarget::Definition)
+                    != matches!(
+                        callable.semantic.head,
+                        crate::semantic::FunctionHead::ExplicitDefinition(_)
+                    )
+                {
+                    return Err(fail(
+                        Some(op_id),
+                        "definition target disagrees with semantic entity".into(),
+                    ));
+                }
                 if callable.semantic.result_pos != crate::semantic::FunctionPartOfSpeech::Verb {
                     return Err(fail(
                         Some(op_id),
@@ -1219,6 +1230,12 @@ impl Plan {
                 Ok(())
             };
             let check_call_result = |call: &CallOp| {
+                if call.callable.target == CallTarget::Definition {
+                    return Err(fail(
+                        Some(op_id),
+                        "definition body requires structural lowering".into(),
+                    ));
+                }
                 let [result] = operation.results.as_slice() else {
                     return Err(fail(
                         Some(op_id),

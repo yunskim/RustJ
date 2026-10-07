@@ -109,11 +109,52 @@ DEFINITION_FIXTURES = [
         "pair=:4 : 'x+y'", "2 pair 3", "ddpair=:{{ x+y }}", "2 ddpair 3"]),
 ]
 
+NESTED_FIXTURES = [
+    ("nested_direct", ["outer=:{{\ninner=.{{y+1}}\ninner y\n}}", "outer 4", "inner 4"]),
+    ("nested_controls", ["outer=:{{\ninner=.{{\nif. y>0 do. y+1 else. 0 end.\n}}\ninner y\n}}", "outer 4", "outer _2"]),
+    ("nested_in_explicit", ["outer=:3 : 0\ninner=.{{\nif. y>0 do. y+1 else. 0 end.\n}}\ninner y\n)", "outer 4", "outer _2"]),
+    ("nested_explicit_string", ["outer=:{{\ninner=.3 : 'if. y>0 do. y+1 else. 0 end.'\ninner y\n}}", "outer 4", "outer _2"]),
+    ("nested_explicit_block", ["outer=:{{\ninner=.3 : 0\nif. y>0 do. y+1 else. 0 end.\n)\ninner y\n}}", "outer 4", "outer _2"]),
+    ("nested_valence_separator", ["outer=:{{\ninner=.{{\ny+1\n:\nx+y\n}}\n2 inner y\n}}", "outer 4"]),
+    ("nested_no_capture", ["g=:10", "outer=:{{\ng=.99\ninner=.{{t=.y+g\nt}}\ninner y\n}}", "outer 2", "g=:20", "outer 2", "t+0"]),
+    ("nested_escape", ["g=:20", "outer=:{{\nprivate=.99\nescaped=:{{y+g}}\ny\n}}", "outer 0", "escaped 2", "private+0"]),
+    ("nested_mode_isolation", ["u=:10", "outer=:{{\ninner=.{{u+y}}\ny\n}}", "outer 2"]),
+    ("nested_anonymous", ["f=:{{ {{y+1}} y }}", "f 4"]),
+    ("nested_deferred_control_error", ["f=:{{inner=.{{if. y do. y}}\ny}}", "f 1"]),
+    ("nested_body_effect_timing", ["count=:0", "f=:{{inner=.{{count=:count+1\ny}}\ninner y\n}}", "count", "f 4", "count"]),
+]
+
+FOR_FIXTURES = [
+    ("for_sum", ["f=:3 : 's=.0 for_i. i.y do. s=.s+i end. s'", "f 4", "f 0"]),
+    ("for_direct", ["f=:{{ s=.0 for_i. i.y do. s=.s+i end. s }}", "f 4"]),
+    ("for_scalar", ["f=:3 : 's=.0 for_i. y do. s=.s+i end. s'", "f 7"]),
+    ("for_rows", ["f=:3 : 's=.0 0 0 for_i. y do. s=.s+i end. s'", "f i.2 3"]),
+    ("for_zero_atoms", ["f=:3 : 's=.0 for_i. y do. s=.s+1 end. s'", "f 2 0$0", "f 0 3$0"]),
+    ("for_unnamed", ["f=:3 : 's=.0 for. y do. s=.s+1 end. s'", "f i.4", "f 7", "f i.0"]),
+    ("for_final_index", ["f=:3 : 'for_i. y do. end. i_index'", "f i.4", "f i.0"]),
+    ("for_final_item", ["f=:3 : 'for_i. y do. end. i'", "f i.4", "f i.0"]),
+    ("for_readonly", ["f=:3 : 'for_i. y do. i_index=.7 end.'", "f i.3"]),
+    ("for_global_index_write", ["f=:3 : 'for_i. y do. i_index=:7 end.'", "f i.3"]),
+    ("for_index_snapshot", ["f=:3 : 'a=.0 for_i. i.2 do. if. i_index=0 do. a=.i_index end. end. a'", "f 0"]),
+    ("for_item_snapshot", ["f=:3 : 'a=.0 for_i. y do. if. i_index=0 do. a=.i end. end. a'", "f i.2 3"]),
+    ("for_item_reassignment", ["f=:3 : 0\ns=.0\nfor_i. y do.\ns=.s+i\ni=.99\nend.\ns\n)", "f i.4"]),
+    ("for_iterator_snapshot", ["f=:3 : 0\ns=.0\na=.y\nfor_i. a do.\na=.99\ns=.s+i\nend.\ns\n)", "f i.4"]),
+    ("for_break", ["f=:3 : 'for_i. y do. if. i_index=1 do. break. end. end. i'", "f i.4", "f i.3 2"]),
+    ("for_continue", ["f=:3 : 's=.0 for_i. y do. if. i=2 do. continue. end. s=.s+i end. s'", "f i.5"]),
+    ("for_nested", ["f=:3 : 's=.0 for_i. i.2 do. for_j. i.3 do. s=.s+i+j end. end. s'", "f 0"]),
+    ("for_catch_exit", ["f=:3 : 'try. for_i. y do. 1 2+1 2 3 end. catch. i_index=.7 end. i_index'", "f i.3"]),
+    ("for_catch_inside", ["f=:3 : 's=.0 for_i. y do. try. i_index=.7 catch. s=.s+1 end. end. s'", "f i.3"]),
+    ("for_reentrant_index", ["f=:3 : 's=.0 for_i. i.2 do. try. for_i. i.2 do. end. catch. s=.s+1 end. try. i_index=.9 catch. s=.s+1 end. end. s'", "f 0"]),
+    ("for_repeat_after_break", ["f=:3 : 's=.0 for_i. y do. break. end. for_i. y do. s=.s+i end. s'", "f i.4"]),
+    ("for_early_return", ["f=:3 : 'for_i. y do. i return. end.'", "f i.3 2", "f i.0"]),
+    ("for_local_global", ["i=:99", "i_index=:88", "f=:3 : 'for_i. y do. end. i_index'", "f i.3", "i", "i_index"]),
+]
+
 SCRIPT_SETUPS = {source for name, sources in SCOPE_FIXTURES
                  if name in {"explicit_local_function_escape", "explicit_local_global_collision"}
                  for source in sources if " : 0\n" in source}
-SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES
-                     for source in sources if " : 0\n" in source)
+SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES + FOR_FIXTURES + NESTED_FIXTURES
+                     for source in sources if " : 0\n" in source and not source.startswith("outer=:{{"))
 
 
 def reference_trace(oracle, sources):
@@ -164,11 +205,15 @@ def main():
     selection.add_argument("--boundary-fixtures-only", action="store_true")
     selection.add_argument("--scope-fixtures-only", action="store_true")
     selection.add_argument("--definition-fixtures-only", action="store_true")
+    selection.add_argument("--for-fixtures-only", action="store_true")
+    selection.add_argument("--nested-fixtures-only", action="store_true")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Use native Windows Python, J DLLs and Rust binary")
     assets = args.assets_root.resolve()
-    fixtures = (DEFINITION_FIXTURES if args.definition_fixtures_only else
+    fixtures = (NESTED_FIXTURES if args.nested_fixtures_only else
+                FOR_FIXTURES if args.for_fixtures_only else
+                DEFINITION_FIXTURES if args.definition_fixtures_only else
                 BOUNDARY_FIXTURES if args.boundary_fixtures_only else
                 SCOPE_FIXTURES if args.scope_fixtures_only else FIXTURES)
     records = []
@@ -194,12 +239,18 @@ def main():
         "scope": "Bounded observable sentence/value/error audit; not full NAME, event, Graph/A3 or compiled-route conformance",
         "platform": sys.platform, "rust_revision": args.rust_revision,
         "rust_binary_sha256": sha(args.binary),
+        "rust_source_sha256": {path.as_posix(): sha(path) for path in
+                               sorted(Path("src").rglob("*.rs")) +
+                               [Path("Cargo.toml"), Path("Cargo.lock"),
+                                Path("tools/name_compatibility_audit.py"), Path("tools/oracle.py")]},
         "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
         "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
         "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
         "reference_sha256": {name: sha(assets / "target/cj-windows/j64" / name)
                              for name in ["j.dll", "javx2.dll"]},
-        "fixture_set": ("definition-calls" if args.definition_fixtures_only else
+        "fixture_set": ("definition-nested" if args.nested_fixtures_only else
+                        "definition-for-loops" if args.for_fixtures_only else
+                        "definition-calls" if args.definition_fixtures_only else
                         "semantic-boundaries" if args.boundary_fixtures_only else
                         "name-scopes" if args.scope_fixtures_only else "names"),
         "fixtures": len(fixtures), "observations": len(records), "counts": counts, "records": records,

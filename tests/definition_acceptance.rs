@@ -49,7 +49,6 @@ fn session(source: &str, reference: bool) -> std::process::Output {
 }
 
 #[test]
-#[ignore = "DEF-1/2: code construction is implemented; complete A3 callable projection remains pending"]
 fn parsing_complete_definitions_preserves_source_and_binding_boundary() {
     for source in ["f=:{{ y+1 }}", "f=:3 : 'y+1'", "f=:3 : 0\nt=.y+1\nt\n)"] {
         let parsed = semantic::parse(source).unwrap();
@@ -135,7 +134,6 @@ fn comments_and_literals_do_not_end_the_definition() {
 }
 
 #[test]
-#[ignore = "DEF-2/3/4: nested definition scopes are not implemented"]
 fn nested_direct_verb_does_not_leak_a_local_function() {
     let mut e = Engine::new();
     define(&mut e, "outer=:{{\ninner=.{{y+1}}\ninner y\n}}");
@@ -212,7 +210,6 @@ fn if_else_and_return_preserve_branch_execution() {
 }
 
 #[test]
-#[ignore = "DEF-4: loop control and local loop bindings are not implemented"]
 fn for_loop_accumulates_without_leaking_loop_names() {
     let mut e = Engine::new();
     define(

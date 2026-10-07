@@ -410,7 +410,14 @@ impl Builder<'_> {
         function: Arc<FunctionEntity>,
         span: Range<usize>,
     ) -> Result<ValueId> {
-        let callable = self.callable_entity(function)?;
+        let callable = if matches!(function.head, FunctionHead::ExplicitDefinition(_)) {
+            Callable {
+                target: CallTarget::Definition,
+                semantic: function,
+            }
+        } else {
+            self.callable_entity(function)?
+        };
         Ok(self
             .logical
             .push_verb_reference(callable, self.current_j_origin, span))

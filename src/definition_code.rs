@@ -189,15 +189,42 @@ pub fn compile(
     if input.form == DefinitionForm::NounDirect {
         return Err(Error::Domain.at(input.span.clone()));
     }
-    if !input.nested.is_empty() {
-        return Err(
-            Error::Unsupported("nested definition code construction".into()).at(input.span.clone()),
-        );
-    }
     let body: Arc<str> = Arc::from(semantic_body(source, input)?.as_ref());
-    let mut lines: Vec<_> = body.split_inclusive('\n').collect();
+    // Collect complete input units before partitioning outer control words.
+    // A nested definition owns its physical lines, names and valence separator.
+    let mut lines = Vec::new();
+    let mut unit_start = 0;
+    let mut unit_line = 0;
+    let mut physical_end = 0;
+    for (line_index, physical) in body.split_inclusive('\n').enumerate() {
+        physical_end += physical.len();
+        let unit = &body[unit_start..physical_end];
+        let framed = crate::definition_input::frame(unit)
+            .map_err(|e| body_error(e, source, input, &body, unit_start, unit.len()))?;
+        if matches!(
+            framed,
+            crate::definition_input::InputFrame::Definition(DefinitionInput {
+                form: DefinitionForm::ExplicitBlock(_),
+                ..
+            })
+        ) {
+            // C colon0 reads from the external input stream, not the enclosing
+            // immutable body's lines. An embedded ')' is a syntax error.
+            return Err(Error::Syntax(
+                "nested colon-zero input is not an embedded definition".into(),
+            ));
+        }
+        if !matches!(framed, crate::definition_input::InputFrame::NeedMore) {
+            lines.push((unit_line, unit));
+            unit_start = physical_end;
+            unit_line = line_index + 1;
+        }
+    }
+    if unit_start != body.len() {
+        return Err(Error::Syntax("incomplete nested definition".into()));
+    }
     if lines.is_empty() {
-        lines.push("");
+        lines.push((0, ""));
     }
     use crate::{
         definition_control::ControlWord as W,
@@ -206,7 +233,7 @@ pub fn compile(
     let split_line = lines
         .iter()
         .enumerate()
-        .find(|(i, line)| {
+        .find(|(i, (_, line))| {
             *i + 1 < lines.len() && line.trim_end_matches(['\r', '\n']).trim_matches(' ') == ":"
         })
         .map(|(i, _)| i);
@@ -218,9 +245,9 @@ pub fn compile(
     let mut queued_words = [0usize; 2];
     let mut audited = [false; 2];
     let mut pending_assert: Option<std::ops::Range<usize>> = None;
-    for (line_index, physical) in lines.iter().enumerate() {
+    for (unit_index, &(line_index, physical)) in lines.iter().enumerate() {
         let line = physical.trim_end_matches(['\r', '\n']);
-        if Some(line_index) == split_line {
+        if Some(unit_index) == split_line {
             if let Some(span) = pending_assert.take() {
                 return Err(body_error(
                     Error::Control.at(span),

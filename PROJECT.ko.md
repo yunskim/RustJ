@@ -11,10 +11,10 @@
 
 ### 빠른 안내 — 현재 우선순위와 문서 읽기
 
-- **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출 연결을 수정하고 원래 17개 definition 수용 테스트 중 14개를 활성화했다. `for.`, 중첩 정의, A3 callable projection 3개는 미완료다. 실제 토큰·enqueue·parser 구조와 재현 예제는 아래 **Definition 호출과 frontend E2E 확인** 절을 따른다. 이전 "17 ignored" 수치는 이력이다.
+- **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **최신 검증:** 2026-10-05 NV3d2b2a 기준 Windows default/portable 각각 **474 passed / 17 ignored**, Python **30 passed**이며, C j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. numeric syntax는 양 DLL 각각 **2,485 cases / failed 0**이지만 unresolved recognition/error 경계가 각 1건 남아 있어 실행 지원이나 정밀 오류 동등성으로 세지 않는다. capture graph **257건**, static **2건**, runtime prefix **285 / executable prefix passes 0**도 별도다. 최신 graph-readiness gate는 GF6a이며 실제 fusion 선택·GPU 실행을 뜻하지 않는다. 세부 기록은 §10 NV3d2b2a/GF6a, 최신 요약은 §12를 따른다.
+- **최신 검증(2026-10-07):** Windows default/portable 각각 **608 passed / 0 ignored / 0 failed**, Python **67 passed**. fmt/clippy를 통과했다. 신규 bounded C 차분 결과는 아래 Definition 후속 검증 절을 따른다. 과거 2026-10-05의 5,380-case runtime 및 GF6a gate는 해당 시점의 이력이며 이번 실행 결과로 재계산하지 않는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 ## 1. 프로젝트 목적
@@ -13440,9 +13440,9 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 - [x] 기존 `ControlNode`의 감사된 jump를 사용해 `if./elseif./else.`, `while./whilst.`, `break./continue.`, `return.`, `try./catch./catchd.`를 실행한다. T-block 결과와 마지막 B-block 결과를 분리하며, 초기/오류 후 결과는 C의 Boolean 빈 행렬이다. `Unsupported`는 J 예외처럼 catch하여 성공으로 바꾸지 않는다.
 - [x] 원래 수용 테스트 17개 중 **14개**를 통과시키고 ignore를 해제한다. C의 첫 atom 조건 판정·빈 결과·중첩 catch·scope/effect/error 복원 회귀 테스트 **4개**를 추가한다.
 - [x] `examples/frontend_e2e.rs`에서 실제 tokenizer, enqueuer, 분석용 `Program`, 실행 parser의 `FrontendContext`/NAME/환원 기록과 결과를 관측하고 verifier를 통과시킨다. 분석이 binding을 commit하지 않으며 local `t`가 유출되지 않음을 확인한다.
-- [ ] `for./for_name.` 실행: item/읽기 전용 `_index`, 빈 iterator, break/continue/예외 시 해제 규칙을 C와 검증한다. 현재는 실행 전 `Unsupported` 경계다.
-- [ ] 중첩 definition construction과 독립 local scope를 구현한다. 현재 construction이 `Unsupported`다.
-- [ ] A3 callable projection을 구현한다. Semantic 함수가 생성된다는 사실과 Logical Array IR로 내려간다는 사실은 다르며, 현재 `semantic function requires structural lowering` 경계를 유지한다.
+- [x] `for./for_name.` 실행: leading-axis item, scalar/빈 iterator/zero-atom row, 읽기 전용 `_index`, noun snapshot, break/continue/예외 시 해제를 구현한다. C forinit 오류의 catch 불가 경계도 보존한다. named sparse iterator는 명시적 Unsupported이며 item 전달은 현재 소유 배열 복사다; zero-copy/GPU 실행 완료가 아니다.
+- [x] 중첩 direct 및 문자열 explicit definition construction과 독립 local scope를 구현한다. 기존 input framer로 multiline unit을 수집하고 내부 control/colon/name을 outer preparse에서 격리한다. inner local은 caller-private local을 캡처하지 않으며 전역 NAME은 호출 시 재조회한다. 본문 안에 colon-zero block을 삽입하는 표기는 C와 같이 syntax error다; 외부 입력 스트림 소비 기능의 구현으로 계산하지 않는다.
+- [x] 정의 값의 A3 callable projection: `VerbReference(Callable { target: Definition, semantic: Arc<FunctionEntity> })`가 immutable `DefinitionCode`와 이름/원문 정보를 보존한다. 배열 literal/type/shape를 꾸며내지 않고 분석 시 binding/body effect를 실행하지 않는다. verifier가 target/semantic 불일치와 Definition target의 직접 SemanticCall을 거부한다. **정의 본문의 CFG lowering/compiled execution은 미완료**이며 호출 분석의 structural lowering 경계는 유지한다.
 
 **실제 전달 구조:** 분석 경로는 `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`이다. `expression`은 `Literal/ReadName/Monad/Dyad/VerbValue/...`이며 `frontend: Arc<FrontendContext>`가 expanded words/flags/span, items, semantic node links, origins, NAME observations, stack/reduce steps와 root를 연결한다. 관측 경로의 `CapturedEvaluation { result, capture }`는 실제 실행 결과와 같은 runtime parser의 context를 함께 제공한다. 관측 sidecar는 독립 실행 가능한 AST/continuation이 아니다. runtime parser는 noun을 실제로 reduce하며, 분석 경로의 지연 표현식을 runtime 결과로 바꿔 설명하지 않는다.
 
@@ -13492,3 +13492,12 @@ RustJ의 공개 오픈소스 배포 경로는 GNU General Public License version
 - CLA는 Jsoftware 또는 다른 제3자의 권리를 확장하지 않는다.
 
 `LICENSE`가 라이선스 고지의 기준이고, `COPYING`은 GNU GPL v3 전문을 보존한다. Cargo의 `license` 메타데이터는 공개 오픈소스 선택지를 나타내기 위해 `GPL-3.0-only`로 유지하며 `GPL-3.0-or-later`로 변경하지 않는다.
+
+
+### Definition 반복·중첩·A3 함수 값 후속 검증 (2026-10-07)
+
+위 세 실행 단위를 진행해 기존 `definition_acceptance` 21개 모두의 ignore를 해제했다. 반복문 회귀 5개와 중첩/함수 참조 회귀 4개를 추가했다. Source → Program/FunctionEntity → J Graph → A3의 함수 값 전달과 본문 CFG 실행은 구분한다. 현재 호출은 공유 runtime parser를 사용하며 최대 중첩 깊이 8이다. select/case/fcase, catcht/throw, goto/label, 일반 locale/locative, compiled CFG 및 CUDA 실행은 후속이다. 이전 절의 596/3 기록은 당시 결과다.
+
+검증 원자료는 `reports/definition-loops-windows.json`과 `reports/definition-nested-windows.json`에 기록한다. 각 보고서는 두 Windows J DLL × 두 Rust evaluator 경로의 bounded 관측이며 upstream 전체 동등성 증명이 아니다. Windows `cargo test --all-targets`의 기존 comparison bench는 Linux `dl.lib` 링크 의존성 때문에 실행 불가다. 일반 Windows tests, portable tests, clippy 정적 검사와 구분해 기록한다.
+
+최종 native Windows 검증: default/portable 각각 **608 passed / 0 ignored / 0 failed**, Python **67 passed**, fmt/clippy 통과. C 두 DLL × direct/semantic-reference 비교: for **23 fixtures / 92 matched**, nested **12 / 48**, 기존 definition **31 / 124**, NAME scope **10 / 40**, 합계 **304 observations / 304 matched**. 네 C 보고서의 source/binary SHA-256를 최종 default build와 대조했다. frontend-e2e-windows.json은 이전 시연의 역사적 capture이며 이번에 재생성하지 않았다.

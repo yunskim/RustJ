@@ -453,6 +453,32 @@ struct LocalFrame {
     declared: HashSet<String>,
 }
 
+/// Invocation-local control state, never part of logical array identity.
+struct DefinitionForLoop {
+    start: usize,
+    do_index: usize,
+    exit: usize,
+    names: Option<(String, String)>,
+    iterator: Option<Value>,
+    count: Option<usize>,
+    next: usize,
+    owns_index: bool,
+}
+
+impl DefinitionForLoop {
+    fn release(&self, frame: &mut LocalFrame) {
+        if !self.owns_index {
+            return;
+        }
+        let Some((_, index)) = &self.names else {
+            return;
+        };
+        if let Some(binding) = frame.names.get_mut(index) {
+            binding.read_only = false;
+        }
+    }
+}
+
 struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
 }
@@ -517,6 +543,13 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
         let engine = &mut self.parent.engine;
         if local {
             let frame = engine.local_frames.last_mut().expect("modifier frame");
+            if frame
+                .names
+                .get(name)
+                .is_some_and(|binding| binding.read_only)
+            {
+                return Err(Error::ReadOnly);
+            }
             frame.declared.insert(name.to_owned());
             store_binding(&mut frame.names, &mut engine.pool, name.to_owned(), value)
         } else {
@@ -574,6 +607,7 @@ fn store_binding(
             value: stored,
             version,
             generation: crate::frontend_context::BindingGeneration::fresh(),
+            read_only: false,
         },
     ) {
         pool.retire(value);
@@ -610,6 +644,7 @@ struct Binding {
     value: JEntity,
     version: crate::semantic::NameVersion,
     generation: crate::frontend_context::BindingGeneration,
+    read_only: bool,
 }
 
 impl Default for Engine {
@@ -732,6 +767,8 @@ impl Engine {
                     node.kind,
                     K::Body
                         | K::Test
+                        | K::DoFor
+                        | K::BreakFor
                         | K::Word(
                             W::If
                                 | W::Do
@@ -746,6 +783,7 @@ impl Engine {
                                 | W::Try
                                 | W::Catch
                                 | W::CatchD
+                                | W::For
                         )
                 )
         }) {
@@ -755,9 +793,9 @@ impl Engine {
         }
         // Reject unsupported framing before any statement has side effects.
         for sentence in &code.sentences[section.clone()] {
-            if !matches!(
+            if matches!(
                 crate::parser::frame_definition_input(&code.body[sentence.span.clone()])?,
-                crate::parser::InputFrame::Sentence
+                crate::parser::InputFrame::NeedMore
             ) {
                 return Err(Error::Unsupported(
                     "nested explicit modifier definition scope".into(),
@@ -845,8 +883,22 @@ impl Engine {
             // Only currently protected try bodies catch errors. Branching out,
             // entering a handler, and recursion must not retain stale handlers.
             let mut handlers: Vec<(usize, usize, usize)> = Vec::new();
+            let mut loops: Vec<DefinitionForLoop> = Vec::new();
             while let Some(node) = controls.get(pc) {
                 handlers.retain(|&(start, end, _)| start < pc && pc < end);
+                while loops
+                    .last()
+                    .is_some_and(|state| pc <= state.start || pc >= state.exit)
+                {
+                    loops.pop().expect("exiting loop").release(
+                        frame
+                            .parent
+                            .engine
+                            .local_frames
+                            .last_mut()
+                            .expect("definition frame"),
+                    );
+                }
                 let step = (|| -> Result<Option<usize>> {
                     let jump = || match node.go {
                         ControlJump::Index(target) => Ok(target),
@@ -854,6 +906,115 @@ impl Engine {
                     };
                     match node.kind {
                         K::Word(W::Return) => return Ok(None),
+                        K::Word(W::For) => {
+                            let end = jump()?;
+                            let do_index = match controls[end].go {
+                                ControlJump::Index(index) if controls[index].kind == K::DoFor => {
+                                    index
+                                }
+                                _ => return Err(Error::Control),
+                            };
+                            let spelling = &code.body[node.span.clone()];
+                            let names = spelling
+                                .strip_prefix("for_")
+                                .and_then(|s| s.strip_suffix('.'))
+                                .map(|name| (name.to_owned(), format!("{name}_index")));
+                            if let Some((item, index)) = &names {
+                                if item.len() > 249 {
+                                    return Err(Error::IllFormedName);
+                                }
+                                let local = frame
+                                    .parent
+                                    .engine
+                                    .local_frames
+                                    .last_mut()
+                                    .expect("definition frame");
+                                local.declared.extend([item.clone(), index.clone()]);
+                            }
+                            loops.push(DefinitionForLoop {
+                                start: pc,
+                                do_index,
+                                exit: end + 1,
+                                names,
+                                iterator: None,
+                                count: None,
+                                next: 0,
+                                owns_index: false,
+                            });
+                            return Ok(Some(pc + 1));
+                        }
+                        K::DoFor => {
+                            let state = loops.last_mut().ok_or(Error::Control)?;
+                            if state.do_index != pc {
+                                return Err(Error::Control);
+                            }
+                            let engine = &mut frame.parent.engine;
+                            let local = engine.local_frames.last_mut().expect("definition frame");
+                            if state.count.is_none() {
+                                let value = match test.take() {
+                                    Some(JEntity::Noun(value)) => value,
+                                    Some(JEntity::Function(_)) => return Err(Error::NounResult),
+                                    None => return Err(Error::Control),
+                                };
+                                if let Some((_, index)) = &state.names {
+                                    if value.is_sparse() {
+                                        return Err(Error::Unsupported(
+                                            "sparse named for iterator".into(),
+                                        ));
+                                    }
+                                    if local
+                                        .names
+                                        .get(index)
+                                        .is_some_and(|binding| binding.read_only)
+                                    {
+                                        return Err(Error::ReadOnly);
+                                    }
+                                }
+                                state.count = Some(value.shape().first().copied().unwrap_or(1));
+                                if state.names.is_some() {
+                                    state.iterator = Some(value.into_shared());
+                                }
+                            }
+                            let count = state.count.expect("initialized loop");
+                            if let Some((item, index)) = &state.names {
+                                let iteration =
+                                    i64::try_from(state.next).map_err(|_| Error::Limit)?;
+                                store_binding(
+                                    &mut local.names,
+                                    &mut engine.pool,
+                                    index.clone(),
+                                    JEntity::Noun(Value::scalar(iteration)),
+                                )?;
+                                local.names.get_mut(index).expect("index binding").read_only = true;
+                                state.owns_index = true;
+                                let value = if state.next < count {
+                                    let iterator = state.iterator.as_ref().expect("named iterator");
+                                    iterator
+                                        .view()
+                                        .cell(iterator.shape().len().saturating_sub(1), state.next)?
+                                        .to_owned()?
+                                } else {
+                                    Value::new(
+                                        vec![0],
+                                        crate::value::Data::Bool(crate::storage::CpuStorage::new(
+                                            Vec::new(),
+                                        )),
+                                    )?
+                                };
+                                store_binding(
+                                    &mut local.names,
+                                    &mut engine.pool,
+                                    item.clone(),
+                                    JEntity::Noun(value),
+                                )?;
+                            }
+                            if state.next < count {
+                                state.next += 1;
+                                return Ok(Some(pc + 1));
+                            }
+                            return Ok(Some(jump()?));
+                        }
+                        K::BreakFor => return Ok(Some(jump()?)),
                         K::Word(W::Try) => {
                             let first = jump()?;
                             let mut handler = first;
@@ -973,6 +1134,14 @@ impl Engine {
                         // Unsupported is an implementation boundary, never a
                         // J error that catch. can turn into a successful value.
                         if matches!(error.root(), Error::Unsupported(_)) {
+                            return Err(error);
+                        }
+                        // cx.c forinitnames/forinit use BZ/BASSERT and leave the
+                        // definition directly. Only CHECKNOUN routes a for-test
+                        // non-noun through its surrounding catch handler.
+                        if node.kind == K::Word(W::For)
+                            || (node.kind == K::DoFor && !matches!(error.root(), Error::NounResult))
+                        {
                             return Err(error);
                         }
                         let Some((_, _, handler)) = handlers.pop() else {
