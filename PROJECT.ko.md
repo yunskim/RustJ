@@ -11390,6 +11390,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] numeric/string construction, name validation, assignment/copula classification을 jsource `jtenqueue` 순서대로 이식한다.
 - [x] ordinary NAME은 처음 non-lookup으로 두고, trailing NAME/뒤에 non-assignment가 오는 NAME만 lookup으로 전환하며 copula 직전 assignment target NAME은 non-lookup으로 유지한다.
 - [x] `EnqueueFlags`에 `global_assignment/local_assignment/assignment_to_name`을 분리했다. `=:`는 global이며 NAME 직후 copula는 to-name flag를 보존한다. `=.`는 TopLevel에서 global로 승격하고 ExplicitDefinition enqueue 환경에서는 local을 유지한다. explicit body의 local 실행과 locative 승격은 미완료다.
+- [x] **F1 env=0/1/2 작은 수렴(2026-10-07):** 고정 [jsource `w.c::jtenqueue`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 `env=0` tacit translator는 copula의 `ASGNTONAME` 특수화를 하지 않고 `=.`를 일반 local로 둔다. RustJ에 `EnqueueEnvironment::TacitTranslator`를 추가하고 env=0/1/2에서 `=.`·`=:`의 global/local/assignment-to-name 및 NAME lookup·source span을 각각 검증하는 Rust 회귀를 추가했다. **이것은 세 환경의 enqueue flag 부분 구현만 수용**하며 locative에 의한 global 승격, tacit translator 전체 사용 경로, C runtime queue의 직접 차분 및 F1 전체 완료를 뜻하지 않는다.
 - [x] one-word sentence는 Noun/Name/Verb/Adverb/Conjunction만 결과 가능 class로 허용하고 copula/괄호 단독 문장을 enqueue 단계에서 거부한다.
 - [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
 - [x] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 modifier/parser class 경로에 참여하는 테스트를 만들었다.
