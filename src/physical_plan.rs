@@ -209,7 +209,10 @@ impl PhysicalPlan {
             "identity route requires one returned value",
         ))?;
         let source_op = logical.values[result.0].producer;
-        if source_op != OpId(0) || logical.operations[0].results.len() != 1 || logical.operations[0].results[0] != result {
+        if source_op != OpId(0)
+            || logical.operations[0].results.len() != 1
+            || logical.operations[0].results[0] != result
+        {
             return Err(PhysicalPlanError::Unsupported(
                 "identity route requires the literal to produce the returned value",
             ));
@@ -266,7 +269,9 @@ impl PhysicalPlan {
     pub fn verify(&self, logical: &LogicalPlan) -> PlanResult<()> {
         checked_a3(logical)?;
         if self.source_header != logical.header || self.source_text != logical.source {
-            return Err(PhysicalPlanError::Invalid("stale A3 schema or source provenance"));
+            return Err(PhysicalPlanError::Invalid(
+                "stale A3 schema or source provenance",
+            ));
         }
         if self.device != ExecutionDevice::Cpu {
             return Err(PhysicalPlanError::Invalid("M4 v0 must execute on CPU"));
@@ -294,7 +299,10 @@ impl PhysicalPlan {
             "M4 v0 requires one returned literal",
         ))?;
         let source_op = logical.values[result.0].producer;
-        if source_op != OpId(0) || logical.operations[0].results.len() != 1 || logical.operations[0].results[0] != result {
+        if source_op != OpId(0)
+            || logical.operations[0].results.len() != 1
+            || logical.operations[0].results[0] != result
+        {
             return Err(PhysicalPlanError::Invalid(
                 "result does not match its A3 literal producer",
             ));
@@ -377,7 +385,9 @@ impl PhysicalPlan {
             match op {
                 PhysicalOp::BindInput { source_op, .. } => {
                     let OpKind::Literal(value) = &logical.operations[source_op.0].kind else {
-                        return Err(PhysicalPlanError::Invalid("BindInput source is not a literal"));
+                        return Err(PhysicalPlanError::Invalid(
+                            "BindInput source is not a literal",
+                        ));
                     };
                     let shared = value.clone().into_shared();
                     let array = PhysicalArray::from_value(&mut registry, shared.clone())
@@ -407,6 +417,8 @@ impl PhysicalPlan {
                 }
             }
         }
-        Err(PhysicalPlanError::Invalid("nonempty plan is missing Return"))
+        Err(PhysicalPlanError::Invalid(
+            "nonempty plan is missing Return",
+        ))
     }
 }
