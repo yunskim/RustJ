@@ -1,7 +1,7 @@
 use rustj::{
     Data, Engine, Value,
     logical_executor::execute_closed,
-    logical_ir::{OpId, ValueId},
+    logical_ir::{OpId, OpKind, ValueId},
     physical::Encoding,
     physical_plan::{
         BufferOwnership, MemorySpace, PhysicalOp, PhysicalPlan, PhysicalPlanError, PhysicalViewId,
@@ -170,4 +170,40 @@ fn m4_executes_no_invalid_plan_or_wrong_logical_source() {
         physical.execute_identity(&other),
         Err(PhysicalPlanError::Invalid(_))
     ));
+}
+
+#[test]
+fn m4_rejects_mutated_a3_payload_and_provenance_even_with_identical_source_text() {
+    let logical = Engine::new().analyze_a3("1 2 3").unwrap();
+    let plan = PhysicalPlan::identity_literal(&logical).unwrap();
+
+    let mut modified = logical.clone();
+    modified.operations[0].kind = OpKind::Literal(Value::ints([3], vec![1, 2, 99]).unwrap());
+    modified.verify().unwrap();
+    assert!(matches!(
+        plan.verify(&modified),
+        Err(PhysicalPlanError::Invalid(_))
+    ));
+    assert!(matches!(
+        plan.execute_identity(&modified),
+        Err(PhysicalPlanError::Invalid(_))
+    ));
+
+    let mut modified = logical.clone();
+    modified.values[0].facts.rank = None;
+    modified.verify().unwrap();
+    assert!(matches!(
+        plan.verify(&modified),
+        Err(PhysicalPlanError::Invalid(_))
+    ));
+
+    let mut modified = logical.clone();
+    modified.operations[0].span = 0..1;
+    modified.verify().unwrap();
+    assert!(matches!(
+        plan.verify(&modified),
+        Err(PhysicalPlanError::Invalid(_))
+    ));
+
+    plan.verify(&logical).unwrap();
 }
