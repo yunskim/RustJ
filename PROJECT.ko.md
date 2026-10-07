@@ -8936,9 +8936,9 @@ J: a=:1+2
 | ID / 책임 | M3/상위 단계가 인계할 증거 | M4가 반드시 확인할 사항 | 증거 부족·불일치 시 |
 |---|---|---|---|
 | **HP-01 원본** | 별도 보존한 검증된 원본 A3, schema/primitive registry, 원본 op ID·span·J graph origin, 변경/재작성 대응과 증명의 적용 범위 | 단순 source **문자열** 일치가 아니라 **실제 원본 op payload/facts/Check/Write와 selected region provenance**를 대조. digest 단독·바뀐 A3의 `verify()` 성공만으로 원본 동일성 승인 금지 | stale/위조 source proof 거부 |
-| **HP-02 범위** | 원본 모든 op·0-result Check·별도 `Plan.write`의 M3 global ownership, 각 region op 범위, live-in/out, final result, 교차 route bridge | 해당 native region에서 정확한 op→physical task 대응, 외부 구간과 live-out 누락 없음; 실행 후보 분류 `NoKernel`/`ValueOnly`는 binding 승인이 아님 | coverage 누락·겹침·중복 실행 거부 |
+| **HP-02 범위** | 원본 모든 op·0-result Check·별도 `Plan.write`의 M3 global ownership, 각 region op 범위, live-in/out, final result, 교차 route bridge | 해당 native region에서 원본 op→physical task 관계가 **완전하고 증명된 매핑**인지 대조. 1:1을 강제하지 않으며 fusion/rewrite의 N:1·1:N 대응은 RB-01 등가 witness가 필수. 외부 구간과 live-out 누락 없음; `NoKernel`/`ValueOnly` 후보 분류만으로 binding 승인 불가 | coverage 누락·겹침·증거 없는 병합/중복 실행 거부 |
 | **HP-03 호출과 recipe** | 원본 `OpKind`, callable POS/valence, derived Rank/CellApply/fit/tolerance/numeric policy, selected route와 **구체적 구현** capability/target/guard | 등록된 `ReferenceSequential` 등의 *후보*와 실제 구현 kernel/adapter를 구분; 지원 dtype/rank/shape/valence·CPU target 검증 | 지원되지 않는 native kernel은 실행 금지 |
-| **HP-04 오류와 Check** | 각 `SemanticCheck`의 constraint/입력·기대 J error kind·원본 선후관계·execute / proven discharge / guard 중 유일한 owner | 결과 SSA 값이 없는 Check도 누락 금지; Check/guard는 영향받는 kernel·effect보다 앞, 오류 class와 **첫 관찰 가능 오류 순서** 보존 | 임의 Check 삭제·후행·중복·종류 변경 거부 |
+| **HP-04 오류와 Check** | 각 `SemanticCheck`의 constraint/입력·기대 J error kind·원본 선후관계·execute / proven discharge / guard 중 유일한 owner | 결과 SSA 값이 없는 Check도 누락 금지. 실행/guard는 **해당 Check에 종속된** kernel·효과보다 앞서되, **원본에서 Check보다 먼저 발생해야 하는 다른 오류·효과보다 앞당겨서는 안 됨**. 입증된 discharge는 원본 error/order 조건과 불변인 입력 증거가 필요 | 누락·중복·선후관계·J error class 변조 또는 무근거 discharge 거부 |
 | **HP-05 Name/Effect/Write** | noun read 시점의 value/binding-version/scope/locale 증거, function nameref의 late lookup/POS, effect edges, `Plan.write` 별도 commit owner | source statement 전체의 사전 snapshot 금지, Name 변동 뒤 guard 재확인, `Return`을 assignment commit으로 오인 금지; effect 후 무조건 replay 금지 | 미확정 binding·commit owner는 native 승인 보류 |
 | **HP-06 logical value** | producer/def-use, dtype/rank/Shape/J atom order, boxed/sparse·0-cell Rank fill/prototype/assembly 의무, overflow·promotion·error witness | 물리화로 logical value가 사라지지 않으며 `ValueId`≠`PlanBufferId`≠runtime `BufferId`; 빈 배열 Shape와 J prefix frame 규칙 유지 | 변환 대신 semantic/reference route 또는 Unsupported |
 | **HP-07 계획 버퍼** | 값별 storage/materialization 요구, readonly/externally owned/persistent/temporary 여부, alias·donation 허용 증거, 메모리 상한 | buffer encoding·capacity·alignment·memory space·view span/stride/offset·generation·실제 backing alias, overlapping writable view, last-use 뒤 재사용만 허용 | bounds/alias/ownership 모순 거부, input 불변 유지 |
@@ -8961,6 +8961,18 @@ Call time: name/input versions + guards + actual buffer generations/leases
   -> RuntimeReady -> Execute -> observed result/error/effect -> independent comparison (A4/A5)
 ~~~
 
+**최종 심사 시점과 판정(기존 A0~A5의 통과 기준; 새 gate 아님):**
+
+| 기존 gate / 판정 책임 | PASS에 반드시 필요한 증거 | FAIL/UNRUN 및 후속 |
+|---|---|---|
+| **A0 SourceA3 — Frontend/A3 소유** | 원본 `verify()` 및 스키마/registry/op payload·facts·span·origin의 **변경되지 않은 권위 스냅샷** 확인; 수정 후보는 원본을 덮어쓰지 않음 | 원본 부재·stale → FAIL; snapshot 대조 미실행 → UNRUN |
+| **A1 RouteVerified — M3 소유** | RB-01~08의 **전역** op·Check·Write 커버리지, 실현 가능한 선택 region, 모든 effect/error/guard/Name 및 bridge 의무의 증명 또는 안전하게 owner 지정. `GuardRequired`를 무조건 `Verified`로 표시하지 않음 | 누락·증거 없는 fusion·불명 capability → FAIL/UNRUN; 다른 적법 route만 가능 |
+| **A2/A3 ExecutableRoute/PhysicalVerified — M4 소유** | 실제 설치/구현된 selected realization + 해당 region의 증명된 source↔task 매핑, checked buffer/view/alias·의존성·동기 CPU 완료/자원 경계. A1 PASS를 M4 PASS로 복사 금지 | 물리 verifier·native kernel 미구현은 UNRUN/미지원. 미정의 buffer/edge·alias 위반은 FAIL |
+| **A4 RuntimeReady — 호출 시점 Runtime/Executor 소유** | 해당 **호출마다** live input/name/version·guard·lease/generation·readiness 재검증; effect 전 fallback 준비 여부 | guard false이면 native 미실행, effect 전 합법 route로만 분기. 이미 commit된 effect 뒤 retry 금지 |
+| **A5 AcceptedNativeE2E — 독립 차분 검증 소유** | 실제 native route 실행 기록과 semantic reference 및 가능한 pinned J C oracle의 **값·Shape·첫 J error·effect** 일치, positive/negative 테스트와 CI commit/run 기록 | reference/fallback 실행만 성공하거나 증거 미실행이면 UNRUN; 불일치 시 FAIL. C oracle 불가 항목은 불가 사유를 명시하고 3방향 검증 완료로 표시하지 않음 |
+
+**오류 분류:** 잘못된 물리 계획/미구현 capability/`GuardRequired`는 J 프로그램의 Domain·Rank·Length 오류가 아니다. 반면 적법한 J 실행에서 먼저 발생한 `SemanticCheck`는 원래 J error class와 순서를 유지한다. 증거의 존재(문서·테스트 정의)는 실행된 PASS와 별개다. 각 gate의 PASS는 **상위 gate PASS를 자동 승계하지 않는다**. `PhysicalVerified`는 특정 선택된 native region에 한정되며 전체 프로그램이나 GPU까지 확장하지 않는다.
+
 **단계별 부정 테스트 등록부(각 테스트에서 정확히 한 조건만 위조):**
 
 | 시험 | 기준 사례 / 실패 유도 | 기대 판정 |
@@ -8969,11 +8981,11 @@ Call time: name/input versions + guards + actual buffer generations/leases
 | **HP-V02 coverage** | `1+2` Add op 누락, `a=:1+2`의 독립 `Write` 유실, 중복 region | RouteVerified/PhysicalVerified 거부 |
 | **HP-V03 checks** | `1 2+1 2 3`의 Length Check 제거·후행·중복·Index로 변조 | Add 실행 전에 거부, 또는 정확한 J Length 오류 |
 | **HP-V04 guard/name** | `a`의 noun snapshot/version 변경, late verb NameRef 조기 고정, shape guard 값 변경 | revalidation 불합격; 효과 이전의 적법한 대체 경로만 허용 |
-| **HP-V05 buffer/view** | 같은 backing의 두 view, stale generation, 음수 stride/빈 Shape·singleton stride, 잘못된 encoding·overlap write | 잘못된 계획 거부; 합법한 read-only alias와 빈 Shape는 보존 |
+| **HP-V05 buffer/view** | **정상 대조군:** 유효한 음수 stride·singleton 0-stride·빈 Shape·read-only alias. **각각의 위조군:** 실제 span 범위 이탈, stale generation, 잘못된 encoding, 겹치는 독점 write, 불법 last-use 재활용 | 합법적인 stride·빈 Shape를 거부하지 않음; bounds/alias/수명 위반만 거부 |
 | **HP-V06 dependency** | Check/guard→Kernel, producer→reader, previous effect→commit edge 하나 삭제하거나 순환 추가 | plan verifier 거부, arbitrary first-error 노출 금지 |
 | **HP-V07 completion** | 비동기 copy/kernel을 enqueue만 하고 입력 release, reader 완료 전에 재사용 | 사용 가능·재활용 거부; 실제 completion 이후만 허용 |
 | **HP-V08 replay/error** | J error가 가능한 작업의 순서 뒤집기, effect commit 뒤 guard failure fallback 재실행 | first-error/effect order 보존 실패로 거부, 중복 effect 금지 |
-| **HP-V09 baseline** | 닫힌 literal identity → 검증된 순차 CPU 단일 op → 차분 비교, 그리고 boxed/sparse·Rank zero-frame의 unsupported 사례 | 지원/미지원 정확 분류; reference 경로를 native 성공으로 세지 않음 |
+| **HP-V09 baseline** | 닫힌 literal identity와 이후 실제 구현한 순차 CPU 단일 op의 차분 비교. Boxed/sparse·Rank zero-frame처럼 **그 시점 native 구현에서 미지원**인 정당한 J 입력은 semantic/reference fallback으로 별도 검사 | native 지원/미지원 정확 분류; semantic fallback 자체는 J 성공이어도 native E2E 승인으로 세지 않음 |
 
 **증거 기록 양식(구현 시 각 gate마다 1건):** `gate ID | source A3 revision/schema/registry | source op/region IDs | M3 proof·guard owner | chosen recipe/capability | physical task/dependency/buffer/view IDs | runtime version/completion/effect frontier | positive/one-invariant-negative test IDs | CI commit/run·reference artifact | PASS/FAIL/UNRUN | 남은 예외`. `UNRUN`은 PASS가 아니다.
 

@@ -4764,9 +4764,9 @@ a=:1+2
 | ID | Required upstream evidence | Independent M4 validation | Missing/invalid |
 |---|---|---|---|
 | **HP-01 original source** | Separately preserved verified original A3 schema/registry, op payload/facts, span/J graph origin, immutable identity and lawful rewrite mapping | Match **actual original operations**, checks/writes and origin, not merely source text or a `verify()`-passing mutated plan; a checksum alone is not an immutable source proof | Reject stale/forged proof |
-| **HP-02 region coverage** | Global owner of every original op, zero-result Check and separate `Plan.write`; region live-ins/outs, final return and cross-route bridges | Exact per-native-region op→physical-task mapping; `NoKernel`/`ValueOnly` grouping never authorizes treating literals, noun reads and verb references alike | Reject missing, overlapping or duplicated coverage |
+| **HP-02 region coverage** | Global owner of every original op, zero-result Check and separate `Plan.write`; region live-ins/outs, final return and cross-route bridges | Require a **complete proven** original-op→physical-task relation, not necessarily 1:1: fused/rewritten N:1 or 1:N mappings need RB-01 equivalence witnesses. Preserve external regions/live-outs; `NoKernel`/`ValueOnly` never licenses conflating literal, noun read and verb reference | Reject missing, overlapping, unwitnessed fusion or duplicated execution |
 | **HP-03 selected realization** | Actual `OpKind`, POS/valence, Rank/CellApply, fit/tolerance/numeric policies, selected target/recipe and proof/guard | Check a **real available** kernel/adapter with admitted type/rank/valence/capability, not just a registered `ReferenceSequential` candidate | Do not admit unsupported native execution |
-| **HP-04 Check/errors** | Each `SemanticCheck` with inputs, original J error kind, order and exactly one execute/discharged/guard owner | Preserve zero-result checks and first **observable** J error precedence; Check/guard before dependent kernel/effect; no dropped, moved, duplicated or relabeled check | Reject |
+| **HP-04 Check/errors** | Each `SemanticCheck` with inputs, original J error kind, order and exactly one execute/discharged/guard owner | Preserve zero-result checks and first **observable** J error precedence. Execute/check guards **before dependent** kernels/effects, but **never hoist before other errors/effects that precede the Check in the original J order**. Discharge requires a valid unchanged-input witness and error/order equivalence | Reject omissions, duplication, changed precedence, error class or unsupported discharge |
 | **HP-05 names/effects/writes** | Noun read-time value/version/scope/locale, late function NameRef/POS obligations, effect order, separate transactional `Plan.write` owner | Revalidate changing names, never pre-snapshot whole statements or confuse Return with Write commit; no transparent replay after an observable effect | Withhold native admission |
 | **HP-06 logical values** | SSA producers/use graph; dtype/rank/Shape/J atom order; boxed/sparse, zero-cell Rank fill and assembly, overflow/retry and error policies | Preserve J semantics; `ValueId` != plan `PlanBufferId` != runtime `BufferId`; empty Shape and prefix frame rules survive physical representation | Use valid semantic route or Unsupported |
 | **HP-07 buffer/view** | Storage/materialization needs; input/temporary/persistent/external ownership; alias/donation proof; capacity budget | Check encoding, span/stride/offset, alignment, space, generation, actual backing alias, exclusive writes and last-use-before-reuse; never mutate caller-owned input | Reject ownership/alias/bounds violations |
@@ -4778,6 +4778,18 @@ a=:1+2
 
 **Gate flow:** `SourceA3 + selected region + proofs/guards + all original Check/Write obligations` → **RouteVerified** (A0/A1) → `tasks + planned buffers/views + dependencies/readiness/completion + implemented kernel + ownership/resource verification` → **PhysicalVerified** (A2/A3, native region only) → runtime name/input/guard/lease rechecks → **RuntimeReady** (A4) → actual execution and independent differential evidence (A5).
 
+**Final review/acceptance (existing A0–A5 gates, not new stages):**
+
+| Existing gate / accountable owner | Required evidence for PASS | FAIL/UNRUN and next action |
+|---|---|---|
+| **A0 SourceA3 — Frontend/A3** | Independently retained unchanged authoritative A3 snapshot: verifier, schema/registry/op payload/facts/span/origin; candidates never overwrite it | Missing/stale source FAIL; comparison not executed UNRUN |
+| **A1 RouteVerified — M3** | RB-01–08 **global** op/Check/Write coverage, provably legal region selection and all effect/error/guard/Name/bridge obligations accounted for. `GuardRequired` is not unconditional `Verified` | Missing coverage, unsupported fusion/capability FAIL or UNRUN; only independently legal alternative route |
+| **A2/A3 ExecutableRoute/PhysicalVerified — M4** | A genuinely implemented selected realization; witnessed original-op↔native-task mapping, checked buffers/views/aliases/dependencies, synchronous CPU completion and resource limits; cannot inherit PASS from A1 | Unimplemented kernel/verifier = UNRUN/unsupported; invalid buffer/dependency = FAIL |
+| **A4 RuntimeReady — per-invocation runtime/executor** | **Every invocation** refreshes live names/versions, guards, buffer leases/generations/readiness, and pre-effect fallback | False guard blocks native route, fallback only before effects; no retry past commit |
+| **A5 AcceptedNativeE2E — independent differential testing** | **Actually executed native route** and RustJ semantic reference plus pinned J C oracle where available match values/Shape/first J error/effects; positives, negatives and CI SHA/run recorded | Reference/fallback-only success or unexecuted test = UNRUN; mismatch FAIL. Record missing C oracle explicitly, do not claim a three-way PASS |
+
+**Failure taxonomy:** Invalid physical plan, missing realization and pending `GuardRequired` are **not** J Domain/Rank/Length errors. A legitimately executed J `SemanticCheck` retains its original J error precedence/class. Documents, candidate classifications and test declarations alone never imply PASS. A downstream gate never inherits an upstream PASS automatically; `PhysicalVerified` applies only to a selected native region, not the whole J expression or GPU.
+
 **One-invariant-at-a-time negative-test register:**
 
 | Test | Mutation or example | Required outcome |
@@ -4786,11 +4798,11 @@ a=:1+2
 | **HP-V02 coverage** | Lose Add op in `1+2`, drop independent Write in `a=:1+2`, overlap regions | Reject route/physical admission |
 | **HP-V03 Check** | Remove, delay, duplicate or relabel Length Check for `1 2+1 2 3` | Reject, or produce the original J Length error before Add |
 | **HP-V04 name/guard** | Change noun snapshot/version; freeze late NameRef; reuse stale shape guard | Fail invocation validation; only legal pre-effect fallback |
-| **HP-V05 views** | Shared allocation with overlapping views, stale generation, negative/zero stride, empty Shape, wrong encoding or writable alias | Reject invalid cases; preserve legal read-only aliases and empty Shape |
+| **HP-V05 views** | **Valid controls:** in-bounds negative stride, singleton zero stride, empty Shape and read-only alias. **Mutate separately:** out-of-range span, stale generation, wrong encoding, overlapping exclusive writes or early last-use reuse | Accept valid layouts, including negative/zero stride and empty Shape; reject only invalid bounds/alias/lifetime |
 | **HP-V06 dependencies** | Delete Check→Kernel, producer→reader or effect→commit edge; introduce cycle | Reject, preserve first-error order |
 | **HP-V07 completion** | Enqueue copy/kernel then release input or reuse buffer before reader finishes | Reject until real completion |
 | **HP-V08 replay/error** | Reverse error-capable tasks or retry after partial effect commit | Reject, no duplicate observable effects |
-| **HP-V09 baseline** | Literal identity, subsequently verified sequential CPU operation and reference differential; unsupported boxed/sparse/zero-frame Rank | Correct support classification and real native execution proof; reference is not native |
+| **HP-V09 baseline** | Literal identity, later an **actually implemented** sequential CPU operation and independent differential. Valid J boxed/sparse/zero-frame Rank cases **unsupported by that native slice** must be separately checked on semantic/reference fallback | Correct native support classification; a successful fallback does not count as native E2E |
 
 **Per-gate evidence record:** `HP ID | source A3 revision/schema/registry | original op/region | proof + guard owner | chosen recipe/capability | physical task/edge/buffer/view | runtime versions/completion/effect frontier | positive + single-mutation negative test | CI SHA/run + C-reference artifact | PASS/FAIL/UNRUN | remaining gaps`. `UNRUN` never means PASS.
 
