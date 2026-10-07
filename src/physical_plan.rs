@@ -153,7 +153,9 @@ fn row_major_strides(shape: &[usize]) -> PlanResult<Vec<isize>> {
     }
     let mut stride = 1isize;
     for axis in (0..shape.len()).rev() {
-        strides[axis] = stride;
+        // PhysicalArray::new canonicalizes singleton axes to zero stride.
+        // Keep plan-time metadata identical to the runtime affine view.
+        strides[axis] = if shape[axis] == 1 { 0 } else { stride };
         let dim = isize::try_from(shape[axis])
             .map_err(|_| PhysicalPlanError::Unsupported("CPU stride extent exceeds isize"))?;
         stride = stride
@@ -420,5 +422,20 @@ impl PhysicalPlan {
         Err(PhysicalPlanError::Invalid(
             "nonempty plan is missing Return",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn planned_row_major_strides_match_runtime_affine_canonicalization() {
+        let mut registry = BufferRegistry::new().unwrap();
+        let value = Value::ints([1, 2, 1], vec![10, 20]).unwrap();
+        let physical = PhysicalArray::from_value(&mut registry, value).unwrap();
+        assert_eq!(row_major_strides(physical.shape()).unwrap(), vec![0, 1, 0]);
+        assert_eq!(row_major_strides(physical.shape()).unwrap(), physical.strides());
+        assert_eq!(row_major_strides(&[0, usize::MAX]).unwrap(), [0, 0]);
     }
 }
