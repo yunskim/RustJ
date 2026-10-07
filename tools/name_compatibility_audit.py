@@ -51,6 +51,39 @@ BOUNDARY_FIXTURES = [
     ("late_target_pos_change", ["f=:+", "g=:f", "f=:7", "g 3"]),
 ]
 
+# String target assignment follows p.c::jtis. Post-failure observations matter:
+# later invalid names must not roll back earlier successful writes.
+ASSIGNMENT_FIXTURES = [
+    ("string_single", ["'a'=:7 8", "a"]),
+    ("string_spaces", ["' a '=:7", "a"]),
+    ("string_multiple", ["'a b'=:3 4", "a", "b"]),
+    ("string_scalar_extension", ["'a b'=:7", "a", "b"]),
+    ("string_items", ["'a b'=:2 3$i.6", "a", "b"]),
+    ("string_zero_atom_items", ["'a b'=:2 0$i.0", "a", "b"]),
+    ("string_open_scalar", ["'a b'=:<7 8", "a", "b"]),
+    ("string_open_items", ["'a b'=:(<7),<8 9", "a", "b"]),
+    ("string_duplicate", ["'a a'=:3 4", "a"]),
+    ("string_empty", ["''=:i.0"]),
+    ("string_empty_invalid", ["''=:7"]),
+    ("string_empty_function", ["''=:+"]),
+    ("string_multiple_function", ["'a b'=:+"]),
+    ("string_mismatch", ["a=:9", "'a b'=:3 4 5", "a", "b+0"]),
+    ("string_partial_invalid", ["'a 1bad'=:3 4", "a", "b+0"]),
+    ("string_invalid_first", ["'1bad a'=:3 4", "a+0"]),
+    ("string_word_formation", ["'a+b'=:1", "a"]),
+    ("string_rhs_failure_first", ["a=:9", "'a 1bad'=:1 2+1 2 3", "a"]),
+    ("string_verb_alias", ["op=:+", "'f'=:op", "op=:-", "f 3"]),
+    ("string_adverb", ["'adv'=:/", "+adv 1 2 3"]),
+    ("string_local_direct", ["a=:99", "f=:{{\n'a b'=.y,y+1\na+b\n}}", "f 3", "a", "b+0"]),
+    ("string_local_explicit", ["a=:99", "f=:3 : 0\n'a b'=.y,y+1\na+b\n)", "f 3", "a", "b+0"]),
+    ("string_dynamic_local", ["a=:99", "f=:{{\nnames=.'a b'\n(names)=.y,y+1\na+b\n}}", "f 3", "a", "b+0"]),
+    ("string_global_collision", ["a=:9", "f=:{{\nb=.1\n'a b'=:3 4\n0\n}}", "f 0", "a", "b+0"]),
+    ("string_nonfinal", ["a=:1", "a+('a'=:7)", "a"]),
+    ("string_chained", ["'a b'=:c=:3 4", "a", "b", "c"]),
+    ("string_readonly_partial", ["f=:{{for_i. i.1 do. try. 'a i_index'=.3 4 catch. a return. end. end.}}", "f 0"]),
+    ("string_boxed_rows", ["'a b'=:2 2$<7 8", "a", "b"]),
+]
+
 # Both definition spellings must preserve the same NAME timing and scope rules.
 SCOPE_FIXTURES = [
     ("explicit_local_fallback", ["t=:10", "add=:1 : 't=.t+u'", "2 add", "3 add", "t"]),
@@ -153,7 +186,7 @@ FOR_FIXTURES = [
 SCRIPT_SETUPS = {source for name, sources in SCOPE_FIXTURES
                  if name in {"explicit_local_function_escape", "explicit_local_global_collision"}
                  for source in sources if " : 0\n" in source}
-SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES + FOR_FIXTURES + NESTED_FIXTURES
+SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES + FOR_FIXTURES + NESTED_FIXTURES + ASSIGNMENT_FIXTURES
                      for source in sources if " : 0\n" in source and not source.startswith("outer=:{{"))
 
 
@@ -207,11 +240,13 @@ def main():
     selection.add_argument("--definition-fixtures-only", action="store_true")
     selection.add_argument("--for-fixtures-only", action="store_true")
     selection.add_argument("--nested-fixtures-only", action="store_true")
+    selection.add_argument("--assignment-fixtures-only", action="store_true")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Use native Windows Python, J DLLs and Rust binary")
     assets = args.assets_root.resolve()
-    fixtures = (NESTED_FIXTURES if args.nested_fixtures_only else
+    fixtures = (ASSIGNMENT_FIXTURES if args.assignment_fixtures_only else
+                NESTED_FIXTURES if args.nested_fixtures_only else
                 FOR_FIXTURES if args.for_fixtures_only else
                 DEFINITION_FIXTURES if args.definition_fixtures_only else
                 BOUNDARY_FIXTURES if args.boundary_fixtures_only else
@@ -248,7 +283,8 @@ def main():
         "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
         "reference_sha256": {name: sha(assets / "target/cj-windows/j64" / name)
                              for name in ["j.dll", "javx2.dll"]},
-        "fixture_set": ("definition-nested" if args.nested_fixtures_only else
+        "fixture_set": ("string-assignment" if args.assignment_fixtures_only else
+                        "definition-nested" if args.nested_fixtures_only else
                         "definition-for-loops" if args.for_fixtures_only else
                         "definition-calls" if args.definition_fixtures_only else
                         "semantic-boundaries" if args.boundary_fixtures_only else

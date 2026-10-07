@@ -960,6 +960,18 @@ impl Plan {
                 "capture needs ordered assignment/effect graph".into(),
             ));
         }
+        // An observed computed target cannot become a fixed write name merely
+        // because this execution succeeded. Target dependencies/guards need a
+        // dedicated write contract; static literal targets use from_bound.
+        if capture
+            .events
+            .iter()
+            .any(|event| matches!(event, CaptureEvent::Commit { source, .. } if source.noun_target))
+        {
+            return Err(Error::Unsupported(
+                "capture needs noun-target write dependencies".into(),
+            ));
+        }
         let mut builder = Builder {
             nodes: Vec::new(),
             parser_origins: Vec::new(),

@@ -1098,8 +1098,8 @@ impl Engine {
                         &mut frame,
                         None,
                     )?;
+                    let assigned = program.has_assignment();
                     if let Some(expression) = program.expression {
-                        let assigned = program.assignment.is_some();
                         let value = match expression.kind {
                             crate::semantic::ExprKind::Literal(value) => JEntity::Noun(value),
                             crate::semantic::ExprKind::VerbValue(verb) => {
@@ -2114,6 +2114,7 @@ impl Engine {
             },
             capture,
         )?;
+        let assigned = program.has_assignment();
         let Some(expr) = program.expression else {
             return Ok(None);
         };
@@ -2126,7 +2127,7 @@ impl Engine {
             // Parentheses only wrap completed nouns; no kernel replay occurs.
             _ => JEntity::Noun(self.interpret_ir(expr, pooled, 0)?),
         };
-        if program.assignment.is_some() {
+        if assigned {
             // Runtime row 7 already committed the value. Even a later parser
             // exit error must not roll back that J-visible assignment.
             Ok(None)

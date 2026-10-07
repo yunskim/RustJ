@@ -42,6 +42,15 @@ pub struct AssignmentSource {
     pub target: ParseProvenance,
     pub copula: ParseProvenance,
     pub flags: EnqueueFlags,
+    pub noun_target: bool,
+    /// Commit.value denotes the whole RHS. A multiple assignment selects a
+    /// leading-axis item (None for scalar extension), then opens it once.
+    pub selection: Option<AssignmentSelection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssignmentSelection {
+    pub item: Option<usize>,
 }
 
 fn train_hook(f: Verb, g: Verb) -> Verb {
@@ -1424,9 +1433,43 @@ fn apply_conjunction_at(
 /// queue/stack discipline. Hook/fork reduction is performed separately below.
 #[derive(Clone, Debug)]
 struct PendingAssignment {
-    name: String,
+    name: Option<String>,
+    noun: Option<crate::semantic::NounAssignment>,
     span: std::ops::Range<usize>,
     source: AssignmentSource,
+}
+
+fn string_assignment_names(target: &Expr) -> Result<Vec<String>> {
+    let value = completed_noun(target.clone(), "computed assignment target")?;
+    let crate::Data::Char(bytes) = value.data() else {
+        return Err(Error::Unsupported(
+            "non-character/boxed assignment target".into(),
+        ));
+    };
+    if value.shape().len() > 1 {
+        return Err(Error::Rank);
+    }
+    if bytes.first() == Some(&b'`') {
+        return Err(Error::Unsupported(
+            "atomic-representation assignment".into(),
+        ));
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| Error::IllFormedName)?;
+    Ok(crate::tokenizer::word_texts(text)?
+        .into_iter()
+        .map(str::to_owned)
+        .collect())
+}
+
+fn assignment_item(value: &Value, item: Option<usize>) -> Result<Value> {
+    let selected = if let Some(index) = item {
+        let shape = &value.shape()[1..];
+        let atoms = crate::value::count(shape)?;
+        value.select(shape, index * atoms..(index + 1) * atoms)?
+    } else {
+        value.clone()
+    };
+    crate::kernels::monad(">", selected)
 }
 
 fn reduce_parse_stack_subset(
@@ -2044,24 +2087,35 @@ fn apply_parse_row(
                     "multiple assignments in one sentence".into(),
                 ));
             }
-            if stack
-                .first()
-                .is_some_and(|item| item.class == ParseClass::Noun)
-            {
-                return Err(Error::Unsupported("noun/multiple assignment target".into()));
-            }
-
             let mut phrase: Vec<_> = stack.drain(0..3).collect();
             let target = phrase.remove(0);
             let copula = phrase.remove(0);
             let value = phrase.remove(0);
-            let ParseValue::NameTarget { name, span } = target.value else {
-                return Err(Error::Syntax("row 7 requires a name target".into()));
+            let span = target.span();
+            let (single, noun) = match target.value {
+                ParseValue::NameTarget { name, .. } => (Some(name), None),
+                ParseValue::Noun(expr, _) => {
+                    let names = string_assignment_names(&expr)?;
+                    let noun = crate::semantic::NounAssignment {
+                        target: expr,
+                        names,
+                    };
+                    (None, Some(noun))
+                }
+                _ => return Err(Error::Syntax("row 7 requires a name/noun target".into())),
             };
-            let source = AssignmentSource {
+            // Simple NAME writes retain their existing allocation/validation
+            // path; only noun targets need a computed name list.
+            let names = single
+                .as_ref()
+                .map(std::slice::from_ref)
+                .unwrap_or_else(|| noun.as_ref().expect("noun target").names.as_slice());
+            let mut source = AssignmentSource {
                 target: target.provenance.expect("assignment target provenance"),
                 copula: copula.provenance.expect("copula provenance"),
                 flags: copula.flags,
+                noun_target: noun.is_some(),
+                selection: None,
             };
             // p.c row 7 transports the stacked RHS. A nonnameless modifier
             // remains a POS-bearing NameRef; assigning it is not application.
@@ -2070,33 +2124,95 @@ fn apply_parse_row(
                 let occurrence = value.occurrence;
                 let class = value.class;
                 let mut completed = CompletedParseResult::from_item(value, "assignment value")?;
-                let previous = host.version(&name);
-                completed.entity =
-                    host.assign_scoped(&name, completed.entity, source.flags.local_assignment)?;
+                if names.len() != 1 {
+                    if names.is_empty()
+                        && !matches!(&completed.entity, JEntity::Noun(rhs) if !rhs.shape().is_empty() && rhs.shape()[0] == 0)
+                    {
+                        return Err(Error::IllFormedName);
+                    }
+                    let JEntity::Noun(rhs) = &mut completed.entity else {
+                        return Err(Error::Domain);
+                    };
+                    if !rhs.shape().is_empty() && rhs.shape()[0] != names.len() {
+                        return Err(Error::Length);
+                    }
+                    // Freeze once before selecting/cloning. Never clone an owned
+                    // whole RHS separately for each target or capture event.
+                    *rhs = std::mem::replace(rhs, Value::scalar(0)).into_shared();
+                }
                 let function = match &completed.entity {
                     JEntity::Function(function) => Some(function.clone()),
                     _ => None,
                 };
-                if let Some(capture) = &mut context.capture {
-                    capture.events.push(CaptureEvent::Commit {
-                        name: name.clone(),
-                        version: host.version(&name).expect("committed version"),
-                        previous,
-                        span: span.clone(),
-                        value: occurrence,
-                        final_assignment: queue_exhausted,
-                        class,
-                        function,
-                        source: source.clone(),
-                    });
+                for (index, name) in names.iter().enumerate() {
+                    if noun.is_some() {
+                        crate::enqueuer::validate_assignment_name(name)?;
+                    }
+                    let previous = host.version(name);
+                    if names.len() == 1 {
+                        completed.entity = host.assign_scoped(
+                            name,
+                            completed.entity,
+                            source.flags.local_assignment,
+                        )?;
+                    } else {
+                        let JEntity::Noun(rhs) = &completed.entity else {
+                            unreachable!()
+                        };
+                        let item = (!rhs.shape().is_empty()).then_some(index);
+                        source.selection = Some(AssignmentSelection { item });
+                        let selected = assignment_item(rhs, item)?;
+                        host.assign_scoped(
+                            name,
+                            JEntity::Noun(selected),
+                            source.flags.local_assignment,
+                        )?;
+                    }
+                    if let Some(capture) = &mut context.capture {
+                        capture.events.push(CaptureEvent::Commit {
+                            name: name.clone(),
+                            version: host.version(name).expect("committed version"),
+                            previous,
+                            span: span.clone(),
+                            value: occurrence,
+                            final_assignment: queue_exhausted && index + 1 == names.len(),
+                            class,
+                            function: function.clone(),
+                            source: source.clone(),
+                        });
+                    }
                 }
+                source.selection = None;
                 let result = completed.into_item()?;
                 stack.insert(0, result);
                 if queue_exhausted {
-                    *assignment = Some(PendingAssignment { name, span, source });
+                    let name = single.or_else(|| {
+                        noun.as_ref()
+                            .and_then(|n| (n.names.len() == 1).then(|| n.names[0].clone()))
+                    });
+                    *assignment = Some(PendingAssignment {
+                        name,
+                        noun,
+                        span,
+                        source,
+                    });
                 }
             } else {
-                *assignment = Some(PendingAssignment { name, span, source });
+                if noun.is_some() {
+                    for name in names {
+                        crate::enqueuer::validate_assignment_name(name)?;
+                    }
+                }
+                let name = single.or_else(|| {
+                    noun.as_ref()
+                        .and_then(|n| (n.names.len() == 1).then(|| n.names[0].clone()))
+                });
+                *assignment = Some(PendingAssignment {
+                    name,
+                    noun,
+                    span,
+                    source,
+                });
                 stack.insert(0, value);
             }
             true
@@ -3137,6 +3253,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
             }),
             source: source.to_owned(),
             assignment: None,
+            noun_assignment: None,
             assignment_span: None,
             expression: None,
             reductions: Vec::new(),
@@ -3173,14 +3290,21 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
         return Err(Error::Syntax("trailing tokens".into()).with_context(context));
     }
 
-    let (assignment, assignment_span, assignment_source) = match pending_assignment {
-        Some(PendingAssignment { name, span, source }) => (Some(name), Some(span), Some(source)),
-        None => (None, None, None),
+    let (assignment, noun_assignment, assignment_span, assignment_source) = match pending_assignment
+    {
+        Some(PendingAssignment {
+            name,
+            noun,
+            span,
+            source,
+        }) => (name, noun, Some(span), Some(source)),
+        None => (None, None, None, None),
     };
     Ok(Program {
         frontend: context.frontend.take().map(Arc::new),
         source: source.to_owned(),
         assignment,
+        noun_assignment,
         assignment_span,
         expression: Some(result),
         reductions,

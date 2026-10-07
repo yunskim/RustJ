@@ -402,6 +402,9 @@ pub struct Program {
     pub frontend: Option<Arc<crate::frontend_context::FrontendContext>>,
     pub source: String,
     pub assignment: Option<String>,
+    /// Original noun target and resolved string words. These are not a single
+    /// write when there are multiple names; ordered lowering is required.
+    pub noun_assignment: Option<NounAssignment>,
     pub assignment_span: Option<std::ops::Range<usize>>,
     pub expression: Option<Expr>,
     /// Parser-row provenance, separate from semantic operation payloads.
@@ -412,6 +415,18 @@ pub struct Program {
     /// Constructor-time single-name cap inspections, not executable namerefs.
     pub fork_name_reads: Vec<NameUse>,
     pub name_rank_snapshots: Vec<NameRankSnapshot>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NounAssignment {
+    pub target: Expr,
+    pub names: Vec<String>,
+}
+
+impl Program {
+    pub fn has_assignment(&self) -> bool {
+        self.assignment.is_some() || self.noun_assignment.is_some()
+    }
 }
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
@@ -477,6 +492,16 @@ pub(crate) fn bind(
     program: Program,
     lookup: impl Fn(&str) -> Option<NameVersion>,
 ) -> Result<BoundProgram> {
+    if program
+        .noun_assignment
+        .as_ref()
+        .is_some_and(|target| target.names.len() != 1)
+    {
+        return Err(Error::Unsupported(
+            "multiple/empty assignment requires ordered write IR".into(),
+        )
+        .at(program.assignment_span.clone().expect("assignment span")));
+    }
     let mut pending = Vec::new();
     let mut verb_references = Vec::new();
     let mut stack = Vec::new();

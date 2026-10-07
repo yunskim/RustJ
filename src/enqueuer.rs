@@ -409,6 +409,15 @@ fn validate_name_syntax(word: &str) -> Result<()> {
     }
 }
 
+/// Computed assignment uses NAME syntax, not primitive/enqueue classification.
+pub(crate) fn validate_assignment_name(word: &str) -> Result<()> {
+    validate_name_syntax(word)?;
+    if word.ends_with('_') || word.contains("__") {
+        return Err(Error::Unsupported("J locative names".into()));
+    }
+    Ok(())
+}
+
 /// Interpret parse-visible words after word formation.
 ///
 /// This is the F1 boundary: parser code receives typed enqueue records rather

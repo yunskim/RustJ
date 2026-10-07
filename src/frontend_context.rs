@@ -540,7 +540,14 @@ impl FrontendContext {
                     value,
                 } => {
                     children.push(*value);
-                    if self.items.get(target.0).map(|item| item.class) != Some(ParseClass::Name)
+                    let target = self
+                        .items
+                        .get(target.0)
+                        .ok_or("missing assignment target")?;
+                    if target.class == ParseClass::Noun {
+                        children.push(target.semantic.ok_or("noun target without semantic node")?);
+                    }
+                    if !matches!(target.class, ParseClass::Name | ParseClass::Noun)
                         || self.words.get(copula.0).map(|word| word.class)
                             != Some(EnqueueClass::Assignment)
                     {

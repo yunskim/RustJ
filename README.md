@@ -161,6 +161,7 @@ The repository is currently in transition toward the target compiler pipeline.
 - **M1 complete:** J Graph lowering builds the canonical A3 `logical_ir::Plan` directly; the transition IR/container has been removed
 - A3-v0 SSA ValueIds, Execution Basis, semantic checks/constraints/effect/error contracts, verifier, and reference executor
 - Explicit/direct source/control/NAME metadata, ordinary mode-3/4 calls, supported if/while/for/try, nested direct/string-explicit local scopes and A3 definition references are implemented. Frontend E2E is verified for the supported subset. Statement/control failures now preserve body and nested callsite diagnostic frames; pre-execution/post-return boundaries and whole-file provenance remain incomplete. Full J expressiveness, body Graph/Logical analysis and compiled CFG, and general locales/locatives remain follow-up work. See PROJECT.md's frontend audit and remediation checklist.
+- Single/multiple string and runtime-computed string assignment targets preserve local/global scope, scalar extension, item/open and ordered partial failures. Multiple-write Graph/Logical lowering and boxed/atomic-representation targets remain unsupported.
 - CPU Inline/Owned/Shared storage and runtime AVX2 plus portable fallback
 - Initial sparse/boxed/packed-bit support and read-only affine PhysicalArray (G1)
 - M2 jsource-compatible frontend cutover, M3 logical/physical value-boundary convergence, and the M4 native Physical Planner/CPU executor remain incomplete

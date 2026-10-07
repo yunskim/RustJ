@@ -193,7 +193,7 @@ impl ParseCapture {
                     final_assignment: false,
                     ..
                 }
-            )
+            ) || matches!(event, CaptureEvent::Commit { source, .. } if source.selection.is_some())
         })
     }
 
@@ -400,6 +400,9 @@ impl ParseCapture {
                     };
                     if !valid_value {
                         return Err("commit result POS does not match value");
+                    }
+                    if source.selection.is_some() && *class != crate::parser::ParseClass::Noun {
+                        return Err("item assignment requires a noun RHS");
                     }
                     if previous.map_or(Some(1), |v| v.0.checked_add(1)) != Some(version.0) {
                         return Err("invalid commit binding version");

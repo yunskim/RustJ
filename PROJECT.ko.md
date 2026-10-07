@@ -11903,7 +11903,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다. rank/@:/지원 DefinitionConstructor 경계는 구현되었으며 전체 conjunction 및 invocation은 미완료다.
 - [x] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 production Fork construction을 구현했다. VVV ordinary/capped 판정과 noun-left fork의 지원 construction을 같은 row action에서 처리하며, 전체 noun/value-dependent/static coverage는 P3에서 계속 추적한다.
 - [x] row 6 `EDGE CAVN CAVN ANY`의 production Hook/bident/trident disposition dispatch를 구현했다. basic Hook과 non-executing modifier train을 구성하고 earlier row가 소유해야 할 immediate action을 invariant로 거부한다. 전체 primitive/definition executor coverage는 P3의 미완료 범위다.
-- [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다. top-level single-name의 네 RHS class와 중간/연속 대입은 구현되었으며 noun/multiple-name target·전체 scope는 미완료다.
+- [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다. top-level single-name의 네 RHS class와 중간/연속 대입은 구현되었다. 아래 F1/P4 보완에서 문자열 noun/multiple-name target 실행도 추가했다. boxed/AR target·ordered-write lowering·전체 scope는 미완료다.
 - [x] row 8 `LPAR CAVN RPAR ANY`를 production stack action으로 구현하고 recursive parenthesis parser를 제거했다. grouped noun은 `ExprKind::Group`/depth를, grouped function은 semantic identity를 유지한 채 parser provenance span을 괄호 전체로 보존한다.
 - [x] 구현된 각 reduction 결과를 같은 parser stack에 되돌리고 동일한 match_parse_row로 다시 scan/reduce한다. 미지원 semantic form은 해당 action의 오류/coverage 경계로 남긴다.
 - [ ] row action abstraction이 `ReadyParseValue`와 `RequiresRuntimeSemanticParse`를 구분할 수 있게 하여, 정적 compiler path가 parser-visible runtime dependency를 숨기지 않게 한다.
@@ -13518,9 +13518,11 @@ RustJ의 공개 오픈소스 배포 경로는 GNU General Public License version
 
 **31 사례 × DLL 2 = 62 관측: runtime/post-state 38 matched / 24 runtime_gap.** 12개 사례의 알려진 미지원 차이를 통과로 계산하지 않았다. complex/extended/rational 3개는 C bridge가 값을 직렬화하지 못해 **C 수용 여부와 noun type만** 확인했다. 그 외는 값/오류 종류와 setup/post-state를 비교했다. C의 diagnostic 위치/문구/내부 parser state와의 동등성은 이번 감사에서 검증하지 않았다. P는 15 accepted / 14 Unsupported / syntax 1 / control 1, G는 14 / 15 / 1 / 1, L은 13 / 16 / 1 / 1이며 전체 upstream 비율로 일반화하지 않는다.
 
+위 38/24와 단계별 수치는 보완 전 감사 기준선이다. 문자열 target 구현 후 최신 결과는 아래 F1/P4 실행 체크리스트에 기록한다.
+
 | 질문/사례 | 실제 판정 | 소유 단계 |
 |---|---|---|
-| jsource의 전체 표현력 | **아직 아님**. locative, name_: abandon, noun/computed/multiple assignment target, complex/extended/rational/overflow literal conversion 등이 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트 |
+| jsource의 전체 표현력 | **아직 아님**. 후속 수정에서 문자열 단일·다중/computed target 실행을 추가했다. boxed/AR target, locative, name_: abandon, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target 실행 체크리스트 참조 |
 | `a+a=:2`, `a=:b=:1`, 계산된 rank | runtime은 C와 일치하나 비실행 P/G/L에서 Unsupported. chained assignment 전체가 runtime 미지원이라고 말하면 틀린다 | P 단계 동적 construction/effect 경계, P8 |
 | `adv=:/` | Program의 ModifierValue와 POS는 보존하지만 J Graph가 modifier value lowering을 거부 | P8/A1/A2, frontend lexical 오류 아님 |
 | `". '1+2'` | P/G는 수용하고 L/runtime은 미지원. primitive 인식과 실행 지원을 분리 | lowering/runtime capability |
@@ -13575,7 +13577,7 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 | 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 진행 중 |
 | 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
 | 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
-| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target runtime 완료; 나머지 미완료 |
 | 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
 | 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
 
@@ -13592,3 +13594,19 @@ A0.6 실행 체크리스트 — 첫 수정 범위:
 - [ ] 순서 2: 오류 분류와 단계별 admission 계약을 보완한다.
 - [ ] 순서 3: NAME·effect·modifier의 후속 IR 전달 계약을 보완한다.
 - [ ] 순서 4–6: NAME 표현력, 수치 literal, modifier 호환성을 독립 C 비교와 함께 확장한다.
+
+F1/P4 noun target 우선 실행 (2026-10-07): 문자열 단일·다중 대입을 먼저 구현한다. `p.c::jtis`에 따라 단일 문자열 이름은 RHS 전체를 보존하고, 다중 이름은 atom 확장 또는 선두 축 item 선택 후 한 번 open하여 왼쪽부터 대입한다. 이름 오류나 read-only/global 충돌은 앞서 성공한 대입을 되돌리지 않는다. 이름 개수 불일치는 대입 전에 검출한다. 따라서 다중 대입을 하나의 transactional write로 축약해서는 안 된다.
+
+- [x] 단일 문자열 및 runtime 계산된 문자열 target, local/global·함수 RHS 처리.
+- [x] 다중 문자열 target의 scalar 확장·item/open·중복 이름·부분 실패와 capture 계약.
+- [x] 원래 noun target과 row-7 provenance 보존; ordered-write IR이 없는 Graph/Logical 경계는 명시적 Unsupported 유지.
+- [x] Windows default/portable 각각 **617 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. 새 대입 **28 fixtures × DLL 2 × route 2 = 112/112 일치**, 기존 정의/loop/nested/NAME scope **304/304 일치**, 합계 **416/416**. `reports/string-assignment-windows.json`과 기존 보고서를 최종 실행 파일로 갱신했다.
+- [ ] boxed target, atomic-representation assignment, locative는 별도 후속 범위로 유지.
+
+Frontend 감사 갱신: **31 cases / 62 observations = 42 matched / 20 runtime_gap**. `computed_target` (`'a'=:7`)와 `multiple_target` (`'a b'=:3 4`)의 runtime/post-state 차이 4건을 해소했다. 고유 미지원 사례는 **12 → 10**이며 나머지 20건은 통과로 계산하지 않는다. P는 **16 accepted / 13 Unsupported / syntax 1 / control 1**, G는 **15 / 14 / 1 / 1**, L은 **14 / 15 / 1 / 1**. P=prepare에는 binding도 포함하므로 parser가 다중 target을 구조화했다는 사실이 P admission을 의미하지 않는다. 다음 NAME 구현 단위는 `name_:` abandon이며 locale/locative와 boxed/AR target은 별도 게이트다.
+
+전달 계약: `Program.noun_assignment: Option<NounAssignment>`는 원래 `target: Expr`와 word formation으로 얻은 `names: Vec<String>`을 가진다. `Program.assignment`는 단일 이름 write 호환 필드이며 다중/빈 target을 대표하지 않는다. 최종 대입 여부는 `has_assignment()`로 확인한다. `FrontendContext::WriteName.target`은 원래 NAME 또는 NOUN item을 가리키며 NOUN의 semantic edge도 검증한다. Runtime에서 완성한 target 값은 원래 enqueue/reduction context와 함께 보존한다. `AssignmentSource.selection`은 capture의 RHS occurrence에서 선두 축 item 선택 또는 atom 확장 후 한 번 open한 결과가 commit되었음을 표시한다. 각 commit의 이름/version/순서/실패까지 보존하며 이 capture는 재실행 계획이 아니다.
+
+여기서 `target: Expr`는 row-7 시점의 완료된 표현이다. runtime 계산 후에는 Literal일 수 있으며 계산 전 구조는 `FrontendContext`의 원래 item/node/reduction link로 찾는다. `AssignmentSource.noun_target`은 computed noun target임을 명시한다. 현재 capture→Graph는 단일 literal을 포함한 noun-target commit을 모두 거절한다. 관측한 이름을 고정 write로 바꾸려면 target 의존성과 guard가 필요하기 때문이다. 단일 literal의 비실행 static Graph 경로와 구별한다.
+
+`parse_frontend`는 literal 문자열 다중 target을 구조화하지만 `prepare_semantic`의 binding과 Graph/Logical은 다중·빈 target을 ordered-write IR 미지원으로 거절한다. 실제 값이 필요한 계산된 target은 static parser에서 실행하지 않고 runtime 경계로 남긴다. 단일 literal 문자열 target은 기존 단일 write 분석 경로로 전달한다. 기존 일반 NAME 대입에는 name-list heap allocation이나 재검증을 추가하지 않는다. 다중 RHS는 한 번 공유 상태로 전환하고 item만 선택한다. 현재 item 선택은 복사이며 zero-copy/GPU buffer view 구현을 뜻하지 않는다. open의 padding·sparse 및 `;` 등 별도 primitive 미지원은 그대로 유지한다.
