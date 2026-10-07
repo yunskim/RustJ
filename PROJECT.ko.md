@@ -355,6 +355,100 @@ route boundaries are bridged after representation requirements are known
 
 핵심 원칙은 **J의 고수준 배열 변환 구조를 Semantic Analyzer가 보기 전에 없애지 않고, analyzer/lowering 단계가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
 
+
+### Frontend 결과물과 J Graph IR 결과물의 차이
+
+이 경계는 RustJ를 읽을 때 가장 쉽게 혼동되는 부분이므로 명시적으로 구분한다. **둘은 같은 프로그램을 서로 다른 질문으로 표현하며, 서로 대체하는 IR이 아니다.**
+
+- **Frontend / J Semantic Construction의 질문:** “이 J 표현은 무엇을 의미하는가?”
+- **J Graph IR의 질문:** “그 의미를 실제 noun input에 적용하면 어떤 배열 계산과 dependency/topology가 생기는가?”
+- **Execution Semantic Lowering의 질문:** “그 계산을 어떤 explicit execution operation, check, effect/error order로 표현할 것인가?”
+- **Physical planning의 질문:** “그 실행 의미를 어떤 kernel, buffer, layout, device와 schedule로 실현할 것인가?”
+
+여기서 이해를 돕기 위해 “frontend AST”라고 부를 수는 있지만, 현행 RustJ의 기준 산출물은 일반적인 syntax AST가 아니라 parser reduction이 구성한 **`JEntity` / `FunctionEntity` semantic DAG와 관련 frontend context**다. 이 층은 J의 품사와 결합 의미, primitive/derived function, adverb/conjunction operand, hook/fork/train, rank, name/binding/version과 source provenance를 보존한다. 아직 fusion, materialization, kernel 또는 device를 결정하지 않는다.
+
+반면 J Graph IR은 완성된 function/entity가 input에 **적용된 계산**을 대상으로 한다. 따라서 source combinator를 그대로 보존하는 것에 그치지 않고 producer/consumer, branch/join, rank/cell boundary, reduction과 같은 배열 계산 topology를 first-class graph form/basis로 드러낸다. shape/type/rank fact와 optimization hint를 붙일 수 있지만, 이 단계 역시 physical plan은 아니다.
+
+| 구분 | Frontend / J Semantic Construction | J Graph IR |
+|---|---|---|
+| 중심 대상 | J entity와 결합 의미 | 적용된 array operation graph |
+| 주인공 | noun/verb/adverb/conjunction, derived function, hook/fork/train, rank operands, names | input/output value, producer/consumer, branch/join, GraphForm/GraphBasis, facts/hints |
+| 보존해야 할 것 | J parser/semantic structure와 source provenance | J 의미에 근거한 계산 topology와 graph provenance |
+| 아직 하지 않는 것 | graph optimization, physical execution 결정 | kernel/buffer/layout/device/schedule 결정 |
+| 다음 단계 | J Graph IR construction | Execution Semantic Lowering |
+
+**Rank 예:** `(f"1) y`에서 frontend는 `"`를 `f`의 단순 attribute로 접어 넣지 않는다. Rank는 conjunction이고, 왼쪽 function operand `f`와 오른쪽 rank operand `1`을 받아 derived function을 만들며, 그 derived function이 `y`에 적용된다는 J 의미 구조를 보존한다. 실제 `FunctionEntity` 형태는 jsource parser reduction 규칙을 따르며, 아래 표기는 설명용 개념도다.
+
+~~~text
+frontend semantic view
+
+Rank conjunction (")
+  ├─ left operand:  f
+  └─ right operand: 1
+          ↓
+     derived verb
+          ↓ apply
+          y
+~~~
+
+J Graph IR로 가면 관심점이 “Rank conjunction을 어떻게 썼는가”에서 “어떤 cell/frame 적용 계산이 생기는가”로 이동한다. 현재 graph 표현에서는 이 의미가 예를 들어 `GraphForm::Rank { .. }`와 `GraphBasisKind::CellApply` 같은 구조로 드러날 수 있다.
+
+~~~text
+J Graph view
+
+y
+│
+▼
+Rank / CellApply
+│  function = f
+│  cell rank = 1
+▼
+result
+~~~
+
+따라서 frontend에서는 implicit rank semantics를 **J 언어 구조로 보존**하고, Graph IR에서는 optimizer가 분석할 수 있도록 **cell-application boundary와 데이터 흐름을 노출**한다. 빈 frame에서의 virtual cell/fill 같은 J Rank 의미도 physical loop로 조기에 지워서는 안 된다.
+
+**Fork 예:** `(f g h) y`에서 frontend는 fork를 `FunctionEntity`의 J 결합 구조로 보존한다. J Graph IR에서는 같은 의미가 input `y`의 fan-out, `f(y)`와 `h(y)`의 독립 producer, 그리고 `g`의 join으로 드러난다. 현재 graph 표현의 `GraphForm::Fork { .. }`는 이런 topology를 분석하기 위한 surface다.
+
+~~~text
+          y
+         / \
+        /   \
+       ▼     ▼
+     f(y)   h(y)
+        \   /
+         \ /
+          ▼
+    g(f(y), h(y))
+          │
+          ▼
+        result
+~~~
+
+이렇게 graph가 되면 common input reuse, branch-local fusion, retained-value lifetime과 materialization 후보를 분석할 수 있다. 그러나 여기서도 “GPU kernel 하나로 합친다”, “AVX2를 쓴다”, “buffer #17을 할당한다” 같은 결정을 내려서는 안 된다.
+
+요약하면 다음 경계를 지킨다.
+
+~~~text
+J source
+  ↓
+Frontend / J Semantic Construction
+  = J가 무엇을 의미하는가
+  ↓
+JEntity / FunctionEntity semantic DAG
+  ↓
+J Graph IR
+  = 그 의미가 어떤 배열 계산 graph를 만드는가
+  ↓
+Execution Semantic Lowering
+  = 어떤 explicit execution semantics/check/effect가 필요한가
+  ↓
+Physical planning / backend
+  = 실제로 어떻게 실행하는가
+~~~
+
+**J Graph IR은 frontend 결과물의 대체물이 아니다. Frontend가 J 의미를 소유하고, J Graph IR이 그 의미에서 optimizer가 사용할 계산 topology를 추출하는 단계적 관계다.** 이 경계를 무너뜨려 frontend에서 graph/physical 결정을 너무 일찍 하거나, 반대로 Graph IR에 source parser mechanics를 그대로 끌고 내려오지 않는다.
+
 ### 2.1 RustJ compiler stage의 위상
 
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
