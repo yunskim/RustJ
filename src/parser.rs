@@ -2937,7 +2937,18 @@ fn expression(
             }
             EnqueuedPayload::Name(name) => {
                 let span = tokens[*pos].span.clone();
-                items.push(if tokens[*pos].flags.lookup_name {
+                // F1 now preserves every valid J NAME. Until P4 has a
+                // locale-aware namespace and NAMEBYVALUE/NAMEABANDON actions,
+                // never reinterpret those words as flat ordinary bindings.
+                let flags = tokens[*pos].flags;
+                if flags.name_form != crate::enqueuer::NameForm::Simple || flags.name_by_value {
+                    return Err(Error::Unsupported(
+                        "J locative/name-by-value runtime resolution (P4)".into(),
+                    )
+                    .at(span)
+                    .blamed_on_word(tokens[*pos].word_index));
+                }
+                items.push(if flags.lookup_name {
                     Item::lookup_name((*name).to_owned(), span)
                 } else {
                     Item::name_target((*name).to_owned(), span)
