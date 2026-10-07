@@ -435,7 +435,7 @@ mod tests {
         let value = Value::ints([1, 2, 1], vec![10, 20]).unwrap();
         let physical = PhysicalArray::from_value(&mut registry, value).unwrap();
         assert_eq!(row_major_strides(physical.shape()).unwrap(), vec![0, 1, 0]);
-        assert_eq!(row_major_strides(physical.shape()).unwrap(), physical.strides());
+        assert_eq!(row_major_strides(physical.shape()).unwrap().as_slice(), physical.strides());
         assert_eq!(row_major_strides(&[0, usize::MAX]).unwrap(), [0, 0]);
     }
 }
