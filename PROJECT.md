@@ -146,6 +146,100 @@ Route Partition
 
 **Frontend stage-boundary correction (2026-10-07).** Word Formation and Enqueue are preparatory processing phases, but **J Parser and Semantic Construction are not two separately completed compiler passes**. In jsource, queue/stack parsing rules trigger semantic actions and execution interleaved with parsing: name resolution, adverb/conjunction application, derived entities, verb application and assignments. In RustJ, `src/parser.rs` constructs `JEntity`/`FunctionEntity` as reductions happen; `src/semantic.rs` defines target-independent semantic entities and binding/version contracts rather than a mandatory subsequent construction pass. RustJ's analysis-mode `parse` builds semantic structure without executing arbitrary noun kernels; runtime parser/host effects must still match J observation. **J Graph IR and Execution Semantic Lowering remain separate downstream compiler stages.**
 
+
+### Frontend output versus J Graph IR output
+
+This boundary is easy to misunderstand, so RustJ states it explicitly. **The two representations answer different questions about the same program; one does not replace the other.**
+
+- **Frontend / J Semantic Construction asks:** “What does this J expression mean?”
+- **J Graph IR asks:** “When that meaning is applied to noun inputs, what array computation and dependency/topology does it create?”
+- **Execution Semantic Lowering asks:** “Which explicit execution operations, checks, and effect/error ordering realize that computation?”
+- **Physical planning asks:** “Which kernels, buffers, layouts, devices, and schedules realize those execution semantics?”
+
+“Frontend AST” can be used as an informal teaching shorthand, but the canonical RustJ frontend result is not a generic syntax AST. It is the **`JEntity` / `FunctionEntity` semantic DAG plus related frontend context** constructed by parser reductions. This layer preserves J part of speech and composition semantics, primitive/derived functions, adverb/conjunction operands, hook/fork/train, rank, name/binding/version information, and source provenance. It does not decide fusion, materialization, kernels, or devices.
+
+J Graph IR instead describes an **applied computation**: a completed function/entity acting on inputs. It therefore exposes producer/consumer, branch/join, rank/cell boundaries, reductions, and related array topology as first-class graph forms/bases. Shape/type/rank facts and optimization hints may be attached here, but this is still not a physical plan.
+
+| Concern | Frontend / J Semantic Construction | J Graph IR |
+|---|---|---|
+| Primary object | J entities and composition meaning | Applied array-operation graph |
+| Central structure | noun/verb/adverb/conjunction, derived functions, hook/fork/train, rank operands, names | input/output values, producer/consumer, branch/join, GraphForm/GraphBasis, facts/hints |
+| Must preserve | J parser/semantic structure and source provenance | computation topology justified by J semantics and graph provenance |
+| Must not decide yet | graph optimization or physical execution | kernel/buffer/layout/device/schedule |
+| Next stage | J Graph IR construction | Execution Semantic Lowering |
+
+**Rank example:** in `(f"1) y`, the frontend must not collapse `"` into a mere attribute on `f`. Rank is a conjunction: it receives function operand `f` on the left and rank operand `1` on the right, produces a derived verb, and that derived verb is then applied to `y`. The actual `FunctionEntity` shape follows jsource parser reductions; the following is conceptual notation only.
+
+~~~text
+frontend semantic view
+
+Rank conjunction (")
+  ├─ left operand:  f
+  └─ right operand: 1
+          ↓
+     derived verb
+          ↓ apply
+          y
+~~~
+
+After conversion to J Graph IR, the emphasis moves from “how Rank was written as a conjunction” to “what cell/frame application computation exists.” In the current graph representation this can appear, for example, as `GraphForm::Rank { .. }` with `GraphBasisKind::CellApply`.
+
+~~~text
+J Graph view
+
+y
+│
+▼
+Rank / CellApply
+│  function = f
+│  cell rank = 1
+▼
+result
+~~~
+
+The frontend therefore preserves implicit rank semantics as **J language structure**, while Graph IR exposes the **cell-application boundary and dataflow** for optimizer analysis. J Rank behavior such as virtual cells/fill for empty frames must not be prematurely erased into a physical loop model.
+
+**Fork example:** for `(f g h) y`, the frontend preserves the fork as J composition in the `FunctionEntity` structure. J Graph IR exposes the same meaning as fan-out from `y`, independent producers `f(y)` and `h(y)`, and a join at `g`. The current `GraphForm::Fork { .. }` is an analysis surface for that topology.
+
+~~~text
+          y
+         / \
+        /   \
+       ▼     ▼
+     f(y)   h(y)
+        \   /
+         \ /
+          ▼
+    g(f(y), h(y))
+          │
+          ▼
+        result
+~~~
+
+Once exposed as a graph, RustJ can analyze common-input reuse, branch-local fusion, retained-value lifetime, and materialization candidates. It still must not decide here that the expression is one GPU kernel, uses AVX2, or allocates a particular physical buffer.
+
+The stage boundary can be summarized as:
+
+~~~text
+J source
+  ↓
+Frontend / J Semantic Construction
+  = what the J program means
+  ↓
+JEntity / FunctionEntity semantic DAG
+  ↓
+J Graph IR
+  = what array-computation graph that meaning creates
+  ↓
+Execution Semantic Lowering
+  = explicit execution semantics/checks/effects
+  ↓
+Physical planning / backend
+  = how it is physically executed
+~~~
+
+**J Graph IR is not a replacement for frontend output. The frontend owns J meaning; J Graph IR extracts the optimizer-visible computation topology implied by that meaning.** Do not collapse this boundary by making graph/physical decisions in the frontend, and do not drag source-parser mechanics down into Graph IR.
+
 The semantic meaning of a J program must not depend on the selected backend.
 
 ## 2.1 Route-region boundary contract
