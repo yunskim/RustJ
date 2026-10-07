@@ -1,8 +1,8 @@
 {
   "scope": "Bounded observable sentence/value/error audit; not full NAME, event, Graph/A3 or compiled-route conformance",
   "platform": "win32",
-  "rust_revision": "84782fd+function-abandon-working-tree",
-  "rust_binary_sha256": "423ecdb4f779d7ec0bf43df4d3b7e6ba3976fa6cf76009f1bffdaa4d16683c6d",
+  "rust_revision": "144aa9b+nameless-transfer-working-tree",
+  "rust_binary_sha256": "b3a0beb82f3cbf5c82d6de3090e83fc435bdd23ce4bc730008aa999aaff98812",
   "rust_source_sha256": {
     "src/analysis.rs": "b764c57ca27aebdae39857870b631c59cb98d4e54c1af820d6e491db6f1772eb",
     "src/array_ops.rs": "16b2e2e099d96c013e959028aa8c231a4660405d956869a1b6f9f23c8f33fc3f",
@@ -42,12 +42,12 @@
     "src/numeric.rs": "b646a3848a46aefc553cc4a21080ae5527b6db90c1d8f346bef5d9cda75c85d5",
     "src/numeric_input.rs": "67ca0d38575f3e39598a0efe716ef868bcf57faa42e00571a9ef6d2ea203dd97",
     "src/opportunity.rs": "9205633c5e81a112eca27473b66c10d8e323a38ff260b4db88b4739da7607021",
-    "src/parser.rs": "8d9a06a522ecd698f61171a9f91d3c79e62a12915146561e722c9d1f07fab7b5",
+    "src/parser.rs": "d4391091edecd6257327828171dee6878f57a933879da097031aa8f53b47b1dd",
     "src/parser_capture.rs": "995a4edaab38c6fcfec82f184ceca143335c96849614041a1bb381b061e205c3",
     "src/physical.rs": "ec45c34d4ee691b216e3db1066553d38889e1f75bbccee80d5dd328100288fd8",
     "src/pool.rs": "d9e592ce85b6d82f7e7980dbe8f537f98b4e97dbf0ed5f39494f3ca5eaf65d7d",
     "src/primitive.rs": "159747ae085dab46027e01645e95ddb0c659e1af8bacd46497554548a93afec5",
-    "src/runtime.rs": "0b18d4d08004589c540c415d83e5d4703a948ea95bdcb3b0b1da870cabe1a37b",
+    "src/runtime.rs": "4f6168d37910a327b26cf2519c1118d94faae6bcfe1a6d3b0b3abf85fa93ac9e",
     "src/scanner.rs": "1ea51c5b63e311f4663878fa7be8d455fbabbafc94cc84b76b957931baa25540",
     "src/search_reference.rs": "ef90e299e0c40da5aa5a5b6e0089303476ad91dff10a309e802dbc49c73fbf38",
     "src/semantic.rs": "f00cc3eed3c4dbaa893458bf8e13713cc7b0faae5b4edbb15fa2d241de486de1",
@@ -62,7 +62,7 @@
     "src/value.rs": "5e841de33a6ceeecc8f43b3026aee0de7c70d7555039e26174e23c763675ac15",
     "Cargo.toml": "da6954ecceba891bd67e33bb6b434554b16c5dfb6cfb196219f3da7f14980961",
     "Cargo.lock": "f55d06bbb7b0b47bd324f51de6ff71790c735bd5c04fbf8592a60eb4c40b9b5c",
-    "tools/name_compatibility_audit.py": "86da70aee43e667efc399368a3529b7f11e2605f30341c8c4294f60c6fbaa0d8",
+    "tools/name_compatibility_audit.py": "9b25a1fb4b9c4369fd9fdc8e73caeaf548bb1d2940be123a06a1e932a208b4d4",
     "tools/oracle.py": "2837273ed79a6cb412d910e09761bfec8deb8b2dcfae69be822a0c623e113fc5"
   },
   "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
@@ -73,11 +73,11 @@
     "javx2.dll": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1"
   },
   "fixture_set": "name-abandon",
-  "fixtures": 27,
-  "observations": 108,
+  "fixtures": 37,
+  "observations": 148,
   "counts": {
-    "matched": 104,
-    "unsupported_gap": 4
+    "matched": 132,
+    "unsupported_gap": 16
   },
   "records": [
     {
@@ -962,7 +962,7 @@
           "error": "value error"
         },
         {
-          "error": "unsupported"
+          "error": "value error"
         }
       ],
       "differences": [
@@ -971,16 +971,6 @@
           "source": "h=:-conj_:+",
           "reference": {
             "error": "valence error"
-          },
-          "rust": {
-            "error": "unsupported"
-          }
-        },
-        {
-          "index": 3,
-          "source": "conj 0",
-          "reference": {
-            "error": "value error"
           },
           "rust": {
             "error": "unsupported"
@@ -1031,7 +1021,7 @@
           "error": "value error"
         },
         {
-          "error": "unsupported"
+          "error": "value error"
         }
       ],
       "differences": [
@@ -1044,18 +1034,1162 @@
           "rust": {
             "error": "unsupported"
           }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_transfer",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:c_:",
+        "c=:&",
+        "h=:-d+",
+        "h 3"
+      ],
+      "reference": [
+        {
+          "silent": true
         },
         {
-          "index": 3,
-          "source": "conj 0",
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_transfer",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:c_:",
+        "c=:&",
+        "h=:-d+",
+        "h 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_transfer",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:(c_:)",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_transfer",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:(c_:)",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_chain_transfer",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:e=:c_:",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_chain_transfer",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:e=:c_:",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_inline",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (c_:) +",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (c_:) +",
           "reference": {
-            "error": "value error"
+            "error": "valence error"
           },
           "rust": {
             "error": "unsupported"
           }
         }
       ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_inline",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (c_:) +",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (c_:) +",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_nested_inline",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (d=:c_:) +",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (d=:c_:) +",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_nested_inline",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (d=:c_:) +",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (d=:c_:) +",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_inline",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "unsupported_gap",
+      "sources": [
+        "f=:{{c=.@:\nh=.-c_:+\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "f 3",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_inline",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "unsupported_gap",
+      "sources": [
+        "f=:{{c=.@:\nh=.-c_:+\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "f 3",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_direct",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:{{c=.@:\nd=.c_:\nh=.-d+\nh y}}",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_direct",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:{{c=.@:\nd=.c_:\nh=.-d+\nh y}}",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_explicit",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:3 : 0\nc=.@:\nd=.c_:\nh=.-d+\nh y\n)",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "script",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_explicit",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:3 : 0\nc=.@:\nd=.c_:\nh=.-d+\nh y\n)",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "script",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_direct",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "f=:{{c=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_direct",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "f=:{{c=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_explicit",
+      "variant": "j.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "f=:3 : 0\nc=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y\n)",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "script",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_explicit",
+      "variant": "j.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "f=:3 : 0\nc=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y\n)",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "script",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
       "unobserved_suffix": []
     },
     {
@@ -3972,7 +5106,7 @@
           "error": "value error"
         },
         {
-          "error": "unsupported"
+          "error": "value error"
         }
       ],
       "differences": [
@@ -3981,16 +5115,6 @@
           "source": "h=:-conj_:+",
           "reference": {
             "error": "valence error"
-          },
-          "rust": {
-            "error": "unsupported"
-          }
-        },
-        {
-          "index": 3,
-          "source": "conj 0",
-          "reference": {
-            "error": "value error"
           },
           "rust": {
             "error": "unsupported"
@@ -4041,7 +5165,7 @@
           "error": "value error"
         },
         {
-          "error": "unsupported"
+          "error": "value error"
         }
       ],
       "differences": [
@@ -4054,18 +5178,1162 @@
           "rust": {
             "error": "unsupported"
           }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_transfer",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:c_:",
+        "c=:&",
+        "h=:-d+",
+        "h 3"
+      ],
+      "reference": [
+        {
+          "silent": true
         },
         {
-          "index": 3,
-          "source": "conj 0",
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_transfer",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:c_:",
+        "c=:&",
+        "h=:-d+",
+        "h 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_transfer",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:(c_:)",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_transfer",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:(c_:)",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_chain_transfer",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:e=:c_:",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_chain_transfer",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:@:",
+        "d=:e=:c_:",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_inline",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (c_:) +",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (c_:) +",
           "reference": {
-            "error": "value error"
+            "error": "valence error"
           },
           "rust": {
             "error": "unsupported"
           }
         }
       ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_group_inline",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (c_:) +",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (c_:) +",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_nested_inline",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (d=:c_:) +",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (d=:c_:) +",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_nested_inline",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "unsupported_gap",
+      "sources": [
+        "c=:@:",
+        "h=:- (d=:c_:) +",
+        "h=:-d+",
+        "h 3",
+        "c 0"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "h=:- (d=:c_:) +",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_inline",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "unsupported_gap",
+      "sources": [
+        "f=:{{c=.@:\nh=.-c_:+\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "f 3",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_inline",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "unsupported_gap",
+      "sources": [
+        "f=:{{c=.@:\nh=.-c_:+\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "valence error"
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "unsupported"
+        }
+      ],
+      "differences": [
+        {
+          "index": 1,
+          "source": "f 3",
+          "reference": {
+            "error": "valence error"
+          },
+          "rust": {
+            "error": "unsupported"
+          }
+        }
+      ],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_direct",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:{{c=.@:\nd=.c_:\nh=.-d+\nh y}}",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_direct",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:{{c=.@:\nd=.c_:\nh=.-d+\nh y}}",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_explicit",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:3 : 0\nc=.@:\nd=.c_:\nh=.-d+\nh y\n)",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "script",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_transfer_explicit",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "c=:7",
+        "f=:3 : 0\nc=.@:\nd=.c_:\nh=.-d+\nh y\n)",
+        "f 3",
+        "c"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "script",
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_direct",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "f=:{{c=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_direct",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "f=:{{c=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y}}",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "sentence",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_explicit",
+      "variant": "javx2.dll",
+      "route": "direct",
+      "status": "matched",
+      "sources": [
+        "f=:3 : 0\nc=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y\n)",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "script",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
+      "unobserved_suffix": []
+    },
+    {
+      "case": "nameless_conjunction_local_bare_explicit",
+      "variant": "javx2.dll",
+      "route": "semantic-reference",
+      "status": "matched",
+      "sources": [
+        "f=:3 : 0\nc=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y\n)",
+        "f 3"
+      ],
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "reference_transport": [
+        "script",
+        "sentence"
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "differences": [],
       "unobserved_suffix": []
     },
     {

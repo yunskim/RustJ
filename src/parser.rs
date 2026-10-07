@@ -1868,6 +1868,26 @@ fn apply_parse_row(
     queue_exhausted: bool,
     context: &mut ActionContext<'_>,
 ) -> Result<bool> {
+    // C's by-value abandon path can retain nameless conjunction tagging.
+    // Transport is supported, but consuming that transient stack value is
+    // not ordinary conjunction application. Keep this boundary after lookup
+    // and deletion, and after any nested assignment that already committed.
+    if !matches!(row, ParseRow::Assignment | ParseRow::Parenthesis) {
+        let range = match row {
+            ParseRow::MonadEdge | ParseRow::Adverb => 1..3,
+            ParseRow::MonadVVN => 2..4,
+            ParseRow::Hook if !stack.get(3).is_some_and(|item| is_cavn(item.class)) => 1..3,
+            _ => 1..4,
+        };
+        if stack[range]
+            .iter()
+            .any(|item| item.abandoned_nameless_conjunction)
+        {
+            return Err(Error::Unsupported(
+                "abandoned nameless conjunction application".into(),
+            ));
+        }
+    }
     Ok(match row {
         ParseRow::MonadEdge => {
             let mut phrase: Vec<_> = stack.drain(1..3).collect();
@@ -2146,6 +2166,7 @@ fn apply_parse_row(
             if let Some(host) = context.host.as_mut() {
                 let occurrence = value.occurrence;
                 let class = value.class;
+                let abandoned_nameless_conjunction = value.abandoned_nameless_conjunction;
                 let mut completed = CompletedParseResult::from_item(value, "assignment value")?;
                 if names.len() != 1 {
                     if names.is_empty()
@@ -2206,7 +2227,8 @@ fn apply_parse_row(
                     }
                 }
                 source.selection = None;
-                let result = completed.into_item()?;
+                let mut result = completed.into_item()?;
+                result.abandoned_nameless_conjunction = abandoned_nameless_conjunction;
                 stack.insert(0, result);
                 if queue_exhausted {
                     let name = single.or_else(|| {
@@ -2246,8 +2268,9 @@ fn apply_parse_row(
             let value = phrase.remove(0);
             let right = phrase.remove(0);
             let group_span = left.span().start..right.span().end;
+            let abandoned_nameless_conjunction = value.abandoned_nameless_conjunction;
 
-            let grouped = match value.value {
+            let mut grouped = match value.value {
                 ParseValue::Noun(expr, height) => Item::noun(
                     Expr {
                         origin: None,
@@ -2270,6 +2293,7 @@ fn apply_parse_row(
                     );
                 }
             };
+            grouped.abandoned_nameless_conjunction = abandoned_nameless_conjunction;
             stack.insert(0, grouped);
             true
         }
@@ -2624,6 +2648,8 @@ impl ParseValue {
 
 #[derive(Clone)]
 struct Item {
+    // Parser transport state, not a property of the immutable function value.
+    abandoned_nameless_conjunction: bool,
     frontend_occurrence: Option<std::num::NonZeroUsize>,
     class: ParseClass,
     value: ParseValue,
@@ -2705,6 +2731,7 @@ impl Item {
             flags: EnqueueFlags::default(),
             occurrence: None,
             frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2722,6 +2749,7 @@ impl Item {
             flags: EnqueueFlags::default(),
             occurrence: None,
             frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2738,6 +2766,7 @@ impl Item {
             flags: EnqueueFlags::default(),
             occurrence: None,
             frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2750,6 +2779,7 @@ impl Item {
             flags: EnqueueFlags::default(),
             occurrence: None,
             frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2762,6 +2792,7 @@ impl Item {
             flags: EnqueueFlags::default(),
             occurrence: None,
             frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2775,6 +2806,7 @@ impl Item {
             flags: EnqueueFlags::default(),
             occurrence: None,
             frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2787,6 +2819,7 @@ impl Item {
             flags: EnqueueFlags::default(),
             occurrence: None,
             frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -3043,6 +3076,10 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
             let (entity, deleted) = host
                 .take_name(&name, context.single_word)
                 .map_err(|e| e.at(span.clone()))?;
+            let abandoned_nameless_conjunction = matches!(&entity,
+                JEntity::Function(function)
+                if function.result_pos == FunctionPartOfSpeech::Conjunction
+                    && function.is_nameless_modifier());
             if let (Some(capture), Some(lookup)) = (&mut context.capture, lookup) {
                 capture.events.push(CaptureEvent::Abandon {
                     name: name.clone(),
@@ -3057,7 +3094,9 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
                     CompletedParseResult::function(function, span.clone(), VerbTarget::Derived)
                 }
             };
-            completed.into_item()?
+            let mut resolved = completed.into_item()?;
+            resolved.abandoned_nameless_conjunction = abandoned_nameless_conjunction;
+            resolved
         } else {
             let pos = match context.lookup.and_then(|lookup| lookup(&name)) {
                 Some(ParserNameBinding::Function(pos)) => Some(pos),

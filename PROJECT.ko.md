@@ -13522,7 +13522,7 @@ RustJ의 공개 오픈소스 배포 경로는 GNU General Public License version
 
 | 질문/사례 | 실제 판정 | 소유 단계 |
 |---|---|---|
-| jsource의 전체 표현력 | **아직 아님**. 문자열 단일·다중/computed target과 bounded noun/verb/adverb/explicit conjunction abandon 실행을 추가했다. boxed/AR target, locative, nameless conjunction abandon, deferred effect lowering, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target·abandon 실행 체크리스트 참조 |
+| jsource의 전체 표현력 | **아직 아님**. 문자열 단일·다중/computed target과 bounded noun/verb/adverb/explicit conjunction abandon 및 nameless conjunction 이름 이관 실행을 추가했다. boxed/AR target, locative, nameless conjunction abandon의 직접 적용, deferred effect lowering, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target·abandon 실행 체크리스트 참조 |
 | `a+a=:2`, `a=:b=:1`, 계산된 rank | runtime은 C와 일치하나 비실행 P/G/L에서 Unsupported. chained assignment 전체가 runtime 미지원이라고 말하면 틀린다 | P 단계 동적 construction/effect 경계, P8 |
 | `adv=:/` | Program의 ModifierValue와 POS는 보존하지만 J Graph가 modifier value lowering을 거부 | P8/A1/A2, frontend lexical 오류 아님 |
 | `". '1+2'` | P/G는 수용하고 L/runtime은 미지원. primitive 인식과 실행 지원을 분리 | lowering/runtime capability |
@@ -13577,7 +13577,7 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 | 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 진행 중 |
 | 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
 | 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
-| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon runtime 완료; nameless conjunction abandon/ordered lowering/locatives 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime 완료; nameless 직접 적용/ordered lowering/locatives 미완료 |
 | 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
 | 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
 
@@ -13647,3 +13647,18 @@ Frontend 감사 최종 갱신: **31 cases / 62 observations = 44 matched / 18 ru
 Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가하여 **34 cases / 68 observations = 50 matched / 18 runtime_gap**이다. 이전 31-case 집합의 고유 gap 9건은 그대로이며 이번 수치 증가는 추가한 정상 runtime 사례 6건이다. P는 **16 accepted / 16 Unsupported / syntax 1 / control 1**, G는 **15 / 17 / 1 / 1**, L은 **14 / 18 / 1 / 1**. 새 `Engine::parse_frontend` 성공과 binding을 포함한 P admission을 구분한다. machine report의 source/binary/DLL hash를 최종 실행 파일로 갱신했다. full J·C 오류 위치/문자열·Linux·GPU·GitHub CI 검증을 주장하지 않는다.
 
 다음 NAME 게이트: nameless conjunction의 별도 이름 이관과 직접 적용 차이를 parser action 계약으로 구분하고, noun/function TakeName을 실제 순서 있는 NAME effect IR로 lowering한다. 발견한 scope/binding identity, by-value 결과, 삭제 여부, 관측 오류 순서를 보존해야 하며 그 전에는 기존 Graph/Logical admission을 완화하지 않는다. locale/locative, boxed/AR target과 나머지 수치/primitive gap은 독립 후속 게이트다.
+
+2026-10-08 이름 이관 실행 계획:
+
+- [x] nameless conjunction의 abandon lookup/delete를 허용하고 parser Item에 적용 미지원 상태를 별도로 보존한다. semantic POS와 FunctionEntity를 변조하지 않는다.
+- [x] 대입·괄호는 상태를 유지하며 이름에 저장한 함수 자체에는 상태를 넣지 않는다. 이후 새 문장의 일반 조회는 정상 적용 가능하다. 문장 내부 대입 직후 직접 적용은 계속 Unsupported로 거절한다.
+- [x] global/local·연쇄/괄호 대입·single-word local 비삭제·실패 후 삭제/commit·capture 순서를 회귀 및 두 C DLL로 검증한다. C valence error와 Rust Unsupported 차이는 별도 gap으로 보고한다.
+- [x] Windows default/portable·fmt/clippy·Python 및 최종 비교 보고서를 갱신한다. ordered NAME effect IR은 다음 독립 구현 단위다.
+
+이 단계의 실제 계약은 `Item.abandoned_nameless_conjunction: bool`이다. 실제 abandon 결과가 nameless conjunction일 때만 설정하는 runtime parser 상태이며 FunctionEntity의 immutable identity·POS·저장된 binding에는 넣지 않는다. row 7 대입과 row 8 괄호는 이 상태를 그대로 전달한다. 그 외 소비 action은 실제 lookup/delete 및 이미 끝난 내부 대입 이후에 Unsupported로 중단하고 pending action·실패 capture를 보존한다. 새 일반 NAME lookup은 새 Item이므로 정상 conjunction 적용을 허용한다. 이는 C의 pointer tag를 Rust 함수 타입으로 흉내 낸 것이 아니며, 아직 C valence error를 구현했다는 뜻도 아니다. Unsupported는 J catch로 숨길 수 없다.
+
+예: `c=:@:` 이후 `d=:(c_:)` → `c` 삭제, `d`에 `@:` 저장; 다음 `h=:-d+`와 `h 3` → `-3`. 반면 `h=:- (d=:c_:) +`는 `c` 삭제·`d` 대입 후 Unsupported이며 `h`는 생성하지 않는다. 이후 `h=:-d+`는 정상이다. runtime capture는 삭제 전 binding observation, 실제 삭제 및 내부 commit 순서를 보존하고 ordered effect Graph 미지원으로 거절한다. 비실행 frontend의 `FunctionHead::TakeName` 전달과 binding/Graph/Logical 거절 계약은 변경하지 않았다.
+
+이름 이관 단계 최종 검증: Windows default/portable 각각 **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. `tests/name_abandon.rs`는 17개 테스트이며 이번에 세 회귀 테스트를 추가했다. `reports/name-abandon-windows.json`은 **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**이다. 새 정상 이관·local bare 사례 7개는 두 DLL·두 route의 **28/28** 일치다. 기존 직접 적용 4건과 추가 괄호/내부 대입/local 직접 적용 12건을 합친 네 종류의 오류 차이는 통과로 세지 않는다. 기존 별도 감사 **416/416**과 합하면 **548 matched / 16 unsupported_gap**다. frontend 감사는 **34 cases / 68 observations = 50 matched / 18 runtime_gap**으로 유지된다. report는 최종 소스·실행 파일/DLL hash를 기록한다. full J·C 오류 위치·Linux·GPU·GitHub CI 검증은 수행하지 않았다.
+
+다음 독립 구현 단위는 noun/function TakeName의 ordered NAME effect IR이다. lookup 시점의 scope/binding identity, by-value 결과, 실제 삭제와 single-word 특례, 후속 조회·대입·실패 순서 및 nameless 적용 admission을 명시적으로 표현한 뒤 Graph/Logical admission을 확대한다.

@@ -73,6 +73,8 @@ fn function_and_modifier_values_survive_abandon_and_rebinding() {
     e.eval("conj=:@:").unwrap();
     assert_eq!(e.eval("h=:-conj_:+").unwrap_err().kind(), "unsupported");
     // Unsupported is an admission boundary, never a successful C emulation.
+    assert_eq!(e.eval("conj 0").unwrap_err().kind(), "value error");
+    e.eval("conj=:@:").unwrap();
     e.eval("h=:-conj+").unwrap();
     scalar(&mut e, "h 3", -3);
 }
@@ -99,6 +101,92 @@ fn local_single_word_fast_path_and_assignment_target_are_distinct() {
     e.eval("f=:{{a_:=.3\na}}").unwrap();
     scalar(&mut e, "f 0", 3);
     scalar(&mut e, "a", 9);
+}
+
+#[test]
+fn nameless_conjunction_transfer_keeps_value_without_transient_parser_state() {
+    for transfer in ["d=:c_:", "d=:(c_:)", "d=:e=:c_:"] {
+        let mut e = Engine::new();
+        e.eval("c=:@:").unwrap();
+        let captured = e.eval_captured(transfer);
+        captured.result.unwrap();
+        captured.capture.verify().unwrap();
+        captured
+            .capture
+            .frontend
+            .as_ref()
+            .unwrap()
+            .verify()
+            .unwrap();
+        assert!(captured.capture.requires_ordered_effect_graph());
+        assert!(rustj::j_graph_ir::Plan::from_capture(&captured.capture).is_err());
+        assert!(captured.capture.events.iter().any(|event|
+            matches!(event, CaptureEvent::Abandon { name, deleted: true, .. } if name == "c")));
+        assert_eq!(e.eval("c 0").unwrap_err().kind(), "value error");
+        e.eval("c=:&").unwrap();
+        e.eval("h=:-d+").unwrap();
+        scalar(&mut e, "h 3", -3);
+    }
+}
+
+#[test]
+fn nameless_conjunction_inline_boundary_preserves_deletion_and_nested_commit() {
+    for application in ["h=:-c_:+", "h=:- (c_:) +", "h=:- (d=:c_:) +"] {
+        let mut e = Engine::new();
+        e.eval("c=:@:").unwrap();
+        let captured = e.eval_captured(application);
+        assert_eq!(captured.result.unwrap_err().kind(), "unsupported");
+        captured.capture.verify().unwrap();
+        captured
+            .capture
+            .frontend
+            .as_ref()
+            .unwrap()
+            .verify()
+            .unwrap();
+        assert!(captured.capture.events.iter().any(|event|
+            matches!(event, CaptureEvent::Abandon { name, deleted: true, .. } if name == "c")));
+        assert_eq!(e.eval("c 0").unwrap_err().kind(), "value error");
+        assert_eq!(e.eval("h 3").unwrap_err().kind(), "value error");
+        if application.contains("d=:") {
+            let abandon = captured
+                .capture
+                .events
+                .iter()
+                .position(|event| matches!(event, CaptureEvent::Abandon { .. }))
+                .unwrap();
+            let commit = captured
+                .capture
+                .events
+                .iter()
+                .position(|event| matches!(event, CaptureEvent::Commit { name, .. } if name == "d"))
+                .unwrap();
+            assert!(abandon < commit);
+            e.eval("h=:-d+").unwrap();
+            scalar(&mut e, "h 3", -3);
+        }
+    }
+    let mut e = Engine::new();
+    e.eval("c=:@:").unwrap();
+    e.eval("f=:{{try. h=.-c_:+ catch. 99 end.}}").unwrap();
+    assert_eq!(e.eval("f 0").unwrap_err().kind(), "unsupported");
+    assert_eq!(e.eval("c 0").unwrap_err().kind(), "value error");
+}
+
+#[test]
+fn nameless_conjunction_local_transfer_and_bare_fast_path() {
+    for definition in [
+        "f=:{{c=.@:\nd=.c_:\nh=.-d+\nh y}}",
+        "f=:3 : 0\nc=.@:\nd=.c_:\nh=.-d+\nh y\n)",
+        "f=:{{c=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y}}",
+        "f=:3 : 0\nc=.@:\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y\n)",
+    ] {
+        let mut e = Engine::new();
+        e.eval("c=:7").unwrap();
+        e.eval(definition).unwrap();
+        scalar(&mut e, "f 3", -3);
+        scalar(&mut e, "c", 7);
+    }
 }
 
 #[test]

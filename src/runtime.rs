@@ -1859,19 +1859,6 @@ impl Engine {
     }
 
     fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
-        if let Some(Binding {
-            value: JEntity::Function(function),
-            ..
-        }) = self.visible_binding(name)
-            && function.result_pos == FunctionPartOfSpeech::Conjunction
-            && function.is_nameless_modifier()
-        {
-            // The reference's general abandon path has different conjunction
-            // behavior from ordinary modifier stacking. Never claim equivalence.
-            return Err(Error::Unsupported(
-                "abandon conjunction compatibility".into(),
-            ));
-        }
         if let Some(frame) = self.local_frames.last_mut()
             && let Some(binding) = frame.names.get(name)
         {

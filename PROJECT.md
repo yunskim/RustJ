@@ -5265,7 +5265,7 @@ The 38/24 results and stage counts below are the pre-remediation baseline. Curre
 
 | Question | Finding | Owner |
 |---|---|---|
-| Full jsource expressiveness | Not yet: runtime supports single/multiple/computed string targets and bounded noun/verb/adverb/explicit conjunction abandon. Boxed/AR targets, locatives, nameless conjunction abandon, deferred-effect lowering and complex/extended/rational/overflow literal conversion remain unsupported | Existing F1/P4/numeric compatibility gates; noun-target and abandon checklists below |
+| Full jsource expressiveness | Not yet: runtime supports single/multiple/computed string targets and bounded noun/verb/adverb/explicit conjunction abandon plus nameless conjunction transfer. Boxed/AR targets, locatives, direct nameless conjunction abandon application, deferred-effect lowering and complex/extended/rational/overflow literal conversion remain unsupported | Existing F1/P4/numeric compatibility gates; noun-target and abandon checklists below |
 | Computed rank, `a+a=:2`, `a=:b=:1` | Runtime matches C; non-executing P/G/L reject them. Chained assignment is not universally unsupported at runtime | Dynamic construction/effect boundary, P8 |
 | `adv=:/` | Program preserves modifier/POS; Graph rejects modifier-value lowering | P8/A1/A2 |
 | execute primitive | P/G admit; L/runtime do not implement execution | Route/runtime capability |
@@ -5307,7 +5307,7 @@ Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset fr
 | 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
 | 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
 | 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
-| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon runtime complete; nameless conjunction abandon/ordered lowering/locatives pending |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime complete; direct nameless application/ordered lowering/locatives pending |
 | 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
 | 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
 
@@ -5377,6 +5377,21 @@ Follow-up final validation, 2026-10-08: native Windows default/portable each **6
 Frontend audit adds verb/adverb transfer and explicit conjunction cases: **34 cases / 68 observations = 50 matched / 18 runtime_gap**. The original 31-case set retains nine unique gaps; the increase is six additional successful runtime observations. P: **16 accepted / 16 Unsupported / one syntax / one control**; G: **15 / 17 / 1 / 1**; L: **14 / 18 / 1 / 1**. Distinguish new `Engine::parse_frontend` success from P admission, which also includes binding. Machine-report source/binary/DLL hashes identify the final executable. No claims of full J, C diagnostic location/text, Linux, GPU or GitHub CI validation.
 
 Next NAME gates: distinguish nameless conjunction transfer from direct application at parser-action boundaries, then lower noun/function TakeName into actual ordered NAME effect IR. Preserve found scope/binding identity, by-value result, actual deletion and observed error ordering; do not relax Graph/Logical admission before that. Locales/locatives, boxed/AR targets and remaining numeric/primitive gaps stay separate follow-ups.
+
+2026-10-08 name-transfer implementation checklist:
+
+- [x] Admit nameless conjunction abandon lookup/deletion; retain a separate application admission marker on parser Items, without changing semantic POS or FunctionEntity.
+- [x] Preserve the marker through assignment and parentheses, never in the stored function. A fresh ordinary lookup can apply the stored value; immediate application of a nested assignment remains Unsupported.
+- [x] Regress global/local, chained/grouped transfers, single-word local nondeletion, effects/commits retained after failure and capture order against both C DLLs. Report C valence error versus Rust Unsupported as a gap.
+- [x] Run Windows default/portable, fmt/clippy, Python and refresh final comparison reports. Ordered NAME effect IR remains the next independent implementation unit.
+
+The concrete contract is `Item.abandoned_nameless_conjunction: bool`, set only for an actual nameless conjunction abandon result. This runtime parser state is absent from immutable FunctionEntity identity, POS and stored bindings. Row 7 assignment and row 8 parentheses preserve it; other consuming actions stop with Unsupported after lookup/deletion and any completed nested commits, retaining pending action/failure capture. A fresh ordinary NAME lookup creates an unmarked Item and permits normal application. This does not change Rust function types to simulate C pointer tags or implement C's valence error. Unsupported remains non-catchable by J.
+
+Example: after `c=:@:`, `d=:(c_:)` deletes `c` and stores `@:` in `d`; subsequent `h=:-d+` and `h 3` yield `-3`. In contrast, `h=:- (d=:c_:) +` deletes `c`, commits `d`, then returns Unsupported without creating `h`. A subsequent `h=:-d+` succeeds. Capture retains the pre-deletion binding observation, actual deletion and nested commit order; admission still rejects it without ordered effect Graph support. Non-executing FunctionHead::TakeName transport and binding/Graph/Logical rejection remain unchanged.
+
+Final transfer validation: native Windows default/portable each **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. `tests/name_abandon.rs` now has 17 tests, with three new regressions. `reports/name-abandon-windows.json`: **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**. Seven new successful transfer/local-bare fixtures match **28/28** across both DLLs/routes. The original four inline gaps plus twelve new grouped/nested-assignment/local inline gaps represent four error-difference cases, never counted as passes. Existing separate audits remain **416/416**; combined **548 matched / 16 unsupported_gap**. Frontend remains **34 cases / 68 observations = 50 matched / 18 runtime_gap**. Reports identify final source/binary/DLL hashes. Full J, C diagnostic locations, Linux, GPU and GitHub CI were not tested.
+
+Next independent unit: ordered NAME effect IR for noun/function TakeName. Represent lookup-time scope/binding identity, by-value results, actual deletion/single-word exceptions, subsequent read/write/failure order and nameless application admission before widening Graph/Logical admission.
 
 ## License policy
 

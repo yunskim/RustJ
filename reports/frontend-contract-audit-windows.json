@@ -1,6 +1,6 @@
 {
   "scope": "Bounded admission, handoff and error audit; gaps are findings, not passes. C diagnostic locations are not compared.",
-  "revision": "84782fd32e6530a5258acaf78e18e00b626ab775",
+  "revision": "144aa9b91b7524f1d44956db4cdd9ffb9424e1d8",
   "rust_source_sha256": {
     "src\\analysis.rs": "b764c57ca27aebdae39857870b631c59cb98d4e54c1af820d6e491db6f1772eb",
     "src\\array_ops.rs": "16b2e2e099d96c013e959028aa8c231a4660405d956869a1b6f9f23c8f33fc3f",
@@ -40,12 +40,12 @@
     "src\\numeric.rs": "b646a3848a46aefc553cc4a21080ae5527b6db90c1d8f346bef5d9cda75c85d5",
     "src\\numeric_input.rs": "67ca0d38575f3e39598a0efe716ef868bcf57faa42e00571a9ef6d2ea203dd97",
     "src\\opportunity.rs": "9205633c5e81a112eca27473b66c10d8e323a38ff260b4db88b4739da7607021",
-    "src\\parser.rs": "8d9a06a522ecd698f61171a9f91d3c79e62a12915146561e722c9d1f07fab7b5",
+    "src\\parser.rs": "d4391091edecd6257327828171dee6878f57a933879da097031aa8f53b47b1dd",
     "src\\parser_capture.rs": "995a4edaab38c6fcfec82f184ceca143335c96849614041a1bb381b061e205c3",
     "src\\physical.rs": "ec45c34d4ee691b216e3db1066553d38889e1f75bbccee80d5dd328100288fd8",
     "src\\pool.rs": "d9e592ce85b6d82f7e7980dbe8f537f98b4e97dbf0ed5f39494f3ca5eaf65d7d",
     "src\\primitive.rs": "159747ae085dab46027e01645e95ddb0c659e1af8bacd46497554548a93afec5",
-    "src\\runtime.rs": "0b18d4d08004589c540c415d83e5d4703a948ea95bdcb3b0b1da870cabe1a37b",
+    "src\\runtime.rs": "4f6168d37910a327b26cf2519c1118d94faae6bcfe1a6d3b0b3abf85fa93ac9e",
     "src\\scanner.rs": "1ea51c5b63e311f4663878fa7be8d455fbabbafc94cc84b76b957931baa25540",
     "src\\search_reference.rs": "ef90e299e0c40da5aa5a5b6e0089303476ad91dff10a309e802dbc49c73fbf38",
     "src\\semantic.rs": "f00cc3eed3c4dbaa893458bf8e13713cc7b0faae5b4edbb15fa2d241de486de1",
@@ -59,7 +59,7 @@
     "src\\types.rs": "502531ee2eeba34a3508a93b1f4320d48d2f9e0d02d753bbdb82e5e3b1f3602b",
     "src\\value.rs": "5e841de33a6ceeecc8f43b3026aee0de7c70d7555039e26174e23c763675ac15"
   },
-  "probe_sha256": "612a9479d9ecb2624ab8dd7b7c1c97f0b7d4e5b36fa1984b25e20e708463876c",
+  "probe_sha256": "e09b42dd5e91a107f6b4fe682ac61aba5b2e43146d10ffd22e4ca70b50b46a88",
   "audit_source_sha256": {
     "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "c4c919516b2332f2cea370034489a4315a982bfb179a328aae58e3ee438e2753",
     "examples\\frontend_contract_probe.rs": "d40e77173750b7f7cc319899089af01fb60bad9bd640e5e59ab28047737254c4"
