@@ -2193,6 +2193,53 @@ NP-03 부정 테스트에 frame/locale/symbol 삭제·재생성과 stale stamp, 
 
 이번 변경은 **설계·감사 도구만 추가**했으며 Rust semantic 구현은 수정하지 않았다. Native Windows의 enqueuer 19 + modifier_scope 8 + parser_capture 41 + semantic 54 = **122 tests를 default/portable 각각 통과**, audit 분류 회귀 **6건 통과**. 조사한 C source pin과 DLL asset pin은 서로 다르므로 실제 oracle은 binary hash로 구별하며, pinned source에서 같은 DLL을 재빌드한 증거는 없다. 전체 upstream J suite·전체 reflection/locale suite·Miri·GPU·Linux·GitHub CI는 실행하지 않았다. NP 전체 수용 게이트는 계속 미완료다.
 
+#### 3.7.6 Parser→compiler의 구체 전달 계약: 지연 noun과 concrete JEntity (2026-10-07)
+
+**정정·결정:** parser reduction과 kernel execution은 같은 동작이 아니다. Compiler 경로의 기본 출력은 **아직 배열 연산을 실행하지 않은 semantic computation program**이다. noun-producing row 0–2를 줄인다는 것은 noun-result expression/reference를 stack에 넣는 것이며, 결과 POS가 Noun이라는 이유로 데이터를 계산하지 않는다. 별도의 unreduced AST와 계산된 결과를 항상 함께 보관하는 방식도 아니다. 아래 계약은 기존 단계들을 명확하게 한 것이며 새 mandatory IR pass를 추가하지 않는다.
+
+**현재 코드의 두 realization:** `parser::runtime_noun`은 host가 없으면 `Expr::Monad/Dyad`를 그대로 남기지만 host가 있으면 `RuntimeParserHost::apply`로 계산하여 concrete noun을 반환한다. `parse_analysis`/`StaticAnalyzer`는 전자, `parse_runtime_host`와 현재 semantic-reference runtime은 후자다. 후자는 J 동작을 확인하는 실행 경로이지 compiler가 모든 배열을 먼저 계산해야 한다는 설계가 아니다. `ParseCapture -> J Graph`는 실행 관찰·검증 경로이며 **실행을 선행해야만 graph를 만들 수 있는 필수 compiler 경로가 아니다**. 분석 경로에는 `Program -> BoundProgram -> j_graph_ir::Plan::from_bound_with_graph_facts`가 이미 있다.
+
+| 경계 | 다음 단계에 넘기는 실제/목표 형태 | 실행·저장 제한 및 미완료 |
+|---|---|---|
+| Word Formation/Enqueue → Parser | `EnqueuedWord` queue: spelling/payload/class, NAME lookup flags, original word/span | 이름의 concrete binding/POS·배열 계산을 lexical 단계에서 고정하지 않음 |
+| Parser+Semantic Construction → J Graph builder | 현재 `semantic::Program`: root `Expr`, 공유 `FunctionEntity` DAG, assignment metadata, reductions와 name/constructor observations. 지연 noun은 `Expr::{ReadName,Monad,Dyad}` 상당; literal·이미 확보한 noun만 concrete `Value` | `JEntity::{Noun(Value),Function(Arc<...>)}`는 **concrete entity transport**. Deferred expression을 `JEntity::Noun`인 척 넘기지 않음. 일반 ordered writes·full NAME events·continuation 확장은 아직 미완료 |
+| Binding/analysis → J Graph | `BoundProgram`의 읽기 의존성·pending write와 `j_graph_ir::Plan`: `ReadNoun`, `Apply(FunctionEntity, argument ValueIds)`, regions/source mapping와 graph facts | catalog NameVersion/shape는 분석 관찰·입력 계약 후보이지 실행 binding guard가 아님. `ValueId`는 계산 결과의 identity이며 버퍼·materialized noun이 아님 |
+| J Graph → Execution Semantic Lowering/A3 | `logical_ir::Plan`: operations/SSA values, `ReadNoun`, `VerbReference`, Basis/SemanticCall, SemanticCheck, writes 및 effect/error order | 고수준 J parent/operand·region origin 연결을 유지. 현재 single-block/Return-only; 일반 CFG·namespace/guard·runtime bridge가 완성된 것은 아님 |
+| A3 → native physical route 또는 검증된 external adapter | 검증한 computation region + 입력 binding/guard 계약, 이후 physical plan의 buffer/lease/readiness·target realization | native route의 schedule/representation/codegen은 downstream. external route에 native optimizer/scheduler를 강제하지 않음. 실제 CPU M4 연결과 fallback capability는 별도 수용 대상 |
+| 실행 완료 → namespace/caller | concrete noun 또는 function 결과와 해당 semantic point의 assignment commit/observable effects | 이때 실제 결과가 생긴다. 지연이 문장 사이에서 관찰 가능한 대입·오류를 임의로 늦추는 lazy-language 변경을 뜻하지 않음 |
+
+**고정 예: `b =: a + c * d`** — 이 예는 `a,c,d`가 Noun이라는 입력 계약/POS가 확보된 구간이다. 일반 이름의 POS를 모른 채 같은 parse graph를 무조건 확정하는 예가 아니다.
+
+~~~text
+Parser semantic output (not evaluated):
+  assignment target = b
+  root = Dyad(+, ReadName(a), Dyad(*, ReadName(c), ReadName(d)))
+  callable identities = primitive +, primitive *
+  source/reduction/name-use metadata = linked, not a second AST
+
+J Graph (illustrative IDs, right-to-left construction):
+  v0 = ReadNoun(d, eventD)
+  v1 = ReadNoun(c, eventC)
+  v2 = Apply(*, left=v1, right=v0)
+  v3 = ReadNoun(a, eventA)
+  v4 = Apply(+, left=v3, right=v2)
+  pending WriteName(b, v4)
+
+A3: resolved/guarded call semantics + checks + data/effect/error dependencies
+Physical: legal fused kernel or separate kernels + actual buffer/lease decisions
+Runtime: supply values at semantic read points, execute, commit b at its write point
+~~~
+
+이 그림의 `eventD` 등은 NP의 제안 provenance 연결을 나타내는 개념 표기이며, 현재 `ReadNoun{name,version}`에 event 필드가 구현됐다는 뜻이 아니다.
+
+이 graph의 read/apply/write는 **실행할 의미**이지 compiler가 지금 수행한 사건이 아니다. 외부 noun input은 실행 시 해당 read의 immutable value를 공급하거나 동등성을 증명한 입력 bridge로 전달한다. 이미 read된 snapshot을 후속 rebind로 바꾸지 않으며, 아직 실행하지 않은 read를 compile-time noun capture로 바꾸지도 않는다. 분석기로 이미 read/compute된 결과를 넘겨 graph를 복원하는 capture 경로와 혼동하지 않는다. NAME witness와 semantic sequencing을 보강하는 NP-01~07은 계속 미완료다.
+
+**파싱이 실제 값/POS에 의존하면:** literal rank operand 같은 이미 알려진 작은 값은 정상 constructor에 사용한다. 아직 계산하지 않은 값이 constructor result POS·후속 lookup·동적 source를 결정하면, **닫힌 prefix/region + 필요한 값/클래스 요청 + 정확한 parser continuation**을 semantic runtime/JIT 경계로 넘기는 것이 목표다. 이는 새로운 concrete Rust enum이 아니라 필요한 handoff 계약이다. 그 요청을 충족하기 위해 필요한 의존 부분을 실행하고, 원래 frame/locale·queue/stack·효과 상태에서 계속한다. 현재는 그 일반 continuation이 미구현이며 지원되지 않는 분석 경계를 명시한다. 가짜 noun/FunctionEntity로 파싱을 계속하거나 문장 전체를 다시 실행하지 않는다. 런타임 지원 경로가 있다는 이유로 분석 가능한 전체 구간을 항상 eager 실행하는 것을 compiler 기본 경로로 채택하지 않는다.
+
+**최소 수용 작업:** 기존 NP-02/04/05/07 및 M3→M4 게이트 안에서 (a) analysis→Program→Graph→A3까지 kernel 호출/배열 allocation 없이 연결되는 예, (b) runtime input binding과 source origin의 대응, (c) 이미 계산한 concrete 값과 deferred noun의 오용 거부, (d) guarded POS/NAME 변경·동적 constructor에서 정확한 boundary 보고를 검증한다. 새 병행 AST 정본이나 경쟁 checklist는 만들지 않는다.
+
+**이번 확인:** native Windows `static_explain 'data + data * data'`를 `data: Float[1000000000000]` metadata만으로 실행해 `ReadNoun` 3개·`Apply` 2개의 graph를 생성했다. 데이터 배열이나 해당 multiply/add 결과를 계산한 것이 아니다. 이것은 현재의 지연 graph 구성 증거이며 full runtime binding guard·allocation 계측·M4 end-to-end 검증은 아니다. 기존 execution-free semantic 회귀 2건은 default/portable 각각 통과했고 `git diff --check`도 통과했다. 이번에는 문서만 변경했으며 전체 suite·fmt/clippy·GitHub CI를 실행하지 않았다. 다음 구현 우선순위는 이 지연 경로를 실제 CPU 실행으로 닫는 것이며, eager capture를 compiler의 유일한 입력으로 만드는 것이 아니다.
+
 ### 3.8 sentence evaluation order와 namespace mutation
 
 J의 parser는 conventional frontend처럼 “문장 전체 AST를 만든 뒤 모든 name을 한 번에 resolve”하는 것으로 의미를 모델링하면 안 된다. current jsource의 `p.c`는 queue를 stack하면서 name lookup, parse reduction, verb execution, assignment를 한 sentence 안에서 진행하며 J의 **우측→좌측 평가 의미**를 실현한다.

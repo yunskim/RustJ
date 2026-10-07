@@ -717,6 +717,48 @@ Extend NP-03 negatives with scope/symbol/locale recreation and stale stamps, NP-
 
 This change adds design and audit tooling, with no Rust semantic change. Native Windows enqueuer 19 + modifier_scope 8 + parser_capture 41 + semantic 54 = **122 tests each on default/portable passed**, plus **6 audit-classification tests**. C source and DLL asset pins differ; binary hashes identify the supplied oracles, with no same-source rebuild claim. Full upstream J/reflection/locale suites, Miri, GPU, Linux and GitHub CI were not run. Full NP gates remain incomplete.
 
+#### Concrete parser→compiler handoff: deferred nouns versus concrete JEntity (2026-10-07)
+
+Canonical §3.7.6 clarifies that **parser reduction is not kernel execution**. The compiler path emits a semantic computation program with deferred noun-producing applications. It does not require a separate unreduced AST plus precomputed results. This clarifies existing stages rather than adding a mandatory IR pass.
+
+**Actual realizations:** `parser::runtime_noun` retains `Expr::Monad/Dyad` without a host, but calls `RuntimeParserHost::apply` and returns a concrete noun with a host. `parse_analysis`/`StaticAnalyzer` use the former; runtime parsing and the current semantic-reference evaluator use the latter. Runtime/capture execution is validation, not a required precomputation step for compilation. The analysis route already has `Program -> BoundProgram -> j_graph_ir::Plan::from_bound_with_graph_facts`.
+
+| Boundary | Handoff | Limit / gap |
+|---|---|---|
+| Enqueue→Parser | EnqueuedWord queue with payload/class, NAME flags, word/span | No lexical binding/POS freeze or array execution. |
+| Parser+Semantic Construction→Graph builder | Current `semantic::Program`: root Expr, shared FunctionEntity DAG, assignment/reduction/name/constructor metadata. ReadName/Monad/Dyad are deferred; literals/already captured nouns are concrete Values. | JEntity transports concrete noun/function entities, not deferred expressions. General ordered writes, NAME events and continuations remain incomplete. |
+| Binding/analysis→J Graph | BoundProgram dependencies/pending write; Plan with ReadNoun, Apply using value IDs, regions, source mappings and facts | Catalog versions/shapes are not runtime binding proofs. ValueId is not a buffer/materialized noun. |
+| J Graph→Execution Semantic Lowering/A3 | logical_ir::Plan with SSA operations, reads/references/calls/checks, writes and observable ordering | Preserve J origins. Current A3 is single-block/Return-only; general CFG/namespace/guard bridges incomplete. |
+| A3→native physical route or verified external adapter | Verified region/input/guard contracts, then representation/buffer/lease/readiness/target decisions | External routes need not use the native optimizer/scheduler. CPU M4 execution and fallback are separate acceptance gates. |
+| Execution→namespace/caller | Concrete results and effects/assignment commits at semantic points | Deferral is compilation, not an unrequested lazy-language change across observable sentence/error boundaries. |
+
+For `b =: a + c * d`, assuming a proven/guarded noun-POS input contract for `a,c,d`:
+
+~~~text
+Semantic Program (unevaluated):
+  target=b
+  root=Dyad(+, ReadName(a), Dyad(*, ReadName(c), ReadName(d)))
+  shared primitive identities +,* and source/reduction/name metadata
+
+J Graph (illustrative IDs, right-to-left construction):
+  v0=ReadNoun(d,eventD); v1=ReadNoun(c,eventC)
+  v2=Apply(*,left=v1,right=v0)
+  v3=ReadNoun(a,eventA); v4=Apply(+,left=v3,right=v2)
+  pending WriteName(b,v4)
+
+A3: call contracts/checks/data and effect/error dependencies
+Physical: legally fused or separate kernels with actual buffer/lease decisions
+Runtime: supply semantic read values, execute, commit at the write point
+~~~
+
+`eventD` etc. illustrate the pending NP provenance links; current `ReadNoun{name,version}` does not have that event field. These nodes express future execution, not computations performed by the compiler. Runtime inputs must satisfy the actual semantic read or a proven equivalent bridge. Never replace an already read snapshot after rebinding, or silently capture a future read at compilation time. Ordinary unknown POS cannot be assumed noun merely to build this example.
+
+**Value-dependent parsing:** Use already known small literal operands normally. If deferred contents determine constructor result POS, later lookup or dynamic source, the target handoff is a closed prefix/region, a requested value/class and an exact parser continuation. Execute only the required dependency portion and resume with correct frame/locale/queue/stack/effect state. This is a proposed boundary contract, not an implemented Rust enum or general continuation capability. Current unsupported analysis boundaries stay explicit; never invent concrete nouns/functions or replay the whole sentence after effects. Do not make eager execution of an otherwise analyzable region the compiler default.
+
+Keep acceptance under NP-02/04/05/07 and M3→M4: kernel/allocation-free analysis→Program→Graph→A3 examples, source/runtime-input mappings, rejection of concrete/deferred confusion, and correct POS/name/constructor boundaries. No second canonical AST or competing checklist.
+
+**Executed check:** native Windows `static_explain 'data + data * data'` produced three ReadNoun and two Apply nodes using only declared Float[1000000000000] metadata, with no data/result arrays computed. This proves the existing deferred graph path, not runtime binding guards, instrumented allocation bounds or M4 end-to-end execution. Two existing execution-free semantic regressions passed each on default/portable; `git diff --check` passed. This is a documentation-only change; the full suite, fmt/clippy and GitHub CI were not run. Close this path into actual CPU execution next; do not make eager capture the sole compiler input.
+
 #### Frontend file ownership
 
 `src/tokenizer.rs` owns word formation; `src/enqueuer.rs` owns word interpretation and environment flags; `src/parser.rs` owns class matching, stack reductions, construction and parser-time name/POS resolution. `src/semantic.rs` owns semantic objects, intrinsic rank-construction contracts and binding/version models. `scanner` and the old `semantic::parse` APIs are compatibility re-exports, not duplicate grammars. No stage chooses a backend or schedule.
