@@ -135,12 +135,16 @@ impl LiteralSourceWitness {
         let data = logical
             .values
             .get(value.0)
-            .ok_or(PhysicalPlanError::Invalid("missing original A3 literal value"))?;
+            .ok_or(PhysicalPlanError::Invalid(
+                "missing original A3 literal value",
+            ))?;
         let source_op = data.producer;
         let operation = logical
             .operations
             .get(source_op.0)
-            .ok_or(PhysicalPlanError::Invalid("missing original A3 literal operation"))?;
+            .ok_or(PhysicalPlanError::Invalid(
+                "missing original A3 literal operation",
+            ))?;
         let OpKind::Literal(literal) = &operation.kind else {
             return Err(PhysicalPlanError::Unsupported(
                 "literal witness requires an original A3 literal",
