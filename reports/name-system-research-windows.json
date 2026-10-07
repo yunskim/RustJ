@@ -1,0 +1,293 @@
+{
+  "platform": "win32",
+  "scope": "C name semantics research; not RustJ conformance or parallel execution",
+  "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+  "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "revision_note": "Recorded research asset revisions; SHA256 identifies actual supplied files.",
+  "source_sha256": {
+    "p.c": "3b2ec598720e94951b5f5648e9e9850dc74e3d80d06310b2b447f2912482125d",
+    "sc.c": "1abfd822020758ed28b15011f36d6a2911304bbb1c62361b7cfa78cab0ef54aa",
+    "s.c": "7f45e6523d5651559ade67cbf2a3a109b093ca177f0e20184e52fcb4b8848ffd",
+    "sn.c": "02c71db4fb9cf49ecde64995cf9300f7c715313919cfdab3fbf86194af0f6d14",
+    "cx.c": "f22c05b7bfacf007e62766f90a471422e17108101b8bbff4c0357b69fcbf837e",
+    "jtype.h": "2a6fc646eb60270bbba35a9fbbfc6e50abb1158e63dce81574e67027e287a4c4"
+  },
+  "reference_sha256": {
+    "j.dll": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+    "javx2.dll": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1"
+  },
+  "cases": 16,
+  "passed": 16,
+  "records": [
+    {
+      "variant": "j.dll",
+      "case": "noun_snapshot",
+      "setup": [
+        "a=:1",
+        "b=:a",
+        "a=:2"
+      ],
+      "query": "b",
+      "actual": {
+        "type": 1,
+        "shape": [],
+        "data": [
+          1
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "j.dll",
+      "case": "verb_late_lookup",
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "f=:*"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          1
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "j.dll",
+      "case": "undefined_function_later_defined",
+      "setup": [
+        "g=:later",
+        "later=:-"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          -3
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "j.dll",
+      "case": "expected_pos_mismatch",
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "f=:7"
+      ],
+      "query": "g 3",
+      "actual": {
+        "error": "domain error"
+      },
+      "passed": true
+    },
+    {
+      "variant": "j.dll",
+      "case": "sentence_lookup_order",
+      "setup": [
+        "a=:1"
+      ],
+      "query": "a + a=:2",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          4
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "j.dll",
+      "case": "direct_locative_call",
+      "setup": [
+        "f_probe_=:+",
+        "g=:f_probe_",
+        "f_probe_=:*"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          1
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "j.dll",
+      "case": "fixed_function",
+      "setup": [
+        "f=:+",
+        "g=:f f.",
+        "f=:*"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          3
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "j.dll",
+      "case": "noun_abandon",
+      "setup": [
+        "a=:7"
+      ],
+      "query": "a_:",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          7
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "noun_snapshot",
+      "setup": [
+        "a=:1",
+        "b=:a",
+        "a=:2"
+      ],
+      "query": "b",
+      "actual": {
+        "type": 1,
+        "shape": [],
+        "data": [
+          1
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "verb_late_lookup",
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "f=:*"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          1
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "undefined_function_later_defined",
+      "setup": [
+        "g=:later",
+        "later=:-"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          -3
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "expected_pos_mismatch",
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "f=:7"
+      ],
+      "query": "g 3",
+      "actual": {
+        "error": "domain error"
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "sentence_lookup_order",
+      "setup": [
+        "a=:1"
+      ],
+      "query": "a + a=:2",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          4
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "direct_locative_call",
+      "setup": [
+        "f_probe_=:+",
+        "g=:f_probe_",
+        "f_probe_=:*"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          1
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "fixed_function",
+      "setup": [
+        "f=:+",
+        "g=:f f.",
+        "f=:*"
+      ],
+      "query": "g 3",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          3
+        ]
+      },
+      "passed": true
+    },
+    {
+      "variant": "javx2.dll",
+      "case": "noun_abandon",
+      "setup": [
+        "a=:7"
+      ],
+      "query": "a_:",
+      "actual": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          7
+        ]
+      },
+      "passed": true
+    }
+  ]
+}

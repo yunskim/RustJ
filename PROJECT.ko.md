@@ -2134,6 +2134,28 @@ f =: *
 
 등록 양식: `source revision | NAME occurrence/event→SSA IDs | oracle/binary | positive + one-invariant-negative | proof/guard owner | PASS/FAIL/UNRUN | CI SHA`. **문서 설계 완료가 F1/P4/P5/M3 구현 완료를 뜻하지 않는다.**
 
+#### 3.7.4 NAME 최적화 캐시와 멀티프로세서 인계 계약 (2026-10-07; 설계 전용)
+
+§3.7.3과 **NP-01~07이 유일한 수용 체크리스트**다. 이 절은 최신 NAME 감사(`cd6ac8c`)에 실행 수명·동시성·캐시 계약을 보강하며 새로운 NAME 구현이 완료됐다는 뜻이 아니다. 이전 채팅의 인계는 저장소의 M3→M4 계약을 기준으로 이어간다. 첫 구현은 단일 CPU로 닫고, 동일 계약을 이후 worker/device 실행으로 확장한다.
+
+**Identity와 저장 비용(NP-01/03/04):** Engine 소유 interner의 `NameId`는 spelling 저장·해시 비용만 줄인다. 전역 의미 identity가 아니다. 제안 `BindingStamp = (EngineIdentity, ScopeInstanceIdentity, SymbolGeneration, Revision)`은 frame 재사용, expunge 후 같은 이름 재생성, locale 삭제·재생성에 따른 ABA를 막는다. 현재 per-name `NameVersion`을 이 stamp 전체로 간주하지 않는다. 요청한 NAME/검색 시작점과 실제 발견된 binding key도 구분한다. occurrence ID는 span과 expanded-word 위치를 포함하며 같은 spelling의 중복 출현을 병합하지 않는다. Provenance sidecar는 ID·요약·증거만 보유한다. 모든 중간 noun을 `Arc<Value>`로 붙잡으면 liveness와 버퍼 재사용이 훼손되므로 payload 수명은 실제 dataflow와 실행 lease가 소유한다.
+
+**Guard에서 실행으로의 인계(NP-03/05):** guard 성공 후 포인터만 가져오는 방식은 검사와 사용 사이 재바인딩을 허용한다. 의미론적 lookup 지점에서 namespace owner가 lookup/POS/guard 검증과 immutable entity/value lease 확보를 하나의 일관된 작업으로 수행한다. 최초 단일 owner에서는 순서화된 실행으로, 향후 공유 namespace에서는 lock 또는 검증된 snapshot protocol로 구현할 수 있다. 이 lease는 **이미 수행한 read/call lookup 하나**를 보호하며 함수 본문의 다른 동적 NAME까지 고정하지 않는다. Guard footprint에는 local absence, path epoch, indirect holder와 실행 locale가 포함된다. Unknown namespace effect/foreign call은 증거 갱신 또는 분석 장벽이며, guard miss 후 이미 일어난 효과를 문장 전체 replay로 반복하지 않는다.
+
+**최적화에 사용하는 방법(NP-04/05):** source NAME → resolution event → semantic function/value identity → relevant dtype/rank/shape/effect facts → proof/guard → specialization 순서를 유지한다. 예를 들어 `f`가 Add로 관찰되면 fusion 후보를 만들 수 있지만 call-time target/POS 및 lookup 의존성이 검증돼야 Add로 실행할 수 있다. `f`의 spelling을 primitive dispatch key로 사용하지 않는다. Summary cache와 executable cache는 분리하고, 관련 binding stamp·lookup dependencies·semantic identity·필요한 argument facts를 키로 삼는다. 실행 코드 캐시는 추가로 target/numeric policy를 포함한다. Shape와 상수를 무조건 전부 키에 넣지 않으며 bounded cache와 merge/widening을 적용한다. 동일 구조의 함수는 적법한 범위에서 코드를 공유하되 occurrence/source 진단은 별도 mapping으로 보존한다.
+
+| 배열 compiler의 실제 구조 | RustJ에 적용할 설계 판단 |
+|---|---|
+| [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html)의 typed input/constant/intermediate 변수 | lookup으로 확보한 noun은 explicit SSA input/constant carrier로 전달하고 원 NAME/event는 sidecar에 남긴다. JAX의 trace-time global 고정은 가져오지 않는다. |
+| [PyTorch Dynamo](https://docs.pytorch.org/docs/2.14/user_guide/torch_compiler/compile/programming_model.dynamo_core_concepts.html)의 guards·graph breaks | 동적 NAME 구간과 검증된 배열 region의 경계를 명시한다. J의 POS·locale·오류 순서를 보존하는 continuation은 RustJ가 별도로 소유한다. |
+| [OpenXLA HLO→Thunks](https://openxla.org/xla/hlo_to_thunks)의 schedule 이후 buffer assignment | NAME/SSA identity로 주소나 버퍼 재사용을 결정하지 않는다. alias/liveness/readiness 증명 후 physical allocation과 실행 수명을 결정한다. |
+
+**Worker/device 경계(NP-05):** namespace owner가 원래 J 시점에 확보한 immutable value versions, 검증된 callable 또는 닫힌 array region, readiness/effect/error dependencies와 leases를 physical 실행에 넘긴다. CPU worker가 임의 시점에 원 NAME을 재조회하지 않는다. Region 안에 더 늦은 동적 조회가 필요하면 semantic boundary를 유지하고 그 지점에서 owner로 돌아간다. Lease는 enqueue가 아닌 실제 작업 완료까지 유지한다. 별도 process에서는 raw pointer/Engine-local NameId를 직렬화하지 않고 value/region transport와 수신 측 identity remapping을 명시한다. 이것은 shared mutable namespace를 프로세스 간 자동 복제하는 설계가 아니다. CUDA 구현은 계속 보류다.
+
+**검증 증거와 남은 구현(NP-07):** [native Windows C probe](tools/name_system_research.py)와 [기계 판독 결과](reports/name-system-research-windows.json)를 추가했다. noun snapshot, verb late lookup, undefined→defined, 기대 POS 오류, 문장 내 대입/조회 순서, direct locative, `f.` 고정, `name_:` abandon의 **8건 × C j64/AVX2 = 16/16 PASS**다. Source pin `13994ffa…`와 reference asset pin `ded7793…`은 별개이고 JSON에 실제 파일 SHA256을 기록한다. 재현: native Windows Python으로 `tools/name_system_research.py --assets-root <reference-assets-checkout>` 실행. 이 결과는 **C 의미 조사**이며 RustJ locative/abandon 구현이나 NP-07 전체 차분 통과가 아니다. 통합 기준 `cd6ac8c`의 깨끗한 작업 트리에서는 `cargo test --locked [--features portable] --test semantic --test parser_capture name`으로 default/portable 각각 **17/17 PASS**, `test_oracle_protocol.py` **9/9 PASS**, `git diff --check`를 확인했다. 전체 Rust suite·fmt/clippy·Linux·GPU·GitHub CI는 이번 설계 변경에서 실행하지 않았다.
+
+NP-03 부정 테스트에 frame/locale/symbol 삭제·재생성과 stale stamp, NP-04에 최적화 후 provenance 및 중간 payload 비보유, NP-05에 guard→lease 사이 재바인딩·worker 완료 전 buffer reuse·효과 이후 guard miss를 추가한다. 구현 순서는 NP-01/02 occurrence/event → NP-03 namespace/stamp → NP-04 IR 연결 → NP-05 guard/lease → NP-06 특수 NAME → NP-07 독립 차분이다. **모든 전체 수용 게이트는 계속 미완료**이며 C probe 일부 통과로 체크하지 않는다.
+
 ### 3.8 sentence evaluation order와 namespace mutation
 
 J의 parser는 conventional frontend처럼 “문장 전체 AST를 만든 뒤 모든 name을 한 번에 resolve”하는 것으로 의미를 모델링하면 안 된다. current jsource의 `p.c`는 queue를 stack하면서 name lookup, parse reduction, verb execution, assignment를 한 sentence 안에서 진행하며 J의 **우측→좌측 평가 의미**를 실현한다.
