@@ -2061,7 +2061,8 @@ future CFG lowering이 추가될 때 필요한 최소 증명:
 
 ~~~text
 NameOccurrence {
-  id, original_spelling, form: Simple|Direct|Indirect|ByValueAbandon|Special,
+  id, original_spelling, address_form: Simple|Direct|Indirect,
+  read_policy: Ordinary|ByValue|ByValueAndAbandon, special_operand?,
   enqueue_word_index, source_span, parser_use_site
 }
 NameResolutionEvent {
@@ -2155,6 +2156,42 @@ f =: *
 **검증 증거와 남은 구현(NP-07):** [native Windows C probe](tools/name_system_research.py)와 [기계 판독 결과](reports/name-system-research-windows.json)를 추가했다. noun snapshot, verb late lookup, undefined→defined, 기대 POS 오류, 문장 내 대입/조회 순서, direct locative, `f.` 고정, `name_:` abandon의 **8건 × C j64/AVX2 = 16/16 PASS**다. Source pin `13994ffa…`와 reference asset pin `ded7793…`은 별개이고 JSON에 실제 파일 SHA256을 기록한다. 재현: native Windows Python으로 `tools/name_system_research.py --assets-root <reference-assets-checkout>` 실행. 이 결과는 **C 의미 조사**이며 RustJ locative/abandon 구현이나 NP-07 전체 차분 통과가 아니다. 통합 기준 `cd6ac8c`의 깨끗한 작업 트리에서는 `cargo test --locked [--features portable] --test semantic --test parser_capture name`으로 default/portable 각각 **17/17 PASS**, `test_oracle_protocol.py` **9/9 PASS**, `git diff --check`를 확인했다. 전체 Rust suite·fmt/clippy·Linux·GPU·GitHub CI는 이번 설계 변경에서 실행하지 않았다.
 
 NP-03 부정 테스트에 frame/locale/symbol 삭제·재생성과 stale stamp, NP-04에 최적화 후 provenance 및 중간 payload 비보유, NP-05에 guard→lease 사이 재바인딩·worker 완료 전 buffer reuse·효과 이후 guard miss를 추가한다. 구현 순서는 NP-01/02 occurrence/event → NP-03 namespace/stamp → NP-04 IR 연결 → NP-05 guard/lease → NP-06 특수 NAME → NP-07 독립 차분이다. **모든 전체 수용 게이트는 계속 미완료**이며 C probe 일부 통과로 체크하지 않는다.
+
+#### 3.7.5 추가 배열 compiler 비교와 NAME 호환성 재검토 (2026-10-07)
+
+**판정:** §3.7.3/4의 NAME carrier는 필요한 출발점이지만 충분한 compiler 계약이나 jsource 호환 구현은 아니다. 이름 출처 보존에 더해 **SSA use-def/CFG 합류, namespace effects, alias·escape·liveness, shape facts의 범위, transformation provenance와 verifier**가 있어야 최적화의 적법성을 검증할 수 있다. 다음은 upstream 자료에서 관찰한 구조와 RustJ에 대한 설계 판단을 구분한 보강이다. 새 IR 계층을 의무화하지 않는다.
+
+| 추가 참조 / upstream 관찰 | RustJ에 채택할 부분 | 그대로 채택할 수 없는 부분 |
+|---|---|---|
+| [Futhark language reference §3.10/3.11](https://futhark.readthedocs.io/en/latest/language-reference.html): size variables, branch/loop alias 합류와 fixed point, consuming parameter와 alias-free return | 함수 요약에 argument/result alias·escape·read/write 정보; CFG 합류와 loop fixed point; 실제 입력 값의 shape에서 유도한 size identity | consuming type과 higher-order 제약을 J 문법 제한으로 추가하지 않는다. 일반 J는 alias가 살아 있으면 copy/다른 적법한 실행을 선택한다. |
+| [TVM Relax](https://tvm.apache.org/docs/deep_dive/relax/learning.html), [Var/DataflowVar/MatchCast API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html): visible/dataflow variable 구분, symbolic shape, runtime structural check, pure dataflow region | J NAME와 SSA 내부 변수 구분; shape symbol을 source spelling과 분리; proof로 닫힌 array region과 runtime semantic region의 명시 경계 | pure라는 분류만으로 J error·NAME lookup의 reorder가 허용되지는 않는다. `MatchCast` 스타일 검사는 J에 맞는 오류 시점/guard failure 계약이 필요하다. |
+| [MLIR One-Shot Bufferization](https://mlir.llvm.org/docs/Bufferization/): tensor SSA use-def와 read-after-write conflict 분석 후 in-place/copy 선택 | noun snapshot의 alias와 생존 reader를 추적하고 마지막 semantic use 및 worker completion을 만족할 때만 버퍼 재사용 | binding version·NameId·reference count 하나를 uniqueness/alias/liveness 증명으로 사용하지 않는다. |
+
+**다음 단계로 넘길 carrier의 보완(NP-01~06):**
+
+1. **문법 축을 직교화:** §3.7.3의 개념 예시에서 `ByValueAbandon`을 locative와 배타적인 form으로 두었던 표기를 수정했다. `address_form`(simple/direct/indirect와 holder/terminal selector), `read_policy`(ordinary/by-value/by-value+abandon), special operand/context flags를 따로 보존한다. 원본 spelling을 없애거나 parser 전에 실제 binding을 고정하지 않는다. Numeric debug-frame locative와 implicit operand의 정확한 분류는 pinned source와 차분으로 닫는다.
+2. **SSA/CFG와 namespace를 별도 합류:** `ReadNoun(event) -> ValueId`는 실행 시점의 read이며 compile-time 환경 캡처가 아니다. branch는 도달 가능한 값·facts·alias를 block arguments/phi 상당으로 합류하고, loop는 widening/fixed point를 적용한다. `NameRef`와 namespace state는 별도 효과 의존성으로 유지한다. 한쪽 branch의 binding proof를 합류 이후 무조건 적용하지 않는다. 현재 A3는 single-block/Return-only이므로 일반 NAME CFG 특수화는 미구현이다.
+3. **요약을 값과 호출에 연결:** dtype/rank/shape constraints, alias/escape, effect/error 및 nested dynamic NAME dependency는 관련 value/call 분석에 둔다. Source NAME spelling이나 불변 FunctionEntity identity에 호출별 관찰을 넣지 않는다. Named function target guard가 성공해도 함수 본문의 dynamic name이 자동으로 stable/pure가 되지 않는다. Unknown call/execute는 보수적인 effect summary를 가진다.
+4. **Provenance는 일대일이 아님:** fold/CSE/fusion/inlining 후 한 노드가 여러 occurrence/event에서 유래할 수 있다. Interned origin-set/공유 derivation DAG 상당의 many-to-many mapping으로 보존하되 실제 runtime lookup 사건을 중복 실행하지 않는다. 제거된 체크/조회에는 proof·guard·order witness를 연결한다. Source metadata만으로 eliminated operation의 적법성을 증명하지 않는다.
+5. **Semantic state와 analysis state 구분:** 실제 조회 결과는 noun snapshot, expected-POS NameRef, constructor capture, 미정의 일반 function reference, 또는 J 오류다. `Unknown/Observed/GuardRequired/ProvenStable`은 별도 분석 상태다. 미정의 일반 NAME를 항상 즉시 Value 오류로 바꾸거나 `Unknown`을 J 오류처럼 실행하지 않는다.
+
+**실제 구현을 C와 비교한 범위:** [audit 도구](tools/name_compatibility_audit.py)와 [Windows 결과](reports/name-compatibility-windows.json)는 `c151f36` runtime source의 **26개 독립 stateful fixture × j64/AVX2 × direct/semantic-reference = 104건**을 비교했다. **64 matched, 40 unsupported_gap, semantic mismatch 0**이며 각 조합은 같은 **16개 fixture 일치 / 10개 미지원**이다. 성공률을 전체 J NAME 호환율로 해석하지 않는다. 모든 setup 문장과 관찰한 query의 dtype/shape/data 또는 오류 종류를 비교하고, CLI가 unsupported definition에서 입력을 중단한 경우 미관찰 suffix를 별도 기록한다. C adapter는 기존 `Oracle.eval`의 assignment/result 관찰을 사용하므로 내부 lookup 사건·POS reflection·namespace 전체 상태의 동등성을 검사한 것은 아니다.
+
+| NAME 기능 | 이 audit 및 코드 조사에서 확인한 현재 경계 |
+|---|---|
+| 일반 noun snapshot, array alias/reshape 후 기존 값 유지, 실패한 RHS의 binding 보존 | 해당 fixture들은 두 DLL·두 runtime 경로에서 일치. 모든 alias/storage encoding을 검증했다는 뜻은 아님 |
+| 일반 verb late lookup·alias chain·undefined→defined·미정의 호출·기대 POS 오류, 문장 내 대입/조회 순서 | 해당 fixture 일치. rank/header 변화·recursive/self·모든 train/constructor 순서는 추가 수용 필요 |
+| named adverb construction, nameless modifier alias, conjunction alias | 선정 fixture 일치. **모든 function은 동일한 late 정책**이라고 일반화하지 않음 |
+| straight-line explicit **modifier**의 local shadow/unbound fallback | 해당 fixture 일치. `3 :` 일반 explicit verb의 local 호출 두 fixture는 Unsupported; local frame 전체 미구현이라고도 하지 않음 |
+| direct/base/indirect locative, 실행 locale 문맥 | fixture Unsupported. source grammar 일부 검사는 있으나 locale namespace/path·실행 전환/복원 호환은 미완료 |
+| `name_:`, `f.`, 계산된 단일/복수 NAME 대입 | fixture Unsupported. C 조사 통과를 Rust 구현 통과로 승격하지 않음 |
+| locale 생성/삭제·path 한 단계·numeric/debug-frame locative·special `m n u v x y`의 전체 조합 | 이번 실행 audit 미검증. NJ/NP 수용 게이트 유지 |
+| name reflection `4!:`/`5!:`, execute `".`, recursion/escape/fix, namespace mutation 후 guard invalidation | 전체 호환 미검증. 관찰 가능한 name class/list/representation 및 first error·effect trace까지 NP-06/07 확대 필요 |
+| provenance 기반 compiled specialization, CFG guard, native M4 및 worker/device 인계 | 설계 단계/전체 수용 미완료. `--semantic-reference`는 컴파일된 CPU route가 아님 |
+
+**검증과 구현 순서:** NP-01/02 event+직교 NAME syntax → NP-03 error-bearing locale namespace/stamp → NP-04 use-def+many-origin mapping → NP-05 effect/alias summaries·guard/lease verifier → NP-06 특수 NAME/reflective semantics → NP-07 runtime/event/Graph/A3/실제 compiled route 차분. 각 NP-V 부정 테스트에 branch-only proof escape, loop namespace clobber, merged origin 유실, 살아 있는 noun alias overwrite, nested NameRef 의존성 누락을 연결한다. 단일 CPU 경로의 수용 전에 병렬 worker가 namespace를 재해석하게 만들지 않는다.
+
+이번 변경은 **설계·감사 도구만 추가**했으며 Rust semantic 구현은 수정하지 않았다. Native Windows의 enqueuer 19 + modifier_scope 8 + parser_capture 41 + semantic 54 = **122 tests를 default/portable 각각 통과**, audit 분류 회귀 **6건 통과**. 조사한 C source pin과 DLL asset pin은 서로 다르므로 실제 oracle은 binary hash로 구별하며, pinned source에서 같은 DLL을 재빌드한 증거는 없다. 전체 upstream J suite·전체 reflection/locale suite·Miri·GPU·Linux·GitHub CI는 실행하지 않았다. NP 전체 수용 게이트는 계속 미완료다.
 
 ### 3.8 sentence evaluation order와 namespace mutation
 

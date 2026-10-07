@@ -634,7 +634,8 @@ The declarative class matcher is unified now. Full runtime semantic actions, mod
 **Separate identities, potentially as sidecars on existing data structures:**
 
 ~~~text
-NameOccurrence {id, original_spelling, form: Simple|Direct|Indirect|ByValueAbandon|Special,
+NameOccurrence {id, original_spelling, address_form: Simple|Direct|Indirect,
+                read_policy: Ordinary|ByValue|ByValueAndAbandon, special_operand?,
                 enqueue_word_index, source_span, parse_use_site}
 NameResolutionEvent {occurrence_id,
    time: StackNounRead|StackPOS|ConstructorRead|CallLookup|AssignmentTarget|LocaleRead|Abandon,
@@ -679,6 +680,42 @@ Canonical §3.7.4 extends the NAME audit at `cd6ac8c`; **NP-01–07 remain the s
 **Evidence (NP-07):** Added [native Windows C probe](tools/name_system_research.py) and [machine-readable results](reports/name-system-research-windows.json): noun snapshot, verb late lookup, undefined→defined, expected-POS error, intra-sentence assignment/read order, direct locative, `f.` fixing and `name_:` abandon; **8 cases × C j64/AVX2 = 16/16 PASS**. Source pin `13994ffa…` and reference asset pin `ded7793…` are distinct; actual file SHA256 hashes are recorded. Reproduce with native Windows Python: `tools/name_system_research.py --assets-root <reference-assets-checkout>`. This is C research, not RustJ locative/abandon support or completion of NP-07. On the clean integration baseline `cd6ac8c`, `cargo test --locked [--features portable] --test semantic --test parser_capture name` passed **17/17 each** for default and portable; `test_oracle_protocol.py` passed **9/9**, and `git diff --check` passed. The full Rust suite, fmt/clippy, Linux, GPU and GitHub CI were not run for this design change.
 
 Extend NP-03 negatives with scope/symbol/locale recreation and stale stamps, NP-04 with provenance after optimization and no intermediate payload retention, and NP-05 with rebinding between guard and lease, premature worker-buffer reuse and guard failure after effects. Implement NP-01/02 events → NP-03 namespace/stamps → NP-04 IR links → NP-05 guards/leases → NP-06 special NAME → NP-07 differential execution. **Full acceptance gates remain incomplete** despite the C research subset passing.
+
+#### Additional array-compiler review and NAME compatibility audit (2026-10-07)
+
+**Conclusion:** The §3.7.3/4 NAME carrier is necessary but insufficient for compiler legality or jsource compatibility. It additionally requires SSA use-def/CFG joins, namespace effects, alias/escape/liveness analysis, scoped shape facts, transformation provenance and verifiers. These are refinements on existing layers, not mandatory new IR layers. NP-01–07 remain the acceptance checklist.
+
+| Primary reference and observed mechanism | RustJ adaptation and limitation |
+|---|---|
+| [Futhark §3.10/3.11](https://futhark.readthedocs.io/en/latest/language-reference.html): size variables, branch/loop alias joins and fixed points, consuming parameters and fresh returns | Carry argument/result alias, escape and read/write summaries; merge across CFG and iterate loops. Derive size identities from actual value shapes. Do not impose Futhark consuming/higher-order restrictions on J; copy or choose another legal execution when aliases remain live. |
+| [TVM Relax](https://tvm.apache.org/docs/deep_dive/relax/learning.html) and [Var/DataflowVar/MatchCast API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html): visible/dataflow variables, symbolic shapes, runtime structural checking, pure regions | Distinguish J NAMEs from internal variables and shape symbols. Delimit proven array regions. Purity alone does not permit moving J errors/name lookups; structural guards need J-specific timing and failure contracts. |
+| [MLIR One-Shot Bufferization](https://mlir.llvm.org/docs/Bufferization/): SSA use-def and read-after-write conflict analysis | Check noun aliases, live readers and worker completion before buffer reuse. NameId, binding versions and reference counts alone do not prove uniqueness/liveness. |
+
+**Carrier refinements:**
+
+1. Orthogonalize NAME address syntax and read policy: a locative and by-value/abandon behavior are not mutually exclusive forms. The earlier §3.7.3 pseudocode is corrected to `address_form`, `read_policy` and special-operand/context flags. Preserve holder chains/terminal selectors and spelling; numeric debug-frame/implicit-operand details need pinned-source differential coverage.
+2. A runtime `ReadNoun(event) -> ValueId` is not compile-time environment capture. Merge reachable values/facts/aliases with block arguments/phi equivalents and loop fixed points/widening. Track namespace state and late NameRefs through separate effects; branch-local binding proofs cannot escape a merge unchecked. Current A3 remains single-block/Return-only.
+3. Attach dtype/rank/shape constraints, alias/escape, errors/effects and nested dynamic-name dependencies to relevant values/calls. Target guards do not prove every NAME in the called function stable or pure. Unknown calls/execute require conservative effect summaries.
+4. Fold/CSE/fusion/inlining produce many-to-many origins: retain shared origin sets/derivation mappings without repeating runtime reads or retaining all payloads. Eliminated checks/lookups need proof/guard/order witnesses, not source metadata alone.
+5. Keep actual resolution outcomes (noun snapshot, expected-POS NameRef, constructor capture, undefined ordinary function reference, J error) separate from analysis states Unknown/Observed/GuardRequired/ProvenStable. Undefined ordinary references are not uniformly immediate errors.
+
+**Measured compatibility:** [audit tool](tools/name_compatibility_audit.py) and [Windows results](reports/name-compatibility-windows.json) compare runtime source at `c151f36`: **26 independent stateful fixtures × C j64/AVX2 × direct/semantic-reference = 104 observations: 64 matched, 40 unsupported gaps, zero semantic mismatches**. Each combination has the same 16 matching and 10 unsupported fixtures. This is not an overall J compatibility percentage. Compare all setup sentences and observed queries by dtype/shape/data or error kind; record an unobserved suffix when the CLI stops on an unsupported definition. Existing `Oracle.eval` observes assignment/results, not internal lookup events, POS reflection or complete namespace state.
+
+| Feature | Actual boundary |
+|---|---|
+| Noun snapshots, alias/reshape preservation, failed assignment retention | Selected fixtures match all four combinations; not all storage/alias forms verified. |
+| Verb late lookup/alias chain, undefined→defined/call, expected-POS error, sentence mutation/read order | Selected fixtures match; rank/header changes, recursion/self and all constructors still require acceptance. |
+| Named adverb construction, nameless modifier and conjunction aliases | Selected fixtures match; not a universal late-binding policy for every function. |
+| Straight-line explicit modifier local shadow/unbound fallback | Selected fixtures match. Two ordinary `3 :` explicit-verb local-call fixtures are Unsupported; local frames are not wholly absent. |
+| Direct/base/indirect locatives and invocation locale context | Unsupported fixtures; full locale/path namespace and context restoration incomplete. |
+| `name_:`, `f.`, computed single/multiple assignment | Unsupported fixtures; C research passes are not Rust support. |
+| Locale lifecycle/path, numeric/debug-frame locatives, full special-operand combinations | Not exercised by this execution audit; NJ/NP gates remain open. |
+| Reflection `4!:`/`5!:`, execute, recursion/escape/fix, guard invalidation after namespace changes | Full compatibility unverified; NP-06/07 must compare class/list/representation, first errors and effects. |
+| Compiled specialization, CFG guards, M4/worker/device handoff | Design/full acceptance incomplete. The semantic-reference CLI is not compiled native execution. |
+
+**Order:** NP-01/02 events/orthogonal syntax → NP-03 error-bearing locale namespace/stamps → NP-04 use-def/many-origin mapping → NP-05 effects/aliases/guard-lease verifier → NP-06 special/reflective semantics → NP-07 runtime/event/Graph/A3/actual-route differential. Add NP-V negatives for branch-proof escape, loop namespace clobber, dropped origins, overwriting a live noun alias and omitted nested NameRef dependencies. Close the single-CPU route before independent worker lookup.
+
+This change adds design and audit tooling, with no Rust semantic change. Native Windows enqueuer 19 + modifier_scope 8 + parser_capture 41 + semantic 54 = **122 tests each on default/portable passed**, plus **6 audit-classification tests**. C source and DLL asset pins differ; binary hashes identify the supplied oracles, with no same-source rebuild claim. Full upstream J/reflection/locale suites, Miri, GPU, Linux and GitHub CI were not run. Full NP gates remain incomplete.
 
 #### Frontend file ownership
 
