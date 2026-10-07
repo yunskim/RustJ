@@ -47,14 +47,15 @@ def audit(assets, probe):
                 reference = [oracle.eval(source) for source in sources]
             finally:
                 oracle.close()
-            commands = (["eval\t" + source for source in setup] + ["effect\t" + effect]
-                        + ["eval\t" + source for source in after])
-            process = subprocess.run([str(probe.resolve())], input="\n".join(commands) + "\n",
-                                     text=True, capture_output=True, check=True)
-            actual = [json.loads(line) for line in process.stdout.splitlines()]
-            status, differences = compare_trace(sources, reference, actual)
-            records.append(dict(case=name, variant=variant, sources=sources, effect_index=len(setup),
-                                reference=reference, rust=actual, status=status, differences=differences))
+            for mode, route in [("effect", "ordered-semantic"), ("array", "ordered-logical")]:
+                commands = (["eval\t" + source for source in setup] + [mode + "\t" + effect]
+                            + ["eval\t" + source for source in after])
+                process = subprocess.run([str(probe.resolve())], input="\n".join(commands) + "\n",
+                                         text=True, capture_output=True, check=True)
+                actual = [json.loads(line) for line in process.stdout.splitlines()]
+                status, differences = compare_trace(sources, reference, actual)
+                records.append(dict(case=name, variant=variant, route=route, sources=sources, effect_index=len(setup),
+                                    reference=reference, rust=actual, status=status, differences=differences))
     return records
 
 

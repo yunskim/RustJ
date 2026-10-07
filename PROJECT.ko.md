@@ -3818,7 +3818,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 | 순서 | 체크 항목 | RustJ 소유 계층·수용 기준 | 현재 상태 |
 |---|---|---|---|
 | 0 | [x] J 검색 family를 원본 이름·valence·의도에 따라 분류 | J Graph/semantic identity: dyadic `i.`/ `i:`/ `e.`와 monadic generate, dyadic `I.` interval, `E.` window find를 혼동하지 않음 | 코드·§N 정적 확인, full-J 미완료 |
-| 1 | [x] 검색 의미와 실행 전략 분리 | A3 `SearchDescriptor` first/last/member/interval/self; `Operation.j_origin`, rank boundary, J equality를 보유하고 Physical table 정보는 배제; A3 schema 0.5/verifier | 구현·회귀 테스트 추가; **실행 미확인** |
+| 1 | [x] 검색 의미와 실행 전략 분리 | A3 `SearchDescriptor` first/last/member/interval/self; `Operation.j_origin`, rank boundary, J equality를 보유하고 Physical table 정보는 배제; A3 schema 0.6/verifier | 구현·회귀 테스트 추가; **실행 미확인** |
 | 2 | [x] 알고리즘 후보·가드 상태와 비용 선택기 분리 | `LoweringRegistry`의 Baseline/Guard/Proof/Unsupported, `physical.rs::plan_search_algorithm`의 `SearchWorkload/Choice`. Unknown→legal 금지. CPU exact scalar에 한정 | 구현·정적 확인; **벤치마크 미실시** |
 | 3 | [x] 기본 검색 전략과 optional cache 준비 | CPU 순차, 좁은 정수 Direct, Hash, query-side Reverse, immutable-Arc per-Engine Prehash; direct Boolean `e.` 결과와 table allocation 실패 시 순차 fallback | `index_ops.rs`/runtime 구현, 아직 conformance 미통과 |
 | 4 | [x] Tolerant equality 반례와 후보 포괄성 **연구 테스트 작성·연결** | `src/tolerant_search.rs`(테스트 전용, `#[cfg(test)]`)에서 비추이성, first/last, 지수 bucket ±1, ±0, NaN, ±Inf, subnormal 및 독립 **linear search index** 대조 | **테스트 코드만 작성**, 실행·C oracle 검증 미완료; 런타임 미연결 |
@@ -9763,10 +9763,10 @@ positive E2E test만으로는 compiler boundary를 보호할 수 없다. 각 sta
 
 | Stage / verifier | 반드시 거부해야 하는 forged/invalid state | 현재/계획 상태 |
 |---|---|---|
-| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.9`와 exact match |
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.10`와 exact match |
 | rewrite candidate `verify` | stale source span/basis, unregistered rule/witness mismatch, replacement DAG forward reference, fact-rule mismatch, output semantic facts drift | **현재 존재** |
 | scan/fusion analysis verifier | forged source order, unsupported rule version, missing/incorrect witness, external-use/retention/fanout drift, candidate를 근거 없이 `selected`로 위조 | **현재 일부 존재**; proof discharge/selection verifier는 future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.5`와 exact match |
+| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.6`와 exact match |
 | CandidateEvidence / SelectionPlan | stale graph/version evidence, required proof Unknown인데 Selected, Illegal candidate 선택, overlapping incompatible candidates 동시 선택 | **planned** — §4.1.4 |
 | RouteRegion / RouteBoundary | missing live-in/out, value-dead but effect-live dependency drop, SemanticCheck 중복/누락/순서변경, region-wide capability 미증명, guard가 effect 뒤에 배치, bridge requirement 누락 | **planned** — §2.5.1 |
 | PhysicalPlan | invalid plan buffer/view/op id, use-before-bind, view span overflow, selected kernel capability mismatch, unordered Check, unproved writable overlap/reuse, dangling Return | **planned M4** — §5.2.1 |
@@ -9795,8 +9795,8 @@ no later planner/executor is invoked
 현재 RustJ의 J Graph/A3는 주로 in-process compiler artifact이며 장기 portable serialization compatibility를 약속하지 않는다. 현재 verifier는:
 
 ~~~text
-J Graph schema 0.9      exact match required
-A3 schema 0.5           exact match required
+J Graph schema 0.10      exact match required
+A3 schema 0.6           exact match required
 PrimitiveRegistry       current REGISTRY_VERSION exact provenance required
 ~~~
 
@@ -12134,7 +12134,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
-> **현재 위상:** `j_graph_ir` v0.9는 **explicit applied-operation graph + access-pattern basis + witnessed rewrite/resource analysis** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts/use-count/analyzability와 `ResourceExprGraph`, witnessed rewrite candidate, conservative source-vs-replacement resource evaluation, existing `LoweringRegistry + TargetCapabilities`에 대한 target-only feasibility bridge가 존재한다. 아직 없는 것은 full rewrite-specific shape algebra, executable WindowView lowering, fusion-candidate별 lifetime extension, resolved TargetProfile/ResourceEstimate/CostProfile, 실제 candidate selection/partition이다.
+> **현재 위상:** `j_graph_ir` v0.10은 **explicit applied-operation graph + access-pattern basis + witnessed rewrite/resource analysis** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts/use-count/analyzability와 `ResourceExprGraph`, witnessed rewrite candidate, conservative source-vs-replacement resource evaluation, existing `LoweringRegistry + TargetCapabilities`에 대한 target-only feasibility bridge가 존재한다. 아직 없는 것은 full rewrite-specific shape algebra, executable WindowView lowering, fusion-candidate별 lifetime extension, resolved TargetProfile/ResourceEstimate/CostProfile, 실제 candidate selection/partition이다.
 
 <a id="graph-prior-art-followup"></a>
 
@@ -13370,7 +13370,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 | Native Executor | **M4-v0 계약 대체로 닫힘 / 구현 미완료** | §5.2.1/§5.3에 op 역할, verifier, cleanup/error, executor non-responsibility, canonical mean planned route를 연결 | 실제 Physical Executor와 differential E2E test가 없음. stateful/async execution contract는 후속 |
 | fallback / guard miss / replay | **문서 계약 보강됨 / dispatcher 미구현** | §3.9.4에 route fallback/guard miss/replay/continuation 구분, decision table, commit frontier, RuntimeSemanticFallback의 정확한 의미를 통합 | integrated guard dispatcher/exact continuation/transaction rollback은 미구현이며 capability로 주장하지 않음 |
 | external route / GPU | **boundary contract 고정 / 구현 보류** | §5.5.1에 adapter input/capability/output, SemanticCheck/error/effect/token mapping, bridge/ownership, round-trip verifier, failure class를 정의 | production adapter는 미구현. M6까지 implementation gate로만 유지하며 CUDA는 의도적으로 보류 |
-| validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.9/A3 0.5 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
+| validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.10/A3 0.6 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
 
 #### 15.7.1 1차 감사에서 닫은 문서 계약
 
@@ -13691,4 +13691,27 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 
 기존 감사도 최종 바이너리로 갱신했다. abandon **132 matched / 16 unsupported_gap**, 문자열 대입·정의/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**이다. 기존 미지원 건은 줄었다고 주장하지 않는다. 새 계획 감사는 기존 runtime 두 route와 구분한 별도 38건이다. source/binary/probe/DLL hash를 보고서에 기록하며 참고 C 소스 pin과 실제 DLL release가 같은 소스 재빌드를 뜻하지 않는 기존 제한을 유지한다. Linux·GPU·full J·C 오류 위치·GitHub CI는 검증하지 않았다.
 
-다음 실행 단위는 이 의미 효과 계획에서 pure array 부분을 J Graph/Logical로 내리고 token 경계로 연결하는 것이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
+이 단계에서 예정했던 pure array의 J Graph/Logical 연결은 아래 후속 계약으로 구현했다. 다음 실행 단위는 내부 성공 위치를 보존하는 다중 Apply batching이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
+
+### NAME 효과와 배열 IR 연결 실행 체크리스트
+
+- [x] J Graph/Logical에 이름 조회와 구분한 명시적 배열 Input을 추가한다. 값은 효과 token을 통과한 snapshot으로 공급하며 가짜 이름·version·literal로 변환하지 않는다.
+- [x] 각 primitive Apply를 입력 SSA 매핑·원래 parser step·진입/성공 token을 가진 검증된 배열 region으로 낮춘다. 초기에는 한 Apply 단위로 오류 경계를 유지한다.
+- [x] Logical open-input 실행을 추가하고 NAME read/write/dynamic call을 region 안에서 거절한다. 실행 전에 모든 region을 검증하며 실패 후 다른 경로로 replay하지 않는다.
+- [x] 기존 순서 있는 semantic route와 새 Logical route의 값·오류·삭제·실패 token을 비교하고 두 C DLL의 공통 사례를 갱신한다.
+- [ ] 후속으로 연속 pure Apply의 다중 결과 region 및 내부 성공 위치를 표현하여 batching을 검토한다. token 경계 밖의 fusion/hoisting은 허용하지 않는다.
+
+
+### NAME 배열 region의 구현 계약 — 2026-10-08
+
+`Engine::prepare_name_arrays`는 검증된 ordered NAME plan의 각 primitive Apply를 `ArrayRegion`으로 낮춘다. `ArrayPlan`은 원래 effect plan과 immutable region 목록을 보유하며, 각 region은 `step`, 진입/성공 `EffectToken`, 입력 NAME SSA `ValueId` 목록, 출력 `ValueId`, J Graph와 Logical plan을 가진다. 원래 parser step·span·blame은 부모 effect step에 남는다. Graph Input의 index는 이 입력 목록의 순서이며 NAME 조회나 저장된 literal이 아니다. 실제 조회/Take 결과는 해당 token에 도달한 실행에서 공급한다.
+
+`Engine::execute_name_arrays`는 모든 region과 POS admission을 효과 실행 전에 확인한다. NAME read/delete/commit은 부모 executor만 수행하고 region은 값만 계산한다. 오류 시 부모 step의 진단 위치와 마지막 성공 token·삭제 관측을 보존하며 다른 경로로 재실행하지 않는다. function transfer는 배열 Apply가 없어 region 0개로 처리할 수 있다. 현재는 canonical unspecialized lowering만 허용하며, region verifier는 원래 FunctionEntity·SSA 연결·token·오류 검사와 순서를 확인한다. 최적화된 region은 추후 별도 등가성 witness 계약이 필요하다.
+
+Graph schema **0.10**, A3 schema **0.6**에 명시적 `Input { index }`를 추가했다. `logical_executor::execute_with_inputs`는 실행 전 입력 개수와 알려진 dtype/shape/rank를 확인한다. 모든 값의 사용 횟수에는 semantic check와 최종 결과도 포함한다. 마지막 사용에서는 소유권을 이동하고, 중복 사용에서만 shared handle을 만든다. 4,096개 integer 배열의 +1 회귀는 고유 입력의 실제 data pointer 재사용과 외부 alias가 남은 경우의 원본 보존을 확인한다. 이는 복사 제거의 증거이며 C 대비 속도 우위를 측정한 결과는 아니다.
+
+초기 지원 범위는 부모 ordered NAME plan과 같다. local definition frame·locative·중간 대입·modifier 생성·dynamic verb call은 여전히 별도 게이트다. 기본 eval 및 기존 pure Graph admission을 넓히지 않았다. 다음 체크리스트의 다중 Apply batching은 미구현이다. 이번 region은 Apply 하나의 오류 경계를 유지하며 fusion·GPU 실행·비동기 스케줄을 도입하지 않는다.
+
+배열 연결 단계 최종 검증: Windows default/portable 각각 **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 이번 Rust 회귀는 integration 8개와 verifier unit 1개다. region 경계/입력 SSA·검사 변조 거절, 실제 저장소 재사용·alias 보존, shared fanout, shape/generation이 바뀐 계획 재사용, 오류 span/parser blame·실패 token을 확인했다. `reports/name-effects-windows.json`은 **19 fixtures × DLL 2 × route 2 = 76/76 matched**다. semantic/Logical 두 경로 모두 표시된 한 문장만 계획으로 실행하며 setup/check는 일반 eval이다.
+
+기존 최종 바이너리 감사는 **548 matched / 16 unsupported_gap**, 별도 frontend 감사는 **50 matched / 18 runtime_gap**으로 유지됐다. 이 gap을 해결했다고 주장하지 않는다. 8개 보고서의 소스·바이너리·DLL hash **520건**이 최종 파일과 일치했다. C 소스 pin과 실제 DLL release는 앞 단계와 같으며 same-source rebuild/full J conformance·C 오류 위치/문구 동등성을 뜻하지 않는다. 테스트는 이 컴퓨터의 Windows에서만 실행했고 GitHub CI·Linux·GPU 검증은 하지 않았다.

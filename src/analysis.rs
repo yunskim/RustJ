@@ -197,6 +197,11 @@ pub(crate) fn lower_graph(
         let graph_facts = node.facts.clone();
         let span = node.span;
         let value = match node.kind {
+            crate::j_graph_ir::NodeKind::Input { index } => {
+                builder
+                    .logical
+                    .push_input(index, builder.current_j_origin, span)
+            }
             crate::j_graph_ir::NodeKind::Literal(value) => builder.push_literal(value, span),
             crate::j_graph_ir::NodeKind::ReadNoun { name, version } => {
                 builder.push_read_noun(name, version, span)

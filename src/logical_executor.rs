@@ -471,26 +471,37 @@ fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value
     }
 }
 
-fn execute_call(call: &crate::logical_ir::CallOp, values: &[Option<Value>]) -> Result<Value> {
-    let right = value_at(values, call.right)?.clone();
-    let left = call
-        .left
-        .map(|left| value_at(values, left).cloned())
-        .transpose()?;
-    execute_semantic(&call.callable.semantic, left, right)
+fn consume(values: &mut [Option<Value>], uses: &mut [usize], id: ValueId) -> Result<Value> {
+    uses[id.0] -= 1;
+    let slot = values
+        .get_mut(id.0)
+        .ok_or_else(|| Error::Unsupported("A3 input value is unavailable".into()))?;
+    let value = slot
+        .take()
+        .ok_or_else(|| Error::Unsupported("A3 input value is unavailable".into()))?;
+    if uses[id.0] == 0 {
+        return Ok(value);
+    }
+    let value = value.into_shared();
+    let result = value.clone();
+    *slot = Some(value);
+    Ok(result)
 }
 
 fn store_single_result(
     operation: &crate::logical_ir::Operation,
     result: Value,
     values: &mut [Option<Value>],
+    uses: &[usize],
 ) -> Result<()> {
     let [id] = operation.results.as_slice() else {
         return Err(Error::Unsupported(
             "A3 reference executor requires one result for value operations".into(),
         ));
     };
-    values[id.0] = Some(result);
+    if uses[id.0] > 0 {
+        values[id.0] = Some(result);
+    }
     Ok(())
 }
 
@@ -499,15 +510,73 @@ fn store_single_result(
 /// Name reads, verb-valued results and dynamic calls deliberately remain
 /// unsupported.  Those require explicit runtime environment/state interfaces.
 pub fn execute_closed(plan: &Plan) -> Result<Option<Value>> {
+    execute_with_inputs(plan, Vec::new())
+}
+
+/// Execute explicit logical inputs, never resolve them through a namespace.
+/// Arity and declared input facts are admission checks before any operations.
+pub fn execute_with_inputs(plan: &Plan, inputs: Vec<Value>) -> Result<Option<Value>> {
     plan.verify()
         .map_err(|error| Error::Unsupported(error.to_string()))?;
 
+    let expected = plan
+        .operations
+        .iter()
+        .filter(|op| matches!(op.kind, OpKind::Input { .. }))
+        .count();
+    if inputs.len() != expected {
+        return Err(Error::Unsupported("A3 array input arity mismatch".into()));
+    }
+    for operation in &plan.operations {
+        if let OpKind::Input { index } = operation.kind {
+            let facts = &plan.values[operation.results[0].0].facts;
+            let actual = crate::facts::SemanticFacts::of(&inputs[index]);
+            let expected = crate::j_graph_ir::GraphFacts {
+                dtype: facts.dtype,
+                shape: facts.shape.clone(),
+                rank: facts.rank,
+            };
+            if !expected.agrees_with(actual.dtype, actual.shape.as_deref(), actual.rank) {
+                return Err(Error::Unsupported("A3 array input facts mismatch".into()));
+            }
+        }
+    }
+    let mut inputs: Vec<_> = inputs.into_iter().map(Some).collect();
+
     let mut values = vec![None; plan.values.len()];
+    let mut uses = vec![0; plan.values.len()];
+    for operation in &plan.operations {
+        match &operation.kind {
+            OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
+                uses[call.right.0] += 1;
+                if let Some(left) = call.left {
+                    uses[left.0] += 1;
+                }
+            }
+            OpKind::SemanticCheck(check) => {
+                for value in check.constraint.values().into_iter().flatten() {
+                    uses[value.0] += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(result) = plan.result {
+        uses[result.0] += 1;
+    }
 
     for operation in &plan.operations {
         match &operation.kind {
+            OpKind::Input { index } => {
+                store_single_result(
+                    operation,
+                    inputs[*index].take().expect("verified input"),
+                    &mut values,
+                    &uses,
+                )?;
+            }
             OpKind::Literal(value) => {
-                store_single_result(operation, value.clone(), &mut values)?;
+                store_single_result(operation, value.clone(), &mut values, &uses)?;
             }
             OpKind::ReadNoun { .. } => {
                 return Err(Error::Unsupported(
@@ -517,20 +586,29 @@ pub fn execute_closed(plan: &Plan) -> Result<Option<Value>> {
             OpKind::VerbReference(_) => {
                 return Err(Error::Domain);
             }
-            OpKind::SemanticCheck(check) => execute_check(check, &values)?,
+            OpKind::SemanticCheck(check) => {
+                execute_check(check, &values)?;
+                for value in check.constraint.values().into_iter().flatten() {
+                    uses[value.0] -= 1;
+                    if uses[value.0] == 0 {
+                        values[value.0] = None;
+                    }
+                }
+            }
             OpKind::Basis { call, .. } | OpKind::SemanticCall(call) => {
-                let result = execute_call(call, &values)?;
-                store_single_result(operation, result, &mut values)?;
+                let right = consume(&mut values, &mut uses, call.right)?;
+                let left = call
+                    .left
+                    .map(|left| consume(&mut values, &mut uses, left))
+                    .transpose()?;
+                let result = execute_semantic(&call.callable.semantic, left, right)?;
+                store_single_result(operation, result, &mut values, &uses)?;
             }
         }
     }
 
     plan.result
-        .map(|result| {
-            values[result.0]
-                .clone()
-                .ok_or_else(|| Error::Unsupported("A3 result value is unavailable".into()))
-        })
+        .map(|result| consume(&mut values, &mut uses, result))
         .transpose()
 }
 

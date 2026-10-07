@@ -2029,7 +2029,7 @@ A fixed-shape parallel map may replace it only after the necessary uniformity pr
 
 J Graph IR preserves algebraic graph structure for reasoning before execution-specific normalization erases useful J structure.
 
-Current schema: **v0.9**. GF2/GF3 add composition and witnessed Scan identity analysis; source Window graphs and execution boundaries remain intact.
+Current schema: **v0.10** (explicit array Inputs). GF2/GF3 add composition and witnessed Scan identity analysis; source Window graphs and execution boundaries remain intact.
 
 It includes:
 
@@ -3870,10 +3870,10 @@ Positive E2E tests are insufficient. Each stage must reject invalid states owned
 
 | Stage | Required rejection examples | Status |
 |---|---|---|
-| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.9 |
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.10 |
 | rewrite candidate verifier | stale source span/basis, unregistered rule/witness mismatch, invalid replacement DAG/facts/output semantics | implemented |
 | scan/fusion analysis verifier | forged order/rule version/witness/retention/fanout or unsupported selected state | partially implemented; proof-discharge/selection verification remains future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.5 |
+| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.6 |
 | CandidateEvidence / SelectionPlan | stale evidence, Selected with required proof Unknown, selected Illegal candidate, incompatible overlapping candidates | planned — §7.5 |
 | RouteRegion / RouteBoundary | missing live-ins/outs, dropped effect-live dependency, duplicated/dropped/reordered SemanticCheck, unproven region capability, post-effect guard, missing bridge | planned — §2.1 |
 | PhysicalPlan | invalid buffer/view/op IDs, use-before-bind, out-of-bounds view, incompatible kernel, unordered Check, unproved overlap/reuse, dangling Return | planned M4 — §17.2.1 |
@@ -3886,8 +3886,8 @@ Use one-mutated-invariant negative tests: build a valid artifact, clone it, brea
 Current J Graph/A3 artifacts are primarily in-process and do not promise long-term portable binary compatibility. Today the verifiers require exact schema and primitive-registry provenance:
 
 ```text
-J Graph schema 0.9   exact match
-A3 schema 0.5        exact match
+J Graph schema 0.10   exact match
+A3 schema 0.6        exact match
 PrimitiveRegistry    current REGISTRY_VERSION provenance
 ```
 
@@ -5188,7 +5188,7 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 | native executor | **M4-v0 contract mostly closed / unimplemented** | §§17.2/17.2.1 cover op roles, verifier, cleanup/errors, executor non-responsibilities, and the canonical mean planned route | No real Physical Executor or differential E2E test yet; stateful/async execution remains later work |
 | fallback / guard miss / replay | **documentation contract strengthened / dispatcher unimplemented** | §5.2.2 defines route fallback vs guard miss vs replay/continuation, the decision table, commit frontier, and precise RuntimeSemanticFallback meaning | Integrated guard dispatcher, exact continuation, and transactional rollback remain unimplemented and must not be claimed as capabilities |
 | external route / GPU | **boundary contract fixed / implementation deferred** | §12.2 defines adapter input/capabilities/output, check/error/effect/token mapping, bridge/ownership, round-trip verification and failure classes | production adapters remain unimplemented; CUDA remains intentionally deferred |
-| validation / versioning | **documentation contract strengthened / implementation follows stages** | frontend gates, exact J Graph 0.9/A3 0.5 schema+registry verification, §15.2 negative matrix, §15.3 migration/downgrade policy | Candidate/Route/Physical/External negative verifiers land with their stage implementations; portable serialization is not yet offered |
+| validation / versioning | **documentation contract strengthened / implementation follows stages** | frontend gates, exact J Graph 0.10/A3 0.6 schema+registry verification, §15.2 negative matrix, §15.3 migration/downgrade policy | Candidate/Route/Physical/External negative verifiers land with their stage implementations; portable serialization is not yet offered |
 
 **First-pass documentation closures completed on 2026-10-06** without changing the current M2 implementation priority:
 
@@ -5421,7 +5421,30 @@ Final validation, 2026-10-08: native Windows default/portable each **647 passed 
 
 Refreshed existing audits on final binaries: abandon **132 matched / 16 unsupported_gap**, assignment/definition/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**. These existing gaps have not closed. The new plan's 38 comparisons are separate from the existing two runtime routes. Reports record source/binary/probe/DLL hashes; the recorded C source pin and actual DLL release are not a same-source rebuild. Linux, GPU, full J, C diagnostic locations and GitHub CI were not tested.
 
-Next execution unit: lower pure array parts of this semantic effect plan to J Graph/Logical, connected by token boundaries. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
+The planned pure-array J Graph/Logical connection is implemented by the follow-up contract below. Next is multi-Apply batching that preserves internal success positions. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
+
+### NAME effects to array IR execution checklist
+
+- [x] Add explicit array Input to J Graph/Logical, distinct from name reads. Supply snapshots after their effect token; never invent names/versions or turn them into literals.
+- [x] Lower each primitive Apply into a verified region with input SSA mapping, original parser step and entry/success tokens. Initially retain one Apply per error boundary.
+- [x] Add open-input Logical execution; reject NAME reads/writes/dynamic calls inside regions. Verify every region before effects; never retry another route after failure.
+- [x] Compare semantic and Logical routes for values/errors/deletion/failure tokens; extend both C DLL comparisons.
+- [ ] Next examine batching consecutive pure Applies with multiple outputs and internal success positions. Never fuse/hoist outside token boundaries.
+
+
+### Implemented NAME array-region contract — 2026-10-08
+
+`Engine::prepare_name_arrays` lowers each primitive Apply in a verified ordered NAME plan into an `ArrayRegion`. Immutable `ArrayPlan` retains the effect plan and regions. Each region carries its parent `step`, entry/success `EffectToken`, input NAME SSA `ValueId` list, output `ValueId`, J Graph and Logical plan. Original parser step/span/blame remain on the parent effect step. Graph Input indices map to that list; they are neither NAME reads nor stored literals. Runtime lookup/Take results are supplied only when their effect tokens are reached.
+
+`Engine::execute_name_arrays` verifies every region and POS admission before effects. Only the parent executor reads/deletes/commits names; regions compute values. Failure preserves parent diagnostic provenance, last successful token and deletion observations, with no replay through another route. Function transfer can have zero array regions. Admission currently requires canonical unspecialized lowering: verification authenticates original FunctionEntity, SSA/token mappings, semantic checks and ordering. Optimized regions will require a separate equivalence-witness contract.
+
+Graph schema **0.10** and A3 schema **0.6** add explicit `Input { index }`. `logical_executor::execute_with_inputs` validates arity and known dtype/shape/rank before execution. Use counts include semantic checks and the final result. Last use moves ownership; only repeated use introduces shared handles. A 4,096-integer +1 regression verifies actual data-pointer reuse for unique input and preservation when an external alias remains. This proves copy elimination, not measured performance superiority over C.
+
+Scope remains that of the parent ordered NAME plan. Local definition frames, locatives, intermediate writes, modifier construction and dynamic verb calls are separate gates. Default eval and existing pure Graph admission remain unchanged. Multi-Apply batching in the checklist remains unimplemented. Each region retains one Apply error boundary; fusion, GPU execution and async scheduling are not introduced.
+
+Final array-connection validation: native Windows default/portable each **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight integration regressions and one verifier unit regression. They cover region/input SSA and check tampering, actual storage reuse/alias preservation, shared fanout, reuse after shape/generation changes, and error span/parser blame/failure tokens. `reports/name-effects-windows.json`: **19 fixtures × two DLLs × two routes = 76/76 matched**. Both semantic and Logical routes execute only the marked sentence through a plan; setup/check use ordinary eval.
+
+Existing final-binary audits remain **548 matched / 16 unsupported_gap**; the separate frontend audit remains **50 matched / 18 runtime_gap**. These gaps are not closed. All **520 source/binary/DLL hashes** across eight reports match final files. C source pin and actual DLL release are unchanged; this is not a same-source rebuild, full J conformance or equivalence of C diagnostic locations/text. Validation ran only on this computer's Windows; GitHub CI, Linux and GPU were not tested.
 
 ## License policy
 

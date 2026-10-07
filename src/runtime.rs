@@ -1775,6 +1775,28 @@ impl Engine {
         &mut self,
         plan: &crate::name_effect_ir::Plan,
     ) -> crate::name_effect_ir::Execution {
+        self.execute_name_effects_route(plan, None)
+    }
+
+    pub fn prepare_name_arrays(
+        &self,
+        source: &str,
+    ) -> Result<crate::name_array_regions::ArrayPlan> {
+        crate::name_array_regions::ArrayPlan::from_effects(self.prepare_name_effects(source)?)
+    }
+
+    pub fn execute_name_arrays(
+        &mut self,
+        plan: &crate::name_array_regions::ArrayPlan,
+    ) -> crate::name_effect_ir::Execution {
+        self.execute_name_effects_route(plan.effects(), Some(plan))
+    }
+
+    fn execute_name_effects_route(
+        &mut self,
+        plan: &crate::name_effect_ir::Plan,
+        arrays: Option<&crate::name_array_regions::ArrayPlan>,
+    ) -> crate::name_effect_ir::Execution {
         use crate::name_effect_ir::{EffectToken, Execution, NameObservation, Operation, ValueId};
         fn consume(values: &mut [Option<JEntity>], uses: &mut [usize], id: ValueId) -> JEntity {
             uses[id.0] -= 1;
@@ -1791,6 +1813,9 @@ impl Engine {
         let mut names = Vec::new();
         let result = (|| -> Result<Option<Value>> {
             plan.verify()?;
+            if let Some(arrays) = arrays {
+                arrays.verify()?;
+            }
             if !self.local_frames.is_empty() {
                 return Err(Error::Unsupported("ordered NAME definition frame".into()));
             }
@@ -1865,6 +1890,26 @@ impl Engine {
                             let JEntity::Noun(y) = consume(&mut values, &mut uses, *right) else {
                                 unreachable!("verified noun operand")
                             };
+                            if let Some(arrays) = arrays {
+                                let mut inputs =
+                                    Vec::with_capacity(1 + usize::from(left.is_some()));
+                                if let Some(left) = left {
+                                    let JEntity::Noun(x) = consume(&mut values, &mut uses, *left)
+                                    else {
+                                        unreachable!("verified noun operand")
+                                    };
+                                    inputs.push(x);
+                                }
+                                inputs.push(y);
+                                let value = crate::logical_executor::execute_with_inputs(
+                                    arrays.region_at_step(index).logical(),
+                                    inputs,
+                                )?
+                                .ok_or_else(|| {
+                                    Error::Unsupported("array region has no result".into())
+                                })?;
+                                return Ok(Some(JEntity::Noun(value)));
+                            }
                             let literal = |value| crate::semantic::Expr {
                                 origin: None,
                                 span: step.span.clone(),

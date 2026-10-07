@@ -8,6 +8,9 @@ fn main() {
     for line in io::stdin().lock().lines() {
         let line = line.expect("audit input");
         let result = match line.split_once('\t') {
+            Some(("array", source)) => engine
+                .prepare_name_arrays(source)
+                .and_then(|plan| engine.execute_name_arrays(&plan).result),
             Some(("effect", source)) => engine
                 .prepare_name_effects(source)
                 .and_then(|plan| engine.execute_name_effects(&plan).result),
