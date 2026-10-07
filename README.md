@@ -160,7 +160,7 @@ The repository is currently in transition toward the target compiler pipeline.
 - J Graph IR as a separate canonical analysis surface with Graph Basis plus initial rewrite/resource analysis
 - **M1 complete:** J Graph lowering builds the canonical A3 `logical_ir::Plan` directly; the transition IR/container has been removed
 - A3-v0 SSA ValueIds, Execution Basis, semantic checks/constraints/effect/error contracts, verifier, and reference executor
-- Explicit/direct-definition frontend support for `DefinitionCode`, control-flow metadata, multiple root DDs, raw noun DDs, and UTF-8/source provenance; a supported mode-1/2 straight-line invocation subset with per-call local frames, x/y/u/v/m/n bindings and local/global assignment exists, while control-flow/nested scope, full locale/locative semantics, and Code-body graph/A3 CFG lowering remain incomplete
+- Explicit/direct source/control/NAME metadata, ordinary mode-3/4 calls, supported if/while/for/try, nested direct/string-explicit local scopes and A3 definition references are implemented. Frontend E2E is verified for the supported subset; full J expressiveness, body Graph/Logical analysis and compiled CFG, general locales/locatives and body/caller diagnostic source frames remain incomplete. See the frontend E2E re-audit in PROJECT.md for current support/admission/error findings.
 - CPU Inline/Owned/Shared storage and runtime AVX2 plus portable fallback
 - Initial sparse/boxed/packed-bit support and read-only affine PhysicalArray (G1)
 - M2 jsource-compatible frontend cutover, M3 logical/physical value-boundary convergence, and the M4 native Physical Planner/CPU executor remain incomplete

@@ -160,7 +160,7 @@ ParameterizedLoweringRecipe
 - 별도 canonical analysis surface인 J Graph IR과 Graph Basis/rewrite/resource-analysis 기초
 - **M1 완료:** J Graph lowering이 canonical A3 `logical_ir::Plan`을 직접 생성하며 transition IR/container는 제거됨
 - A3-v0의 SSA ValueId, Execution Basis, semantic check/constraint/effect/error contract와 verifier/reference executor
-- explicit/direct definition frontend의 `DefinitionCode`, control-flow metadata, multiple root DD, raw noun DD, UTF-8/source provenance 지원; 지원 mode 1/2의 straight-line invocation과 per-call local frame/x-y-u-v-m-n·local/global assignment subset은 동작하지만, control-flow/nested scope·전체 locale/locative 의미와 Code body graph/A3 CFG lowering은 미완료
+- explicit/direct 정의의 원문·제어·NAME metadata와 mode-3/4 호출, 지원 if/while/for/try 및 중첩 direct/문자열 explicit의 독립 local scope, A3 정의 함수 참조를 지원한다. 현재 범위의 frontend E2E는 검증됐으며 전체 J 표현력, 정의 본문 Graph/Logical 분석·CFG 컴파일, 일반 locale/locative와 본문/caller 오류 source-frame 연결은 미완료다. 최신 지원·admission·error 감사는 PROJECT.ko.md의 Frontend E2E 재감사 절을 따른다.
 - CPU Inline/Owned/Shared storage, runtime AVX2 + portable fallback
 - sparse/boxed/packed-bit 기반 일부와 read-only affine PhysicalArray(G1)
 - M2 jsource-compatible frontend cutover와 M3 logical/physical value 경계 수렴, M4 native Physical Planner/CPU executor는 미완료

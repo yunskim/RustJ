@@ -3910,7 +3910,7 @@ Unsupported schema/registry/migration is a compiler/artifact diagnostic, never a
 Code/document review baseline: the 2026-10-04 WI1 noun input metadata validation seam. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
 
 - shared immutable FunctionEntity semantic DAG;
-- explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; supported mode-1/2 straight-line invocation uses per-call local frames with x/y/u/v/m/n bindings and local/global assignment, while control-flow/nested scope, full locale/locative/operator-wrapper semantics, other tagged/computed forms, and Code-body J Graph/A3 CFG lowering remain incomplete;
+- explicit/direct immutable DefinitionCode, control/NAME metadata, multiple root/raw noun DD and source provenance are retained. Supported mode-3/4 calls, if/while/for/try, nested direct/string-explicit local scopes and A3 definition references are implemented. Supported-subset E2E completion is distinct from full J expressiveness, general locales/operator wrappers, body Graph/Logical/CFG compilation and body/caller diagnostic frames; see the frontend E2E re-audit.
 - J Graph IR as a separate analysis surface;
 - Graph Basis / Execution Basis separation;
 - structural opportunities plus initial graph rewrite/resource analysis;
@@ -5179,7 +5179,7 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 | Stage / boundary | Documentation status | Strong coverage today | Main remaining gap |
 |---|---|---|---|
 | word formation → enqueue → parser | **documentation contract closed / convergence ongoing** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reductions, sequencing/gates, §4.3.1 `+/ y` canonical trace | actual support for locatives/definitions/gerunds/value-dependent constructors remains checklist-driven; orientation ownership is closed |
-| Semantic Construction / binding / dynamic semantics | **documentation contract closed / general CFG implementation incomplete** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition metadata, **runtime straight-line per-call LocalFrame/invocation subset**, gerund/rank/train preservation, explicit-definition handoff | Runtime frames are not wholly planned. What remains is general control-flow/nested/locale-locative support plus compiled Branch/CondBranch/value-merge CFG lowering; current A3 Terminator remains Return-only |
+| Semantic Construction / binding / dynamic semantics | **supported frontend E2E subset complete / general compiled CFG incomplete** | FunctionEntity/JEntity, late NameRef, definition metadata, supported per-call LocalFrame/if/while/for/try/nested direct-string explicit, A3 definition reference | Full J/locales-locatives, body Graph/Logical analysis, diagnostic source frames and compiled Branch/CondBranch/value merges remain follow-up work. A3 Terminator remains Return-only |
 | J Semantic → J Graph IR | **documentation contract closed** | GraphForm/GraphBasis/GraphHint, provenance/applied graph, Graph-vs-Execution distinction, canonical suite for `@:`/ordinary+capped fork/hook/rank/reduce/prefix-infix | remaining gaps are implementation/test coverage per form, not missing stage ownership |
 | graph analysis → candidate/proof | **documentation contract strengthened / implementation partial** | §7.5 defines orthogonal evidence, derived lifecycle, evidence owners, guarded legality, overlap/selection rules | Common `CandidateEvidence/ProofBundle`, per-obligation discharge, and SelectionPlan are **not implemented**; individual proof algorithms land with their verifier/tests |
 | J Graph → execution-semantic lowering → A3 | **documentation contract mostly closed / CFG implementation incomplete** | direct lowering, fact-drift checks, Execution Basis, SemanticCheck, effects/errors/speculation, verifier, schema header, canonical mean trace, explicit-definition current/planned handoff example | A3-v0 is still single-block/Return-only. What remains is executable Branch/CondBranch/block-merge lowering plus differential E2E, not a missing documentation example |
@@ -5250,6 +5250,49 @@ Raw bounded evidence is in `reports/definition-loops-windows.json` and `reports/
 
 
 Final native Windows validation: default/portable each **608 passed / zero ignored / zero failures**, Python **67 passed**, fmt/clippy pass. Two C DLLs × direct/semantic-reference: for **23 fixtures / 92 matched**, nested **12 / 48**, existing definitions **31 / 124**, NAME scopes **10 / 40**, totaling **304 observations / 304 matched**. Source and binary SHA-256 in all four C reports were verified against the final default build. frontend-e2e-windows.json remains the historical capture of the preceding demonstration and was not regenerated.
+
+
+
+## Frontend E2E re-audit: expressiveness, handoff and errors (2026-10-07)
+
+The user-approved **frontend E2E completion for the supported subset** remains in force. It does not mean full J expressiveness, admission of every Program to Graph/A3, or compiled definition CFG execution. Body computations and structured regions belong to subsequent J Graph/Logical analysis, with CFG lowering where needed. No complete frontend CFG is required. This review changes audit tools/documentation, not runtime semantics.
+
+`frontend_contract_probe` independently inspects P=prepare_semantic_diagnostic, G=J Graph and L=CompilationAnalysis/A3, then performs R=eval_captured. Reproduce with `python tools/frontend_contract_audit.py --assets-root ../rustj-project-docs --probe target/debug/examples/frontend_contract_probe.exe --report reports/frontend-contract-audit-windows.json` after building the example.
+
+**31 cases × two Windows DLLs = 62 observations: 38 runtime/post-state matches, 24 runtime gaps across 12 cases.** Gaps are findings, not passes. Complex/extended/rational probes establish C acceptance/type only because the noun bridge cannot serialize their values. Other observations compare values/error kinds and setup/post-state. C diagnostic locations/text/internal parser state are not compared. P has 15 accepted/14 Unsupported/one syntax/one control; G has 14/15/1/1; L has 13/16/1/1. These are deliberately selected boundary probes, not upstream coverage percentages.
+
+| Question | Finding | Owner |
+|---|---|---|
+| Full jsource expressiveness | Not yet: locatives, abandon names, noun/computed/multiple targets, complex/extended/rational/overflow literal conversion remain unsupported | Existing F1/P4/numeric compatibility gates |
+| Computed rank, `a+a=:2`, `a=:b=:1` | Runtime matches C; non-executing P/G/L reject them. Chained assignment is not universally unsupported at runtime | Dynamic construction/effect boundary, P8 |
+| `adv=:/` | Program preserves modifier/POS; Graph rejects modifier-value lowering | P8/A1/A2 |
+| execute primitive | P/G admit; L/runtime do not implement execution | Route/runtime capability |
+| explicit/direct/nested definitions | P/G/L admit function values. A3 carries Definition reference, not compiled body CFG | P8/A1/A2/A3 |
+| select definition | Preparse metadata admitted; this probe only constructs the definition | Subsequent body execution/lowering |
+
+Program.expression/FunctionEntity remain semantic authority. FrontendContext retains words/items/nodes/origins/NAME policies/reductions/steps/root, not a second executable AST. Function head/POS/operands, intrinsic noun snapshots, fork semantics and header ranks survive. Catalog/rank snapshots are not executable guards. Runtime simple-name observations contain frame/global identities, binding generation/version/POS; they are not locale/path witnesses.
+
+DefinitionCode preserves original/decoded source, form/mode/valences, body word classes/flags/spans, controls and local/global NAME plans. This enables later analysis but does not supply every statement as an already analyzed computation IR. Later semantic parsing/re-enqueue is an explicit boundary. Preserve declared-unbound global fallback and absence of caller-private local capture. **ControlNode.go is a C control/error target, not the sole normal successor/CFG edge**; consume it together with kind/previous-result data. Structured regions, merge/loop-carried values and exception edges belong downstream.
+
+Supported inputs retain enough source/identity to start downstream analysis. It is not justified to claim that every needed property is already a ready-to-optimize IR fact or that arbitrary inputs need no reanalysis. The private body_error mapping handles escaped source, but there is no complete public source-unit/frame-chain contract. Failure prefixes/captures are observations, not effect replay or exact-resume authorization. Body effect/error graphs are not connected to outer A3.
+
+**Error review (A0.6/P8/A3):** J error class, diagnostics and rendering are separate; ordinary inner context wins during merge. However, invoke_definition_verb explicitly clears body span/blame because it is a different source coordinate space, and parsing attaches caller coordinates. Modifier invocation similarly replaces the span. `f=:{{y+1 2 3}}` then `f 1 2` preserves length error, `+` and argument shapes [2]/[3], but locates failure only at caller f [0,1]. Nested outer→inner retains outer [0,5], not body failure location/call chain.
+
+`missing+(1 2+1 2 3)` exposes the right-side length error first. `(1 2+1 2 3)+a=:9` leaves a=9 after that error, although static P rejects it. Failed `a=:1 2+1 2 3` preserves previous a=7; invalid control redefinition preserves f=42. This is failed-write commit prevention, not sentence-wide rollback. Unsupported must not be caught as a successful J error; C forinit read-only failures have a distinct uncatchable boundary. Full throw/catcht, error-class coverage and optimized error ordering remain pending.
+
+Required contracts: distinguish J semantic failure, route/analysis admission miss, verifier/compiler defect and backend implementation failure. Current Unsupported conflates several categories and is not a catchable J error or replay permission. Retain immutable source/definition origin, decoded-to-original mapping, primary failure location plus callsite frames and semantic operation origin; retain bounded type/shape summaries, not full argument arrays. Do not raise potential runtime errors early merely because static analysis can see them.
+
+**Framework practices to apply through existing P8/A0.6/A3 work:**
+
+- [MLIR SCF](https://mlir.llvm.org/docs/Dialects/SCFDialect/): structured if/loop regions, yields and loop-carried values before optional branch CFG lowering; preserve J-specific condition/name/exception meaning.
+- [MLIR verification](https://mlir.llvm.org/docs/Tutorials/Toy/Ch-2/) and [conversion legality](https://mlir.llvm.org/docs/DialectConversion/): separate valid source/semantic IR from route admission, with boundary verifiers.
+- [MLIR diagnostics](https://mlir.llvm.org/docs/Diagnostics/) and [builtin locations](https://mlir.llvm.org/docs/Dialects/Builtin/): connect operation origins/body locations/callsites rather than overwrite one span.
+- [Effects/speculation](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/): memory effects alone do not establish safe speculation or J first-error behavior. MLIR explicitly documents incomplete non-local-control-flow modeling; do not assume it solves J try/throw.
+- [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html): explicit inputs/results/constants and nested computations. Do not adopt tracing-time constant capture for J late-bound globals or execute definition control flow during tracing.
+
+Existing Co-dfns/APEX/TAIL-Futhark research remains historical FOUNDATIONS evidence. The pinned Co-dfns manual could not be reopened in this review and is not counted as newly verified. New framework findings rely directly on official MLIR/JAX material.
+
+Audit-tool validation: native Windows default/portable each **608 passed / zero failed / zero ignored**, Python **67 passed**, fmt/clippy pass. No runtime change. Keep gaps in the new 62 observations separate from the preceding 304 matched acceptance observations.
 
 ## License policy
 
