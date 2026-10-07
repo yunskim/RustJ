@@ -2358,7 +2358,7 @@ Program
   frontend: Arc<FrontendContext>?
 
 FrontendContext
-  schema=1, unit: FrontendUnitId, realization: Deferred | Observed
+  schema=2, unit: FrontendUnitId, realization: Deferred | Observed
   source, words: WordRecord[]
   items: ItemRecord[], nodes: NodeRecord[], origins: NodeOrigin[]
   name_uses: NameUseRecord[], reductions: ReductionRecord[]
@@ -2371,7 +2371,7 @@ FrontendContext
 | reduction 전 맥락과 결과 모두 보존 | WordId/ItemId/NodeId/ReductionId/NameUseId를 구분. NAME 치환은 새 item. reduction은 실제 4-slot window, consumed IDs, produced ID를 기록. 없는 suffix slot은 virtual Mark로 해석. parentheses는 같은 semantic node에 여러 item/reduction origin을 연결 |
 | parsing 중 사용 가능 | 현재 matcher/action에서 기록하며 `FrontendContext::verify`가 right-to-left queue→stack과 FRONT MARK 시점, row 선택, 입력·출력·node 연결을 replay. `parse_frontend` 실패는 `FrontendFailure {error, context}`로 성공 prefix와 pending row/window 보존. 성공하지 않은 action의 가짜 output 없음. 이는 runtime continuation이 아님 |
 | noun·verb·modifier NAME 시점 | `NameResolution=NounValue/FunctionValue/FunctionReference`, `NamePolicy=CaptureAtRead/LateAtCall/ResolveAtConstruction`. 실제 resolve branch가 정책을 기록. `u`가 또 다른 NameRef 값을 치환한 경우도 FunctionValue이며 u 자체를 late lookup으로 바꾸지 않음. CatalogClass/RuntimeClass/DiagnosticAssumption 및 optional binding version/lookup 관찰 구분. 진단용 noun 가정은 실행 POS proof가 아님 |
-| local/global 실제 관찰 | `LookupObservation {engine, frame, search, local_state, found, binding_version}`. Search=GlobalOnly/CurrentFrameThenGlobal; local_state=NoFrame/Bound/DeclaredUnbound/Absent; found=Local(scope)/Global(scope)/Extension/Missing. Engine/global namespace와 invocation frame은 비재사용 ScopeInstanceId. 같은 spelling·version=1이어도 다른 frame의 binding을 합치지 않음 |
+| local/global 실제 관찰 | `LookupObservation {engine, frame, search, local_state, found, binding_version, binding_generation, binding_class}`. Search=GlobalOnly/CurrentFrameThenGlobal; local_state=NoFrame/Bound/DeclaredUnbound/Absent; found=Local(scope)/Global(scope)/Extension/Missing. Engine/global namespace와 invocation frame은 비재사용 ScopeInstanceId. 같은 spelling·version=1이어도 다른 frame의 binding을 합치지 않음 |
 | explicit/direct definition local name | `DefinitionCode.name_plan`의 monad/dyad별 `DefinitionScopePlan`에 local 선언 목록, 원 sentence/word/span과 ReadCurrentFrameThenGlobal/LocalAssignmentTarget/GlobalAssignmentTarget, dynamic assignment target 위치를 보존. 생성 시 body lookup/POS/값 계산 없음. actual invocation은 이 local 선언 목록을 사용하며 u/v/m/n/x/y는 invocation operand/argument로 따로 공급 |
 | 선언과 실제 binding 구분 | `t=.t+u`에서 미초기화 local t의 RHS는 global fallback 가능하고 대입 뒤 읽기는 local. 선언은 read를 local SSA로 고정하는 증거가 아님. ordinary local function NAME은 late reference를 보존하며 반환 후 caller frame을 closure처럼 캡처하지 않음. implicit operand의 function value 치환과 구별 |
 | 후속 최적화 입력 | J Graph의 각 node에 `parser_origins: [NodeId]`, 같은 context Arc 유지. A3 `parser_provenance`는 기존 operation.j_origin→Graph ID→parser NodeId 체인을 보존. derived-function 확장의 생성 node는 보수적인 enclosing call origins를 유지하므로 가장 작은 source occurrence의 유일 매핑으로 주장하지 않음. Context/Graph/A3 verifier는 누락·범위 오류·source 불일치를 거부 |
@@ -2387,10 +2387,19 @@ FrontendContext
 - [x] 같은 구조의 queue/stack replay, 잘못된 producer/operand/origin·scope 관찰 부정 테스트.
 - [x] Graph/A3까지 출처 전달 및 origin 유실 거부; metadata만 있는 10^12-element noun의 deferred 분석.
 - [x] explicit/direct local declaration·global fallback·shadowing·global write·반환된 ordinary function NAME·implicit operand 치환 회귀.
+- [x] 지원 중인 simple NAME의 runtime observation에 재사용 없는 BindingGeneration/POS 추가; 실제 NAME use ID에서 SimpleNameGuard 생성, Engine에서 검색 전체 재검사 및 typed invalidation 결과 제공.
 - [ ] 완전한 LookupWitness/GuardRecipe, constructor별 모든 NAME use의 독립 event ID, function operand path별 provenance, multi-unit inlining origin merge.
 - [ ] source expansion entry 전체와 typed BoundaryDemand/정확한 runtime continuation, Program 전체 arena 저장 전환. 현 실패 context를 실행 가능한 continuation으로 사용하지 않음.
 
 이 slice는 **지원 중인 parsing action과 compilation 경로의 구조 보존**을 닫는다. full-J/locale/control executor 또는 NAME 특수화 실행 적법성 완료를 의미하지 않는다. 상세 실행 검증 결과는 아래에 기록한다.
+
+**Simple NAME guard 첫 구현:** `SimpleNameGuard::from_name_use(context, NameUseId)`는 검증된 완료 context의 runtime bound simple NAME만 받으며 `(FrontendUnitId, NameUseId)`를 보존한다. catalog/diagnostic 가정, missing/extension, locative/by-value form은 이 recipe의 수용 범위 밖이다. `Engine::check_name_guard`는 원래 engine·현재 frame 정체성을 먼저 확인하고 current-frame→global 검색을 다시 수행하여 local bound/declared-unbound/absent 상태, found scope, binding version·generation·POS를 대조한다. 결과는 `ValidAtCheck/EngineChanged/FrameChanged/LookupChanged`이며 J 오류나 자동 fallback이 아니다. 성공한 할당마다 `BindingGeneration`을 새로 발급하여 삭제·재생성 후 version/POS가 같아지는 ABA도 거부한다. 현재 expunge 언어 지원을 추가한 것은 아니며 ABA 회귀는 내부 table 삭제로 재현한다.
+
+이 recipe는 검색을 생략하는 epoch fast path가 아니다. 같은 이름의 재할당과 fallback을 가리는 local 생성, invocation 변경은 무효화하고 관계없는 binding 변경은 허용한다. 실패한 RHS는 기존 guard를 유지한다. noun snapshot을 새 값으로 갱신하거나 ordinary verb의 late lookup을 고정하지 않는다. `ValidAtCheck` 이후 effect 또는 다른 mutable engine 접근을 넘는 유효성, locale/path, concurrent lease, compiled dispatcher와 effect 이전 route admission은 여전히 미구현이다. 따라서 full LookupWitness/GuardRecipe 체크리스트는 열린 상태로 유지한다.
+
+`g=:f` 뒤 f만 변경하면 g의 guard는 여전히 `ValidAtCheck`일 수 있지만 g의 실행 결과는 달라진다. 이는 의도한 직접 binding 검증이며 전이적 function DAG의 실행 동일성을 증명하지 않는다. 후속 특수화는 고정하려는 각 late read의 별도 guard와 의미적 시점·효과 유효성 근거를 요구한다.
+
+**Guard slice 실행 검증 (2026-10-07, Windows native):** default/portable 각각 **565 passed / 17 ignored / 0 failed** (library 73개, 신규 guard 회귀 5개 포함). 별칭의 전이적 late target에 대한 assertion 추가 후 관련 library scope 회귀 7개를 두 설정에서 재실행해 통과했다. fmt/clippy 통과; Python audit 8개·oracle protocol 9개 통과. C j64/AVX2 × 두 Rust 경로 재비교는 scope **40/40 일치**, 기존 NAME **64 일치 / 40 미지원**, semantic boundary **36 일치 / 4 미지원**이며 의미 불일치는 없다. C 값/오류 비교는 Rust guard 내부 적법성의 독립 증명으로 간주하지 않는다. 아래 560건 검증 기록은 앞선 parser-context slice의 결과다.
 
 **실행 검증 (2026-10-07, Windows native):** default와 portable 각각 **560 passed / 17 ignored / 0 failed**. 신규 frontend 통합 회귀 15개와 library 전체 68개를 포함한다. `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings` 통과. Python audit 분류·전달 회귀 8개와 oracle protocol 회귀 9개 통과. C j64/AVX2 × Rust direct/semantic-reference 비교에서 explicit/direct NAME scope 10 fixture의 **40 observation 모두 일치** (`reports/name-scope-handoff-windows.json`); 기존 NAME 26 fixture는 **64 일치 / 40 미지원**, semantic boundary 10 fixture는 **36 일치 / 4 미지원**. 각 observation은 setup/error 후 read를 포함하는 문장 sequence이며 C 내부 event trace나 compiled route 검증이 아니다. 여러 줄 explicit block setup만 C script 입력으로 전달하고 양쪽 원문은 동일하게 보존한다. 보고서는 binary/DLL hash와 source/asset revision 차이를 기록한다. 미지원 locale·execute 등은 통과로 계산하지 않는다. GPU/Linux/remote CI 검증은 실행하지 않았다.
 

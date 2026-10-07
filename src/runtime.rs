@@ -30,6 +30,136 @@ mod scope_provenance_tests {
         program
     }
 
+    fn guard_for(engine: &mut Engine, name: &str) -> crate::frontend_context::SimpleNameGuard {
+        let program = parse_frame(engine, name);
+        crate::frontend_context::SimpleNameGuard::from_name_use(
+            program.frontend.as_ref().unwrap(),
+            crate::frontend_context::NameUseId(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn simple_guard_rejects_rebinding_and_other_engines_but_not_unrelated_writes() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let guard = guard_for(&mut engine, "a");
+        assert_eq!(guard.name(), "a");
+        assert_eq!(engine.check_name_guard(&guard), ValidAtCheck);
+        engine.eval("other=:8").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), ValidAtCheck);
+        assert!(engine.eval("a=:1 2+1 2 3").is_err());
+        assert_eq!(engine.check_name_guard(&guard), ValidAtCheck);
+        engine.eval("a=:7").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+        let mut other = Engine::new();
+        other.eval("a=:7").unwrap();
+        assert_eq!(other.check_name_guard(&guard), EngineChanged);
+    }
+
+    #[test]
+    fn simple_guard_tracks_unbound_fallback_shadowing_and_frame_lifetime() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let global = guard_for(&mut engine, "a");
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: ["a".to_owned()].into_iter().collect(),
+        });
+        assert_eq!(engine.check_name_guard(&global), FrameChanged);
+        let fallback = guard_for(&mut engine, "a");
+        assert_eq!(engine.check_name_guard(&fallback), ValidAtCheck);
+        engine.eval("a=:8").unwrap();
+        assert_eq!(engine.check_name_guard(&fallback), LookupChanged);
+        let fallback = guard_for(&mut engine, "a");
+        parse_frame(&mut engine, "a=.9");
+        assert_eq!(engine.check_name_guard(&fallback), LookupChanged);
+        let local = guard_for(&mut engine, "a");
+        engine.eval("other=:10").unwrap();
+        assert_eq!(engine.check_name_guard(&local), ValidAtCheck);
+        engine.local_frames.pop();
+        assert_eq!(engine.check_name_guard(&local), FrameChanged);
+        assert_eq!(engine.check_name_guard(&global), LookupChanged);
+    }
+
+    #[test]
+    fn binding_generation_rejects_remove_recreate_aba_even_at_equal_version_and_pos() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("f=:+").unwrap();
+        let guard = guard_for(&mut engine, "f");
+        let old = engine.names.remove("f").unwrap();
+        // Simulate future expunge/recreation without claiming support for 4!:55.
+        engine.eval("f=:+").unwrap();
+        assert_eq!(old.version, engine.names["f"].version);
+        assert_ne!(old.generation, engine.names["f"].generation);
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+        engine.eval("f=:3").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+    }
+
+    #[test]
+    fn guard_admission_requires_runtime_bound_simple_name_and_valid_origin() {
+        use crate::frontend_context::{NameUseId, SimpleNameGuard};
+        let diagnostic = crate::parser::parse_frontend("a").unwrap();
+        assert!(
+            SimpleNameGuard::from_name_use(diagnostic.frontend.as_ref().unwrap(), NameUseId(0))
+                .is_err()
+        );
+        let mut engine = Engine::new();
+        let missing = parse_frame(&mut engine, "missing");
+        assert!(
+            SimpleNameGuard::from_name_use(missing.frontend.as_ref().unwrap(), NameUseId(0))
+                .is_err()
+        );
+        engine.eval("a=:7").unwrap();
+        let program = parse_frame(&mut engine, "a");
+        let context = program.frontend.unwrap();
+        let guard = SimpleNameGuard::from_name_use(&context, NameUseId(0)).unwrap();
+        assert_eq!(guard.origin(), (context.unit, NameUseId(0)));
+        assert!(SimpleNameGuard::from_name_use(&context, NameUseId(1)).is_err());
+        let mut bad = (*context).clone();
+        bad.name_uses[0].lookup.as_mut().unwrap().binding_generation = None;
+        assert!(bad.verify().is_err());
+        for spelling in ["a_base_", "a__loc", "a::"] {
+            let mut locative = (*context).clone();
+            locative.words[0].name = Some(spelling.into());
+            assert!(SimpleNameGuard::from_name_use(&locative, NameUseId(0)).is_err());
+        }
+    }
+
+    #[test]
+    fn guard_miss_does_not_refresh_captured_noun_or_freeze_late_function() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let program = parse_frame(&mut engine, "a");
+        let guard = crate::frontend_context::SimpleNameGuard::from_name_use(
+            program.frontend.as_ref().unwrap(),
+            crate::frontend_context::NameUseId(0),
+        )
+        .unwrap();
+        engine.eval("a=:8").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+        let crate::semantic::ExprKind::Literal(value) = program.expression.unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(value.int_at(0).unwrap(), 7);
+        engine.eval("f=:+").unwrap();
+        let late = guard_for(&mut engine, "f");
+        engine.eval("g=:f").unwrap();
+        let alias = guard_for(&mut engine, "g");
+        engine.eval("f=:*").unwrap();
+        assert_eq!(engine.check_name_guard(&late), LookupChanged);
+        // A guard for g does not cover its transitive late target f. A future
+        // specialization must guard every semantic read it actually freezes.
+        assert_eq!(engine.check_name_guard(&alias), ValidAtCheck);
+        assert_eq!(engine.eval("g _2").unwrap().unwrap().int_at(0).unwrap(), -1);
+    }
+
     #[test]
     fn declared_unbound_local_falls_back_then_local_write_shadows_without_global_commit() {
         let mut engine = Engine::new();
@@ -371,6 +501,7 @@ fn store_binding(
         Binding {
             value: stored,
             version,
+            generation: crate::frontend_context::BindingGeneration::fresh(),
         },
     ) {
         pool.retire(value);
@@ -406,6 +537,7 @@ fn operation_label(verb: &ResolvedVerb) -> String {
 struct Binding {
     value: JEntity,
     version: crate::semantic::NameVersion,
+    generation: crate::frontend_context::BindingGeneration,
 }
 
 impl Default for Engine {
@@ -1181,6 +1313,7 @@ impl Engine {
         if let Some(Binding {
             value: JEntity::Function(function),
             version,
+            ..
         }) = self.names.get(name)
         {
             // Unknown application semantics do not prevent transporting the
@@ -1344,6 +1477,33 @@ impl Engine {
             local_state,
             found,
             binding_version: self.visible_binding(name).map(|binding| binding.version),
+            binding_generation: self.visible_binding(name).map(|binding| binding.generation),
+            binding_class: self
+                .visible_binding(name)
+                .map(|binding| match &binding.value {
+                    JEntity::Noun(_) => crate::parser::ParseClass::Noun,
+                    JEntity::Function(function) => function.result_pos.into(),
+                }),
+        }
+    }
+
+    /// Recheck the full supported simple-name search. This does not execute a
+    /// specialized plan or authorize skipping any future semantic lookup.
+    pub fn check_name_guard(
+        &self,
+        guard: &crate::frontend_context::SimpleNameGuard,
+    ) -> crate::frontend_context::NameGuardCheck {
+        use crate::frontend_context::NameGuardCheck;
+        if self.namespace_instance != guard.expected.engine {
+            return NameGuardCheck::EngineChanged;
+        }
+        if self.local_frames.last().map(|frame| frame.instance) != guard.expected.frame {
+            return NameGuardCheck::FrameChanged;
+        }
+        if self.lookup_observation(&guard.name) == guard.expected {
+            NameGuardCheck::ValidAtCheck
+        } else {
+            NameGuardCheck::LookupChanged
         }
     }
 

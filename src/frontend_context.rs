@@ -18,7 +18,7 @@ macro_rules! ids {
 }
 ids!(WordId, ItemId, NodeId, ReductionId, NameUseId);
 
-pub const FRONTEND_CONTEXT_SCHEMA: u32 = 1;
+pub const FRONTEND_CONTEXT_SCHEMA: u32 = 2;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrontendUnitId(pub u64);
 
@@ -89,6 +89,17 @@ pub struct NameUseRecord {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScopeInstanceId(pub u64);
 
+/// Never reused, including when a symbol is removed and recreated. Unlike a
+/// per-name version, this identity cannot accidentally accept an ABA rebinding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BindingGeneration(pub u64);
+
+impl BindingGeneration {
+    pub(crate) fn fresh() -> Self {
+        Self(ScopeInstanceId::fresh().0)
+    }
+}
+
 impl ScopeInstanceId {
     pub(crate) fn fresh() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -122,7 +133,7 @@ pub enum FoundScope {
 
 /// Actual simple-name lookup observation. Locale/path/epoch guards are not
 /// supplied by this record; it must not be promoted to a full LookupWitness.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LookupObservation {
     pub engine: ScopeInstanceId,
     pub frame: Option<ScopeInstanceId>,
@@ -130,6 +141,75 @@ pub struct LookupObservation {
     pub local_state: LocalLookupState,
     pub found: FoundScope,
     pub binding_version: Option<crate::semantic::NameVersion>,
+    pub binding_generation: Option<BindingGeneration>,
+    pub binding_class: Option<ParseClass>,
+}
+
+/// Bounded recipe: repeat the current simple-name search, then compare frame,
+/// scope, binding generation, version and POS. No locale/path assumptions are
+/// implicit. A successful check is only a point-in-time observation: it is not
+/// permission to hoist reads, freeze a late verb or replay effects.
+#[derive(Clone, Debug)]
+pub struct SimpleNameGuard {
+    pub(crate) name: String,
+    pub(crate) expected: LookupObservation,
+    origin: (FrontendUnitId, NameUseId),
+}
+
+impl SimpleNameGuard {
+    pub fn from_name_use(context: &FrontendContext, id: NameUseId) -> Result<Self, String> {
+        context.verify()?;
+        if !context.complete {
+            return Err("incomplete parser context is not guard admission".into());
+        }
+        let usage = context
+            .name_uses
+            .get(id.0)
+            .ok_or("NAME use out of bounds")?;
+        let name = context.words[usage.word.0]
+            .name
+            .as_ref()
+            .ok_or("missing NAME spelling")?;
+        // Locatives and by-value forms require a different search recipe.
+        if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+            || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            || name.ends_with('_')
+            || name.contains("__")
+        {
+            return Err("guard requires an ordinary simple name".into());
+        }
+        let expected = usage
+            .lookup
+            .as_ref()
+            .ok_or("guard requires a runtime lookup")?;
+        if usage.evidence != NameEvidence::RuntimeClass
+            || !matches!(expected.found, FoundScope::Local(_) | FoundScope::Global(_))
+            || expected.binding_generation.is_none()
+            || expected.binding_class != Some(usage.result_class)
+        {
+            return Err("guard requires a bound runtime simple name".into());
+        }
+        Ok(Self {
+            name: name.clone(),
+            expected: expected.clone(),
+            origin: (context.unit, id),
+        })
+    }
+
+    pub fn origin(&self) -> (FrontendUnitId, NameUseId) {
+        self.origin
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameGuardCheck {
+    ValidAtCheck,
+    EngineChanged,
+    FrameChanged,
+    LookupChanged,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -573,6 +653,11 @@ impl FrontendContext {
                     || matches!(lookup.found, FoundScope::Global(scope) if scope != lookup.engine)
                     || (matches!(lookup.found, FoundScope::Local(_) | FoundScope::Global(_))
                         != lookup.binding_version.is_some())
+                    || lookup.binding_version.is_some() != lookup.binding_generation.is_some()
+                    || lookup.binding_version.is_some() != lookup.binding_class.is_some()
+                    || lookup
+                        .binding_class
+                        .is_some_and(|class| class != name_use.result_class)
                 {
                     return fail("inconsistent local/global NAME lookup");
                 }

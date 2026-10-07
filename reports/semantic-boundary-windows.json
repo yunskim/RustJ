@@ -1,8 +1,8 @@
 {
   "scope": "Bounded observable sentence/value/error audit; not full NAME, event, Graph/A3 or compiled-route conformance",
   "platform": "win32",
-  "rust_revision": "a09fd81+frontend-context-working-tree",
-  "rust_binary_sha256": "6f311da8b836bc44b1f8f2a36dc040c0ed1982d29ff1f8db9386e8ecb7c806ea",
+  "rust_revision": "0ec9e22+simple-name-guard-working-tree",
+  "rust_binary_sha256": "45dbfd46a1f10f2bf59003b8737c0f550ee5e153deeb1aae82a934e011d18e99",
   "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
   "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
   "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
