@@ -59,8 +59,9 @@ pub fn classify(word: &str) -> Result<Option<ControlWord>> {
         return Ok(Some(*kind));
     }
     if let Some(name) = word.strip_prefix("for_").and_then(|s| s.strip_suffix('.')) {
-        // conword audits vnm here. Reuse the supported ordinary name contract;
-        // locative names remain an explicit unsupported capability.
+        // conword audits vnm here. The NAME queue recognizes locative
+        // syntax, but control-variable locale assignment must not be
+        // flattened into a simple loop name before P4 implements it.
         if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
             || !name
                 .bytes()
@@ -73,6 +74,13 @@ pub fn classify(word: &str) -> Result<Option<ControlWord>> {
             || !matches!(queue[0].payload, crate::enqueuer::EnqueuedPayload::Name(_))
         {
             return Err(Error::IllFormedName);
+        }
+        if queue[0].flags.name_form != crate::enqueuer::NameForm::Simple
+            || queue[0].flags.name_by_value
+        {
+            return Err(Error::Unsupported(
+                "locative for-control target requires P4 locale assignment".into(),
+            ));
         }
         return Ok(Some(ControlWord::For));
     }
