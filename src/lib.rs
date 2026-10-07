@@ -37,6 +37,7 @@ pub mod kernels;
 pub mod logical_executor;
 pub mod logical_ir;
 pub mod lowering;
+pub mod name_guards;
 mod numeric;
 mod numeric_input;
 pub mod opportunity;

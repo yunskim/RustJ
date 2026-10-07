@@ -2838,21 +2838,26 @@ pub(crate) fn parse_runtime_host(
     if let Some(capture) = &mut capture {
         capture.set_source(source);
     }
-    parse_context(
-        source,
-        &mut ActionContext {
-            last_lookup_version: None,
-            last_name_policy: None,
-            frontend: None,
-            mode: ParseContext::Runtime,
-            lookup: None,
-            host: Some(host),
-            capture,
-            modifier_snapshots: Vec::new(),
-            fork_name_reads: Default::default(),
-            name_rank_snapshots: Vec::new(),
-        },
-    )
+    let mut context = ActionContext {
+        last_lookup_version: None,
+        last_name_policy: None,
+        frontend: None,
+        mode: ParseContext::Runtime,
+        lookup: None,
+        host: Some(host),
+        capture,
+        modifier_snapshots: Vec::new(),
+        fork_name_reads: Default::default(),
+        name_rank_snapshots: Vec::new(),
+    };
+    let result = parse_context(source, &mut context);
+    if let Some(capture) = &mut context.capture {
+        capture.frontend = match &result {
+            Ok(program) => program.frontend.clone(),
+            Err(_) => context.frontend.take().map(Arc::new),
+        };
+    }
+    result
 }
 
 struct ActionContext<'a> {

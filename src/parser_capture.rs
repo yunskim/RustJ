@@ -154,6 +154,9 @@ pub struct GerundNameRead {
 #[derive(Clone, Debug, Default)]
 pub struct ParseCapture {
     source: String,
+    /// Same parser-owned context as Program, including the completed prefix on
+    /// failure. Not reconstructed from events and not an executable continuation.
+    pub frontend: Option<Arc<crate::frontend_context::FrontendContext>>,
     pub events: Vec<CaptureEvent>,
     pub result: Option<OccurrenceId>,
     /// Terminal enqueue/parse/runtime failure, including errors with no apply.

@@ -26,6 +26,10 @@ mod scope_provenance_tests {
         };
         let program =
             crate::parser::parse_runtime_host(source, &mut host, Some(&mut capture)).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            program.frontend.as_ref().unwrap(),
+            capture.frontend.as_ref().unwrap()
+        ));
         program.frontend.as_ref().unwrap().verify().unwrap();
         program
     }
@@ -37,6 +41,74 @@ mod scope_provenance_tests {
             crate::frontend_context::NameUseId(0),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn alias_guard_tracks_local_fallback_and_shadowing_in_explicit_invocation_frame() {
+        use crate::{frontend_context::NameUseId, name_guards::AliasGuardCheck};
+        let mut engine = Engine::new();
+        engine.eval("f=:+").unwrap();
+        engine.eval("g=:f").unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: ["f".to_owned()].into_iter().collect(),
+        });
+        let program = parse_frame(&mut engine, "g");
+        let guard = engine
+            .prepare_alias_call_guard(program.frontend.as_ref().unwrap(), NameUseId(0))
+            .unwrap();
+        assert_eq!(
+            guard.reads()[1].observation().local_state,
+            LocalLookupState::DeclaredUnbound
+        );
+        parse_frame(&mut engine, "f=.-");
+        assert_eq!(
+            engine.check_name_guard(guard.root()),
+            crate::frontend_context::NameGuardCheck::ValidAtCheck
+        );
+        assert_eq!(
+            engine.check_alias_call_guard(&guard),
+            AliasGuardCheck::Invalidated {
+                read: 1,
+                reason: crate::frontend_context::NameGuardCheck::LookupChanged,
+            }
+        );
+        let program = parse_frame(&mut engine, "g");
+        let local = engine
+            .prepare_alias_call_guard(program.frontend.as_ref().unwrap(), NameUseId(0))
+            .unwrap();
+        assert_eq!(
+            local.reads()[1].observation().found,
+            FoundScope::Local(engine.local_frames.last().unwrap().instance)
+        );
+        let value = engine
+            .validate_alias_call_guard(&local)
+            .unwrap()
+            .apply_monad(Value::scalar(2))
+            .unwrap();
+        assert_eq!(value.int_at(0).unwrap(), -2);
+        engine.local_frames.pop();
+        assert_eq!(
+            engine.check_alias_call_guard(&local),
+            AliasGuardCheck::Invalidated {
+                read: 0,
+                reason: crate::frontend_context::NameGuardCheck::FrameChanged,
+            }
+        );
+        assert_eq!(engine.eval("g 2").unwrap().unwrap().int_at(0).unwrap(), 2);
+        use crate::name_guards::{AliasCall, AliasCallAttempt};
+        let AliasCallAttempt::Miss(miss) = engine.try_alias_call(AliasCall::new(
+            std::sync::Arc::new(local),
+            None,
+            Value::scalar(2),
+        )) else {
+            panic!()
+        };
+        let AliasCallAttempt::Miss(rejected) = engine.resume_alias_call(miss) else {
+            panic!()
+        };
+        assert_eq!(rejected.call.right().int_at(0).unwrap(), 2);
     }
 
     #[test]
@@ -1493,18 +1565,185 @@ impl Engine {
         &self,
         guard: &crate::frontend_context::SimpleNameGuard,
     ) -> crate::frontend_context::NameGuardCheck {
+        self.check_lookup_observation(&guard.name, &guard.expected)
+    }
+
+    fn check_lookup_observation(
+        &self,
+        name: &str,
+        expected: &crate::frontend_context::LookupObservation,
+    ) -> crate::frontend_context::NameGuardCheck {
         use crate::frontend_context::NameGuardCheck;
-        if self.namespace_instance != guard.expected.engine {
+        if self.namespace_instance != expected.engine {
             return NameGuardCheck::EngineChanged;
         }
-        if self.local_frames.last().map(|frame| frame.instance) != guard.expected.frame {
+        if self.local_frames.last().map(|frame| frame.instance) != expected.frame {
             return NameGuardCheck::FrameChanged;
         }
-        if self.lookup_observation(&guard.name) == guard.expected {
+        if self.lookup_observation(name) == *expected {
             NameGuardCheck::ValidAtCheck
         } else {
             NameGuardCheck::LookupChanged
         }
+    }
+
+    /// Inspect only ordinary call-target aliases. Never walk derived operands
+    /// speculatively or execute a definition to discover its eventual target.
+    pub fn prepare_alias_call_guard(
+        &self,
+        context: &std::sync::Arc<crate::frontend_context::FrontendContext>,
+        id: crate::frontend_context::NameUseId,
+    ) -> std::result::Result<
+        crate::name_guards::AliasCallGuard,
+        crate::name_guards::AliasGuardAdmission,
+    > {
+        use crate::frontend_context::{NameGuardCheck, NamePolicy, SimpleNameGuard};
+        use crate::name_guards::{AliasCallGuard, AliasGuardAdmission as Failure, AliasRead};
+        use crate::primitive::PrimitiveId;
+        let root = SimpleNameGuard::from_name_use(context, id).map_err(Failure::InvalidOrigin)?;
+        if context.name_uses[id.0].policy != NamePolicy::LateAtCall {
+            return Err(Failure::UnsupportedTarget);
+        }
+        let checked = self.check_name_guard(&root);
+        if checked != NameGuardCheck::ValidAtCheck {
+            return Err(Failure::RootChanged(checked));
+        }
+        let mut name = root.name().to_owned();
+        let mut reads = Vec::new();
+        let mut seen = HashSet::new();
+        for _ in 0..=crate::semantic::MAX_EXPR_DEPTH {
+            // Each alias has the same supported simple-name search recipe.
+            if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                || name.ends_with('_')
+                || name.contains("__")
+            {
+                return Err(Failure::UnsupportedTarget);
+            }
+            let binding = self
+                .visible_binding(&name)
+                .ok_or_else(|| Failure::UnboundTarget(name.clone()))?;
+            let JEntity::Function(target) = &binding.value else {
+                return Err(Failure::WrongPartOfSpeech(name));
+            };
+            if target.result_pos != FunctionPartOfSpeech::Verb {
+                return Err(Failure::WrongPartOfSpeech(name));
+            }
+            if !seen.insert(binding.generation) {
+                return Err(Failure::Cycle(name));
+            }
+            reads.push(AliasRead {
+                name: name.clone(),
+                observation: self.lookup_observation(&name),
+                target: target.clone(),
+            });
+            if !target.operands.is_empty() {
+                return Err(Failure::UnsupportedTarget);
+            }
+            match &target.head {
+                FunctionHead::NameRef(next) => name = next.clone(),
+                FunctionHead::PrimitiveVerb(
+                    id @ (PrimitiveId::Add
+                    | PrimitiveId::Subtract
+                    | PrimitiveId::Multiply
+                    | PrimitiveId::Divide),
+                ) => {
+                    return Ok(AliasCallGuard {
+                        context: context.clone(),
+                        root,
+                        reads,
+                        primitive: *id,
+                    });
+                }
+                _ => return Err(Failure::UnsupportedTarget),
+            }
+        }
+        Err(Failure::DepthLimit)
+    }
+
+    pub fn check_alias_call_guard(
+        &self,
+        guard: &crate::name_guards::AliasCallGuard,
+    ) -> crate::name_guards::AliasGuardCheck {
+        use crate::{frontend_context::NameGuardCheck, name_guards::AliasGuardCheck};
+        if guard.verify().is_err() {
+            return AliasGuardCheck::InvalidRecipe;
+        }
+        for (read, dependency) in guard.reads.iter().enumerate() {
+            let reason = self.check_lookup_observation(&dependency.name, &dependency.observation);
+            if reason != NameGuardCheck::ValidAtCheck {
+                return AliasGuardCheck::Invalidated { read, reason };
+            }
+        }
+        AliasGuardCheck::ValidAtCheck
+    }
+
+    /// Validate after argument evaluation, immediately before the pure call.
+    /// A miss returns without invoking kernels or replaying any prior effects.
+    pub fn validate_alias_call_guard<'a>(
+        &'a self,
+        guard: &'a crate::name_guards::AliasCallGuard,
+    ) -> std::result::Result<
+        crate::name_guards::ValidatedAliasTarget<'a>,
+        crate::name_guards::AliasGuardCheck,
+    > {
+        let check = self.check_alias_call_guard(guard);
+        if check != crate::name_guards::AliasGuardCheck::ValidAtCheck {
+            return Err(check);
+        }
+        Ok(crate::name_guards::ValidatedAliasTarget {
+            _engine: self,
+            guard,
+        })
+    }
+
+    /// Try one pure guarded call with already evaluated arguments. A miss moves
+    /// the unchanged call back to the caller; it is never a language error.
+    pub fn try_alias_call(
+        &self,
+        call: crate::name_guards::AliasCall,
+    ) -> crate::name_guards::AliasCallAttempt {
+        use crate::name_guards::{AliasCallAttempt, AliasCallMiss};
+        match self.validate_alias_call_guard(&call.guard) {
+            Ok(lease) => AliasCallAttempt::Executed(match call.x {
+                Some(x) => lease.apply_dyad(x, call.y),
+                None => lease.apply_monad(call.y),
+            }),
+            Err(check) => AliasCallAttempt::Miss(AliasCallMiss { check, call }),
+        }
+    }
+
+    /// Explicit semantic call at the same call-ready boundary. Recheck engine
+    /// and frame, then use the original NameRef and retained values through the
+    /// existing Rust caller. No source parsing or argument/effect replay occurs.
+    /// Wrong-engine/frame or damaged recipes return ownership without calling.
+    pub fn resume_alias_call(
+        &mut self,
+        miss: crate::name_guards::AliasCallMiss,
+    ) -> crate::name_guards::AliasCallAttempt {
+        use crate::{
+            frontend_context::NameGuardCheck,
+            name_guards::{AliasCallAttempt, AliasCallMiss, AliasGuardCheck},
+        };
+        let call = miss.call;
+        let check = self.check_alias_call_guard(&call.guard);
+        let rejected = matches!(
+            check,
+            AliasGuardCheck::InvalidRecipe
+                | AliasGuardCheck::Invalidated {
+                    reason: NameGuardCheck::EngineChanged | NameGuardCheck::FrameChanged,
+                    ..
+                }
+        );
+        if rejected {
+            return AliasCallAttempt::Miss(AliasCallMiss { check, call });
+        }
+        let function = call
+            .guard
+            .call_function()
+            .expect("verified original callee")
+            .clone();
+        AliasCallAttempt::Executed(self.call_entity(function, call.x, call.y, true, 0))
     }
 
     /// Reference execution with stable machine-readable J errors.
