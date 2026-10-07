@@ -45,8 +45,17 @@ fn malformed_fields_have_j_error_classes_and_word_provenance() {
         assert!(error.span().is_some());
         assert!(error.context().unwrap().blame_word_index.is_some());
     }
-    for source in ["1j2", "123x", "1r2", "foo__", "foo_bar_"] {
+    for source in ["1j2", "123x", "1r2"] {
         assert_eq!(enqueue(source).unwrap_err().kind(), "unsupported");
+    }
+    // Valid J locatives remain names in the F1 queue; namespace resolution
+    // and execution are separate P4 acceptance requirements.
+    for source in ["foo__", "foo_bar_"] {
+        let queue = enqueue(source).unwrap();
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].class, rustj::enqueuer::EnqueueClass::Name);
+        assert!(queue[0].flags.lookup_name);
+        assert_eq!(queue[0].span, 0..source.len());
     }
 }
 
