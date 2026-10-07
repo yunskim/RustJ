@@ -2024,6 +2024,116 @@ future CFG lowering이 추가될 때 필요한 최소 증명:
 
 현재 회귀와 runtime tests는 `DefinitionCode` construction/control metadata뿐 아니라 **지원 straight-line invocation의 LocalFrame·scope·assignment/effect 동작도 일부 검사한다.** 그러나 control-flow body를 J Graph/A3 CFG로 낮추는 planned compiler 경계의 완료 증거는 아니다.
 
+#### 3.7.2 jsource NAME 정합성 감사 및 F1/P4 수용 조건 (2026-10-07; 설계·코드 조사)
+
+**명세 우선순위:** 고정 `jsource@13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`의 [`sn.c::vnm/vlocnm/nfs`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c), [`w.c::jtenqueue`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [`p.c::jtparsea`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [`s.c::jtsyrd/jtsymbis`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c), [`sl.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sl.c) 및 [J Dictionary의 NAME/locative/assignment 관찰 의미](https://jsoftware.com/help/dictionary/dicti.htm)를 기준으로 한다. RustJ 고유 NAME **문법·의미 제한을 추가하지 않는다.** 허용되는 차이는 내부 carrier·hash layout·lookaside·refcount·JIT cache 구현 등 외부에서 보이지 않는 방식뿐이다. 아래는 **현재 main의 정적 감사**이며 실제 differential PASS 기록이 아니다.
+
+| ID | jsource 관찰 계약 | RustJ 현재 구조/차이 | 수용 조건 |
+|---|---|---|---|
+| **NJ-01 NAME 인식** | 단순 이름(내부 `_` 허용), direct `name_locale_`, indirect `name__holder`, base alias `name__`; 적법한 `name_:`는 `NAMEBYVALUE/NAMEABANDON` 별도 inflection. `nfs` 길이/오류 precedence, `vnm` 문법 유지 | `enqueuer::validate_name_syntax`가 일부 문법·길이 검사를 구현하지만 적법한 locative와 `name_:`를 `Unsupported`로 차단함. 32-bit numeric locale 제한 등 플랫폼 경계 미검증 | 모든 jsource-valid NAME을 정상 parse queue에 전달하고 invalid/limit/spelling만 해당 J 오류로 구분. `Unsupported`를 최종 NAME 구문 결과로 인정하지 않음 |
+| **NJ-02 enqueue 환경** | `jtenqueue env=0/1/2`, NAME to-lookup/assignment flags, copula 분류. locative 대상 `=.`는 explicit body에서도 **global** | env=0/1/2 일반 copula 기본 회귀는 병합(#12); `NMLOC/NMILOC` 인수와 locative global 승격·by-value name flag 미구현 | 원본 queue 분류를 C 소스 유도 golden과 실행 가능한 J oracle에서 검증 |
+| **NJ-03 조회 결과/오류 API** | `syrd`는 **미정의 이름**과 **locale 해석 실패**를 구분하고, 실제 lookup에는 local 여부·찾은 locale·이름의 POS·동적 error가 개입 | `RuntimeParserHost::lookup(&str)->Option<ParserNameBinding>`는 성공/미정의 2가지만 표현; locale/value/domain error 또는 탐색 provenance 전달이 불가능. `binding_version(name)`도 전역 flat key 중심 | 최소 `Result<Option<...>>`에 해당하는 **오류 있는 lookup 경계**와 actual resolution witness(local/locale/path/context/version)를 분리하여 보존. 구체 타입 이름은 구현 때 선택 |
+| **NJ-04 실제 namespace** | 일반 이름: invocation local → 현재 locale → **그 locale의 명시 path** (path의 path는 재귀 탐색하지 않음). Direct는 지정 locale부터, indirect는 holder의 현재 값으로 시작 locale 결정. 숫자 locale·locale 생성/변경/삭제·path 영향 | `Engine.names: HashMap<String,Binding>` + 마지막 `LocalFrame` → 단일 global fallback. 사용자 locale 별 테이블·검색 path·current locale 상태/전환 없음 | namespace를 locale-scoped로 구현하고 local, current, path, direct/indirect, name shadowing을 같은 의미·오류 순서로 수행 |
+| **NJ-05 locative 호출 문맥** | `f_locale_` 호출 시 global name 실행의 **current locale**가 시작 locale로 전환되고 복원됨. 값이 경로상의 다른 locale에서 발견돼도 **검색한 locale ≠ 실행 locale** 가능 | Function `NameRef(String)`와 runtime 호출이 locale context·search hit locale·restore obligation을 별도로 모델링하지 못함 | lookup 시작 locale, 실제 발견 locale, 호출 실행 locale, 복원 이벤트를 구분. caller의 local frame이 callee로 잘못 전파되지 않게 함 |
+| **NJ-06 값 vs NameRef** | noun은 stack 진입 시 값으로 snapshot, 일반 Verb/Adverb/Conjunction은 당시 POS에 따른 nameref와 호출 시 late lookup; locative 함수는 호출 locale context 필요. `name_:`는 by-value 후 binding abandon/delete. undefined 일반 NAME의 파서 fallback 경로는 즉시 오류와 동일하지 않음 | noun snapshot, Function `NameRef`, 일부 POS mismatch/domain은 존재. 하지만 `name_:` 삭제·full modifier/locative NameRef·원본 undefined 경로 미완료 | 재바인딩/품사 변경/특수 by-value-name과 실제 NameRef/실행 context에 대한 차분 수용 |
+| **NJ-07 대입 대상** | local `=.`, global `=:`; locative는 모두 global. 중간·연속 대입, **계산된 단일 NAME / 여러 NAME**(문자열·boxed list), locally-defined name에 대한 public collision의 J Domain 오류 | parser `PendingAssignment`와 `assign_scoped(&str,..)`가 주로 단일 raw 이름을 전제로 함; 다중/계산된 name·locale table 선택 일반화 미완료 | RHS 평가 시점/결과 JEntity, name 계산, 해당 table commit, 첫 오류 및 side-effect ordering과 rollback 경계 대조 |
+| **NJ-08 전체 문장 효과** | `p.c` stack/reduction에 따른 right-to-left lookup, assignment/locale mutation, lookup 후 함수 호출의 dynamic context. `18!:` locale/path 변동은 재조회·guard에 영향 | 일부 right-to-left runtime action·local frame은 구현. compiler proof는 단일 name/version으로 current locale/path 변경을 증명하지 못함 | 전체 문장 선행 snapshot/잘못된 함수 eager capture 금지. namespace-version뿐 아니라 관련 locale/path·local shadow·holder 재바인딩 witness를 필요한 시점에 재검증 |
+| **NJ-09 compiler target** | 사용자 J locale이 언어 의미의 namespace | `CompilationTargetLocale`은 설계상 **별도 compiler namespace**로 이미 분리되어 있어 문제가 아님 | compiler target locale을 J language locale 조회·대입으로 오인하거나 두 binding table을 공유하지 않음 |
+
+**구현 선행순서:** (1) NJ-01/02 NAME 블록과 enqueue의 원본 동등성 → (2) NJ-03/04 **오류를 전파할 수 있는 lookup·locale namespace** → (3) NJ-05/06 locative 호출·by-value/abandon·NameRef → (4) NJ-07/08 대입/오류/재바인딩/평가 순서 → (5) P6 C `j64`/`j64avx2`와 Rust reference의 독립 차분. F1/P4를 문법 인식만으로 완료 처리하지 않는다. unsupported는 **현재 구현 미수용**만 나타내며 J NAME feature를 제외하는 설계 선택이 아니다.
+
+**부정·긍정 수용 시험 등록부:** `NJ-V01` simple/internal underscore·valid direct/indirect/base alias·`name_:` vs invalid/limit/spelling; `NJ-V02` env=0/1/2+locative `=.` 플래그; `NJ-V03` local shadow/unbound fallback/locale path 한 단계와 missing/invalid locale error; `NJ-V04` indirect holder의 값·재바인딩·오류, 숫자/소멸 locale; `NJ-V05` locative function의 실행 current locale, 경로에서 발견된 function, recursive/frame restoration; `NJ-V06` noun snapshot vs late function NameRef·POS 변화 및 `name_:`의 삭제; `NJ-V07` 계산된/복수 assignment·local/global 충돌·first J error/effect 순서. 기록: `source revision | 실제 C binary hash/variant | Rust commit | positive + one-mutated-negative | value/POS/locale/path/effect/error | pass/fail/unrun`. 현재 **모두 미수용**이며 기존 소규모 enqueue 테스트의 통과를 full name compliance로 승격하지 않는다.
+
+#### 3.7.3 NAME 의미론적 조회와 최적화 provenance 분리 (2026-10-07; 설계 전용)
+
+**결정:** `jsource`의 NAME 조회 **시점**은 그대로 두면서, NAME이 값으로 치환되더라도 **원본 NAME occurrence와 조회 사건·증거**를 J Graph/A3 및 최적화기에 남긴다. Compiler가 편하다는 이유로 noun을 늦게 조회하거나 verb를 미리 실행 함수로 확정하지 않는다. 새 실행용 NAME IR을 강제하지 않고 기존 `EnqueuedWord`, `ParseCapture`, `FunctionHead::NameRef`, J Graph `ReadNoun`, A3 `ReadNoun/VerbReference`를 우선 확장한다. 여기의 명칭은 **제안된 개념 계약**이지 구현된 Rust 타입이 아니다.
+
+**jsource 기준:** 고정 [w.c `jtenqueue`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [p.c `jtparsea`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [s.c `jtsyrd/jtsymbis`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c), [sn.c `vnm/nfs`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c). `p.c`는 NAME을 parser stack으로 들여올 때 **noun이면 그 순간의 값으로 치환**, 일반 verb라면 **당시 POS로 parser row를 결정하되 `nameref`를 보존하고 실제 호출에서 이름을 재조회**한다. Adverb/Conjunction과 gerund/fork는 생성 시점의 실제 modifier/operand 조회가 있으므로 “모든 function은 late”로 단순화하지 않는다. Direct/indirect locative, `name_:` by-value/abandon, `mnuvxy` 역시 별개의 J semantics다.
+
+| source 역할 | J 실행이 사용하는 값 | 최적화기에 계속 남길 정보 |
+|---|---|---|
+| **Noun NAME** | 스택 진입 **시점**에 확보한 noun snapshot. 뒤의 재대입은 이 값에 영향 없음 | NAME spelling·syntax form·word/span·발생 ID, 실제 parser read 지점, local/locale/path resolution과 binding identity, 해당 snapshot의 dtype/Shape/rank |
+| **일반 Verb NAME** | parser-time POS에 맞는 NameRef; **call-time** 실제 callable 조회·POS 오류 | 원래 NAME, 기대 POS, 관찰된 primitive/innate-rank **후보 힌트**와 재조회 의무. 미증명 함수 고정 금지 |
+| **Modifier/gerund/fork NAME** | 각 constructor가 **생성 시점 실제로 읽거나 고정한** operand/function, 또는 별도 late ref | 생성 시점 snapshot 이벤트와 호출 시점 NameRef의 provenance·불변 범위 구분 |
+| **Locative/특수 NAME** | direct/indirect locale 조회, 실행 locale 전환·복원, `name_:` abandon 효과 | 원 표기·holder read, local shadow, 검색 시작/실제 발견/함수 실행 locale, path·version·generation·원본 오류 순서 |
+
+**독립 identity(한 sidecar/기존 IR에 구현해도 됨):**
+
+~~~text
+NameOccurrence {
+  id, original_spelling, form: Simple|Direct|Indirect|ByValueAbandon|Special,
+  enqueue_word_index, source_span, parser_use_site
+}
+NameResolutionEvent {
+  occurrence_id,
+  time: StackNounRead|StackPOS|ConstructorRead|CallLookup|
+        AssignmentTarget|LocaleRead|Abandon,
+  outcome: NounSnapshot(value_id)|FunctionRef(expected_pos)|
+           ConstructorCaptured(entity)|MissingNameRef|WriteResult|JError,
+  lookup_witness?: {call_frame, local_present_or_absent,
+                   start_locale, search_path_order, found_locale, execution_locale,
+                   symbol_generation, binding_version, actual_pos,
+                   indirect_holder_reads, locale_path_epochs},
+  effect/error_order_edges, source_diagnostics
+}
+OptimizationNameEvidence {
+  event_id, observed_pos?, candidate_callable_family?,
+  observed_dtype_shape_rank?, constructor_fixed_facts?,
+  status: Observed|ProvenStable|GuardRequired|Unknown,
+  proof_or_guard_footprint?
+}
+~~~
+
+**절대 동일시하지 않을 것:** source `NameOccurrence` ≠ 실제 `ResolutionEvent` ≠ `JEntity/SSA ValueId` ≠ 분석용 `OptimizationNameEvidence` ≠ 물리 `BufferId`. 같은 문자열 NAME이라도 occurrence, frame, locale, path, local 유무에 따라 다른 심볼이다. `NameVersion` 하나로 **조회에서 local이 없었다는 부정 증거**, path 무변화, indirect holder 재바인딩, locale 삭제·재생성을 증명할 수 없다.
+
+**실행과 재사용의 시간 차이 예:**
+
+~~~text
+a =: 1 2 3
+... a ...    J stack-read(a) -> noun v0
+             capture event#A(name="a", resolved_binding, value=v0)
+             J Graph ReadNoun(a,event#A) -> A3 SSA v0 + source link
+a =: 9       이미 읽은 v0는 불변; 이후 읽기는 새로운 event.
+
+f =: +
+... f ...    parser POS=Verb, NameRef("f"), expected_pos=Verb
+             optimization: observed Add-family HINT (not a frozen target)
+f =: *
+... f ...    새 호출은 현재 f를 읽거나 call-time guard로 적법성을 입증해야 함
+~~~
+
+이 예의 noun snapshot은 **실제 J parser read 시점**의 값이지 compiler가 사전 분석 시 얻은 값을 모든 미래 실행에서 캐시하라는 뜻이 아니다. 실행을 재사용하는 경우 매 invocation에서 올바른 read boundary의 값을 공급하거나 안정성 proof/guard 및 효과·오류 순서 증거가 필요하다. 반대로 이미 read를 수행한 뒤에는 같은 event를 재조회해서도 안 된다.
+
+**Stage별 소유권과 최소 구현 변경:**
+
+1. **F1 Enqueuer:** NAME의 문법/locative/by-value 분류와 source identity만 유지한다. lexical 단계에서 POS·binding·primitive target을 고정하지 않는다.
+2. **P4 runtime parser:** `resolve_stack_item`의 noun value snapshot은 기존과 같은 타이밍으로 실행하되 origin event를 기록한다. 함수는 POS 검사와 미래 NameRef를 분리. 현재 `RuntimeParserHost::lookup(&str)->Option<ParserNameBinding>`은 locale 해석 오류를 표현하지 못하므로 `Result<Option<...>>` 상당의 **오류 전달 조회**로 확장한다. `start_locale`·`found_locale`·`execution_locale`는 별개.
+3. **Semantic/JEntity:** `NameUse`·`BoundProgram`·`ModifierSnapshot`·`NameRankSnapshot`의 관찰값을 guard와 혼동하지 않는다. frozen constructor operand는 별도 event이고 일반 NameRef는 late.
+4. **J Graph:** `NodeKind::ReadNoun{name,version}`와 `VerbValue/Apply(NameRef)`에 event/provenance 링크를 유지. `GraphAnalyzability::RequiresSpecialization`은 미증명 dynamic function에서 유지. 값만 남기고 원본 name을 지우지 않는다.
+5. **A3:** `OpKind::ReadNoun{symbol,version}`, `VerbReference(Callable)`, `Write`, `SemanticCheck`, `order_after`와 J Graph/source event의 연결을 검증. `Symbol{name,scope=CurrentGlobal|LocalFrame}`은 아직 locale/path 전체를 표현하지 못한다. namespace semantic effects를 단순 SSA 값·literal로 지우지 않는다.
+6. **M3+ optimizer:** known POS/primitive/Shape/rank는 *transform candidate*만 부여한다. `ProvenStable` 및 `GuardRequired`의 proof에는 actual use 시점까지 local absence/shadow, current/search locale/path, indirect holder, binding versions, statement 내 namespace writes, first error/effect order를 포함. guard miss는 J 오류가 아니며 effect 이후 문장 전체 replay 금지.
+
+**프레임워크 비교:**
+
+| 참조 | 빌릴 부분 | 빌리면 안 되는 부분 |
+|---|---|---|
+| [MLIR SymbolRef/SymbolTable](https://mlir.llvm.org/docs/SymbolsAndSymbolTables/) | symbolic NAME uses와 SSA value 흐름 분리 | 정적 MLIR symbol table을 J의 동적 locale/path로 대체 |
+| [LLVM MemorySSA](https://llvm.org/docs/MemorySSA.html) | read/write clobber, hoist legality와 순서 의존성 | J NameRef/POS/locale/first error를 일반 메모리 load 취급 |
+| [Truffle Assumption](https://www.graalvm.org/truffle/javadoc/com/oracle/truffle/api/Assumption.html) | speculate한 바인딩·함수의 무효화 가능 guard | 단일 전역 boolean/flat version으로 path·holder 무변화를 주장 |
+| [JAX captured constants](https://docs.jax.dev/en/latest/internals/constants.html) 및 [JIT global caveat](https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html) | captured value와 runtime input 분리 | JAX의 trace-time global 고정을 J의 dynamic name semantics에 이식 |
+
+**수용 단계(구현/검증은 모두 UNRUN):**
+
+- [ ] **NP-01:** NAME occurrence ID·form·span/word·중복 출현 원본 보존. **NP-V01:** 다른 occurrence/locale를 문자열만으로 병합하면 실패.
+- [ ] **NP-02:** noun stack-read, function parser POS/call NameRef, modifier constructor snapshot을 정확한 시점에 분리. **NP-V02:** noun 재조회 지연이나 verb 조기 freeze 거부.
+- [ ] **NP-03:** 오류 있는 locale-aware lookup, local presence/**absence**·path/holder witness·실행 locale. **NP-V03:** shadow/path/holder 바뀌었는데 cached binding 재사용 거부.
+- [ ] **NP-04:** Parser capture→Semantic→J Graph `ReadNoun/NameRef`→A3 `ReadNoun/VerbReference` source event 연결. **NP-V04:** noun literal fold로 NAME provenance 소실하면 거부.
+- [ ] **NP-05:** `Observed/ProvenStable/GuardRequired/Unknown` 구분과 guard footprint/first error·effect-order 증명. **NP-V05:** `Observed` 단독으로 Add kernel 특수화 거부.
+- [ ] **NP-06:** locative NameRef, `name_:`, gerund/fork/Rank constructor, assignment·rebinding·POS 변화의 조회/고정 시점 보존. **NP-V06:** 조기/후기 조회 혼동 및 error 순서 변경 거부.
+- [ ] **NP-07:** pinned J C `j64/j64avx2` ↔ Rust semantic reference·event ↔ Graph/A3·실제 route의 차분. **NP-V07:** J 값·POS·첫 오류·namespace effect 불일치를 실패로 판정.
+
+등록 양식: `source revision | NAME occurrence/event→SSA IDs | oracle/binary | positive + one-invariant-negative | proof/guard owner | PASS/FAIL/UNRUN | CI SHA`. **문서 설계 완료가 F1/P4/P5/M3 구현 완료를 뜻하지 않는다.**
+
 ### 3.8 sentence evaluation order와 namespace mutation
 
 J의 parser는 conventional frontend처럼 “문장 전체 AST를 만든 뒤 모든 name을 한 번에 resolve”하는 것으로 의미를 모델링하면 안 된다. current jsource의 `p.c`는 queue를 stack하면서 name lookup, parse reduction, verb execution, assignment를 한 sentence 안에서 진행하며 J의 **우측→좌측 평가 의미**를 실현한다.
@@ -11395,6 +11505,10 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
 - [x] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 modifier/parser class 경로에 참여하는 테스트를 만들었다.
 
+- [ ] **F1↔P4 locative 정상 수용(2026-10-07 검토):** 유효한 J direct `name_locale_`, indirect `name__holder`, 호환 `name__`(`name_base_`)는 **문법 오류가 아니며 영구 `Unsupported` 처리 대상도 아니다**. `sn.c::vnm/nfs`로 이름을 검증하고 `w.c::jtenqueue`의 NMLOC/NMILOC·`=.`의 global promotion을 보존한다. 단순 이름의 문자열 key로 속여서 다른 locale과 충돌시키지 않는다. F1의 syntax/name queue와 P4의 locale lookup/assignment는 **연계 구현 후 수용**한다. 현재 RustJ의 유효 locative에 대한 `Unsupported`는 명백한 **미구현 상태**이지 승인된 최종 동작이 아니다.
+
+- [ ] **NP-01/02 (§3.7.3):** NAME occurrence·source span과 noun stack-read·function POS/NameRef·constructor event를 J 시점에 연결한다(NP-V01/02).
+
 **F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
 
 #### F2 — jsource parse queue skeleton
@@ -11493,7 +11607,13 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [ ] v0에서는 이러한 dynamic parse dependency를 `RuntimeSemanticParse`/coverage fallback으로 보내고, 정적 compile 성공으로 오인하지 않는다.
 - [ ] 추후 guard/multiversion을 추가하더라도 observable reduction/order/error semantics가 runtime semantic baseline과 같음을 요구한다.
 
+- [ ] **P4-locative J 실행 의미(위 F1 연계):** direct는 지정 locale의 symbol을 읽고/쓴다; indirect는 현재 binding의 boxed locale string을 **해당 조회·대입 시점**에 읽는다; `name__`은 `name_base_`로 귀착한다. locative `=.`/`=:`는 explicit definition 안에서도 global이다. RHS는 원래 실행 locale에서 평가하고 지정 locale에 기록한다. locative로 호출한 function의 current-locale 교체·복원, locale search path, local frame 분리, observable NAME/POS/error/effect/assignment 순서를 테스트한다. 미정의 이름·잘못된 locale 값은 J의 실제 오류를 C oracle로 판정하며 미지원으로 포장하지 않는다. **수용:** pinned J C의 positive/negative·rebind·nested explicit-definition 차분; direct/indirect·읽기/대입·출처 span을 모두 보전해야 한다. 문법만 인정하거나 구문 뒤 일괄 `Unsupported`를 던지는 방식은 P4 통과 아님.
+
+- [ ] **NP-03/06 (§3.7.3):** error-bearing lookup, local/locale/path·holder witness, late NameRef와 constructor/assignment 오류 순서를 검증한다(NP-V03/06).
+
 **P4 완료 조건:** parser 결과가 spelling이 아니라 그 시점의 J binding, assignment state, parse row에 의해 결정된다.
+
+- [ ] **NP-04/05 (§3.7.3):** J Graph/A3까지 name event 출처와 Observed/ProvenStable/GuardRequired/Unknown을 유지한다(NP-V04/05).
 
 #### P5 — construction-time J semantics와 compiler-analysis facts 분리
 
@@ -11530,6 +11650,8 @@ parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifie
 재실행: native Windows에서 `tools/check-windows.ps1` 후 `tools/check-frontend-windows.ps1 -ReferenceDirectory <j.dll/javx2.dll 폴더> -ReferenceRevision <확인한 40자리 commit> -SourceDirectory <jsource checkout> -SourceRevision <검토한 40자리 commit> -Avx2`를 실행한다. 기본 Python 3.13 경로는 `-Python`으로 변경할 수 있다. GitHub CI와 Linux tests는 실행하지 않았다. upstream 전체 suite와 CUDA 검증도 수행하지 않았다.
 
 **현재 남은 gate:** intrinsic FunctionSemanticInfo의 최종 수렴, full noun/verb modifier·immediate constructor semantics, 모든 result POS/primitive coverage, full runtime `ptcol` reachable-state trace, 일반 locale/locative/definition-control scope, noun/multiple assignment target과 static/runtime dynamic-boundary 수렴이 남아 있다. **P2 rows 0–2 RuntimeParserHost/reinsertion과 지원 범위의 우측→좌측 name/assignment sequencing 자체는 이미 구현되었으므로 이를 미구현 항목으로 다시 세지 않는다.** 이 증거는 M2 전체 완료를 뜻하지 않는다.
+
+- [ ] **NP-07 (§3.7.3):** J C와 Rust runtime·capture·Graph/A3 차분 및 효과·오류 순서 부정 테스트를 통과한다(NP-V07).
 
 #### P6 — differential/conformance test matrix
 
