@@ -66,7 +66,6 @@ fn parsing_complete_definitions_preserves_source_and_binding_boundary() {
 }
 
 #[test]
-#[ignore = "DEF-1/4: definition input collection and invocation are not implemented"]
 fn cli_collects_a_definition_before_executing_any_body_line() {
     for source in [
         "f=:{{\ny+1\n}}\nf 41\n",
@@ -95,7 +94,6 @@ fn cli_collects_a_definition_before_executing_any_body_line() {
 }
 
 #[test]
-#[ignore = "DEF-2/4: straight-line direct-call support exists; this full acceptance case has not been revalidated/unignored"]
 fn direct_monad_and_dyad_have_separate_parameter_frames() {
     let mut e = Engine::new();
     define(&mut e, "inc=:{{y+1}}");
@@ -109,7 +107,6 @@ fn direct_monad_and_dyad_have_separate_parameter_frames() {
 }
 
 #[test]
-#[ignore = "DEF-2/4: straight-line explicit-call support exists; multiline/full acceptance remains to be revalidated before unignore"]
 fn explicit_string_and_multiline_bodies_agree() {
     let mut e = Engine::new();
     define(&mut e, "inline=:3 : 'y+1'");
@@ -121,7 +118,6 @@ fn explicit_string_and_multiline_bodies_agree() {
 }
 
 #[test]
-#[ignore = "DEF-2/4: valence sections exist in DefinitionCode/runtime selection; this acceptance case remains unverified for unignore"]
 fn explicit_colon_line_selects_monad_or_dyad_section() {
     let mut e = Engine::new();
     define(&mut e, "f=:3 : 0\ny+1\n:\nx+y\n)");
@@ -130,7 +126,6 @@ fn explicit_colon_line_selects_monad_or_dyad_section() {
 }
 
 #[test]
-#[ignore = "DEF-1/2/4: quoted delimiters and comments in definition bodies are not implemented"]
 fn comments_and_literals_do_not_end_the_definition() {
     let mut e = Engine::new();
     define(&mut e, "f=:{{\nNB. }} is a comment\ny+1\n}}");
@@ -150,7 +145,6 @@ fn nested_direct_verb_does_not_leak_a_local_function() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: straight-line LocalFrame/local assignment exists; this broader acceptance case remains to be revalidated before unignore"]
 fn local_shadowing_is_per_call_and_does_not_modify_globals() {
     let mut e = Engine::new();
     define(&mut e, "g=:10");
@@ -162,7 +156,6 @@ fn local_shadowing_is_per_call_and_does_not_modify_globals() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: late body reads exist in supported straight-line scope; this broader acceptance case remains to be revalidated before unignore"]
 fn body_globals_are_resolved_when_called() {
     let mut e = Engine::new();
     define(&mut e, "g=:10");
@@ -176,7 +169,6 @@ fn body_globals_are_resolved_when_called() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: supported LocalFrame nouns share/snapshot values; this alias acceptance case remains to be revalidated before unignore"]
 fn local_noun_copy_survives_reassignment_without_mutating_argument() {
     let mut e = Engine::new();
     define(&mut e, "source=:i.4");
@@ -187,7 +179,6 @@ fn local_noun_copy_survives_reassignment_without_mutating_argument() {
 }
 
 #[test]
-#[ignore = "DEF-3/4: straight-line body global assignment exists; this acceptance case remains to be revalidated before unignore"]
 fn definition_construction_does_not_run_global_side_effects() {
     let mut e = Engine::new();
     define(&mut e, "counter=:0");
@@ -198,7 +189,6 @@ fn definition_construction_does_not_run_global_side_effects() {
 }
 
 #[test]
-#[ignore = "DEF-2/4: failed definition compilation must preserve an existing callable"]
 fn invalid_redefinition_keeps_old_function_and_version() {
     let mut e = Engine::new();
     define(&mut e, "f=:{{y+1}}");
@@ -211,7 +201,6 @@ fn invalid_redefinition_keeps_old_function_and_version() {
 }
 
 #[test]
-#[ignore = "DEF-4: control-flow statements and early returns are not implemented"]
 fn if_else_and_return_preserve_branch_execution() {
     let mut e = Engine::new();
     define(
@@ -236,7 +225,6 @@ fn for_loop_accumulates_without_leaking_loop_names() {
 }
 
 #[test]
-#[ignore = "DEF-4: try/catch statement semantics are not implemented"]
 fn try_catch_handles_body_error() {
     let mut e = Engine::new();
     define(&mut e, "f=:3 : 0\ntry.\n1 2+1 2 3\ncatch.\n42\nend.\n)");
@@ -244,7 +232,99 @@ fn try_catch_handles_body_error() {
 }
 
 #[test]
-#[ignore = "DEF-5: recursive function calls and independent frames are not implemented"]
+fn condition_uses_first_atom_and_empty_returns_boolean_empty_matrix() {
+    let mut e = Engine::new();
+    define(&mut e, "f=:3 : 'if. y do. 42 else. 7 end.'");
+    for (call, expected) in [
+        ("f 0 1", "7"),
+        ("f 1 0", "42"),
+        ("f i.0", "42"),
+        ("f 'x'", "42"),
+    ] {
+        expect(&mut e, call, expected);
+    }
+    for source in ["f=:3 : 'if. y do. 42 end.'", "f=:3 : 'return. 42'"] {
+        define(&mut e, source);
+        expect(&mut e, "f 0", "0 0$0");
+    }
+    define(&mut e, "f=:3 : '42 if. y do. 7 end.'");
+    expect(&mut e, "f 0", "42");
+}
+
+#[test]
+fn while_whilst_break_continue_and_elseif_follow_audited_targets() {
+    let mut e = Engine::new();
+    define(
+        &mut e,
+        "f=:3 : 'if. y=0 do. 10 elseif. y=1 do. 20 else. 30 end.'",
+    );
+    for (call, expected) in [("f 0", "10"), ("f 1", "20"), ("f 2", "30")] {
+        expect(&mut e, call, expected);
+    }
+    define(
+        &mut e,
+        "f=:3 : 0\nn=.0\ns=.0\nwhile. n<y do.\nn=.n+1\nif. n=2 do. continue. end.\nif. n=4 do. break. end.\ns=.s+n\nend.\ns\n)",
+    );
+    expect(&mut e, "f 8", "4");
+    define(
+        &mut e,
+        "f=:3 : 0\nn=.y\nwhilst. n>0 do.\nn=.n-1\nend.\nn\n)",
+    );
+    expect(&mut e, "f 0", "_1");
+    expect(&mut e, "f 4", "4-4");
+}
+
+#[test]
+fn catches_are_nested_scoped_and_preserve_effects_without_hiding_unsupported() {
+    let mut e = Engine::new();
+    for source in [
+        "f=:3 : 'try. if. + do. 1 end. catch. 42 end.'",
+        "f=:3 : 'try. try. 1 2+1 2 3 catch. 1 2+1 2 3 end. catch. 42 end.'",
+        "f=:3 : 'try. 1 2+1 2 3 catchd. 42 end.'",
+    ] {
+        define(&mut e, source);
+        expect(&mut e, "f 0", "42");
+    }
+    define(&mut e, "f=:3 : 'try. y+1 catch. 1 2+1 2 3 end.'");
+    expect(&mut e, "f 4", "5");
+    define(&mut e, "g=:0");
+    define(
+        &mut e,
+        "f=:3 : 0\ntry.\ng=:y\n1 2+1 2 3\ncatch.\ng\nend.\n)",
+    );
+    expect(&mut e, "f 7", "7");
+    expect(&mut e, "g", "7");
+    define(&mut e, "f=:3 : 'try. y+1 catch. 42 end. 1 2+1 2 3'");
+    assert_eq!(e.eval("f 0").unwrap_err().kind(), "length error");
+    define(&mut e, "f=:3 : 'try. p: y catch. 42 end.'");
+    assert_eq!(e.eval("f 4").unwrap_err().kind(), "unsupported");
+}
+
+#[test]
+fn ordinary_verb_frames_restore_after_error_and_do_not_capture_caller_locals() {
+    let mut e = Engine::new();
+    define(&mut e, "a=:10");
+    define(&mut e, "y=:99");
+    define(&mut e, "g=:3 : 'a+y'");
+    define(&mut e, "f=:3 : 0\na=.99\ng y\n)");
+    expect(&mut e, "f 2", "12");
+    expect(&mut e, "a", "10");
+    define(&mut e, "bad=:3 : 0\nt=.y\n1 2+1 2 3\n)");
+    assert_eq!(e.eval("bad 2").unwrap_err().kind(), "length error");
+    assert!(e.binding_version("t").is_none());
+    expect(&mut e, "y", "99");
+    expect(&mut e, "f 3", "13");
+    // In an ordinary mode-3 verb, an unbound x or u can fall back to
+    // globals. These are not missing modifier operands.
+    define(&mut e, "u=:10");
+    define(&mut e, "x=:10");
+    for source in ["fallback=:3 : 'u+y'", "fallback=:3 : 'x+y'"] {
+        define(&mut e, source);
+        expect(&mut e, "fallback 2", "12");
+    }
+}
+
+#[test]
 fn recursive_calls_keep_the_callers_argument() {
     let mut e = Engine::new();
     define(
@@ -256,7 +336,6 @@ fn recursive_calls_keep_the_callers_argument() {
 }
 
 #[test]
-#[ignore = "DEF-5: both execution paths must use the same definition semantics"]
 fn evaluator_paths_agree_on_function_calls_and_global_rebinding() {
     let mut direct = Engine::new();
     let mut reference = Engine::new();

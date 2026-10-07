@@ -18,6 +18,7 @@ The current implementation is transitional: a limited J frontend, direct CPU exe
 
 ### Quick guide — current priority and reading order
 
+- **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct dispatch is repaired and 14 of the original 17 definition acceptance tests are active. For iteration, nested definitions, and A3 callable projection remain incomplete. See **Definition calls and frontend E2E evidence** below for actual tokens/queues/parser structure and reproduction. Earlier "17 ignored" figures are historical.
 - **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
 - **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
 - **Latest validation:** as of NV3d2b2a (2026-10-05), Windows default/portable each **474 passed / 17 ignored** and Python **30 passed**. Existing j64/AVX2 runtime routes remain **5,380 / 5,380 passed / zero failures**, with stages **10,810** and words **6,623**. Numeric syntax is **2,485 cases / zero failures** per DLL, but one unresolved recognition boundary and one unresolved error boundary remain and are not counted as execution/error-equivalence success. Keep 257 capture-graph, two static, and 285 runtime-prefix / zero executable-prefix-pass boundaries separate. The latest graph-readiness gate is GF6a and does not mean fusion selection or GPU execution is implemented. See the NV3d2b2a/GF6a gates and current validation summary.
@@ -5217,6 +5218,29 @@ Code identifiers, comments, doc comments, test names, diagnostics, and commit me
 
 
 ---
+
+## Definition calls and frontend E2E evidence (2026-10-07)
+
+This supersedes historical "17 ignored" definition coverage claims. Explicitly running all 17 acceptance tests initially produced **zero passes / 17 failures**: DefinitionCode and modifier frames existed, but ordinary mode-3/4 verbs were not dispatched to the definition executor.
+
+- [x] Dispatch ordinary explicit/direct verbs and ordinary aliases through the shared definition executor for both valences. Evaluate arguments in the established parser order and use a distinct LocalFrame for each call.
+- [x] Validate local/global assignment, noun snapshots, call-time global noun/function rebinding, isolation from caller-private locals, and frame restoration after errors. Unbound `u`/`x` in an ordinary mode-3 verb may fall back globally; they are not missing modifier operands.
+- [x] Execute audited ControlNode targets for if/elseif/else, while/whilst, break/continue, return, and try/catch/catchd. Keep T-block and last B-block results separate; initialize/reset results to C's Boolean empty matrix. Unsupported boundaries must not become successful caught J errors.
+- [x] Pass and unignore **14 of the original 17** acceptance tests; add **four** regression tests for C first-atom conditions, empty results, nested catches, and scope/effect/error restoration.
+- [x] Add `examples/frontend_e2e.rs`, observing the actual tokenizer, enqueuer, analysis Program, runtime FrontendContext/NAME/reduction records and result. Verify contexts, analysis without commits, and no escaped local `t`.
+- [ ] Implement for/for_name iteration, read-only index names, empty iterators, and cleanup on branches/errors against C. Execution currently stops at Unsupported before side effects.
+- [ ] Implement nested definition construction and independent local scopes; construction is currently Unsupported.
+- [ ] Implement A3 callable projection. Successful Semantic function construction does not imply Logical Array IR lowering; retain the `semantic function requires structural lowering` boundary.
+
+**Handoff:** analysis returns `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`. Its expression is Literal/ReadName/Monad/Dyad/VerbValue/etc.; `Arc<FrontendContext>` links expanded word flags/spans, parser items, semantic nodes, origins, NAME observations, stack/reduce steps and root. Runtime `CapturedEvaluation { result, capture }` pairs the actual result with the same runtime parser's context. This sidecar is not a second executable AST/continuation. Runtime parsing reduces nouns; the deferred analysis expression must not be misrepresented as a runtime result.
+
+**Definition boundary:** both the multiline explicit definition `explicit=:3 : 0\nt=.y+g\nt\n)` and direct definition `direct=:{{ t=.y+g\nt }}` construct VerbValue with an ExplicitDefinition Arc<DefinitionCode>, without executing their bodies. Code preserves source/form/spans, decoded body, valence ranges, queued body words/flags, control nodes, and DefinitionNamePlan. `t` is a LocalAssignmentTarget; `y/g/t` reads use CurrentFrameThenGlobal. This is preparse metadata, **not a precomputed optimizable AST of the entire body**. Calls parse the body through the shared runtime parser. Outer capture does not recursively export every internal body NAME event.
+
+The executable example uses `a=:1 2 3; a+2*3` (separate sentences), producing 7 8 9. Analysis retains `Dyad(Add, ReadName("a"), Dyad(Multiply, Literal(2), Literal(3)))`; runtime noun NAMEs snapshot when stacked. Explicit outer enqueue is Name / Assignment / Noun(3) / Conjunction(DefinitionConstructor) / Noun(body). Direct enqueue adds the generated `(9 : body)` structure, reduced by Conjunction → Parenthesis → Assignment, inferring mode 3 here. Calls retain `Monad(NameRef(name), Literal(2))` in analysis, with LateAtCall / FunctionReference / RuntimeClass runtime NAME observations. Both definitions return 12 for g=10 and 22 after g is rebound to 20; local t does not escape. Explicit `pair=:4 : 'x+y'` and direct `ddpair=:{{ x+y }}` both produce 5 for `2 pair 3` / `2 ddpair 3`, represented as Dyad(NameRef(name), Literal(2), Literal(3)).
+
+Native Windows reproduction: `cargo run --example frontend_e2e`. Raw evidence is in `reports/frontend-e2e-windows.json` and bounded C comparisons in `reports/definition-calls-windows.json`. All 14 demonstration results match j64/AVX2 × direct/semantic-reference. Extended definition cases have **31 fixtures / 124 observations / 124 matched**; existing NAME scopes have **10 fixtures / 40 observations / 40 matched**. All **67 Python harness tests** pass; the Windows file-quoting helper now normalizes slashes. No CUDA/Linux/GitHub CI/full-upstream or optimized-definition execution claim is made. Parser-nested recursion currently has a depth limit of eight; explicit execution frames remain follow-up work.
+
+**Final regression validation:** Windows default/portable each **596 passed / 3 ignored / zero failures**; fmt and clippy `--all-targets -D warnings` pass. Explicitly running the three pending for/nested/A3 tests fails at the corresponding boundary and is not counted as success. Source/binary hashes in all three evidence files were checked against the final default build.
 
 ## License policy
 

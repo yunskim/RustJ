@@ -3,7 +3,7 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 문서 갱신일: 2026-10-06
+> 문서 갱신일: 2026-10-07
 >
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
@@ -11,6 +11,7 @@
 
 ### 빠른 안내 — 현재 우선순위와 문서 읽기
 
+- **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출 연결을 수정하고 원래 17개 definition 수용 테스트 중 14개를 활성화했다. `for.`, 중첩 정의, A3 callable projection 3개는 미완료다. 실제 토큰·enqueue·parser 구조와 재현 예제는 아래 **Definition 호출과 frontend E2E 확인** 절을 따른다. 이전 "17 ignored" 수치는 이력이다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
 - **최신 검증:** 2026-10-05 NV3d2b2a 기준 Windows default/portable 각각 **474 passed / 17 ignored**, Python **30 passed**이며, C j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. numeric syntax는 양 DLL 각각 **2,485 cases / failed 0**이지만 unresolved recognition/error 경계가 각 1건 남아 있어 실행 지원이나 정밀 오류 동등성으로 세지 않는다. capture graph **257건**, static **2건**, runtime prefix **285 / executable prefix passes 0**도 별도다. 최신 graph-readiness gate는 GF6a이며 실제 fusion 선택·GPU 실행을 뜻하지 않는다. 세부 기록은 §10 NV3d2b2a/GF6a, 최신 요약은 §12를 따른다.
@@ -13429,6 +13430,50 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 장기 architecture의 full TargetProfile/mixed-route/async 모델이나 확장 primitive 전체를 첫 CPU slice의 선행 조건으로 삼지 않는다. 해당 의미를 최적화 대상으로 열 때는 [§11의 검증 정책](#validation-policy)과 대응 semantic golden을 먼저 충족한다.
 
 ---
+
+## Definition 호출과 frontend E2E 확인 (2026-10-07)
+
+이 절은 과거의 "17 ignored" 기록보다 최신인 definition 실행 상태다. 처음 17개 수용 테스트를 모두 강제로 실행했을 때 **0 passed / 17 failed**였다. `DefinitionCode`와 modifier용 프레임이 존재했지만 일반 mode-3/4 verb가 호출 실행기로 연결되지 않았으므로 일반 explicit/direct verb 지원으로 계산하면 안 되는 상태였다.
+
+- [x] 일반 explicit/direct verb 및 ordinary alias의 monad/dyad 호출을 공유 정의 실행기에 연결한다. 인자는 호출 전에 원래 parser 순서로 평가하고, 본문은 호출별 별도 `LocalFrame`에서 실행한다.
+- [x] `=.` 지역 대입, `=:` 전역 대입, noun snapshot, 호출 시 전역 noun/verb 재조회, caller의 사적인 local을 캡처하지 않는 조회, 실패 후 프레임 복원을 검증한다. ordinary mode-3 verb의 미결합 `u`/`x`는 modifier 인자 누락으로 오판하지 않고 전역으로 fallback한다.
+- [x] 기존 `ControlNode`의 감사된 jump를 사용해 `if./elseif./else.`, `while./whilst.`, `break./continue.`, `return.`, `try./catch./catchd.`를 실행한다. T-block 결과와 마지막 B-block 결과를 분리하며, 초기/오류 후 결과는 C의 Boolean 빈 행렬이다. `Unsupported`는 J 예외처럼 catch하여 성공으로 바꾸지 않는다.
+- [x] 원래 수용 테스트 17개 중 **14개**를 통과시키고 ignore를 해제한다. C의 첫 atom 조건 판정·빈 결과·중첩 catch·scope/effect/error 복원 회귀 테스트 **4개**를 추가한다.
+- [x] `examples/frontend_e2e.rs`에서 실제 tokenizer, enqueuer, 분석용 `Program`, 실행 parser의 `FrontendContext`/NAME/환원 기록과 결과를 관측하고 verifier를 통과시킨다. 분석이 binding을 commit하지 않으며 local `t`가 유출되지 않음을 확인한다.
+- [ ] `for./for_name.` 실행: item/읽기 전용 `_index`, 빈 iterator, break/continue/예외 시 해제 규칙을 C와 검증한다. 현재는 실행 전 `Unsupported` 경계다.
+- [ ] 중첩 definition construction과 독립 local scope를 구현한다. 현재 construction이 `Unsupported`다.
+- [ ] A3 callable projection을 구현한다. Semantic 함수가 생성된다는 사실과 Logical Array IR로 내려간다는 사실은 다르며, 현재 `semantic function requires structural lowering` 경계를 유지한다.
+
+**실제 전달 구조:** 분석 경로는 `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`이다. `expression`은 `Literal/ReadName/Monad/Dyad/VerbValue/...`이며 `frontend: Arc<FrontendContext>`가 expanded words/flags/span, items, semantic node links, origins, NAME observations, stack/reduce steps와 root를 연결한다. 관측 경로의 `CapturedEvaluation { result, capture }`는 실제 실행 결과와 같은 runtime parser의 context를 함께 제공한다. 관측 sidecar는 독립 실행 가능한 AST/continuation이 아니다. runtime parser는 noun을 실제로 reduce하며, 분석 경로의 지연 표현식을 runtime 결과로 바꿔 설명하지 않는다.
+
+**Definition 경계:** 아래 두 정의는 생성 시 본문을 실행하지 않고 `VerbValue(FunctionEntity { head: ExplicitDefinition(Arc<DefinitionCode>), result_pos: Verb, ... })`를 만든다. `DefinitionCode`는 원문/form/span, decoded body, valence ranges, queued body words/flags, control nodes, `DefinitionNamePlan`을 보존한다. local `t`는 `LocalAssignmentTarget`; `y/g/t` 읽기는 `ReadCurrentFrameThenGlobal`이다. 이는 이름/제어의 preparse 결과이며 **본문 전체의 최적화 가능한 AST를 미리 완성한 것이 아니다**. 본문은 호출 시 공유 runtime parser로 해석된다. outer capture는 본문의 모든 내부 NAME event를 재귀적으로 export하지 않는다.
+
+```j
+a=:1 2 3
+a+2*3                        NB. 7 8 9
+g=:10
+explicit=:3 : 0
+t=.y+g
+t
+)
+direct=:{{ t=.y+g
+t }}
+explicit 2                   NB. 12
+direct 2                     NB. 12
+g=:20
+explicit 2                   NB. 22
+direct 2                     NB. 22
+pair=:4 : 'x+y'
+2 pair 3                     NB. 5
+ddpair=:{{ x+y }}
+2 ddpair 3                   NB. 5
+```
+
+`a+2*3`의 분석 결과는 `Dyad(Add, ReadName("a"), Dyad(Multiply, Literal(2), Literal(3)))`이며 runtime의 noun NAME은 stack 시 snapshot한다. explicit outer queue는 `Name Assignment Noun(3) Conjunction(DefinitionConstructor) Noun(body)`다. direct queue에는 `(9 : body)`에 대응하는 괄호/constructor words가 생기며, `Conjunction → Parenthesis → Assignment`를 거쳐 이 예에서는 mode 3이 추론된다. `explicit 2`/`direct 2`의 분석 결과는 `Monad(NameRef(name), Literal(2))`이고 실제 NAME 관측은 `LateAtCall / FunctionReference / RuntimeClass`다. 두 dyad 예제는 `Dyad(NameRef(name), Literal(2), Literal(3))`이다.
+
+native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports/frontend-e2e-windows.json`, C와의 bounded 비교는 `reports/definition-calls-windows.json`에 보존한다. 시연 14문장 결과는 C j64/AVX2 × direct/semantic-reference 네 경로와 일치했다. 확장 정의 사례 **31 fixtures / 124 observations / 124 matched**, 기존 NAME scope **10 fixtures / 40 observations / 40 matched**다. Python harness **67 tests**를 통과했으며 Windows 경로 quoting helper의 slash 정규화도 바로잡았다. CUDA/Linux/GitHub CI/전체 upstream 동등성 및 최적화된 정의 실행 완료를 주장하지 않는다. parser 중첩 기반 재귀 깊이는 현재 8로 제한되며 explicit 실행 프레임으로의 전환은 후속 작업이다.
+
+**최종 회귀 검증:** Windows default/portable 각각 **596 passed / 3 ignored / 0 failed**. fmt와 clippy `--all-targets -D warnings`를 통과했다. 미완료 3개를 강제 실행하면 for/nested/A3 경계에서 실패하며 성공으로 계산하지 않는다. 보고서 3개의 source/binary hash는 최종 default build와 대조했다.
 
 ## 라이선스 정책
 

@@ -697,13 +697,13 @@ impl Engine {
                 operands,
             )));
         }
-        self.invoke_definition_body(operator, left, right, None, pooled)
+        self.invoke_definition_body(operator, Some(left), right, None, pooled)
     }
 
     fn invoke_definition_body(
         &mut self,
         operator: std::sync::Arc<FunctionEntity>,
-        left: FunctionOperand,
+        left: Option<FunctionOperand>,
         right: Option<FunctionOperand>,
         arguments: Option<(Option<Value>, Value)>,
         pooled: bool,
@@ -712,6 +712,7 @@ impl Engine {
             return Err(Error::Domain);
         };
         let verb_call = arguments.is_some();
+        let operand_call = left.is_some();
         let dyadic = arguments
             .as_ref()
             .map_or(right.is_some(), |(x, _)| x.is_some());
@@ -723,11 +724,34 @@ impl Engine {
         if section.is_empty() {
             return Err(Error::Valence);
         }
-        if controls
-            .iter()
-            .any(|node| node.kind != crate::definition_flow::ControlKind::Body)
-        {
-            return Err(Error::Unsupported("explicit modifier control flow".into()));
+        use crate::definition_control::ControlWord as W;
+        use crate::definition_flow::{ControlJump, ControlKind as K};
+        if controls.iter().any(|node| {
+            node.analysis_barrier
+                || !matches!(
+                    node.kind,
+                    K::Body
+                        | K::Test
+                        | K::Word(
+                            W::If
+                                | W::Do
+                                | W::Else
+                                | W::ElseIf
+                                | W::End
+                                | W::Return
+                                | W::While
+                                | W::Whilst
+                                | W::Break
+                                | W::Continue
+                                | W::Try
+                                | W::Catch
+                                | W::CatchD
+                        )
+                )
+        }) {
+            return Err(Error::Unsupported(
+                "definition control flow outside executable subset".into(),
+            ));
         }
         // Reject unsupported framing before any statement has side effects.
         for sentence in &code.sentences[section.clone()] {
@@ -749,11 +773,11 @@ impl Engine {
         let mut local = LocalFrame {
             instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
-            declared: ["u", "m", "x", "y"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
+            declared: ["x", "y"].into_iter().map(str::to_owned).collect(),
         };
+        if operand_call {
+            local.declared.extend(["u".to_owned(), "m".to_owned()]);
+        }
         if right.is_some() {
             local.declared.extend(["v".to_owned(), "n".to_owned()]);
         }
@@ -765,7 +789,7 @@ impl Engine {
         local
             .declared
             .extend(name_plan.local_declarations.iter().cloned());
-        for (name, alias, operand) in [("u", "m", Some(left)), ("v", "n", right)] {
+        for (name, alias, operand) in [("u", "m", left), ("v", "n", right)] {
             if let Some(operand) = operand {
                 let value = match operand {
                     FunctionOperand::Noun { value, .. } => {
@@ -807,54 +831,157 @@ impl Engine {
                     pooled,
                 },
             };
-            let mut last = None;
-            for (position, sentence) in code.sentences[section.clone()].iter().enumerate() {
-                for word in &sentence.words {
-                    let name = &code.body[word.span.clone()];
-                    if word.flags.lookup_name
-                        && matches!(name, "u" | "v" | "m" | "n" | "x" | "y")
-                        && !frame
-                            .parent
-                            .engine
-                            .local_frames
-                            .last()
-                            .expect("modifier frame")
-                            .names
-                            .contains_key(name)
-                    {
-                        return Err(Error::Unsupported(
-                            "undefined explicit operand alias".into(),
-                        ));
-                    }
-                }
-                let program = crate::parser::parse_runtime_host(
-                    &code.body[sentence.span.clone()],
-                    &mut frame,
-                    None,
-                )?;
-                if let Some(expression) = program.expression {
-                    let assigned = program.assignment.is_some();
-                    let value = match expression.kind {
-                        crate::semantic::ExprKind::Literal(value) => JEntity::Noun(value),
-                        crate::semantic::ExprKind::VerbValue(verb) => {
-                            JEntity::Function(verb.entity)
-                        }
-                        crate::semantic::ExprKind::ModifierValue(function) => {
-                            JEntity::Function(function)
-                        }
-                        _ => JEntity::Noun(crate::parser::RuntimeParserHost::apply(
-                            &mut frame, expression,
-                        )?),
+            // cx.c initializes z to the Boolean empty matrix (mtm).
+            let empty_result = || {
+                Value::new(
+                    vec![0, 0],
+                    crate::value::Data::Bool(crate::storage::CpuStorage::new(Vec::new())),
+                )
+                .map(JEntity::Noun)
+            };
+            let mut last = Some(empty_result()?);
+            let mut test = None;
+            let mut pc = 0;
+            // Only currently protected try bodies catch errors. Branching out,
+            // entering a handler, and recursion must not retain stale handlers.
+            let mut handlers: Vec<(usize, usize, usize)> = Vec::new();
+            while let Some(node) = controls.get(pc) {
+                handlers.retain(|&(start, end, _)| start < pc && pc < end);
+                let step = (|| -> Result<Option<usize>> {
+                    let jump = || match node.go {
+                        ControlJump::Index(target) => Ok(target),
+                        _ => Err(Error::Control),
                     };
-                    if !assigned
-                        && matches!(value, JEntity::Function(_))
-                        && code.sentences[section.start + position + 1..section.end]
-                            .iter()
-                            .any(|next| !next.words.is_empty())
-                    {
-                        return Err(Error::NounResult);
+                    match node.kind {
+                        K::Word(W::Return) => return Ok(None),
+                        K::Word(W::Try) => {
+                            let first = jump()?;
+                            let mut handler = first;
+                            while !matches!(controls[handler].kind, K::Word(W::Catch | W::CatchD)) {
+                                handler = match controls[handler].go {
+                                    ControlJump::Index(target) if target < controls.len() => target,
+                                    _ => return Err(Error::Control),
+                                };
+                            }
+                            handlers.push((pc, first, handler + 1));
+                            return Ok(Some(pc + 1));
+                        }
+                        K::Word(W::Do) => {
+                            // cx.c CDO: empty/missing tests and nonnumeric nouns are
+                            // true; numeric tests inspect the first atom only.
+                            let truth = match test.take() {
+                                None => true,
+                                Some(JEntity::Function(_)) => return Err(Error::NounResult),
+                                Some(JEntity::Noun(value)) => {
+                                    if value.is_sparse() {
+                                        return Err(Error::Unsupported(
+                                            "sparse definition condition".into(),
+                                        ));
+                                    }
+                                    value.is_empty()
+                                        || match value.data() {
+                                            crate::value::Data::Bool(_)
+                                            | crate::value::Data::Int(_)
+                                            | crate::value::Data::Float(_) => {
+                                                value.float_at(0)? != 0.0
+                                            }
+                                            _ => true,
+                                        }
+                                }
+                            };
+                            return Ok(Some(if truth { pc + 1 } else { jump()? }));
+                        }
+                        K::Word(
+                            W::Else
+                            | W::ElseIf
+                            | W::End
+                            | W::Whilst
+                            | W::Break
+                            | W::Continue
+                            | W::Catch
+                            | W::CatchD,
+                        ) => {
+                            return Ok(Some(jump()?));
+                        }
+                        K::Word(W::If | W::While) => {
+                            return Ok(Some(pc + 1));
+                        }
+                        K::Body | K::Test => {}
+                        _ => unreachable!("preflight executable controls"),
                     }
-                    last = Some(value);
+                    let sentence = &code.sentences[section.clone()]
+                        .iter()
+                        .find(|sentence| sentence.line == node.line)
+                        .expect("control physical sentence");
+                    for word in &sentence.words[node.words.clone()] {
+                        let name = &code.body[word.span.clone()];
+                        if operand_call
+                            && word.flags.lookup_name
+                            && matches!(name, "u" | "v" | "m" | "n" | "x" | "y")
+                            && !frame
+                                .parent
+                                .engine
+                                .local_frames
+                                .last()
+                                .expect("modifier frame")
+                                .names
+                                .contains_key(name)
+                        {
+                            return Err(Error::Unsupported(
+                                "undefined explicit operand alias".into(),
+                            ));
+                        }
+                    }
+                    let program = crate::parser::parse_runtime_host(
+                        &code.body[node.span.clone()],
+                        &mut frame,
+                        None,
+                    )?;
+                    if let Some(expression) = program.expression {
+                        let assigned = program.assignment.is_some();
+                        let value = match expression.kind {
+                            crate::semantic::ExprKind::Literal(value) => JEntity::Noun(value),
+                            crate::semantic::ExprKind::VerbValue(verb) => {
+                                JEntity::Function(verb.entity)
+                            }
+                            crate::semantic::ExprKind::ModifierValue(function) => {
+                                JEntity::Function(function)
+                            }
+                            _ => JEntity::Noun(crate::parser::RuntimeParserHost::apply(
+                                &mut frame, expression,
+                            )?),
+                        };
+                        if !assigned
+                            && matches!(value, JEntity::Function(_))
+                            && node.kind == K::Body
+                            && controls[pc + 1..].iter().any(|next| next.kind == K::Body)
+                        {
+                            return Err(Error::NounResult);
+                        }
+                        if node.kind == K::Test {
+                            test = Some(value);
+                        } else {
+                            last = Some(value);
+                        }
+                    }
+                    Ok(Some(pc + 1))
+                })();
+                match step {
+                    Ok(Some(next)) => pc = next,
+                    Ok(None) => break,
+                    Err(error) => {
+                        // Unsupported is an implementation boundary, never a
+                        // J error that catch. can turn into a successful value.
+                        if matches!(error.root(), Error::Unsupported(_)) {
+                            return Err(error);
+                        }
+                        let Some((_, _, handler)) = handlers.pop() else {
+                            return Err(error);
+                        };
+                        pc = handler;
+                        last = Some(empty_result()?);
+                        test = None;
+                    }
                 }
             }
             let value =
@@ -992,7 +1119,9 @@ impl Engine {
             }
             return Ok(
                 matches!(&current.head, FunctionHead::ExplicitDefinition(code)
-                if code.operator_definition && !current.operands.is_empty())
+                if current.result_pos == FunctionPartOfSpeech::Verb
+                    && (code.result_pos == FunctionPartOfSpeech::Verb
+                        || (code.operator_definition && !current.operands.is_empty())))
                 .then_some(current),
             );
         }
@@ -1345,14 +1474,11 @@ impl Engine {
                 span: span.clone(),
             },
         };
-        let [left, rest @ ..] = function.operands.as_slice() else {
-            return Err(Error::Domain);
-        };
-        if rest.len() > 1 {
+        if function.operands.len() > 2 {
             return Err(Error::Domain);
         }
-        let left = copy_operand(left);
-        let right = rest.first().map(copy_operand);
+        let left = function.operands.first().map(copy_operand);
+        let right = function.operands.get(1).map(copy_operand);
         let result = self.invoke_definition_body(function, left, right, Some((x, y)), pooled);
         match result {
             Ok(JEntity::Noun(value)) => Ok(value),

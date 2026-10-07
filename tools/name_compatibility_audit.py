@@ -71,9 +71,49 @@ SCOPE_FIXTURES = [
 # Only these assignment setup blocks need script input (JDo has no interactive
 # block-input callback). Keep original source identical on both sides and never
 # script-wrap value queries, whose noun results must remain observable.
+DEFINITION_FIXTURES = [
+    ("verb_direct", ["f=:{{ y+1 }}", "f 41", "f 1 2 3"]),
+    ("verb_explicit", ["f=:3 : 'y+1'", "f 41"]),
+    ("verb_dyad", ["f=:4 : 'x+y'", "2 f 3", "f 3"]),
+    ("verb_sections", ["f=:3 : 0\ny+1\n:\nx+y\n)", "f 4", "2 f 3"]),
+    ("verb_local_fallback", ["g=:10", "f=:3 : 'g=.g+y'", "f 2", "f 3", "g"]),
+    ("verb_late_global", ["g=:10", "f=:3 : 'g+y'", "g=:20", "f 2"]),
+    ("verb_late_function", ["op=:+", "f=:3 : 'op y'", "op=:-", "f 3"]),
+    ("verb_snapshot", ["a=:i.4", "f=:3 : 0\nn=.y\ncopy=.n\nn=.n+10\ncopy\n)", "f a", "a"]),
+    ("verb_effect", ["count=:0", "f=:3 : 0\ncount=:count+y\ncount\n)", "count", "f 2", "count"]),
+    ("verb_frames", ["y=:99", "g=:3 : 'y'", "f=:3 : 'y+g y+1'", "f 2", "y"]),
+    ("verb_private_caller", ["a=:10", "g=:3 : 'a+y'", "f=:3 : 0\na=.99\ng y\n)", "f 2", "a"]),
+    ("verb_error_cleanup", ["y=:99", "f=:3 : 0\nt=.y\n1 2+1 2 3\n)", "f 2", "y", "t+0"]),
+    ("verb_branch_return", ["f=:3 : 0\nif. y>0 do.\n42 return.\nelse.\n7 return.\nend.\n1 2+1 2 3\n)", "f 1", "f _1"]),
+    ("verb_elseif", ["f=:3 : 0\nif. y=0 do.\n10\nelseif. y=1 do.\n20\nelse.\n30\nend.\n)", "f 0", "f 1", "f 2"]),
+    ("verb_while", ["f=:3 : 0\nn=.y\nwhile. n>0 do.\nn=.n-1\nend.\nn\n)", "f 4", "f 0"]),
+    ("verb_whilst", ["f=:3 : 0\nn=.y\nwhilst. n>0 do.\nn=.n-1\nend.\nn\n)", "f 4", "f 0"]),
+    ("verb_break_continue", ["f=:3 : 0\nn=.0\ns=.0\nwhile. n<y do.\nn=.n+1\nif. n=2 do. continue. end.\nif. n=4 do. break. end.\ns=.s+n\nend.\ns\n)", "f 8"]),
+    ("verb_first_atom_condition", ["f=:3 : 'if. y do. 42 else. 7 end.'", "f 0 1", "f 1 0", "f i.0", "f 'x'"]),
+    ("verb_test_preserves_result", ["f=:3 : 0\n42\nif. y do. 7 end.\n)", "f 0", "f 1"]),
+    ("verb_recursion", ["f=:3 : 0\nif. y=0 do. 1 return. end.\ny*f y-1\n)", "f 5", "f 3"]),
+    ("verb_catch_error", ["f=:3 : 0\ntry.\n1 2+1 2 3\ncatch.\n42\nend.\n)", "f 0"]),
+    ("verb_catch_skip", ["f=:3 : 'try. y+1 catch. 1 2+1 2 3 end.'", "f 4"]),
+    ("verb_catch_condition", ["f=:3 : 'try. if. + do. 1 end. catch. 42 end.'", "f 0"]),
+    ("verb_nested_catch", ["f=:3 : 'try. try. 1 2+1 2 3 catch. 1 2+1 2 3 end. catch. 42 end.'", "f 0"]),
+    ("verb_catchd", ["f=:3 : 'try. 1 2+1 2 3 catchd. 42 end.'", "f 0"]),
+    ("verb_catch_effect", ["g=:0", "f=:3 : 0\ntry.\ng=:y\n1 2+1 2 3\ncatch.\ng\nend.\n)", "f 7", "g"]),
+    ("verb_catch_scope", ["f=:3 : 'try. y+1 catch. 42 end. 1 2+1 2 3'", "f 0"]),
+    ("verb_empty_branch", ["f=:3 : 'if. y do. 42 end.'", "f 0"]),
+    ("verb_empty_return", ["f=:3 : 'return. 42'", "f 0"]),
+    ("verb_unbound_implicit_global_fallback", ["u=:10", "x=:10",
+        "f=:3 : 'u+y'", "f 2", "f=:3 : 'x+y'", "f 2"]),
+    ("frontend_e2e_demonstration", ["a=:1 2 3", "a+2*3", "g=:10",
+        "explicit=:3 : 0\nt=.y+g\nt\n)", "direct=:{{ t=.y+g\nt }}",
+        "explicit 2", "direct 2", "g=:20", "explicit 2", "direct 2",
+        "pair=:4 : 'x+y'", "2 pair 3", "ddpair=:{{ x+y }}", "2 ddpair 3"]),
+]
+
 SCRIPT_SETUPS = {source for name, sources in SCOPE_FIXTURES
                  if name in {"explicit_local_function_escape", "explicit_local_global_collision"}
                  for source in sources if " : 0\n" in source}
+SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES
+                     for source in sources if " : 0\n" in source)
 
 
 def reference_trace(oracle, sources):
@@ -123,11 +163,13 @@ def main():
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--boundary-fixtures-only", action="store_true")
     selection.add_argument("--scope-fixtures-only", action="store_true")
+    selection.add_argument("--definition-fixtures-only", action="store_true")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Use native Windows Python, J DLLs and Rust binary")
     assets = args.assets_root.resolve()
-    fixtures = (BOUNDARY_FIXTURES if args.boundary_fixtures_only else
+    fixtures = (DEFINITION_FIXTURES if args.definition_fixtures_only else
+                BOUNDARY_FIXTURES if args.boundary_fixtures_only else
                 SCOPE_FIXTURES if args.scope_fixtures_only else FIXTURES)
     records = []
     for variant in ["j.dll", "javx2.dll"]:
@@ -157,7 +199,8 @@ def main():
         "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
         "reference_sha256": {name: sha(assets / "target/cj-windows/j64" / name)
                              for name in ["j.dll", "javx2.dll"]},
-        "fixture_set": ("semantic-boundaries" if args.boundary_fixtures_only else
+        "fixture_set": ("definition-calls" if args.definition_fixtures_only else
+                        "semantic-boundaries" if args.boundary_fixtures_only else
                         "name-scopes" if args.scope_fixtures_only else "names"),
         "fixtures": len(fixtures), "observations": len(records), "counts": counts, "records": records,
     }
