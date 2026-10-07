@@ -1486,13 +1486,28 @@ fn reduce_parse_stack_subset(
             ParseValue::LookupName { name, .. } => Some(name.clone()),
             _ => None,
         };
+        let lookup_before = name
+            .as_deref()
+            .filter(|_| context.frontend.is_some())
+            .and_then(|name| {
+                context
+                    .host
+                    .as_ref()
+                    .and_then(|host| host.lookup_observation(name))
+            });
         let mut item = resolve_stack_item(item, context)?;
         if let Some(trace) = &mut context.frontend {
             let queued = queued_id.expect("queued frontend occurrence");
             if name.is_some() {
                 let id = NameUseId(trace.name_uses.len());
                 let policy = context.last_name_policy.expect("NAME resolution policy");
-                let kind = (item.class == ParseClass::Noun).then_some(NodeKind::ReadNoun(id));
+                let kind = (item.class == ParseClass::Noun).then_some(
+                    if policy == NamePolicy::CaptureAndAbandon {
+                        NodeKind::TakeName(id)
+                    } else {
+                        NodeKind::ReadNoun(id)
+                    },
+                );
                 item.record_frontend(trace, ItemProducer::NameUse(id), kind, None);
                 trace.name_uses.push(NameUseRecord {
                     word: WordId(trace.items[queued.0].word_range.start),
@@ -1501,18 +1516,17 @@ fn reduce_parse_stack_subset(
                     result_class: item.class,
                     policy,
                     resolution: match (policy, item.class) {
-                        (NamePolicy::CaptureAtRead, ParseClass::Noun) => {
-                            crate::frontend_context::NameResolution::NounValue
-                        }
-                        (NamePolicy::CaptureAtRead, _) => {
+                        (
+                            NamePolicy::CaptureAtRead | NamePolicy::CaptureAndAbandon,
+                            ParseClass::Noun,
+                        ) => crate::frontend_context::NameResolution::NounValue,
+                        (NamePolicy::CaptureAtRead | NamePolicy::CaptureAndAbandon, _) => {
                             crate::frontend_context::NameResolution::FunctionValue
                         }
                         _ => crate::frontend_context::NameResolution::FunctionReference,
                     },
                     binding_version: context.last_lookup_version,
-                    lookup: context.host.as_ref().and_then(|host| {
-                        host.lookup_observation(name.as_deref().expect("NAME use"))
-                    }),
+                    lookup: lookup_before,
                     evidence: if context.host.is_some() {
                         NameEvidence::RuntimeClass
                     } else if context.lookup.is_some() {
@@ -1527,9 +1541,7 @@ fn reduce_parse_stack_subset(
                 resolved: item.frontend_id().expect("stack frontend occurrence"),
             });
         }
-        let version = name
-            .as_deref()
-            .and_then(|name| context.host.as_ref().and_then(|host| host.version(name)));
+        let version = name.as_ref().and(context.last_lookup_version);
         if let (Some(capture), ParseValue::Noun(expr, _)) = (&mut context.capture, &item.value) {
             if let ExprKind::Literal(value) = &expr.kind {
                 let id = capture.next();
@@ -2812,6 +2824,7 @@ pub fn parse_frontend(
     source: &str,
 ) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
     let mut context = ActionContext {
+        single_word: false,
         last_lookup_version: None,
         last_name_policy: None,
         frontend: Some(FrontendContext {
@@ -2871,6 +2884,9 @@ pub(crate) struct ResolvedModifier {
 }
 
 pub(crate) trait RuntimeParserHost {
+    fn take_name(&mut self, _name: &str, _single_word: bool) -> Result<(JEntity, bool)> {
+        Err(Error::Unsupported("abandon lookup host".into()))
+    }
     fn lookup_observation(
         &self,
         _name: &str,
@@ -2955,6 +2971,7 @@ pub(crate) fn parse_runtime_host(
         capture.set_source(source);
     }
     let mut context = ActionContext {
+        single_word: false,
         last_lookup_version: None,
         last_name_policy: None,
         frontend: None,
@@ -2977,6 +2994,7 @@ pub(crate) fn parse_runtime_host(
 }
 
 struct ActionContext<'a> {
+    single_word: bool,
     last_name_policy: Option<NamePolicy>,
     last_lookup_version: Option<crate::semantic::NameVersion>,
     frontend: Option<FrontendContext>,
@@ -2996,6 +3014,63 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
     };
     let name = name.clone();
     let span = span.clone();
+    if item.flags.abandon_name {
+        context.last_name_policy = Some(NamePolicy::CaptureAndAbandon);
+        context.last_lookup_version = context.host.as_ref().and_then(|host| host.version(&name));
+        let mut resolved = if let Some(host) = &mut context.host {
+            let lookup = context
+                .capture
+                .as_ref()
+                .and_then(|_| host.lookup_observation(&name));
+            let (entity, deleted) = host
+                .take_name(&name, context.single_word)
+                .map_err(|e| e.at(span.clone()))?;
+            if let (Some(capture), Some(lookup)) = (&mut context.capture, lookup) {
+                capture.events.push(CaptureEvent::Abandon {
+                    name: name.clone(),
+                    lookup,
+                    deleted,
+                    span: span.clone(),
+                });
+            }
+            let completed = match entity {
+                JEntity::Noun(value) => CompletedParseResult::noun(value, span.clone(), 0),
+                JEntity::Function(function) => {
+                    CompletedParseResult::function(function, span.clone(), VerbTarget::Derived)
+                }
+            };
+            completed.into_item()?
+        } else {
+            match context.lookup.and_then(|lookup| lookup(&name)) {
+                Some(
+                    ParserNameBinding::Function(_)
+                    | ParserNameBinding::KnownVerb { .. }
+                    | ParserNameBinding::KnownModifier { .. },
+                ) => {
+                    return Err(Error::Unsupported(
+                        "deferred function abandon requires entity effect IR".into(),
+                    )
+                    .at(span));
+                }
+                None if context.lookup.is_some() => return Err(Error::Value(name).at(span)),
+                _ => {}
+            }
+            Item::noun(
+                Expr {
+                    origin: None,
+                    span,
+                    kind: ExprKind::TakeName {
+                        name,
+                        single_word: context.single_word,
+                    },
+                },
+                0,
+            )
+        };
+        resolved.provenance = item.provenance;
+        resolved.flags = item.flags;
+        return Ok(resolved);
+    }
     let binding = if let Some(host) = &mut context.host {
         host.lookup(&name)
     } else {
@@ -3185,6 +3260,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
     parse_context(
         source,
         &mut ActionContext {
+            single_word: false,
             last_lookup_version: None,
             last_name_policy: None,
             frontend: None,
@@ -3230,6 +3306,7 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
             environment,
         )?
     };
+    context.single_word = queue.len() == 1;
     if let Some(trace) = &mut context.frontend {
         trace.words = queue
             .iter()

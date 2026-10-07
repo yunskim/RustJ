@@ -52,6 +52,7 @@ pub struct ItemRecord {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NamePolicy {
     CaptureAtRead,
+    CaptureAndAbandon,
     LateAtCall,
     ResolveAtConstruction,
 }
@@ -171,7 +172,8 @@ impl SimpleNameGuard {
             .as_ref()
             .ok_or("missing NAME spelling")?;
         // Locatives and by-value forms require a different search recipe.
-        if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        if context.words[usage.word.0].flags.abandon_name
+            || !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
             || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
             || name.ends_with('_')
             || name.contains("__")
@@ -224,6 +226,7 @@ pub enum ParseRealization {
 pub enum NodeKind {
     Literal,
     ReadNoun(NameUseId),
+    TakeName(NameUseId),
     Function(Arc<FunctionEntity>),
     Monad {
         function: NodeId,
@@ -554,7 +557,7 @@ impl FrontendContext {
                         return fail("invalid assignment target/copula");
                     }
                 }
-                NodeKind::ReadNoun(name_use) => {
+                NodeKind::ReadNoun(name_use) | NodeKind::TakeName(name_use) => {
                     if self.name_uses.get(name_use.0).map(|n| n.result_class)
                         != Some(ParseClass::Noun)
                     {
@@ -603,10 +606,19 @@ impl FrontendContext {
                 .0]
                 .kind;
             let policy = match (name_use.resolution, kind) {
+                (NameResolution::NounValue, NodeKind::TakeName(id)) if *id == NameUseId(i) => {
+                    NamePolicy::CaptureAndAbandon
+                }
                 (NameResolution::NounValue, NodeKind::ReadNoun(id)) if *id == NameUseId(i) => {
                     NamePolicy::CaptureAtRead
                 }
-                (NameResolution::FunctionValue, NodeKind::Function(_)) => NamePolicy::CaptureAtRead,
+                (NameResolution::FunctionValue, NodeKind::Function(_)) => {
+                    if self.words[name_use.word.0].flags.abandon_name {
+                        NamePolicy::CaptureAndAbandon
+                    } else {
+                        NamePolicy::CaptureAtRead
+                    }
+                }
                 (NameResolution::FunctionReference, NodeKind::Function(function)) => {
                     match (&function.head, function.result_pos) {
                         (
@@ -623,6 +635,11 @@ impl FrontendContext {
             };
             if policy != name_use.policy {
                 return fail("invalid NAME timing policy");
+            }
+            if (policy == NamePolicy::CaptureAndAbandon)
+                != self.words[name_use.word.0].flags.abandon_name
+            {
+                return fail("abandon flag/policy mismatch");
             }
             if let Some(lookup) = &name_use.lookup {
                 if name_use.evidence != NameEvidence::RuntimeClass

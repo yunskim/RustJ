@@ -339,6 +339,9 @@ struct EngineParserHost<'a> {
     pooled: bool,
 }
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn take_name(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        self.engine.take_binding(name, single_word)
+    }
     fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
         Some(self.engine.lookup_observation(name))
     }
@@ -483,6 +486,9 @@ struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
 }
 impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
+    fn take_name(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        self.parent.take_name(name, single_word)
+    }
     fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
         self.parent.lookup_observation(name)
     }
@@ -1838,6 +1844,46 @@ impl Engine {
             .or_else(|| self.names.get(name))
     }
 
+    fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        if let Some(Binding {
+            value: JEntity::Function(function),
+            ..
+        }) = self.visible_binding(name)
+            && function.result_pos == FunctionPartOfSpeech::Conjunction
+        {
+            // The reference's general abandon path has different conjunction
+            // behavior from ordinary modifier stacking. Never claim equivalence.
+            return Err(Error::Unsupported(
+                "abandon conjunction compatibility".into(),
+            ));
+        }
+        if let Some(frame) = self.local_frames.last_mut()
+            && let Some(binding) = frame.names.get(name)
+        {
+            // p.c finlocal1 bypasses nameundco for a single local word.
+            if single_word {
+                let value = match &binding.value {
+                    JEntity::Noun(value) => JEntity::Noun(value.clone()),
+                    JEntity::Function(function) => JEntity::Function(function.clone()),
+                };
+                return Ok((value, false));
+            }
+            if binding.read_only {
+                return Err(Error::Unsupported("abandon read-only loop binding".into()));
+            }
+            return Ok((frame.names.remove(name).expect("found local").value, true));
+        }
+        if let Some(binding) = self.names.remove(name) {
+            return Ok((binding.value, true));
+        }
+        if self.primitives.resolve_extension_binding(name).is_some() {
+            return Err(Error::Unsupported(
+                "abandon extension registry binding".into(),
+            ));
+        }
+        Err(Error::Value(name.to_owned()))
+    }
+
     fn lookup_observation(&self, name: &str) -> crate::frontend_context::LookupObservation {
         use crate::frontend_context::{
             FoundScope, LocalLookupState, LookupObservation, ScopeSearch,
@@ -2134,14 +2180,25 @@ impl Engine {
         } else {
             match value {
                 JEntity::Noun(value) => Ok(Some(value)),
-                JEntity::Function(function) => Err(Error::Unsupported(
-                    if function.result_pos == FunctionPartOfSpeech::Verb {
-                        "verb result display"
-                    } else {
-                        "modifier result display"
+                JEntity::Function(function) => {
+                    // A bare unresolved ordinary NAME is a delayed nameref
+                    // during parsing, but C reports its missing binding when
+                    // the sentence result is requested. Do not call the verb.
+                    if let FunctionHead::NameRef(name) = &function.head
+                        && self.visible_binding(name).is_none()
+                        && self.primitives.resolve_extension_binding(name).is_none()
+                    {
+                        return Err(Error::Value(name.clone()).at(function.span.clone()));
                     }
-                    .into(),
-                )),
+                    Err(Error::Unsupported(
+                        if function.result_pos == FunctionPartOfSpeech::Verb {
+                            "verb result display"
+                        } else {
+                            "modifier result display"
+                        }
+                        .into(),
+                    ))
+                }
             }
         }
     }
@@ -2255,6 +2312,9 @@ impl Engine {
                     Some(_) => Err(Error::Domain),
                     None => Err(Error::Value(name)),
                 },
+                Expr::TakeName { .. } => Err(Error::Unsupported(
+                    "deferred abandon requires ordered semantic execution".into(),
+                )),
                 Expr::Monad { verb, argument } => {
                     let verb_span = verb.span.clone();
                     let y = self.interpret_ir(*argument, pooled, depth + 1)?;

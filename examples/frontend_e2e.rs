@@ -29,6 +29,9 @@ fn expression(e: &Expr) -> String {
     match &e.kind {
         ExprKind::Literal(value) => format!("Literal({})", value.json()),
         ExprKind::ReadName(name) => format!("ReadName({name:?})"),
+        ExprKind::TakeName { name, single_word } => {
+            format!("TakeName {{ name: {name:?}, single_word: {single_word} }}")
+        }
         ExprKind::VerbValue(verb) => format!("VerbValue({})", function(&verb.entity)),
         ExprKind::ModifierValue(f) => format!("ModifierValue({})", function(f)),
         ExprKind::Group(inner) => format!("Group({})", expression(inner)),

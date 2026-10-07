@@ -18,6 +18,13 @@ pub struct OccurrenceId(pub usize);
 
 #[derive(Clone, Debug)]
 pub enum CaptureEvent {
+    /// Pre-action lookup and whether C's context actually deletes this binding.
+    Abandon {
+        name: String,
+        lookup: crate::frontend_context::LookupObservation,
+        deleted: bool,
+        span: Range<usize>,
+    },
     FunctionNameRank {
         snapshot: crate::semantic::NameRankSnapshot,
     },
@@ -187,6 +194,9 @@ impl ParseCapture {
     /// Existing J Graph has one pending outer write, not ordered runtime effects.
     pub fn requires_ordered_effect_graph(&self) -> bool {
         self.events.iter().any(|event| {
+            if matches!(event, CaptureEvent::Abandon { .. }) {
+                return true;
+            }
             matches!(
                 event,
                 CaptureEvent::Commit {
@@ -206,6 +216,22 @@ impl ParseCapture {
         let mut construction_inputs = Vec::new();
         for (event_index, event) in self.events.iter().enumerate() {
             match event {
+                CaptureEvent::Abandon {
+                    name, lookup, span, ..
+                } => {
+                    if name.is_empty()
+                        || self.source.get(span.clone()).is_none()
+                        || lookup.binding_version.is_none()
+                        || lookup.binding_generation.is_none()
+                        || !matches!(
+                            lookup.found,
+                            crate::frontend_context::FoundScope::Local(_)
+                                | crate::frontend_context::FoundScope::Global(_)
+                        )
+                    {
+                        return Err("invalid abandon observation");
+                    }
+                }
                 CaptureEvent::FunctionNameRank { snapshot } => {
                     if !attempts.is_empty()
                         || snapshot.name.is_empty()

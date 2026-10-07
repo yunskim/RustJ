@@ -156,9 +156,13 @@ fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_fun
     ] {
         enqueuer::enqueue(source).unwrap();
     }
-    for source in ["foo_:", "foo_bar_:", "foo_bar__:"] {
-        assert_eq!(enqueuer::enqueue(source).unwrap_err().kind(), "unsupported");
+    for source in ["foo_:", "foo_bar_:"] {
+        assert!(enqueuer::enqueue(source).unwrap()[0].flags.abandon_name);
     }
+    assert_eq!(
+        enqueuer::enqueue("foo_bar__:").unwrap_err().kind(),
+        "unsupported"
+    );
     assert_eq!(
         enqueuer::enqueue("foo__:").unwrap_err().kind(),
         "ill-formed name"
@@ -235,7 +239,7 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
     ];
     let by_value = cases
         .iter()
-        .map(|(word, expected)| (format!("{word}_:"), Some(expected.unwrap_or("unsupported"))))
+        .map(|(word, expected)| (format!("{word}_:"), *expected))
         .collect::<Vec<_>>();
     cases.extend(by_value);
     for (word, expected) in cases {

@@ -41,6 +41,8 @@ pub struct EnqueueFlags {
     /// Ordinary names are resolved at parser-stack entry. Assignment targets
     /// deliberately keep this false, matching jsource QCNAMEASSIGNED.
     pub lookup_name: bool,
+    /// By-value lookup plus scope deletion; interpreted only at stack entry.
+    pub abandon_name: bool,
     /// Copula metadata retained for parser-time assignment semantics.
     pub global_assignment: bool,
     pub local_assignment: bool,
@@ -223,8 +225,16 @@ fn interpret_word<'a>(
     let numeric = word.as_bytes()[0].is_ascii_digit() || word.starts_with('_');
     if word.ends_with(':') || (!numeric && word.ends_with('.')) {
         if word.as_bytes()[0].is_ascii_alphabetic() && word.ends_with("_:") {
-            validate_name_syntax(&word[..word.len() - 2])?;
-            return Err(Error::Unsupported("J name-by-value/abandon lookup".into()));
+            let name = &word[..word.len() - 2];
+            validate_assignment_name(name)?;
+            return Ok((
+                EnqueueClass::Name,
+                EnqueuedPayload::Name(name),
+                EnqueueFlags {
+                    abandon_name: true,
+                    ..Default::default()
+                },
+            ));
         }
         return Err(Error::Spelling);
     }

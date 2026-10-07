@@ -183,10 +183,32 @@ FOR_FIXTURES = [
     ("for_local_global", ["i=:99", "i_index=:88", "f=:3 : 'for_i. y do. end. i_index'", "f i.3", "i", "i_index"]),
 ]
 
+ABANDON_FIXTURES = [
+    ("global_noun", ["a=:7", "a_:", "a+0"]),
+    ("right_to_left_success", ["a=:7", "a_:+a", "a+0"]),
+    ("right_to_left_error", ["a=:7", "(a+a_:)0", "a+0"]),
+    ("earlier_kernel_error", ["a=:7", "a_:+1 2+1 2 3", "a+0"]),
+    ("missing", ["missing_:"]),
+    ("array_alias", ["a=:i.6", "b=:a", "a_:", "a+0", "b"]),
+    ("verb_value", ["f=:+", "g=:f_:", "f=:*", "g 3"]),
+    ("adverb_value", ["adv=:/", "sum=:+adv_:", "sum 1 2 3", "adv 0"]),
+    ("conjunction_value", ["conj=:@:", "h=:-conj_:+", "h 3", "conj 0"]),
+    ("assignment_target", ["a_:=:9", "a+0"]),
+    ("direct_local_bare", ["a=:7", "f=:{{a=.9\na_:\na}}", "f 0", "a+0"]),
+    ("explicit_local_bare", ["a=:7", "f=:3 : 0\na=.9\na_:\na\n)", "f 0", "a+0"]),
+    ("direct_local_delete", ["a=:7", "f=:{{a=.9\n(a_:)\na}}", "f 0", "a+0"]),
+    ("explicit_local_delete", ["a=:7", "f=:3 : 0\na=.9\n(a_:)\na\n)", "f 0", "a+0"]),
+    ("unbound_local_global", ["a=:7", "f=:3 : 0\na_:\na=.9\na\n)", "f 0", "a+0"]),
+    ("local_assignment_target", ["a=:9", "f=:{{a_:=.3\na}}", "f 0", "a+0"]),
+    ("readonly_bare", ["f=:{{for_i. i.1 do. i_index_: end.}}", "f 0"]),
+]
+# General-path deletion of a read-only loop index is excluded: a separate
+# j.dll probe faulted inside the DLL. Rust explicitly rejects this boundary.
+
 SCRIPT_SETUPS = {source for name, sources in SCOPE_FIXTURES
                  if name in {"explicit_local_function_escape", "explicit_local_global_collision"}
                  for source in sources if " : 0\n" in source}
-SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES + FOR_FIXTURES + NESTED_FIXTURES + ASSIGNMENT_FIXTURES
+SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES + FOR_FIXTURES + NESTED_FIXTURES + ASSIGNMENT_FIXTURES + ABANDON_FIXTURES
                      for source in sources if " : 0\n" in source and not source.startswith("outer=:{{"))
 
 
@@ -241,11 +263,13 @@ def main():
     selection.add_argument("--for-fixtures-only", action="store_true")
     selection.add_argument("--nested-fixtures-only", action="store_true")
     selection.add_argument("--assignment-fixtures-only", action="store_true")
+    selection.add_argument("--abandon-fixtures-only", action="store_true")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Use native Windows Python, J DLLs and Rust binary")
     assets = args.assets_root.resolve()
-    fixtures = (ASSIGNMENT_FIXTURES if args.assignment_fixtures_only else
+    fixtures = (ABANDON_FIXTURES if args.abandon_fixtures_only else
+                ASSIGNMENT_FIXTURES if args.assignment_fixtures_only else
                 NESTED_FIXTURES if args.nested_fixtures_only else
                 FOR_FIXTURES if args.for_fixtures_only else
                 DEFINITION_FIXTURES if args.definition_fixtures_only else
@@ -283,7 +307,8 @@ def main():
         "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
         "reference_sha256": {name: sha(assets / "target/cj-windows/j64" / name)
                              for name in ["j.dll", "javx2.dll"]},
-        "fixture_set": ("string-assignment" if args.assignment_fixtures_only else
+        "fixture_set": ("name-abandon" if args.abandon_fixtures_only else
+                        "string-assignment" if args.assignment_fixtures_only else
                         "definition-nested" if args.nested_fixtures_only else
                         "definition-for-loops" if args.for_fixtures_only else
                         "definition-calls" if args.definition_fixtures_only else

@@ -385,6 +385,11 @@ pub enum ExprKind {
     ModifierValue(Arc<FunctionEntity>),
     Literal(Value),
     ReadName(String),
+    /// Deferred NAME read/delete effect, never an ordinary pure read.
+    TakeName {
+        name: String,
+        single_word: bool,
+    },
     Monad {
         verb: Verb,
         argument: Box<Expr>,
@@ -541,6 +546,12 @@ pub(crate) fn bind(
             }
         }
         match &expr.kind {
+            ExprKind::TakeName { .. } => {
+                return Err(
+                    Error::Unsupported("abandon requires ordered NAME effect IR".into())
+                        .at(expr.span.clone()),
+                );
+            }
             ExprKind::ReadName(name) => pending.push((name.clone(), expr.span.clone())),
             ExprKind::Group(inner) => stack.push(inner),
             ExprKind::Monad { argument, .. } => stack.push(argument),

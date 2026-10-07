@@ -162,6 +162,7 @@ ParameterizedLoweringRecipe
 - A3-v0의 SSA ValueId, Execution Basis, semantic check/constraint/effect/error contract와 verifier/reference executor
 - explicit/direct 정의의 원문·제어·NAME metadata와 mode-3/4 호출, 지원 if/while/for/try 및 중첩 direct/문자열 explicit의 독립 local scope, A3 정의 함수 참조를 지원한다. 현재 범위의 frontend E2E는 검증됐다. statement/control 실패는 본문 위치와 중첩 호출 경로를 진단 frame으로 보존한다. 실행 전/반환 후 오류 경계와 파일 전체 원문 추적, 전체 J 표현력, 본문 Graph/Logical 분석·CFG 컴파일 및 일반 locale/locative는 미완료다. PROJECT.ko.md의 감사 결과와 보완 실행 체크리스트를 따른다.
 - 문자열 단일·다중 및 runtime 계산된 문자열 대입 대상을 지원한다. local/global, scalar 확장·item/open, 순서 있는 부분 실패를 보존한다. 다중 대입의 Graph/Logical 변환과 boxed/atomic-representation target은 미지원이다.
+- `name_:`는 enqueue에서 실행하지 않고 flag와 원문을 보존한다. noun은 비실행 parser의 `TakeName`으로 전달하며 runtime은 noun/verb/adverb의 by-value 조회와 local/global 삭제 순서를 보존한다. 단일-word local은 C처럼 삭제하지 않는다. conjunction abandon, 읽기 전용 loop index의 일반 삭제, deferred effect의 Graph/Logical 변환은 미지원이다.
 - CPU Inline/Owned/Shared storage, runtime AVX2 + portable fallback
 - sparse/boxed/packed-bit 기반 일부와 read-only affine PhysicalArray(G1)
 - M2 jsource-compatible frontend cutover와 M3 logical/physical value 경계 수렴, M4 native Physical Planner/CPU executor는 미완료

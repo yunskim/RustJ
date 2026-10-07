@@ -999,6 +999,7 @@ impl Plan {
             .collect();
         for event in &capture.events {
             match event {
+                CaptureEvent::Abandon { .. } => unreachable!("abandon capture rejected above"),
                 CaptureEvent::ModifierStacked { snapshot } => {
                     modifier_stack_snapshots.push(snapshot.clone())
                 }
@@ -1864,6 +1865,11 @@ impl Builder<'_> {
                     facts,
                     analyzability,
                 ))
+            }
+            ExprKind::TakeName { .. } => {
+                return Err(Error::Unsupported(
+                    "abandon requires ordered NAME effect IR".into(),
+                ));
             }
             ExprKind::Monad { verb, argument } => {
                 let right = self.expression(*argument)?;

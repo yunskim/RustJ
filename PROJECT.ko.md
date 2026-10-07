@@ -13522,7 +13522,7 @@ RustJ의 공개 오픈소스 배포 경로는 GNU General Public License version
 
 | 질문/사례 | 실제 판정 | 소유 단계 |
 |---|---|---|
-| jsource의 전체 표현력 | **아직 아님**. 후속 수정에서 문자열 단일·다중/computed target 실행을 추가했다. boxed/AR target, locative, name_: abandon, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target 실행 체크리스트 참조 |
+| jsource의 전체 표현력 | **아직 아님**. 문자열 단일·다중/computed target과 bounded noun/verb/adverb abandon 실행을 추가했다. boxed/AR target, locative, conjunction abandon, deferred effect lowering, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target·abandon 실행 체크리스트 참조 |
 | `a+a=:2`, `a=:b=:1`, 계산된 rank | runtime은 C와 일치하나 비실행 P/G/L에서 Unsupported. chained assignment 전체가 runtime 미지원이라고 말하면 틀린다 | P 단계 동적 construction/effect 경계, P8 |
 | `adv=:/` | Program의 ModifierValue와 POS는 보존하지만 J Graph가 modifier value lowering을 거부 | P8/A1/A2, frontend lexical 오류 아님 |
 | `". '1+2'` | P/G는 수용하고 L/runtime은 미지원. primitive 인식과 실행 지원을 분리 | lowering/runtime capability |
@@ -13577,7 +13577,7 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 | 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 진행 중 |
 | 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
 | 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
-| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target runtime 완료; 나머지 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon runtime 완료; conjunction abandon/ordered lowering/locatives 미완료 |
 | 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
 | 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
 
@@ -13610,3 +13610,22 @@ Frontend 감사 갱신: **31 cases / 62 observations = 42 matched / 20 runtime_g
 여기서 `target: Expr`는 row-7 시점의 완료된 표현이다. runtime 계산 후에는 Literal일 수 있으며 계산 전 구조는 `FrontendContext`의 원래 item/node/reduction link로 찾는다. `AssignmentSource.noun_target`은 computed noun target임을 명시한다. 현재 capture→Graph는 단일 literal을 포함한 noun-target commit을 모두 거절한다. 관측한 이름을 고정 write로 바꾸려면 target 의존성과 guard가 필요하기 때문이다. 단일 literal의 비실행 static Graph 경로와 구별한다.
 
 `parse_frontend`는 literal 문자열 다중 target을 구조화하지만 `prepare_semantic`의 binding과 Graph/Logical은 다중·빈 target을 ordered-write IR 미지원으로 거절한다. 실제 값이 필요한 계산된 target은 static parser에서 실행하지 않고 runtime 경계로 남긴다. 단일 literal 문자열 target은 기존 단일 write 분석 경로로 전달한다. 기존 일반 NAME 대입에는 name-list heap allocation이나 재검증을 추가하지 않는다. 다중 RHS는 한 번 공유 상태로 전환하고 item만 선택한다. 현재 item 선택은 복사이며 zero-copy/GPU buffer view 구현을 뜻하지 않는다. open의 padding·sparse 및 `;` 등 별도 primitive 미지원은 그대로 유지한다.
+
+### F1/P4 `name_:` 실행 체크리스트
+
+사용자 확인: tokenizer/enqueuer는 `name_:`를 즉시 조회·삭제하지 않는다. 기본 이름·abandon flag·원래 span/word index를 넘긴다. 비실행 parser는 noun의 `ExprKind::TakeName { name, single_word }`를 만들어 일반 ReadName과 구분한다. ordered NAME effect IR이 없는 binding/Graph/Logical 경계는 거절하며 조회·삭제를 실행하지 않는다. Runtime semantic parser만 C와 같은 stack-entry 순서로 값을 가져오고 실제 발견한 scope를 삭제한다. 삭제를 뒤로 옮기는 compiled route는 동일한 lookup/effect/error 순서를 입증해야 한다.
+
+- [x] enqueue flag, deferred noun expression, NAME policy와 원래 context 연결.
+- [x] runtime noun/verb/adverb by-value 반환, 실제 local/global scope 삭제, missing/error 순서, 삭제 후 재대입 ABA guard 회귀. 함수 값 내부의 별도 late nameref는 그대로 유지한다.
+- [x] pinned C의 단일-word local fast path는 값을 반환하되 삭제하지 않는 동작을 별도 확인. `name_:`가 대입 target이면 lookup/delete하지 않고 기본 이름을 대입한다. explicit/direct local 선언도 기본 이름으로 기록한다.
+- [x] capture에서 관측 전 lookup과 실제 삭제 여부를 보존하고 순서 있는 effect를 Graph의 순수 read로 승격하지 않는다. by-value 이름에 ordinary SimpleNameGuard를 만들 수 없다.
+- [x] 두 C DLL·두 실행 경로 및 Windows default/portable·Python·fmt/clippy 검증. 아래 미지원 결과는 통과로 세지 않는다.
+- [ ] locale/locative, execute 내부의 특수 abandon 처리와 deferred function entity lowering은 별도 후속 범위.
+
+경계: conjunction abandon은 C의 일반 modifier stacking과 다른 결과가 관측되어 실행 전 Unsupported로 거절한다. 이를 C 호환 성공으로 세지 않는다. 읽기 전용 loop index의 일반 삭제는 별도 `j.dll` probe에서 DLL 접근 오류가 관측되어 Rust는 Unsupported로 거절한다. 해당 C probe는 두 DLL 감사의 통과 집계에 포함하지 않는다. 단일-word local index의 비삭제 경로는 독립적으로 검증한다. extension registry binding의 abandon과 일반 function-result display도 미지원이다.
+
+지연의 단위는 조회와 삭제를 결합한 의미 연산이다. suffix를 지운 ReadName이나 이미 계산한 Literal만 전달하면 안 된다. `TakeName.single_word`는 C의 local fast-path 맥락을 보존한다. 분석 단계에서 부작용을 일으키지 않으며, 추후 effect IR은 발견한 scope/binding identity, by-value 결과, 삭제 여부, 오류·다른 NAME 조회와의 순서를 함께 표현해야 한다. `CaptureEvent::Abandon`은 실행 전 lookup observation과 실제 `deleted`를 보존하는 관측 기록이며 실행 계획이 아니다.
+
+2026-10-07 최종 검증: Windows default/portable 각각 **625 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. `tests/name_abandon.rs` 8개 회귀는 비실행 분석, 원문·정책, 값·alias 수명, 평가 순서·실패 후 삭제, explicit/direct local의 단일-word 특례, declared-unbound global fallback, caller-private 비캡처, 함수 내부 late alias, guard ABA와 미지원 non-catchable 경계를 다룬다. `reports/name-abandon-windows.json`은 **17 fixtures × DLL 2 × route 2 = 68 observations: 64 matched / 4 unsupported_gap**이며 네 gap은 conjunction 한 사례다. 기존 문자열 대입·정의/loop/nested/scope는 최종 바이너리에서 **416/416 일치**. 합계 **480 matched / 4 unsupported_gap**이며 full J conformance를 뜻하지 않는다. C 오류 위치/문자열 동등성은 검증하지 않았다.
+
+Frontend 감사 최종 갱신: **31 cases / 62 observations = 44 matched / 18 runtime_gap**. 앞의 문자열 대입 단계 **42/20**에 이어 `abandon_name`의 runtime/post-state 차이 2건을 해소했다. 고유 gap은 **10 → 9**. P/G/L admission은 이전 단계와 같으며 deferred effect의 binding/lowering은 여전히 Unsupported다. `reports/frontend-contract-audit-windows.json`과 위 비교 보고서에 최종 소스·실행 파일 hash를 기록했다. 참고 C 소스 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실제 DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`이며 같은 소스를 재빌드했다는 뜻은 아니다.

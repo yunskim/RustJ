@@ -5265,7 +5265,7 @@ The 38/24 results and stage counts below are the pre-remediation baseline. Curre
 
 | Question | Finding | Owner |
 |---|---|---|
-| Full jsource expressiveness | Not yet: the follow-up below implements single/multiple/computed string targets at runtime. Boxed/AR targets, locatives, abandon names and complex/extended/rational/overflow literal conversion remain unsupported | Existing F1/P4/numeric compatibility gates; noun-target execution checklist below |
+| Full jsource expressiveness | Not yet: runtime supports single/multiple/computed string targets and bounded noun/verb/adverb abandon. Boxed/AR targets, locatives, conjunction abandon, deferred-effect lowering and complex/extended/rational/overflow literal conversion remain unsupported | Existing F1/P4/numeric compatibility gates; noun-target and abandon checklists below |
 | Computed rank, `a+a=:2`, `a=:b=:1` | Runtime matches C; non-executing P/G/L reject them. Chained assignment is not universally unsupported at runtime | Dynamic construction/effect boundary, P8 |
 | `adv=:/` | Program preserves modifier/POS; Graph rejects modifier-value lowering | P8/A1/A2 |
 | execute primitive | P/G admit; L/runtime do not implement execution | Route/runtime capability |
@@ -5307,7 +5307,7 @@ Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset fr
 | 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
 | 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
 | 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
-| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target runtime complete; remaining work pending |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon runtime complete; conjunction abandon/ordered lowering/locatives pending |
 | 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
 | 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
 
@@ -5340,6 +5340,25 @@ Handoff contract: `Program.noun_assignment: Option<NounAssignment>` retains orig
 Here `target: Expr` is the completed row-7 expression and may be a Literal after runtime computation. Pre-computation structure is retained through FrontendContext item/node/reduction links. `AssignmentSource.noun_target` explicitly identifies noun targets. Capture→Graph currently rejects all noun-target commits, including single literals: turning an observed target into a fixed write requires target dependencies/guards. This differs from the non-executing static Graph path for single literal targets.
 
 `parse_frontend` structures literal multiple-string targets, while `prepare_semantic` binding and Graph/Logical reject multiple/empty targets until ordered-write IR exists. Static parsing does not execute computed targets requiring values. Single literal string targets use the existing single-write analysis route. Ordinary NAME writes add no name-list heap allocation or repeated validation. Multiple RHS buffers are frozen once, then items are selected. Item selection currently copies; this is not zero-copy/GPU buffer-view support. Existing open-padding/sparse and unrelated primitive boundaries such as `;` remain.
+
+### F1/P4 `name_:` execution checklist
+
+User clarification: tokenizer/enqueue do not immediately read/delete `name_:`. Preserve base name, abandon flag and original span/word index. Non-executing parsing builds noun `ExprKind::TakeName { name, single_word }`, distinct from ordinary ReadName. Binding/Graph/Logical reject ordered NAME effects without executing them. Runtime semantic parsing alone fetches the value and deletes the found scope at C's stack-entry point. Compiled deferral must prove the same lookup/effect/error order.
+
+- [x] Enqueue flag, deferred noun expression, NAME policy and original context links.
+- [x] Runtime noun/verb/adverb by-value results, actual local/global deletion, missing/error ordering and deletion/recreation ABA guard regressions. Separate late namerefs inside returned functions remain late.
+- [x] Confirm pinned C's single-word local fast path returns without deletion. An assignment-target `name_:` writes the base name without lookup/deletion. Explicit/direct local declarations record the base name too.
+- [x] Preserve pre-action lookup and actual deletion in capture; never convert the effect into a pure Graph read. Ordinary SimpleNameGuard cannot be created for by-value names.
+- [x] Both C DLLs/routes; native Windows default/portable, Python, fmt/clippy validation. Unsupported findings below are not passes.
+- [ ] Locales/locatives, execute's special abandon behavior and deferred function entity lowering remain separate follow-ups.
+
+Boundaries: conjunction abandon has observed behavior different from C's ordinary modifier stacking and is rejected with Unsupported before execution; it is not counted as a conformance success. A separate general-path read-only loop index deletion probe caused an access fault inside `j.dll`; Rust rejects that boundary with Unsupported and the C probe is excluded from two-DLL pass totals. Single-word local index lookup without deletion is tested independently. Extension-registry abandon and general function-result display remain unsupported.
+
+The deferred unit combines lookup and deletion into one semantic operation. Do not replace it with a suffix-stripped ReadName or only an already computed Literal. `TakeName.single_word` retains the C local fast-path context. Analysis has no effects; future effect IR must jointly represent found scope/binding identity, by-value result, actual deletion and ordering against errors/other NAME lookups. `CaptureEvent::Abandon` records pre-action lookup and actual `deleted`; it is observational, not an execution plan.
+
+Final validation, 2026-10-07: native Windows default/portable each **625 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. Eight `tests/name_abandon.rs` regressions cover non-executing analysis, source/policy, value/alias lifetime, evaluation order and retained deletion on error, explicit/direct single-word locals, declared-unbound global fallback, no caller-private capture, inner late aliases, guard ABA and non-catchable Unsupported boundaries. `reports/name-abandon-windows.json`: **17 fixtures × two DLLs × two routes = 68 observations: 64 matched / 4 unsupported_gap**; all four gaps are one conjunction case. Existing string-assignment and definition/loop/nested/scope comparisons match **416/416** on the final binary. Combined: **480 matched / 4 unsupported_gap**, not full-J conformance. C diagnostic location/text equivalence was not tested.
+
+Final frontend audit: **31 cases / 62 observations = 44 matched / 18 runtime_gap**. Following the string-target snapshot **42/20** above, the two runtime/post-state `abandon_name` gaps are resolved. Unique gap cases drop **10 → 9**. P/G/L admission totals are unchanged; binding/lowering deferred effects remains Unsupported. `reports/frontend-contract-audit-windows.json` and the comparison reports record final source/binary hashes. Reference C source pin: `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`; actual DLL release: `ded7793fe5795d79eda8e7138dce94aa056edf78`, not a same-source rebuild.
 
 ## License policy
 

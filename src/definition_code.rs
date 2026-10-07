@@ -43,6 +43,7 @@ pub struct DefinitionSentence {
 pub enum DefinitionNameRole {
     /// A declaration does not prebind a read: unbound locals can fall back globally.
     ReadCurrentFrameThenGlobal,
+    ReadAndAbandonCurrentFrameThenGlobal,
     LocalAssignmentTarget,
     GlobalAssignmentTarget,
 }
@@ -93,11 +94,22 @@ fn scope_plan(
             let role = match sentence.words.get(word_index + 1) {
                 Some(copula) if copula.class == EnqueueClass::Assignment => {
                     if copula.flags.local_assignment {
-                        declarations.insert(body[word.span.clone()].to_owned());
+                        let spelling = &body[word.span.clone()];
+                        declarations.insert(
+                            if word.flags.abandon_name {
+                                spelling.strip_suffix("_:").expect("abandon spelling")
+                            } else {
+                                spelling
+                            }
+                            .to_owned(),
+                        );
                         DefinitionNameRole::LocalAssignmentTarget
                     } else {
                         DefinitionNameRole::GlobalAssignmentTarget
                     }
+                }
+                _ if word.flags.abandon_name => {
+                    DefinitionNameRole::ReadAndAbandonCurrentFrameThenGlobal
                 }
                 _ => DefinitionNameRole::ReadCurrentFrameThenGlobal,
             };
