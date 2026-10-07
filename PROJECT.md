@@ -3637,6 +3637,17 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 
 **First CPU-route admission (2026-10-07):** [x] §17.2.1 H-A stages A0–A5 and negative gates HA-V1–HA-V7 distinguish a legal `ReferenceSequential` candidate from an implemented native CPU kernel, checked physical plan, live runtime readiness and independent E2E evidence. [ ] Implementation/execution validation not performed; no M3/M4/HE acceptance change.
 
+**M3→M4 implementation handoff checklist (H-P, documentation only; 2026-10-07):**
+
+- [x] Defined HP-01–HP-12 per-boundary evidence/verification/rejection contracts, HP-V01–HP-V09 single-invariant negatives and per-gate acceptance records in §17.2.1 H-P. This is **documentation complete only**.
+- [ ] HP-01/02: immutable A3 original operation, zero-result Check, distinct Write, region coverage and cross-route liveness verified (HP-V01/02).
+- [ ] HP-03/04: selected **implemented** CPU realization and first-observable-error Check/discharge owner independently verified (HP-V03).
+- [ ] HP-05/06: noun snapshot, late NameRef, Write owner, J Shape/zero-cell Rank/boxed/sparse semantics preserved (HP-V04).
+- [ ] HP-07/09: buffer/view/alias/last-use, runtime lease and **synchronous CPU** completion checked; async transfer/event machinery deferred (HP-V05/07).
+- [ ] HP-08: explicit data/Check/guard/effect/error dependencies validated, with missing-edge/cycle negatives (HP-V06).
+- [ ] HP-10/11: fresh invocation guards, safe pre-effect fallback, CPU+Host+zero-transfer feasibility verified (HP-V08).
+- [ ] HP-12: actual native result/error/effect differentials and per-gate CI/pinned-J-reference evidence recorded (HP-V09).
+
 **M3→M4 evidence handoff (2026-10-07):** [x] Documented H-01–H-09 and HM-V0–HM-V4 under §17.2.1 to distinguish RouteVerified, PhysicalVerified and RuntimeReady, with error/Check/Write/version/ownership and negative/differential obligations. [ ] Verifier implementation, proof discharge and execution/CI validation remain pending; no new runtime or IR was introduced. Added §17.2.1 H-K/H-KV1–5 to distinguish Literal, ReadNoun and VerbReference despite their shared ValueOnly class; design only.
 
 **M3-RB proof boundary (2026-10-07):** [x] Design contract RB-01–08 and verification gates RB-V0–V4 in §2.1.1, covering original A3 op/Check/Write provenance, cross-region liveness, ordered errors and guards without introducing a new IR. [ ] Actual RouteBoundary verifier, one-invariant negative tests and J C/reference differential remain **unimplemented and unverified**. M2→M3→M4 order unchanged.
@@ -4744,6 +4755,46 @@ a=:1+2
 | **HA-V7 cross-route** | Whole-program M3 coverage plus native-region-local M4 verification preserve effects/first error | Approve the whole expression using only one native-region success; claim unimplemented bridge/GPU route E2E |
 
 **Implementation order and present status:** First validate immutable A3→Route semantics and HA-V1/3/4/5 (M3), then selected actual CPU realization and Physical verifier HA-V2/6 (M4), then HA-V7 differential and native E2E acceptance, with GPU/transfer/async costs deferred to M5/M6. **Only this admission/test specification is added today**. All implementation, test-pass and HE-01 acceptance gates remain open.
+
+
+#### H-P — Implementation-ready M3→M4 handoff and physical verification register (2026-10-07; documentation only)
+
+**Purpose:** Convert existing H-01–09, H-K, H-A (A0–A5) and RB-01–08 into testable **admission evidence**, not a new mandatory IR or CPU-only parallel layer. M3 supplies and owns semantic/route legality and global source-A3 coverage; M4 checks physical realization for the **selected native region** without manufacturing missing semantic evidence. An unknown/missing proof is not approval.
+
+| ID | Required upstream evidence | Independent M4 validation | Missing/invalid |
+|---|---|---|---|
+| **HP-01 original source** | Separately preserved verified original A3 schema/registry, op payload/facts, span/J graph origin, immutable identity and lawful rewrite mapping | Match **actual original operations**, checks/writes and origin, not merely source text or a `verify()`-passing mutated plan; a checksum alone is not an immutable source proof | Reject stale/forged proof |
+| **HP-02 region coverage** | Global owner of every original op, zero-result Check and separate `Plan.write`; region live-ins/outs, final return and cross-route bridges | Exact per-native-region op→physical-task mapping; `NoKernel`/`ValueOnly` grouping never authorizes treating literals, noun reads and verb references alike | Reject missing, overlapping or duplicated coverage |
+| **HP-03 selected realization** | Actual `OpKind`, POS/valence, Rank/CellApply, fit/tolerance/numeric policies, selected target/recipe and proof/guard | Check a **real available** kernel/adapter with admitted type/rank/valence/capability, not just a registered `ReferenceSequential` candidate | Do not admit unsupported native execution |
+| **HP-04 Check/errors** | Each `SemanticCheck` with inputs, original J error kind, order and exactly one execute/discharged/guard owner | Preserve zero-result checks and first **observable** J error precedence; Check/guard before dependent kernel/effect; no dropped, moved, duplicated or relabeled check | Reject |
+| **HP-05 names/effects/writes** | Noun read-time value/version/scope/locale, late function NameRef/POS obligations, effect order, separate transactional `Plan.write` owner | Revalidate changing names, never pre-snapshot whole statements or confuse Return with Write commit; no transparent replay after an observable effect | Withhold native admission |
+| **HP-06 logical values** | SSA producers/use graph; dtype/rank/Shape/J atom order; boxed/sparse, zero-cell Rank fill and assembly, overflow/retry and error policies | Preserve J semantics; `ValueId` != plan `PlanBufferId` != runtime `BufferId`; empty Shape and prefix frame rules survive physical representation | Use valid semantic route or Unsupported |
+| **HP-07 buffer/view** | Storage/materialization needs; input/temporary/persistent/external ownership; alias/donation proof; capacity budget | Check encoding, span/stride/offset, alignment, space, generation, actual backing alias, exclusive writes and last-use-before-reuse; never mutate caller-owned input | Reject ownership/alias/bounds violations |
+| **HP-08 tasks/dependencies** | Data-flow, check/guard/effect/error precedence and ready edges for regional interfaces | BindInput/Check/View/Materialize/Kernel/Return task source mapping; producer→consumer and observable order; missing edges/cycles rejected. Sequential CPU may realize a verified ordered list | No launch on failed graph validation |
+| **HP-09 completion/lifetime** | All uses and completion obligations, including readers/writers/transfers and outputs | Submission is **not** completion; reuse/release only after every use completes. Synchronous CPU may use immediately completed tasks with an explicit rationale; async needs events/timepoints and retained leases | Reject premature release or async route |
+| **HP-10 guards/fallback** | Proof provenance, invocation-time dynamic checks, safe pre-effect fallback boundary and an already legal alternative | Recheck versions/shapes/buffer generations at use; never replay after partial effects; backend errors are not arbitrarily J Domain/Rank/Length | Reject or choose valid pre-effect route |
+| **HP-11 target/resources** | Resolved target and actual device/runtime availability, resource feasibility distinct from cost ranking | M4-v0 = deterministic CPU + Host + sequential + zero-transfer. Later separate placement, memory space, transfer/readiness, intra-device scheduling; legal != profitable | No unsupported device/transfer claims |
+| **HP-12 outcome evidence** | Reference/Jsource-oracle test vectors, J values/errors/effects and actual route identity | Three-way applicable pinned J C ↔ RustJ reference ↔ **executed native route**; report test ID, CI SHA, artifacts and negatives, not only source tests | E2E gate remains open |
+
+**Gate flow:** `SourceA3 + selected region + proofs/guards + all original Check/Write obligations` → **RouteVerified** (A0/A1) → `tasks + planned buffers/views + dependencies/readiness/completion + implemented kernel + ownership/resource verification` → **PhysicalVerified** (A2/A3, native region only) → runtime name/input/guard/lease rechecks → **RuntimeReady** (A4) → actual execution and independent differential evidence (A5).
+
+**One-invariant-at-a-time negative-test register:**
+
+| Test | Mutation or example | Required outcome |
+|---|---|---|
+| **HP-V01 source** | Identical source text but modified literal payload/SSA facts/rank/`j_origin` | Reject. Draft PR #4's `LiteralSourceWitness` covers only its narrow v0 literal route, not general M3 proofs |
+| **HP-V02 coverage** | Lose Add op in `1+2`, drop independent Write in `a=:1+2`, overlap regions | Reject route/physical admission |
+| **HP-V03 Check** | Remove, delay, duplicate or relabel Length Check for `1 2+1 2 3` | Reject, or produce the original J Length error before Add |
+| **HP-V04 name/guard** | Change noun snapshot/version; freeze late NameRef; reuse stale shape guard | Fail invocation validation; only legal pre-effect fallback |
+| **HP-V05 views** | Shared allocation with overlapping views, stale generation, negative/zero stride, empty Shape, wrong encoding or writable alias | Reject invalid cases; preserve legal read-only aliases and empty Shape |
+| **HP-V06 dependencies** | Delete Check→Kernel, producer→reader or effect→commit edge; introduce cycle | Reject, preserve first-error order |
+| **HP-V07 completion** | Enqueue copy/kernel then release input or reuse buffer before reader finishes | Reject until real completion |
+| **HP-V08 replay/error** | Reverse error-capable tasks or retry after partial effect commit | Reject, no duplicate observable effects |
+| **HP-V09 baseline** | Literal identity, subsequently verified sequential CPU operation and reference differential; unsupported boxed/sparse/zero-frame Rank | Correct support classification and real native execution proof; reference is not native |
+
+**Per-gate evidence record:** `HP ID | source A3 revision/schema/registry | original op/region | proof + guard owner | chosen recipe/capability | physical task/edge/buffer/view | runtime versions/completion/effect frontier | positive + single-mutation negative test | CI SHA/run + C-reference artifact | PASS/FAIL/UNRUN | remaining gaps`. `UNRUN` never means PASS.
+
+**Scope/status:** `main` still lacks complete M3 RouteBoundary and M4 native executor acceptance. The narrow literal identity + source witness + passing CI in draft [PR #4](https://github.com/yunskim/RustJ/pull/4) do not establish Check/Add/whole-program coverage, async completion or GPU support. Implement first the **sequential CPU** semantic boundaries HP-01–06/08/10 with negative gates HP-V01–04/06/08, then actual CPU realization and buffer tests; make async transfers, multidevice and worker scheduling later M5/M6 obligations, not M4-v0 prerequisites.
 
 Current `src/physical.rs` is only the G1 representation foundation (`BufferRegistry`, `BufferLease`, runtime `BufferId`, and checked read-only affine PhysicalArray). It is not a PhysicalPlan, planner, or physical executor. `logical_executor.rs` is an A3 semantic/reference executor, not the Physical Executor.
 

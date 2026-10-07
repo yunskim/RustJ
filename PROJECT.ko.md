@@ -8926,6 +8926,59 @@ J: a=:1+2
 
 **구현 우선순위와 수용 상태:** (1) 기존 M3-RB validator와 독립 source A3 기준의 HA-V1/3/4/5 논리 검증 → (2) M4 선택 recipe의 *실제* 구현 여부·CPU buffer/Check/Return verifier(HA-V2/6) → (3) 독립 reference/jsource의 HA-V7 및 native E2E 수용 → (4) M5/M6의 device/memory/transfer 비용·비동기 검증. **이번에 완료한 것은 이 판정표와 테스트 설계뿐이며**, 현행 코드의 M3/M4/HE-01 실행 승인 체크박스는 그대로 열어 둔다.
 
+
+##### H-P — M3→M4 구현 인수 패킷과 물리 검증 체크리스트 계약 (2026-10-07; 문서 전용)
+
+**사용법:** 이 절은 H-01~09, H-K, H-A(A0~A5), RB-01~08의 **실행 시점 판정표**다. 구현·PR 심사 때 각 행에 입력 증거, 검증 결과, 부정 사례와 증거 링크를 채운다. 새 필수 IR, `TaskId` 런타임, 멀티프로세서 전용 planner를 요구하지 않는다. **미제공/unknown은 승인으로 간주하지 않는다.** M3가 의미론·선택된 route의 합법성 증거를 제공하며 M4는 이 증거를 재작성하지 않고 선택한 물리 실현을 검증한다. 전역 A3 coverage는 M3 소유, native region의 실현 coverage는 M4 소유다.
+
+**선행 단계가 전달해야 할 최소 패킷(개념적 묶음이며 새 Rust struct 요구 아님):**
+
+| ID / 책임 | M3/상위 단계가 인계할 증거 | M4가 반드시 확인할 사항 | 증거 부족·불일치 시 |
+|---|---|---|---|
+| **HP-01 원본** | 별도 보존한 검증된 원본 A3, schema/primitive registry, 원본 op ID·span·J graph origin, 변경/재작성 대응과 증명의 적용 범위 | 단순 source **문자열** 일치가 아니라 **실제 원본 op payload/facts/Check/Write와 selected region provenance**를 대조. digest 단독·바뀐 A3의 `verify()` 성공만으로 원본 동일성 승인 금지 | stale/위조 source proof 거부 |
+| **HP-02 범위** | 원본 모든 op·0-result Check·별도 `Plan.write`의 M3 global ownership, 각 region op 범위, live-in/out, final result, 교차 route bridge | 해당 native region에서 정확한 op→physical task 대응, 외부 구간과 live-out 누락 없음; 실행 후보 분류 `NoKernel`/`ValueOnly`는 binding 승인이 아님 | coverage 누락·겹침·중복 실행 거부 |
+| **HP-03 호출과 recipe** | 원본 `OpKind`, callable POS/valence, derived Rank/CellApply/fit/tolerance/numeric policy, selected route와 **구체적 구현** capability/target/guard | 등록된 `ReferenceSequential` 등의 *후보*와 실제 구현 kernel/adapter를 구분; 지원 dtype/rank/shape/valence·CPU target 검증 | 지원되지 않는 native kernel은 실행 금지 |
+| **HP-04 오류와 Check** | 각 `SemanticCheck`의 constraint/입력·기대 J error kind·원본 선후관계·execute / proven discharge / guard 중 유일한 owner | 결과 SSA 값이 없는 Check도 누락 금지; Check/guard는 영향받는 kernel·effect보다 앞, 오류 class와 **첫 관찰 가능 오류 순서** 보존 | 임의 Check 삭제·후행·중복·종류 변경 거부 |
+| **HP-05 Name/Effect/Write** | noun read 시점의 value/binding-version/scope/locale 증거, function nameref의 late lookup/POS, effect edges, `Plan.write` 별도 commit owner | source statement 전체의 사전 snapshot 금지, Name 변동 뒤 guard 재확인, `Return`을 assignment commit으로 오인 금지; effect 후 무조건 replay 금지 | 미확정 binding·commit owner는 native 승인 보류 |
+| **HP-06 logical value** | producer/def-use, dtype/rank/Shape/J atom order, boxed/sparse·0-cell Rank fill/prototype/assembly 의무, overflow·promotion·error witness | 물리화로 logical value가 사라지지 않으며 `ValueId`≠`PlanBufferId`≠runtime `BufferId`; 빈 배열 Shape와 J prefix frame 규칙 유지 | 변환 대신 semantic/reference route 또는 Unsupported |
+| **HP-07 계획 버퍼** | 값별 storage/materialization 요구, readonly/externally owned/persistent/temporary 여부, alias·donation 허용 증거, 메모리 상한 | buffer encoding·capacity·alignment·memory space·view span/stride/offset·generation·실제 backing alias, overlapping writable view, last-use 뒤 재사용만 허용 | bounds/alias/ownership 모순 거부, input 불변 유지 |
+| **HP-08 Task/Dependency** | 원본 data-flow·observable order·Check/guard/effect/first-error edge, 각 value ready와 region interface | `BindInput/Check/View/Materialize/Kernel/Return` 같은 task의 source 대응, 선행 task 및 ready 보장, DAG cycle/누락 edge 검출; 순차 CPU에서는 검증된 list order로 실현 가능 | 의존성 위반 task launch 거부 |
+| **HP-09 Completion/수명** | task 사용 집합, 각 reader/writer·transfer의 완료 필요조건, 반환·임시 소유권 | `submitted`≠`completed`; **모든** 사용 완료 전 buffer 재활용·외부 반환 금지. v0 동기 CPU는 task 완료 시 즉시 completion으로 간주할 수 있지만 그 근거를 명시; 비동기 경로는 explicit event/timepoint/lease 필요 | completion 증거 없는 재사용·비동기 실행 금지 |
+| **HP-10 동적 guard·fallback** | witness/proof provenance, 재검증할 runtime 조건, 해당 guard의 effect 이전 안전 지점, **기존에 적법한** 대체 route | guard 검사→사용 사이 stale version/shape 불가; failure 시 effect 이전에만 지원 route 선택; 부분 effect 이후 자동 재실행 금지. Backend 실패를 임의 J Domain/Rank/Length로 매핑 금지 | guard false면 native 실행 중지, safe fallback 없으면 명시적 실패 |
+| **HP-11 장치·자원** | `TargetContext`/resolved capability 및 device/runtime availability, resource limits, 비용/자원 추정의 구분 | 첫 M4: CPU 실행·Host memory·단일 순차·zero transfer만 승인. 미래 GPU/멀티코어는 device placement, memory space, transfer readiness, intra-device scheduling 독립 검사; resource feasible ≠ profitable | 미지원 device/transfer 경로 승인 금지 |
+| **HP-12 실행 결과 증거** | reference/Jsource 대응 가능 사례, 실행 route와 guard 기록, 검증할 dtype/Shape/atom·effect/error 결과 | 독립 RustJ semantic/A3 reference와 가능한 pinned J C reference, **실제 native route**의 3방향 비교; CI 명령·commit·artifact 연결 | 테스트 소스 존재/후보 선택만으로 M4 E2E 통과 주장 금지 |
+
+**최소 자료흐름/승인 프로토콜:**
+
+~~~text
+M3: immutable SourceA3 + selected RouteRegion + original op/Check/Write coverage
+    + live-in/out + semantic proof/witness/guards + observable order
+  -> RouteVerified  (A0/A1, 아직 실행 허가는 아님)
+M4: task(s) + planned buffer/view + def-use/dependency + readiness/completion
+    + selected real CPU realization + lease/ownership/resource checks
+  -> PhysicalVerified  (A2/A3, 특정 native region에 한정)
+Call time: name/input versions + guards + actual buffer generations/leases
+  -> RuntimeReady -> Execute -> observed result/error/effect -> independent comparison (A4/A5)
+~~~
+
+**단계별 부정 테스트 등록부(각 테스트에서 정확히 한 조건만 위조):**
+
+| 시험 | 기준 사례 / 실패 유도 | 기대 판정 |
+|---|---|---|
+| **HP-V01 source** | 같은 source 문자열로 literal atom, SSA facts, rank 또는 `j_origin` 변경 | 검증 실패. Draft PR #4의 `LiteralSourceWitness`는 **단일 literal v0의 부분적 보완**이지 일반적인 M3 원본 증명이 아님 |
+| **HP-V02 coverage** | `1+2` Add op 누락, `a=:1+2`의 독립 `Write` 유실, 중복 region | RouteVerified/PhysicalVerified 거부 |
+| **HP-V03 checks** | `1 2+1 2 3`의 Length Check 제거·후행·중복·Index로 변조 | Add 실행 전에 거부, 또는 정확한 J Length 오류 |
+| **HP-V04 guard/name** | `a`의 noun snapshot/version 변경, late verb NameRef 조기 고정, shape guard 값 변경 | revalidation 불합격; 효과 이전의 적법한 대체 경로만 허용 |
+| **HP-V05 buffer/view** | 같은 backing의 두 view, stale generation, 음수 stride/빈 Shape·singleton stride, 잘못된 encoding·overlap write | 잘못된 계획 거부; 합법한 read-only alias와 빈 Shape는 보존 |
+| **HP-V06 dependency** | Check/guard→Kernel, producer→reader, previous effect→commit edge 하나 삭제하거나 순환 추가 | plan verifier 거부, arbitrary first-error 노출 금지 |
+| **HP-V07 completion** | 비동기 copy/kernel을 enqueue만 하고 입력 release, reader 완료 전에 재사용 | 사용 가능·재활용 거부; 실제 completion 이후만 허용 |
+| **HP-V08 replay/error** | J error가 가능한 작업의 순서 뒤집기, effect commit 뒤 guard failure fallback 재실행 | first-error/effect order 보존 실패로 거부, 중복 effect 금지 |
+| **HP-V09 baseline** | 닫힌 literal identity → 검증된 순차 CPU 단일 op → 차분 비교, 그리고 boxed/sparse·Rank zero-frame의 unsupported 사례 | 지원/미지원 정확 분류; reference 경로를 native 성공으로 세지 않음 |
+
+**증거 기록 양식(구현 시 각 gate마다 1건):** `gate ID | source A3 revision/schema/registry | source op/region IDs | M3 proof·guard owner | chosen recipe/capability | physical task/dependency/buffer/view IDs | runtime version/completion/effect frontier | positive/one-invariant-negative test IDs | CI commit/run·reference artifact | PASS/FAIL/UNRUN | 남은 예외`. `UNRUN`은 PASS가 아니다.
+
+**현재 상태/우선순위:** `main`은 M3 RouteBoundary와 M4 full native verification을 아직 갖추지 않았다. Draft [PR #4](https://github.com/yunskim/RustJ/pull/4)의 제한된 literal identity 경로·source witness·CI 성공이 있더라도 Check, 실제 Add, 전체 source coverage, completion/비동기, GPU 지원을 증명하지 않는다. 먼저 **HP-01~06·08·10의 순차 CPU 의미/검증 계약**을 실현하고 HP-V01~04/06/08을 확인한다. 그 다음 실제 CPU Kernel과 HP-07/09 자원·수명 검증을 추가한다. HP-09의 비동기 completion, transfer, multi-device/worker scheduling은 이종 실행 단계에서 확장한다. M4-v0는 full async scheduler를 필수 선행조건으로 하지 않는다.
+
 ##### 현재 코드와의 대응
 
 현재 `src/physical.rs`는:
@@ -10215,6 +10268,14 @@ backend / executor
 - [x] **문서 계약:** §5.2.1에서 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return`으로 정의하고 plan-time/runtime identity·verifier·cleanup 경계를 고정했다.
 - [x] **M4 인계 검증 계약(2026-10-07):** §5.2.1의 H-01~09/HM-V0~V4에서 물리화 전 반드시 필요한 M3 승인, buffer/view/lease, Check/guard/오류 순서와 runtime 재검증을 명문화했다. **문서 완료만** 의미한다.
 - [x] **M3→M4 첫 CPU 경로 승인 판정 명세(2026-10-07):** §5.2.1 H-A의 A0~A5 단계와 HA-V1~7로 `ReferenceSequential` 후보와 실제 compiler-native 실행을 분리하고 Check/Write/guard/region-local 승인 부정 검증을 정의했다. **설계 전용**.
+- [x] **M3→M4 인수 패킷·검증 판정표(문서 전용, 2026-10-07):** §5.2.1 H-P의 HP-01~12 입력 증거/검증/거부 및 HP-V01~09 단일 조건 변조 시험·판정 기록 양식 작성. 코드 구현이나 전역 승인과 무관.
+- [ ] **HP-01/02 원본·커버리지:** immutable A3 identity와 모든 original op/zero-result Check/별도 Write·cross-route interface를 source 보존 증거에 매달아 검증한다(HP-V01/02).
+- [ ] **HP-03/04 native capability·Check:** selected 실제 CPU recipe 존재, 원본 Check의 execute/discharge owner 및 첫 J error precedence를 검증한다(HP-V03).
+- [ ] **HP-05/06 Name·semantic value:** noun snapshot/late NameRef/Write owner 및 zero-frame Rank·boxed/sparse·shape/atom J 의미를 보존한다(HP-V04).
+- [ ] **HP-07/09 buffer·completion:** plan/runtime 버퍼 구분, view span/alias/generation/last-use, 동기 CPU completion 근거를 검사한다. 비동기 토큰/전송 구현은 M5/M6까지 필수 아님(HP-V05/07).
+- [ ] **HP-08 dependency:** producer/check/guard/effect/error 선행 edge를 검증하고 누락·순환을 거부한다(HP-V06).
+- [ ] **HP-10/11 runtime·fallback:** guard freshness/효과 전 대체 경로/자원 한계, CPU+Host+zero-transfer 제한을 검증한다(HP-V08).
+- [ ] **HP-12 acceptance:** 실제 native 결과와 RustJ reference·가능한 J C oracle의 차분 및 부정 테스트 PASS/CI 증거를 gate별 기록한다(HP-V09).
 - [ ] **M3→M4 승인 판정 실행 검증(미착수):** HA-V1~7 verifier·guard 연결 및 jsource/semantic/native 차분 테스트의 실제 PASS 기록.
 - [ ] **구현:** 위 contract를 concrete `PhysicalPlan`/op Rust 타입과 verifier로 구현한다.
 - [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
