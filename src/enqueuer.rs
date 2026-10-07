@@ -25,9 +25,13 @@ pub enum EnqueueClass {
     RightParen,
 }
 
-/// jtenqueue's sentence environment; explicit bodies retain local copulas.
+/// The three jtenqueue environments affect copula classification, not J
+/// semantic binding. TacitTranslator keeps the unspecialized primitive copula
+/// (env=0), TopLevel forces =. global (env=1), and ExplicitDefinition retains
+/// local =. (env=2). Locative assignment remains a separate future feature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnqueueEnvironment {
+    TacitTranslator,
     TopLevel,
     ExplicitDefinition,
 }
@@ -590,8 +594,13 @@ pub fn enqueue_in_environment<'a>(
                 out[index].flags.local_assignment = false;
                 out[index].flags.global_assignment = true;
             }
-            out[index].flags.assignment_to_name =
-                index > 0 && out[index - 1].class == EnqueueClass::Name;
+            // w.c::jtenqueue env=0 skips assignment-block specialization.
+            // It must not synthesize ASGNTONAME just because a NAME precedes
+            // the copula. env=1/2 attach that parser-visible assignment flag.
+            out[index].flags.assignment_to_name = environment
+                != EnqueueEnvironment::TacitTranslator
+                && index > 0
+                && out[index - 1].class == EnqueueClass::Name;
         }
     }
 

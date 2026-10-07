@@ -514,3 +514,54 @@ fn exact_hex_polar_ratios_follow_division_zero_sign_and_read_windows() {
         assert!(!reason.starts_with("validated"), "{source}: {reason}");
     }
 }
+
+#[test]
+fn tacit_translator_keeps_copulas_unspecialized_without_losing_name_lookup_order() {
+    use rustj::enqueuer::EnqueueEnvironment;
+    use rustj::primitive::PrimitiveContext;
+
+    let primitives = PrimitiveContext::core();
+    for (environment, local, global, to_name) in [
+        (EnqueueEnvironment::TacitTranslator, true, false, false),
+        (EnqueueEnvironment::TopLevel, false, true, true),
+        (EnqueueEnvironment::ExplicitDefinition, true, false, true),
+    ] {
+        let words = enqueuer::enqueue_in_environment("a =. b", &primitives, environment)
+            .expect("recognized assignment words");
+        assert_eq!(words.len(), 3);
+        assert_eq!(words[0].class, EnqueueClass::Name);
+        assert_eq!(words[1].class, EnqueueClass::Assignment);
+        assert_eq!(words[2].class, EnqueueClass::Name);
+        assert!(!words[0].flags.lookup_name);
+        assert!(words[2].flags.lookup_name);
+        assert_eq!(words[1].flags.local_assignment, local);
+        assert_eq!(words[1].flags.global_assignment, global);
+        assert_eq!(words[1].flags.assignment_to_name, to_name);
+        assert_eq!(words[1].word_index, 1);
+        assert_eq!(&"a =. b"[words[1].span.clone()], "=.");
+    }
+
+    for environment in [
+        EnqueueEnvironment::TacitTranslator,
+        EnqueueEnvironment::TopLevel,
+        EnqueueEnvironment::ExplicitDefinition,
+    ] {
+        let words = enqueuer::enqueue_in_environment("a =: b", &primitives, environment)
+            .expect("recognized global copula");
+        assert!(!words[1].flags.local_assignment);
+        assert!(words[1].flags.global_assignment);
+        assert_eq!(
+            words[1].flags.assignment_to_name,
+            environment != EnqueueEnvironment::TacitTranslator
+        );
+    }
+
+    // A non-name left operand never receives the to-name specialization.
+    let words = enqueuer::enqueue_in_environment(
+        "1 =. 2",
+        &primitives,
+        EnqueueEnvironment::ExplicitDefinition,
+    )
+    .unwrap();
+    assert!(!words[1].flags.assignment_to_name);
+}
