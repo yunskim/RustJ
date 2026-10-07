@@ -100,10 +100,96 @@ pub enum PhysicalOp {
     },
 }
 
+/// Exact evidence for the *currently supported* one-literal A3 route.
+/// This is not a general M3 RouteBoundary proof or an optimization license.
+#[derive(Clone, Debug)]
+struct LiteralSourceWitness {
+    source_op: OpId,
+    logical_value: ValueId,
+    payload: Value,
+    facts: crate::facts::Facts,
+    roles: crate::facts::ValueRoleFacts,
+    span: std::ops::Range<usize>,
+    j_origin: Option<crate::j_graph_ir::ValueId>,
+    order_after: Option<OpId>,
+}
+
+fn identical_dense_literal(left: &Value, right: &Value) -> bool {
+    if left.shape() != right.shape() {
+        return false;
+    }
+    match (left.data(), right.data()) {
+        (Data::Bool(a), Data::Bool(b)) | (Data::Char(a), Data::Char(b)) => a.iter().eq(b.iter()),
+        (Data::Int(a), Data::Int(b)) => a.iter().eq(b.iter()),
+        // Exact payload identity includes the sign of zero and NaN bits.
+        (Data::Float(a), Data::Float(b)) => a
+            .iter()
+            .map(|atom| atom.to_bits())
+            .eq(b.iter().map(|atom| atom.to_bits())),
+        _ => false,
+    }
+}
+
+impl LiteralSourceWitness {
+    fn capture(logical: &LogicalPlan, value: ValueId) -> PlanResult<Self> {
+        let data = logical
+            .values
+            .get(value.0)
+            .ok_or(PhysicalPlanError::Invalid("missing original A3 literal value"))?;
+        let source_op = data.producer;
+        let operation = logical
+            .operations
+            .get(source_op.0)
+            .ok_or(PhysicalPlanError::Invalid("missing original A3 literal operation"))?;
+        let OpKind::Literal(literal) = &operation.kind else {
+            return Err(PhysicalPlanError::Unsupported(
+                "literal witness requires an original A3 literal",
+            ));
+        };
+        Ok(Self {
+            source_op,
+            logical_value: value,
+            // The narrow v0 path retains an exact snapshot rather than trusting
+            // a collision-prone checksum. This may copy an owned literal payload.
+            payload: literal.clone().into_shared(),
+            facts: data.facts.clone(),
+            roles: data.roles.clone(),
+            span: operation.span.clone(),
+            j_origin: operation.j_origin,
+            order_after: operation.order_after,
+        })
+    }
+
+    fn matches(&self, logical: &LogicalPlan, value: ValueId) -> bool {
+        if self.logical_value != value {
+            return false;
+        }
+        let Some(data) = logical.values.get(value.0) else {
+            return false;
+        };
+        let Some(operation) = logical.operations.get(self.source_op.0) else {
+            return false;
+        };
+        let OpKind::Literal(literal) = &operation.kind else {
+            return false;
+        };
+        data.producer == self.source_op
+            && data.facts == self.facts
+            && data.roles == self.roles
+            && operation.results.as_slice() == [value]
+            && operation.span == self.span
+            && operation.j_origin == self.j_origin
+            && operation.order_after == self.order_after
+            && identical_dense_literal(literal, &self.payload)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PhysicalPlan {
     pub source_header: IrHeader,
     pub source_text: String,
+    // Private: only verified constructors may establish this v0 evidence.
+    source_literal: Option<LiteralSourceWitness>,
     pub device: ExecutionDevice,
     pub buffers: Vec<BufferRequirement>,
     pub views: Vec<PlannedView>,
@@ -188,6 +274,7 @@ impl PhysicalPlan {
         let plan = Self {
             source_header: logical.header.clone(),
             source_text: logical.source.clone(),
+            source_literal: None,
             device: ExecutionDevice::Cpu,
             buffers: Vec::new(),
             views: Vec::new(),
@@ -232,6 +319,7 @@ impl PhysicalPlan {
         let plan = Self {
             source_header: logical.header.clone(),
             source_text: logical.source.clone(),
+            source_literal: Some(LiteralSourceWitness::capture(logical, result)?),
             device: ExecutionDevice::Cpu,
             buffers: vec![BufferRequirement {
                 memory: MemorySpace::Host,
@@ -282,6 +370,7 @@ impl PhysicalPlan {
             if logical.values.is_empty()
                 && logical.result.is_none()
                 && logical.write.is_none()
+                && self.source_literal.is_none()
                 && self.buffers.is_empty()
                 && self.views.is_empty()
                 && self.operations.is_empty()
@@ -317,6 +406,15 @@ impl PhysicalPlan {
         let encoding = dense_encoding(value).ok_or(PhysicalPlanError::Unsupported(
             "M4 v0 does not support boxed or sparse physical binding",
         ))?;
+        if !self
+            .source_literal
+            .as_ref()
+            .is_some_and(|witness| witness.matches(logical, result))
+        {
+            return Err(PhysicalPlanError::Invalid(
+                "original A3 literal payload or semantic provenance changed",
+            ));
+        }
 
         if self.buffers.len() != 1 || self.views.len() != 1 || self.operations.len() != 2 {
             return Err(PhysicalPlanError::Invalid(
@@ -435,7 +533,10 @@ mod tests {
         let value = Value::ints([1, 2, 1], vec![10, 20]).unwrap();
         let physical = PhysicalArray::from_value(&mut registry, value).unwrap();
         assert_eq!(row_major_strides(physical.shape()).unwrap(), vec![0, 1, 0]);
-        assert_eq!(row_major_strides(physical.shape()).unwrap().as_slice(), physical.strides());
+        assert_eq!(
+            row_major_strides(physical.shape()).unwrap().as_slice(),
+            physical.strides()
+        );
         assert_eq!(row_major_strides(&[0, usize::MAX]).unwrap(), [0, 0]);
     }
 }
