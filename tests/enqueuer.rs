@@ -163,7 +163,9 @@ fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_fun
         assert_eq!(words[0].class, EnqueueClass::Name, "{source}");
         assert!(words[0].flags.name_by_value && words[0].flags.name_abandon);
         assert!(words[0].flags.lookup_name);
-        assert!(matches!(&words[0].payload, EnqueuedPayload::Name(name) if *name == &source[..source.len() - 2]));
+        assert!(
+            matches!(&words[0].payload, EnqueuedPayload::Name(name) if *name == &source[..source.len() - 2])
+        );
     }
     assert_eq!(
         enqueuer::enqueue("foo__:").unwrap_err().kind(),
@@ -583,7 +585,11 @@ fn tacit_translator_keeps_copulas_unspecialized_without_losing_name_lookup_order
     // F1 recognizes valid words, but P4 must not invent a flat namespace
     // implementation or silently drop NAMEBYVALUE/NAMEABANDON semantics.
     for source in ["foo_bar_", "foo__bar", "foo__", "foo_bar_:"] {
-        assert_eq!(rustj::Engine::new().eval(source).unwrap_err().kind(), "unsupported", "{source}");
+        assert_eq!(
+            rustj::Engine::new().eval(source).unwrap_err().kind(),
+            "unsupported",
+            "{source}"
+        );
     }
 
     // A non-name left operand never receives the to-name specialization.
