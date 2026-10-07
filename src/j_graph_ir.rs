@@ -500,6 +500,7 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
         FunctionHead::PrimitiveVerb(_)
         | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_) => GraphRuleRefs {
             shape: GraphRuleRef::DynamicOrUnknown,
@@ -837,6 +838,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         FunctionHead::PrimitiveVerb(_)
         | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_)
         | FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Ident)
@@ -1466,6 +1468,12 @@ impl Plan {
             }
         }
         for (index, node) in self.nodes.iter().enumerate() {
+            if let NodeKind::Apply { function, .. } | NodeKind::VerbValue { function } = &node.kind
+            {
+                function
+                    .reject_deferred_name_effects()
+                    .map_err(|_| format!("node {index} contains a deferred NAME effect"))?;
+            }
             if node.span.start > node.span.end
                 || node.span.end > source_len
                 || !self.source.is_char_boundary(node.span.start)
@@ -1562,6 +1570,10 @@ impl Plan {
         }
 
         for (index, region) in self.regions.iter().enumerate() {
+            region
+                .function
+                .reject_deferred_name_effects()
+                .map_err(|_| format!("region {index} contains a deferred NAME effect"))?;
             if region.span.start > region.span.end
                 || region.span.end > source_len
                 || !self.source.is_char_boundary(region.span.start)
@@ -1840,14 +1852,17 @@ impl Builder<'_> {
             ExprKind::ModifierValue(_) => {
                 Err(Error::Unsupported("modifier value graph lowering".into()).at(span))
             }
-            ExprKind::VerbValue(verb) => Ok(self.push(
-                NodeKind::VerbValue {
-                    function: verb.entity,
-                },
-                span,
-                GraphFacts::default(),
-                GraphAnalyzability::StaticWithUnknownFacts,
-            )),
+            ExprKind::VerbValue(verb) => {
+                verb.entity.reject_deferred_name_effects()?;
+                Ok(self.push(
+                    NodeKind::VerbValue {
+                        function: verb.entity,
+                    },
+                    span,
+                    GraphFacts::default(),
+                    GraphAnalyzability::StaticWithUnknownFacts,
+                ))
+            }
             ExprKind::ReadName(name) => {
                 let version = *self
                     .reads
@@ -1902,6 +1917,7 @@ impl Builder<'_> {
         right: ValueId,
         span: Range<usize>,
     ) -> Result<ValueId> {
+        function.reject_deferred_name_effects()?;
         let (form, base_hints) = classify_function(&function);
         match form {
             GraphForm::Pipeline { stages } => {

@@ -489,6 +489,7 @@ pub(crate) fn infer_semantic_call(
             infer_ranked_semantic_call(operand, ranks, left, right)
         }
         FunctionHead::VocabularyPrimitive(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::NameRef(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
@@ -651,6 +652,7 @@ pub(crate) fn infer_semantic_projection(
             infer_ranked_semantic_projection(operand, ranks, left, right)
         }
         FunctionHead::VocabularyPrimitive(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::NameRef(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)

@@ -302,6 +302,7 @@ fn semantic_effect_summary(
         }
         FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)

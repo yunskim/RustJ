@@ -201,6 +201,16 @@ ABANDON_FIXTURES = [
     ("unbound_local_global", ["a=:7", "f=:3 : 0\na_:\na=.9\na\n)", "f 0", "a+0"]),
     ("local_assignment_target", ["a=:9", "f=:{{a_:=.3\na}}", "f 0", "a+0"]),
     ("readonly_bare", ["f=:{{for_i. i.1 do. i_index_: end.}}", "f 0"]),
+    ("explicit_conjunction_inline", ["c=:2 : 'u@:v'", "h=:-c_:+", "h 3", "c 0"]),
+    ("direct_conjunction_inline", ["c=:{{u@:v}}", "h=:-c_:+", "h 3", "c 0"]),
+    ("explicit_conjunction_transfer", ["c=:2 : 'u@:v'", "saved=:c_:", "c=:2 : 'u@:u'", "h=:-saved+", "h 3"]),
+    ("conjunction_local_direct", ["c=:7", "f=:{{c=.2 : 'u@:v'\nh=.-c_:+\nh y}}", "f 3", "c"]),
+    ("conjunction_local_explicit", ["c=:7", "f=:3 : 0\nc=.2 : 'u@:v'\nh=.-c_:+\nh y\n)", "f 3", "c"]),
+    ("conjunction_local_bare_caught", ["f=:{{c=.2 : 'u@:v'\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y}}", "f 3"]),
+    ("conjunction_global_fallback", ["c=:2 : 'u@:v'", "f=:{{h=.-c_:+\nc=.7\nh y}}", "f 3", "c 0"]),
+    ("conjunction_failed_constructor", ["c=:2 : 'u+v'", "h=:1 2 c_:1 2 3", "c 0", "h 0"]),
+    ("conjunction_caught_constructor", ["c=:2 : 'u+v'", "f=:{{try. h=.1 2 c_:1 2 3 catch. 99 end.}}", "f 0", "c 0"]),
+    ("abandoned_cap_fork", ["cap=:[:", "f=:(cap_: + *)", "f 3", "cap 0"]),
 ]
 # General-path deletion of a read-only loop index is excluded: a separate
 # j.dll probe faulted inside the DLL. Rust explicitly rejects this boundary.

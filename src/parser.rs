@@ -140,6 +140,12 @@ fn resolve_modifier(
     context: &mut ActionContext<'_>,
     row: ParseRow,
 ) -> Result<Arc<FunctionEntity>> {
+    if matches!(operator.head, FunctionHead::TakeName { .. }) {
+        return Err(Error::Unsupported(
+            "deferred modifier abandon requires ordered NAME effect IR".into(),
+        )
+        .at(span));
+    }
     let FunctionHead::NameRef(name) = &operator.head else {
         return Ok(operator);
     };
@@ -189,6 +195,11 @@ fn construction_host<'h>(
 
 impl ConstructionNames<'_, '_> {
     fn fork_cap(self, first: &FunctionEntity) -> Result<bool> {
+        if matches!(first.head, FunctionHead::TakeName { .. }) {
+            return Err(Error::Unsupported(
+                "fork cap inspection requires the deferred abandon value".into(),
+            ));
+        }
         if matches!(
             first.head,
             FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap)
@@ -2823,6 +2834,13 @@ pub fn parse_diagnostic(source: &str) -> Result<Program> {
 pub fn parse_frontend(
     source: &str,
 ) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    parse_frontend_with_lookup(source, None)
+}
+
+pub(crate) fn parse_frontend_with_lookup(
+    source: &str,
+    lookup: NameLookup<'_>,
+) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
     let mut context = ActionContext {
         single_word: false,
         last_lookup_version: None,
@@ -2832,7 +2850,7 @@ pub fn parse_frontend(
             ..Default::default()
         }),
         mode: ParseContext::Analysis,
-        lookup: None,
+        lookup,
         host: None,
         capture: None,
         modifier_snapshots: Vec::new(),
@@ -3041,31 +3059,42 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
             };
             completed.into_item()?
         } else {
-            match context.lookup.and_then(|lookup| lookup(&name)) {
+            let pos = match context.lookup.and_then(|lookup| lookup(&name)) {
+                Some(ParserNameBinding::Function(pos)) => Some(pos),
                 Some(
-                    ParserNameBinding::Function(_)
-                    | ParserNameBinding::KnownVerb { .. }
-                    | ParserNameBinding::KnownModifier { .. },
+                    ParserNameBinding::KnownVerb { function, version }
+                    | ParserNameBinding::KnownModifier { function, version },
                 ) => {
-                    return Err(Error::Unsupported(
-                        "deferred function abandon requires entity effect IR".into(),
-                    )
-                    .at(span));
+                    context.last_lookup_version = Some(version);
+                    Some(function.result_pos)
                 }
                 None if context.lookup.is_some() => return Err(Error::Value(name).at(span)),
-                _ => {}
-            }
-            Item::noun(
-                Expr {
-                    origin: None,
-                    span,
-                    kind: ExprKind::TakeName {
+                _ => None,
+            };
+            if let Some(pos) = pos {
+                let function = FunctionEntity::derived(
+                    FunctionHead::TakeName {
                         name,
                         single_word: context.single_word,
                     },
-                },
-                0,
-            )
+                    pos,
+                    span.clone(),
+                    Vec::new(),
+                );
+                CompletedParseResult::function(function, span, VerbTarget::Derived).into_item()?
+            } else {
+                Item::noun(
+                    Expr {
+                        origin: None,
+                        span,
+                        kind: ExprKind::TakeName {
+                            name,
+                            single_word: context.single_word,
+                        },
+                    },
+                    0,
+                )
+            }
         };
         resolved.provenance = item.provenance;
         resolved.flags = item.flags;
@@ -3625,6 +3654,180 @@ fn checked_height(child_height: usize) -> Result<usize> {
         Err(Error::Limit)
     } else {
         Ok(height)
+    }
+}
+
+#[cfg(test)]
+mod deferred_abandon_tests {
+    use super::*;
+
+    fn function(program: &Program) -> &Arc<FunctionEntity> {
+        match &program.expression.as_ref().unwrap().kind {
+            ExprKind::VerbValue(verb) | ExprKind::Monad { verb, .. } => &verb.entity,
+            ExprKind::ModifierValue(function) => function,
+            kind => panic!("unexpected expression {kind:?}"),
+        }
+    }
+
+    #[test]
+    fn deferred_function_transport_preserves_pos_source_and_context() {
+        for pos in [
+            FunctionPartOfSpeech::Verb,
+            FunctionPartOfSpeech::Adverb,
+            FunctionPartOfSpeech::Conjunction,
+        ] {
+            for (source, single) in [
+                ("taken_:", true),
+                ("saved=:taken_:", false),
+                ("(taken_:)", false),
+            ] {
+                let program =
+                    parse_analysis(source, &|_| Some(ParserNameBinding::Function(pos))).unwrap();
+                let entity = function(&program);
+                assert_eq!(entity.result_pos, pos);
+                assert!(
+                    matches!(&entity.head, FunctionHead::TakeName { name, single_word } if name == "taken" && *single_word == single)
+                );
+                assert!(entity.operands.is_empty());
+                assert!(entity.innate_ranks().is_none());
+                let context = program.frontend.as_ref().unwrap();
+                context.verify().unwrap();
+                assert!(context.complete);
+                assert_eq!(context.name_uses[0].policy, NamePolicy::CaptureAndAbandon);
+                assert_eq!(context.name_uses[0].evidence, NameEvidence::CatalogClass);
+                assert!(program.name_rank_snapshots.is_empty());
+                assert_eq!(
+                    crate::semantic::bind(program.clone(), |_| Some(crate::semantic::NameVersion(
+                        1
+                    )))
+                    .unwrap_err()
+                    .kind(),
+                    "unsupported"
+                );
+                // Even callers constructing BoundProgram themselves cannot
+                // silently turn the deferred effect into a function constant.
+                if source == "taken_:" && pos == FunctionPartOfSpeech::Verb {
+                    let mut observed = ParseCapture::default();
+                    observed.set_source(source);
+                    observed.events.push(CaptureEvent::FunctionResult {
+                        function: function(&program).clone(),
+                        span: 0..source.len(),
+                    });
+                    observed.verify().unwrap();
+                    assert_eq!(
+                        crate::j_graph_ir::Plan::from_capture(&observed)
+                            .unwrap_err()
+                            .kind(),
+                        "unsupported"
+                    );
+                }
+                let forged = crate::semantic::BoundProgram {
+                    program,
+                    reads: vec![],
+                    verb_references: vec![],
+                    write: None,
+                };
+                assert_eq!(
+                    crate::j_graph_ir::Plan::from_bound(forged)
+                        .unwrap_err()
+                        .kind(),
+                    "unsupported"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn deferred_function_effect_is_not_erased_inside_applied_trains() {
+        for source in ["taken_: 3", "(-taken_:)3"] {
+            let program = parse_analysis(source, &|_| {
+                Some(ParserNameBinding::Function(FunctionPartOfSpeech::Verb))
+            })
+            .unwrap();
+            program.frontend.as_ref().unwrap().verify().unwrap();
+            assert_eq!(
+                function(&program)
+                    .reject_deferred_name_effects()
+                    .unwrap_err()
+                    .kind(),
+                "unsupported"
+            );
+            assert_eq!(
+                crate::semantic::bind(program.clone(), |_| Some(crate::semantic::NameVersion(1)))
+                    .unwrap_err()
+                    .kind(),
+                "unsupported"
+            );
+            let forged = crate::semantic::BoundProgram {
+                program,
+                reads: vec![],
+                verb_references: vec![],
+                write: None,
+            };
+            assert_eq!(
+                crate::j_graph_ir::Plan::from_bound(forged)
+                    .unwrap_err()
+                    .kind(),
+                "unsupported"
+            );
+        }
+    }
+
+    #[test]
+    fn catalog_identity_is_not_a_captured_function_value() {
+        for binding in [
+            ParserNameBinding::KnownVerb {
+                function: FunctionEntity::primitive(crate::primitive::PrimitiveId::Add, 0..1),
+                version: crate::semantic::NameVersion(7),
+            },
+            ParserNameBinding::KnownModifier {
+                function: FunctionEntity::primitive_adverb(
+                    crate::primitive::AdverbId::Insert,
+                    0..1,
+                ),
+                version: crate::semantic::NameVersion(7),
+            },
+        ] {
+            let program = parse_analysis("taken_:", &|_| Some(binding.clone())).unwrap();
+            let context = program.frontend.as_ref().unwrap();
+            context.verify().unwrap();
+            assert_eq!(
+                context.name_uses[0].binding_version,
+                Some(crate::semantic::NameVersion(7))
+            );
+            assert!(matches!(
+                function(&program).head,
+                FunctionHead::TakeName { .. }
+            ));
+            assert!(program.modifier_snapshots.is_empty());
+        }
+    }
+
+    #[test]
+    fn deferred_function_verifier_rejects_wrong_name_or_sentence_context() {
+        let program = parse_analysis("saved=:taken_:", &|_| {
+            Some(ParserNameBinding::Function(FunctionPartOfSpeech::Verb))
+        })
+        .unwrap();
+        let context = program.frontend.unwrap();
+        for (name, single_word) in [("other", false), ("taken", true)] {
+            let mut invalid = context.as_ref().clone();
+            for node in &mut invalid.nodes {
+                if matches!(&node.kind, NodeKind::Function(f) if matches!(f.head, FunctionHead::TakeName { .. }))
+                {
+                    node.kind = NodeKind::Function(FunctionEntity::derived(
+                        FunctionHead::TakeName {
+                            name: name.into(),
+                            single_word,
+                        },
+                        FunctionPartOfSpeech::Verb,
+                        7..14,
+                        Vec::new(),
+                    ));
+                }
+            }
+            assert!(invalid.verify().is_err());
+        }
     }
 }
 

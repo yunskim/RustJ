@@ -43,6 +43,12 @@ pub enum FunctionHead {
     PrimitiveAdverb(crate::primitive::AdverbId),
     PrimitiveConjunction(crate::primitive::ConjunctionId),
     NameRef(String),
+    /// Deferred by-value function lookup/deletion, not a late call reference.
+    /// result_pos is a catalog class assumption; no function body is captured.
+    TakeName {
+        name: String,
+        single_word: bool,
+    },
     ExplicitDefinition(Arc<crate::definition_code::DefinitionCode>),
     DefinitionConstructor(Arc<crate::definition_code::DefinitionSource>),
     /// Parser-production identities with no source operator token.
@@ -107,6 +113,42 @@ pub struct FunctionEntity {
     pub name_ranks: Option<[i64; 3]>,
 }
 impl FunctionEntity {
+    /// Admission check for stages without ordered NAME effects. Visit shared
+    /// function DAG nodes once; do not resolve names or inspect array payloads.
+    pub(crate) fn reject_deferred_name_effects(&self) -> Result<()> {
+        if matches!(self.head, FunctionHead::TakeName { .. }) {
+            return Err(Error::Unsupported(
+                "function abandon requires ordered NAME effect IR".into(),
+            )
+            .at(self.span.clone()));
+        }
+        if self.operands.is_empty() {
+            return Ok(());
+        }
+        let mut pending = vec![self];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(function) = pending.pop() {
+            if !seen.insert(std::ptr::from_ref(function)) {
+                continue;
+            }
+            if matches!(function.head, FunctionHead::TakeName { .. }) {
+                return Err(Error::Unsupported(
+                    "function abandon requires ordered NAME effect IR".into(),
+                )
+                .at(function.span.clone()));
+            }
+            pending.extend(
+                function
+                    .operands
+                    .iter()
+                    .filter_map(|operand| match operand {
+                        FunctionOperand::Function(child) => Some(child.as_ref()),
+                        FunctionOperand::Noun { .. } => None,
+                    }),
+            );
+        }
+        Ok(())
+    }
     pub(crate) fn with_name_ranks(mut entity: Arc<Self>, ranks: Option<[i64; 3]>) -> Arc<Self> {
         debug_assert!(matches!(entity.head, FunctionHead::NameRef(_)));
         Arc::get_mut(&mut entity).expect("fresh nameref").name_ranks = ranks;
@@ -522,6 +564,7 @@ pub(crate) fn bind(
             _ => None,
         };
         if let Some(function) = function_root {
+            function.reject_deferred_name_effects()?;
             let mut functions = vec![function];
             while let Some(function) = functions.pop() {
                 if let FunctionHead::NameRef(name) = &function.head {

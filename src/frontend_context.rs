@@ -612,7 +612,16 @@ impl FrontendContext {
                 (NameResolution::NounValue, NodeKind::ReadNoun(id)) if *id == NameUseId(i) => {
                     NamePolicy::CaptureAtRead
                 }
-                (NameResolution::FunctionValue, NodeKind::Function(_)) => {
+                (NameResolution::FunctionValue, NodeKind::Function(function)) => {
+                    if let crate::semantic::FunctionHead::TakeName { name, single_word } =
+                        &function.head
+                        && (self.realization != ParseRealization::Deferred
+                            || !self.words[name_use.word.0].flags.abandon_name
+                            || self.words[name_use.word.0].name.as_ref() != Some(name)
+                            || *single_word != (self.words.len() == 1))
+                    {
+                        return fail("invalid deferred function abandon context");
+                    }
                     if self.words[name_use.word.0].flags.abandon_name {
                         NamePolicy::CaptureAndAbandon
                     } else {

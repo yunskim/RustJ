@@ -1,8 +1,8 @@
 {
   "scope": "Bounded admission, handoff and error audit; gaps are findings, not passes. C diagnostic locations are not compared.",
-  "revision": "bfe6038788393707703aee3d0134782296b3efed",
+  "revision": "84782fd32e6530a5258acaf78e18e00b626ab775",
   "rust_source_sha256": {
-    "src\\analysis.rs": "c39c2a4ab21c13720324e50049a2247500ee3aca4826e848aff125d8dceed41b",
+    "src\\analysis.rs": "b764c57ca27aebdae39857870b631c59cb98d4e54c1af820d6e491db6f1772eb",
     "src\\array_ops.rs": "16b2e2e099d96c013e959028aa8c231a4660405d956869a1b6f9f23c8f33fc3f",
     "src\\assembly.rs": "ed919b5a966abce07234743d295dc23aa8f3ed095c4293feac0829ba66af7cbc",
     "src\\bit_storage.rs": "251408f415e20e90dfa05dc4a58532ce4b931b32be41275745ba890e1b496bc1",
@@ -17,13 +17,13 @@
     "src\\error.rs": "655d1937c468349c560f52cc5a48e026600bb043bbbcbdb68c10214e623de0f9",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src\\expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
-    "src\\facts.rs": "e4b451dfb9dbee0db1f033291226d3394e6da3ace82c7d0c21321f3a768502e6",
-    "src\\frontend_context.rs": "08835d88e34818f0a222deb02e7f83cd3d4b53c793fca8fa15592922e7511cdf",
+    "src\\facts.rs": "4c25fe87f5f4bcd525df7b37eda837a3698071f7c4a2a933054951c0c21fb317",
+    "src\\frontend_context.rs": "dde3c2bb1d0fd683d6ec430bb032857fab86365f21be1518c3cf2041e4d9ffa8",
     "src\\fusion_planning.rs": "96f82d6a1cb5da5558f5faef3d04dfcd1c81fedae7a5ce34244eaedbcdbdc291",
     "src\\index_ops.rs": "7c6df38ea2cd6037dd853e0b78ac24adcbdd5ae798239435635cbc9343a9b79a",
     "src\\j_graph_composition.rs": "f7cb2c1bd9cce6eda230de1b36f4e38bd02d0cc095f53a6eec2bb66081c4316b",
     "src\\j_graph_fusion.rs": "a07b33357ebf477632afb0c08b0c6f971967be766afd860c2afec75fa66c9923",
-    "src\\j_graph_ir.rs": "2ce45621997df734e8548747a5cf94a3d562fcf3cb97a82a811c0bc62bdbf7b3",
+    "src\\j_graph_ir.rs": "deeff0f02cab25befb517620c4d19d495ee38ecd1905f960c0074bdf714fa8e0",
     "src\\j_graph_jsource.rs": "f483e6e45ca216b6873c4b96fc8e30009fbcd3e84c99470c5ec13fc4c7a1b35f",
     "src\\j_graph_memory.rs": "13ffdd263b2c064ecd1345e02e5b3767a6485aa9fc244bc689278bf3bc6304c7",
     "src\\j_graph_resource.rs": "5ea8e8085c8b87699deadbd2b3b4285d4f17492672d1c31e6be75185921c2bc1",
@@ -32,23 +32,23 @@
     "src\\j_graph_work_depth.rs": "dc45462b1f1b9891ba60be681d4dc9cf59ad053d5879a3353ecf4fdec5d1761b",
     "src\\kernels.rs": "88ad7829eca1f54e033ba6491f57ffc6073a46c1b00e38d9a986fd4636021db8",
     "src\\lib.rs": "9ead55ce5b8d7ee1832a3641dcdbf37a05b8d36976164abcc84bd82100068bf6",
-    "src\\logical_executor.rs": "73e72703dbf5f74d1f985e6e2265e9a31930d26169d482cb57ca739e8cdd6539",
-    "src\\logical_ir.rs": "3909b67370216ec2954754799e042f55953effd000797628208a1a44e060e013",
+    "src\\logical_executor.rs": "b8b130d1505f0a26313012cdd8e3d57e6163d68522f72a18a4e484d1dc7a05ad",
+    "src\\logical_ir.rs": "821043c95968413ae66b85ab3bb604fa7c1113595c06a7197b6f0071e68c0c41",
     "src\\lowering.rs": "3bcee0458f7178c8dfa923c729a2fb6911cca37e0fe0a6efd01117f77a625a3f",
     "src\\main.rs": "3827bc98e61d505d4fd14515f7969c4b6fa6520b1bb84470a2310958a7802281",
     "src\\name_guards.rs": "806afb1dfad87b81eb80d22ae3940271a5a612821ae13f74e338f3a206394e89",
     "src\\numeric.rs": "b646a3848a46aefc553cc4a21080ae5527b6db90c1d8f346bef5d9cda75c85d5",
     "src\\numeric_input.rs": "67ca0d38575f3e39598a0efe716ef868bcf57faa42e00571a9ef6d2ea203dd97",
     "src\\opportunity.rs": "9205633c5e81a112eca27473b66c10d8e323a38ff260b4db88b4739da7607021",
-    "src\\parser.rs": "43ed691bf6a877a0635b6531a841bcaa2d6e5ece19e6cf61265b4c314e373640",
+    "src\\parser.rs": "8d9a06a522ecd698f61171a9f91d3c79e62a12915146561e722c9d1f07fab7b5",
     "src\\parser_capture.rs": "995a4edaab38c6fcfec82f184ceca143335c96849614041a1bb381b061e205c3",
     "src\\physical.rs": "ec45c34d4ee691b216e3db1066553d38889e1f75bbccee80d5dd328100288fd8",
     "src\\pool.rs": "d9e592ce85b6d82f7e7980dbe8f537f98b4e97dbf0ed5f39494f3ca5eaf65d7d",
     "src\\primitive.rs": "159747ae085dab46027e01645e95ddb0c659e1af8bacd46497554548a93afec5",
-    "src\\runtime.rs": "2d9f8d8a7e45ac6f77b6786f31643296b791d2939c8eeb1f4b7103bcdca5ba06",
+    "src\\runtime.rs": "0b18d4d08004589c540c415d83e5d4703a948ea95bdcb3b0b1da870cabe1a37b",
     "src\\scanner.rs": "1ea51c5b63e311f4663878fa7be8d455fbabbafc94cc84b76b957931baa25540",
     "src\\search_reference.rs": "ef90e299e0c40da5aa5a5b6e0089303476ad91dff10a309e802dbc49c73fbf38",
-    "src\\semantic.rs": "8d01c8637468c8ff996982506c3a7b455a0d0252863997ab0ad423f5ef6c8b11",
+    "src\\semantic.rs": "f00cc3eed3c4dbaa893458bf8e13713cc7b0faae5b4edbb15fa2d241de486de1",
     "src\\simd.rs": "f0b37e2ff5b58938b6e959c7c51637831eb774931b8138814d9aa32fa3136be8",
     "src\\sparse.rs": "10cb47166cad2eca8276d8a83d83190440ad100e1f6e762a1327f3b5396f269c",
     "src\\static_analysis.rs": "430d1c509160e0d3409eebd5101317226fbff73a1986a8c23f8e1869473aa3b3",
@@ -59,9 +59,9 @@
     "src\\types.rs": "502531ee2eeba34a3508a93b1f4320d48d2f9e0d02d753bbdb82e5e3b1f3602b",
     "src\\value.rs": "5e841de33a6ceeecc8f43b3026aee0de7c70d7555039e26174e23c763675ac15"
   },
-  "probe_sha256": "3873122cfe5a9eea03d3f84c12c4beda5e637618b54c9ef3f2ec1c53a3d7bbf6",
+  "probe_sha256": "612a9479d9ecb2624ab8dd7b7c1c97f0b7d4e5b36fa1984b25e20e708463876c",
   "audit_source_sha256": {
-    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "cae26507bbab5bc49c0351843b9cc019899a9c697416695bbbc2bfd9cbf3d4d8",
+    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "c4c919516b2332f2cea370034489a4315a982bfb179a328aae58e3ee438e2753",
     "examples\\frontend_contract_probe.rs": "d40e77173750b7f7cc319899089af01fb60bad9bd640e5e59ab28047737254c4"
   },
   "reference_sha256": {
@@ -70,10 +70,10 @@
   },
   "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
   "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
-  "cases": 31,
-  "observations": 62,
+  "cases": 34,
+  "observations": 68,
   "counts": {
-    "matched": 44,
+    "matched": 50,
     "runtime_gap": 18
   },
   "records": [
@@ -838,6 +838,246 @@
           "blame_word": 0,
           "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e33292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d6528226122292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
           "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a20202020612b300a202020205e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d65202261220a2020647572696e6720657865637574696f6e0a2020696e2061"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "case": "abandon_verb_transfer",
+      "variant": "j.dll",
+      "source": "g=:f_:",
+      "setup": [
+        "f=:+"
+      ],
+      "setup_reference": [
+        {
+          "silent": true
+        }
+      ],
+      "setup_rust": [
+        {
+          "silent": true
+        }
+      ],
+      "reference": {
+        "silent": true
+      },
+      "stages": {
+        "P": {
+          "error": "unsupported",
+          "span": [
+            3,
+            6
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(3..6), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 4\n    g=:f_:\n       ^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "G": {
+          "error": "unsupported",
+          "span": [
+            3,
+            6
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(3..6), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 4\n    g=:f_:\n       ^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "L": {
+          "error": "unsupported",
+          "span": [
+            3,
+            6
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(3..6), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 4\n    g=:f_:\n       ^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "R": {
+          "result": {
+            "silent": true
+          },
+          "capture": "ParseCapture { source: \"g=:f_:\", frontend: Some(FrontendContext { schema: 2, unit: FrontendUnitId(6), realization: Observed, source: \"g=:f_:\", words: [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"g\") }, WordRecord { span: 1..3, class: Assignment, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 3..6, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"f\") }], items: [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Name, semantic: None, word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(1)), word_range: 0..3, blame_word: Some(WordId(2)) }], nodes: [NodeRecord { kind: Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Verb }, NodeRecord { kind: WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(0) }, class: Verb }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(3)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }], name_uses: [NameUseRecord { word: WordId(2), input: ItemId(2), output: ItemId(3), result_class: Verb, policy: CaptureAndAbandon, resolution: FunctionValue, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Verb) }) }], reductions: [ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(3)), None], consumed: [ItemId(0), ItemId(1), ItemId(3)], produced: ItemId(4) }], steps: [Stack { queued: ItemId(2), resolved: ItemId(3) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(0))], pending: None, root: Some(ItemId(4)), complete: true }), events: [Abandon { name: \"f\", lookup: LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Verb) }, deleted: true, span: 3..6 }, FunctionResult { function: FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..6 }, Commit { name: \"g\", version: NameVersion(1), previous: None, span: 0..1, value: None, class: Verb, function: Some(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), source: AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, noun_target: false, selection: None }, final_assignment: true }], result: None, failure: None, next_id: 0 }"
+        }
+      },
+      "post_sources": [
+        "f+0"
+      ],
+      "post_reference": [
+        {
+          "error": "value error"
+        }
+      ],
+      "post_rust": [
+        {
+          "error": "value error",
+          "span": [
+            0,
+            3
+          ],
+          "blame_word": 0,
+          "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e33292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d6528226622292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
+          "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a20202020662b300a202020205e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d65202266220a2020647572696e6720657865637574696f6e0a2020696e2066"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "case": "abandon_modifier_transfer",
+      "variant": "j.dll",
+      "source": "saved=:adv_:",
+      "setup": [
+        "adv=:/"
+      ],
+      "setup_reference": [
+        {
+          "silent": true
+        }
+      ],
+      "setup_rust": [
+        {
+          "silent": true
+        }
+      ],
+      "reference": {
+        "silent": true
+      },
+      "stages": {
+        "P": {
+          "error": "unsupported",
+          "span": [
+            7,
+            12
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(7..12), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 8\n    saved=:adv_:\n           ^^^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "G": {
+          "error": "unsupported",
+          "span": [
+            7,
+            12
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(7..12), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 8\n    saved=:adv_:\n           ^^^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "L": {
+          "error": "unsupported",
+          "span": [
+            7,
+            12
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(7..12), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 8\n    saved=:adv_:\n           ^^^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "R": {
+          "result": {
+            "silent": true
+          },
+          "capture": "ParseCapture { source: \"saved=:adv_:\", frontend: Some(FrontendContext { schema: 2, unit: FrontendUnitId(6), realization: Observed, source: \"saved=:adv_:\", words: [WordRecord { span: 0..5, class: Name, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"saved\") }, WordRecord { span: 5..7, class: Assignment, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 7..12, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"adv\") }], items: [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Name, semantic: None, word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Adverb, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Adverb, semantic: Some(NodeId(1)), word_range: 0..3, blame_word: Some(WordId(2)) }], nodes: [NodeRecord { kind: Function(FunctionEntity { span: 5..6, result_pos: Adverb, head: PrimitiveAdverb(Insert), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Adverb }, NodeRecord { kind: WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(0) }, class: Adverb }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(3)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }], name_uses: [NameUseRecord { word: WordId(2), input: ItemId(2), output: ItemId(3), result_class: Adverb, policy: CaptureAndAbandon, resolution: FunctionValue, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Adverb) }) }], reductions: [ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(3)), None], consumed: [ItemId(0), ItemId(1), ItemId(3)], produced: ItemId(4) }], steps: [Stack { queued: ItemId(2), resolved: ItemId(3) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(0))], pending: None, root: Some(ItemId(4)), complete: true }), events: [Abandon { name: \"adv\", lookup: LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Adverb) }, deleted: true, span: 7..12 }, FunctionResult { function: FunctionEntity { span: 5..6, result_pos: Adverb, head: PrimitiveAdverb(Insert), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 5..6 }, Commit { name: \"saved\", version: NameVersion(1), previous: None, span: 0..5, value: None, class: Adverb, function: Some(FunctionEntity { span: 5..6, result_pos: Adverb, head: PrimitiveAdverb(Insert), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), source: AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, noun_target: false, selection: None }, final_assignment: true }], result: None, failure: None, next_id: 0 }"
+        }
+      },
+      "post_sources": [
+        "adv+0"
+      ],
+      "post_reference": [
+        {
+          "error": "value error"
+        }
+      ],
+      "post_rust": [
+        {
+          "error": "value error",
+          "span": [
+            0,
+            5
+          ],
+          "blame_word": 0,
+          "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e35292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d65282261647622292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
+          "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a202020206164762b300a202020205e5e5e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d652022616476220a2020647572696e6720657865637574696f6e0a2020696e20616476"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "case": "abandon_explicit_conjunction",
+      "variant": "j.dll",
+      "source": "h=:-c_:+",
+      "setup": [
+        "c=:2 : 'u@:v'"
+      ],
+      "setup_reference": [
+        {
+          "silent": true
+        }
+      ],
+      "setup_rust": [
+        {
+          "silent": true
+        }
+      ],
+      "reference": {
+        "silent": true
+      },
+      "stages": {
+        "P": {
+          "error": "unsupported",
+          "span": [
+            4,
+            7
+          ],
+          "blame_word": 3,
+          "context": "Some(ErrorContext { phase: Some(Parse), span: Some(4..7), blame_word_index: Some(3), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 5\n    h=:-c_:+\n        ^^^\nUnsupportedError: deferred modifier abandon requires ordered NAME effect IR\n  during parse"
+        },
+        "G": {
+          "error": "unsupported",
+          "span": [
+            4,
+            7
+          ],
+          "blame_word": 3,
+          "context": "Some(ErrorContext { phase: Some(Parse), span: Some(4..7), blame_word_index: Some(3), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 5\n    h=:-c_:+\n        ^^^\nUnsupportedError: deferred modifier abandon requires ordered NAME effect IR\n  during parse"
+        },
+        "L": {
+          "error": "unsupported",
+          "span": [
+            4,
+            7
+          ],
+          "blame_word": 3,
+          "context": "Some(ErrorContext { phase: Some(Parse), span: Some(4..7), blame_word_index: Some(3), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 5\n    h=:-c_:+\n        ^^^\nUnsupportedError: deferred modifier abandon requires ordered NAME effect IR\n  during parse"
+        },
+        "R": {
+          "result": {
+            "silent": true
+          },
+          "capture": "ParseCapture { source: \"h=:-c_:+\", frontend: Some(FrontendContext { schema: 2, unit: FrontendUnitId(6), realization: Observed, source: \"h=:-c_:+\", words: [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"h\") }, WordRecord { span: 1..3, class: Assignment, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 3..4, class: Verb, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 4..7, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"c\") }, WordRecord { span: 7..8, class: Verb, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }], items: [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Verb, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Word(WordId(3)), class: Name, semantic: None, word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Word(WordId(4)), class: Verb, semantic: Some(NodeId(1)), word_range: 4..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Conjunction, semantic: Some(NodeId(2)), word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(3)), word_range: 2..5, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(1)), class: Verb, semantic: Some(NodeId(4)), word_range: 0..5, blame_word: Some(WordId(2)) }], nodes: [NodeRecord { kind: Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Verb }, NodeRecord { kind: Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Verb }, NodeRecord { kind: Function(FunctionEntity { span: 3..13, result_pos: Conjunction, head: ExplicitDefinition(DefinitionCode { name_plan: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, source: \"c=:2 : 'u@:v'\", body: \"u@:v\", source_span: 3..13, source_map: DefinitionSourceMap { start: 8, len: 4, escaped_quotes: [] }, form: ExplicitString(2), mode: 2, result_pos: Conjunction, sentences: [DefinitionSentence { span: 0..4, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..3, index: 1, class: Conjunction, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 3..4, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }], monad: 1..1, dyad: 0..1, operator_definition: false, monad_controls: [], dyad_controls: [ControlNode { span: 0..4, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] }), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Conjunction }, NodeRecord { kind: Construct { row: Conjunction, inputs: [NodeId(0), NodeId(2), NodeId(1)], function: Some(FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }) }, class: Verb }, NodeRecord { kind: WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(3) }, class: Verb }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(5)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(3), items: [ItemId(6)], reductions: [ReductionId(0)], name_uses: [] }, NodeOrigin { node: NodeId(4), items: [ItemId(7)], reductions: [ReductionId(1)], name_uses: [] }], name_uses: [NameUseRecord { word: WordId(3), input: ItemId(3), output: ItemId(5), result_class: Conjunction, policy: CaptureAndAbandon, resolution: FunctionValue, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Conjunction) }) }], reductions: [ReductionRecord { row: Conjunction, window: [Some(ItemId(1)), Some(ItemId(2)), Some(ItemId(5)), Some(ItemId(4))], consumed: [ItemId(2), ItemId(5), ItemId(4)], produced: ItemId(6) }, ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(6)), None], consumed: [ItemId(0), ItemId(1), ItemId(6)], produced: ItemId(7) }], steps: [Stack { queued: ItemId(4), resolved: ItemId(4) }, Stack { queued: ItemId(3), resolved: ItemId(5) }, Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Reduce(ReductionId(0)), Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(1))], pending: None, root: Some(ItemId(7)), complete: true }), events: [Abandon { name: \"c\", lookup: LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Conjunction) }, deleted: true, span: 4..7 }, ConstructionAttempt { row: Conjunction, noun_inputs: [], span: 3..8 }, ExplicitModifierApply { row: Conjunction, function: FunctionEntity { span: 3..13, result_pos: Conjunction, head: ExplicitDefinition(DefinitionCode { name_plan: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, source: \"c=:2 : 'u@:v'\", body: \"u@:v\", source_span: 3..13, source_map: DefinitionSourceMap { start: 8, len: 4, escaped_quotes: [] }, form: ExplicitString(2), mode: 2, result_pos: Conjunction, sentences: [DefinitionSentence { span: 0..4, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..3, index: 1, class: Conjunction, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 3..4, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }], monad: 1..1, dyad: 0..1, operator_definition: false, monad_controls: [], dyad_controls: [ControlNode { span: 0..4, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] }), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..8 }, ConstructionSuccess { row: Conjunction, function: FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..8 }, FunctionResult { function: FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..8 }, Commit { name: \"h\", version: NameVersion(1), previous: None, span: 0..1, value: None, class: Verb, function: Some(FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }), source: AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, noun_target: false, selection: None }, final_assignment: true }], result: None, failure: None, next_id: 0 }"
+        }
+      },
+      "post_sources": [
+        "c+0"
+      ],
+      "post_reference": [
+        {
+          "error": "value error"
+        }
+      ],
+      "post_rust": [
+        {
+          "error": "value error",
+          "span": [
+            0,
+            3
+          ],
+          "blame_word": 0,
+          "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e33292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d6528226322292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
+          "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a20202020632b300a202020205e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d65202263220a2020647572696e6720657865637574696f6e0a2020696e2063"
         }
       ],
       "status": "matched"
@@ -2807,6 +3047,246 @@
           "blame_word": 0,
           "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e33292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d6528226122292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
           "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a20202020612b300a202020205e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d65202261220a2020647572696e6720657865637574696f6e0a2020696e2061"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "case": "abandon_verb_transfer",
+      "variant": "javx2.dll",
+      "source": "g=:f_:",
+      "setup": [
+        "f=:+"
+      ],
+      "setup_reference": [
+        {
+          "silent": true
+        }
+      ],
+      "setup_rust": [
+        {
+          "silent": true
+        }
+      ],
+      "reference": {
+        "silent": true
+      },
+      "stages": {
+        "P": {
+          "error": "unsupported",
+          "span": [
+            3,
+            6
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(3..6), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 4\n    g=:f_:\n       ^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "G": {
+          "error": "unsupported",
+          "span": [
+            3,
+            6
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(3..6), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 4\n    g=:f_:\n       ^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "L": {
+          "error": "unsupported",
+          "span": [
+            3,
+            6
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(3..6), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 4\n    g=:f_:\n       ^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "R": {
+          "result": {
+            "silent": true
+          },
+          "capture": "ParseCapture { source: \"g=:f_:\", frontend: Some(FrontendContext { schema: 2, unit: FrontendUnitId(6), realization: Observed, source: \"g=:f_:\", words: [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"g\") }, WordRecord { span: 1..3, class: Assignment, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 3..6, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"f\") }], items: [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Name, semantic: None, word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(1)), word_range: 0..3, blame_word: Some(WordId(2)) }], nodes: [NodeRecord { kind: Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Verb }, NodeRecord { kind: WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(0) }, class: Verb }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(3)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }], name_uses: [NameUseRecord { word: WordId(2), input: ItemId(2), output: ItemId(3), result_class: Verb, policy: CaptureAndAbandon, resolution: FunctionValue, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Verb) }) }], reductions: [ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(3)), None], consumed: [ItemId(0), ItemId(1), ItemId(3)], produced: ItemId(4) }], steps: [Stack { queued: ItemId(2), resolved: ItemId(3) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(0))], pending: None, root: Some(ItemId(4)), complete: true }), events: [Abandon { name: \"f\", lookup: LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Verb) }, deleted: true, span: 3..6 }, FunctionResult { function: FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..6 }, Commit { name: \"g\", version: NameVersion(1), previous: None, span: 0..1, value: None, class: Verb, function: Some(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), source: AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, noun_target: false, selection: None }, final_assignment: true }], result: None, failure: None, next_id: 0 }"
+        }
+      },
+      "post_sources": [
+        "f+0"
+      ],
+      "post_reference": [
+        {
+          "error": "value error"
+        }
+      ],
+      "post_rust": [
+        {
+          "error": "value error",
+          "span": [
+            0,
+            3
+          ],
+          "blame_word": 0,
+          "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e33292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d6528226622292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
+          "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a20202020662b300a202020205e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d65202266220a2020647572696e6720657865637574696f6e0a2020696e2066"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "case": "abandon_modifier_transfer",
+      "variant": "javx2.dll",
+      "source": "saved=:adv_:",
+      "setup": [
+        "adv=:/"
+      ],
+      "setup_reference": [
+        {
+          "silent": true
+        }
+      ],
+      "setup_rust": [
+        {
+          "silent": true
+        }
+      ],
+      "reference": {
+        "silent": true
+      },
+      "stages": {
+        "P": {
+          "error": "unsupported",
+          "span": [
+            7,
+            12
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(7..12), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 8\n    saved=:adv_:\n           ^^^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "G": {
+          "error": "unsupported",
+          "span": [
+            7,
+            12
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(7..12), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 8\n    saved=:adv_:\n           ^^^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "L": {
+          "error": "unsupported",
+          "span": [
+            7,
+            12
+          ],
+          "blame_word": null,
+          "context": "Some(ErrorContext { phase: Some(SemanticAnalysis), span: Some(7..12), blame_word_index: None, current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 8\n    saved=:adv_:\n           ^^^^^\nUnsupportedError: function abandon requires ordered NAME effect IR\n  during semantic analysis"
+        },
+        "R": {
+          "result": {
+            "silent": true
+          },
+          "capture": "ParseCapture { source: \"saved=:adv_:\", frontend: Some(FrontendContext { schema: 2, unit: FrontendUnitId(6), realization: Observed, source: \"saved=:adv_:\", words: [WordRecord { span: 0..5, class: Name, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"saved\") }, WordRecord { span: 5..7, class: Assignment, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 7..12, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"adv\") }], items: [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Name, semantic: None, word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Adverb, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Adverb, semantic: Some(NodeId(1)), word_range: 0..3, blame_word: Some(WordId(2)) }], nodes: [NodeRecord { kind: Function(FunctionEntity { span: 5..6, result_pos: Adverb, head: PrimitiveAdverb(Insert), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Adverb }, NodeRecord { kind: WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(0) }, class: Adverb }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(3)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }], name_uses: [NameUseRecord { word: WordId(2), input: ItemId(2), output: ItemId(3), result_class: Adverb, policy: CaptureAndAbandon, resolution: FunctionValue, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Adverb) }) }], reductions: [ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(3)), None], consumed: [ItemId(0), ItemId(1), ItemId(3)], produced: ItemId(4) }], steps: [Stack { queued: ItemId(2), resolved: ItemId(3) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(0))], pending: None, root: Some(ItemId(4)), complete: true }), events: [Abandon { name: \"adv\", lookup: LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Adverb) }, deleted: true, span: 7..12 }, FunctionResult { function: FunctionEntity { span: 5..6, result_pos: Adverb, head: PrimitiveAdverb(Insert), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 5..6 }, Commit { name: \"saved\", version: NameVersion(1), previous: None, span: 0..5, value: None, class: Adverb, function: Some(FunctionEntity { span: 5..6, result_pos: Adverb, head: PrimitiveAdverb(Insert), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), source: AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, noun_target: false, selection: None }, final_assignment: true }], result: None, failure: None, next_id: 0 }"
+        }
+      },
+      "post_sources": [
+        "adv+0"
+      ],
+      "post_reference": [
+        {
+          "error": "value error"
+        }
+      ],
+      "post_rust": [
+        {
+          "error": "value error",
+          "span": [
+            0,
+            5
+          ],
+          "blame_word": 0,
+          "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e35292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d65282261647622292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
+          "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a202020206164762b300a202020205e5e5e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d652022616476220a2020647572696e6720657865637574696f6e0a2020696e20616476"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "case": "abandon_explicit_conjunction",
+      "variant": "javx2.dll",
+      "source": "h=:-c_:+",
+      "setup": [
+        "c=:2 : 'u@:v'"
+      ],
+      "setup_reference": [
+        {
+          "silent": true
+        }
+      ],
+      "setup_rust": [
+        {
+          "silent": true
+        }
+      ],
+      "reference": {
+        "silent": true
+      },
+      "stages": {
+        "P": {
+          "error": "unsupported",
+          "span": [
+            4,
+            7
+          ],
+          "blame_word": 3,
+          "context": "Some(ErrorContext { phase: Some(Parse), span: Some(4..7), blame_word_index: Some(3), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 5\n    h=:-c_:+\n        ^^^\nUnsupportedError: deferred modifier abandon requires ordered NAME effect IR\n  during parse"
+        },
+        "G": {
+          "error": "unsupported",
+          "span": [
+            4,
+            7
+          ],
+          "blame_word": 3,
+          "context": "Some(ErrorContext { phase: Some(Parse), span: Some(4..7), blame_word_index: Some(3), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 5\n    h=:-c_:+\n        ^^^\nUnsupportedError: deferred modifier abandon requires ordered NAME effect IR\n  during parse"
+        },
+        "L": {
+          "error": "unsupported",
+          "span": [
+            4,
+            7
+          ],
+          "blame_word": 3,
+          "context": "Some(ErrorContext { phase: Some(Parse), span: Some(4..7), blame_word_index: Some(3), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
+          "render": "  File \"audit\", line 1, column 5\n    h=:-c_:+\n        ^^^\nUnsupportedError: deferred modifier abandon requires ordered NAME effect IR\n  during parse"
+        },
+        "R": {
+          "result": {
+            "silent": true
+          },
+          "capture": "ParseCapture { source: \"h=:-c_:+\", frontend: Some(FrontendContext { schema: 2, unit: FrontendUnitId(6), realization: Observed, source: \"h=:-c_:+\", words: [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"h\") }, WordRecord { span: 1..3, class: Assignment, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 3..4, class: Verb, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 4..7, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"c\") }, WordRecord { span: 7..8, class: Verb, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }], items: [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Verb, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Word(WordId(3)), class: Name, semantic: None, word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Word(WordId(4)), class: Verb, semantic: Some(NodeId(1)), word_range: 4..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Conjunction, semantic: Some(NodeId(2)), word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(3)), word_range: 2..5, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(1)), class: Verb, semantic: Some(NodeId(4)), word_range: 0..5, blame_word: Some(WordId(2)) }], nodes: [NodeRecord { kind: Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Verb }, NodeRecord { kind: Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Verb }, NodeRecord { kind: Function(FunctionEntity { span: 3..13, result_pos: Conjunction, head: ExplicitDefinition(DefinitionCode { name_plan: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, source: \"c=:2 : 'u@:v'\", body: \"u@:v\", source_span: 3..13, source_map: DefinitionSourceMap { start: 8, len: 4, escaped_quotes: [] }, form: ExplicitString(2), mode: 2, result_pos: Conjunction, sentences: [DefinitionSentence { span: 0..4, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..3, index: 1, class: Conjunction, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 3..4, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }], monad: 1..1, dyad: 0..1, operator_definition: false, monad_controls: [], dyad_controls: [ControlNode { span: 0..4, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] }), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), class: Conjunction }, NodeRecord { kind: Construct { row: Conjunction, inputs: [NodeId(0), NodeId(2), NodeId(1)], function: Some(FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }) }, class: Verb }, NodeRecord { kind: WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(3) }, class: Verb }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(5)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(3), items: [ItemId(6)], reductions: [ReductionId(0)], name_uses: [] }, NodeOrigin { node: NodeId(4), items: [ItemId(7)], reductions: [ReductionId(1)], name_uses: [] }], name_uses: [NameUseRecord { word: WordId(3), input: ItemId(3), output: ItemId(5), result_class: Conjunction, policy: CaptureAndAbandon, resolution: FunctionValue, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Conjunction) }) }], reductions: [ReductionRecord { row: Conjunction, window: [Some(ItemId(1)), Some(ItemId(2)), Some(ItemId(5)), Some(ItemId(4))], consumed: [ItemId(2), ItemId(5), ItemId(4)], produced: ItemId(6) }, ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(6)), None], consumed: [ItemId(0), ItemId(1), ItemId(6)], produced: ItemId(7) }], steps: [Stack { queued: ItemId(4), resolved: ItemId(4) }, Stack { queued: ItemId(3), resolved: ItemId(5) }, Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Reduce(ReductionId(0)), Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(1))], pending: None, root: Some(ItemId(7)), complete: true }), events: [Abandon { name: \"c\", lookup: LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(2)), binding_class: Some(Conjunction) }, deleted: true, span: 4..7 }, ConstructionAttempt { row: Conjunction, noun_inputs: [], span: 3..8 }, ExplicitModifierApply { row: Conjunction, function: FunctionEntity { span: 3..13, result_pos: Conjunction, head: ExplicitDefinition(DefinitionCode { name_plan: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, source: \"c=:2 : 'u@:v'\", body: \"u@:v\", source_span: 3..13, source_map: DefinitionSourceMap { start: 8, len: 4, escaped_quotes: [] }, form: ExplicitString(2), mode: 2, result_pos: Conjunction, sentences: [DefinitionSentence { span: 0..4, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..3, index: 1, class: Conjunction, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 3..4, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }], monad: 1..1, dyad: 0..1, operator_definition: false, monad_controls: [], dyad_controls: [ControlNode { span: 0..4, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] }), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..8 }, ConstructionSuccess { row: Conjunction, function: FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..8 }, FunctionResult { function: FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }, span: 3..8 }, Commit { name: \"h\", version: NameVersion(1), previous: None, span: 0..1, value: None, class: Verb, function: Some(FunctionEntity { span: 0..4, result_pos: Verb, head: PrimitiveConjunction(Atop), operands: [Function(FunctionEntity { span: 3..4, result_pos: Verb, head: PrimitiveVerb(Subtract), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None }), Function(FunctionEntity { span: 7..8, result_pos: Verb, head: PrimitiveVerb(Add), operands: [], decoded_gerund: None, fork_semantics: None, name_ranks: None })], decoded_gerund: None, fork_semantics: None, name_ranks: None }), source: AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, noun_target: false, selection: None }, final_assignment: true }], result: None, failure: None, next_id: 0 }"
+        }
+      },
+      "post_sources": [
+        "c+0"
+      ],
+      "post_reference": [
+        {
+          "error": "value error"
+        }
+      ],
+      "post_rust": [
+        {
+          "error": "value error",
+          "span": [
+            0,
+            3
+          ],
+          "blame_word": 0,
+          "context_hex": "536f6d65284572726f72436f6e74657874207b2070686173653a20536f6d652852756e74696d65292c207370616e3a20536f6d6528302e2e33292c20626c616d655f776f72645f696e6465783a20536f6d652830292c2063757272656e745f6e616d653a20536f6d6528226322292c206f7065726174696f6e3a204e6f6e652c2076616c656e63653a204e6f6e652c20617267756d656e74733a205b5d2c2064657461696c733a205b5d2c20736f757263655f6672616d65733a205b5d207d29",
+          "render_hex": "202046696c6520226175646974222c206c696e6520312c20636f6c756d6e20310a20202020632b300a202020205e5e5e0a56616c75654572726f723a20756e646566696e6564206e616d65202263220a2020647572696e6720657865637574696f6e0a2020696e2063"
         }
       ],
       "status": "matched"

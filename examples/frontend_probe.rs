@@ -88,6 +88,13 @@ fn function(f: &FunctionEntity) -> String {
         FunctionHead::ModifierTrain => "4",
         FunctionHead::Fork => "3",
         FunctionHead::NameRef(name) => name,
+        FunctionHead::TakeName { name, single_word } => {
+            return format!(
+                "{{\"take_name_hex\":\"{}\",\"single_word\":{single_word},\"pos\":\"{:?}\"}}",
+                hex(name.as_bytes()),
+                f.result_pos
+            );
+        }
         FunctionHead::DefinitionConstructor(_) => ":",
         FunctionHead::ExplicitDefinition(_) => unreachable!("explicit definition projected above"),
     };

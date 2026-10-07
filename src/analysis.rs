@@ -76,7 +76,7 @@ fn append_execution_basis(
                 layers.push(kind);
             }
         }
-        FunctionHead::NameRef(_) => {}
+        FunctionHead::NameRef(_) | FunctionHead::TakeName { .. } => {}
         FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
@@ -372,6 +372,7 @@ impl Builder<'_> {
                     current = base.clone();
                 }
                 FunctionHead::VocabularyPrimitive(_)
+                | FunctionHead::TakeName { .. }
                 | FunctionHead::PrimitiveAdverb(_)
                 | FunctionHead::PrimitiveConjunction(_)
                 | FunctionHead::DefinitionConstructor(_)

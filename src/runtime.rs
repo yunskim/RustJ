@@ -1730,6 +1730,20 @@ impl Engine {
         self.parser_name_binding(name)
     }
     /// Inspect bindings without execution or mutation. Versions are Engine-local.
+    /// Return the parser transport before binding/admission. Catalog class and
+    /// version observations are assumptions, not runtime binding guards.
+    pub fn parse_frontend(
+        &self,
+        source: &str,
+    ) -> std::result::Result<crate::semantic::Program, crate::frontend_context::FrontendFailure>
+    {
+        crate::parser::parse_frontend_with_lookup(
+            source,
+            Some(&|name| self.parser_analysis_binding(name)),
+        )
+    }
+
+    /// Inspect bindings without execution or mutation. Versions are Engine-local.
     /// Stable machine API: diagnostic wrappers are stripped before return.
     pub fn prepare_semantic(&self, source: &str) -> Result<crate::semantic::BoundProgram> {
         self.prepare_semantic_diagnostic(source)
@@ -1850,6 +1864,7 @@ impl Engine {
             ..
         }) = self.visible_binding(name)
             && function.result_pos == FunctionPartOfSpeech::Conjunction
+            && function.is_nameless_modifier()
         {
             // The reference's general abandon path has different conjunction
             // behavior from ordinary modifier stacking. Never claim equivalence.
@@ -2275,6 +2290,7 @@ impl Engine {
                 Ok(resolved)
             }
             FunctionHead::VocabularyPrimitive(_)
+            | FunctionHead::TakeName { .. }
             | FunctionHead::PrimitiveAdverb(_)
             | FunctionHead::PrimitiveConjunction(_)
             | FunctionHead::DefinitionConstructor(_)

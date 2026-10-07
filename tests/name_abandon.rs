@@ -160,3 +160,162 @@ fn read_only_loop_abandon_is_bounded_and_not_catchable() {
         .unwrap();
     assert_eq!(e.eval("f 0").unwrap_err().kind(), "unsupported");
 }
+
+#[test]
+fn explicit_conjunction_abandon_returns_value_and_deletes_found_binding() {
+    let mut e = Engine::new();
+    e.eval("c=:2 : 'u@:v'").unwrap();
+    let captured = e.eval_captured("h=:-c_:+");
+    captured.result.unwrap();
+    captured.capture.verify().unwrap();
+    captured
+        .capture
+        .frontend
+        .as_ref()
+        .unwrap()
+        .verify()
+        .unwrap();
+    assert!(captured.capture.events.iter().any(
+        |event| matches!(event, CaptureEvent::Abandon { name, deleted: true, .. } if name == "c")
+    ));
+    scalar(&mut e, "h 3", -3);
+    assert_eq!(e.eval("c 0").unwrap_err().kind(), "value error");
+    e.eval("c=:2 : 'u@:v'").unwrap();
+    e.eval("saved=:c_:").unwrap();
+    e.eval("c=:2 : 'u@:u'").unwrap();
+    e.eval("h=:-saved+").unwrap();
+    scalar(&mut e, "h 3", -3);
+}
+
+#[test]
+fn local_explicit_conjunction_preserves_single_word_exception_and_global_fallback() {
+    for definition in [
+        "f=:{{c=.2 : 'u@:v'\nh=.-c_:+\nh y}}",
+        "f=:3 : 0\nc=.2 : 'u@:v'\nh=.-c_:+\nh y\n)",
+    ] {
+        let mut e = Engine::new();
+        e.eval("c=:7").unwrap();
+        e.eval(definition).unwrap();
+        scalar(&mut e, "f 3", -3);
+        scalar(&mut e, "c", 7);
+    }
+    let mut e = Engine::new();
+    e.eval("f=:{{c=.2 : 'u@:v'\ntry.\nc_:\ncatch.\nh=.-c+\nend.\nh y}}")
+        .unwrap();
+    scalar(&mut e, "f 3", -3);
+    e.eval("c=:2 : 'u@:v'").unwrap();
+    e.eval("f=:{{h=.-c_:+\nc=.7\nh y}}").unwrap();
+    scalar(&mut e, "f 3", -3);
+    assert_eq!(e.eval("c 0").unwrap_err().kind(), "value error");
+}
+
+#[test]
+fn failed_explicit_conjunction_construction_keeps_abandon_effect() {
+    let mut e = Engine::new();
+    e.eval("c=:2 : 'u+v'").unwrap();
+    let captured = e.eval_captured("h=:1 2 c_:1 2 3");
+    assert_eq!(captured.result.unwrap_err().kind(), "length error");
+    captured.capture.verify().unwrap();
+    captured
+        .capture
+        .frontend
+        .as_ref()
+        .unwrap()
+        .verify()
+        .unwrap();
+    assert_eq!(e.eval("c 0").unwrap_err().kind(), "value error");
+    assert_eq!(e.eval("h 0").unwrap_err().kind(), "value error");
+    e.eval("c=:2 : 'u+v'").unwrap();
+    e.eval("f=:{{try. h=.1 2 c_:1 2 3 catch. 99 end.}}")
+        .unwrap();
+    scalar(&mut e, "f 0", 99);
+    assert_eq!(e.eval("c 0").unwrap_err().kind(), "value error");
+}
+
+#[test]
+fn engine_frontend_exposes_deferred_function_transport_before_binding() {
+    use rustj::semantic::{FunctionHead, FunctionPartOfSpeech};
+    let mut e = Engine::new();
+    for (setup, source, name, pos) in [
+        ("f=:+", "g=:f_:", "f", FunctionPartOfSpeech::Verb),
+        (
+            "adv=:/",
+            "saved=:adv_:",
+            "adv",
+            FunctionPartOfSpeech::Adverb,
+        ),
+        (
+            "c=:2 : 'u@:v'",
+            "saved=:c_:",
+            "c",
+            FunctionPartOfSpeech::Conjunction,
+        ),
+    ] {
+        e.eval(setup).unwrap();
+        let version = e.binding_version(name);
+        let program = e.parse_frontend(source).unwrap();
+        let context = program.frontend.as_ref().unwrap();
+        context.verify().unwrap();
+        assert!(context.complete);
+        let function = match &program.expression.as_ref().unwrap().kind {
+            ExprKind::VerbValue(v) => &v.entity,
+            ExprKind::ModifierValue(f) => f,
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(function.result_pos, pos);
+        assert!(
+            matches!(&function.head, FunctionHead::TakeName { name: base, single_word: false } if base == name)
+        );
+        assert_eq!(
+            e.prepare_semantic(source).unwrap_err().kind(),
+            "unsupported"
+        );
+        assert_eq!(e.analyze_j_graph(source).unwrap_err().kind(), "unsupported");
+        assert_eq!(
+            e.analyze_compilation_diagnostic(source).unwrap_err().kind(),
+            "unsupported"
+        );
+        assert_eq!(e.binding_version(name), version);
+    }
+    scalar(&mut e, "f 3", 3);
+    scalar(&mut e, "+adv 1 2 3", 6);
+    e.eval("h=:-c+").unwrap();
+    scalar(&mut e, "h 3", -3);
+}
+
+#[test]
+fn deferred_modifier_boundary_retains_name_and_pending_parser_action() {
+    let mut e = Engine::new();
+    e.eval("c=:2 : 'u@:v'").unwrap();
+    let failure = e.parse_frontend("h=:-c_:+").unwrap_err();
+    assert_eq!(failure.error.kind(), "unsupported");
+    failure.context.verify().unwrap();
+    assert_eq!(
+        failure.context.pending.as_ref().unwrap().row,
+        rustj::parser::ParseRow::Conjunction
+    );
+    assert_eq!(
+        failure.context.name_uses[0].policy,
+        NamePolicy::CaptureAndAbandon
+    );
+    e.eval("h=:-c+").unwrap();
+    scalar(&mut e, "h 3", -3);
+}
+
+#[test]
+fn deferred_abandon_does_not_guess_first_fork_operand_is_not_cap() {
+    let mut e = Engine::new();
+    e.eval("cap=:[:").unwrap();
+    let before = e.binding_version("cap");
+    let failure = e.parse_frontend("f=:(cap_: + *)").unwrap_err();
+    assert_eq!(failure.error.kind(), "unsupported");
+    failure.context.verify().unwrap();
+    assert_eq!(
+        failure.context.pending.as_ref().unwrap().row,
+        rustj::parser::ParseRow::Fork
+    );
+    assert_eq!(e.binding_version("cap"), before);
+    e.eval("f=:(cap_: + *)").unwrap();
+    scalar(&mut e, "f 3", 1);
+    assert_eq!(e.eval("cap 0").unwrap_err().kind(), "value error");
+}
