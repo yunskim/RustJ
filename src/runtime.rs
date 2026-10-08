@@ -762,12 +762,20 @@ impl Engine {
         } else {
             (&code.monad, &code.monad_controls)
         };
+        let admission = |error, span| {
+            code.diagnostic_error(
+                error,
+                crate::error::DiagnosticFrameKind::DefinitionAdmission,
+                span,
+                None,
+            )
+        };
         if section.is_empty() {
-            return Err(Error::Valence);
+            return Err(admission(Error::Valence, None));
         }
         use crate::definition_control::ControlWord as W;
         use crate::definition_flow::{ControlJump, ControlKind as K};
-        if controls.iter().any(|node| {
+        if let Some(node) = controls.iter().find(|node| {
             node.analysis_barrier
                 || !matches!(
                     node.kind,
@@ -793,18 +801,21 @@ impl Engine {
                         )
                 )
         }) {
-            return Err(Error::Unsupported(
-                "definition control flow outside executable subset".into(),
+            return Err(admission(
+                Error::Unsupported("definition control flow outside executable subset".into()),
+                Some(node.span.clone()),
             ));
         }
         // Reject unsupported framing before any statement has side effects.
         for sentence in &code.sentences[section.clone()] {
             if matches!(
-                crate::parser::frame_definition_input(&code.body[sentence.span.clone()])?,
+                crate::parser::frame_definition_input(&code.body[sentence.span.clone()])
+                    .map_err(|error| admission(error, Some(sentence.span.clone())))?,
                 crate::parser::InputFrame::NeedMore
             ) {
-                return Err(Error::Unsupported(
-                    "nested explicit modifier definition scope".into(),
+                return Err(admission(
+                    Error::Unsupported("nested explicit modifier definition scope".into()),
+                    Some(sentence.span.clone()),
                 ));
             }
         }
@@ -812,60 +823,64 @@ impl Engine {
         // Windows stack bound until the general executor uses explicit frames.
         const MAX_MODIFIER_INVOCATION_DEPTH: usize = 8;
         if self.definition_depth >= MAX_MODIFIER_INVOCATION_DEPTH {
-            return Err(Error::Limit);
+            return Err(admission(Error::Limit, None));
         }
-        let mut local = LocalFrame {
-            instance: crate::frontend_context::ScopeInstanceId::fresh(),
-            names: HashMap::new(),
-            declared: ["x", "y"].into_iter().map(str::to_owned).collect(),
-        };
-        if operand_call {
-            local.declared.extend(["u".to_owned(), "m".to_owned()]);
-        }
-        if right.is_some() {
-            local.declared.extend(["v".to_owned(), "n".to_owned()]);
-        }
-        let name_plan = if dyadic {
-            &code.name_plan.dyad
-        } else {
-            &code.name_plan.monad
-        };
-        local
-            .declared
-            .extend(name_plan.local_declarations.iter().cloned());
-        for (name, alias, operand) in [("u", "m", left), ("v", "n", right)] {
-            if let Some(operand) = operand {
-                let value = match operand {
-                    FunctionOperand::Noun { value, .. } => {
-                        store_binding(
-                            &mut local.names,
-                            &mut self.pool,
-                            alias.to_owned(),
-                            JEntity::Noun(value.clone()),
-                        )?;
-                        JEntity::Noun(value)
-                    }
-                    FunctionOperand::Function(function) => JEntity::Function(function),
-                };
-                store_binding(&mut local.names, &mut self.pool, name.to_owned(), value)?;
+        let local = (|| -> Result<LocalFrame> {
+            let mut local = LocalFrame {
+                instance: crate::frontend_context::ScopeInstanceId::fresh(),
+                names: HashMap::new(),
+                declared: ["x", "y"].into_iter().map(str::to_owned).collect(),
+            };
+            if operand_call {
+                local.declared.extend(["u".to_owned(), "m".to_owned()]);
             }
-        }
-        if let Some((x, y)) = arguments {
-            store_binding(
-                &mut local.names,
-                &mut self.pool,
-                "y".into(),
-                JEntity::Noun(y),
-            )?;
-            if let Some(x) = x {
+            if right.is_some() {
+                local.declared.extend(["v".to_owned(), "n".to_owned()]);
+            }
+            let name_plan = if dyadic {
+                &code.name_plan.dyad
+            } else {
+                &code.name_plan.monad
+            };
+            local
+                .declared
+                .extend(name_plan.local_declarations.iter().cloned());
+            for (name, alias, operand) in [("u", "m", left), ("v", "n", right)] {
+                if let Some(operand) = operand {
+                    let value = match operand {
+                        FunctionOperand::Noun { value, .. } => {
+                            store_binding(
+                                &mut local.names,
+                                &mut self.pool,
+                                alias.to_owned(),
+                                JEntity::Noun(value.clone()),
+                            )?;
+                            JEntity::Noun(value)
+                        }
+                        FunctionOperand::Function(function) => JEntity::Function(function),
+                    };
+                    store_binding(&mut local.names, &mut self.pool, name.to_owned(), value)?;
+                }
+            }
+            if let Some((x, y)) = arguments {
                 store_binding(
                     &mut local.names,
                     &mut self.pool,
-                    "x".into(),
-                    JEntity::Noun(x),
+                    "y".into(),
+                    JEntity::Noun(y),
                 )?;
+                if let Some(x) = x {
+                    store_binding(
+                        &mut local.names,
+                        &mut self.pool,
+                        "x".into(),
+                        JEntity::Noun(x),
+                    )?;
+                }
             }
-        }
+            Ok(local)
+        })()
+        .map_err(|error| admission(error, None))?;
         self.definition_depth += 1;
         self.local_frames.push(local);
         let result = (|| {
@@ -884,6 +899,7 @@ impl Engine {
                 .map(JEntity::Noun)
             };
             let mut last = Some(empty_result()?);
+            let mut last_result_span = None;
             let mut test = None;
             let mut pc = 0;
             // Only currently protected try bodies catch errors. Branching out,
@@ -1129,6 +1145,7 @@ impl Engine {
                             test = Some(value);
                         } else {
                             last = Some(value);
+                            last_result_span = Some(node.span.clone());
                         }
                     }
                     Ok(Some(pc + 1))
@@ -1177,20 +1194,34 @@ impl Engine {
                         };
                         pc = handler;
                         last = Some(empty_result()?);
+                        last_result_span = Some(node.span.clone());
                         test = None;
                     }
                 }
             }
-            let value =
-                last.ok_or_else(|| Error::Unsupported("empty explicit modifier result".into()))?;
+            let returning = |error| {
+                code.diagnostic_error(
+                    error,
+                    crate::error::DiagnosticFrameKind::DefinitionReturn,
+                    last_result_span.clone(),
+                    None,
+                )
+            };
+            let value = last.ok_or_else(|| {
+                returning(Error::Unsupported("empty explicit modifier result".into()))
+            })?;
             if verb_call && matches!(value, JEntity::Function(_)) {
-                return Err(Error::NounResult);
+                return Err(returning(Error::NounResult));
             }
             // cx.c fixes only the first implicit locative on each branch.
             // Replacement operands and ordinary names remain untouched.
             match value {
                 JEntity::Function(function) => Ok(JEntity::Function(
-                    frame.parent.engine.fix_implicit_return(&function, 0)?,
+                    frame
+                        .parent
+                        .engine
+                        .fix_implicit_return(&function, 0)
+                        .map_err(returning)?,
                 )),
                 noun => Ok(noun),
             }

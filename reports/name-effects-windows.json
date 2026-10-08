@@ -1,6 +1,6 @@
 {
   "scope": "Bounded top-level ordered NAME plan execution; setup/check use ordinary execution; no replay/fallback",
-  "revision": "1ff67936caa6c95c9979758e034270b60c45c2fd",
+  "revision": "a62ea3143b360e89d14b55a44cbcc8257ad00853",
   "platform": "win32",
   "fixtures": 26,
   "observations": 104,
@@ -5701,7 +5701,7 @@
       "differences": []
     }
   ],
-  "probe_sha256": "f11a6801fb63eee55fe8056fa0268d35570adecfb5dadb2b5825c8ad8ce64468",
+  "probe_sha256": "de1b6b1a64ef0e5df7bee7c6b19984022f0ee8f8c4b9550ce294c9cbe55ebd45",
   "rust_source_sha256": {
     "src\\analysis.rs": "f51e8b39916d6d87809253b12491cd4c590fe33df491da7922ac3e9ec13c00be",
     "src\\array_ops.rs": "16b2e2e099d96c013e959028aa8c231a4660405d956869a1b6f9f23c8f33fc3f",
@@ -5710,12 +5710,12 @@
     "src\\comparison_policy.rs": "e4296ee20876a832fd4637df67093920877e6272debc47abafd0aaa9be1dd934",
     "src\\compilation.rs": "e7180bf14c59661260863adba3e8f278150f2b26b65093fed97543f89baaf420",
     "src\\contracts.rs": "5f294485113d34f6c84013cb834a8c597e24f31a7f1f55fb844c31ca6486cda0",
-    "src\\definition_code.rs": "deef4579b3a9991d412e9a8b1a656292bf684b06459d4d1035174a348f1734d4",
+    "src\\definition_code.rs": "de30b2b00b359c4e7573832168bd050a35916d869074c9ad558b6dc3b76cad4d",
     "src\\definition_control.rs": "c42abb5b7417b0e15fff796488053a379e8e352e53d8b1679377d35ff367f075",
     "src\\definition_flow.rs": "3b8d52fea33f484cc56ee57f286353b2f5521d18e9675732af21dd8b50c65de0",
     "src\\definition_input.rs": "aa53392c875d58dd2fd256b398312dcfc1735dbf8b68cbfd9cf17dc0a9c179dd",
     "src\\enqueuer.rs": "6446d9ddb91dccc79f632e707b73fe288913a744fb5dcd37684838689748f729",
-    "src\\error.rs": "655d1937c468349c560f52cc5a48e026600bb043bbbcbdb68c10214e623de0f9",
+    "src\\error.rs": "1d047770bf7aa42a103bda9993d72819128c1aa14a4c865cef54fb527aeae2a8",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src\\expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
     "src\\facts.rs": "4c25fe87f5f4bcd525df7b37eda837a3698071f7c4a2a933054951c0c21fb317",
@@ -5749,7 +5749,7 @@
     "src\\physical.rs": "ec45c34d4ee691b216e3db1066553d38889e1f75bbccee80d5dd328100288fd8",
     "src\\pool.rs": "d9e592ce85b6d82f7e7980dbe8f537f98b4e97dbf0ed5f39494f3ca5eaf65d7d",
     "src\\primitive.rs": "159747ae085dab46027e01645e95ddb0c659e1af8bacd46497554548a93afec5",
-    "src\\runtime.rs": "95637a96f7859b3849caf412f9886852fa43bc3d3f03cf579d5a3a783cdaff42",
+    "src\\runtime.rs": "867dc3de60bd59ba1bf46b019d7b37bc9751cff772131cdface69a29f5dbff88",
     "src\\scanner.rs": "1ea51c5b63e311f4663878fa7be8d455fbabbafc94cc84b76b957931baa25540",
     "src\\search_reference.rs": "ef90e299e0c40da5aa5a5b6e0089303476ad91dff10a309e802dbc49c73fbf38",
     "src\\semantic.rs": "f00cc3eed3c4dbaa893458bf8e13713cc7b0faae5b4edbb15fa2d241de486de1",
@@ -5767,7 +5767,7 @@
     "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\name_effect_audit.py": "e03957365235aa31eb2d8670433bac980517107f3aab9e80b259e8809eb497a3",
     "examples\\name_effect_probe.rs": "bf98e38558577d154621e5e2e8aca5658c436517864c85a8f85374e9824c50b5",
     "tools\\oracle.py": "2837273ed79a6cb412d910e09761bfec8deb8b2dcfae69be822a0c623e113fc5",
-    "tools\\name_compatibility_audit.py": "9b25a1fb4b9c4369fd9fdc8e73caeaf548bb1d2940be123a06a1e932a208b4d4",
+    "tools\\name_compatibility_audit.py": "a4737b88e1712ba841f81567cc0ef522c1c00c9aea617ef9353144879f29bbe2",
     "Cargo.toml": "da6954ecceba891bd67e33bb6b434554b16c5dfb6cfb196219f3da7f14980961",
     "Cargo.lock": "f55d06bbb7b0b47bd324f51de6ff71790c735bd5c04fbf8592a60eb4c40b9b5c"
   },

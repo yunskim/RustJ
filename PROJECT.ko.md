@@ -13574,10 +13574,10 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 
 | 순서 | 기존 소유 항목 | 실행 범위·수용 조건 | 상태 |
 |---|---|---|---|
-| 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 진행 중 |
+| 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 본문·실행 전·반환 frame 구현; source-unit/file provenance 미완료 |
 | 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
 | 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
-| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과 계획 구현; nameless 직접 적용/효과 계획의 Graph 연결/locatives 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과·배열 Graph 연결 구현; nameless 직접 적용/일반 locatives 미완료 |
 | 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
 | 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
 
@@ -13589,7 +13589,7 @@ A0.6 실행 체크리스트 — 첫 수정 범위:
 - [x] `DiagnosticSourceFrame`: `kind`, 공유 `source: Arc<str>`, `definition_span`, 원문 `span`, fragment queue 기준 `blame_word_index`를 보존한다. `ErrorContext.source_frames`는 가장 안쪽 실패 → 바깥 정의 호출 순서다. 기존 caller span/word-index 의미는 유지한다.
 - [x] ordinary/modifier/nested 정의의 statement/control 실행 실패를 source frame으로 전달하고 렌더링한다. escaped quote·UTF-8·CRLF·source 재정의 수명·실패한 대입·catch 회귀를 추가한다.
 - [x] 최종 소스 기준 native Windows default/portable 각각 **612 passed / 0 failed / 0 ignored**, fmt/clippy 통과, Python **67 passed**. 정의 호출/loop/nested/NAME scope C 비교 **304/304 일치**. Frontend 감사 **38 matched / 24 runtime_gap**는 기존 미지원 경계를 유지한다. `reports/definition-*-windows.json`, `reports/frontend-contract-audit-windows.json`에 바이너리·소스 hash와 결과를 기록했다. C 오류 위치/문자열 동등성은 검증하지 않았으며 source frame은 Rust 회귀 테스트로 검증했다.
-- [ ] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 현재 경로에는 정밀 body 위치가 없을 수 있다.
+- [x] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 제어/문장 site가 없으면 정의 span을 사용하며 body 위치를 만들지 않는다.
 - [ ] source-unit/file identity와 nested source의 최상위 원문까지 이어지는 provenance를 확장한다. 현재 frame 위치는 각 DefinitionCode가 소유한 source 단위 기준이며 파일 전체 좌표를 보장하지 않는다.
 - [ ] 순서 2: 오류 분류와 단계별 admission 계약을 보완한다.
 - [ ] 순서 3: NAME·effect·modifier의 후속 IR 전달 계약을 보완한다.
@@ -13744,3 +13744,23 @@ Graph schema **0.10**, A3 schema **0.6**에 명시적 `Input { index }`를 추�
 batch 단계 최종 검증: Windows default/portable 각각 **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. Rust 회귀는 integration 5개와 unit 2개를 추가했다. 내부 checkpoint·상수/입력 매핑·외부 alias·현재 shape 재조회·실제 고유 data pointer의 두 연산 연속 재사용, 첫/후속 검사·kernel 실패 후 정확한 부모 token/span/parser blame·NAME 상태, 다중/중복 export 및 변조 거절을 확인했다. Pointer 재사용은 복사 제거의 증거이며 성능 벤치마크나 C 대비 우위는 주장하지 않는다.
 
 `reports/name-effects-windows.json`: **26 fixtures × DLL 2 × semantic/Logical route 2 = 104/104 matched**. 새 batch 정상·NAME 경계·첫/후속 length·삭제 후 length/domain·alias 사례 7개는 **28/28** 일치다. 기존 감사 **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**을 유지했고 보고서의 소스/바이너리/DLL hash **528건**이 일치했다. source pin과 DLL release는 앞 단계와 같다. full J·C 진단 문구/위치·성능·Linux·GPU·GitHub CI 검증은 아니다. 기본 eval 및 부모 NAME plan의 admission 범위는 확대하지 않았다.
+
+### Frontend A0.6 — 정의 실행 전·반환 오류 경계 보완
+
+frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/fusion 확장은 이 게이트의 완료 조건이 아니다. 현재 지원 subset E2E 완료 판정은 유지하되, 감사의 runtime gap을 모두 tokenizer/enqueuer/parser 결함으로 해석하지 않는다. NAME 표현력·수치 literal·modifier 실행 미지원과 frontend 정보 전달 누락을 구분한다.
+
+- [x] 실행 전 valence·미지원 control/framing·호출 깊이 및 frame 준비 실패에 `DefinitionAdmission` frame을 붙인다. 제어/문장 위치를 아는 경우 source map으로 대응하고, 그 외에는 실제 정의 span으로 표시한다.
+- [x] 최종 noun-result 검사와 implicit-return fixing 실패에 `DefinitionReturn` frame을 붙인다. 마지막 결과를 만든 body fragment를 보존하며 존재하지 않는 queue blame을 만들지 않는다.
+- [x] 기존 `DefinitionBody/DefinitionCall` chain과 caller-relative span/blame을 유지한다. 반환 실패는 본문 catch 바깥에 남고, 이전 효과·실패한 대입·local frame 정리를 바꾸지 않는다.
+- [x] Windows default/portable·fmt/clippy·Python과 두 C DLL의 오류 종류/실패 후 상태를 확인한다. C 진단 문구/위치 동등성은 주장하지 않는다.
+- [ ] 다음 독립 단위: source-unit/file identity와 중첩 정의의 최상위 원문 provenance. 이번 frame은 DefinitionCode가 소유한 source 단위의 좌표이며 파일 전체 좌표가 아니다.
+
+구체적인 산출물은 `ErrorContext.source_frames`의 기존 `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`다. `kind`에 `DefinitionAdmission/DefinitionReturn`을 추가했고 나머지 전달 구조는 유지한다. `DefinitionCode::diagnostic_error`는 해당 원문 frame만 추가하며 J 오류 종류나 caller 위치를 대체하지 않는다. renderer는 각각 `before definition execution`과 `returning from definition`으로 표시한다. source map은 doubled quote/UTF-8/CRLF 원문 위치를 유지하고 재정의 후에도 공유 원문 수명이 보존된다.
+
+참고 근거는 고정 C 소스 `cx.c`의 본문 실행 후 noun 검사·`FIXAFIRSTIMPLOCONLY` 처리다. 예: `f=:3 : '+'`의 `f 0`은 본문 평가 뒤 noun-result 오류다. `f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'`의 반환 오류는 본문 catch로 처리하지 않으며 count 증가를 유지하고 호출자의 실패한 대입은 commit하지 않는다. 미지원 select 실행은 본문 실행 전에 거절하므로 앞 문장의 전역 변경도 실행하지 않는다. 이는 RustJ admission 정책이며 select를 C처럼 실행한다는 뜻이 아니다.
+
+최종 검증: Windows default/portable 각각 **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 새 회귀 5개를 추가해 `definition_diagnostics`는 9개다. 실행 전 control admission·valence, explicit/direct 최종 noun 검사, implicit return의 domain/Unsupported, 중첩 호출 frame 순서·반복 실패 후 정리, 반환 오류와 catch/이전 전역 효과/실패한 대입·local 수명, escaped quote·UTF-8·CRLF·재정의 후 원문 수명을 확인했다.
+
+정의 호출 감사는 **36 fixtures / 144 observations = 144/144 matched**이며 새 5개 사례는 두 DLL·두 route에서 **20/20** 일치다. multiline body를 CLI에 공급할 때는 명시적 `3 : 0` block을 사용하고 API/hex probe에서는 string form을 검증한다. 기존 NAME·문자열 대입·정의/loop/nested/scope 합계는 **568 matched / 16 unsupported_gap**다. Frontend 감사는 4개 정상 오류/실패 후 상태 사례를 추가하여 **38 cases / 76 observations = 58 matched / 18 runtime_gap**이며 고유 gap 9개는 그대로다. 별도 NAME 효과/배열 감사는 **104/104 matched**를 유지했다. 8개 보고서의 소스·바이너리·DLL hash **528건**이 일치했다. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`은 서로 같은 소스 재빌드를 뜻하지 않는다. full J·C 진단 위치/문구·Linux·GPU·GitHub CI는 검증하지 않았다.
+
+이로써 A0.6의 실행 전·반환 frame 누락 항목을 닫는다. A0.6 전체 완료나 full frontend conformance를 주장하지 않으며, 바로 다음 우선 작업은 source-unit/file identity와 nested source → 최상위 원문의 provenance다. 그 뒤 오류 분류/단계별 admission 계약을 진행한다.

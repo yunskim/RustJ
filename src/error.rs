@@ -114,6 +114,8 @@ pub enum DiagnosticFrameKind {
     #[default]
     DefinitionBody,
     DefinitionCall,
+    DefinitionAdmission,
+    DefinitionReturn,
 }
 
 /// Source-owned coordinates, distinct from the current caller's span/index.
@@ -382,6 +384,8 @@ impl Error {
             let label = match frame.kind {
                 DiagnosticFrameKind::DefinitionBody => "definition failure",
                 DiagnosticFrameKind::DefinitionCall => "called from definition",
+                DiagnosticFrameKind::DefinitionAdmission => "before definition execution",
+                DiagnosticFrameKind::DefinitionReturn => "returning from definition",
             };
             out.push_str(&format!(
                 "  {label}, line {}, column {}\n    {}\n    {}{}\n",

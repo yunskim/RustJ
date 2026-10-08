@@ -49,6 +49,10 @@ CASES = [
     ("caught_error_effect", ["count=:0", "f=:{{\ntry.\ncount=:count+1\n1 2+1 2 3\ncatch.\ncount\nend.\n}}"], "f 0", ["count"]),
     ("unsupported_not_caught", ["f=:{{try. +&2 y catch. 42 end.}}"], "f 3", []),
     ("invalid_control_redefinition", ["f=:42"], "f=:{{if. y do. y}}", ["f"]),
+    ("definition_return_explicit", ["f=:3 : '+'"], "f 0", []),
+    ("definition_return_direct", ["f=:{{+}}"], "f 0", []),
+    ("definition_admission_valence", ["f=:4 : 'x+y'"], "f 0", []),
+    ("definition_return_post_effect", ["count=:0", "saved=:99", "f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'"], "saved=:f 0", ["count", "saved"]),
 ]
 
 

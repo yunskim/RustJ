@@ -5304,10 +5304,10 @@ Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset fr
 
 | Order | Existing owner | Scope / acceptance | Status |
 |---|---|---|---|
-| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
+| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | Body/admission/return frames implemented; source-unit/file provenance pending |
 | 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
 | 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
-| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effect plan implemented; direct nameless application/effect-to-Graph integration/locatives pending |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effects/array Graph integration implemented; direct nameless application/general locatives pending |
 | 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
 | 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
 
@@ -5319,7 +5319,7 @@ A0.6 execution checklist — first implementation slice:
 - [x] `DiagnosticSourceFrame` preserves kind, shared `source: Arc<str>`, definition span, original source span and fragment-queue blame word. `ErrorContext.source_frames` runs from the innermost failure to outer definition callsites; existing caller span/word semantics remain intact.
 - [x] Preserve/render statement/control failures across ordinary/modifier/nested invocation. Add escaped-quote, UTF-8, CRLF, source lifetime after redefinition, failed-assignment and catch regressions.
 - [x] Final-source native Windows default/portable: **612 passed / 0 failed / 0 ignored** each; fmt/clippy passed; Python **67 passed**. Definition calls/loops/nested/NAME scopes: **304/304 C matches**. Frontend audit retains **38 matched / 24 runtime_gap** at existing unsupported boundaries. Binary/source hashes and results are in `reports/definition-*-windows.json` and `reports/frontend-contract-audit-windows.json`. C diagnostic location/text equality is not tested; Rust regression tests validate the source frames.
-- [ ] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Precise body locations may still be absent on these paths.
+- [x] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Use the definition span when no control/statement site exists; never fabricate body coordinates.
 - [ ] Extend source-unit/file identity and nested provenance back to top-level original input. Current frames use each DefinitionCode's owned source unit, not guaranteed whole-file coordinates.
 - [ ] Order 2: refine error categories and structured stage admission.
 - [ ] Order 3: refine downstream NAME/effect/modifier handoff.
@@ -5474,6 +5474,26 @@ Execution reuses existing semantic kernels. Last-use moves, shared fanout and ex
 Final batch validation: native Windows default/portable each **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added five integration and two unit regressions. Coverage includes internal checkpoints, constant/input mapping, external aliases, current-shape reuse, actual unique data-pointer reuse across two operations, first/later check/kernel failures with exact parent token/span/parser blame/NAME post-state, multiple/duplicate exports and tampering rejection. Pointer reuse proves copy elimination; no performance benchmark or advantage over C is claimed.
 
 `reports/name-effects-windows.json`: **26 fixtures × two DLLs × semantic/Logical routes = 104/104 matched**. Seven new batch cases covering success, NAME boundaries, first/later length failures, length/domain after deletion and alias preservation match **28/28**. Existing audits remain **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**. All **528 source/binary/DLL hashes** match final files. Source pin and DLL release are unchanged. This is not full J, C diagnostic text/location, performance, Linux, GPU or GitHub CI validation. Default eval and parent NAME-plan admission scope are unchanged.
+
+### Frontend A0.6 — pre-execution and return error boundaries
+
+Frontend E2E remediation is restored as the current priority. Array batching/fusion expansion is not a completion condition for this gate. Supported-subset E2E remains verified; runtime audit gaps are not all tokenizer/enqueue/parser defects. Distinguish unsupported NAME/numeric/modifier execution from missing frontend handoff information.
+
+- [x] Attach `DefinitionAdmission` to pre-execution valence, unsupported control/framing, invocation-depth and frame-preparation failures. Map known control/statement sites; otherwise use the actual definition span.
+- [x] Attach `DefinitionReturn` to final noun-result and implicit-return fixing failures. Preserve the last result-producing body fragment without inventing queue blame.
+- [x] Preserve existing DefinitionBody/DefinitionCall chains and caller-relative span/blame. Return failures stay outside body catches; earlier effects, failed assignment and local-frame cleanup remain unchanged.
+- [x] Validate Windows default/portable, fmt/clippy, Python and error-kind/post-state against both C DLLs. Do not claim C diagnostic text/location equivalence.
+- [ ] Next independent unit: source-unit/file identity and nested definitions' root-source provenance. Current coordinates belong to DefinitionCode's owned source, not the entire file.
+
+The concrete handoff remains `ErrorContext.source_frames` containing `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`. Add DefinitionAdmission/DefinitionReturn kinds without replacing the structure. `DefinitionCode::diagnostic_error` adds source-owned context without changing J error kind or caller coordinates. Renderer labels are `before definition execution` and `returning from definition`. Source maps retain doubled quotes/UTF-8/CRLF coordinates; shared source survives redefinition.
+
+Pinned C `cx.c` performs the final noun check and `FIXAFIRSTIMPLOCONLY` after body execution. Example: `f=:3 : '+'` called with `f 0` raises a post-body noun-result error. Returning from `f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'` fails outside the body catch, retaining count's increment while the caller's failed assignment never commits. Unsupported select execution rejects before body effects. That is RustJ admission policy, not C-compatible select execution.
+
+Final validation: native Windows default/portable each **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added five regressions, bringing `definition_diagnostics` to nine. Coverage includes control/valence admission, explicit/direct final noun checks, implicit-return domain/Unsupported, nested frame order and repeated-failure cleanup, return failure versus catch/prior global effects/failed assignment/local lifetime, escaped quotes/UTF-8/CRLF and source lifetime after redefinition.
+
+Definition-call audit: **36 fixtures / 144 observations = 144/144 matched**, with all **20/20** new comparisons passing across five cases, two DLLs and two routes. CLI multiline bodies use explicit `3 : 0` blocks; API/hex probes validate string form. Existing NAME/assignment/definition/loop/nested/scope audits total **568 matched / 16 unsupported_gap**. Frontend audit adds four matching error/post-state cases: **38 cases / 76 observations = 58 matched / 18 runtime_gap**; nine unique gaps remain. Separate NAME effect/array audit remains **104/104 matched**. All **528 source/binary/DLL hashes** across eight reports match. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` do not imply a same-source rebuild. Full J, C diagnostic text/location, Linux, GPU and GitHub CI were not tested.
+
+This closes the A0.6 pre-execution/return-frame omission item, not all A0.6 or full frontend conformance. Next priority is source-unit/file identity and nested-source → root-source provenance, followed by error categories/stage admission.
 
 ## License policy
 
