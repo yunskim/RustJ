@@ -192,7 +192,7 @@ fn infer_semantic_primitive(
     let dtype = match (id, left) {
         (Less, None) => TypeFact::Exact(DType::Boxed),
         (Equal | Less | Greater | Find, Some(_)) => TypeFact::Exact(DType::Bool),
-        (Shape | Tally, None) if right.dtype == TypeFact::Exact(DType::Rational) => {
+        (Shape | Tally | Multiply, None) if right.dtype == TypeFact::Exact(DType::Rational) => {
             TypeFact::Exact(DType::ExtendedInt)
         }
         (Shape | Tally | Multiply | Subtract, None)
@@ -211,6 +211,20 @@ fn infer_semantic_primitive(
             TypeFact::Exact(DType::Int)
         }
         (Ravel | Reverse | Transpose | Add | Sparse, None) => right.dtype,
+        (Subtract | Divide, None) if right.dtype == TypeFact::Exact(DType::Rational) => right.dtype,
+        (Add | Subtract | Multiply | Divide, Some(x))
+            if [x.dtype, right.dtype].contains(&TypeFact::Exact(DType::Rational))
+                && [x.dtype, right.dtype].iter().all(|t| {
+                    matches!(
+                        t,
+                        TypeFact::Exact(
+                            DType::Bool | DType::Int | DType::ExtendedInt | DType::Rational
+                        )
+                    )
+                }) =>
+        {
+            TypeFact::Exact(DType::Rational)
+        }
         (Add | Subtract | Multiply, Some(x))
             if x.dtype == TypeFact::Exact(DType::Int)
                 && right.dtype == TypeFact::Exact(DType::Int) =>
@@ -778,6 +792,26 @@ mod rational_type_tests {
         }
         assert_eq!(
             infer_semantic_primitive(Add, ShapeRule::PrefixAgreement, Some(&input), &input).dtype,
+            TypeFact::Exact(DType::Rational)
+        );
+        for (id, dtype) in [
+            (Subtract, DType::Rational),
+            (Divide, DType::Rational),
+            (Multiply, DType::ExtendedInt),
+        ] {
+            assert_eq!(
+                infer_semantic_primitive(id, ShapeRule::PreserveRight, None, &input).dtype,
+                TypeFact::Exact(dtype)
+            );
+        }
+        assert_eq!(
+            infer_semantic_primitive(
+                Add,
+                ShapeRule::PrefixAgreement,
+                Some(&SemanticFacts::default()),
+                &input
+            )
+            .dtype,
             TypeFact::Unknown
         );
         let empty = SemanticFacts {

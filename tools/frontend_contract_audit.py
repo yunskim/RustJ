@@ -197,6 +197,32 @@ for n_index, numerator in enumerate(['0','_0','1','_1','2','_6','900719925474099
 for index, source in enumerate(['_r','__r','_r0','__r0','_r_0','__r_0','_r_3','__r_3','1x _','1x __','2r3 1','2r3 0 1','_ 2r3','__ 2r3','+2r3', '$2r3', '#2r3', ',2r3', '|.2r3 3r4', '|:2 2$2r3 3r4', '1{2r3 3r4', '4{.2r3 3r4', '_4{.2r3 3r4', '1}.2r3 3r4', '1|.2r3 3r4', '0$2r3', '2 0$2r3', '> <2r3', '<2r3 3r4', '5{2r3 3r4', '2r3x', '_r_', '2rr3']):
     RATIONAL_CASES.append((f'rational_special_{index}',[],source,[]))
 
+# N3c: Cartesian non-finite arithmetic and exact comparisons. Outcomes come
+# from both C engines; independent Rust expectations separately cover precision.
+for a_index, a in enumerate(['0r1','1r2','_1r2','1r0','_1r0','9007199254740993r2','2r3']):
+    for b_index, b in enumerate(['0r1','1r2','_1r2','1r0','_1r0','9007199254740993r2','2r3']):
+        for op_index, op in enumerate(['+','-','*','%','=','<','>']):
+            RATIONAL_CASES.append((f'qop_{a_index}_{b_index}_{op_index}',[],a+op+b,[]))
+    for op_index, op in enumerate(['-','|','*','%']):
+        RATIONAL_CASES.append((f'qunary_{a_index}_{op_index}',[],op+a,[]))
+for n_index, n in enumerate(['0','2','9007199254740993x']):
+    for op_index, op in enumerate(['+','-','*','%','=','<','>']):
+        for side, source in [('left', n+op+'2r3'),('right','2r3'+op+n)]:
+            RATIONAL_CASES.append((f'qmix_{n_index}_{op_index}_{side}',[],source,[]))
+RATIONAL_CASES += [
+    ('qop_prefix',[], '1 2+2 2$1r2 2r3 3r4 4r5', []),
+    ('qop_empty',[], '1r2+0$1', []),
+    ('qdiv_empty',[], '(0$1r2)%0r1', []),
+    ('qeq_empty',[], '(0$1r2)=1r2', []),
+    ('qop_length',[], '1r2 2r3+1 2 3', []),
+    ('qop_large',[], '('+'9'*200+'r7%'+'9'*200+'r3)*7r3', []),
+    ('qop_direct',['saved=:9007199254740993r2','f=:{{local=.saved\nlocal+1r3}}'],'f 0',['saved']),
+    ('qop_explicit',['saved=:9007199254740993r2',"f=:3 : 'local=.saved\nlocal+1r3'"],'f 0',['saved']),
+    ('qop_alias',['saved=:2r3','alias=:saved'],'saved=:saved+1r2',['saved','alias']),
+    ('qop_failed_assignment',['saved=:2r3'],'saved=:1r0-1r0',['saved']),
+    ('qop_catch',['saved=:2r3','f=:{{try. saved=:1r0-1r0 catch. saved end.}}'],'f 0',['saved']),
+]
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]

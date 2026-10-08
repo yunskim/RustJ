@@ -47,6 +47,13 @@ impl Rational {
             denominator,
         })
     }
+    pub(crate) fn from_finite(value: BigRational) -> Self {
+        let (numerator, denominator) = value.into_raw();
+        Self {
+            numerator,
+            denominator,
+        }
+    }
     pub fn numerator(&self) -> &BigInt {
         &self.numerator
     }

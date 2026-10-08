@@ -96,7 +96,7 @@ pub(crate) fn atomic_with_pool(
     let (shape, ad, bd) = agreement(&a, &b)?;
     let n = count(&shape)?;
     if a.is_rational() || b.is_rational() {
-        return Err(Error::Unsupported("rational arithmetic/comparison".into()));
+        return crate::rational::atomic(op, &a, &b, shape, ad, bd);
     }
     if a.is_extended() || b.is_extended() {
         return crate::extended::atomic(op, &a, &b, shape, ad, bd);
@@ -273,6 +273,7 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
         match verb {
             "$" => return crate::extended::counts([y.shape.len()], y.shape.iter().copied()),
             "#" => return crate::extended::counts([], [y.shape.first().copied().unwrap_or(1)]),
+            "-" | "|" | "*" | "%" => return crate::rational::unary(verb, y),
             "+" | "," | "<" | ">" | "|." | "|:" => {}
             _ => return Err(Error::Unsupported(format!("rational monad {verb}"))),
         }
@@ -420,6 +421,7 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
         return Err(Error::Unsupported(format!("sparse dyad {verb}")));
     }
     if (a.is_rational() || b.is_rational())
+        && !matches!(verb, "+" | "-" | "*" | "%" | "=" | "<" | ">")
         && (!matches!(verb, "$" | "{" | "|." | "{." | "}.") || a.is_rational())
     {
         return Err(Error::Unsupported(format!("rational dyad {verb}")));
@@ -594,7 +596,7 @@ fn reduction_step(op: Op, lhs: ArrayView<'_>, rhs: Value) -> Result<Value> {
 // storage is owned, so no borrowed cell can escape into the evaluator.
 fn arithmetic_views(op: Op, a: ArrayView<'_>, b: ArrayView<'_>) -> Result<Value> {
     if matches!(a.data, CpuView::Rational(_)) || matches!(b.data, CpuView::Rational(_)) {
-        return Err(Error::Unsupported("rational arithmetic".into()));
+        return atomic(op, a.to_owned()?, b.to_owned()?);
     }
     if matches!(a.data, CpuView::ExtendedInt(_)) || matches!(b.data, CpuView::ExtendedInt(_)) {
         return atomic(op, a.to_owned()?, b.to_owned()?);
