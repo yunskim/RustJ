@@ -126,8 +126,8 @@ fn parse_float(s: &str) -> Result<f64> {
 // which is *outside* the signed range and would saturate under an `as` cast.
 fn exact_real_int(value: f64) -> Option<i64> {
     const EXCLUSIVE_MAX: f64 = 9_223_372_036_854_775_808.0; // 2^63
-    if value.is_finite() && value.fract() == 0.0 && value >= -EXCLUSIVE_MAX && value < EXCLUSIVE_MAX
-    {
+    let in_int_range = (-EXCLUSIVE_MAX..EXCLUSIVE_MAX).contains(&value);
+    if value.is_finite() && value.fract() == 0.0 && in_int_range {
         Some(value as i64)
     } else {
         None
