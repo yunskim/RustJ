@@ -27,7 +27,11 @@ fn scientific_real_narrows_to_int_only_when_exact_and_allowed_by_spelling() {
         ("9007199254740992e0", 9_007_199_254_740_992),
     ] {
         let value = numeric_noun(source);
-        assert_eq!(value.type_code(), 4, "{source}: e-spelling must not become Bool");
+        assert_eq!(
+            value.type_code(),
+            4,
+            "{source}: e-spelling must not become Bool"
+        );
         assert_eq!(value.shape(), &[], "{source}");
         assert_eq!(value.int_at(0).unwrap(), expected, "{source}");
     }
@@ -52,14 +56,7 @@ fn real_narrowing_is_a_whole_word_decision() {
     }
 
     // Any decimal point forces Float for the *whole* word in wn.c::jtconnum.
-    for source in [
-        "1.",
-        "1.0",
-        "1.e0",
-        "1e0 1.0",
-        "1.0 2e0",
-        "0e0 2.0",
-    ] {
+    for source in ["1.", "1.0", "1.e0", "1e0 1.0", "1.0 2e0", "0e0 2.0"] {
         assert_eq!(numeric_noun(source).type_code(), 8, "{source}");
     }
     // Any fractional/non-finite/out-of-range atom keeps every atom Float.
@@ -126,7 +123,11 @@ fn scientific_dtype_survives_handoff_graph_logical_and_direct_runtime() {
         assert_eq!(runtime.json(), expected.json(), "{source}");
         let captured = engine.eval_captured(source);
         captured.capture.verify().unwrap();
-        assert_eq!(captured.result.unwrap().unwrap().json(), expected.json(), "{source}");
+        assert_eq!(
+            captured.result.unwrap().unwrap().json(),
+            expected.json(),
+            "{source}"
+        );
     }
 }
 
