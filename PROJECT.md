@@ -3371,7 +3371,17 @@ C `wn.c::jtconnum` uses `bcvtmask` to suppress Bool narrowing when two non-white
 
 Executed evidence: native Windows default/portable each **698 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **79 passed**. `numeric-integer-dtype-windows.json`: **18 fixtures × two DLLs = 36/36 matched**; N1 overflow **36/36 matched**. Existing frontend **60 matched / 16 runtime_gap**, NAME/definition **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched** remain unchanged. Each DLL's numeric grammar audit has **2,485 cases / zero failures**, retaining separate payload/precision boundaries. `tools/verify_frontend_reports.py --assets-root ../rustj-project-docs` confirms **12 reports / 698 source/binary/DLL hashes**. This does not verify C diagnostic locations, full J, Linux, GPU or GitHub CI.
 
-Next incomplete unit N2b is scientific real-to-Int narrowing and whole-word dtype combination. C makes `1e0` an Int, whereas RustJ's current real constructor leaves it Float. Review C `bcvt` range/integrality/conversion rules first, together with dot/overflow narrowing-suppression masks. Real ratios, exact/complex payloads and general NAME/locale boundaries follow. N2a does not claim to implement those semantics.
+N2b (scientific real-to-Int narrowing and whole-word dtype selection) is tracked as a separate implementation unit below; do not retroactively count N2a acceptance as proof of N2b.
+
+### Frontend numeric conversion N2b — integral scientific real (implementation branch; validation pending)
+
+**Rationale.** C `wn.c::jtconnum` reads real payloads and passes the spelling-derived `bcvtmask` to `k.c::jtbcvt`. Mask bit 1 suppresses Bool narrowing, bit 2 suppresses Int narrowing, and a decimal point blocks Int conversion. `CVTNOFUZZ` permits an Int result only when conversion is exact; `1e0` is **Int rather than Bool**, while `1.0` remains **Float**.
+
+**Implementation boundary.** Keep numeric recognition (`numeric_input`) and jsource-compatible parser reductions unchanged. In `src/enqueuer.rs`, narrow an already validated real word **as a whole** only if every atom is finite, integral, and within `[-2^63, 2^63)`; otherwise keep every atom Float. The upper bound is compared explicitly as `2^63`, since `i64::MAX as f64` rounds to `2^63`. Preserve the decimal-point spelling inhibition and the existing whole-word Float promotion on integer overflow. Distinguish `1e0 2e0`, `1e0 1e_1`, and `9223372036854775808e0`.
+
+**Verification gate.** `tests/numeric_scientific.rs` adds scalar/word dtype, signed limits, decimal-point suppression, and handoff/Graph/Logical/runtime/definition propagation coverage. Cargo tests, independent comparison with both C DLLs, and a successful Linux CI run have **not yet been confirmed on this branch**. Do not mark N2b accepted until those results are recorded.
+
+**Still separate.** Real-family ratio conversion, extended/rational/complex payloads, general locative/locale and boxed/AR assignment targets, unsupported modifiers, and definition-body CFG/Logical lowering are not addressed in this slice.
 
 ## 17. Active migration checklist
 
