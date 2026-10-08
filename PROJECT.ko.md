@@ -449,6 +449,45 @@ Physical planning / backend
 
 **J Graph IR은 frontend 결과물의 대체물이 아니다. Frontend가 J 의미를 소유하고, J Graph IR이 그 의미에서 optimizer가 사용할 계산 topology를 추출하는 단계적 관계다.** 이 경계를 무너뜨려 frontend에서 graph/physical 결정을 너무 일찍 하거나, 반대로 Graph IR에 source parser mechanics를 그대로 끌고 내려오지 않는다.
 
+#### 기억용 4단계 요약
+
+이 경계를 나중에 다시 읽을 때는 다음 네 문장으로 기억하면 된다.
+
+> **Frontend = 의미 구조**  
+> **J Graph IR = 계산 구조**  
+> **Execution IR = 실행 의미와 의존관계**  
+> **Physical Plan = 실제 실행 방법**
+
+조금 풀어 쓰면 다음과 같다.
+
+1. **Frontend — “J가 무엇을 의미하는가”**  
+   source를 jsource-compatible하게 reduction하여 J semantic structure를 만든다. Rank, Fork, Hook, adverb/conjunction, derived function, name/binding 같은 **언어 의미 구조**를 보존한다.
+
+2. **J Graph IR — “그 의미가 어떤 계산 graph가 되는가”**  
+   semantic structure를 실제 input에 적용했을 때 생기는 producer/consumer, branch/join, CellApply, Reduce 같은 **배열 연산 topology와 data dependency**를 드러낸다. 이 단계는 optimization opportunity를 찾기 위한 graph이며 아직 실제 실행 방법을 고르지 않는다.
+
+3. **Execution IR — “올바르게 실행하려면 무엇이 반드시 일어나야 하는가”**  
+   Graph의 계산을 explicit operation, SSA value/data dependency, semantic check, effect/error ordering 등으로 정규화한다. 즉 **실행 가능한 논리적 의미**를 만든다. 여기서 중요한 점은 **Execution IR이 곧 하드웨어 실행 계획은 아니라는 것**이다.
+
+4. **Physical Plan / backend — “이 하드웨어에서 실제로 어떻게 실행할 것인가”**  
+   같은 Execution IR에 대해 CPU scalar loop, SIMD/multicore, GPU kernel, MLIR/external compiler 등 서로 다른 realization을 선택할 수 있다. 이 단계에서 fusion, schedule, thread/work mapping, buffer, layout, materialization, memory placement와 synchronization을 구체화한다.
+
+예를 들어 논리적으로 같은 `CellApply(f, y)`는 다음처럼 여러 physical realization을 가질 수 있다.
+
+~~~text
+Execution IR
+  CellApply(f, y)
+        │
+        ├─ CPU scalar loop
+        ├─ CPU SIMD + multicore
+        ├─ GPU kernel
+        └─ MLIR / external compiler
+~~~
+
+따라서 `Execution IR = 실행 계획`이라고 말할 때의 “계획”은 **semantic execution plan**에 가깝고, `GPU block size`, `AVX2`, 특정 `BufferId`처럼 하드웨어에 묶인 최종 계획은 아니다.
+
+이 단계 분리가 jsource와 RustJ의 차이를 이해하는 데도 중요하다. jsource는 parser reduction 결과를 interpreter/runtime 흐름에서 곧바로 의미 동작과 실행에 소비하는 비중이 크다. RustJ도 jsource-compatible parser reduction을 수행하지만, 그 결과를 바로 소모하지 않고 **compiler가 분석·최적화할 수 있도록 semantic structure → computation graph → execution semantics → physical realization의 여러 경계에 걸쳐 보존한다.** 즉 RustJ에 중간 단계가 우연히 많아진 것이 아니라, J 의미를 잃지 않은 채 여러 optimization/backend 선택지를 열어 두기 위해 의도적으로 분리한 것이다.
+
 ### 2.1 RustJ compiler stage의 위상
 
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
