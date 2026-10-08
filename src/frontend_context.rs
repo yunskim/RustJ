@@ -105,10 +105,15 @@ impl ScopeInstanceId {
     pub(crate) fn fresh() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT: AtomicU64 = AtomicU64::new(1);
-        Self(
-            NEXT.try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-                .expect("scope instance identity exhausted"),
-        )
+        // Keep unique, non-wrapping identities while supporting Rust 1.85.
+        let mut id = NEXT.load(Ordering::Relaxed);
+        loop {
+            let next = id.checked_add(1).expect("scope instance identity exhausted");
+            match NEXT.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => return Self(id),
+                Err(current) => id = current,
+            }
+        }
     }
 }
 
