@@ -33,8 +33,9 @@ class FrontendReportEvidence(unittest.TestCase):
 
     def test_known_gaps_do_not_become_conformance_passes(self):
         self.assertEqual(self.verify(), 3)
-        with self.assertRaises(ValueError):
-            self.verify(fixture_set="numeric-overflow")
+        for fixture_set in ["numeric-overflow", "integer-dtype"]:
+            with self.assertRaises(ValueError):
+                self.verify(fixture_set=fixture_set)
 
     def test_source_tampering_and_missing_binaries_fail(self):
         self.file("src/test.rs", b"changed")

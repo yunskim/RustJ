@@ -10,7 +10,7 @@
     "jsrc/jerr.h": "70ed09fa0e3ebd92c151b1a352cfeff5ea0cf23ca5eb379f10c8e27ca06f4e0c"
   },
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "a92d53baab927c367f26308878a44e14445a27deb1b7558c2c9a1f714a900da7",
+  "binary_sha256": "55d481d2790368e5ccf5cbb42f526b6c16f727a28c508370dbc155ef2963daab",
   "cases": 2485,
   "checks": {
     "accepted_noun_control": 184,

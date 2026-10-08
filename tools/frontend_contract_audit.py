@@ -76,6 +76,27 @@ NUMERIC_OVERFLOW_CASES = [
     ("explicit_overflow_body", ["f=:3 : '9223372036854775808'"], "f 0", []),
 ]
 
+INTEGER_DTYPE_CASES = [
+    ("bool_zero", [], "0", []),
+    ("bool_one", [], "1", []),
+    ("bool_negative_zero_scalar", [], "_0", []),
+    ("int_double_zero", [], "00", []),
+    ("int_leading_zero_one", [], "01", []),
+    ("int_triple_zero", [], "000", []),
+    ("int_many_leading_zeros", [], "0001", []),
+    ("int_negative_double_zero", [], "_00", []),
+    ("int_negative_leading_zero_one", [], "_01", []),
+    ("bool_word", [], "0 1", []),
+    ("int_signed_atom_last", [], "0 _0", []),
+    ("int_signed_atom_first", [], "_0 1", []),
+    ("int_double_zero_word", [], "00 1", []),
+    ("int_leading_zero_word", [], "0 01", []),
+    ("int_assignment", [], "saved=:01", ["saved"]),
+    ("int_direct_body", ["f=:{{01}}"], "f 0", []),
+    ("int_explicit_body", ["f=:3 : '_00'"], "f 0", []),
+    ("int_boxed_payload", [], "<01", []),
+]
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
@@ -117,7 +138,7 @@ def enforce_acceptance(report, strict_runtime=False):
            for counts in report["stage_admission_counts"].values() for category in counts):
         raise SystemExit("Internal stage failure must not be classified as a runtime gap")
     if strict_runtime and report["counts"].get("runtime_gap", 0):
-        raise SystemExit("Numeric overflow conformance difference")
+        raise SystemExit("Strict numeric conformance difference")
 
 
 def main():
@@ -125,13 +146,17 @@ def main():
     p.add_argument("--assets-root", type=Path, required=True)
     p.add_argument("--probe", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
-    p.add_argument("--numeric-overflow-fixtures-only", action="store_true",
+    selection = p.add_mutually_exclusive_group()
+    selection.add_argument("--numeric-overflow-fixtures-only", action="store_true",
                    help="Strict bounded decimal-overflow corpus: any runtime difference fails")
+    selection.add_argument("--integer-dtype-fixtures-only", action="store_true",
+                           help="Strict bounded integer-spelling dtype corpus")
     args = p.parse_args()
     if sys.platform != "win32":
         p.error("Native Windows audit only")
     rust = {}
-    selected = NUMERIC_OVERFLOW_CASES if args.numeric_overflow_fixtures_only else CASES
+    selected = (NUMERIC_OVERFLOW_CASES if args.numeric_overflow_fixtures_only else
+                INTEGER_DTYPE_CASES if args.integer_dtype_fixtures_only else CASES)
     cases = [(name, setup, source, [s + "+0" for s in after]) for name, setup, source, after in selected]
     for name, setup, source, after in cases:
         setup_rust, stages, post = probe(args.probe, setup, source, after)
@@ -185,7 +210,8 @@ def main():
                                    for name in ("j.dll", "javx2.dll")},
               "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
               "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
-              "fixture_set": "numeric-overflow" if args.numeric_overflow_fixtures_only else "frontend-boundaries",
+              "fixture_set": ("numeric-overflow" if args.numeric_overflow_fixtures_only else
+                              "integer-dtype" if args.integer_dtype_fixtures_only else "frontend-boundaries"),
               "cases": len(selected), "observations": len(comparisons),
               "counts": dict(Counter(r["status"] for r in comparisons)),
               "stage_admission_counts": {stage: dict(Counter(inspection_outcome(stage, values[1][stage]) for values in rust.values())) for stage in INSPECTION_STAGES},
@@ -193,7 +219,7 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     print(json.dumps({key: report[key] for key in ("cases", "observations", "counts", "stage_admission_counts")}))
-    enforce_acceptance(report, args.numeric_overflow_fixtures_only)
+    enforce_acceptance(report, args.numeric_overflow_fixtures_only or args.integer_dtype_fixtures_only)
 
 
 if __name__ == "__main__":

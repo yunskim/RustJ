@@ -176,3 +176,62 @@ fn float_json_preserves_large_values_and_negative_zero_for_numeric_decoders() {
     }
     assert!(Value::scalar(7).json().ends_with("[7]}"));
 }
+
+#[test]
+fn integer_spelling_controls_bool_narrowing_for_the_whole_word() {
+    for (source, dtype, atoms) in [
+        ("0", 1, vec![0]),
+        ("1", 1, vec![1]),
+        ("_0", 1, vec![0]),
+        ("00", 4, vec![0]),
+        ("01", 4, vec![1]),
+        ("0001", 4, vec![1]),
+        ("_00", 4, vec![0]),
+        ("_01", 4, vec![-1]),
+        ("0 1", 1, vec![0, 1]),
+        ("0 _0", 4, vec![0, 0]),
+        ("_0 1", 4, vec![0, 1]),
+        ("00 1", 4, vec![0, 1]),
+        ("0 01", 4, vec![0, 1]),
+    ] {
+        let value = noun(source);
+        assert_eq!(value.type_code(), dtype, "{source}");
+        assert_eq!(value.len(), atoms.len());
+        for (index, atom) in atoms.into_iter().enumerate() {
+            assert_eq!(value.int_at(index).unwrap(), atom);
+        }
+        let mut engine = Engine::new();
+        let handoff = engine.admit_frontend_handoff(source).into_result().unwrap();
+        let ExprKind::Literal(literal) = &handoff.program().expression.as_ref().unwrap().kind
+        else {
+            panic!("literal");
+        };
+        assert_eq!(literal.type_code(), dtype);
+        let logical = engine.admit_logical(source).into_result().unwrap().logical;
+        let result = rustj::logical_executor::execute_closed(&logical)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.json(), value.json());
+        assert_eq!(engine.eval(source).unwrap().unwrap().json(), value.json());
+    }
+}
+
+#[test]
+fn integer_spelling_survives_assignment_definitions_and_boxing() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for source in ["saved=:01", "f=:{{01}}", "g=:3 : '_00'"] {
+            engine.eval(source).unwrap();
+        }
+        for source in ["saved", "f 0", "g 0", "> < 01"] {
+            let value = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(value.type_code(), 4, "{source}");
+        }
+    }
+}

@@ -281,7 +281,9 @@ fn interpret_word<'a>(
                 Scalar::Float(parse_float(word)?)
             } else {
                 match parse_int(word)? {
-                    Some(x @ (0 | 1)) => Scalar::Bool(x != 0),
+                    // wn.c's single-digit / two-character negative shortcuts
+                    // precede the whole-word Bool suppression mask.
+                    Some(x @ (0 | 1)) if word.len() == 1 || word == "_0" => Scalar::Bool(x != 0),
                     Some(x) => Scalar::Int(x),
                     None => Scalar::Float(parse_float(word)?),
                 }
@@ -304,7 +306,12 @@ fn interpret_word<'a>(
                 .map(parse_int)
                 .collect::<Result<Option<Vec<_>>>>()?;
             if let Some(values) = values {
-                if values.iter().all(|&n| n == 0 || n == 1) {
+                // Value equality alone cannot authorize narrowing: 00, 01 and
+                // signed atoms suppress Bool for the whole array in jtconnum.
+                if word
+                    .split_ascii_whitespace()
+                    .all(|part| matches!(part, "0" | "1"))
+                {
                     Data::Bool(CpuStorage::new(
                         values.into_iter().map(|n| n as u8).collect(),
                     ))
