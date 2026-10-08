@@ -476,6 +476,47 @@ Rejected      Missing/forged/unsupported evidence; safe alternative
 
 **Status:** RB-01–08 and RB-V0–V4 are **design-complete only**. Implementing/running a certified RouteBoundary verifier, negative tests, jsource differential and reproducible pass evidence is a separate incomplete milestone. Existing `partition_plan` ranges and A3 structural verification alone do not complete M3, M4 or HE-01.
 
+<a id="sw-mlpl-reference-checklist"></a>
+### 2.1.2 sw-MLPL implementation references and RustJ acceptance checklist (2026-10-08; research/design only)
+
+**Source and scope:** Reviewed the [sw-MLPL repository at pinned commit `d53c35f810aa`](https://github.com/sw-ml-study/sw-mlpl/tree/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f) (2026-10-03) across source, tests and design docs. The result is a set of **implementation references and acceptance gates within the existing M3 RouteBoundary, M4 native CPU, and M5+ heterogeneous plans**, not a new mandatory IR, language syntax, backend, status report or independent roadmap. Existing RB-01–08/RB-V0–V4, M4→M5 gates and §17/HE items retain authority. **[x] Research and source review; [ ] RustJ implementation and validation remain pending.** Document edits do not close runtime gates.
+
+**Semantic firewall:** sw-MLPL is an array interpreter with NumPy-style trailing-axis broadcasting, axis-name metadata, a partial compile-to-Rust path, a resident MLX tensor tape and experimental CUDA coverage ([S0], [S2], [S3]). RustJ must instead preserve the actual J Rank/CellApply and zero-frame virtual fill contracts, dynamic names/locales/`".`, observable J types/boxed/sparse/fit, error precedence and effect ordering. Never replace J semantic identity, A3 `ValueId` or full-language scope with sw-MLPL `AxisSpec`, `TensorHandle` or its closed compiled subset. `[0,3]` zero frame and `[2,0]` positive frame/empty cells have different prototype/execution obligations even though both contain zero atoms (§P.12 in Korean canonical).
+
+**Actionable checklist:** Close each item only with a linked code change, PR/commit, positive and single-invariant negative test, *actually executed* command/result, and upstream source reference recorded against the matching §17/HE checklist. Pending/skipped CI and unimplemented hardware are not passes.
+
+| ID / stage | RustJ adoption inside existing contracts | Acceptance gate and rejection examples | Sources |
+|---|---|---|---|
+| **SW-01 / M3** | [ ] Machine-check a `LoweringRegistry` coverage/capability manifest keyed by primitive, valence, rank/cell, J dtype/representation, error/effect, route/target and guard. Distinguish supported, runtime/guarded and unimplemented cases. **Per-op support is not region-wide Verified.** Keep docs and checked registry synchronized. | Registry additions/removals trigger coverage updates; reject unregistered ops, wrong valence, boxed/sparse mismatch, stale witnesses, missing zero-frame duties and `ReferenceSequential` misclassified as native. Meet RB-06/08 and RB-V2–4 before closing. | [S4], [S5] |
+| **SW-02 / M3** | [ ] Reuse existing `RankPlan`, A3 `IterationDomain` and SemanticCheck to explain logical shapes, frame/cell/reduction axes, result-cell assembly and evidence via consistent structured diagnostics. Retain source provenance and `ErrorKind + ErrorContext`; do not import named-axis language syntax. | Regression on invalid/repeated/out-of-range axes, `[0,3]` vs `[2,0]`, uncertain result cells and original J first errors. Fail if diagnostics mask or alter a J error. | [S1], [S2], [S7] |
+| **SW-03 / M4** | [ ] Batch compilation of many small compiler-native parity cases to amortize build cost. Use as an adjunct to **three independent paths**: jsource C oracle, RustJ semantic reference and an actual physical/native route; categorize unsupported cases explicitly. | Match J dtype, shape, logical atom order, values, boxed/sparse where supported, first error, observable effects and names—not just one scalar. Include zero-frame fill, overflow, fit/tolerance, dynamic names and negative routing. Calling the reference evaluator is not native acceptance. | [S6], [S4] |
+| **SW-04 / M4** | [ ] Benchmark actual lowered code and separate parse/compile/runtime, allocations/peak residency, materialization and bytes touched. Separate fast blast-radius proxies from slow release gates. | Reproducible reference/native cases for scalars, small arrays, reductions, reindex, zero frame, ranked composition and effect boundary; correctness first, then record machine, SHA, settings, median and regressions. Unrun benches are not evidence. | [S8], [S9] |
+| **SW-05 / M5+** | [ ] Instrument real Physical/Bridge seams: upload/download, materialize, submit, CPU fallback, transfer bytes, sync/ready waits and guard misses. Tie events to physical storage/leases/versions; do not place handles in Logical `ValueId`. | Zero-transfer CPU baseline, unchanged J observables despite residency, and plan-verifier rejection for missing transfers, read-before-ready, stale versions and duplicate commits. Without real GPU, record design/static verification only, not GPU runtime or performance passes. | [S3], [S10] |
+| **SW-06 / M4→M5+** | [ ] Optional structured trace connecting source spans, original A3 OpId/`j_origin`, dtype/shape, checks/effects, chosen physical route, materialization and fallback. Record IDs/bounded summaries—not copied large noun payloads—and measure trace overhead separately. | Trace on/off parity for J values, errors, effects and order; inspect original-source→A3→physical mapping and rejection reasons. Do not confuse speculative analysis facts with observed runtime events. | [S7], [S11] |
+
+**Priority and explicit non-adoptions**
+
+- **M2 remains first:** Fix jsource/frontend/Rank/empty-frame semantic mismatches against the C oracle before using any of these techniques to claim route legality.
+- **M3 → M4 → M5 (then M6):** SW-01/02 enhance the existing RB verifier; SW-03/04 need a real M4 compiler-native CPU vertical slice; SW-05 follows M5 placement/transfer modeling and actual GPU execution remains gated by separately authorized M6/hardware conditions. SW-06 can be introduced incrementally.
+- **Do not adopt:** NumPy broadcasting in place of J Rank; an AOT model that prohibits J `".` and dynamic names; conflating MLPL `Value` or device handles with J nouns/functions or A3 values; replacing general J SSA with an autograd tape; treating numeric-scalar parity as whole-J conformance.
+- **Status (2026-10-08):** [x] sources and design boundaries captured; [ ] SW-01; [ ] SW-02; [ ] SW-03; [ ] SW-04; [ ] SW-05; [ ] SW-06. Each stays open until implementation, passing negative/conformance coverage, and recorded commands/commits/CI links.
+
+**Pinned upstream implementation sources** (each link targets the same commit; implementation and planning documents are distinguished):
+
+- **[S0]** [sw-MLPL README and maturity boundaries](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/README.md).
+- **[S1]** [Shared AxisSpec resolver](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-axes/src/axis_spec.rs).
+- **[S2]** [Trailing-axis broadcasting implementation](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array-element/crates/mlpl-array-ops-element/src/broadcast.rs), [shape/empty regressions](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array-element/crates/mlpl-array-ops-element/tests/broadcast_shape_tests.rs).
+- **[S3]** [TensorHandle](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/handle.rs), [DeviceOps](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/ops.rs), [seam counters](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/metrics.rs).
+- **[S4]** [Coverage boundary tests](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/syntax-codegen/crates/mlpl-lower-rs/tests/coverage_boundary_tests.rs), [coverage guide](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/compiler-coverage.md).
+- **[S5]** [Lowering-dispatch coverage tests](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/syntax-codegen/crates/mlpl-lower-rs/tests/dispatch_coverage_tests.rs).
+- **[S6]** [Interpreter/compiled parity harness](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/dev-tools/crates/mlpl-parity-tests/tests/parity_tests.rs) (currently scalar-numeric oriented; insufficient as the only J oracle).
+- **[S7]** [Structured TraceEvent](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/autograd/crates/mlpl-trace/src/event.rs).
+- **[S8]** [Real-lowering benchmarking method and results](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/benchmarks.md), [bench harness](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/dev-tools/crates/mlpl-bench/benches/interp_vs_compiled.rs).
+- **[S9]** [Risk-tiered testing cadence](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/testing-cadence.md).
+- **[S10]** [Architecture/resident device backend scope](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/architecture.md).
+- **[S11]** [Dataflow renderer design (reference, not a dependency)](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/dataflow-renderer-design.md).
+
+
 ---
 
 <a id="read-frontend"></a>
@@ -4429,6 +4470,8 @@ Error/cleanup contract: Check failures remain J semantic errors; backend impleme
 6. **M4/HE-01 acceptance:** a real compiler-native operation (starting with selected Add) plus necessary Check/View/Materialize steps must execute through A3 → verified PhysicalPlan → CPU and pass negative verifier cases and jsource differential. A lone literal \`BindInput → Return\`, documents or test source alone cannot close M4/HE-01. Neither mixed-device placement nor GPU/async realization is a prerequisite of this initial acceptance.
 
 **Status (2026-10-07):** Only these prerequisites and verification steps are approved as design. No new runtime implementation, execution-test result, performance claim, or M4/HE-01–09 completion is asserted. Future implementation evidence belongs in the existing §17/HE checklist.
+
+**Related acceptance checklist:** [sw-MLPL SW-03/04/06 implementation references](#sw-mlpl-reference-checklist) supplement the existing M4 gates; inserting this research is not a runtime pass.
 
 #### Independent M4 architectural consistency audit (2026-10-07; **no implementation**)
 
