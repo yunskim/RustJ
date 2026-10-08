@@ -24,6 +24,174 @@ The current implementation is transitional: a limited J frontend, direct CPU exe
 - **Latest validation (2026-10-07):** Windows default/portable each **608 passed / zero ignored / zero failures**, Python **67 passed**; fmt/clippy pass. See the definition follow-up section for newly executed bounded C comparisons. Historical 2026-10-05 5,380-case runtime and GF6a gates are time-local evidence, not newly rerun results.
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
+## Introduction for first-time readers — how to think about RustJ
+
+This is an integrated project document containing architecture, implementation details, and validation history. Reading it strictly from top to bottom can expose details before the overall model is clear. On a first pass, start with the **four-stage mental model** in this section, then descend into the detailed sections as needed.
+
+### RustJ in one sentence
+
+RustJ is a **compiler/runtime that preserves J language semantics compatibly with jsource, turns those semantics into analyzable array computation, optimizes it, and can lower it to multiple execution routes such as CPU, GPU, and external compilers**.
+
+The key is that RustJ does not translate J source directly into loops or GPU kernels. J contains Rank, adverbs, conjunctions, hook/fork/train, name lookup, and other constructs where **language meaning itself determines computation structure**. Lowering them too early loses both J semantics and high-level information useful to an optimizer.
+
+RustJ therefore asks four different questions at four different stages.
+
+~~~text
+J source
+   ↓
+Frontend
+   "What does this J program mean?"
+   = semantic structure
+   ↓
+J Graph IR
+   "What array computation does that meaning create?"
+   = computation structure
+   ↓
+Execution IR
+   "What must happen for it to execute correctly?"
+   = execution semantics and dependencies
+   ↓
+Physical Plan / backend
+   "How should this machine actually execute it?"
+   = concrete realization
+   ↓
+execution
+~~~
+
+For a first reading, these four lines are enough:
+
+> **Frontend = semantic structure**  
+> **J Graph IR = computation structure**  
+> **Execution IR = execution semantics and dependencies**  
+> **Physical Plan = concrete realization**
+
+### Why split the system into four stages?
+
+Because each stage answers a different question.
+
+| Stage | Core question | Preserves or decides | Does not decide yet |
+|---|---|---|---|
+| Frontend | What does J mean? | noun/verb/adverb/conjunction, derived functions, Rank, Hook/Fork, names/bindings | fusion, buffers, GPU kernels |
+| J Graph IR | What computation graph exists? | producer/consumer, branch/join, CellApply, Reduce, dataflow | a specific CPU/GPU realization |
+| Execution IR | What is required for correct execution? | explicit operations, SSA/data dependencies, semantic checks, effect/error order | AVX2, GPU block size, concrete buffers |
+| Physical Plan | How should this machine run it? | route, committed fusion, schedule, layout, buffers, SIMD/thread/GPU mapping | — |
+
+This is not layering for its own sake. The purpose is to **preserve J meaning while keeping optimization choices open until the stage that has enough information to make them**.
+
+For example, the same logical execution meaning CellApply(f, y) may later become any of:
+
+~~~text
+CPU scalar loop
+CPU SIMD + multicore
+GPU kernel
+MLIR / external compiler
+verified library call
+~~~
+
+Choosing one of those in Execution IR would close the optimizer/backend search space too early.
+
+### How is this different from jsource?
+
+jsource also performs parser reductions and constructs meanings such as derived verbs and hook/fork/train. The difference is primarily **how those reduction results are consumed**.
+
+~~~text
+jsource
+tokens → enqueue → parser reduction
+                     ↓
+               semantic action
+                     ↓
+              runtime execution
+~~~
+
+In jsource, parser reduction, semantic action, and runtime execution are closely connected inside an interpreter/runtime flow. There is therefore less need to retain several independent compiler representations for a long time.
+
+RustJ must still perform jsource-compatible reductions in its frontend, but it does not immediately consume the result through execution.
+
+~~~text
+RustJ
+parser reduction
+      ↓
+J semantic structure
+      ↓
+computation graph
+      ↓
+execution semantics
+      ↓
+physical realization
+~~~
+
+So the difference is not that RustJ happened to accumulate more intermediate stages. **The stages are intentional because analysis, optimization, and multiple backends require semantics to remain available across several compiler boundaries.**
+
+### What evolved from JAXA?
+
+JAXA's important starting point was to read optimization-relevant structure directly from J function composition and array notation: for example, treating a Fork as branch/join topology and composition as a producer/consumer chain.
+
+RustJ keeps that insight but makes one additional boundary explicit.
+
+~~~text
+JAXA's central concern
+J syntax / analyzer
+      ↓
+optimization-relevant structure
+
+RustJ
+J semantic structure
+      ↓
+J computation graph
+      ↓
+execution semantics
+      ↓
+physical realization
+~~~
+
+RustJ therefore **does not treat J language-semantic structure and optimizer-facing computation structure as the same representation**. Making that distinction explicit is one of the important architectural advances from JAXA to RustJ.
+
+For example, in f"1 y, the frontend first preserves this meaning:
+
+~~~text
+Rank conjunction (")
+  ├─ left operand:  f
+  └─ right operand: 1
+          ↓
+      derived verb
+          ↓ apply
+          y
+~~~
+
+J Graph IR may then expose the same meaning to the optimizer as cell application:
+
+~~~text
+y
+│
+▼
+Rank / CellApply
+│  function = f
+│  cell rank = 1
+▼
+result
+~~~
+
+The first representation owns **what the J program means**; the second owns **what computation structure that meaning creates**. Neither replaces the other.
+
+### Relationship to other compilers
+
+The broad direction is not unique to RustJ. LLVM, MLIR, XLA/JAX, Futhark, and other modern compiler systems also preserve higher-level meaning or operations and progressively lower them toward target-specific representations.
+
+RustJ's distinguishing requirement is the strong **full-J semantic frontend** placed in front of that familiar compiler architecture. RustJ can borrow proven layering ideas from other systems without redefining Rank, derived verbs, Hook/Fork, name semantics, or other J behavior for compiler convenience.
+
+### Recommended first-reading path
+
+A first-time reader can understand the architecture by following only this path:
+
+1. **This introduction** — build the mental model for why the stages exist.
+2. **§1 Project goal** — understand what RustJ is trying to build.
+3. **§2 Target architecture** — see the actual pipeline and stage boundaries.
+4. **The Frontend ↔ J Graph explanation in §2** — verify the semantic/computation distinction with concrete examples.
+5. **§3 J Semantic Array IR and §4 J Graph Analyzer / Execution Semantic Lowering** — descend into contracts when implementation detail is needed.
+6. Read reference implementations, historical rationale, checklists, and validation records when a particular design decision or implementation task requires them.
+
+The rest of this document either makes the responsibilities of those four stages precise or records evidence that the boundaries preserve real J semantics.
+
 ## 1. Project goal
 
 RustJ aims to implement:
