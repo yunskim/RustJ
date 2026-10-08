@@ -118,6 +118,18 @@ fn parse_float(s: &str) -> Result<f64> {
     }
 }
 
+// k.c::bcvt uses CVTNOFUZZ: never round a nearby noninteger or let a
+// saturating Rust cast turn the exclusive upper bound into i64::MAX.
+fn exact_literal_int(value: f64) -> Option<i64> {
+    if (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&value)
+        && value.fract() == 0.0
+    {
+        Some(value as i64)
+    } else {
+        None
+    }
+}
+
 /// C t.c CALP/CACE are permanent immutable nouns, independent of function
 /// construction/execution support. Share payloads across enqueue occurrences.
 fn core_noun(word: &str) -> Option<Value> {
@@ -276,9 +288,17 @@ fn interpret_word<'a>(
         let is_float = word
             .split_ascii_whitespace()
             .any(|part| part.contains(['.', 'e', 'E']) || part == "_" || part == "__");
+        // numcase clears INT for lowercase e. Uppercase E alone instead
+        // fails the INT reader, whose overflow mask suppresses narrowing.
+        let narrow_real = word.contains('e') && !word.contains('.');
         if fields == 1 {
             let value = if is_float {
-                Scalar::Float(parse_float(word)?)
+                let value = parse_float(word)?;
+                if let Some(integer) = narrow_real.then(|| exact_literal_int(value)).flatten() {
+                    Scalar::Int(integer)
+                } else {
+                    Scalar::Float(value)
+                }
             } else {
                 match parse_int(word)? {
                     // wn.c's single-digit / two-character negative shortcuts
@@ -295,11 +315,21 @@ fn interpret_word<'a>(
             ));
         }
         let data = if is_float {
-            Data::Float(CpuStorage::new(
-                word.split_ascii_whitespace()
-                    .map(parse_float)
-                    .collect::<Result<Vec<_>>>()?,
-            ))
+            let values = word
+                .split_ascii_whitespace()
+                .map(parse_float)
+                .collect::<Result<Vec<_>>>()?;
+            if narrow_real
+                && values
+                    .iter()
+                    .all(|&value| exact_literal_int(value).is_some())
+            {
+                Data::Int(CpuStorage::new(
+                    values.into_iter().map(|value| value as i64).collect(),
+                ))
+            } else {
+                Data::Float(CpuStorage::new(values))
+            }
         } else {
             let values = word
                 .split_ascii_whitespace()

@@ -15,6 +15,7 @@ REPORTS = [
     "definition-loops-windows", "definition-nested-windows", "definition-name-scopes-windows",
     "frontend-contract-audit-windows", "name-effects-windows", "numeric-overflow-windows",
     "numeric-syntax-j64-windows", "numeric-syntax-avx2-windows", "numeric-integer-dtype-windows",
+    "numeric-scientific-windows",
 ]
 
 
@@ -62,7 +63,7 @@ def verify_report(root, assets, path):
         raise ValueError(f"Unrecognized audit status: {path}")
     if counts and sum(counts.values()) != report["observations"]:
         raise ValueError(f"Incomplete observation counts: {path}")
-    if report.get("fixture_set") in {"numeric-overflow", "integer-dtype"} and set(counts) != {"matched"}:
+    if report.get("fixture_set") in {"numeric-overflow", "integer-dtype", "scientific"} and set(counts) != {"matched"}:
         raise ValueError(f"Strict numeric audit contains gaps: {path}")
     return checks
 

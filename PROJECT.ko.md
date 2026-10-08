@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal literal 변경):** default/portable 각각 **698 passed / 0 failed / 0 ignored**, Python **79 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal literal 변경):** default/portable 각각 **703 passed / 0 failed / 0 ignored**, Python **79 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -7774,7 +7774,23 @@ C `wn.c::jtconnum`의 `bcvtmask`는 연속된 두 비공백 문자가 있으면 
 
 실행 결과: Windows default/portable 각각 **698 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets), Python **79 passed**. `numeric-integer-dtype-windows.json`의 **18 fixtures × 두 DLL = 36/36 matched**, N1 overflow **36/36 matched**. 기존 frontend **60 matched / 16 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched** 유지. 두 DLL 숫자 문법 감사는 각각 **2,485 cases / 0 failed**이며 미지원 payload/precision 경계는 그대로 별도 집계한다. `tools/verify_frontend_reports.py --assets-root ../rustj-project-docs`로 **12개 report / 698 source·binary·DLL hash** 확인 완료. C 진단 위치, 전체 J, Linux·GPU·GitHub CI 검증은 아니다.
 
-다음 미완료 단위 N2b는 scientific real의 Int 축소와 whole-word dtype 결합이다. C에서는 `1e0`이 Int지만 현재 RustJ의 real constructor는 Float으로 남긴다. C `bcvt`의 범위·정수성·변환 규칙을 먼저 확인하고 원문 dot/overflow의 축소 금지 mask와 함께 검증한다. 그 뒤 real ratio conversion, exact/complex payload 및 일반 NAME/locale 경계를 진행한다. 이번 N2a가 이 범위를 해결한 것으로 표시하지 않는다.
+N2a 완료 시 남았던 scientific real의 Int 축소와 whole-word dtype 결합은 아래 N2b에서 별도 구현·검증한다. 당시 `1e0`은 C의 Int와 달리 RustJ에서 Float이었다. real ratio conversion, exact/complex payload 및 일반 NAME/locale 경계는 N2b 이후에도 미완료로 유지한다.
+
+
+### Frontend 숫자 변환 N2b — scientific real의 정확한 Int 축소
+
+입력은 현재 real constructor가 읽는 숫자 word이며 출력은 같은 Scalar/Value literal이다. C `wn.c::jtnumcase/jtconnum`과 `k.c::jtbcvt/jtIfromD`, `j.h::ISFTOIOKFZ`를 따른다. `CVTNOFUZZ`이므로 정확히 정수인 Float만 signed 64-bit 범위 `[-2^63, 2^63)`에서 축소한다. word 전체에 소문자 e가 있고 dot이 없을 때 Float 경로에서 축소 가능하다. 대문자 E만 있으면 INT reader 실패 후 overflow suppression mask가 설정되어 Float 유지; 소문자 e가 함께 있으면 word 전체가 real 경로다. 원문 정수가 real word에 섞이면 먼저 모두 Float으로 읽은 뒤 축소하므로 `9007199254740993 1e0`의 첫 값은 9007199254740992다. Bool 축소, exact/ratio payload, NAME 실행이나 physical 저장 결정은 하지 않는다.
+
+- [x] pin된 C source와 두 DLL의 경계/표기/whole-word 동작 확인.
+- [x] 비허용 값 하나가 있으면 word 전체 Float 유지, 정확한 범위 검사 후 Int 축소.
+- [x] parser/handoff/Logical·실행·정의·대입 및 실패 원문 회귀.
+- [x] 독립 strict scientific corpus, 기존 감사, Windows default/portable·Python·fmt/clippy·hash 검증 후 push.
+
+실행 검증: Windows default/portable 각각 **703 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets), Python **79 passed**. `tests/numeric_scientific.rs` 신규 회귀 5개는 정확한 범위/정수성·표기 mask·whole-word 반올림·handoff/Logical·정의/대입 실패 상태를 다룬다. `numeric-scientific-windows.json`은 고정 40개와 mantissa 7 × exponent 7 × e/E 2 × scalar/real-word/dot-word 3 조합 294개, 합계 **334 fixtures × C DLL 2 = 668/668 matched**다. 각 frontend/handoff/binding/Graph/Logical inspection은 332 representation 수용·2개 J 입력 진단이며 내부 verifier/backend 실패는 0이다. 표현 수용과 실제 C 결과 비교, native compiled 실행은 다른 주장이다.
+
+기존 N1 overflow 및 N2a 정수 타입은 각각 **36/36 matched**, frontend **60 matched / 16 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched** 유지. 각 C DLL의 numeric syntax 감사 **2,485 cases / 0 failed**는 recognition 검사이며 미지원 payload/precision 경계는 계속 별도로 기록한다. **13개 report / 765 source·binary·DLL hash**를 지속 검증 도구로 확인했다. 실제 DLL release와 검토한 C source pin이 다른 제한, C 진단 위치/문구·full J·Linux·GPU·GitHub CI 미검증은 유지한다.
+
+후속 미완료: real-family ratio conversion이 다음 numeric 단위이며 exact/complex payload·일반 locale/locative·boxed/AR target·modifier 경계 및 본문 Graph/Logical/CFG는 독립 후속 과제다. N2b는 숫자 literal 의미 보완이며 성능 향상이나 전체 frontend 완성을 주장하지 않는다.
 
 ## 13. 프레임워크 조사에서 채택한 원칙
 

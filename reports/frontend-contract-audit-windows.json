@@ -1,6 +1,6 @@
 {
   "scope": "Bounded admission, handoff and error audit; gaps are findings, not passes. C diagnostic locations are not compared.",
-  "revision": "362f4859fcf09c97baa7a1d6a58f4f4884a33011",
+  "revision": "48fd6bd73feaba6a8a415471982041d5b2db9a61",
   "rust_source_sha256": {
     "src\\admission.rs": "40cfe69e39169afe58c4471ca5a29094c88e48d5baf2ff4e07a25f72c5660029",
     "src\\analysis.rs": "6b21b318ad6f8227a099023390150d0907a8bb79eacf34a78441a09562067862",
@@ -14,7 +14,7 @@
     "src\\definition_control.rs": "c42abb5b7417b0e15fff796488053a379e8e352e53d8b1679377d35ff367f075",
     "src\\definition_flow.rs": "3b8d52fea33f484cc56ee57f286353b2f5521d18e9675732af21dd8b50c65de0",
     "src\\definition_input.rs": "aa53392c875d58dd2fd256b398312dcfc1735dbf8b68cbfd9cf17dc0a9c179dd",
-    "src\\enqueuer.rs": "955664d42e8a43a5542cc1a43e1d9cd73f391d106a27fdcd24c13b12c313e85e",
+    "src\\enqueuer.rs": "83048ff270740d43c04add2f87df9314dddcf462f4159b2b67b4b346af632f5d",
     "src\\error.rs": "f475496a7e0970d43081f80ebe59f68a8f03585271a3241de1da587e63c2506c",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src\\expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
@@ -65,9 +65,9 @@
     "src\\types.rs": "502531ee2eeba34a3508a93b1f4320d48d2f9e0d02d753bbdb82e5e3b1f3602b",
     "src\\value.rs": "b41cc5c45580977a7043cac18ab9044a161d74acc12d756e81f84d403b3a95c5"
   },
-  "probe_sha256": "365f390bd62fc289afee40948eb2374bd46a74e96a81ef9e9ee668b786e34e52",
+  "probe_sha256": "364ed71ed94cd9ebf4fbcd121b8ba28696adacca117acd2fa62923a99bea17e4",
   "audit_source_sha256": {
-    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "d8177e9a73559d8b76560b32673a953123b04a59c2e01e532c8fb45e3f75071f",
+    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "2ed330a6f341360b8aaf6aa161dbe2dbbddcf7d185ad94f409cef5f0c22ff727",
     "examples\\frontend_contract_probe.rs": "459ce2e9f4206767c80b33e03959f2aa28ff9946fc89ac1a7f54c021b5a80143"
   },
   "reference_sha256": {

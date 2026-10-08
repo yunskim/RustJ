@@ -97,6 +97,49 @@ INTEGER_DTYPE_CASES = [
     ("int_boxed_payload", [], "<01", []),
 ]
 
+SCIENTIFIC_CASES = [
+    (name, [], source, []) for name, source in [
+        ("one", "1e0"), ("zero", "0e0"), ("negative_zero", "_0e0"),
+        ("uppercase", "1E0"), ("uppercase_zero", "0E0"), ("uppercase_signed_zero", "_0E0"),
+        ("fraction", "1e_1"), ("exact_scaled", "10e_1"),
+        ("near_integer", "100000000000001e_14"),
+        ("underflow", "1e_9999"), ("negative_underflow", "_1e_9999"),
+        ("dot_scalar", "1.0e0"), ("dot_word", "1e0 1.0"),
+        ("uppercase_word", "1E0 1"), ("mixed_exponents", "1E0 1e0"),
+        ("mixed_signed_zero", "1e0 _0E0"), ("integer_word", "1e0 0 1"),
+        ("precision_first", "9007199254740993 1e0"), ("precision_last", "1e0 9007199254740993"),
+        ("min_inclusive", "_9223372036854775808e0"),
+        ("rounded_min", "_9223372036854775809e0"),
+        ("max_rounded_out", "9223372036854775807e0"),
+        ("max_exclusive", "9223372036854775808e0"),
+        ("largest_inside", "9223372036854774784e0"),
+        ("below_min", "_9223372036854777856e0"),
+        ("mixed_rounded_min", "_9223372036854775809 1e0"),
+        ("integer_overflow_control", "_9223372036854775809 1"),
+        ("infinity", "1e9999"), ("nan_word", "_. 1e0"),
+        ("positive_infinity_word", "1e0 _"), ("negative_infinity_word", "__ 1e0"),
+        ("fraction_first", "1e_1 1e0"), ("fraction_last", "1e0 1e_1"),
+        ("expression", "1+1e0"), ("boxed", "<1e0"),
+    ]
+] + [
+    ("assignment", [], "saved=:1e0", ["saved"]),
+    ("malformed_exponent", ["saved=:7"], "saved=:1e0 1e_", ["saved"]),
+    ("invalid_exact_mix", ["saved=:7"], "saved=:1e0 1x", ["saved"]),
+    ("direct_body", ["f=:{{1e0}}"], "f 0", []),
+    ("explicit_body", ["f=:3 : '1e0'"], "f 0", []),
+]
+
+# Exercise C independently across magnitude, exponent case and whole-word
+# masks. Expected dtypes/values come from the oracle, not Rust's conversion.
+for mantissa_index, mantissa in enumerate([
+        "0", "1", "_1", "10", "9007199254740993", "9223372036854775807", "_9223372036854775809"]):
+    for exponent_index, exponent in enumerate(["0", "1", "_1", "18", "_18", "309", "_400"]):
+        for marker in ["e", "E"]:
+            source = mantissa + marker + exponent
+            for suffix_name, suffix in [("scalar", ""), ("real_word", " 1e0"), ("dot_word", " 1.0")]:
+                SCIENTIFIC_CASES.append((f"grid_{mantissa_index}_{exponent_index}_{marker}_{suffix_name}",
+                                         [], source + suffix, []))
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
@@ -151,12 +194,15 @@ def main():
                    help="Strict bounded decimal-overflow corpus: any runtime difference fails")
     selection.add_argument("--integer-dtype-fixtures-only", action="store_true",
                            help="Strict bounded integer-spelling dtype corpus")
+    selection.add_argument("--scientific-fixtures-only", action="store_true",
+                           help="Strict bounded scientific real narrowing corpus")
     args = p.parse_args()
     if sys.platform != "win32":
         p.error("Native Windows audit only")
     rust = {}
     selected = (NUMERIC_OVERFLOW_CASES if args.numeric_overflow_fixtures_only else
-                INTEGER_DTYPE_CASES if args.integer_dtype_fixtures_only else CASES)
+                INTEGER_DTYPE_CASES if args.integer_dtype_fixtures_only else
+                SCIENTIFIC_CASES if args.scientific_fixtures_only else CASES)
     cases = [(name, setup, source, [s + "+0" for s in after]) for name, setup, source, after in selected]
     for name, setup, source, after in cases:
         setup_rust, stages, post = probe(args.probe, setup, source, after)
@@ -211,7 +257,8 @@ def main():
               "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
               "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
               "fixture_set": ("numeric-overflow" if args.numeric_overflow_fixtures_only else
-                              "integer-dtype" if args.integer_dtype_fixtures_only else "frontend-boundaries"),
+                              "integer-dtype" if args.integer_dtype_fixtures_only else
+                              "scientific" if args.scientific_fixtures_only else "frontend-boundaries"),
               "cases": len(selected), "observations": len(comparisons),
               "counts": dict(Counter(r["status"] for r in comparisons)),
               "stage_admission_counts": {stage: dict(Counter(inspection_outcome(stage, values[1][stage]) for values in rust.values())) for stage in INSPECTION_STAGES},
@@ -219,7 +266,8 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     print(json.dumps({key: report[key] for key in ("cases", "observations", "counts", "stage_admission_counts")}))
-    enforce_acceptance(report, args.numeric_overflow_fixtures_only or args.integer_dtype_fixtures_only)
+    enforce_acceptance(report, args.numeric_overflow_fixtures_only or args.integer_dtype_fixtures_only
+                       or args.scientific_fixtures_only)
 
 
 if __name__ == "__main__":
