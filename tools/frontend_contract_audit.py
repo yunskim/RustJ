@@ -7,6 +7,7 @@ import argparse
 from collections import Counter
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -141,6 +142,24 @@ for mantissa_index, mantissa in enumerate([
                                          [], source + suffix, []))
 
 
+RATIO_CASES = [
+    ("ratio_assignment", [], "saved=:1r2.0", ["saved"]),
+    ("ratio_direct_local", ["f=:{{local=.1r2.0\nlocal+y}}"], "f 0", []),
+    ("ratio_explicit_local", ["f=:3 : 'local=.2r1 1e0\nlocal+y'"], "f 0", []),
+    ("ratio_failed_assignment", ["saved=:7"], "saved=:1r2.0 1e_", ["saved"]),
+    ("ratio_uppercase_mode", [], "1r2 1E0", []),
+    ("ratio_bad_denominator", [], "1r_ 1.0", []),
+    ("ratio_extra_separator", [], "1r2r3 1.0", []),
+    ("ratio_bad_extended", [], "1r2.0 1x", []),
+]
+for numerator_index, numerator in enumerate(["0", "_0", "1", "_1", "2", "9007199254740993", "9223372036854775808", "1e_9999", "1e9999"]):
+    for denominator_index, denominator in enumerate(["0", "_0", "1", "_2", "3", "1e_9999", "1e9999"]):
+        for suffix_name, suffix in [("dot", " 1.0"), ("scientific", " 1e0")]:
+            RATIO_CASES.append((f"ratio_{numerator_index}_{denominator_index}_{suffix_name}", [], numerator + "r" + denominator + suffix, []))
+for index, source in enumerate(["1r2.0", "1.r2", "1r2.", "0r0.0", "_0r0.0", "0r_0.0", "_0r_0.0", "1r0.0", "1r_0.0", "_1r0.0", "_1r_0.0", "1e9999r1e9999", "2e0r1", "2r1 1E0 1e0"]):
+    RATIO_CASES.append((f"ratio_scalar_{index}", [], source, []))
+
+
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
     operations += [(stage, source) for stage in ("F", "H", "P", "G", "L", "R")]
@@ -156,6 +175,17 @@ def probe(binary, setup, source, after):
 
 def semantic_outcome(outcome):
     return {"error": outcome["error"]} if "error" in outcome else outcome
+
+
+def same_outcome(actual, expected):
+    """Typed result comparison including observable IEEE zero signs."""
+    if isinstance(actual, dict) and isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(same_outcome(actual[k], expected[k]) for k in actual)
+    if isinstance(actual, list) and isinstance(expected, list):
+        return len(actual) == len(expected) and all(same_outcome(a, b) for a, b in zip(actual, expected))
+    if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) and actual == expected == 0:
+        return math.copysign(1, actual) == math.copysign(1, expected)
+    return actual == expected
 
 
 INSPECTION_STAGES = {"F": "frontend", "H": "frontend-handoff", "P": "semantic-binding", "G": "j-graph", "L": "logical"}
@@ -196,13 +226,15 @@ def main():
                            help="Strict bounded integer-spelling dtype corpus")
     selection.add_argument("--scientific-fixtures-only", action="store_true",
                            help="Strict bounded scientific real narrowing corpus")
+    selection.add_argument("--ratio-fixtures-only", action="store_true", help="Strict decimal real-family ratio corpus")
     args = p.parse_args()
     if sys.platform != "win32":
         p.error("Native Windows audit only")
     rust = {}
     selected = (NUMERIC_OVERFLOW_CASES if args.numeric_overflow_fixtures_only else
                 INTEGER_DTYPE_CASES if args.integer_dtype_fixtures_only else
-                SCIENTIFIC_CASES if args.scientific_fixtures_only else CASES)
+                SCIENTIFIC_CASES if args.scientific_fixtures_only else
+                RATIO_CASES if args.ratio_fixtures_only else CASES)
     cases = [(name, setup, source, [s + "+0" for s in after]) for name, setup, source, after in selected]
     for name, setup, source, after in cases:
         setup_rust, stages, post = probe(args.probe, setup, source, after)
@@ -237,9 +269,9 @@ def main():
                 oracle.close()
             setup_rust, stages, rust_post = rust[name]
             actual = stages["R"].get("result", stages["R"])
-            matches = ([semantic_outcome(x) for x in setup_rust] == setup_results and
-                       semantic_outcome(actual) == reference and
-                       [semantic_outcome(x) for x in rust_post] == post)
+            matches = (same_outcome([semantic_outcome(x) for x in setup_rust], setup_results) and
+                       same_outcome(semantic_outcome(actual), reference) and
+                       same_outcome([semantic_outcome(x) for x in rust_post], post))
             comparisons.append({"case": name, "variant": variant, "source": source,
                                 "setup": setup, "setup_reference": setup_results, "setup_rust": setup_rust,
                                 "reference": reference, "stages": stages,
@@ -258,7 +290,8 @@ def main():
               "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
               "fixture_set": ("numeric-overflow" if args.numeric_overflow_fixtures_only else
                               "integer-dtype" if args.integer_dtype_fixtures_only else
-                              "scientific" if args.scientific_fixtures_only else "frontend-boundaries"),
+                              "scientific" if args.scientific_fixtures_only else
+                              "real-ratio" if args.ratio_fixtures_only else "frontend-boundaries"),
               "cases": len(selected), "observations": len(comparisons),
               "counts": dict(Counter(r["status"] for r in comparisons)),
               "stage_admission_counts": {stage: dict(Counter(inspection_outcome(stage, values[1][stage]) for values in rust.values())) for stage in INSPECTION_STAGES},
@@ -267,7 +300,7 @@ def main():
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     print(json.dumps({key: report[key] for key in ("cases", "observations", "counts", "stage_admission_counts")}))
     enforce_acceptance(report, args.numeric_overflow_fixtures_only or args.integer_dtype_fixtures_only
-                       or args.scientific_fixtures_only)
+                       or args.scientific_fixtures_only or args.ratio_fixtures_only)
 
 
 if __name__ == "__main__":

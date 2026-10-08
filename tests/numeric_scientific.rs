@@ -126,8 +126,5 @@ fn definitions_assignments_and_failed_words_preserve_types_and_state() {
             assert_eq!(engine.eval("saved").unwrap().unwrap().int_at(0).unwrap(), 1);
         }
     }
-    assert_eq!(
-        enqueuer::enqueue("1r2 1e0").unwrap_err().kind(),
-        "unsupported"
-    );
+    assert_eq!(noun("1r2 1e0").type_code(), 8);
 }

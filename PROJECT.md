@@ -188,7 +188,7 @@ RustJ's distinguishing requirement is the strong **full-J semantic frontend** pl
 - **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
 - **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
 - **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
-- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal literals):** default/portable each **703 passed / zero failures / zero ignored**, Python **79 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
+- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal literals):** default/portable each **708 passed / zero failures / zero ignored**, Python **80 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
 
@@ -3392,7 +3392,23 @@ Executed validation: native Windows default/portable each **703 passed / zero fa
 
 Existing N1 overflow and N2a integer dtype each remain **36/36 matched**; frontend **60 matched / 16 runtime_gap**, NAME/definition **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched** remain unchanged. Each DLL's numeric syntax audit has **2,485 cases / zero failures**, recording payload/precision boundaries separately from recognition evidence. The persistent verifier confirms **13 reports / 765 source/binary/DLL hashes**. Existing DLL release versus reviewed-source pin limitations remain; C diagnostic text/locations, full J, Linux, GPU and GitHub CI were not verified.
 
-Remaining: real-family ratio conversion is the next numeric unit. Exact/complex payloads, general locales/locatives, boxed/AR targets, modifier boundaries and body Graph/Logical/CFG remain separate tasks. N2b fixes literal semantics; it does not establish faster kernels or a complete frontend.
+The decimal real-family ratio unit pending after N2b is implemented and verified in N2c below. Remaining: Exact/complex payloads, general locales/locatives, boxed/AR targets, modifier boundaries and body Graph/Logical/CFG remain separate tasks. N2b fixes literal semantics; it does not establish faster kernels or a complete frontend.
+
+### N2c — decimal real-family ratio conversion (2026-10-08)
+
+Contract: read the two decimal operands as f64 only after whole-word numeric mode/grammar validation. `1r2.0` is Float; `2r1 1e0` follows existing exact Int narrowing. Exact rational `1r2` and hexadecimal ratio payloads remain explicit Unsupported boundaries. No name lookup, deferred execution or physical memory planning is added.
+
+- [x] Check pinned `wn.c::jtnumfd` and Windows C behavior for type masks and signed zero/zero denominators.
+- [x] Implement decimal ratio conversion and J signed 0/0 and infinity rules.
+- [x] Verify enqueue→handoff→Logical→capture, definition local/global and failed assignment regressions.
+- [x] Re-run both C DLL strict corpus and existing audits; verify report hashes.
+- [x] Run Windows default/portable, fmt/clippy and Python checks, then commit/push.
+Executed validation: native Windows default/portable each **708 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **80 passed**. Added five regressions and updated two old unsupported expectations. Strict ratio audit: 22 fixed cases plus 9 numerators × 7 denominators × dot/scientific word contexts (126 combinations), **148 fixtures × two C DLLs = 296/296 matched**. Comparison distinguishes signed zero and checks values, types, shapes, error kinds and post-failure assignment state. Each frontend/handoff/binding/Graph/Logical inspection accepts 143 representations and retains five J input diagnostics, with zero verifier/backend failures.
+
+N1 overflow and N2a integer dtype each remain **36/36**, N2b scientific **668/668**, NAME effects/arrays **104/104 matched**. Frontend **60 matched / 16 runtime_gap** and NAME/definition **568 matched / 16 unsupported_gap** remain bounded gaps. Each DLL's numeric syntax audit has **2,485 cases / zero failures**; accepted nouns increase 184→198 and valid payload boundaries decrease 850→836. Other precision/recognition boundaries remain separately counted. The persistent verifier confirms **14 reports / 832 source/binary/DLL hashes**.
+
+Next: exact rational/extended/complex payloads and Value storage contracts. Decimal ratios have f64 semantics and do not substitute for exact rational construction. Hexadecimal ratios, general locales/locatives, boxed/AR targets, modifier boundaries and definition body Graph/Logical/CFG remain incomplete. Existing reviewed-source versus DLL-release pin limitations apply; no full J, C diagnostic text/location, native compiled execution, Linux, GPU or GitHub CI validation is claimed.
+
 
 ## 17. Active migration checklist
 

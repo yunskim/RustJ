@@ -10,12 +10,12 @@
     "jsrc/jerr.h": "70ed09fa0e3ebd92c151b1a352cfeff5ea0cf23ca5eb379f10c8e27ca06f4e0c"
   },
   "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
-  "binary_sha256": "ee478dd5780f4bdb563429e91d026da25becaabeb66ac7c4239fe4cedf2e86df",
+  "binary_sha256": "15074ff2095135e5c586b63ef4068d43c9279399a198af9034723d380a958f14",
   "cases": 2485,
   "checks": {
-    "accepted_noun_control": 184,
+    "accepted_noun_control": 198,
     "error_class_verified": 1244,
-    "valid_payload_boundary": 850,
+    "valid_payload_boundary": 836,
     "reference_precision_boundary": 200,
     "quad_construction_boundary": 1,
     "nan_word_formation_boundary": 4,
@@ -775,9 +775,9 @@
       "source": "1.0 1r2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 1r2",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -1458,9 +1458,9 @@
       "source": "1e2 1r2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 1r2",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -3168,9 +3168,9 @@
       "source": "1r2 1.0",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 1r2",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -3188,9 +3188,9 @@
       "source": "1r2 1e2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 1r2",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -3413,9 +3413,9 @@
       "source": "1r2 _.",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 1r2",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -9487,9 +9487,9 @@
       "source": "_. 1r2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 1r2",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -11649,9 +11649,9 @@
       "source": "1.0 2r3",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -13228,9 +13228,9 @@
       "source": "1e_2 2r3",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -18233,9 +18233,9 @@
       "source": "2r3 1.0",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -18286,9 +18286,9 @@
       "source": "2r3 1e_2",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -18474,18 +18474,18 @@
       "source": "2r3 _.",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
       "source": "2r3 _.5",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -19062,9 +19062,9 @@
       "source": "_. 2r3",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -19379,9 +19379,9 @@
       "source": "_.5 2r3",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated real-family ratio conversion 2r3",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {

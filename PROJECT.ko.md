@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal literal 변경):** default/portable 각각 **703 passed / 0 failed / 0 ignored**, Python **79 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal literal 변경):** default/portable 각각 **708 passed / 0 failed / 0 ignored**, Python **80 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -7790,7 +7790,23 @@ N2a 완료 시 남았던 scientific real의 Int 축소와 whole-word dtype 결�
 
 기존 N1 overflow 및 N2a 정수 타입은 각각 **36/36 matched**, frontend **60 matched / 16 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched** 유지. 각 C DLL의 numeric syntax 감사 **2,485 cases / 0 failed**는 recognition 검사이며 미지원 payload/precision 경계는 계속 별도로 기록한다. **13개 report / 765 source·binary·DLL hash**를 지속 검증 도구로 확인했다. 실제 DLL release와 검토한 C source pin이 다른 제한, C 진단 위치/문구·full J·Linux·GPU·GitHub CI 미검증은 유지한다.
 
-후속 미완료: real-family ratio conversion이 다음 numeric 단위이며 exact/complex payload·일반 locale/locative·boxed/AR target·modifier 경계 및 본문 Graph/Logical/CFG는 독립 후속 과제다. N2b는 숫자 literal 의미 보완이며 성능 향상이나 전체 frontend 완성을 주장하지 않는다.
+N2b 당시 후속이던 real-family decimal ratio는 아래 N2c에서 구현·검증한다. 여전히 미완료인 exact/complex payload·일반 locale/locative·boxed/AR target·modifier 경계 및 본문 Graph/Logical/CFG는 독립 후속 과제다. N2b는 숫자 literal 의미 보완이며 성능 향상이나 전체 frontend 완성을 주장하지 않는다.
+
+### N2c — decimal real-family ratio 변환 (2026-10-08)
+
+계약: whole-word numeric mode/grammar 검증 이후에만 decimal ratio의 두 피연산자를 f64로 읽는다. `1r2.0`은 Float, `2r1 1e0`은 기존 exact Int narrowing 규칙을 따른다. exact rational `1r2`와 hexadecimal ratio payload는 계속 명시적 Unsupported 경계다. 이름 lookup, 지연 계산, 물리 메모리 계획을 추가하지 않는다.
+
+- [x] pinned `wn.c::jtnumfd` 및 Windows C 실행으로 타입 mask와 signed zero/zero denominator 규칙 확인.
+- [x] decimal ratio 변환 및 J의 signed 0/0·infinity 규칙 구현.
+- [x] enqueue→handoff→Logical→capture·정의 local/global·실패 대입 회귀 검증.
+- [x] C DLL 두 종 strict corpus·기존 감사 재실행 및 보고서 hash 검증.
+- [x] Windows default/portable·fmt/clippy·Python 검사 후 commit/push.
+검증 결과: native Windows default/portable 각각 **708 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets), Python **80 passed**. 신규 회귀 5개 및 기존 미지원 기대값 2곳을 지원 상태에 맞게 갱신했다. strict ratio 감사는 고정 22개 + numerator 9 × denominator 7 × dot/scientific word 2 조합 126개, 총 **148 fixtures × C DLL 2 = 296/296 matched**다. signed zero를 구분하는 비교로 값·타입·shape·오류 종류·실패 대입 후 상태를 검증했다. 각 frontend/handoff/binding/Graph/Logical inspection은 143개 수용·5개 J 입력 진단이고 verifier/backend 실패는 0이다.
+
+기존 N1 overflow·N2a integer dtype 각각 **36/36**, N2b scientific **668/668**, NAME 효과/배열 **104/104 matched** 유지. frontend **60 matched / 16 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**는 미지원으로 남는다. 숫자 문법 감사는 각 DLL **2,485 cases / 0 failed**, noun 수용 184→198·valid payload boundary 850→836이며 다른 precision/recognition 경계는 그대로 별도 집계한다. **14 reports / 832 source·binary·DLL hashes**를 지속 검증 도구로 확인했다.
+
+다음 작업은 exact rational/extended/complex payload와 Value 저장 계약이다. decimal ratio는 f64 의미이며 exact rational 구현을 대신하지 않는다. hexadecimal ratio, 일반 locale/locative, boxed/AR target, modifier 경계, 정의 본문 Graph/Logical/CFG는 미완료다. 검토한 C source pin과 DLL release가 다른 기존 제한은 유지하며, 전체 J·C 진단 문구/위치·native compiled execution·Linux·GPU·GitHub CI 검증을 주장하지 않는다.
+
 
 ## 13. 프레임워크 조사에서 채택한 원칙
 

@@ -84,7 +84,7 @@ fn numeric_text(s: &str) -> Cow<'_, str> {
 
 fn numeric_failure(s: &str) -> Error {
     // Whole-word validation already chose the C numeric conversion mode.
-    // A real-mode ratio can be valid while its payload conversion is pending.
+    // Validated platform hexadecimal ratio operands remain a payload boundary.
     if s.contains('r') {
         Error::Unsupported(format!("validated real-family ratio conversion {s}"))
     } else {
@@ -110,6 +110,32 @@ fn parse_int(s: &str) -> Result<Option<i64>> {
 }
 
 fn parse_float(s: &str) -> Result<f64> {
+    if let Some((numerator, denominator)) = s.split_once('r') {
+        // Only reached after whole-word mode/grammar validation. In particular,
+        // exact RAT words must never enter this approximate conversion path.
+        let decimal = |text: &str| {
+            numeric_text(text)
+                .parse::<f64>()
+                .map_err(|_| numeric_failure(s))
+        };
+        let x = if numerator.is_empty() {
+            0.0
+        } else {
+            decimal(numerator)?
+        };
+        let y = decimal(denominator)?;
+        return Ok(if y != 0.0 {
+            x / y
+        } else {
+            // wn.c::jtnumfd defines 0/0 as signed zero, not IEEE NaN.
+            let sign = (x.to_bits() ^ y.to_bits()) & (1_u64 << 63);
+            if x == 0.0 {
+                f64::from_bits(sign)
+            } else {
+                f64::from_bits(f64::INFINITY.to_bits() | sign)
+            }
+        });
+    }
     match s {
         "_" => Ok(f64::INFINITY),
         "__" => Ok(f64::NEG_INFINITY),

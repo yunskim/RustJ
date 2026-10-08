@@ -262,7 +262,7 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
 fn numeric_families_are_validated_in_whole_word_context_before_unsupported_payloads() {
     for source in [
         "1x", "1j2", "2r3", "1xr2", "2b102", "2ad90", "2ar1", "1p2", "2x3", "1x 2", "1x 2r3",
-        "1r2 3x", "_r", "_r_3", "2r__", "1.5 2r3", "1j2 1r2",
+        "1r2 3x", "_r", "_r_3", "2r__", "1j2 1r2",
     ] {
         let error = enqueuer::enqueue(source).unwrap_err();
         assert_eq!(error.kind(), "unsupported", "{source}");
@@ -271,6 +271,13 @@ fn numeric_families_are_validated_in_whole_word_context_before_unsupported_paylo
         };
         assert!(reason.contains("validated"), "{source}: {reason}");
     }
+    let words = enqueuer::enqueue("1.5 2r3").unwrap();
+    let EnqueuedPayload::Noun(value) = &words[0].payload else {
+        panic!("real-mode ratio word must construct a noun")
+    };
+    assert_eq!(value.type_code(), 8);
+    assert_eq!(value.float_at(0).unwrap(), 1.5);
+    assert_eq!(value.float_at(1).unwrap(), 2.0 / 3.0);
     for word in [
         "1xx", "1j", "1jj2", "2r", "2rr3", "2r3x", "2b", "2b.", "2b_", "2ad", "_2ad90", "1ax2",
         "1p", "1z", "1f", "1.0 1x", "1j2 1x", "2b10 1x", "1E3 2r3",
