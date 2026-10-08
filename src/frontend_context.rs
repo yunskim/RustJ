@@ -108,7 +108,9 @@ impl ScopeInstanceId {
         // Keep unique, non-wrapping identities while supporting Rust 1.85.
         let mut id = NEXT.load(Ordering::Relaxed);
         loop {
-            let next = id.checked_add(1).expect("scope instance identity exhausted");
+            let next = id
+                .checked_add(1)
+                .expect("scope instance identity exhausted");
             match NEXT.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
                 Ok(_) => return Self(id),
                 Err(current) => id = current,
