@@ -120,6 +120,30 @@ fn parse_float(s: &str) -> Result<f64> {
 
 /// C t.c CALP/CACE are permanent immutable nouns, independent of function
 /// construction/execution support. Share payloads across enqueue occurrences.
+// wn.c::jtconnum ultimately calls k.c::jtbcvt with CVTNOFUZZ.
+// Float -> Int is allowed only for an exact integral f64 within signed i64
+// bounds. Comparing against i64::MAX as f64 is unsafe: it rounds to 2^63,
+// which is *outside* the signed range and would saturate under an `as` cast.
+fn exact_real_int(value: f64) -> Option<i64> {
+    const EXCLUSIVE_MAX: f64 = 9_223_372_036_854_775_808.0; // 2^63
+    if value.is_finite()
+        && value.fract() == 0.0
+        && value >= -EXCLUSIVE_MAX
+        && value < EXCLUSIVE_MAX
+    {
+        Some(value as i64)
+    } else {
+        None
+    }
+}
+
+/// The connum spelling mask suppresses Int narrowing if any atom contains
+/// a decimal point. Other multi-byte spellings (including `1e0`) suppress
+/// Bool narrowing, but may still narrow an all-integral real word to Int.
+fn allow_real_int_narrowing(word: &str) -> bool {
+    !word.contains('.')
+}
+
 fn core_noun(word: &str) -> Option<Value> {
     use std::sync::OnceLock;
     static ALPHABET: OnceLock<Value> = OnceLock::new();
@@ -278,7 +302,14 @@ fn interpret_word<'a>(
             .any(|part| part.contains(['.', 'e', 'E']) || part == "_" || part == "__");
         if fields == 1 {
             let value = if is_float {
-                Scalar::Float(parse_float(word)?)
+                let real = parse_float(word)?;
+                if allow_real_int_narrowing(word) {
+                    exact_real_int(real)
+                        .map(Scalar::Int)
+                        .unwrap_or(Scalar::Float(real))
+                } else {
+                    Scalar::Float(real)
+                }
             } else {
                 match parse_int(word)? {
                     // wn.c's single-digit / two-character negative shortcuts
@@ -295,11 +326,25 @@ fn interpret_word<'a>(
             ));
         }
         let data = if is_float {
-            Data::Float(CpuStorage::new(
-                word.split_ascii_whitespace()
-                    .map(parse_float)
-                    .collect::<Result<Vec<_>>>()?,
-            ))
+            let values = word
+                .split_ascii_whitespace()
+                .map(parse_float)
+                .collect::<Result<Vec<_>>>()?;
+            // A single fractional/nonfinite/out-of-range atom keeps the
+            // entire word Float. Never emit a mixed Int/Float J noun.
+            if allow_real_int_narrowing(word) {
+                match values
+                    .iter()
+                    .copied()
+                    .map(exact_real_int)
+                    .collect::<Option<Vec<_>>>()
+                {
+                    Some(ints) => Data::Int(CpuStorage::new(ints)),
+                    None => Data::Float(CpuStorage::new(values)),
+                }
+            } else {
+                Data::Float(CpuStorage::new(values))
+            }
         } else {
             let values = word
                 .split_ascii_whitespace()
