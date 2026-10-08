@@ -3,20 +3,189 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 문서 갱신일: 2026-10-07
+> 문서 갱신일: 2026-10-08
 >
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
 > 그 외 개별 설계 보고서·진행 보고서·체크리스트 Markdown 파일은 새로 만들지 않는다. 기계가 생성한 측정 원자료(JSON/JSONL)는 `reports/`에 별도로 보존한다.
+
+<a id="read-intro"></a>
+## 처음 읽는 사람을 위한 소개 — RustJ를 어떻게 이해하면 되는가
+
+이 문서는 구현 세부사항과 검증 기록까지 포함하는 통합 문서이므로, 처음부터 모든 절을 순서대로 읽으면 RustJ의 전체 그림보다 세부사항이 먼저 보일 수 있다. 처음 읽을 때는 먼저 이 절의 **네 단계 mental model**만 잡고, 이후 필요한 세부 절로 내려가는 것을 권장한다.
+
+### RustJ를 한 문장으로 설명하면
+
+RustJ는 **J의 언어 의미를 jsource와 호환되게 보존하면서, 그 의미를 분석 가능한 배열 계산으로 바꾸고, 최적화한 뒤 CPU·GPU·외부 compiler 등 여러 실행 경로로 내릴 수 있게 만드는 compiler/runtime**다.
+
+중요한 점은 J source를 곧바로 loop나 GPU kernel로 번역하지 않는다는 것이다. J에는 Rank, adverb, conjunction, hook/fork/train, name lookup처럼 **언어 의미 자체가 계산 구조를 만드는 요소**가 많다. 이 의미를 너무 일찍 loop나 kernel로 바꾸면 J의 의미도 잃고 optimizer가 사용할 고수준 정보도 잃는다.
+
+따라서 RustJ는 다음 네 질문을 서로 다른 단계에서 묻는다.
+
+~~~text
+J source
+   ↓
+Frontend
+   "이 J 프로그램은 무엇을 의미하는가?"
+   = 의미 구조
+   ↓
+J Graph IR
+   "그 의미가 어떤 배열 계산을 만드는가?"
+   = 계산 구조
+   ↓
+Execution IR
+   "정확히 실행하려면 무엇이 반드시 일어나야 하는가?"
+   = 실행 의미와 의존관계
+   ↓
+Physical Plan / backend
+   "이 하드웨어에서 실제로 어떻게 실행할 것인가?"
+   = 실제 실행 방법
+   ↓
+execution
+~~~
+
+처음에는 다음 네 줄만 기억해도 충분하다.
+
+> **Frontend = 의미 구조**  
+> **J Graph IR = 계산 구조**  
+> **Execution IR = 실행 의미와 의존관계**  
+> **Physical Plan = 실제 실행 방법**
+
+### 왜 굳이 네 단계로 나누는가
+
+각 단계가 답하는 질문이 다르기 때문이다.
+
+| 단계 | 핵심 질문 | 대표적으로 보존/결정하는 것 | 아직 결정하지 않는 것 |
+|---|---|---|---|
+| Frontend | J가 무엇을 의미하는가? | noun/verb/adverb/conjunction, derived function, Rank, Hook/Fork, names/bindings | fusion, buffer, GPU kernel |
+| J Graph IR | 어떤 계산 graph인가? | producer/consumer, branch/join, CellApply, Reduce, dataflow | 특정 CPU/GPU 실행법 |
+| Execution IR | 올바른 실행에 무엇이 필요한가? | explicit operation, SSA/data dependency, semantic check, effect/error order | AVX2, GPU block size, concrete buffer |
+| Physical Plan | 이 기계에서 어떻게 실행할까? | route, fusion 결정, schedule, layout, buffer, SIMD/thread/GPU mapping | — |
+
+이 분리는 단계가 많아 보이기 위한 것이 아니다. **J 의미를 잃지 않으면서 최적화 선택을 가능한 늦게까지 열어 두기 위한 것**이다.
+
+예를 들어 같은 논리적 실행 의미인 CellApply(f, y)는 target과 cost에 따라 다음 중 하나가 될 수 있다.
+
+~~~text
+CPU scalar loop
+CPU SIMD + multicore
+GPU kernel
+MLIR / external compiler
+verified library call
+~~~
+
+Execution IR에서 이미 하나를 고르면 optimizer와 backend의 선택 공간을 너무 일찍 닫게 된다.
+
+### jsource와 무엇이 다른가
+
+jsource도 parser reduction을 하고 derived verb, hook/fork/train 등의 의미 구조를 만든다. 차이는 **그 reduction 결과를 사용하는 방식**에 있다.
+
+~~~text
+jsource
+tokens → enqueue → parser reduction
+                     ↓
+               semantic action
+                     ↓
+              runtime execution
+~~~
+
+jsource는 interpreter/runtime 흐름 안에서 parser reduction과 semantic action·실행이 밀접하게 이어진다. 따라서 별도의 compiler representation을 여러 층에 걸쳐 오래 유지할 필요가 상대적으로 작다.
+
+RustJ도 frontend에서는 jsource-compatible reduction을 해야 한다. 그러나 reduction 결과를 바로 실행해서 소모하지 않는다.
+
+~~~text
+RustJ
+parser reduction
+      ↓
+J semantic structure
+      ↓
+computation graph
+      ↓
+execution semantics
+      ↓
+physical realization
+~~~
+
+즉 **RustJ에 중간 단계가 많아서 차이가 생긴 것이 아니라, 분석·최적화·여러 backend를 지원하려면 의미를 단계별로 보존해야 하므로 중간 단계를 의도적으로 둔 것**이다.
+
+### JAXA에서 무엇이 발전했는가
+
+JAXA의 중요한 출발점은 J의 function composition과 array notation 자체에서 optimization-relevant structure를 읽어내는 것이었다. 예를 들어 Fork를 branch/join으로 보고, composition을 producer/consumer chain으로 보는 관점이다.
+
+RustJ는 이 아이디어를 이어받으면서 한 가지 경계를 더 명확히 했다.
+
+~~~text
+JAXA의 핵심 관심
+J syntax / analyzer
+      ↓
+optimization-relevant structure
+
+RustJ
+J semantic structure
+      ↓
+J computation graph
+      ↓
+execution semantics
+      ↓
+physical realization
+~~~
+
+즉 RustJ에서는 **J 언어의 의미 구조와 optimizer가 보는 계산 구조를 같은 것으로 취급하지 않는다.** 이것이 JAXA에서 RustJ로 넘어오며 명확해진 핵심 발전 중 하나다.
+
+예를 들어 f"1 y에서 frontend는 먼저 다음 의미를 보존해야 한다.
+
+~~~text
+Rank conjunction (")
+  ├─ left operand:  f
+  └─ right operand: 1
+          ↓
+      derived verb
+          ↓ apply
+          y
+~~~
+
+그 다음 J Graph IR이 같은 의미를 optimizer 관점에서 다음과 같은 cell application으로 드러낼 수 있다.
+
+~~~text
+y
+│
+▼
+Rank / CellApply
+│  function = f
+│  cell rank = 1
+▼
+result
+~~~
+
+첫 번째 표현은 **J가 무엇을 의미하는가**를 소유하고, 두 번째 표현은 **그 의미가 어떤 계산 구조를 만든다**를 소유한다. 둘 중 하나가 다른 하나를 대체하지 않는다.
+
+### 다른 compiler와의 관계
+
+이 전체 방향은 RustJ만의 특이한 발상이 아니다. LLVM, MLIR, XLA/JAX, Futhark 등 현대 compiler도 일반적으로 **높은 수준의 의미/연산 구조를 보존한 뒤 점진적으로 target-specific representation으로 lowering**한다.
+
+RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics를 소유하는 frontend**를 강하게 둔다는 점이다. 다른 array compiler의 좋은 layering 원칙을 참고하되, Rank·derived verb·Hook/Fork·name semantics 같은 J 고유 의미를 compiler 편의를 위해 다시 정의하지 않는다.
+
+### 처음 읽을 때의 권장 순서
+
+**첫 번째 읽기(전체 그림):** 이 소개 → [§1 프로젝트 목적](#read-goal) → [§2 최상위 아키텍처](#read-architecture). 여기까지 읽으면 네 단계의 책임과 각 단계가 아직 결정하지 않는 사항을 설명할 수 있어야 한다.
+
+**두 번째 읽기(핵심 계약):** [§3 J Semantic IR](#read-semantic) → [§4 J Graph·Execution Semantic Lowering](#read-graph-execution) → [§5 Logical/Physical Plan·Executor](#read-physical). 필요한 단계의 계약만 읽고, 모든 예제와 역사 기록을 연속해서 읽을 필요는 없다.
+
+**세 번째 읽기(구현 시):** [§9 지원 범위](#read-scope) → [§10 이행 체크리스트](#read-roadmap) → [§11 검증 정책](#read-validation) → [§12 최신 상태](#read-status).
+
+**선택적 심화:** [§13 선행 구현·JAXA 역사·소스 조사](#read-references)와 [심화 기술 계약](#read-advanced)은 특정 설계 선택을 검증할 때 참조한다. 과거 측정·완료 기록은 현재 HEAD의 성공 주장으로 읽지 않는다.
+
 
 ### 빠른 안내 — 현재 우선순위와 문서 읽기
 
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **최신 검증(2026-10-07):** Windows default/portable 각각 **608 passed / 0 ignored / 0 failed**, Python **67 passed**. fmt/clippy를 통과했다. 신규 bounded C 차분 결과는 아래 Definition 후속 검증 절을 따른다. 과거 2026-10-05의 5,380-case runtime 및 GF6a gate는 해당 시점의 이력이며 이번 실행 결과로 재계산하지 않는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, `main` `8a7405f`):** default/portable 각각 **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
+
+<a id="read-goal"></a>
 ## 1. 프로젝트 목적
 
 RustJ는 `jsource`의 C 구현을 줄 단위로 Rust로 번역하는 프로젝트가 아니다.
@@ -36,221 +205,6 @@ RustJ는 `jsource`의 C 구현을 줄 단위로 Rust로 번역하는 프로젝�
 - CPU 구현·메모리 정책의 비교 대상
 
 C J 엔진을 RustJ의 정상 실행 fallback으로 사용하지 않는다.
-
-### 참고 구현(reference implementations)
-
-RustJ는 외부 구현을 하나의 동일한 권위로 취급하지 않고 **역할별 reference implementation**으로 구분한다.
-
-- **`jsoftware/jsource` — J semantic reference / oracle**
-  - 언어 의미, parser/name semantics, primitive corner case, rank/agreement, 오류·타입 의미의 기준이다.
-  - RustJ의 semantic correctness와 differential test에서 최우선 reference다.
-
-- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
-  - lazy expression graph, evaluation boundary, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend 선택, device memory·stream·synchronization 관리의 참고 구현이다.
-  - RustJ의 Graph/Execution optimization, Physical Planner, external-library route, cost model을 설계할 때 비교한다.
-  - **J 언어 의미의 oracle은 아니다.**
-
-- **`jsoftware/math_arrayfire` — J ↔ GPU library adapter/offload reference**
-  - J array를 ArrayFire handle로 넘기는 실제 adapter 구현이다.
-  - row-major J와 column-major ArrayFire 사이의 layout conversion, backend capability/rank 제한, external handle lifetime과 release/GC 경계를 검토하는 참고 구현으로 사용한다.
-  - J의 일반 rank/adverb/derived verb 전체를 GPU compiler로 구현한 사례로 해석하지 않는다.
-
-- **APEX / Co-dfns / TAIL→Futhark 계열 — array-compiler research implementation**
-  - morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion·GPU lowering을 비교하는 연구 구현이다.
-  - 이들의 제한된 APL subset을 RustJ의 J semantics 제한으로 가져오지 않는다.
-
-- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
-  - Remora는 J/APL 계열의 rank polymorphism, frame/cell semantics와 implicit lifting을 정형화한 비교 대상이다. 근거: https://arxiv.org/abs/1907.00509
-  - Bohrium은 기존 NumPy-style array operation을 lazy하게 수집해 fusion, allocation/materialization, host-device data movement와 backend-specific execution을 늦추는 선례다. 이를 각 operation마다 CPU/GPU를 동적으로 선택하는 모델로 과장하지 않는다. 근거/논문 목록: https://bohrium.readthedocs.io/publications.html
-  - Lift는 portable map/reduce pattern에서 OpenCL-specific functional pattern까지 rewrite-driven하게 변환하며 hardware mapping을 점진적으로 구체화하는 optimizer 연구의 비교 대상이다. rewrite와 hardware mapping의 완전한 분리 선례로 해석하지 않는다. 근거: https://doi.org/10.1109/CGO.2017.7863730
-  - MLIR Linalg는 structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 계층화의 비교 대상이다. 근거: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
-  - 어느 시스템도 RustJ의 J semantic specification은 아니며, compiler layering과 optimization technique의 근거로만 사용한다.
-
-따라서 reference 우선순위는 목적별로 다르다.
-
-```text
-J semantic correctness       → jsource
-array graph/JIT fusion       → ArrayFire
-J↔external GPU adapter       → jsoftware/math_arrayfire
-array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
-rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
-```
-
-ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택 사항은 §13의 **ArrayFire / J ArrayFire add-on / fusion systems** 절을 따른다.
-
-현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, J Graph와 canonical Logical IR 분석, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
-
-### 1.1 JAXA에서 이어받은 설계 원칙 — “배열 연산의 SQL”
-
-JAXA 문서에서는 **“NN의 SQL”**, **“배열 연산의 SQL”**이라는 비유를 사용했다. RustJ에서는 이 아이디어를 신경망 전용 표현보다 더 일반적인 **high-level array language / array query language** 관점으로 승계한다.
-
-이 표현의 핵심은 SQL과 비슷한 문법을 만들거나 J 전체를 순수 declarative language라고 주장하는 것이 아니다. J에는 name lookup, assignment, effect, error/control semantics가 있으므로 full J는 SQL과 같은 순수 질의 언어가 아니다. 비유가 가리키는 것은 다음 한 문장이다.
-
-> **J source is not an execution plan.**
-
-J의 array semantics와 function composition은 가능한 한 **무엇을 계산하는가**를 고수준으로 표현하고, **어떻게 실행하는가**는 semantic legality를 보존하는 범위에서 compiler가 선택한다.
-
-~~~text
-J source / J semantics
-        ↓
-J Semantic IR / J Graph IR
-        ↓
-Logical Array / Execution IR
-        ↓
-equivalence / fusion / logical optimization
-        ↓
-execution planning / route selection
-        ↓
-CPU / SIMD / multicore / GPU / external compiler / library
-~~~
-
-SQL 비유의 대응 관계는 역할 수준에서 다음과 같다.
-
-~~~text
-SQL / relational system          RustJ
----------------------------      --------------------------------
-query                             J array computation
-logical query plan                J Graph + Logical Execution IR
-logical rewrite                   J-algebra / logical rewrite
-physical planner                  schedule / route / physical planner
-execution engine                  CPU/GPU/runtime/external backend
-~~~
-
-사용자는 가능한 한 계산의 의미와 필요한 semantic/storage obligation을 표현하고, 다음 사항은 analyzer/compiler/backend에 맡긴다.
-
-- 어떤 동등한 graph form을 사용할지
-- fusion 또는 materialization을 할지
-- 어떤 실행 basis와 route를 사용할지
-- 어떤 memory/layout/schedule 전략을 사용할지
-- CPU/SIMD/multicore/GPU 중 어느 realization을 선택할지
-- 검증된 external compiler/library route를 사용할지
-
-J가 이 역할에 유리한 이유는 source 자체에 optimizer가 활용할 수 있는 배열 구조가 풍부하기 때문이다.
-
-- rank는 cell/frame 경계와 implicit iteration domain을 드러낸다.
-- adverb/conjunction/derived entity는 reduce, scan, cell application, composition 같은 고차 구조를 보존한다.
-- hook/fork/train/@:는 producer/consumer, branch/join, composition topology를 source 수준에서 제공한다.
-- reshape/transpose/take/drop 등은 logical shape/reindex 의미와 physical materialization을 분리할 여지를 준다.
-- whole-array notation은 scalar loop에서 고수준 의미를 역추론하는 비용을 줄인다.
-
-#### JAXA Graph IR의 역사적 출발점 — J 표기에서 optimization topology를 읽는다
-
-JAXA의 출발점은 추상적인 “graph compiler를 만들자”가 아니었다. 먼저 다음과 같은 구체적인 관찰이 있었다.
-
-~~~text
-u@:v
-    → input → v → u
-    → producer/consumer chain
-    → kernel-fusion candidate
-
-(f g h) y
-    → 같은 input에서 f/h로 갈라진 뒤 g에서 합류
-    → branch/join topology
-    → branch parallelism / branch-local fusion candidate
-
-(f g) y
-    → 원 input과 g(y)가 f로 들어감
-    → ordered dependency + input-lifetime relation
-    → producer/consumer fusion candidate
-~~~
-
-즉 `@:`, Hook, Fork 같은 J의 function-composition 표기는 단순한 축약 문법이 아니라 **실행 방법을 확정하지 않은 채 계산 의존성과 topology를 source 수준에서 드러내는 표현**으로 볼 수 있다. JAXA는 이 정보를 scalar loop나 backend kernel로 낮추기 전에 compiler가 직접 읽고 보존하면 fusion·parallelism·materialization·lifetime 후보를 훨씬 일찍 발견할 수 있다고 보았다.
-
-이 관찰에서 RustJ의 독립 `J Graph IR`이 나온다.
-
-~~~text
-J syntax / FunctionEntity
-        ↓
-syntax-derived computation topology
-        ↓
-J Graph IR
-        ↓
-candidate generation
-  fusion / branch parallelism / materialization / reuse
-        ↓
-semantic legality
-  effects / errors / names / alias / rank contracts
-        ↓
-profitability / resource / target choice
-        ↓
-Logical/Physical realization
-~~~
-
-여기서 세 단계를 혼동하지 않는다.
-
-1. **topology가 optimization candidate를 드러내는 것**
-2. **그 transformation이 J semantics상 합법임을 증명하는 것**
-3. **실제로 그 strategy가 더 이득인지 선택하는 것**
-
-Fork가 보인다고 두 branch를 무조건 병렬 실행하지 않고, `@:`가 보인다고 무조건 fusion하지 않는다. source structure는 후보의 근거이고, effect/error/name/alias 등의 semantic legality와 cost/resource 판단은 별도 단계다.
-
-위 branch/join 도식은 **ordinary VVV fork**에 해당한다. 생성 시점에 capped 의미로 고정된 `[: g h`는 `input → h → g(monad)`의 순차 pipeline이고, noun-left fork는 `h(input)`과 고정 noun을 g에 전달한다. 따라서 단순히 Fork라는 parser row/head만 보고 두 실행 branch를 가정하지 않고 constructor 의미와 operand 품사를 함께 해석한다. 원래 source Fork/NAME DAG는 계속 보존한다.
-
-이 아이디어의 각 구성 요소 자체를 RustJ의 최초 발명으로 주장하지 않는다. Hook/Fork의 dataflow 의미, function-level program transformation, graph-based fusion과 high-level array IR에는 각각 선행 연구와 구현이 있다. RustJ/JAXA의 설계상 중요한 결합은 **J의 tacit combinator algebra를 독립적인 semantic graph layer로 보존하고, 그 구조 자체에서 optimization candidate를 생성한 뒤 full-J semantic legality와 physical profitability를 분리해서 판단하는 것**이다.
-
-##### 관련 선행 연구와 RustJ의 위치
-
-이 출발 관찰 자체에는 직접적인 선행 연구가 있다. 따라서 RustJ의 연구적 위치를 평가할 때 **“J 구문이 최적화 힌트를 제공한다” 자체를 novelty로 주장하지 않는다.** 특히 Bernecky의 APL93 논문은 사용자가 JAXA에서 `@:`, Fork, Hook을 보며 출발한 문제의식과 매우 가깝다. Fork의 양쪽 가지 병렬성, composition의 pipeline 성격, expression-level merging을 통한 중간 배열·저장 비용 축소를 이미 명시적으로 논의한다.
-
-- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
-  - J tacit definition의 Fork에서 `f`와 `h` 계산이 병렬로 진행될 수 있음을 명시하고, tacit form이 data-flow/data-dependency 분석 부담을 줄인다고 설명한다.
-  - expression-level static analysis로 배열 primitive sequence를 interleaved execution으로 합치는 **loop jamming / merging**을 논의한다. 이는 temporary 제거와 fusion 계열의 직접 선례다.
-  - J composition을 cell 결과가 verb에서 verb로 전달되는 **pipeline**으로 설명하며 cell-level 병렬성을 지적한다.
-  - paper: https://www.snakeisland.com/aplhiperf.pdf
-  - DOI: https://doi.org/10.1145/166197.166201
-
-- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
-  - program-combining forms와 그 algebra를 프로그램 변환의 대상으로 보는 function-level 계보의 중요한 선례다.
-  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
-
-- **Accelerate / Futhark / Lift / MLIR Linalg**
-  - Accelerate와 Futhark는 high-level array operations와 dependency structure를 보존해 fusion과 parallel lowering을 수행한다.
-  - Lift는 map/reduce 같은 functional data-parallel pattern의 의미를 rewrite-rule 기반 optimization과 GPU mapping에 사용한다.
-  - MLIR Linalg는 transformation에 필요한 structured semantics를 loop/CFG lowering 전에 보존하고 transformation validity와 profitability를 분리한다.
-  - Accelerate: https://www.acceleratehs.org/publications.html
-  - Futhark: https://futhark.readthedocs.io/
-  - Lift: https://doi.org/10.1109/CGO.2017.7863730
-  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
-
-따라서 현재의 보수적인 novelty framing은 다음과 같다.
-
-~~~text
-J syntax가 optimization-relevant structure를 드러낸다
-    → 선행 연구 있음
-
-Fork/Composition/Rank 등에서 parallelism·pipeline을 읽는다
-    → 직접적인 J/APL 선행 연구 있음
-
-high-level array operations를 보존해 fusion/rewrite를 한다
-    → Accelerate / Futhark / Lift / MLIR 등에 선행 연구 있음
-
-full J tacit combinator algebra를
-독립 J Graph IR로 보존하고
-그 topology에서 optimization candidate를 생성한 뒤
-full-J semantic legality와
-physical profitability를 별도 단계로 판단한다
-    → RustJ/JAXA가 탐구하는 distinctive architectural combination
-~~~
-
-따라서 JAXA의 역사적 핵심 질문은 다음처럼 기록한다.
-
-> **J의 함수 조합 표기가 이미 computation topology를 보여 준다면, 왜 그 의도를 loop로 잃어버린 뒤 다시 추론해야 하는가?**
-
-RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
-
-따라서 RustJ의 중요한 compiler 원칙은 **이 정보를 너무 일찍 scalar loop, buffer, kernel로 낮추지 않는 것**이다. `/`와 `"` 같은 modifier identity, rank boundary, derived structure는 J Semantic IR/J Graph에서 보존하고, Semantic Analyzer 이후에만 `Reduce`, `CellApply`, `Scan`, reindex 등의 normalized logical operation으로 내린다. explicit loop/thread/block mapping은 더 downstream의 schedule/physical lowering에서 결정한다.
-
-과거 JAXA가 주로 analyzer와 제한된 vocabulary를 대상으로 했다면, RustJ는 그 설계 비용을 승계해 **full-J frontend/semantic ownership + 점진적인 optimized backend coverage**로 확장한다. 분석 가능한 배열 영역은 aggressive logical/physical planning을 사용하고, 동적·effectful 영역은 J semantics를 보존하는 native/runtime route로 남길 수 있다.
-
-과거 JAXA 문서의 표현:
-
-> **JAXA specifies logical array intent, not physical execution procedure.**
-
-> **JAXA does not execute fusion — the compiler does.**
-
-는 이 원칙의 역사적 출발점으로 유지한다. 다만 current RustJ에서 더 정확한 장기 프레이밍은 **“GPU를 지원하는 J”가 아니라, J를 고수준 배열 언어로 사용하는 heterogeneous array compiler/runtime**이다.
-
-이 프레이밍은 제품 범위나 구현 완료를 과장하기 위한 것이 아니다. current RustJ의 직접 목표는 여전히 **full J semantics를 보존하는 J compiler/runtime**이며, “배열 연산의 SQL”은 그 compiler layering과 optimization freedom을 설명하는 설계 비유다.
 
 ### 1.2 핵심 배열 모델 결정 — Logical Array와 Physical Array를 분리한다
 
@@ -278,6 +232,7 @@ Jaxa physical plan → Physical Planner / Physical Plan
 
 ---
 
+<a id="read-architecture"></a>
 ## 2. 최상위 아키텍처
 
 채택한 목표 파이프라인은 다음과 같다.
@@ -354,6 +309,106 @@ route boundaries are bridged after representation requirements are known
 **프런트엔드 레이어 경계(2026-10-07 교정):** 여기서 Word Formation과 Enqueue는 파서에 입력을 만드는 *처리 단계*이며, **J Parser와 Semantic Construction을 서로 독립적으로 완료되는 두 compiler pass로 정의하지 않는다.** jsource의 파서 규칙은 queue/stack 이동과 grammar action을 반복하면서 adverb/conjunction의 파생 함수 구성, verb 적용, name lookup 및 assignment 등 **파싱과 의미 동작/실행을 엮어 수행**한다. RustJ의 `src/parser.rs` 역시 reductions와 함께 `JEntity`/`FunctionEntity`를 구성한다. `src/semantic.rs`는 의미 객체·binding/version의 **타입/계약 모듈**이지 파싱이 끝난 뒤 별도로 반드시 실행되는 Semantic Construction pass가 아니다. 다만 RustJ 분석용 `parse`는 임의의 noun kernel을 실행하지 않고 의미 구조를 구성하며, runtime parser/host 경로의 관찰 가능 동작은 jsource와 맞춰야 한다. 이후 `J Graph IR`와 `Execution Semantic Lowering`은 **별개의 compiler 단계**로 유지한다.
 
 핵심 원칙은 **J의 고수준 배열 변환 구조를 Semantic Analyzer가 보기 전에 없애지 않고, analyzer/lowering 단계가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
+
+
+### Frontend 결과물과 J Graph IR 결과물의 차이
+
+이 경계는 RustJ를 읽을 때 가장 쉽게 혼동되는 부분이므로 명시적으로 구분한다. **둘은 같은 프로그램을 서로 다른 질문으로 표현하며, 서로 대체하는 IR이 아니다.**
+
+- **Frontend / J Semantic Construction의 질문:** “이 J 표현은 무엇을 의미하는가?”
+- **J Graph IR의 질문:** “그 의미를 실제 noun input에 적용하면 어떤 배열 계산과 dependency/topology가 생기는가?”
+- **Execution Semantic Lowering의 질문:** “그 계산을 어떤 explicit execution operation, check, effect/error order로 표현할 것인가?”
+- **Physical planning의 질문:** “그 실행 의미를 어떤 kernel, buffer, layout, device와 schedule로 실현할 것인가?”
+
+여기서 이해를 돕기 위해 “frontend AST”라고 부를 수는 있지만, 현행 RustJ의 기준 산출물은 일반적인 syntax AST가 아니라 parser reduction이 구성한 **`JEntity` / `FunctionEntity` semantic DAG와 관련 frontend context**다. 이 층은 J의 품사와 결합 의미, primitive/derived function, adverb/conjunction operand, hook/fork/train, rank, name/binding/version과 source provenance를 보존한다. 아직 fusion, materialization, kernel 또는 device를 결정하지 않는다.
+
+반면 J Graph IR은 완성된 function/entity가 input에 **적용된 계산**을 대상으로 한다. 따라서 source combinator를 그대로 보존하는 것에 그치지 않고 producer/consumer, branch/join, rank/cell boundary, reduction과 같은 배열 계산 topology를 first-class graph form/basis로 드러낸다. shape/type/rank fact와 optimization hint를 붙일 수 있지만, 이 단계 역시 physical plan은 아니다.
+
+| 구분 | Frontend / J Semantic Construction | J Graph IR |
+|---|---|---|
+| 중심 대상 | J entity와 결합 의미 | 적용된 array operation graph |
+| 주인공 | noun/verb/adverb/conjunction, derived function, hook/fork/train, rank operands, names | input/output value, producer/consumer, branch/join, GraphForm/GraphBasis, facts/hints |
+| 보존해야 할 것 | J parser/semantic structure와 source provenance | J 의미에 근거한 계산 topology와 graph provenance |
+| 아직 하지 않는 것 | graph optimization, physical execution 결정 | kernel/buffer/layout/device/schedule 결정 |
+| 다음 단계 | J Graph IR construction | Execution Semantic Lowering |
+
+**Rank 예:** `(f"1) y`에서 frontend는 `"`를 `f`의 단순 attribute로 접어 넣지 않는다. Rank는 conjunction이고, 왼쪽 function operand `f`와 오른쪽 rank operand `1`을 받아 derived function을 만들며, 그 derived function이 `y`에 적용된다는 J 의미 구조를 보존한다. 실제 `FunctionEntity` 형태는 jsource parser reduction 규칙을 따르며, 아래 표기는 설명용 개념도다.
+
+~~~text
+frontend semantic view
+
+Rank conjunction (")
+  ├─ left operand:  f
+  └─ right operand: 1
+          ↓
+     derived verb
+          ↓ apply
+          y
+~~~
+
+J Graph IR로 가면 관심점이 “Rank conjunction을 어떻게 썼는가”에서 “어떤 cell/frame 적용 계산이 생기는가”로 이동한다. 현재 graph 표현에서는 이 의미가 예를 들어 `GraphForm::Rank { .. }`와 `GraphBasisKind::CellApply` 같은 구조로 드러날 수 있다.
+
+~~~text
+J Graph view
+
+y
+│
+▼
+Rank / CellApply
+│  function = f
+│  cell rank = 1
+▼
+result
+~~~
+
+따라서 frontend에서는 implicit rank semantics를 **J 언어 구조로 보존**하고, Graph IR에서는 optimizer가 분석할 수 있도록 **cell-application boundary와 데이터 흐름을 노출**한다. 빈 frame에서의 virtual cell/fill 같은 J Rank 의미도 physical loop로 조기에 지워서는 안 된다.
+
+**Fork 예:** `(f g h) y`에서 frontend는 fork를 `FunctionEntity`의 J 결합 구조로 보존한다. J Graph IR에서는 같은 의미가 input `y`의 fan-out, `f(y)`와 `h(y)`의 독립 producer, 그리고 `g`의 join으로 드러난다. 현재 graph 표현의 `GraphForm::Fork { .. }`는 이런 topology를 분석하기 위한 surface다.
+
+~~~text
+          y
+         / \
+        /   \
+       ▼     ▼
+     f(y)   h(y)
+        \   /
+         \ /
+          ▼
+    g(f(y), h(y))
+          │
+          ▼
+        result
+~~~
+
+이렇게 graph가 되면 common input reuse, branch-local fusion, retained-value lifetime과 materialization 후보를 분석할 수 있다. 그러나 여기서도 “GPU kernel 하나로 합친다”, “AVX2를 쓴다”, “buffer #17을 할당한다” 같은 결정을 내려서는 안 된다.
+
+요약하면 다음 경계를 지킨다.
+
+~~~text
+J source
+  ↓
+Frontend / J Semantic Construction
+  = J가 무엇을 의미하는가
+  ↓
+JEntity / FunctionEntity semantic DAG
+  ↓
+J Graph IR
+  = 그 의미가 어떤 배열 계산 graph를 만드는가
+  ↓
+Execution Semantic Lowering
+  = 어떤 explicit execution semantics/check/effect가 필요한가
+  ↓
+Physical planning / backend
+  = 실제로 어떻게 실행하는가
+~~~
+
+**J Graph IR은 frontend 결과물의 대체물이 아니다. Frontend가 J 의미를 소유하고, J Graph IR이 그 의미에서 optimizer가 사용할 계산 topology를 추출하는 단계적 관계다.** 이 경계를 무너뜨려 frontend에서 graph/physical 결정을 너무 일찍 하거나, 반대로 Graph IR에 source parser mechanics를 그대로 끌고 내려오지 않는다.
+
+#### 기억용 4단계 요약 — 상세 구현에서 다시 확인할 경계
+
+처음 읽는 사람은 [도입부의 네 단계 모델](#read-intro)부터 읽는다. 이 절의 Rank/Fork 예제와 아래 §2.1 이후 계약은 그 모델을 구현 관점에서 구체화한 것이다.
+
+**Execution IR은 semantic execution plan이지 하드웨어 실행 계획이 아니다.** Check·effect·error ordering과 SSA dependency는 여기서 확정하지만, AVX2 선택, GPU block 크기, concrete BufferId와 materialization은 physical planning이 담당한다. 동일한 `CellApply(f, y)`도 여러 backend realization을 가질 수 있다.
 
 ### 2.1 RustJ compiler stage의 위상
 
@@ -999,6 +1054,7 @@ MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 di
 
 ---
 
+<a id="read-semantic"></a>
 ## 3. J Semantic Array IR
 
 ### 3.1 J의 계산 모델
@@ -2617,6 +2673,7 @@ committed
 
 근거: [FOUNDATIONS §21/§33](FOUNDATIONS.ko.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7의 분류·이행 순서는 RustJ 설계 판단이며 upstream의 완성된 guard 시스템을 복제했다는 뜻이 아니다.
 
+<a id="read-graph-execution"></a>
 ## 4. J Graph Analyzer와 Execution Semantic Lowering
 
 RustJ middle-end는 하나의 Analyzer가 모든 일을 하는 구조가 아니라 **두 서로 다른 IR과 두 분석 단계**를 가진다.
@@ -3130,6 +3187,4721 @@ Graph 노드/영역의 설계 후보: `Fork`, `Hook`, `Compose`, `CellApply`, `B
 기존 M1–M6/frontend 이행 순서와 G1–G5 배열 설계 우선순위가 실행 계획의 기준이다. 이번 검토는 그 계획을 보강하며 조사한 모든 syntax 구현을 선행 조건으로 추가하지 않는다. 실제 CUDA 보류는 유지한다. 이번에는 문서만 수정했으며 Rust/C 실행 테스트, 성능 측정, 새 parsing 또는 병렬 실행 구현은 수행하지 않았다.
 
 <a id="framework-graph-hints"></a>
+
+#### 4.1.4 Candidate lifecycle와 proof-discharge contract
+
+J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
+
+개념적으로 candidate는 다음의 **직교한 evidence 축**을 가진다.
+
+~~~text
+CandidateEvidence
+  provenance        Verified | Stale/Invalid
+  equivalence       Unknown | Proven | Disproven | Guarded(GuardId)
+  semantic_legality obligation별 Unknown | Proven | Disproven | Guarded(GuardId)
+  target_feasibility Unknown | Supported | RequiresFacts | Unsupported
+  resource_state    Unknown | Symbolic | Resolved | ExceedsHardLimit
+  cost_state        Uncosted | Estimated(CostEstimate)
+  selection         Unselected | Selected | Rejected(reason)
+  lowering_state    NotLowered | Lowered(Transform/Route identity)
+~~~
+
+이 축을 하나의 선형 enum으로 저장할 필요는 없다. planner/UI가 다음과 같은 **derived lifecycle summary**를 만들 수는 있다.
+
+~~~text
+Discovered
+   ↓ source/provenance verification
+AwaitingProofs
+   ├─→ Illegal
+   └─→ Legal or GuardedLegal
+          ↓ hard target/resource feasibility
+       Feasible
+          ↓ cost evidence
+       Costed
+          ↓ compatibility + global/local choice
+       Selected / Rejected
+          ↓ committed lowering
+       Lowered
+~~~
+
+단, 이 화살표는 분석 pass의 실행 순서를 강제하지 않는다. resource/work-depth/cost 분석은 legality proof가 끝나기 전에도 **speculative side analysis**로 계산할 수 있다. 금지되는 것은 필요한 legality proof가 끝나기 전에 candidate를 실행 plan으로 **commit**하는 것이다.
+
+##### Evidence owner
+
+| Evidence / 질문 | 주 소유자 | 의미 | selection에 대한 규칙 |
+|---|---|---|---|
+| source topology / provenance | J Graph verifier + candidate registry | candidate가 현재 source/region/rule version에서 실제로 유도되었는가 | stale provenance면 즉시 폐기 |
+| algebraic equivalence | rewrite/scan/fusion rule의 witness validator | source와 replacement/composite identity가 같은가 | 필요한 equivalence가 Unknown이면 commit 금지 |
+| rank/cell/assembly | Execution semantic facts + candidate legality checker | CellApply/assembly/error 의미가 보존되는가 | Proven 또는 effect 이전 Guard 필요 |
+| numeric / tolerance / reassociation | primitive/derived numeric contract | overflow, `!.`, tolerance, floating-order contract가 보존되는가 | semantic relaxation 없이는 임의 reassociation 금지 |
+| effect / error ordering | effect/error/speculation analysis | observable write/error 순서를 바꾸어도 되는가 | Disproven이면 candidate illegal; guard가 effect 뒤라면 사용 불가 |
+| fanout / retention / alias | graph use/liveness + alias/storage facts | producer 복제, retained value, reuse가 합법인가 | external use를 잃거나 alias proof 없으면 해당 transform 금지 |
+| resource / work-depth | `j_graph_resource` / `j_graph_work_depth` | symbolic state, internal traffic, work/depth, hard resource need | cost와 분리. hard target limit 초과만 feasibility 거부 근거 |
+| target/lowering capability | LoweringRegistry × resolved target | 해당 op/region을 실제 realization으로 내릴 수 있는가 | source-basis support만으로 fused/composite legality를 추정하지 않음 |
+| empirical profitability | CostProfile / planner | legal candidates 중 무엇이 유리한가 | legal candidate를 단지 느리다는 이유로 semantic invalid로 만들지 않음 |
+| final compatibility/selection | Schedule/Transform planner | 후보들의 겹침·순서·route를 함께 선택 | selected set 전체가 상호 호환되어야 함 |
+
+##### Guarded legality
+
+`Guarded(GuardId)`는 “증명하지 못했지만 일단 실행”이라는 뜻이 아니다. 다음 조건을 모두 만족해야 한다.
+
+1. guard가 transformation이 의존하는 fact를 실제로 검증한다.
+2. guard는 해당 region의 observable effect보다 먼저 실행된다.
+3. guard miss의 대체 route가 명시되어 있다.
+4. miss 후 원래 J semantics를 재실행해도 중복 effect가 생기지 않는다.
+5. guard identity/provenance가 specialization/candidate cache와 연결된다.
+
+effect가 이미 commit된 뒤에는 guard miss/Unsupported를 이유로 source region을 자동 replay하지 않는다.
+
+##### Candidate overlap과 selection
+
+candidate overlap은 곧바로 오류도 아니고 곧바로 composition 가능도 아니다. v0에서는 보수적으로 다음을 적용한다.
+
+- 같은 source operation을 **대체**하는 두 rewrite는 동시에 select하지 않는다.
+- rewrite와 fusion이 같은 source operations를 겹쳐 소유하면 registered compatibility/composition rule이 없는 한 동시에 commit하지 않는다.
+- 둘 다 유용할 수 있으면 먼저 하나를 선택·적용해 **새 graph/version**을 만든 뒤 그 결과에서 candidate discovery를 다시 수행할 수 있다.
+- candidate의 profitability 비교 때문에 원 source graph/witness를 파괴하지 않는다.
+- `CandidateId`/analysis-local index는 특정 Plan/graph version에 귀속되며 source/registry version이 바뀌면 재검증한다.
+- selection 결과는 semantic IR 자체가 아니라 별도 Transform/Schedule plan이다.
+
+##### 현재 코드와 목표 계약의 대응
+
+현재 구현은 이 전체 lifecycle의 일부만 갖는다.
+
+~~~text
+GraphRewriteCandidate
+  provenance + equivalence witness
+  target-independent
+
+FusionCandidate
+  proof obligations
+  legality = Unknown
+  resource_transfer_proven = false
+  selected = false
+
+RewritePlanningReport
+  TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting
+
+FusionReadinessReport
+  AwaitingSemanticProofs
+  fused target query deferred
+  selected = false
+~~~
+
+아직 공통 `CandidateEvidence`/`ProofBundle`, obligation별 proof discharge 결과, compatibility-aware selection plan, committed transform identity는 구현되어 있지 않다. 위 타입 이름은 목표 개념을 설명하며 현재 API 완료를 주장하지 않는다.
+
+##### 구현 시 분리 순서
+
+현재 M2 frontend 우선순위를 바꾸지 않는다. optimizer 단계에 착수할 때는 다음처럼 **한 번에 한 의미 + 한 verifier/test**로 추가한다.
+
+1. proof 결과의 공통 state/provenance 표현 + stale evidence verifier
+2. fusion obligation별 discharge 결과를 기록하되 selection은 하지 않음
+3. rewrite/scan 후보에도 동일한 legality view를 투영
+4. target hard-feasibility와 semantic legality를 합치지 않는 readiness view
+5. candidate compatibility/overlap 검사
+6. costed candidate set에서 별도 SelectionPlan 생성
+7. selected candidate만 committed transform/lowering으로 넘기고 source provenance를 검증
+
+### 4.2 Execution Semantic Lowering의 책임
+
+- J Graph node를 explicit execution dataflow로 전개
+- monad/dyad valence와 actual call instantiation 확정
+- primitive semantic contract 적용
+- dtype / shape / cell / frame / agreement / rank-result-assembly fact 전파
+- iteration domain / axis semantics / access relation 도출
+- CellApply / Reduce / Gather / Contract 등 normalized execution/basis operation 생성
+- ConstraintSet / FactWitness / SemanticCheck 생성
+- effect / alias / speculation legality 분석
+- invariance / semantic storage requirement / representation-side fact의 경계 설정
+- J observable error/evaluation ordering 보존
+- J Graph node → execution op provenance(`j_origin`) 유지
+- verified Logical Execution IR 생성
+
+다음은 이 단계의 책임이 아니다.
+
+- 특정 backend capability를 보고 schedule을 선택하는 일
+- fusion region을 실제로 확정하는 일
+- optional intermediate를 실제 buffer로 materialize하는 일
+- tile/vector/workgroup/layout/device를 고르는 일
+- target cost model로 후보를 ranking하는 일
+
+이 결정들은 Route Partition/Export, 외부 compiler, 또는 RustJ-native Logical Optimizer/Physical Planner가 담당한다.
+
+과거 `jaxa-analyzer` 문서에서 “analyzer가 hardware profile을 받아 fusion/resource를 결정한다”고 한 표현과 충돌하지 않도록 용어를 재해석한다.
+
+```text
+old "JAXA analyzer"
+  ≈ current Semantic Analyzer
+    + native Logical Optimizer
+    + Schedule / Transform planning
+    + Physical Planner / Resource analysis
+```
+
+현행 RustJ에서 **Semantic Analyzer라는 좁은 단계만** target-independent다. 과거 analyzer의 hardware-dependent 기능을 버린 것이 아니라 downstream planning 단계로 분리한 것이다.
+
+### 4.3 두 middle-end가 공통으로 하지 않는 일
+
+- source text tokenization
+- parser stack 규칙의 재실행
+- source를 다시 parse하여 의미를 복원
+- 직접 CPU loop 실행
+- 직접 CUDA kernel 실행
+- Executor 단계에서 의미론을 다시 판단
+- 알 수 없는 정보를 임의로 추측
+
+즉 Graph Analyzer와 Execution Lowering은 scanner/parser stack mechanics를 재실행하지 않는다. 대신 parser가 완성한 FunctionEntity와 J Graph IR의 구조를 정식 compiler input으로 사용한다.
+
+### 4.4 Execution semantic lowering 이후의 generic 경계
+
+다른 frontend와 공유할 가능성이 높은 지점은 J Graph IR 이전이 아니라 **J graph analysis와 execution semantic lowering을 마친 뒤의 Logical Execution IR / Plan**이다. J Graph IR은 의도적으로 J-specific하다.
+
+```text
+J frontend / FunctionEntity
+    ↓
+J Graph IR + Graph Analyzer      ← intentionally J-specific
+    ↓
+Execution Semantic Lowering
+    ↓
+Logical Execution IR / Plan     ← generic compiler boundary
+    ↓
+Route partition / export
+    ├─ RustJ-native optimizer/planner
+    ├─ MLIR
+    ├─ StableHLO-compatible subset
+    └─ library/custom backend
+```
+
+향후 다른 array DSL frontend를 붙이고 싶다면 두 선택이 가능하다.
+
+1. J semantic model을 의도적으로 공유하면 J Semantic Array IR을 생성한다.
+2. J와 무관한 frontend라면 자기 semantic analyzer를 거쳐 Logical Array IR / Plan에 합류한다.
+
+따라서 **middle-end를 generic tensor IR consumer처럼 만들기 위해 J의 구조를 일찍 버리지 않는다.**
+
+#### 4.4.1 분석 fact는 typed lattice로 관리하고 semantic error와 분리한다
+
+shape, alias, invariance, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
+
+각 fact domain은 자기 lattice를 정의한다. 모든 domain이 동일한 enum을 강제로 공유할 필요는 없지만 공통적으로 다음 개념을 갖는다.
+
+```text
+analysis state
+  Uninitialized
+  Known(T)
+  Overdefined / Unknown
+  domain-specific bottom/unreachable if needed
+```
+
+control-flow merge나 여러 predecessor에서 fact가 합쳐질 때는 domain별 monotonic `join`을 사용한다. MLIR data-flow framework처럼 lattice state는 **분석 지식의 상태**를 나타낸다.
+
+예:
+
+```text
+ShapeFact
+AliasFact
+InvarianceFact
+ConstraintFact
+EffectFact
+BindingFact
+```
+
+`Unknown`은 사실을 임의로 꾸며내지 않는다는 뜻이지 곧바로 실행 불가를 뜻하지 않는다. domain과 route에 따라 다음 중 하나가 된다.
+
+- optimization barrier
+- runtime witness/guard 필요
+- conservative lowering
+- external route rejection
+- 재분석 조건
+
+특히 `AccessRelation`은 모든 valid J op가 v0부터 완전한 affine/index-map contract를 가져야 한다는 뜻이 아니다.
+
+```text
+AccessFact
+  Known(AccessRelation)
+  Opaque / Unknown
+```
+
+로 둘 수 있다.
+
+- `Known`: fusion, locality, vectorization, advanced scheduling 분석 가능
+- `Opaque/Unknown`: J semantics 자체는 valid할 수 있으며, access-sensitive optimization의 barrier가 됨
+- route가 full access contract를 요구할 때만 해당 route에서 reject/Unsupported
+- conservative/native/runtime semantic path가 있으면 실행 자체를 금지하지 않음
+
+따라서 **hardware-aware Logical IR은 hardware-relevant fact를 표현할 수 있어야 하지만, 모든 op가 v0부터 모든 fact를 Known으로 제공해야 한다는 뜻은 아니다.**
+
+중요하게, **J semantic error는 lattice element가 아니다.**
+
+```text
+UnreachablePath / UnsatisfiableConstraint
+        ≠
+JSemanticError(domain/rank/length/value/...)
+```
+
+- `UnreachablePath`는 control-flow/constraint 분석 결과다.
+- `JSemanticError`는 source semantics에 따라 진단하거나 runtime error behavior로 보존해야 하는 프로그램 의미다.
+- 어떤 path에서 반드시 error가 발생한다고 증명되더라도 optimizer는 그 error의 관찰 가능한 순서를 `SpeculationSemantics`와 effect ordering에 따라 보존해야 한다.
+
+따라서 분석 lattice의 bottom/top 개념과 사용자-visible error contract를 같은 `Invalid` 상태로 합치지 않는다.
+
+<a id="read-physical"></a>
+## 5. Logical Plan, Physical Plan, Executor
+
+### 5.1 Logical Array IR / Logical Execution Plan
+
+이 계층은 Semantic Analyzer가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
+
+여기서 `Reduce`, `CellApply`, `StaticReindex` 같은 이름은 **Logical IR에서 처음 등장하는 normalized operation**이다. J Semantic IR의 parser-produced function graph에는 이 이름으로 modifier application을 대체하지 않는다. `MapCells`는 `CellApply`의 uniform result/assembly 조건이 증명된 뒤 사용할 수 있는 더 제한적인 lowering form이다.
+
+```text
+Semantic IR
+  / : Verb
+  └─ + : Verb
+
+       ↓ Semantic Analyzer
+
+Logical IR
+  Reduce(reducer=+)
+```
+
+마찬가지로:
+
+```text
+Semantic IR
+  " : Verb                 // derived result POS
+  head = PrimitiveConjunction(Rank)
+  ├─ left:  u
+  └─ right: r
+
+       ↓ Semantic Analyzer
+
+Logical facts / op
+  resolved RankSpec
+  frame/cell mapping
+  CellApply
+    └─ optional later MapCells-style lowering when UniformProven
+```
+
+현재 코드의 `Callable.reduce` / `Callable.rank`는 기존 analyzer/runtime와 연결하기 위한 **migration field**다. 최종 A3-v0 Logical IR에서는 parser-derived operator graph를 해석한 결과를 normalized logical operation/fact로 표현하고, 이 bool/array shortcut을 semantic identity로 사용하지 않는다.
+
+예를 들어 고수준의
+
+```text
+Apply(
+  Fork(
+    AdverbApplication(operator=/, operand=+),
+    %,
+    #
+  ),
+  y
+)
+```
+
+는 분석 후 개념적으로 다음과 같은 dataflow가 될 수 있다.
+
+```text
+            Input y
+           /       \
+  Reduce(Add)      Tally
+           \       /
+             Divide
+```
+
+여기서 일반 dataflow 실행 의미는 fork 표기 없이도 표현할 수 있지만, **원래 source가 fork/hook/@:였다는 topology provenance는 optimization 정보로 계속 보존한다.** §4.1.1의 StructuralOpportunity sidecar가 pipeline/branch-join/live-across 정보를 명시적으로 운반하므로 optimizer가 generic DAG에서 이를 다시 pattern-match할 필요가 없다. 진단·debug provenance이기도 하지만 그것에 한정되지 않는다.
+
+Logical Plan에서 보존할 정보:
+
+- SSA ValueId와 region/block/control-flow 구조
+- normalized array operation
+- dtype/shape/rank/cell/frame facts
+- iteration domain / axis semantics / access relation
+- symbolic constraints와 witness/guard
+- data dependency와 effect ordering token
+- effect / alias / speculation facts
+- invariance / semantic-mask facts
+- semantic StorageRequirement
+- target-independent rewrite/fusion constraints
+- source/semantic origin metadata
+
+특정 backend support 여부, concrete fusion region, buffer allocation, tile/layout/device 결정은 Logical IR의 본질적 fact가 아니다.
+
+아직 특정 device buffer 주소나 CUDA launch parameter는 없다.
+
+### 5.2 Schedule / Transform Plan과 Physical Plan을 구분한다
+
+RustJ-native route에서는 Logical IR을 바로 buffer plan으로 덮어쓰지 않는다.
+
+```text
+Logical Array IR
+   ↓
+Logical Optimizer
+   ↓
+Schedule / Transform Plan
+   ↓
+Physical Planner / Bufferization
+   ↓
+Physical Plan
+```
+
+
+
+여기서 `Logical Optimizer`는 target-independent canonicalization/DCE/CSE와 semantic-preserving graph rewrites를 담당한다. 특정 tile/layout/device/resource를 선택하거나 target cost로 후보를 확정하는 일은 Schedule / Transform Plan 이후의 책임이다.
+
+**Schedule / Transform Plan**은 payload semantics와 분리된 선택/변환 의도를 표현한다.
+
+- fusion/grouping
+- tile hierarchy
+- loop/axis mapping
+- vectorization
+- unrolling
+- tensorization/intrinsic selection 후보
+- layout transform 요청
+- memory-space staging 요청
+- software pipeline/prefetch 전략
+
+이는 MLIR Transform dialect나 TVM TensorIR schedule처럼 “무엇을 계산하는가”와 “어떻게 변환할 것인가”를 분리하는 역할이다.
+
+Schedule Plan은 여러 후보를 가질 수 있고 CostProfile/autotuning/backend feedback에 의해 바뀔 수 있다. 따라서 Logical IR의 semantic identity가 아니다.
+
+**Physical Plan**은 선택된 schedule을 실제 resource/buffer/execution 객체로 구체화한다.
+
+- CPU/GPU placement
+- buffer binding / ownership
+- physical view
+- concrete materialization/copy
+- contiguous/fixed/general stride specialization
+- physical layout / padding / alignment
+- memory-space assignment
+- transfer
+- synchronization/timepoint
+- buffer reuse
+- work partition
+- backend kernel/library 선택
+- async lifetime/resource information
+
+#### 5.2.1 M4 최소 PhysicalPlan v0 contract
+
+M4의 첫 CPU vertical slice를 구현하기 전에 **compiler plan의 resource identity와 runtime handle을 분리한 최소 schema**를 문서로 고정한다.
+
+가장 중요한 구분:
+
+~~~text
+Logical ValueId
+    ≠
+PlanBufferId        // compiler PhysicalPlan 안의 symbolic/planned storage slot
+    ≠
+physical::BufferId  // runtime BufferRegistry가 발급하는 checked handle
+    ≠
+raw address
+~~~
+
+현재 `physical::BufferId`는 registry identity + slot + generation을 가진 **runtime handle**이다. compiler가 lifetime/reuse를 계획하기 위해 사용하는 slot identity와 그대로 동일시하지 않는다. 실제 구현명은 달라질 수 있지만, plan-time identity와 executor-time lease/handle의 계층은 분리한다.
+
+또한 하나의 planned buffer 위에 여러 physical view가 존재할 수 있으므로 buffer identity와 view identity도 분리한다.
+
+~~~text
+PlanBufferId
+  storage/resource identity
+
+PhysicalViewId
+  PlanBufferId
+  logical shape
+  strides
+  offset
+  encoding
+  access mode
+~~~
+
+##### v0 PhysicalPlan
+
+첫 M4 범위는 **verified single-block pure-array CPU region + 필요한 SemanticCheck**로 제한할 수 있다. assignment/name mutation 같은 stateful effect는 첫 slice에서 RuntimeSemantic region에 남겨도 되며, 이것은 J language restriction이 아니다.
+
+개념 schema:
+
+~~~text
+PhysicalPlan
+  source_logical_schema / provenance
+  resolved CPU target
+  planned buffers
+  physical views
+  ordered/dependency-aware ops
+  outputs
+
+PhysicalOp
+  BindInput
+  Check
+  View
+  Materialize
+  Kernel
+  Return
+
+future / non-M4:
+  Transfer
+  Sync / AsyncToken
+~~~
+
+각 op의 역할:
+
+- **BindInput** — logical input/read value를 executor가 가진 runtime storage/lease와 연결한다. deep copy를 뜻하지 않는다.
+- **Check** — A3 `SemanticCheck`를 J error kind/origin/order와 함께 실행한다. optimizer 편의를 위해 kernel 안으로 숨기거나 제거하지 않는다.
+- **View** — transpose/reverse/slice 등 합법한 metadata-only physical view를 만든다. 새 backing allocation을 의미하지 않는다.
+- **Materialize** — consumer requirement나 layout/alias 조건 때문에 logical atom order를 보존한 실제 copy/packing을 만든다. 이유/provenance를 남긴다.
+- **Kernel** — 이미 선택된 `ParameterizedLoweringRecipe/RealizationFamily`를 입력/output view에 적용한다. rank/hook/fork/fusion legality를 executor에서 다시 판단하지 않는다.
+- **Return** — 최종 physical view/ownership을 logical result로 넘긴다. temporary를 output으로 잘못 재사용하지 않게 ownership을 확정한다.
+- **Transfer/Sync** — GPU/mixed-route에서만 필요할 수 있으며 M4 CPU v0의 필수 op가 아니다.
+
+##### planned buffer와 lifetime
+
+각 planned buffer는 최소 다음 정보가 필요하다.
+
+~~~text
+BufferRequirement
+  memory space / CPU class
+  encoding
+  extent or size expression
+  alignment requirement
+  ownership class: input | temporary | output
+  def / physical uses / last use
+  optional reuse witness
+~~~
+
+M4 첫 slice가 fully-resolved CPU extent만 지원해도 된다. dynamic extent 지원이 없다는 사실을 J semantic restriction으로 올리지 않고 route capability로 둔다.
+
+buffer reuse는 별도 semantic transform이 아니라 physical decision이다. 같은 `PlanBufferId` 또는 storage slot을 재사용하려면:
+
+1. 이전 physical value의 last use가 끝났고,
+2. outstanding view/lease가 그 storage를 관찰하지 않으며,
+3. encoding/size/alignment/memory-space requirement가 맞고,
+4. alias/destination contract가 허용하며,
+5. J-visible effect/error order를 바꾸지 않는다는
+
+reuse witness가 필요하다.
+
+##### PhysicalPlan verifier
+
+executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는 다음을 검사한다.
+
+- 모든 buffer/view/op id가 유효하고 use가 definition 뒤에 있다.
+- 모든 view의 shape/stride/offset span이 backing extent 안에 있고 encoding/dtype contract가 맞다.
+- buffer가 bind/allocation되기 전에 사용되지 않는다.
+- `Check`의 ordering edge와 source origin이 A3 SemanticCheck에서 유도되었고 누락/중복되지 않는다.
+- Kernel의 chosen realization이 resolved target과 lowering capability에 맞고 필요한 input/output view contract를 만족한다.
+- write 가능한 overlapping views가 proof 없이 동시에 사용되지 않는다.
+- Materialize가 logical atom order/value semantics를 보존한다.
+- reuse는 last-use + alias/ownership witness 없이는 허용하지 않는다.
+- Return은 유효한 output ownership/view를 가리키고 temporary lifetime 이후 dangling view를 만들지 않는다.
+- M4 pure-region plan에는 숨은 namespace/write effect가 없다.
+
+##### error / cleanup contract
+
+- `Check` 실패는 원래 J semantic error로 보고한다.
+- Kernel/library 자체의 implementation failure를 임의의 J Domain/Rank/Length error로 바꾸지 않는다.
+- plan 실패 시 executor-owned temporary lease/resource는 정리하되 caller-owned input은 파괴하지 않는다.
+- first M4 pure slice에서는 namespace assignment commit을 Physical Executor가 소유하지 않는다. stateful write를 native route에 넣을 때 별도 effect/commit contract를 추가한다.
+- observable effect가 commit된 뒤 transparent replay하는 fallback은 금지한다.
+
+##### M4→M5 구현 선행조건과 검증 프로토콜 (2026-10-07, **설계만 확정**)
+
+**범위:** 실제 PhysicalPlan/Executor/View/Kernel/Transfer를 지금 구현하지 않는다. 본 절은 기존 §5.2.1의 계약, §17 M4 구현 항목, HE-01~HE-09, IO-20에 적용할 **수용 조건과 검증 증거**다. 별도 Parallel IR, Data Movement IR, 중복 체크리스트는 만들지 않는다. 기존 Draft PR #4의 제한적인 identity 구현은 검증된 전체 M4 경로로 취급하지 않으며 완료 수용과 구별한다.
+
+**컴파일러 경계의 의무와 검증 방법**
+
+| 경계 | 실행 전 필요한 조건·증거 | 수용/거부 검증 | 조건 미충족 시 |
+|---|---|---|---|
+| **A3 → Route/Physical** | \`logical_ir::Plan::verify\` 성공, schema/primitive-registry/source origin 일치, 한 region 내 포함된 모든 value/check/effect/order edge 목록, 해당 route의 capability·guard/witness 확보 | A3 op 하나씩 추적하는 source→physical mapping; plan에서 Check 하나 삭제·복제·재배열, producer 위조, stale version/guard 위조 시 verifier가 **반드시 거부** | Unknown을 Supported로 치환하지 않음. 해당 region을 합법한 reference/runtime route로 유지하거나 Unsupported |
+| **장치·메모리 독립성** | \`ExecutionDevice\`, \`MemorySpace\`, intra-device schedule은 서로 독립한 물리 결정. plan-time \`PlanBufferId\`/view와 runtime \`BufferId\`/lease, logical \`ValueId\` 분리. M4는 CPU+Host+zero-transfer | logical/semantic IR에 thread 수·CUDA stream·buffer address가 없는지 구조 검토; 서로 다른 메모리 위치와 동일 execution device를 **미래 확장 가능**하게 식별; M4 plan에는 Transfer/Sync가 없음을 검사 | 혼합 실행 능력이 없으면 단일 CPU 경로만 지원; J 의미를 바꾸지 않음 |
+| **BindInput** | 실제 dense noun의 dtype·shape·encoding·extent·version/owner가 source value와 일치, readonly lease 유효, alias 여부 추적, implicit deep copy 없음 | 바뀐 binding version·stale buffer generation·미등록 BufferId·타인 registry·잘못된 encoding을 각각 하나씩 위조하여 reject; 입력 버퍼 원본 불변 확인 | 입력을 파괴하거나 임의 재바인딩하지 않고 route 거부 |
+| **View** | 대상 primitive/Rank·axis 의미가 증명됨, logical shape/atom order 유지; \`shape×stride+offset\`의 최소/최대 backing byte 범위를 부호 있는 checked 연산으로 계산하고 encoding/alignment 적합성 확인. 빈 frame과 빈 cell은 구분 | scalar, rank 1/2/3, \`0 3\`·\`3 0\`·singleton, negative stride, transpose/reverse, overflow·zero stride·OOB 위조. **View는 실제 메모리를 복사하거나 쓰지 않았는지** 확인 | 불확실한 view를 실행하지 않음; 합법한 Materialize/다른 route를 별도 선택 |
+| **SemanticCheck / 오류** | A3 Check마다 유일한 provenance, 실행 위치, 의존성, 원래 J error kind 및 error precedence. Guard는 관찰 가능 effect 전 평가; 복구/handler가 오류를 볼 수 있음 | 두 개 이상 Check의 순서 변경, 한 Check 누락·중복, invalid Rank/Length/Index, effect/NAME rebinding/try-catch 관찰 사례. Reference executor와 **오류 종류·첫 오류·부수효과 횟수·상태** 비교 | 물리화 대상 제외; arbitrary first-thread error 또는 GPU trap→J error 임의 변환 금지 |
+| **Kernel (첫 Add)** | \`ParameterizedLoweringRecipe\`/registered realization이 resolved target에 합법, valence·rank/cell·prefix agreement·J 타입 승격·overflow/fit·alias·stride 및 전처리 Check 충족. Logical IR의 Parallel 축은 동시 실행 허가 증거 아님 | scalar/vector/matrix, 서로 다른 dtype, bool/int/float, integer overflow/promotion, NaN/Inf, length error, empty arrays, SIMD tail, stride mismatch. 등록하지 않은 recipe 또는 shape/target capability mismatch는 verifier reject; **기존 semantic interpreter를 호출한 결과를 native kernel 통과로 세지 않음** | 기존 reference/지원 route 선택, kernel 미지원은 J Domain error가 아님 |
+| **Materialize / Return** | view의 **J 논리 원소 순서**로 allocation·copy, output type/shape 보존; backing/lease와 output ownership, temp last-use 확인 | transpose/reverse의 physical address order와 J atom order 비교, empty/boxed/sparse(지원하지 않는 경우 reject), output dangling/temporary 조기 해제, read-only input mutation 및 조립 에러 비교 | incomplete result를 반환하지 않음; 실패 시 호출자 입력 보존 |
+| **Reuse / resource** | def/use/last-use, outstanding view/lease, non-overlap proof, encoding/size/alignment/memory-space 호환, check/effect precedence, budget 상한이 모두 충족 | reuse 중 live alias·overlap write·buffer size 부족·allocation 실패·exception cleanup 등 각 invariant 하나씩 위조; reclaimed resource에 대한 subsequent use 거부 | reuse 비활성화, 안전한 별도 버퍼 사용 또는 route 거부 |
+| **CPU↔GPU / I/O 후속(M5+)** | region/device placement, memory residency/version, transfer bytes, ready/completion, sync, ownership/lifetime, host effect/error 의존성 및 capacity. 외부 backend도 계약을 유지 | 가상 plan verifier 수준에서 stale data/transfer 누락/copy-before-producer/read-before-ready/transfer-after-free/중복 commit을 reject. 실제 GPU 결과 동등성·성능은 **검증 가능한 실장치와 명시적 재개 조건** 이후만 수행 | CPU/단일 장치 계획만 합법; 복합 장치 실행을 완료로 주장하지 않음 |
+
+**공통 검증 절차와 완료 판정**
+
+1. **A3 정상 계획 생성·검증 → Physical 계획 생성·검증 → 제한된 CPU 실행** 순서를 지키고, 검증되지 않은 plan은 실행기까지 도달할 수 없게 한다. 정상 사례를 복제해 **불변 조건 하나만** 훼손하는 음성 검증을 기본 패턴으로 삼는다. verifier 실패 이유와 source op/provenance를 기록한다.
+2. **3자 의미론 비교:** 동일 입력에 대해 (a) jsource C 기준 실행, (b) RustJ \`logical_executor::execute_closed\`/해당 의미론 기준 경로, (c) 신규 Physical Executor의 값·dtype·Shape·원소 순서·J error class/precedence를 비교한다. C 기준의 해당 기능이 현지 환경에 없으면 미검증으로 남기며 RustJ 내부 2자 비교로 대체 완료 처리하지 않는다.
+3. **범위·부정 사례:** zero-frame Rank virtual fill vs positive-frame empty cell, 복합 CellApply 결과 type/shape join, boxed/sparse, tolerance/fit, numeric reassociation, late NAME/assignment/effects, 예외·resource cleanup은 독립 regression으로 분리한다. 미지원 subtype은 **지원 범위 밖**으로 보고하며 J 문법/의미론 제한으로 바꾸지 않는다.
+4. **기계적 테스트:** 구현 시 \`cargo fmt --check\`, default/portable \`cargo test\`, \`cargo clippy\`와 재현 가능한 Linux/Windows 경로를 실행하고 커밋 SHA·플랫폼·스레드/feature·케이스 수·passed/failed/ignored를 기록한다. 실행하지 않은 테스트와 CI 결과는 성공으로 보고하지 않는다.
+5. **비용은 의미론 통과 후:** Sequential CPU를 zero-transfer baseline으로 두고, 실행 시간 외 bytes read/written/moved, allocation/peak residency, kernel/transfer launch, sync, guard misses, fallback 횟수, critical path를 별도 측정한다. \`ResourceEstimate\`와 \`CostEstimate\`와 실측 \`CostProfile\`을 혼합하거나 Unknown을 0으로 두지 않는다.
+6. **M4 수용 게이트:** Check·View·Kernel(Add)·Materialize 중 최소 하나의 **실제 compiler-native 연산 경로가 필요 Check를 포함하여** A3→verified PhysicalPlan→CPU에서 실행되고, 음성 verifier와 jsource differential이 통과해야 한다. 단일 literal \`BindInput→Return\`, 설계 문서 또는 테스트 소스만으로는 M4 전체/HE-01을 완료하지 않는다. M5의 mixed placement와 M6 GPU·async 실구현은 M4의 선행 필수 조건이 아니다.
+
+**상태 (2026-10-07):** 본 절의 **조건·검증 프로토콜만 문서 확정**. 모든 새로운 실행/성능 수용은 아직 미검증이며, M4/HE-01~09 미완료 체크박스를 유지한다. 구현 재개 시 각 수용 결과를 기존 §17/HE 체크리스트에 증거 링크로 기록한다.
+
+##### 기존 아키텍처 대조 감사: M4 준비도와 검증 공백 (2026-10-07, 설계 검증 전용)
+
+**결론:** J Graph → verified A3 → target-dependent lowering 후보 → Physical Representation이라는 기존 계층은 **그대로 확장 가능**하다. CPU 전용 Parallel Planner/IR, 새로운 Data Movement IR, GPU 실구현 선행은 필요하지 않다. 단, **A3 구조 검증**, **후보별 적법성 평가**, **원본 A3에서 Physical Plan까지 의미 보존의 증명**은 서로 다르다. 앞 단계의 성공이 뒤 단계의 완전한 실행 허가는 아니다. 아래는 현재 main의 실제 코드와 기존 테스트를 대조한 **정적 감사**이며 신규 테스트를 실행한 것이 아니다.
+
+| 감사 ID / 소유자 | 실제 코드·테스트에서 확인 | 공백과 단계 구분 | 추후 검증 조건 |
+|---|---|---|---|
+| CA-01 / A3 구조·의미 | src/logical_ir.rs의 Plan::verify는 schema·registry provenance, single block, SSA producer/use-before-def, order_after가 앞선 op를 가리키는지, Check가 result를 만들지 않는지, 일부 rank/shape를 검증한다. tests/logical_ir.rs에 관련 회귀가 있다 | **M3→M4의 의미론 증명 미완료.** A3 verifier는 모든 effect/error summary를 J 원본에서 독립 재계산하거나, 삭제된 Check가 없는지 Physical Plan까지 대조하지 않는다. IterationAxisKind::Parallel은 실행 허가가 아니다 | 정상 A3 하나를 복제하여 Check 삭제·중복, order_after 삭제, effect/possible_errors/speculation의 근거 없는 완화, source origin·binding version 위조를 각각 주입한다. 구조 위조와 **구조는 통과할 수 있는 의미론 위조**를 구분하고, 후속 선택·검증에서 모두 차단 |
+| CA-02 / Lowering | src/lowering.rs의 Requirement::satisfied·legal_candidates는 CPU/GPU family·feature, Pure, NoObservableError, EvaluationOrderRelaxed, known access/rank, 재결합 허용을 판정한다. tests/lowering.rs는 안전 조건이 없으면 SIMD/GPU·tree reduce를 닫는 검사를 포함 | **M3 증거 연결 미완료.** 후보 등록·CallOp에 적힌 사실이 곧 guard discharge/전체 Physical Plan의 적법성 인증서는 아니다. ReferenceSequential 후보는 실제 native CPU kernel 완성을 의미하지 않는다 | 근거 없는 effect/error/guard/witness 완화가 최종 선택에서 거부되는지 확인. target·valence·shape·stride·recipe와 proven semantic facts의 교차 검증이 필요 |
+| CA-03 / RoutePartition | lowering.rs의 partition_plan은 ValueOnly/PureArray/SemanticCheck/RuntimeSemantic가 같은 연속된 op를 구간으로 묶는다 | **RouteBoundary verifier 미구현(M3→M4).** 구간 class/range만으로 source op 전수 대응, live-in/out, zero-result Check, effect-live/order edge, guard-before-effect, commit frontier, replay 안전성은 증명되지 않는다 | source A3 모든 op의 정확한 대응(적법한 rewrite/fusion에는 witness 필요), Check·effect·name version·order edge 보존, cross-region consumer readiness를 검증. Check 유실, 순서 반전, dangling live-in, stale version, effect 이후 replay 위조 시 거부 |
+| CA-04 / Physical Representation | src/physical.rs에는 registry/slot/generation BufferId, read-only BufferLease, checked span을 가진 PhysicalArray가 있다. tests/physical.rs는 lease 생존, stale ID, alias, 음수 stride, transpose, zero/singleton axis를 검증 | **M4 구현 미완료.** main에는 plan-time PlanBufferId/PhysicalViewId, mutable output ownership, last-use/reuse proof, PhysicalPlan verifier, memory residency/ready/transfer plan이 없다. 현재 BufferId를 compiler slot으로 재사용하지 않는다 | buffer/view span overflow, 다른 ID 사이 alias, stale generation, overlapping mutable outputs, dangling Return, temporary early free, OOM cleanup과 reuse-after-free를 각각 독립 negative test로 검증. 쓰기·재사용은 증명 전 비활성 |
+| CA-05 / Rank·오류 | src/facts.rs의 RankFrameExecution은 ZeroFrameNeedsFill과 CellsPresent를 구분한다. logical_executor::execute_closed는 Check→Call의 closed-noun 순차 reference다 | **M4/M5 의미론 조건.** reference는 동적 NAME/state에 대한 전체 oracle가 아니다. 일반 CellApply를 uniform map으로 가정하거나 first-error 순서를 worker 완료 순서로 바꾸면 오류 | zero-frame 가상 fill cell, positive-frame empty cell, result-cell dtype/shape join, boxed/sparse, tolerance/fit, overflow·numeric reassociation, first J error, try/catch/effect를 C jsource+RustJ baseline과 비교. 불명확한 연산은 순차 유지 |
+| CA-06 / Device·memory·cost | TargetCapabilities는 CPU/GPU family와 feature를 제공한다. j_graph_work_depth.rs는 successful-path symbolic work/depth, j_graph_resource.rs는 logical resource 정보를 계산한다 | **M5 이후 구현 미완료.** 이 타입만으로 device placement ≠ memory placement, residency/BufferVersion, transfer/sync/timepoint, critical path/실측 비용을 표현·검증했다고 말할 수 없다 | 첫 Physical Plan은 단일 CPU/Host/zero-transfer로 충분. 이후 ready-before-read, copy-after-producer, transfer-before-free, stale version, memory capacity, cost Unknown!=0 및 실제 overlap 증명을 negative test로 확인 |
+
+**독립 교차 감사(두 경로, 정적 코드 검토):**
+
+- 정방향: logical_ir.rs → lowering.rs → physical.rs → facts.rs → j_graph_work_depth.rs, j_graph_resource.rs의 현재 API와 각 단계가 *실제로 보유하는 정보*를 대조했다.
+- 역방향: tests/logical_ir.rs, tests/lowering.rs, tests/physical.rs, logical_executor.rs가 이미 통과하도록 설계된 범위와 아직 부정 검증을 제공하지 못하는 *단계 간 관계*를 대조했다.
+- 두 검토의 일치된 결론은 **대규모 아키텍처 재설계 불필요, RouteBoundary 전체 coverage / guard discharge / PhysicalPlan verifier는 미완료**다. 기존 코드 테스트를 새로 실행하거나 통과 확인했다는 주장이 아니다.
+
+**지금 확정할 계약(실제 구현·새 IR 도입은 보류):**
+
+1. **A3/M3:** verified A3의 구조적 유효성, optimizer가 사용할 semantic witness/guard의 충족, selected physical plan의 전체 적법성을 세 단계로 분리한다. A3에 device/thread/memory layout을 넣지 않는다.
+2. **M3→M4 Route 경계:** A3 source op 전수 매핑, live-in/out, Check/effect/order/late-NAME, guard-before-effect와 commit/replay frontier를 별도의 *검증 결과(sidecar 또는 동등한 기존 route 계약)*로 소유한다. 해당 표현의 Rust 타입/새 계층은 현재 고정하지 않는다.
+3. **M4 Physical:** PlanBufferId와 런타임 BufferId, PhysicalViewId를 분리한다. view/span·buffer ownership/lease/last-use, selected realization, Check coverage, Return을 Physical verifier가 확인해야 한다. ExecutionDevice / MemorySpace / device-local schedule은 서로 다른 결정이다. M4는 CPU/Host/Sequential만 실구현해도 된다.
+4. **M5 이후:** ResourceEstimate, predicted CostEstimate, measured CostProfile, 성공 경로의 work/depth 및 오류/효과 경로를 분리한다. device-memory migration/async overlap은 명시적 의존성·실장치 증명 후에만 비용 선택에 반영한다.
+
+**결정 및 우선순위:** (1) M3의 원본 A3→Route Check/effect/witness 증거 의무 확정 → (2) M4의 CPU/Host/zero-transfer PhysicalPlan verifier·실제 native Add 경로 → (3) M5 배치·자원·비용 후보 → (4) M6+ 별도 재개된 GPU/비동기 실행. 설계 자체의 구조적 모순은 **발견되지 않았음**; 그러나 위 증거가 없을 때의 fail-closed 실행 경로는 반드시 필요하다. 기존 M2→M3→M4 우선순위, HE-01~09의 미완료 상태, 별도 CUDA 보류는 유지한다.
+
+##### M3→M4 Route-to-Physical 인계 계약 (2026-10-07, **설계만 완료 / 구현 없음**)
+
+**목적:** 위 §2.5.1의 `M3-RB/RB-01~08`과 이 §5.2.1의 `PhysicalPlan` verifier를 하나의 **증거 체인**으로 연결한다. M3가 J 의미의 적법성을 판단하고, M4가 **이미 허가받은 의미를 특정 buffer/view/kernel 순서로 실현해도 안전한지** 검증한다. M4가 누락된 Check/guard, Rank·오류 순서, name/version 증거를 새로 추측하여 M3 판정을 뒤집어서는 안 된다. M3의 합격이 M4의 실제 실행 성공을 보장하지도 않는다.
+
+**입력·출력·소유권 표(새 필수 IR이나 Rust 자료형을 확정하지 않는 개념 계약):**
+
+| 인계 항목 | M3가 제공·보증할 것 | M4가 독립적으로 검증·구체화할 것 | 불충분한 경우 |
+|---|---|---|---|
+| **H-01 원본 기준** | immutable source A3 identity, schema/primitive-registry, source op/`j_origin`, version 및 정당한 rewrite/fusion mapping | 받은 계획이 **같은 원본**에서 나온 것인지, selected physical op가 허용된 mapping에 매달리는지 대조 | stale/바뀐 증거를 사용하지 않고 plan reject |
+| **H-02 Route 확정** | region 전체 coverage, 각 region 선택 route 및 CPU/GPU/external target capability와 선정 이유; 단순 `legal_candidates` 목록과 다름 | 각 `Kernel`/`View`/`Materialize`가 선택된 recipe·target·region에 속하고 *진짜 구현된* realization인지 검사 | 미구현 native kernel/외부 route를 성공으로 위장하지 않고 다른 합법 route나 Unsupported |
+| **H-03 값 경계** | `ValueId`의 producer, region live-in/live-out, `Plan.result`, dtype/shape/rank·J-visible boxed/sparse와 value snapshot identity | plan-time `PlanBufferId`와 `PhysicalViewId` 바인딩, physical encoding·extent/stride/span, 최종 Return의 논리 dtype/shape/order와 input/output ownership 검증 | missing value, 모순된 backing/encoding/shape, dangling return reject |
+| **H-04 Check 의무** | 원본의 zero-result `SemanticCheck`마다 실행·검증된 증거에 의한 discharge·동등 guard 대체 **중 정확히 하나**, J error kind와 original order | 반드시 실행할 Check를 `PhysicalOp::Check` 또는 의미 보존 equivalent에 매핑. **discharged Check를 임의 재삽입하거나 누락된 Check를 추론하지 않음** | coverage/증거 불일치, duplicate/late Check, J error priority 변경 reject |
+| **H-05 효과·이름·Write** | `order_after` 및 effect/error edges, noun read snapshot vs late function NameRef, `Plan.write`(별도 commit), guard-before-effect 및 replay 경계 | 명시된 순서로 물리 Check/Kernel/Return/commit handoff. 첫 M4 pure CPU slice에서는 stateful commit을 **실행기 소유로 만들지 않음** | 증명 안 된 NAME/Write는 RuntimeSemantic 경로; effect 이후 재실행 금지 |
+| **H-06 Guard/실행 준비** | 각 witness 의존 입력 버전과 `GuardRequired` 의무, 평가 시점, 실패 시 합법한 fallback 및 commit frontier | 물리적 plan에서 guard가 해당 연산·효과보다 **먼저** 배치되고 그 실행·결과·binding freshness가 보장되었는지 검사 | `GuardRequired`를 `Verified/Ready`로 자동 승격 금지, 가드 없는 실행 불가 |
+| **H-07 데이터 의존성** | SSA def→use, region cross-value dependencies, Check/effect-first-error precedence와 effect-live edges | BindInput/alloc → Check → View/Materialize/Kernel → Return의 실제 use-before-def, buffer readiness, lease/last-use, overlap/reuse permission. 비동기면 completion edge 추가 | 순차 계획이라도 부적절한 재배열·조기 free·중복 쓰기 reject |
+| **H-08 표현·장치** | J-visible value type/shape/rank/representation 및 허용 target의 **제약**만 제공; source A3에는 device pointer/stride/physical memory 없음 | 실행 장치, 메모리 공간, device-local schedule과 buffer residency를 **각각** 선택. M4 = CPU/Host/Sequential/zero-transfer, M5+에서 transfer/ready/sync 확장 | GPU·외부 backend 또는 residency가 없으면 CPU/합법 fallback, 무근거 transfer 가정 금지 |
+| **H-09 비용·진단** | semantics/legality 결과와 선택 제약; cost 추정이 proof를 대신하지 않음 | physical feasibility/budget/peak bytes, predicted cost 및 선택 근거를 별도 기록, 실패 유형을 source op/region/plan buffer와 연결 | cost Unknown을 무료/실행 가능으로 취급하지 않고 선택 보류 |
+
+**승인 단계와 책임의 단방향성:**
+
+~~~text
+원본 source A3 (Plan::verify 성공 / 독립 의미론 권위)
+  → M3 Route candidate (partition_plan은 아직 후보 분석)
+  → M3 RouteVerified + [원본 연산/Check/Write/순서/guard/bridge 증거]
+      ├─ Rejected: 증거 없음 → 다른 합법 route / Unsupported
+      ├─ GuardRequired: guard와 안전한 실패 경로가 먼저 충족될 때까지 실행 불가
+      └─ Verified: 해당 region의 의미론·Route 적법성만 통과
+  → M4 Physical candidate (선택 recipe / buffer / view / ordered ops)
+  → M4 PhysicalVerified (타깃·storage·순서·resource·coverage 검증)
+  → RuntimeReady (동적 guard, input versions, 실제 lease, capacity 재확인)
+  → 실행 / 오류 / 자원 정리
+~~~
+
+`RouteVerified`, `PhysicalVerified`, `RuntimeReady`는 **개념적 승인 상태**이며 신규 enum/IR 구현 지시가 아니다. 정적으로 `Verified`여도 입력 name/version, guard, buffer lease 등이 실행 시 바뀌면 실행 전 재검증이 필요하다. 정당한 RuntimeSemantic/외부 route는 RustJ-native M4 physical executor를 **반드시** 거칠 필요가 없지만 동일한 경계 의미론 의무를 지켜야 한다.
+
+**검증기 책임 분할(중복 검증과 허위 위임 방지):**
+
+- **M3 Route 검증기:** 원본 A3와 후보 매핑, check coverage/discharge, 순서·오류·effect·Write/NAME, target semantics, guard ownership 및 representation-neutral bridge의 *합법성*을 인증한다. Physical stride·allocation 위치는 결정하지 않는다.
+- **M4 Physical verifier:** M3의 서명 없는 제안/단순 class를 실행권으로 간주하지 않는다. 승인된 source mapping·Check/guard/order obligations와 선택된 physical ops의 **정확한 연결**을 재대조하고, selected recipe·resolved CPU capability, checked affine bounds, buffer/version/ownership/lease, output ownership, temporal safety와 resource feasibility를 확인한다. J semantic proof를 스스로 만들어내지 않는다.
+- **Runtime admission/Executor:** 실제 name/input snapshot/guard outcome, lease generation/readiness, 장치 가능 여부를 **사용 시점**에 확인한다. verifier를 통과하지 않은 계획 실행, 관찰된 효과 뒤의 transparent replay, backend 내부 오류를 근거 없이 J Domain/Rank/Length로 바꾸기는 금지한다.
+- **Cross-route 책임:** 첫 native CPU slice 밖의 runtime/external 부분을 하나의 PhysicalPlan으로 강제로 합칠 필요는 없다. 다만 각 boundary handoff의 value/version/check/error/effect 계약은 통합 검증 기록으로 추적한다.
+
+
+##### H-K — A3 OpKind별 M3→M4 인계 규칙 (2026-10-07; 설계만)
+
+**구체적 공백:** 현행 `lowering.rs::route_operation`은 `Literal`, `ReadNoun`, `VerbReference`를 모두 `NoKernel`로, `partition_plan`은 그 연속 구간을 `RouteRegionClass::ValueOnly`로 합친다. 이 분류는 **실행 후보 grouping**이지 세 OpKind가 동일한 버퍼·호출·이름 의미를 가진다는 뜻이 아니다. M4 승인 여부는 region class뿐 아니라 원본 A3 **OpKind마다** 다르게 확인해야 한다.
+
+| 원본 A3 대상 | M3가 책임지는 증거 | M4가 할 수 있는 일 / 금지되는 일 |
+|---|---|---|
+| `Literal(value)` | 원본 payload, dtype/shape, producer OpId와 result ValueId, source origin | 지원하는 dense CPU literal은 읽기 전용 입력 버퍼로 바인딩 가능. 이를 항상 deep copy할 필요는 없고, 타입·Shape를 임의 변경할 수 없음 |
+| `ReadNoun {symbol,version}` | 원래 J read 시점과 noun snapshot, namespace/scope/버전, observable ordering | `ValueOnly`여도 literal로 간주하거나 나중 값으로 바꿔 읽지 않는다. 런타임 snapshot/guard가 없으면 합법한 RuntimeSemantic 경로에 남긴다 |
+| `VerbReference(Callable)` | FunctionEntity, function POS, primitive/derived callable identity와 동적 NAME lookup | J 함수 참조는 noun의 dense 배열 버퍼가 아니다. `NoKernel`만 보고 `BindInput`용 값이나 kernel operand로 취급 금지; 별도의 function semantics 지원 필요 |
+| `Basis { kind,payload,call }` | 원본 primitive/derived target·valence·Rank/CellApply·fact/error/effect, selected recipe 및 Check/guard 의무 | M3가 승인한 선택 target에 해당 recipe/실제 native 구현이 **존재할 때만** Kernel/View 계획 가능. `legal_candidates`나 `ReferenceSequential`만으로 native 준비 완료 주장 금지 |
+| `SemanticCall(call)` | 정규화되지 않은 호출 의미, dynamic binding, 효과/오류 | 현행은 RuntimeSemanticFallback. 별도의 동등성·지원 증거 없이 임의로 native Basis/Kernel로 승격 금지 |
+| `SemanticCheck(check)` | producer/liveness, zero-result constraint, 원본 error kind/span/order 및 실행·증명된 discharge·동등 guard 중 하나의 소유자 | output SSA가 없더라도 제거 금지. 실행 의무가 있으면 Check를 원래 순서에 반영; 증명된 discharge만 무실행 허용 |
+| `Plan.result / Return` | 마지막 result ValueId, logical type/shape/atom order, cross-region producer | 유효한 output ownership/lease로 Return. Return이 Write commit 완료라는 뜻은 아님 |
+| `Plan.write` (operations 밖) | symbol/value/previous/proposed/span/after와 commit/effect owner | 모든 op range를 포함해도 Write는 자동 포함되지 않는다. 초기 M4 pure slice가 assignment를 commit하거나 Write를 무시·반복 실행하는 일 금지 |
+
+**전역·국소 검증의 구분:** RB-01은 원본 A3 **전체**의 모든 operation과 별도의 Write 사건에 적용된다. 하나의 RustJ-native PhysicalPlan은 이 가운데 **M3가 승인한 native region**만 담당할 수 있다. 전역 coverage는 M3가, 각 native region의 선택 recipe/Buffer·Check·Return coverage는 M4가 책임진다. 다른 RuntimeSemantic/External region은 억지로 동일한 PhysicalPlan에 집어넣지 말고 경계 ValueId·ordering·effect와 연결한다.
+
+**인계 시 세 번 확인할 사실(새 필수 IR이나 데이터 계층 추가 없음):**
+
+1. **M3 RouteVerified:** immutable source A3의 원래 OpKind/Check/Write/ValueId/order와 region의 실제 연산이 일치하는가? GuardRequired는 실행 허가가 아니며 guard 위치·실패 경로를 확정해야 한다.
+2. **M4 PhysicalVerified:** 승인된 native op 각각에 실제 target-compatible recipe 및 물리 Bind/Check/View/Kernel/Materialize/Return 대응이 있는가? `PlanBufferId ≠ PhysicalViewId ≠ runtime BufferId`, affine span, lease, encoding, ownership/last-use가 증명되는가? M4가 M3의 의미 증거를 새로 만들어내지는 않는다.
+3. **RuntimeReady:** 실제 read/name snapshot, input version, guard outcome, lease generation 및 capacity가 **사용 시점**에도 유효한가? 실패하면 observable effect commit **이전**의 안전한 fallback만 허용하고, effect 이후 자동 replay 금지.
+
+**부정 검증 계획 (H-KV1~5; 실행 테스트 미작성):**
+
+- **H-KV1:** `1+2`에서 Literal/Kernel input 대응을 유지해야 함. `VerbReference`를 `ValueOnly`라는 이유로 dense `BindInput`으로 취급하거나 literal producer를 바꾼 경우 거부.
+- **H-KV2:** `a`의 snapshot/version/read 시점, `a=:1+2`의 별도 Write/after를 한 가지만 변형해 거부. 결과 Value만 맞고 Write가 유실돼도 거부.
+- **H-KV3:** `1 2+1 2 3`의 zero-result Length Check는 Call 전에 관찰되어야 함. Check를 버리거나 중복·후행 배치한 physical 계획 거부.
+- **H-KV4:** `future 3`의 SemanticCall을 새 의미론 증거 없이 native 실행으로 가장하거나 `ReferenceSequential` 후보만으로 native kernel 성공 주장 시 거부.
+- **H-KV5:** 같은 원본 A3가 CPU-native와 RuntimeSemantic으로 분할될 때 M3 global coverage와 M4 native-local coverage를 각각 검사; 중간 live-out, 첫 오류, effect-live, final Return 손실 거부.
+
+**상태:** H-K는 기존 H-01~09/HM-V0~V4를 OpKind별로 구체화한 **설계 수용 보조 규칙**이다. 별도 canonical IR, CPU Parallel 레이어나 runtime 구현을 요구하지 않는다. 실제 validator/negative test/차분 결과가 없는 동안 M3/M4/HE-01 완료 항목은 열린 상태로 유지한다.
+
+**검증 표본(각 정상이 확인된 후 불변조건 1개만 위조하는 계획):**
+
+| 사례 | 정상 인계 증거 | 거부·실패로 판정할 변형 |
+|---|---|---|
+| `1+2` | 원본 SSA value/literal → 선택 CPU Elementwise route → 별도 verified physical input/Return mapping | M3에 `ReferenceSequential` 후보만 있는데 M4가 구현되지 않은 native Add를 실행 가능이라고 승인; ValueId/PlanBufferId를 혼동 |
+| `1 2+1 2 3` | zero-result Length Check의 원본 provenance/order를 M3가 전달, M4가 Check→Kernel 이전 실행을 보장 | M3 Check는 승인했으나 M4 plan에서 삭제·중복·Call 뒤 배치; J Length 오류를 구현 오류로 바꿈 |
+| `1 2+3 4` | 입력 shape에 맞는 PrefixAgreement witness가 원본에 고정돼 있다면 합법적 Check discharge | input shape/NAME version 변경 후 과거 witness로 PhysicalVerified; 증거 없는 discharge를 M4가 자체 승인 |
+| `3 { 10 20 30` | Index Check 원래 오류 종류·우선순위와 물리 검사의 대응 | Check를 M4 materialize/Kernel 뒤로 옮기거나 Index 대신 Length로 변경 |
+| `a` 및 `a=:1+2` | name snapshot과 별도 Write event가 M3에 남고, 지원되지 않는 stateful 부분은 RuntimeSemantic 소유 | Return만 물리화하며 Write를 drop, speculative name read, committed assignment 이후 fallback replay |
+| 2D reverse/transpose / empty frame | 의미상 Shape/atom order와 zero-frame fill 의무를 M3가 소유, M4는 signed span/stride/encoding·복사 순서 확인 | 음수 stride OOB, zero-frame CellApply를 아무 계산 없이 결과형 가정, incompatible cell-result join |
+| 같은 source의 CPU/GPU/External 후보 | 공통 A3/guard/error 계약, 배치·storage contract는 route별로 독립 | CPU-only 테스트로 GPU/transfer Ready 주장, 준비되지 않은 메모리에서 read, 미승인 overlap/async error reorder |
+
+**인계 수용 테스트 순서 (테스트 작성·실행은 보류):**
+
+1. **HM-V0 정적 인터페이스:** M3-RB RB-V0~V2 승인 증거의 필드/원본 binding을 M4 입력 계약과 하나씩 대조한다. 누락·중복·stale op/Check/Write/guard, 다른 source의 승인 보고서 재사용을 차단한다.
+2. **HM-V1 타입·자원:** CPU/Host/no-transfer M4 후보의 `ValueId ↔ PlanBufferId ↔ PhysicalViewId ↔ BufferLease` 관계, affine span·encoding·ownership·last-use·output validity·OOM cleanup을 정적/실행 시점으로 나누어 확인한다.
+3. **HM-V2 순서·오류:** zero-result Check, observable effect/order, guarded fallback/commit과 첫 J 오류를 M3→M4→Runtime 세 지점에서 교차 검증한다. guard failure는 실행 전 대체 경로로만 넘긴다.
+4. **HM-V3 3자 차분:** 동일 원본 A3를 기준으로 jsource C(사용 가능할 때), RustJ semantic/reference 경로, native Physical 경로의 값/dtype/Shape/atom order/J error class/우선순위/관찰 state를 비교한다. C 또는 native 경로가 없다면 **미검증**, 대체 통과 처리하지 않는다.
+5. **HM-V4 단계 승인:** M3 `RouteVerified` 증거가 있더라도 별도 `PhysicalVerified`·`RuntimeReady`가 없으면 미승인. M4 완료는 구현된 native Add/Check 등을 통한 E2E와 negative tests가 실제 통과한 후에만; GPU/async/transfer는 M5·M6+ 별도 검증.
+
+**정리:** 별도 새 compiler layer는 필요하지 않다. ***M3는 의미론적 적법성의 증거를 소유하고 M4는 그 증거를 변경하지 않고 물리적으로 실현했는지 검증한다.*** 이 명세만으로 M3 검증기/M4 Physical Executor가 만들어졌거나 테스트가 PASS한 것은 아니다. §10의 M3-RB·M4 및 HE-01~09는 **설계 완료와 구현/검증 미완료를 계속 분리**한다.
+
+##### H-A — M3→M4 첫 CPU 경로 실행 승인 판정표 (2026-10-07; 명세만)
+
+**이 절의 역할:** 기존 H-01~09, H-K, HM-V0~V4의 반복이 아니라, 실제 `lowering.rs`의 `RouteDecision`/`RouteRegionClass`와 미래 M4 compiler-native CPU 경로 사이에 **실행 가능한 것과 단지 합법적 후보인 것**의 경계를 확정한다. 현재 `main`에는 `src/physical_plan.rs`가 없으며, `src/physical.rs`는 read-only 표현 기반이다. Draft PR #4의 제한적인 literal identity 코드를 완료된 native Add 실행기로 계산하지 않는다. 구현·테스트 추가 없음.
+
+**기본 승인 흐름(기존 단계의 판정 질문):**
+
+| 순서 | 확인 대상 | 승인하려면 | 증거 부족 시 |
+|---|---|---|---|
+| **A0: SourceA3** | 변환 전 원본 `logical_ir::Plan` | `verify()`, source/provenance와 original Check/Write/오류 의무를 고정하고 변환 후보와 독립 보관 | 손상된 원본/다른 registry → 거부 |
+| **A1: RouteVerified** | `partition_plan`이 분류한 모든 원본 op와 선택할 *특정* region | RB-01~08 coverage, source op/operand/live-in/out, Check 실행·proof discharge·guard 소유, Write/Name/error-order 및 region-wide capability 증거 | `NoKernel`·`NativeExecutionBasis`·`RuntimeSemanticFallback`이라는 분류 자체는 허가 아님 |
+| **A2: ExecutableRoute** | M4가 인수하는 native region | M3가 승인한 **구체적인** realization과 **실제 존재하는 CPU kernel/adapter**, dtype/rank/valence 및 guard 지원; `ReferenceSequential`라는 후보 이름만으로 native 구현을 추정하지 않음 | 유효한 semantic/reference route만 사용하거나 Unsupported. *native 실행 가능*으로 표시 금지 |
+| **A3: PhysicalVerified** | 물리 연산·버퍼·View·Check·Return | 허가된 region/source mapping과 1:1 또는 등가 증명 대응. BindInput/Check/Kernel/Materialize 순서, PlanBufferId≠BufferId, span/encoding/ownership/lease/last-use, CPU Host capacity 검증 | invalid physical plan은 실행 직전에 임의 보정하거나 J 오류로 바꾸지 않고 거부 |
+| **A4: RuntimeReady** | 실제 호출 시점 | input/name snapshot 버전 및 guard 판정, registry lease/generation, capacity·readiness 유효. effect 이전 대체 경로 존재 | stale/guard failure는 **effect 이전에만** 안전한 경로로 변경, commit 이후 자동 재실행 금지 |
+| **A5: AcceptedNativeE2E** | 출력과 관찰 결과 | 실제 compiler-native 결과·dtype·Shape·atom order·첫 J error/effect가 RustJ 순차 및 가능할 때 jsource 기준과 일치, 관련 부정 사례 테스트 통과 | A3 분석 통과, reference route 결과, 문서·테스트 소스 존재는 M4 완료 증거가 아님 |
+
+**같은 A3에서 계획을 구성하는 구체 추적 표본**
+
+~~~text
+J: 1+2
+  Source A3: Literal(1) → ValueId(0)
+             Literal(2) → ValueId(1)
+             Basis(Elementwise, Add) → ValueId(2), result=ValueId(2)
+  Route candidate: ValueOnly(리터럴 구간) → PureArray(Add 구간)
+  M3: 원본 Add, value 연결, PrefixAgreement witness/guard, Check 의무를 대조
+  현행 CPU Lowering: Elementwise의 ReferenceSequential 후보 존재
+  M4 실행 판정: 실제 compiler-native Add 구현/물리 검증/실행 결과 전에는 A2~A5 미승인
+
+J: 1 2+1 2 3
+  Source A3: 두 Literal → zero-result SemanticCheck(Length) → Basis(Add)
+  Route candidate: ValueOnly → SemanticCheck → PureArray
+  M3: Length Check와 Check→Call ordering, operand live-in을 전수 인계
+  M4: Check 실행 또는 독립 증명된 동등 대체 없이 Kernel 선실행 불가
+  기대 관찰: Length error가 원래 시점에 보고되어야 함. 수행되지 않은 물리 경로는 미검증
+
+J: a=:1+2
+  Source A3: 계산 op + 별도 Plan.write {symbol,value,previous,proposed,after}
+  M3: 계산 결과와 Write commit을 서로 다른 의무로 인계
+  M4: 순수 Add region만 인수 가능. 반환값 생성이 assignment commit을 뜻하지 않음
+  전체 문장 완료: 책임이 분명한 RuntimeSemantic/향후 effect owner 필요
+~~~
+
+**지원 상태 판정표:** 현재 코드에 `ReferenceSequential`, `GenericCellLoop`, `MetadataOrIndexReindex` 등 *등록된 후보*가 있다고 해서 CPU Physical Executor가 구현된 것이 아니다. `RouteDecision::NoKernel`은 literal/read/verb-ref가 **같은 종류의 값**이라는 뜻이 아니다(H-K 참고). `TargetCapabilities::gpu_generic()`의 **기능 묘사**는 실제 GPU 장치·런타임 가용성 또는 실행 허가가 아니다. M4-v0 정책은 CPU/Host/Sequential/zero-transfer만 선택하도록 제한하되, 그 제한을 상위 J 언어 의미론/Logical IR에 역류시키지 않는다.
+
+**검증 스펙 HA-V1~HA-V7 (실행은 보류):**
+
+| 테스트 ID | 정상 승인 조건 | 한 항목씩 바꾸어 확인할 거부 조건 |
+|---|---|---|
+| HA-V1 **A3→Route** | `1+2`의 op/region 커버리지, 정확한 result/operands, source origin | native Add op 유실, 두 region overlap, 타 A3 origin을 같은 것으로 가장 |
+| HA-V2 **후보≠커널** | `ReferenceSequential` 후보를 그대로 분석 후보로 표시하고 실제 native 구현이 존재할 때만 A2 승격 | 등록 후보만으로 PhysicalVerified/RuntimeReady/NativeE2E 선언 |
+| HA-V3 **Check→Kernel** | `1 2+1 2 3`의 원본 Length Check를 선행, `3 { 10 20 30`의 Index Check를 선행; first error class 보존 | Check 삭제/중복/후행 배치, Length↔Index 교체, Kernel-first schedule |
+| HA-V4 **witness/guard** | `1 2+3 4`처럼 원래 shape witness가 유효하면 Check 없이 가능; guard 필요 시 효과 전에 완료 | 바뀐 input shape/name version에 과거 증명 재활용, GuardRequired를 실행 승인으로 오인 |
+| HA-V5 **Name/Write** | `a`는 read snapshot 검증, `a=:1+2`는 별도 commit owner 확인 | `ReadNoun`을 상수 literal로 변경, late function lookup 조기 고정, `Plan.write` 삭제/중복·effect 후 replay |
+| HA-V6 **Storage/Return** | 음수 stride/transpose/빈 Shape의 논리 순서·encoding·span, output ownership/lease generation | `ValueId==PlanBufferId` 간주, 미등록/조기 해제 버퍼, overlapping writable view, 잘못된 atom order·dangling Return |
+| HA-V7 **cross-route** | native 부분과 RuntimeSemantic 부분의 M3 global coverage + M4 native local coverage, 오류/effect edge 보존 | native region만 정상이라 전체 표현식 승인, 외부 bridge 미구현 상태에서 M4 전체 실행 성공 주장, GPU 완료 허위 기록 |
+
+**구현 우선순위와 수용 상태:** (1) 기존 M3-RB validator와 독립 source A3 기준의 HA-V1/3/4/5 논리 검증 → (2) M4 선택 recipe의 *실제* 구현 여부·CPU buffer/Check/Return verifier(HA-V2/6) → (3) 독립 reference/jsource의 HA-V7 및 native E2E 수용 → (4) M5/M6의 device/memory/transfer 비용·비동기 검증. **이번에 완료한 것은 이 판정표와 테스트 설계뿐이며**, 현행 코드의 M3/M4/HE-01 실행 승인 체크박스는 그대로 열어 둔다.
+
+
+##### H-P — M3→M4 구현 인수 패킷과 물리 검증 체크리스트 계약 (2026-10-07; 문서 전용)
+
+**사용법:** 이 절은 H-01~09, H-K, H-A(A0~A5), RB-01~08의 **실행 시점 판정표**다. 구현·PR 심사 때 각 행에 입력 증거, 검증 결과, 부정 사례와 증거 링크를 채운다. 새 필수 IR, `TaskId` 런타임, 멀티프로세서 전용 planner를 요구하지 않는다. **미제공/unknown은 승인으로 간주하지 않는다.** M3가 의미론·선택된 route의 합법성 증거를 제공하며 M4는 이 증거를 재작성하지 않고 선택한 물리 실현을 검증한다. 전역 A3 coverage는 M3 소유, native region의 실현 coverage는 M4 소유다.
+
+**선행 단계가 전달해야 할 최소 패킷(개념적 묶음이며 새 Rust struct 요구 아님):**
+
+| ID / 책임 | M3/상위 단계가 인계할 증거 | M4가 반드시 확인할 사항 | 증거 부족·불일치 시 |
+|---|---|---|---|
+| **HP-01 원본** | 별도 보존한 검증된 원본 A3, schema/primitive registry, 원본 op ID·span·J graph origin, 변경/재작성 대응과 증명의 적용 범위 | 단순 source **문자열** 일치가 아니라 **실제 원본 op payload/facts/Check/Write와 selected region provenance**를 대조. digest 단독·바뀐 A3의 `verify()` 성공만으로 원본 동일성 승인 금지 | stale/위조 source proof 거부 |
+| **HP-02 범위** | 원본 모든 op·0-result Check·별도 `Plan.write`의 M3 global ownership, 각 region op 범위, live-in/out, final result, 교차 route bridge | 해당 native region에서 원본 op→physical task 관계가 **완전하고 증명된 매핑**인지 대조. 1:1을 강제하지 않으며 fusion/rewrite의 N:1·1:N 대응은 RB-01 등가 witness가 필수. 외부 구간과 live-out 누락 없음; `NoKernel`/`ValueOnly` 후보 분류만으로 binding 승인 불가 | coverage 누락·겹침·증거 없는 병합/중복 실행 거부 |
+| **HP-03 호출과 recipe** | 원본 `OpKind`, callable POS/valence, derived Rank/CellApply/fit/tolerance/numeric policy, selected route와 **구체적 구현** capability/target/guard | 등록된 `ReferenceSequential` 등의 *후보*와 실제 구현 kernel/adapter를 구분; 지원 dtype/rank/shape/valence·CPU target 검증 | 지원되지 않는 native kernel은 실행 금지 |
+| **HP-04 오류와 Check** | 각 `SemanticCheck`의 constraint/입력·기대 J error kind·원본 선후관계·execute / proven discharge / guard 중 유일한 owner | 결과 SSA 값이 없는 Check도 누락 금지. 실행/guard는 **해당 Check에 종속된** kernel·효과보다 앞서되, **원본에서 Check보다 먼저 발생해야 하는 다른 오류·효과보다 앞당겨서는 안 됨**. 입증된 discharge는 원본 error/order 조건과 불변인 입력 증거가 필요 | 누락·중복·선후관계·J error class 변조 또는 무근거 discharge 거부 |
+| **HP-05 Name/Effect/Write** | noun read 시점의 value/binding-version/scope/locale 증거, function nameref의 late lookup/POS, effect edges, `Plan.write` 별도 commit owner | source statement 전체의 사전 snapshot 금지, Name 변동 뒤 guard 재확인, `Return`을 assignment commit으로 오인 금지; effect 후 무조건 replay 금지 | 미확정 binding·commit owner는 native 승인 보류 |
+| **HP-06 logical value** | producer/def-use, dtype/rank/Shape/J atom order, boxed/sparse·0-cell Rank fill/prototype/assembly 의무, overflow·promotion·error witness | 물리화로 logical value가 사라지지 않으며 `ValueId`≠`PlanBufferId`≠runtime `BufferId`; 빈 배열 Shape와 J prefix frame 규칙 유지 | 변환 대신 semantic/reference route 또는 Unsupported |
+| **HP-07 계획 버퍼** | 값별 storage/materialization 요구, readonly/externally owned/persistent/temporary 여부, alias·donation 허용 증거, 메모리 상한 | buffer encoding·capacity·alignment·memory space·view span/stride/offset·generation·실제 backing alias, overlapping writable view, last-use 뒤 재사용만 허용 | bounds/alias/ownership 모순 거부, input 불변 유지 |
+| **HP-08 Task/Dependency** | 원본 data-flow·observable order·Check/guard/effect/first-error edge, 각 value ready와 region interface | `BindInput/Check/View/Materialize/Kernel/Return` 같은 task의 source 대응, 선행 task 및 ready 보장, DAG cycle/누락 edge 검출; 순차 CPU에서는 검증된 list order로 실현 가능 | 의존성 위반 task launch 거부 |
+| **HP-09 Completion/수명** | task 사용 집합, 각 reader/writer·transfer의 완료 필요조건, 반환·임시 소유권 | `submitted`≠`completed`; **모든** 사용 완료 전 buffer 재활용·외부 반환 금지. v0 동기 CPU는 task 완료 시 즉시 completion으로 간주할 수 있지만 그 근거를 명시; 비동기 경로는 explicit event/timepoint/lease 필요 | completion 증거 없는 재사용·비동기 실행 금지 |
+| **HP-10 동적 guard·fallback** | witness/proof provenance, 재검증할 runtime 조건, 해당 guard의 effect 이전 안전 지점, **기존에 적법한** 대체 route | guard 검사→사용 사이 stale version/shape 불가; failure 시 effect 이전에만 지원 route 선택; 부분 effect 이후 자동 재실행 금지. Backend 실패를 임의 J Domain/Rank/Length로 매핑 금지 | guard false면 native 실행 중지, safe fallback 없으면 명시적 실패 |
+| **HP-11 장치·자원** | `TargetContext`/resolved capability 및 device/runtime availability, resource limits, 비용/자원 추정의 구분 | 첫 M4: CPU 실행·Host memory·단일 순차·zero transfer만 승인. 미래 GPU/멀티코어는 device placement, memory space, transfer readiness, intra-device scheduling 독립 검사; resource feasible ≠ profitable | 미지원 device/transfer 경로 승인 금지 |
+| **HP-12 실행 결과 증거** | reference/Jsource 대응 가능 사례, 실행 route와 guard 기록, 검증할 dtype/Shape/atom·effect/error 결과 | 독립 RustJ semantic/A3 reference와 가능한 pinned J C reference, **실제 native route**의 3방향 비교; CI 명령·commit·artifact 연결 | 테스트 소스 존재/후보 선택만으로 M4 E2E 통과 주장 금지 |
+
+**최소 자료흐름/승인 프로토콜:**
+
+~~~text
+M3: immutable SourceA3 + selected RouteRegion + original op/Check/Write coverage
+    + live-in/out + semantic proof/witness/guards + observable order
+  -> RouteVerified  (A0/A1, 아직 실행 허가는 아님)
+M4: task(s) + planned buffer/view + def-use/dependency + readiness/completion
+    + selected real CPU realization + lease/ownership/resource checks
+  -> PhysicalVerified  (A2/A3, 특정 native region에 한정)
+Call time: name/input versions + guards + actual buffer generations/leases
+  -> RuntimeReady -> Execute -> observed result/error/effect -> independent comparison (A4/A5)
+~~~
+
+**최종 심사 시점과 판정(기존 A0~A5의 통과 기준; 새 gate 아님):**
+
+| 기존 gate / 판정 책임 | PASS에 반드시 필요한 증거 | FAIL/UNRUN 및 후속 |
+|---|---|---|
+| **A0 SourceA3 — Frontend/A3 소유** | 원본 `verify()` 및 스키마/registry/op payload·facts·span·origin의 **변경되지 않은 권위 스냅샷** 확인; 수정 후보는 원본을 덮어쓰지 않음 | 원본 부재·stale → FAIL; snapshot 대조 미실행 → UNRUN |
+| **A1 RouteVerified — M3 소유** | RB-01~08의 **전역** op·Check·Write 커버리지, 실현 가능한 선택 region, 모든 effect/error/guard/Name 및 bridge 의무의 증명 또는 안전하게 owner 지정. `GuardRequired`를 무조건 `Verified`로 표시하지 않음 | 누락·증거 없는 fusion·불명 capability → FAIL/UNRUN; 다른 적법 route만 가능 |
+| **A2/A3 ExecutableRoute/PhysicalVerified — M4 소유** | 실제 설치/구현된 selected realization + 해당 region의 증명된 source↔task 매핑, checked buffer/view/alias·의존성·동기 CPU 완료/자원 경계. A1 PASS를 M4 PASS로 복사 금지 | 물리 verifier·native kernel 미구현은 UNRUN/미지원. 미정의 buffer/edge·alias 위반은 FAIL |
+| **A4 RuntimeReady — 호출 시점 Runtime/Executor 소유** | 해당 **호출마다** live input/name/version·guard·lease/generation·readiness 재검증; effect 전 fallback 준비 여부 | guard false이면 native 미실행, effect 전 합법 route로만 분기. 이미 commit된 effect 뒤 retry 금지 |
+| **A5 AcceptedNativeE2E — 독립 차분 검증 소유** | 실제 native route 실행 기록과 semantic reference 및 가능한 pinned J C oracle의 **값·Shape·첫 J error·effect** 일치, positive/negative 테스트와 CI commit/run 기록 | reference/fallback 실행만 성공하거나 증거 미실행이면 UNRUN; 불일치 시 FAIL. C oracle 불가 항목은 불가 사유를 명시하고 3방향 검증 완료로 표시하지 않음 |
+
+**오류 분류:** 잘못된 물리 계획/미구현 capability/`GuardRequired`는 J 프로그램의 Domain·Rank·Length 오류가 아니다. 반면 적법한 J 실행에서 먼저 발생한 `SemanticCheck`는 원래 J error class와 순서를 유지한다. 증거의 존재(문서·테스트 정의)는 실행된 PASS와 별개다. 각 gate의 PASS는 **상위 gate PASS를 자동 승계하지 않는다**. `PhysicalVerified`는 특정 선택된 native region에 한정되며 전체 프로그램이나 GPU까지 확장하지 않는다.
+
+**단계별 부정 테스트 등록부(각 테스트에서 정확히 한 조건만 위조):**
+
+| 시험 | 기준 사례 / 실패 유도 | 기대 판정 |
+|---|---|---|
+| **HP-V01 source** | 같은 source 문자열로 literal atom, SSA facts, rank 또는 `j_origin` 변경 | 검증 실패. Draft PR #4의 `LiteralSourceWitness`는 **단일 literal v0의 부분적 보완**이지 일반적인 M3 원본 증명이 아님 |
+| **HP-V02 coverage** | `1+2` Add op 누락, `a=:1+2`의 독립 `Write` 유실, 중복 region | RouteVerified/PhysicalVerified 거부 |
+| **HP-V03 checks** | `1 2+1 2 3`의 Length Check 제거·후행·중복·Index로 변조 | Add 실행 전에 거부, 또는 정확한 J Length 오류 |
+| **HP-V04 guard/name** | `a`의 noun snapshot/version 변경, late verb NameRef 조기 고정, shape guard 값 변경 | revalidation 불합격; 효과 이전의 적법한 대체 경로만 허용 |
+| **HP-V05 buffer/view** | **정상 대조군:** 유효한 음수 stride·singleton 0-stride·빈 Shape·read-only alias. **각각의 위조군:** 실제 span 범위 이탈, stale generation, 잘못된 encoding, 겹치는 독점 write, 불법 last-use 재활용 | 합법적인 stride·빈 Shape를 거부하지 않음; bounds/alias/수명 위반만 거부 |
+| **HP-V06 dependency** | Check/guard→Kernel, producer→reader, previous effect→commit edge 하나 삭제하거나 순환 추가 | plan verifier 거부, arbitrary first-error 노출 금지 |
+| **HP-V07 completion** | 비동기 copy/kernel을 enqueue만 하고 입력 release, reader 완료 전에 재사용 | 사용 가능·재활용 거부; 실제 completion 이후만 허용 |
+| **HP-V08 replay/error** | J error가 가능한 작업의 순서 뒤집기, effect commit 뒤 guard failure fallback 재실행 | first-error/effect order 보존 실패로 거부, 중복 effect 금지 |
+| **HP-V09 baseline** | 닫힌 literal identity와 이후 실제 구현한 순차 CPU 단일 op의 차분 비교. Boxed/sparse·Rank zero-frame처럼 **그 시점 native 구현에서 미지원**인 정당한 J 입력은 semantic/reference fallback으로 별도 검사 | native 지원/미지원 정확 분류; semantic fallback 자체는 J 성공이어도 native E2E 승인으로 세지 않음 |
+
+**증거 기록 양식(구현 시 각 gate마다 1건):** `gate ID | source A3 revision/schema/registry | source op/region IDs | M3 proof·guard owner | chosen recipe/capability | physical task/dependency/buffer/view IDs | runtime version/completion/effect frontier | positive/one-invariant-negative test IDs | CI commit/run·reference artifact | PASS/FAIL/UNRUN | 남은 예외`. `UNRUN`은 PASS가 아니다.
+
+**현재 상태/우선순위:** `main`은 M3 RouteBoundary와 M4 full native verification을 아직 갖추지 않았다. Draft [PR #4](https://github.com/yunskim/RustJ/pull/4)의 제한된 literal identity 경로·source witness·CI 성공이 있더라도 Check, 실제 Add, 전체 source coverage, completion/비동기, GPU 지원을 증명하지 않는다. 먼저 **HP-01~06·08·10의 순차 CPU 의미/검증 계약**을 실현하고 HP-V01~04/06/08을 확인한다. 그 다음 실제 CPU Kernel과 HP-07/09 자원·수명 검증을 추가한다. HP-09의 비동기 completion, transfer, multi-device/worker scheduling은 이종 실행 단계에서 확장한다. M4-v0는 full async scheduler를 필수 선행조건으로 하지 않는다.
+
+##### 현재 코드와의 대응
+
+현재 `src/physical.rs`는:
+
+~~~text
+BufferRegistry / BufferLease / runtime BufferId
+checked read-only affine PhysicalArray
+shape / strides / offset / encoding validation
+~~~
+
+을 제공하는 **G1 representation foundation**이다. 아직 `PhysicalPlan`, plan-time buffer slot, planner, physical executor가 아니다. `logical_executor.rs`도 A3 semantic/reference executor이지 Physical Executor가 아니다.
+
+##### 구현 순서 — 한 번에 한 의미 + 한 verifier/test
+
+1. plan-time `PlanBufferId`/`PhysicalViewId`와 empty plan verifier
+2. `BindInput + Return`만으로 identity plan E2E
+3. `View` + span verifier, transpose/reverse metadata-only 회귀
+4. `Check` + J error class/order regression
+5. `Kernel` 한 종류(Add) + selected lowering capability verification
+6. `Materialize` + logical-order copy/ownership test
+7. last-use + reuse witness, alias negative tests
+8. 여러 op를 연결한 verified Logical IR → PhysicalPlan → CPU result differential test
+
+이 순서는 G4를 구현할 때의 최소 vertical slice이며 full GPU resource model을 선행 조건으로 만들지 않는다.
+
+### 5.3 RustJ-native Executor
+
+이 절은 Route A에만 적용한다. RustJ-native Executor는 이미 정해진 Physical Plan을 수행한다. 외부 compiler/runtime route는 각 시스템의 executor/runtime가 자체 lower-level scheduling을 수행할 수 있다.
+
+Executor가 다음을 다시 판단해서는 안 된다.
+
+- J rank 의미
+- hook/fork 의미
+- fusion 여부
+- layout 선택
+- device 선택
+- buffer reuse legality
+
+Physical Plan에서 비동기 실행을 허용할 경우 dependency는 implicit host order에 기대지 않고 `AsyncToken/Timepoint` 또는 동등한 explicit edge로 표현한다. resource의 사용 가능 시점과 lifetime은 이 timeline과 연결한다. IREE Stream의 timepoint/resource model과 MLIR Async의 explicit dependency token이 참고 모델이다.
+
+### 5.4 실행 경로는 하나가 아니다
+
+`Logical Array IR`을 만든 이후 반드시 RustJ의 Physical Planner를 거쳐야 하는 것은 아니다.
+
+#### Route A — RustJ native
+
+```text
+Logical Array IR
+  → RustJ Logical Optimizer
+  → RustJ Physical Planner
+  → Physical Plan
+  → RustJ Executor
+```
+
+장점:
+
+- J-specific semantics와 실험적 hardware model을 가장 직접적으로 제어
+- reference/bootstrap path
+- external compiler와 결과 비교 가능
+
+#### Route B — MLIR
+
+```text
+Logical Array IR
+  → RustJ-to-MLIR adapter
+  → tensor/linalg/arith/scf
+  → vector/gpu/memref
+  → LLVM / NVVM / ROCDL / SPIR-V
+  → execution
+```
+
+MLIR Linalg는 generic indexing map/iterator semantics를 이용해 tiling, fusion, vectorization, loop lowering, library/intrinsic lowering을 제공하도록 설계되어 있다. RustJ의 `IterationDomain + AccessRelation`은 이 계층으로 내리기 좋은 형태를 목표로 한다.
+
+RustJ가 MLIR의 최적화 passes를 재구현할 이유가 없다. 다만 J의 observable semantics를 위반할 수 있는 reassociation, error-order 변경 등의 lowering은 adapter가 막거나 필요한 attributes/guards를 제공해야 한다.
+
+#### Route C — StableHLO / OpenXLA-compatible subset
+
+NN/tensor 중심의 일부 LogicalOp은 StableHLO로 자연스럽게 표현될 수 있다.
+
+```text
+Logical Array IR subset
+  → StableHLO
+  → XLA / IREE / compatible compiler
+```
+
+StableHLO에는 token 기반 side-effect ordering, send/recv, side-effecting `custom_call` 같은 기능이 존재한다. 그러나 이것이 arbitrary J state/effect/error semantics 전체를 표현한다는 뜻은 아니다. J-specific entity, boxed semantics, unusual numeric/error ordering, 지원되지 않는 effect/resource model은 이 route에 억지로 넣지 않는다.
+
+필요하면 StableHLO `composite`나 `custom_call` 계열 escape hatch를 사용할 수 있지만, 그것이 semantic contract를 숨기는 수단이 되어서는 안 된다. adapter는 effect/token mapping을 명시적으로 검증한다.
+
+#### Route D — Direct external library/kernel
+
+```text
+LogicalOp / PhysicalRegion
+  → verified library mapping
+  → BLAS / FFT / vendor NN library / custom kernel
+```
+
+library call은 하나의 backend realization이며 primitive identity와 분리한다.
+
+### 5.5 외부 IR을 사용할 때 RustJ가 끝까지 책임지는 것
+
+외부 compiler에 넘긴다고 해도 다음 책임은 RustJ에 남는다.
+
+- J source semantics
+- rank/cell/frame/agreement
+- primitive/derived-verb identity의 올바른 해석
+- dtype/promotion/error contract
+- effects/alias legality
+- numeric relaxation/reassociation 허용 여부
+- dynamic shape guard
+- external lowering precondition
+- unsupported case detection
+- provenance와 differential validation
+
+반대로 register allocation, instruction selection, generic tiling/vectorization, machine-code generation처럼 이미 성숙한 외부 compiler가 더 잘하는 부분은 위임할 수 있다.
+
+#### 5.5.1 External adapter boundary contract
+
+external adapter는 RustJ semantic IR의 대체물이 아니라 **verified RouteRegion/Logical IR의 projection**이다. 첫 실제 MLIR/StableHLO/ArrayFire/library adapter를 구현하기 전에 모든 adapter가 공통으로 만족해야 할 boundary를 고정한다.
+
+입력 계약:
+
+~~~text
+ExternalAdapterInput
+  RouteRegion
+    live_in / live_out
+    ordered operations / SemanticChecks
+    effect/error edges
+    provenance
+  discharged legality evidence / guards
+  resolved TargetContext
+  logical representation requirements
+~~~
+
+adapter는 unresolved legality를 backend optimizer가 알아서 해결할 것이라고 가정하지 않는다.
+
+capability query는 최소 다음 축을 분리한다.
+
+~~~text
+AdapterCapability
+  operation / ExecutionBasis / valence
+  dtype classes
+  rank / shape constraints
+  dynamic-shape support
+  representation / layout preconditions
+  numeric/tolerance/reassociation policy
+  effect/token support
+  error/check representation
+  alias / mutation contract
+  async / completion semantics
+~~~
+
+`supports Add` 하나로는 충분하지 않다. 예를 들어 같은 Add라도 rank/cell mapping, dtype promotion, overflow/error semantics, layout/alias requirement가 다르면 다른 capability query가 필요할 수 있다.
+
+출력은 단순 external module bytes가 아니라 RustJ가 검증할 수 있는 projection record를 포함해야 한다.
+
+~~~text
+ExternalRegionPlan
+  adapter_id / adapter_schema_version
+  source RouteRegion + A3 provenance
+  translated external operations/module
+  host-side checks retained
+  mapped effect/token edges
+  BridgeRequirements
+  external input/output handles
+  completion / ownership contract
+  unsupported/compile-failure classification
+~~~
+
+##### SemanticCheck / error mapping
+
+각 A3 `SemanticCheck`는 다음 중 하나여야 한다.
+
+1. external launch 전에 RustJ host/native side에서 원래 순서대로 실행,
+2. external IR이 **같은 J-visible error class와 precedence**를 보장할 수 있을 때 명시적으로 lowering,
+3. 그렇지 않으면 해당 region을 external route에서 거부.
+
+backend assertion/trap을 무조건 J Domain/Rank/Length error로 바꾸지 않는다. external compiler crash/unsupported/kernel launch failure도 J semantic error가 아니다.
+
+##### Effect / token mapping
+
+- pure region은 token 없이 projection할 수 있다.
+- J-visible write/I/O/state ordering이 있는 region은 backend가 equivalent token/resource ordering을 표현할 수 있을 때만 projection한다.
+- StableHLO token/custom_call 같은 escape hatch가 존재한다는 사실만으로 arbitrary J effect support를 선언하지 않는다.
+- host-side effect와 external async operation이 섞이면 completion token이 §2.5.1 RouteBoundary와 §3.9.4 commit frontier에 연결되어야 한다.
+
+##### Representation bridge / ownership
+
+adapter는 J logical value를 backend layout과 동일시하지 않는다.
+
+~~~text
+A3 Logical Value
+  ↓ BridgeRequirement
+Physical/External bridge lowering
+  ↓
+external tensor/array/handle
+  ↓ completion + ownership
+A3 live_out / next RouteRegion
+~~~
+
+row-major/column-major, dense/sparse encoding, device memory, alignment, zero-copy 가능성은 adapter precondition/bridge/Physical Plan 책임이다. semantic dtype/shape/order를 layout에 맞춰 바꾸지 않는다.
+
+##### Round-trip verifier
+
+adapter output은 최소 다음을 검증할 수 있어야 한다.
+
+- input RouteRegion의 모든 semantic operation이 translated op, host-side check, explicit bridge/effect action 중 정확한 대응을 가진다.
+- live-in/out logical dtype/shape/rank/order contract가 projection 전후에 일치한다.
+- dropped/reordered SemanticCheck/effect/error edge가 없다.
+- adapter capability/witness가 실제 emitted external form의 requirement와 일치한다.
+- external output handle의 ownership/completion이 다음 region이 사용하기 전에 확정된다.
+- source A3 op/J Graph/source span으로 provenance를 역추적할 수 있다.
+- unsupported form은 partial external module을 실행 가능한 성공 plan으로 반환하지 않는다.
+
+이 verifier는 external compiler 자체의 optimizer correctness를 재증명하는 것이 아니라, **RustJ가 넘긴 의미와 adapter가 선언한 projection 사이의 계약**을 검증한다.
+
+##### Failure classes
+
+~~~text
+AdapterUnsupported
+  semantic/capability/precondition상 이 route를 만들 수 없음
+
+AdapterCompileFailure
+  backend compiler/API가 plan 생성에 실패
+
+AdapterRuntimeFailure
+  launch/execution/completion infrastructure 실패
+
+JSemanticError
+  RustJ SemanticCheck/operation contract가 정의한 실제 J error
+~~~
+
+앞의 세 항목을 임의로 `JSemanticError`로 재분류하지 않는다. 실행 전 failure이면 §3.9.4에 따라 verified alternate route를 선택할 수 있지만, observable effect/transfer commit 뒤에는 자동 replay하지 않는다.
+
+##### 첫 adapter 구현 gate
+
+- 하나의 small pure-array region만 지원해도 되지만 capability matrix를 명시한다.
+- unsupported dtype/rank/shape/layout가 fail-closed인지 test한다.
+- host-side SemanticCheck가 external launch보다 먼저 같은 error를 내는지 differential test한다.
+- representation copy/view bridge가 logical atom order를 보존하는지 test한다.
+- output ownership/completion 후에만 consumer region이 접근하는지 test한다.
+- adapter plan에서 source provenance가 round-trip되는지 test한다.
+- external backend를 바꾸어도 같은 verified Logical IR의 J result/error가 유지되는지 비교한다.
+
+현재 **실제 production external adapter가 이 계약을 완료했다는 뜻은 아니다.** M6 이전에는 이 절이 implementation gate 역할만 한다.
+
+### 5.6 외부 IR 선택 원칙
+
+하나의 외부 IR에 전체 RustJ를 맞추지 않는다.
+
+- **MLIR**: 가장 일반적인 multi-level lowering 후보. custom dialect도 가능하고 Linalg/Vector/GPU/LLVM/SPIR-V 등으로 점진 lowering 가능.
+- **LLVM IR**: CPU 및 low-level codegen target. J의 high-level array semantics를 직접 담는 주 IR로 사용하지 않는다.
+- **SPIR-V**: Vulkan/OpenCL 계열 compute target용 low-level portable binary IR.
+- **NVVM / ROCDL**: NVIDIA/AMD-specific LLVM-level GPU lowering.
+- **StableHLO**: ML/tensor op subset의 portable high-level interchange. J 전체 semantic IR의 대체재로 보지 않는다.
+
+external route의 존재 때문에 RustJ Logical IR을 외부 IR의 최소공배수로 축소하지 않는다. **RustJ IR이 더 풍부하고, adapter가 필요한 subset을 projection하는 구조**를 유지한다.
+
+
+
+### 5.7 Logical IR은 verifier·interface·version 경계를 가진다
+
+Logical Array IR이 여러 route의 compiler boundary라면 단순 Rust struct 집합으로 끝내지 않는다.
+
+#### 5.7.1 Verifier
+
+각 operation은 생성/변환 후 최소 다음을 검증할 수 있어야 한다.
+
+```text
+structural verifier
+type/dtype verifier
+rank/shape verifier
+region/block/terminator verifier
+effect/token verifier
+constraint/witness verifier
+op-specific semantic verifier
+```
+
+invalid IR을 downstream optimizer가 추측해서 고치게 하지 않는다.
+
+#### 5.7.2 Capability interfaces
+
+분석/변환은 concrete op 이름의 거대한 switch보다 capability interface를 우선한다.
+
+```text
+ShapeInference
+AxisAndIterationSemantics
+AccessPattern
+EffectSemantics
+AliasSemantics
+SpeculationSemantics
+TilingCapability
+BufferizationCapability
+ExternalLoweringCapability
+```
+
+모든 op가 모든 interface를 구현할 필요는 없다. interface가 없으면 해당 optimization/route가 conservative하게 거부되거나 fallback 후보를 찾는다.
+
+#### 5.7.3 Canonicalization과 rewrite provenance
+
+canonicalization은 semantic-preserving rewrite만 포함한다. J-specific structure를 없애는 rewrite와 target-specific optimization을 같은 canonicalization 단계로 섞지 않는다.
+
+각 nontrivial lowering/rewrite는 가능하면 source/semantic origin을 추적하여 differential debugging이 가능하게 한다.
+
+#### 5.7.4 IR serialization/versioning
+
+현재 개발 단계에서는 RustJ Logical IR의 장기 binary compatibility를 약속하지 않는다. 그러나 외부 tool/process와 IR을 교환하기 시작하면 schema version을 명시한다.
+
+```text
+IrSchemaVersion
+PrimitiveRegistryVersion
+producer/compiler version
+feature set
+```
+
+portable artifact를 만들 경우 text/debug syntax와 portable serialization contract를 분리하고, version upgrade/downgrade 또는 unsupported-version 진단을 제공한다.
+
+MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable artifact 방식이 참고 모델이다. compatibility를 약속하기 전에도 **version field와 verifier를 처음부터 두는 것**이 migration 비용을 줄인다.
+
+#### 5.7.5 Cross-stage negative verifier matrix
+
+positive E2E test만으로는 compiler boundary를 보호할 수 없다. 각 stage는 “정상 plan이 통과한다”뿐 아니라 **그 stage가 책임지는 잘못된 상태를 반드시 거부한다**는 negative matrix를 가진다.
+
+| Stage / verifier | 반드시 거부해야 하는 forged/invalid state | 현재/계획 상태 |
+|---|---|---|
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.10`와 exact match |
+| rewrite candidate `verify` | stale source span/basis, unregistered rule/witness mismatch, replacement DAG forward reference, fact-rule mismatch, output semantic facts drift | **현재 존재** |
+| scan/fusion analysis verifier | forged source order, unsupported rule version, missing/incorrect witness, external-use/retention/fanout drift, candidate를 근거 없이 `selected`로 위조 | **현재 일부 존재**; proof discharge/selection verifier는 future |
+| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.6`와 exact match |
+| CandidateEvidence / SelectionPlan | stale graph/version evidence, required proof Unknown인데 Selected, Illegal candidate 선택, overlapping incompatible candidates 동시 선택 | **planned** — §4.1.4 |
+| RouteRegion / RouteBoundary | missing live-in/out, value-dead but effect-live dependency drop, SemanticCheck 중복/누락/순서변경, region-wide capability 미증명, guard가 effect 뒤에 배치, bridge requirement 누락 | **planned** — §2.5.1 |
+| PhysicalPlan | invalid plan buffer/view/op id, use-before-bind, view span overflow, selected kernel capability mismatch, unordered Check, unproved writable overlap/reuse, dangling Return | **planned M4** — §5.2.1 |
+| ExternalRegionPlan | source op 누락, check/effect edge drop, declared capability와 emitted op 불일치, incomplete output completion/ownership, unsupported partial module을 success로 표시 | **planned M6** — §5.5.1 |
+
+negative test 이름과 타입은 구현과 함께 정하되, **검증 책임 자체는 stage contract의 일부**다. downstream이 invalid upstream artifact를 관대하게 보정하는 식으로 책임을 이동하지 않는다.
+
+cross-stage forged test의 기본 패턴:
+
+~~~text
+valid source
+  ↓ build valid artifact
+clone artifact
+  ↓ mutate exactly one invariant
+stage.verify() must fail
+  ↓
+error identifies the violated boundary
+  ↓
+no later planner/executor is invoked
+~~~
+
+한 test에서 여러 invariant를 동시에 깨뜨리지 않는다. 어느 verifier가 어떤 invariant를 소유하는지 분명하게 유지한다.
+
+#### 5.7.6 Serialization / schema migration policy
+
+현재 RustJ의 J Graph/A3는 주로 in-process compiler artifact이며 장기 portable serialization compatibility를 약속하지 않는다. 현재 verifier는:
+
+~~~text
+J Graph schema 0.10      exact match required
+A3 schema 0.6           exact match required
+PrimitiveRegistry       current REGISTRY_VERSION exact provenance required
+~~~
+
+를 기본으로 한다. **minor version이 다르다고 자동 호환으로 간주하지 않는다.** 외부 artifact reader가 생기기 전에는 exact-match fail-closed가 올바른 정책이다.
+
+향후 저장/교환 format을 만들 때 다음 정책을 사용한다.
+
+1. **Decode와 migrate를 분리한다.**
+   - wire/file schema를 먼저 안전하게 decode한다.
+   - source version별 explicit migration function이 있을 때만 current in-memory schema로 변환한다.
+   - 알 수 없는 field/op/rule을 추측해 current 의미로 읽지 않는다.
+
+2. **upgrade는 explicit chain만 허용한다.**
+
+~~~text
+v0.n artifact
+   ↓ decode with v0.n schema
+migrate_0_n_to_0_n1
+   ↓
+...
+   ↓
+current schema
+   ↓
+current verifier
+~~~
+
+migration 결과도 반드시 current verifier를 통과해야 한다.
+
+3. **downgrade는 lossless writer가 있을 때만 허용한다.**
+   - 새 semantic field/op/effect를 옛 schema가 표현하지 못하면 downgrade를 거부한다.
+   - field를 조용히 drop해서 옛 artifact를 만들지 않는다.
+
+4. **PrimitiveRegistryVersion mismatch는 schema mismatch와 별도다.**
+   - primitive ID/contract mapping migration이 명시되어 있지 않으면 reject한다.
+   - spelling이 같다는 이유만으로 semantic registry version을 무시하지 않는다.
+
+5. **compiler version은 provenance, schema/registry가 compatibility key다.**
+   - compiler version이 다르더라도 schema/registry+migration contract가 같을 수 있다.
+   - 반대로 같은 compiler version 문자열만으로 compatibility를 보증하지 않는다.
+
+6. **rule/witness registry도 versioned provenance를 유지한다.**
+   - rewrite/fusion/scan witness meaning이 바뀌면 stale cached candidate를 재사용하지 않는다.
+
+7. **PhysicalPlan portable cache는 별도 schema다.**
+   - Logical IR schema와 같은 version으로 묶지 않는다.
+   - target architecture/device/runtime/capability fingerprint를 함께 요구한다.
+   - device-specific cached plan miss는 J error가 아니라 cache/route miss다.
+
+8. **unsupported-version diagnostics는 semantic J error와 분리한다.**
+   - `UnsupportedSchema/Registry/Migration` 계열 compiler diagnostic으로 보고한다.
+   - Domain/Rank/Length 같은 J error로 위장하지 않는다.
+
+pre-1.0 개발 단계에서는 schema를 자주 올릴 수 있다. 그 대신 version bump 없이 semantic field meaning을 바꾸는 것을 금지한다. portable artifact compatibility를 공식 약속하기 전에도 이 규율을 지킨다.
+
+---
+
+<a id="logical-physical-array-model"></a>
+
+## 6. 논리 배열과 물리 배열 — 핵심 architecture decision
+
+### 6.1 논리 J noun, boxed, sparse와 verb
+
+dense noun의 extensional value는 기본적으로 다음으로 본다.
+
+```text
+DenseJArray
+  atom type
+  shape
+  ordered atoms / logical value
+```
+
+그러나 current jsource와의 semantic compatibility를 위해 “모든 noun = type + shape + flat atoms뿐”이라고 고정하지 않는다.
+
+**boxed**는 physical encoding이 아니라 J의 semantic atom/type 구조다.
+
+```text
+BoxedJArray
+  shape
+  ordered boxed atoms
+    each atom -> J value
+```
+
+실제 backend가 box를 pointer, handle, arena index 등으로 표현하는 것은 physical 문제다.
+
+**sparse**도 단순한 backend compression format이 아니다. J의 `$.`와 sparse type/operations가 sparse representation을 관찰하며, sparse axes와 sparse element(fill)가 의미에 참여한다.
+
+```text
+SparseJArray
+  logical atom type
+  shape
+  sparse_axes
+  sparse_element
+  sparse index/value semantics
+```
+
+dense와 sparse가 같은 extensional mathematical array를 나타낼 수 있어도 J 프로그램이 sparse representation을 관찰할 수 있으므로 semantic representation class를 보존한다.
+
+따라서 noun semantic model은 개념적으로:
+
+```text
+JNoun
+  value/type/shape semantics
+  semantic representation:
+    Dense
+    Boxed
+    Sparse(SparseSemantics)
+    other J-visible noun kinds as implemented
+```
+
+이다.
+
+verb는 noun array를 입력받아 noun array를 반환하는 array transformer이며, J Semantic Array IR에서 first-class semantic entity로 표현한다. verb의 hook/fork/train/modifier composition은 semantic analysis 전에 보존한다.
+
+다음은 논리 J noun의 semantic identity가 아니다.
+
+- stride
+- offset
+- physical tile layout
+- CPU/GPU device
+- byte alignment
+- sharding
+- CUDA block/thread
+- concrete sparse backend format(CSR/COO 등)
+
+### 6.2 ValueId와 BufferId
+
+`ValueId`와 `BufferId`는 다르다.
+
+- `ValueId`: 계산의 논리 결과
+- `BufferId`: 특정 물리 저장 공간
+
+하나의 ValueId가 CPU와 GPU의 여러 representation을 가질 수 있다.
+
+반대로 수명·alias·effect 조건이 검증된 여러 ValueId가 같은 BufferId를 재사용할 수도 있다. Logical ArrayValue가 존재한다고 별도 buffer가 필요한 것은 아니다. view, fused-away intermediate, rematerialized value의 실제 저장과 reshape/transpose/reverse/slice의 copy 여부는 downstream planner가 결정한다.
+
+### 6.3 PhysicalArray
+
+개념 모델:
+
+```rust
+PhysicalArray {
+    storage / buffer,
+    shape,
+    strides,
+    offset,
+    encoding,
+    placement,
+    layout,
+}
+```
+
+현재 `src/physical.rs`에는 다음 G1 기초가 구현되어 있다.
+
+- scoped/generation `BufferId`
+- `BufferLease`
+- CPU backing registry
+- dtype/encoding 확인
+- signed strides / offset
+- checked address span
+- empty/scalar 처리
+- read-only affine `PhysicalArray`
+- standard-layout 판정
+- logical slice의 제한적 노출
+
+### 6.4 CpuStorage의 위치
+
+현재 `CpuStorage<T>`의 Inline / Owned / Shared 구조는 버리지 않는다.
+
+장기적으로는 J semantic Value의 유일한 저장 방식이 아니라 **CPU backend physical storage**로 재배치한다.
+
+```text
+ValueId
+  ↓
+Physical representation
+  ↓
+Storage
+  ├─ CpuStorage
+  ├─ CudaStorage
+  ├─ MetalStorage
+  └─ ...
+```
+
+#### 6.4.1 현재 구현 상태와 완료 조건
+
+Logical/Physical Array 분리는 **아키텍처 결정으로는 확정**됐지만 runtime representation까지 완전히 이행된 상태는 아니다.
+
+현재 상태:
+
+- [x] Logical execution `ValueId`와 physical `BufferId`를 별도 identity로 둔다.
+- [x] `PhysicalArray`가 buffer/stride/offset을 소유하고 logical IR에는 이 정보를 넣지 않는다.
+- [x] 같은 logical atom order를 서로 다른 physical stride/offset/backing으로 표현할 수 있다는 회귀 테스트를 둔다.
+- [x] GraphFacts는 physical stride/layout/device를 소유하지 않는다.
+- [ ] runtime `Value`의 dense payload가 아직 `CpuStorage`를 직접 포함한다. 이는 전환기 구현이며 최종 Logical Array abstraction으로 간주하지 않는다.
+- [ ] dense logical value와 CPU/GPU backend storage 사이의 explicit representation adapter/handle 경계를 완성한다.
+- [x] `facts::LayoutFact`를 `RepresentationClassFact`로 이름 변경하고 `Facts.layout`도 `Facts.representation_class`로 바꿨다. `Dense / AxisSparse`는 J-visible representation class이며 physical layout이 아님을 API 이름에서 명시한다.
+
+완료 기준은 **logical value를 정의하거나 분석하는 데 `CpuStorage`, stride, offset, device, BufferId가 필요하지 않고**, 선택된 backend representation을 통해서만 그런 정보가 등장하는 상태다.
+
+따라서 현재 `Value { shape, Data::Int(CpuStorage<_>), ... }` 구조는 semantic boundary의 최종형이 아니라 migration bridge다.
+
+---
+
+## 7. GPU 친화적 배열 설계
+
+GPU 친화성 때문에 J의 언어 의미를 tensor framework의 broadcasting 규칙으로 바꾸지 않는다.
+
+### 7.1 stride / offset view
+
+가능하면 다음 structural operation을 metadata-only view로 표현한다.
+
+- transpose
+- reverse
+- slice
+- fill 없는 take/drop
+- 순서 호환 reshape
+
+예:
+
+```text
+shape   [100, 200]
+strides [200, 1]
+
+transpose
+
+shape   [200, 100]
+strides [1, 200]
+```
+
+logical transpose와 physical copy는 같은 것이 아니다.
+
+### 7.2 논리 순서와 메모리 연속성
+
+다음 둘을 구분한다.
+
+- logical-order contiguous
+- memory-contiguous
+
+transpose된 backing이 물리적으로 연속 영역을 공유하더라도 J ravel 순서가 다르면 기존 dense kernel에 그대로 slice로 넘길 수 없다.
+
+### 7.3 zero stride
+
+J agreement를 먼저 계산한다.
+
+그 결과 같은 atom/cell을 반복 읽는 구현이 합법적이면 physical lowering에서 zero stride를 사용할 수 있다.
+
+zero stride가 J agreement 규칙을 정의하는 것은 아니다.
+
+### 7.4 semantic representation과 physical encoding을 구분한다
+
+모든 physical 표현을 affine byte-stride 모델 하나로 강제하지 않는다. 동시에 J-visible representation과 backend storage encoding도 섞지 않는다.
+
+**Semantic/J-visible**
+
+- dense noun
+- boxed noun
+- sparse noun + sparse axes/element semantics
+
+**Physical/backend encoding**
+
+- affine dense
+- tiled
+- packed bit
+- device/backend-specific encoding
+- sparse noun을 위한 concrete sparse format(COO/CSR/other)
+- boxed noun을 위한 pointer/handle/arena representation
+
+즉 `SparseJArray`를 GPU에서 dense buffer로 임시 materialize할 수는 있어도, 그 때문에 J-visible sparse identity/metadata를 잃어서는 안 된다. 반대로 같은 sparse semantics를 여러 physical sparse format으로 실현할 수 있다.
+
+초기 G1은 read-only affine dense physical representation만 다룬다.
+
+### 7.5 placement / sharding
+
+logical shape와 physical placement를 분리한다.
+
+```text
+Placement
+  Cpu
+  Device(DeviceId)
+  Sharded(ShardingId)
+```
+
+multi-GPU shard가 있어도 사용자에게 보이는 J noun은 하나의 logical value다.
+
+### 7.6 GPU 실행 원칙
+
+GPU에서는 primitive별 즉시 실행보다 전체 계산을 본 뒤 계획해야 한다.
+
+예:
+
+```j
++/ *: y
+```
+
+를
+
+```text
+square kernel
+→ intermediate GPU array
+→ reduction kernel
+```
+
+로 고정하지 않는다.
+
+고수준 IR에서는 먼저 derived-verb 구조를 보존한다.
+
+```text
+Apply(
+  AdverbApplication(operator=/, operand=+),
+  Map(Square, y)
+)
+```
+
+Semantic Analyzer가 이를 분석하여 reduction이라는 logical operation을 식별한 뒤,
+
+```text
+Reduce(Add, Map(Square, y))
+  ↓
+legal fusion analysis
+  ↓
+fused map-reduction kernel
+```
+
+처럼 계획할 수 있다.
+
+CUDA 실제 구현은 현재 보류 상태다. CPU에서 physical representation과 plan/executor 경계를 먼저 검증한다.
+
+---
+
+## 8. 메모리·alias·수명 원칙
+
+### 8.1 읽기/쓰기 분리
+
+공유, zero-stride, 내부 overlap 가능 view는 기본적으로 read-only다.
+
+첫 mutable 경로는 다음을 만족하는 출력으로 제한한다.
+
+- 독점 소유
+- 표준 연속
+- non-overlap proof
+- dtype/용량 호환
+- live alias 없음
+
+### 8.2 주소 검증
+
+비어 있지 않은 affine view는 각 축의 signed delta를 checked 계산하고 접근 가능한 최저/최고 backing index를 확인한다.
+
+span 검증은 접근 가능성을 증명하지만 non-overlap을 증명하지 않는다.
+
+empty view는 원소 주소를 계산하지 않는다.
+
+### 8.3 buffer reuse
+
+buffer reuse는 명시적으로 증명한다.
+
+확인할 것:
+
+- 원래 allocation
+- 전체/부분 영역
+- offset
+- 공유 owner
+- live view
+- alias
+- dtype
+- capacity
+- alignment
+- last physical use
+
+GPU 재개 후에는 kernel 제출과 실제 device completion을 구분한다.
+
+### 8.4 관찰 가능한 J 의미
+
+최적화 때문에 다음을 바꾸지 않는다.
+
+- primitive/type별 overflow retry와 coherent result promotion semantics
+- J가 정의한 error precedence, suppression, retry behavior
+- active `try./catch./catcht.`에 의한 J-visible error/throw control transfer
+- binding/name-reference의 late lookup semantics
+- side effect 순서
+- comparison tolerance와 `!.` fit semantics
+- empty/rank fill-cell 결과 type·shape semantics
+- rank/modifier result-cell assembly(type/shape join, framing fill, assembly error) semantics
+- sparse/boxed의 J-visible representation semantics
+- primitive/derived-verb가 요구하는 floating numeric contract(허용된 reassociation, compensated/exact mode, tolerance 등)
+
+FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조건 허용하지도 않는다.** `NumericSemantics`/`FitSemantics`가 허용한 경우에만 적용한다. GPU 병렬 오류 수집도 arbitrary first-lane error를 그대로 노출하지 않고 J의 observable error contract를 따른다.
+
+---
+
+
+<a id="out-of-core-io-contract"></a>
+
+### 8.5 느린 I/O·Out-of-core 배열 실행 계약 (2026-10-06, 설계 후보 / 구현 미착수)
+
+**목표.** RAM/GPU 용량보다 큰 J noun·신경망 가중치·배열 데이터에 대해 (a) 원래 J 결과·오류·효과 순서를 보존하고, (b) 실제로 읽는 바이트와 복사량을 줄이며, (c) 필요 시 디스크/원격 데이터 이동과 계산을 중첩한다. 이것은 새로운 J syntax나 암묵적 GPU 구현이 아니라, §5의 Physical Planning/Execution Scheduling에 따른 물리 실행 확장이다. **최초 native CPU M4 vertical slice의 선행 조건으로 삼지 않는다.** 모든 기능은 [§10 IO-01~IO-30 수용 게이트](#out-of-core-io-checklist)를 통과하기 전에는 계획/후보일 뿐이다.
+
+**원본/선행 기법 비교(직접 계승 vs 조건부 응용).**
+
+| 출처 / 원본 | 검증한 아이디어 | RustJ 차용 범위 / 금지되는 비약 |
+|---|---|---|
+| Jsource `jlibrary/addons/data/jmf/jmf.ijs` | J noun에 file mapping; R/W·read-only·copy-on-write, header/shape와 unmap 참조 제약. non-jmf typed boxed mapping 제한과 JMF-backed boxed 회귀 fixture가 공존 | mapped dense array backend 후보. mmap=비동기 I/O·zero page fault·J 전체 boxed/sparse 지원으로 해석하지 않음 |
+| Jsource `jsrc/xf.c`, J foreign `1!:11`/`1!:12` | file offset+length의 부분 read/write; 현재 C 경로는 `fread/fwrite` 기반 동기식 | 순차 byte-range 기준 경로와 J-visible foreign I/O 의미 비교. 그래프에서 effectful file foreign을 순수 scan으로 자동 대체 금지 |
+| Jsource `jsrc/v.c` 등 | reference/in-place 가능 조건에 따라 버퍼 재사용·복사 억제 | alias/lifetime proof 후 reuse; mapped write와 implicit in-place를 동일시하지 않음 |
+| Jd (J 데이터 라이브러리) | 열별 파일 매핑과 파티션 조건별 selective read를 실제 소스에서 확인 | 데이터셋 관리 원리를 참고하되 full-J 의미론으로 일반화하지 않음. Jd column-file on-demand mapping, partition-column read pruning, SIMD mapped-tail 방어를 소스에서 확인 |
+| DuckDB (2026 async I/O) | compute pool·blocking I/O pool 분리, job/read-ahead, 메모리 governor 연동, park/resume | bounded read-ahead·메모리 예약·작업 완료 이벤트. DuckDB 전체 스케줄러 복제 불필요 |
+| Polars Lazy | projection/predicate/slice pushdown, common subplan reuse | 정확한 access/effect/witness가 있을 때만 필요 byte-range 축소; 임의 J verb·reduction에 무조건 적용 금지 |
+| Apache Arrow Dataset Scanner | `batch_readahead`와 `fragment_readahead`의 다른 단위, metadata/pruning | chunk/fragment 단위 선택과 bounded concurrency; 전체 Arrow 데이터모델 복제 불필요 |
+| Ray Data | streaming block queues, downstream backpressure, spill/resource account | 독립 실행 단계의 bounded queue·pressure handling. shuffle/reduce barrier를 무시한 임의 streaming 금지 |
+| DeepSpeed ZeRO-Infinity | CPU/NVMe/GPU offload와 transfer/compute overlap, prefetch | 추후 placement-aware weight prefetch; GPU runtime 보류 정책 유지 |
+| FlexGen (ICML 2023) | device/CPU/disk placement와 layer/batch-block scheduling의 I/O 재사용·throughput tradeoff | 안정된 read-only weights와 합법적 scheduling 영역에 한해 중복 로드 감소; J 실행 순서 임의 변경 금지 |
+| TensorFlow `tf.data` | prefetch/parallel map/overlap pipeline | 독립된 데이터 공급 단계의 후속 비교 후보; full J 적용 보장 아님 |
+
+출처(확인 기준 2026-10-06): [Jsource jmf](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) · [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c) · [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) · [Polars optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) · [Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) · [Ray Data execution](https://docs.ray.io/en/latest/data/data-internals.html) · [ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) · [FlexGen 논문](https://proceedings.mlr.press/v202/sheng23a.html). 프레임워크의 공개된 설계를 참고하는 것이며 해당 기능이 RustJ에 구현됐다는 뜻이 아니다.
+
+**계층 소유권·공통 불변조건**
+
+| 계층 | 입력/출력과 책임 | 금지 |
+|---|---|---|
+| J Semantic IR / J Graph IR | J noun의 type/shape/atom-order, boxed/sparse, Rank zero-frame prototype, access/effect/error 순서; 순수한 기회 후보만 sidecar로 표시 | 파일 offset·chunk 크기·prefetch queue·장치 DMA를 J-visible 연산 의미로 삽입 금지 |
+| Verified Logical IR / analyzer | `AccessRelation`·필요 데이터 범위/재사용 가능성, unknown/opaque, purity와 `FactWitness/Guard` 유지. index/select/view에 대해 합법적 범위 pruning 후보 생성 | arbitrary verb/semantic error가 관찰 가능한 입력을 검사 없이 생략 금지 |
+| Physical Planner / Schedule | `StorageSource`(Owned/Mapped/Chunked/Remote 후보), placement, byte-range, Read/Prefetch/Transfer/Materialize/Release, dependency, memory budget, cost 후보 | speculative I/O의 J-visible error/효과 재배치, semantic `StorageRequirement`을 materialization으로 동치화 금지 |
+| Executor / Runtime | 처음에는 동기 `read_at`/`write_at` + chunk iteration; 이후 pending/ready/error/cancel completion, pinned lease, backpressure, finite queues | buffer lifetime을 I/O completion 전에 종료, 외부 변경된 bytes를 version 불변으로 가정, 완료 전 쓰기를 성공으로 보고 금지 |
+| External adapters | 실제 backend의 read/write/async/mmap capability, errors, alignment, atomic/ordering, ownership을 선언 | J semantics 또는 non-CPU 성능을 암묵적 fallback 능력으로 가장 금지 |
+
+**별도 identity.** `ValueId`는 J 논리값, `StateResource`는 변경 가능한 가중치/파일 상태의 의미적 identity, `BufferId/BufferLease`는 실제 메모리 소유자, `StorageObjectId/Version`은 외부 backing object와 읽기 일관성, `IoRequestId/CompletionToken`은 I/O 요청·완료를 식별한다. 하나로 합치지 않는다. `StorageObjectId/Version` 및 `IoRequestId`는 **명명 후보**이고 확정 Rust 타입/API가 아니다.
+
+**읽기 계획과 정당성.** offset/length 계산은 checked arithmetic·overflow 검사, 정렬·EOF/short read·stale version·권한 실패를 정의한다. read-only immutable input 또는 스냅샷 증명 없는 speculative prefetch는 효과·오류 순서에 영향을 줄 수 있으므로 금지/보수적 barrier를 둔다. chunk size·layout을 바꾸어도 J shape/rank, boxed/sparse, empty frame/fill-cell result, tolerant comparison, 예외 발생 위치가 달라지면 안 된다. 빈 결과의 데이터 byte-range는 0일 수 있지만 J Rank의 가상 cell 실행/형식 추론 의무는 독립이다.
+
+**실행 원칙.** 우선 동기 contiguous/chunked CPU 경로로 correctness baseline을 만든다. 다음에 source access proof로 scan bytes를 줄인다. 그 뒤 bounded async I/O queue와 적어도 2개의 버퍼로 `Read(n+1)`과 `Compute(n)`를 overlap한다. prefetch는 예약 memory budget와 consumer progress/backpressure로 제한하고, request-completion을 `AsyncToken/Timepoint`/equivalent dependency로 명시한다. weight reuse/batch-block schedule은 read-only/version stable, dependency/effect/latency-policy 합법성 증명 후에만 선택한다. `mmap`은 독립 후보이며 page-fault 비용·page cache·주소공간·unmap·COW semantics를 직접 측정한다. `io_uring`·direct I/O·remote object store·GPU DMA는 portable baseline 이전의 요구사항이 아니다.
+
+**쓰기는 읽기와 분리.** J foreign 파일 쓰기·mapped shared write의 observable effect와 checkpoint persistence는 동일하지 않다. checkpoint는 immutable snapshot/version capture → 임시 파일/쓰기 완료 → 필요한 flush/fsync 계약 → atomic publish/rename 가능성 검사 → 성공 반환으로 구분한다. 플랫폼별 durability 보장과 crash consistency를 실제 지원 범위로 한정한다. delayed save로 user-visible state/error 순서가 바뀌면 최적화 금지. cancellation/partial write/retry에서 중복 side effect와 파일 파손을 검사한다.
+
+**비용/계측 계약.** `ResourceEstimate`(peak resident, pinned/inflight bytes, open handles, max queued jobs)와 `CostEstimate`(cold/warm bytes, number/seeks/latency, effective bandwidth, CPU cycles, transfer/overlap time)를 분리한다. 성능 게이트에서 wall time, read/write bytes, physical requests, blocking wait, compute time, peak+retained memory, page faults/cache hits, spill count, throughput *및* latency를 비교한다. warm page cache 결과를 cold storage 승리로 포장하지 않는다.
+
+**대표 실행 예.** `W1`·`W2`가 파일에 저장된 순수한 read-only tensor라고 증명되면 physical schedule은 `Prefetch(W1) → Await(W1) → Compute(W1)`와, 그 계산 중 `Prefetch(W2)`를 겹친다. 다음 `Compute(W2)`는 앞 층 결과 및 W2 완료를 모두 기다린다. Logical graph에는 이 I/O 순서를 박지 않는다. 분기/동적 NAME/수정 가능한 weight/관찰 가능한 file effect가 있는 경우 이 순서를 무조건 적용하지 않는다. 수용 작업표는 [§10 IO](#out-of-core-io-checklist)를 따른다.
+
+
+#### 8.5.1 독립 재검토 — J 라이브러리·포맷·모델 로더 보강 (2026-10-06)
+
+**발견:** 기존 §8.5는 async read-ahead에 비해 실제 저장 포맷, read-chunk/write-shard 배치, mapped SIMD tail, refcount/unmap, cache 일관성 계약이 약했다. 다음은 원본 구현/공식 설명과 RustJ 후보를 분리한 표이다. 소스나 문서 존재는 RustJ 구현 성공이 아니다.
+
+| 확인한 출처 | 실제 구조 / 기능 | RustJ 적용·유의사항 |
+|---|---|---|
+| [J jfiles와 keyfiles](https://github.com/jsoftware/jsource/tree/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles) | serialized J components를 offset-indexed read로 접근, keys로 개별 component 검색 | arbitrary serialized noun은 typed dense mapped bytes와 다른 encoding. 전체 jfiles 포맷 복제는 보류 |
+| [Jd column.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) | file-backed column map on demand, grow/remap, multi-process reference-count 위험 주석 | remap/lease/alias/동시 접근 검사; Jd의 DB lock을 일반 J noun 규칙으로 복제 금지 |
+| [Jd api_read.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) · [ptable 튜토리얼](https://www.jsoftware.com/jd_tuts.html) | partition column 조건으로 대상 파티션을 좁혀 읽기 | 실제 partition pruning 선례. arbitrary J verb의 자동 pushdown은 별도 effect/error/witness proof가 필요 |
+| [Jd jmfx.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | SIMD kernel의 파일 끝 beyond-end 접근을 우려해 padding; 4096 byte 페이지 가정 | **반면교사**: RustJ는 페이지 크기·허용 overread를 하드코딩하지 않고 masked tail/checked span/unmap-safe lease 구현 |
+| [Zarr v3](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | 논리 shape와 read chunk, write shard/캐시를 분리; access-pattern-dependent chunk shape | chunk read amplification, 파일 개수, shard write amplification과 메모리 경계 최적화; 자체 파일 포맷 확정 보류 |
+| [Safetensors](https://github.com/huggingface/safetensors/blob/main/README.md) | tensor dtype/shape/byte-range index, 0-byte empty tensor, partial/lazy loads | verified storage manifest를 제안; invalid/overlap/overflow/off-end 검증, scalar/empty prototype 보존. 외부 포맷 adapter는 후속 |
+| [llama.cpp loader](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | mmap/no-mmap/mlock/direct-I/O/NUMA/lazy tensor rows 선택 | mmap을 universal default로 결정하지 말고 workload/OS cache/RSS/page faults/cold-warm으로 비교 |
+| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | parameter.load/read/gather/write, AsyncTransfer, Timepoint로 외부 가중치 바이트 범위의 비동기 준비·저장과 완료 시점·resource lifetime 명시 | **직접 참고 1순위**: 정적인 read-only weights → Physical Stream ParameterRead/Load 후보 → Await completion → consumer, checkpoint write의 completion은 별도 durability 계약. J-visible foreign effect와 동일시 금지 |
+| DuckDB, Polars, Arrow, Ray, ZeRO-Infinity, FlexGen | scan pruning, batch/fragment read-ahead, async governor, streaming pressure, staged weight reuse | read bytes 축소 → stable data version → bounded scheduling → overlap → legal reuse 순서로만 도입 |
+
+**Boxed 표현 정정:** [jmf.ijs](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs)는 non-jmf typed boxed mapping을 거부하지만 [JMF-backed boxed tests](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs)가 존재한다. 반면 [jsrc/mbx.c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/mbx.c)는 not supported라고 표시된다. 따라서 지원/미지원은 파일 형태·연산·원본 버전의 실제 C oracle로 세분화해야 한다.
+
+
+**IREE Stream 의존성 경계:** `stream.async.parameter.load/read/gather/write`, `stream.async.transfer` 및 `stream.timepoint`의 구현을 I/O-specific Physical Schedule 선례로 추가한다. `parameter.load`의 사전 실행 허가와 J 외부 파일 읽기 효과의 비투기성은 다르며, buffer 사용 가능 시점 및 cancellation/error가 보존될 때만 이동·중복 제거한다. IO-13~18과 IO-20의 verifier 검토 입력으로 사용한다. [IREE 공식 Stream 사양](https://iree.dev/reference/mlir-dialects/Stream/).
+
+**추가 계층 계약:** logical ValueId와 외부 StorageObject/Version, 물리 StorageEncoding(contiguous typed / chunked typed / serialized component / external), ReadChunk, WriteShard, BufferLease, IoCompletion을 서로 구분한다. 이들은 구현을 확정한 Rust 구조체 이름이 아닌 개념이다. File foreign I/O는 J-visible effect이지만, verified immutable storage read의 내부 스케줄은 효과가 없는 경우에 한해 변경 가능하다. Header/shape/index가 존재한다고 J Rank empty-frame fill-cell 의미를 생략하지 않는다. Cache key에는 object/version/byte-range/encoding을 포함하고, peak RSS와 OS page cache는 런타임이 완전히 예약하는 메모리로 주장하지 않는다.
+
+
+<a id="io-framework-execution-comparison"></a>
+
+#### 8.5.2 프레임워크별 I/O 최적화 실행 방식과 RustJ Graph IR 적용 (2026-10-06)
+
+**다섯 가지 최적화 대상.** I/O 최적화는 단순한 비동기 파일 읽기가 아니라 **① 불필요한 읽기 제거, ② 저장/읽기 단위 선택, ③ I/O와 계산 중첩, ④ 읽은 데이터 재사용, ⑤ 메모리·완료·실패 통제**를 조합하는 문제다. 최적화의 장소를 구분해야 한다. J Graph/Verified Logical IR은 필요한 데이터와 의미론적 합법성을 판단하고, Physical Plan·Executor는 byte range, chunk, 배치, prefetch, buffer 수명, 실제 memory/resource budget을 결정한다.
+
+| 프레임워크 / 공식 근거 | 실제 기법과 최적화 계층 | RustJ에서 가져올 부분 / 제약 |
+|---|---|---|
+| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Logical 단계에서 predicate/projection/slice를 scan까지 pushdown, common subplan/scan 재사용 | `AccessRelation`이 필요한 논리 원소/축과 실제 byte range를 증명한 경우 읽기를 제거. IO-09~12; Rank, dynamic binding, observable errors/effects에서는 opaque fallback |
+| [DuckDB async I/O (2026-07-31 발표)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group/CSV byte-boundary를 fetch job/task로 쪼갬. `REGULAR` 계산 pool과 주로 blocking I/O인 `ASYNC` pool 분리; 미완료 scan job은 park 후 깨움. read-ahead 깊이는 temporary-memory budget과 연동 | IO-13~17: bounded job queue, completion/wakeup, read-ahead depth를 resource governor로 축소. 공개 글은 v2.0 개발·출시 예정 기능을 설명하므로 모든 릴리스에서 지원된다고 단정하지 않음 |
+| [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) | Physical resource IR에서 `stream.async.parameter.load`는 새 resource, `read`는 기존 allocation 채움, `gather`는 여러 parameter archive range 결합. `timepoint`/`await`로 이용 가능 시점과 순서 명시 | IO-13~18·20의 직접 선례: immutable weights `Load/Gather → Await → Consumer`. IREE에서 speculative한 parameter read를 J의 관찰 가능한 `1!:` file foreign과 동치화 금지 |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | `batch_readahead`와 `fragment_readahead`를 따로 조정 | IO-14~16: chunk 내부와 여러 저장 source 간의 선행 읽기 수준을 분리하고 decoded/inflight buffers 예산화 |
+| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | 연산자 output queue에 block reference streaming; downstream backpressure, memory-aware task scheduling, spill | IO-15~17: 큐가 차면 생산 속도를 제한. Reduction/shuffle처럼 경계가 필요한 경우 무조건 streaming하지 않음 |
+| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | 물리 chunk·shard 및 캐시/축 접근 패턴으로 read amplification와 재사용 결정 | IO-26~29: `LogicalShape` ≠ `ReadChunk` ≠ `WriteShard`; 작은 slice도 chunk 전체 decode가 필요한지 측정 |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | 모델 가중치의 mmap/비-mmap·residency 등 로딩 전략 선택 | IO-23·30: mmap이 항상 최적이라고 가정하지 않음. page fault, cold/warm cache, RAM pressure, SSD/remote, reuse별 비교 |
+| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) · [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | CPU/NVMe/GPU Offload·prefetch·transfer/compute overlap; FlexGen은 layer/batch-block scheduling으로 weights 반복 로드 감소 | IO-18~20: immutable/version-stable weights에서만 재사용/선행 읽기를 후보화. 훈련의 mutable optimizer/gradient/checkpoint는 별도 snapshot 계약 |
+| [TensorFlow tf.data](https://www.tensorflow.org/guide/data_performance) | `prefetch`·parallel map을 통한 input-producer와 모델 연산의 파이프라인 중첩 | IO-14~16: 독립 producer/consumer의 비교 사례. J의 임의 verb/cell 평가를 재배열하는 일반적 허가는 아님 |
+| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | 저장할 state의 staging/async persistence 분리 | IO-18: mutable state의 snapshot·write completion·publishing·failure/recovery를 명시. 비동기 제출만으로 durability 성공을 보고하지 않음 |
+
+**같은 Logical Graph에서 다른 Physical Schedule을 선택하는 예.** `X → MatMul(W1) → Activation → MatMul(W2) → Y`의 J-visible 의존성을 유지한다. 외부 파일의 `W1`/`W2`가 **변하지 않는 read-only/versioned 데이터임이 증명**된 경우, 아래 physical 계획을 생성할 수 있다. 다른 모델에서 임의로 실행되는 것이라고 가정하지 않으며, 실제 구현 이전 설계 예시다.
+
+~~~text
+Logical / semantic value flow
+X ──> MatMul(W1) ──> Activation ──> MatMul(W2) ──> Y
+
+Physical / possible overlap
+Reserve(W1) ──> Read(W1) ──> Ready(W1) ──> Compute(L1) ──> Activation ──┐
+Reserve(W2) ──> Read(W2) ──> Ready(W2) ─────────────────────────────────┤
+                                                                        ▼
+                                                                  Compute(L2) ──> Y
+            Read(W2) and Compute(L1) can overlap (if budget allows)
+Compute(L2) awaits BOTH Activation and Ready(W2).
+Release(buffer) follows last use AND all pending I/O/transfer completions.
+~~~
+
+**차용 방법의 핵심 차이.** Polars 방식은 **필요 없는 byte를 아예 요청하지 않도록** 만드는 기법이다. IREE 방식은 **읽기·전송·완료 토큰을 Physical DAG의 명시적 의존성**으로 만드는 기법이다. DuckDB·Arrow·Ray 방식은 **그 DAG의 읽기 요청을 bounded queue·backpressure·memory budget 아래에서 실행**하는 기법이다. DeepSpeed·FlexGen 방식은 **합법적 계산 순서/배치에서 weights의 생존 구간과 재사용을 늘려** 실제 반복 I/O를 줄인다. 이 기법들은 대체 관계가 아닌 계층별 조합 후보이다.
+
+**의미론 경계와 비용 계약.** (A) verified immutable 저장소의 내부 물리 read, (B) J `1!:11`/`1!:12` 등 관찰 가능한 foreign I/O, (C) 수정 가능한 weights·checkpoint 쓰기를 별도로 모델링한다. A에서만 access witness/guard를 통한 범위 pruning, speculative prefetch, range coalescing을 허용한다. B는 J effect/error 순서, C는 version/snapshot/commit/durability 계약을 지킨다. 빈 Frame의 read bytes가 0이어도 J Rank의 가상 Cell·fill·dtype·shape 및 오류 판단은 생략하지 않는다. boxed/sparse, dynamic NAME/Rank, alias, stale file, EOF/short read 및 실패의 조기 관찰은 negative fixture 대상이다.
+
+성능은 **cold/warm 실제 읽은 bytes, request 수, seek/latency, blocked I/O 시간, compute time, page faults, prefetch overlap, peak·retained memory/RSS, spill, 전체 throughput, 개별 호출 latency**를 따로 측정한다. Read-ahead 자체는 필요한 byte를 줄이지 못하며 메모리를 더 사용한다. 작은 range를 합치면 요청 수는 줄지만 초과 읽기가 발생할 수 있다. OS page cache/RSS는 모든 바이트를 RustJ governor에서 정확히 예약할 수 있는 메모리라고 주장하지 않는다. **의미론·자원 안전 → 실측 비용 → 실행 후보 선택** 순서를 유지한다.
+
+**기존 단일 수용 원장 매핑:** 자료 읽기 제거·공통 scan/cache = IO-09~12·29, 파일/Chunk/Shard 형식 = IO-05~08·26~28, async/backpressure/transfer = IO-13~17·20, weights/checkpoint = IO-18~19, benchmark/선택 = IO-21~24·30, 소스·의미론 = IO-01~04·25. 새 체크리스트를 만들지 않고 [§10 IO-01~IO-30](#out-of-core-io-checklist)의 기존 상태만 갱신한다. 지금은 설계 기록이므로 **0/30 수용** 상태를 유지한다.
+
+
+<a id="unified-data-movement-contract"></a>
+#### 8.5.3 메모리 I/O·디스크 I/O 공통 Planning 계약 — 신규 IR 계층은 당장 만들지 않음 (2026-10-06)
+
+**설계 결정.** 메모리 접근·복사, CPU↔GPU 이동, 파일/매핑된 배열의 구간 읽기·쓰기를 **기존 Physical Planner / Physical Execution Plan의 공통 데이터 이동 분석과 스케줄링 대상으로 취급**한다. `Data Movement IR`이라는 독립적인 신규 계층은 만들지 않는다. 대신 `AccessRegion` 증명, `Effect/Dependency` 계약, physical storage/transfer/ready/lifetime 정보를 기존 단계의 각 소유자가 보유한다. 추후 실제 비동기·복합 route 사례 둘 이상에서 기존 Physical Plan이 의존성·버퍼 수명·스케줄을 안전하게 표현하지 못한다는 구체적 증거가 나올 때에만 별도 resource/stream 실행 IR 추출을 재검토한다. 이것은 §5의 기존 J Graph IR → Verified Logical Execution IR → Physical Plan 구분을 없애는 결정이 아니다.
+
+| 기존 단계 | 이 단계에서 표현하거나 계산하는 것 | 넣어서는 안 되는 것 |
+|---|---|---|
+| J Semantic IR / J Graph IR | J source topology, ValueId·Rank/CellApply·zero-frame 의미, 원본/후보 provenance; pass-local 접근 후보 sidecar는 허용 | BufferId, 파일 offset, DMA, concrete transfer, 물리 layout 및 GraphFacts 자체의 EffectSummary/선택 완료 상태 |
+| Verified Logical Execution IR / 분석 | observable J file/namespace/state effect, error/ordering/guard, 값/효과 liveness, logical `AccessRelation` 및 Unknown/Proven/Guarded 증거 | 임의 file read를 pure 배열 load로 치환하거나, 증명 없는 read omission/reorder 승인 |
+| 기존 Physical Planner / Representation / Schedule | `StorageObject/Version`·`BufferId/Lease` 분리, physical `Region`(buffer slice/byte range), `Read/Write/Copy/Transfer/Materialize/Release`, ready/completion 의존성, layout·placement·byte/resource/cost 추정; 공유 pass 인터페이스 사용 | 모든 접근을 실제 복사로 강제, 효과가 다른 파일과 메모리를 단일 semantics로 취급, target capability 없는 전송 확정 |
+| Executor / Backend | 동기 CPU reference에서 실제 read_at/write_at/buffer copy 실행; 이후 검증된 async token, queue/backpressure, 장치별 구현 | 미완료 I/O의 조기 buffer 해제, file side effect 재실행, 미확정 GPU 실행 지원 주장 |
+
+**공통 추상화의 경계.** `AccessRegion`은 어떤 논리 원소가 필요한지를 설명하며 physical `BufferSlice`와 `FileByteRange`는 다른 concrete region 종류다. 공통 분석은 region interval, producer/consumer, placement, lifetime, alias, ordering, transfer feasibility와 비용을 비교하지만 파일과 메모리를 하나의 alias domain·주소공간·오류 계약으로 뭉개지 않는다. `ValueId`, mutable `StateResource`, external `StorageObjectId/Version`, physical `BufferId/BufferLease`, `IoRequestId/CompletionToken`은 계속 분리한다. 이름은 설계 후보이며 확정 Rust API가 아니다.
+
+**컴파일 타임 vs 런타임.** 컴파일 타임에 proven shape/dtype/access pattern, 사용/수명, 중간 배열 제거, buffer reuse, 필요한 데이터 구간·전송·파이프라인 후보를 계획한다. 런타임은 실제 파일 내용/변경·EOF·권한·데이터 크기, 사용 가능한 RAM/GPU 메모리, 페이지 캐시·대역폭·요청 완료를 확인하고 guard/capability/memory budget을 검사한다. 비용 모델은 memory traffic, file bytes/requests/seeks, transfer, kernel launch, sync, peak/inflight/retained bytes, cold/warm latency를 분리한다. Unknown을 0 비용 또는 재배치 허가로 해석하지 않는다.
+
+**효과 안전성.** (A) proven immutable/version-stable 내부 backing read, (B) J `1!:`의 관찰 가능한 파일 I/O, (C) mutable state/checkpoint publish는 별개다. (A)에서도 실패가 관찰될 수 있으면 speculative read/오류 노출 위치가 보존된다는 별도 증명이 필요하다. (B)의 미사용 읽기라도 존재성/권한/오류를 생략하지 않으며, (C)의 쓰기 완료·durability를 단순 async submit으로 간주하지 않는다. zero-byte/empty frame에서도 J의 virtual fill-cell, dtype/shape 및 필요한 오류 검사는 남긴다.
+
+**프레임워크 역할 분담(직접 복제 금지).** [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/)은 resource·async transfer·parameter/file read/write·ready token의 **물리 실행 그래프** 선례다. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) 및 [Memory Effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/)는 논리값↔버퍼 분리와 operation별 effect/resource interface의 선례다. [XLA GPU architecture](https://openxla.org/xla/gpu_architecture)는 fusion·buffer assignment·layout/transfer를 점진적으로 구체화하는 선례이며 일반적인 J 파일 I/O의 공통 IR은 아니다. [TVM](https://tvm.apache.org/docs/)은 장치 배치·물리 메모리 선택, [DataFusion](https://datafusion.apache.org/)은 파일 scan과 filter/projection pushdown의 선례다. 어떤 프레임워크도 full-J foreign 오류·Rank prototype 계약을 자동으로 해결하지 않는다.
+
+**대표 추적 사례.** `File(A, immutable version) → Slice → Elementwise → Consumer`는 verified access witness가 있을 때 physical byte-range read와 fused CPU 계산으로 낮출 수 있다. 반면 `1!:1`/`1!:11` 결과가 사용되지 않아도 파일 open/EOF/error 등 J-observable 경계가 있다면 dead-data elimination만으로 읽기를 지울 수 없다. CPU↔GPU copy는 같은 planner의 transfer 후보지만 현재 CUDA 구현 유보 상태를 유지한다.
+
+**기존 이행 원장 연결.** 새 `DM-*` 작업표는 만들지 않는다. IO-03(계층/identity/effect interface), IO-09(접근 영역 증명), IO-13·14(동기→비동기 준비/완료), IO-17(재배치·실패·해제 안전), IO-20(공통 memory/file/transfer 자원·비용 planning), IO-22(세 경로·negative 검증)를 기존 [§10 IO 체크리스트](#out-of-core-io-checklist)의 수용 항목으로 사용한다. FW-05~09의 provenance/guard와 DB effect contract를 선행 증명으로 재사용한다. **현 상태: 설계 확정, 구현·실행 증거 없음; IO 0/30 [ ] 유지. M2 frontend와 최초 M4 CPU slice의 필수 조건으로 올리지 않는다.**
+
+<a id="io-a-source-audit"></a>
+#### 8.5.4 IO-A 원본 소스 교차 감사·실행 기준 (2026-10-06~07)
+
+**범위·상태.** IO-01·IO-25의 1차 코드 감사를 pinned source에서 수행했고 IO-02의 effect/error 계약이 요구하는 반례를 도출했다. 이것은 **소스 확인만 완료한 부분 진행**이다. 원본 J 파일 foreign 일부 fixture는 실행했으나 mapped/Jd/전체 외부 효과 검증은 남아 있으므로 IO-01·02·25는 [ ]이고 IO 전체 수용 0/30을 유지한다. 외부 저장소의 동작은 RustJ 지원 사실이 아니다.
+
+| 고정 원본과 확인 위치 | 원본에서 직접 확인한 내용 | RustJ에서 아직 증명할 사항 |
+|---|---|---|
+| [jsource `xf.c` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/xf.c) `jtjiread` / `jtjiwrite` / `jtixin` | `1!:11`은 file open/size 확인 뒤 index·length를 검사하며 `j≤size, j+length≤size, length≥0`을 확인한다. `1!:12`는 `n=null` 호출이므로 같은 read end-bound를 강제하지 않고 nonnegative 시작 index를 확인한 뒤 write한다. 음수 시작 index는 size 상대 계산을 거친다. `jtrd/jtwa`는 동기 `fread/fwrite` 경로다. | invalid filename/open과 index error 우선순위, EOF/short I/O, write beyond EOF·파일 변경·권한·효과 후 재실행 금지. 단편 소스만으로 동시 truncate의 결과/atomicity를 보장하지 않음 |
+| [jsource `jmf.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) + [`gmbx.ijs`](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) | mapping mode 0=RW, 1=RO, 2=COW가 구분되고 unmap은 live refs에 의해 실패할 수 있다. `additem`은 type 32 boxed에 `not supported for boxed data` 검사를 둔다. 반면 `gmbx.ijs`는 mapped boxed 명칭을 사용하지만 확인한 실제 assertion은 `'' -: q`, `'' -: r`로, 일반 boxed payload의 읽기·쓰기 성공을 입증하지 않는다. | JMF 포맷·타입·모드별 boxed 경계를 실행 oracle로 정확히 구별; copy-on-write commit과 shared write 혼동 금지 |
+| [data_jd `column.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) · [`jmfx.ijs`](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | column map/remap과 타 프로세스 refcount 위험 주석, DB lock 기반 제한을 확인. `jmfx.ijs`의 overread 방어에는 `PAGESIZE=:4096` 가정과 trailing padding 보정이 들어 있다. | RustJ는 페이지 크기·SIMD overfetch를 하드코딩하지 않고 checked span/masked tail 및 remap·lease safety 실측; Jd lock을 J 의미 계약으로 일반화 금지 |
+| [jsource `jfiles.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles/jfiles.ijs) · [data_jd `api_read.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) | jfiles `j_read`는 `3!:2 @ (1!:11)`로 offset 기반 serialized component를 읽으며, `jread`가 directory index에서 범위를 취득한다. Jd `readptable`은 partition 조건으로 대상 table을 결정한다. | serialized component와 typed contiguous mapped backing 구분. Jd의 선택적 읽기를 임의 J verb/foreign read에 자동 적용 금지 |
+
+**잔여 실행 fixture (IO-01/02/25 수용 선행).** 동일한 임시 파일을 대상으로 정상 `1!:11` 부분 읽기, 끝 위치·길이 경계, negative relative offset, `1!:12` EOF 이후 쓰기, 존재하지 않는 파일과 권한 오류, 처리 중 외부 변경·단축 읽기, 번호형 핸들과 파일명 입력의 오류/해제 차이를 고정 J C binary에서 관찰한다. JMF는 RW/RO/COW·live-ref unmap·mapped boxed 명칭 대비 실제 payload 종류·resize/remap을, Jd/jfiles는 partition/keyed component·serialized byte-range를 별도 원본 fixture로 조사한다. **예상 오류 클래스나 처리 순서를 실행 전에 합격 기준으로 단정하지 않고 observed J behavior를 baseline으로 고정**한다. 결과는 IO 원장의 commit·원본 pin·명령·실행환경·pass/fail/unsupported에 기록한다.
+
+**IO-A 실행형 진단 도구 (2026-10-06).** [tools/file_io_audit.py](tools/file_io_audit.py)에 임시 파일만 사용하는 15개 고정 J C oracle 사례를 작성했다. 전체 읽기·크기, 정상 구간·EOF 0길이·음수 시작·범위 오류, 부분 쓰기·파일 끝 이후 쓰기, 존재하지 않는 파일, 결과가 버려지는 `1!:11` 실패를 포함한다. [tools/test_file_io_audit.py](tools/test_file_io_audit.py)는 fixture 고유성·파일명 quoting·임시 경로 제한·결과/실패 분류를 오프라인 검사하고, [Linux CI](.github/workflows/linux.yml)는 `j64/j64avx2 × default/portable`에서 고정 C library를 빌드한 뒤 비수용 진단 JSON을 artifact로 남기도록 연결했다. `--gate` 없는 실행은 실패 발견을 기록하되 합격이라고 주장하지 않는다. J C oracle 결과를 확인하기 전에는 오류 클래스·플랫폼 종속 EOF hole bytes·mapped boxed 의미를 확정하지 않는다. 소스 pin `0a5101cf`과 CI binary pin `13994ffa`의 `xf.c`·`jmf.ijs`·`gmbx.ijs`·`jfiles.ijs`는 각 파일의 Git blob SHA가 동일함을 교차 확인했다. **이것은 IO-01/02/25의 구현/동등성 수용이 아니며 계속 [ ] 상태다.**
+
+**첫 CI 진단 오류 분석(수용 아님).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210)의 `j64`와 `j64avx2` 초기 실행은 각각 15개 중 기대값 9개 일치·6개 재검토였다. 여섯 항목 모두 `length error`로, J 의미 차이의 증거가 아니라 **indexed foreign용 파일 인수의 잘못된 boxing**을 원인으로 분리했다. [J Files 원문](https://www.jsoftware.com/help/dictionary/dx001.htm)은 `1!:1 <'name'`과 달리 indexed `1!:11 'name';offset length`, `x 1!:12 'name';offset` 형식을 사용한다. [수정 commit 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a)에서 indexed 파일명 unboxed 전달로 교정하고, `length/rank/syntax` error를 파일 존재 실패로 세던 거짓 양성도 차단했다. [단위테스트 보완 bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) 이후 재검증 결과가 확정되기 전에는 9/15를 기능 통과로 해석하지 않는다. IO-01/02/25와 전체 0/30 미수용 상태 유지.
+
+**고정 J 실행 검증(2026-10-06).** [Linux CI 37470839455](https://github.com/yunskim/RustJ/actions/runs/37470839455)에서 `check` 작업은 성공했고, 실제 실행·로그가 확인된 `j64/default`, `j64/portable`, `j64avx2/default` 각각 **file-foreign 15/15 기대 동작 일치·재검토 0**이었다. `j64avx2/portable`는 이 기록 시점 실행 진행 중이므로 합계에 포함하지 않는다. source-based 15건을 이후 회귀로 고정하기 위해 [workflow 3d476f6](https://github.com/yunskim/RustJ/commit/3d476f6f4f8bd1c925e2216ee856cfdfcd5fc9d2)에 `--gate`를 추가했다. 이 **C oracle 자체의 fixture gate**는 RustJ의 세 경로 비교나 JMF/Jd/boxed/비동기 I/O 구현을 검증하지 않는다. 따라서 IO-01·02·25 및 전체 IO 0/30 [ ] 유지.
+
+**IO-02 실행 순서 기준 확대(2026-10-07, 원본 J oracle 일부 검증).** [tools/file_io_audit.py](tools/file_io_audit.py)에 기존 독립 파일 사례 15개와 별도로, **6개 ordered-effect case / 총 14개 J step**를 추가했다. 같은 J 엔진과 같은 임시 파일에서 각 JDo 후 파일 내용을 재검사하여 (1) `0 [ write`의 버려진 결과와 살아 있는 쓰기 효과, (2) 오른쪽 read 실패가 왼쪽 write 실행을 막는 J 순서, (3) 이미 완료된 쓰기 뒤의 실패는 이전 파일 변경을 되돌리지 않음, (4) 잘못된 indexed write는 이전 정상 쓰기를 훼손하지 않음, (5) append 후 끝 구간 읽기, (6) truncate 후 전체 읽기를 구분한다. [tests](tools/test_file_io_audit.py)는 오류 전에 임의 쓰기가 실행되는 버그를 부정 사례로 주입하고 검출한다. [CI 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953)에서 `check` 성공 및 `j64/default` C oracle **독립 15/15 + 순서 6/6(14 step) 일치**, 불일치 0을 실제 확인했다. 나머지 matrix는 검사 시점 미확정으로 이 기록의 완료 증거에서 제외한다. 이는 **C에서 확인한 의미론 기준**이며 RustJ native/optimized 동등성 및 mapped/foreign 전체 커버리지가 아니므로 IO-02 [ ], 전체 IO 0/30 [ ]을 유지한다.
+
+**IO-02/IO-25 다음 검증 순서(기존 원장의 하위 실행 단위).** (a) `1!:1/2/3/4/11/12`의 파일명 vs 번호 핸들, 권한·close·flush, EOF/short read, 동시 truncate 효과를 실제 file fixtures로 확장; (b) 고정 `jlibrary`를 로드하는 J bootstrap을 분리 검증하고 `jmf` RW/RO/COW 및 refs/unmap/resize·typed/boxed 변형을 별도 smoke oracle로 수행; (c) Jd/jfiles는 테스트 fixture/원본 버전·의존성 확보 후 독립 단계로 실행. 원본 라이브러리 초기화 실패를 J 의미 실패로 오분류하거나 C oracle 15+6 일치를 RustJ 구현 수용으로 승격하지 않는다.
+
+**IO-02 전체 고정 C matrix 재확인(2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953)의 `check` 및 `j64/default`, `j64/portable`, `j64avx2/default`, `j64avx2/portable` 네 reference job은 모두 **success**. 각 reference job은 독립 파일 사례 **15/15**, 순서 시나리오 **6/6(14 JDo step)**, `requires_review=0`, `ordered_requires_review=0`으로 동일하게 통과했다. 이는 조합별 C oracle probe 결과이며 RustJ의 같은 세 연산 경로를 비교하는 시험이 아니고 IO 수용점수는 변하지 않는다.
+
+**IO-25 JMF 첫 독립 smoke 실행 시도(수용 전).** [tools/jmf_smoke.py](tools/jmf_smoke.py)에 J 원본 `jlibrary/bin/profile.ijs`와 `load 'jmf'` 부트스트랩을 고정 라이브러리·별도 임시 HOME으로 실행하고, 임시 JMF file에 대해 RW(0)→RO(1)→COW(2)를 **각각 map → 빈 noun 비교 → unmap 결과 0**으로 관찰하는 독립 실행 후보를 구현했다. [검증용 JMF 시나리오 테스트](tools/test_jmf_smoke.py)를 추가하고 [Linux CI](.github/workflows/linux.yml)에 비수용 탐색 단계를 연결했다. 원본 J profile/add-on 초기화 또는 JMF mapping이 실패하면 `blocked`를 별도로 기록하며, 이 시점에는 JMF CI 실행 결과/기능 지원을 주장하지 않는다. 이 작은 smoke는 **실제 boxed payload, mutable persistence, RO/COW 쓰기 차이, refs에 의한 unmap 거부, resize/remap, Jd partition** 검증이 아니므로 IO-25 [ ] 유지.
+
+**JMF 부트스트랩 첫 실측 결과(2026-10-07, 미수용).** [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000)의 `j64/default`와 `j64/portable` C job에서 JMF 탐색 단계는 `status=blocked`, `stage_count=2`였으며, 첫 `BINPATH_z_` 설정은 실행되고 `0!:0 <.../jlibrary/bin/profile.ijs`에 `domain error`가 발생했다. **map/unmap까지 도달하지 않았다.** 이 결과를 JMF RW/RO/COW의 부정 결과로 해석하지 않는다. [후속 진단 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3)는 실제 J script loader가 짧은 독립 fixture를 읽을 수 있는지 먼저 검사하고, 실패 원본에 `13!:12` 문맥을 포함하도록 분리했다. 후속 CI 결과는 이 기록 시점 미확정이다. IO-25는 [ ]이다.
+
+<a id="read-scope"></a>
+## 9. 언어 및 구현 범위
+
+### 9.1 현재 지원하는 주요 값
+
+- Boolean
+- i64
+- f64
+- byte character array
+- BigInt / rational / boxed / sparse에 대한 일부 기반 구현
+
+추가 scalar/storage 기반은 존재하지만 전체 J 의미와 모든 primitive 연결이 완료된 것은 아니다.
+
+### 9.2 현재 직접 실행 경로에서 지원하는 대표 기능
+
+- 숫자 scalar/vector literal
+- 밑줄 음수
+- 소수/지수
+- NaN/Infinity literal
+- 작은따옴표 문자열
+- 우측부터 평가
+- 괄호
+- `NB.` 주석
+- noun binding `=:`
+- 기본 `+ - * %`
+- monadic `|`
+- 비교 `= < >`
+- monadic `i.`
+- `$ # ,`
+- 기본 reshape/index/catenate 일부
+- scalar expansion과 제한된 agreement
+- `+/ -/ */ %/`
+- 정수 하나의 monadic rank
+- 일부 array structural verbs
+- 일부 index/search verbs
+- domain/length/rank/index/value/limit/syntax 오류
+
+### 9.3 배열 조작
+
+구현된 범위에는 다음이 포함된다.
+
+- `|. y`: 첫 축 reverse
+- `n |. y`: 첫 축 rotate
+- `|: y`: 축 역순 transpose
+- `n {. y`: take
+- `n }. y`: drop
+
+여러 축의 count list, dyadic transpose, 일반 fill, 모든 고차원 규칙은 아직 완전하지 않다.
+
+### 9.4 index/search 계열
+
+구현된 범위에는 다음이 포함된다.
+
+- `i. y`
+- `x i. y`
+- `x i: y`
+- `i: n`
+- `I. y`
+- `e.`
+- `E.`
+
+다차원·고급 interval/search 의미는 아직 제한적이다.
+
+### 9.5 이름과 품사
+
+중요한 J 의미 원칙:
+
+- Enqueue는 ordinary name의 noun/verb/adverb/conjunction 품사를 최종 확정하지 않는다.
+- Parser가 name을 사용할 때 current local/locale binding을 lookup하여 실제 value/type class를 얻는다.
+- noun name은 현재 value로 resolve되는 반면, 일반 verb/adverb/conjunction name은 jsource의 `name~` reference와 같은 late lookup semantics가 필요할 수 있다.
+- undefined non-by-value function name은 즉시 value error가 아니라 nameref 형태로 남을 수 있는 jsource 경로가 있으므로, undefined name을 전부 frontend 즉시 오류로 만들지 않는다.
+- extension name도 이 규칙의 예외가 아니다.
+- static binding/version proof가 있을 때만 NameRef를 stable primitive/builder identity로 specialize한다.
+- `f.` 같은 J의 fix semantics는 late name reference를 실제 value로 고정하는 별도 의미이므로 일반 compilation specialization과 혼동하지 않는다.
+- nameref는 생성 시 기대한 part of speech를 보존하고, 실행 시 current lookup 결과의 품사가 달라지면 J처럼 domain error가 되어야 한다.
+- name/version 정보를 IR과 plan guard에 반영해야 한다.
+- 한 sentence의 모든 name을 문장 시작 시점 environment로 일괄 resolve하지 않는다. 우측→좌측 evaluation/assignment가 만든 namespace mutation 시점을 보존한다.
+- `=.`/`=:`는 binding을 갱신하면서 assigned J entity(noun/verb/adverb/conjunction 등)도 반환하므로 statement-only IR로 축소하지 않는다.
+- parser가 깊은 식에서 임의의 작은 recursion/height 한계로 J 의미를 바꾸지 않도록 한다.
+
+### 9.6 direct / explicit definition
+
+direct/explicit definition의 parser·AST·binding·execution은 아직 완전 구현되지 않았다.
+
+GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순서로 진행한다.
+
+1. word formation / parser contract
+2. definition AST
+3. local/name binding
+4. verb execution
+5. control flow
+6. conformance
+
+### 9.7 아직 큰 미지원 영역
+
+- 전체 boxed semantics
+- 전체 sparse semantics
+- complex
+- 모든 extended numeric semantics
+- Unicode 전체
+- 전체 verb binding/train
+- 전체 adverb/conjunction
+- 전체 dyadic rank와 rank list
+- scan 전체
+- 모든 system foreign
+- file API
+- serialization
+- embedding ABI
+- 완전한 parallel execution
+- 완전한 CUDA backend
+
+---
+
+<a id="architecture-migration-checklist"></a>
+
+<a id="read-roadmap"></a>
+## 10. 구현 계획과 체크리스트
+
+이 절이 앞으로 유일한 구현 체크리스트다. **저장장치·느린 I/O·Out-of-core 작업은 [§10 IO-01~IO-30](#out-of-core-io-checklist)을 이 절 안의 단일 수용 목록으로 사용한다.** 순차 CPU 기준 실행과 J 의미 수렴은 계속 M2→M3→M4 우선이며, IO-A 조사만 병행할 수 있다.
+
+<a id="dynamic-boundary-checklist"></a>
+
+### DB — 동적 의미와 컴파일 경계 이행 (DB0–DB7)
+
+이 목록은 §10 M2→M3→M4와 WI3/WI4/M5–M8의 연결 지점이며 별도 병렬 backend 구현 계획이 아니다. **M2 frontend 수렴을 먼저 진행한다.** 해당 semantic 변경을 구현할 때 필요한 회귀를 추가하고, 최적화 자체는 별도 승인된 단계에서 진행한다.
+
+- [x] **DB0 계약 문서화:** 경계·검사 시점·변환 금지 조건·실패 처리와 초기 구현/미완료 상태를 정본과 mirror에 통합한다.
+- [ ] **DB1 구조화된 경계 보고:** source span, semantic phase, reason, 필요한 fact/witness, 허용 분석·거부 변환, 필요한 route capability를 기록한다. unknown facts·J-invalid·implementation coverage·route rejection을 구별하며 valid unsupported 사례의 원인을 보존한다.
+- [ ] **DB2 witness 유효성:** parser POS/constructor snapshot/call-time lookup을 구분한다. binding/frame/locale/path와 unbound-search 결과의 의존성을 추적하고 검사→사용 사이 mutation을 확인한다. WI4·M5/M6의 noun metadata 연결과 함께 구현한다.
+- [ ] **DB3 효과·오류 경계:** lookup/write/context/I/O/resource/error를 ordered region 또는 동등한 명시적 의존성으로 연결한다. fork/selector·같은 이름의 두 호출·assignment expression에서 값과 효과의 live-out을 분리한다.
+- [ ] **DB4 첫 실행 경로 선택:** Native CPU slice에서 effect 이전에 필요한 guard를 검사한다. miss 시 J 오류를 만들거나 replay하지 않고 실제 지원 경로/재분석/coverage 경계로 분기한다. 외부 route와 CUDA는 capability 증명 후 별도 확장한다.
+- [ ] **DB5 중간 전환의 선행 조건:** effect 이후 전환이 필요해질 때 continuation 상태·소유권·정확히 한 번 효과·오류 위치 계약을 먼저 명세·검증한다. 완료 전 중간 fallback을 활성화하지 않는다. full continuation을 첫 CPU slice의 무조건적 선행 조건으로 만들지 않는다.
+- [ ] **DB6 Windows 차분 gate:** NAME 재정의/POS 변경, local 미정의→정의, locale/path 변경, noun snapshot 뒤 재대입, 값 의존 constructor, 효과 뒤 오류/guard miss를 C 기본·AVX2와 비교한다. 값/type/shape뿐 아니라 lookup 시점·효과 순서·실패 후 binding과 실행 횟수를 검사한다. 현재 미지원 locale/execute는 별도 coverage로 보고한다.
+- [ ] **DB7 중후반 의미·성능 gate:** 검증된 direct runtime과 Logical/Physical 실행을 같은 입력으로 대조한다. guard hit/miss와 empty/boxed/sparse 경계를 포함하며 성능·복사/할당은 의미 통과 뒤 별도 측정한다. frontend 통과나 메타데이터 분석을 backend 실행/성능 통과로 승격하지 않는다.
+
+<a id="nv3a-spelling-errors"></a>
+
+**NV3a fixed spelling 오류 분류 — 2026-10-05.** `jsrc/ws.c::spellin`과 `jsrc/w.c::jtenqueue`의 순서를 따른다. 설치·검증된 core dictionary가 우선이며, 등록되지 않은 colon inflection 또는 nonnumeric dot inflection은 spelling error다. numeric dot는 numeric constructor로 넘기고, quote와 simple name은 각각의 분류를 유지한다. 한 자리 constant function은 기존 core descriptor를 통과한다. `99:`/`1.5:`/`_99:`는 reviewed C에서 유효한 constant function이 아니므로 spelling error다. 잔여 잘못된 문자·미설치 primitive도 Unsupported가 아닌 spelling error다. obsolete spelling의 임의 예외 목록은 만들지 않는다.
+
+`name_:`는 문법적으로 유효한 by-value/abandon lookup이다. simple-name validation을 거친 뒤 별도 Unsupported 경계로 남긴다. `foo__:`처럼 suffix 제거 후 명백히 ill-formed인 simple name은 ill-formed name으로 보고한다. bounded locative grammar는 후속 NV3b에서 검증한다. NAME 길이 제한과 오류 순서는 후속 NV3c에서 검증한다. locale lookup·abandon 효과와 complex/extended/rational numeric grammar는 아직 완료되지 않았다. 따라서 fixed spelling seam인 NV3a만 완료했고 NV3/NV5 전체 완료를 주장하지 않는다. invalid lexical spelling과 valid primitive의 constructor/executor 미지원은 계속 구별한다. 기존 enqueue diagnostic의 phase·source span·word index를 유지한다.
+
+`tools/spelling_conformance.py`는 graphic ASCII 93개(quote 제외) × 7개 suffix의 **651** matrix와 추가 이름/숫자 경계를 양 DLL과 비교한다. 오류 종류·word formation·유효 미지원 경계를 각각 검증하며 primitive 실행 지원이나 전체 name/numeric grammar conformance로 세지 않는다. `tools/vocabulary_audit.py`도 기존 code-only 후보 2개와 legacy 8개의 Rust 오류를 C와 반드시 비교한다. 표준 Windows runner에 spelling report를 추가했다.
+
+**NV3a 검증:** native Windows default/portable 각각 **465 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 spelling **667 cases / failed 0**: 오류 종류 **453**(spelling **426**, number **22**, name **1**, syntax **4**), accepted enqueue controls **208**, valid Unsupported 경계 **6**. 이 중 matrix는 **651**이며, quote grammar와 전체 locative/numeric grammar는 범위 밖이다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**를 유지했다. Scan **285 / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**를 별도로 유지했다. 전체 보고서 16개의 binary/source/DLL hash를 확인했다. spelling pass는 실행 지원이나 GPU 성능 검증이 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+<a id="nv3b-name-syntax"></a>
+
+**NV3b bounded name syntax — 2026-10-05.** `sn.c::vnm/vlocnm`을 참조해 shared enqueue name validator를 보강한다. ASCII letter로 시작하고 alphanumeric/underscore로 구성된 이름에서 simple name, trailing direct locative와 empty/base locale `__`, indirect chains, 최종 numeric debug-frame component 및 그 음수 표기를 구분한다. numeric direct locale의 leading zero·x64의 18자리 제한, 잘못된 중간 숫자/isolated underscore/과도한 underscore를 검사한다. `name_:`는 suffix를 제거한 같은 이름 문법으로 검증한다. validator는 locale·symbol을 조회하거나 noun/function을 생성하지 않고 추가 heap allocation 없이 동작한다.
+
+문법적으로 valid인 locative/by-value name은 계속 Unsupported이며 locale lookup·debug-frame 접근·abandon 효과를 구현했다고 주장하지 않는다. malformed name은 enqueue phase/span/word index를 보존한 ill-formed name이다. NV3b 당시 남겼던 NAME 전체·simple-name·locale storage 길이 제한과 오류 우선순위는 후속 NV3c에서 검증한다. full numeric grammar와 locale 실행은 여전히 NV3/DB2의 잔여 작업이다. 따라서 bounded syntax인 NV3b만 완료하며 전체 NV3/DB2/locales 완료가 아니다. 정의의 `for_name.` 분류도 shared enqueue validator를 통과하므로 이 동일한 bounded syntax 검증을 사용한다.
+
+`tools/name_syntax_conformance.py`는 짧은 `a0_` 조합, direct/indirect/debug-frame 사례, 고정 seed의 mixed-case/digit/underscore 이름 및 각 `name_:` 형태를 생성해 양 DLL과 대조한다. C의 enqueue 오류를 실행 이후 value/locale 오류와 구별한다. 후자의 발생은 이름의 lexical validity만 확인하며 lookup/runtime 성공으로 세지 않는다. `sn.c`·`w.c`·`ws.c`·`jerr.h` source hash와 probe/DLL hash를 보고서에 보존하고 표준 Windows runner에 연결한다.
+
+**NV3b 검증:** native Windows default/portable 각각 **466 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 name syntax **4,030 cases / failed 0**: simple name **1,133**, valid Unsupported name **1,901**, invalid name **996**. spelling **667 / failed 0**와 vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**를 유지했다. Scan **285 / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**를 별도로 유지하고 전체 보고서 18개의 binary/source/DLL hash를 확인했다. lexical validity 확인은 locale runtime 지원이나 실행 conformance pass가 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+<a id="nv3c-name-limits"></a>
+
+**NV3c NAME 길이와 오류 순서 — 2026-10-05.** `sn.c::nfs`의 J-visible compatibility 검사를 추가한다. underlying name의 전체 byte 길이는 **1 ≤ n < 32767**이며 이 범위를 벗어나면 ill-formed name이다. 저장될 simple-name 부분과 locale 부분은 각각 **255 bytes 이하**다. direct locative는 마지막 locale separator를 기준으로 나누며 empty/base locale도 구별한다. indirect locative는 첫 `__` 뒤 **전체 chain suffix**를 locale 크기로 검사한다. chain의 각 component만 255 이하인 것으로는 충분하지 않다. 이 값들은 J 호환성 조건이며 Rust storage/allocator/physical layout의 제한이 아니다.
+
+검사 순서를 보존한다: 전체 길이 → indirect 마지막 numeric/debug-frame text의 digit validation → simple/locale 크기 → `vnm` 문법. 마지막 numeric component에 문자가 섞이면 다른 부분이 과도하게 길어도 ill-formed name이 먼저다. 그 외의 malformed locative는 component 크기를 먼저 검사하므로 limit error가 문법 오류보다 앞설 수 있다. `name_:`는 suffix를 제외한 underlying name에 동일한 검사를 적용한다. primitive inflection의 spelling 검사는 그보다 앞에 유지한다. Rust는 이 검사를 allocation 없이 수행하며 C NAME block·hash·symbol table을 도입하지 않는다. enqueue diagnostic phase/span/word index를 유지한다.
+
+Windows name differential에 254/255/256/257, 32766/32767 경계, direct/indirect chain, 크기와 malformed text가 동시에 있는 경우 및 by-value 형태를 추가했다. 길이 오류와 spelling 우선순위도 C와 정확히 비교한다. valid locale/by-value/debug lookup은 계속 Unsupported이며 locale 실행/abandon 효과를 구현하지 않는다. numeric notation의 전체 유효성은 NV3d에 남긴다. 이 단계는 NAME 길이·오류의 수렴이며 전체 NV3/NV5 완료가 아니다.
+
+**NV3c 검증:** native Windows default/portable 각각 **467 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 name syntax **4,125 cases / failed 0**: simple name **1,135**, valid Unsupported name **1,927**, invalid name **1,022**, length limit **40**, spelling precedence **1**. 기존 4,030건에 길이/우선순위 fixture **95건**을 추가했다. spelling **667 / failed 0**, vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 전체 보고서 18개의 binary/source/DLL hash를 확인했다. lexical/길이 비교는 locale runtime 성공을 뜻하지 않는다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+<a id="nv3d1-numeric-recognition"></a>
+
+**NV3d1 숫자 word 문맥과 오류 검증 — 2026-10-05.** `src/numeric_input.rs`는 enqueue에서 `wn.c::numcase/connum`의 whole-word dispatch를 검증한다. numeric list의 모든 field가 공유하는 complex/based·extended integer·rational·precision 선택을 보존한다. 한 field만 따로 해석하면 `1x`와 `1.0 1x`, `1j2 1x`, `2b10 1x`의 차이를 놓친다. suffix/operand·rational infinity·rectangular/polar complex·based digit·p/x exponent 표기를 검증한 뒤 실제 malformed word는 ill-formed number로 보고한다. 숫자 family 문자 하나의 존재만으로 Unsupported를 선택하던 heuristic은 제거했다. `1xr2`는 C의 `numfd`가 `r2`의 생략된 numerator를 0으로 읽으므로 valid임을 회귀에 포함한다.
+
+검증 상태 Valid/Invalid/Unknown을 구분한다. 검증된 extended/rational/complex/based 표기의 payload 생성은 아직 Unsupported이다. precision과 플랫폼-specific `strtod` hex/NaN payload 등 완전히 검증하지 않은 문법도 별도 Unsupported reason을 유지하며 Invalid로 추측하지 않는다. half/single 및 일부 quad 조합은 supplied C 자체의 nonce boundary이므로 C 성공 또는 J spelling/number 오류로 세지 않는다. 일반 integer/decimal은 기존 constructor로 바로 넘기므로 추가 float parse/normalized string allocation을 하지 않는다. 잘못된 숫자의 enqueue phase·word index·span을 유지하며 runtime target/array IR/physical allocation 정보를 숫자 문법에 도입하지 않는다.
+
+`tools/numeric_syntax_conformance.py`가 scalar 표기와 교차 numeric lists, 잘못된 suffix/missing operand, infinity, 64-bit overflow, colon spelling 우선순위, precision/platform boundaries를 양 DLL과 비교한다. accepted noun controls, verified lexical errors, valid payload boundaries, unresolved recognition/error boundaries, C reference precision boundaries를 분리한다. latter boundaries는 정확한 오류 비교 pass 또는 numeric payload 실행 지원이 아니다. 표준 Windows runner에 추가하고 `wn.c`/`w.c`/`ws.c`/`jerr.h` 및 실제 binary/DLL hash를 보고서에 보존한다.
+
+**NV3d1 검증:** native Windows default/portable 각각 **469 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **1,099 cases / failed 0**: accepted noun controls **110**, lexical error equality **652**, valid payload 경계 **327**, unresolved recognition **5**, C reference precision **4**, unresolved error **1**. 마지막 경계 1건은 C의 ill-formed number와 Rust의 Unknown/Unsupported 차이를 보존한 미완료 검증이며 pass로 바꾸지 않는다. 기존 name syntax **4,125 / failed 0**, spelling **667 / failed 0**, vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 전체 보고서 20개의 binary/source/DLL hash를 확인했다. numeric syntax 검증은 exact/complex/based payload 실행이나 full precision 성공을 뜻하지 않는다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+<a id="nv3d2a-quad-hex-recognition"></a>
+
+**NV3d2a quad·Windows hex 문법 검증 — 2026-10-05.** `src/numeric_input.rs`에서 whole-word precision 선택을 유지하면서 `numfq`의 mantissa·fractional scale·소문자 `e`·64-bit exponent·`fq` suffix 및 infinity/NaN 표기를 검증한다. `2fqz`는 이제 C와 같은 ill-formed number다. exponent 자체의 범위 초과와 scale 합산의 signed overflow를 구분하며, 후자는 Unknown으로 보존한다. quad payload 생성과 arbitrary-precision 할당의 자원 오류까지 구현한 것은 아니다.
+
+Windows `strtod`의 hex mantissa·선택적 binary exponent를 Rust에서 검증한다. C `numfd`는 nominal field 끝에 NUL을 넣지 않고 `t >= s+n`을 허용한다. 따라서 `0Xad90`/`0Xb1`은 뒤의 hex digit까지 읽어 유효할 수 있으며, `_0X0ad90`은 magnitude가 음수인 비영 값이 되어 거부된다. 반면 `numbpx`는 `p`/`x` 구분자를 임시 NUL로 바꾸므로 그 앞의 읽기 범위는 좁혀야 한다. field 길이와 실제 읽기 범위를 별도로 전달하여 이 차이를 보존한다. C FFI나 C kernel 의존성을 추가하지 않는다.
+
+음수 hex polar magnitude의 선행 bit/exponent가 기본 IEEE binary64 환경에서 비영 값을 입증할 때만 ill-formed number로 판정한다. 이 checkpoint에서는 0 mantissa를 허용하고, underflow로 음수 0이 될 수 있는 값·합산 overflow·입증하지 못한 hex ratio 부호를 Unknown으로 남겼다. 기본 반올림의 음수 0과 NaN word 경계는 아래 NV3d2b1에서 추가 검증했다. 변경된 rounding/FTZ 환경, parenthesized NaN payload의 word formation, 전체 플랫폼 `strtod` 확장, 숫자 construction의 자원/오류 동등성은 **NV3d2b**다. 유효한 complex/based/quad 표기의 payload 생성은 여전히 Unsupported다.
+
+근거: pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd`, `numfq`, `numj`, `numbpx`; 실제 Windows DLL과 source revision은 별도로 기록한다. NV3d1의 수치는 당시 검증 기록이며, 당시 미확인 quad/hex 경계는 본 단계에서 아래와 같이 갱신했다.
+
+**NV3d2a 검증:** native Windows default/portable 각각 **471 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,078 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,084**, valid payload 경계 **607**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **3**. unresolved error 경계는 **0**이다. `frontend_probe`는 Unsupported의 원문 이유를 별도 진단 field로 제공한다. 검증된 문법·integer overflow conversion·C precision 미지원·미확인 문법을 실제 진단 이유로 분류하며, 구문 표본의 scope만으로 valid를 주장하지 않는다. 경계 수를 숫자 실행 성공으로 합산하지 않는다. 기존 frontend/runtime/name/spelling/vocabulary/Scan 비교를 유지하고 보고서 20개의 source/DLL/binary hash를 확인했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. Linux/GitHub CI/CUDA는 실행하지 않았다. NV3d/NV3d2 전체 완료로 표시하지 않는다.
+
+<a id="nv3d2b1-rounding-nan-words"></a>
+
+**NV3d2b1 기본 반올림과 NaN word 경계 — 2026-10-05.** `hex_nonnegative`는 실제 읽기 범위에서 mantissa의 선행 bit와 나머지 비트를 검사한다. 기본 IEEE binary64 round-to-nearest, ties-to-even에서 `2^-1075` 이하의 음수 magnitude는 `-0`으로 반올림되어 polar 입력으로 유효하다. 정확한 중간값보다 큰 magnitude는 음수 비영 값이므로 ill-formed number다. `_0X1P_1075ad90`과 `_0X1P_9999ad90`은 이제 문법이 확인된 payload 미지원이고, `_0X1.00000000000001P_1075ad90`은 C와 같은 오류다. 긴 mantissa의 끝에 있는 sticky bit도 버리지 않는다. 숫자 payload를 생성하거나 C FFI를 호출하지 않고 이 부호 조건만 검증한다.
+
+`1jNaN(1)`, `1jnan()`, `1jNAN(foo)`, `1j_nan(1)`은 C와 Rust 양쪽에서 숫자 prefix·괄호·선택적 내부 word로 나뉜다. Windows `strtod`의 parenthesized NaN payload 문법을 J 숫자 word로 도입하지 않는다. C의 전체 문장은 syntax error지만 Rust는 앞의 complex noun 생성 미지원에서 멈춘다. 따라서 네 표본은 word formation equality와 **payload/parser coverage boundary**이며 syntax-error 동등성이나 parser 실행 성공으로 집계하지 않는다. 부호 없는/음수 NaN, Infinity, ratio 표기를 별도 숫자 표본에 추가한다.
+
+이 단계는 기본 반올림 환경에서 polar 부호를 검증한 범위다. 외부에서 변경한 rounding/FTZ 환경은 검증하지 않았다. 문법이 확인된 매우 큰 hex exponent도 i128 중간 계산과 부호 보존 saturation으로 polar 부호만 판정한다. 지원하는 64-bit host의 mantissa 길이 보정은 i128 범위보다 작으므로 임계값과의 순서는 보존된다. 이를 실제 숫자 payload 생성 규칙으로 사용하지 않는다. quad fractional-scale 합산 overflow, hex ratio의 변환 후 부호 및 arbitrary-precision payload의 할당/자원 오류 동등성은 **NV3d2b2**로 남긴다. C의 signed overflow를 Rust에서 재현하거나 시스템 메모리를 소진시켜 자원 오류를 추측하지 않는다. 관련 source 근거는 pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd`·`numj`·`numfq`·`numxTEMP`, word formation은 [w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)다.
+
+**NV3d2b1 검증:** native Windows default/portable 각각 **473 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,201 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,140**, valid payload 경계 **672**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **1**, NaN word formation 경계 **4**. unresolved error 경계는 **0**이다. 남은 recognition 1건은 `2.1e_9223372036854775808fq`의 scale/exponent 합산 overflow이며 실행 성공이나 정확한 오류 비교 pass가 아니다. NaN 4건은 C syntax error와 Rust payload Unsupported를 별도로 기록한다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, name syntax **4,125**, spelling **667**, vocabulary POS **143**/binding **140**/noun **3**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 보고서 20개의 source/DLL/binary hash를 확인했다. Linux/GitHub CI/CUDA와 변경된 floating-point 환경 검증은 실행하지 않았다.
+
+<a id="nv3d2b2a-exact-hex-ratios"></a>
+
+**NV3d2b2a exact hex ratio와 quad 생성 경계 — 2026-10-05.** polar magnitude에 ratio가 있으면 원래 문자열의 부호만으로 유효성을 판단하지 않는다. `real_value`에 실제 읽기 범위를 전달하고 정확히 binary64로 표현 가능한 hex 피연산자를 내부 부호 검증에 사용한다. u64로 누적 가능한 mantissa에서 trailing zero bit를 제거한 뒤 최대 53개의 유효 bit, normal exponent 범위 또는 정확한 subnormal 배수를 입증한다. 조건을 만족할 때만 `f64::from_bits`로 정확한 내부 피연산자를 만든다. 이는 J noun/complex/quad payload 실행 지원이 아니다. 누적 범위 초과·추가 반올림·hex overflow/underflow 피연산자의 수치 생성은 보수적으로 미지원으로 남긴다.
+
+C `numfd`의 비율 계산을 따라 분모 0은 numerator/denominator의 sign xor로 signed zero 또는 infinity를 만들며, 그 외에는 나눗셈 결과에 `0 <= magnitude` 조건을 적용한다. `_0X1r2ad90`은 오류, `_0X1r_2ad90`은 유효하고 `_0X1P_1074r2ad90`은 결과가 `-0`으로 반올림되어 유효하다. NaN 결과는 거부한다. 분모도 nominal field 뒤의 hex digit을 읽을 수 있으므로 `0X1r0X0ad90`의 분모를 0으로 단정하지 않는다. C FFI를 추가하지 않고 기존 enqueue 오류 span/index와 whole-word numeric mode를 유지한다.
+
+`2.1e_9223372036854775808fq`는 lexical grammar 미확인 대신 **quad scale/exponent construction boundary**로 분류한다. mantissa·suffix·exponent 문법이 확인되어도 C의 signed scale 합산 overflow, 숫자 생성·할당/자원 오류 동등성까지 입증된 것은 아니다. Unsupported 이유와 보고서 category를 분리하며 정확한 J 오류 비교나 숫자 실행 pass로 집계하지 않는다. malformed field가 함께 있으면 기존 ill-formed number 우선순위를 보존한다.
+
+근거: pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd` ratio·signed-zero 처리, `numj`의 polar nonnegative 조건, `numfq` scale 계산과 `numxTEMP` 자원 오류다. 남은 비정확 hex ratio·변경된 rounding/FTZ 환경·quad scale overflow의 정의·payload allocation/자원 오류 동등성은 **NV3d2b2b**다. 해당 경계는 RustJ 구현 범위이며 J 언어의 제한으로 만들지 않는다.
+
+**NV3d2b2a 검증:** native Windows default/portable 각각 **474 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,485 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,244**, valid payload 경계 **850**, integer conversion 경계 **2**, C reference precision 경계 **200**, quad construction 경계 **1**, NaN word formation 경계 **4**, unresolved recognition **1**, unresolved error **1**. 마지막 두 경계는 각각 `_0X1P_1075r1ad90`과 `0X1P9999r0X1P9999ad90`이며, C의 성공/ill-formed number와 Rust의 미지원 차이를 그대로 기록한다. 미확인 경계를 오류 동등성이나 실행 pass로 바꾸지 않는다. exact operand 교차 ratio **280개**, 미확인 conversion **2개**, malformed/quad construction 우선순위 **2개**를 기존 corpus에 추가했다. 기존 frontend/runtime/name/spelling/vocabulary/Scan 비교를 유지하고 보고서 20개의 source/DLL/binary hash를 확인했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. Linux/GitHub CI/CUDA·변경된 FP 환경·메모리 소진 테스트는 실행하지 않았다.
+
+<a id="vocabulary-migration-checklist"></a>
+
+### NV — 현재 J vocabulary 수렴
+
+설계 inventory의 정본은 [현재 vocabulary 감사](#current-j-vocabulary)다. M2 frontend 순서에 연결하고 신규 task/fold/GPU executor를 동시에 구현하지 않는다.
+
+- [x] **NV0** NuVoc current index·관련 페이지를 읽고 source spelling/POS·C DLL provenance와 분리한다. 이전 vocabulary matrix의 Taylor·obsolete 항목과 누락된 현행 form을 수정한다.
+- [x] **NV1** `[.`·`].`·`]:`를 정상 core enqueue·shared parser constructor 경로로 지원하고 noun/verb 결과·NAME snapshot/late lookup·modifier train·discarded noun 효과/오류 회귀를 추가한다.
+- [x] **NV2** pinned core inventory의 spelling/POS 인식을 확장하고 semantic construction/실행 capability와 분리한다. descriptor 108개와 실제 noun `a.`/`a:`를 추가했다. C가 수용한 143개 POS, bare function binding/AR 140개와 noun payload 3개가 양 DLL에서 일치했다. inventory pass를 실행 지원으로 승격하지 않는다.
+- [ ] **NV3** invalid/obsolete spelling의 정확한 J 오류를 C `spellin`/enqueue와 대조해 일반화한다. valid 미지원 primitive와 invalid spelling을 구별하며 임의 예외 목록으로 해결하지 않는다.
+- [x] **NV3a** fixed ASCII spelling과 미등록 inflection의 enqueue 오류를 일반화했다. 현대 core dictionary를 우선 조회하고 obsolete 예외 목록 없이 C 오류 분류를 따른다. `name_:`와 유효 미지원 numeric family는 별도 coverage 경계이며 전체 NV3는 미완료다.
+- [x] **NV3b** bounded direct/indirect/debug-frame/by-value 이름 문법을 shared enqueue에서 검증한다. valid lookup은 Unsupported이며 NAME 길이 제한은 NV3c에서 다루고 locale 실행·numeric grammar를 남긴다.
+- [x] **NV3c** NAME 전체·simple-name·locale storage 길이 제한과 enqueue 오류 우선순위를 C `nfs` 및 양 Windows DLL로 검증했다.
+- [ ] **NV3d** numeric grammar의 valid 미지원 family와 실제 ill-formed number를 C `connum`/`wn.c`로 구별한다.
+- [x] **NV3d1** whole-word numeric family 선택과 검증된 extended/rational/complex/based 표기의 오류를 일반화했다. payload 생성 미지원과 문법 Unknown을 구분한다.
+- [ ] **NV3d2** dedicated quad grammar·플랫폼별 `strtod` 확장 및 숫자 construction의 resource/error 경계를 검증한다. Unknown 문법을 실제 Invalid로 추측하지 않는다.
+- [x] **NV3d2a** bounded quad·Windows hex 문법과 field/read-window 차이를 양 DLL로 검증했다. payload 실행 지원과 구분한다.
+- [ ] **NV3d2b** resource·scale overflow·rounding/FTZ·NaN payload 및 남은 플랫폼 conversion 경계를 검증한다.
+- [x] **NV3d2b1** 기본 ties-to-even의 hex polar 부호와 NaN 괄호 word 경계를 양 DLL로 검증했다. 매우 큰 exponent의 부호 판정과 숫자 payload 생성은 분리한다.
+- [ ] **NV3d2b2** quad scale overflow·hex ratio 부호·변경된 FP 환경·payload 할당/자원 오류 동등성을 검증한다. 숫자 construction 미지원을 J 오류로 바꾸지 않는다.
+- [x] **NV3d2b2a** exact hex 피연산자의 polar ratio 부호·signed zero·분모 읽기 범위와 quad 생성 경계를 양 DLL로 검증했다.
+- [ ] **NV3d2b2b** 추가 반올림/overflow가 필요한 hex ratio·quad scale 정의·변경된 FP 환경·payload allocation/자원 오류 동등성을 검증한다.
+- [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
+- [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
+
+**NV1 gate (historical, 2026-10-05):** native Windows default/portable 각각 **431 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. 추가한 공통 구문 **37개**를 포함하여 C 기본·AVX2 각각 세 runtime 경로 **5,368 cases / 5,368 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases**, 실패 0. capture graph **254건**과 static **2건** 경계는 별도다. frontend report 10개와 vocabulary report 2개의 실제 source/reference/binary hash를 확인했다. vocabulary 후보 **145개**에서 **enqueue POS 검증 33 / Rust Unsupported 110 / source code-only 거부 후보 2 (`?:`, `` `. ``)**이며 legacy/invalid 표기 8개는 양 DLL의 spelling error를 확인했다. 이 숫자는 전체 NuVoc/J 실행 지원률이 아니다. 이 gate 당시 NV2–NV5와 DB1–DB7은 미완료였으며 ordered effect graph·정적 discarded-noun 보존 경계, 미지원 task/fold/precision/범용 scope 실행을 분리한다. optimizer/CUDA/Linux 실행 테스트/GitHub CI는 계속 유보한다.
+
+**NV2 gate (2026-10-05):** native Windows default/portable 각각 **435 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. 공통 C 구문 12개를 추가해 양 C DLL의 세 runtime 경로 각각 **5,380 cases / 5,380 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases**, 실패 0. capture graph **257건**, static **2건** 경계는 별도다. vocabulary 후보 145개 중 **enqueue POS 143 / Rust enqueue 미지원 0 / code-only 거부 후보 2**이며 **bare function parser binding/AR 140개 / noun payload 3개**를 비교했다. 전체 NuVoc/J 실행 지원률이 아니다. report 12개의 실제 DLL/binary/source hash를 확인하고 NV2를 완료 처리했다. 다음 단계는 NV3이며 NV4/NV5와 DB1–DB7은 미완료다.
+
+### M — 현재 구조 수렴 실행 순서
+
+이 상위 체크리스트는 **지금 어떤 순서로 구조를 수렴시킬지**를 추적한다. 세부 완료 조건은 아래 A/F/P/G 체크리스트를 그대로 사용하며, 같은 일을 중복 정의하지 않는다.
+
+핵심 목표는 새 계층을 더 만드는 것이 아니라 현재 공존하는 과도기 경계를 제거해 다음 canonical pipeline으로 수렴하는 것이다.
+
+```text
+J source
+  → jsource-compatible frontend
+  → FunctionEntity / J Semantic Construction IR
+  → J Graph IR / Graph Basis
+  → Execution Semantic Lowering
+  → canonical logical_ir::Plan / Execution Basis
+  → Route Partition
+  → Schedule / Transform
+  → Physical Planner / Bufferization
+  → Physical Execution Plan
+  → Executor
+```
+
+Logical J value와 physical representation의 분리는 이 전체 pipeline에 교차하는 불변식으로 유지한다.
+
+#### M0 — 구조 기준선 고정
+
+- [x] 목표 compiler stage와 각 stage의 책임을 문서에서 확정했다.
+- [x] Graph Basis와 Execution Basis를 별도 계층으로 분리했다.
+- [x] Logical Array/J noun과 Physical Array/representation을 별도 계층으로 분리했다.
+- [x] 과거 중복 execution IR 경계를 구조 부채로 식별했고 M1에서 제거했다.
+- [x] `physical.rs`는 read-only CPU affine representation 기반과 제한적 검색 알고리즘 선택기를 제공하지만 전체 Physical Plan/bufferization planner는 아직 없음을 명시했다.
+- [x] `runtime.rs`의 `ResolvedVerb { reduce, rank, ... }` flattening은 과도기 runtime 구현이며 canonical semantic/compiler model이 아님을 확인했다.
+- [x] ArrayFire와 `math_arrayfire`를 semantic oracle이 아니라 execution/fusion/adapter 참고 구현으로 배치했다.
+- [x] compiler module ownership/dependency 표를 코드 구조와 맞춰 확정하고 reverse dependency 금지선을 문서화했다.
+
+현재/목표 module ownership은 다음을 기준으로 한다.
+
+| 책임 | 현재 주요 모듈 | canonical owner / 목표 | 금지되는 역방향 의존 |
+|---|---|---|---|
+| word formation | `scanner.rs` | frontend word former | graph/logical/physical/runtime가 scanner 구현 세부에 의존하지 않음 |
+| enqueue/word interpretation | `enqueuer.rs` | frontend enqueuer | target/backend 정보를 enqueue가 읽지 않음 |
+| parser + semantic construction | `semantic.rs` | frontend/parser + immutable `FunctionEntity` | Graph/Logical/Physical 선택을 parser가 소유하지 않음 |
+| J graph algebra | `j_graph_ir.rs`, `j_graph_rewrite.rs`, `j_graph_resource.rs`, `j_graph_memory.rs` | J Graph IR / Graph Analyzer | Logical/Physical plan을 다시 semantic identity로 역주입하지 않음 |
+| execution semantic contract | `execution_semantics.rs` | 독립 target-independent execution-semantics contract | schedule/buffer/device를 포함하지 않음 |
+| canonical Logical Execution IR | `logical_ir.rs` | `logical_ir::Plan` | `physical.rs`, kernel/runtime concrete storage에 의존하지 않음 |
+| compilation aggregate | `compilation.rs` | cross-stage analysis bundle | lowering semantics 자체를 소유하지 않음 |
+| route legality/capability | `lowering.rs` | verified Logical IR 이후 lowering/route layer | semantic/parser를 target 편의에 맞게 변경하지 않음 |
+| schedule/transform | 아직 없음 | 별도 planner-side representation | canonical Logical IR을 destructive하게 schedule-specific IR로 덮지 않음 |
+| physical representation | `physical.rs`, `storage.rs` | representation layer | semantic facts를 physical layout으로 정의하지 않음 |
+| Physical Plan/bufferization | **전체 planner는 아직 없음** (CPU 검색 strategy selector만 구현) | Physical Planner | J parser/FunctionEntity를 직접 해석하지 않음 |
+| backend kernels | `kernels.rs`, `numeric.rs`, `simd.rs` 등 | backend realization | kernel 구현 세부가 semantic legality를 정의하지 않음 |
+| interpreter/reference runtime | `runtime.rs`, `logical_executor.rs` | transitional/reference execution | compiler canonical IR의 의미를 runtime flattening으로 정의하지 않음 |
+
+M1 transition container는 제거되었다. `analysis`의 remaining re-export는 target-independent execution-semantic contract와 compilation aggregate compatibility surface이며 canonical Logical IR container를 소유하지 않는다.
+
+M0 이후 적용할 dependency 방향:
+
+```text
+frontend
+  ↓
+semantic FunctionEntity
+  ↓
+J Graph IR
+  ↓
+execution semantic contracts
+  ↓
+logical_ir::Plan
+  ↓
+route / schedule
+  ↓
+physical plan / representation
+  ↓
+backend / executor
+```
+
+옆 단계의 provenance/type identity 참조는 허용하지만, **아래 단계의 concrete realization 정보가 위 단계의 semantic identity를 결정하는 dependency는 금지**한다.
+
+**M0 완료 조건:** **완료.** 새 구현이 어느 stage에 속하는지 한 곳으로 결정할 수 있고, 과도기 compatibility bridge를 새 canonical interface로 오인하지 않는다.
+
+#### M1 — canonical Logical Execution IR로 cutover — 완료
+
+`logical_ir::Plan`이 유일한 canonical execution IR이다. 아래는 현재 유지되는 완료 조건이며 제거한 과도기 container를 현행 모듈처럼 설명하지 않는다.
+
+- [x] shared target-independent execution-semantic contract를 `execution_semantics.rs`로 분리했다.
+- [x] `analysis::lower_graph()`가 J Graph IR에서 A3 op/value/check를 직접 생성한다.
+- [x] `Plan::from_transition`, `TransitionProjection`, `transition_ir` module/container 및 `analysis::LogicalPlan`을 제거했다.
+- [x] `CompilationAnalysis`는 `j_graph`, rewrite/resource views와 canonical `logical`만 묶으며 `transition` 필드가 없다.
+- [x] `Engine::analyze`, `analyze_a3`, `analyze_diagnostic`은 canonical Logical IR을 반환한다.
+- [x] verifier/reference-executor/lowering test consumer를 canonical `logical_ir::Plan`으로 전환했다.
+- [x] Graph origin/source span, name version, semantic check와 write ordering의 direct-A3 regression을 추가했다.
+
+**M1 완료 조건:** 충족. `J Graph IR → logical_ir::Plan` 직접 연결과 단일 execution container가 유지되어야 한다. 이 완료는 full frontend, implicit cell semantics 또는 native Physical Executor의 완료를 뜻하지 않는다.
+
+#### M2 — jsource-compatible frontend/parser cutover
+
+목표: 현재 heuristic parser를 jsource-compatible Word Formation → Enqueue → 9-row Parser pipeline으로 교체한다.
+
+- [x] F0 differential 0-mismatch 기록을 완료했다. pinned source 기록과 Windows 일반/AVX2 배포본 재검증을 구분한다.
+- [ ] F1 Enqueuer/PrimitiveResolver를 완료한다.
+- [ ] F2 Parse Queue를 완료한다.
+- [x] P1 parser control class와 semantic entity/value를 분리했다. parser-time lookup/effect sequencing의 완성은 P4/P2의 별도 gate다.
+- [ ] P2 하나의 9-row reduction engine으로 전환한다.
+- [ ] P3 modifier/Hook/Fork/bident/trident construction semantics를 연결한다.
+- [ ] P4 parser-time name resolution/assignment sequencing을 연결한다.
+- [ ] P5 construction semantics와 compiler facts 경계를 완료한다.
+- [ ] P6 differential/conformance gate를 통과한다.
+- [ ] P7 legacy parser heuristic(`reduce_modifier_applications`, `collapse_verb_trains` 중심 경로)을 제거한다.
+- [ ] P8에서 canonical FunctionEntity → J Graph IR → Logical IR handoff를 재검증한다.
+
+**M2 완료 조건:** supported frontend domain의 parser reduction을 jsource row/semantic action으로 설명할 수 있고 compiler가 별도 언어 문법을 갖지 않는다.
+
+#### M3 — Logical/Physical Array 경계의 코드 수렴
+
+목표: logical value identity에 CPU/GPU/layout identity가 역류하지 않게 하고 representation 선택을 physical planning으로 이동한다.
+
+- [x] **M3-RB 설계 명세(2026-10-07):** §2.5.1의 RB-01~08 의미론 보존·proof/guard·source coverage·Write commit 및 RB-V0~V4 검증 기준을 확정했다. **문서만 완료**.
+- [ ] **M3-RB 실행 검증(구현 보류):** 원본 A3 독립 대조, RouteBoundary validator, Check/effect/error/order negative tests, J oracle 차분 결과를 실행 후 수용한다. 현재 `partition_plan`은 분석 후보 분류기다.
+- [x] **M3→M4 인계 설계(2026-10-07):** §5.2.1 H-01~09, HM-V0~V4로 RouteVerified 증거 → PhysicalVerified → RuntimeReady의 소유권·검증 의무를 문서화했다. **설계만 완료, 신규 구현 없음.**
+- [ ] **M3→M4 인계 검증(미구현):** 원본 A3-Route-Physical Check/Write coverage, selected realization, guard/freshness 및 negative/differential 테스트의 실제 통과 증거 확보.
+- [x] `LayoutFact`를 `RepresentationClassFact`로, `Facts.layout`을 `Facts.representation_class`로 바꿔 physical layout과 구분했다.
+- [ ] Dense/Boxed/Sparse처럼 J-visible representation semantics와 row-major/column-major/stride/tile/device 같은 physical representation을 타입/API에서도 구분한다.
+- [ ] 현재 `Value::Data`의 dense `CpuStorage` 직접 소유를 migration artifact로 한정하고, canonical compiler value identity가 CPU backing을 요구하지 않게 한다.
+- [ ] sparse의 J-visible axes/fill/semantic representation과 concrete coordinate/value buffer encoding의 경계를 점검한다.
+- [ ] `PhysicalArray`는 BufferId/lease/shape mapping/stride/offset/encoding 같은 representation-only 책임만 갖게 유지한다.
+- [ ] 같은 logical value의 복수 physical representation과 여러 logical value의 safe buffer reuse를 표현할 planner-side identity를 정의한다.
+- [ ] G2 structural view 작업을 이 경계 위에서 구현한다.
+
+**M3 완료 조건:** Logical IR/semantic facts에는 stride/offset/device/buffer가 없고, physical representation 변경이 J value identity를 바꾸지 않는다.
+
+#### M4 — 최소 RustJ-native CPU vertical slice
+
+목표: optimizer가 똑똑하지 않아도 canonical compiler pipeline이 end-to-end로 실제 실행되게 한다.
+
+- [ ] Logical payload와 분리된 최소 `Schedule/TransformPlan`을 정의한다.
+- [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
+- [x] **문서 계약:** §5.2.1에서 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return`으로 정의하고 plan-time/runtime identity·verifier·cleanup 경계를 고정했다.
+- [x] **M4 인계 검증 계약(2026-10-07):** §5.2.1의 H-01~09/HM-V0~V4에서 물리화 전 반드시 필요한 M3 승인, buffer/view/lease, Check/guard/오류 순서와 runtime 재검증을 명문화했다. **문서 완료만** 의미한다.
+- [x] **M3→M4 첫 CPU 경로 승인 판정 명세(2026-10-07):** §5.2.1 H-A의 A0~A5 단계와 HA-V1~7로 `ReferenceSequential` 후보와 실제 compiler-native 실행을 분리하고 Check/Write/guard/region-local 승인 부정 검증을 정의했다. **설계 전용**.
+- [x] **M3→M4 인수 패킷·검증 판정표(문서 전용, 2026-10-07):** §5.2.1 H-P의 HP-01~12 입력 증거/검증/거부 및 HP-V01~09 단일 조건 변조 시험·판정 기록 양식 작성. 코드 구현이나 전역 승인과 무관.
+- [ ] **HP-01/02 원본·커버리지:** immutable A3 identity와 모든 original op/zero-result Check/별도 Write·cross-route interface를 source 보존 증거에 매달아 검증한다(HP-V01/02).
+- [ ] **HP-03/04 native capability·Check:** selected 실제 CPU recipe 존재, 원본 Check의 execute/discharge owner 및 첫 J error precedence를 검증한다(HP-V03).
+- [ ] **HP-05/06 Name·semantic value:** noun snapshot/late NameRef/Write owner 및 zero-frame Rank·boxed/sparse·shape/atom J 의미를 보존한다(HP-V04).
+- [ ] **HP-07/09 buffer·completion:** plan/runtime 버퍼 구분, view span/alias/generation/last-use, 동기 CPU completion 근거를 검사한다. 비동기 토큰/전송 구현은 M5/M6까지 필수 아님(HP-V05/07).
+- [ ] **HP-08 dependency:** producer/check/guard/effect/error 선행 edge를 검증하고 누락·순환을 거부한다(HP-V06).
+- [ ] **HP-10/11 runtime·fallback:** guard freshness/효과 전 대체 경로/자원 한계, CPU+Host+zero-transfer 제한을 검증한다(HP-V08).
+- [ ] **HP-12 acceptance:** 실제 native 결과와 RustJ reference·가능한 J C oracle의 차분 및 부정 테스트 PASS/CI 증거를 gate별 기록한다(HP-V09).
+- [ ] **M3→M4 승인 판정 실행 검증(미착수):** HA-V1~7 verifier·guard 연결 및 jsource/semantic/native 차분 테스트의 실제 PASS 기록.
+- [ ] **구현:** 위 contract를 concrete `PhysicalPlan`/op Rust 타입과 verifier로 구현한다.
+- [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
+- [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
+- [ ] G3의 첫 kernel로 contiguous/fixed/general-stride add를 연결한다.
+- [ ] G3 cell mapping과 ExecutionBasis `CellApply`를 physical view iteration에 연결한다.
+- [ ] G4 CPU Physical Executor를 구현한다.
+- [ ] `source → FunctionEntity → J Graph → logical_ir::Plan → Physical Plan → CPU Executor` vertical test를 만든다.
+- [ ] 기존 semantic/reference executor와 결과/error contract를 비교한다.
+
+**M4 완료 조건:** 기존 interpreter 직접 실행을 거치지 않는 최소 compiler-native CPU 경로가 하나 이상 동작한다.
+
+<a id="heterogeneous-execution-checklist"></a>
+
+#### HE — 이종 CPU/GPU 실행 계획 수렴 (2026-10-07, M4→M6 연계 체크리스트)
+
+**설계 결정:** RustJ는 **CPU 멀티코어 컴파일러가 아니라 이종 배열 컴파일러**다. CPU thread 병렬화는 Physical Plan의 device-local 실행 전략일 뿐이다. `ParallelLegality` 또는 CPU 전용 `ParallelPhysicalPlanner`를 독립적인 canonical 상위 단계로 도입하지 않는다. 기존 `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`를 유지한다. 이 체크리스트는 본 §10의 기존 M/IO 이행 계획에 통합되며 별도 Markdown이나 새로운 필수 IR을 만들지 않는다.
+
+**교차 프레임워크 감사 (참조 대상과 채택 경계).**
+
+| 참조 | 실제 근거 | RustJ 도입/비도입 |
+|---|---|---|
+| [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) 및 [stream passes](https://iree.dev/reference/mlir-passes/Stream/) | Flow에서 target affinity, resource, asynchronous scheduling을 명시한 Stream으로 내린 뒤 HAL에서 실제 device execution | Route/physical plan에 region affinity, readiness·completion dependency, ownership/lifetime 계약을 **점진적으로 도입**; IREE 전체 스택 또는 새로운 Stream IR 복제 금지 |
+| [Kokkos View](https://kokkos.org/kokkos-core-wiki/ProgrammingGuide/View.html) · [Memory Spaces](https://kokkos.org/kokkos-core-wiki/API/core/memory_spaces.html) | ExecutionSpace와 MemorySpace가 1:1이 아니고 가시성·동기화가 별도 | **장치 실행 위치 ≠ 버퍼 저장 위치**를 별도 물리 사실로; unified/shared memory를 공짜 zero-copy로 간주 금지 |
+| [MLIR scf.forall](https://mlir.llvm.org/docs/Dialects/SCFDialect/) · [tensor.parallel_insert_slice](https://mlir.llvm.org/docs/Dialects/TensorOps/) | 논리적인 병렬 반복·mapping·부분 결과 결합을 분리, 반복 간 side effect ordering은 미보장 | A3 `IterationDomain`과 schedule/device mapping 분리 유지. 독립 출력/조립 J 의미 proof 없이 동시화 금지 |
+| [XLA CPU ParallelTaskAssignment](https://github.com/openxla/xla/blob/main/xla/service/cpu/parallel_task_assignment.cc) | FLOP/byte 기반 task 수와 thread overhead 평가, 내부 병렬화된 kernel 회피 | CPU backend 내부의 작업량·대역폭 비용 참고; GPU/CPU 장치 배치 비용을 CPU thread threshold로 대체 금지 |
+| [Futhark multicore scheduler](https://github.com/diku-dk/futhark/blob/master/rts/c/scheduler.h) · [Rayon](https://docs.rs/rayon/latest/rayon/) | chunk/task amortization, nested work 분배, work stealing | **CPU 실행기 내부** 실행 전략; RustJ logical IR에 thread pool·thread count 인코딩 금지 |
+
+**소유권/경계 계약:**
+1. **Semantic/legality:** `logical_ir.rs`의 J 결과 타입·Shape, Rank/CellApply/zero-frame virtual fill, dynamic names/versions, comparison/fit, alias, effect와 error precedence가 권위다. `IterationAxisKind::Parallel`은 구조적 축이며 **동시 실행 가능하다는 증명이 아니다**. 동시 실행·분할·중복 계산은 기존 `lowering.rs` legality와 별도 witness/guard에서 결정한다; Unknown은 거절 또는 합법 baseline 경로로 유지한다.
+2. **Route/device:** `RouteRegion`의 후보 장치(CPU/GPU/external)와 intra-device schedule(Sequential/SIMD/CPU workers/GPU grid)은 직교한다. full J에 모든 연산이 동일한 backend에 내려가야 한다는 의무가 없다. 단일 CPU/단일 region/all sequential은 정상적으로 유효한 계획이다.
+3. **Placement/memory:** J `ValueId`, plan-time `PlanBufferId`/logical version, runtime `BufferId`/`BufferLease`/memory residency/ready state는 서로 다르다. Host/NUMA/GPU/managed/pinned/file memory 위치가 계산 실행 장치와 별도 축이다. view, no-op, copy, prefetch, migration, materialize 후보를 의미와 비용에 맞춰 고른다. 공유·통합 메모리는 접근권과 coherence/동기화 검증을 없애지 않는다.
+4. **Dependencies/completion:** 후보 Physical Execution Plan은 value/data readiness, effect/order, error precedence, lease/lifetime, transfer/compute completion을 추적한다. 비동기 overlap은 dependency의 critical path와 실제 capability가 증명될 때만 이득으로 계산한다. 같은 output에 대한 중복 write, check-before-effect 위반, 오류의 arbitrary first-thread winner를 금지한다.
+5. **Resource/cost:** `j_graph_work_depth.rs`와 `j_graph_resource.rs`의 target-independent facts를 소비하되 `ResourceEstimate`(가능 여부), `CostEstimate`(예측), 측정 `CostProfile`(관찰)을 합치지 않는다. compute FLOP·byte, memory bandwidth/capacity·residency, intermediate materialization, transfer bytes/latency, launch/sync, queueing와 peak in-flight bytes를 분리해 비교한다. 리소스 Unknown ≠ feasible, 비용 Unknown ≠ zero.
+6. **범위:** 실제 GPU/CUDA·multi-device/async runtime 도입은 기존 M6/CUDA 보류 정책을 따른다. M4 최소 CPU slice에 GPU, NUMA, 새 필수 IR, 범용 혼합 스케줄러를 끼워 넣지 않는다. 외부 MLIR/StableHLO adapter의 독립적인 경로도 유지한다.
+
+**실행 게이트/체크리스트 (이 표 외 중복 작업표 생성 금지):**
+
+| 게이트 / 선행 | 상태 | 수용 기준 |
+|---|---|---|
+| HE-00 / M2 병행 | [x] 이종 실행 중심 원칙 및 IREE/Kokkos/MLIR/XLA/Futhark/Rayon 역할 문서화 | 본 결정과 `FOUNDATIONS.ko.md`·`AGENTS.md`에 반영한 **설계 완료만** 뜻함; runtime/benchmark 아님 |
+| HE-01 / M4 | [ ] all-CPU / single-device / zero-transfer `PhysicalPlan` 구현 | 원래 `BindInput/Check/View/Materialize/Kernel/Return` 순차 baseline, `logical_executor` 및 J oracle 의미 대비; M4 완료 게이트에 포함 |
+| HE-02 / M4→M5 | [ ] 실행 위치/메모리 위치/내부 병렬화를 분리한 planner-side contract와 verifier | A3 schema·J Graph·parser 불변, unknown capability와 resource 거절, non-overlap/liveness; multi-device 구현은 요구하지 않음 |
+| HE-03 / M5 | [ ] `ExecutionLegality`/witness/guard **분석**을 기존 lowering 경계에 연결 | Effect·NAME version·alias·error precedence·rank fill·dynamic fallback 반례; IR의 Parallel 축만으로 허가하면 실패 |
+| HE-04 / M5 | [ ] CPU Sequential/SIMD/worker 후보와 measured cost selection | worker count/tiling/compute bandwidth/launch/pool overhead, 반복 병렬 폭발과 nested oversubscription 방지; 모든 후보 합법성 검사 |
+| HE-05 / M5 | [ ] Device/Memory placement·데이터 이동 비용 표현 | copy/migrate/prefetch/ready dependencies, capacity/residency, transfer+sync bytes/time, overlapping 가능 범위 구분; `IO-20`과 공통 physical planner 사용 |
+| HE-06 / M5 이후 | [ ] 단일 CPU 실측과 가상의 혼합 candidate의 비용·정합성 비교 | 순차 baseline보다 작업이 적지 않으면 병렬·GPU 경로를 기본 선택하지 않음; cold/warm compile/transfer/performance 분리 |
+| HE-07 / M6 이후 | [ ] CPU+GPU runtime completion/transfer 연결 및 end-to-end 검증 | 검증 가능한 실제 GPU와 별도 구현 재개 승인 전 **미착수**. data version, transfer/check order, async failure, invalid device, unsupported route 검증 |
+| HE-08 / M6 이후 | [ ] 병렬 CellApply/Reduction/Scan의 J 의미 회귀 및 부정 사례 | zero-frame virtual cell, positive frame/empty cell, result-cell shape/type join, boxed/sparse, tolerance, floating reassociation, J error priority; 미증명 fold/scan은 순차 유지 |
+| HE-09 / M5 이후 | [ ] 스케줄 단계별 관찰값·벤치마크 및 diagnostic | route+device+memory+worker 선택 이유, unknown/reject/guard 근거, bytes moved, sync count, peak memory, output J equivalence. GPU 실행 완료로 오인 금지 |
+
+**작업 순서:** HE-00(설계) → 기존 M2→M3 수렴 → M4/HE-01 순차 vertical slice → HE-02/03 legality/representation → HE-04/05/06 cost·CPU worker·transfer 후보 → 별도 승인을 전제로 HE-07/08/09. `IO-20`도 이 범용 physical placement/transfer 모델에 합류하며 두 번째 전송 추상화를 만들지 않는다. 모든 실행·성능 수용은 §11 검증 정책과 실제 결과를 따른다. **이 문서 갱신만으로 HE-01~09를 완료 처리하지 않는다.**
+
+---
+
+#### M5 — Route/Schedule/Cost 확장
+
+M4 이후에만 optimizer 선택 문제를 키운다.
+
+- [ ] `RouteRegion`에 boundary inputs/outputs, chosen route, preconditions/witnesses, semantic provenance를 추가한다.
+- [ ] legality와 profitability를 계속 분리한다.
+- [ ] StructuralOpportunity/use-def를 schedule candidate와 연결한다.
+- [ ] materialize/view/fuse 후보의 physical feasibility를 계산한다.
+- [ ] TargetProfile/ResourceEstimate/CostEstimate 최소 schema를 구현한다.
+- [ ] cold compile, warm execution, copy, layout conversion, transfer, synchronization 비용을 분리한다.
+- [ ] simple CPU cost model로 multiple legal realization 중 하나를 선택한다.
+
+**M5 완료 조건:** planner가 단순 고정 policy가 아니라 여러 합법 physical plan 중 cost/resource 근거로 선택할 수 있다.
+
+#### M6 — External/ArrayFire/GPU route
+
+M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 진행한다. 모든 adapter는 먼저 §5.5.1 External adapter boundary contract를 만족해야 한다.
+
+- [ ] Graph/Execution Basis ↔ ArrayFire capability matrix를 만든다.
+- [ ] ArrayFire route의 dtype/rank/shape/layout/J-semantic precondition을 명시한다.
+- [ ] J row-major ↔ ArrayFire column-major mismatch를 view/copy/consumer-absorption 선택 문제로 physical planner에 연결한다.
+- [ ] external handle lifetime/lock/release/sync를 Physical Plan resource/token 경계로 모델링한다.
+- [ ] MLIR adapter와 StableHLO-safe subset adapter의 공통 negotiation interface를 정의한다.
+- [ ] external route failure가 J semantic failure가 아니라 route unsupported/fallback으로 처리되는 테스트를 만든다.
+- [ ] 실제 GPU storage/kernel은 별도 요청과 검증 가능한 환경이 있을 때 재개한다.
+
+**M6 완료 조건:** external library/backend가 J semantics를 정의하지 않고, verified Logical IR의 합법적인 realization route 중 하나로만 동작한다.
+
+#### JE0–JE6 — JEntity / contextual higher-order view 보조 트랙
+
+**목표:** jsource의 공통 `A` 표현에서 **semantic RHS(`NOUN + FUNC`)를 하나의 carrier로 전달하는 원리**를 참고하되 C runtime allocation 구조를 복제하지 않는다. RustJ의 최소 `JEntity`는 parser/binding/assignment/semantic-operand 경계의 얇은 sum type으로 사용한다. `Value`와 `FunctionEntity`의 내부 모델을 하나로 합치거나 모든 IR node의 공통 base type으로 만들지 않는다. higher-order collection은 gerund 등 실제 operator semantics가 요구할 때 operator-specific view부터 도입한다.
+
+**위상과 실행 순서:** 이 트랙은 M0–M6의 critical path에 새 milestone을 끼워 넣지 않는다.
+
+- JE0 감사는 M2와 병행한다.
+- **JE1의 최소 `JEntity` carrier는 M2 중에도 도입할 수 있다.** 단, `AssignedValue`/`SymbolValue`/`ParserNameBinding`/`FunctionOperand` 같은 중복 carrier를 한 seam씩 줄이는 경우에만 한다. full frontend가 끝날 때까지 중복 타입을 더 굳힌 뒤 대규모 migration하는 것을 피한다.
+- JE2 parser/binding/assignment 수렴은 M2 작업 자체와 함께 진행할 수 있지만, jsource compatibility case가 먼저 있어야 한다.
+- gerund/general collection abstraction(JE3+)과 noun storage를 건드리는 migration은 M2가 안정된 뒤 수행하며, physical representation과 결합되는 변경은 M3 경계가 안정된 뒤로 미룬다.
+- 어느 JE 단계도 첫 M4 CPU vertical slice를 불필요하게 막지 않는다.
+
+**jsource에서 채택하는 원리 / 채택하지 않는 구현:**
+
+- 채택: semantic RHS에서 noun과 function entity가 하나의 상위 J-entity universe에 속하고 POS/type가 해석을 결정한다.
+- 채택: `JEntity`의 직접 범위는 jsource `RHS = NOUN + FUNC`, `FUNC = VERB + ADV + CONJ`에 대응한다. NAME/ASGN/MARK/SYMB 같은 parser/runtime block class를 같은 semantic entity kind로 억지 통합하지 않는다.
+- 채택: function의 parser/binding transport는 common entity handle을 사용할 수 있지만 noun snapshot과 function nameref late lookup의 시점 차이를 보존한다.
+- 채택: gerund처럼 boxed noun이 shape를 제공하는 문맥에서는 그 noun의 shape를 보존한 entity-collection view를 만들 수 있다. shape는 container에 속한다.
+- 채택: derived function은 operand/function identity를 보존하는 first-class entity다.
+- 채택: parser/binding/assignment는 noun뿐 아니라 verb/adverb/conjunction 결과도 하나의 J entity로 전달할 수 있어야 한다.
+- 비채택: jsource `AD/A` allocation header, refcount, virtual/in-place flags, allocator metadata를 semantic identity와 결합하는 방식.
+- 비채택: verb를 noun의 physical atom buffer와 동일한 representation으로 강제하는 방식.
+- 비채택: jsource 공통 header에 rank/shape field가 있다는 이유로 Verb/Adverb/Conjunction 자체에 noun-style semantic rank/shape를 부여하는 방식. current jsource도 function의 AN/AR field를 사용하지 않는다.
+- 비채택: unresolved lexical NAME/NameRef를 Noun/Function과 같은 추가 POS/entity kind로 취급하는 방식.
+- 비채택: 공통 entity abstraction이 Logical/Physical Array 경계를 우회하거나 BufferId/device/layout을 semantic layer로 끌어올리는 방식.
+
+##### JE0 — 현행 semantic carrier와 jsource 대응 감사
+
+- [x] 상위 목표를 확정했다: `JEntity`는 noun/function을 묶는 semantic abstraction이고, common physical allocation abstraction이 아니다.
+- [x] jsource의 공통 J-entity 원리와 RustJ의 `Value` / `FunctionEntity` / `FunctionOperand` 구조가 대응 가능함을 설계 수준에서 확인했다.
+- [x] current jsource의 `RHS = NOUN + FUNC`, `FUNC = VERB + ADV + CONJ`를 다시 확인하고 RustJ `JEntity`의 직접 대응 범위를 semantic RHS로 한정했다.
+- [x] current jsource가 function의 AN/AR를 사용하지 않는 것을 확인하여, function 자체에 noun-style shape/rank를 부여하지 않는 원칙을 고정했다.
+- [x] `p.c` row 7이 noun/verb/adverb/conjunction RHS assignment를 허용하고, `sc.c::jtnamerefacv`가 noun value와 function nameref를 서로 다르게 처리하는 것을 확인해 공통 transport와 lookup timing을 분리했다.
+- [x] `cf.c` bident/trident table에 Function뿐 아니라 즉시 Noun 결과가 존재함을 확인하여 parser construction의 일반 result type을 `JEntity`로 정정했다.
+- [x] `cg.c::jtfxeachv/jtfxeach`가 source boxed noun의 rank/shape를 복사하지만, 결과는 jsource 주석상 **BOX라고 주장하는 내부 carrier에 function-typed A를 넣는 realization trick**임을 확인했다. 이것을 generic semantic `EntityArray`의 직접 선례로 사용하지 않는다.
+- [x] current RustJ에 `FunctionOperand`, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, `ExprKind::{VerbValue,ModifierValue,Literal}` 등 Noun/Function carrier가 중복되어 있음을 확인했다. 최소 `JEntity`는 M2 이후의 장기 리팩터링보다 M2 seam 수렴에도 가치가 있다.
+- [x] current `Verb { target, entity }` wrapper와 `FunctionEntity`의 책임이 완전히 수렴하지 않았음을 확인했다. `JEntity::Function` payload를 확정하기 전에 `VerbTarget`이 semantic identity인지 migration/execution adapter인지 감사한다.
+- [x] lexical NAME과 function nameref를 구분했다. lexical/unresolved NAME은 JEntity가 아니지만, lookup 결과로 만들어진 executable nameref는 POS를 가진 Function entity이므로 `JEntity::Function` 안에서 `NameRef` head로 존재할 수 있다.
+- [x] current jsource 기준 revision을 `0db94e768a845e2583c01d00538c3d16379677bb`(2026-10-03 master)로 고정해 이번 JE 감사의 비교 기준을 기록했다.
+- [x] `Value`, `FunctionEntity`, `Verb`/`VerbTarget`, `FunctionOperand`, parser stack item, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, binding result, `NameRef`, `DefinitionCode`, gerund decode/view가 각각 어떤 semantic identity와 transport 책임을 보유하는지 inventory를 만든다.
+- [x] `p.c` runtime parser와 `pv.c` tacit translator의 9-row 계열 코드를 구분해 근거를 기록한다. `pv.c::jtvis` 같은 translator action을 runtime observable semantics의 단독 oracle로 사용하지 않는다.
+- [x] noun/verb/adverb/conjunction이 같은 parser/binding/assignment 경계를 통과하는 대표 jsource differential 사례를 정리한다.
+- [x] 현재 `FunctionOperand::{Function,Noun}`와 다른 sum-type/enum 중 사실상 중복된 J-entity carrier를 식별한다.
+- [x] current `Value`의 `CpuStorage` migration artifact가 `JEntity` API에 새 canonical dependency로 고착되지 않도록 금지 경계를 명시한다.
+
+**JE0 완료 조건:** 모든 current semantic carrier와 lifetime/ownership/provenance 책임을 표로 설명할 수 있고, 새 타입을 만들기 전에 어떤 중복을 제거할지와 어떤 차이는 유지할지가 결정되어 있다.
+
+##### JE0 현행 carrier 감사와 첫 migration seam (2026-10-04)
+
+아래 표는 JE1 이전 감사 snapshot이다. `AssignedValue` 제거와 현재 API는 이어지는 JE1 구현 기록에서 관리한다.
+
+| 현행 carrier | identity·ownership·lifetime | 유지할 metadata와 migration 결정 |
+|---|---|---|
+| `Value` / `Data` | noun의 J type·shape·atom order; boxed child는 `Arc<Value>`, sparse는 shared semantic array. owned dense clone은 payload copy이며 freeze 후 clone은 공유 | CPU payload는 현행 migration artifact다. 미래 `JEntity`는 `Value`를 transport하되 CpuStorage·host slice·BufferId·layout·device API를 새로 노출하지 않는다 |
+| `FunctionEntity` | POS·head·ordered operands를 갖는 immutable `Arc` DAG; definition Code와 intrinsic noun snapshots를 소유 | Function payload는 `Arc<FunctionEntity>`로 충분하다. callable rank 계약과 noun shape를 혼동하지 않는다 |
+| `Verb` / `VerbTarget` | `span + target + Arc<FunctionEntity>`; Primitive/Named target은 semantic head와 중복되고 Derived는 migration marker | production execution은 `resolve_function_entity`로 DAG를 조회한다. target 직접 검사는 현재 parser test host에서만 사용한다. 첫 seam에서 target을 새 semantic identity로 만들지 않고 wrapper의 occurrence span은 따로 보존한다 |
+| `FunctionOperand` | Function child Arc 또는 freeze된 concrete noun + operand span; noun의 생성·대입 정보와 같은 것은 아니다 | JEntity와 payload union이 중복되지만 noun span이 추가되어 있다. 첫 migration 대상에서 제외하고 이후 zero-loss adapter로 연결한다 |
+| parser `Item` / `ParseValue` | class·source/provenance·flags·occurrence·span override; noun은 `Expr + height`, function은 completed DAG/Verb wrapper | expression dependency, abstract/deferred noun 및 parser control state 때문에 concrete entity carrier와 통합할 수 없다. NAME/target/control을 JEntity POS로 만들지 않는다 |
+| `ExprKind` / `Program` | literal/function result 외에도 Group·ReadName·Monad·Dyad 구조와 reduction/write provenance를 소유 | computation structure는 RHS carrier의 중복이 아니다. JEntity 도입으로 application graph를 제거하지 않는다 |
+| `ParserNameBinding` | concrete noun snapshot, abstract noun class, function POS, known modifier + version이라는 lookup observation | 아직 값이 없는 abstract noun/POS와 실제 RHS를 구분하므로 enum을 유지한다. 모든 lookup을 entity snapshot으로 바꾸지 않는다 |
+| `AssignedValue` | row 7의 concrete Noun/Verb/Modifier RHS를 host에 넘기고 대입 결과를 돌려받는 transport | **JE1 첫 seam**. Noun/Function 두 variant로 바꾸되 function POS는 DAG에서 얻고 occurrence/height/assignment source는 parser에 남긴다 |
+| runtime `SymbolValue` / `Binding` | freeze된 noun 또는 shared function wrapper; 별도의 Engine-local NameVersion. replacement는 old noun을 pool에 retire | AssignedValue와 semantic RHS payload가 중복된다. 첫 JE1은 host boundary adapter만 교체하며 전체 symbol table과 pool migration은 JE2 이후다 |
+| binding result / `BoundProgram` | 분석용 reads·versions·dynamic function references·pending write; 실행 가능한 cached plan이 아님 | entity identity와 binding/version proof를 합치지 않는다. read-only prepare는 commit하지 않는다 |
+| lexical NAME / `FunctionHead::NameRef` | lexical queue name은 unresolved spelling/flags; lookup 후 function NameRef는 expected POS를 가진 executable function identity | noun은 lookup snapshot, function은 필요한 경우 적용 때 재조회한다. 같은 공통 carrier가 이 timing 차이를 없애면 안 된다 |
+| `DefinitionSource` / `DefinitionCode` | shared original source·primitive context·span, immutable body/valence/control metadata; invocation locals 없음 | Function head가 Arc Code를 소유한다. noun DD는 Value이며 Code가 아니다. alias assignment는 본문 호출이 아니다 |
+| gerund noun / `decoded_gerund` | source는 boxed noun; decode는 ordered `Vec<Arc<FunctionEntity>>` 실행 auxiliary이며 source semantic children이 아니다 | order와 noun snapshots는 보존하지만 Vec 자체에는 source shape·lookup observation이 없다. parent noun/span과 capture observations를 함께 봐야 한다. shaped view의 operator별 충분성은 JE3에 남기며 EntityArray를 만들지 않는다 |
+
+**중복 판정:** `AssignedValue`와 `SymbolValue`가 첫 concrete RHS seam이고, `FunctionOperand`는 payload가 겹치지만 provenance 계약이 다르다. `ExprKind`, `ParserNameBinding`, stack/control, binding observations는 역할이 달라 유지한다. JE0 자체는 JEntity API를 구현한 단계가 아니다. JE1의 완료 상태와 JE2–JE6의 남은 경계는 아래 항목에서 관리한다.
+
+**근거 구분:** 새 감사 revision `0db94e768a845e2583c01d00538c3d16379677bb`의 `p.c` L87–96은 주석상 tacit translator용 `cases[]`다. runtime `p.c`의 ptcol dispatch와 L1006–1043의 row 7은 이미 stacked된 CAVN RHS를 대입하고 그 값을 stack에 남긴다. `pv.c::jtvis` L158은 translator action이므로 runtime 대입 oracle로 사용하지 않는다. `sc.c::jtnamerefacv` L364–397은 noun value와 expected-POS function nameref를 구분한다. `cf.c` L292–308의 `{0,NOUN}`은 construction result가 항상 Function이라는 가정을 반박한다. `cg.c` L101–121의 BOX carrier는 source rank/shape를 가진 내부 realization이며 semantic EntityArray가 아니다. 새/기존 source의 선언형 row predicate와 constructor disposition은 native Windows Python으로 동일함을 확인하고 5개 파일 hash를 `reports/entity-carrier-source-audit.json`에 기록했다. 이것은 runtime ptcol trace 또는 새 revision DLL 검증이 아니다.
+
+**이 감사에서 수정한 compatibility bug:** row 7이 모든 modifier를 `resolve_modifier`로 적용용 해석한 뒤 대입하여 `copy=:explicit_adverb` / `copy=:explicit_conjunction`을 거부했다. 이제 stacked RHS를 그대로 대입한다. nameless modifier는 기존 lookup 때 by-value로 stack되고, nonnameless modifier는 POS-bearing NameRef를 유지한다. C `5!:1`에서도 explicit/derived modifier alias의 head가 원본 이름임을 확인했다. static prepare는 application semantics가 미지원인 function도 POS-known NameRef로 대입 구조를 보존한다. 본문·지역 invocation frame을 실행하지 않으며 alias 재대입과 실제 modifier application을 분리한다. explicit body 호출의 기존 미완료 상태는 그대로 추적한다.
+
+**JE0 gate:** Rust regression 5개로 네 RHS 품사의 grouped assignment result/POS·commit identity, noun snapshot/function late lookup와 POS mismatch, 48-level Hook DAG의 Arc 공유 및 host 종료 후 lifetime, 65,536-atom noun snapshot의 payload 공유와 rebinding lifetime, explicit modifier alias의 static non-commit·runtime NameRef/POS/span·본문 미실행·재조회 및 POS 변경 오류를 검증했다. C corpus/stage에 **71건**을 추가했다: noun assignment 13, noun value 19, function class/atomic representation 33, J error 6. valid explicit adverb/conjunction alias 사례는 미지원 예외로 분류하지 않고 모두 C와 일치한다.
+
+Windows default/portable 각각 **363 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,810 cases / 4,806 passed / 기존 runtime 경계 4 / failed 0**; stage **9,990 checks**, words **6,618 cases**. capture graph 경계는 106으로 따로 기록하며 static 경계 2와 구분한다. 새 source 감사 pin `0db94e7...`, conformance source pin `13994ff...`, 실제 DLL release `ded7793...`는 서로 구분한다. 새 revision DLL·full upstream suite·private runtime trace·explicit body invocation acceptance를 검증했다고 주장하지 않는다.
+
+**JE0의 handoff:** `AssignedValue` ↔ runtime assignment 한 seam을 JE1으로 넘겼다. semantic nested DD 등 기존 M2 미완료 항목은 유지한다. JE0/JE1을 full frontend rewrite나 첫 M4 CPU slice의 선행조건으로 확장하지 않는다.
+
+Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006), [translator pv.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/pv.c#L158), [nameref sc.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/sc.c#L364), [constructor cf.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cf.c#L292), [gerund cg.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cg.c#L101).
+
+##### JE1 — 최소 공통 `JEntity` identity 도입
+
+- [x] `JEntity`/`JEntityRef`의 최소 API를 **boundary carrier**로 설계한다. 직접 semantic variants는 `Noun`과 `Function`으로 두고 Function이 `Verb|Adverb|Conjunction` POS를 소유하는 구조를 우선 검토한다.
+- [x] `JEntity`를 `Value`/`FunctionEntity` 내부 representation을 통합하는 base class로 사용하지 않는다. 최초 적용 seam은 assignment/binding/parser result 또는 `FunctionOperand` 중 differential test가 가장 잘 갖춰진 한 곳으로 제한한다.
+- [x] `JEntity::Function`이 `Arc<FunctionEntity>`만으로 충분한지, 현재 `Verb`/`VerbTarget` wrapper에서 semantic하게 남겨야 할 것이 있는지 먼저 결정한다.
+- [x] lexical NAME, unresolved reference, binding/version/provenance를 `JEntity` variant와 분리한 reference/control API로 설계한다.
+- [x] `Verb`/`Adverb`/`Conjunction`을 별도 payload 복제로 만들지 않고 shared `FunctionEntity` + `FunctionPartOfSpeech` identity를 재사용한다.
+- [x] noun payload는 logical J noun identity를 가리키며 physical buffer/layout/device를 소유하지 않게 한다.
+- [x] source span/provenance와 binding/version은 entity payload 자체와 필요한 observation/binding metadata를 구분한다.
+- [x] large derived function/train이 `JEntity` conversion에서 deep-copy되지 않는 sharing test를 추가한다.
+- [x] noun/verb/adverb/conjunction round-trip 및 POS mismatch/error semantics regression을 추가한다.
+
+**JE1 완료 조건:** parser/binding API가 noun과 function을 공통 entity handle로 전달할 수 있으면서 기존 `FunctionEntity` DAG와 J noun semantic identity를 훼손하지 않는다.
+
+##### JE1 구현 — 대입 경계의 최소 JEntity (2026-10-04)
+
+아래는 JE1 도입 시점의 snapshot이다. 임시 SymbolValue/Verb adapter의 제거와 현재 namespace carrier는 이어지는 JE2 구현 기록에서 관리한다.
+
+- `semantic::JEntity::{Noun(Value), Function(Arc<FunctionEntity>)}`와 borrowed `JEntityRef::{Noun(&Value), Function(&FunctionEntity)}`를 도입했다. owning carrier를 이동하면 기존 payload를 그대로 넘기며 `as_ref()`는 copy·allocation·refcount update 없이 inspect한다. owning `JEntity`에는 자동 Clone을 제공하지 않는다: 아직 Owned Value의 clone은 전체 noun payload를 복사할 수 있기 때문이다. borrowed view의 Copy/Clone은 참조만 복사한다.
+- `RuntimeParserHost::assign(name, JEntity) -> Result<JEntity>`가 row 7의 Noun/Verb/Adverb/Conjunction을 같은 boundary로 전달한다. 중복 `AssignedValue` enum을 제거했다. 함수의 실제 POS는 FunctionEntity가 소유하며 separate Verb/Modifier payload를 entity에 추가하지 않았다.
+- parser는 verb의 occurrence span/compatibility target, noun의 Expr height, source/provenance·occurrence·assignment flags를 carrier 바깥에 보존한다. capture의 Commit source/class/function identity와 binding version도 기존 경로에 남는다. noun assignment는 기존 host에서 freeze하고 반환·symbol payload를 공유하며 replacement/pool retirement 규칙을 유지한다.
+- runtime `SymbolValue`는 첫 migration의 compatibility adapter로 남는다. `Verb::from_entity`는 Verb POS를 확인하고 shared entity head에서 기존 Primitive/Named/Derived target과 intrinsic span을 복원한다. 이 adapter는 function DAG·DefinitionCode를 복사하거나 NameRef를 현재 함수 값으로 fix하지 않는다. parser reinsertion은 원래 occurrence wrapper의 span/target을 그대로 재사용한다.
+- lexical NAME, abstract noun/POS observations, `ParserNameBinding`, `ExprKind`, `FunctionOperand`, symbol table 및 gerund auxiliary는 이번 seam에 포함하지 않았다. JEntity에 BufferId·stride·layout·target·device·schedule API를 추가하지 않는다. `Value`가 현재 CPU payload를 포함하는 migration artifact는 여전히 남으며 이를 logical/physical 분리 완료로 간주하지 않는다. Function에 noun shape/rank를 추가하지 않았다.
+
+검증은 JE0의 네 품사 grouped/chain assignment·noun snapshot·function late lookup·explicit modifier alias·POS 오류·effect/provenance 비교 71건을 같은 production boundary에서 재사용한다. 기존 48-level Hook DAG test에 JEntity move/borrow round-trip과 refcount 불변을 추가했고, 새 tests는 65,536-atom Owned noun move/borrow 시 payload pointer 유지, explicit Verb/Adverb/Conjunction의 POS·shared DefinitionCode 유지, runtime Verb adapter의 identity/span·modifier POS 거부를 검증한다.
+
+**JE1 gate:** Windows default/portable 각각 **366 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,810 cases / 4,806 passed / 기존 runtime 경계 4 / failed 0**, stage **9,990 checks**, words **6,618 cases**. 새 언어 form을 추가한 변경이 아니므로 JE0의 71건과 전체 기존 corpus를 그대로 재검증했으며 report 10개의 binary/source hash를 확인했다. capture graph 경계 106과 static 경계 2는 별도이고, full upstream suite·definition invocation acceptance·새 audit revision DLL·private C trace 동등성은 미검증이다. conformance source pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실제 reference DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`; JE0 source 감사 `0db94e768a845e2583c01d00538c3d16379677bb`와 구분한다.
+
+JE1의 최소 API/첫 boundary는 완료이며 runtime `SymbolValue` seam을 JE2로 넘겼다. stack의 deferred noun/application structure와 lookup observations를 concrete JEntity로 강제하지 않는다. explicit body invocation·scope, semantic nested DD, JE3+ higher-order views, broader storage migration, full J conformance는 계속 별도 미완료다. optimization·CUDA·GitHub CI는 보류한다.
+
+##### JE2 — parser/binding/assignment 경계 수렴
+
+- [x] `FunctionOperand::as_entity_ref()`로 공통 borrowed JEntityRef를 제공하고 `span()`으로 provenance를 보존한다. noun의 별도 span과 함수 Arc 소유권을 유지하기 위해 owning enum은 유지한다.
+- [ ] parser stack/value model이 noun/function에 대해 공통 entity transport를 사용하되 jsource 9-row class/POS 규칙은 그대로 유지하게 한다. runtime rows 0–2와 row 7의 completed-result transport는 아래 단계에서 완료했고 전체 stack variant 수렴은 별도다.
+- [x] `CompletedParseResult`로 실행 완료 noun과 row 7의 네 RHS class를 JEntity 경계에 연결한다. deferred Expr·NAME·control은 concrete entity로 강제하지 않는다.
+- [x] modifier train의 Noun/Verb/Adverb/Conjunction operand를 같은 completed-result 경계에서 이동하고 noun source span·freeze 정책·함수 DAG identity를 보존한다.
+- [x] rank/@: conjunction operand를 completed-result 경계로 연결하고 right-before-left 검사·gerund quiet fallback·원본 Expr span을 유지한다.
+- [x] noun-left fork의 constant operand와 지원 explicit/direct definition의 mode/body·생성 결과를 completed-result 경계로 연결한다. definition invocation은 별도 미완료다.
+- [x] 생성/대입 경계 이행 후 남은 adapter 책임을 재감사하고 capture의 중복 함수 identity 조회를 borrowed helper로 통합한다.
+- [x] assignment가 `JEntity`를 namespace에 write하고 같은 assigned `JEntity`를 expression result로 반환하는 contract를 공통화한다. `Binding.value`와 runtime host boundary를 JEntity로 연결하고 SymbolValue를 제거했다.
+- [ ] name lookup이 binding에서 `JEntity`를 얻은 뒤 expected POS 검사를 수행하고 late-binding/version semantics를 유지하게 한다. top-level runtime lookup과 verb/modifier POS 검사는 완료했으며 전체 local/locale/definition scope는 미완료다.
+- [x] jsource `jtnamerefacv`의 의미적 차이를 회귀로 고정한다: noun name은 lookup 시점 value/snapshot을 전달할 수 있지만 function name은 실행 시 재조회되는 nameref가 필요할 수 있다. JEntity binding에서도 기존 71건과 새 noun/function replacement 11건으로 timing·POS·binding semantics를 유지한다.
+- [ ] explicit/direct definition constructor와 invocation 결과가 같은 entity boundary를 사용하게 한다.
+- [ ] parser/runtime/static path가 서로 다른 entity wrapper를 만들지 않는지 differential/golden으로 확인한다.
+
+**JE2 완료 조건:** noun과 function의 parser/binding/assignment transport가 하나의 semantic abstraction으로 수렴하고, POS·lookup timing·effect ordering은 jsource-compatible하게 유지된다.
+
+##### JE2 구현 — namespace와 runtime result의 JEntity 수렴 (2026-10-04, partial JE2)
+
+- runtime `SymbolValue`를 제거하고 `Binding { value: JEntity, version: NameVersion }`으로 저장한다. 함수 binding에는 `Arc<FunctionEntity>`만 남으며 별도 Verb wrapper/span/target 복제가 없다. runtime final result도 동일 JEntity를 사용한다. `ExprKind`는 noun application/dependency 구조를 보존하는 parser representation으로 남는다.
+- `commit_binding(name, JEntity) -> Result<JEntity>`가 version 증가 가능성을 먼저 검사하고, noun을 한 번 freeze한 뒤 namespace 저장/대입 반환 payload를 공유한다. 함수는 동일 DAG를 share한다. host assign은 이 함수에 위임하며 기존 noun replacement·OutputPool retirement 경로를 유지한다. automatic JEntity Clone을 추가하지 않고 freeze된 Value/Function Arc만 명시적으로 공유한다.
+- noun lookup은 기존 값 snapshot을 내고 function lookup은 DAG의 result_pos를 전달한다. by-value nameless modifier, POS-known static alias, modifier resolution의 late NameRef chain·versions를 유지한다. 과거 enum variant가 암묵적으로 검사하던 Verb/Modifier class는 각 조회 경로의 명시적인 POS 검사로 대체했다. verb NameRef가 modifier로 바뀌면 같은 domain error/current_name을 보존한다.
+- 더 이상 namespace에 Verb adapter가 필요하지 않아 `Verb::from_entity`와 그 전용 unit test를 제거했다. 보장하던 identity/span·POS 거부는 실제 commit/lookup 경로의 tests로 이행했다. parser occurrence wrapper와 `VerbTarget`은 아직 유지하며 namespace의 intrinsic Function identity와 분리한다. storage representation·Value 내부·gerund/view·optimizer/target policy는 바꾸지 않았다.
+
+새 runtime unit tests 3개는 65,536-atom noun의 stored/returned pointer와 네 RHS class의 shared identity·versions, version overflow의 noun/function replacement 거부·기존 binding/pool/commit 보존, unified Function의 expected-POS/domain/current_name을 검증한다. integration regression은 cache limit 0/4096에서 noun→Verb→Adverb→Conjunction 교체 중 noun alias 생존과 마지막 alias 해제 뒤 bounded retirement·noun 재대입을 검증한다. 기존 adapter test 한 개를 제거하고 이 실제 경로 검사로 대체했다. C corpus/stage에는 noun/function replacement **11건**을 추가하여 entity boundary fixture는 **82건**이다.
+
+**Namespace seam gate:** Windows default/portable 각각 **369 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,821 cases / 4,817 passed / 기존 runtime 경계 4 / failed 0**, stage **10,001 checks**, words **6,618 cases**. capture graph 경계 108과 static 경계 2는 별도이며 full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다. report 10개의 실제 binary/source hash를 확인한다. conformance source pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`; JE0 source 감사 revision `0db94e768a845e2583c01d00538c3d16379677bb`는 새 DLL 검증으로 취급하지 않는다.
+
+**남은 JE2:** parser completed-result transport와 deferred application 구조의 경계, 전체 local/locale/definition scope, explicit body invocation 및 static/runtime/capture 경로의 더 넓은 수렴을 검증한다. 이번 namespace seam 완료를 JE2 전체 완료로 표시하지 않는다. FunctionOperand view는 아래 단계에서 완료했으며 semantic nested DD와 기존 M2 gaps도 계속 추적한다. JE3+ collection·broader storage migration·optimization·CUDA·GitHub CI는 보류한다.
+
+##### JE2 구현 — provenance를 보존하는 borrowed operand view (2026-10-04, partial JE2)
+
+`FunctionOperand::as_entity_ref()`는 noun과 모든 함수 POS를 공통 `JEntityRef`로 조회한다. `span()`은 noun operand의 저장된 source span 또는 함수 identity의 span을 빌려준다. 이후 application occurrence span과 합치지 않는다. 조회에서 Value 복사·Arc 증가·새 entity 할당이 없고, owning enum은 noun provenance와 함수 DAG 소유권을 보존하기 위해 유지한다. gerund collection이나 물리 배열 representation으로 확대하지 않는다.
+
+실제 사용 경계는 nameless modifier의 by-value lookup 판정과 semantic binding의 function NameRef DAG 순회다. 기존 순회 순서·POS/lookup 정책은 유지한다. operand를 실행용 parser item으로 만드는 경계는 공유 Arc 소유권이 필요하므로 기존 materialization 경로를 유지한다.
+
+회귀는 owned 65,536-atom noun의 pointer/span 보존을 추가하고, 기존 host 종료 후 noun snapshot·48단계 shared DAG·explicit Verb/Adverb/Conjunction tests를 공통 view로 확장하여 payload identity, 함수/DefinitionCode 참조 수 및 원본 위치를 확인한다. 새 J 문법은 추가하지 않아 기존 82건 entity-boundary C fixtures를 그대로 사용한다.
+
+**Operand seam gate:** Windows default/portable 각각 **370 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,821 cases / 4,817 passed / 기존 runtime 경계 4 / failed 0**, stage **10,001 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같으며 full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
+
+completed parser result와 deferred noun/application 구조를 구분한 공통 transport는 아래 단계에서 진행한다. 전체 local/locale/definition scope와 explicit body invocation은 미완료다. JE2 전체 완료로 표시하지 않는다.
+
+##### JE2 구현 — completed parser result의 공통 transport (2026-10-04, partial JE2)
+
+`CompletedParseResult { entity: JEntity, span, height, verb_adapter }`는 완료된 RHS의 이동 경계다. noun Value와 함수 Arc를 복사하지 않고 이동하며, source occurrence/height와 Verb의 span/target adapter는 immutable FunctionEntity identity 밖에 둔다. `from_item`은 literal 또는 grouped literal noun만 받아들이고, 미계산 call·ReadName은 기존 unsupported 경계를 유지한다. 이 helper는 계산하거나 이름을 재조회하지 않는다. JEntity에 Clone을 추가하지 않는다.
+
+runtime rows 0–2는 기존 host.apply를 한 번 실행한 뒤 이 경계로 completed noun을 stack에 반환한다. host가 없는 analysis 경로는 기존 Expr 연산 구조를 보존한다. row 7은 같은 경계로 RHS를 host.assign에 전달하고 같은 반환 payload로 parser item을 복원한다. commit capture·provenance inheritance·POS·lookup timing·effect order는 기존 reduction pipeline이 처리한다. ParseValue의 Expr/Verb/Function/NAME/control variants, constructor 경로, final Program 구조 전체를 바꾸지는 않는다.
+
+근거는 [jsource runtime p.c row 7](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006)의 stacked RHS 대입/반환이다. 이는 pv.c tacit translator와 구분하며 새 source pin으로 DLL을 빌드했다는 주장이 아니다.
+
+새 unit regression 3개는 grouped owned 65,536-atom noun의 pointer/occurrence span/height, 세 함수 POS의 shared identity와 NameRef·Verb occurrence adapter, 정적 call/name 보존과 chained assignment의 apply 1회→inner→outer commit 2회를 확인한다. 기존 entity-boundary fixtures에 computed scalar chained assignment와 grouped computed array assignment 및 두 이름의 결과 조회 **6건**을 추가하여 **88건**으로 늘렸다. 이 실행 횟수 검사는 Rust host 경계의 관찰이며 private C trace 동등성 주장이 아니다.
+
+**Completed-result gate:** Windows default/portable 각각 **373 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,827 cases / 4,823 passed / 기존 runtime 경계 4 / failed 0**, stage **10,007 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같다. full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
+
+다음은 남은 parser value/constructor 경계에서 concrete completed result와 분석용 expression이 중복 전달되는 지점을 검토한다. 전체 stack enum 수렴, local/locale/definition scope 및 explicit body invocation은 미완료다. optimizer·CUDA·GitHub CI는 계속 보류한다.
+
+##### JE2 구현 — modifier constructor operand의 공통 경계 (2026-10-04, partial JE2)
+
+`CompletedParseResult::into_operand()`는 완료 noun을 기존처럼 한 번 `into_shared`하고 원본 occurrence span과 함께 FunctionOperand에 이동한다. 함수는 동일 Arc를 이동하며 occurrence용 Verb adapter를 semantic child에 복제하지 않는다. `modifier_train`의 Noun/Verb/Adverb/Conjunction 변환 중복을 이 경계로 대체했다. production rows 5/6과 gerund AR의 동일 modifier-train 생성 경로에 적용되며, result POS는 기존 cf.c disposition/constructor 결정으로 유지한다. raw NAME/control은 syntax error, deferred call/ReadName은 기존 unsupported로 남긴다.
+
+conjunction rank/right-first audit, noun-left fork, definition constructor, immediate bident/trident application은 각각의 검증 순서·실행 의미가 있어 이번 변경에 합치지 않았다. generic entity collection이나 physical storage 변경도 없다.
+
+새 회귀 2개는 grouped owned 65,536-atom noun이 복사 없이 freeze되고 원본 span을 유지하며 train 해제 뒤 application occurrence에서 재사용되는지 확인한다. 함수 세 POS의 DAG identity/참조 수, cf.c disposition과 result POS, 미계산 noun의 거부 및 control의 syntax error도 확인한다. 기존 runtime noun-origin capture·named array snapshot·nested modifier train tests와 88건 entity-boundary C fixtures를 재검증한다.
+
+**Constructor-operand gate:** Windows default/portable 각각 **375 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,827 cases / 4,823 passed / 기존 runtime 경계 4 / failed 0**, stage **10,007 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같다. full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
+
+다음은 rank/conjunction operand 경계에서 right-before-left 오류 우선순위와 gerund 감사 계약을 먼저 고정한 뒤 공통 transport 사용 여부를 검토한다. JE2 전체 완료와 전체 J parser 지원으로 표시하지 않는다.
+
+##### JE2 구현 — rank/conjunction operand와 오류 우선순위 (2026-10-04, partial JE2)
+
+`apply_conjunction_at`의 좌우 Noun/Verb operand 전달을 `CompletedParseResult::from_item/into_operand`로 연결했다. 먼저 right operand의 형태를 검사하며 @:의 noun-right domain error는 미계산 noun의 unsupported보다 앞선다. rank의 noun-right는 rank→length→numeric domain 순서로 검사한 뒤에만 left operand를 읽거나 gerund를 감사한다. 원본 Expr span과 parser reinsertion span override의 기존 구분을 유지하고, noun freeze와 함수 DAG 이동은 공통 경계를 사용한다.
+
+근거는 [고정 jsource cr.c::jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L733)의 right rank 추출과 그 이후 noun-left 분기다. boxed rank-1 noun만 gerund 감사 대상이며 모든 요청 rank가 RMAX이면 감사를 생략한다. fx 감사의 J 오류는 quiet constant-noun fallback으로 처리하고 partial decoded list를 남기지 않는다. RustJ 구현 경계인 unsupported는 계속 전달하며 성공한 C 기능인 것처럼 fallback하지 않는다. verb-right는 원래 function operand로 유지하고 noun-left function identity로 뒤바꾸지 않는다.
+
+새 unit 2개는 owned 65,536-atom constant와 rank noun의 pointer/Expr span, deferred left보다 오른쪽 rank/length/domain 오류가 먼저 나오는지 및 @: noun-right domain 우선순위를 확인한다. capture 회귀 1개는 right 오류 시 gerund name lookup/commit 부재와 기존 binding version 보존, valid rank/verb-right의 quiet 감사, 무한 rank 감사 생략 및 partial decode 제거를 확인한다. compound gerund C corpus/stage에 setup·오류 뒤 binding 사용·quiet/RMAX/verb-right construction **12건**을 추가한다. entity-boundary fixtures는 별도 88건으로 유지한다.
+
+**Rank-operand gate:** Windows default/portable 각각 **378 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,839 cases / 4,835 passed / 기존 runtime 경계 4 / failed 0**, stage **10,019 checks**, words **6,618 cases / failed 0**. capture graph 경계는 새 사례 2건을 포함한 **110건**, static 경계는 2건이며 runtime pass와 별도로 기록한다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+
+다음 JE2 후보는 noun-left fork와 definition constructor의 완료 값 전달 경계다. 각각 source span·생성 오류·본문을 실행하지 않는 계약을 먼저 확인한다. 전체 stack variant 수렴, scope와 definition invocation은 여전히 미완료다.
+
+##### JE2 구현 — noun-left fork와 definition 생성 경계 (2026-10-04, partial JE2)
+
+`CompletedParseResult::from_noun`은 grouped literal을 기존 completed_noun 규칙으로 이동하며 Expr span/height를 보존한다. 일반 from_item은 이 경계를 공유하되 기존 Item occurrence override를 복원한다. noun-left fork는 이 결과를 into_operand로 옮겨 source span·g/h DAG identity를 유지한다. 이전 fork만의 owned noun 경로를 공통 one-time freeze 정책으로 바꾸어 큰 상수의 이후 operand 재사용이 전체 배열 복사를 만들지 않도록 했다. allocator/physical representation 자체는 바꾸지 않았다.
+
+지원 DefinitionConstructor는 양쪽 noun class guard를 먼저 수행한 뒤 mode와 body를 기존 순서로 완료 값에서 추출한다. 이 transient 입력은 freeze하거나 FunctionEntity operand로 저장하지 않는다. mode/body 원본 일치와 semantic code validation은 그대로 수행한다. 생성 결과는 실제 Verb/Adverb/Conjunction POS를 가진 FunctionEntity를 공통 function→into_item 경계로 반환한다. DefinitionCode Arc의 불필요한 clone도 제거했다. 원본 code와 source provenance를 보존하며 invocation/local frame을 생성하거나 본문을 실행하지 않는다. computed definition의 미지원 범위는 확대하지 않았다.
+
+새 unit 2개는 grouped owned 65,536-atom fork 상수의 pointer/source span·g/h identity, 두 번 재사용 후 fork 해제까지 공유 생존, 미계산 noun 거부를 검증한다. definition의 양쪽 class guard가 deferred input보다 먼저 적용되는지와 기존 domain/unsupported 우선순위도 검증한다. integration 1개는 explicit/direct 각 세 함수 POS의 생성·commit, 본문 counter의 version/value 불변과 본문 이름 input observation 부재를 확인한다. C definition corpus/stage에 같은 6개 생성과 counter 조회 **12건**을 추가하며 entity-boundary fixture는 별도 88건이다.
+
+**Fork/definition gate:** Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 **114건**과 static 경계 2건은 runtime pass와 별도로 기록한다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+
+다음은 남은 completed-result/function wrapper 경계를 다시 감사하여 필요 없는 adapter만 제거하고, frontend F/P 체크리스트의 지원 범위와 미지원 생성/실행 범위를 정리한다. 전체 stack variant 수렴·local/locale scope·definition invocation은 여전히 미완료다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
+
+##### JE2 구현 — 잔여 adapter 감사와 frontend 체크리스트 수렴 (2026-10-04, partial JE2)
+
+`ParseValue::function_entity()`로 Verb/Adverb/Conjunction의 완료 함수 Arc를 빌려 읽는다. construction success와 final function result capture의 중복 분기를 제거했으며, observation event가 함수 수명을 실제로 보유해야 할 때만 기존처럼 Arc를 clone한다. completed Verb의 이동도 기존 function factory로 통합하되 Item occurrence span과 Verb adapter span을 각각 유지한다. 새 J 문법이나 실행 지원을 추가하지 않았다.
+
+| 유지하는 구조 | 유지 이유 |
+|---|---|
+| Verb/VerbTarget | 현재 parser occurrence span과 runtime target adapter를 intrinsic FunctionEntity identity와 구분한다 |
+| ParseValue/Item | deferred Expr, lexical NAME/target/control, class/flags/word provenance/occurrence는 concrete JEntity와 역할이 다르다 |
+| ParserNameBinding | noun snapshot·abstract noun·function POS·known modifier/version은 lookup observation 계약이다 |
+| FunctionOperand | noun source span과 함수 DAG의 owning Arc를 유지하며 borrowed JEntity view로 읽는다 |
+| ExprKind | static computation/dependency와 completed value/function을 최종 Program에서 구분한다 |
+| CompletedParseResult | concrete JEntity 이동에 필요한 height/span/Verb occurrence adapter만 둔다 |
+
+AssignedValue/SymbolValue는 앞 단계에서 제거했다. enum 수를 줄이려고 위 차이를 지우지 않는다. 이 감사로 JE2 전체 stack/scope/invocation 완료를 주장하지 않는다.
+
+F2의 same-stack 재삽입, P2의 같은 matcher 재순회·runtime/analysis engine 공유, P4의 ordinary extension NAME·assignment target 분리, P7의 legacy flat application loop 제거·entry-point 공유를 구현된 범위에 맞게 체크했다. P2 rows 3/4/7은 부분 지원을 명시하고 전체 완료 체크는 유지하지 않는다. full runtime ptcol trace, 전체 modifier/immediate bident/trident semantics, scope와 invocation, intrinsic FunctionSemanticInfo 및 최종 cutover gate는 미완료다. English mirror는 아래 단계 요약으로 같은 상태를 전달한다.
+
+기존 explicit/direct 세 POS 회귀를 확장하여 ConstructionSuccess→FunctionResult→Commit에서 같은 FunctionEntity/DefinitionCode Arc를 유지하고 final result observation이 final commit 앞에 위치하는지 확인한다. C corpus는 기존 4,851건을 그대로 재검증한다.
+
+**Adapter-audit gate:** Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+
+후속 감사에서 확인한 immediate action의 기존 지원과 surface parser row 도달성은 아래 기록을 따른다. 이 단계의 “미지원 immediate action” 우선순위는 기존 구현을 충분히 구분하지 못한 계획이었다.
+
+##### JE2/P3 구현 — immediate constructor 결과 경계와 row 도달성 정정 (2026-10-04, partial)
+
+C `cf.c::jthook`의 `fn == 0`은 invisible modifier 실행으로 생긴 V N / N/V A 및 N V N / N/V C N/V를 즉시 적용한다. RustJ의 `construct_modifier_bident`/`construct_modifier_trident`는 이미 AR decode와 derived modifier 실행에서 이를 지원한다. V N·N V N은 runtime host를 한 번 호출하여 실제 Noun을 반환하고, adverb/conjunction action은 해당 constructor가 반환한 실제 POS를 유지한다. “immediate executor가 전부 미구현”이라는 P3 설명을 정정한다. 지원 primitive/definition 범위를 넘어서는 실행은 여전히 Unsupported이며 전체 P3 완료를 뜻하지 않는다.
+
+surface parser에서는 ordered rows 0/2/3/4가 이 즉시 적용 조합을 rows 5/6보다 먼저 소비한다. 현재 9개 ParseClass의 모든 6,561 stack window를 검사하여 row 5는 NVV/VVV fork만, row 6은 immediate/fork가 아닌 disposition만 선택함을 고정했다. 도달하지 않는 branch의 Unsupported 문구를 row invariant 오류로 바꿨다. static analysis가 실제 값이 필요한 호출을 임의로 실행하거나 Unsupported를 J 오류로 바꾸는 정책 변경이 아니다.
+
+`ConstructionNames::apply_noun`의 성공 결과를 `CompletedParseResult::noun(...).into_item()`으로 통합한다. 기존 once-freeze, span/height와 ConstructorApply의 성공/오류 observation 순서는 유지한다. 새 unit regression은 bident/trident 두 경로에서 owned 256×256 배열 결과의 payload pointer·shape·span·실제 Noun POS와 host 호출 1회를 확인하고, 후속 FunctionOperand로 이동해도 복사 없이 살아 있음을 검증한다. 기존 실패/효과/정적 no-host 회귀를 함께 재검증한다.
+
+- [x] immediate action과 surface row eligibility를 구분하고 전수 검사한다.
+- [x] host Noun 결과를 공통 completed-result carrier로 이동한다.
+- [x] 즉시 계산한 Noun을 rank constructor에 넣는 C corpus/stage 사례 12개를 추가한다. scalar/array 결과 및 domain/length 실패를 비교한다.
+- [ ] 모든 primitive/explicit modifier 실행과 local/locale/definition invocation을 구현한다. 기존 ignored definition acceptance 17개를 완료 증거로 세지 않는다.
+
+**Immediate-boundary gate:** Windows default/portable 각각 **383 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,863 cases / 4,859 passed / 기존 runtime 경계 4 / failed 0**, stage **10,043 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 JE2 namespace gate와 동일하다. full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
+
+다음 단계는 실제 미지원 explicit adverb/conjunction 적용을 최소 C 사례로 분리하고, operand/local name binding과 실제 반환 POS를 보존하는 invocation 경계를 구현하는 것이다. noun 본문 결과도 Function으로 강제하지 않는다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
+
+기준 소스: [cf.c bident/trident table](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L292), [cf.c invisible modifier의 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L355), [p.c ordered parser rows](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
+
+##### JE2/P3 구현 — nonoperator explicit modifier의 첫 invocation 경계 (2026-10-04, partial)
+
+rows 3/4와 AR/derived modifier 실행이 `ExplicitDefinition`을 적용할 때 runtime host의 `apply_definition`을 거쳐 실제 `JEntity` 결과를 받는다. `x/y`를 참조하지 않는 mode 1/2에서 선택된 valence의 **단일 Body 문장**을 공유 tokenizer/enqueuer/parser로 실행한다. literal 결과뿐 아니라 `u/`, `m+n`, global noun을 읽는 계산도 기존 semantic kernel 범위에서 실행한다. direct definition의 mode 1/2도 같은 DefinitionCode 경계를 사용한다. definition을 생성·대입하는 단계는 계속 본문을 실행하지 않는다.
+
+`ModifierFrame`은 parent Engine을 빌려 global lookup/semantic calls를 수행하며 전체 symbol table을 복제하거나 global에 operand를 잠시 대입하지 않는다. `u/v`는 실제 operand이고 noun일 때만 `m/n` alias를 정의한다. `RuntimeParserHost::operand_function`은 이 특별 이름의 concrete function substitution만 허용한다. ordinary 함수 NAME의 late lookup·alias 재정의 동작은 유지한다. C `p.c`의 mnuvxy by-value 규칙과 `cx.c`의 operand 설치를 기준으로 했다. gerund의 특별 이름 `u`도 C decoded structure와 대조했다. 일반 gerund 이름을 snapshot으로 바꾸지 않는다.
+
+실제 반환값은 공통 CompletedParseResult를 통해 **Noun/Verb/Adverb/Conjunction의 품사 그대로** 다음 stack reduction에 들어간다. noun 반환을 함수로 강제하거나 capture에서 “completed construction function”으로 가정하던 경로를 제거한다. immutable 함수 Arc 및 noun shared payload를 이동·공유한다. 정적 prepare는 runtime host가 필요한 호출을 실행하지 않고 Unsupported를 유지한다. explicit 정의를 static-known primitive modifier로 분류하지 않는다.
+
+capture에는 `ExplicitModifierApply` invocation marker와 noun 반환의 `ConstructionNounSuccess` occurrence/facts를 추가했다. matching construction attempt·row/POS·sequential occurrence와 실패 후 대입 보존을 검증한다. 본문 내부 dependency/effect graph를 outer graph에 아직 연결하지 않았으므로 J Graph 변환은 `explicit modifier body graph requires invocation scope`라는 경계를 반환한다. **실행 성공은 graph 분석 완료를 뜻하지 않는다.** 본문 source 좌표를 caller source 좌표로 잘못 렌더링하지 않도록 operation/argument context는 유지하고 오류 위치는 outer invocation으로 매핑한다. 별도의 body/caller diagnostic frame은 후속 작업이다.
+
+지원 경계:
+
+- [x] 단일 문장 nonoperator adverb/conjunction의 실제 Noun/Function 반환과 후속 reduction을 지원한다.
+- [x] `u/v`, noun 전용 `m/n`, global late lookup, 반환 함수의 frame 밖 재사용, 오류/재정의/대입 대상 보존을 검증한다.
+- [x] Rust 회귀 3개와 C corpus/stage 사례 **48개**를 추가한다. scalar/matrix/empty/boxed noun, 반환 ADV/CONJ 재적용, gerund operand 및 domain/length 실패를 포함한다.
+- [x] 본문의 simple NAME `=.`/`=:`와 여러 직선 문장은 다음 modifier-scope 단계에서 구현했다. control flow·nested definition scope는 계속 미지원이다.
+- [x] 이후 operator-call 단계에서 x/y operator의 deferred Verb construction과 직선 호출을 구현했다. unbound 특별 이름의 global fallback 및 전체 scope 지원은 포함하지 않는다.
+- [ ] 현재 recursive parser 기반 호출은 Windows stack 보호를 위해 **8중첩**에서 LimitError를 낸다. 일반 invocation executor의 explicit frame/trampoline과 더 넓은 depth는 후속 작업이다. 오류 뒤 depth가 복구됨을 검증했다.
+- [ ] 본문 graph/source frame 및 전체 local/locale/definition 실행을 연결한다. 기존 ignored definition acceptance 17개는 계속 미완료다.
+
+**Explicit-modifier gate:** Windows default/portable 각각 **386 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,911 cases / 4,907 passed / 기존 runtime 경계 4 / failed 0**, stage **10,091 checks**, words **6,618 cases / failed 0**. capture graph 경계 **147건**(invocation 19·modifier value 109·ordered effect 19)과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`와 실행 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다. Linux/GitHub CI/CUDA 검증은 실행하지 않았다.
+
+이후 modifier-scope 단계에서 local/global assignment dispatch와 여러 직선 문장의 마지막 결과·실패/효과 순서를 구현했다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. body graph 연결과 전체 callable scope는 후속 경계다. CUDA·optimizer 구현·GitHub CI는 보류한다.
+
+기준 소스: [cx.c modifier 호출 및 local frame](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c u/v와 noun m/n 설치](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L322), [p.c mnuvxy의 by-value resolution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c VXOPR executor 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
+
+##### JE2/P3 구현 — modifier 지역·전역 대입과 직선 본문 실행 (2026-10-04, partial)
+
+이 단계는 앞 기록의 단일 문장 제한을 확장한다. `RuntimeParserHost`가 enqueue environment와 scoped assignment를 전달하고, definition 본문은 `ExplicitDefinition` 규칙으로 enqueue한다. 본문의 `=.`를 TopLevel의 전역 대입 규칙으로 승격하지 않는다. Engine은 global namespace와 별도의 호출별 `LocalFrame`을 유지하고 **현재 frame → global** 순서로 읽는다. caller의 다른 frame을 탐색하지 않는다. `u/v`와 noun 전용 `m/n`도 이 frame에 설치한다. noun은 공유 전에 한 번 freeze하며, 함수 Arc 및 큰 배열 payload를 유지한다. 전체 symbol table을 복제하지 않는다.
+
+선택된 nonoperator mode 1/2 valence의 여러 `Body` 문장을 순서대로 실행하고 마지막 문장의 실제 `JEntity`/POS를 반환한다. 마지막 문장이 대입이어도 그 RHS noun/function 값을 반환한다. 뒤 문장이 있는 비대입 함수 결과에는 C와 같은 `noun result was required` 오류를 내지만 함수 대입은 계속 진행할 수 있다. 실패 시 local frame과 호출 depth는 복구된다. 앞서 완료된 global 대입은 유지하고, 실패한 RHS와 바깥 대입 대상은 commit하지 않는다.
+
+C 비교로 구분한 이름 규칙:
+
+- **현재 값이 있는 지역 이름**에 `=:`로 대입하면 domain error이다. 지역 이름이 선언만 되어 있고 아직 값이 없으면 global 대입이 허용되며, 그 이후 `=.`로 지역 값을 넣을 수 있다.
+- ordinary 함수 NAME은 본문에서도 실행 시 lookup한다. 이를 반환할 때 마지막 지역 함수 값으로 재귀 치환하지 않는다. frame 종료 후 같은 이름의 global이 없으면 value error이고, 이후 global이 생기면 그 값을 조회한다. `u/v`의 by-value substitution 및 마지막 함수 대입의 실제 RHS 반환과 구별한다.
+- C가 종료 시 fix하는 implicit locative `u./v.`는 ordinary NAME과 다른 경계다. 아래 x/y 직선 operator executor 구현과 구별하여 후속 구현한다.
+
+체크리스트:
+
+- [x] nonoperator modifier의 simple NAME `=.`/`=:` dispatch와 현재 지역→전역 lookup을 분리한다.
+- [x] 여러 직선 문장, 마지막 대입 결과/POS, 중간 nonnoun 오류, committed global 효과와 실패 후 frame 복구를 검증한다.
+- [x] 직접 정의와 실제 `1/2 : 0` block 입력을 비교한다. block은 C `0!:100` script delivery로 공급하고 Rust에는 같은 원문을 전달한다. JDo 단일 호출로 interactive block을 흉내 내지 않는다.
+- [x] Rust regression **6개**, 공통 C corpus **31건**, stage 전용 **41건**을 추가한다. 지역 noun/function/adverb, ordinary NAME 반환 후 재조회, reserved operand, 대입 실패·효과 순서, 65,536-atom payload의 frame 종료 후 pointer 공유를 포함한다.
+- [x] 아래 ordinary-reference 단계에서 cross-frame 함수 operand, local NAME을 포함한 global publication, 미초기화 local 함수 대입 및 operand/local collision 제한을 해소했다. 실제 implicit locative는 별도 미지원 경계다.
+- [ ] control flow·nested definition framing·locale 및 전체 operator wrapper/scope는 후속 구현한다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. 기존 8중첩 제한과 ignored definition acceptance 17개는 유지한다.
+- [ ] 본문 dependency/effect graph와 별도 body/caller diagnostic frame을 연결한다. graph 변환은 계속 `explicit modifier body graph requires invocation scope`를 반환한다. 실행 성공은 static graph 분석 완료를 뜻하지 않는다.
+
+**Modifier-scope gate:** native Windows default/portable 각각 **392 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **164건**(invocation 28·modifier value 117·ordered effect 19)과 static 경계 2건은 별도다. report 10개의 binary/source hash를 확인했다. reviewed source는 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실행 DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`이다. full upstream suite·ignored definition acceptance·private C trace 동등성은 미검증이다. Linux/GitHub CI/CUDA 검증은 실행하지 않았다.
+
+이후 ordinary-reference 단계에서 scoped-reference 사례를 C와 대조하고 ordinary NAME 제한을 해소했다. x/y 직선 호출은 아래 operator-call 단계에서 구현했으며, 본문 graph/source frame 및 control flow는 후속 경계다. Unsupported 전에 global 효과가 commit될 수 있으므로 이를 안전한 자동 재실행 신호로 사용하지 않는다. optimizer·CUDA 구현·GitHub CI는 보류한다.
+
+기준 소스: [p.c 지역 조회와 global fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L631), [s.c bound private name의 global 대입 금지](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L718), [cx.c 중간 noun 결과 요구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L67), [cx.c implicit locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c implicit u/v 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L53), [jerr.h EVNONNOUN](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h), [i.c 오류 문구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/i.c).
+
+##### JE2/P3 구현 — ordinary NAME scope 경계 해소 (2026-10-04, partial)
+
+- [x] C native oracle로 ordinary NAME의 cross-frame 전달·global publication·미초기화 local 대입·operand/local 이름 충돌을 확인했다. 이전 scoped-reference 보수적 경계는 아래 범위에서 해소했다.
+- [x] ordinary NameRef를 implicit locative로 오인한 네 제한과 전체 함수 DAG의 이름 membership 재검사를 제거했다. 함수 이름은 expected POS를 가진 late reference로 유지한다. 호출은 현재 frame → global을 조회하며 caller frame을 캡처하거나 탐색하지 않는다. `u/v` operand substitution과 noun snapshot은 그대로다.
+- [x] `smf=.u` 후 `smf`를 안쪽 modifier에 전달하면 안쪽에서 ordinary `smf` 실행은 안쪽 local 또는 global을 조회한다. caller의 지역 `smf`로 고정되지 않는다. `smexport=:smf/`도 ordinary 이름을 보존하고 frame 밖 global 재정의를 반영한다. 미초기화 `smf=.smf`는 RHS의 현재 noun/function 품사를 따르며 noun이면 snapshot, 함수면 NameRef이다. 같은 이름의 operand/local 대입도 유효하다.
+- [x] Rust scope regression은 기존 Unsupported golden 1개를 실제 의미 검증 3개로 교체했다. 재정의·POS mismatch·undefined→defined, 실패 뒤 outer target/version 유지·이미 commit된 global publication과 frame 복구를 검증한다. 공통 single-line C corpus **21건**, stage에 이를 포함한 **45건**을 추가했다. 반환 함수의 C atomic representation과 실제 결과/오류를 비교한다. `af.c`를 검토 소스 hash 목록에 추가했다.
+- [ ] 실제 implicit locative `u./v.`, 전체 operator wrapper/scope, control flow·nested scope와 body graph/source diagnostic frame은 후속 작업이다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. 일반 NAME 지원을 implicit-locative fix나 전체 closure 지원으로 확대하지 않는다. static/no-host modifier application은 계속 명시적 경계이며 실행 성공을 정적 분석 완료로 계산하지 않는다.
+
+**Ordinary-reference gate:** native Windows default/portable 각각 **398 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,963 cases / 4,959 passed / 기존 runtime 경계 4 / failed 0**, stage **10,208 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **171건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. 보고서 10개의 실제 binary/source hash를 확인했다. reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실행 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·GitHub CI는 보류한다.
+
+이후 operator-call 단계에서 deferred callable의 직선 호출을 구현했다. implicit locative와 실행되지 않는 definition body graph/source frame은 후속 경계다. effect가 commit된 뒤 Unsupported가 날 수 있으므로 자동 replay하지 않는다.
+
+Sources: [p.c ordinary lookup / mnuvxy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c return-time implicit-locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c hasimploc / fix scope](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L17).
+
+##### JE2/P3 구현 — x/y operator의 deferred verb와 직선 호출 (2026-10-04, partial)
+
+- [x] C `cx.c::jtxop2/VXOPR`처럼 mode 1/2 operator의 operand application은 **본문을 실행하지 않고 Verb를 구성**한다. 기존 `FunctionHead::ExplicitDefinition`과 공유 DefinitionCode를 유지하며 원래 순서의 operand를 붙인다. code의 modifier POS와 적용 결과의 Verb POS를 구별한다. 새로운 modifier 전용 AST나 definition 본문 noun reduction을 만들지 않는다.
+- [x] 반환 verb의 직접/ordinary NAME 호출에 별도 x/y를 설치하고 기존 직선 본문 executor·tokenizer/enqueuer/parser를 공유한다. valence는 modifier operand 수가 아니라 실제 x/y 호출과 DefinitionCode의 monad/dyad section으로 선택한다. 빈 section은 ValenceError, 최종 함수 결과는 EVNONNOUN으로 처리한다. 생성 시 control-flow 본문을 실행하지 않으며, 해당 호출은 아직 Unsupported이다.
+- [x] 호출별 local frame과 u/v 및 noun 전용 m/n을 설치·정리한다. 기존 current-frame→global 조회, ordinary NameRef의 late lookup, global 효과/실패한 outer 대입 보존을 유지한다. 정의 재대입은 이미 생성된 verb의 공유 code를 바꾸지 않고, 함수 operand의 ordinary 이름 재대입은 실행 시 반영한다. primitive 호출에는 새 함수 Arc 복사를 추가하지 않는다.
+- [x] noun operand는 deferred construction에서 공유 저장소로 고정하고 이후 호출에서는 공유한다. 65,536-atom operand의 pointer 보존·이름 재대입 후 생존, code Arc 동일성, 생성/호출 효과 횟수, valence·POS·noun-result 오류와 반복 실패 후 frame 복구를 Rust regression **3개**로 확인했다. 재귀 제한은 기존 Windows **8중첩**을 유지한다.
+- [x] 공통 C corpus **38건**, 이를 포함한 stage **67건**을 추가했다. scalar/vector/empty, noun operand snapshot, named operand 재정의, direct/block/two-valence 정의와 실패 효과를 비교한다. frontend probe와 C `5!:1` adapter는 boxed operator head + operand vector를 보존하여 적용 전 modifier와 적용 후 verb를 구분한다. 기존 nonoperator scope/capture 테스트도 유지한다.
+- [ ] `u./v.` implicit-locative fix, control flow·nested scope, bare mode 3/4 verb invocation의 전체 지원, rank/insert 등 wrapper 안의 operator 실행, body graph/source diagnostic frame과 Logical lowering은 후속 작업이다. static/no-host application은 계속 명시적 경계다. DefinitionCode와 operand graph 보존은 본문 분석·compiled reuse 완료를 뜻하지 않는다.
+
+**Operator-call gate:** native Windows default/portable 각각 **401 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,001 cases / 4,997 passed / 기존 runtime 경계 4 / failed 0**, stage **10,275 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **184건**, static 경계 **2건**은 별도다. 기존 runtime waiver는 추가하지 않았다. 보고서 10개의 binary/reference/source hash를 검증했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 다르다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+**별도 oracle 경계:** 무한 재귀 operator 사례에서 j64 C oracle의 ctypes JDo가 `OSError: exception: stack overflow`로 종료했다. 정상 J LimitError 대조가 아니므로 위 성공 corpus에서 제외하고 `reports/operator-recursion-oracle-boundary-windows.json`에 기록한다. Rust depth-limit/frame-recovery regression만 통과했으며 이 사례의 C 동등성은 주장하지 않는다. 실패한 harness 실행을 successful gate로 계산하지 않았다.
+
+아래 implicit-operand 단계에서 반환 시 fix를 구현했다. caller scope 전환을 포함한 직접 호출과 body graph/source frame·control executor는 후속 작업이다. optimizer·CUDA·GitHub CI 보류를 유지한다.
+
+Sources: [cx.c jtxop2](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L749), [cx.c operator operand extraction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c x/y/u/v installation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L269), [cx.c result audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L671), [cx.c executor selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
+
+##### JE2/P3 구현 — implicit operand의 반환 시 고정 (2026-10-04, partial)
+
+- [x] C `t.c`처럼 `u.`/`v.`를 VERB primitive로 enqueue한다. ordinary NAME이나 extension keyword로 바꾸지 않는다. registry version은 4이다.
+- [x] `cx.c::xop`처럼 direct definition의 mode 판정에서 `u.`는 u, `v.`는 v 사용으로 계산한다. lexical VERB 분류와 adverb/conjunction definition POS는 구별한다.
+- [x] modifier의 직선 본문이 함수를 반환할 때 departing frame의 최종 u/v binding으로 첫 implicit locative를 치환한다. 각 replacement 안으로 더 들어가지 않으며 ordinary NameRef는 유지한다. source operator/operand 순서·decoded gerund를 유지하고 바뀌지 않은 FunctionEntity는 Arc를 공유한다.
+- [x] noun operand를 verb locative로 반환하면 DomainError이다. 미설치 operand의 반환은 C에서 함수 참조가 남을 수 있어 현재 Unsupported 경계이며 ValueError로 단정하지 않는다. 이미 commit된 global publication은 고정하지 않는다. 반환 뒤 ordinary 함수 이름 재정의와 실패 후 frame 복구를 회귀 검증한다.
+- [x] unresolved implicit primitive의 contract는 unknown/effect barrier이며 graph rule은 DynamicOrUnknown이다. 이를 pure 배열 kernel 또는 shape 보존 힌트로 간주하지 않는다.
+- [ ] **후속 진행:** 아래 caller-scope 단계에서 direct `u./v.` 호출과 ordinary alias 호출, publication 밖 호출 오류를 구현했다. wrapper 내부 raw 호출, 미설치 operand 반환 참조, 전체 locale/control/body graph/source diagnostic frame은 후속 경계다. 일반 함수 lookup으로 대체하면 caller-local 이름을 잘못 해석할 수 있다.
+
+Windows C oracle에서 반환 `u.`/`u./`/`v.`, operand의 지역 재대입, ordinary NAME 재정의, 전역 raw locative publication을 확인했다. Rust regression **3개**는 lexical/definition mode, 반환 뒤 호출·오류·frame 복구, fork의 동일 operand Arc 공유와 rank DAG 보존, graph unknown 규칙을 검증한다. 공통 runtime corpus **29건**, 이를 포함한 stage **45건**을 추가했다. raw 호출과 미설치 operand 반환은 새 successful runtime corpus로 계산하지 않는다.
+
+C `5!:1`은 source graph가 아닌 실행 객체의 표현이므로 `u. "0`에서 u를 +로 고정한 뒤 C는 redundant rank를 생략한다. 비교용 frontend probe만 +의 정확한 `[0,0,0]` rank를 생략하며 Semantic IR의 source rank parent는 보존한다. C의 zero-rank +와 rank를 유지하는 ravel을 함께 대조하고, Rust capture에서 rank parent 보존을 확인한다. decoded gerund는 source edge처럼 재귀 고정하지 않고 constructor auxiliary로 유지한다. gerund operator별 AR 재구성과 전체 constructor 특수화는 후속 감사 대상이다. [t.c +의 rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L113), [cr.c rank 재구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L778).
+
+**Implicit-return gate:** native Windows default/portable 각각 **404 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **5,030 cases / 5,026 passed / 기존 runtime 경계 4 / failed 0**, stage **10,320 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **195건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. frontend report 10개의 actual binary/reference/source hash를 검증했으며 `t.c`를 source hash 목록에 추가했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이다. optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+Sources: [t.c primitive 등록](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L221), [cx.c mode 판정](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L766), [cx.c 반환 fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c 첫 implicit reference fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [sc.c caller scope 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L124).
+
+##### JE2/P3 구현 — implicit operand의 caller scope 호출 (2026-10-04, partial)
+
+- [x] C `sc.c::unquote`와 Windows oracle에서 ordinary u와 implicit u.의 caller-local 조회 차이, v., monad/dyad, noun/missing operand 오류를 확인한다.
+- [x] direct primitive 및 ordinary alias를 통한 implicit 호출에서 현재 frame의 operand를 확보한 뒤 caller 환경에서 실행하고, 성공·J 오류 모두에서 현재 frame을 복구한다. 전달 noun을 복사하지 않고 기존 parser/runtime executor를 공유한다.
+- [x] Rust 회귀 및 C 양 버전 대조에 caller-local 충돌, operand 지역 재대입, 전역 publication, 오류 후 frame/전역 효과 복구를 추가한다. graph unknown 계약은 유지한다.
+- [ ] `/`·rank·train 내부의 raw implicit 실행, 미설치 operand의 반환 참조, 전체 locale/control/body graph/source frame은 별도 후속 경계다. 이 단계는 global locale path 전환의 전체 구현이 아니다.
+
+Rust 회귀 **2개**가 ordinary u와 u.의 caller-local 차이, u/v monad/dyad, noun·missing operand 오류, 안쪽 operator의 실패 뒤 global 효과 보존과 frame 복구를 확인한다. 기존 implicit-return regression도 유지한다. 공통 runtime **23건**, 이를 포함한 stage **47건**을 추가했다. **Caller-scope gate:** native Windows default/portable 각각 **406 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,053 cases / 5,049 passed / 기존 runtime 경계 4 / failed 0**, stage **10,367 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **204건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. frontend report 10개의 실제 binary/reference/source hash를 검증했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이다. optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다. 미설치 operand의 **호출**은 ValueError이며 **반환** 참조는 아직 별도 경계다. 재귀 depth 제한은 기존 Windows bound를 유지하며, suspend된 callee도 invocation depth에 포함한다.
+
+Sources: [sc.c local operand와 caller 환경 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L122), [sc.c implicit primitive 호출](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L433).
+
+##### JE2/P3 구현 — wrapper와 train의 scope-aware 실행 (2026-10-04, partial)
+
+- [x] C `ar.c::jtredg`의 오른쪽 결합, `j.h::FORK1/FORK2`의 오른쪽 가지 우선, rank의 cell/frame·prefix agreement를 검토한다.
+- [x] A3 executor의 rank/reduction cell 알고리즘을 callback seam으로 공유한다. 기존 primitive kernel 경로는 유지하고, Unsupported composition에만 runtime FunctionEntity 실행을 연결한다. operator/rank DAG를 flatten하지 않는다.
+- [x] `/`의 비어 있지 않은 monad, uniform nonempty rank, Hook/Fork/Atop의 monad/dyad에서 실제 child invocation마다 이름과 implicit caller scope를 조회한다. fork input은 공유 noun으로 보존하고 오른쪽 가지 오류 전에 왼쪽 가지를 실행하지 않는다.
+- [x] Rust 및 C 양 버전 corpus에 wrapper·caller-local 충돌·branch effect/error 순서를 추가한다. static unknown 계약과 effect barrier는 유지한다.
+- [ ] empty identity/prototype, heterogenous rank fill/padding, sparse·dyadic insert와 noun-left/capped train은 별도 확인한다. callback의 Unsupported는 commit된 효과가 없는 재실행 허가가 아니다.
+
+**Wrapper/train gate:** Windows default/portable 각각 **408 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,089 cases / 5,088 passed / runtime 경계 1 / failed 0**, stage **10,424 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **222건**, static 경계 **2건**은 별도다. 기존 runtime 경계 3건(Atop 및 fork 안 named insert 2건)을 해소하고 해당 waiver를 제거했다. 새 waiver는 없다. frontend report 10개의 binary/reference/source hash를 확인했고 `ar.c`를 검토 소스 목록에 추가했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+Rust regression 2개와 기존 named-insert provenance regression은 source DAG 보존·오른쪽 결합·caller-local·rank shape와 branch effect/error 순서를 확인한다. 공통 runtime **36건**, 이를 포함한 stage **57건**을 추가했다. primitive 호출에는 함수 Arc 복사를 추가하지 않고, Runtime fallback만 composition을 순회한다. A3의 Hook/Fork executor와 전체 body graph lowering 완료를 주장하지 않는다. 다음은 empty reduction identity와 empty rank prototype을 C와 대조한다.
+
+Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L513), [j.h fork execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249), [cr.c rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
+
+##### JE2/P3 구현 — empty identity와 순수 ravel prototype (2026-10-04, partial)
+
+- [x] C `ai.c::jtiden`과 Windows oracle로 `+ - * %`의 identity를 확인했다. empty rank에서 사용자 verb가 prototype 계산용으로 한 번 실행되어 global 효과가 남을 수 있다는 점을 확인했다.
+- [x] primitive witness를 현재 이름/POS·implicit caller scope에서 조회하되 definition 본문을 실행하거나 분석한 것으로 계산하지 않는다. 확인된 네 identity를 기존 kernel 경로로 계산하며 caller frame을 복구한다.
+- [x] 순수 monadic ravel은 cell shape만으로 empty rank output shape/type을 계산한다. primitive와 implicit wrapper가 같은 kernel을 사용한다. negative rank·다차원 zero axes·character type·caller-local collision을 검증한다.
+- [x] Rust와 C 양 버전 회귀를 추가하고 일반 사용자 verb의 prototype 및 empty identity 경계를 별도로 유지한다. 일반 prototype의 효과·suppressed error·fill/padding, 다른 primitive prototype, sparse·dyadic insert는 후속 작업이다.
+
+**Empty-scope gate:** native Windows default/portable 각각 **410 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,130 cases / 5,129 passed / runtime 경계 1 / failed 0**, stage **10,474 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **230건**, static 경계 **2건**은 별도다. 새 waiver는 없다. report 10개의 binary/reference/source hash를 확인했고 `ai.c`를 검토 목록에 추가했다. Rust regression **2개**, 공통 runtime **41건**, 이를 포함한 stage **50건**을 추가했다.
+
+일반 explicit verb의 empty rank에서는 C가 body를 한 번 실행해 count를 1로 만들었으며, unknown explicit reduction identity는 DomainError를 내고 count는 0이었다. 두 경계의 j64 probe는 `reports/empty-prototype-oracle-windows.json`에 별도 기록한다. Rust는 아직 명시적 Unsupported이며 이 두 사례의 동등성/순수성을 주장하지 않는다. runtime primitive witness는 compile-time binding proof를 뜻하지 않고 analyzer의 unknown 계약을 바꾸지 않는다. full upstream·ignored definition acceptance·private C trace는 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다. 다음은 noun-left fork이다.
+
+Sources: [ai.c identities](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ai.c#L368), [ar.c empty reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L505), [cr.c rank execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
+
+##### JE2/P3 구현 — noun-left fork 호출과 snapshot 공유 (2026-10-04, partial)
+
+- [x] C `j.h` NVV 경로와 Windows oracle에서 왼쪽 noun은 생성 시 snapshot이고 오른쪽 h 실행 후 g에 넘겨진다는 것을 확인한다. monad/dyad와 이름 재대입·agreement 오류를 대조한다.
+- [x] 기존 parser의 source Fork DAG와 CompletedParseResult의 공유 noun을 그대로 사용한다. 오른쪽 child만 호출하고 왼쪽 값은 지연 이름 조회로 바꾸지 않는다. 두 가지 입력 보존을 위한 불필요한 공유 변환은 하지 않는다.
+- [x] 65,536-atom snapshot의 pointer 유지·이름 재대입 뒤 생존, implicit caller scope, join 실패 전에 commit된 오른쪽 효과와 오류 후 frame 복구를 검증한다.
+- [x] C 양 버전 및 기존 frontend/portable gate를 통과한 뒤 기록한다. capped fork, noun-left GraphForm/Logical lowering 전문화, 일반 prototype/control/body graph는 별도 후속 작업이다.
+
+Sources: [cf.c noun fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L59), [j.h NVV execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1277).
+
+
+**Noun-fork gate:** native Windows default/portable 각각 **412 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,156 cases / 5,155 passed / runtime 경계 1 / failed 0**, stage **10,511 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **234건**, static 경계 **2건**은 별도다. report 10개의 actual binary/reference/source hash를 확인했고 새 waiver는 없다. Rust regression **2개**와 기존 computed-noun capture regression을 실제 실행 결과 검증으로 갱신했다. 공통 runtime **26건**, 이를 포함한 stage **37건**을 추가했다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+##### JE2/P3 구현 — capped fork의 생성 의미와 graph 표현 (2026-10-05, partial)
+
+- [x] C `t.c::CCAP`, `cf.c::jtcap/jtfolk`와 `j.h`를 확인하고 Windows j64/AVX2의 finite probe를 기록했다. 기존 `reports/capped-fork-oracle-windows.json`은 **구현 전 reference-only 관찰**이며 conformance 통과 보고서로 바꾸지 않는다.
+- [x] `[:`를 core VERB primitive로 등록한다(registry **5**). 일반 tokenizer/enqueuer 경로를 쓰고 standalone monad/dyad는 argument type/empty 여부에 관계없이 ValenceError를 낸다. primitive의 보수적 unknown analysis contract는 callable/pure array kernel 지원을 뜻하지 않는다.
+- [x] fork 생성 시 직접 `[:` 또는 현재 **single name의 직접 binding이 `[:`**인지 판정한다. alias chain을 추적하지 않는다. 생성 뒤 첫 이름의 값/POS 변경에도 capped 의미를 유지하며 ordinary fork의 nameref는 계속 late lookup한다. explicit operand substitution과 caller-local constructor 환경, gerund AR decoder도 같은 constructor seam을 쓴다.
+- [x] `FunctionHead::Fork`와 원래 세 operand DAG·NAME/source span을 보존한다. `FunctionEntity.fork_semantics`는 Fork에만 존재하는 불변 constructor 의미(Ordinary/Capped)이며 actual argument fact나 optimizer proof가 아니다. 생성 시점의 첫 이름 read/version은 `Program/Plan.fork_name_reads`와 capture `ForkNameResolved` sidecar에 분리한다. 이 sidecar는 cached execution guard가 아니다. no-host에서 POS만 알려진 이름은 direct-binding proof가 없으므로 Unsupported construction 경계다.
+- [x] capped 호출은 h(x,y) 다음 g(monad)를 실행하고 첫 operand를 호출하지 않는다. source Fork는 그대로 두고 Graph IR **0.5**에서 Pipeline region과 h→g dataflow를 유도한다. ParallelBranchCandidate·RetainedValueCandidate를 주지 않는다. g/h의 late name/POS·effect/error barrier를 유지하며 optimizer는 실행하지 않는다.
+- [x] direct/named cap, alias chain·재대입·POS 변경, monad/dyad, operand/local scope, 오류 뒤 효과/복구, source DAG·constructor dependency·pipeline hint와 gerund AR provenance 회귀를 추가했다. C AR의 첫 operand `[:` 정규화는 oracle projection에만 적용하며 source NAME을 지우지 않는다.
+
+**Cap gate:** native Windows default/portable 각각 **418 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture 경로 **5,207 cases / 5,206 passed / 기존 runtime 경계 1 / failed 0**, stage **10,586 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **239건**, 기존 static 경계 **2건**은 따로 기록한다. 새 runtime waiver는 없다. Rust integration regression **5개**와 POS-only constructor proof unit regression **1개**, 공통 runtime **51건**, 이를 포함한 stage **75건**을 추가했다. frontend report 10개의 actual binary/reference/source hash를 검증했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+**다음 체크리스트:**
+
+- [x] 남은 verb-valued rank operand를 C `cr.c`의 innate rank/constructor 규칙과 대조했다. 아래 verb-valued rank 단계에서 고정 constructor rank와 dynamic operand binding을 구분한다.
+- [ ] noun-left GraphForm/Logical 전문화·일반 empty prototype의 effects/error suppression·heterogeneous fill/padding·sparse·dyadic insert·full definition/control/body graph는 계속 미완료다. 외부 static catalog의 POS-only first NAME은 불충분한 proof이므로 생성 경계를 유지한다.
+
+Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L163), [cf.c single-name cap 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L38), [j.h capped call](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249).
+
+##### JE2/P3 구현 — verb-valued rank의 생성 정보와 실행 이름 분리 (2026-10-05, partial)
+
+- [x] C `cr.c::jtqq`, `sc.c::jtnamerefacv`, `ja.h`의 rank accessor와 core primitive/derived constructor를 검토했다. `u"v`는 오른쪽 verb를 실행하지 않고 **그 함수 객체의 monad/left/right header rank**를 복사한다. negative requested rank와 derived verb의 실제 header rank는 다르다. 예를 들어 `+"_1`의 requested monad rank는 -1이지만 header monad rank는 `_`다. gerund rank-derived verb의 header도 모두 `_`다.
+- [x] ordinary NAME이 parser stack에 들어갈 때 현재 binding의 header rank를 immutable `FunctionEntity.name_ranks`에 복사한다. alias의 기존 header를 읽고 현재 alias target을 따라가지 않는다. 미정의 ordinary name의 C header는 모두 `_`다. 이 metadata는 executable NAME을 고정하거나 pure로 만들지 않는다. 기존 implicit `u.`의 header와 explicit actual operand `u`의 header도 구분한다.
+- [x] 원래 rank conjunction과 두 source operand, NAME/span을 그대로 보존한다. `requested_ranks()`가 noun rank spec 또는 오른쪽 verb header를 읽으며 runtime/name lookup을 수행하지 않는다. 왼쪽 callable의 late binding/POS 검사, nested rank 경계와 기존 prefix agreement·오류 순서는 유지한다. 오른쪽 NAME의 후속 재정의·noun/adverb로의 POS 변경은 이미 생성된 rank를 바꾸지 않는다.
+- [x] constructor header read/version/span은 `Program/Plan.name_rank_snapshots`와 capture `FunctionNameRank` observation으로 별도 기록한다. 오른쪽 rank operand는 executable late-reference 목록에서 제외한다. 이 sidecar는 cache guard나 purity proof가 아니다. 당시 primitive registry는 **6**, Graph IR은 **0.6**이며 `GraphForm::Rank.requested_ranks`를 추가한다. source noun인 `rank_spec`과 source RHS function을 혼동하지 않는다.
+- [x] static catalog의 `declare_primitive_verb`가 header 근거를 제공한다. POS만 알려진 RHS 이름은 유효한 J 문법이지만 **Unsupported construction proof 경계**로 남긴다. known header만으로 executable binding을 동결하지 않는다. 입력 payload 없이 `[1_000_000_000_000, 3]` metadata로 ravel-cell 결과 shape를 분석하는 회귀를 추가했다.
+- [x] Rust 회귀 7개는 RHS 비실행, alias·미정의 이름·재대입, lhs late execution, explicit/implicit operand, 음수·비대칭 rank, empty pure ravel, prefix agreement 오류 후 복구, source/capture/Graph/A3 및 대용량 metadata 분석을 검사한다. C `b.0` header projection과 runtime 값/오류를 각각 대조한다. `reports/verb-rank-oracle-windows.json`은 구현 전 **C reference-only 관찰**이며 conformance 보고서와 구분한다.
+
+**Verb-rank gate:** native Windows default/portable 각각 **425 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **5,321 cases / 5,321 passed / runtime 경계 0 / failed 0**, stage **10,757 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **244건**과 static 경계 **2건**은 별도로 남는다. primitive/derived header **39건**과 alias header를 C `b.0`로 대조했다. frontend report 10개의 실제 binary/reference/source hash를 검증했다(`ja.h` 포함). source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. 현재 corpus의 runtime 경계 0은 full J 지원을 뜻하지 않는다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
+
+**반환 경계 후속 검토:** `cx.c`는 explicit modifier가 non-noun을 반환할 때 첫 implicit locative를 fix하고, `af.c::jtfixa`는 치환한 operand로 modifier를 다시 실행해 새 derived entity를 만든다. 따라서 본문에서 `(,"u.) y`를 즉시 실행하면 `u.` header `_`를 쓰지만, `,"u.`를 반환해 `u=+`로 fix한 뒤 실행하면 새 entity의 RHS header 0을 쓴다. `[2,3]` 입력의 ravel 결과는 각각 `[6]`과 `[2,3,1]`이다. 이 재구성은 기존 entity의 rank를 late lookup으로 바꾸는 것과 다르다. C 기본·AVX2와 Rust의 반환 구문 10건을 먼저 직접 대조했고, 동일 결과를 확인했다. 추가 Rust 회귀와 공통 runtime corpus로 이 차이를 보존한다. 런타임 구현 변경은 필요하지 않았다.
+
+**Return-boundary gate:** native Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. C 기본·AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases**, 실패 0. capture graph **250건**, static **2건** 경계는 별도다. report 10개의 실제 source/reference/binary hash를 다시 확인했다. 추가한 10개 공통 구문은 세 runtime 경로와 stage 모두에 포함한다. 위 Verb-rank gate와 이 Return-boundary gate는 이전 단계의 기록이다. **당시에는 NV2가 최신 gate였지만 현재 최신 검증은 §10의 NV3d2b2a이며, graph-readiness 이력은 GF6a까지 진행됐다.** 미검증 범위와 optimizer/CUDA/Linux/GitHub CI 유보는 동일하다.
+
+Sources: [cx.c modifier return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c implicit operand](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [af.c reconstruct modifier](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193).
+
+**다음 체크리스트:**
+
+- [ ] noun-left rank/gerund runtime과 noun-left GraphForm/Logical 전문화를 C constructor/call 규칙에 맞춰 확장한다.
+- [ ] 일반 empty prototype의 effects/error suppression, heterogeneous fill/padding, sparse, dyadic insert 및 full definition/control/body graph는 계속 미완료다. header 정보로 이 실행 경계를 우회하지 않는다.
+
+Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L734), [sc.c NAME header copy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [ja.h rank accessor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ja.h#L745), [t.c primitive headers](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c), [ap.c prefix/infix header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L965), [ar.c insert header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L1009).
+
+##### JE3 — operator-specific higher-order view 필요성 검증
+
+- [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
+- [ ] jsource `jtfxeachv`의 fake-BOX/function payload representation을 RustJ `Value::Boxed`나 새로운 J-visible noun type으로 복제하지 않는다.
+- [ ] view가 shape/rank를 보존해야 하면 source boxed noun에서 가져오고, 그 shape가 실제 selector/agenda/tie 등 observable semantics에 필요한지 operator별로 증명한다.
+- [ ] current `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>`가 shape/order/name-binding 정보를 잃는지 `@.`, grave/tie 계열 등 각 지원 operator에 대해 감사한다.
+- [ ] 단순 ordered sequence면 충분하면 shape-bearing view를 만들지 않는다.
+- [ ] 두 개 이상의 독립적인 J semantic use case가 동일한 shaped-entity algebra를 요구할 때만 generic `EntityCollectionView`를 추출한다.
+- [ ] train/Hook/Fork DAG는 collection으로 flatten하지 않고 shared FunctionEntity graph로 유지한다.
+- [ ] arbitrary verb array를 새 J language feature처럼 허용하지 않는다.
+
+**JE3 완료 조건:** operator-specific view로 충분한지 먼저 판정하고, generic shaped collection은 실제 공통 semantic law가 발견된 경우에만 추출한다. jsource 내부 representation의 편의만으로 `EntityArray`를 만들지 않는다.
+
+##### JE4 — gerund/boxed higher-order semantics 통합
+
+- [ ] gerund를 새 global atom/POS type으로 만들지 않고 **boxed noun + modifier-context interpretation**이라는 기존 J semantics를 유지한다.
+- [ ] gerund interpretation이 필요할 때만 boxed noun에서 operator-specific `GerundView`/`InterpretedEntitySequence`를 만든다. source boxed noun의 shape는 해당 operator가 필요할 때만 view metadata로 보존한다.
+- [ ] generic `EntityCollectionView`는 JE3의 공통성 증명이 끝난 뒤에만 추출한다.
+- [ ] view 내부에 function entity ref가 있어도 그 function에 container의 rank/shape를 복사하지 않는다.
+- [ ] gerund 내부 name/function reference의 fix/late-binding/version 규칙을 보존한다.
+- [ ] ordinary boxed data와 gerund interpretation이 같은 payload에서 context에 따라 달라지는 golden test를 추가한다.
+- [ ] 현재 `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>` 특수 필드를 공통 entity view로 대체할 수 있는지 검토하고, 의미 손실이 있으면 유지한다.
+
+**JE4 완료 조건:** gerund와 boxed data의 문맥적 차이를 잃지 않으면서 higher-order entity collection을 공통 abstraction으로 표현할 수 있다.
+
+##### JE5 — entity algebra와 array-execution algebra의 경계
+
+- [ ] `JEntity` layer와 `Logical Execution IR`의 역할을 분리한다: function entity 자체는 logical array value가 아니고, **적용된 verb가 noun input을 받아 noun result를 만드는 순간** array execution graph로 내려간다.
+- [ ] monadic application을 `JEntity(Verb) × JEntity(Noun) → JEntity(Noun)`, dyadic application을 `Noun × Verb × Noun → Noun`의 semantic contract로 검증한다.
+- [ ] adverb/conjunction application은 일반적으로 function entity derivation이지만, parser bident/trident semantic action이 immediate noun result를 만들 수 있는 경우까지 `JEntity` boundary가 표현한다. 어느 경우에도 parser result를 즉시 physical execution representation으로 고정하지 않는다.
+- [ ] `CellApply`/Reduce/Scan/Reindex가 entity layer가 아니라 applied array-computation layer에 남는지 확인한다.
+- [ ] effect flow(namespace/I/O/state)와 entity/value flow를 직교하게 유지한다.
+- [ ] J Graph/Logical IR이 `JEntityArray`의 physical layout이나 entity-container storage를 알 필요가 없다는 verifier/invariant를 둔다.
+
+**JE5 완료 조건:** `JEntity` 일반화가 현재의 “verb application = logical array computation” 모델을 흐리지 않고 오히려 그 경계를 명시적으로 만든다.
+
+##### JE6 — migration cleanup과 비용 검증
+
+- [ ] compatibility adapter와 중복 `Noun|Function` carrier를 제거한다.
+- [ ] public/internal API 이름을 정리하고 `JEntity`/`EntityArray` ownership/lifetime 문서를 고정한다.
+- [ ] large derived function, gerund, repeated binding에서 deep-copy/refcount churn이 악화되지 않는지 benchmark한다.
+- [ ] compiler coverage manifest에 entity-layer 지원/late-binding/runtime fallback 경계를 추가한다.
+- [ ] M2 frontend conformance corpus와 기존 J Graph/A3 golden을 전부 다시 통과시킨다.
+- [ ] Logical/Physical Array invariant에서 BufferId/stride/device가 entity layer로 역류하지 않았는지 구조 검사를 추가한다.
+
+**JE6 완료 조건:** 기존 observable J semantics와 compiler pipeline 결과가 유지되고, 중복 carrier를 줄였으며, 공통 entity abstraction이 storage/runtime coupling을 새로 만들지 않는다.
+
+**운영 규칙:** 이후 `JEntity`/higher-order view 관련 진행 보고는 반드시 `JE0`–`JE6` 항목 번호로 보고한다. 새 요구사항은 임시 TODO로 분산시키지 않고 먼저 이 체크리스트의 적절한 단계에 추가한다. 최소 `JEntity`는 M2의 중복 carrier를 줄이는 작은 seam부터 허용하지만 broad rewrite는 금지한다. JE3에서 공통 shaped-entity algebra가 입증되지 않으면 generic `EntityArray`/`EntityCollectionView`를 구현 목표로 강제하지 않는다.
+
+### A0 — 문서/아키텍처 경계
+
+- [x] RustJ 내부 compiler stage의 논리적 경계를 확정한다.
+- [x] Semantic Analyzer 입력 전에 hook/fork/train/derived verb/rank를 제거하지 않는 원칙을 확정한다.
+- [x] `J Semantic Array IR`과 `Logical Array IR / Plan`을 구분한다.
+- [x] generic boundary 후보를 semantic analysis 이후의 Logical Array IR로 이동한다.
+- [x] 문서를 `PROJECT.ko.md`로 통합한다.
+- [x] 현재 지원 subset의 source frontend → FunctionEntity → J Graph → canonical Logical IR 분석 경계를 연결했다. full frontend/execution 완료는 M2/M4에서 별도로 추적한다.
+
+### A0.5 — jsource-compatible parser 이행 체크리스트
+
+이 절의 **F0–F2 + P0–P7이 frontend/parser migration의 authoritative checklist**다. F0은 word formation, F1은 enqueue/primitive resolution, F2는 parse-queue skeleton을 담당한다. 그 뒤 P 단계에서 parser semantic construction/name-resolution/cutover를 완성한다. P8은 A1/A2/A3로 넘기는 integration handoff다.
+
+> **운영 원칙 (2026-10-01 확정):** Tokenizer/word formation, Enqueuer, Parser는 RustJ 고유 frontend 문법을 새로 설계하지 않고 current jsource의 observable frontend semantics를 충실히 이식한다. representation은 Rust-native여도 되지만 word boundary, enqueue classification/lookup timing, parser row eligibility/order, modifier construction boundary/result POS/error semantics는 jsource가 기준이다. Parser가 만든 completed `FunctionEntity` DAG가 canonical semantic source이며 downstream이 이를 `reduce/rank` 같은 축약 필드로 대체해서는 안 된다.
+>
+> **현재 실행 순서:** F0 differential 0-mismatch 기록 → F1 Enqueuer 분리 → F2 parse queue → P1 stack/value model → P2 9-row engine → P3 construction semantics → P4 name/assignment sequencing → P5 semantic/compiler fact 분리 → P6 conformance gate → P7 legacy parser 제거. 각 단계는 아래 완료 조건을 만족한 경우에만 완료로 체크한다.
+
+검토 기준은 2026-09-30의 `jsoftware/jsource` master(`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`)이다. 특히 다음을 함께 oracle로 본다.
+
+- `jsrc/p.c::cases[]`: 9-row J parsing rule의 선언형 기준. 현재 runtime parser가 직접 순회하는 테이블은 아니고 tacit translator에도 사용된다.
+- `jsrc/p.c` runtime parser의 `ptcol`/bit-mask dispatch: 같은 row eligibility/order를 실제 parser hot path에서 구현한다.
+- `jsrc/cf.c`의 Hook/Fork 및 bident/trident dispatch.
+- 각 ADV/CONJ constructor(`jtslash`, `jtqq` 등): modifier application 시 J-defined construction validation과 실제 result POS를 결정한다.
+
+RustJ가 그대로 맞춰야 하는 것은 **word/class resolution timing, row eligibility와 precedence, reduction extent, result parser class/POS, construction-time J errors, assignment/parenthesis/name-resolution semantics**다. C의 bit packing, refcount, in-place bookkeeping, cached function pointer, `localuse` 최적화는 이식 대상이 아니다.
+
+RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST parser가 아니라는 점을 보존해야 한다. rows 0–2의 verb application은 **parser-visible effect/value dependency가 없다는 것이 증명된 경우에만** Noun-producing semantic application으로 defer할 수 있다. 그 실행이 이후 name/locale lookup, assignment state, modifier operand value, result POS 또는 construction-time error에 영향을 줄 수 있으면 정적 parser가 효과를 무시한 채 진행해서는 안 된다. v0 correctness baseline은 동일한 9-row engine의 runtime semantic action/fallback을 사용하고, 이후 guard/multiversion으로 정적 범위를 넓힌다. rows 3–4 역시 modifier application 시점에 필요한 J construction semantics를 수행하여 completed entity/POS/error를 결정해야 한다.
+
+#### Frontend 파일 경계
+
+| 파일 | 책임 | 입력 → 출력 |
+|---|---|---|
+| `src/tokenizer.rs` | `w.c::jtwordil` state machine, raw words·parse-visible comment cutoff | source bytes → byte spans |
+| `src/enqueuer.rs` | `jtenqueue` 해석, primitive/literal/name/copula·환경별 flags | source + tokenizer spans → `EnqueuedWord` queue |
+| `src/parser.rs` | parse class/9-row matcher, stack reduction, modifier/train construction, parser-time name/POS lookup | typed queue → `Program`/completed `FunctionEntity` |
+| `src/semantic.rs` | target-independent 의미 객체·rank constructor 계약·binding/version model | parser 결과를 실행/분석 계층에 전달 |
+
+Tokenizer·enqueuer·parser 구현은 각각 한 파일이 소유한다. 기존 `scanner` module과 `semantic::parse`/row API는 compatibility re-export만 남겨 기존 사용자를 보호하며 별도 grammar를 유지하지 않는다. parser는 enqueue 결과를 spelling으로 다시 분류하지 않는다. execution/target 선택을 이 세 파일에 넣지 않는다.
+
+#### 최우선 실행 계획과 단계별 논리 동등성 (2026-10-03)
+
+Tokenizer → Enqueuer → Parser의 jsource 충실도를 다른 구현 작업보다 먼저 완성한다. 기존 F0–F2/P0–P7 체크리스트를 그대로 사용하며 새 병렬 로드맵은 만들지 않는다. CUDA 구현은 계속 계획에만 둔다. representation·주소·refcount는 비교 대상이 아니며, 다음 의미 투영과 실패 동작을 비교한다.
+
+| 단계 | 비교 대상 | 검증 방법 | 현재 한계 |
+|---|---|---|---|
+| Tokenizer/F0 | raw word bytes, parser-visible comment cutoff, quote 오류 | C `;:`와 Rust raw spans 비교; 별도로 trailing `NB.`를 parse queue에서 제외 | 기존 256-byte sweep과 새 UTF-8 probe의 입력 범위를 구분한다 |
+| Enqueuer/F1 | 품사, noun type/shape/data, primitive/name 구분, copula·lookup 플래그, 원 word index/span | literal/primitive를 C에 할당하여 값과 `4!:0` 비교; 이름/control 플래그는 `w.c::jtenqueue`에서 도출한 golden | C 내부 queue를 직접 export한 검증은 아니다. 전체 숫자 표기·locative·`_:`·env=0 미완료 |
+| Parser/F2/P2/P3 | first-match row, completed modifier와 hook/fork의 ordered semantic operands, 최종 POS, construction error | 실제 source `p.c::cases[]`를 읽어 9⁴ 조합 비교; C `5!:1`을 의미 구조로 정규화; `4!:0`과 error class 비교 | `cases[]`는 tacit translator용 선언 테이블이다. runtime `ptcol`의 reachable state·reinsertion·effect/name sequencing 증명과는 별도다 |
+
+`examples/frontend_probe.rs`는 backend-independent 관찰 adapter다. source operator가 DAG parent로 남고 noun operand는 type/shape/data와 boxed 구조를 보존한다. `tools/frontend_stage_conformance.py`는 각 단계의 검사 수·불일치·미지원 목록을 따로 보고한다. 알려진 미지원 문법을 성공으로 집계하거나 최종 값 일치만으로 parser 구조 동등성을 선언하지 않는다. source review revision과 실제 oracle DLL revision·hash도 별도로 기록한다.
+
+실행 순서는 다음과 같다. 각 완료 표시는 아래 F/P 항목에만 적용한다.
+
+1. F0 경계 검증을 유지하고 stage probe를 추가한다.
+2. F1의 copula 환경부터 복원하고 literal/name/spelling 오류·전체 core primitive coverage를 넓힌다.
+3. F2/P2의 선언 row 계약과 runtime dispatch·reduction extent를 따로 검증한다.
+4. P3의 modifier/trains 구조와 result POS/construction errors를 C atomic representation으로 확장한다.
+5. P4의 parser-time noun snapshot/late function lookup, 중간 assignment/locale/effect를 runtime semantic action과 검증한다.
+6. P6에서 단계별 비교와 기존 값/error differential을 native Windows gate로 실행한 뒤 P7 cutover 완료를 판단한다. GitHub CI는 사용하지 않는다.
+
+새 stage 검증 실행 예시(Windows, source checkout과 DLL revision은 실제 준비한 값을 사용):
+
+```powershell
+python tools/frontend_stage_conformance.py --binary target/windows-validation/debug/examples/frontend_probe.exe --source-directory target/jref --source-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 --reference-revision ded7793fe5795d79eda8e7138dce94aa056edf78 --report reports/frontend-j64-stages-windows.json
+```
+
+이 명령은 `J_LIBRARY`에 실제 `j.dll`/`javx2.dll` 경로가 설정되어 있어야 한다. source pin이 다르거나 DLL이 다른 revision이면 보고서에 그 차이를 유지한다. Windows local runner에도 source-directory/source-revision을 지정하여 단계 검사를 함께 실행한다.
+
+이번 source 기반 수정은 [w.c::jtenqueue](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [sn.c::vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c), [wn.c::connum](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c), [p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)를 참조했다. `foo_`는 locative 미지원이 아니라 ill-formed name이다. `1q`, `1e`, `1.2.3`, `3..`도 ill-formed number를 보존하며 미구현 숫자 표기·유효 locative는 Unsupported로 남긴다.
+
+<a id="noun-reduction-capture"></a>
+
+#### Noun reduction과 컴파일용 구조 보존 — 조사 및 구현 계획 (2026-10-03)
+
+**결정:** runtime parser는 jsource처럼 verb application을 실행하여 실제 noun으로 reduce하고, 컴파일러는 별도 capture에서 생산 연산과 input/output 연결을 보존한다. noun이 된다는 이유로 provenance를 버리지 않는다. verb 중심의 tacit 표현은 구조를 노출하는 권장 방식이며 필수 언어 제한이 아니다. 이 절은 F2/P2–P6를 구체화하는 계획이고 별도 roadmap이나 두 번째 canonical IR을 만들지 않는다.
+
+**현재 남은 차이:** runtime rows 0–2는 이제 host를 통해 실제 noun으로 reduce한다. static context는 연산 Expr를 보존한다. capture v0는 source operation과 occurrence 연결을 별도로 보존하며, 성공 capture를 기존 J Graph로 변환하는 adapter도 구현했다. top-level single-name non-final assignment는 구현했다. explicit-local/locale/definition/effect 및 전체 modifier POS는 계속 미완료다. 일반 fork executor 미지원도 frontend construction 지원과 구분한다.
+
+##### 다른 언어·배열 프레임워크의 처리
+
+아래 공식 문서/소스는 2026-10-03 확인했다. `main`/`stable`/nightly URL은 움직이는 참고 자료이며 RustJ 호환성 oracle revision을 대신하지 않는다. framework 동작과 RustJ 적용 판단을 구분한다.
+
+| 사례 | 실제 처리 | RustJ에 참고할 요소와 한계 | 출처 |
+|---|---|---|---|
+| PyTorch `make_fx` / ProxyTensor | real tracing은 실제 tensor로 실행하며 operation graph도 수집한다. `proxy_call`은 proxy node를 만들고 실제 operation을 호출한 뒤 `track_tensor_tree`로 결과와 proxy를 연결한다. fake tracing도 별도 mode다 | 실제 noun과 graph reference를 별도로 보존하는 v0의 가장 가까운 사례. 다만 J modifier/train 의미는 tensor primitive tracing만으로 복원할 수 없으므로 parser construction identity를 함께 기록한다 | [make_fx API](https://docs.pytorch.org/docs/stable/generated/torch.fx.experimental.proxy_tensor.make_fx.html), [proxy_tensor.py source](https://github.com/pytorch/pytorch/blob/main/torch/fx/experimental/proxy_tensor.py) |
+| PyTorch FX symbolic tracing / Dynamo | FX Proxy는 값을 대신해 연산을 기록하지만 input-dependent Python control flow에는 제한이 있다. Dynamo는 graph, residual code, validity guards를 만들고 unsupported 구간에서는 graph break 후 일반 실행을 이어간다 | graph가 모르는 noun 값·name/POS·effect를 static 성공으로 꾸미지 않는다. 경계와 재사용 조건을 명시한다. RustJ runtime에도 지원 범위가 있으므로 모든 미지원 J 문법을 처리하는 fallback이 있다고 가정하지 않는다 | [FX tracing limitations](https://docs.pytorch.org/docs/stable/fx.html), [Dynamo graph breaks/guards](https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/compile/programming_model.dynamo_core_concepts.html) |
+| JAX | tracer가 operation을 기록하여 jaxpr를 만든다. abstract tracer는 shape/dtype을 알지만 실제 data를 모른다. static/concrete 값과 traced 값의 경계를 구분하며 Python side effects가 일반 jaxpr에 자동으로 들어가지 않는다 | 이후 no-execution static 경로의 참고 모델. 실제 noun이 필요한 J constructor를 abstract shape/dtype만으로 처리하지 않는다. J observable effects를 trace 때 한 번 실행하고 compiled reuse에서 생략하는 정책은 채택하지 않는다 | [Tracing](https://docs.jax.dev/en/latest/tracing.html), [JIT and side effects](https://docs.jax.dev/en/latest/jit-compilation.html) |
+| TensorFlow `tf.function` | tracing 때 Python은 실행하고 TensorFlow operations는 graph에 기록한다. AutoGraph가 지원 제어 흐름을 변환한다. Python effects와 TensorFlow runtime effects는 서로 다르다 | host/parser-time 작업과 graph runtime 작업의 staging 경계를 명시한다. J error/name/assignment 동작을 graph 밖에서 실행했다는 이유로 subsequent calls에서 누락시키지 않는다 | [tf.function tracing, AutoGraph, effects](https://www.tensorflow.org/guide/function) |
+| ArrayFire / Eigen | ArrayFire는 지원 elementwise operations를 AST에 모으고 explicit `eval`이나 non-JIT consumer가 필요할 때 평가한다. Eigen은 expression templates와 alias/cost 규칙에 따라 평가를 지연하거나 temporary를 만든다 | pure-array fusion과 계산 경계의 참고 사례. 모든 J parser noun을 lazy array로 바꾸는 근거는 아니다. J가 요구하는 오류·효과 시점을 늦출 수 있는지는 별도 증명이 필요하다 | [ArrayFire JIT](https://arrayfire.org/docs/jit.htm), [Eigen lazy evaluation/aliasing](https://libeigen.gitlab.io/eigen/docs-nightly/TopicLazyEvaluation.html) |
+| Julia compiler | compiler는 SSA-form IR에 instruction/result/control-flow 관계를 유지한다. 이는 ordinary runtime value가 생성 이력을 자동으로 갖는다는 의미가 아니다 | J 의미를 확보한 후 application 결과를 SSA value로 연결하는 후속 lowering의 참고 사례. SSA만 도입하면 동적 J parsing이 해결된다는 결론은 내리지 않는다 | [Julia SSA IR](https://docs.julialang.org/en/v1/devdocs/ssair/) |
+
+**RustJ 적용 판단:** 위 사례에서 실행/값과 graph representation이 분리될 수 있다는 점을 취한다. parser-time 의미 보존은 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)가 기준이다. pure-array lazy evaluation은 이후 증명된 구간에서 사용할 최적화이며, 이번 baseline parser의 replacement가 아니다.
+
+##### 값과 기록의 소유권
+
+예: `a + b * c`에서 parser의 오른쪽 reduction은 `b * c`를 실행해 noun을 얻는다. 별도 기록은 다음 연결을 보존한다. `v1/v2`는 설명용 observation id이며 메모리 주소가 아니다.
+
+```text
+capture: v1 = Apply(*, b_read, c_read)   parser: actual noun result + origin(v1)
+capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
+```
+
+- **Parser noun carrier:** 실제 `Value`와 optional capture origin을 가진다. J 품사는 계속 Noun이다. capture 여부가 class matching/POS/error를 바꾸지 않는다. recording-disabled carrier는 추가 array 보관·graph 할당을 하지 않는다.
+- **별도 `CompilerCapture`(제안):** application occurrence별 input ids, shared `FunctionEntity`, monad/dyad valence, original spans/word indices, observed type/shape, sequence/effect dependency, success/failure를 기록한다. 구체적인 `Value` 전체를 모든 node에 복사하지 않는다. literal constants는 intentional immutable constant pool, external nouns는 input slots, 중간 결과는 ids와 facts로 표현한다. scalar 값이 실제 constructor 선택에 사용되었다면 그 의존성/guard를 명시한다.
+- **동일 값과 동일 origin은 다르다:** `2*3`과 `1+5`가 모두 6이어도 다른 production occurrence다. 값 equality나 storage pointer로 node identity를 합치지 않는다. shared operand는 id를 공유할 수 있지만 compiler proof 없이 두 연산을 합치지 않는다. `CaptureValueId`는 기존 J Graph `ValueId`, J name/version, Physical `BufferId`와 구분하고 adapter에서 명시적으로 매핑한다.
+- **Function construction:** rows 3–6의 `/`, `"`, hook/fork completed entity identity는 그대로 보존한다. computed noun을 constructor가 읽으면 실제 값으로 validation하고 capture에는 해당 noun-origin → constructor operand 연결을 별도로 기록한다. 원 operator와 operand 순서를 지우거나 일반 Reduce/Map으로 바꾸지 않는다. sample-dependent rank나 function specialization은 intrinsic function identity와 별개의 reuse witness다.
+- **외부 이름·assignment:** noun은 실제 stack-entry lookup 시점의 값/version을 사용한다. function NameRef는 예상 POS와 late binding을 보존한다. named function 실행에서 관찰한 target은 observation/witness이지 무조건 상수화할 근거가 아니다. 이전 workspace 값의 생성 graph가 없으면 외부 입력으로 기록하며 과거 이력을 추측하지 않는다. 문장 간 capture는 명시적인 scope와 binding versions가 생긴 후 확장한다.
+- **성공/오류/효과:** invoke 직전에 attempt/input edges를 기록하고, 성공 시 output origin을 연결한다. 실패 시 기존 J ErrorKind/ErrorContext를 그대로 반환하고 실패 node와 partial graph를 남길 수 있다. partial graph는 complete executable plan이 아니다. 이미 수행된 J-visible effects를 capture 실패 때문에 문장 전체 rollback하거나 재실행하지 않는다. 아직 성공하지 않은 바깥 assignment를 commit하지 않는 기존 의미를 보존한다. trace 내부 실패는 J 오류를 덮어쓰지 않고 capture 불완전 상태로 분리한다.
+- **최적화 전달:** capture는 새 실행 IR이 아니라 기존 `j_graph_ir::Plan`을 생성/보강하는 입력 sidecar다. `logical_ir::Plan`이 canonical execution IR이라는 M1 원칙은 유지한다. J Graph verifier는 data edges와 effect/error sequencing을 검증한 후 기존 lowering으로 넘긴다. parser에는 target/device/schedule/fusion 결정을 넣지 않는다.
+
+##### 실행 경로와 재사용 경계
+
+1. **Reference semantic execution:** capture on/off 모두 같은 parser class matcher와 row actions를 사용한다. rows 0–2의 runtime action은 그 시점에 실제 noun을 생성한다. record 여부로 실행 횟수·name lookup·오류 시점이 달라지면 안 된다.
+2. **Execute-and-capture:** 제안 API `Engine::eval_with_capture(&mut self, source)`는 사용자 문장을 한 번 실행하고 outcome + capture를 반환한다. 이는 read-only `prepare_semantic/analyze_j_graph(&self, ...)`와 구분한다. 실패를 기록하려면 outcome을 필드로 가진 report가 필요하며 outer `Result` 때문에 partial trace를 잃지 않도록 API를 정한다. 분석 요청을 명분으로 IO/assignment를 몰래 실행하거나 성공 trace를 만들기 위해 두 번 실행하지 않는다.
+3. **Static compilation:** 기본 비실행 경로의 pure/static 범위는 같은 parser row engine의 abstract actions로 graph를 만들 수 있다. 실제 값이 필요한 constructor, unknown POS/binding, effects/error boundary는 typed dependency와 coverage reason으로 드러내며 현재 지원 runtime action/region을 이용한다. no-execution AOT는 unknown dependency를 명시적으로 거부하거나 residual runtime region으로 나타내고 compile-time 실행으로 해결하지 않는다.
+4. **Captured graph reuse:** trace 한 번으로 모든 입력/branch가 표현되었다고 주장하지 않는다. observed shape·data-dependent constructor/POS·binding/environment assumptions를 constants/input dependencies/guards로 구분한다. reuse 전에 검증하거나 재capture/semantic execution으로 되돌린다. 재capture는 이미 일부 effects를 실행한 지점에서 문장 처음부터 다시 시작하는 방식으로 구현하지 않는다. v0 capture는 inspection에 한정하고 재사용 실행을 기본 제공하지 않는다.
+5. **효율:** execute-and-capture는 첫 실행의 array 계산 비용을 없애지 않는다. v0는 trace arena + shared function references + small facts를 기본으로 하여 capture 때문에 모든 temporary가 살아남지 않게 한다. pure-array region reuse/JIT/fusion이 subsequent execution의 성능 단계다. CUDA 구현은 계속 유예한다.
+
+##### 최적화에 사용할 frontend 정보 보존 (2026-10-03)
+
+목표는 SQL 구현 방식을 복제하는 것이 아니라 **실행 전 분석·최적화에 사용할 J tokenizer/enqueuer/parser**이다. 현재 우선순위는 이 세 단계의 정보 보존과 jsource와의 논리적 호환성이다. 이번 변경은 최적화 변환·실행 순서 변경·kernel 선택을 수행하지 않는다.
+
+`static_analysis::StaticAnalyzer`는 입력 이름의 noun/function 품사와 `GraphFacts`를 선언받아 기존 tokenizer → enqueuer → parser → bind → J Graph 경로를 비실행으로 연결한다. parser의 `AbstractNoun`은 실제 `Value`가 아닌 분석용 noun 분류이며, concrete 실행에 들어가면 거부한다. 실제 입력 배열을 할당하거나 이름의 함수를 호출하지 않고 noun을 중간에 사용하는 식도 연산 구조로 남긴다. 리터럴은 기존처럼 실제 상수 payload를 구성하므로 '모든 allocation 없음'을 뜻하지 않는다.
+
+- [x] trillion-element 입력을 metadata만으로 선언하고 `x+y*z`, `(x+y)*z`의 다른 operand 구조와 fork region을 보존하는 regression을 추가했다.
+- [x] `SourceWord` sidecar로 tokenizer span, enqueue 품사·original word index·name lookup/copula flags를 분석 결과에 보존한다. `ParseReduction`이 지원되는 각 reduction의 operand word range·result origin과 연결한다. 미지원 semantic action의 runtime trace 완료를 뜻하지 않는다.
+- [x] 미정 shape는 Unknown, 이름의 함수는 specialization 경계로 유지한다. 품사가 없는 이름과 값이 필요한 미지원 constructor는 분석 coverage 오류로 반환한다.
+- [x] assignment는 proposed graph write만 남기며 input catalog를 변경하지 않는다. runtime에서 domain error인 식도 분석 중 실행하지 않는 regression을 추가했다. 분석 성공이 runtime 오류 없음의 증명은 아니다.
+- [x] `examples/static_explain.rs`로 데이터 없이 graph와 logical memory 정보를 확인한다. catalog version은 runtime guard가 아니며 결과는 실행 가능한 compiled plan이 아니다.
+- [x] 이름 조회를 오른쪽부터 stack entry로 옮기고, 지원되는 각 reduction의 provenance와 final assignment copula를 전달한다.
+- [x] 지원되는 실제 noun reduction·별도 capture·top-level single-name non-final assignment를 구현한다.
+- [ ] 미지원 constructor, explicit-local/locale/definition scope와 effect coverage는 F2/P2–P6에 따라 확장한다.
+- [ ] frontend 검증 후 별도 단계에서 effect/error ordering 증명과 최적화 변환·lowering·실행을 연결한다.
+
+논리적 extent/live range/resource 보고는 기존 분석기를 재사용하며 최적화는 하지 않는다. logical atom 합계는 peak allocation이 아니다. 전체 J, upstream suite, CUDA 실행을 지원·검증했다는 의미는 아니다. 이번 Windows 검증: Rust default/portable 각각 228 passed, 17 ignored; fmt/clippy 통과; Python harness 18 passed; j64/AVX2 각각 direct·semantic-reference 2,063문장 중 2,061 passed, runtime coverage boundary 2개, failed 0; stage 7,014 checks와 words 6,618 cases에서 failed 0. 신규 정적 frontend regression은 7개다. metadata-only 10^12-element 예제도 실행했다. C DLL release metadata는 `ded7793fe5795d79eda8e7138dce94aa056edf78`, source 검토 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`이며 source pin으로 빌드한 DLL이라는 주장은 하지 않는다. 신규 정적 frontend regression과 기존 Windows default/portable·C j64/AVX2 frontend 비교를 함께 검증한다.
+
+##### Runtime noun reduction + 별도 capture v0 (2026-10-03)
+
+- [x] P2/P4 지원 범위에서 `RuntimeParserHost`가 같은 9-row parser의 stack-entry 조회와 rows 0–2 invocation을 제공한다. 각 application은 즉시 실제 `Value`로 reduce되어 같은 stack에 재삽입된다. final noun은 계산을 다시 실행하지 않는다. 분석 context는 host가 없으므로 kernel을 실행하지 않는다.
+- [x] P2/P5 `Engine::eval_captured`가 선택적인 `ParseCapture`를 반환한다. record off/on 모두 같은 parser/kernel을 실행하며 input occurrence, 원래 FunctionEntity를 가진 apply attempt, success facts 또는 failure kind/context, constructor의 noun-input 연결, final commit을 순서대로 기록한다. 실패한 경우에도 partial capture를 돌려준다.
+- [x] P3/P5 `f=:+"(1+0)`와 `f=:(1+2) + *`의 computed noun constructor를 runtime에서 지원한다. 값 생산 occurrence와 constructor 입력을 연결한다. 일반 fork 호출 executor 미지원과 static computed-constructor coverage는 별도 경계이며 fake constant로 통과시키지 않는다.
+- [x] recording parity, 실패 후 기존 binding/version 보존, 괄호 전후 occurrence 유지, 큰 입력의 facts-only 기록, row invocation과 이후 lookup의 순서 및 final Literal 반환을 회귀 검증했다.
+- [x] P5/P8 `j_graph_ir::Plan::from_capture`가 성공 capture를 기존 J Graph로 변환하고 verifier를 통과시킨다. `CapturedGraph`는 occurrence→ValueId, constructor의 computed noun 입력, observed facts를 별도 sidecar로 보존한다. 실패 capture는 완료 graph로 변환하지 않는다.
+- [x] P4 일부: row 7에서 top-level single-name non-final assignment를 즉시 수행하며 이후 stack-entry 조회·RHS POS·후속 오류 이전에 완료한 대입을 보존한다.
+- [ ] P4 explicit-local/locale/definition/effect 및 전체 constructor/result-POS coverage를 확장한다. 17개 definition acceptance ignored는 여전히 미구현이다.
+
+`parser_capture.rs`는 canonical IR을 대체하지 않는 observation log다. input/intermediate 배열 snapshot을 저장하지 않고 dtype/shape·source span·occurrence edge를 저장한다. shared FunctionEntity는 J 의미에 필요한 intrinsic noun operand를 소유하므로 그 lifetime은 capture로 연장될 수 있다. 이를 payload 복사나 buffer/physical scheduling과 혼동하지 않는다. 기록은 실제 한 실행의 관찰이며 purity/binding/value/error guards 없는 compiled replay의 증명이 아니다. capture 켠 상태에서 parser가 실제 값을 계산하는 것과 static analyzer가 실행하지 않는 것은 서로 다른 API 계약이다.
+
+
+**Capture adapter 범위:** source는 capture가 읽기 전용으로 소유한다. source literal은 enqueue payload에서 다시 구성하며, named noun은 관찰 당시 version을 가진 ReadNoun으로 남겨 현재 workspace 값을 다시 읽지 않는다. apply는 기존 Builder를 사용하고 FunctionEntity 및 NameRef를 보존한다. inferred graph facts와 runtime observed facts를 분리하며, 함수 참조는 실제 호출이 성공했더라도 specialization 경계를 유지한다. constructor의 computed noun 의존 관계는 `ConstructorOrigin.noun_inputs`로 보존한다. 이 sidecar를 제외한 일반 graph memory 분석만으로 constructor operand의 완전한 lifetime/physical peak를 추정하지 않는다. 여러 effect·runtime guard·실패 후 continuation·modifier-value graph lowering과 재사용 가능한 실행 계획은 아직 범위 밖이다.
+
+**Parser-time assignment 범위:** 위 reviewed source pin의 `p.c` row 7을 따라 `x+(x=:2)`는 오른쪽 대입을 완료한 뒤 왼쪽 이름을 조회한다. chained/parenthesized assignment도 같은 matcher를 사용하며 explicit local scope가 없는 top-level `=.`은 enqueue에서 global로 분류한다. outer row 7에 도달하기 전 실패하면 그 binding은 유지하며, 이미 수행한 대입은 모두 남긴다. runtime final assignment도 성공적인 parser exit 이후가 아니라 row 7에서 commit한다. `(x=:2`와 `x=:2)`는 syntax error지만 `x=2`를 남기는 C 동작을 따른다. final assignment reduction 후 추가 row 처리를 중단하고 exit validation을 진행하며 runtime에서 다시 commit하지 않는다. 배열 RHS는 shared로 전환한 뒤 반환용 별칭을 만든다. capture는 occurrence/function identity·실제 POS·copula provenance·previous/proposed binding version·final 여부만 기록하며 input/intermediate 배열 snapshot을 추가하지 않는다. static 경로는 실행 없이 non-final assignment를 분석 경계로 거부한다. 일반 locale, explicit local environment, noun/multiple assignment target은 미지원이다.
+
+- [x] P4/P5: noun·verb·adverb·conjunction 중간 대입은 실제 result POS/FunctionEntity를 보존한다. capture verifier는 RHS identity/class·copula scope·Engine-local version 증가·final event 순서를 검사한다.
+- [x] P4/P6: unmatched control이 도달 가능한 대입을 선제 차단하지 않는다. SyntaxError에는 정확한 control span을 보존하며 앞선 runtime error class를 대체하지 않는다. C 관찰에서 `a=:missing + )`가 exit 오류 이후 hook binding을 남김을 확인하고 기존 일괄 rollback 테스트를 수정했다.
+- [x] P5/P8: terminal enqueue/parse/runtime failure kind/context를 별도로 보존하여 ApplyFailure가 없는 partial capture도 completed graph로 오인하지 않는다. 차등 harness는 full-prefix 비교가 성공하면 오래된 repro 파일을 제거한다.
+
+- [x] P3/P4/P5: runtime named primitive modifier는 row 3/4 구성 시점에 expected POS를 확인하고 실제 completed FunctionEntity를 만든다. 일반 modifier alias는 row 7 대입 시 실제 modifier를 snapshot하므로 원래 이름의 후속 재대입이 alias를 바꾸지 않는다. 일반 verb alias의 late reference는 유지한다. C `5!:1`/call 관찰에서 `adv=:/; f=:+adv; adv=:1` 이후에도 `f`는 완성된 insert이고 `f i.3`은 3임을 확인했다. named verb의 late reference는 유지한다. `ModifierResolved`/`CapturedGraph.modifier_bindings`는 모든 modifier 대입/구성 시점 name/version/expected-POS witness·resolution row와 현재 source-use span을 보존하며 graph에도 의존성을 남긴다. 이는 executable reuse guard가 아니다. operand-free primitive modifier alias 조회를 지원하며 arbitrary derived modifier executor와 unknown static modifier action은 별도 coverage 작업이다.
+
+**Ordered-effect graph 경계:** 새 runtime 문장도 capture verifier를 통과시키지만 현재 J Graph adapter에는 final write 슬롯 하나만 있다. non-final write가 있는 capture는 명시적으로 거부하며 commit이 마지막 event인 `(x=:2)`도 포함한다. standalone modifier-value lowering도 명시적인 graph 경계다. parser-capture 차등 보고서의 `graph_coverage_boundaries`에 exact source와 reason을 별도로 기록하며 값/error 불일치를 면제하지 않는다. ordered write/read/effect IR과 replay 합법성은 후속 작업이며 이번 단계에서 최적화를 수행하지 않는다.
+
+Windows 검증: default/portable 각각 **250 passed / 17 ignored**, fmt/clippy 통과, Python 20 passed. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로의 **2,139문장 중 2,137 passed + 명시적 runtime 경계 2개, failed 0**; stage 7,014 checks와 words 6,618 cases 통과. `examples/capture_probe.rs`는 모든 문장의 capture association/attempt-outcome 순서를 검증하며 성공 문장은 명시적으로 보고한 graph 경계 13건(ordered-effect 9건, modifier-value 4건)을 제외하고 J Graph adapter/verifier도 통과시킨다. C oracle은 C word formation으로 outer copula와 inner copula/literal/comment를 구분하며 harness 회귀 테스트 2개로 보호한다. parser-capture JSON 보고서도 저장한다. 기존 oracle/source pin 구분과 GitHub CI 생략 방침을 유지한다.
+
+##### 정적 modifier 구성과 분석 의존성 (2026-10-03)
+
+- [x] P3: modifier의 입력 품사만 알려져 있을 때 application 결과를 Verb로 추측하는 경로를 제거했다. `declare_function(name, Adverb/Conjunction)`은 품사 정보만 선언한다. 이 이름을 구성에 사용하면 현재 이름·source span을 가진 `Unsupported` 경계를 반환한다. 단독 modifier의 품사 관찰과 실제 application은 구분한다.
+- [x] P3/P5: `StaticAnalyzer::declare_primitive_modifier`로 core primitive modifier의 실제 의미를 선언한다. `Engine::prepare_semantic/analyze_j_graph`도 현재 workspace의 operand-free primitive modifier와 그 별칭을 읽어 같은 row 3/4 constructor로 구성한다. 알려진 `/`, `\`, `"`, `@:` 등도 각 constructor가 지원하는 operand legality/result POS/error 규칙을 따르며, arbitrary derived/extension modifier 지원을 뜻하지 않는다.
+- [x] P5: `Program.modifier_snapshots`와 J Graph schema **0.4**의 `Plan.modifier_snapshots`에 이름, catalog/Engine-local version, expected POS, 공유 FunctionEntity, 현재 사용 위치를 보존한다. verifier는 source-use span, 이름, version과 primitive modifier 품사를 검증한다. 이 의존성은 intrinsic 함수 identity나 physical allocation 정보에 섞지 않는다. runtime capture의 `ModifierResolved` 관찰과 정적 분석의 binding 가정은 별도 sidecar다. 둘 모두 executable reuse guard가 아니다.
+- [x] P6: 큰 배열은 metadata만으로 분석하고 reduction kernel을 실행하지 않는다. 알려진 modifier 별칭의 의미는 원래 이름의 재대입 후에도 유지된다. 별칭 자체를 바꾸면 새 분석의 version/구성이 달라지지만 기존 graph는 유지된다. 일반 verb 이름은 late NameRef로 남긴다. 최종 대입은 pending proposal이며 workspace/catalog를 변경하지 않는다.
+- [x] P3/P6: Windows stage probe에 별도 setup/읽기 전용 분석 모드를 추가했다. C `5!:1`/`4!:0`과 구성·품사·domain/length 오류를 비교하고, 분석 후 target version 및 modifier 의존성을 검사한다. `candidate=: + analysisrank (#1 2)`는 C가 실행하면 성공하지만 정적 constructor에는 concrete noun이 필요하므로 정확한 source/reason을 `analysis_coverage_boundaries`에 남긴다. 성공 검사에 포함하지 않는다.
+- [ ] arbitrary derived modifier의 실제 의미/result POS, explicit-local/locale/definition scope, ordered-effect graph와 재사용 guard를 확장한다. 값 계산이 필요한 constructor를 fake noun으로 통과시키지 않는다. 이번 단계는 tokenizer/enqueuer/parser의 분석 가능 범위를 확장하며 최적화 변환을 실행하지 않는다.
+
+Windows 검증: default/portable 각각 **256 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로에서 **2,139문장 중 2,137 passed, runtime 경계 2개, failed 0**; stage **7,056 checks**(새 정적 구성·오류·대입 없음·의존성 검사 42건 포함)와 words **6,618 cases** 통과. 정적 값 의존 경계 1건과 기존 capture graph 경계 13건은 성공 수와 별도로 기록한다. 정적 분석 regression 6개를 추가했다. 기존 C DLL release/source review pin 구분, 미완료 definition 테스트 및 GitHub CI 생략 방침을 유지한다.
+
+##### Modifier train의 구조·품사 보존 (2026-10-03)
+
+- [x] P2/P3: `p.c` row 6처럼 stack의 세 번째 operand가 CAVN이면 trident, 그렇지 않으면 bident를 선택한다. `cf.c::bidents[]/tridents[]`의 nonzero action disposition은 실행 없이 실제 Adverb/Conjunction을 구성한다. SyntaxError와 즉시 semantic application disposition은 구별하며, 미구현 즉시 application을 성공 구조로 바꾸지 않는다.
+- [x] P3/P5: `FunctionHead::ModifierTrain`이 C `CADVF`의 의미적 bident/trident를 나타낸다. arity 2/3, 원래 순서의 noun/function operands, 실제 result POS, source span과 completed child DAG를 보존한다. C `5!:1`의 `4` 표현과 비교하며 일반 verb Hook의 `2`/Fork의 `3`과 구분한다. `+"`, `"1`, `/\`, `@:/`, `/ / /`, `/ / +`, nested train을 지원한다. C의 executor pointer/helper slot을 의미적 operand로 복제하지 않는다.
+- [x] P2/P6: source provenance/capture는 bident의 왼쪽 token과 non-fork trident의 가운데 token을 전달하고 입력 2/3개를 기록한다. runtime의 계산된 noun은 실제 값으로 구성되며 `ConstructionAttempt.noun_inputs`가 생산 occurrence를 연결한다. train이 보유한 named array는 noun by-value 규칙을 따르며 원래 이름을 재대입해도 값이 보존된다. 정적 경로는 계산된 noun을 실행하지 않고 명시적으로 거부한다.
+- [x] P6: C atomic representation/POS 비교를 20문장 확장하고 SyntaxError 사례 2개를 추가했다. runtime value/error corpus에도 구성·실패·배열 이름 재대입 사례를 추가했다. 네 가지 분석 경계(기존 computed rank 1건, derived modifier application 3건)는 C 성공과 Rust `Unsupported`를 exact source로 확인해 성공 수에서 제외한다.
+- [ ] derived modifier application, named derived modifier 조회/alias 구성, row 6 immediate semantic application, 전체 locale/explicit-local/definition scope를 연결한다. standalone modifier의 Semantic IR 보존과 J Graph로의 executable lowering은 별개다. compiler 분석·executor는 새 train을 일반 Hook/Fork나 알려진 primitive로 추측하지 않는다. 이번 단계에서 optimizer/CUDA를 구현하지 않는다.
+
+Windows 검증: default/portable 각각 **261 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,165문장 중 2,163 passed + runtime 경계 2개, failed 0**; stage **7,098 checks**와 words **6,618 cases**에서 failed 0이다. 회귀 테스트 5개를 추가했다. capture graph 경계 34건(ordered-effect 9건, modifier-value 25건)과 정적 분석 경계 4건은 별도로 보고한다. 새 modifier Semantic IR 구성은 executable modifier-value graph lowering의 완료를 뜻하지 않는다. 기존 미완료 definition 테스트·upstream suite 미실행·GitHub CI 생략 방침을 유지한다.
+
+구현 기준: [p.c row 6](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1057), [cf.c disposition tables and jthook](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L288). 기존 Windows DLL release pin과 source review pin은 서로 다르며 이 source로 DLL을 빌드했다는 주장은 하지 않는다.
+
+##### 오른쪽 operand를 묶은 modifier bident application (2026-10-03)
+
+- [x] P3: C `cf.c::tcNV`에 따라 verb 입력 `u (C n/v)`를 `u C n/v`의 실제 constructor에 전달한다. 현재 core `"`/`@:` conjunction과 noun/verb 오른쪽 operand를 지원한다. `+ ("1)`은 completed Rank entity이며 Rank 검증은 train 정의가 아니라 application 시점에 수행한다. 일반 train을 일괄 Verb로 추측하지 않는다.
+- [x] P4/P5: runtime named derived modifier 조회와 row 7 alias 대입이 immutable train 객체를 공유한다. 원래 이름의 재대입은 이미 구성된 alias/verb를 바꾸지 않는다. Engine 정적 조회와 J Graph verifier도 알려진 train identity를 허용하며 `modifier_snapshots`의 이름/version/POS/current-use span을 유지한다. identity가 알려졌다는 사실은 모든 application을 실행할 수 있다는 보장이 아니다. 품사만 선언한 unknown modifier 경계는 유지한다.
+- [x] P5/P6: 실제 완료 결과는 C처럼 Rank/Atop entity다. inline source의 row 6/row 3 provenance와 capture construction 기록, named train의 공유 identity/version witness를 별도로 보존한다. bound operand는 현재 application 위치에 연결하고 원래 train 객체를 수정하지 않는다. train의 noun은 shared storage로 보존하여 다시 구성할 때 큰 payload를 복사하지 않는다. 이 sidecar는 executable cache guard가 아니다.
+- [x] P6: named alias 변경, target 대입 없음, construction-time domain/length 오류, capture witness를 테스트한다. metadata-only 10^12-element 배열의 `- ("1) x`도 kernel 없이 분석한다. C `5!:1`/`4!:0`의 함수 구조/POS 비교와 runtime value/error corpus를 확장한다.
+- [ ] 왼쪽을 묶은 `tNVc`, noun-input adverb, 연속 adverb·derived conjunction·trident application의 각 action semantics를 연결한다. `(+ ("-)) i.4`와 `(+ (@:-)) i.4`는 후속 rank/Atop 단계에서 실행까지 지원했다. 현재 conformance corpus의 해당 runtime waiver는 제거했지만 전체 modifier 의미의 완료를 뜻하지 않는다. row 6 즉시 application과 locale/explicit-local/definition scope도 계속 남는다.
+
+Windows 검증: default/portable 각각 **266 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,185문장 중 2,181 passed, runtime 경계 4개, failed 0**; stage **7,128 checks**(새 정적 검사 30건)와 words **6,618 cases** 통과. 회귀 테스트 5개를 추가했다. capture graph 경계 38건(ordered-effect 9건, modifier-value 29건), static analysis 경계 3건은 성공 수와 별도로 보고한다. 전체 J/upstream suite, optimizer/CUDA 또는 GitHub CI를 구현·실행했다는 의미는 아니다. C DLL release와 source review pin의 구분을 유지한다.
+
+기준 소스: [cf.c tcNV 및 다른 modifier train actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
+
+##### 왼쪽 binding과 연속 adverb application (2026-10-03)
+
+- [x] P3: `cf.c::tNVc`에 따라 `u (v C)`를 `v C u`의 실제 constructor에 전달한다. `1 (-")`처럼 noun 입력이 rank specification인 경우도 처리한다. row 3은 N/V 입력과 실제 결과 품사를 가진 `Item`을 받아 같은 parser stack에 재삽입한다. static computed noun은 계속 명시적 경계이며 noun을 fake constant로 바꾸지 않는다.
+- [x] P3/P5: `taAV`의 `(A A)`/`(A V)`는 첫 adverb를 적용한 뒤 실제 결과와 두 번째 operand를 bident dispatch에 전달한다. `/ / /`의 `taaa`는 f→g→h 순서로 적용한다. `+ (/ /)`의 중첩 Insert, `+ (/ +)`의 Hook, `+ (/ / /)`의 3단계 Insert를 immutable completed DAG로 보존하며 요약 boolean이나 하나의 primitive로 축약하지 않는다. recursion에는 기존 depth limit을 적용한다.
+- [x] P4/P6: left-bound named alias의 snapshot identity, noun-input rank/length/domain 오류, 실패 후 기존 target 유지, computed noun 생산 occurrence와 row 3의 연결을 검증한다. application의 source span은 현재 구문을 가리키며 이전 train 정의 객체를 수정하지 않는다. 지원된 정적 구간은 kernel 없이 함수 구조를 구성한다.
+- [x] P3/P6: `(A C)`의 `tac`를 `(A A/V)`의 `taAV`로 오인하지 않는다. `tac`는 첫 적용 결과뿐 아니라 원래 입력도 필요하므로 미구현 경계로 남긴다. `3 (/@:)`는 첫 `/`의 DomainError가 먼저 발생하며, 유효한 `+ (/@:)`는 잘못된 Adverb 결과를 반환하지 않고 `Unsupported`를 낸다. C 성공/actual POS와 exact source를 stage 보고서에 기록한다.
+- [ ] noun을 왼쪽에 고정한 rank/gerund, `tac`, derived conjunction 및 다른 trident action, train 내부 late modifier NameRef의 동적 조회·effect 계약, row 6 즉시 application을 연결한다. 구성된 nested Insert/Hook의 실행 지원은 기존 kernel/executor coverage와 별개다. locale/explicit-local/definition scope도 계속 미완료다.
+
+Windows 검증: default/portable 각각 **270 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,205문장 중 2,201 passed, 기존 runtime 경계 4개, failed 0**; stage **7,168 checks**(새 정적 검사 40건)와 words **6,618 cases** 통과. 회귀 테스트 4개를 추가했다. capture graph 경계 40건(ordered-effect 9건, modifier-value 31건)과 static analysis 경계 3건을 성공 수와 구분한다. upstream suite, optimizer/CUDA, GitHub CI 실행을 주장하지 않는다. C DLL release/source review pin 구분을 유지한다.
+
+기준 소스: [cf.c taAV/tNVc/tac/taaa](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application 및 재삽입](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
+
+##### Adverbial hook 및 derived conjunction 적용 (2026-10-03)
+
+- [x] P3: `cf.c::tac`에 따라 `(A C)`는 먼저 `t=u A`를 구성하고 `t C u`에 원래 입력을 전달한다. `+ (/@:)`의 Insert와 Atop이 같은 입력 함수 객체를 참조하는지 검증한다. 앞 절에서 기록한 `tac` 미지원 경계는 이 단계에서 해소했다.
+- [x] P3/P5: `tca`는 `u C v` 결과에 A를 적용하고, `tcc`는 같은 원래 입력에 첫 C와 둘째 C를 순서대로 적용한 뒤 결과들을 bident로 구성한다. `taav`는 왼쪽·오른쪽 입력에 각각 A를 적용하고 고정 V와 trident를 구성한다. 실제 결과 품사로 hook·insert·fork 또는 modifier를 구성하며 row 4가 완료된 `Item`을 parser stack에 재삽입한다. 알려진 derived conjunction의 left/right binding도 이 경로를 사용한다.
+- [x] P4/P5: 반복 사용되는 concrete noun은 Owned 저장소를 Shared로 전환해 payload를 복사하지 않는다. Group 내부 noun도 처리하며 65,536개 정수의 원래 payload pointer, 공유 identity, 원본 해제 후 수명을 검증한다. deferred expression은 실행하지 않는다. 함수 DAG와 이전 정의는 immutable로 유지하고 현재 사용 span 및 named alias snapshot을 보존한다. binding/version 관찰은 재사용 허용 조건이 아니다.
+- [x] P6: C의 함수 표현·결과 품사, 첫 constructor 오류가 다음 action을 막는 순서, 실패 후 기존 assignment target 유지, 원래 conjunction을 재정의한 뒤 alias identity를 검증한다. 회귀 테스트 5개, C 비교 문장 16개, 정적 stage 검사 36개를 추가했다.
+- [ ] noun-left rank/gerund, 다른 derived conjunction trident(`tcVCc` 등), train 내부 late modifier NameRef 조회·effect 계약, bident/trident의 즉시 noun 실행을 연결한다. 구성된 함수의 kernel 실행 범위와 locale/explicit-local/definition scope는 별도 미완료 항목이다. 최적화는 아직 구현하지 않는다.
+
+Windows 검증: default/portable 각각 **275 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,221문장 중 2,217 passed, 기존 runtime 경계 4개, failed 0**; stage **7,204 checks**, words **6,618 cases** 통과. capture graph 경계 42건(ordered-effect 9건, modifier-value 33건)은 성공 수와 구분한다. static analysis 경계는 computed rank와 `candidate=: + (@: + @:) -`의 `tcVCc` 2건이다. 앞 절의 3건 중 `tac`와 derived conjunction bident 경계는 해소했고, 다른 trident의 실제 C 성공/품사와 Rust Unsupported를 새로 보고한다. stage의 9⁴ 표 검사는 declarative eligibility 비교이며 전체 parser action trace의 증명이 아니다. C DLL release pin과 검토한 source pin을 구분하며 전체 J/upstream suite, CUDA, GitHub CI 실행을 주장하지 않는다.
+
+기준 소스: [cf.c tac/tca/tcc/taav 및 modifier train dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c conjunction application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
+
+##### Modifier trident action 확장 (2026-10-03)
+
+- [x] P3/P5: `cf.c`의 `tNVvc`, `tcVCc`, `tcaa`, `tNVca`, `tNVcc`, `taVCNV`, `taca`, `tacc`, `tcVCNV`, `tcca`를 연결하고 기존 `taaa`/`taav`도 동일한 trident dispatch에 통합했다. 각 action의 중간 결과·원래 입력·고정 operand와 적용 순서를 보존한다. 결과는 실제 품사로 bident/trident construction에 전달하며 immutable 함수 DAG를 유지한다.
+- [x] P4/P6: `tcVCc`의 두 conjunction 결과가 원래 함수 입력을 공유하는지, constructor의 첫 오류가 뒤 action과 assignment를 막는지 검증했다. named trident conjunction alias는 원래 이름 재정의 후에도 기존 identity를 유지한다. 중간 noun 실행 및 train 내부 late modifier lookup은 여전히 별도 경계다.
+- [x] P6: 20개 derived trident 품사 production을 `/`, `@:`, `+`, `3` 표본과 noun/verb 입력 조합으로 구성한 68문장을 C와 비교했다. 이 표본 검증은 모든 primitive 및 effect 조합에 대한 완전한 호환성 증명이 아니다. 회귀 테스트 3개, 비교 문장 98개, stage 검사 154개를 추가했다.
+- [ ] 다음: noun-left rank construction, 즉시 noun 실행과 capture, train 내부 late modifier 조회, locale/definition scope를 구현한다. 앞 단계에서 미지원이던 `tcVCc`는 해소했다. tokenizer/enqueuer/parser 우선순위와 최적화·CUDA 보류를 유지한다.
+
+Windows default/portable 각각 **278 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 세 실행 경로에서 **2,319문장 중 2,315 passed, runtime 경계 4개, failed 0**; stage **7,358 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 성공 수와 구분한다. static 경계 2건은 computed rank와 `candidate=: 3 (" /) 1`의 noun-left rank이며 이전 `tcVCc` 경계를 후자로 교체했다. DLL release/source review pin, 지원 부분집합, 실제 실행한 검증 범위를 유지한다. GitHub CI는 생략했다.
+
+기준 소스: [cf.c modifier trident actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
+
+##### Noun-left rank 구성과 operand 역할 보존 (2026-10-03)
+
+- [x] P3/P5: `cr.c::jtqq`에 따라 ordinary noun-left rank를 구성한다. 오른쪽 rank의 rank→length→numeric audit를 먼저 수행하고 왼쪽 noun 또는 verb, 오른쪽 noun 또는 verb의 원래 순서·값·span을 immutable Rank entity에 보존한다. noun 저장소는 공유한다. derived modifier binding/trident를 통한 적용도 같은 경로를 사용한다.
+- [x] P4/P6: runtime에서 계산된 `(i.4)` noun과 rank noun의 두 생산 occurrence를 construction capture에 연결한다. 정적 경로는 computed noun을 실행하지 않고 명시적 경계를 유지한다. 실패 시 기존 assignment target과 version을 유지한다.
+- [x] P5/P6: `3"+`에서 오른쪽 `+`를 실제 실행 대상으로 오인하거나 왼쪽 `3`을 rank specification으로 오인하지 않는다. Rank graph form 및 shape/type 추론은 왼쪽 function operand가 있는 기존 지원 형태에만 적용하고 noun-left 형태는 구조를 보존한 Modifier와 unknown facts로 남긴다. 회귀 테스트 5개, C 비교 문장 17개, stage 검사 21개를 추가했다.
+- [ ] boxed rank-1 noun의 gerund audit(오른쪽 rank가 모두 최대값인 경우 제외), constant-rank 함수의 kernel 실행·Logical lowering, 즉시 noun 실행, late modifier 조회 및 locale/definition scope를 연결한다. plain noun-left constructor 성공이 모든 gerund나 실행 지원을 뜻하지 않는다. 최적화/CUDA는 보류한다.
+
+Windows default/portable 각각 **283 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,336문장 중 2,332 passed, runtime 경계 4개, failed 0**; stage **7,379 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 별도이며 static 보고 경계는 computed rank 1건으로 줄었다. gerund 및 다른 computed noun 구간의 미지원까지 없어졌다는 의미는 아니다. stage source hash에 `cr.c`를 추가해 실제 rank-constructor 검토 소스를 식별한다. GitHub CI는 생략했다.
+
+기준 소스: [cr.c jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
+
+##### Primitive gerund 구성과 audit 순서 (2026-10-03)
+
+- [x] P3/P6: `ap.c::jtbslash`→`cg.c::jtfxeachv(1)`에 따라 noun에 `\`를 적용할 때 rank→length→boxed type 순서로 검사한다. 비어 있는 rank-2 입력은 RankError, 빈 rank-1 입력은 LengthError, nonempty nonboxed 입력은 DomainError로 처리한다. 이전 blanket Unsupported를 이 검사 범위에서 해소했다.
+- [x] P3/P5: `r.c::jtfx`의 character primitive leaf를 현재 core PrimitiveResolver로 검증한다. char rank→length→ASCII spelling 및 최종 verb POS를 확인한다. primitive 문자열로 구성된 gerund는 PrefixInfix의 noun operand를 그대로 가진 completed Verb로 구성하고 공유 저장소·원래 span을 보존한다. execution-only decoded fgh는 semantic child로 추가하지 않는다.
+- [x] P3/P6: noun-left rank의 gerund 후보는 동일 audit를 사용한다. 확실한 J audit 실패는 `cr.c`처럼 조용히 constant noun으로 되돌리고, 이름/미등록 primitive/compound AR에 대한 구현 미지원은 숨기지 않는다. gerund 원소 순서, 첫 오류, 실패 시 target/version 유지와 fallback을 검증했다.
+- [x] P6: 회귀 테스트 3개, C 비교 문장 38개, stage 오류 검사 3개를 추가했다. source hash에 `ap.c`, `cg.c`, `r.c`를 추가했다. 정적 분석의 computed gerund noun 경계는 runtime constructor 성공과 별도로 보고한다.
+- [ ] 다음: 이름 및 복합 atomic representation의 `fx` decoding/binding, gerund 실행·Logical lowering, 중간 noun 즉시 실행/capture, train 내부 late modifier 조회와 locale/definition scope를 진행한다. 이 단계는 전체 gerund 지원이나 optimizer/CUDA 구현이 아니다.
+
+Windows default/portable 각각 **286 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 세 실행 경로에서 **2,374문장 중 2,370 passed, 기존 runtime 경계 4개, failed 0**; stage **7,382 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 별도다. static 보고 경계 2건은 computed rank와 computed gerund noun으로, 성공 수나 C와의 의미 불일치로 세지 않는다. 완전한 upstream suite나 GitHub CI 실행을 주장하지 않는다.
+
+기준 소스: [ap.c jtbslash](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L940), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
+
+##### 복합 gerund atomic representation 해석 (2026-10-03)
+
+- [x] P3/P5: `r.c::jtfx`의 boxed AR을 재귀 해석한다. primitive 단일 head, noun `0`, hook `2`, fork `3`, modifier `4`, primitive adverb/conjunction 적용 및 boxed head로 구성된 derived modifier 적용을 지원한다. decoder는 기존 parser의 bident/trident disposition과 constructor action을 사용해 실제 결과 품사를 반환한다. 새 J 문법이나 modifier 전용 semantic AST를 만들지 않는다.
+- [x] P3/P6: AR의 boxed type→rank→length, header와 operand vector의 audit, fork의 f→g→h 및 modifier의 왼쪽→오른쪽 audit를 보존한다. hook/modifier train AR은 명시적으로 h를 먼저 해석하고 g→f를 따른다. 마지막 순서는 두 제공된 Windows C DLL에서 확인한 C argument 평가 순서이며, C 언어 일반의 보장이나 Linux compiler 순서로 주장하지 않는다. noun-left rank의 확실한 audit 실패는 기존처럼 constant fallback으로 처리한다.
+- [x] P4/P5: J-visible gerund noun과 현재 construction span을 그대로 보존하며, decoded execution auxiliaries를 parent의 semantic child로 추가하지 않는다. 공유된 65,536개 정수 noun AR의 payload pointer와 원본 해제 후 수명을 검증한다. 재귀 해석·중첩 constructor에는 기존 depth limit을 적용한다. AR 내부 byte offset을 모르는 경우 바깥 operand span을 사용한다.
+- [x] P6: 회귀 테스트 4개, C 비교 문장 103개를 추가했다. `frontend_probe`의 `R`은 명시적 runtime parser construction/capture 관찰이며 completed function을 C `5!:1`/`4!:0`와 비교한다. `A`의 read-only/static 계약은 유지한다. stage에는 constructor 표현/품사 39건, 오류 18건, setup/기존 target 검사 46건을 추가했다. AR fixture 자체의 잘못된 setup은 공통 오류로 통과시키지 않고 검사 실패로 처리한다.
+- [ ] 다음: gerund name/locative와 전체 spellin inventory, serialized entity가 즉시 noun 실행을 요구하는 경우의 host/capture 연결, train 내부 late modifier 조회, gerund 실행·Logical lowering 및 locale/definition scope를 진행한다. 이름·미등록 primitive·미지원 즉시 실행은 명시적 Unsupported이며 임의 품사나 fake noun으로 대체하지 않는다. 최적화/CUDA는 보류한다.
+
+Windows default/portable 각각 **290 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,477문장 중 2,473 passed, 기존 runtime 경계 4개, failed 0**; stage **7,485 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)과 static 경계 2건(computed rank, computed gerund noun)은 별도다. 성공한 AR 해석이 모든 J primitive/name/실행을 지원한다는 뜻은 아니다. C DLL release/source review pin 구분과 declarative parse table/실제 trace 증명 범위 구분을 유지하며 GitHub CI는 생략했다.
+
+기준 소스: [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cf.c hook 및 modifier dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
+
+##### Gerund 이름의 생성 시점 품사 확인 (2026-10-03)
+
+- [x] P3/P4: `r.c::jtfxchar`→`a.c::jtswap`→`sc.c::jtnameref`에 따라 character AR의 ordinary name을 기존 이름 환경에서 생성 시점에 조회한다. 문장 전체의 binding을 미리 snapshot하지 않는다. undefined 이름은 Verb NameRef로, 정의된 함수는 현재 실제 품사의 NameRef로 구성한다. verb의 현재 primitive 값을 고정하거나 alias의 참조를 펼치지 않는다. 기존 extension 이름도 동일한 binding 경로를 사용한다.
+- [x] P3/P6: 현재 noun·adverb·conjunction인 이름은 gerund의 최종 Verb 검사에서 DomainError를 낸다. noun-left rank의 확실한 audit 실패는 기존 constant fallback을 유지한다. 이름 재정의, undefined→verb, verb→noun/modifier, verb alias, 실패 후 target/version 유지와 원래 gerund noun의 함수 표현을 검증한다.
+- [x] P3/P6: alpha로 시작하고 마지막 문자가 `.`/`:`가 아닌 character AR은 이름 검사 경로로 보낸다. ordinary name의 분류·검증은 enqueuer를 재사용하며 잘못된 문자·공백·끝 underscore는 IllFormedName으로 처리한다. primitive 경로와 boxed AR header의 spellin 경로는 구분한다. 이름 환경이 없거나 locative 지원이 필요한 경우에는 Unsupported를 유지한다.
+- [x] P6: 회귀 테스트 3개와 공통 C 비교 문장 30개를 추가했다. stage는 runtime constructor의 함수 표현/POS 9건, 오류 7건, binding 설정·기존 target 실행 14건을 비교한다. source hash에 `a.c`, `sc.c`를 추가했다. decoded Verb NameRef가 값 snapshot을 갖지 않는지, named noun을 사용하는 중첩 fork가 필요한 noun snapshot 없이 성공하지 않는지도 검증한다.
+- [ ] 다음: 복합 AR 내부 named noun의 실제 값 snapshot 및 capture, gerund 이름 조회의 binding/version 관찰, 즉시 noun 실행·capture, train 내부 late modifier 조회를 연결한다. 현재 noun 판별은 품사 검사만 가능하며 값이 필요한 중첩 constructor는 Unsupported다. 원래 noun operand를 유지하는 것만으로 decoded execution auxiliary의 snapshot이나 compiled reuse 조건이 보존되었다고 주장하지 않는다. gerund 실행·Logical lowering, locative/locale/definition scope, 전체 primitive inventory는 별도 미완료다. 최적화/CUDA는 보류한다.
+
+Windows default/portable 각각 **293 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,507문장 중 2,503 passed, 기존 runtime 경계 4개, failed 0**; stage **7,515 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. 현재 gerund 이름 조회는 완전한 capture witness/재사용 guard가 아니다. DLL release pin과 검토 source pin을 구분하며 전체 J/upstream suite나 GitHub CI 실행을 주장하지 않는다.
+
+기준 소스: [r.c fxchar](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [a.c swap](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/a.c#L21), [sc.c nameref](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [sn.c vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
+
+##### Gerund 내부 noun snapshot과 조회 capture (2026-10-03)
+
+- [x] P3/P4: character AR의 named noun을 생성 시점의 실제 `Value`로 가져와 shared Literal로 decode한다. noun-left fork 및 rank operand의 값이 뒤 이름 재정의에 따라 변하지 않도록 한다. abstract noun은 값을 추측하지 않으며 값이 필요한 constructor에서 기존 Unsupported를 유지한다.
+- [x] P4/P5: `FunctionEntity.decoded_gerund`에 완료된 decoded 함수들을 보존한다. 이 정보는 intrinsic noun snapshot을 가진 immutable 공유 객체이며, 원래 boxed gerund noun은 source operand에 그대로 남는다. decoded 함수들을 원래 PrefixInfix/Rank의 semantic child edge로 추가하지 않는다. 성공한 gerund audit만 decoded 결과를 보존하고, rank의 quiet constant fallback에서는 부분 결과를 버린다. 이 보존은 gerund 실행 지원을 뜻하지 않는다.
+- [x] P4/P6: 생성 중의 이름 조회마다 `GerundNameResolved`에 이름·현재 binding version(undef는 없음)·실제 품사·noun facts·outer AR span을 기록한다. 배열 payload는 capture event에 넣지 않는다. 성공·실패·quiet fallback에서 조회 순서를 유지하고, 해당 constructor attempt/outcome 사이에서만 유효하도록 verifier를 확장했다. `CapturedGraph.gerund_name_reads`는 별도 observation sidecar이며 compiled reuse guard가 아니다. static 분석의 내부 이름 dependency/guard 계약은 아직 완성하지 않았다.
+- [x] P6: 회귀 테스트 4개를 추가했다. 65,536개 정수의 payload pointer 공유, 재정의·원본/Engine 해제 후 수명, rank noun snapshot과 verb NameRef의 차이, 첫 오류와 기존 target/version 보존, 부분 decode 폐기, 잘못 배치된 capture event 거절을 검증한다. 공개 정적 분석은 abstract bound noun 경계를 그대로 유지하며 실행·assignment를 수행하지 않는다.
+- [x] P6: C 공통 비교 문장 31개 및 stage 검사 49건을 추가했다. `frontend_probe`의 `D`는 생성된 객체의 decoded 함수 표현을 관찰한다. C에만 적용한 fix adverb `5!:0`의 AR decode 결과를 `5!:1`로 읽어 scalar/vector/boxed named noun snapshot 6건을 비교하고, C 객체의 재정의 후 snapshot 유지 3건을 별도 확인한다. Rust에서는 외래 실행으로 우회하지 않는다. 기존 `R`의 원래 함수 표현/POS 비교도 유지한다.
+- [ ] 다음: bident/trident AR의 즉시 noun 실행 및 capture, train 내부 late modifier 조회·effect 계약을 연결한다. gerund 실행/Logical lowering, compiled reuse 조건, locative/locale/definition scope 및 전체 primitive inventory는 별도 미완료다. tokenizer/enqueuer/parser 우선순위와 최적화/CUDA 보류를 유지한다.
+
+Windows default/portable 각각 **297 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,538문장 중 2,534 passed, 기존 runtime 경계 4개, failed 0**; stage **7,564 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. C DLL release pin과 검토 source pin을 구분한다. 전체 J/upstream suite·GPU·GitHub CI 실행은 주장하지 않는다.
+
+기준 소스: [r.c fxchar/fx 및 noun/fork decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [sc.c nameref의 noun 값 반환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [cg.c fxeachv의 decoded gerund 보존](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c gerund audit 및 constant fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
+
+##### Bident/trident AR 내부 noun 실행과 capture (2026-10-03)
+
+- [x] P3/P4: `cf.c::jthook`의 즉시 적용 production에 따라 `V N` bident는 monad를, `N V N` trident는 dyad를 runtime semantic host에서 실행한다. decoder와 modifier construction의 공통 disposition을 유지하며 실제 noun `Item`을 반환한다. 이를 바깥 noun-left fork 등의 operand로 전달하고 shared Literal 및 기존 decoded gerund 구조에 결과 값을 보존한다. 최종 gerund Verb 검사 전에 함수 실행 오류가 먼저 발생하도록 한다.
+- [x] P4: constructor 동안 host를 잠깐 mutable로 빌려 실제 call을 실행한다. 이후 AR 이름 조회는 갱신된 환경을 읽으며 문장 전체 binding snapshot을 만들지 않는다. static/no-host 경로는 Unsupported를 반환하고 실행하지 않는다. 지원 범위는 기존 runtime verb executor 범위이며 미지원 callable을 임의로 계산하지 않는다.
+- [x] P4/P6: `ConstructorApply`는 완료된 call의 함수 객체·valence에 따른 입력 facts·span·성공 결과 facts 또는 오류 class/context를 기록한다. 배열 argument/result payload는 event에 보관하지 않는다. 이름 조회 event와 같은 buffer를 사용해 실제 순서를 유지하고 바깥 construction 성공·실패 전에 전달한다. verifier는 해당 row 3/4 construction 구간 안의 Verb call만 허용한다. `CapturedGraph.constructor_calls`는 관찰 sidecar이며 재실행 계획이나 최적화 guard가 아니다. 실행된 함수 내부의 전체 효과/조회 trace까지 포착한 것은 아니다.
+- [x] P6: 회귀 테스트 4개로 monadic/dyadic 실제 값, call 성공 뒤의 최종 DomainError, call의 DomainError/LengthError와 quiet rank fallback, 기존 target/version 유지, 잘못 배치된 call event 거절을 검증했다. monadic `+`의 65,536개 정수 payload 공유·원본/Engine 해제 후 수명, Windows hook AR의 g→f 조회 순서도 확인했다. mock host 검사는 첫 call 이후의 binding 변화가 다음 조회에 반영되고 static 경로는 call하지 않는다는 연결 계약을 검증하며 전체 J effect 호환성 증명으로 취급하지 않는다.
+- [x] P6: 공통 C 비교 문장 44개와 stage 검사 56건을 추가했다. stage는 함수 표현/POS 19건, 오류 8건, setup 17건 및 computed snapshot setup 8건·decoded noun 값 4건을 비교한다. decoded 값은 C-only `5!:0`→`5!:1`과 Rust constructor 관찰 `D`로 교차 확인한다. Rust frontend를 외래 실행으로 우회하지 않는다.
+- [ ] 다음: train/AR 내부 late modifier NameRef의 조회 및 적용·effect 계약을 연결한다. 미지원 derived callable, gerund 실행/Logical lowering, compiled reuse 조건, 전체 내부 효과 graph, locative/locale/definition scope와 primitive inventory는 계속 별도 과제다. tokenizer/enqueuer/parser 우선순위를 유지하고 최적화·CUDA·GitHub CI는 진행하지 않는다.
+
+Windows default/portable 각각 **301 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,582문장 중 2,578 passed, 기존 runtime 경계 4개, failed 0**; stage **7,620 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. 공급된 Windows DLL release pin과 검토 source pin을 구분하며 전체 J/upstream suite·GPU·Linux·GitHub CI 검증을 주장하지 않는다.
+
+기준 소스: [cf.c hook의 V N/N V N 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L311), [r.c AR hook/fork decode 순서](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L93), [cg.c 최종 gerund Verb 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c quiet gerund audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
+
+##### Nameless modifier snapshot과 train 내부 지연 조회 (2026-10-03)
+
+- [x] P3/P4: ordinary modifier 이름은 모두 NameRef가 되는 것이 아니다. C의 `VALTYPENAMELESS` lookup에 맞춰 primitive modifier 및 primitive ACV/noun으로만 구성된 modifier train은 queue에서 stack으로 들어갈 때 현재 immutable 함수 값을 공유한다. `adv=:/`를 담은 train은 이후 `adv=:1`에도 기존 값을 유지한다. 일반적인 재귀적 이름 없음·순수성 판정으로 확대하지 않는다.
+- [x] P3/P4: 실제 NameRef를 포함한 train/AR의 modifier child는 실제 adverb/conjunction 적용 시점에 기존 runtime resolver로 조회한다. 같은 품사의 재정의는 반영하고, 저장된 품사와 현재 binding의 품사가 다르면 DomainError를 낸다. undefined 이름 및 alias 오류도 기존 resolver 계약을 따른다. 기존 train의 child를 바꾸거나 전체 DAG를 미리 펼치지 않는다. static/no-host 경로는 필요한 조회에서 Unsupported를 유지한다.
+- [x] P4/P5: stack 시점의 `ModifierStacked`와 실제 적용 시점의 `ModifierResolved`를 구분한다. `CapturedGraph.modifier_stack_snapshots`는 이름·version·품사·함수 값·span을 보존하며 snapshot 이름을 late verb reference로 기록하지 않는다. 실제 조회는 constructor row/span과 현재 binding version을 관찰한다. 두 sidecar 모두 observation이며 compiled reuse guard나 replay 계약이 아니다.
+- [x] P3/P6: character AR의 이름은 `fxchar`의 NameRef 경로를 유지한다. ordinary stack의 nameless shortcut을 AR 이름 decode에 적용하지 않는다. gerund 이름의 생성 시점 품사 확인과 실제 modifier 적용의 지연 조회를 별도 event로 검증한다.
+- [x] P6: 회귀 테스트 4개로 nameless snapshot 유지, nonnameless adverb/conjunction 재정의, 저장 품사 검사, 실패 후 target/version 보존, immutable child 공유 및 AR 조회 순서를 검증했다. 기존 snapshot identity 테스트도 실제 stack 시점에 맞췄다. C 공통 문장 63개와 stage 검사 69건을 추가했으며 source hash에 `s.c`, `jtype.h`를 포함했다.
+- [ ] 다음: 남은 modifier constructor/executor inventory와 explicit/local/locative/definition scope의 frontend 계약을 검토한다. 미지원 callable 및 내부 effect/dependency·compiled reuse 계약, gerund 실행/Logical lowering은 남아 있다. tokenizer/enqueuer/parser에 집중하며 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **305 passed / 17 ignored**, fmt/clippy/build 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,645문장 중 2,641 passed, 기존 runtime 경계 4개, failed 0**; stage **7,689 checks**, words **6,618 cases** 통과. capture graph 경계 **71건(ordered-effect 9, modifier-value 62)**과 static 경계 **2건(computed rank, computed gerund noun)**은 별도 보고한다. 추가 modifier-valued 문장의 graph 경계는 noun 실행 실패나 새 runtime waiver가 아니다. DLL release pin `ded7793fe5795d79eda8e7138dce94aa056edf78`과 검토 source pin을 구분하며 전체 J/upstream suite의 동등성을 주장하지 않는다.
+
+기준 소스: [p.c nameless stack lookup](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L693), [s.c binding 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L739), [jtype.h primitive/nameless flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1334), [cf.c train 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L367), [sc.c 저장 품사 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L138), [r.c character AR](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
+
+##### Bident/trident constructor inventory 전체 조합 검증 (2026-10-03)
+
+- [x] P3/P6: 실제 parser row 및 AR decoder가 사용하는 `bident_disposition`/`trident_disposition`을 frontend probe의 `--constructors`에서 관찰한다. 별도 Rust golden dispatch를 만들지 않는다. C `cf.c`의 `bidents[16]`·`tridents[64]`를 읽어 syntax error, 즉시 semantic apply, hook/fork, derived modifier 및 결과 품사 분류를 **80개 조합 모두** 대조한다. 표 밖에서 먼저 처리하는 `V V` hook과 `MARK` fork도 구분한다.
+- [x] P6: C 표의 누락·중복·알 수 없는 operand/action/result 및 probe의 누락·중복 조합을 실패로 처리한다. source extractor 회귀 테스트 3개를 추가했다. 80개 조합이 맞는다는 결과를 runtime ptcol 전체 실행 순서나 모든 operand 값의 지원으로 확대하지 않는다.
+- [x] P3/P6: 모든 16개 bident 및 64개 trident를 boxed AR로 구성하여 surface parser의 다른 reduction과 혼동하지 않고 실제 constructor에 전달한다. 공통 비교 문장 **160개**를 추가했고, stage에서는 AR setup 80건·오류 75건·최종 Verb 성공 5건을 C와 비교한다. 추가로 성공 5건의 decoded 함수 구조를 C의 reference-only `5!:0`/`5!:1`와 비교한다. noun/modifier 반환 후 gerund의 최종 Verb 검사에서 발생하는 DomainError와 불가능한 production의 SyntaxError를 구분한다.
+- [x] P6: Rust 회귀 테스트로 invalid bident/trident와 `N V N` 결과의 최종 audit 실패 후 기존 함수·binding version 및 capture 유효성을 확인한다. static/no-host 경로가 필요한 noun 실행을 임의로 수행하지 않고 Unsupported를 유지하는지도 검증한다. 이번 변경은 constructor 지원 확대를 주장하지 않으며 기존 dispatch의 검증 범위를 넓힌다.
+- [ ] 다음: explicit/direct definition의 입력 수집·실행 없는 frontend 구조와 local/locative/definition scope를 검토한다. 남은 callable inventory, 내부 effect/dependency·compiled reuse 계약, gerund 실행/Logical lowering은 별도 작업이다. tokenizer/enqueuer/parser 우선순위와 최적화·CUDA·GitHub CI 보류를 유지한다.
+
+Windows default/portable 각각 **306 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,805문장 중 2,801 passed, 기존 runtime 경계 4개, failed 0**; stage **7,935 checks**, words **6,618 cases** 통과. capture graph 경계 71건(ordered-effect 9, modifier-value 62), static 경계 2건은 유지한다. 새 waiver는 없으며 C DLL release pin과 검토 source pin을 구분한다.
+
+기준 소스: [cf.c bident/trident 표와 hook dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L310), [cf.c 즉시 적용 및 modifier 구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L349), [r.c AR decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
+
+##### Definition 입력 수집과 실행 없는 source 구조 (2026-10-03, DEF-1 일부)
+
+- [x] `definition_input.rs`의 `DefinitionInput`/`InputFrame`과 parser의 `frame_definition_input` 경로를 추가했다. ordinary sentence, 추가 입력 필요, 완료된 definition을 구분하고 definition operator·본문의 원본 byte span과 중첩 direct definition 범위를 보존한다. tokenizer의 기존 word formation을 재사용하며 본문 이름을 lookup하거나 noun으로 reduce하지 않는다. 이 구조는 enqueue 이전의 source framing이며 아직 `Program`의 DefinitionCode/FunctionEntity가 아니다.
+- [x] 일반 `{{ ... }}`와 literal mode 1–4의 `m : 'body'`, `m : 0`을 수집한다. quote doubling을 해제한 본문과 LF 포함 quoted body를 보존한다. 문자열·NB. 주석 안의 brace를 구분자로 보지 않고 nested direct definition을 수집한다. block은 C `colon0`에 따라 앞뒤 ASCII 공백만 있는 단독 `)` 줄에서 끝내며 nested DD 안의 `)`는 바깥 block을 닫지 않는다. source API는 CRLF를 보존한다.
+- [x] CLI stdin/script가 같은 physical-line collector를 사용한다. 지원되는 block/direct 입력은 닫는 줄까지 모은 다음 기존 미지원 오류를 한 번 보고하고 입력을 중단한다. incomplete 입력은 EOF에서 source span을 가진 입력 오류를 보고한다. CLI physical-line API는 줄 사이에 LF를 넣으며 원본 CRLF byte 보존은 source API의 계약이다. 본문 문장을 따로 실행하지 않는다.
+- [x] 본문 enqueue의 `ExplicitDefinition` 환경에서 local copula를 global로 승격하지 않고 future name을 Name payload/lookup flag로 유지하는지 확인했다. 이는 local frame·binding·invocation 구현을 뜻하지 않는다. callback/Engine 없이 source 구조만 만들며 definition 본문의 future name이나 side effect를 생성 시점에 실행하지 않는다.
+- [x] 회귀 테스트 7개와 CLI 대기/종료 테스트 1개를 추가했다. nested brace·quote·comment, padded terminator/CRLF, EOF, quote 해제 및 LF body, source span, local enqueue flags를 검증한다. 실제 CLI 프로세스는 닫는 줄 전에는 응답하지 않으며 완료 후 미지원 오류를 내고 본문을 실행하지 않는다. 기존 full-definition acceptance 테스트 **17개는 계속 ignored**이며 성공 capability로 계산하지 않는다.
+- [x] stage에 source projection 14건, C `;:` 대비 body words 20건, C literal decode 대비 quoted body 5건, 입력 경계 golden 5건을 추가했다. C에서는 완료된 direct fixture 및 block과 동등한 explicit string fixture의 구성 가능성을 확인한다. C `m : 0` 입력 callback이나 전체 preparse/control-flow 동등성을 검증했다고 주장하지 않는다. 실제 body 생성·호출 테스트를 통과했다고도 주장하지 않는다. source hash에 `cx.c`, `wc.c`, `io.c`를 추가했다.
+- [ ] 다음: DefinitionCode와 invocation frame을 분리한 semantic constructor 및 body/control-word 구조를 설계·구현하고, 기존 9-row parser에 completed definition entity를 연결한다. `{{)n` 등 tagged DD, 같은 문장의 여러 root DD, computed/grouped colon operands, `define` alias, modes 0/9/13는 현재 source framing 지원 범위 밖이다. unknown scope·callable을 임의로 global/static하게 처리하지 않는다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **314 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture의 기존 **2,805문장 중 2,801 passed, runtime 경계 4개, failed 0**; stage **7,979 checks**, words **6,618 cases** 통과. capture graph 경계 71건(ordered-effect 9, modifier-value 62)과 static 경계 2건을 유지한다. definition 입력 framing의 비교는 full-J 실행 지원과 구분하며 기존 waiver를 늘리지 않았다.
+
+기준 소스: [cx.c colon0 입력 종료](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L796), [cx.c quoted body line 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L841), [cx.c DD token/nesting 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1345), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [io.c definition 입력](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L383).
+
+##### DefinitionCode 생성·valence·capture provenance (2026-10-04, partial DEF-1/2)
+
+- [x] `definition_code.rs`에 immutable `DefinitionCode`를 추가했다. 원본 source/form/span, decoded body, physical line 및 body-relative word span·품사·enqueue flags를 저장한다. local copula와 future name을 보존하며 본문 이름을 생성 시점에 조회하거나 본문을 실행하지 않는다. Code와 호출별 local value frame은 별개이고 후자는 아직 미구현이다.
+- [x] enqueuer는 완료된 literal 정의를 N C N으로, direct definition은 C처럼 괄호가 있는 `(9 : 'body')`로 전개한다. 기존 parser row 4에서 Code를 생성하고 row 7에서 binding을 commit한다. direct body의 첫 word 앞 공백/초기 LF 정리도 C 기준을 따른다. enqueue에서 Code를 미리 만들어 오류 순서를 바꾸지 않는다. explicit colon 오른쪽의 length error가 먼저 발생할 때 생성·commit은 일어나지 않는다.
+- [x] actual body Name의 `u/m`, `v/n`, `x/y`를 이용해 direct mode/POS를 추론한다. 문자열·주석의 철자를 이름으로 취급하지 않는다. spaces-only `:` 구역, mode 4 dyad 선택, operator x/y 여부와 default valence 이동을 보존한다. x/y 없는 modifier가 두 valence를 정의하면 `ValenceError`를 내고 기존 binding/version을 유지한다. 원본 본문과 valence 재배치 후 함수 표현을 분리한다.
+- [x] 완료된 정의는 `FunctionHead::ExplicitDefinition`으로 보존되며 CLI가 닫는 줄 이후 계속 입력을 받을 수 있다. 일반 실행 오류 뒤 stdin 세션을 계속 읽고 실패 status는 유지한다. 미완료·미지원 정의는 여전히 중단하며 본문 줄을 별도 문장으로 실행하지 않는다.
+- [x] parser capture Input에 expanded enqueue word index를 보존한다. generated mode/body noun은 같은 DD source span을 공유하므로 span만으로 하나의 원본 단어라고 재해석하지 않는다. capture→J graph는 전체 enqueue의 index/span/payload/facts를 검증한다. 잘못된 index는 거부한다. VerbValue의 Code를 unknown 계약으로 보존하지만 내부 본문 graph를 분석했다고 주장하지 않는다. modifier-value graph와 A3 callable lowering은 미지원이다.
+- [x] Code 회귀 테스트 6개와 CLI 오류 후 continuation 테스트 1개를 추가했다. source/local flags, future binding 미조회, mode/POS·valence, 본문 미실행, 실패 transaction, row 4 오류 순서, generated capture 검증을 검사한다. full definition acceptance **17개는 계속 ignored**다.
+- [x] 공유 C corpus에 21문장, stage에 28검사를 추가했다. j64/AVX2에서 생성된 함수 품사·atomic 표현, alias, source/semantic body 구분, multiline valence, 미실행 counter와 실패 후 기존 함수 보존을 비교한다. native C block input callback 및 full preparse/control-flow의 동등성 검증은 아직 아니다.
+- [ ] 다음: `wc.c::getsen/conword/preparse`의 control-word 분할·구조와 nested/tagged 정의, 여러 root DD, computed/grouped colon operands를 구현한다. Code 호출용 local frame, runtime name/POS lookup·scope, complete J graph body 분석과 A3 lowering은 별도 단계다. optimizer·CUDA·GitHub CI는 진행하지 않는다.
+
+Windows default/portable 각각 **321 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **2,826 cases / 2,822 passed / 기존 runtime 경계 4 / failed 0**; stage **8,007 checks**, words **6,618 cases** 통과. capture graph 경계 78(ordered-effect 9, modifier-value 69), static 경계 2를 별도 기록한다. 새 modifier 정의 7건의 graph 경계는 실행 비교의 실패/면제가 아니다. upstream full suite는 실행하지 않았다. DLL release `ded7793...`와 source review `13994ff...`는 다른 revision이다.
+
+기준 소스: [cx.c colon·valence 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264), [cx.c xop·mode 추론](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1282), [cx.c direct definition 전개](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [wc.c control-word preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385).
+
+##### Control-word 분할과 body 진단 위치 (2026-10-04, partial DEF-2)
+
+- [x] `definition_control.rs`의 `ControlWord`/`DefinitionPart`/`partition_line`을 추가했다. `wc.c::conword/getsen`을 따라 tokenizer가 만든 실제 word를 고정 control word 20개와 named `for_`·`goto_`·`label_`로 분류한다. control 사이의 실행 문장과 원본 byte span, control 직전 공백을 보존하며 leading/trailing 공백과 NB. comment는 제외한다. quoted text의 control 철자를 제어 구문으로 해석하지 않는다. `if.x`는 실제 word formation 결과가 `if.` + `x`이므로 If로 분할한다.
+- [x] `for_`의 ordinary name을 검사하고 잘못된 `for_.`/`for_1a.`에는 IllFormedName을 반환한다. locative loop name은 Unsupported다. goto/label target 연결·유효성은 C와 같이 후속 audit 과제이며 이 분류기에서 완성했다고 주장하지 않는다.
+- [x] DefinitionCode 생성 경로에서 partition을 먼저 검사한다. control-flow audit을 구현하기 전에는 control body를 Unsupported로 유지하고 binding을 commit하지 않는다. public partition API는 unmatched control도 분할할 수 있지만 정의가 유효하다고 판정하거나 실행하지 않는다.
+- [x] body tokenizer/enqueue/name 오류의 위치를 원본 소스 byte span으로 변환한다. direct body의 공백/초기 LF 정리, block의 물리 줄, quoted body의 quote doubling을 반영한다. body-local word index를 outer sentence index로 잘못 보고하지 않는다. 오류 kind와 기존 diagnostic context는 보존한다.
+- [x] 회귀 테스트 5개로 전체 분류 inventory, named/invalid name, 공백·quote·comment·adjacent control, 미완료 구조와 실행 경계, 실패 후 기존 binding 유지, direct/block/escaped quoted body의 진단 위치를 검증했다. Python에는 source table의 unknown/duplicate/length 변경 거부 테스트를 추가했다.
+- [x] stage에서 pinned `wc.c`의 MATCHNAME8·length·control enum을 읽어 fixed inventory를 비교하고, C `;:`의 실제 words와 검토한 getsen 알고리즘을 사용하는 source projection 33건을 비교한다. UTF-8 quoted body와 모든 고정 control을 포함한다. 이는 C private getsen/preparse 실행 trace를 export한 것이 아니며 full control-flow 동등성 증거와 구분한다. 두 invalid-for definition과 실패 후 old-function 문장 4건도 공유 C 비교에 추가했다.
+- [ ] 다음: `preparse`/`conall`/`congoto`의 control 구조 audit과 jump/section metadata를 구현하고 검증한다. 이후 호출별 local frame·name/POS lookup, nested/tagged/multiple DD, computed colon operand 및 J graph body 분석을 이어간다. Code의 control body 호출, 전체 definition acceptance, 최적화·CUDA·GitHub CI는 미지원/보류다.
+
+Windows default/portable 각각 **326 passed / 17 ignored**, fmt/clippy/build 통과, Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **2,830 cases / 2,826 passed / 기존 runtime 경계 4 / failed 0**; stage **8,045 checks**, words **6,618 cases** 통과. capture graph 경계 78과 static 경계 2는 그대로 별도 기록한다. full upstream suite 및 private C control-flow trace 비교는 실행하지 않았다. source review pin과 DLL release pin은 이전 절과 같다.
+
+기준 소스: [wc.c conword 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L331), [wc.c getsen 문장 분할](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L366), [wc.c preparse audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [sn.c vnm 이름 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
+
+##### Definition control 구조와 valence별 audit (2026-10-04, partial DEF-2)
+
+- [x] `definition_flow.rs`에 control entry·jump metadata를 추가했다. `preparse/conall/conend`를 따라 if/elseif/else, while/whilst/for, break/continue, assert/return/throw, try/catch/catchd/catcht, select/case/fcase의 **정의 생성 단계**를 처리한다. 호출별 local frame과 본문 실행은 아직 구현하지 않았다.
+- [x] physical sentence와 fragment별 word 범위를 함께 보존한다. body-relative span, physical line, valence별 target, assert marker 위치를 검증한다. `go`는 C의 control/error target이며 모든 정상 successor를 표현하는 CFG edge는 아니다. catcht의 runtime 처리를 정적 확정으로 해석하지 않는다.
+- [x] 각 valence의 enqueue를 마친 뒤 control 구조를 검사하고, monad 검사를 끝낸 뒤 dyad를 처리한다. literal mode 4의 divider 이전 monad는 C처럼 검사에서 제외한다. 실패 시 기존 binding을 보존하고 본문의 assignment·name lookup·실행을 하지 않는다.
+- [x] C의 control entry·sentence word·전체 word 한계를 반영했다. control entry 경계는 native C 비교로 검증했다. verifier는 valence 범위, jump 범위, physical line, word/source span 및 assert marker 참조를 검사한다. 전체 word 한계의 대규모 C 실측과 완전한 CFG 의미 증명은 미완료다.
+- [x] 8개 control word의 길이 1–3 조합 **584개**를 C와 비교한다. C의 packed-code interval 검사로 허용되는 비정형 `while. if./while./whilst./for. end.`도 보존하고 `analysis_barrier`로 표시한다. 이를 structured lowering 대상으로 추론하지 않는다. nested loop·try·select target은 검토한 pinned C 알고리즘 기반의 별도 Rust 회귀 테스트로 확인한다.
+- [ ] 다음: goto/label target·구조 진입 제한 audit, `canend`/BBLOCKEND 결과 자격 metadata. 호출 frame·runtime scope, nested/tagged/multiple DD, computed colon operand 및 Code 본문 graph lowering은 별도 단계다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **340 passed / 17 ignored**, fmt/clippy/build 통과, Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **3,501 cases / 3,497 passed / 기존 runtime 경계 4 / failed 0**, stage **8,677 checks**, words **6,618 cases** 통과. capture graph 경계 78과 static 경계 2는 별도 기록한다. 생성 결과·오류·atomic representation을 비교했으며 **private C control/jump trace를 export해서 비교한 것은 아니다**. upstream full suite와 definition 호출 acceptance 17건은 미실행이다. 보고서 10개의 실행 파일 및 source hash를 확인했다. DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`와 검토 소스 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`는 서로 다른 revision이다.
+
+Sources: [wc.c conend / packed interval](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L72), [wc.c try/select](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L111), [wc.c conall](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L177), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [cx.c valence ordering](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264).
+
+##### 이전 B-block 결과 자격 metadata (2026-10-04, partial DEF-2)
+
+- [x] `PreviousResult::{Unresolved, CanReturn, CannotReturn}`를 추가하고 C `conall`의 역방향 고정점과 provisional bit 처리를 따라 기록한다. 대상은 **이전 B-block 결과**이며 현재 test 값, purity, CFG reachability 또는 최적화 허용 여부를 뜻하지 않는다. successor 결과가 일치하지 않거나 cycle이 확정되지 않으면 Unresolved를 유지한다.
+- [x] CBBLOCKEND를 `before_fallthrough_end`로 보존한다. 후속 문장이 있는 non-select fallthrough end 바로 앞의 Body만 표시한다. 마지막 end, backward loop end, select end 및 assert/test를 구분하고 verifier에서 잘못 붙인 marker를 거부한다.
+- [x] 회귀 테스트 4개로 loop·분기·assert/throw/return, valence 독립성, analysis barrier 보존 및 잘못된 참조를 검증했다. C corpus에 생성 사례 6개를 추가했다. 이는 source 기반 metadata 검증이며 C의 private canend trace 비교는 아니다. 실행과 최적화는 추가하지 않았다.
+- [ ] 다음: goto/label target 및 구조 진입 제한을 audit하고 upstream goto 위치 matrix를 native C와 비교한다. invocation frame·scope 및 나머지 definition input 지원은 후속 단계다.
+
+Windows default/portable 각각 **344 passed / 17 ignored**, fmt/clippy/build 통과; Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **3,513 cases / 3,509 passed / 기존 runtime 경계 4 / failed 0**, stage **8,683 checks**, words **6,618 cases**. 보고서 10개의 binary hash를 확인했다. capture graph 경계 78과 static 경계 2, DLL/source review revision 구분 및 upstream full-suite 미실행 상태는 그대로다.
+
+[wc.c CBBLOCKEND and canend](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L238).
+
+##### Goto/label 연결과 구조 진입 audit (2026-10-04, partial DEF-2)
+
+- [x] `congotoblk/congoto/congotochk`를 따라 **conall 이전**에 원래 control kind로 구조 interval을 만들고 target label의 다음 entry를 goto target으로 연결한다. label suffix는 원본 문자열로 보존하며 name lookup을 하지 않는다. 빈 suffix와 숫자로 시작하는 suffix도 일반 J name으로 재분류하지 않는다.
+- [x] 같은 valence에서 target이 없거나 참조된 label이 중복되면 ControlError다. 참조되지 않은 duplicate label은 C처럼 허용한다. target prefix를 정확히 구분하고, 구조 안으로의 진입·sibling branch 이동은 금지하되 구조 밖으로의 이동은 허용한다. malformed interval은 안전한 bounds 검사로 오류 처리한다.
+- [x] verifier가 named suffix와 원본 source 및 label successor 참조를 확인한다. 원본 quoted source의 duplicate label 위치를 보존하고 실패 후 binding을 유지한다. body 호출이나 branchout runtime stack 처리는 구현하지 않았다.
+- [x] pinned `test/ggoto.ijs`의 select/if, while/try, if/for/whilst 3개 template에서 label과 goto를 넣을 수 있는 모든 gap **1,028개**를 비교했다. j64/AVX2 모두 생성 성공 332건·ControlError 696건으로 일치한다. upstream suite 전체 실행이나 private jump trace 비교는 아니다.
+- [x] CLI 문장 단위 corpus에는 한 줄 equivalent를 사용하고, 원본 여러 줄·valence 구분은 stage probe에서 비교한다. 실제 여러 줄 quoted string을 CLI 한 case로 잘못 보내는 transport 문제를 발견해 수정했고, 이후 CR/LF 입력을 거부하는 regression guard를 추가했다. control 정의 생성의 성공을 호출 지원으로 계산하지 않는다.
+- [ ] 다음: nested/tagged/multiple direct definition 및 computed/grouped colon operand의 framing·enqueue provenance를 확장한다. invocation/local frame·scope, Code 본문 structural graph와 A3 lowering은 별도 단계다. for locative name, 최적화·CUDA·GitHub CI는 현재 미지원/보류다.
+
+Windows default/portable 각각 **348 passed / 17 ignored**, fmt/clippy/build 통과. Python **25 passed**(최종 CLI transport regression 포함). j64/AVX2 각각 direct·semantic-reference·parser-capture **4,563 cases / 4,559 passed / 기존 runtime 경계 4 / failed 0**, stage **9,724 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했으며 `test/ggoto.ijs` hash도 추가했다. capture graph 경계 78과 static 경계 2는 별도다. DLL release/source review pin 구분은 이전 절과 동일하다.
+
+Sources: [wc.c goto audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L14), [j.h half-open intervals and DO loop index](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1065), [upstream goto position tests](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/ggoto.ijs).
+
+##### 한 문장의 여러 direct definition 보존 (2026-10-04, partial DEF-1/2)
+
+- [x] `InputFrame::Definitions`로 disjoint root DD를 source 순서대로 보존한다. 각각의 delimiter/body span과 nested 범위 소유권을 분리한다. 뒤쪽 root가 미완성이면 전체가 NeedMore이며 앞쪽 root도 commit되지 않는다. nested 범위 수집은 semantic nested Code 지원을 뜻하지 않는다.
+- [x] enqueuer는 각 root를 독립된 parenthesized `9 : body` constructor로 전개하고 gap의 ordinary word를 유지한다. 원본 source와 primitive context를 constructor끼리 Arc로 공유한다. gap 오류의 blame index도 전개된 queue index를 사용한다. body·constructor의 원본 위치는 전개 위치와 별개로 보존한다.
+- [x] 기존 row 4·row 7과 Hook/Fork 처리를 사용하며 여러 DefinitionCode를 function operand로 유지한다. 본문 이름을 조회하거나 noun으로 실행/reduce하지 않는다. static prepare는 binding을 commit하지 않으며, 실패한 train 정의도 old binding을 보존한다.
+- [x] 회귀 테스트 4개로 quote/comment·nested 소유권, incomplete collection, enqueue provenance/index·Arc 공유, structural train·body 미실행·binding 유지 및 CLI의 두 경로를 검증했다. C corpus에 15건을 추가해 실제 atomic representation과 오류·transaction을 비교했다. stage에는 input projection·incomplete 비교 4건을 더했다.
+- [ ] 다음: semantic nested DD와 tagged DD, computed/grouped colon operands 및 한 문장의 mixed literal-colon/DD framing. 여러 ordinary root DD 지원을 모든 definition form 지원으로 확대 해석하지 않는다. invocation/local scope, A3 및 Code 본문 graph lowering은 후속 단계다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **352 passed / 17 ignored**, fmt/clippy/build 통과, Python **25 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,578 cases / 4,574 passed / 기존 runtime 경계 4 / failed 0**, stage **9,743 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했다. capture graph 경계 78과 static 경계 2는 별도이며, full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다. DLL release와 source review pin은 이전과 같다.
+
+Sources: [cx.c repeated DD expansion](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [p.c parser reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
+
+##### Tagged noun DD의 raw 입력·noun 보존 (2026-10-04, partial DEF-1/2)
+
+- [x] `DefinitionForm::NounDirect`로 `{{)n ... }}`를 처리한다. 이는 함수 Code가 아니라 **문자 noun**이다. raw body의 quote·NB.·control spelling·`{{`를 word나 실행 문장으로 해석하지 않는다. 첫 물리 줄에서는 어디에 있는 `}}`도 종료하고, 다음 줄부터는 column zero의 `}}`만 종료한다. tag가 첫 줄 끝이면 초기 LF를 생략하고, 첫 줄에 body가 있으면 다음 줄 앞 LF를 보존한다.
+- [x] 원본 delimiter/body byte span은 유지하면서 physical CRLF를 logical LF로 변환한다. 이후 root를 별도로 rescan하므로 raw body의 unmatched quote가 다음 ordinary/noun DD의 word formation을 오염시키지 않는다. ordinary DD 내부의 nested noun DD 및 다른 tag는 아직 Unsupported다.
+- [x] enqueue는 raw noun을 원래 span·word index를 가진 Noun 한 개로 낸다. 길이 1의 char scalar와 빈/여러 byte char 배열을 구분한다. DefinitionConstructor나 local invocation frame을 만들지 않는다. 기존 noun reduction·assignment·snapshot 및 constant-noun fork 구성을 재사용한다. 두 noun의 단순 나열에는 C의 N/N syntax error를 유지하며 임의 concat 규칙을 추가하지 않는다.
+- [x] Rust 회귀 테스트 6개로 raw 값/shape, multiline·column-zero 종료, mixed roots, enqueue provenance·noun snapshot·static 미commit, CLI 두 경로의 quote/comment·CRLF 및 UTF-8 byte-boundary panic을 검증했다. malformed 일반 primitive byte를 framing에서 잘못 slicing하지 않고 enqueue의 오류 경로로 넘긴다.
+- [x] C corpus에 noun 사례 **161건**을 추가했다(고정 body 11개·seed 20261004의 body 64개, 값 관찰·snapshot·mixed train 포함). stage에는 **176 checks**를 추가했다. multiline 6건은 C `0!:100` script 경로로 실제 physical input을 공급해 LF/CRLF·빈 header·embedded delimiter·raw quote를 비교한다. 한 번의 multiline `JDo` 호출을 physical-line collection 증거로 사용하지 않는다.
+- [x] oracle이 raw body의 unmatched quote 때문에 `;:` 관찰을 definition 실행 오류로 잘못 취급하지 않도록 copula prefix를 관찰한다. 원본 문장을 두 번 실행하지 않는다. Windows subprocess 입력의 UTF-8을 명시해 한글 raw noun의 byte 값도 비교한다. 두 adapter regression test를 추가했다.
+- [ ] 다음: semantic nested DD와 nested noun DD, 다른 tagged/computed/grouped definition 및 mixed literal-colon/DD framing. unfinished input의 EOF error-class 정합도 별도 audit 대상이다. callable A3·본문 graph lowering·invocation/local scope, for locative name은 미완료다. 최적화·CUDA·GitHub CI는 보류한다.
+
+Windows default/portable 각각 **358 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,739 cases / 4,735 passed / 기존 runtime 경계 4 / failed 0**, stage **9,919 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했고 `test/g0x.ijs` hash도 기록했다. capture graph 경계 78과 static 경계 2는 별도이며 upstream full suite·definition 호출 acceptance·private C trace 동등성은 미검증이다. DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`와 source review `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`는 서로 다른 revision이다.
+
+Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1413), [io.c physical input normalization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L316), [io.c script-line input](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L362), [upstream string-script execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/g0x.ijs#L32).
+
+<a id="static-frontend-review"></a>
+
+##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
+
+**사용자 수용 기준:** 실행 없이 연산 graph와 메모리 요구를 분석할 수 있으면 우선 충분하다. 정적 분석은 기본 경로로 유지한다. 실제 실행 + 별도 capture는 값 의존 구간의 의미 보존과 동적 관찰을 위한 경로이며, 지원되는 정적 분석을 제공하기 위한 전면 선행 조건이 아니다. 완전한 J runtime compatibility, capture, compiled reuse의 완료 상태는 별도로 추적한다.
+
+정적 noun은 “J 품사 = Noun, graph origin, 추론된 facts, 선택적인 constant”를 가진다. concrete noun은 실제 `Value`와 별도 origin을 가진다. 같은 class matcher/row 규칙 아래 semantic action/context가 둘을 구분한다. Unknown 값이나 품사를 실제 값이 있는 Noun으로 가장하지 않는다. constant folding도 J 오류·효과·binding 의미를 보존하는 안전한 범위에 한정한다.
+
+| 현재 파일/구조 | 그대로 유지 | 수정해야 하는 점 |
+|---|---|---|
+| `tokenizer.rs` | `w.c` transition table, raw spans, quote errors, parser-visible comment cutoff | capture 때문에 변경할 사항은 없다. runtime/capture/target 정보를 넣지 않는다 |
+| `enqueuer.rs` | literal construction, core primitive POS, unresolved NAME, lookup/copula flags, word index/span | graph를 만들 필요는 없다. `EnqueueEnvironment`와 flags/provenance를 parser 입구 이후에도 전달하는 contract를 보완한다 |
+| `parser.rs::ParseValue::Noun(Expr, usize)` | Noun class와 원본 표현/의미 구조 | concrete Value carrier와 static noun facts/origin carrier를 명시적으로 구분한다. Expr 하나를 concrete 값처럼 사용하지 않는다. capture origin은 값과 별도이며 보존된 static graph도 버리지 않는다 |
+| `expression()` / queue drain | 같은 queue/stack 규칙과 name의 noun/function 구분 | `resolve_stack_item`이 실제 right-to-left queue→stack entry에서 조회한다. `ParseContext`가 analysis와 runtime noun snapshot을 구분한다. runtime invocation host와 top-level single-name non-final assignment는 구현했으며 explicit-local/locale/effect 확장은 미완료다. static은 안정된 binding/POS 정보만 사용하며 불명확하면 분석 경계로 남긴다 |
+| rows 0–2 / `runtime.rs::eval_program` | monad/dyad 의미와 실제 kernel implementation | static action은 application graph와 facts를 만들고, concrete action은 그 지점에서 실행한 noun을 돌려준다. concrete reduction 후 전체 Expr를 다시 실행하여 중복 계산하지 않도록 runtime return contract를 함께 바꾼다 |
+| `completed_noun()` / rows 3–6 | completed FunctionEntity DAG, source operator, ordered operands | `completed_noun`은 Literal/Group만 추출하지만 runtime rows 0–2가 먼저 실제 Literal로 reduce하므로 computed noun constructor도 처리한다. static context의 값 의존 boundary는 유지한다. static constructor는 필요한 값이 constant/proven이면 진행하고, 아니면 value-dependent 경계로 남긴다. concrete constructor는 실제 값과 origin을 받아 validation한다 |
+| `Item` / row 7 / diagnostics | source spans, enqueue의 local/global/to-name 구분 | `Item`이 original-word range/inherited token과 enqueue flags를 보존하며 row 7은 `AssignmentSource`로 target/copula provenance와 flags를 남긴다. static final assignment는 proposal로 남기며 runtime row 7은 final/non-final assignment를 즉시 수행한다. local 실행 미지원 상태를 유지하면서 metadata를 조용히 global로 해석하지 않는다 |
+| row 8 / graph adapter | 괄호에 따른 reduction boundary | grouping 전후 같은 noun origin을 유지한다. 괄호 자체를 추가 실행 operation으로 만들지 않는다. production 순서·operand slot·original word를 기존 J Graph adapter에 전달한다 |
+| parser API / runtime / analysis | `prepare_semantic/analyze_j_graph(&self, ...)`의 비실행 성격 | `snapshot: bool`은 `ParseContext::{Analysis, Runtime}`으로 대체했다. `ActionContext`/`RuntimeParserHost`가 lookup/invocation과 optional capture를 통합한다. top-level assignment host action은 구현했으며 explicit-local/locale/definition 확장은 후속 작업이다. static 분석과 runtime capture는 동일 grammar를 사용하되 실행 권한과 반환 타입을 구분한다 |
+
+이 변경은 tokenizer/enqueuer/parser 파일 분리를 되돌리는 작업이 아니다. 핵심은 **parser의 payload·semantic actions와 metadata 전달**이며, graph/capture를 lexer나 physical `Value`에 넣지 않는다. 근거는 현재 `parser.rs`의 `Noun(Expr, usize)`, `expression`, `completed_noun`, row 7의 `AssignmentSource`, `runtime.rs::eval_program` 및 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)/[w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 계약이다. 이전 구조 검토를 현재 parser 변경에 맞게 갱신했다. kernel/executor 변경은 포함하지 않는다.
+
+**메모리 분석의 의미:** 현재 `j_graph_memory.rs`는 알려진 shape의 logical atom count, graph 순서의 live range, intermediate/view materialization 후보를 분석하고 명시적인 representation model로 byte 수를 평가한다. 이는 실제 allocation이나 peak device memory의 보장이 아니다. shape가 미정이면 Unknown/상징식/조건을 유지하고, physical schedule·layout·alias·variable-width boxed/sparse representation이 정해진 뒤 peak/residency를 별도 평가한다. source가 주는 구조와 사용자 input signature가 확보되면 배열 원소를 실행하지 않고 분석한다. 현재 모든 symbolic shape나 J form이 구현되었다는 의미는 아니다.
+
+- [x] 세 파일의 재검토를 완료하고 tokenizer 유지, enqueuer metadata 전달 보완, parser/context/return contract 수정으로 범위를 좁혔다.
+- [x] 최소 수용 기준을 static graph + logical memory analysis로 명시하고 full capture/JIT/physical peak 계산과 구분했다.
+- [ ] **P2/P5 static-first interface:** 기존 static graph 경로를 유지하면서 static/concrete noun carrier와 같은 grammar의 actions를 정의한다. compile 요청이 runtime effects를 실행하지 않는 regression을 추가한다.
+- [x] **F2/P4 supported lookup/provenance:** original word 범위와 inherited token·final copula flags를 유지하고 name resolve를 stack entry로 옮겼다. 지원되는 reduction의 구조와 실패 시 중단을 검증했다. top-level single-name non-final assignment는 후속 gate로 검증하며 explicit-local/locale/effect 동등성은 별도 미완료 항목이다.
+- [ ] **P3/P6 value-dependent boundary:** constant constructor 사례는 분석하며 unknown 실제 값/품사에서는 경계와 reason을 반환한다. Unsupported analysis를 J syntax error로 바꾸지 않는다.
+- [ ] **P5/P6 static memory gate:** input type/shape 또는 facts로 graph/liveness/extent를 분석하고 Unknown을 보존한다. 결과 보고에 logical atoms·represented bytes·추정 peak의 차이를 표시한다.
+
+**구현한 provenance 계약:** `Program.reductions`와 정적 분석 결과의 `reductions`는 row id, 순서대로 나열한 operand word range, result word range/품사, byte span, inherited token을 가진다. actual noun payload는 복사하지 않는다. jsource `p.c`의 modifier·fork·bident hook은 왼쪽 operand의 `.t`, non-fork trident는 가운데 operand의 `.t`, 괄호는 `(`의 `.t`를 이어받는다. rows 0–2의 noun 결과는 오른쪽 noun token을 유지하며 C는 이를 non-executable noun에서 immaterial로 설명한다. 실패 operator의 blame token과 result token은 별도다. Rust의 index는 0부터 시작한다. 이 계약은 [p.c stack entry](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L735), [noun result](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L922), [modifier/train/parenthesis](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1002)를 cross-check한 source 기반 regression이며 C 내부 stack trace를 직접 export한 검증은 아니다.
+
+이번 regression 9개는 이름의 오른쪽→왼쪽 조회·각 stack entry noun snapshot, constructor 실패 후 미방문 이름 조회 중단, named modifier POS, 9개 row의 original-word 전달, grouping된 modifier/fork origin, final copula 보존, 원문 error token 및 named insert/fork 분석 경계를 검증한다. C corpus에도 13문장을 추가했다. `(entryverb/ % #) entrynoun`과 `(entryverb/ % #) entrycopy`는 frontend 구조를 보존하지만 기존 runtime executor가 처리하지 못한다. 보고서 `coverage_boundaries`에 exact source와 실제 C/Rust 결과·이유를 남기며 성공이나 C baseline deviation으로 세지 않는다. Rust가 다른 오류를 내거나 등록하지 않은 구문이 실패하면 일반 failure다. 나머지 2,061문장의 값/error 비교와 stage/word 검증을 통과했다.
+
+위 static 분석 gate는 runtime capture 전부의 완료를 기다리지 않는다. 아래 capture 체크리스트는 별도 실행 경로의 완료 기준으로 유지한다.
+
+##### 구현 순서와 완료 체크리스트
+
+기존 F2/P2–P6에 속한 아래 항목을 순서대로 진행한다. 조사/계획 완료와 runtime 구현 완료를 혼동하지 않는다.
+
+- [x] 공식 문서 및 ProxyTensor source에서 concrete/symbolic capture, lazy evaluation, graph break/guard, SSA 방식의 차이를 조사했다.
+- [x] 실제 noun reduction + 별도 compilation capture를 결정하고 문법상의 verb-only 제한을 두지 않기로 했다.
+- [x] 현재 deferred parser와 목표 runtime parser의 차이, 아래 implementation/test gate를 정본에 기록했다.
+- [x] **P2/P4 — runtime row actions (지원 subset):** `RuntimeParserHost`가 같은 9-row engine에서 stack-entry name lookup과 rows 0–2 invocation을 수행하고 actual `Value`를 같은 stack에 재삽입한다. 미지원 effectful/locale/definition form은 별도 coverage boundary로 남긴다.
+- [x] **P2/P5 — capture carrier:** opt-in `ParseCapture`, occurrence ids, input/output associations와 ordered attempt/success/failure events가 구현되었다. raw `Value`/primitive executor에 compiler identity를 넣지 않으며 capture parity 회귀를 유지한다.
+- [x] **P3/P5 — construction provenance (지원 subset):** completed FunctionEntity DAG, construction attempt/success, computed noun occurrence origin을 capture에 연결했다. runtime actual noun과 static value-dependent boundary를 구분하며 전체 constructor vocabulary 지원 완료를 뜻하지 않는다.
+- [x] **P4 — names/effects (지원 subset):** same-sentence name lookup/assignment/POS와 이미 commit된 effect 대 pending outer assignment의 순서를 capture/runtime 회귀로 보존한다. 일반 user locale/path와 미지원 effect form은 여전히 별도 경계다.
+- [x] **P5/P8 — graph adapter (성공 capture subset):** capture의 input/constant/read/apply/construction dependency를 기존 J Graph로 변환하고 verifier를 통과시키는 adapter가 구현되었다. failed/opaque/dynamic boundary를 executable complete graph로 승격하지 않는다.
+- [x] **P6 — 지원 corpus differential/capture gate:** Windows default/portable와 j64/AVX2 oracle에서 여러 후속 gate를 반복 실행했고 reports에 coverage boundary와 revision/hash를 남겼다. 이는 full runtime `ptcol` internal trace나 full-J/upstream/locale/definition acceptance 완료를 뜻하지 않는다.
+- [ ] **후속 P5/P8 — static/reuse:** purity·error order·binding/value guards를 확보한 구간에서만 abstract actions, region compilation, safe reuse를 추가한다. capture 실행 경로의 completion gate는 runtime reduction + capture parity + verified J Graph다. 최소 static 분석 gate와 구분하며 production CUDA/JIT를 요구하지 않는다.
+
+##### 테스트 matrix와 수용 조건
+
+| 검증 축 | 사례/방법 | 통과 조건 |
+|---|---|---|
+| Arithmetic topology | `a=:2`, `b=:3`, `c=:4` 후 `a+b*c`; `(a+b)*c`; monad chain | C 결과/오류 일치. capture에는 실제 reduction order와 producer-consumer edges가 남고 괄호 차이가 보존된다 |
+| 동일 값, 다른 production | `(2*3)+(1+5)` | 두 6이 별도 origins이며 최종 add가 두 origin을 참조한다 |
+| Constructor noun | `f=:+"(1+0)`; `f=:(1+2) + *`; 계산 rank/length/domain 오류 | C `4!:0`/`5!:1`, 결과 및 오류 일치. actual noun operand와 생산 graph가 연결되고 constructor-time 오류를 뒤로 미루지 않는다 |
+| Completed verb structure | `+/ % #`, hook/fork, nested rank/atop | source operator·operand order·completed modifier 경계가 C atomic structure와 일치한다 |
+| Naming/sequencing | noun assignment 이후 rebind, late function alias rebind, 지원되는 중간 assignment | noun snapshot/version과 function POS/late binding이 유지된다. trace 없는 eval과 effects/lookup 순서가 같다 |
+| Failure and partial graph | `1+('a'+2)`, `(1 2+1 2 3)+('a'+1)` 및 두 실패 분기의 반대 배치 | C error class와 failure precedence 일치. 실패 노드 뒤 성공 output/outer commit이 없고 partial graph를 executable로 오인하지 않는다 |
+| Exactly-once effects | runtime semantic-host test double로 invocation/assignment events 계수; C에서 지원된 J 문장 별도 비교 | capture on/off 실행 횟수 동일. recording failure나 replay가 effects를 중복시키지 않는다. host tests를 C full-J 지원 증거로 계산하지 않는다 |
+| Memory/identity | 큰 array chain·alias 입력·복수 문장·capture 해제 후 temporary lifetimes 관찰 | per-node full-array copy와 diagnostic array retention 없음. BufferId로 semantic id를 생성하지 않는다. bounded metadata/constant policy 검증 |
+| Reuse safety | shape/binding/POS/constructor 값이 바뀐 입력; branch 양쪽 | guard invalidation 또는 semantic region 실행. 한 번 trace한 branch를 universal program으로 재사용하지 않는다 |
+
+**역사 상태 주의:** 이 문단을 처음 작성한 2026-10-03 시점에는 계획/참고자료 정리만 완료되어 있었다. 이후 runtime row actions, capture API, successful-capture→J Graph adapter와 지원 corpus differential은 구현·검증되었다. 현재 미완료는 full runtime `ptcol` 내부 trace 동등성, 일반 locale/definition/control/effect coverage, capture 기반 safe static reuse/guard, 그리고 전체 memory-retention/performance gate다. 아래 212 tests/7,014 stage 수치는 당시 gate의 역사 기록이지 최신 검증이 아니다.
+
+#### F0 — jsource word formation 이식
+
+- [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/tokenizer.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
+- [x] 기존 handwritten `scanner::transition`을 제거하고 lookup-only `TRANSITIONS[state][class]`로 교체했다. follow-on numeric rewind와 UNDD 처리는 `jtwordil`의 별도 boundary action으로 유지한다.
+- [x] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다. `tools/word_conformance.py`가 state-prefix × 256-byte sweep, 특수 사례, seeded random 2,000건을 포함한다.
+- [x] unmatched quote를 jsource `EVOPENQ`에 대응하는 `open quote`로 분류하고 시작 quote byte span을 보존한다.
+- [x] word/parser/runtime source span은 byte offset으로 보존하고 사용자 진단 시 Unicode line/column으로 변환한다.
+- [x] `;:` 기반 word-formation oracle과 RustJ raw `wordil`-equivalent spans를 byte 단위로 비교하는 adapter/probe를 만든다 (`tools/word_conformance.py`, `examples/scan_words.rs`). trailing `NB.` raw field와 parser-visible count는 별도 contract로 유지한다.
+- [x] pinned jsource `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` against 6,618-case differential에서 **failed=0 / zero_mismatch=true**를 확인했다 (seed `20260927`, open-quote cases `1109`).
+
+**F0 완료 조건:** supported source domain에서 word boundaries/comment cutoff/error가 pinned jsource `jtwordil`과 일치한다.
+
+#### F1 — jsource enqueue + PrimitiveResolver 이식
+
+- [x] `syntax::lex_spanned`가 수행하던 word interpretation을 `enqueuer::enqueue`로 이동하고 `syntax`는 legacy Token adapter로 축소했다.
+- [x] `EnqueuedWord { class, payload, span, word_index, flags }`와 `EnqueueClass`/`EnqueueFlags`를 정의해 parser-facing class/payload/provenance를 명시적으로 분리했다.
+- [ ] enqueue의 classification order와 parser class/POS 결정 순서를 `jtenqueue`와 동일하게 유지한다. RustJ convenience lexer가 먼저 품사를 확정하지 않게 한다.
+- [ ] core J primitive lookup을 jsource `spellin -> ds`와 같은 위치와 precedence로 구현한다.
+- [x] `PrimitiveResolver`/`PrimitiveContext`를 만들고 enqueue용 core primitive resolution과 parser/name-binding용 extension lookup을 분리했다.
+- [x] `PrimitiveHandle { semantic_id, source_origin, result_pos, semantic_info, lowering_key }`를 정의했다.
+- [ ] compile 시작 시 `PrimitiveContext`와 `TargetContext`를 함께 확정하되 enqueuer는 semantic primitive resolution에 `PrimitiveContext`만 사용한다.
+- [ ] built-in과 extension 모두 동일 `lowering_key -> active TargetContext` lookup protocol을 사용하게 한다.
+- [x] extension-like spelling은 enabled extension catalog에 있어도 enqueue에서는 ordinary NAME + lookup metadata로 진행한다.
+- [ ] numeric/string construction, name validation, assignment/copula classification을 jsource `jtenqueue` 순서대로 이식한다.
+- [x] ordinary NAME은 처음 non-lookup으로 두고, trailing NAME/뒤에 non-assignment가 오는 NAME만 lookup으로 전환하며 copula 직전 assignment target NAME은 non-lookup으로 유지한다.
+- [x] `EnqueueFlags`에 `global_assignment/local_assignment/assignment_to_name`을 분리했다. `=:`는 global이며 NAME 직후 copula는 to-name flag를 보존한다. `=.`는 TopLevel에서 global로 승격하고 ExplicitDefinition enqueue 환경에서는 local을 유지한다. explicit body의 local 실행과 locative 승격은 미완료다.
+- [x] **F1 env=0/1/2 작은 수렴(2026-10-07):** 고정 [jsource `w.c::jtenqueue`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 `env=0` tacit translator는 copula의 `ASGNTONAME` 특수화를 하지 않고 `=.`를 일반 local로 둔다. RustJ에 `EnqueueEnvironment::TacitTranslator`를 추가하고 env=0/1/2에서 `=.`·`=:`의 global/local/assignment-to-name 및 NAME lookup·source span을 각각 검증하는 Rust 회귀를 추가했다. **이것은 세 환경의 enqueue flag 부분 구현만 수용**하며 locative에 의한 global 승격, tacit translator 전체 사용 경로, C runtime queue의 직접 차분 및 F1 전체 완료를 뜻하지 않는다.
+- [x] one-word sentence는 Noun/Name/Verb/Adverb/Conjunction만 결과 가능 class로 허용하고 copula/괄호 단독 문장을 enqueue 단계에서 거부한다.
+- [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
+- [x] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 modifier/parser class 경로에 참여하는 테스트를 만들었다.
+
+- [ ] **F1↔P4 locative 정상 수용(2026-10-07 검토):** 유효한 J direct `name_locale_`, indirect `name__holder`, 호환 `name__`(`name_base_`)는 **문법 오류가 아니며 영구 `Unsupported` 처리 대상도 아니다**. `sn.c::vnm/nfs`로 이름을 검증하고 `w.c::jtenqueue`의 NMLOC/NMILOC·`=.`의 global promotion을 보존한다. 단순 이름의 문자열 key로 속여서 다른 locale과 충돌시키지 않는다. F1의 syntax/name queue와 P4의 locale lookup/assignment는 **연계 구현 후 수용**한다. 현재 RustJ의 유효 locative에 대한 `Unsupported`는 명백한 **미구현 상태**이지 승인된 최종 동작이 아니다.
+
+- [ ] **NP-01/02 (§3.7.3):** NAME occurrence·source span과 noun stack-read·function POS/NameRef·constructor event를 J 시점에 연결한다(NP-V01/02).
+
+**F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
+
+#### F2 — jsource parse queue skeleton
+
+- [x] semantic parser 입력을 legacy `Token`에서 `EnqueuedWord` queue로 바꾸고 span/word-index/flags를 parser 진입까지 보존한다.
+- [x] `EnqueueClass`와 `EnqueuedPayload`를 분리하고 parser가 동일 `EnqueuedWord` carrier에서 둘을 함께 운반한다.
+- [ ] jsource Mark/Edge sentinel을 명시적으로 표현한다.
+- [x] ordinary lookup NAME은 `EnqueueFlags.lookup_name`을 확인한 뒤 parser item 생성 전에 `ParserNameBinding`으로 resolve한다.
+- [x] pinned `cases[]`를 옮긴 `match_parse_row([ParseClass; 4])`가 semantic payload를 보지 않고 parser class만으로 eligibility와 first-match precedence를 결정한다.
+- [x] `cases[]` 기반 row ordering/reduction extent, 동일 stack reinsertion/rescan과 legacy flat train/modifier heuristic 제거를 production parser에 적용했다. **남은 것은 C runtime `ptcol`의 reachable-state/internal trace 동등성 검증**이며 P6에서 별도로 추적한다.
+- [x] 구현된 reduction 결과를 동일 Item stack에 재삽입한다. 원본 word provenance와 occurrence를 reduction pipeline에서 계승하며 전체 runtime ptcol trace 동등성은 P6에서 별도 미완료다.
+- [x] `ParseClass`를 F2 row matcher와 application/modifier reduction의 공통 class domain으로 사용한다.
+
+**F2 완료 조건:** parser는 jsource-compatible enqueue queue를 유일한 입력으로 받아 9-row engine으로 넘길 수 있다.
+
+#### P0 — 기준선과 differential oracle 고정
+
+- [x] jsource 9-row parsing rule(row 0–8)의 eligibility와 precedence를 `cases[]`와 runtime dispatch 양쪽에서 확인한다.
+- [x] ordinary non-assignment NAME은 stack class matching 전에 lookup되며, noun은 value로, 일반 verb/adverb/conjunction은 현재 POS를 가진 nameref/value semantics로 들어감을 확인한다.
+- [x] rows 3–4의 modifier action 결과 `yy`의 실제 `AT(yy)`가 다음 parser class가 됨을 확인한다.
+- [x] modifier application 결과가 하나의 completed J entity로 stack에 재삽입된 뒤 후속 reduction에 참여함을 확인한다.
+- [x] `+/ % #`에서 `+/`가 하나의 derived VERB entity로 만들어진 뒤 Fork의 `f` operand가 됨을 확인한다.
+- [x] 과거 staged modifier/train helper의 의미 한계를 확인했다. 현재 matcher는 `match_parse_row`로 통합되었으며, runtime semantic action 및 전체 POS coverage는 P2–P4에서 계속 추적한다.
+- [x] parser와 compiler-analysis 책임 경계를 고정한다.
+- [x] differential oracle의 최소 contract를 정한다:
+  - 성공/실패 및 J error class,
+  - deterministic noun result,
+  - assignment 후 name class(`4!:0`),
+  - constructed function/modifier의 atomic/linear representation(`5!:1`, `5!:5`)이 유용한 경우,
+  - RustJ 내부에서는 row id/input classes/span/result class를 기록하는 optional ParseTrace.
+- [x] 위 contract를 실제 test harness API로 만든다. `tools/oracle.py` JSON-lines protocol이 `eval`, `sentence`, `name_class`, `representation(atomic|linear)`을 제공하며 기존 string eval 요청과 호환된다.
+
+**P0 완료 조건:** **완료.** observable contract를 사용하는 oracle API가 존재하고, source review는 jsource revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`을 고정한다. 로컬 oracle DLL은 별도 revision/hash로 식별하며 source pin으로 빌드되었다고 가정하지 않는다. GitHub CI는 생략한다.
+
+#### P1 — parser stack model과 semantic value model 분리
+
+- [x] parser class/control(`EnqueueClass`/`ParseClass`)과 semantic payload/entity(`EnqueuedPayload`/`ParseValue`/`FunctionEntity`)를 별도 타입으로 분리했다.
+- [x] `ParseClass`가 `Noun | Verb | Adverb | Conjunction | Name | Assignment | LParen | RParen | Mark`를 명시적으로 표현한다.
+- [x] ordinary lookup NAME은 stack item 생성 전에 `ParserNameBinding`으로 현재 noun/function POS를 resolve하며, unresolved ordinary name만 jsource식 late verb nameref로 남긴다.
+- [x] Noun과 `FunctionEntity`는 별도 representation을 유지하면서 `Item/ParseClass`에서 동일한 parser class interface로 참여한다.
+- [x] source primitive, named modifier, completed derived entity가 모두 `FunctionEntity.result_pos -> ParseClass` 경로로 parser에 참여한다.
+- [x] `FunctionEntity.result_pos`를 completed function entity의 parser POS 근거로 사용한다.
+- [x] enqueue lookup/to-name flags와 parser assignment path로 assignment-target NAME을 ordinary semantic `NameRef`와 분리했다.
+- [x] `EnqueuedWord`의 byte span/word index를 parser 진입까지 보존하고 completed Expr/FunctionEntity reduction span 및 진단 blame provenance로 전달한다.
+
+**P1 완료 조건:** parser control state와 J semantic entity가 분리되어 있으며 ordinary names, assignment names, nouns, verbs/modifiers를 jsource class rules대로 stack에 올릴 수 있다.
+
+#### P2 — 하나의 9-row reduction engine으로 전환
+
+- **jsource invariant:** conjunction chain은 parse-table 구조상 left-to-right로 결합한다. 예: `u @: v @: w`의 semantic graph는 `(u @: v) @: w`이다.
+- [x] row 0 `EDGE VERB NOUN ANY`를 first-match로 선택한다. analysis/no-host 경로는 monadic `Expr`를 보존하고, runtime-host 경로는 그 자리에서 실행해 completed noun `Value`를 같은 stack에 재삽입한다.
+- [x] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 four-class eligibility/reduction extent를 구현했다. row 0과 마찬가지로 analysis는 application structure를 보존하고 runtime host는 actual noun으로 reduce/reinsert한다.
+- [x] row 2 `EDGE+AVN NOUN VERB NOUN`을 production stack reducer에서 선택한다. analysis/no-host 경로는 dyadic `Expr`를 보존하고 runtime-host 경로는 actual noun을 계산해 같은 stack에 재삽입한다.
+- [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV ANY`를 modifier semantic constructor 호출로 구현한다. 지원 adverb/gerund 생성은 구현되었으며 전체 primitive·explicit modifier application은 미완료다.
+- [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다. rank/@:/지원 DefinitionConstructor 경계는 구현되었으며 전체 conjunction 및 invocation은 미완료다.
+- [x] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 production Fork construction을 구현했다. VVV ordinary/capped 판정과 noun-left fork의 지원 construction을 같은 row action에서 처리하며, 전체 noun/value-dependent/static coverage는 P3에서 계속 추적한다.
+- [x] row 6 `EDGE CAVN CAVN ANY`의 production Hook/bident/trident disposition dispatch를 구현했다. basic Hook과 non-executing modifier train을 구성하고 earlier row가 소유해야 할 immediate action을 invariant로 거부한다. 전체 primitive/definition executor coverage는 P3의 미완료 범위다.
+- [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다. top-level single-name의 네 RHS class와 중간/연속 대입은 구현되었다. 아래 F1/P4 보완에서 문자열 noun/multiple-name target 실행도 추가했다. boxed/AR target·ordered-write lowering·전체 scope는 미완료다.
+- [x] row 8 `LPAR CAVN RPAR ANY`를 production stack action으로 구현하고 recursive parenthesis parser를 제거했다. grouped noun은 `ExprKind::Group`/depth를, grouped function은 semantic identity를 유지한 채 parser provenance span을 괄호 전체로 보존한다.
+- [x] 구현된 각 reduction 결과를 같은 parser stack에 되돌리고 동일한 match_parse_row로 다시 scan/reduce한다. 미지원 semantic form은 해당 action의 오류/coverage 경계로 남긴다.
+- [ ] row action abstraction이 `ReadyParseValue`와 `RequiresRuntimeSemanticParse`를 구분할 수 있게 하여, 정적 compiler path가 parser-visible runtime dependency를 숨기지 않게 한다.
+- [x] runtime semantic host와 analysis가 동일 parse_context/row matcher/action engine을 사용한다. host가 필요한 미지원 form 전체의 executor는 별도 미완료다.
+- [x] 기존 flat-vector modifier/train/application reducer를 삭제하고 production expression reduction을 right-to-left stack + ordered `match_parse_row`로 cutover했다. 아직 미구현 semantic form은 해당 row action에서 명시적으로 남긴다.
+- [ ] one-word sentence의 별도 jsource path와 관찰 가능한 결과가 동일하도록 테스트한다.
+
+**P2 완료 조건:** 모든 parser reduction 선택을 jsource row 번호와 input class 조합으로 설명할 수 있고, deferred semantic action과 runtime semantic action이 동일한 parser engine을 공유한다. parser-visible effect/value dependency를 무시한 정적 진행 경로가 없다.
+
+#### P3 — modifier/Hook/Fork/bident/trident construction semantics
+
+- [ ] rows 3–4에서 result POS를 RustJ가 임의로 고정하지 않고 **modifier semantic constructor가 반환한 실제 POS**를 다음 parser class로 사용한다.
+- [ ] row 3의 `VERB ADV`와 `NOUN ADV`를 각 adverb의 J construction semantics에 따라 처리한다.
+- [ ] row 4의 `(VERB|NOUN) CONJ (VERB|NOUN)` 전체 parser form을 각 conjunction의 J construction semantics에 따라 처리한다.
+- [x] `cf.c::bidents[]`를 `SyntaxError | ImmediateSemanticApply | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 6의 non-executing modifier 구성과 AR/derived modifier 내부의 지원된 immediate action은 구현되어 있다. 전체 primitive/definition executor 지원과는 구분한다.
+- [x] `cf.c::tridents[]`를 `SyntaxError | ImmediateSemanticApply | BuildFork | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 5 fork와 row 6 non-fork modifier를 구분한다. AR/derived modifier의 지원된 immediate action은 구현되어 있으나 전체 primitive/definition executor는 미완료다.
+- [ ] VV Hook과 NVV/VVV Fork의 construction boundary를 jsource와 동일하게 만든다.
+- [ ] 긴 train은 별도 `LongTrain` algorithm이 아니라 row 5/6 반복 reduction의 결과로만 형성한다.
+- [ ] modifier application마다 completed entity 하나를 만들고 후속 reduction은 그 entity ref만 보게 한다.
+- [ ] parser semantic operand와 jsource execution auxiliary(`fgh` helper slot, `localuse`, cached executor)를 구분한다.
+
+**P3 완료 조건:** derived Verb/Adverb/Conjunction과 immediate semantic application의 구분까지 jsource parser construction behavior와 일치한다.
+
+#### P4 — parser-time name resolution과 assignment sequencing
+
+- [x] enqueue는 ordinary NAME과 lookup metadata를 전달하고 extension 이름을 keyword로 만들지 않는다. F1의 ordinary-name/extension POS 회귀와 같은 계약이다.
+- [ ] parser가 ordinary name을 stack에 넣기 직전에 현재 local/locale binding을 조회해 noun/verb/adverb/conjunction class를 얻는다.
+- [ ] noun name의 by-value resolution과 일반 function/modifier name의 nameref semantics를 구분한다.
+- [ ] jsource의 nameless modifier by-value 최적화는 언어 semantics와 분리하고 RustJ에서 필수로 복제하지 않는다.
+- [ ] named Verb/Adverb/Conjunction이 primitive entity와 동일한 row 0–6 경로에 참여하게 한다.
+- [ ] sentence 시작 시 전체 binding snapshot을 만들지 않고 observable right-to-left lookup/assignment sequencing을 보존한다.
+- [x] assignment-target NAME을 enqueue to-name flags와 ParseValue::NameTarget으로 ordinary lookup과 분리한다. 전체 noun/multiple-name assignment와 scope 지원은 별도 미완료다.
+- [ ] `=.` / `=:`의 symbol-table 선택과 assignment result semantics를 테스트한다.
+- [ ] current POS를 가진 nameref가 later resolution 시 다른 POS로 바뀐 경우의 J-compatible error contract를 보존한다.
+- [ ] extension builder(`conv` 등)의 shadow/rebind도 ordinary J name semantics를 따르게 한다.
+- [ ] row 0–2 실행이 같은 sentence의 이후 parser-time name/locale/POS lookup에 영향을 주는 사례를 식별하고 parser-visible effect로 분류한다.
+- [ ] deferred noun value가 뒤 row 3/4 modifier construction의 실제 operand value로 필요한 경우 정적 placeholder로 construction을 완료하지 않는다.
+- [ ] v0에서는 이러한 dynamic parse dependency를 `RuntimeSemanticParse`/coverage fallback으로 보내고, 정적 compile 성공으로 오인하지 않는다.
+- [ ] 추후 guard/multiversion을 추가하더라도 observable reduction/order/error semantics가 runtime semantic baseline과 같음을 요구한다.
+
+- [ ] **P4-locative J 실행 의미(위 F1 연계):** direct는 지정 locale의 symbol을 읽고/쓴다; indirect는 현재 binding의 boxed locale string을 **해당 조회·대입 시점**에 읽는다; `name__`은 `name_base_`로 귀착한다. locative `=.`/`=:`는 explicit definition 안에서도 global이다. RHS는 원래 실행 locale에서 평가하고 지정 locale에 기록한다. locative로 호출한 function의 current-locale 교체·복원, locale search path, local frame 분리, observable NAME/POS/error/effect/assignment 순서를 테스트한다. 미정의 이름·잘못된 locale 값은 J의 실제 오류를 C oracle로 판정하며 미지원으로 포장하지 않는다. **수용:** pinned J C의 positive/negative·rebind·nested explicit-definition 차분; direct/indirect·읽기/대입·출처 span을 모두 보전해야 한다. 문법만 인정하거나 구문 뒤 일괄 `Unsupported`를 던지는 방식은 P4 통과 아님.
+
+- [ ] **NP-03/06 (§3.7.3):** error-bearing lookup, local/locale/path·holder witness, late NameRef와 constructor/assignment 오류 순서를 검증한다(NP-V03/06).
+
+**P4 완료 조건:** parser 결과가 spelling이 아니라 그 시점의 J binding, assignment state, parse row에 의해 결정된다.
+
+- [ ] **NP-04/05 (§3.7.3):** J Graph/A3까지 name event 출처와 Observed/ProvenStable/GuardRequired/Unknown을 유지한다(NP-V04/05).
+
+#### P5 — construction-time J semantics와 compiler-analysis facts 분리
+
+**구현 방향:** parser/J Semantic Construction IR의 `FunctionEntity` 자체를 compiler convenience를 위해 변형하지 않는다. 대신 그 immutable graph에서 **별도 J Graph IR을 파생**하여 applied topology와 syntax-derived optimization hint를 표현한다. J Graph IR은 graph analysis에 필요한 조기 abstract `GraphFacts(dtype/shape/rank)`를 가질 수 있지만, 이것은 실행 계약의 canonical resolved fact가 아니다. actual valence/effective-rank/cell/frame/agreement/check/effect/error/access/representation을 포함한 최종 call-time 사실은 Logical Execution IR의 `ResolvedCallFacts`/`ResolvedInstantiation`이 소유한다. lowering은 두 층이 공유하는 dtype/shape/rank가 일치하는지 검증한다. target 이후 정보는 `LoweringCapability/TargetFacts -> PhysicalDecision`에 둔다.
+
+parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifier application이 그 자리에서 검증하고 result entity를 만드는 의미는 그대로 수행한다. 제거 대상은 target/call-dependent compiler facts다.
+
+- [ ] pure/semantic `ModifierSemanticConstructor` interface를 두어 parser row 3/4가 J-defined construction validation과 result POS/entity 생성을 요청하게 한다. operand value가 runtime-dependent하면 같은 action을 runtime semantic parser에서 수행할 수 있어야 한다.
+- [ ] parser-produced `FunctionEntity`는 identity/result POS/source operands/span과 **intrinsic `FunctionSemanticInfo`**를 immutable하게 소유한다.
+- [ ] modifier construction facts는 해당 completed `FunctionEntity.semantic_info.construction`에 보존하여 재귀 traversal에서 바로 참조할 수 있게 한다.
+- [ ] `"` constructor는 jsource `jtqq`와 동일한 noun/verb operand legality, rank/length/domain validation 및 requested-rank normalization을 **modifier application 시점의 construction semantics**로 처리한다. 이는 반드시 compile-time이라는 뜻은 아니며 runtime parser fallback에서도 같은 규칙을 사용한다.
+- [ ] normalized requested rank 같은 node-intrinsic construction fact와 **actual argument rank를 이용한 effective rank/cell/frame 계산**을 분리한다. 후자는 call/Logical IR node의 `ResolvedCallFacts`에 둔다.
+- [x] applied `/`는 completed derived entity로 만들고 `Verb.reduce` 같은 compiler migration boolean을 semantic identity에서 제거했다.
+- [x] `Verb.reduce` 사용처를 제거했다. reduction identity/basis/fact inference는 completed `FunctionEntity`의 Insert 구조에서 Semantic Analyzer/Lowering이 유도한다.
+- [ ] `Verb.rank` 필드/사용처 제거는 완료했다. 남은 일은 requested-rank를 construction fact로 정규화하고 call-time `ResolvedRankContract/CellApply`와 명시적으로 분리하는 것이다.
+- [x] `Callable.reduce` / `Callable.rank` migration field를 제거했다. Analyzer는 shared `FunctionEntity` 구조를 직접 따라 execution basis/facts/outer rank boundary를 유도한다.
+- [ ] innate rank, effective rank, frame/cell split, agreement/repetition, access, optimizer proofs가 parser entity 필드에 들어가지 않게 한다.
+- [ ] architecture/device/lowering/cost metadata가 parser/`FunctionEntity.semantic_info`에 들어가지 않게 한다.
+
+**P5 완료 조건:** parser는 J entity construction의 성공/실패와 completed semantic identity를 정확히 결정하지만, call-dependent 및 target-dependent compiler facts는 소유하지 않는다.
+
+**2026-10-02 구현·검증 증거 (F0/P3/P5의 부분 완료):**
+
+- [x] rank noun의 construction 검사를 rank → length → numeric audit 순서로 통일했다. scalar/vector만 허용하며, empty/4개 이상 operand와 잘못된 numeric operand의 J error class를 보존한다.
+- [x] `semantic::rank_noun_contract`를 parser, analysis/facts, interpreter와 Logical IR reference executor가 공유한다. 고정 fuzz 정수 audit, 무한대/범위 밖 실수/`_.`의 jsource `vib` 처리 및 ±63 requested-rank clamp를 적용하되 FunctionEntity에는 원래 noun을 보존한다.
+- [x] 중첩 괄호의 completed literal noun을 conjunction 및 noun-left fork construction에서 보존한다. 계산이 필요한 noun operand는 여전히 runtime semantic parsing coverage boundary다.
+- [x] noun `/` 및 noun operand의 `@:`는 unreduced-stack syntax error 대신 constructor domain error를 반환한다. 합법적인 noun-left rank 등 미구현 form은 UnsupportedImplementation으로 구분한다.
+- [x] 큰 diagnostic ErrorContext를 box로 분리했다. 기존 kind/span/blame/inner-context 우선순위는 유지하며 Error 크기 ≤32 bytes를 회귀 검사한다.
+- [x] native Windows default/portable는 각각 208 passed / 17 ignored이며, fmt, clippy `-D warnings`, Python harness 11 tests를 통과했다. 17개 pending definition acceptance tests는 완료로 계산하지 않는다. 기존 formatting drift도 정리했다.
+- [x] Windows 공식 C 배포본 일반·AVX2 각각에서 2,050문장 × direct/semantic-reference 경로가 불일치 0 / known deviation 0이다. word formation은 각각 6,618건(seed `20260927`, open quote `1109`) 불일치 0이다.
+
+이번 실행 기준선은 공식 `build/w64.zip`의 release commit metadata `ded7793fe5795d79eda8e7138dce94aa056edf78`이다. `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`은 source-level parser 검토 기준으로 유지한다. 그 고정 소스의 Windows MSVC 빌드는 GNU C 확장 때문에 실패했으므로 이번 배포본 비교를 pinned-build 성공으로 표시하지 않는다. 각 `reports/frontend-*-windows.json`은 실제 DLL/실행 파일 SHA-256과 revision/platform을 기록하며, word harness는 revision을 하드코딩하지 않는다.
+
+재실행: native Windows에서 `tools/check-windows.ps1` 후 `tools/check-frontend-windows.ps1 -ReferenceDirectory <j.dll/javx2.dll 폴더> -ReferenceRevision <확인한 40자리 commit> -SourceDirectory <jsource checkout> -SourceRevision <검토한 40자리 commit> -Avx2`를 실행한다. 기본 Python 3.13 경로는 `-Python`으로 변경할 수 있다. GitHub CI와 Linux tests는 실행하지 않았다. upstream 전체 suite와 CUDA 검증도 수행하지 않았다.
+
+**현재 남은 gate:** intrinsic FunctionSemanticInfo의 최종 수렴, full noun/verb modifier·immediate constructor semantics, 모든 result POS/primitive coverage, full runtime `ptcol` reachable-state trace, 일반 locale/locative/definition-control scope, noun/multiple assignment target과 static/runtime dynamic-boundary 수렴이 남아 있다. **P2 rows 0–2 RuntimeParserHost/reinsertion과 지원 범위의 우측→좌측 name/assignment sequencing 자체는 이미 구현되었으므로 이를 미구현 항목으로 다시 세지 않는다.** 이 증거는 M2 전체 완료를 뜻하지 않는다.
+
+- [ ] **NP-07 (§3.7.3):** J C와 Rust runtime·capture·Graph/A3 차분 및 효과·오류 순서 부정 테스트를 통과한다(NP-V07).
+
+#### P6 — differential/conformance test matrix
+
+- [x] 단계별 probe와 의미 정규화·source-table 비교 harness를 추가한다 (`frontend_probe`, `frontend_stage_conformance`).
+- [x] tokenizer/enqueuer/parser 구현 파일을 분리하고 기존 scanner/semantic parser API는 compatibility export로 유지한다.
+- [x] 단독/괄호 adverb·conjunction 및 최종 이름 할당을 syntax error 없이 `ModifierValue`와 실제 POS로 보존한다. named modifier 실행·전체 derived POS는 계속 미완료다.
+- [x] normalization이 completed modifier 경계·ordered operand·boxed noun type/shape를 보존하고 모르는 atomic encoding을 거부하는 unit tests를 추가한다.
+- [x] 새 stage suite의 native Windows j64/AVX2 실행 결과를 기록한다. 각각 7,014개 검사(선언 row 6,561조합, 함수/POS 구조 111건 포함), 불일치 0이다.
+- [ ] runtime `ptcol`의 reachable stack context와 row actions/provenance trace를 C와 비교한다. 선언 `cases[]` 6,561조합 검사는 이 항목을 대체하지 않는다.
+
+- [ ] 9개 parse row 각각의 최소 positive sentence를 jsource와 differential 비교한다.
+- [ ] row precedence가 충돌할 수 있는 competing-pattern 문장을 추가한다.
+- [ ] `+/ % #`, 2-verb Hook, 3/4/5개 이상 train을 구조 golden으로 비교한다.
+- [ ] 연속 adverb/conjunction 및 derived modifier가 다시 modifier operand가 되는 사례를 추가한다.
+- [ ] modifier constructor의 construction-time rank/length/domain error를 jsource와 비교한다.
+- [ ] Verb/Adverb/Conjunction을 name에 할당한 뒤 사용하는 사례를 추가한다.
+- [ ] sentence 중간 assignment/name lookup이 뒤 reduction의 class에 영향을 주는 사례를 추가한다.
+- [ ] row 0–2의 effectful 실행이 왼쪽의 name/locale/POS resolution을 바꾸는 문장을 differential corpus에 포함한다.
+- [ ] runtime-dependent noun이 modifier operand가 되어 construction success/error/POS가 runtime에 결정되는 사례를 포함한다.
+- [ ] parentheses가 reduction boundary를 바꾸는 사례를 추가한다.
+- [ ] one-word sentence path를 별도 regression으로 둔다.
+- [ ] deterministic noun result와 J error class를 비교한다.
+- [ ] assigned entity의 POS는 `4!:0`, 유용한 derived structure는 `5!:1`/ `5!:5`를 oracle로 비교한다.
+- [ ] RustJ ParseTrace로 row id/input classes/span/result class를 golden화하되 jsource 내부 bitmask/주소/flags와 비교하지 않는다.
+- [ ] 아직 lowering하지 못하는 합법 J form의 **parser success**와 이후 `UnsupportedImplementation`을 syntax error와 구분한다.
+- [x] 현재 지원 범위의 differential suite를 native Windows local gate로 실행할 도구를 추가했다. GitHub CI는 사용자 지시에 따라 생략한다.
+
+**2026-10-03 Windows 실행 기록:** 파일 분리와 `=.`/ill-formed name·number/modifier result POS 수정 후 default/portable 각각 **212 passed, 17 ignored**; fmt/clippy 통과, Python harness **17 passed**. 일반/AVX2 C oracle 각각 direct/semantic-reference **2,050문장**, raw word **6,618건**, 새 stage suite **7,014개 검사**에서 불일치 0이다. 17개 ignored definition tests와 stage report의 pending 목록은 완료가 아니다. 새 보고서는 `reports/frontend-{j64,avx2}-stages-windows.json`이며 기존 6개 value/word 보고서도 현재 binaries의 hash로 갱신했다. source review pin과 공식 Windows DLL revision은 앞 실행 기록처럼 서로 다르다.
+
+**P6 완료 조건:** 지원 parser surface의 변경은 jsource observable differential + RustJ row trace golden 없이 merge되지 않는다.
+
+#### P7 — cutover와 legacy parser 제거
+
+- [ ] 새 9-row engine이 기존 parser/semantic golden을 모두 통과한다.
+- [ ] Analyzer golden(`(+/ % #) y` 포함)이 새 parser output에서도 동일한 completed entity graph를 입력으로 받는다.
+- [x] old `reduce_modifier_applications` 함수는 현재 source에 없다. row engine이 modifier reductions를 소유한다.
+- [x] old `collapse_verb_trains` 함수는 현재 source에 없다. row engine이 train reductions를 소유한다.
+- [x] 과거 flat-vector noun/verb application loop를 제거했다. 현재 Expr application 생성은 동일 9-row semantic action 안에 있으며 필요한 의미 구조라 유지한다.
+- [ ] parser-only migration fields와 dead compatibility code를 제거한다.
+- [x] parse/parse_analysis/parse_runtime_host가 동일 parse_context와 reduction engine을 공유한다. cfg(test) parse_runtime도 같은 parse_with→parse_context를 사용한다.
+- [ ] parser 전환 후 전체 native Windows local 검증을 통과시킨다. GitHub CI는 생략한다.
+
+**P7 완료 조건:** RustJ의 J parser semantics를 정의하는 코드 경로가 하나이며, 그 경로는 jsource-compatible class resolution + 9-row reduction + semantic constructor contract를 따른다.
+
+#### P8 — A1/A2/A3로의 integration handoff
+
+P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 clean parser output을 기존 compiler milestones가 소비하도록 연결하는 후속 작업이다.
+
+- [ ] PrimitiveSpec/ExtensionSpec의 target-independent semantic contract와 parser entity identity를 연결한다.
+- [x] P8에서 J Graph IR을 parser output과 execution IR 사이의 명시적 compiler boundary로 추가한다.
+- [x] `GraphForm/GraphHint`에서 J syntax-derived topology를 기록하고 execution lowering이 이를 소비하도록 한다.
+- [ ] `GraphRuleRefs`를 PrimitiveSpec/derived-composition rule registry와 연결한다.
+- [ ] `FunctionEntity.semantic_info`의 intrinsic facts와 Logical IR node의 `ResolvedCallFacts` 책임을 분리한다.
+- [ ] `ResolvedCallFacts`에서 valence/effective-rank/cell/frame/agreement/repetition/type/shape/effect/error/access를 계산한다.
+- [ ] `+/ % #` matrix golden에서 최종 `%`의 implicit CellApply2를 명시적으로 만든다.
+- [ ] Logical Optimizer가 semantic graph를 보존한 채 `FusionCandidate::Mean` 등을 별도 proof/candidate로 만든다.
+- [ ] built-in과 NN/array extension op가 동일한 LogicalOp/lowering interface로 진입하게 한다.
+- [ ] architecture-specific 구현 정보는 `LoweringRegistry × ArchitectureTarget`에서만 결합한다.
+- [ ] concrete GPU model 정보는 `DeviceProfile`, 후보 선택 성능 정보는 `CostProfile/RuntimeProfile`로 분리한다.
+
+- [ ] P8 지원 범위별 Program→J Graph→A3 admission을 검증하고, 본문 재분석 경계와 NAME proof/guard 요구를 명시한다. ControlNode.go만으로 CFG를 만들지 않는다. 이번 재감사 절과 연결한다.
+
+**P8 완료 조건:** parser를 다시 변경하지 않고 A1/A2/A3의 semantic analysis, CPU/GPU lowering, NN extension을 확장할 수 있다. dynamic J parsing이 필요한 form은 compiler coverage와 runtime semantic fallback의 명시적 경계로 남는다.
+
+#### 진행 규칙
+
+- F0–F2 + P0–P7을 frontend/parser migration의 **single source of truth**로 사용한다. P8은 기존 A1/A2/A3 체크리스트와 함께 추적한다.
+- 이후 frontend 작업의 진행상황 보고는 반드시 이 체크리스트의 phase/item 기준으로 보고한다. 새 작업이 생기면 임시 TODO를 코드에만 남기지 않고 먼저 해당 phase에 checklist item으로 추가한다.
+- jsource와의 차이를 발견하면 "RustJ 구현 편의"로 봉합하지 않고 해당 phase의 compatibility defect로 기록한다. observable semantics가 같다는 differential proof가 있기 전에는 의도적 차이로 간주하지 않는다.
+- frontend 구현은 원칙적으로 F0 → F1 → F2 → P1 → P2 → P3 → P4 → P5 → P6 → P7 순으로 진행하되, 앞 phase interface를 깨지 않는 oracle/test 작업은 병행할 수 있다.
+- 완료 즉시 같은 변경에서 `[ ] -> [x]`로 갱신한다.
+- 부분 구현을 완료로 표시하지 않는다. 각 phase의 완료 조건을 만족해야 phase 완료로 본다.
+- jsource와 의도적으로 다른 observable parser behavior가 필요해지면 구현 전에 rationale과 semantic impact를 이 문서에 기록한다.
+- downstream IR 요구사항은 P8/A1/A2/A3에 추가하고 parser entity에 임시 compiler field로 밀어 넣지 않는다.
+
+
+### A0.6 — Structured diagnostic context
+
+- [x] J-compatible machine error와 diagnostic provenance/context를 분리한다.
+- [x] `ErrorContext`에 phase/span/original word index/current name/operation/valence/argument summary/notes를 표현할 수 있게 한다.
+- [x] inner context 우선 merge 규칙을 만들어 outer stage가 더 정확한 span/blame/context를 덮어쓰지 않게 한다.
+- [x] `DiagnosticAnalyzer`와 Python-style renderer를 분리한다.
+- [x] enqueue word에 original word index를 보존하고 parser diagnostic으로 전달하기 시작한다.
+- [x] runtime monad/dyad failure에 executing primitive, valence, x/y type/shape/rank summary를 붙인다.
+- [x] interpreter execution과 compiler `analyze_diagnostic`이 동일 context/error infrastructure를 사용한다.
+- [x] stable `eval()/analyze()/parse()` machine API는 context wrapper를 제거하고 기존 J error variant/kind를 유지한다.
+- [x] F1 `EnqueuedWord`가 byte span과 original word index를 canonical provenance로 직접 소유한다.
+- [ ] F2 parser stack entry가 original word index를 모든 reduction 동안 보존하고 jsource `infererrtok`에 대응하는 blame inference를 구현한다.
+- [ ] Hook/Fork/derived modifier 실행 시 failing semantic entity의 compact linear representation을 diagnostic context에 넣는다.
+- [ ] rank/agreement failure analyzer가 effective cell/frame facts를 사용해 J처럼 어느 frame/shape가 불일치하는지 구조적으로 설명한다.
+- [ ] index error analyzer가 offending selector/index/path를 작은 structured detail로 보존하고 설명한다.
+- [ ] domain error analyzer가 primitive contract와 argument dtype/value summary를 이용해 구체적 원인을 설명한다.
+- [ ] assembly error analyzer가 cell-result type/shape join failure 위치를 설명한다.
+- [ ] lowering/backend failure도 Logical IR source origin + semantic operation context로 동일 renderer에 연결한다.
+- [ ] diagnostic context가 큰 noun payload를 소유/복사하지 않는지 테스트한다.
+- [ ] 최신 J error corpus의 대표 사례를 RustJ diagnostic golden으로 추가하되 문구 자체보다 semantic information completeness를 검증한다.
+
+**완료 조건:** AOT/interpreter/JIT/backend 어느 경로에서 실패해도 J error class는 안정적으로 유지되고, 동일한 structured context → analyzer → renderer 경로로 source 위치와 semantic 원인을 설명할 수 있다.
+
+- [ ] 정의 body 원문 좌표와 caller 좌표를 분리한 source-unit/map/frame chain을 전달하고 내부 실패 위치·호출 chain 회귀를 추가한다.
+- [ ] J catchable failure / admission miss / verifier defect / backend failure를 구분해 진단·재실행·handler 권한을 검증한다.
+
+### A1 — J Semantic Construction IR / FunctionEntity 경계
+
+- [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
+- [x] jsource `p.c::cases[]`의 parser function-construction rows를 기준으로 immutable shared `FunctionEntity` graph를 만든다.
+- [x] `/` ADV와 `"` CONJ를 source operator identity로 보존하고 parser application 결과의 parent로 사용한다. modifier별 `Insert/Rank/...` semantic node enum을 만들지 않는다.
+- [x] 큰 derived function/train의 `Arc<FunctionEntity>` sharing test로 subtree deep-copy가 없음을 검증한다.
+- [x] semantic FunctionEntity와 runtime/backend executor specialization의 층을 분리한다.
+- [ ] primitive verb identity와 monad/dyad valence를 명시한다.
+- [x] Hook / Fork parser-production parent를 first-class semantic identity로 표현하고, train은 별도 `Train` node 없이 shared Hook/Fork graph로 구성한다.
+- [ ] adverb/conjunction/hook/trident application으로 생긴 DerivedEntity와 result part of speech(Verb/Adverb/Conjunction)를 보존한다.
+- [ ] boxed noun의 ordinary-data 사용과 modifier-context gerund interpretation을 구분한다.
+- [ ] `::` adverse와 `:.` obverse처럼 forward graph 밖의 latent error/inverse semantics를 보존한다.
+- [ ] rank-derived verb와 cell/frame 의미를 Semantic Analyzer가 분석할 수 있게 표현한다.
+- [ ] rank conjunction의 verb"rank-noun, verb"verb, noun/gerund"rank forms를 source operand 품사 손실 없이 표현한다.
+- [ ] Infinite/Absolute/Relative RankSpec과 monad/left/right rank triple을 보존한다.
+- [ ] name reference/binding/version과 source span을 필요한 범위에서 연결한다.
+- [ ] `NameRef.expected_part_of_speech`와 runtime lookup POS mismatch의 domain error를 모델링한다.
+- [ ] sentence 전체의 name environment를 선행 snapshot하지 않고 우측→좌측 assignment/name lookup sequencing을 보존한다.
+- [ ] explicit definition의 DefinitionCode와 invocation CallFrame을 분리한다.
+- [ ] local slot hint와 실제 local binding을 구분하고 unbound local candidate의 locale fallback을 보존한다.
+- [ ] `=.` local assignment와 `=:` public/locale assignment를 구분한다.
+- [ ] assignment가 namespace write effect와 assigned-entity result(noun/verb/adverb/conjunction)를 동시에 갖는지 테스트한다.
+- [ ] primitive contract를 semantic node에 연결한다.
+- [ ] J dyadic rank의 prefix frame agreement와 residual-frame repetition을 명시적으로 테스트한다.
+- [ ] zero-cell rank execution의 fill-cell/prototype result type·shape semantics를 테스트한다.
+- [ ] rank cell 결과의 type/shape가 다른 경우 J result assembly(type join, shape join, framing fill, assembly error)를 테스트한다.
+- [ ] uniform cell-result proof가 있을 때만 rank map을 고정-shape parallel output으로 낮춘다.
+- [ ] boxed와 sparse를 physical encoding이 아닌 J-visible semantic representation으로 보존한다.
+- [ ] comparison tolerance/`!.` fit context와 J error precedence를 semantic contract에 포함한다.
+- [ ] empty operand에서의 context-sensitive type/domain semantics를 dense atomic dyad golden test로 검증한다.
+- [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
+- [ ] Semantic Analyzer / Lowering이 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
+- [ ] fork/hook의 J-compatible observable execution order를 보존하고 pure/speculatable proof가 있을 때만 branch 병렬화를 허용하는 golden test를 둔다.
+- [ ] reduction derived verb와 rank-conjunction-derived verb를 대표 golden test로 둔다.
+
+완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank 및 derived verb/adverb/conjunction의 의미 구조가 분석 입력에 남아 있다.
+
+<a id="j-graph-implementation-checklist"></a>
+
+### A1.5 — J Graph IR / JAXA Array Operation Graph IR
+
+**목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
+
+> **현재 위상:** `j_graph_ir` v0.10은 **explicit applied-operation graph + access-pattern basis + witnessed rewrite/resource analysis** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts/use-count/analyzability와 `ResourceExprGraph`, witnessed rewrite candidate, conservative source-vs-replacement resource evaluation, existing `LoweringRegistry + TargetCapabilities`에 대한 target-only feasibility bridge가 존재한다. 아직 없는 것은 full rewrite-specific shape algebra, executable WindowView lowering, fusion-candidate별 lifetime extension, resolved TargetProfile/ResourceEstimate/CostProfile, 실제 candidate selection/partition이다.
+
+<a id="graph-prior-art-followup"></a>
+
+#### 2026-10-05 선행연구 후속: 작은 basis와 composition algebra
+
+**감사 기준:** GitHub `main`의 `b00f2263decb4777e84f7670cc3bbd2536618f80`에서 문서와 `src/j_graph_ir.rs`를 대조했다. 이전 대화의 선행연구 반영 커밋은 `84b8546`이다. 최초 감사는 설계 계약을 정리했으며 구현 완료 선언이 아니었다. 아래 GF2/GF3의 후속 구현과 검증은 별도로 기록한다. 업로드된 `붙여넣은 텍스트(1).txt`는 이 작업 환경의 로컬 경로/실행 도구 오류로 읽지 못했으므로, 복원한 대화와 사용자가 명시한 후속 항목을 기준으로 한다. 첨부 원문 대조는 미완료다.
+
+| 항목 | 확인한 현재 상태 | 이번 결정 / 남은 구현 |
+|---|---|---|
+| 작은 Graph Basis + composition + witness | basis layers, Pipeline/Hook/Fork region, witnessed rewrite seam 있음 | 조합별 새 op를 증식시키지 않는다 |
+| first-class Scan | GF3의 독립 GraphBasisKind::Scan 및 Boolean atomic prefix identity 후보/검증기 추가; 원본 Window→operand 보존 | numeric/rank/representation 확장 및 실행·reassociation·parallel-prefix 허가는 후속 |
+| vertical / horizontal / nested | GF2의 공통 composition 분석 sidecar/verifier 추가; pipeline, branch/join 및 operand path 보존 | 법적 독립성 witness, noun-left graph 전문화와 실행 연결은 후속 |
+| fusion algebra / registry | GF4의 4개 research schema와 registry/envelope/verifier 추가; 기존 E. witnessed rewrite와 provenance seam 공유 | 일반 equivalence proof·resource transfer·target query·실행 선택은 후속 |
+| symbolic Work / Depth | GF5의 독립 symbolic domain과 ordered map/reduce/region 및 Scan identity 모델 추가 | 일반 rank/window·법적으로 입증된 parallel 모델·실제 target cost와 연결은 후속 |
+| multiversion | specialization/guard 설계와 runtime baseline 있음 | 버전 선택·무효화·bounded cache 구현은 장기 후속 |
+| streaming / inspector-executor | window/access/resource seam은 존재 | streaming 계약과 inspection plan은 장기 설계 후속; 실행 완료 아님 |
+
+**Scan 계약.** Scan은 모든 prefix를 독립적으로 재계산하는 Window→Reduce와 다른 알고리즘 구조이므로 first-class Graph Basis로 보존한다. 원래 PrefixInfix FunctionEntity, valence, rank/cell boundary와 source provenance는 유지한다. 일반 `u\\`와 dyadic infix를 Scan으로 분류하지 않는다. insert-compatible monadic prefix조차 reducer, prefix 방향·길이·shape/assembly, empty/singleton, identity 사용, integer overflow/promotion, floating-point 결과, domain/error/effect 순서의 witness가 필요하다. Unknown이면 Window→operand 구조를 유지한다. associativity나 purity를 spelling만으로 추정하지 않는다. Scan identity 보존과 reassociation/parallel-prefix 허가는 별개다.
+
+**Composition 분석.** Vertical은 producer→consumer edge, Horizontal은 동일 logical input을 사용하는 독립 consumer 관계, Nested는 rank/cell/segment 내부의 computation boundary다. 한 graph는 세 관계를 함께 가질 수 있으므로 배타적인 enum 하나나 `layers` 목록만으로 topology를 대체하지 않는다. sidecar는 node/region/edge identity, input occurrence, fan-out/use-count, live-across와 effect/error dependency를 참조한다. ordinary fork는 horizontal 후보일 수 있지만 h→f→g의 observable 순서와 constructor subtype을 보존한다. capped fork는 pipeline, noun-left fork는 retained noun + h로 구분한다. nested classification은 flattening 허가가 아니다.
+
+**Fusion registry.** 기존 rewrite witness/verifier를 재사용하되 target lowering registry와 별도 역할로 둔다. 각 rule은 stable ID/version, source basis+composition pattern, replacement graph, relevant call facts, semantic proof obligations, witness/provenance mapping, fan-out/retained-value 변화, symbolic resource/work-depth transfer, target capability query를 선언한다. discovery → legality → target feasibility → profitability → selection을 분리한다. Unknown은 불법을 뜻하지도, 합법을 뜻하지도 않는다. Map→Map, Map→Reduce, Map→Scan 및 common-input Map+Map은 첫 후보 연구 목록이며 현재 지원 선언이 아니다. fusion이 shared producer를 복제하거나 lifetime을 늘릴 수 있으므로 cost 감소를 기본 가정하지 않는다. 실행 optimizer/새 executor 도입 없이 먼저 analysis-only seam을 만든다.
+
+**Symbolic Work/Depth.** logical atom/state resource domain과 별도로 Work(총 연산량), Depth(의존 경로 길이)를 유지한다. 둘 다 symbolic extent와 operator 비용, Unknown/provenance를 보유한다. sequence는 Work/Depth를 합산한다. 법적으로 독립인 branch는 Work 합, Depth max + join을 사용할 수 있지만 effect/error dependency가 있으면 ordered dependency를 유지한다. Map은 cell work를 extent에 곱하고 nested cell depth를 보존한다. ordered Reduce/Scan baseline과 reassociation이 입증된 parallel candidate의 식을 별도로 계산한다. unit-cost associative operator라는 조건 아래 work-efficient tree candidate는 O(n) Work/O(log n) Depth일 수 있으나 이를 모든 J reducer에 부여하지 않는다. empty/singleton은 별도 case다. wall-clock latency·launch·traffic·transfer·synchronization은 CostEstimate이며 Work/Depth로 대체하지 않는다.
+
+**장기 후속 계약.** multiversion은 relevant-fact key·binding dependency·guard·bounded cache/widening을 연결하며 guard miss 뒤 observable effect를 재실행하지 않는다. streaming은 chunk boundary, carry/state, ordering, termination, bounded memory와 materialization contract가 증명되는 region에서만 후보를 만든다. inspector-executor는 indirect access를 조사하는 비용·effect·binding/array mutation·alias invalidation과 검사 결과의 witness lifetime을 명시한다. 세 항목은 full-J restriction도 첫 M4 CPU slice의 선행조건도 아니다.
+
+**선행연구를 적용하는 범위.** Futhark의 fusion 설명은 vertical/horizontal 분석의 직접 비교 자료이며, 2026 scan-scatter 작업은 fusion algebra가 확장될 수 있음을 보여 준다. 개별 compiler의 지원/금지 규칙을 RustJ의 영구 법칙으로 복사하지 않는다. Work/Span 자료는 분석 도메인의 비교 근거이며 J numeric/error semantics의 증명이 아니다.
+- https://futhark.readthedocs.io/_/downloads/en/v0.25.4/pdf/
+- https://futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html
+- https://github.com/diku-dk/futhark-book/blob/master/parallel-cost-model.rst
+
+**GF 후속 체크리스트 — M2/M3 및 기존 A1.5 순서를 유지**
+- [x] GF0: 선행연구 설명과 실제 GraphBasis 코드의 차이를 감사하고 Scan의 독립 basis 설계 결정을 정정한다.
+- [ ] GF1: 업로드 원문을 대조하고 위 복원 내용의 누락/차이를 확인한다.
+- [x] GF2: analysis-only CompositionRelation sidecar와 verifier를 추가했다. pipeline/ordinary/capped fork의 wiring·observable dependency, noun-left 미전개 경계, nested rank/window/reduction 및 Copy Rank의 header-only RHS를 회귀 검증한다. noun-left의 실제 h→g graph 전문화는 기존 후속 항목이며 이번 완료에 포함하지 않는다.
+- [x] GF3: first-class Scan basis 및 Boolean `+`/`*` insert-prefix의 identity/contract witness와 conservative recognizer를 추가했다. 원본 Window→operand는 보존하며 일반 prefix/infix·unknown reducer·numeric/rank 경계를 C 기본·AVX2와 대조한다. 실행 prefix 지원을 주장하지 않는다.
+- [ ] GF3a: 관련 value-property/rank/representation witness를 갖춘 integer/float·일반 reducer·nested rank·sparse 경로로 Scan 인식을 확장한다. unknown을 proof로 취급하지 않는다.
+- [x] GF4: 기존 GraphRewriteProvenance와 composition/Scan witness 위에 versioned fusion rule schema·registry·candidate envelope·verifier를 연결했다. 4개 research pattern의 발견만 지원하며 legality/resource/target/profitability/selection은 후속이다.
+- [x] GF5: 독립 symbolic WorkDepthExpr DAG, ordered successful-path node/region 모델, 별도 ordered Scan identity 모델, fusion source 비교와 단일 연산 duplication 가설을 추가하고 verifier/회귀로 검사했다.
+- [ ] GF5a: effective rank/cell/segment 및 일반 window/reducer 모델을 확장하고, 법적 독립성·numeric/error witness를 얻은 경우에만 parallel Depth/max/tree 모델을 추가한다.
+- [ ] GF6: 실행 가능한 lowering과 lifetime/resource/cost 비교가 갖춰진 후보만 선택/partition에 연결한다.
+- [x] GF6a: source-only target feasibility와 fusion/WorkDepth witnesses를 연결한 선택 준비 상태 보고서를 추가했다. semantic proof·fused capability·변환 resource/cost가 없는 후보는 미선택이며 full GF6는 미완료다.
+- [ ] GF7: multiversion·streaming·inspector-executor는 별도 장기 단계로 진행한다.
+
+**최초 문서 변경의 검증 한계:** `e0204d6`/`aba88ff`는 문서 계약/체크리스트만 수정했고 당시 새 Rust/Python/C 검증을 실행하지 못했다. 아래 GF2 검증은 별도 실행 결과다.
+
+<a id="gf2-composition-review"></a>
+
+**GF2 코드 리뷰 및 구현 — 2026-10-05.** `b00f226`→`aba88ff`의 변경은 PROJECT 두 문서에 한정된다. 새 계약을 `j_graph_ir`, graph memory/resource/rewrite, frontend FunctionEntity와 대조했다. 당장 구현한 범위는 analysis-only composition seam이며 GF3–GF7의 Scan/fusion/WorkDepth/실행 선택을 완료로 표시하지 않는다. FOUNDATIONS의 graph/execution 분리 원칙을 따른다.
+
+- `src/j_graph_composition.rs` 및 `Plan::composition_analysis()`는 verified J graph로부터 관계를 파생한다. Vertical은 producer/consumer ValueId와 Left/Right **입력 occurrence**를 기록한다. HorizontalCandidate는 ordinary fork의 region/input/branch identity를 기록하며 독립성 증명이 아니다. ObservableOrder는 region constructor, 전체 child invocation 완료 순서와 live-across를 보존한다. use-count는 result/write 소비를 포함한 기존 `Plan::use_counts()` 기준이다.
+- Nested는 applied owner ValueId와 원래 FunctionEntity의 operand path로 rank/cell·reduction·prefix/window 경계를 참조한다. inner applied ValueId를 만들어 내거나 flattening을 허용하지 않는다. Copy Rank의 RHS 함수는 constructor header 공급원이므로 RHS 본문을 nested computation으로 열거하지 않는다.
+- 리뷰에서 noun-left fork를 generic Modifier로 남기면서 ordinary fork의 ParallelBranch/BranchJoin 힌트를 전달하는 오류를 발견했다. 해당 힌트를 제거하고 RetainedNounBoundary로 미전개 noun snapshot operand를 참조한다. capped fork는 Pipeline/CappedFork, ordinary fork는 h→f→g이며 noun-left에는 가짜 f 호출을 만들지 않는다. snapshot 저장은 원래 entity가 소유한다.
+- sidecar verifier는 원본 graph verifier를 먼저 호출하고 관계를 재유도해 extra/missing/stale edge·input slot·order·constructor·nested path·fan-out 차이를 거부한다. effect/error가 Unknown인 branch도 ObservableOrder를 유지한다. 이것은 binding guard, legal parallelism proof 또는 physical schedule이 아니다.
+- 신규 회귀 7개는 pipeline wiring, unknown-function fork 순서와 fan-out, capped/noun-left 구분, nested rank/window/reduction, repeated input slots, Copy Rank RHS 및 손상된 sidecar/graph 거부를 검사한다. C oracle 근거는 pinned `jsrc/cf.c::jtfolk`의 nvv/vvv/capped 구분과 기존 양 DLL frontend 차분 corpus다. 새 private C trace 동등성을 주장하지 않는다.
+
+**GF2 검증:** native Windows default/portable 각각 **442 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stage **10,810 checks / failed 0**, words **6,623 / failed 0**. vocabulary는 145 후보 중 143 POS, 140 bare-function binding/AR, 3 noun payload를 확인했으며 coverage 0/code-only rejected 2다. capture graph 경계 **257건**과 static 경계 **2건**은 별도다. 보고서 12개의 binary/source/DLL hash를 native 검증기로 확인했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. 실행 optimizer/parallel scheduling/CUDA/전체 upstream 동등성은 이 게이트의 검증 대상이 아니다. Linux/GitHub CI는 실행하지 않았다.
+
+<a id="gf6a-fusion-readiness"></a>
+
+**GF6a downstream fusion readiness — 2026-10-05.** `src/fusion_planning.rs`와 `LoweringRegistry::fusion_readiness(plan,rules,target)`가 GF4 후보와 GF5 모델을 target-dependent inspection으로 연결한다. J Graph의 intrinsic identity/grammar에 target 정보를 넣지 않는다. source 각 basis layer는 기존 LoweringRegistry×TargetCapabilities에 target-only metadata 질의를 수행한다. 이는 relevant CallFacts까지 검증한 실행 가능성 또는 전체 fused kernel의 지원을 뜻하지 않는다.
+
+보고서는 candidate/rule identity, source feasibility, 미해결 proof obligations, DeferredUntilLegality fused-target query, AwaitingSemanticProofs 상태 및 selected=false를 보존한다. 원본 target/registry/fusion/work-depth witnesses와 비교하여 변경되거나 위조된 선택·의무 삭제·cost 개선을 거부한다. Unknown을 legal/illegal로 승격하지 않으며 source Unsupported도 J 언어 오류로 바꾸지 않는다. guard/check-to-use/ownership·semantic/error equivalence, 실제 transformed lowering, lifetime/resource bound, empirical CostEstimate와 selection/partition은 full GF6의 후속이다. 준비 보고서는 실행 route나 fallback/replay 계획이 아니다.
+
+`WorkDepthAnalysis::fusion_envelope_batch()`는 source 검증을 공유하고 expression arena를 한 번만 복제한 뒤 후보당 Work sum/Depth sum/Unknown replacement 3개 식을 추가한다. 모든 후보의 source/retained operation identity와 Unknown replacement를 보존하면서 O(candidate×전체 expression graph) 저장량을 피한다. 단일 envelope inspection API도 유지한다. schema/provenance/source proof는 batch verifier에서 재유도한다.
+
+신규 native Rust 회귀 4개는 source capability가 있어도 fusion을 선택하지 않음, target/registry 변경 무효화, 여러 후보에서 arena 공유와 Scan 실행 미승격, 위조 selected/obligation/profitability 및 unknown-valid J graph의 no-candidate 처리를 검사한다. GPU generic target은 metadata-only unit query이며 GPU 실행/컴파일 검증이 아니다.
+
+**GF6a 검증:** native Windows default/portable 각각 **463 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**를 유지했다. Scan **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**은 별도다. capture graph 경계 **257**, static 경계 **2**도 별도로 유지했고 전체 보고서 14개의 binary/source/DLL hash를 확인했다. readiness 검증이며 실제 fusion 선택·성능·GPU 실행을 검증한 것은 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+<a id="gf5-work-depth"></a>
+
+**GF5 symbolic Work/Depth — 2026-10-05.** `src/j_graph_work_depth.rs` 및 `Plan::work_depth_analysis()`를 추가했다. schema version 1의 별도 expression DAG는 Constant, provenance-bearing Unknown, logical Atoms/LeadingItems/ItemAtoms, metric별 OperatorCost, Sum/Max/Product/Predecessors/IfEmpty를 갖는다. memory resource 식·바이트·strides·buffer·launch·wall-clock cost와 합치지 않는다. caller의 `OperatorCostModel`은 명시적인 abstract operator weight를 공급하며 Unknown/unknown extent/checked arithmetic overflow는 None을 반환한다. 단위 weight 회귀는 수학적 모델 검사이며 성능 측정값이 아니다.
+
+초기 모델은 **ordered successful-path logical baseline**이다. direct elementwise core primitive는 DispatchChecks + atoms×Element 비용을 보존한다. primitive dyadic Map reducer의 ordered Reduce는 DispatchChecks + (leading items−1)×item atoms×ReducerPair 및 empty identity 조건을 모델링한다. source error check를 삭제하거나 failed trace의 실제 work를 예측하는 모델이 아니다. operator cost는 dtype/numeric retry 등 관련 사실이 부족하면 Unknown으로 공급해야 한다. shape-changing/unknown reducer·opaque/name/definition·일반 rank/window 및 최종 assignment는 Unknown이다. noun lookup/guard의 실제 지연, representation/materialization 및 hardware 비용은 이 domain의 대상이 아니다.
+
+region은 external input boundary에서 역방향으로 source operation을 수집하고 원본 순서로 한 번씩 합산한다. nested pipeline/fork의 child region cost를 다시 더해 같은 operation을 중복 계산하지 않는다. total은 모든 원본 operation을 한 번씩 포함한다. 일반 fork는 h→f→g dependency를 유지하므로 Depth도 합산하며, 단순 syntax 관계로 Max를 생성하지 않는다. Map의 cell 작업을 ordered scalar baseline으로 세는 현재 모델은 최적의 parallel critical path를 주장하지 않는다. rank/cell 내부 경계는 필요한 call facts/model이 없으면 Unknown으로 보존한다.
+
+GF3의 Boolean Scan identity에는 source Window 모델과 별도의 **ordered Scan hypothesis**를 만든다. 그 비용은 DispatchChecks + (n−1)×item atoms×ReducerPair + output atoms×ResultAssembly이며 empty/scalar/singleton 타입/identity 계약을 원래 witness에서 보존한다. 원본 PrefixInfix의 비용/실행은 여전히 Unknown이다. ResultAssembly weight는 abstract assembly 비용이며 물리적 materialized buffer/copy를 강제하지 않는다. parallel scan 허가와 실행 선택은 만들지 않는다.
+
+GF4 envelope 비교는 검증된 source operation/retained value를 참조한다. source Work/Depth를 평가할 수 있어도 transformed replacement는 FusionTransferUnproven/Unknown이며 improvement_proven=false다. 단일 source operation의 extra-call duplication 가설은 기존 입력에서 추가 호출의 비용만 곱한다. 전체 upstream graph 복제 모델 또는 legal duplication proof가 아니며 duplication_authorized=false다. 두 가설도 source analysis/fusion witnesses로 재유도 검증하며 위조 permission/improvement를 거부한다.
+
+신규 Rust 회귀 8개는 symbolic unknown/operator weights, ordered fork, nested region 중복 방지, empty/singleton/scalar/matrix Reduce와 별도 Scan, unknown rank/extent/assignment, extra-call duplication 및 source-vs-unproved fusion, expression cycle/잘못된 provenance·total·arithmetic overflow를 검사한다. 호출 error/effect 순서는 보존했으나 일반 failed-path cost, reassociated reducer, parallel Max/tree, 일반 CellApply/Window 및 실행 optimizer는 후속이다.
+
+**GF5 검증:** native Windows default/portable 각각 **459 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 기존 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**이며 failed 0이다. Scan은 **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**, runtime prefix 경계 **285 / executable prefix passes 0**을 별도로 유지했다. capture graph 경계 **257**과 static 경계 **2**도 별도다. 전체 보고서 14개의 binary/source/DLL hash를 native 검증기로 확인했다. 이 게이트는 symbolic 모델·source semantics 회귀 검증이며 실제 성능 측정이나 parallel/fused 실행 검증이 아니다. source pin/DLL release는 구분하고 Linux/GitHub CI/CUDA는 실행하지 않았다.
+
+<a id="gf4-fusion-registry"></a>
+
+**GF4 fusion registry와 source envelope — 2026-10-05.** `src/j_graph_fusion.rs`와 `Plan::fusion_analysis(registry)`를 추가했다. stable ID/version 1의 Map→Map, Map→Reduce, Map→Scan, common-input Map+Map을 등록한다. typed pattern 중복/충돌, 잘못된 version/pattern 및 누락된 rank-cell/assembly·numeric·observable effect/error order·fan-out/retention·resource/work-depth·target capability 의무를 거부한다. 임의 pattern 언어의 일반 overlap solver를 구현한 것은 아니다.
+
+후보의 replacement는 **OrderedSourceEnvelope**다. 원본 applied operation subgraph와 입력 occurrence, source 순서, 외부 output을 보존하는 분석용 영역이며 fused kernel이나 새로운 의미론 op가 아니다. 기존 `GraphRewriteProvenance`를 재사용하고, 전체 GF2 composition 및 GF3 Scan witness를 참조한다. E. identity의 equivalence witness를 다른 fusion의 증명으로 재사용하지 않는다. MapScan은 별도 Scan identity witness가 있는 call만 후보가 된다. noun-left/capped fork에는 가짜 horizontal 관계를 만들지 않는다.
+
+각 envelope는 원본 use-count, 내부 입력 occurrence, 외부 소비자 및 retained value를 기록한다. 같은 producer가 dyadic 두 슬롯에 들어가면 candidate는 중복 등록하지 않되 occurrence 2개를 유지한다. 외부 소비자가 있는 producer/output을 지우거나 복제하지 않는다. 관련 input/operation GraphFacts를 기록하고, source span/basis/value, 순서, fan-out, call fact와 witness를 원본에서 재유도하여 검증한다. candidate 내부 use-count는 작은 sparse map으로 계산해 후보마다 전체 graph 크기의 scratch 배열을 만들지 않는다.
+
+모든 후보는 `legality=Unknown`, `resource_transfer_proven=false`, `selected=false`이며 target query는 DeferredUntilLegality다. 아직 없음은 legal transformed replacement, 실제 lowering query, resource/work-depth transfer proof, profitability 및 selection/partition이다. discovery가 cost 감소나 병렬화를 뜻하지 않는다. 현재 immutable original graph를 변경하는 optimizer는 없다. 신규 Rust 회귀 5개는 registry 거부, 세 vertical pattern, horizontal h→f/join/external retention, repeated input 슬롯·shared producer의 외부 소비자, unknown Scan/noun-left/capped 경계 및 위조 selected/span/order/retention을 검사한다.
+
+**GF4 검증:** native Windows default/portable 각각 **451 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 기존 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stage **10,810**, words **6,623**이며 failed 0이다. Scan identity 검사는 각각 **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**, runtime prefix 경계 **285 / executable prefix passes 0**을 유지했다. 기존 capture graph 경계 **257**, static 경계 **2** 및 vocabulary의 POS/binding/noun 검증은 별도다. 전체 보고서 14개의 binary/source/DLL hash를 native 검증기로 확인했다. 이 게이트는 source graph/발견/검증 경로를 검증하며 fused 실행·reassociation·parallel scheduling을 검증한 것은 아니다. source pin과 DLL release를 구분하며 Linux/GitHub CI/CUDA는 수행하지 않았다.
+
+<a id="gf3-scan-identity"></a>
+
+**GF3 Scan identity 및 보수적 인식 — 2026-10-05.** `src/j_graph_scan.rs` / `Plan::scan_analysis()`는 verified J graph 위에서 독립 `GraphBasisKind::Scan` 후보와 `ExactBooleanAtomicPrefixV1` witness를 생성한다. registry는 8을 유지하고 enum vocabulary 변경으로 Graph IR schema를 **0.9**로 올린다. 원래 PrefixInfix FunctionEntity·span·valence·input ValueId 및 Window→Reduce basis를 변경하지 않는다. candidate output facts는 source facts와 별도이며 실행 lowering에 주입하지 않는다. `execution_basis_for_graph_basis(Scan)`은 None으로 실행 capability를 암시하지 않는다.
+
+- **초기 proof 범위:** 직접 monadic PrefixInfix의 operand가 Insert이고 reducer가 operand-free core Add/Multiply인 경우만 검사한다. input의 exact Boolean dtype, shape/rank consistency와 checked atom extent가 필요하다. Bool sum은 각 lane의 누적값이 leading item 수 이하이고 이 수가 i64 범위 안임을 확인한다. Bool product는 {0,1}에 닫혀 있다. NameRef·일반 verb·다른 reducer·Int/Float/boxed/unknown input은 witness를 얻지 않는다. 값 payload를 읽거나 대용량 배열을 복사해 proof를 만들지 않는다.
+- **prefix/assembly:** leading-axis의 inclusive prefix 길이는 1..n이며 artificial identity를 삽입하지 않는다. scalar는 shape [1]로 바뀐다. item 수 0/1 또는 전체 atom 수 0이면 C atomic scan처럼 input atom/type을 유지한다. 따라서 Boolean sum의 singleton/empty 결과는 Bool이고, 일반 n≥2 비어 있지 않은 sum은 Int다. Boolean product는 Bool을 유지한다. dyadic infix와 nested rank의 effective cell/frame/assembly 사실이 부족한 호출은 명시적 analysis boundary다.
+- **효과/오류와 수치 계약:** 실제 bare core identity와 Boolean 영역의 closure/overflow bound를 검사하며 spelling이나 arbitrary reducer의 associativity를 추측하지 않는다. scalar/empty/singleton 경로에서 reducer 또는 identity 실행을 새로 삽입하지 않는다. 후보는 source order를 유지하고 `parallel_prefix_authorized=false`다. Float accumulation 순서, integer retry/promotion, 이름/locale 효과, sparse/representation 조건과 일반 rank assembly는 별도 proof 대상으로 남긴다. witness는 검증된 plan의 input facts/provenance에 한정되며 실행 전 binding/metadata guard를 대체하지 않는다.
+- **검증/검사 표면:** candidate verifier는 source graph를 검증한 뒤 contract·source/input/span·basis·fact·witness·boundary를 재유도해 stale/missing/forged 값을 거부한다. 새 Rust 회귀 4개는 empty/singleton/scalar/matrix, 일반 prefix/infix/numeric/NameRef/rank 경계, 잘못된 parallel permission·dtype·span, unknown/inconsistent/overflow extent를 검사한다.
+- **C 차분 범위:** `tools/scan_contract_conformance.py`와 `examples/scan_contract_probe.rs`를 Windows runner에 연결했다. Boolean 길이 0..6 전체 패턴, scalar와 empty/matrix/3D shape를 포함한 **274 identity/type/shape checks**, 일반 prefix/infix/rank·integer overflow·float cancellation/signed zero/infinity·char/boxed **11 rejected analysis checks**를 분리한다. 독립 정확 Boolean 모델의 데이터와 C 결과도 비교한다. 모든 **285 prefix runtime 경계**와 **executable prefix passes 0**을 별도 기록하며 Unsupported를 실행 동등성 pass로 세지 않는다. rejected numeric/error 사례의 C 결과는 oracle 관찰이며 Rust prefix 실행의 동등성 주장이 아니다.
+
+**근거:** 검토 소스 [ap.c::jtbslash/jtpscan, Bool prefix kernels](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c), [atomic type dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c), [insert semantics](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c). C source pin과 실제 DLL release를 구분한다. FOUNDATIONS의 graph/execution 분리·J error/rank 보존 가드레일을 따른다.
+
+**GF3 검증:** native Windows default/portable 각각 **446 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 새 Scan report **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**이며 **runtime prefix 경계 285 / executable prefix passes 0**을 별도 기록했다. 기존 세 runtime 경로는 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**이며 failed 0이다. 기존 capture graph 경계 **257**, static 경계 **2**는 별도다. 보고서 14개의 binary/source/DLL hash를 native 검증기로 확인했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. Linux/GitHub CI/CUDA/새 실행 optimizer는 수행하지 않았다.
+
+#### A1.5.1 과거 JAXA 역대조 감사
+
+2026-10-01 `yunskim/JAXA`, `yunskim/JAXA-complier`, `yunskim/japchae`, `yunskim/jaxa-analyzer`를 현행 RustJ J Graph IR과 **여러 독립 관점으로 반복 대조**했다. 이번 감사는 (1) language/graph intent, (2) resource/Flow–Storage/static-memory, (3) basis/rewrite/equivalence, (4) frontend prototype, (5) superseded claim 역검토의 다섯 패스로 수행했다.
+
+| 과거 JAXA 개념 | 현행 RustJ 상태 | 판정 |
+|---|---|---|
+| Semantic AST와 Array Operation IR 분리 | `FunctionEntity`와 `j_graph_ir::Plan`을 별도 boundary로 둠 | 반영 |
+| J syntax에서 static graph 직접 유도 | `@:`, Hook/Fork, `/`, `"`를 `GraphForm`으로 분류 | 반영 |
+| `@:` pipeline / Hook/Fork branch-join | `Pipeline`, `Hook`, `Fork` + GraphHint | 반영 |
+| applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node와 독립 `GraphFacts`를 보유하며 layout-independent `SemanticFacts`와 `facts::infer_semantic_projection`을 사용한다 | **초기 구현 — container 분리됨** |
+| primitive shape/dtype/rank/effect contract | `GraphRuleRefs` + layout-independent `SemanticFacts` transfer를 J Graph build에서 적용. Execution `Facts` container와 GraphFacts container는 분리 | **초기 구현** |
+| primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/working_state symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
+| iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionStructure`를 J Graph op에 연결 | **초기 구현** |
+| pipeline/reduction/branch/join별 resource composition | Region은 Pipeline/BranchJoin, Apply node는 Reduction/Window/CellMap/Structural composition identity를 직접 기록. `j_graph_resource`가 node/region identity를 노출하나 full symbolic evaluator는 후속 | **부분 반영** |
+| intermediate edge materialization/traffic 분석 | `j_graph_memory`가 pipeline/branch/view materialization opportunity와 logical extent를 계산. traffic/selected materialization plan은 후속 | **초기 구현** |
+| register/live-value pressure 분석 | J Graph use-def/live-range를 계산하고 branch `live_across`가 join까지 lifetime을 확장. register pressure로의 target mapping은 후속 | **초기 구현** |
+| target profile과 graph resource demand 결합 | full TargetProfile/ResourceEstimate는 후속. 다만 Graph rewrite basis를 existing `LoweringRegistry + TargetCapabilities`에 투영하는 target-only feasibility query를 추가해 `Supported / RequiresCallFacts / Unsupported`를 구분한다 | **초기 연결** |
+| fusion partition 산출 | fusion candidate/opportunity만 있으며 선택된 fusion partition은 없음. rewrite의 target-only feasibility bridge와 구분 | **미구현** |
+| reshape/flatten/transpose를 virtual view로 취급 | Ravel/Reverse/Transpose에 `VirtualIndexingCandidate`를 J Graph에서 기록 | **초기 구현** |
+| Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
+| checkpoint/rematerialization/reversible recovery | `StorageRequirement::ExplicitCheckpoint`와 logical/physical 분리는 설계됨. physical `Rematerialize` decision은 이번 반복 감사에서 명시적 planning option으로 보강했으나 구현은 없음 | **부분 반영 — 후속** |
+| adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
+| Graph basis → rewrite → equivalence algebra | Graph Basis와 첫 witnessed `E.` rewrite registry/candidate/verifier/resource 비교가 있음 | **초기 구현 — 일반 rule/equivalence 확장은 후속** |
+| resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
+| basis access-pattern taxonomy | Graph Basis에 Window access family를 추가해 `u\`를 `PrefixInfix`로 보존하고 `(+/)\`를 `Window → Reduce`로 표현. 독립 Scan basis와 초기 Boolean identity 후보를 GF3에서 추가했다. 일반 수치/rank witness와 실행은 후속 | **초기 구현** |
+| symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행한다. `ResourceExprGraph`가 ValueAtoms/Requirement/Sum/Max 식을 보존하고 Pipeline/BranchJoin의 internal/elidable/retained/peak-live provenance를 표현한다. PrefixInfix/Rank는 inner resource requirement를 합성한다. richer accumulator/window-size 함수와 target realization은 후속 | **초기 구현** |
+| resource-aware pruning soundness | checklist에는 있으나 local/global resource 구분, monotonicity/soundness proof requirement가 명문화되지 않았음 | **설계 보강 필요** |
+| Basis → Rewrite → Equivalence → Optimization 의존 순서 | 각 기능은 roadmap에 있으나 선행관계가 약하게 표현됨 | **설계 보강 필요** |
+| static-analyzable subset / validation boundary | `GraphAnalyzability`로 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback을 구분 | **초기 구현** |
+| jsource-style graph normalization(capped fork→atop, tine simplification) | 현 `j_graph_ir`에는 별도 normalization pass 없음 | **미구현/확인 필요** |
+| multi-device static partition | 없음 | future work |
+
+**현재 판정:** v0.3에서 표기에서 얻는 topology를 stage-level applied graph, GraphFacts, use/liveness 및 symbolic resource seam으로 확장했고, v0.9에서 composition/Scan identity 분석을 추가했다. 부족한 것은 graph 부재가 아니라 rewrite-specific facts, 실행 lowering 및 실제 schedule/resource/cost 선택이다.
+
+v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access family, graph-only fact domain 경계, node-level Reduction/Window/CellMap resource composition을 추가했다.
+
+1. `@:` stage, Hook/Fork branch/join은 이제 실제 J Graph `ValueId` node/edge다.
+2. 원래 J combinator identity는 `Region(Pipeline/Hook/Fork)`으로 별도 보존한다.
+3. stage별 `GraphFacts`, `GraphOperationContract`, `GraphAnalyzability`, use-count를 graph에서 질의할 수 있다.
+4. `j_graph_memory`가 logical extent, graph-order live range, pipeline/branch/view materialization opportunity를 계산한다.
+
+남은 핵심 부족은 **rewrite candidate를 실제 executable lowering/schedule/target resource model로 연결하는 단계**다. Graph 쪽에서는 `ResourceExprGraph`로 internal/elidable traffic, retained/peak-live, temporary/accumulator/window-state requirement와 canonical state lifetime을 표현하고, rewrite candidate도 동일 logical-atom/symbolic-state domain에서 비교한다. 다음 경계는 rewrite-specific facts의 확대, WindowView 등 execution lowering capability, fusion 선택에 따른 lifetime extension, resolved TargetProfile 기반 ResourceEstimate/CostEstimate, 그리고 그 뒤의 candidate selection/partition이다.
+
+#### 2026-10-01 반복 감사에서 추가로 확정한 JAXA 계승 원칙
+
+1. **Graph Basis의 historical lower bound는 arithmetic atom이 아니라 access pattern 계층이다.** Japchae D-24의 핵심은 너무 작은 scalar `+`/`*`로 분해해 algorithm/access identity를 잃지 말라는 것이다. RustJ의 Graph Basis는 이 원칙을 유지한다. `Conv` 같은 structured op를 Graph Basis에서 black box로 유지하는 결정과 Execution Basis에서 필요 시 분해하는 결정은 독립적이다.
+2. **Graph Basis vocabulary에는 windowing 계열이 필요하다.** historical 후보는 `map / reduce / window-reduce / static-reindex / dynamic-gather`이고 `scan`은 독립 패턴인지 열린 질문이었다. v0.3에서 `PrefixInfix`/Window access family와 resource identity를 추가했다. 일반 WindowReduce 실행 지원은 후속이다. ExecutionBasis::WindowView가 존재한다는 사실로 이 요구를 대체하지 않는다.
+3. **Basis 연구가 rewrite/equivalence보다 선행한다.** 작업 의존은 `Basis → Rewrite → Equivalence → Optimization`으로 둔다. 완전한 최소 basis 증명까지 기다릴 필요는 없지만, rewrite rule은 어떤 Graph Basis identity를 보존/변환하는지 명시해야 한다.
+4. **resource contract는 node별 고정 숫자도, 단순 enum 합도 아니다.** target-independent graph 층은 symbolic requirement/access/liveness/materialization 관계를 합성하고, schedule/target 이후 concrete register/shared/global resource를 계산한다. 현재 최소 `SymbolicResourceExpr`는 seam일 뿐 최종 모델이 아니다.
+5. **resource-aware pruning은 매우 후순위다.** basis/rewrite/equivalence가 먼저 서야 하며, pruning은 (a) 해당 resource bound가 부분 graph에서 local하게 결정 가능한지, (b) pruning predicate가 monotone하거나 그 밖의 soundness proof를 갖는지 확인된 경우에만 허용한다. 그렇지 않으면 후보 생성 후 cost/resource evaluation만 수행한다.
+6. **static memory claim은 logical determinability로 해석한다.** graph에서 extent/use/lifetime/storage obligation을 정적으로 알 수 있다는 주장은 유지하지만 physical offset/buffer/layout을 J Graph semantic fact로 올리지 않는다.
+7. **adjoint/VJP는 basis/rewrite보다 앞서지 않는다.** historical 연구도 복합 graph의 AD는 basis/graph expansion 위에서 자연스럽게 닫히는 문제로 보았다. 현재 `ParallelFanOut` schema는 유지하되 실제 AD transform은 Graph Basis와 rewrite/equivalence surface가 더 성숙한 뒤 진행한다.
+8. **frontend 역사 prototype은 current jsource보다 우선하지 않는다.** `JAXA-complier`의 tokenizer/enqueuer/parser Python prototype은 유용한 참고 구현이지만, name lookup timing과 parser behavior의 oracle은 current jsource `w.c/p.c/cf.c`다. 특히 전체 name 품사를 parser 전에 미리 확정하는 모델로 되돌아가지 않는다.
+9. **초기 JAXA의 강한 구현 주장은 그대로 계승하지 않는다.** `"RjP`, rank 변화=항상 fusion boundary, 모든 shape op=항상 zero-copy, parse-time complete graph, fixed physical offset, primitive 고정 register 숫자는 후기 연구 또는 current RustJ 계층 분리와 충돌하므로 superseded다.
+
+
+- [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
+- [x] `GraphBasis` / `GraphBasisKind`를 Execution basis 타입과 분리하고, derived rank/reduction처럼 outer→inner graph-basis composition을 보존하는 최소 seam을 추가했다.
+- [x] Graph Basis에 Window access family를 추가하고 J `\`을 `GraphForm::PrefixInfix`로 보존한다. operand basis를 중첩해 `(+/)\`가 `Window → Reduce`가 되게 했다. 당시 Scan은 열린 질문으로 남겼으며, 2026-10-05 독립 basis 설계를 확정했다. GF3에서 초기 Boolean identity 후보를 추가했으며 일반 수치/rank witness와 실행은 후속이다.
+- [x] 기존 `SymbolicResourceExpr` requirement leaf 위에 `ResourceExprGraph`를 추가해 logical `ValueAtoms`, symbolic requirement, `Sum`, `Max` composition을 표현한다. node requirement와 region internal/elidable/retained/peak-live 식 provenance를 보존하며 concrete target 숫자는 넣지 않는다.
+- [x] GraphFacts inference에서 execution `Facts`/`LayoutFact` container seed/return adapter를 제거하고 layout-independent `SemanticFacts` domain/API를 사용한다. primitive shape/dtype rule source는 execution inference와 공유한다.
+- [ ] Reduction/CellMap/Window resource composition identity를 실제 Apply node와 verifier/resource summary에 연결했고, Rank/PrefixInfix가 inner accumulator/working-state requirement를 보존하도록 합성했다. 남은 일은 이 node composition을 Pipeline/BranchJoin과 같은 symbolic lifetime/traffic evaluator까지 확장하는 것이다.
+- [ ] Pipeline/BranchJoin의 edge traffic/retained/peak-live와 child resource state를 `ResourceExprGraph`로 합성했다. 각 temporary/accumulator/window-state에는 canonical graph-order `ResourceStateLiveRange`와 `may_extend_across_fusion`을 기록하고 region별 canonical peak와 conservative all-child-state upper bound를 모두 만든다. 남은 일은 실제 fusion candidate별 lifetime extension/overlap 제약과 target realization 함수까지 연결하는 것이다.
+- [x] Graph Basis → rewrite candidate generation → equivalence validation → candidate resource evaluation → sound resource pruning 순서를 `GRAPH_OPTIMIZATION_ORDER`와 rule registry API에 반영했다.
+- [x] resource-aware pruning은 `ResourceBoundLocality::Local` + `PruningMonotonicity::ProvenMonotone`가 모두 있는 rule에만 early pruning을 허용하도록 contract를 정의했다. 현재 `E.` rewrite는 global-context-dependent/unproven이라 pruning 불가다.
+- [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / PrefixInfix(`\`) / Rank(`"`) / generic Modifier를 구분한다.
+- [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / WindowStructure / CellParallelStructure를 기록한다.
+- [x] `GraphRuleRefs`로 shape/dtype/rank-cell/effect rule source와 resource rule의 StructuralComposition/Unknown을 명시한다.
+- [x] `Engine::analyze_compilation()`이 `j_graph`와 `logical` 두 IR을 함께 반환한다.
+- [x] execution lowering은 BoundProgram을 직접 canonicalize하지 않고 J Graph IR을 소비한다.
+- [x] execution node/A3 op가 `j_origin`으로 originating J Graph node를 보존한다.
+- [x] Hook/Fork/@: topology 분류의 단일 소스를 `j_graph_ir::classify_function()`으로 두고 execution analyzer의 독립 pattern rediscovery를 제거한다.
+- [ ] `\` Prefix/Infix의 graph vocabulary는 추가했다. 남은 Cut/Window(`;.`), Dot/Contract, Power/Iteration, Key/GroupBy 를 GraphForm/GraphHint로 확장한다. 독립 Scan basis의 초기 identity 분석은 GF3에 반영했고 확장은 GF3a에서 추적한다.
+- [ ] `ExecutionBasis::WindowView` semantic payload는 `WindowShapeSpec::PatternShape`로 구현했고 expansion verifier가 inputs/payload 일치를 강제한다. `FindViaWindowMatch` 전체에 대해서는 current `E.` rank≤1 semantics와 동일한 CPU `ReferenceRewriteComposite` evaluator/capability를 추가했다. standalone WindowView value/kernel lowering은 아직 없으며 일반 Window rewrite를 위해 후속 구현한다.
+
+- [x] current primitive/rank/reduce 범위에서 stage별 shape/dtype/rank facts를 J Graph build 중 전파한다. richer rule registry는 계속 확장한다.
+- [x] `GraphOperationContract`로 iteration/access/fusion 및 temporary/accumulator/working_state symbolic requirement의 최소 seam을 추가했다.
+- [x] graph-level use-def/common-input/live-range를 J Graph 및 `j_graph_memory`에서 계산한다.
+- [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
+- [x] `j_graph_resource`에서 Pipeline/BranchJoin의 internal/elidable/retained/peak-live atom volume과 reduction accumulator requirement를 합성하는 최소 evaluator를 구현했다. Reduction/CellMap 단독-region 및 traffic 식은 계속 확장한다.
+- [ ] graph rewrite에 대해서는 existing `TargetCapabilities`/`LoweringRegistry`와의 초기 feasibility bridge를 추가했다. representation/schedule/full TargetProfile을 결합한 downstream `ResourceEstimate`는 여전히 후속이다.
+- [x] 최소 graph rewrite registry/candidate sidecar를 추가하고 첫 rule로 `E.` Search → Window+CellApply(Match) 후보를 J Dictionary equivalence witness와 함께 생성한다. 일반 rule set 확장은 계속 필요하다.
+- [x] graph candidate마다 source ValueId/span/basis provenance, registered semantic-equivalence witness, `RewriteFactRuleId`를 유지한다. verifier는 provenance/rule/witness뿐 아니라 rewrite-local GraphFacts를 rule로 재계산해 stale/invented facts도 거부한다.
+- [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
+- [ ] name-bound derived verb의 graph summary를 binding version + SpecializationKey로 interprocedurally 전파한다.
+- [ ] graph rewrite candidate를 source/replacement의 동일 logical-atom + symbolic-state resource domain에서 평가하고 rewrite-local GraphFacts를 보존한다. existing `LoweringRegistry + TargetCapabilities`로 replacement GraphBasis를 execution basis에 투영해 target-only feasibility도 질의한다. unknown cost는 `Incomparable`, call-dependent legality는 `RequiresCallFacts`로 남긴다. `RewritePlanningReport`가 resource + target readiness를 합쳐 `TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting`까지만 판정하며 후보 선택은 하지 않는다. 현재 `E.` candidate는 CPU에서 standalone WindowView 없이도 whole-rule `ReferenceRewriteComposite`로 target-feasible하다. 다만 candidate-local Window extent/traffic이 아직 unknown이라 planning state는 `NeedsResourceFacts`이고, GPU/standalone WindowView route는 Unsupported다. 남은 일은 rewrite-specific Window shape/resource 식, 일반 WindowView lowering, full TargetProfile/ResourceEstimate/CostProfile과 연결하는 것이다.
+
+**완료 조건:** 대표 J expressions(`@:`, Hook, Fork, Reduce, Rank, 이후 Window/Contract/Key/Power)가 generic execution DAG를 만들기 전에 J Graph IR에서 구조적으로 식별되고, graph optimizer가 source reparsing이나 execution-DAG pattern recovery 없이 fusion/lifetime/parallel/rewrite 후보를 만들 수 있다.
+
+#### A1.5.2 JAXA의 static-memory claim을 RustJ에서 해석하는 방식
+
+JAXA의 중요한 주장 중 하나는 **배열 연산을 J DSL로 정적으로 표현하면 graph를 실행하기 전에 필요한 메모리 구조를 상당 부분 결정할 수 있다**는 것이다. RustJ는 이 주장을 버리지 않되, `logical memory`와 `physical memory`를 구분한다.
+
+J Graph 단계에서 정적으로 계산할 수 있는 것:
+
+- 각 logical ArrayValue의 shape / rank / dtype fact
+- shape가 known이면 atom count
+- producer-consumer use-def와 fan-out
+- graph-order lifetime / last-use
+- Hook/Fork의 live-across value
+- pipeline/branch 내부 intermediate
+- 어떤 value가 materialization-elision 후보인지
+- static reindex/view가 virtual하게 유지될 가능성
+- reduction accumulator / temporary / working_state의 symbolic requirement
+- representation model이 주어졌을 때 logical extent의 represented byte size
+
+J Graph 단계에서 **아직 결정하지 않는 것**:
+
+- 실제 register allocation
+- register class별 사용량
+- shared/LDS/scratchpad의 concrete byte 수
+- tile/workgroup별 local storage
+- packed-bool/box/sparse 등의 final representation
+- alignment/padding/buffer offset
+- spill/occupancy
+- exact physical allocation/reuse
+
+따라서:
+
+~~~text
+J syntax / J Graph
+    ↓
+Static logical memory analysis
+    shape → atom count → use/lifetime → materialization opportunity
+    ↓
+Representation + Schedule + Target
+    ↓
+ResourceEstimate / bufferization
+    register/shared/global bytes, peak physical memory, traffic
+~~~
+
+현재 구현:
+
+- `src/j_graph_memory.rs`의 `StaticMemoryAnalysis`
+- `LogicalExtent { shape, atoms, dtype }`
+- `GraphOrderLiveRange { defined_at, last_use }`
+- `PipelineIntermediate`, `RetainedAcrossBranch`, `BranchIntermediate`, `VirtualView` materialization opportunity
+- explicit `AtomRepresentation`을 제공할 때만 byte size 평가
+- 모든 logical value를 materialize한다고 가정한 `graph_order_peak_materialized_bytes()` 제공
+
+이 conservative peak는 최종 resource estimate가 아니다. fusion/materialization selection 전의 upper-bound-like graph estimate이며, JAXA의 핵심인 **“graph에서 memory obligation을 정적으로 계산한다”**는 주장을 검증하기 위한 분석 결과다.
+
+현재 `j_graph_resource` 최소 evaluator는 region별 `internal_atoms`, `elidable_materialization_atoms`, `retained_live_atoms`, `graph_order_peak_live_atoms`, `has_reduction_accumulator`, `has_unknown_resource_requirement`를 계산한다. 이것은 target-independent logical resource summary다.
+
+향후 `ResourceCompositionRule` evaluator는 다음 불변조건을 따른다.
+
+- Pipeline: stage temporary는 lifetime이 겹치지 않으면 재사용 가능하며 internal edge materialization을 제거할 수 있다.
+- Reduction: 큰 producer result 대신 accumulator state로 직접 소비할 수 있는지를 표현한다.
+- Branch: sibling branch의 live temporary와 retained input이 겹칠 수 있다.
+- Join: 두 branch result가 join 시점에 동시에 live할 수 있다.
+- memory traffic은 node resource의 단순 합이 아니라 **materialized edge의 write/read**를 중심으로 계산한다.
+- register pressure는 primitive register 숫자의 합이 아니라 **simultaneously-live symbolic values**를 중심으로 계산한다.
+
+
+### A2 — Extension Primitive Registry와 analysis contract
+
+> **구현 주의:** 아래 목록 전체는 A2의 장기 architecture inventory다. A3-v0/첫 CPU vertical slice를 막는 하나의 거대한 선행 milestone로 취급하지 않는다.
+>
+> **A2-v0 blocking subset**
+> - built-in/extension이 공유하는 최소 semantic capability interface
+> - valence별 rank + shape/type/effect/error 최소 contract
+> - `ValueFacts`의 최소 Type/Rank/Shape domain + compile-time Witness
+> - Map/Reduce 수준의 IterationDomain
+> - `AccessFact = Known(simple) | Opaque`
+> - lowering eligibility/coverage manifest
+> - 첫 실행 op에 필요한 native CPU lowering
+>
+> **A2-later**
+> - richer ArrayPropertyFacts + full morphology worklist/fixpoint
+> - interprocedural morphology/specialization cache
+> - GraphIndex/AnalysisIndex batch-analysis view
+> - full TargetProfile/TargetQueries
+> - target locale chain
+> - ResourceEstimate/CostEstimate/CompiledResourceReport
+> - mixed RoutePartition boundary bridge
+> - richer Window/Scan/Gather/Scatter access/resource model
+
+
+
+- [x] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다. **F1/P4 현재 구현:** extension catalog가 있어도 enqueue는 NAME으로 유지하고 parser/runtime name environment가 binding/POS를 해석한다.
+- [x] Enqueue는 extension도 ordinary NAME/lookup metadata로 처리하고, parser-time normal name lookup이 현재 binding의 품사를 결정하게 한다. `tests/enqueuer.rs`의 extension-like spelling 회귀와 F1 checklist를 근거로 한다.
+- [ ] parameterized adverb(`conv`, `linear` 등)와 그 결과 derived computational verb/op identity를 분리한다.
+- [ ] built-in과 extension-derived computational entity가 공유하는 semantic capability interface를 정의한다.
+- [ ] extension builder(adverb/conjunction/verb) identity와 derived computational entity identity를 분리한다.
+- [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
+- [ ] monad / dyad-left / dyad-right별 innate RankSpec과 cell axis-role contract를 정의한다.
+- [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
+- [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
+- [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
+- [ ] `ValueFacts`를 Type/Rank/Shape/ItemCount/Constant/ArrayProperty/Constraint의 abstract-domain 집합으로 정의한다.
+- [ ] `ArrayPropertyFacts` domain(IntegralValued/NonNegative/Unique/Sorted/Permutation/KnownRange 등)의 최소형과 primitive transfer rule interface를 정의한다.
+- [ ] optimizer가 사용하는 추론 fact에 `FactWitness`/provenance를 연결하는 최소 contract를 정의한다.
+- [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
+- [ ] `CompilationTarget = BackendFamily + ArchitectureTarget + DeviceProfile + RuntimeProfile`을 정의하고, 기존 `TargetProfile`은 resolved effective view로 사용한다.
+- [ ] compile invocation 시작 시 `CompilationTargetLocale` / `TargetContext`를 확정하고 lowering lookup의 root로 사용한다.
+- [ ] AOT CLI와 향후 JIT API가 동일한 `TargetSelector/TargetOptions` contract를 사용하게 한다. JIT는 runtime discovery를 추가 evidence로만 사용하고 별도 target-selection 체계를 만들지 않는다.
+- [ ] `target=auto`와 explicit target constraint의 precedence를 정의하고 AOT/JIT 양쪽에서 동일하게 테스트한다.
+- [ ] built-in primitive와 extension-derived op가 source identity와 무관하게 동일 active target locale/path에서 lowering/capability를 조회하는 테스트를 추가한다.
+- [ ] execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 architecture/device profile에 올바르게 분리한다.
+- [ ] compiler target locale chain(device → architecture → family → backend → cpu/gpu → generic)을 정의한다.
+- [ ] built-in J primitive도 extension과 동일하게 target lowering binding을 locale chain에서 조회한다.
+- [ ] lowering lookup key에 primitive/source identity뿐 아니라 resolved valence와 derived rank/fit/numeric semantics를 포함한다.
+- [ ] hard target facts와 empirical `CostProfile`을 분리한다.
+- [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
+- [ ] `ResourceEstimate`를 graph + schedule + TargetProfile의 함수로 계산하고 `CostEstimate`를 별도 계층으로 둔다.
+- [ ] backend가 실제 register/spill/shared-memory 결과를 돌려주는 `CompiledResourceReport`와 re-plan 경로를 정의한다.
+- [ ] `TargetProfile`을 stable facts와 architecture-specific `TargetQueries`로 분리한다.
+- [ ] Logical Array IR → MLIR export adapter의 최소 contract를 설계한다.
+- [ ] whole-program route 선택이 아니라 subgraph/region 단위 `RoutePartition`과 boundary value bridge를 정의한다.
+- [ ] StableHLO로 안전하게 내릴 수 있는 subset을 명시하고 unsupported semantics를 거부하는 규칙을 만든다.
+- [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
+- [ ] register estimate는 primitive별 합이 아니라 scheduled liveness peak로 계산한다.
+- [ ] accumulator requirement(logical)와 accumulator realization(schedule/target)을 분리한다.
+- [ ] scratchpad/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
+- [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
+- [ ] noun snapshot과 verb/adverb/conjunction nameref late lookup, alias/shadow/rebind, `f.` fix semantics를 구분하는 테스트를 추가한다.
+- [ ] mutable extension state가 hidden verb field가 아니라 explicit StateResource로 나타나는 테스트를 추가한다.
+- [ ] standard-J reference definition이 가능한 extension은 차등 oracle test를 추가한다.
+
+완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, RustJ-native route에서는 별도 TargetProfile을 이용해 schedule/ResourceEstimate를 만들고 external route에서는 adapter가 같은 Logical IR contract를 검증해 lowering할 수 있다.
+
+### A3 — Logical Execution IR core, verification, scheduling boundary
+
+> **단계화:** APEX/Co-dfns/TAIL 반영 항목은 단계적으로 도입한다. 첫 verified single-block Logical IR(A3-v0)은 SSA ValueId + 최소 Type/Rank/Shape/Witness + verifier를 우선한다. full GraphIndex, full morphology fixpoint, interprocedural SpecializationKey cache, richer ArrayPropertyFacts는 A3-v0의 선행조건이 아니며 v1/later에서 추가한다.
+>
+- [x] A3-v0에 SSA `ValueId`와 explicit single Function/Region/Block/`Return` Terminator 최소 구조를 정의했다.
+- [x] J name/symbol identity, `BindingVersion`, A3 SSA `ValueId`를 서로 다른 타입/field로 구분한다.
+- [ ] immutable semantic/Logical DAG에서 유도되는 `GraphIndex` / `AnalysisIndex` sidecar(parent/depth/preorder/subtree/op/entity/scope/use-def/source-origin)를 정의한다.
+- [ ] graph index는 derived analysis view이며 semantic DAG의 canonical identity를 대체하지 않는다는 verifier/invariant를 둔다.
+- [ ] morphology transfer를 worklist/fixpoint로 실행할 최소 `MorphologyEngine` interface를 정의한다.
+- [ ] interprocedural summary와 call-site specialization을 `SpecializationKey` + cache로 표현한다.
+- [ ] specialization key에 포함할 fact relevance 정책과 code-explosion merge/widening 정책을 정의한다.
+- [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
+- [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
+- [x] A3 `CallOp + ExecutionBasisPayload` 공통 contract와 `ExecutionBasisKind` identity를 정의하고, target-specific realization은 `ExecutionBasisLoweringCapability` registry로 분리했다. 이 vocabulary는 GraphBasis와 별도 계층이다.
+- [x] J syntax-derived `StructuralOpportunity` sidecar를 추가했다. `@:`는 Pipeline, hook/fork는 BranchJoin topology와 live-across/shared-input provenance를 analysis/A3 IR에 보존한다.
+- [x] StructuralOpportunity discovery와 semantic legality/target feasibility/physical fusion commitment을 서로 다른 단계로 분리했다.
+- [ ] adjoint/VJP expansion이 생기면 data-adjoint/parameter-adjoint branch를 `ParallelFanOut` opportunity로 연결한다.
+- [ ] name-bound derived verb의 FunctionEntity/topology summary를 binding version + SpecializationKey로 전파해 `@:`/hook/fork opportunity가 call boundary에서 사라지지 않게 한다.
+- [ ] StructuralOpportunity와 use-def/GraphIndex를 결합해 pipeline intermediate materialization-elision 및 branch live-range 분석을 일반화한다.
+- [ ] J Graph IR의 GraphForm/GraphHint vocabulary를 Cut/Window, Dot/Contract, Power/Iteration, Key/GroupBy 등 J graph algebra 전반으로 확장한다.
+- [ ] primitive마다 J Graph IR용 shape/dtype/rank/effect/resource rule reference를 연결하고, 아직 모르는 항목은 명시적 Unknown으로 둔다.
+- [ ] Graph basis verb 위 rewrite/equivalence rule을 J Graph IR에서 표현하여 동일 execution semantics를 갖는 여러 J graph 후보를 생성할 수 있게 한다.
+- [ ] target ResourceEstimate/register/shared-memory model을 opportunity별 feasibility query로 연결하되 Logical IR payload에는 concrete hardware allocation을 넣지 않는다.
+- [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
+- [x] ValueRoleFacts 최소형을 추가했다. 현재 ShapeVector/AxisPermutation/IndexVector/CountVector를 실제 분석에서 생산하며 나머지 role enum은 후속 basis가 사용한다.
+- [x] J-visible predicate failure를 표현하는 first-class zero-result SemanticCheck를 A3 IR에 정의하고 compiler assertion과 분리했다.
+- [x] ExecutionBasisExpansion sidecar에 applicability ConstraintSet + equivalence witness를 두고 original semantic/structured identity를 보존한다. 첫 rule은 E. → WindowView + CellApply(Match)다.
+- [x] A3-v0 correctness executor 범위를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck 중심으로 제한했다. `logical_executor::execute_closed`는 closed expression reference path이며 native Physical Executor와는 별개다.
+- [x] A3 verifier negative tests, runtime/reference-equivalence tests, Rank/Reduce 및 E. expansion composition tests의 golden scaffold를 추가했다.
+- [x] `ParameterizedLoweringRecipe` interface와 `LoweringRegistry` 후보 생성 경로를 정의해 resolved call facts + target capability에서 multiple realization 후보를 만들 수 있게 했다. cost ranking/schedule 선택은 아직 downstream 과제다.
+- [ ] pure graph region과 CFG region을 구분한다.
+- [x] v0 `ConstraintSet + FactWitness`를 정의하고 PrefixAgreement/CellFrameAgreement/IndicesInBounds를 우선 연결했다. runtime branching `Guard`는 v1로 유지한다.
+- [x] v0 `EffectSummary + SpeculationSemantics` resolved-call interface를 정의했다. explicit `EffectToken`은 v1로 유지한다.
+- [x] v0 `PossibleErrors { known, unknown }`와 first-class `SemanticCheck`로 MayRaise를 보존한다. primitive별 완전한 error-set refinement와 exceptional CFG edge는 후속이다.
+- [x] A3 `DestinationRelation`을 정의해 logical alias/reuse legality seam과 physical `BufferId`를 분리했다. 현재 call 기본값은 보수적으로 `Unknown`이다.
+- [x] A3 verifier가 schema/container/op-value producer/order/basis payload/instantiation/constraint/zero-result check invariants를 검증한다.
+- [x] A3-v0 `SemanticCapabilityView`를 정의해 result facts(shape/type/rank 포함), iteration/axis domain, access, effect, speculation, possible errors, destination/alias seam을 공통 API로 노출한다. richer property/alias interface는 후속 확장한다.
+- [ ] schedule/transform representation을 Logical payload IR과 분리한다.
+- [ ] external adapter capability negotiation과 guarded lowering을 정의한다.
+- [x] A3 `IrSchemaVersion`과 compiler version/primitive registry version provenance를 IR header에 추가했다.
+- [x] v0 single-block graph/check/witness/verifier/reference-executor golden tests를 추가했다. branch/loop/effect-token/dynamic-guard tests는 v1로 유지한다.
+
+완료 조건: Logical IR이 RustJ-native planner와 external adapter 양쪽에서 동일한 verifier/interface contract를 통해 소비될 수 있고, buffer/layout/schedule을 넣지 않아도 control/effect/dynamic constraint semantics를 잃지 않는다.
+
+구현은 단계적으로 한다.
+
+```text
+A3-v0
+  single Function
+  single Region / single Block
+  pure array ops
+  SSA ValueId
+  verifier
+  shape/axis/numeric contracts
+  simple Known access or explicit Opaque access fact
+  EffectSummary/Speculation interface
+  ConstraintSet + compile-time Witness의 최소형
+  Basis core: Elementwise / CellApply / Reduce / StaticReindex / IndexSpace
+  first-class SemanticCheck + possible J error set
+
+A3-v1
+  multi-block CFG
+  branch / loop / runtime Guard
+  try/catch/throw exceptional edges
+  EffectToken
+  richer alias/destination analysis
+
+A3-v2
+  portable serialization/version migration
+  async/control-effect extensions as needed
+```
+
+즉 장기 IR이 Region/Block을 지원한다고 해서 첫 구현에서 전체 CFG framework를 완성할 필요는 없다.
+
+### G1 — 논리 값과 물리 표현의 경계
+
+상태: **완료**
+
+- [x] ValueId와 BufferId 분리 기초
+- [x] generation/scoped BufferId
+- [x] BufferLease
+- [x] read-only affine PhysicalArray
+- [x] shape/strides/offset
+- [x] encoding/dtype/backing 검증
+- [x] signed span checking
+- [x] empty/scalar policy
+- [x] standard logical layout 판정
+- [x] Windows 기본/portable 회귀
+
+아직 evaluator/LogicalPlan 실행 경로와 완전히 연결된 것은 아니다.
+
+### G2 — 복사 없는 structural view
+
+- [ ] transpose stride permutation
+- [ ] reverse negative stride
+- [ ] fill 없는 take/drop/slice view
+- [ ] compatible reshape metadata-only
+- [ ] agreement 결과의 zero-stride lowering
+- [ ] logical-order materialization
+- [ ] backing identity/payload copy 테스트
+- [ ] transpose→reverse→slice 조합 테스트
+
+### G3 — CPU kernel 및 cell mapping 연결
+
+- [ ] contiguous / fixed-stride / general-stride 경로
+- [ ] add를 첫 실제 연결 operation으로 사용
+- [ ] SIMD contiguous fast path 유지
+- [ ] explicit cell mapping과 physical view 연결
+- [ ] alias proof 없는 write/reuse 금지
+- [ ] primitive-specific overflow/retry/promotion 및 error precedence 보존
+- [ ] comparison tolerance/`!.` contract 보존
+- [ ] 일반 float reduction과 compensated `+/!.0` 같은 derived numeric policy를 구분한다.
+- [ ] NaN/Inf/signed zero/empty/fill-cell 테스트
+
+### G4 — RustJ-native 최소 Physical Plan과 CPU Executor
+
+- [ ] plan-time `PlanBufferId` / `PhysicalViewId` identity와 verifier
+- [ ] `BindInput`
+- [ ] `Check` — A3 SemanticCheck의 error kind/origin/order 보존
+- [ ] `View`
+- [ ] `Materialize`
+- [ ] `Kernel` call — selected lowering recipe만 실행
+- [ ] `Return` / output ownership
+- [ ] last physical use
+- [ ] buffer reuse proof/witness
+- [ ] layout-compatible view 유지
+- [ ] runtime `BufferLease/BufferId` binding과 plan-time identity 분리
+- [ ] CPU executor
+- [ ] source → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan → RustJ-native Schedule/Physical Plan → CPU end-to-end
+
+### G5 — RustJ-native 성능 및 physical 확장 경계
+
+- [ ] structural view 생성 비용
+- [ ] copy/allocation/peak/retained bytes
+- [ ] general-stride indexing 비용
+- [ ] materialization 비용 비교
+- [ ] contiguous 기존 성능 회귀 확인
+- [ ] Windows default/portable 전체 회귀
+- [ ] 지원 layout/type/operation 표 갱신
+- [ ] tiled/placement/transfer/completion 확장 경계 확인
+
+
+<a id="out-of-core-io-checklist"></a>
+
+### IO — 느린 I/O·Out-of-core 실행 이행 계획·수용 체크리스트 (2026-10-06)
+
+**I/O 프레임워크 처리·실행 구조 상세:** [§8.5.2](#io-framework-execution-comparison)에서 기존 30개 게이트의 계층별 근거를 설명한다. 완료 판정은 이 표만 사용한다.
+
+**상태: 설계·작업표 작성, 구현/실행 검증 0/30 수용.**
+
+**체크리스트 운영 규칙(작업 시마다 적용).** 이 IO-01~IO-30 표가 I/O 구현 및 검증 상태의 단일 원장이다. 기존 표의 ID를 바꾸거나 동일 작업을 별도 계획 파일·새 checklist로 복제하지 않는다. 진행 시 (1) 선행 조건이 충족된 **가장 작은 미완료 실행 단위**를 선정, (2) Jsource/J 애드온/외부 프레임워크의 원본 및 라이선스·적용 가능성을 확정, (3) baseline 의미·negative fixture, (4) 최적화 구현, (5) J C oracle / Rust sync / optimized의 독립 비교 및 메모리·I/O 계측, (6) 해당 행의 증거·미지원·차단 조건을 갱신한다. 소스 검토·계획 완료는 구현 완료가 아니다. 실패·미측정·검증 환경 부재 시 **[ ] 유지**하고 사유를 적는다. 관련 기존 FW/DB/G4/G5 수용 표와 의미·효과/자원 선행 관계를 유지한다.
+
+**현재 다음 작업:** IO-01·IO-25 upstream source pinned 부분 감사와 IO-02 효과/오류 반례 목록은 [§8.5.4](#io-a-source-audit)에서 기록했다. 원본 C의 15개 file-foreign + 6개 ordered-effect 사례를 기준으로 고정했다. 다음에는 파일 핸들·권한·flush/close와 JMF bootstrap·RO/RW/COW 매핑 oracle을 소규모 실행 fixture로 확장한다. **소스 조사만으로는 IO-* 항목을 수용하지 않으며 0/30 [ ] 유지.**
+ 기존 M2/frontend와 FW-01~04·Rank/CellApply 의미 수렴을 우선한다. IO-A의 조사/모형화는 병행 가능하지만 I/O 경로를 M4 첫 CPU vertical slice의 필수 조건으로 격상하지 않는다. 단계 순서: **IO-A 근거와 안전 계약 → IO-B 동기 reference → IO-C 접근 최소화 → IO-D bounded async → IO-E 재사용/배치 최적화 → IO-F 실증/확장**. 앞 단계 미통과 시 뒤 단계는 설계 후보만 허용한다. [ ]은 *수용 전*, [x]는 변경 commit·실행한 명령/환경·jsource oracle 적용 범위·결과/남은 제한을 같은 행에 기록하고 독립적인 semantic/negative test가 통과했을 때만 사용한다. **아래 작업의 구현·테스트는 아직 수행하지 않았다.**
+
+| ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 · 최소 수용/negative 검증 |
+|---|---|---|
+| IO-01 / A·M2 병행 | [ ] jsource/J 라이브러리 근거 pin (원본 코드 일부 검토, 실행 oracle 대기; §8.5.4) | `jmf.ijs` mapping modes, `xf.c` partial I/O, alias/in-place, boxed mapping 제약, Jd column/ptable/jmfx, Jfiles/keyfiles, JMF boxed 경로별 source pin·행동/미지원 표. C foreign oracle와 파일 fixture; 추측/확인 분리 |
+| IO-02 / A·M2~M3 | [ ] J 파일·mapping의 의미/효과 계약 (C oracle 15개 독립+6개 순서 사례 일부 실행; 핸들·권한·JMF·Jd 미검증, 수용 전; §8.5.4) | read/write/resize/flush/close, 오류·effect order, alias/late file changes, read-only/COW, J boxed/sparse, zero-frame case 목록. reorder/observable read omission 금지 negative test |
+| IO-03 / A·M3 | [ ] 기존 IR·공통 data-movement 계약과 identity verifier | J Graph의 source topology vs Verified Logical의 `Effect/Dependency`·`AccessRelation` vs Physical Plan의 buffer/file region·transfer·ready token을 분리. `ValueId≠BufferId≠StateResource≠StorageObject/Version`, foreign effect vs immutable backing read; 새 Data Movement IR 도입 금지. 잘못된 계층의 필드·unknown effect를 거부하는 verifier/negative tests. §8.5.3 연결 |
+| IO-04 / A·M3 | [ ] storage capability matrix | local file, mapped, chunk, remote, GPU는 개별 capability; offset/alignment/EOF/seek/atomic write/consistency. Unknown은 route barrier |
+| IO-05 / B·M4 이후 | [ ] `read_at`/`write_at` 동기 독립 기준 | 일반 파일 offset/length, short read/EOF/overflow/error/permission 포함; 구현 전에 J file foreign과 physical array input 구분. 실제 fixture·C oracle 대조 |
+| IO-06 / B·M4 이후 | [ ] versioned dense chunk reader | shape/element type/endianness/alignment/checked address/last short chunk. 파일보다 작은 메모리 예산으로 1회 순차 scan; baseline과 결과/오류 일치 |
+| IO-07 / B·M4 이후 | [ ] mapped dense array 최소 경로 | read-only/mutable/COW·header/shape·flush/unmap/reference lifetime; mapping과 read_at 결과 비교. non-jmf typed boxed/JMF boxed 경로와 sparse capability를 구분해 검증 |
+| IO-08 / B·M4 이후 | [ ] bounded resident/retained memory 기준 | chunk reader·buffer lease·release; RAM보다 큰 데이터와 작은 예산 조건에서 peak bound, leak/early release/cancel 검사 |
+| IO-09 / C·M4~M5 | [ ] logical access region→physical byte-range witness | select/slice/reindex의 원소 범위를 증명한 뒤에만 `BufferSlice`/`FileByteRange` 접근 최적화 후보 생성; dynamic rank·alias·외부 변경·관찰 가능한 file/error effect·empty prototype은 opaque/barrier. byte omission과 J semantics 독립 검증. §8.5.3 연결 |
+| IO-10 / C·M5 | [ ] scan projection/slice pushdown | source+consumer legality proof/guard, I/O 바이트 수와 결과/오류 측정; Reduce/Rank/sparse/boxed 반례 포함 |
+| IO-11 / C·M5 | [ ] shared scan/subplan reuse | 동일 external object+version/policy/byte range일 때만 cache; changed file/late binding/alias가 cache invalidation 유발 |
+| IO-12 / C·M5 | [ ] immutable snapshot/version contract | file content/version/staleness 검출·error precedence; speculative read는 no-visible-effect 조건에서만 허용 |
+| IO-13 / D·M5 | [ ] portable async facade + readiness 계약 | 동기 reference 위 blocking-I/O workers와 `Pending/Ready/Failed/Cancelled` 및 완료 토큰. 파일/메모리 transfer는 공통 스케줄러에서 의존성을 분석하되 오류/취소 의미는 별개; portable sync fallback·negative cases. §8.5.3 연결 |
+| IO-14 / D·M5 | [ ] bounded prefetch / double buffer | `Read(n+1)`↔`Compute(n)` overlap, stage dependency/tokens·buffer lease 테스트; serial·parallel 결과 대조 |
+| IO-15 / D·M5 | [ ] governor/backpressure | inflight bytes+queued jobs+resident+kernel temporary memory 공동 예산; slow consumer/high-latency I/O/oversubscription/OOM negative test |
+| IO-16 / D·M5 | [ ] streaming barriers·cleanup | chunked elementwise와 reduction, rank/cell/zero-frame, producer failure/cancel/error precedence; non-streamable operator는 barrier/materialize |
+| IO-17 / D·M5 | [ ] async completion·buffer lifetime·J effect proof | short/failed read, dirty mapping, cancel/retry, early release, file observable-error order 및 `1!:` 미사용 read 제거 금지; speculative internal immutable read도 오류 노출 위치 증명 요구. 전송 중 buffer 재사용/중복 side effect 금지. §8.5.3 연결 |
+| IO-18 / E·M5 | [ ] mutable weight/checkpoint 정합성 | read snapshot vs write version; partial write, atomic publication/durability/recovery test. 학습 상태 복제·일관성 계약 검증 전 offload 금지 |
+| IO-19 / E·M5 | [ ] weight/scan reuse physical schedule | FlexGen식 layer-block/batch ordering 후보; read bytes↓/cache hit↑, dependency·effect·order unchanged, latency–throughput 별도 평가 |
+| IO-20 / E·M5 | [ ] 공통 physical data-movement·placement cost planner | 기존 Physical Plan에서 memory copy/CPU↔GPU 후보/file byte-range read/write/transfer를 위치·region·lifetime·ready dependency로 함께 계획. bytes/requests/seek/latency/peak/inflight/compute/overlap 분리; unknown capacity는 hard gate, heuristic cost는 미측정 표시. GPU 실행은 보류. 새 IR 필요성은 2개 실제 실패 사례가 있을 때만 재검토. §8.5.3 연결 |
+| IO-21 / F·M5 | [ ] 파일 크기·access shape 측정 suite | cold/warm, sequential/random, small/large, dense/strided, disk-backed NN weights, sparse/boxed guarded, 0-sized; bytes/wait/peak/time/latency |
+| IO-22 / F·M5 | [ ] 3방향 semantic·negative·movement 검증 | C reference(실제 J foreign 효과 있는 영역) / Rust sync / Rust optimized 독립 비교; skipped read vs error precedence, stale version, empty Rank virtual cell, boxed/sparse, alias/early-free/cancel, 중간 copy/전송 bytes 검증. pass/fail/ignored·unsupported 분리. §8.5.3 연결 |
+| IO-23 / F·M5 이후 | [ ] mmap vs read_at vs async 실측 선택 | OS page cache/hard faults, IO bound/compute bound, storage/media/target 차이. 유의미한 실측 이득과 regression 없을 때만 기본 경로 |
+| IO-24 / F·M6 이후 | [ ] 확장 후보 승인 게이트 | io_uring/direct I/O, remote object storage, compression, NVMe↔GPU/pinned DMA, multi-device, Jd adapter. portable implementation·검증 예산 확인 시 별도 소규모 작업으로 승격 |
+
+
+**추가 게이트 IO-25~IO-30 (이행 단계 기준으로 실행; 번호는 추가 발견 순서).**
+
+| ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 / 수용 기준 |
+|---|---|---|
+| IO-25 / A·M2 병행 | [ ] Jd/jfiles/JMF boxed 원본 교차 감사 (소스 확인·JMF RW/RO/COW smoke 구축, 원본 mapping·boxed/Jd 실행 수용 검증 대기; §8.5.4) | jsource pin과 data_jd pin, J binary oracle, ptable pruning·keyfiles·JMF boxed 분기 검증. IO-01·02 연계 |
+| IO-26 / B·M4 이후 | [ ] Typed array storage metadata 검증 | dtype/shape/order/endian/offset/length/version; invalid overlap/duplicate/off-end/overflow, empty/scalar, sparse/boxed 경계. IO-05·06 연계 |
+| IO-27 / B·M4 이후 | [ ] Read chunk와 write shard 분리 | Zarr/HDF5를 참고해 access axis별 read amplification, coalescing, shard write cost 및 contiguous baseline 비교. IO-06·08 연계 |
+| IO-28 / B·M4 이후 | [ ] mmap·SIMD tail·lifetime 안전성 | EOF next-page, vector overfetch 금지, real page granularity, live lease/remap/unmap/readonly/COW/concurrent readers. IO-07·08 연계 |
+| IO-29 / C·M5 | [ ] Bounded decoded-chunk cache | identity/version/encoding/range cache key, budget+lease-safe eviction, mutation invalidation, strided reuse/cache thrash. IO-09~12 연계 |
+| IO-30 / F·M5 이후 | [ ] Workload별 load mode 선택 실측 | mmap vs buffered read vs async, cache warm/cold, NVMe/remote, NN weights, small/large working set; bytes/page faults/RSS/latency/throughput. IO-21·23 연계 |
+
+**Acceptance log 양식:** `IO-ID | code commit | jsource/library pin | command + OS/target + storage | J C oracle / Rust synchronous / optimized counts | measured cold/warm bytes/time/peak | failures/unsupported | CI 여부 | next gate`. 단순 기법 소개나 파일 존재만으로 [x] 금지. 성능은 의미·자원 안전 통과 후 평가하고, 미지원은 조용한 fallback 성공으로 계산하지 않는다. [`8.5 소유권과 실행 계약](#out-of-core-io-contract) 참조.
+
+### C — frontend / 언어 의미 확장
+
+Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 수정한다. 일반적인 언어 기능 확장은 A1~A3의 core IR 경계를 먼저 안정화한 뒤 진행하며, G2~G5와는 필요 의존성에 따라 병행한다.
+
+- [ ] primitive registry/binding contract 보완
+- [ ] direct/explicit definition
+- [ ] verb binding/train
+- [ ] adverb/conjunction 확대
+- [ ] dyadic rank/rank list
+- [ ] scan
+- [ ] boxed/sparse 전체 의미
+- [ ] scalar type 확대
+- [ ] system/runtime API
+
+### CUDA — 보류
+
+- [ ] CUDA storage
+- [ ] transfer/completion
+- [ ] stream/event
+- [ ] kernel codegen
+- [ ] GPU resident graph
+- [ ] sharding/multi-device
+
+재개 조건: 사용자 요청과 검증 가능한 GPU 환경 확보.
+
+---
+
+<a id="validation-policy"></a>
+
+<a id="read-validation"></a>
+## 11. 검증 정책
+
+모든 구현 변경은 이 절을 따른다.
+
+### 11.1 기본 완료 관문
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo test --features portable
+```
+
+관련 Python harness가 바뀌면 해당 테스트도 실행한다.
+
+### 11.2 semantic bug fix
+
+- 재현 사례 추가
+- regression test 추가
+- 필요하면 conformance case 추가
+- C reference와 비교 가능한 경우 비교
+- known deviation과 pass를 분리
+
+### 11.3 storage / memory 변경
+
+확인 항목:
+
+- alias preservation
+- transactional assignment
+- allocation/reuse
+- retained memory
+- empty/scalar
+- stale BufferId
+- overlap
+- source scope 이후 owner 수명
+
+### 11.4 SIMD 변경
+
+- tail
+- overflow/promotion
+- exceptional float
+- portable fallback
+- runtime feature detection
+
+### 11.5 실행했다고 주장할 수 있는 것만 기록
+
+실제로 실행하지 않았다면 실행한 것으로 기록하지 않는다.
+
+현재 정책상 다음은 자동으로 완료됐다고 간주하지 않는다.
+
+- upstream 전체 J suite
+- Miri
+- sanitizer
+- GPU test
+- CUDA benchmark
+
+Linux CI/GitHub Actions는 **별도 요청이 있을 때만 확인**하며, 기본 구조 진행/체크리스트의 완료 gate로 사용하지 않는다.
+
+### 11.6 C reference
+
+참조 `jsource` revision은 검증 재현성을 위해 고정한다.
+
+C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하며 RustJ runtime dependency로 사용하지 않는다.
+
+### 11.7 성능 해석
+
+작은 배열에서 Python/FFI overhead가 섞인 숫자를 언어 성능으로 해석하지 않는다.
+
+성능 비교에는 다음을 분리한다.
+
+- parse/compile
+- execution
+- allocation
+- copy bytes
+- retained bytes
+- peak live bytes
+- cold/warm
+- cache hit/miss
+- transfer
+- synchronization
+
+`Rust가 J보다 빠르다` 같은 전체적 결론은 제한된 microbenchmark만으로 주장하지 않는다.
+
+### 11.8 Semantic hard cases의 golden 관문
+
+prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, name expected-POS mismatch, assignment entity+effect/right-to-left lookup, hook/fork observable order, adverse/obverse latent semantics, tolerance/`!.`, overflow retry/promotion 및 error precedence를 대응 semantic golden으로 잠근다. full-J 전체를 첫 CPU slice 전에 완성할 필요는 없으나, 해당 의미를 optimization/lowering 대상으로 열기 전에 값·dtype·shape·오류·효과 순서의 differential 검증이 있어야 한다. 첫 matrix cell 표본은 [§4.11.4.12](#mean-proof-example)를 사용한다.
+
+---
+
+<a id="current-implementation-status"></a>
+
+<a id="read-status"></a>
+## 12. 현재 검증·구현 상태 요약
+
+이 절의 항목은 architecture·migration 상태를 개괄하는 목록이며 **2026-10-05 시점까지 축적한 기준선**이 포함되어 있다. 최신 실행 증거는 도입부의 **2026-10-08 Windows 기록**과 바로 뒤 **상세 구현·검증 기록**, §10 체크리스트를 함께 확인한다. 이력상의 테스트 수치와 단계별 gate를 현재 HEAD의 검증 완료 주장으로 읽지 않는다.
+
+- 제한된 CPU J interpreter/runtime 경로가 동작한다.
+- state-table word formation과 transitional Semantic IR parser가 존재한다.
+- parser-produced shared `FunctionEntity`가 primitive, modifier application, hook/fork/train, rank/@: 구조를 보존한다.
+- explicit/direct frontend는 immutable DefinitionCode, 제어/NAME metadata, multiple root/raw noun DD, source provenance를 보존한다. 지원 mode-3/4 verb 호출과 if/while/for/try, 중첩 direct/문자열 explicit의 독립 local scope 및 A3 정의 참조가 구현됐다. 현재 범위 E2E 완료와 full J 표현력/일반 locale·operator-wrapper/본문 Graph·Logical 분석 및 CFG 컴파일/본문-caller source-frame 미완료를 구분한다. 최신 경계와 오류 증거는 Frontend E2E 재감사 절을 따른다.
+- J Graph IR이 별도 canonical analysis surface로 존재하고 Graph Basis, structural opportunity, graph rewrite/resource analysis 기초가 구현되어 있다.
+- **M1 완료:** J Graph lowering이 `logical_ir::Plan`을 직접 생성한다. transition module/container/API는 제거했고 `Engine::analyze/analyze_a3`와 `CompilationAnalysis.logical`은 같은 canonical plan을 사용한다.
+- A3-v0에는 SSA ValueId, Function/Region/Block/Return, Execution Basis payload, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation, verifier가 구현되어 있다.
+- `SemanticCapabilityView`, `ParameterizedLoweringRecipe`, `LoweringRegistry`, 기본 target legality/candidate generation과 contiguous route partition prototype이 구현되어 있다.
+- 현재 RoutePartition은 class + operation range 중심의 prototype이며 boundary values/preconditions/chosen external route/bridge representation은 아직 없다.
+- `logical_executor::execute_closed`는 A3 correctness/reference executor이며 native Physical Executor는 아니다.
+- Logical/Physical Array 분리 원칙은 문서와 테스트로 고정되어 있고, G1 read-only CPU affine `PhysicalArray`/BufferId/BufferLease가 구현되어 있다.
+- `Value`의 dense payload가 아직 `CpuStorage`를 직접 소유하므로 runtime carrier는 완전한 logical/physical 분리 이전의 migration state다.
+- `facts::RepresentationClassFact`는 Dense/AxisSparse J-visible representation class만 나타내며, stride/offset/device/buffer 같은 physical layout은 포함하지 않는다.
+- sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
+- G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
+- frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
+- 최신 frontend/numeric 검증은 **NV3d2b2a**다: Windows default/portable 각각 **474 passed / 17 ignored**, fmt/clippy/build 통과, Python **30 passed**. j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. 양 DLL numeric syntax는 각각 **2,485 cases / failed 0**이며 accepted noun controls 182, lexical-error equality 1,244, valid payload boundary 850, integer conversion boundary 2, C reference precision boundary 200, quad construction boundary 1, NaN word-formation boundary 4를 기록한다. unresolved recognition/error 경계가 각 1건 남아 있으므로 이를 성공 실행이나 정확한 오류 동등성으로 세지 않는다. vocabulary POS 143 / bare binding·AR 140 / noun payload 3, capture graph 257, static 2, runtime prefix 285 / executable prefix passes 0은 별도다. 최신 graph-readiness 검증은 **GF6a(463 passed / 17 ignored)**이며 semantic-proof discharge·fusion selection·성능·GPU 실행 완료를 뜻하지 않는다. full upstream·definition acceptance·private C trace·Linux/GitHub CI/CUDA는 여전히 미검증/보류다.
+- MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
+- TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
+- 실제 CUDA storage/kernel은 없다.
+- **Linux CI/GitHub Actions 결과는 별도 요청이 없으면 구조 진행 판단과 완료 gate에서 생략한다.** 로컬/명시적으로 실행한 검증만 완료 기록에 사용한다.
+
+기계 측정 원자료는 `reports/*.json`, `reports/*.jsonl`에 보존한다.
+
+---
+
+
+### 상세 구현·검증 기록 (2026-10-07)
+
+여기부터는 설계 개요가 아닌 시점별 구현·실험 증거다. 최신 지원 범위와 합격 기준은 위 §12 요약 및 §10·§11 정책을 우선한다.
+
+#### Definition 호출과 frontend E2E 확인 (2026-10-07)
+
+이 절은 과거의 "17 ignored" 기록보다 최신인 definition 실행 상태다. 처음 17개 수용 테스트를 모두 강제로 실행했을 때 **0 passed / 17 failed**였다. `DefinitionCode`와 modifier용 프레임이 존재했지만 일반 mode-3/4 verb가 호출 실행기로 연결되지 않았으므로 일반 explicit/direct verb 지원으로 계산하면 안 되는 상태였다.
+
+- [x] 일반 explicit/direct verb 및 ordinary alias의 monad/dyad 호출을 공유 정의 실행기에 연결한다. 인자는 호출 전에 원래 parser 순서로 평가하고, 본문은 호출별 별도 `LocalFrame`에서 실행한다.
+- [x] `=.` 지역 대입, `=:` 전역 대입, noun snapshot, 호출 시 전역 noun/verb 재조회, caller의 사적인 local을 캡처하지 않는 조회, 실패 후 프레임 복원을 검증한다. ordinary mode-3 verb의 미결합 `u`/`x`는 modifier 인자 누락으로 오판하지 않고 전역으로 fallback한다.
+- [x] 기존 `ControlNode`의 감사된 jump를 사용해 `if./elseif./else.`, `while./whilst.`, `break./continue.`, `return.`, `try./catch./catchd.`를 실행한다. T-block 결과와 마지막 B-block 결과를 분리하며, 초기/오류 후 결과는 C의 Boolean 빈 행렬이다. `Unsupported`는 J 예외처럼 catch하여 성공으로 바꾸지 않는다.
+- [x] 원래 수용 테스트 17개 중 **14개**를 통과시키고 ignore를 해제한다. C의 첫 atom 조건 판정·빈 결과·중첩 catch·scope/effect/error 복원 회귀 테스트 **4개**를 추가한다.
+- [x] `examples/frontend_e2e.rs`에서 실제 tokenizer, enqueuer, 분석용 `Program`, 실행 parser의 `FrontendContext`/NAME/환원 기록과 결과를 관측하고 verifier를 통과시킨다. 분석이 binding을 commit하지 않으며 local `t`가 유출되지 않음을 확인한다.
+- [x] `for./for_name.` 실행: leading-axis item, scalar/빈 iterator/zero-atom row, 읽기 전용 `_index`, noun snapshot, break/continue/예외 시 해제를 구현한다. C forinit 오류의 catch 불가 경계도 보존한다. named sparse iterator는 명시적 Unsupported이며 item 전달은 현재 소유 배열 복사다; zero-copy/GPU 실행 완료가 아니다.
+- [x] 중첩 direct 및 문자열 explicit definition construction과 독립 local scope를 구현한다. 기존 input framer로 multiline unit을 수집하고 내부 control/colon/name을 outer preparse에서 격리한다. inner local은 caller-private local을 캡처하지 않으며 전역 NAME은 호출 시 재조회한다. 본문 안에 colon-zero block을 삽입하는 표기는 C와 같이 syntax error다; 외부 입력 스트림 소비 기능의 구현으로 계산하지 않는다.
+- [x] 정의 값의 A3 callable projection: `VerbReference(Callable { target: Definition, semantic: Arc<FunctionEntity> })`가 immutable `DefinitionCode`와 이름/원문 정보를 보존한다. 배열 literal/type/shape를 꾸며내지 않고 분석 시 binding/body effect를 실행하지 않는다. verifier가 target/semantic 불일치와 Definition target의 직접 SemanticCall을 거부한다. **정의 본문의 CFG lowering/compiled execution은 미완료**이며 호출 분석의 structural lowering 경계는 유지한다.
+
+**실제 전달 구조:** 분석 경로는 `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`이다. `expression`은 `Literal/ReadName/Monad/Dyad/VerbValue/...`이며 `frontend: Arc<FrontendContext>`가 expanded words/flags/span, items, semantic node links, origins, NAME observations, stack/reduce steps와 root를 연결한다. 관측 경로의 `CapturedEvaluation { result, capture }`는 실제 실행 결과와 같은 runtime parser의 context를 함께 제공한다. 관측 sidecar는 독립 실행 가능한 AST/continuation이 아니다. runtime parser는 noun을 실제로 reduce하며, 분석 경로의 지연 표현식을 runtime 결과로 바꿔 설명하지 않는다.
+
+**Definition 경계:** 아래 두 정의는 생성 시 본문을 실행하지 않고 `VerbValue(FunctionEntity { head: ExplicitDefinition(Arc<DefinitionCode>), result_pos: Verb, ... })`를 만든다. `DefinitionCode`는 원문/form/span, decoded body, valence ranges, queued body words/flags, control nodes, `DefinitionNamePlan`을 보존한다. local `t`는 `LocalAssignmentTarget`; `y/g/t` 읽기는 `ReadCurrentFrameThenGlobal`이다. 이는 이름/제어의 preparse 결과이며 **본문 전체의 최적화 가능한 AST를 미리 완성한 것이 아니다**. 본문은 호출 시 공유 runtime parser로 해석된다. outer capture는 본문의 모든 내부 NAME event를 재귀적으로 export하지 않는다.
+
+```j
+a=:1 2 3
+a+2*3                        NB. 7 8 9
+g=:10
+explicit=:3 : 0
+t=.y+g
+t
+)
+direct=:{{ t=.y+g
+t }}
+explicit 2                   NB. 12
+direct 2                     NB. 12
+g=:20
+explicit 2                   NB. 22
+direct 2                     NB. 22
+pair=:4 : 'x+y'
+2 pair 3                     NB. 5
+ddpair=:{{ x+y }}
+2 ddpair 3                   NB. 5
+```
+
+`a+2*3`의 분석 결과는 `Dyad(Add, ReadName("a"), Dyad(Multiply, Literal(2), Literal(3)))`이며 runtime의 noun NAME은 stack 시 snapshot한다. explicit outer queue는 `Name Assignment Noun(3) Conjunction(DefinitionConstructor) Noun(body)`다. direct queue에는 `(9 : body)`에 대응하는 괄호/constructor words가 생기며, `Conjunction → Parenthesis → Assignment`를 거쳐 이 예에서는 mode 3이 추론된다. `explicit 2`/`direct 2`의 분석 결과는 `Monad(NameRef(name), Literal(2))`이고 실제 NAME 관측은 `LateAtCall / FunctionReference / RuntimeClass`다. 두 dyad 예제는 `Dyad(NameRef(name), Literal(2), Literal(3))`이다.
+
+native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports/frontend-e2e-windows.json`, C와의 bounded 비교는 `reports/definition-calls-windows.json`에 보존한다. 시연 14문장 결과는 C j64/AVX2 × direct/semantic-reference 네 경로와 일치했다. 확장 정의 사례 **31 fixtures / 124 observations / 124 matched**, 기존 NAME scope **10 fixtures / 40 observations / 40 matched**다. Python harness **67 tests**를 통과했으며 Windows 경로 quoting helper의 slash 정규화도 바로잡았다. CUDA/Linux/GitHub CI/전체 upstream 동등성 및 최적화된 정의 실행 완료를 주장하지 않는다. parser 중첩 기반 재귀 깊이는 현재 8로 제한되며 explicit 실행 프레임으로의 전환은 후속 작업이다.
+
+**최종 회귀 검증:** Windows default/portable 각각 **596 passed / 3 ignored / 0 failed**. fmt와 clippy `--all-targets -D warnings`를 통과했다. 미완료 3개를 강제 실행하면 for/nested/A3 경계에서 실패하며 성공으로 계산하지 않는다. 보고서 3개의 source/binary hash는 최종 default build와 대조했다.
+
+##### Definition 반복·중첩·A3 함수 값 후속 검증 (2026-10-07)
+
+위 세 실행 단위를 진행해 기존 `definition_acceptance` 21개 모두의 ignore를 해제했다. 반복문 회귀 5개와 중첩/함수 참조 회귀 4개를 추가했다. Source → Program/FunctionEntity → J Graph → A3의 함수 값 전달과 본문 CFG 실행은 구분한다. 현재 호출은 공유 runtime parser를 사용하며 최대 중첩 깊이 8이다. select/case/fcase, catcht/throw, goto/label, 일반 locale/locative, compiled CFG 및 CUDA 실행은 후속이다. 이전 절의 596/3 기록은 당시 결과다.
+
+검증 원자료는 `reports/definition-loops-windows.json`과 `reports/definition-nested-windows.json`에 기록한다. 각 보고서는 두 Windows J DLL × 두 Rust evaluator 경로의 bounded 관측이며 upstream 전체 동등성 증명이 아니다. Windows `cargo test --all-targets`의 기존 comparison bench는 Linux `dl.lib` 링크 의존성 때문에 실행 불가다. 일반 Windows tests, portable tests, clippy 정적 검사와 구분해 기록한다.
+
+최종 native Windows 검증: default/portable 각각 **608 passed / 0 ignored / 0 failed**, Python **67 passed**, fmt/clippy 통과. C 두 DLL × direct/semantic-reference 비교: for **23 fixtures / 92 matched**, nested **12 / 48**, 기존 definition **31 / 124**, NAME scope **10 / 40**, 합계 **304 observations / 304 matched**. 네 C 보고서의 source/binary SHA-256를 최종 default build와 대조했다. frontend-e2e-windows.json은 이전 시연의 역사적 capture이며 이번에 재생성하지 않았다.
+
+
+#### Frontend E2E 재감사: 표현력·후속 전달·오류 (2026-10-07)
+
+사용자가 확정한 **현재 지원 범위의 frontend E2E 완료**는 유지한다. 이는 full J 표현력이나 모든 Program의 J Graph/A3 admission, definition 본문 CFG/compiled execution 완료를 의미하지 않는다. verb 본문의 계산/구조화 영역은 후속 J Graph/Logical 단계에서 구체화하고 필요한 경로에서 CFG로 낮춘다. frontend에 완성 CFG를 요구하지 않는다. 이번 감사는 runtime 변경이 아니라 실제 경계와 필요한 계약의 재확인이다.
+
+##### 실제 범위와 재현
+
+`examples/frontend_contract_probe.rs`는 P=prepare_semantic_diagnostic, G=J Graph, L=CompilationAnalysis/A3의 독립 비실행 검사를 수행한 뒤 R=eval_captured를 수행한다. 분석의 성공을 실행 성공으로 세지 않는다. `tools/frontend_contract_audit.py --assets-root ../rustj-project-docs --probe target/debug/examples/frontend_contract_probe.exe --report reports/frontend-contract-audit-windows.json`으로 Windows 두 J DLL과 비교한다. 원자료에는 각 단계 admission, error context/render, 실제 outer capture, setup 및 오류 후 state를 포함한다.
+
+**31 사례 × DLL 2 = 62 관측: runtime/post-state 38 matched / 24 runtime_gap.** 12개 사례의 알려진 미지원 차이를 통과로 계산하지 않았다. complex/extended/rational 3개는 C bridge가 값을 직렬화하지 못해 **C 수용 여부와 noun type만** 확인했다. 그 외는 값/오류 종류와 setup/post-state를 비교했다. C의 diagnostic 위치/문구/내부 parser state와의 동등성은 이번 감사에서 검증하지 않았다. P는 15 accepted / 14 Unsupported / syntax 1 / control 1, G는 14 / 15 / 1 / 1, L은 13 / 16 / 1 / 1이며 전체 upstream 비율로 일반화하지 않는다.
+
+위 38/24와 단계별 수치는 보완 전 감사 기준선이다. 문자열 target 구현 후 최신 결과는 아래 F1/P4 실행 체크리스트에 기록한다.
+
+| 질문/사례 | 실제 판정 | 소유 단계 |
+|---|---|---|
+| jsource의 전체 표현력 | **아직 아님**. 문자열 단일·다중/computed target과 bounded noun/verb/adverb/explicit conjunction abandon 및 nameless conjunction 이름 이관 실행을 추가했다. boxed/AR target, locative, nameless conjunction abandon의 직접 적용, deferred effect lowering, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target·abandon 실행 체크리스트 참조 |
+| `a+a=:2`, `a=:b=:1`, 계산된 rank | runtime은 C와 일치하나 비실행 P/G/L에서 Unsupported. chained assignment 전체가 runtime 미지원이라고 말하면 틀린다 | P 단계 동적 construction/effect 경계, P8 |
+| `adv=:/` | Program의 ModifierValue와 POS는 보존하지만 J Graph가 modifier value lowering을 거부 | P8/A1/A2, frontend lexical 오류 아님 |
+| `". '1+2'` | P/G는 수용하고 L/runtime은 미지원. primitive 인식과 실행 지원을 분리 | lowering/runtime capability |
+| explicit/direct/nested 정의 값 | P/G/L 수용. L은 Definition 함수 참조이며 본문 계산 IR/CFG는 아님 | definition code 보존 → P8/A1/A2/A3 |
+| select 등의 제어문 | preparse metadata 수용과 실제 호출 가능성은 별개. 이번 select 사례는 **정의 생성만** 검사 | 후속 definition semantics/lowering |
+
+##### 후속 단계에 전달되는 것과 계약의 한계
+
+| 정보 | 현재 산출물/근거 | 후속 소비 조건 |
+|---|---|---|
+| 환원 결과와 환원 전 맥락 | Program.expression + Arc<FrontendContext>의 words/items/nodes/origins/NAME/reductions/steps/root | Program/FunctionEntity가 semantic authority. sidecar를 별도 실행 AST/continuation으로 사용하지 않는다 |
+| 함수의 J 구조 | FunctionEntity의 head/POS/operands, noun operand 값·span, hook/fork/derived identity 및 header ranks | source modifier 구조를 보존하고 이후에 분석·정규화한다. rank/POS snapshot은 late target 고정 증거가 아니다 |
+| 이름 | NamePolicy(CaptureAtRead/LateAtCall/ResolveAtConstruction), NameEvidence, runtime LookupObservation(frame/global instance, binding generation/version/POS) | catalog/runtime 관측과 executable guard를 구분한다. 현재 guard는 simple name 한정이며 locale/path witness가 아니다 |
+| 정의 본문 | DefinitionCode의 원문·decoded body·form/mode/valence, sentence/word span·class·flags, ControlNode와 name_plan | body words는 payload/본문 AST 전체가 아니다. 후속 단계가 정의별 문장 분석을 수행할 수 있는 입력이며 재-enqueue/semantic parse 경계를 명시한다 |
+| 지역 scope | valence별 local declarations와 읽기/지역·전역 대입 role, 호출 시 별도 LocalFrame | declared-unbound local의 global fallback, caller-private local 비캡처를 보존. local 선언을 미리 값이 결합된 SSA로 치환하지 않는다 |
+| 제어 | ControlKind/go/assertion/previous_result/named_target와 verifier | **go는 단독 정상 successor/CFG edge가 아니다.** C의 control/error target 역할을 kind와 함께 해석해야 한다. If/Loop/Try 영역과 합류·loop-carried value·exception edge는 후속 단계에서 생성한다 |
+| 오류·효과 | ErrorContext, 실패 prefix/pending window, runtime CaptureFailure/ApplyFailure/Commit, A3 PossibleErrors/SemanticCheck/ordered operations | trace는 최적화 허가·effect replay·정확한 resume 증거가 아니다. 정의 본문의 effect/error graph와 handler 관계는 아직 outer A3에 연결되지 않았다 |
+
+**판정:** 지원 사례의 source와 semantic identity를 보존하므로 후속 분석을 시작할 수 있다. 그러나 **모든 표현에 필요한 정보가 이미 분석 완료된 IR로 존재한다거나, 후속 단계가 재분석 없이 바로 최적화할 수 있다는 주장은 불가**다. raw source 보존과 ready-to-optimize handoff를 구분한다. Source map은 기존 body_error가 escaped quote 등을 원문으로 매핑하지만, 공개된 source-unit/frame chain 계약은 아직 없다.
+
+##### 오류 처리 재검토 — A0.6/P8/A3 연결
+
+- J error class/diagnostic context/render의 분리, inner context 우선 merge, 실패 대입의 기존 binding 보존은 현재 구현되어 있다. 그러나 정의 경계는 source 좌표가 다르므로 `runtime.rs`의 invoke_definition_verb가 body span/blame를 지우고 parser가 caller 위치를 붙인다. explicit modifier 경계도 caller span으로 대체한다. 이는 잘못된 caller 좌표 사용을 막는 임시 처리이며 **본문 실패 위치 보존 완료가 아니다**.
+- `f=:{{y+1 2 3}}` → `f 1 2`는 length error, primitive `+`, X shape [2]/Y shape [3]을 보존하지만 span은 caller의 `f`인 [0,1]이다. `outer → inner`도 outer 이름 [0,5]만 남는다. 본문 위치와 호출 chain을 같이 제공하지 못한다.
+- `missing+(1 2+1 2 3)`은 오른쪽 length error가 먼저 관측된다. `(1 2+1 2 3)+a=:9`는 length error 뒤에도 a=9이며 static P는 Unsupported다. 분석 단계에서 이 오류를 먼저 발생시키거나 runtime 전체를 replay하면 의미가 달라질 수 있다.
+- `a=:7` 뒤 실패한 `a=:1 2+1 2 3`은 a=7을 유지한다. 잘못된 control로 f 재정의 실패 시 f=42를 유지한다. 이는 문장 전체 rollback이 아니라 실패 대입의 commit 방지다. 이전에 완료한 대입 효과는 남는다.
+- catch는 지원된 J 실행 오류만 처리한다. Unsupported를 잡아 42를 반환하면 미지원 실행을 성공으로 위장한다. forinit의 read-only 실패처럼 C의 **비catch 경계**도 별도로 보존한다. 일반 throw/catcht, 전체 오류 종류·handler 의미와 최적화 후 오류 순서 동등성은 미완료다.
+- **다음 계약:** J semantic failure / route·analysis admission miss / compiler-verifier defect / backend implementation failure를 구분한다. 현재 Error::Unsupported는 여러 의미에 사용되므로 J catchable error와 같은 것으로 해석하지 않는다. backend failure의 무조건 재실행도 금지한다.
+- **진단 계약:** immutable SourceUnit/definition origin, decoded-body↔original source map, primary failure site + callsite frame chain, semantic operation origin을 전달한다. 함수 인자 전체를 복사하지 않고 작은 type/shape 요약만 유지한다. 정적 오류·런타임 의미 오류·구현 실패의 시점과 처리 권한을 구분하고, 컴파일 단계에서 잠재적인 J runtime error를 임의로 앞당기지 않는다.
+
+##### 외부 프레임워크에서 적용할 부분
+
+아래는 구현 완료 주장이 아니라 기존 P8/A0.6/A3 계약의 구체화다.
+
+1. **MLIR SCF:** if/while/for와 yield/loop-carried value를 구조화 영역으로 유지하고 필요할 때 cf/CFG로 낮춘다. RustJ에서는 J의 조건 판정·이름·return/exception 의미를 유지해야 하며 scf 규칙으로 J를 제한하지 않는다. [SCF](https://mlir.llvm.org/docs/Dialects/SCFDialect/)
+2. **MLIR verifier/conversion:** 단계별 합법 op와 dynamic legality를 분리한다. syntax/semantic validity와 특정 route lowering eligibility를 별도로 검증한다. [Toy verifier](https://mlir.llvm.org/docs/Tutorials/Toy/Ch-2/), [Dialect conversion](https://mlir.llvm.org/docs/DialectConversion/)
+3. **MLIR source diagnostics:** operation origin과 callsite location/notes를 연결한다. 단일 span을 덮어쓰는 대신 primary body location과 호출 위치를 모두 보존한다. [Diagnostics](https://mlir.llvm.org/docs/Diagnostics/), [Builtin locations](https://mlir.llvm.org/docs/Dialects/Builtin/)
+4. **MLIR effects/speculation:** memory effect와 이동·speculation 허가를 분리한다. 해당 문서도 non-local control flow 모델의 한계를 명시하므로 try/throw 및 J first-error를 MemoryEffects만으로 처리하지 않는다. [Side effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/)
+5. **JAX jaxpr:** 명시적 입력/결과·상수와 하위 계산 영역을 구분하는 표현을 참고한다. J의 late global lookup을 JAX식 trace-time constant capture로 바꾸지 않는다. 해당 문서의 tracing 중 Python control flow 실행을 RustJ의 지연 정의 의미로 그대로 가져오지 않는다. [jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html)
+
+Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으로 유지한다. 이번 Co-dfns pinned manual URL은 열리지 않아 새 소스 재검증 완료로 세지 않았다. 이번 신규 확인의 직접 근거는 MLIR/JAX 공식 자료다.
+
+이번 감사 도구 검증: Windows default/portable 각각 **608 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. runtime 변경은 없다. 새 62개 관측의 미지원 차이는 기존 304 matched 보고서의 수용 사례와 별도로 유지한다.
+
+
+#### Frontend 감사 보완 실행 계획 (2026-10-07)
+
+기존 F1/P4/P8/A0.6/A1–A3 체크리스트를 원장으로 사용한다. 현재 지원 subset E2E 완료는 유지하며 frontend에서 CFG를 만들지 않는다. 아래 순서는 기존 항목의 실행 순서이며 각 단계의 구현·독립 검증 후에만 완료로 표시한다.
+
+| 순서 | 기존 소유 항목 | 실행 범위·수용 조건 | 상태 |
+|---|---|---|---|
+| 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 본문·실행 전·반환 frame 구현; source-unit/file provenance 미완료 |
+| 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
+| 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과·배열 Graph 연결 구현; nameless 직접 적용/일반 locatives 미완료 |
+| 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
+| 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
+
+1단계 데이터 계약: ErrorContext에 source-owned 진단 frame chain을 추가하고 caller-relative span/word-index의 기존 의미는 유지한다. primary body 위치는 DefinitionCode의 sparse quote source map으로 원문에 대응한다. source는 Arc로 공유하고 noun payload를 진단에 복사하지 않는다. frame chain은 진단 정보이며 J semantic identity·CFG·resume 토큰이 아니다. 렌더러는 body 실패와 각 정의 호출 위치, 마지막 외부 caller를 함께 표시한다. 단계 1의 완료는 다른 단계의 미지원을 해결했다는 뜻이 아니다. Windows default/portable, fmt/clippy, Python 및 bounded C 감사로 검증하고 기계 원자료를 reports에 남긴다. CUDA/GitHub CI는 계속 유보한다.
+
+A0.6 실행 체크리스트 — 첫 수정 범위:
+
+- [x] `DefinitionSourceMap`: decoded body byte range를 원문으로 대응. doubled quote만 sparse 위치 목록으로 보존하고 전체 body/source 일치를 verifier에서 확인한다.
+- [x] `DiagnosticSourceFrame`: `kind`, 공유 `source: Arc<str>`, `definition_span`, 원문 `span`, fragment queue 기준 `blame_word_index`를 보존한다. `ErrorContext.source_frames`는 가장 안쪽 실패 → 바깥 정의 호출 순서다. 기존 caller span/word-index 의미는 유지한다.
+- [x] ordinary/modifier/nested 정의의 statement/control 실행 실패를 source frame으로 전달하고 렌더링한다. escaped quote·UTF-8·CRLF·source 재정의 수명·실패한 대입·catch 회귀를 추가한다.
+- [x] 최종 소스 기준 native Windows default/portable 각각 **612 passed / 0 failed / 0 ignored**, fmt/clippy 통과, Python **67 passed**. 정의 호출/loop/nested/NAME scope C 비교 **304/304 일치**. Frontend 감사 **38 matched / 24 runtime_gap**는 기존 미지원 경계를 유지한다. `reports/definition-*-windows.json`, `reports/frontend-contract-audit-windows.json`에 바이너리·소스 hash와 결과를 기록했다. C 오류 위치/문자열 동등성은 검증하지 않았으며 source frame은 Rust 회귀 테스트로 검증했다.
+- [x] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 제어/문장 site가 없으면 정의 span을 사용하며 body 위치를 만들지 않는다.
+- [ ] source-unit/file identity와 nested source의 최상위 원문까지 이어지는 provenance를 확장한다. 현재 frame 위치는 각 DefinitionCode가 소유한 source 단위 기준이며 파일 전체 좌표를 보장하지 않는다.
+- [ ] 순서 2: 오류 분류와 단계별 admission 계약을 보완한다.
+- [ ] 순서 3: NAME·effect·modifier의 후속 IR 전달 계약을 보완한다.
+- [ ] 순서 4–6: NAME 표현력, 수치 literal, modifier 호환성을 독립 C 비교와 함께 확장한다.
+
+F1/P4 noun target 우선 실행 (2026-10-07): 문자열 단일·다중 대입을 먼저 구현한다. `p.c::jtis`에 따라 단일 문자열 이름은 RHS 전체를 보존하고, 다중 이름은 atom 확장 또는 선두 축 item 선택 후 한 번 open하여 왼쪽부터 대입한다. 이름 오류나 read-only/global 충돌은 앞서 성공한 대입을 되돌리지 않는다. 이름 개수 불일치는 대입 전에 검출한다. 따라서 다중 대입을 하나의 transactional write로 축약해서는 안 된다.
+
+- [x] 단일 문자열 및 runtime 계산된 문자열 target, local/global·함수 RHS 처리.
+- [x] 다중 문자열 target의 scalar 확장·item/open·중복 이름·부분 실패와 capture 계약.
+- [x] 원래 noun target과 row-7 provenance 보존; ordered-write IR이 없는 Graph/Logical 경계는 명시적 Unsupported 유지.
+- [x] Windows default/portable 각각 **617 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. 새 대입 **28 fixtures × DLL 2 × route 2 = 112/112 일치**, 기존 정의/loop/nested/NAME scope **304/304 일치**, 합계 **416/416**. `reports/string-assignment-windows.json`과 기존 보고서를 최종 실행 파일로 갱신했다.
+- [ ] boxed target, atomic-representation assignment, locative는 별도 후속 범위로 유지.
+
+Frontend 감사 갱신: **31 cases / 62 observations = 42 matched / 20 runtime_gap**. `computed_target` (`'a'=:7`)와 `multiple_target` (`'a b'=:3 4`)의 runtime/post-state 차이 4건을 해소했다. 고유 미지원 사례는 **12 → 10**이며 나머지 20건은 통과로 계산하지 않는다. P는 **16 accepted / 13 Unsupported / syntax 1 / control 1**, G는 **15 / 14 / 1 / 1**, L은 **14 / 15 / 1 / 1**. P=prepare에는 binding도 포함하므로 parser가 다중 target을 구조화했다는 사실이 P admission을 의미하지 않는다. 다음 NAME 구현 단위는 `name_:` abandon이며 locale/locative와 boxed/AR target은 별도 게이트다.
+
+전달 계약: `Program.noun_assignment: Option<NounAssignment>`는 원래 `target: Expr`와 word formation으로 얻은 `names: Vec<String>`을 가진다. `Program.assignment`는 단일 이름 write 호환 필드이며 다중/빈 target을 대표하지 않는다. 최종 대입 여부는 `has_assignment()`로 확인한다. `FrontendContext::WriteName.target`은 원래 NAME 또는 NOUN item을 가리키며 NOUN의 semantic edge도 검증한다. Runtime에서 완성한 target 값은 원래 enqueue/reduction context와 함께 보존한다. `AssignmentSource.selection`은 capture의 RHS occurrence에서 선두 축 item 선택 또는 atom 확장 후 한 번 open한 결과가 commit되었음을 표시한다. 각 commit의 이름/version/순서/실패까지 보존하며 이 capture는 재실행 계획이 아니다.
+
+여기서 `target: Expr`는 row-7 시점의 완료된 표현이다. runtime 계산 후에는 Literal일 수 있으며 계산 전 구조는 `FrontendContext`의 원래 item/node/reduction link로 찾는다. `AssignmentSource.noun_target`은 computed noun target임을 명시한다. 현재 capture→Graph는 단일 literal을 포함한 noun-target commit을 모두 거절한다. 관측한 이름을 고정 write로 바꾸려면 target 의존성과 guard가 필요하기 때문이다. 단일 literal의 비실행 static Graph 경로와 구별한다.
+
+`parse_frontend`는 literal 문자열 다중 target을 구조화하지만 `prepare_semantic`의 binding과 Graph/Logical은 다중·빈 target을 ordered-write IR 미지원으로 거절한다. 실제 값이 필요한 계산된 target은 static parser에서 실행하지 않고 runtime 경계로 남긴다. 단일 literal 문자열 target은 기존 단일 write 분석 경로로 전달한다. 기존 일반 NAME 대입에는 name-list heap allocation이나 재검증을 추가하지 않는다. 다중 RHS는 한 번 공유 상태로 전환하고 item만 선택한다. 현재 item 선택은 복사이며 zero-copy/GPU buffer view 구현을 뜻하지 않는다. open의 padding·sparse 및 `;` 등 별도 primitive 미지원은 그대로 유지한다.
+
+##### F1/P4 `name_:` 실행 체크리스트
+
+후속 실행 계획 (2026-10-08): conjunction을 전부 거절하던 경계를 재검토한다. 두 DLL에서 primitive conjunction의 직접 적용은 valence error지만 explicit conjunction의 직접 적용과 primitive의 별도 이름 이관 후 적용은 정상임을 확인했다. 먼저 explicit/non-nameless conjunction 실행을 허용한다. nameless conjunction은 복사와 직접 적용의 차이를 후속 parser action 계약으로 구분하기 전까지 보수적으로 거절한다. 함수형 abandon의 비실행 parser 산출물도 `FunctionHead::TakeName { name, single_word }`로 구체화하여 POS·원문·abandon 정책을 보존하되 binding/lowering은 아직 실행하지 않는다.
+
+- [x] non-nameless conjunction abandon의 global/local·explicit/direct·실패 후 삭제 순서를 C와 비교한다.
+- [x] 함수형 deferred TakeName과 binding/Graph/Logical의 명시적 거절, 기존 noun/late NameRef와의 구분을 테스트한다. cap 판정과 수동 구성 capture/Graph 경계도 검증한다.
+- [x] Windows default/portable, fmt/clippy/Python 및 최종 C 감사를 갱신한다. 아래 알려진 gap은 통과로 세지 않는다.
+
+함수형 전달 계약: `Engine::parse_frontend(&self, source)`는 현재 Engine의 읽기 전용 catalog를 사용하여 binding 전 `Program` 또는 원래 queue/reduction/NAME/pending action을 가진 `FrontendFailure`를 반환한다. abandon NAME의 class와 가능한 version은 분석 가정으로 관측하며 kernel·정의 본문·대입·삭제는 실행하지 않는다. 일반 modifier의 기존 정적 identity 관측 계약은 유지한다. 기존 `prepare_semantic`은 parser 이후 binding까지 수행하는 별도 API다. catalog 없는 `parser::parse_frontend`는 기존처럼 noun을 기본 가정하며 모든 함수 POS를 추론하는 API가 아니다.
+
+예: `f=:+` 이후 `Engine::parse_frontend("g=:f_:")`의 최종 식은 `VerbValue`이고 `entity.result_pos=Verb`, `entity.head=TakeName { name: "f", single_word: false }`, `entity.operands=[]`다. 실제 `+` 함수 본문을 고정한 값도, 실행 때마다 다시 찾는 일반 `NameRef("f")`도 아니다. `FrontendContext`에는 원래 `g`, `=:`, `f_:`의 span/word index, `CaptureAndAbandon` 정책, `CatalogClass` 근거, 선택적인 관측 version과 NAME→함수 node 연결이 남는다. local/global 의미는 정의의 NAME scope plan과 실행 frame 경계에서 정해지며 catalog 관측은 실행 guard가 아니다.
+
+비실행 modifier 적용과 fork 첫 항의 cap 판정에 실제 abandon 결과가 필요한 경우에는 값을 추측하지 않는다. `h=:-c_:+`는 NAME 정보와 pending Conjunction row를, `f=:(cap_: + *)`는 pending Fork row를 보존하고 Unsupported로 멈춘다. runtime parser는 실제 값을 가져온 뒤 해당 생성 과정을 정상 수행할 수 있다. 아직 deferred modifier constructor IR이 구현됐다는 뜻은 아니다. binding과 Graph builder/verifier는 함수 DAG 안의 TakeName도 찾아 거절하고, 사실 추론·effect 분류는 Unknown을 유지한다. 수동 구성한 BoundProgram이나 capture로도 이를 순수 함수 상수/호출로 승격할 수 없다.
+
+사용자 확인: tokenizer/enqueuer는 `name_:`를 즉시 조회·삭제하지 않는다. 기본 이름·abandon flag·원래 span/word index를 넘긴다. 비실행 parser는 noun의 `ExprKind::TakeName { name, single_word }`를 만들어 일반 ReadName과 구분한다. ordered NAME effect IR이 없는 기존 binding/Graph/Logical 경계는 거절하며 조회·삭제를 실행하지 않는다. 기본 Runtime semantic parser는 C와 같은 stack-entry 순서로 값을 가져오고 실제 발견한 scope를 삭제한다. 아래의 새 명시적 NAME 효과 계획도 해당 순서를 보존하며, 삭제를 옮기는 compiled route는 동일한 lookup/effect/error 순서를 입증해야 한다.
+
+- [x] enqueue flag, deferred noun expression, NAME policy와 원래 context 연결.
+- [x] runtime noun/verb/adverb by-value 반환, 실제 local/global scope 삭제, missing/error 순서, 삭제 후 재대입 ABA guard 회귀. 함수 값 내부의 별도 late nameref는 그대로 유지한다.
+- [x] pinned C의 단일-word local fast path는 값을 반환하되 삭제하지 않는 동작을 별도 확인. `name_:`가 대입 target이면 lookup/delete하지 않고 기본 이름을 대입한다. explicit/direct local 선언도 기본 이름으로 기록한다.
+- [x] capture에서 관측 전 lookup과 실제 삭제 여부를 보존하고 순서 있는 effect를 Graph의 순수 read로 승격하지 않는다. by-value 이름에 ordinary SimpleNameGuard를 만들 수 없다.
+- [x] 두 C DLL·두 실행 경로 및 Windows default/portable·Python·fmt/clippy 검증. 아래 미지원 결과는 통과로 세지 않는다.
+- [ ] locale/locative, execute 내부의 특수 abandon 처리와 deferred function entity lowering은 별도 후속 범위.
+
+초기 `84782fd`의 경계: conjunction abandon을 전부 Unsupported로 거절했다. 2026-10-08 후속 수정은 explicit/non-nameless conjunction을 허용하고 nameless conjunction만 보수적으로 거절한다. nameless primitive의 직접 적용은 두 DLL의 valence error와 차이가 있어 이를 C 호환 성공으로 세지 않는다. primitive를 별도 이름으로 이관한 뒤 적용하는 C 경로는 정상임을 확인했지만 아직 Rust admission에 포함하지 않는다. 읽기 전용 loop index의 일반 삭제는 별도 `j.dll` probe에서 DLL 접근 오류가 관측되어 Rust는 Unsupported로 거절한다. 해당 C probe는 두 DLL 감사의 통과 집계에 포함하지 않는다. 단일-word local index의 비삭제 경로는 독립적으로 검증한다. extension registry binding의 abandon과 일반 function-result display도 미지원이다.
+
+지연의 단위는 조회와 삭제를 결합한 의미 연산이다. suffix를 지운 ReadName이나 이미 계산한 Literal만 전달하면 안 된다. `TakeName.single_word`는 C의 local fast-path 맥락을 보존한다. 분석 단계에서 부작용을 일으키지 않으며, 추후 effect IR은 발견한 scope/binding identity, by-value 결과, 삭제 여부, 오류·다른 NAME 조회와의 순서를 함께 표현해야 한다. `CaptureEvent::Abandon`은 실행 전 lookup observation과 실제 `deleted`를 보존하는 관측 기록이며 실행 계획이 아니다.
+
+2026-10-07 최종 검증: Windows default/portable 각각 **625 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. `tests/name_abandon.rs` 8개 회귀는 비실행 분석, 원문·정책, 값·alias 수명, 평가 순서·실패 후 삭제, explicit/direct local의 단일-word 특례, declared-unbound global fallback, caller-private 비캡처, 함수 내부 late alias, guard ABA와 미지원 non-catchable 경계를 다룬다. `reports/name-abandon-windows.json`은 **17 fixtures × DLL 2 × route 2 = 68 observations: 64 matched / 4 unsupported_gap**이며 네 gap은 conjunction 한 사례다. 기존 문자열 대입·정의/loop/nested/scope는 최종 바이너리에서 **416/416 일치**. 합계 **480 matched / 4 unsupported_gap**이며 full J conformance를 뜻하지 않는다. C 오류 위치/문자열 동등성은 검증하지 않았다.
+
+Frontend 감사 최종 갱신: **31 cases / 62 observations = 44 matched / 18 runtime_gap**. 앞의 문자열 대입 단계 **42/20**에 이어 `abandon_name`의 runtime/post-state 차이 2건을 해소했다. 고유 gap은 **10 → 9**. P/G/L admission은 이전 단계와 같으며 deferred effect의 binding/lowering은 여전히 Unsupported다. `reports/frontend-contract-audit-windows.json`과 위 비교 보고서에 최종 소스·실행 파일 hash를 기록했다. 참고 C 소스 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실제 DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`이며 같은 소스를 재빌드했다는 뜻은 아니다.
+
+2026-10-08 후속 최종 검증: Windows default/portable 각각 **635 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. 함수형 transport·verifier 4개 unit 회귀와 실행/공개 frontend API 6개 회귀를 추가했다. `reports/name-abandon-windows.json`은 **27 fixtures × DLL 2 × route 2 = 108 observations: 104 matched / 4 unsupported_gap**. explicit/direct conjunction, local bare-result 오류의 catch 후 binding 유지, global fallback, 생성 실패 후 삭제·catch, 실제 abandon 값이 cap인 fork를 포함한다. 네 gap은 기존 nameless conjunction 직접 적용 사례다. primitive의 별도 이름 이관 경로는 C-only 조사에서만 확인했고 Rust 지원/비교 통과로 세지 않았다. 기존 문자열 대입·정의/loop/nested/scope는 최종 바이너리에서 **416/416 일치**; 합계 **520 matched / 4 unsupported_gap**다.
+
+Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가하여 **34 cases / 68 observations = 50 matched / 18 runtime_gap**이다. 이전 31-case 집합의 고유 gap 9건은 그대로이며 이번 수치 증가는 추가한 정상 runtime 사례 6건이다. P는 **16 accepted / 16 Unsupported / syntax 1 / control 1**, G는 **15 / 17 / 1 / 1**, L은 **14 / 18 / 1 / 1**. 새 `Engine::parse_frontend` 성공과 binding을 포함한 P admission을 구분한다. machine report의 source/binary/DLL hash를 최종 실행 파일로 갱신했다. full J·C 오류 위치/문자열·Linux·GPU·GitHub CI 검증을 주장하지 않는다.
+
+다음 NAME 게이트: nameless conjunction의 별도 이름 이관과 직접 적용 차이를 parser action 계약으로 구분하고, noun/function TakeName을 실제 순서 있는 NAME effect IR로 lowering한다. 발견한 scope/binding identity, by-value 결과, 삭제 여부, 관측 오류 순서를 보존해야 하며 그 전에는 기존 Graph/Logical admission을 완화하지 않는다. locale/locative, boxed/AR target과 나머지 수치/primitive gap은 독립 후속 게이트다.
+
+2026-10-08 이름 이관 실행 계획:
+
+- [x] nameless conjunction의 abandon lookup/delete를 허용하고 parser Item에 적용 미지원 상태를 별도로 보존한다. semantic POS와 FunctionEntity를 변조하지 않는다.
+- [x] 대입·괄호는 상태를 유지하며 이름에 저장한 함수 자체에는 상태를 넣지 않는다. 이후 새 문장의 일반 조회는 정상 적용 가능하다. 문장 내부 대입 직후 직접 적용은 계속 Unsupported로 거절한다.
+- [x] global/local·연쇄/괄호 대입·single-word local 비삭제·실패 후 삭제/commit·capture 순서를 회귀 및 두 C DLL로 검증한다. C valence error와 Rust Unsupported 차이는 별도 gap으로 보고한다.
+- [x] Windows default/portable·fmt/clippy·Python 및 최종 비교 보고서를 갱신한다. ordered NAME effect IR은 다음 독립 구현 단위다.
+
+이 단계의 실제 계약은 `Item.abandoned_nameless_conjunction: bool`이다. 실제 abandon 결과가 nameless conjunction일 때만 설정하는 runtime parser 상태이며 FunctionEntity의 immutable identity·POS·저장된 binding에는 넣지 않는다. row 7 대입과 row 8 괄호는 이 상태를 그대로 전달한다. 그 외 소비 action은 실제 lookup/delete 및 이미 끝난 내부 대입 이후에 Unsupported로 중단하고 pending action·실패 capture를 보존한다. 새 일반 NAME lookup은 새 Item이므로 정상 conjunction 적용을 허용한다. 이는 C의 pointer tag를 Rust 함수 타입으로 흉내 낸 것이 아니며, 아직 C valence error를 구현했다는 뜻도 아니다. Unsupported는 J catch로 숨길 수 없다.
+
+예: `c=:@:` 이후 `d=:(c_:)` → `c` 삭제, `d`에 `@:` 저장; 다음 `h=:-d+`와 `h 3` → `-3`. 반면 `h=:- (d=:c_:) +`는 `c` 삭제·`d` 대입 후 Unsupported이며 `h`는 생성하지 않는다. 이후 `h=:-d+`는 정상이다. runtime capture는 삭제 전 binding observation, 실제 삭제 및 내부 commit 순서를 보존하고 ordered effect Graph 미지원으로 거절한다. 비실행 frontend의 `FunctionHead::TakeName` 전달과 binding/Graph/Logical 거절 계약은 변경하지 않았다.
+
+이름 이관 단계 최종 검증: Windows default/portable 각각 **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. `tests/name_abandon.rs`는 17개 테스트이며 이번에 세 회귀 테스트를 추가했다. `reports/name-abandon-windows.json`은 **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**이다. 새 정상 이관·local bare 사례 7개는 두 DLL·두 route의 **28/28** 일치다. 기존 직접 적용 4건과 추가 괄호/내부 대입/local 직접 적용 12건을 합친 네 종류의 오류 차이는 통과로 세지 않는다. 기존 별도 감사 **416/416**과 합하면 **548 matched / 16 unsupported_gap**다. frontend 감사는 **34 cases / 68 observations = 50 matched / 18 runtime_gap**으로 유지된다. report는 최종 소스·실행 파일/DLL hash를 기록한다. full J·C 오류 위치·Linux·GPU·GitHub CI 검증은 수행하지 않았다.
+
+다음 독립 구현 단위는 noun/function TakeName의 ordered NAME effect IR이다. lookup 시점의 scope/binding identity, by-value 결과, 실제 삭제와 single-word 특례, 후속 조회·대입·실패 순서 및 nameless 적용 admission을 명시적으로 표현한 뒤 Graph/Logical admission을 확대한다.
+
+##### Ordered NAME effect IR 첫 실행 단위
+
+- [x] `Program`과 명시적인 parser step/item/node 연결에서 조회·TakeName·primitive apply·최종 단일 NAME write를 순서 있는 의미 계획으로 낮춘다. AST 순회나 span 정렬로 실행 순서를 추측하지 않는다.
+- [x] SSA 값과 성공 효과 token을 분리한다. 실패 시 다음 token/연산을 실행하지 않으며 이미 끝난 삭제를 replay/rollback하지 않는다. lookup의 실제 scope·generation·version 및 삭제 결과는 실행 관측으로 보존한다.
+- [x] 초기 실행 범위는 top-level 단순 NAME, noun primitive 연산, 함수형 TakeName 값 이관 및 최종 단일 대입이다. catalog POS 재사용 조건은 실행 전 검사하고 TakeName의 missing 오류는 실제 조회 순서에서 발생시킨다. ordinary noun의 초기 missing은 POS admission 실패다. 실제 값/version은 고정하지 않는다.
+- [x] 위조/역순 token·잘못된 값 edge·효과 누락을 verifier로 검출하고 순서·오류·계획 재사용·함수 이관·무부작용 admission을 테스트한다. 기존 J Graph/Logical의 pure-route admission은 확대하지 않는다.
+- [x] Windows default/portable·fmt/clippy·Python과 두 C DLL 비교 후 체크리스트·결과를 갱신한다. local definition frame/locative·modifier 생성·동적 verb 호출·중간 write는 다음 확장 범위다.
+
+구체적인 전달 계약:
+
+| 항목 | 계약 |
+| --- | --- |
+| 목적·입력 | `Engine::prepare_name_effects`가 읽기 전용 catalog를 사용한 비실행 `Program`을 받아 `name_effect_ir::Plan`으로 lowering한다. 준비 과정에서 kernel·정의 본문·조회/삭제 효과를 실행하지 않는다. |
+| 출력 | private immutable Plan은 원래 Program, 공유 literal/function payload, `Step { operation, output: Option<ValueId>, before: EffectToken, after: EffectToken, parser_step, span, blame }` 및 결과 ValueId를 보존한다. `Operation`은 Literal/Function/Read/Take/Apply/Commit이다. |
+| 순서 | `FrontendContext.steps`의 명시적 Stack/Reduce 순서에서 lowering한다. 괄호는 값 alias, 최종 단일 대입은 Commit이다. 원래 item/node 연결을 따르고 source span은 진단용으로만 사용한다. function/literal payload의 의미 권위는 Program이다. FrontendContext는 실행하지 않는다. |
+| 실행·오류 | `Engine::execute_name_effects(&Plan)`은 검증과 POS admission 후 각 step을 한 번 실행한다. `Execution { result, completed: EffectToken, names: Vec<NameObservation> }`을 반환한다. 실패 token 이후의 연산을 실행하거나 parser로 replay하지 않는다. 관측에는 step, 조회 전/후 LookupObservation과 deleted가 있으며 배열 payload는 보관하지 않는다. |
+| 재사용 조건 | 준비 당시 품사는 실행 전 조건이다. 현재 ordinary noun 이름이 없거나 품사가 바뀌면 효과 전에 Unsupported다. TakeName이 실행 전에 사라졌다면 missing 오류는 실제 Take step까지 미룬다. value·shape·version·generation을 상수로 고정하지 않는다. 준비 시 catalog 조회 실패도 실행된 value error로 보고하지 않고 dynamic parsing이 필요한 admission 실패로 구분한다. |
+| 예시 | `a=:7` 이후 `a_:+a` → Read(a), primitive + 값, Take(a), Apply(+), 결과 14. 먼저 오른쪽 a를 snapshot하고 왼쪽 abandon이 실제 binding을 삭제한다. `a_:+1 2+1 2 3`은 먼저 length error로 끝나므로 Take는 실행되지 않는다. |
+| 초기 범위 | top-level simple NAME의 noun snapshot/Take와 primitive noun 연산, 함수형 Take의 별도 이름 이관, 마지막 단일 NAME 대입. 함수 이관은 실제 실행 시 함수 값을 저장하고 내부 late NameRef는 유지한다. |
+| 금지·후속 | local definition frame·locale/locative·modifier constructor·dynamic verb application·중간/다중/noun target write는 admission하지 않는다. nameless conjunction의 직접 적용도 이 계획으로 실행하지 않는다. 이 경로는 명시적 API이며 기본 eval이나 기존 pure J Graph/Logical의 admission을 확대하지 않는다. 다음에는 효과 사이의 pure array 영역을 Graph/Logical로 연결한다. |
+| 소유권·검증 | literal은 한 번 공유 상태로 만들고 Program과 계획이 공유한다. 값 사용 횟수에 따라 마지막 사용은 move하고, 여러 사용에만 공유 상태를 만든다. `Plan::verify`는 원래 parser 연결에서 명령을 다시 유도하여 효과 누락/재배열, token·SSA edge·provenance 불일치를 검출한다. 검증은 J kernel이나 parser를 재실행하지 않는다. |
+
+품사 경계의 중요한 예는 `a=:7`일 때 준비한 `b=:a`다. 준비 후 a를 삭제하면 기존 noun 계획은 실행 전에 거절한다. 새 J parse의 `b=:a`는 missing ordinary NAME을 verb 참조로 저장할 수 있기 때문이다. 이 admission 거절은 J 오류를 흉내 낸 것이 아니며, 실행 전 다른 경로를 선택할 수 있는 명시적 경계다. 반면 실제 계획 안에서 `a+a_:`의 오른쪽 Take 후 조회 실패는 실행된 value error이며 삭제를 되돌리지 않는다. 두 C DLL의 bare·대입 문장도 해당 결과와 삭제 상태를 확인했다.
+
+2026-10-08 최종 검증: Windows default/portable 각각 **647 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 새 Rust 회귀는 8개 integration + 1개 verifier unit이며 Python 감사 어댑터 회귀 2개를 추가했다. `reports/name-effects-windows.json`: **19 fixtures × C DLL 2 = 38/38 matched**. effect로 표시한 한 문장만 새 계획으로 실행하며 setup/check는 일반 eval이다. 값·오류·삭제/실패한 최종 대입·array alias/reshape/search·verb/adverb/conjunction 및 explicit 정의 값 이관·내부 late alias를 비교했다. 실패 시 ordinary eval로 재시도하는 fallback은 없다.
+
+기존 감사도 최종 바이너리로 갱신했다. abandon **132 matched / 16 unsupported_gap**, 문자열 대입·정의/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**이다. 기존 미지원 건은 줄었다고 주장하지 않는다. 새 계획 감사는 기존 runtime 두 route와 구분한 별도 38건이다. source/binary/probe/DLL hash를 보고서에 기록하며 참고 C 소스 pin과 실제 DLL release가 같은 소스 재빌드를 뜻하지 않는 기존 제한을 유지한다. Linux·GPU·full J·C 오류 위치·GitHub CI는 검증하지 않았다.
+
+이 단계에서 예정했던 pure array의 J Graph/Logical 연결은 아래 후속 계약으로 구현했다. 다음 실행 단위는 내부 성공 위치를 보존하는 다중 Apply batching이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
+
+### NAME 효과와 배열 IR 연결 실행 체크리스트
+
+- [x] J Graph/Logical에 이름 조회와 구분한 명시적 배열 Input을 추가한다. 값은 효과 token을 통과한 snapshot으로 공급하며 가짜 이름·version·literal로 변환하지 않는다.
+- [x] 각 primitive Apply를 입력 SSA 매핑·원래 parser step·진입/성공 token을 가진 검증된 배열 region으로 낮춘다. 초기에는 한 Apply 단위로 오류 경계를 유지한다.
+- [x] Logical open-input 실행을 추가하고 NAME read/write/dynamic call을 region 안에서 거절한다. 실행 전에 모든 region을 검증하며 실패 후 다른 경로로 replay하지 않는다.
+- [x] 기존 순서 있는 semantic route와 새 Logical route의 값·오류·삭제·실패 token을 비교하고 두 C DLL의 공통 사례를 갱신한다.
+- [x] 후속으로 연속 pure Apply의 다중 결과 region 및 내부 성공 위치를 표현하여 batching을 검토한다. token 경계 밖의 fusion/hoisting은 허용하지 않는다.
+
+
+### NAME 배열 region의 구현 계약 — 2026-10-08
+
+다중 Apply batching 실행 체크리스트:
+
+- [x] Apply와 그 사이의 immutable literal/primitive-function 전달만 하나의 Graph/Logical batch로 묶고 Read/Take/Commit·그 외 parser step은 넘지 않는다. 외부 입력과 batch 밖에서 필요한 결과를 명시한다.
+- [x] 각 Apply의 Logical operation 범위와 원래 step·진입/성공 token을 checkpoint로 보존한다. literal/function 전달은 zero-operation checkpoint다. 오류 시 내부 완료 위치에서 부모 오류·성공 token을 복원하며 replay하지 않는다.
+- [x] 외부 입력은 한 번 이동하고 내부 SSA 수명·외부 alias·live-out을 보존한다. batch 생성은 비실행이며 검사 순서를 이동하지 않는다.
+- [x] 성공·첫/후속 Apply 실패·NAME 경계·live-out·변조 거절을 회귀 및 Windows default/portable·두 C DLL로 검증한다.
+
+`Engine::prepare_name_arrays`는 검증된 ordered NAME plan의 각 primitive Apply를 `ArrayRegion`으로 낮춘다. `ArrayPlan`은 원래 effect plan과 immutable region 목록을 보유하며, 각 region은 `step`, 진입/성공 `EffectToken`, 입력 NAME SSA `ValueId` 목록, 출력 `ValueId`, J Graph와 Logical plan을 가진다. 원래 parser step·span·blame은 부모 effect step에 남는다. Graph Input의 index는 이 입력 목록의 순서이며 NAME 조회나 저장된 literal이 아니다. 실제 조회/Take 결과는 해당 token에 도달한 실행에서 공급한다.
+
+`Engine::execute_name_arrays`는 모든 region과 POS admission을 효과 실행 전에 확인한다. NAME read/delete/commit은 부모 executor만 수행하고 region은 값만 계산한다. 오류 시 부모 step의 진단 위치와 마지막 성공 token·삭제 관측을 보존하며 다른 경로로 재실행하지 않는다. function transfer는 배열 Apply가 없어 region 0개로 처리할 수 있다. 현재는 canonical unspecialized lowering만 허용하며, region verifier는 원래 FunctionEntity·SSA 연결·token·오류 검사와 순서를 확인한다. 최적화된 region은 추후 별도 등가성 witness 계약이 필요하다.
+
+Graph schema **0.10**, A3 schema **0.6**에 명시적 `Input { index }`를 추가했다. `logical_executor::execute_with_inputs`는 실행 전 입력 개수와 알려진 dtype/shape/rank를 확인한다. 모든 값의 사용 횟수에는 semantic check와 최종 결과도 포함한다. 마지막 사용에서는 소유권을 이동하고, 중복 사용에서만 shared handle을 만든다. 4,096개 integer 배열의 +1 회귀는 고유 입력의 실제 data pointer 재사용과 외부 alias가 남은 경우의 원본 보존을 확인한다. 이는 복사 제거의 증거이며 C 대비 속도 우위를 측정한 결과는 아니다.
+
+최초 배열 연결 단계의 지원 범위는 부모 ordered NAME plan과 같다. local definition frame·locative·중간 대입·modifier 생성·dynamic verb call은 별도 게이트다. 기본 eval 및 기존 pure Graph admission을 넓히지 않았다. 최초 단계는 Apply 하나의 오류 경계를 유지했으며, 다중 Apply batching은 아래 후속 계약으로 구현했다. fusion·GPU 실행·비동기 스케줄은 도입하지 않는다.
+
+배열 연결 단계 최종 검증: Windows default/portable 각각 **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 이번 Rust 회귀는 integration 8개와 verifier unit 1개다. region 경계/입력 SSA·검사 변조 거절, 실제 저장소 재사용·alias 보존, shared fanout, shape/generation이 바뀐 계획 재사용, 오류 span/parser blame·실패 token을 확인했다. `reports/name-effects-windows.json`은 **19 fixtures × DLL 2 × route 2 = 76/76 matched**다. semantic/Logical 두 경로 모두 표시된 한 문장만 계획으로 실행하며 setup/check는 일반 eval이다.
+
+기존 최종 바이너리 감사는 **548 matched / 16 unsupported_gap**, 별도 frontend 감사는 **50 matched / 18 runtime_gap**으로 유지됐다. 이 gap을 해결했다고 주장하지 않는다. 8개 보고서의 소스·바이너리·DLL hash **520건**이 최종 파일과 일치했다. C 소스 pin과 실제 DLL release는 앞 단계와 같으며 same-source rebuild/full J conformance·C 오류 위치/문구 동등성을 뜻하지 않는다. 테스트는 이 컴퓨터의 Windows에서만 실행했고 GitHub CI·Linux·GPU 검증은 하지 않았다.
+
+### 다중 Apply batch 전달·실행 계약 — 2026-10-08
+
+`ArrayPlan::batches()`는 private immutable `ArrayBatch` 목록을 반환한다. 기존 per-Apply `regions()`는 원래 경계를 검토할 수 있도록 남긴다. 실행에는 batch의 통합 J Graph/Logical plan과 SSA 작업 공간을 사용한다. `Read/Take/Commit`과 미지원 step을 넘어 묶지 않으며, 처음·마지막 Apply 사이의 immutable Literal/사용되지 않는 Function 값 전달만 내부에 포함한다. source span에서 순서를 추측하지 않고 ordered effect step을 따른다.
+
+| 전달 항목 | 계약 |
+| --- | --- |
+| steps | 원래 effect plan의 연속 step 범위. 각 Apply와 사이의 값 전달 step 모두 포함한다. |
+| inputs | `(부모 ValueId, 대체하는 사용 횟수)` 목록. 실제 조회 결과는 한 번 import하고, 내부 fanout은 Logical SSA가 관리한다. |
+| constants | `(부모 ValueId, 원래 Program literal NodeId)` 목록. 일반 inputs 뒤의 Graph/Logical Input으로 공급한다. 고정된 immutable payload handle만 미리 공유하며 NAME 조회·동적 noun 계산·정의/constructor 실행은 하지 않는다. |
+| outputs | batch 밖에서 사용되는 `(부모 ValueId, Logical ValueId)` 목록. 내부 전용 중간값은 export하지 않는다. 이 계약은 다중 결과를 표현할 수 있으며 기존 Logical plan의 단일 result/스키마를 변경하지 않는다. |
+| checkpoints | 각 원래 step의 `step`, Logical operation range, 진입/성공 token. Apply의 range는 해당 semantic check와 call을 포함한다. Literal/Function 전달은 zero-operation range로 원래 성공 위치를 유지한다. |
+| failure | Logical executor는 성공한 operation prefix 길이를 반환한다. 부모는 해당 checkpoint에서 실패 span/parser blame과 마지막 성공 effect token을 복원한다. 이전 NAME 삭제는 유지하고 실패 뒤 Commit은 실행하지 않는다. 다른 경로로 replay하지 않는다. |
+| verification | 실행 전 원래 effect plan에서 canonical batch를 다시 유도해 입력·literal payload 연결·exports·checkpoint·원래 FunctionEntity·SSA·facts·검사/순서를 검증한다. 임의 최적화 계획을 받아들이는 witness 계약은 아직 아니다. |
+
+예: `b=:1+2+a_:`는 Take(a) 뒤 두 덧셈을 하나의 batch로 실행한다. 첫 결과는 내부 SSA이고 마지막 결과만 b의 Commit으로 넘긴다. `b=:a_:+1+2+3`은 오른쪽 덧셈 batch와 Take 뒤 왼쪽 덧셈 batch로 나뉜다. `b=:1 2+a_:+3`은 Take와 첫 덧셈 성공 뒤 두 번째 덧셈에서 length error가 나면 삭제를 유지하고 b를 보존한다. 실패 위치는 batch 전체가 아니라 실제 실패한 Apply다.
+
+실행은 기존 semantic kernel을 사용한다. 마지막 사용의 move, shared fanout 및 export 수명을 함께 계산하며, 중간 결과를 export하면 후속 in-place kernel이 그 결과를 변조할 수 없다. 순차 CPU이며 kernel fusion·physical schedule·GPU 실행은 하지 않는다. 다음 단계는 verified batch에서의 합법적인 fusion/bufferization 후보 분석과 비용·오류 순서 witness이며, local frame·중간 대입·modifier 확장은 독립 게이트로 유지한다.
+
+batch 단계 최종 검증: Windows default/portable 각각 **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. Rust 회귀는 integration 5개와 unit 2개를 추가했다. 내부 checkpoint·상수/입력 매핑·외부 alias·현재 shape 재조회·실제 고유 data pointer의 두 연산 연속 재사용, 첫/후속 검사·kernel 실패 후 정확한 부모 token/span/parser blame·NAME 상태, 다중/중복 export 및 변조 거절을 확인했다. Pointer 재사용은 복사 제거의 증거이며 성능 벤치마크나 C 대비 우위는 주장하지 않는다.
+
+`reports/name-effects-windows.json`: **26 fixtures × DLL 2 × semantic/Logical route 2 = 104/104 matched**. 새 batch 정상·NAME 경계·첫/후속 length·삭제 후 length/domain·alias 사례 7개는 **28/28** 일치다. 기존 감사 **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**을 유지했고 보고서의 소스/바이너리/DLL hash **528건**이 일치했다. source pin과 DLL release는 앞 단계와 같다. full J·C 진단 문구/위치·성능·Linux·GPU·GitHub CI 검증은 아니다. 기본 eval 및 부모 NAME plan의 admission 범위는 확대하지 않았다.
+
+### Frontend A0.6 — 정의 실행 전·반환 오류 경계 보완
+
+frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/fusion 확장은 이 게이트의 완료 조건이 아니다. 현재 지원 subset E2E 완료 판정은 유지하되, 감사의 runtime gap을 모두 tokenizer/enqueuer/parser 결함으로 해석하지 않는다. NAME 표현력·수치 literal·modifier 실행 미지원과 frontend 정보 전달 누락을 구분한다.
+
+- [x] 실행 전 valence·미지원 control/framing·호출 깊이 및 frame 준비 실패에 `DefinitionAdmission` frame을 붙인다. 제어/문장 위치를 아는 경우 source map으로 대응하고, 그 외에는 실제 정의 span으로 표시한다.
+- [x] 최종 noun-result 검사와 implicit-return fixing 실패에 `DefinitionReturn` frame을 붙인다. 마지막 결과를 만든 body fragment를 보존하며 존재하지 않는 queue blame을 만들지 않는다.
+- [x] 기존 `DefinitionBody/DefinitionCall` chain과 caller-relative span/blame을 유지한다. 반환 실패는 본문 catch 바깥에 남고, 이전 효과·실패한 대입·local frame 정리를 바꾸지 않는다.
+- [x] Windows default/portable·fmt/clippy·Python과 두 C DLL의 오류 종류/실패 후 상태를 확인한다. C 진단 문구/위치 동등성은 주장하지 않는다.
+- [ ] 다음 독립 단위: source-unit/file identity와 중첩 정의의 최상위 원문 provenance. 이번 frame은 DefinitionCode가 소유한 source 단위의 좌표이며 파일 전체 좌표가 아니다.
+
+구체적인 산출물은 `ErrorContext.source_frames`의 기존 `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`다. `kind`에 `DefinitionAdmission/DefinitionReturn`을 추가했고 나머지 전달 구조는 유지한다. `DefinitionCode::diagnostic_error`는 해당 원문 frame만 추가하며 J 오류 종류나 caller 위치를 대체하지 않는다. renderer는 각각 `before definition execution`과 `returning from definition`으로 표시한다. source map은 doubled quote/UTF-8/CRLF 원문 위치를 유지하고 재정의 후에도 공유 원문 수명이 보존된다.
+
+참고 근거는 고정 C 소스 `cx.c`의 본문 실행 후 noun 검사·`FIXAFIRSTIMPLOCONLY` 처리다. 예: `f=:3 : '+'`의 `f 0`은 본문 평가 뒤 noun-result 오류다. `f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'`의 반환 오류는 본문 catch로 처리하지 않으며 count 증가를 유지하고 호출자의 실패한 대입은 commit하지 않는다. 미지원 select 실행은 본문 실행 전에 거절하므로 앞 문장의 전역 변경도 실행하지 않는다. 이는 RustJ admission 정책이며 select를 C처럼 실행한다는 뜻이 아니다.
+
+최종 검증: Windows default/portable 각각 **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 새 회귀 5개를 추가해 `definition_diagnostics`는 9개다. 실행 전 control admission·valence, explicit/direct 최종 noun 검사, implicit return의 domain/Unsupported, 중첩 호출 frame 순서·반복 실패 후 정리, 반환 오류와 catch/이전 전역 효과/실패한 대입·local 수명, escaped quote·UTF-8·CRLF·재정의 후 원문 수명을 확인했다.
+
+정의 호출 감사는 **36 fixtures / 144 observations = 144/144 matched**이며 새 5개 사례는 두 DLL·두 route에서 **20/20** 일치다. multiline body를 CLI에 공급할 때는 명시적 `3 : 0` block을 사용하고 API/hex probe에서는 string form을 검증한다. 기존 NAME·문자열 대입·정의/loop/nested/scope 합계는 **568 matched / 16 unsupported_gap**다. Frontend 감사는 4개 정상 오류/실패 후 상태 사례를 추가하여 **38 cases / 76 observations = 58 matched / 18 runtime_gap**이며 고유 gap 9개는 그대로다. 별도 NAME 효과/배열 감사는 **104/104 matched**를 유지했다. 8개 보고서의 소스·바이너리·DLL hash **528건**이 일치했다. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`은 서로 같은 소스 재빌드를 뜻하지 않는다. full J·C 진단 위치/문구·Linux·GPU·GitHub CI는 검증하지 않았다.
+
+이로써 A0.6의 실행 전·반환 frame 누락 항목을 닫는다. A0.6 전체 완료나 full frontend conformance를 주장하지 않으며, 바로 다음 우선 작업은 source-unit/file identity와 nested source → 최상위 원문의 provenance다. 그 뒤 오류 분류/단계별 admission 계약을 진행한다.
+
+<a id="read-references"></a>
+## 13. 프레임워크 조사에서 채택한 원칙
+
+외부 프레임워크의 언어 의미를 가져오는 것이 아니라 검증된 구현 아이디어를 참고한다.
+
+
+### 참고 구현과 JAXA 설계 배경 — 필요할 때 읽는 심화 자료
+
+이하의 선행 구현·JAXA 역사와 source 비교는 설계 근거다. **처음 읽는 사람은 §1~§8의 본문을 먼저 읽어도 된다.** 과거 소제목의 번호는 기존 참조·앵커 보존을 위해 유지한다.
+
+### 참고 구현(reference implementations)
+
+RustJ는 외부 구현을 하나의 동일한 권위로 취급하지 않고 **역할별 reference implementation**으로 구분한다.
+
+- **`jsoftware/jsource` — J semantic reference / oracle**
+  - 언어 의미, parser/name semantics, primitive corner case, rank/agreement, 오류·타입 의미의 기준이다.
+  - RustJ의 semantic correctness와 differential test에서 최우선 reference다.
+
+- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
+  - lazy expression graph, evaluation boundary, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend 선택, device memory·stream·synchronization 관리의 참고 구현이다.
+  - RustJ의 Graph/Execution optimization, Physical Planner, external-library route, cost model을 설계할 때 비교한다.
+  - **J 언어 의미의 oracle은 아니다.**
+
+- **`jsoftware/math_arrayfire` — J ↔ GPU library adapter/offload reference**
+  - J array를 ArrayFire handle로 넘기는 실제 adapter 구현이다.
+  - row-major J와 column-major ArrayFire 사이의 layout conversion, backend capability/rank 제한, external handle lifetime과 release/GC 경계를 검토하는 참고 구현으로 사용한다.
+  - J의 일반 rank/adverb/derived verb 전체를 GPU compiler로 구현한 사례로 해석하지 않는다.
+
+- **APEX / Co-dfns / TAIL→Futhark 계열 — array-compiler research implementation**
+  - morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion·GPU lowering을 비교하는 연구 구현이다.
+  - 이들의 제한된 APL subset을 RustJ의 J semantics 제한으로 가져오지 않는다.
+
+- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
+  - Remora는 J/APL 계열의 rank polymorphism, frame/cell semantics와 implicit lifting을 정형화한 비교 대상이다. 근거: https://arxiv.org/abs/1907.00509
+  - Bohrium은 기존 NumPy-style array operation을 lazy하게 수집해 fusion, allocation/materialization, host-device data movement와 backend-specific execution을 늦추는 선례다. 이를 각 operation마다 CPU/GPU를 동적으로 선택하는 모델로 과장하지 않는다. 근거/논문 목록: https://bohrium.readthedocs.io/publications.html
+  - Lift는 portable map/reduce pattern에서 OpenCL-specific functional pattern까지 rewrite-driven하게 변환하며 hardware mapping을 점진적으로 구체화하는 optimizer 연구의 비교 대상이다. rewrite와 hardware mapping의 완전한 분리 선례로 해석하지 않는다. 근거: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg는 structured operation과 implicit iteration을 보존한 뒤 tiling/vectorization/lowering에서 loop를 materialize하는 계층화의 비교 대상이다. 근거: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+  - 어느 시스템도 RustJ의 J semantic specification은 아니며, compiler layering과 optimization technique의 근거로만 사용한다.
+
+따라서 reference 우선순위는 목적별로 다르다.
+
+```text
+J semantic correctness       → jsource
+array graph/JIT fusion       → ArrayFire
+J↔external GPU adapter       → jsoftware/math_arrayfire
+array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
+rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
+```
+
+ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택 사항은 §13의 **ArrayFire / J ArrayFire add-on / fusion systems** 절을 따른다.
+
+현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, J Graph와 canonical Logical IR 분석, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
+
+### 1.1 JAXA에서 이어받은 설계 원칙 — “배열 연산의 SQL”
+
+JAXA 문서에서는 **“NN의 SQL”**, **“배열 연산의 SQL”**이라는 비유를 사용했다. RustJ에서는 이 아이디어를 신경망 전용 표현보다 더 일반적인 **high-level array language / array query language** 관점으로 승계한다.
+
+이 표현의 핵심은 SQL과 비슷한 문법을 만들거나 J 전체를 순수 declarative language라고 주장하는 것이 아니다. J에는 name lookup, assignment, effect, error/control semantics가 있으므로 full J는 SQL과 같은 순수 질의 언어가 아니다. 비유가 가리키는 것은 다음 한 문장이다.
+
+> **J source is not an execution plan.**
+
+J의 array semantics와 function composition은 가능한 한 **무엇을 계산하는가**를 고수준으로 표현하고, **어떻게 실행하는가**는 semantic legality를 보존하는 범위에서 compiler가 선택한다.
+
+~~~text
+J source / J semantics
+        ↓
+J Semantic IR / J Graph IR
+        ↓
+Logical Array / Execution IR
+        ↓
+equivalence / fusion / logical optimization
+        ↓
+execution planning / route selection
+        ↓
+CPU / SIMD / multicore / GPU / external compiler / library
+~~~
+
+SQL 비유의 대응 관계는 역할 수준에서 다음과 같다.
+
+~~~text
+SQL / relational system          RustJ
+---------------------------      --------------------------------
+query                             J array computation
+logical query plan                J Graph + Logical Execution IR
+logical rewrite                   J-algebra / logical rewrite
+physical planner                  schedule / route / physical planner
+execution engine                  CPU/GPU/runtime/external backend
+~~~
+
+사용자는 가능한 한 계산의 의미와 필요한 semantic/storage obligation을 표현하고, 다음 사항은 analyzer/compiler/backend에 맡긴다.
+
+- 어떤 동등한 graph form을 사용할지
+- fusion 또는 materialization을 할지
+- 어떤 실행 basis와 route를 사용할지
+- 어떤 memory/layout/schedule 전략을 사용할지
+- CPU/SIMD/multicore/GPU 중 어느 realization을 선택할지
+- 검증된 external compiler/library route를 사용할지
+
+J가 이 역할에 유리한 이유는 source 자체에 optimizer가 활용할 수 있는 배열 구조가 풍부하기 때문이다.
+
+- rank는 cell/frame 경계와 implicit iteration domain을 드러낸다.
+- adverb/conjunction/derived entity는 reduce, scan, cell application, composition 같은 고차 구조를 보존한다.
+- hook/fork/train/@:는 producer/consumer, branch/join, composition topology를 source 수준에서 제공한다.
+- reshape/transpose/take/drop 등은 logical shape/reindex 의미와 physical materialization을 분리할 여지를 준다.
+- whole-array notation은 scalar loop에서 고수준 의미를 역추론하는 비용을 줄인다.
+
+#### JAXA Graph IR의 역사적 출발점 — J 표기에서 optimization topology를 읽는다
+
+JAXA의 출발점은 추상적인 “graph compiler를 만들자”가 아니었다. 먼저 다음과 같은 구체적인 관찰이 있었다.
+
+~~~text
+u@:v
+    → input → v → u
+    → producer/consumer chain
+    → kernel-fusion candidate
+
+(f g h) y
+    → 같은 input에서 f/h로 갈라진 뒤 g에서 합류
+    → branch/join topology
+    → branch parallelism / branch-local fusion candidate
+
+(f g) y
+    → 원 input과 g(y)가 f로 들어감
+    → ordered dependency + input-lifetime relation
+    → producer/consumer fusion candidate
+~~~
+
+즉 `@:`, Hook, Fork 같은 J의 function-composition 표기는 단순한 축약 문법이 아니라 **실행 방법을 확정하지 않은 채 계산 의존성과 topology를 source 수준에서 드러내는 표현**으로 볼 수 있다. JAXA는 이 정보를 scalar loop나 backend kernel로 낮추기 전에 compiler가 직접 읽고 보존하면 fusion·parallelism·materialization·lifetime 후보를 훨씬 일찍 발견할 수 있다고 보았다.
+
+이 관찰에서 RustJ의 독립 `J Graph IR`이 나온다.
+
+~~~text
+J syntax / FunctionEntity
+        ↓
+syntax-derived computation topology
+        ↓
+J Graph IR
+        ↓
+candidate generation
+  fusion / branch parallelism / materialization / reuse
+        ↓
+semantic legality
+  effects / errors / names / alias / rank contracts
+        ↓
+profitability / resource / target choice
+        ↓
+Logical/Physical realization
+~~~
+
+여기서 세 단계를 혼동하지 않는다.
+
+1. **topology가 optimization candidate를 드러내는 것**
+2. **그 transformation이 J semantics상 합법임을 증명하는 것**
+3. **실제로 그 strategy가 더 이득인지 선택하는 것**
+
+Fork가 보인다고 두 branch를 무조건 병렬 실행하지 않고, `@:`가 보인다고 무조건 fusion하지 않는다. source structure는 후보의 근거이고, effect/error/name/alias 등의 semantic legality와 cost/resource 판단은 별도 단계다.
+
+위 branch/join 도식은 **ordinary VVV fork**에 해당한다. 생성 시점에 capped 의미로 고정된 `[: g h`는 `input → h → g(monad)`의 순차 pipeline이고, noun-left fork는 `h(input)`과 고정 noun을 g에 전달한다. 따라서 단순히 Fork라는 parser row/head만 보고 두 실행 branch를 가정하지 않고 constructor 의미와 operand 품사를 함께 해석한다. 원래 source Fork/NAME DAG는 계속 보존한다.
+
+이 아이디어의 각 구성 요소 자체를 RustJ의 최초 발명으로 주장하지 않는다. Hook/Fork의 dataflow 의미, function-level program transformation, graph-based fusion과 high-level array IR에는 각각 선행 연구와 구현이 있다. RustJ/JAXA의 설계상 중요한 결합은 **J의 tacit combinator algebra를 독립적인 semantic graph layer로 보존하고, 그 구조 자체에서 optimization candidate를 생성한 뒤 full-J semantic legality와 physical profitability를 분리해서 판단하는 것**이다.
+
+##### 관련 선행 연구와 RustJ의 위치
+
+이 출발 관찰 자체에는 직접적인 선행 연구가 있다. 따라서 RustJ의 연구적 위치를 평가할 때 **“J 구문이 최적화 힌트를 제공한다” 자체를 novelty로 주장하지 않는다.** 특히 Bernecky의 APL93 논문은 사용자가 JAXA에서 `@:`, Fork, Hook을 보며 출발한 문제의식과 매우 가깝다. Fork의 양쪽 가지 병렬성, composition의 pipeline 성격, expression-level merging을 통한 중간 배열·저장 비용 축소를 이미 명시적으로 논의한다.
+
+- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
+  - J tacit definition의 Fork에서 `f`와 `h` 계산이 병렬로 진행될 수 있음을 명시하고, tacit form이 data-flow/data-dependency 분석 부담을 줄인다고 설명한다.
+  - expression-level static analysis로 배열 primitive sequence를 interleaved execution으로 합치는 **loop jamming / merging**을 논의한다. 이는 temporary 제거와 fusion 계열의 직접 선례다.
+  - J composition을 cell 결과가 verb에서 verb로 전달되는 **pipeline**으로 설명하며 cell-level 병렬성을 지적한다.
+  - paper: https://www.snakeisland.com/aplhiperf.pdf
+  - DOI: https://doi.org/10.1145/166197.166201
+
+- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
+  - program-combining forms와 그 algebra를 프로그램 변환의 대상으로 보는 function-level 계보의 중요한 선례다.
+  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
+
+- **Accelerate / Futhark / Lift / MLIR Linalg**
+  - Accelerate와 Futhark는 high-level array operations와 dependency structure를 보존해 fusion과 parallel lowering을 수행한다.
+  - Lift는 map/reduce 같은 functional data-parallel pattern의 의미를 rewrite-rule 기반 optimization과 GPU mapping에 사용한다.
+  - MLIR Linalg는 transformation에 필요한 structured semantics를 loop/CFG lowering 전에 보존하고 transformation validity와 profitability를 분리한다.
+  - Accelerate: https://www.acceleratehs.org/publications.html
+  - Futhark: https://futhark.readthedocs.io/
+  - Lift: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
+
+따라서 현재의 보수적인 novelty framing은 다음과 같다.
+
+~~~text
+J syntax가 optimization-relevant structure를 드러낸다
+    → 선행 연구 있음
+
+Fork/Composition/Rank 등에서 parallelism·pipeline을 읽는다
+    → 직접적인 J/APL 선행 연구 있음
+
+high-level array operations를 보존해 fusion/rewrite를 한다
+    → Accelerate / Futhark / Lift / MLIR 등에 선행 연구 있음
+
+full J tacit combinator algebra를
+독립 J Graph IR로 보존하고
+그 topology에서 optimization candidate를 생성한 뒤
+full-J semantic legality와
+physical profitability를 별도 단계로 판단한다
+    → RustJ/JAXA가 탐구하는 distinctive architectural combination
+~~~
+
+따라서 JAXA의 역사적 핵심 질문은 다음처럼 기록한다.
+
+> **J의 함수 조합 표기가 이미 computation topology를 보여 준다면, 왜 그 의도를 loop로 잃어버린 뒤 다시 추론해야 하는가?**
+
+RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
+
+따라서 RustJ의 중요한 compiler 원칙은 **이 정보를 너무 일찍 scalar loop, buffer, kernel로 낮추지 않는 것**이다. `/`와 `"` 같은 modifier identity, rank boundary, derived structure는 J Semantic IR/J Graph에서 보존하고, Semantic Analyzer 이후에만 `Reduce`, `CellApply`, `Scan`, reindex 등의 normalized logical operation으로 내린다. explicit loop/thread/block mapping은 더 downstream의 schedule/physical lowering에서 결정한다.
+
+과거 JAXA가 주로 analyzer와 제한된 vocabulary를 대상으로 했다면, RustJ는 그 설계 비용을 승계해 **full-J frontend/semantic ownership + 점진적인 optimized backend coverage**로 확장한다. 분석 가능한 배열 영역은 aggressive logical/physical planning을 사용하고, 동적·effectful 영역은 J semantics를 보존하는 native/runtime route로 남길 수 있다.
+
+과거 JAXA 문서의 표현:
+
+> **JAXA specifies logical array intent, not physical execution procedure.**
+
+> **JAXA does not execute fusion — the compiler does.**
+
+는 이 원칙의 역사적 출발점으로 유지한다. 다만 current RustJ에서 더 정확한 장기 프레이밍은 **“GPU를 지원하는 J”가 아니라, J를 고수준 배열 언어로 사용하는 heterogeneous array compiler/runtime**이다.
+
+이 프레이밍은 제품 범위나 구현 완료를 과장하기 위한 것이 아니다. current RustJ의 직접 목표는 여전히 **full J semantics를 보존하는 J compiler/runtime**이며, “배열 연산의 SQL”은 그 compiler layering과 optimization freedom을 설명하는 설계 비유다.
+
+
+### J Graph용 소스 대조·최적화 계열 조사
+
+다음은 기존 §4.1.3의 근거 자료를 본문 흐름에서 분리한 것이다. 하위 제목·링크는 유지한다.
 
 #### 4.1.3 배열 컴파일 프레임워크와의 소스 기반 대조
 
@@ -4149,261 +8921,251 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **체크리스트 사용 규칙.** 각 JX 행은 **(1) C 원본 pin·조건 확인 → (2) J 의미론/unsupported 범위 확정 → (3) Graph 후보 및 source witness → (4) obligation별 proof/Guard·fallback → (5) 독립 reference·negative·C differential → (6) target/resource/실측 선택**의 여섯 열을 통과해야 완료한다. 실제 결과가 없으면 해당 행은 [ ]로 유지하며, 한 번에 **하나의 의미론 변경 + 해당 회귀/반례 하나**를 우선한다. 실패 또는 upstream drift가 발견되면 해당 연산군의 증명을 무효화하고 FW 관련 선행 게이트까지 되돌아간다. 각 완료 행에는 **JX-ID / code commit / 실행 명령·환경 / passed·failed·ignored / jsource commit·실제 oracle 범위 / fallback·negative 결과 / 측정값 / known gaps / 다음 게이트**를 기록한다. 당장은 **JX-01의 출처·범위 추적과 FW-01(M2)**부터 이어가며 특수 최적화를 새로 활성화하지 않는다.
 
-#### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
-J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
+### ndarray
 
-개념적으로 candidate는 다음의 **직교한 evidence 축**을 가진다.
+참고:
 
-~~~text
-CandidateEvidence
-  provenance        Verified | Stale/Invalid
-  equivalence       Unknown | Proven | Disproven | Guarded(GuardId)
-  semantic_legality obligation별 Unknown | Proven | Disproven | Guarded(GuardId)
-  target_feasibility Unknown | Supported | RequiresFacts | Unsupported
-  resource_state    Unknown | Symbolic | Resolved | ExceedsHardLimit
-  cost_state        Uncosted | Estimated(CostEstimate)
-  selection         Unselected | Selected | Rejected(reason)
-  lowering_state    NotLowered | Lowered(Transform/Route identity)
-~~~
+- logical order와 memory order 구분
+- checked view construction
+- shape/stride 기반 view
 
-이 축을 하나의 선형 enum으로 저장할 필요는 없다. planner/UI가 다음과 같은 **derived lifecycle summary**를 만들 수는 있다.
+RustJ 적용:
 
-~~~text
-Discovered
-   ↓ source/provenance verification
-AwaitingProofs
-   ├─→ Illegal
-   └─→ Legal or GuardedLegal
-          ↓ hard target/resource feasibility
-       Feasible
-          ↓ cost evidence
-       Costed
-          ↓ compatibility + global/local choice
-       Selected / Rejected
-          ↓ committed lowering
-       Lowered
-~~~
+- logical-order contiguous와 memory-contiguous 구분
+- checked affine descriptor
+- reshape compatibility proof
 
-단, 이 화살표는 분석 pass의 실행 순서를 강제하지 않는다. resource/work-depth/cost 분석은 legality proof가 끝나기 전에도 **speculative side analysis**로 계산할 수 있다. 금지되는 것은 필요한 legality proof가 끝나기 전에 candidate를 실행 plan으로 **commit**하는 것이다.
+### Apache Arrow
 
-##### Evidence owner
+참고:
 
-| Evidence / 질문 | 주 소유자 | 의미 | selection에 대한 규칙 |
-|---|---|---|---|
-| source topology / provenance | J Graph verifier + candidate registry | candidate가 현재 source/region/rule version에서 실제로 유도되었는가 | stale provenance면 즉시 폐기 |
-| algebraic equivalence | rewrite/scan/fusion rule의 witness validator | source와 replacement/composite identity가 같은가 | 필요한 equivalence가 Unknown이면 commit 금지 |
-| rank/cell/assembly | Execution semantic facts + candidate legality checker | CellApply/assembly/error 의미가 보존되는가 | Proven 또는 effect 이전 Guard 필요 |
-| numeric / tolerance / reassociation | primitive/derived numeric contract | overflow, `!.`, tolerance, floating-order contract가 보존되는가 | semantic relaxation 없이는 임의 reassociation 금지 |
-| effect / error ordering | effect/error/speculation analysis | observable write/error 순서를 바꾸어도 되는가 | Disproven이면 candidate illegal; guard가 effect 뒤라면 사용 불가 |
-| fanout / retention / alias | graph use/liveness + alias/storage facts | producer 복제, retained value, reuse가 합법인가 | external use를 잃거나 alias proof 없으면 해당 transform 금지 |
-| resource / work-depth | `j_graph_resource` / `j_graph_work_depth` | symbolic state, internal traffic, work/depth, hard resource need | cost와 분리. hard target limit 초과만 feasibility 거부 근거 |
-| target/lowering capability | LoweringRegistry × resolved target | 해당 op/region을 실제 realization으로 내릴 수 있는가 | source-basis support만으로 fused/composite legality를 추정하지 않음 |
-| empirical profitability | CostProfile / planner | legal candidates 중 무엇이 유리한가 | legal candidate를 단지 느리다는 이유로 semantic invalid로 만들지 않음 |
-| final compatibility/selection | Schedule/Transform planner | 후보들의 겹침·순서·route를 함께 선택 | selected set 전체가 상호 호환되어야 함 |
+- buffer ownership
+- offset/shared backing
+- allocation layout
 
-##### Guarded legality
+RustJ 적용:
 
-`Guarded(GuardId)`는 “증명하지 못했지만 일단 실행”이라는 뜻이 아니다. 다음 조건을 모두 만족해야 한다.
+- BufferLease
+- shared backing 수명
+- 부분 view와 allocation owner 구분
 
-1. guard가 transformation이 의존하는 fact를 실제로 검증한다.
-2. guard는 해당 region의 observable effect보다 먼저 실행된다.
-3. guard miss의 대체 route가 명시되어 있다.
-4. miss 후 원래 J semantics를 재실행해도 중복 effect가 생기지 않는다.
-5. guard identity/provenance가 specialization/candidate cache와 연결된다.
+### OpenXLA
 
-effect가 이미 commit된 뒤에는 guard miss/Unsupported를 이유로 source region을 자동 replay하지 않는다.
+참고:
 
-##### Candidate overlap과 selection
+- logical IR과 buffer assignment 분리
+- layout conflict의 copy
+- backend-specific lowering
 
-candidate overlap은 곧바로 오류도 아니고 곧바로 composition 가능도 아니다. v0에서는 보수적으로 다음을 적용한다.
+RustJ 적용:
 
-- 같은 source operation을 **대체**하는 두 rewrite는 동시에 select하지 않는다.
-- rewrite와 fusion이 같은 source operations를 겹쳐 소유하면 registered compatibility/composition rule이 없는 한 동시에 commit하지 않는다.
-- 둘 다 유용할 수 있으면 먼저 하나를 선택·적용해 **새 graph/version**을 만든 뒤 그 결과에서 candidate discovery를 다시 수행할 수 있다.
-- candidate의 profitability 비교 때문에 원 source graph/witness를 파괴하지 않는다.
-- `CandidateId`/analysis-local index는 특정 Plan/graph version에 귀속되며 source/registry version이 바뀌면 재검증한다.
-- selection 결과는 semantic IR 자체가 아니라 별도 Transform/Schedule plan이다.
+- ValueId/BufferId 분리
+- Logical/Physical Plan 분리
+- layout conflict materialization
 
-##### 현재 코드와 목표 계약의 대응
+### ArrayFire / J ArrayFire add-on / fusion systems
 
-현재 구현은 이 전체 lifecycle의 일부만 갖는다.
+확인 기준: 2026-10-01.
 
-~~~text
-GraphRewriteCandidate
-  provenance + equivalence witness
-  target-independent
+주요 참고 자료:
 
-FusionCandidate
-  proof obligations
-  legality = Unknown
-  resource_transfer_proven = false
-  selected = false
+- ArrayFire JIT: https://arrayfire.org/docs/jit.htm
+- ArrayFire Unified Backend: https://arrayfire.org/docs/unifiedbackend.htm
+- CUDA interoperability: https://arrayfire.org/docs/interop_cuda.htm
+- Memory manager API: https://arrayfire.org/docs/group__memory__manager.htm
+- Jsoftware ArrayFire add-on, pinned at `b0543c8278fe7a50e0ac9f938a936b4a84ee239b`:
+  https://github.com/jsoftware/math_arrayfire/tree/b0543c8278fe7a50e0ac9f938a936b4a84ee239b
+- J add-on manual:
+  https://github.com/jsoftware/math_arrayfire/blob/b0543c8278fe7a50e0ac9f938a936b4a84ee239b/man.txt
+- Alex Shroyer의 J GPU/ArrayFire prototype 자료:
+  https://alexshroyer.com/papers/matmul_j_gpu.pdf
 
-RewritePlanningReport
-  TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting
+ArrayFire 자체에서 참고할 핵심:
 
-FusionReadinessReport
-  AwaitingSemanticProofs
-  fused target query deferred
-  selected = false
-~~~
+- elementwise 연산을 즉시 실행하지 않고 AST/lazy expression graph로 누적한 뒤 필요할 때 한 kernel로 JIT fusion한다.
+- explicit `eval` 또는 JIT가 지원하지 않는 consumer가 evaluation boundary가 되며, `sync`는 평가 시작과 완료 대기를 구분한다.
+- CUDA/OpenCL/oneAPI/CPU backend를 공통 array API 뒤에 두며 backend 선택은 array 계산 의미와 분리한다.
+- device pointer, stream, lock/unlock, custom memory manager를 명시해 외부 kernel/library와의 ownership·lifetime·synchronization 경계를 관리한다.
+- JIT compilation cache가 있으므로 cold compile cost와 warm execution cost를 분리해 측정해야 한다.
 
-아직 공통 `CandidateEvidence`/`ProofBundle`, obligation별 proof discharge 결과, compatibility-aware selection plan, committed transform identity는 구현되어 있지 않다. 위 타입 이름은 목표 개념을 설명하며 현재 API 완료를 주장하지 않는다.
+Jsoftware의 `math_arrayfire` add-on에서 특히 참고할 부분:
 
-##### 구현 시 분리 순서
+- 이것은 J 전체를 GPU compiler로 바꾸는 구현이 아니라 J에서 ArrayFire C API로 들어가는 **library adapter/offload 사례**다.
+- J array는 row-major, ArrayFire array는 column-major이므로 add-on은 `rcc` 변환을 사용한다. 이는 logical atom order와 physical layout을 동일시하면 adapter 경계에서 불필요한 전역 변환 비용이 생길 수 있다는 실제 사례다.
+- `families.ijs`는 `af_add`, `af_mul`, `af_sum` 같은 concrete ArrayFire function family를 직접 매핑한다. J의 일반 `/`, `\\`, rank, derived verb 의미 전체가 자동으로 ArrayFire op로 번역되는 구조는 아니다.
+- add-on은 `af_array` handle을 별도 추적하고 release/hold/device GC를 관리한다. RustJ의 ValueId와 외부 backend buffer/handle을 분리해야 한다는 근거로 사용할 수 있다.
+- add-on의 shape/rank validation은 ArrayFire `dim4` 경계에 맞춰 사실상 rank 4 이하를 전제로 한다. 이는 backend capability/precondition이지 J 언어의 rank 제한이 되어서는 안 된다.
+- CPU/CUDA/OpenCL backend를 바꿔 쓸 수 있지만, backend 변경 자체가 J noun의 semantic identity를 바꾸지는 않는다.
 
-현재 M2 frontend 우선순위를 바꾸지 않는다. optimizer 단계에 착수할 때는 다음처럼 **한 번에 한 의미 + 한 verifier/test**로 추가한다.
+RustJ 적용:
 
-1. proof 결과의 공통 state/provenance 표현 + stale evidence verifier
-2. fusion obligation별 discharge 결과를 기록하되 selection은 하지 않음
-3. rewrite/scan 후보에도 동일한 legality view를 투영
-4. target hard-feasibility와 semantic legality를 합치지 않는 readiness view
-5. candidate compatibility/overlap 검사
-6. costed candidate set에서 별도 SelectionPlan 생성
-7. selected candidate만 committed transform/lowering으로 넘기고 source provenance를 검증
+1. **ArrayFire는 Graph/Execution optimizer의 선행 구현 사례로 참고한다.**
+   - lazy graph, evaluation boundary, fusion trigger를 참고하되 J Semantic IR 자체를 lazy ArrayFire AST처럼 축소하지 않는다.
+   - fusion 여부와 materialization은 semantic legality가 확정된 뒤 Logical/Physical planning에서 결정한다.
 
-### 4.2 Execution Semantic Lowering의 책임
+2. **J ArrayFire add-on은 external-library route의 adapter 사례로 참고한다.**
+   - `J logical value → adapter capability check → external array handle → execution → logical result` 경계를 설계할 때 직접 비교한다.
+   - op coverage, dtype/rank/shape/layout 조건은 route precondition으로 명시한다.
 
-- J Graph node를 explicit execution dataflow로 전개
-- monad/dyad valence와 actual call instantiation 확정
-- primitive semantic contract 적용
-- dtype / shape / cell / frame / agreement / rank-result-assembly fact 전파
-- iteration domain / axis semantics / access relation 도출
-- CellApply / Reduce / Gather / Contract 등 normalized execution/basis operation 생성
-- ConstraintSet / FactWitness / SemanticCheck 생성
-- effect / alias / speculation legality 분석
-- invariance / semantic storage requirement / representation-side fact의 경계 설정
-- J observable error/evaluation ordering 보존
-- J Graph node → execution op provenance(`j_origin`) 유지
-- verified Logical Execution IR 생성
+3. **row-major/column-major mismatch를 Physical Planner 검증 사례로 사용한다.**
+   - RustJ logical array는 layout-neutral하게 유지한다.
+   - ArrayFire route가 column-major representation을 요구하면 view/consumer absorption/copy 중 어느 것이 합법적이고 싼지 physical plan에서 선택한다.
+   - adapter 편의를 위해 J logical atom order를 바꾸지 않는다.
 
-다음은 이 단계의 책임이 아니다.
+4. **evaluation/synchronization을 Physical Plan의 별도 개념으로 둔다.**
+   - lazy value의 존재, kernel submission, device completion은 서로 다른 상태다.
+   - 향후 AsyncToken/Timepoint, transfer, external library call의 legality와 lifetime 검증에 ArrayFire의 `eval/sync` 및 interop 경계를 비교한다.
 
-- 특정 backend capability를 보고 schedule을 선택하는 일
-- fusion region을 실제로 확정하는 일
-- optional intermediate를 실제 buffer로 materialize하는 일
-- tile/vector/workgroup/layout/device를 고르는 일
-- target cost model로 후보를 ranking하는 일
+5. **cost model과 benchmark 방법론에 cold/warm JIT를 분리한다.**
+   - compile latency, kernel-cache hit, host/device transfer, layout conversion, intermediate materialization을 별도 비용 항목으로 본다.
+   - 단순 warm-kernel 수치만으로 route profitability를 판단하지 않는다.
 
-이 결정들은 Route Partition/Export, 외부 compiler, 또는 RustJ-native Logical Optimizer/Physical Planner가 담당한다.
+6. **Graph Basis ↔ external capability matrix를 만들 때 실물 비교 대상으로 사용한다.**
+   - Elementwise, Reduce, Scan, Gather/Index, MatMul, Conv, Sparse 등 RustJ basis family가 ArrayFire API에서 직접 지원되는지,
+   - J 의미를 그대로 보존하는지,
+   - adapter shim 또는 fallback이 필요한지를 구분한다.
 
-과거 `jaxa-analyzer` 문서에서 “analyzer가 hardware profile을 받아 fusion/resource를 결정한다”고 한 표현과 충돌하지 않도록 용어를 재해석한다.
+중요한 비채택 사항:
 
-```text
-old "JAXA analyzer"
-  ≈ current Semantic Analyzer
-    + native Logical Optimizer
-    + Schedule / Transform planning
-    + Physical Planner / Resource analysis
-```
+- ArrayFire `af::array`를 RustJ Logical Array/J noun과 동일시하지 않는다.
+- ArrayFire의 rank/dim4 제한, column-major layout, dtype 범위를 J semantics에 역류시키지 않는다.
+- ArrayFire의 fixed reduction API를 J의 일반 adverb `/` 또는 `\\` 의미론과 동일시하지 않는다.
+- ArrayFire JIT가 fuse할 수 있다는 사실만으로 RustJ Graph rewrite/fusion의 semantic legality가 증명되었다고 보지 않는다.
+- J add-on의 FFI 함수 매핑을 RustJ compiler architecture 자체로 채택하지 않는다.
 
-현행 RustJ에서 **Semantic Analyzer라는 좁은 단계만** target-independent다. 과거 analyzer의 hardware-dependent 기능을 버린 것이 아니라 downstream planning 단계로 분리한 것이다.
+따라서 ArrayFire는 RustJ의 GPU backend 후보 하나라기보다, **lazy array execution, kernel fusion, external-library routing, physical layout mismatch, device-handle lifetime과 synchronization을 동시에 검증할 수 있는 비교 기준**으로 다룬다.
 
-### 4.3 두 middle-end가 공통으로 하지 않는 일
+### JAX / multi-device systems
 
-- source text tokenization
-- parser stack 규칙의 재실행
-- source를 다시 parse하여 의미를 복원
-- 직접 CPU loop 실행
-- 직접 CUDA kernel 실행
-- Executor 단계에서 의미론을 다시 판단
-- 알 수 없는 정보를 임의로 추측
+참고:
 
-즉 Graph Analyzer와 Execution Lowering은 scanner/parser stack mechanics를 재실행하지 않는다. 대신 parser가 완성한 FunctionEntity와 J Graph IR의 구조를 정식 compiler input으로 사용한다.
+- logical/global value와 placement/sharding 분리
 
-### 4.4 Execution semantic lowering 이후의 generic 경계
+RustJ 적용:
 
-다른 frontend와 공유할 가능성이 높은 지점은 J Graph IR 이전이 아니라 **J graph analysis와 execution semantic lowering을 마친 뒤의 Logical Execution IR / Plan**이다. J Graph IR은 의도적으로 J-specific하다.
+- logical J noun과 physical placement 분리
 
-```text
-J frontend / FunctionEntity
-    ↓
-J Graph IR + Graph Analyzer      ← intentionally J-specific
-    ↓
-Execution Semantic Lowering
-    ↓
-Logical Execution IR / Plan     ← generic compiler boundary
-    ↓
-Route partition / export
-    ├─ RustJ-native optimizer/planner
-    ├─ MLIR
-    ├─ StableHLO-compatible subset
-    └─ library/custom backend
-```
+### MLIR core / interfaces / regions
 
-향후 다른 array DSL frontend를 붙이고 싶다면 두 선택이 가능하다.
+참고:
 
-1. J semantic model을 의도적으로 공유하면 J Semantic Array IR을 생성한다.
-2. J와 무관한 frontend라면 자기 semantic analyzer를 거쳐 Logical Array IR / Plan에 합류한다.
+- SSA value + Region/Block 구조로 pure graph와 control flow를 함께 표현
+- verifier를 operation contract의 일부로 둠
+- concrete op를 special-case하지 않고 operation/type/attribute interface를 통해 분석 capability를 질의
+- side effect와 speculation safety를 별도 interface로 모델링
+- data-flow analysis를 typed lattice와 monotonic join으로 구성
 
-따라서 **middle-end를 generic tensor IR consumer처럼 만들기 위해 J의 구조를 일찍 버리지 않는다.**
+RustJ 적용:
 
-#### 4.4.1 분석 fact는 typed lattice로 관리하고 semantic error와 분리한다
+- Logical IR에 SSA ValueId + Function/Region/Block/Terminator를 둔다.
+- Primitive/LogicalOp capability를 Shape/Axis/Access/Effect/Alias/Speculation interface로 분리한다.
+- 생성/변환 뒤 verifier를 필수 경계로 둔다.
+- fact domain마다 typed lattice를 사용한다.
 
-shape, alias, invariance, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
+### MLIR Shape / dynamic constraints
 
-각 fact domain은 자기 lattice를 정의한다. 모든 domain이 동일한 enum을 강제로 공유할 필요는 없지만 공통적으로 다음 개념을 갖는다.
+참고:
 
-```text
-analysis state
-  Uninitialized
-  Known(T)
-  Overdefined / Unknown
-  domain-specific bottom/unreachable if needed
-```
+- unknown shape와 invalid shape를 구분
+- compile-time constraint가 증명되지 않으면 witness/assuming 구조로 의존성을 명시
+- shape computation과 value computation을 분리하되 필요하면 runtime shape value로 reify
 
-control-flow merge나 여러 predecessor에서 fact가 합쳐질 때는 domain별 monotonic `join`을 사용한다. MLIR data-flow framework처럼 lattice state는 **분석 지식의 상태**를 나타낸다.
+RustJ 적용:
 
-예:
+- `ConstraintSet`만 metadata로 저장하지 않고 Witness/Guard를 둔다.
+- dynamic specialization은 fast/fallback region으로 표현한다.
+- semantic error가 증명된 Invalid와 단순 Unknown을 구분한다.
 
-```text
-ShapeFact
-AliasFact
-InvarianceFact
-ConstraintFact
-EffectFact
-BindingFact
-```
+### MLIR Linalg / Bufferization
 
-`Unknown`은 사실을 임의로 꾸며내지 않는다는 뜻이지 곧바로 실행 불가를 뜻하지 않는다. domain과 route에 따라 다음 중 하나가 된다.
+참고:
 
-- optimization barrier
-- runtime witness/guard 필요
-- conservative lowering
-- external route rejection
-- 재분석 조건
+- indexing map + iterator type으로 structured computation을 표현
+- tensor-level tiling/fusion/vectorization을 먼저 하고 bufferization을 늦춤
+- Destination-Passing Style과 alias relation을 buffer reuse 분석의 입력으로 사용
+- bufferization은 SSA use-def와 conflict 분석을 통해 실제 in-place/out-of-place를 결정
 
-특히 `AccessRelation`은 모든 valid J op가 v0부터 완전한 affine/index-map contract를 가져야 한다는 뜻이 아니다.
+RustJ 적용:
 
-```text
-AccessFact
-  Known(AccessRelation)
-  Opaque / Unknown
-```
+- `IterationDomain + AccessRelation`을 Logical IR의 핵심 contract로 둔다.
+- `StorageRequirement`와 실제 `MaterializationDecision`을 분리한다.
+- `DestinationRelation`은 BufferId가 아니라 후속 bufferization hint/contract다.
 
-로 둘 수 있다.
+### MLIR Transform dialect / TVM TensorIR schedule
 
-- `Known`: fusion, locality, vectorization, advanced scheduling 분석 가능
-- `Opaque/Unknown`: J semantics 자체는 valid할 수 있으며, access-sensitive optimization의 barrier가 됨
-- route가 full access contract를 요구할 때만 해당 route에서 reject/Unsupported
-- conservative/native/runtime semantic path가 있으면 실행 자체를 금지하지 않음
+참고:
 
-따라서 **hardware-aware Logical IR은 hardware-relevant fact를 표현할 수 있어야 하지만, 모든 op가 v0부터 모든 fact를 Known으로 제공해야 한다는 뜻은 아니다.**
+- payload IR과 transformation/schedule description을 분리
+- 같은 semantic computation에 여러 schedule을 적용 가능
+- TVM은 graph-level Relax와 lower-level TensorIR/schedule을 구분하고 external codegen도 허용
 
-중요하게, **J semantic error는 lattice element가 아니다.**
+RustJ 적용:
 
-```text
-UnreachablePath / UnsatisfiableConstraint
-        ≠
-JSemanticError(domain/rank/length/value/...)
-```
+- Logical IR에 tile/vector/workgroup 결정을 박지 않는다.
+- native route의 `Schedule / Transform Plan`을 별도 표현으로 둔다.
+- MLIR/TVM류 external optimizer를 재구현하지 않고 adapter를 통해 활용할 수 있게 한다.
+- external backend는 whole-program 선택이 아니라 legal subgraph/region partition으로 적용할 수 있게 한다.
 
-- `UnreachablePath`는 control-flow/constraint 분석 결과다.
-- `JSemanticError`는 source semantics에 따라 진단하거나 runtime error behavior로 보존해야 하는 프로그램 의미다.
-- 어떤 path에서 반드시 error가 발생한다고 증명되더라도 optimizer는 그 error의 관찰 가능한 순서를 `SpeculationSemantics`와 effect ordering에 따라 보존해야 한다.
+### IREE Flow / Stream / HAL
 
-따라서 분석 lattice의 bottom/top 개념과 사용자-visible error contract를 같은 `Invalid` 상태로 합치지 않는다.
+참고:
+
+- tensor dataflow(Flow), async scheduling/resource lifetime(Stream), hardware abstraction(HAL)을 분리
+- resource size와 lifetime을 명시적으로 추적
+- async execution은 timepoint로 availability/order를 표현
+- allocation/reuse는 scheduling 뒤에 구체화
+
+RustJ 적용:
+
+- Logical ArrayValue와 physical resource를 분리한다.
+- native Physical Plan의 async dependency는 explicit Timepoint/AsyncToken으로 표현한다.
+- resource lifetime과 buffer reuse는 physical timeline을 기준으로 판단한다.
+
+### StableHLO / VHLO
+
+참고:
+
+- portable high-level op set과 명시적 specification/verifier/type inference
+- side-effecting op는 token으로 ordering 가능
+- custom_call/composite로 확장 가능하지만 semantic contract가 필요
+- portable artifact는 별도의 versioned VHLO/compatibility layer로 관리
+
+RustJ 적용:
+
+- StableHLO는 전체 J IR이 아니라 안전한 tensor/NN subset export target이다.
+- external effect mapping은 token/adapter contract로 검증한다.
+- RustJ Logical IR도 외부 interchange를 시작할 때 schema version과 migration 정책을 둔다.
+
+### Triton
+
+참고:
+
+- tensor/block program과 backend schedule configuration을 분리
+- block size, warp 수, pipeline stage, register limit은 semantic op가 아니라 compilation configuration
+- layout/access constraint가 codegen 품질에 직접 영향
+
+RustJ 적용:
+
+- tile/warp/stage/register cap은 Physical Schedule/TargetProfile 쪽에 둔다.
+- Logical IR에는 이를 선택할 수 있게 하는 axis/access/constraint fact만 유지한다.
+
+### 중요한 비채택 사항
+
+- NumPy broadcasting을 J agreement로 대체하지 않는다.
+- tensor framework dtype policy를 J type semantics로 대체하지 않는다.
+- backend layout을 J noun identity로 만들지 않는다.
+- framework의 JIT 성공 사례를 RustJ 성능 증거로 취급하지 않는다.
+
+---
+
+
+---
+
+<a id="read-advanced"></a>
+## 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage
+
+아래는 기존 §4.5~§4.24의 상세 계약을 모아둔 참조 자료다. **핵심 단계 흐름을 이해하는 데 필수 선행 독서는 아니다.** 기존 항목 번호와 앵커는 세부 체크리스트의 교차 참조를 보호하기 위해 보존한다.
 
 ### 4.5 Primitive contract
 
@@ -8906,4153 +13668,6 @@ J error가 있는 case는 값만 비교하지 않고 **error class와 observable
 
 ---
 
-## 5. Logical Plan, Physical Plan, Executor
-
-### 5.1 Logical Array IR / Logical Execution Plan
-
-이 계층은 Semantic Analyzer가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
-
-여기서 `Reduce`, `CellApply`, `StaticReindex` 같은 이름은 **Logical IR에서 처음 등장하는 normalized operation**이다. J Semantic IR의 parser-produced function graph에는 이 이름으로 modifier application을 대체하지 않는다. `MapCells`는 `CellApply`의 uniform result/assembly 조건이 증명된 뒤 사용할 수 있는 더 제한적인 lowering form이다.
-
-```text
-Semantic IR
-  / : Verb
-  └─ + : Verb
-
-       ↓ Semantic Analyzer
-
-Logical IR
-  Reduce(reducer=+)
-```
-
-마찬가지로:
-
-```text
-Semantic IR
-  " : Verb                 // derived result POS
-  head = PrimitiveConjunction(Rank)
-  ├─ left:  u
-  └─ right: r
-
-       ↓ Semantic Analyzer
-
-Logical facts / op
-  resolved RankSpec
-  frame/cell mapping
-  CellApply
-    └─ optional later MapCells-style lowering when UniformProven
-```
-
-현재 코드의 `Callable.reduce` / `Callable.rank`는 기존 analyzer/runtime와 연결하기 위한 **migration field**다. 최종 A3-v0 Logical IR에서는 parser-derived operator graph를 해석한 결과를 normalized logical operation/fact로 표현하고, 이 bool/array shortcut을 semantic identity로 사용하지 않는다.
-
-예를 들어 고수준의
-
-```text
-Apply(
-  Fork(
-    AdverbApplication(operator=/, operand=+),
-    %,
-    #
-  ),
-  y
-)
-```
-
-는 분석 후 개념적으로 다음과 같은 dataflow가 될 수 있다.
-
-```text
-            Input y
-           /       \
-  Reduce(Add)      Tally
-           \       /
-             Divide
-```
-
-여기서 일반 dataflow 실행 의미는 fork 표기 없이도 표현할 수 있지만, **원래 source가 fork/hook/@:였다는 topology provenance는 optimization 정보로 계속 보존한다.** §4.1.1의 StructuralOpportunity sidecar가 pipeline/branch-join/live-across 정보를 명시적으로 운반하므로 optimizer가 generic DAG에서 이를 다시 pattern-match할 필요가 없다. 진단·debug provenance이기도 하지만 그것에 한정되지 않는다.
-
-Logical Plan에서 보존할 정보:
-
-- SSA ValueId와 region/block/control-flow 구조
-- normalized array operation
-- dtype/shape/rank/cell/frame facts
-- iteration domain / axis semantics / access relation
-- symbolic constraints와 witness/guard
-- data dependency와 effect ordering token
-- effect / alias / speculation facts
-- invariance / semantic-mask facts
-- semantic StorageRequirement
-- target-independent rewrite/fusion constraints
-- source/semantic origin metadata
-
-특정 backend support 여부, concrete fusion region, buffer allocation, tile/layout/device 결정은 Logical IR의 본질적 fact가 아니다.
-
-아직 특정 device buffer 주소나 CUDA launch parameter는 없다.
-
-### 5.2 Schedule / Transform Plan과 Physical Plan을 구분한다
-
-RustJ-native route에서는 Logical IR을 바로 buffer plan으로 덮어쓰지 않는다.
-
-```text
-Logical Array IR
-   ↓
-Logical Optimizer
-   ↓
-Schedule / Transform Plan
-   ↓
-Physical Planner / Bufferization
-   ↓
-Physical Plan
-```
-
-
-
-여기서 `Logical Optimizer`는 target-independent canonicalization/DCE/CSE와 semantic-preserving graph rewrites를 담당한다. 특정 tile/layout/device/resource를 선택하거나 target cost로 후보를 확정하는 일은 Schedule / Transform Plan 이후의 책임이다.
-
-**Schedule / Transform Plan**은 payload semantics와 분리된 선택/변환 의도를 표현한다.
-
-- fusion/grouping
-- tile hierarchy
-- loop/axis mapping
-- vectorization
-- unrolling
-- tensorization/intrinsic selection 후보
-- layout transform 요청
-- memory-space staging 요청
-- software pipeline/prefetch 전략
-
-이는 MLIR Transform dialect나 TVM TensorIR schedule처럼 “무엇을 계산하는가”와 “어떻게 변환할 것인가”를 분리하는 역할이다.
-
-Schedule Plan은 여러 후보를 가질 수 있고 CostProfile/autotuning/backend feedback에 의해 바뀔 수 있다. 따라서 Logical IR의 semantic identity가 아니다.
-
-**Physical Plan**은 선택된 schedule을 실제 resource/buffer/execution 객체로 구체화한다.
-
-- CPU/GPU placement
-- buffer binding / ownership
-- physical view
-- concrete materialization/copy
-- contiguous/fixed/general stride specialization
-- physical layout / padding / alignment
-- memory-space assignment
-- transfer
-- synchronization/timepoint
-- buffer reuse
-- work partition
-- backend kernel/library 선택
-- async lifetime/resource information
-
-#### 5.2.1 M4 최소 PhysicalPlan v0 contract
-
-M4의 첫 CPU vertical slice를 구현하기 전에 **compiler plan의 resource identity와 runtime handle을 분리한 최소 schema**를 문서로 고정한다.
-
-가장 중요한 구분:
-
-~~~text
-Logical ValueId
-    ≠
-PlanBufferId        // compiler PhysicalPlan 안의 symbolic/planned storage slot
-    ≠
-physical::BufferId  // runtime BufferRegistry가 발급하는 checked handle
-    ≠
-raw address
-~~~
-
-현재 `physical::BufferId`는 registry identity + slot + generation을 가진 **runtime handle**이다. compiler가 lifetime/reuse를 계획하기 위해 사용하는 slot identity와 그대로 동일시하지 않는다. 실제 구현명은 달라질 수 있지만, plan-time identity와 executor-time lease/handle의 계층은 분리한다.
-
-또한 하나의 planned buffer 위에 여러 physical view가 존재할 수 있으므로 buffer identity와 view identity도 분리한다.
-
-~~~text
-PlanBufferId
-  storage/resource identity
-
-PhysicalViewId
-  PlanBufferId
-  logical shape
-  strides
-  offset
-  encoding
-  access mode
-~~~
-
-##### v0 PhysicalPlan
-
-첫 M4 범위는 **verified single-block pure-array CPU region + 필요한 SemanticCheck**로 제한할 수 있다. assignment/name mutation 같은 stateful effect는 첫 slice에서 RuntimeSemantic region에 남겨도 되며, 이것은 J language restriction이 아니다.
-
-개념 schema:
-
-~~~text
-PhysicalPlan
-  source_logical_schema / provenance
-  resolved CPU target
-  planned buffers
-  physical views
-  ordered/dependency-aware ops
-  outputs
-
-PhysicalOp
-  BindInput
-  Check
-  View
-  Materialize
-  Kernel
-  Return
-
-future / non-M4:
-  Transfer
-  Sync / AsyncToken
-~~~
-
-각 op의 역할:
-
-- **BindInput** — logical input/read value를 executor가 가진 runtime storage/lease와 연결한다. deep copy를 뜻하지 않는다.
-- **Check** — A3 `SemanticCheck`를 J error kind/origin/order와 함께 실행한다. optimizer 편의를 위해 kernel 안으로 숨기거나 제거하지 않는다.
-- **View** — transpose/reverse/slice 등 합법한 metadata-only physical view를 만든다. 새 backing allocation을 의미하지 않는다.
-- **Materialize** — consumer requirement나 layout/alias 조건 때문에 logical atom order를 보존한 실제 copy/packing을 만든다. 이유/provenance를 남긴다.
-- **Kernel** — 이미 선택된 `ParameterizedLoweringRecipe/RealizationFamily`를 입력/output view에 적용한다. rank/hook/fork/fusion legality를 executor에서 다시 판단하지 않는다.
-- **Return** — 최종 physical view/ownership을 logical result로 넘긴다. temporary를 output으로 잘못 재사용하지 않게 ownership을 확정한다.
-- **Transfer/Sync** — GPU/mixed-route에서만 필요할 수 있으며 M4 CPU v0의 필수 op가 아니다.
-
-##### planned buffer와 lifetime
-
-각 planned buffer는 최소 다음 정보가 필요하다.
-
-~~~text
-BufferRequirement
-  memory space / CPU class
-  encoding
-  extent or size expression
-  alignment requirement
-  ownership class: input | temporary | output
-  def / physical uses / last use
-  optional reuse witness
-~~~
-
-M4 첫 slice가 fully-resolved CPU extent만 지원해도 된다. dynamic extent 지원이 없다는 사실을 J semantic restriction으로 올리지 않고 route capability로 둔다.
-
-buffer reuse는 별도 semantic transform이 아니라 physical decision이다. 같은 `PlanBufferId` 또는 storage slot을 재사용하려면:
-
-1. 이전 physical value의 last use가 끝났고,
-2. outstanding view/lease가 그 storage를 관찰하지 않으며,
-3. encoding/size/alignment/memory-space requirement가 맞고,
-4. alias/destination contract가 허용하며,
-5. J-visible effect/error order를 바꾸지 않는다는
-
-reuse witness가 필요하다.
-
-##### PhysicalPlan verifier
-
-executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는 다음을 검사한다.
-
-- 모든 buffer/view/op id가 유효하고 use가 definition 뒤에 있다.
-- 모든 view의 shape/stride/offset span이 backing extent 안에 있고 encoding/dtype contract가 맞다.
-- buffer가 bind/allocation되기 전에 사용되지 않는다.
-- `Check`의 ordering edge와 source origin이 A3 SemanticCheck에서 유도되었고 누락/중복되지 않는다.
-- Kernel의 chosen realization이 resolved target과 lowering capability에 맞고 필요한 input/output view contract를 만족한다.
-- write 가능한 overlapping views가 proof 없이 동시에 사용되지 않는다.
-- Materialize가 logical atom order/value semantics를 보존한다.
-- reuse는 last-use + alias/ownership witness 없이는 허용하지 않는다.
-- Return은 유효한 output ownership/view를 가리키고 temporary lifetime 이후 dangling view를 만들지 않는다.
-- M4 pure-region plan에는 숨은 namespace/write effect가 없다.
-
-##### error / cleanup contract
-
-- `Check` 실패는 원래 J semantic error로 보고한다.
-- Kernel/library 자체의 implementation failure를 임의의 J Domain/Rank/Length error로 바꾸지 않는다.
-- plan 실패 시 executor-owned temporary lease/resource는 정리하되 caller-owned input은 파괴하지 않는다.
-- first M4 pure slice에서는 namespace assignment commit을 Physical Executor가 소유하지 않는다. stateful write를 native route에 넣을 때 별도 effect/commit contract를 추가한다.
-- observable effect가 commit된 뒤 transparent replay하는 fallback은 금지한다.
-
-##### M4→M5 구현 선행조건과 검증 프로토콜 (2026-10-07, **설계만 확정**)
-
-**범위:** 실제 PhysicalPlan/Executor/View/Kernel/Transfer를 지금 구현하지 않는다. 본 절은 기존 §5.2.1의 계약, §17 M4 구현 항목, HE-01~HE-09, IO-20에 적용할 **수용 조건과 검증 증거**다. 별도 Parallel IR, Data Movement IR, 중복 체크리스트는 만들지 않는다. 기존 Draft PR #4의 제한적인 identity 구현은 검증된 전체 M4 경로로 취급하지 않으며 완료 수용과 구별한다.
-
-**컴파일러 경계의 의무와 검증 방법**
-
-| 경계 | 실행 전 필요한 조건·증거 | 수용/거부 검증 | 조건 미충족 시 |
-|---|---|---|---|
-| **A3 → Route/Physical** | \`logical_ir::Plan::verify\` 성공, schema/primitive-registry/source origin 일치, 한 region 내 포함된 모든 value/check/effect/order edge 목록, 해당 route의 capability·guard/witness 확보 | A3 op 하나씩 추적하는 source→physical mapping; plan에서 Check 하나 삭제·복제·재배열, producer 위조, stale version/guard 위조 시 verifier가 **반드시 거부** | Unknown을 Supported로 치환하지 않음. 해당 region을 합법한 reference/runtime route로 유지하거나 Unsupported |
-| **장치·메모리 독립성** | \`ExecutionDevice\`, \`MemorySpace\`, intra-device schedule은 서로 독립한 물리 결정. plan-time \`PlanBufferId\`/view와 runtime \`BufferId\`/lease, logical \`ValueId\` 분리. M4는 CPU+Host+zero-transfer | logical/semantic IR에 thread 수·CUDA stream·buffer address가 없는지 구조 검토; 서로 다른 메모리 위치와 동일 execution device를 **미래 확장 가능**하게 식별; M4 plan에는 Transfer/Sync가 없음을 검사 | 혼합 실행 능력이 없으면 단일 CPU 경로만 지원; J 의미를 바꾸지 않음 |
-| **BindInput** | 실제 dense noun의 dtype·shape·encoding·extent·version/owner가 source value와 일치, readonly lease 유효, alias 여부 추적, implicit deep copy 없음 | 바뀐 binding version·stale buffer generation·미등록 BufferId·타인 registry·잘못된 encoding을 각각 하나씩 위조하여 reject; 입력 버퍼 원본 불변 확인 | 입력을 파괴하거나 임의 재바인딩하지 않고 route 거부 |
-| **View** | 대상 primitive/Rank·axis 의미가 증명됨, logical shape/atom order 유지; \`shape×stride+offset\`의 최소/최대 backing byte 범위를 부호 있는 checked 연산으로 계산하고 encoding/alignment 적합성 확인. 빈 frame과 빈 cell은 구분 | scalar, rank 1/2/3, \`0 3\`·\`3 0\`·singleton, negative stride, transpose/reverse, overflow·zero stride·OOB 위조. **View는 실제 메모리를 복사하거나 쓰지 않았는지** 확인 | 불확실한 view를 실행하지 않음; 합법한 Materialize/다른 route를 별도 선택 |
-| **SemanticCheck / 오류** | A3 Check마다 유일한 provenance, 실행 위치, 의존성, 원래 J error kind 및 error precedence. Guard는 관찰 가능 effect 전 평가; 복구/handler가 오류를 볼 수 있음 | 두 개 이상 Check의 순서 변경, 한 Check 누락·중복, invalid Rank/Length/Index, effect/NAME rebinding/try-catch 관찰 사례. Reference executor와 **오류 종류·첫 오류·부수효과 횟수·상태** 비교 | 물리화 대상 제외; arbitrary first-thread error 또는 GPU trap→J error 임의 변환 금지 |
-| **Kernel (첫 Add)** | \`ParameterizedLoweringRecipe\`/registered realization이 resolved target에 합법, valence·rank/cell·prefix agreement·J 타입 승격·overflow/fit·alias·stride 및 전처리 Check 충족. Logical IR의 Parallel 축은 동시 실행 허가 증거 아님 | scalar/vector/matrix, 서로 다른 dtype, bool/int/float, integer overflow/promotion, NaN/Inf, length error, empty arrays, SIMD tail, stride mismatch. 등록하지 않은 recipe 또는 shape/target capability mismatch는 verifier reject; **기존 semantic interpreter를 호출한 결과를 native kernel 통과로 세지 않음** | 기존 reference/지원 route 선택, kernel 미지원은 J Domain error가 아님 |
-| **Materialize / Return** | view의 **J 논리 원소 순서**로 allocation·copy, output type/shape 보존; backing/lease와 output ownership, temp last-use 확인 | transpose/reverse의 physical address order와 J atom order 비교, empty/boxed/sparse(지원하지 않는 경우 reject), output dangling/temporary 조기 해제, read-only input mutation 및 조립 에러 비교 | incomplete result를 반환하지 않음; 실패 시 호출자 입력 보존 |
-| **Reuse / resource** | def/use/last-use, outstanding view/lease, non-overlap proof, encoding/size/alignment/memory-space 호환, check/effect precedence, budget 상한이 모두 충족 | reuse 중 live alias·overlap write·buffer size 부족·allocation 실패·exception cleanup 등 각 invariant 하나씩 위조; reclaimed resource에 대한 subsequent use 거부 | reuse 비활성화, 안전한 별도 버퍼 사용 또는 route 거부 |
-| **CPU↔GPU / I/O 후속(M5+)** | region/device placement, memory residency/version, transfer bytes, ready/completion, sync, ownership/lifetime, host effect/error 의존성 및 capacity. 외부 backend도 계약을 유지 | 가상 plan verifier 수준에서 stale data/transfer 누락/copy-before-producer/read-before-ready/transfer-after-free/중복 commit을 reject. 실제 GPU 결과 동등성·성능은 **검증 가능한 실장치와 명시적 재개 조건** 이후만 수행 | CPU/단일 장치 계획만 합법; 복합 장치 실행을 완료로 주장하지 않음 |
-
-**공통 검증 절차와 완료 판정**
-
-1. **A3 정상 계획 생성·검증 → Physical 계획 생성·검증 → 제한된 CPU 실행** 순서를 지키고, 검증되지 않은 plan은 실행기까지 도달할 수 없게 한다. 정상 사례를 복제해 **불변 조건 하나만** 훼손하는 음성 검증을 기본 패턴으로 삼는다. verifier 실패 이유와 source op/provenance를 기록한다.
-2. **3자 의미론 비교:** 동일 입력에 대해 (a) jsource C 기준 실행, (b) RustJ \`logical_executor::execute_closed\`/해당 의미론 기준 경로, (c) 신규 Physical Executor의 값·dtype·Shape·원소 순서·J error class/precedence를 비교한다. C 기준의 해당 기능이 현지 환경에 없으면 미검증으로 남기며 RustJ 내부 2자 비교로 대체 완료 처리하지 않는다.
-3. **범위·부정 사례:** zero-frame Rank virtual fill vs positive-frame empty cell, 복합 CellApply 결과 type/shape join, boxed/sparse, tolerance/fit, numeric reassociation, late NAME/assignment/effects, 예외·resource cleanup은 독립 regression으로 분리한다. 미지원 subtype은 **지원 범위 밖**으로 보고하며 J 문법/의미론 제한으로 바꾸지 않는다.
-4. **기계적 테스트:** 구현 시 \`cargo fmt --check\`, default/portable \`cargo test\`, \`cargo clippy\`와 재현 가능한 Linux/Windows 경로를 실행하고 커밋 SHA·플랫폼·스레드/feature·케이스 수·passed/failed/ignored를 기록한다. 실행하지 않은 테스트와 CI 결과는 성공으로 보고하지 않는다.
-5. **비용은 의미론 통과 후:** Sequential CPU를 zero-transfer baseline으로 두고, 실행 시간 외 bytes read/written/moved, allocation/peak residency, kernel/transfer launch, sync, guard misses, fallback 횟수, critical path를 별도 측정한다. \`ResourceEstimate\`와 \`CostEstimate\`와 실측 \`CostProfile\`을 혼합하거나 Unknown을 0으로 두지 않는다.
-6. **M4 수용 게이트:** Check·View·Kernel(Add)·Materialize 중 최소 하나의 **실제 compiler-native 연산 경로가 필요 Check를 포함하여** A3→verified PhysicalPlan→CPU에서 실행되고, 음성 verifier와 jsource differential이 통과해야 한다. 단일 literal \`BindInput→Return\`, 설계 문서 또는 테스트 소스만으로는 M4 전체/HE-01을 완료하지 않는다. M5의 mixed placement와 M6 GPU·async 실구현은 M4의 선행 필수 조건이 아니다.
-
-**상태 (2026-10-07):** 본 절의 **조건·검증 프로토콜만 문서 확정**. 모든 새로운 실행/성능 수용은 아직 미검증이며, M4/HE-01~09 미완료 체크박스를 유지한다. 구현 재개 시 각 수용 결과를 기존 §17/HE 체크리스트에 증거 링크로 기록한다.
-
-##### 기존 아키텍처 대조 감사: M4 준비도와 검증 공백 (2026-10-07, 설계 검증 전용)
-
-**결론:** J Graph → verified A3 → target-dependent lowering 후보 → Physical Representation이라는 기존 계층은 **그대로 확장 가능**하다. CPU 전용 Parallel Planner/IR, 새로운 Data Movement IR, GPU 실구현 선행은 필요하지 않다. 단, **A3 구조 검증**, **후보별 적법성 평가**, **원본 A3에서 Physical Plan까지 의미 보존의 증명**은 서로 다르다. 앞 단계의 성공이 뒤 단계의 완전한 실행 허가는 아니다. 아래는 현재 main의 실제 코드와 기존 테스트를 대조한 **정적 감사**이며 신규 테스트를 실행한 것이 아니다.
-
-| 감사 ID / 소유자 | 실제 코드·테스트에서 확인 | 공백과 단계 구분 | 추후 검증 조건 |
-|---|---|---|---|
-| CA-01 / A3 구조·의미 | src/logical_ir.rs의 Plan::verify는 schema·registry provenance, single block, SSA producer/use-before-def, order_after가 앞선 op를 가리키는지, Check가 result를 만들지 않는지, 일부 rank/shape를 검증한다. tests/logical_ir.rs에 관련 회귀가 있다 | **M3→M4의 의미론 증명 미완료.** A3 verifier는 모든 effect/error summary를 J 원본에서 독립 재계산하거나, 삭제된 Check가 없는지 Physical Plan까지 대조하지 않는다. IterationAxisKind::Parallel은 실행 허가가 아니다 | 정상 A3 하나를 복제하여 Check 삭제·중복, order_after 삭제, effect/possible_errors/speculation의 근거 없는 완화, source origin·binding version 위조를 각각 주입한다. 구조 위조와 **구조는 통과할 수 있는 의미론 위조**를 구분하고, 후속 선택·검증에서 모두 차단 |
-| CA-02 / Lowering | src/lowering.rs의 Requirement::satisfied·legal_candidates는 CPU/GPU family·feature, Pure, NoObservableError, EvaluationOrderRelaxed, known access/rank, 재결합 허용을 판정한다. tests/lowering.rs는 안전 조건이 없으면 SIMD/GPU·tree reduce를 닫는 검사를 포함 | **M3 증거 연결 미완료.** 후보 등록·CallOp에 적힌 사실이 곧 guard discharge/전체 Physical Plan의 적법성 인증서는 아니다. ReferenceSequential 후보는 실제 native CPU kernel 완성을 의미하지 않는다 | 근거 없는 effect/error/guard/witness 완화가 최종 선택에서 거부되는지 확인. target·valence·shape·stride·recipe와 proven semantic facts의 교차 검증이 필요 |
-| CA-03 / RoutePartition | lowering.rs의 partition_plan은 ValueOnly/PureArray/SemanticCheck/RuntimeSemantic가 같은 연속된 op를 구간으로 묶는다 | **RouteBoundary verifier 미구현(M3→M4).** 구간 class/range만으로 source op 전수 대응, live-in/out, zero-result Check, effect-live/order edge, guard-before-effect, commit frontier, replay 안전성은 증명되지 않는다 | source A3 모든 op의 정확한 대응(적법한 rewrite/fusion에는 witness 필요), Check·effect·name version·order edge 보존, cross-region consumer readiness를 검증. Check 유실, 순서 반전, dangling live-in, stale version, effect 이후 replay 위조 시 거부 |
-| CA-04 / Physical Representation | src/physical.rs에는 registry/slot/generation BufferId, read-only BufferLease, checked span을 가진 PhysicalArray가 있다. tests/physical.rs는 lease 생존, stale ID, alias, 음수 stride, transpose, zero/singleton axis를 검증 | **M4 구현 미완료.** main에는 plan-time PlanBufferId/PhysicalViewId, mutable output ownership, last-use/reuse proof, PhysicalPlan verifier, memory residency/ready/transfer plan이 없다. 현재 BufferId를 compiler slot으로 재사용하지 않는다 | buffer/view span overflow, 다른 ID 사이 alias, stale generation, overlapping mutable outputs, dangling Return, temporary early free, OOM cleanup과 reuse-after-free를 각각 독립 negative test로 검증. 쓰기·재사용은 증명 전 비활성 |
-| CA-05 / Rank·오류 | src/facts.rs의 RankFrameExecution은 ZeroFrameNeedsFill과 CellsPresent를 구분한다. logical_executor::execute_closed는 Check→Call의 closed-noun 순차 reference다 | **M4/M5 의미론 조건.** reference는 동적 NAME/state에 대한 전체 oracle가 아니다. 일반 CellApply를 uniform map으로 가정하거나 first-error 순서를 worker 완료 순서로 바꾸면 오류 | zero-frame 가상 fill cell, positive-frame empty cell, result-cell dtype/shape join, boxed/sparse, tolerance/fit, overflow·numeric reassociation, first J error, try/catch/effect를 C jsource+RustJ baseline과 비교. 불명확한 연산은 순차 유지 |
-| CA-06 / Device·memory·cost | TargetCapabilities는 CPU/GPU family와 feature를 제공한다. j_graph_work_depth.rs는 successful-path symbolic work/depth, j_graph_resource.rs는 logical resource 정보를 계산한다 | **M5 이후 구현 미완료.** 이 타입만으로 device placement ≠ memory placement, residency/BufferVersion, transfer/sync/timepoint, critical path/실측 비용을 표현·검증했다고 말할 수 없다 | 첫 Physical Plan은 단일 CPU/Host/zero-transfer로 충분. 이후 ready-before-read, copy-after-producer, transfer-before-free, stale version, memory capacity, cost Unknown!=0 및 실제 overlap 증명을 negative test로 확인 |
-
-**독립 교차 감사(두 경로, 정적 코드 검토):**
-
-- 정방향: logical_ir.rs → lowering.rs → physical.rs → facts.rs → j_graph_work_depth.rs, j_graph_resource.rs의 현재 API와 각 단계가 *실제로 보유하는 정보*를 대조했다.
-- 역방향: tests/logical_ir.rs, tests/lowering.rs, tests/physical.rs, logical_executor.rs가 이미 통과하도록 설계된 범위와 아직 부정 검증을 제공하지 못하는 *단계 간 관계*를 대조했다.
-- 두 검토의 일치된 결론은 **대규모 아키텍처 재설계 불필요, RouteBoundary 전체 coverage / guard discharge / PhysicalPlan verifier는 미완료**다. 기존 코드 테스트를 새로 실행하거나 통과 확인했다는 주장이 아니다.
-
-**지금 확정할 계약(실제 구현·새 IR 도입은 보류):**
-
-1. **A3/M3:** verified A3의 구조적 유효성, optimizer가 사용할 semantic witness/guard의 충족, selected physical plan의 전체 적법성을 세 단계로 분리한다. A3에 device/thread/memory layout을 넣지 않는다.
-2. **M3→M4 Route 경계:** A3 source op 전수 매핑, live-in/out, Check/effect/order/late-NAME, guard-before-effect와 commit/replay frontier를 별도의 *검증 결과(sidecar 또는 동등한 기존 route 계약)*로 소유한다. 해당 표현의 Rust 타입/새 계층은 현재 고정하지 않는다.
-3. **M4 Physical:** PlanBufferId와 런타임 BufferId, PhysicalViewId를 분리한다. view/span·buffer ownership/lease/last-use, selected realization, Check coverage, Return을 Physical verifier가 확인해야 한다. ExecutionDevice / MemorySpace / device-local schedule은 서로 다른 결정이다. M4는 CPU/Host/Sequential만 실구현해도 된다.
-4. **M5 이후:** ResourceEstimate, predicted CostEstimate, measured CostProfile, 성공 경로의 work/depth 및 오류/효과 경로를 분리한다. device-memory migration/async overlap은 명시적 의존성·실장치 증명 후에만 비용 선택에 반영한다.
-
-**결정 및 우선순위:** (1) M3의 원본 A3→Route Check/effect/witness 증거 의무 확정 → (2) M4의 CPU/Host/zero-transfer PhysicalPlan verifier·실제 native Add 경로 → (3) M5 배치·자원·비용 후보 → (4) M6+ 별도 재개된 GPU/비동기 실행. 설계 자체의 구조적 모순은 **발견되지 않았음**; 그러나 위 증거가 없을 때의 fail-closed 실행 경로는 반드시 필요하다. 기존 M2→M3→M4 우선순위, HE-01~09의 미완료 상태, 별도 CUDA 보류는 유지한다.
-
-##### M3→M4 Route-to-Physical 인계 계약 (2026-10-07, **설계만 완료 / 구현 없음**)
-
-**목적:** 위 §2.5.1의 `M3-RB/RB-01~08`과 이 §5.2.1의 `PhysicalPlan` verifier를 하나의 **증거 체인**으로 연결한다. M3가 J 의미의 적법성을 판단하고, M4가 **이미 허가받은 의미를 특정 buffer/view/kernel 순서로 실현해도 안전한지** 검증한다. M4가 누락된 Check/guard, Rank·오류 순서, name/version 증거를 새로 추측하여 M3 판정을 뒤집어서는 안 된다. M3의 합격이 M4의 실제 실행 성공을 보장하지도 않는다.
-
-**입력·출력·소유권 표(새 필수 IR이나 Rust 자료형을 확정하지 않는 개념 계약):**
-
-| 인계 항목 | M3가 제공·보증할 것 | M4가 독립적으로 검증·구체화할 것 | 불충분한 경우 |
-|---|---|---|---|
-| **H-01 원본 기준** | immutable source A3 identity, schema/primitive-registry, source op/`j_origin`, version 및 정당한 rewrite/fusion mapping | 받은 계획이 **같은 원본**에서 나온 것인지, selected physical op가 허용된 mapping에 매달리는지 대조 | stale/바뀐 증거를 사용하지 않고 plan reject |
-| **H-02 Route 확정** | region 전체 coverage, 각 region 선택 route 및 CPU/GPU/external target capability와 선정 이유; 단순 `legal_candidates` 목록과 다름 | 각 `Kernel`/`View`/`Materialize`가 선택된 recipe·target·region에 속하고 *진짜 구현된* realization인지 검사 | 미구현 native kernel/외부 route를 성공으로 위장하지 않고 다른 합법 route나 Unsupported |
-| **H-03 값 경계** | `ValueId`의 producer, region live-in/live-out, `Plan.result`, dtype/shape/rank·J-visible boxed/sparse와 value snapshot identity | plan-time `PlanBufferId`와 `PhysicalViewId` 바인딩, physical encoding·extent/stride/span, 최종 Return의 논리 dtype/shape/order와 input/output ownership 검증 | missing value, 모순된 backing/encoding/shape, dangling return reject |
-| **H-04 Check 의무** | 원본의 zero-result `SemanticCheck`마다 실행·검증된 증거에 의한 discharge·동등 guard 대체 **중 정확히 하나**, J error kind와 original order | 반드시 실행할 Check를 `PhysicalOp::Check` 또는 의미 보존 equivalent에 매핑. **discharged Check를 임의 재삽입하거나 누락된 Check를 추론하지 않음** | coverage/증거 불일치, duplicate/late Check, J error priority 변경 reject |
-| **H-05 효과·이름·Write** | `order_after` 및 effect/error edges, noun read snapshot vs late function NameRef, `Plan.write`(별도 commit), guard-before-effect 및 replay 경계 | 명시된 순서로 물리 Check/Kernel/Return/commit handoff. 첫 M4 pure CPU slice에서는 stateful commit을 **실행기 소유로 만들지 않음** | 증명 안 된 NAME/Write는 RuntimeSemantic 경로; effect 이후 재실행 금지 |
-| **H-06 Guard/실행 준비** | 각 witness 의존 입력 버전과 `GuardRequired` 의무, 평가 시점, 실패 시 합법한 fallback 및 commit frontier | 물리적 plan에서 guard가 해당 연산·효과보다 **먼저** 배치되고 그 실행·결과·binding freshness가 보장되었는지 검사 | `GuardRequired`를 `Verified/Ready`로 자동 승격 금지, 가드 없는 실행 불가 |
-| **H-07 데이터 의존성** | SSA def→use, region cross-value dependencies, Check/effect-first-error precedence와 effect-live edges | BindInput/alloc → Check → View/Materialize/Kernel → Return의 실제 use-before-def, buffer readiness, lease/last-use, overlap/reuse permission. 비동기면 completion edge 추가 | 순차 계획이라도 부적절한 재배열·조기 free·중복 쓰기 reject |
-| **H-08 표현·장치** | J-visible value type/shape/rank/representation 및 허용 target의 **제약**만 제공; source A3에는 device pointer/stride/physical memory 없음 | 실행 장치, 메모리 공간, device-local schedule과 buffer residency를 **각각** 선택. M4 = CPU/Host/Sequential/zero-transfer, M5+에서 transfer/ready/sync 확장 | GPU·외부 backend 또는 residency가 없으면 CPU/합법 fallback, 무근거 transfer 가정 금지 |
-| **H-09 비용·진단** | semantics/legality 결과와 선택 제약; cost 추정이 proof를 대신하지 않음 | physical feasibility/budget/peak bytes, predicted cost 및 선택 근거를 별도 기록, 실패 유형을 source op/region/plan buffer와 연결 | cost Unknown을 무료/실행 가능으로 취급하지 않고 선택 보류 |
-
-**승인 단계와 책임의 단방향성:**
-
-~~~text
-원본 source A3 (Plan::verify 성공 / 독립 의미론 권위)
-  → M3 Route candidate (partition_plan은 아직 후보 분석)
-  → M3 RouteVerified + [원본 연산/Check/Write/순서/guard/bridge 증거]
-      ├─ Rejected: 증거 없음 → 다른 합법 route / Unsupported
-      ├─ GuardRequired: guard와 안전한 실패 경로가 먼저 충족될 때까지 실행 불가
-      └─ Verified: 해당 region의 의미론·Route 적법성만 통과
-  → M4 Physical candidate (선택 recipe / buffer / view / ordered ops)
-  → M4 PhysicalVerified (타깃·storage·순서·resource·coverage 검증)
-  → RuntimeReady (동적 guard, input versions, 실제 lease, capacity 재확인)
-  → 실행 / 오류 / 자원 정리
-~~~
-
-`RouteVerified`, `PhysicalVerified`, `RuntimeReady`는 **개념적 승인 상태**이며 신규 enum/IR 구현 지시가 아니다. 정적으로 `Verified`여도 입력 name/version, guard, buffer lease 등이 실행 시 바뀌면 실행 전 재검증이 필요하다. 정당한 RuntimeSemantic/외부 route는 RustJ-native M4 physical executor를 **반드시** 거칠 필요가 없지만 동일한 경계 의미론 의무를 지켜야 한다.
-
-**검증기 책임 분할(중복 검증과 허위 위임 방지):**
-
-- **M3 Route 검증기:** 원본 A3와 후보 매핑, check coverage/discharge, 순서·오류·effect·Write/NAME, target semantics, guard ownership 및 representation-neutral bridge의 *합법성*을 인증한다. Physical stride·allocation 위치는 결정하지 않는다.
-- **M4 Physical verifier:** M3의 서명 없는 제안/단순 class를 실행권으로 간주하지 않는다. 승인된 source mapping·Check/guard/order obligations와 선택된 physical ops의 **정확한 연결**을 재대조하고, selected recipe·resolved CPU capability, checked affine bounds, buffer/version/ownership/lease, output ownership, temporal safety와 resource feasibility를 확인한다. J semantic proof를 스스로 만들어내지 않는다.
-- **Runtime admission/Executor:** 실제 name/input snapshot/guard outcome, lease generation/readiness, 장치 가능 여부를 **사용 시점**에 확인한다. verifier를 통과하지 않은 계획 실행, 관찰된 효과 뒤의 transparent replay, backend 내부 오류를 근거 없이 J Domain/Rank/Length로 바꾸기는 금지한다.
-- **Cross-route 책임:** 첫 native CPU slice 밖의 runtime/external 부분을 하나의 PhysicalPlan으로 강제로 합칠 필요는 없다. 다만 각 boundary handoff의 value/version/check/error/effect 계약은 통합 검증 기록으로 추적한다.
-
-
-##### H-K — A3 OpKind별 M3→M4 인계 규칙 (2026-10-07; 설계만)
-
-**구체적 공백:** 현행 `lowering.rs::route_operation`은 `Literal`, `ReadNoun`, `VerbReference`를 모두 `NoKernel`로, `partition_plan`은 그 연속 구간을 `RouteRegionClass::ValueOnly`로 합친다. 이 분류는 **실행 후보 grouping**이지 세 OpKind가 동일한 버퍼·호출·이름 의미를 가진다는 뜻이 아니다. M4 승인 여부는 region class뿐 아니라 원본 A3 **OpKind마다** 다르게 확인해야 한다.
-
-| 원본 A3 대상 | M3가 책임지는 증거 | M4가 할 수 있는 일 / 금지되는 일 |
-|---|---|---|
-| `Literal(value)` | 원본 payload, dtype/shape, producer OpId와 result ValueId, source origin | 지원하는 dense CPU literal은 읽기 전용 입력 버퍼로 바인딩 가능. 이를 항상 deep copy할 필요는 없고, 타입·Shape를 임의 변경할 수 없음 |
-| `ReadNoun {symbol,version}` | 원래 J read 시점과 noun snapshot, namespace/scope/버전, observable ordering | `ValueOnly`여도 literal로 간주하거나 나중 값으로 바꿔 읽지 않는다. 런타임 snapshot/guard가 없으면 합법한 RuntimeSemantic 경로에 남긴다 |
-| `VerbReference(Callable)` | FunctionEntity, function POS, primitive/derived callable identity와 동적 NAME lookup | J 함수 참조는 noun의 dense 배열 버퍼가 아니다. `NoKernel`만 보고 `BindInput`용 값이나 kernel operand로 취급 금지; 별도의 function semantics 지원 필요 |
-| `Basis { kind,payload,call }` | 원본 primitive/derived target·valence·Rank/CellApply·fact/error/effect, selected recipe 및 Check/guard 의무 | M3가 승인한 선택 target에 해당 recipe/실제 native 구현이 **존재할 때만** Kernel/View 계획 가능. `legal_candidates`나 `ReferenceSequential`만으로 native 준비 완료 주장 금지 |
-| `SemanticCall(call)` | 정규화되지 않은 호출 의미, dynamic binding, 효과/오류 | 현행은 RuntimeSemanticFallback. 별도의 동등성·지원 증거 없이 임의로 native Basis/Kernel로 승격 금지 |
-| `SemanticCheck(check)` | producer/liveness, zero-result constraint, 원본 error kind/span/order 및 실행·증명된 discharge·동등 guard 중 하나의 소유자 | output SSA가 없더라도 제거 금지. 실행 의무가 있으면 Check를 원래 순서에 반영; 증명된 discharge만 무실행 허용 |
-| `Plan.result / Return` | 마지막 result ValueId, logical type/shape/atom order, cross-region producer | 유효한 output ownership/lease로 Return. Return이 Write commit 완료라는 뜻은 아님 |
-| `Plan.write` (operations 밖) | symbol/value/previous/proposed/span/after와 commit/effect owner | 모든 op range를 포함해도 Write는 자동 포함되지 않는다. 초기 M4 pure slice가 assignment를 commit하거나 Write를 무시·반복 실행하는 일 금지 |
-
-**전역·국소 검증의 구분:** RB-01은 원본 A3 **전체**의 모든 operation과 별도의 Write 사건에 적용된다. 하나의 RustJ-native PhysicalPlan은 이 가운데 **M3가 승인한 native region**만 담당할 수 있다. 전역 coverage는 M3가, 각 native region의 선택 recipe/Buffer·Check·Return coverage는 M4가 책임진다. 다른 RuntimeSemantic/External region은 억지로 동일한 PhysicalPlan에 집어넣지 말고 경계 ValueId·ordering·effect와 연결한다.
-
-**인계 시 세 번 확인할 사실(새 필수 IR이나 데이터 계층 추가 없음):**
-
-1. **M3 RouteVerified:** immutable source A3의 원래 OpKind/Check/Write/ValueId/order와 region의 실제 연산이 일치하는가? GuardRequired는 실행 허가가 아니며 guard 위치·실패 경로를 확정해야 한다.
-2. **M4 PhysicalVerified:** 승인된 native op 각각에 실제 target-compatible recipe 및 물리 Bind/Check/View/Kernel/Materialize/Return 대응이 있는가? `PlanBufferId ≠ PhysicalViewId ≠ runtime BufferId`, affine span, lease, encoding, ownership/last-use가 증명되는가? M4가 M3의 의미 증거를 새로 만들어내지는 않는다.
-3. **RuntimeReady:** 실제 read/name snapshot, input version, guard outcome, lease generation 및 capacity가 **사용 시점**에도 유효한가? 실패하면 observable effect commit **이전**의 안전한 fallback만 허용하고, effect 이후 자동 replay 금지.
-
-**부정 검증 계획 (H-KV1~5; 실행 테스트 미작성):**
-
-- **H-KV1:** `1+2`에서 Literal/Kernel input 대응을 유지해야 함. `VerbReference`를 `ValueOnly`라는 이유로 dense `BindInput`으로 취급하거나 literal producer를 바꾼 경우 거부.
-- **H-KV2:** `a`의 snapshot/version/read 시점, `a=:1+2`의 별도 Write/after를 한 가지만 변형해 거부. 결과 Value만 맞고 Write가 유실돼도 거부.
-- **H-KV3:** `1 2+1 2 3`의 zero-result Length Check는 Call 전에 관찰되어야 함. Check를 버리거나 중복·후행 배치한 physical 계획 거부.
-- **H-KV4:** `future 3`의 SemanticCall을 새 의미론 증거 없이 native 실행으로 가장하거나 `ReferenceSequential` 후보만으로 native kernel 성공 주장 시 거부.
-- **H-KV5:** 같은 원본 A3가 CPU-native와 RuntimeSemantic으로 분할될 때 M3 global coverage와 M4 native-local coverage를 각각 검사; 중간 live-out, 첫 오류, effect-live, final Return 손실 거부.
-
-**상태:** H-K는 기존 H-01~09/HM-V0~V4를 OpKind별로 구체화한 **설계 수용 보조 규칙**이다. 별도 canonical IR, CPU Parallel 레이어나 runtime 구현을 요구하지 않는다. 실제 validator/negative test/차분 결과가 없는 동안 M3/M4/HE-01 완료 항목은 열린 상태로 유지한다.
-
-**검증 표본(각 정상이 확인된 후 불변조건 1개만 위조하는 계획):**
-
-| 사례 | 정상 인계 증거 | 거부·실패로 판정할 변형 |
-|---|---|---|
-| `1+2` | 원본 SSA value/literal → 선택 CPU Elementwise route → 별도 verified physical input/Return mapping | M3에 `ReferenceSequential` 후보만 있는데 M4가 구현되지 않은 native Add를 실행 가능이라고 승인; ValueId/PlanBufferId를 혼동 |
-| `1 2+1 2 3` | zero-result Length Check의 원본 provenance/order를 M3가 전달, M4가 Check→Kernel 이전 실행을 보장 | M3 Check는 승인했으나 M4 plan에서 삭제·중복·Call 뒤 배치; J Length 오류를 구현 오류로 바꿈 |
-| `1 2+3 4` | 입력 shape에 맞는 PrefixAgreement witness가 원본에 고정돼 있다면 합법적 Check discharge | input shape/NAME version 변경 후 과거 witness로 PhysicalVerified; 증거 없는 discharge를 M4가 자체 승인 |
-| `3 { 10 20 30` | Index Check 원래 오류 종류·우선순위와 물리 검사의 대응 | Check를 M4 materialize/Kernel 뒤로 옮기거나 Index 대신 Length로 변경 |
-| `a` 및 `a=:1+2` | name snapshot과 별도 Write event가 M3에 남고, 지원되지 않는 stateful 부분은 RuntimeSemantic 소유 | Return만 물리화하며 Write를 drop, speculative name read, committed assignment 이후 fallback replay |
-| 2D reverse/transpose / empty frame | 의미상 Shape/atom order와 zero-frame fill 의무를 M3가 소유, M4는 signed span/stride/encoding·복사 순서 확인 | 음수 stride OOB, zero-frame CellApply를 아무 계산 없이 결과형 가정, incompatible cell-result join |
-| 같은 source의 CPU/GPU/External 후보 | 공통 A3/guard/error 계약, 배치·storage contract는 route별로 독립 | CPU-only 테스트로 GPU/transfer Ready 주장, 준비되지 않은 메모리에서 read, 미승인 overlap/async error reorder |
-
-**인계 수용 테스트 순서 (테스트 작성·실행은 보류):**
-
-1. **HM-V0 정적 인터페이스:** M3-RB RB-V0~V2 승인 증거의 필드/원본 binding을 M4 입력 계약과 하나씩 대조한다. 누락·중복·stale op/Check/Write/guard, 다른 source의 승인 보고서 재사용을 차단한다.
-2. **HM-V1 타입·자원:** CPU/Host/no-transfer M4 후보의 `ValueId ↔ PlanBufferId ↔ PhysicalViewId ↔ BufferLease` 관계, affine span·encoding·ownership·last-use·output validity·OOM cleanup을 정적/실행 시점으로 나누어 확인한다.
-3. **HM-V2 순서·오류:** zero-result Check, observable effect/order, guarded fallback/commit과 첫 J 오류를 M3→M4→Runtime 세 지점에서 교차 검증한다. guard failure는 실행 전 대체 경로로만 넘긴다.
-4. **HM-V3 3자 차분:** 동일 원본 A3를 기준으로 jsource C(사용 가능할 때), RustJ semantic/reference 경로, native Physical 경로의 값/dtype/Shape/atom order/J error class/우선순위/관찰 state를 비교한다. C 또는 native 경로가 없다면 **미검증**, 대체 통과 처리하지 않는다.
-5. **HM-V4 단계 승인:** M3 `RouteVerified` 증거가 있더라도 별도 `PhysicalVerified`·`RuntimeReady`가 없으면 미승인. M4 완료는 구현된 native Add/Check 등을 통한 E2E와 negative tests가 실제 통과한 후에만; GPU/async/transfer는 M5·M6+ 별도 검증.
-
-**정리:** 별도 새 compiler layer는 필요하지 않다. ***M3는 의미론적 적법성의 증거를 소유하고 M4는 그 증거를 변경하지 않고 물리적으로 실현했는지 검증한다.*** 이 명세만으로 M3 검증기/M4 Physical Executor가 만들어졌거나 테스트가 PASS한 것은 아니다. §10의 M3-RB·M4 및 HE-01~09는 **설계 완료와 구현/검증 미완료를 계속 분리**한다.
-
-##### H-A — M3→M4 첫 CPU 경로 실행 승인 판정표 (2026-10-07; 명세만)
-
-**이 절의 역할:** 기존 H-01~09, H-K, HM-V0~V4의 반복이 아니라, 실제 `lowering.rs`의 `RouteDecision`/`RouteRegionClass`와 미래 M4 compiler-native CPU 경로 사이에 **실행 가능한 것과 단지 합법적 후보인 것**의 경계를 확정한다. 현재 `main`에는 `src/physical_plan.rs`가 없으며, `src/physical.rs`는 read-only 표현 기반이다. Draft PR #4의 제한적인 literal identity 코드를 완료된 native Add 실행기로 계산하지 않는다. 구현·테스트 추가 없음.
-
-**기본 승인 흐름(기존 단계의 판정 질문):**
-
-| 순서 | 확인 대상 | 승인하려면 | 증거 부족 시 |
-|---|---|---|---|
-| **A0: SourceA3** | 변환 전 원본 `logical_ir::Plan` | `verify()`, source/provenance와 original Check/Write/오류 의무를 고정하고 변환 후보와 독립 보관 | 손상된 원본/다른 registry → 거부 |
-| **A1: RouteVerified** | `partition_plan`이 분류한 모든 원본 op와 선택할 *특정* region | RB-01~08 coverage, source op/operand/live-in/out, Check 실행·proof discharge·guard 소유, Write/Name/error-order 및 region-wide capability 증거 | `NoKernel`·`NativeExecutionBasis`·`RuntimeSemanticFallback`이라는 분류 자체는 허가 아님 |
-| **A2: ExecutableRoute** | M4가 인수하는 native region | M3가 승인한 **구체적인** realization과 **실제 존재하는 CPU kernel/adapter**, dtype/rank/valence 및 guard 지원; `ReferenceSequential`라는 후보 이름만으로 native 구현을 추정하지 않음 | 유효한 semantic/reference route만 사용하거나 Unsupported. *native 실행 가능*으로 표시 금지 |
-| **A3: PhysicalVerified** | 물리 연산·버퍼·View·Check·Return | 허가된 region/source mapping과 1:1 또는 등가 증명 대응. BindInput/Check/Kernel/Materialize 순서, PlanBufferId≠BufferId, span/encoding/ownership/lease/last-use, CPU Host capacity 검증 | invalid physical plan은 실행 직전에 임의 보정하거나 J 오류로 바꾸지 않고 거부 |
-| **A4: RuntimeReady** | 실제 호출 시점 | input/name snapshot 버전 및 guard 판정, registry lease/generation, capacity·readiness 유효. effect 이전 대체 경로 존재 | stale/guard failure는 **effect 이전에만** 안전한 경로로 변경, commit 이후 자동 재실행 금지 |
-| **A5: AcceptedNativeE2E** | 출력과 관찰 결과 | 실제 compiler-native 결과·dtype·Shape·atom order·첫 J error/effect가 RustJ 순차 및 가능할 때 jsource 기준과 일치, 관련 부정 사례 테스트 통과 | A3 분석 통과, reference route 결과, 문서·테스트 소스 존재는 M4 완료 증거가 아님 |
-
-**같은 A3에서 계획을 구성하는 구체 추적 표본**
-
-~~~text
-J: 1+2
-  Source A3: Literal(1) → ValueId(0)
-             Literal(2) → ValueId(1)
-             Basis(Elementwise, Add) → ValueId(2), result=ValueId(2)
-  Route candidate: ValueOnly(리터럴 구간) → PureArray(Add 구간)
-  M3: 원본 Add, value 연결, PrefixAgreement witness/guard, Check 의무를 대조
-  현행 CPU Lowering: Elementwise의 ReferenceSequential 후보 존재
-  M4 실행 판정: 실제 compiler-native Add 구현/물리 검증/실행 결과 전에는 A2~A5 미승인
-
-J: 1 2+1 2 3
-  Source A3: 두 Literal → zero-result SemanticCheck(Length) → Basis(Add)
-  Route candidate: ValueOnly → SemanticCheck → PureArray
-  M3: Length Check와 Check→Call ordering, operand live-in을 전수 인계
-  M4: Check 실행 또는 독립 증명된 동등 대체 없이 Kernel 선실행 불가
-  기대 관찰: Length error가 원래 시점에 보고되어야 함. 수행되지 않은 물리 경로는 미검증
-
-J: a=:1+2
-  Source A3: 계산 op + 별도 Plan.write {symbol,value,previous,proposed,after}
-  M3: 계산 결과와 Write commit을 서로 다른 의무로 인계
-  M4: 순수 Add region만 인수 가능. 반환값 생성이 assignment commit을 뜻하지 않음
-  전체 문장 완료: 책임이 분명한 RuntimeSemantic/향후 effect owner 필요
-~~~
-
-**지원 상태 판정표:** 현재 코드에 `ReferenceSequential`, `GenericCellLoop`, `MetadataOrIndexReindex` 등 *등록된 후보*가 있다고 해서 CPU Physical Executor가 구현된 것이 아니다. `RouteDecision::NoKernel`은 literal/read/verb-ref가 **같은 종류의 값**이라는 뜻이 아니다(H-K 참고). `TargetCapabilities::gpu_generic()`의 **기능 묘사**는 실제 GPU 장치·런타임 가용성 또는 실행 허가가 아니다. M4-v0 정책은 CPU/Host/Sequential/zero-transfer만 선택하도록 제한하되, 그 제한을 상위 J 언어 의미론/Logical IR에 역류시키지 않는다.
-
-**검증 스펙 HA-V1~HA-V7 (실행은 보류):**
-
-| 테스트 ID | 정상 승인 조건 | 한 항목씩 바꾸어 확인할 거부 조건 |
-|---|---|---|
-| HA-V1 **A3→Route** | `1+2`의 op/region 커버리지, 정확한 result/operands, source origin | native Add op 유실, 두 region overlap, 타 A3 origin을 같은 것으로 가장 |
-| HA-V2 **후보≠커널** | `ReferenceSequential` 후보를 그대로 분석 후보로 표시하고 실제 native 구현이 존재할 때만 A2 승격 | 등록 후보만으로 PhysicalVerified/RuntimeReady/NativeE2E 선언 |
-| HA-V3 **Check→Kernel** | `1 2+1 2 3`의 원본 Length Check를 선행, `3 { 10 20 30`의 Index Check를 선행; first error class 보존 | Check 삭제/중복/후행 배치, Length↔Index 교체, Kernel-first schedule |
-| HA-V4 **witness/guard** | `1 2+3 4`처럼 원래 shape witness가 유효하면 Check 없이 가능; guard 필요 시 효과 전에 완료 | 바뀐 input shape/name version에 과거 증명 재활용, GuardRequired를 실행 승인으로 오인 |
-| HA-V5 **Name/Write** | `a`는 read snapshot 검증, `a=:1+2`는 별도 commit owner 확인 | `ReadNoun`을 상수 literal로 변경, late function lookup 조기 고정, `Plan.write` 삭제/중복·effect 후 replay |
-| HA-V6 **Storage/Return** | 음수 stride/transpose/빈 Shape의 논리 순서·encoding·span, output ownership/lease generation | `ValueId==PlanBufferId` 간주, 미등록/조기 해제 버퍼, overlapping writable view, 잘못된 atom order·dangling Return |
-| HA-V7 **cross-route** | native 부분과 RuntimeSemantic 부분의 M3 global coverage + M4 native local coverage, 오류/effect edge 보존 | native region만 정상이라 전체 표현식 승인, 외부 bridge 미구현 상태에서 M4 전체 실행 성공 주장, GPU 완료 허위 기록 |
-
-**구현 우선순위와 수용 상태:** (1) 기존 M3-RB validator와 독립 source A3 기준의 HA-V1/3/4/5 논리 검증 → (2) M4 선택 recipe의 *실제* 구현 여부·CPU buffer/Check/Return verifier(HA-V2/6) → (3) 독립 reference/jsource의 HA-V7 및 native E2E 수용 → (4) M5/M6의 device/memory/transfer 비용·비동기 검증. **이번에 완료한 것은 이 판정표와 테스트 설계뿐이며**, 현행 코드의 M3/M4/HE-01 실행 승인 체크박스는 그대로 열어 둔다.
-
-
-##### H-P — M3→M4 구현 인수 패킷과 물리 검증 체크리스트 계약 (2026-10-07; 문서 전용)
-
-**사용법:** 이 절은 H-01~09, H-K, H-A(A0~A5), RB-01~08의 **실행 시점 판정표**다. 구현·PR 심사 때 각 행에 입력 증거, 검증 결과, 부정 사례와 증거 링크를 채운다. 새 필수 IR, `TaskId` 런타임, 멀티프로세서 전용 planner를 요구하지 않는다. **미제공/unknown은 승인으로 간주하지 않는다.** M3가 의미론·선택된 route의 합법성 증거를 제공하며 M4는 이 증거를 재작성하지 않고 선택한 물리 실현을 검증한다. 전역 A3 coverage는 M3 소유, native region의 실현 coverage는 M4 소유다.
-
-**선행 단계가 전달해야 할 최소 패킷(개념적 묶음이며 새 Rust struct 요구 아님):**
-
-| ID / 책임 | M3/상위 단계가 인계할 증거 | M4가 반드시 확인할 사항 | 증거 부족·불일치 시 |
-|---|---|---|---|
-| **HP-01 원본** | 별도 보존한 검증된 원본 A3, schema/primitive registry, 원본 op ID·span·J graph origin, 변경/재작성 대응과 증명의 적용 범위 | 단순 source **문자열** 일치가 아니라 **실제 원본 op payload/facts/Check/Write와 selected region provenance**를 대조. digest 단독·바뀐 A3의 `verify()` 성공만으로 원본 동일성 승인 금지 | stale/위조 source proof 거부 |
-| **HP-02 범위** | 원본 모든 op·0-result Check·별도 `Plan.write`의 M3 global ownership, 각 region op 범위, live-in/out, final result, 교차 route bridge | 해당 native region에서 원본 op→physical task 관계가 **완전하고 증명된 매핑**인지 대조. 1:1을 강제하지 않으며 fusion/rewrite의 N:1·1:N 대응은 RB-01 등가 witness가 필수. 외부 구간과 live-out 누락 없음; `NoKernel`/`ValueOnly` 후보 분류만으로 binding 승인 불가 | coverage 누락·겹침·증거 없는 병합/중복 실행 거부 |
-| **HP-03 호출과 recipe** | 원본 `OpKind`, callable POS/valence, derived Rank/CellApply/fit/tolerance/numeric policy, selected route와 **구체적 구현** capability/target/guard | 등록된 `ReferenceSequential` 등의 *후보*와 실제 구현 kernel/adapter를 구분; 지원 dtype/rank/shape/valence·CPU target 검증 | 지원되지 않는 native kernel은 실행 금지 |
-| **HP-04 오류와 Check** | 각 `SemanticCheck`의 constraint/입력·기대 J error kind·원본 선후관계·execute / proven discharge / guard 중 유일한 owner | 결과 SSA 값이 없는 Check도 누락 금지. 실행/guard는 **해당 Check에 종속된** kernel·효과보다 앞서되, **원본에서 Check보다 먼저 발생해야 하는 다른 오류·효과보다 앞당겨서는 안 됨**. 입증된 discharge는 원본 error/order 조건과 불변인 입력 증거가 필요 | 누락·중복·선후관계·J error class 변조 또는 무근거 discharge 거부 |
-| **HP-05 Name/Effect/Write** | noun read 시점의 value/binding-version/scope/locale 증거, function nameref의 late lookup/POS, effect edges, `Plan.write` 별도 commit owner | source statement 전체의 사전 snapshot 금지, Name 변동 뒤 guard 재확인, `Return`을 assignment commit으로 오인 금지; effect 후 무조건 replay 금지 | 미확정 binding·commit owner는 native 승인 보류 |
-| **HP-06 logical value** | producer/def-use, dtype/rank/Shape/J atom order, boxed/sparse·0-cell Rank fill/prototype/assembly 의무, overflow·promotion·error witness | 물리화로 logical value가 사라지지 않으며 `ValueId`≠`PlanBufferId`≠runtime `BufferId`; 빈 배열 Shape와 J prefix frame 규칙 유지 | 변환 대신 semantic/reference route 또는 Unsupported |
-| **HP-07 계획 버퍼** | 값별 storage/materialization 요구, readonly/externally owned/persistent/temporary 여부, alias·donation 허용 증거, 메모리 상한 | buffer encoding·capacity·alignment·memory space·view span/stride/offset·generation·실제 backing alias, overlapping writable view, last-use 뒤 재사용만 허용 | bounds/alias/ownership 모순 거부, input 불변 유지 |
-| **HP-08 Task/Dependency** | 원본 data-flow·observable order·Check/guard/effect/first-error edge, 각 value ready와 region interface | `BindInput/Check/View/Materialize/Kernel/Return` 같은 task의 source 대응, 선행 task 및 ready 보장, DAG cycle/누락 edge 검출; 순차 CPU에서는 검증된 list order로 실현 가능 | 의존성 위반 task launch 거부 |
-| **HP-09 Completion/수명** | task 사용 집합, 각 reader/writer·transfer의 완료 필요조건, 반환·임시 소유권 | `submitted`≠`completed`; **모든** 사용 완료 전 buffer 재활용·외부 반환 금지. v0 동기 CPU는 task 완료 시 즉시 completion으로 간주할 수 있지만 그 근거를 명시; 비동기 경로는 explicit event/timepoint/lease 필요 | completion 증거 없는 재사용·비동기 실행 금지 |
-| **HP-10 동적 guard·fallback** | witness/proof provenance, 재검증할 runtime 조건, 해당 guard의 effect 이전 안전 지점, **기존에 적법한** 대체 route | guard 검사→사용 사이 stale version/shape 불가; failure 시 effect 이전에만 지원 route 선택; 부분 effect 이후 자동 재실행 금지. Backend 실패를 임의 J Domain/Rank/Length로 매핑 금지 | guard false면 native 실행 중지, safe fallback 없으면 명시적 실패 |
-| **HP-11 장치·자원** | `TargetContext`/resolved capability 및 device/runtime availability, resource limits, 비용/자원 추정의 구분 | 첫 M4: CPU 실행·Host memory·단일 순차·zero transfer만 승인. 미래 GPU/멀티코어는 device placement, memory space, transfer readiness, intra-device scheduling 독립 검사; resource feasible ≠ profitable | 미지원 device/transfer 경로 승인 금지 |
-| **HP-12 실행 결과 증거** | reference/Jsource 대응 가능 사례, 실행 route와 guard 기록, 검증할 dtype/Shape/atom·effect/error 결과 | 독립 RustJ semantic/A3 reference와 가능한 pinned J C reference, **실제 native route**의 3방향 비교; CI 명령·commit·artifact 연결 | 테스트 소스 존재/후보 선택만으로 M4 E2E 통과 주장 금지 |
-
-**최소 자료흐름/승인 프로토콜:**
-
-~~~text
-M3: immutable SourceA3 + selected RouteRegion + original op/Check/Write coverage
-    + live-in/out + semantic proof/witness/guards + observable order
-  -> RouteVerified  (A0/A1, 아직 실행 허가는 아님)
-M4: task(s) + planned buffer/view + def-use/dependency + readiness/completion
-    + selected real CPU realization + lease/ownership/resource checks
-  -> PhysicalVerified  (A2/A3, 특정 native region에 한정)
-Call time: name/input versions + guards + actual buffer generations/leases
-  -> RuntimeReady -> Execute -> observed result/error/effect -> independent comparison (A4/A5)
-~~~
-
-**최종 심사 시점과 판정(기존 A0~A5의 통과 기준; 새 gate 아님):**
-
-| 기존 gate / 판정 책임 | PASS에 반드시 필요한 증거 | FAIL/UNRUN 및 후속 |
-|---|---|---|
-| **A0 SourceA3 — Frontend/A3 소유** | 원본 `verify()` 및 스키마/registry/op payload·facts·span·origin의 **변경되지 않은 권위 스냅샷** 확인; 수정 후보는 원본을 덮어쓰지 않음 | 원본 부재·stale → FAIL; snapshot 대조 미실행 → UNRUN |
-| **A1 RouteVerified — M3 소유** | RB-01~08의 **전역** op·Check·Write 커버리지, 실현 가능한 선택 region, 모든 effect/error/guard/Name 및 bridge 의무의 증명 또는 안전하게 owner 지정. `GuardRequired`를 무조건 `Verified`로 표시하지 않음 | 누락·증거 없는 fusion·불명 capability → FAIL/UNRUN; 다른 적법 route만 가능 |
-| **A2/A3 ExecutableRoute/PhysicalVerified — M4 소유** | 실제 설치/구현된 selected realization + 해당 region의 증명된 source↔task 매핑, checked buffer/view/alias·의존성·동기 CPU 완료/자원 경계. A1 PASS를 M4 PASS로 복사 금지 | 물리 verifier·native kernel 미구현은 UNRUN/미지원. 미정의 buffer/edge·alias 위반은 FAIL |
-| **A4 RuntimeReady — 호출 시점 Runtime/Executor 소유** | 해당 **호출마다** live input/name/version·guard·lease/generation·readiness 재검증; effect 전 fallback 준비 여부 | guard false이면 native 미실행, effect 전 합법 route로만 분기. 이미 commit된 effect 뒤 retry 금지 |
-| **A5 AcceptedNativeE2E — 독립 차분 검증 소유** | 실제 native route 실행 기록과 semantic reference 및 가능한 pinned J C oracle의 **값·Shape·첫 J error·effect** 일치, positive/negative 테스트와 CI commit/run 기록 | reference/fallback 실행만 성공하거나 증거 미실행이면 UNRUN; 불일치 시 FAIL. C oracle 불가 항목은 불가 사유를 명시하고 3방향 검증 완료로 표시하지 않음 |
-
-**오류 분류:** 잘못된 물리 계획/미구현 capability/`GuardRequired`는 J 프로그램의 Domain·Rank·Length 오류가 아니다. 반면 적법한 J 실행에서 먼저 발생한 `SemanticCheck`는 원래 J error class와 순서를 유지한다. 증거의 존재(문서·테스트 정의)는 실행된 PASS와 별개다. 각 gate의 PASS는 **상위 gate PASS를 자동 승계하지 않는다**. `PhysicalVerified`는 특정 선택된 native region에 한정되며 전체 프로그램이나 GPU까지 확장하지 않는다.
-
-**단계별 부정 테스트 등록부(각 테스트에서 정확히 한 조건만 위조):**
-
-| 시험 | 기준 사례 / 실패 유도 | 기대 판정 |
-|---|---|---|
-| **HP-V01 source** | 같은 source 문자열로 literal atom, SSA facts, rank 또는 `j_origin` 변경 | 검증 실패. Draft PR #4의 `LiteralSourceWitness`는 **단일 literal v0의 부분적 보완**이지 일반적인 M3 원본 증명이 아님 |
-| **HP-V02 coverage** | `1+2` Add op 누락, `a=:1+2`의 독립 `Write` 유실, 중복 region | RouteVerified/PhysicalVerified 거부 |
-| **HP-V03 checks** | `1 2+1 2 3`의 Length Check 제거·후행·중복·Index로 변조 | Add 실행 전에 거부, 또는 정확한 J Length 오류 |
-| **HP-V04 guard/name** | `a`의 noun snapshot/version 변경, late verb NameRef 조기 고정, shape guard 값 변경 | revalidation 불합격; 효과 이전의 적법한 대체 경로만 허용 |
-| **HP-V05 buffer/view** | **정상 대조군:** 유효한 음수 stride·singleton 0-stride·빈 Shape·read-only alias. **각각의 위조군:** 실제 span 범위 이탈, stale generation, 잘못된 encoding, 겹치는 독점 write, 불법 last-use 재활용 | 합법적인 stride·빈 Shape를 거부하지 않음; bounds/alias/수명 위반만 거부 |
-| **HP-V06 dependency** | Check/guard→Kernel, producer→reader, previous effect→commit edge 하나 삭제하거나 순환 추가 | plan verifier 거부, arbitrary first-error 노출 금지 |
-| **HP-V07 completion** | 비동기 copy/kernel을 enqueue만 하고 입력 release, reader 완료 전에 재사용 | 사용 가능·재활용 거부; 실제 completion 이후만 허용 |
-| **HP-V08 replay/error** | J error가 가능한 작업의 순서 뒤집기, effect commit 뒤 guard failure fallback 재실행 | first-error/effect order 보존 실패로 거부, 중복 effect 금지 |
-| **HP-V09 baseline** | 닫힌 literal identity와 이후 실제 구현한 순차 CPU 단일 op의 차분 비교. Boxed/sparse·Rank zero-frame처럼 **그 시점 native 구현에서 미지원**인 정당한 J 입력은 semantic/reference fallback으로 별도 검사 | native 지원/미지원 정확 분류; semantic fallback 자체는 J 성공이어도 native E2E 승인으로 세지 않음 |
-
-**증거 기록 양식(구현 시 각 gate마다 1건):** `gate ID | source A3 revision/schema/registry | source op/region IDs | M3 proof·guard owner | chosen recipe/capability | physical task/dependency/buffer/view IDs | runtime version/completion/effect frontier | positive/one-invariant-negative test IDs | CI commit/run·reference artifact | PASS/FAIL/UNRUN | 남은 예외`. `UNRUN`은 PASS가 아니다.
-
-**현재 상태/우선순위:** `main`은 M3 RouteBoundary와 M4 full native verification을 아직 갖추지 않았다. Draft [PR #4](https://github.com/yunskim/RustJ/pull/4)의 제한된 literal identity 경로·source witness·CI 성공이 있더라도 Check, 실제 Add, 전체 source coverage, completion/비동기, GPU 지원을 증명하지 않는다. 먼저 **HP-01~06·08·10의 순차 CPU 의미/검증 계약**을 실현하고 HP-V01~04/06/08을 확인한다. 그 다음 실제 CPU Kernel과 HP-07/09 자원·수명 검증을 추가한다. HP-09의 비동기 completion, transfer, multi-device/worker scheduling은 이종 실행 단계에서 확장한다. M4-v0는 full async scheduler를 필수 선행조건으로 하지 않는다.
-
-##### 현재 코드와의 대응
-
-현재 `src/physical.rs`는:
-
-~~~text
-BufferRegistry / BufferLease / runtime BufferId
-checked read-only affine PhysicalArray
-shape / strides / offset / encoding validation
-~~~
-
-을 제공하는 **G1 representation foundation**이다. 아직 `PhysicalPlan`, plan-time buffer slot, planner, physical executor가 아니다. `logical_executor.rs`도 A3 semantic/reference executor이지 Physical Executor가 아니다.
-
-##### 구현 순서 — 한 번에 한 의미 + 한 verifier/test
-
-1. plan-time `PlanBufferId`/`PhysicalViewId`와 empty plan verifier
-2. `BindInput + Return`만으로 identity plan E2E
-3. `View` + span verifier, transpose/reverse metadata-only 회귀
-4. `Check` + J error class/order regression
-5. `Kernel` 한 종류(Add) + selected lowering capability verification
-6. `Materialize` + logical-order copy/ownership test
-7. last-use + reuse witness, alias negative tests
-8. 여러 op를 연결한 verified Logical IR → PhysicalPlan → CPU result differential test
-
-이 순서는 G4를 구현할 때의 최소 vertical slice이며 full GPU resource model을 선행 조건으로 만들지 않는다.
-
-### 5.3 RustJ-native Executor
-
-이 절은 Route A에만 적용한다. RustJ-native Executor는 이미 정해진 Physical Plan을 수행한다. 외부 compiler/runtime route는 각 시스템의 executor/runtime가 자체 lower-level scheduling을 수행할 수 있다.
-
-Executor가 다음을 다시 판단해서는 안 된다.
-
-- J rank 의미
-- hook/fork 의미
-- fusion 여부
-- layout 선택
-- device 선택
-- buffer reuse legality
-
-Physical Plan에서 비동기 실행을 허용할 경우 dependency는 implicit host order에 기대지 않고 `AsyncToken/Timepoint` 또는 동등한 explicit edge로 표현한다. resource의 사용 가능 시점과 lifetime은 이 timeline과 연결한다. IREE Stream의 timepoint/resource model과 MLIR Async의 explicit dependency token이 참고 모델이다.
-
-### 5.4 실행 경로는 하나가 아니다
-
-`Logical Array IR`을 만든 이후 반드시 RustJ의 Physical Planner를 거쳐야 하는 것은 아니다.
-
-#### Route A — RustJ native
-
-```text
-Logical Array IR
-  → RustJ Logical Optimizer
-  → RustJ Physical Planner
-  → Physical Plan
-  → RustJ Executor
-```
-
-장점:
-
-- J-specific semantics와 실험적 hardware model을 가장 직접적으로 제어
-- reference/bootstrap path
-- external compiler와 결과 비교 가능
-
-#### Route B — MLIR
-
-```text
-Logical Array IR
-  → RustJ-to-MLIR adapter
-  → tensor/linalg/arith/scf
-  → vector/gpu/memref
-  → LLVM / NVVM / ROCDL / SPIR-V
-  → execution
-```
-
-MLIR Linalg는 generic indexing map/iterator semantics를 이용해 tiling, fusion, vectorization, loop lowering, library/intrinsic lowering을 제공하도록 설계되어 있다. RustJ의 `IterationDomain + AccessRelation`은 이 계층으로 내리기 좋은 형태를 목표로 한다.
-
-RustJ가 MLIR의 최적화 passes를 재구현할 이유가 없다. 다만 J의 observable semantics를 위반할 수 있는 reassociation, error-order 변경 등의 lowering은 adapter가 막거나 필요한 attributes/guards를 제공해야 한다.
-
-#### Route C — StableHLO / OpenXLA-compatible subset
-
-NN/tensor 중심의 일부 LogicalOp은 StableHLO로 자연스럽게 표현될 수 있다.
-
-```text
-Logical Array IR subset
-  → StableHLO
-  → XLA / IREE / compatible compiler
-```
-
-StableHLO에는 token 기반 side-effect ordering, send/recv, side-effecting `custom_call` 같은 기능이 존재한다. 그러나 이것이 arbitrary J state/effect/error semantics 전체를 표현한다는 뜻은 아니다. J-specific entity, boxed semantics, unusual numeric/error ordering, 지원되지 않는 effect/resource model은 이 route에 억지로 넣지 않는다.
-
-필요하면 StableHLO `composite`나 `custom_call` 계열 escape hatch를 사용할 수 있지만, 그것이 semantic contract를 숨기는 수단이 되어서는 안 된다. adapter는 effect/token mapping을 명시적으로 검증한다.
-
-#### Route D — Direct external library/kernel
-
-```text
-LogicalOp / PhysicalRegion
-  → verified library mapping
-  → BLAS / FFT / vendor NN library / custom kernel
-```
-
-library call은 하나의 backend realization이며 primitive identity와 분리한다.
-
-### 5.5 외부 IR을 사용할 때 RustJ가 끝까지 책임지는 것
-
-외부 compiler에 넘긴다고 해도 다음 책임은 RustJ에 남는다.
-
-- J source semantics
-- rank/cell/frame/agreement
-- primitive/derived-verb identity의 올바른 해석
-- dtype/promotion/error contract
-- effects/alias legality
-- numeric relaxation/reassociation 허용 여부
-- dynamic shape guard
-- external lowering precondition
-- unsupported case detection
-- provenance와 differential validation
-
-반대로 register allocation, instruction selection, generic tiling/vectorization, machine-code generation처럼 이미 성숙한 외부 compiler가 더 잘하는 부분은 위임할 수 있다.
-
-#### 5.5.1 External adapter boundary contract
-
-external adapter는 RustJ semantic IR의 대체물이 아니라 **verified RouteRegion/Logical IR의 projection**이다. 첫 실제 MLIR/StableHLO/ArrayFire/library adapter를 구현하기 전에 모든 adapter가 공통으로 만족해야 할 boundary를 고정한다.
-
-입력 계약:
-
-~~~text
-ExternalAdapterInput
-  RouteRegion
-    live_in / live_out
-    ordered operations / SemanticChecks
-    effect/error edges
-    provenance
-  discharged legality evidence / guards
-  resolved TargetContext
-  logical representation requirements
-~~~
-
-adapter는 unresolved legality를 backend optimizer가 알아서 해결할 것이라고 가정하지 않는다.
-
-capability query는 최소 다음 축을 분리한다.
-
-~~~text
-AdapterCapability
-  operation / ExecutionBasis / valence
-  dtype classes
-  rank / shape constraints
-  dynamic-shape support
-  representation / layout preconditions
-  numeric/tolerance/reassociation policy
-  effect/token support
-  error/check representation
-  alias / mutation contract
-  async / completion semantics
-~~~
-
-`supports Add` 하나로는 충분하지 않다. 예를 들어 같은 Add라도 rank/cell mapping, dtype promotion, overflow/error semantics, layout/alias requirement가 다르면 다른 capability query가 필요할 수 있다.
-
-출력은 단순 external module bytes가 아니라 RustJ가 검증할 수 있는 projection record를 포함해야 한다.
-
-~~~text
-ExternalRegionPlan
-  adapter_id / adapter_schema_version
-  source RouteRegion + A3 provenance
-  translated external operations/module
-  host-side checks retained
-  mapped effect/token edges
-  BridgeRequirements
-  external input/output handles
-  completion / ownership contract
-  unsupported/compile-failure classification
-~~~
-
-##### SemanticCheck / error mapping
-
-각 A3 `SemanticCheck`는 다음 중 하나여야 한다.
-
-1. external launch 전에 RustJ host/native side에서 원래 순서대로 실행,
-2. external IR이 **같은 J-visible error class와 precedence**를 보장할 수 있을 때 명시적으로 lowering,
-3. 그렇지 않으면 해당 region을 external route에서 거부.
-
-backend assertion/trap을 무조건 J Domain/Rank/Length error로 바꾸지 않는다. external compiler crash/unsupported/kernel launch failure도 J semantic error가 아니다.
-
-##### Effect / token mapping
-
-- pure region은 token 없이 projection할 수 있다.
-- J-visible write/I/O/state ordering이 있는 region은 backend가 equivalent token/resource ordering을 표현할 수 있을 때만 projection한다.
-- StableHLO token/custom_call 같은 escape hatch가 존재한다는 사실만으로 arbitrary J effect support를 선언하지 않는다.
-- host-side effect와 external async operation이 섞이면 completion token이 §2.5.1 RouteBoundary와 §3.9.4 commit frontier에 연결되어야 한다.
-
-##### Representation bridge / ownership
-
-adapter는 J logical value를 backend layout과 동일시하지 않는다.
-
-~~~text
-A3 Logical Value
-  ↓ BridgeRequirement
-Physical/External bridge lowering
-  ↓
-external tensor/array/handle
-  ↓ completion + ownership
-A3 live_out / next RouteRegion
-~~~
-
-row-major/column-major, dense/sparse encoding, device memory, alignment, zero-copy 가능성은 adapter precondition/bridge/Physical Plan 책임이다. semantic dtype/shape/order를 layout에 맞춰 바꾸지 않는다.
-
-##### Round-trip verifier
-
-adapter output은 최소 다음을 검증할 수 있어야 한다.
-
-- input RouteRegion의 모든 semantic operation이 translated op, host-side check, explicit bridge/effect action 중 정확한 대응을 가진다.
-- live-in/out logical dtype/shape/rank/order contract가 projection 전후에 일치한다.
-- dropped/reordered SemanticCheck/effect/error edge가 없다.
-- adapter capability/witness가 실제 emitted external form의 requirement와 일치한다.
-- external output handle의 ownership/completion이 다음 region이 사용하기 전에 확정된다.
-- source A3 op/J Graph/source span으로 provenance를 역추적할 수 있다.
-- unsupported form은 partial external module을 실행 가능한 성공 plan으로 반환하지 않는다.
-
-이 verifier는 external compiler 자체의 optimizer correctness를 재증명하는 것이 아니라, **RustJ가 넘긴 의미와 adapter가 선언한 projection 사이의 계약**을 검증한다.
-
-##### Failure classes
-
-~~~text
-AdapterUnsupported
-  semantic/capability/precondition상 이 route를 만들 수 없음
-
-AdapterCompileFailure
-  backend compiler/API가 plan 생성에 실패
-
-AdapterRuntimeFailure
-  launch/execution/completion infrastructure 실패
-
-JSemanticError
-  RustJ SemanticCheck/operation contract가 정의한 실제 J error
-~~~
-
-앞의 세 항목을 임의로 `JSemanticError`로 재분류하지 않는다. 실행 전 failure이면 §3.9.4에 따라 verified alternate route를 선택할 수 있지만, observable effect/transfer commit 뒤에는 자동 replay하지 않는다.
-
-##### 첫 adapter 구현 gate
-
-- 하나의 small pure-array region만 지원해도 되지만 capability matrix를 명시한다.
-- unsupported dtype/rank/shape/layout가 fail-closed인지 test한다.
-- host-side SemanticCheck가 external launch보다 먼저 같은 error를 내는지 differential test한다.
-- representation copy/view bridge가 logical atom order를 보존하는지 test한다.
-- output ownership/completion 후에만 consumer region이 접근하는지 test한다.
-- adapter plan에서 source provenance가 round-trip되는지 test한다.
-- external backend를 바꾸어도 같은 verified Logical IR의 J result/error가 유지되는지 비교한다.
-
-현재 **실제 production external adapter가 이 계약을 완료했다는 뜻은 아니다.** M6 이전에는 이 절이 implementation gate 역할만 한다.
-
-### 5.6 외부 IR 선택 원칙
-
-하나의 외부 IR에 전체 RustJ를 맞추지 않는다.
-
-- **MLIR**: 가장 일반적인 multi-level lowering 후보. custom dialect도 가능하고 Linalg/Vector/GPU/LLVM/SPIR-V 등으로 점진 lowering 가능.
-- **LLVM IR**: CPU 및 low-level codegen target. J의 high-level array semantics를 직접 담는 주 IR로 사용하지 않는다.
-- **SPIR-V**: Vulkan/OpenCL 계열 compute target용 low-level portable binary IR.
-- **NVVM / ROCDL**: NVIDIA/AMD-specific LLVM-level GPU lowering.
-- **StableHLO**: ML/tensor op subset의 portable high-level interchange. J 전체 semantic IR의 대체재로 보지 않는다.
-
-external route의 존재 때문에 RustJ Logical IR을 외부 IR의 최소공배수로 축소하지 않는다. **RustJ IR이 더 풍부하고, adapter가 필요한 subset을 projection하는 구조**를 유지한다.
-
-
-
-### 5.7 Logical IR은 verifier·interface·version 경계를 가진다
-
-Logical Array IR이 여러 route의 compiler boundary라면 단순 Rust struct 집합으로 끝내지 않는다.
-
-#### 5.7.1 Verifier
-
-각 operation은 생성/변환 후 최소 다음을 검증할 수 있어야 한다.
-
-```text
-structural verifier
-type/dtype verifier
-rank/shape verifier
-region/block/terminator verifier
-effect/token verifier
-constraint/witness verifier
-op-specific semantic verifier
-```
-
-invalid IR을 downstream optimizer가 추측해서 고치게 하지 않는다.
-
-#### 5.7.2 Capability interfaces
-
-분석/변환은 concrete op 이름의 거대한 switch보다 capability interface를 우선한다.
-
-```text
-ShapeInference
-AxisAndIterationSemantics
-AccessPattern
-EffectSemantics
-AliasSemantics
-SpeculationSemantics
-TilingCapability
-BufferizationCapability
-ExternalLoweringCapability
-```
-
-모든 op가 모든 interface를 구현할 필요는 없다. interface가 없으면 해당 optimization/route가 conservative하게 거부되거나 fallback 후보를 찾는다.
-
-#### 5.7.3 Canonicalization과 rewrite provenance
-
-canonicalization은 semantic-preserving rewrite만 포함한다. J-specific structure를 없애는 rewrite와 target-specific optimization을 같은 canonicalization 단계로 섞지 않는다.
-
-각 nontrivial lowering/rewrite는 가능하면 source/semantic origin을 추적하여 differential debugging이 가능하게 한다.
-
-#### 5.7.4 IR serialization/versioning
-
-현재 개발 단계에서는 RustJ Logical IR의 장기 binary compatibility를 약속하지 않는다. 그러나 외부 tool/process와 IR을 교환하기 시작하면 schema version을 명시한다.
-
-```text
-IrSchemaVersion
-PrimitiveRegistryVersion
-producer/compiler version
-feature set
-```
-
-portable artifact를 만들 경우 text/debug syntax와 portable serialization contract를 분리하고, version upgrade/downgrade 또는 unsupported-version 진단을 제공한다.
-
-MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable artifact 방식이 참고 모델이다. compatibility를 약속하기 전에도 **version field와 verifier를 처음부터 두는 것**이 migration 비용을 줄인다.
-
-#### 5.7.5 Cross-stage negative verifier matrix
-
-positive E2E test만으로는 compiler boundary를 보호할 수 없다. 각 stage는 “정상 plan이 통과한다”뿐 아니라 **그 stage가 책임지는 잘못된 상태를 반드시 거부한다**는 negative matrix를 가진다.
-
-| Stage / verifier | 반드시 거부해야 하는 forged/invalid state | 현재/계획 상태 |
-|---|---|---|
-| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.10`와 exact match |
-| rewrite candidate `verify` | stale source span/basis, unregistered rule/witness mismatch, replacement DAG forward reference, fact-rule mismatch, output semantic facts drift | **현재 존재** |
-| scan/fusion analysis verifier | forged source order, unsupported rule version, missing/incorrect witness, external-use/retention/fanout drift, candidate를 근거 없이 `selected`로 위조 | **현재 일부 존재**; proof discharge/selection verifier는 future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.6`와 exact match |
-| CandidateEvidence / SelectionPlan | stale graph/version evidence, required proof Unknown인데 Selected, Illegal candidate 선택, overlapping incompatible candidates 동시 선택 | **planned** — §4.1.4 |
-| RouteRegion / RouteBoundary | missing live-in/out, value-dead but effect-live dependency drop, SemanticCheck 중복/누락/순서변경, region-wide capability 미증명, guard가 effect 뒤에 배치, bridge requirement 누락 | **planned** — §2.5.1 |
-| PhysicalPlan | invalid plan buffer/view/op id, use-before-bind, view span overflow, selected kernel capability mismatch, unordered Check, unproved writable overlap/reuse, dangling Return | **planned M4** — §5.2.1 |
-| ExternalRegionPlan | source op 누락, check/effect edge drop, declared capability와 emitted op 불일치, incomplete output completion/ownership, unsupported partial module을 success로 표시 | **planned M6** — §5.5.1 |
-
-negative test 이름과 타입은 구현과 함께 정하되, **검증 책임 자체는 stage contract의 일부**다. downstream이 invalid upstream artifact를 관대하게 보정하는 식으로 책임을 이동하지 않는다.
-
-cross-stage forged test의 기본 패턴:
-
-~~~text
-valid source
-  ↓ build valid artifact
-clone artifact
-  ↓ mutate exactly one invariant
-stage.verify() must fail
-  ↓
-error identifies the violated boundary
-  ↓
-no later planner/executor is invoked
-~~~
-
-한 test에서 여러 invariant를 동시에 깨뜨리지 않는다. 어느 verifier가 어떤 invariant를 소유하는지 분명하게 유지한다.
-
-#### 5.7.6 Serialization / schema migration policy
-
-현재 RustJ의 J Graph/A3는 주로 in-process compiler artifact이며 장기 portable serialization compatibility를 약속하지 않는다. 현재 verifier는:
-
-~~~text
-J Graph schema 0.10      exact match required
-A3 schema 0.6           exact match required
-PrimitiveRegistry       current REGISTRY_VERSION exact provenance required
-~~~
-
-를 기본으로 한다. **minor version이 다르다고 자동 호환으로 간주하지 않는다.** 외부 artifact reader가 생기기 전에는 exact-match fail-closed가 올바른 정책이다.
-
-향후 저장/교환 format을 만들 때 다음 정책을 사용한다.
-
-1. **Decode와 migrate를 분리한다.**
-   - wire/file schema를 먼저 안전하게 decode한다.
-   - source version별 explicit migration function이 있을 때만 current in-memory schema로 변환한다.
-   - 알 수 없는 field/op/rule을 추측해 current 의미로 읽지 않는다.
-
-2. **upgrade는 explicit chain만 허용한다.**
-
-~~~text
-v0.n artifact
-   ↓ decode with v0.n schema
-migrate_0_n_to_0_n1
-   ↓
-...
-   ↓
-current schema
-   ↓
-current verifier
-~~~
-
-migration 결과도 반드시 current verifier를 통과해야 한다.
-
-3. **downgrade는 lossless writer가 있을 때만 허용한다.**
-   - 새 semantic field/op/effect를 옛 schema가 표현하지 못하면 downgrade를 거부한다.
-   - field를 조용히 drop해서 옛 artifact를 만들지 않는다.
-
-4. **PrimitiveRegistryVersion mismatch는 schema mismatch와 별도다.**
-   - primitive ID/contract mapping migration이 명시되어 있지 않으면 reject한다.
-   - spelling이 같다는 이유만으로 semantic registry version을 무시하지 않는다.
-
-5. **compiler version은 provenance, schema/registry가 compatibility key다.**
-   - compiler version이 다르더라도 schema/registry+migration contract가 같을 수 있다.
-   - 반대로 같은 compiler version 문자열만으로 compatibility를 보증하지 않는다.
-
-6. **rule/witness registry도 versioned provenance를 유지한다.**
-   - rewrite/fusion/scan witness meaning이 바뀌면 stale cached candidate를 재사용하지 않는다.
-
-7. **PhysicalPlan portable cache는 별도 schema다.**
-   - Logical IR schema와 같은 version으로 묶지 않는다.
-   - target architecture/device/runtime/capability fingerprint를 함께 요구한다.
-   - device-specific cached plan miss는 J error가 아니라 cache/route miss다.
-
-8. **unsupported-version diagnostics는 semantic J error와 분리한다.**
-   - `UnsupportedSchema/Registry/Migration` 계열 compiler diagnostic으로 보고한다.
-   - Domain/Rank/Length 같은 J error로 위장하지 않는다.
-
-pre-1.0 개발 단계에서는 schema를 자주 올릴 수 있다. 그 대신 version bump 없이 semantic field meaning을 바꾸는 것을 금지한다. portable artifact compatibility를 공식 약속하기 전에도 이 규율을 지킨다.
-
----
-
-<a id="logical-physical-array-model"></a>
-
-## 6. 논리 배열과 물리 배열 — 핵심 architecture decision
-
-### 6.1 논리 J noun, boxed, sparse와 verb
-
-dense noun의 extensional value는 기본적으로 다음으로 본다.
-
-```text
-DenseJArray
-  atom type
-  shape
-  ordered atoms / logical value
-```
-
-그러나 current jsource와의 semantic compatibility를 위해 “모든 noun = type + shape + flat atoms뿐”이라고 고정하지 않는다.
-
-**boxed**는 physical encoding이 아니라 J의 semantic atom/type 구조다.
-
-```text
-BoxedJArray
-  shape
-  ordered boxed atoms
-    each atom -> J value
-```
-
-실제 backend가 box를 pointer, handle, arena index 등으로 표현하는 것은 physical 문제다.
-
-**sparse**도 단순한 backend compression format이 아니다. J의 `$.`와 sparse type/operations가 sparse representation을 관찰하며, sparse axes와 sparse element(fill)가 의미에 참여한다.
-
-```text
-SparseJArray
-  logical atom type
-  shape
-  sparse_axes
-  sparse_element
-  sparse index/value semantics
-```
-
-dense와 sparse가 같은 extensional mathematical array를 나타낼 수 있어도 J 프로그램이 sparse representation을 관찰할 수 있으므로 semantic representation class를 보존한다.
-
-따라서 noun semantic model은 개념적으로:
-
-```text
-JNoun
-  value/type/shape semantics
-  semantic representation:
-    Dense
-    Boxed
-    Sparse(SparseSemantics)
-    other J-visible noun kinds as implemented
-```
-
-이다.
-
-verb는 noun array를 입력받아 noun array를 반환하는 array transformer이며, J Semantic Array IR에서 first-class semantic entity로 표현한다. verb의 hook/fork/train/modifier composition은 semantic analysis 전에 보존한다.
-
-다음은 논리 J noun의 semantic identity가 아니다.
-
-- stride
-- offset
-- physical tile layout
-- CPU/GPU device
-- byte alignment
-- sharding
-- CUDA block/thread
-- concrete sparse backend format(CSR/COO 등)
-
-### 6.2 ValueId와 BufferId
-
-`ValueId`와 `BufferId`는 다르다.
-
-- `ValueId`: 계산의 논리 결과
-- `BufferId`: 특정 물리 저장 공간
-
-하나의 ValueId가 CPU와 GPU의 여러 representation을 가질 수 있다.
-
-반대로 수명·alias·effect 조건이 검증된 여러 ValueId가 같은 BufferId를 재사용할 수도 있다. Logical ArrayValue가 존재한다고 별도 buffer가 필요한 것은 아니다. view, fused-away intermediate, rematerialized value의 실제 저장과 reshape/transpose/reverse/slice의 copy 여부는 downstream planner가 결정한다.
-
-### 6.3 PhysicalArray
-
-개념 모델:
-
-```rust
-PhysicalArray {
-    storage / buffer,
-    shape,
-    strides,
-    offset,
-    encoding,
-    placement,
-    layout,
-}
-```
-
-현재 `src/physical.rs`에는 다음 G1 기초가 구현되어 있다.
-
-- scoped/generation `BufferId`
-- `BufferLease`
-- CPU backing registry
-- dtype/encoding 확인
-- signed strides / offset
-- checked address span
-- empty/scalar 처리
-- read-only affine `PhysicalArray`
-- standard-layout 판정
-- logical slice의 제한적 노출
-
-### 6.4 CpuStorage의 위치
-
-현재 `CpuStorage<T>`의 Inline / Owned / Shared 구조는 버리지 않는다.
-
-장기적으로는 J semantic Value의 유일한 저장 방식이 아니라 **CPU backend physical storage**로 재배치한다.
-
-```text
-ValueId
-  ↓
-Physical representation
-  ↓
-Storage
-  ├─ CpuStorage
-  ├─ CudaStorage
-  ├─ MetalStorage
-  └─ ...
-```
-
-#### 6.4.1 현재 구현 상태와 완료 조건
-
-Logical/Physical Array 분리는 **아키텍처 결정으로는 확정**됐지만 runtime representation까지 완전히 이행된 상태는 아니다.
-
-현재 상태:
-
-- [x] Logical execution `ValueId`와 physical `BufferId`를 별도 identity로 둔다.
-- [x] `PhysicalArray`가 buffer/stride/offset을 소유하고 logical IR에는 이 정보를 넣지 않는다.
-- [x] 같은 logical atom order를 서로 다른 physical stride/offset/backing으로 표현할 수 있다는 회귀 테스트를 둔다.
-- [x] GraphFacts는 physical stride/layout/device를 소유하지 않는다.
-- [ ] runtime `Value`의 dense payload가 아직 `CpuStorage`를 직접 포함한다. 이는 전환기 구현이며 최종 Logical Array abstraction으로 간주하지 않는다.
-- [ ] dense logical value와 CPU/GPU backend storage 사이의 explicit representation adapter/handle 경계를 완성한다.
-- [x] `facts::LayoutFact`를 `RepresentationClassFact`로 이름 변경하고 `Facts.layout`도 `Facts.representation_class`로 바꿨다. `Dense / AxisSparse`는 J-visible representation class이며 physical layout이 아님을 API 이름에서 명시한다.
-
-완료 기준은 **logical value를 정의하거나 분석하는 데 `CpuStorage`, stride, offset, device, BufferId가 필요하지 않고**, 선택된 backend representation을 통해서만 그런 정보가 등장하는 상태다.
-
-따라서 현재 `Value { shape, Data::Int(CpuStorage<_>), ... }` 구조는 semantic boundary의 최종형이 아니라 migration bridge다.
-
----
-
-## 7. GPU 친화적 배열 설계
-
-GPU 친화성 때문에 J의 언어 의미를 tensor framework의 broadcasting 규칙으로 바꾸지 않는다.
-
-### 7.1 stride / offset view
-
-가능하면 다음 structural operation을 metadata-only view로 표현한다.
-
-- transpose
-- reverse
-- slice
-- fill 없는 take/drop
-- 순서 호환 reshape
-
-예:
-
-```text
-shape   [100, 200]
-strides [200, 1]
-
-transpose
-
-shape   [200, 100]
-strides [1, 200]
-```
-
-logical transpose와 physical copy는 같은 것이 아니다.
-
-### 7.2 논리 순서와 메모리 연속성
-
-다음 둘을 구분한다.
-
-- logical-order contiguous
-- memory-contiguous
-
-transpose된 backing이 물리적으로 연속 영역을 공유하더라도 J ravel 순서가 다르면 기존 dense kernel에 그대로 slice로 넘길 수 없다.
-
-### 7.3 zero stride
-
-J agreement를 먼저 계산한다.
-
-그 결과 같은 atom/cell을 반복 읽는 구현이 합법적이면 physical lowering에서 zero stride를 사용할 수 있다.
-
-zero stride가 J agreement 규칙을 정의하는 것은 아니다.
-
-### 7.4 semantic representation과 physical encoding을 구분한다
-
-모든 physical 표현을 affine byte-stride 모델 하나로 강제하지 않는다. 동시에 J-visible representation과 backend storage encoding도 섞지 않는다.
-
-**Semantic/J-visible**
-
-- dense noun
-- boxed noun
-- sparse noun + sparse axes/element semantics
-
-**Physical/backend encoding**
-
-- affine dense
-- tiled
-- packed bit
-- device/backend-specific encoding
-- sparse noun을 위한 concrete sparse format(COO/CSR/other)
-- boxed noun을 위한 pointer/handle/arena representation
-
-즉 `SparseJArray`를 GPU에서 dense buffer로 임시 materialize할 수는 있어도, 그 때문에 J-visible sparse identity/metadata를 잃어서는 안 된다. 반대로 같은 sparse semantics를 여러 physical sparse format으로 실현할 수 있다.
-
-초기 G1은 read-only affine dense physical representation만 다룬다.
-
-### 7.5 placement / sharding
-
-logical shape와 physical placement를 분리한다.
-
-```text
-Placement
-  Cpu
-  Device(DeviceId)
-  Sharded(ShardingId)
-```
-
-multi-GPU shard가 있어도 사용자에게 보이는 J noun은 하나의 logical value다.
-
-### 7.6 GPU 실행 원칙
-
-GPU에서는 primitive별 즉시 실행보다 전체 계산을 본 뒤 계획해야 한다.
-
-예:
-
-```j
-+/ *: y
-```
-
-를
-
-```text
-square kernel
-→ intermediate GPU array
-→ reduction kernel
-```
-
-로 고정하지 않는다.
-
-고수준 IR에서는 먼저 derived-verb 구조를 보존한다.
-
-```text
-Apply(
-  AdverbApplication(operator=/, operand=+),
-  Map(Square, y)
-)
-```
-
-Semantic Analyzer가 이를 분석하여 reduction이라는 logical operation을 식별한 뒤,
-
-```text
-Reduce(Add, Map(Square, y))
-  ↓
-legal fusion analysis
-  ↓
-fused map-reduction kernel
-```
-
-처럼 계획할 수 있다.
-
-CUDA 실제 구현은 현재 보류 상태다. CPU에서 physical representation과 plan/executor 경계를 먼저 검증한다.
-
----
-
-## 8. 메모리·alias·수명 원칙
-
-### 8.1 읽기/쓰기 분리
-
-공유, zero-stride, 내부 overlap 가능 view는 기본적으로 read-only다.
-
-첫 mutable 경로는 다음을 만족하는 출력으로 제한한다.
-
-- 독점 소유
-- 표준 연속
-- non-overlap proof
-- dtype/용량 호환
-- live alias 없음
-
-### 8.2 주소 검증
-
-비어 있지 않은 affine view는 각 축의 signed delta를 checked 계산하고 접근 가능한 최저/최고 backing index를 확인한다.
-
-span 검증은 접근 가능성을 증명하지만 non-overlap을 증명하지 않는다.
-
-empty view는 원소 주소를 계산하지 않는다.
-
-### 8.3 buffer reuse
-
-buffer reuse는 명시적으로 증명한다.
-
-확인할 것:
-
-- 원래 allocation
-- 전체/부분 영역
-- offset
-- 공유 owner
-- live view
-- alias
-- dtype
-- capacity
-- alignment
-- last physical use
-
-GPU 재개 후에는 kernel 제출과 실제 device completion을 구분한다.
-
-### 8.4 관찰 가능한 J 의미
-
-최적화 때문에 다음을 바꾸지 않는다.
-
-- primitive/type별 overflow retry와 coherent result promotion semantics
-- J가 정의한 error precedence, suppression, retry behavior
-- active `try./catch./catcht.`에 의한 J-visible error/throw control transfer
-- binding/name-reference의 late lookup semantics
-- side effect 순서
-- comparison tolerance와 `!.` fit semantics
-- empty/rank fill-cell 결과 type·shape semantics
-- rank/modifier result-cell assembly(type/shape join, framing fill, assembly error) semantics
-- sparse/boxed의 J-visible representation semantics
-- primitive/derived-verb가 요구하는 floating numeric contract(허용된 reassociation, compensated/exact mode, tolerance 등)
-
-FMA, reassociation, tree/vector reduction은 **무조건 금지하지도, 무조건 허용하지도 않는다.** `NumericSemantics`/`FitSemantics`가 허용한 경우에만 적용한다. GPU 병렬 오류 수집도 arbitrary first-lane error를 그대로 노출하지 않고 J의 observable error contract를 따른다.
-
----
-
-
-<a id="out-of-core-io-contract"></a>
-
-### 8.5 느린 I/O·Out-of-core 배열 실행 계약 (2026-10-06, 설계 후보 / 구현 미착수)
-
-**목표.** RAM/GPU 용량보다 큰 J noun·신경망 가중치·배열 데이터에 대해 (a) 원래 J 결과·오류·효과 순서를 보존하고, (b) 실제로 읽는 바이트와 복사량을 줄이며, (c) 필요 시 디스크/원격 데이터 이동과 계산을 중첩한다. 이것은 새로운 J syntax나 암묵적 GPU 구현이 아니라, §5의 Physical Planning/Execution Scheduling에 따른 물리 실행 확장이다. **최초 native CPU M4 vertical slice의 선행 조건으로 삼지 않는다.** 모든 기능은 [§10 IO-01~IO-30 수용 게이트](#out-of-core-io-checklist)를 통과하기 전에는 계획/후보일 뿐이다.
-
-**원본/선행 기법 비교(직접 계승 vs 조건부 응용).**
-
-| 출처 / 원본 | 검증한 아이디어 | RustJ 차용 범위 / 금지되는 비약 |
-|---|---|---|
-| Jsource `jlibrary/addons/data/jmf/jmf.ijs` | J noun에 file mapping; R/W·read-only·copy-on-write, header/shape와 unmap 참조 제약. non-jmf typed boxed mapping 제한과 JMF-backed boxed 회귀 fixture가 공존 | mapped dense array backend 후보. mmap=비동기 I/O·zero page fault·J 전체 boxed/sparse 지원으로 해석하지 않음 |
-| Jsource `jsrc/xf.c`, J foreign `1!:11`/`1!:12` | file offset+length의 부분 read/write; 현재 C 경로는 `fread/fwrite` 기반 동기식 | 순차 byte-range 기준 경로와 J-visible foreign I/O 의미 비교. 그래프에서 effectful file foreign을 순수 scan으로 자동 대체 금지 |
-| Jsource `jsrc/v.c` 등 | reference/in-place 가능 조건에 따라 버퍼 재사용·복사 억제 | alias/lifetime proof 후 reuse; mapped write와 implicit in-place를 동일시하지 않음 |
-| Jd (J 데이터 라이브러리) | 열별 파일 매핑과 파티션 조건별 selective read를 실제 소스에서 확인 | 데이터셋 관리 원리를 참고하되 full-J 의미론으로 일반화하지 않음. Jd column-file on-demand mapping, partition-column read pruning, SIMD mapped-tail 방어를 소스에서 확인 |
-| DuckDB (2026 async I/O) | compute pool·blocking I/O pool 분리, job/read-ahead, 메모리 governor 연동, park/resume | bounded read-ahead·메모리 예약·작업 완료 이벤트. DuckDB 전체 스케줄러 복제 불필요 |
-| Polars Lazy | projection/predicate/slice pushdown, common subplan reuse | 정확한 access/effect/witness가 있을 때만 필요 byte-range 축소; 임의 J verb·reduction에 무조건 적용 금지 |
-| Apache Arrow Dataset Scanner | `batch_readahead`와 `fragment_readahead`의 다른 단위, metadata/pruning | chunk/fragment 단위 선택과 bounded concurrency; 전체 Arrow 데이터모델 복제 불필요 |
-| Ray Data | streaming block queues, downstream backpressure, spill/resource account | 독립 실행 단계의 bounded queue·pressure handling. shuffle/reduce barrier를 무시한 임의 streaming 금지 |
-| DeepSpeed ZeRO-Infinity | CPU/NVMe/GPU offload와 transfer/compute overlap, prefetch | 추후 placement-aware weight prefetch; GPU runtime 보류 정책 유지 |
-| FlexGen (ICML 2023) | device/CPU/disk placement와 layer/batch-block scheduling의 I/O 재사용·throughput tradeoff | 안정된 read-only weights와 합법적 scheduling 영역에 한해 중복 로드 감소; J 실행 순서 임의 변경 금지 |
-| TensorFlow `tf.data` | prefetch/parallel map/overlap pipeline | 독립된 데이터 공급 단계의 후속 비교 후보; full J 적용 보장 아님 |
-
-출처(확인 기준 2026-10-06): [Jsource jmf](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) · [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c) · [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) · [Polars optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) · [Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) · [Ray Data execution](https://docs.ray.io/en/latest/data/data-internals.html) · [ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) · [FlexGen 논문](https://proceedings.mlr.press/v202/sheng23a.html). 프레임워크의 공개된 설계를 참고하는 것이며 해당 기능이 RustJ에 구현됐다는 뜻이 아니다.
-
-**계층 소유권·공통 불변조건**
-
-| 계층 | 입력/출력과 책임 | 금지 |
-|---|---|---|
-| J Semantic IR / J Graph IR | J noun의 type/shape/atom-order, boxed/sparse, Rank zero-frame prototype, access/effect/error 순서; 순수한 기회 후보만 sidecar로 표시 | 파일 offset·chunk 크기·prefetch queue·장치 DMA를 J-visible 연산 의미로 삽입 금지 |
-| Verified Logical IR / analyzer | `AccessRelation`·필요 데이터 범위/재사용 가능성, unknown/opaque, purity와 `FactWitness/Guard` 유지. index/select/view에 대해 합법적 범위 pruning 후보 생성 | arbitrary verb/semantic error가 관찰 가능한 입력을 검사 없이 생략 금지 |
-| Physical Planner / Schedule | `StorageSource`(Owned/Mapped/Chunked/Remote 후보), placement, byte-range, Read/Prefetch/Transfer/Materialize/Release, dependency, memory budget, cost 후보 | speculative I/O의 J-visible error/효과 재배치, semantic `StorageRequirement`을 materialization으로 동치화 금지 |
-| Executor / Runtime | 처음에는 동기 `read_at`/`write_at` + chunk iteration; 이후 pending/ready/error/cancel completion, pinned lease, backpressure, finite queues | buffer lifetime을 I/O completion 전에 종료, 외부 변경된 bytes를 version 불변으로 가정, 완료 전 쓰기를 성공으로 보고 금지 |
-| External adapters | 실제 backend의 read/write/async/mmap capability, errors, alignment, atomic/ordering, ownership을 선언 | J semantics 또는 non-CPU 성능을 암묵적 fallback 능력으로 가장 금지 |
-
-**별도 identity.** `ValueId`는 J 논리값, `StateResource`는 변경 가능한 가중치/파일 상태의 의미적 identity, `BufferId/BufferLease`는 실제 메모리 소유자, `StorageObjectId/Version`은 외부 backing object와 읽기 일관성, `IoRequestId/CompletionToken`은 I/O 요청·완료를 식별한다. 하나로 합치지 않는다. `StorageObjectId/Version` 및 `IoRequestId`는 **명명 후보**이고 확정 Rust 타입/API가 아니다.
-
-**읽기 계획과 정당성.** offset/length 계산은 checked arithmetic·overflow 검사, 정렬·EOF/short read·stale version·권한 실패를 정의한다. read-only immutable input 또는 스냅샷 증명 없는 speculative prefetch는 효과·오류 순서에 영향을 줄 수 있으므로 금지/보수적 barrier를 둔다. chunk size·layout을 바꾸어도 J shape/rank, boxed/sparse, empty frame/fill-cell result, tolerant comparison, 예외 발생 위치가 달라지면 안 된다. 빈 결과의 데이터 byte-range는 0일 수 있지만 J Rank의 가상 cell 실행/형식 추론 의무는 독립이다.
-
-**실행 원칙.** 우선 동기 contiguous/chunked CPU 경로로 correctness baseline을 만든다. 다음에 source access proof로 scan bytes를 줄인다. 그 뒤 bounded async I/O queue와 적어도 2개의 버퍼로 `Read(n+1)`과 `Compute(n)`를 overlap한다. prefetch는 예약 memory budget와 consumer progress/backpressure로 제한하고, request-completion을 `AsyncToken/Timepoint`/equivalent dependency로 명시한다. weight reuse/batch-block schedule은 read-only/version stable, dependency/effect/latency-policy 합법성 증명 후에만 선택한다. `mmap`은 독립 후보이며 page-fault 비용·page cache·주소공간·unmap·COW semantics를 직접 측정한다. `io_uring`·direct I/O·remote object store·GPU DMA는 portable baseline 이전의 요구사항이 아니다.
-
-**쓰기는 읽기와 분리.** J foreign 파일 쓰기·mapped shared write의 observable effect와 checkpoint persistence는 동일하지 않다. checkpoint는 immutable snapshot/version capture → 임시 파일/쓰기 완료 → 필요한 flush/fsync 계약 → atomic publish/rename 가능성 검사 → 성공 반환으로 구분한다. 플랫폼별 durability 보장과 crash consistency를 실제 지원 범위로 한정한다. delayed save로 user-visible state/error 순서가 바뀌면 최적화 금지. cancellation/partial write/retry에서 중복 side effect와 파일 파손을 검사한다.
-
-**비용/계측 계약.** `ResourceEstimate`(peak resident, pinned/inflight bytes, open handles, max queued jobs)와 `CostEstimate`(cold/warm bytes, number/seeks/latency, effective bandwidth, CPU cycles, transfer/overlap time)를 분리한다. 성능 게이트에서 wall time, read/write bytes, physical requests, blocking wait, compute time, peak+retained memory, page faults/cache hits, spill count, throughput *및* latency를 비교한다. warm page cache 결과를 cold storage 승리로 포장하지 않는다.
-
-**대표 실행 예.** `W1`·`W2`가 파일에 저장된 순수한 read-only tensor라고 증명되면 physical schedule은 `Prefetch(W1) → Await(W1) → Compute(W1)`와, 그 계산 중 `Prefetch(W2)`를 겹친다. 다음 `Compute(W2)`는 앞 층 결과 및 W2 완료를 모두 기다린다. Logical graph에는 이 I/O 순서를 박지 않는다. 분기/동적 NAME/수정 가능한 weight/관찰 가능한 file effect가 있는 경우 이 순서를 무조건 적용하지 않는다. 수용 작업표는 [§10 IO](#out-of-core-io-checklist)를 따른다.
-
-
-#### 8.5.1 독립 재검토 — J 라이브러리·포맷·모델 로더 보강 (2026-10-06)
-
-**발견:** 기존 §8.5는 async read-ahead에 비해 실제 저장 포맷, read-chunk/write-shard 배치, mapped SIMD tail, refcount/unmap, cache 일관성 계약이 약했다. 다음은 원본 구현/공식 설명과 RustJ 후보를 분리한 표이다. 소스나 문서 존재는 RustJ 구현 성공이 아니다.
-
-| 확인한 출처 | 실제 구조 / 기능 | RustJ 적용·유의사항 |
-|---|---|---|
-| [J jfiles와 keyfiles](https://github.com/jsoftware/jsource/tree/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles) | serialized J components를 offset-indexed read로 접근, keys로 개별 component 검색 | arbitrary serialized noun은 typed dense mapped bytes와 다른 encoding. 전체 jfiles 포맷 복제는 보류 |
-| [Jd column.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) | file-backed column map on demand, grow/remap, multi-process reference-count 위험 주석 | remap/lease/alias/동시 접근 검사; Jd의 DB lock을 일반 J noun 규칙으로 복제 금지 |
-| [Jd api_read.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) · [ptable 튜토리얼](https://www.jsoftware.com/jd_tuts.html) | partition column 조건으로 대상 파티션을 좁혀 읽기 | 실제 partition pruning 선례. arbitrary J verb의 자동 pushdown은 별도 effect/error/witness proof가 필요 |
-| [Jd jmfx.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | SIMD kernel의 파일 끝 beyond-end 접근을 우려해 padding; 4096 byte 페이지 가정 | **반면교사**: RustJ는 페이지 크기·허용 overread를 하드코딩하지 않고 masked tail/checked span/unmap-safe lease 구현 |
-| [Zarr v3](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | 논리 shape와 read chunk, write shard/캐시를 분리; access-pattern-dependent chunk shape | chunk read amplification, 파일 개수, shard write amplification과 메모리 경계 최적화; 자체 파일 포맷 확정 보류 |
-| [Safetensors](https://github.com/huggingface/safetensors/blob/main/README.md) | tensor dtype/shape/byte-range index, 0-byte empty tensor, partial/lazy loads | verified storage manifest를 제안; invalid/overlap/overflow/off-end 검증, scalar/empty prototype 보존. 외부 포맷 adapter는 후속 |
-| [llama.cpp loader](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | mmap/no-mmap/mlock/direct-I/O/NUMA/lazy tensor rows 선택 | mmap을 universal default로 결정하지 말고 workload/OS cache/RSS/page faults/cold-warm으로 비교 |
-| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | parameter.load/read/gather/write, AsyncTransfer, Timepoint로 외부 가중치 바이트 범위의 비동기 준비·저장과 완료 시점·resource lifetime 명시 | **직접 참고 1순위**: 정적인 read-only weights → Physical Stream ParameterRead/Load 후보 → Await completion → consumer, checkpoint write의 completion은 별도 durability 계약. J-visible foreign effect와 동일시 금지 |
-| DuckDB, Polars, Arrow, Ray, ZeRO-Infinity, FlexGen | scan pruning, batch/fragment read-ahead, async governor, streaming pressure, staged weight reuse | read bytes 축소 → stable data version → bounded scheduling → overlap → legal reuse 순서로만 도입 |
-
-**Boxed 표현 정정:** [jmf.ijs](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs)는 non-jmf typed boxed mapping을 거부하지만 [JMF-backed boxed tests](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs)가 존재한다. 반면 [jsrc/mbx.c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/mbx.c)는 not supported라고 표시된다. 따라서 지원/미지원은 파일 형태·연산·원본 버전의 실제 C oracle로 세분화해야 한다.
-
-
-**IREE Stream 의존성 경계:** `stream.async.parameter.load/read/gather/write`, `stream.async.transfer` 및 `stream.timepoint`의 구현을 I/O-specific Physical Schedule 선례로 추가한다. `parameter.load`의 사전 실행 허가와 J 외부 파일 읽기 효과의 비투기성은 다르며, buffer 사용 가능 시점 및 cancellation/error가 보존될 때만 이동·중복 제거한다. IO-13~18과 IO-20의 verifier 검토 입력으로 사용한다. [IREE 공식 Stream 사양](https://iree.dev/reference/mlir-dialects/Stream/).
-
-**추가 계층 계약:** logical ValueId와 외부 StorageObject/Version, 물리 StorageEncoding(contiguous typed / chunked typed / serialized component / external), ReadChunk, WriteShard, BufferLease, IoCompletion을 서로 구분한다. 이들은 구현을 확정한 Rust 구조체 이름이 아닌 개념이다. File foreign I/O는 J-visible effect이지만, verified immutable storage read의 내부 스케줄은 효과가 없는 경우에 한해 변경 가능하다. Header/shape/index가 존재한다고 J Rank empty-frame fill-cell 의미를 생략하지 않는다. Cache key에는 object/version/byte-range/encoding을 포함하고, peak RSS와 OS page cache는 런타임이 완전히 예약하는 메모리로 주장하지 않는다.
-
-
-<a id="io-framework-execution-comparison"></a>
-
-#### 8.5.2 프레임워크별 I/O 최적화 실행 방식과 RustJ Graph IR 적용 (2026-10-06)
-
-**다섯 가지 최적화 대상.** I/O 최적화는 단순한 비동기 파일 읽기가 아니라 **① 불필요한 읽기 제거, ② 저장/읽기 단위 선택, ③ I/O와 계산 중첩, ④ 읽은 데이터 재사용, ⑤ 메모리·완료·실패 통제**를 조합하는 문제다. 최적화의 장소를 구분해야 한다. J Graph/Verified Logical IR은 필요한 데이터와 의미론적 합법성을 판단하고, Physical Plan·Executor는 byte range, chunk, 배치, prefetch, buffer 수명, 실제 memory/resource budget을 결정한다.
-
-| 프레임워크 / 공식 근거 | 실제 기법과 최적화 계층 | RustJ에서 가져올 부분 / 제약 |
-|---|---|---|
-| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Logical 단계에서 predicate/projection/slice를 scan까지 pushdown, common subplan/scan 재사용 | `AccessRelation`이 필요한 논리 원소/축과 실제 byte range를 증명한 경우 읽기를 제거. IO-09~12; Rank, dynamic binding, observable errors/effects에서는 opaque fallback |
-| [DuckDB async I/O (2026-07-31 발표)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group/CSV byte-boundary를 fetch job/task로 쪼갬. `REGULAR` 계산 pool과 주로 blocking I/O인 `ASYNC` pool 분리; 미완료 scan job은 park 후 깨움. read-ahead 깊이는 temporary-memory budget과 연동 | IO-13~17: bounded job queue, completion/wakeup, read-ahead depth를 resource governor로 축소. 공개 글은 v2.0 개발·출시 예정 기능을 설명하므로 모든 릴리스에서 지원된다고 단정하지 않음 |
-| [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) | Physical resource IR에서 `stream.async.parameter.load`는 새 resource, `read`는 기존 allocation 채움, `gather`는 여러 parameter archive range 결합. `timepoint`/`await`로 이용 가능 시점과 순서 명시 | IO-13~18·20의 직접 선례: immutable weights `Load/Gather → Await → Consumer`. IREE에서 speculative한 parameter read를 J의 관찰 가능한 `1!:` file foreign과 동치화 금지 |
-| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | `batch_readahead`와 `fragment_readahead`를 따로 조정 | IO-14~16: chunk 내부와 여러 저장 source 간의 선행 읽기 수준을 분리하고 decoded/inflight buffers 예산화 |
-| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | 연산자 output queue에 block reference streaming; downstream backpressure, memory-aware task scheduling, spill | IO-15~17: 큐가 차면 생산 속도를 제한. Reduction/shuffle처럼 경계가 필요한 경우 무조건 streaming하지 않음 |
-| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | 물리 chunk·shard 및 캐시/축 접근 패턴으로 read amplification와 재사용 결정 | IO-26~29: `LogicalShape` ≠ `ReadChunk` ≠ `WriteShard`; 작은 slice도 chunk 전체 decode가 필요한지 측정 |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | 모델 가중치의 mmap/비-mmap·residency 등 로딩 전략 선택 | IO-23·30: mmap이 항상 최적이라고 가정하지 않음. page fault, cold/warm cache, RAM pressure, SSD/remote, reuse별 비교 |
-| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) · [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | CPU/NVMe/GPU Offload·prefetch·transfer/compute overlap; FlexGen은 layer/batch-block scheduling으로 weights 반복 로드 감소 | IO-18~20: immutable/version-stable weights에서만 재사용/선행 읽기를 후보화. 훈련의 mutable optimizer/gradient/checkpoint는 별도 snapshot 계약 |
-| [TensorFlow tf.data](https://www.tensorflow.org/guide/data_performance) | `prefetch`·parallel map을 통한 input-producer와 모델 연산의 파이프라인 중첩 | IO-14~16: 독립 producer/consumer의 비교 사례. J의 임의 verb/cell 평가를 재배열하는 일반적 허가는 아님 |
-| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | 저장할 state의 staging/async persistence 분리 | IO-18: mutable state의 snapshot·write completion·publishing·failure/recovery를 명시. 비동기 제출만으로 durability 성공을 보고하지 않음 |
-
-**같은 Logical Graph에서 다른 Physical Schedule을 선택하는 예.** `X → MatMul(W1) → Activation → MatMul(W2) → Y`의 J-visible 의존성을 유지한다. 외부 파일의 `W1`/`W2`가 **변하지 않는 read-only/versioned 데이터임이 증명**된 경우, 아래 physical 계획을 생성할 수 있다. 다른 모델에서 임의로 실행되는 것이라고 가정하지 않으며, 실제 구현 이전 설계 예시다.
-
-~~~text
-Logical / semantic value flow
-X ──> MatMul(W1) ──> Activation ──> MatMul(W2) ──> Y
-
-Physical / possible overlap
-Reserve(W1) ──> Read(W1) ──> Ready(W1) ──> Compute(L1) ──> Activation ──┐
-Reserve(W2) ──> Read(W2) ──> Ready(W2) ─────────────────────────────────┤
-                                                                        ▼
-                                                                  Compute(L2) ──> Y
-            Read(W2) and Compute(L1) can overlap (if budget allows)
-Compute(L2) awaits BOTH Activation and Ready(W2).
-Release(buffer) follows last use AND all pending I/O/transfer completions.
-~~~
-
-**차용 방법의 핵심 차이.** Polars 방식은 **필요 없는 byte를 아예 요청하지 않도록** 만드는 기법이다. IREE 방식은 **읽기·전송·완료 토큰을 Physical DAG의 명시적 의존성**으로 만드는 기법이다. DuckDB·Arrow·Ray 방식은 **그 DAG의 읽기 요청을 bounded queue·backpressure·memory budget 아래에서 실행**하는 기법이다. DeepSpeed·FlexGen 방식은 **합법적 계산 순서/배치에서 weights의 생존 구간과 재사용을 늘려** 실제 반복 I/O를 줄인다. 이 기법들은 대체 관계가 아닌 계층별 조합 후보이다.
-
-**의미론 경계와 비용 계약.** (A) verified immutable 저장소의 내부 물리 read, (B) J `1!:11`/`1!:12` 등 관찰 가능한 foreign I/O, (C) 수정 가능한 weights·checkpoint 쓰기를 별도로 모델링한다. A에서만 access witness/guard를 통한 범위 pruning, speculative prefetch, range coalescing을 허용한다. B는 J effect/error 순서, C는 version/snapshot/commit/durability 계약을 지킨다. 빈 Frame의 read bytes가 0이어도 J Rank의 가상 Cell·fill·dtype·shape 및 오류 판단은 생략하지 않는다. boxed/sparse, dynamic NAME/Rank, alias, stale file, EOF/short read 및 실패의 조기 관찰은 negative fixture 대상이다.
-
-성능은 **cold/warm 실제 읽은 bytes, request 수, seek/latency, blocked I/O 시간, compute time, page faults, prefetch overlap, peak·retained memory/RSS, spill, 전체 throughput, 개별 호출 latency**를 따로 측정한다. Read-ahead 자체는 필요한 byte를 줄이지 못하며 메모리를 더 사용한다. 작은 range를 합치면 요청 수는 줄지만 초과 읽기가 발생할 수 있다. OS page cache/RSS는 모든 바이트를 RustJ governor에서 정확히 예약할 수 있는 메모리라고 주장하지 않는다. **의미론·자원 안전 → 실측 비용 → 실행 후보 선택** 순서를 유지한다.
-
-**기존 단일 수용 원장 매핑:** 자료 읽기 제거·공통 scan/cache = IO-09~12·29, 파일/Chunk/Shard 형식 = IO-05~08·26~28, async/backpressure/transfer = IO-13~17·20, weights/checkpoint = IO-18~19, benchmark/선택 = IO-21~24·30, 소스·의미론 = IO-01~04·25. 새 체크리스트를 만들지 않고 [§10 IO-01~IO-30](#out-of-core-io-checklist)의 기존 상태만 갱신한다. 지금은 설계 기록이므로 **0/30 수용** 상태를 유지한다.
-
-
-<a id="unified-data-movement-contract"></a>
-#### 8.5.3 메모리 I/O·디스크 I/O 공통 Planning 계약 — 신규 IR 계층은 당장 만들지 않음 (2026-10-06)
-
-**설계 결정.** 메모리 접근·복사, CPU↔GPU 이동, 파일/매핑된 배열의 구간 읽기·쓰기를 **기존 Physical Planner / Physical Execution Plan의 공통 데이터 이동 분석과 스케줄링 대상으로 취급**한다. `Data Movement IR`이라는 독립적인 신규 계층은 만들지 않는다. 대신 `AccessRegion` 증명, `Effect/Dependency` 계약, physical storage/transfer/ready/lifetime 정보를 기존 단계의 각 소유자가 보유한다. 추후 실제 비동기·복합 route 사례 둘 이상에서 기존 Physical Plan이 의존성·버퍼 수명·스케줄을 안전하게 표현하지 못한다는 구체적 증거가 나올 때에만 별도 resource/stream 실행 IR 추출을 재검토한다. 이것은 §5의 기존 J Graph IR → Verified Logical Execution IR → Physical Plan 구분을 없애는 결정이 아니다.
-
-| 기존 단계 | 이 단계에서 표현하거나 계산하는 것 | 넣어서는 안 되는 것 |
-|---|---|---|
-| J Semantic IR / J Graph IR | J source topology, ValueId·Rank/CellApply·zero-frame 의미, 원본/후보 provenance; pass-local 접근 후보 sidecar는 허용 | BufferId, 파일 offset, DMA, concrete transfer, 물리 layout 및 GraphFacts 자체의 EffectSummary/선택 완료 상태 |
-| Verified Logical Execution IR / 분석 | observable J file/namespace/state effect, error/ordering/guard, 값/효과 liveness, logical `AccessRelation` 및 Unknown/Proven/Guarded 증거 | 임의 file read를 pure 배열 load로 치환하거나, 증명 없는 read omission/reorder 승인 |
-| 기존 Physical Planner / Representation / Schedule | `StorageObject/Version`·`BufferId/Lease` 분리, physical `Region`(buffer slice/byte range), `Read/Write/Copy/Transfer/Materialize/Release`, ready/completion 의존성, layout·placement·byte/resource/cost 추정; 공유 pass 인터페이스 사용 | 모든 접근을 실제 복사로 강제, 효과가 다른 파일과 메모리를 단일 semantics로 취급, target capability 없는 전송 확정 |
-| Executor / Backend | 동기 CPU reference에서 실제 read_at/write_at/buffer copy 실행; 이후 검증된 async token, queue/backpressure, 장치별 구현 | 미완료 I/O의 조기 buffer 해제, file side effect 재실행, 미확정 GPU 실행 지원 주장 |
-
-**공통 추상화의 경계.** `AccessRegion`은 어떤 논리 원소가 필요한지를 설명하며 physical `BufferSlice`와 `FileByteRange`는 다른 concrete region 종류다. 공통 분석은 region interval, producer/consumer, placement, lifetime, alias, ordering, transfer feasibility와 비용을 비교하지만 파일과 메모리를 하나의 alias domain·주소공간·오류 계약으로 뭉개지 않는다. `ValueId`, mutable `StateResource`, external `StorageObjectId/Version`, physical `BufferId/BufferLease`, `IoRequestId/CompletionToken`은 계속 분리한다. 이름은 설계 후보이며 확정 Rust API가 아니다.
-
-**컴파일 타임 vs 런타임.** 컴파일 타임에 proven shape/dtype/access pattern, 사용/수명, 중간 배열 제거, buffer reuse, 필요한 데이터 구간·전송·파이프라인 후보를 계획한다. 런타임은 실제 파일 내용/변경·EOF·권한·데이터 크기, 사용 가능한 RAM/GPU 메모리, 페이지 캐시·대역폭·요청 완료를 확인하고 guard/capability/memory budget을 검사한다. 비용 모델은 memory traffic, file bytes/requests/seeks, transfer, kernel launch, sync, peak/inflight/retained bytes, cold/warm latency를 분리한다. Unknown을 0 비용 또는 재배치 허가로 해석하지 않는다.
-
-**효과 안전성.** (A) proven immutable/version-stable 내부 backing read, (B) J `1!:`의 관찰 가능한 파일 I/O, (C) mutable state/checkpoint publish는 별개다. (A)에서도 실패가 관찰될 수 있으면 speculative read/오류 노출 위치가 보존된다는 별도 증명이 필요하다. (B)의 미사용 읽기라도 존재성/권한/오류를 생략하지 않으며, (C)의 쓰기 완료·durability를 단순 async submit으로 간주하지 않는다. zero-byte/empty frame에서도 J의 virtual fill-cell, dtype/shape 및 필요한 오류 검사는 남긴다.
-
-**프레임워크 역할 분담(직접 복제 금지).** [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/)은 resource·async transfer·parameter/file read/write·ready token의 **물리 실행 그래프** 선례다. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) 및 [Memory Effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/)는 논리값↔버퍼 분리와 operation별 effect/resource interface의 선례다. [XLA GPU architecture](https://openxla.org/xla/gpu_architecture)는 fusion·buffer assignment·layout/transfer를 점진적으로 구체화하는 선례이며 일반적인 J 파일 I/O의 공통 IR은 아니다. [TVM](https://tvm.apache.org/docs/)은 장치 배치·물리 메모리 선택, [DataFusion](https://datafusion.apache.org/)은 파일 scan과 filter/projection pushdown의 선례다. 어떤 프레임워크도 full-J foreign 오류·Rank prototype 계약을 자동으로 해결하지 않는다.
-
-**대표 추적 사례.** `File(A, immutable version) → Slice → Elementwise → Consumer`는 verified access witness가 있을 때 physical byte-range read와 fused CPU 계산으로 낮출 수 있다. 반면 `1!:1`/`1!:11` 결과가 사용되지 않아도 파일 open/EOF/error 등 J-observable 경계가 있다면 dead-data elimination만으로 읽기를 지울 수 없다. CPU↔GPU copy는 같은 planner의 transfer 후보지만 현재 CUDA 구현 유보 상태를 유지한다.
-
-**기존 이행 원장 연결.** 새 `DM-*` 작업표는 만들지 않는다. IO-03(계층/identity/effect interface), IO-09(접근 영역 증명), IO-13·14(동기→비동기 준비/완료), IO-17(재배치·실패·해제 안전), IO-20(공통 memory/file/transfer 자원·비용 planning), IO-22(세 경로·negative 검증)를 기존 [§10 IO 체크리스트](#out-of-core-io-checklist)의 수용 항목으로 사용한다. FW-05~09의 provenance/guard와 DB effect contract를 선행 증명으로 재사용한다. **현 상태: 설계 확정, 구현·실행 증거 없음; IO 0/30 [ ] 유지. M2 frontend와 최초 M4 CPU slice의 필수 조건으로 올리지 않는다.**
-
-<a id="io-a-source-audit"></a>
-#### 8.5.4 IO-A 원본 소스 교차 감사·실행 기준 (2026-10-06~07)
-
-**범위·상태.** IO-01·IO-25의 1차 코드 감사를 pinned source에서 수행했고 IO-02의 effect/error 계약이 요구하는 반례를 도출했다. 이것은 **소스 확인만 완료한 부분 진행**이다. 원본 J 파일 foreign 일부 fixture는 실행했으나 mapped/Jd/전체 외부 효과 검증은 남아 있으므로 IO-01·02·25는 [ ]이고 IO 전체 수용 0/30을 유지한다. 외부 저장소의 동작은 RustJ 지원 사실이 아니다.
-
-| 고정 원본과 확인 위치 | 원본에서 직접 확인한 내용 | RustJ에서 아직 증명할 사항 |
-|---|---|---|
-| [jsource `xf.c` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/xf.c) `jtjiread` / `jtjiwrite` / `jtixin` | `1!:11`은 file open/size 확인 뒤 index·length를 검사하며 `j≤size, j+length≤size, length≥0`을 확인한다. `1!:12`는 `n=null` 호출이므로 같은 read end-bound를 강제하지 않고 nonnegative 시작 index를 확인한 뒤 write한다. 음수 시작 index는 size 상대 계산을 거친다. `jtrd/jtwa`는 동기 `fread/fwrite` 경로다. | invalid filename/open과 index error 우선순위, EOF/short I/O, write beyond EOF·파일 변경·권한·효과 후 재실행 금지. 단편 소스만으로 동시 truncate의 결과/atomicity를 보장하지 않음 |
-| [jsource `jmf.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) + [`gmbx.ijs`](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) | mapping mode 0=RW, 1=RO, 2=COW가 구분되고 unmap은 live refs에 의해 실패할 수 있다. `additem`은 type 32 boxed에 `not supported for boxed data` 검사를 둔다. 반면 `gmbx.ijs`는 mapped boxed 명칭을 사용하지만 확인한 실제 assertion은 `'' -: q`, `'' -: r`로, 일반 boxed payload의 읽기·쓰기 성공을 입증하지 않는다. | JMF 포맷·타입·모드별 boxed 경계를 실행 oracle로 정확히 구별; copy-on-write commit과 shared write 혼동 금지 |
-| [data_jd `column.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) · [`jmfx.ijs`](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | column map/remap과 타 프로세스 refcount 위험 주석, DB lock 기반 제한을 확인. `jmfx.ijs`의 overread 방어에는 `PAGESIZE=:4096` 가정과 trailing padding 보정이 들어 있다. | RustJ는 페이지 크기·SIMD overfetch를 하드코딩하지 않고 checked span/masked tail 및 remap·lease safety 실측; Jd lock을 J 의미 계약으로 일반화 금지 |
-| [jsource `jfiles.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles/jfiles.ijs) · [data_jd `api_read.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) | jfiles `j_read`는 `3!:2 @ (1!:11)`로 offset 기반 serialized component를 읽으며, `jread`가 directory index에서 범위를 취득한다. Jd `readptable`은 partition 조건으로 대상 table을 결정한다. | serialized component와 typed contiguous mapped backing 구분. Jd의 선택적 읽기를 임의 J verb/foreign read에 자동 적용 금지 |
-
-**잔여 실행 fixture (IO-01/02/25 수용 선행).** 동일한 임시 파일을 대상으로 정상 `1!:11` 부분 읽기, 끝 위치·길이 경계, negative relative offset, `1!:12` EOF 이후 쓰기, 존재하지 않는 파일과 권한 오류, 처리 중 외부 변경·단축 읽기, 번호형 핸들과 파일명 입력의 오류/해제 차이를 고정 J C binary에서 관찰한다. JMF는 RW/RO/COW·live-ref unmap·mapped boxed 명칭 대비 실제 payload 종류·resize/remap을, Jd/jfiles는 partition/keyed component·serialized byte-range를 별도 원본 fixture로 조사한다. **예상 오류 클래스나 처리 순서를 실행 전에 합격 기준으로 단정하지 않고 observed J behavior를 baseline으로 고정**한다. 결과는 IO 원장의 commit·원본 pin·명령·실행환경·pass/fail/unsupported에 기록한다.
-
-**IO-A 실행형 진단 도구 (2026-10-06).** [tools/file_io_audit.py](tools/file_io_audit.py)에 임시 파일만 사용하는 15개 고정 J C oracle 사례를 작성했다. 전체 읽기·크기, 정상 구간·EOF 0길이·음수 시작·범위 오류, 부분 쓰기·파일 끝 이후 쓰기, 존재하지 않는 파일, 결과가 버려지는 `1!:11` 실패를 포함한다. [tools/test_file_io_audit.py](tools/test_file_io_audit.py)는 fixture 고유성·파일명 quoting·임시 경로 제한·결과/실패 분류를 오프라인 검사하고, [Linux CI](.github/workflows/linux.yml)는 `j64/j64avx2 × default/portable`에서 고정 C library를 빌드한 뒤 비수용 진단 JSON을 artifact로 남기도록 연결했다. `--gate` 없는 실행은 실패 발견을 기록하되 합격이라고 주장하지 않는다. J C oracle 결과를 확인하기 전에는 오류 클래스·플랫폼 종속 EOF hole bytes·mapped boxed 의미를 확정하지 않는다. 소스 pin `0a5101cf`과 CI binary pin `13994ffa`의 `xf.c`·`jmf.ijs`·`gmbx.ijs`·`jfiles.ijs`는 각 파일의 Git blob SHA가 동일함을 교차 확인했다. **이것은 IO-01/02/25의 구현/동등성 수용이 아니며 계속 [ ] 상태다.**
-
-**첫 CI 진단 오류 분석(수용 아님).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210)의 `j64`와 `j64avx2` 초기 실행은 각각 15개 중 기대값 9개 일치·6개 재검토였다. 여섯 항목 모두 `length error`로, J 의미 차이의 증거가 아니라 **indexed foreign용 파일 인수의 잘못된 boxing**을 원인으로 분리했다. [J Files 원문](https://www.jsoftware.com/help/dictionary/dx001.htm)은 `1!:1 <'name'`과 달리 indexed `1!:11 'name';offset length`, `x 1!:12 'name';offset` 형식을 사용한다. [수정 commit 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a)에서 indexed 파일명 unboxed 전달로 교정하고, `length/rank/syntax` error를 파일 존재 실패로 세던 거짓 양성도 차단했다. [단위테스트 보완 bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) 이후 재검증 결과가 확정되기 전에는 9/15를 기능 통과로 해석하지 않는다. IO-01/02/25와 전체 0/30 미수용 상태 유지.
-
-**고정 J 실행 검증(2026-10-06).** [Linux CI 37470839455](https://github.com/yunskim/RustJ/actions/runs/37470839455)에서 `check` 작업은 성공했고, 실제 실행·로그가 확인된 `j64/default`, `j64/portable`, `j64avx2/default` 각각 **file-foreign 15/15 기대 동작 일치·재검토 0**이었다. `j64avx2/portable`는 이 기록 시점 실행 진행 중이므로 합계에 포함하지 않는다. source-based 15건을 이후 회귀로 고정하기 위해 [workflow 3d476f6](https://github.com/yunskim/RustJ/commit/3d476f6f4f8bd1c925e2216ee856cfdfcd5fc9d2)에 `--gate`를 추가했다. 이 **C oracle 자체의 fixture gate**는 RustJ의 세 경로 비교나 JMF/Jd/boxed/비동기 I/O 구현을 검증하지 않는다. 따라서 IO-01·02·25 및 전체 IO 0/30 [ ] 유지.
-
-**IO-02 실행 순서 기준 확대(2026-10-07, 원본 J oracle 일부 검증).** [tools/file_io_audit.py](tools/file_io_audit.py)에 기존 독립 파일 사례 15개와 별도로, **6개 ordered-effect case / 총 14개 J step**를 추가했다. 같은 J 엔진과 같은 임시 파일에서 각 JDo 후 파일 내용을 재검사하여 (1) `0 [ write`의 버려진 결과와 살아 있는 쓰기 효과, (2) 오른쪽 read 실패가 왼쪽 write 실행을 막는 J 순서, (3) 이미 완료된 쓰기 뒤의 실패는 이전 파일 변경을 되돌리지 않음, (4) 잘못된 indexed write는 이전 정상 쓰기를 훼손하지 않음, (5) append 후 끝 구간 읽기, (6) truncate 후 전체 읽기를 구분한다. [tests](tools/test_file_io_audit.py)는 오류 전에 임의 쓰기가 실행되는 버그를 부정 사례로 주입하고 검출한다. [CI 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953)에서 `check` 성공 및 `j64/default` C oracle **독립 15/15 + 순서 6/6(14 step) 일치**, 불일치 0을 실제 확인했다. 나머지 matrix는 검사 시점 미확정으로 이 기록의 완료 증거에서 제외한다. 이는 **C에서 확인한 의미론 기준**이며 RustJ native/optimized 동등성 및 mapped/foreign 전체 커버리지가 아니므로 IO-02 [ ], 전체 IO 0/30 [ ]을 유지한다.
-
-**IO-02/IO-25 다음 검증 순서(기존 원장의 하위 실행 단위).** (a) `1!:1/2/3/4/11/12`의 파일명 vs 번호 핸들, 권한·close·flush, EOF/short read, 동시 truncate 효과를 실제 file fixtures로 확장; (b) 고정 `jlibrary`를 로드하는 J bootstrap을 분리 검증하고 `jmf` RW/RO/COW 및 refs/unmap/resize·typed/boxed 변형을 별도 smoke oracle로 수행; (c) Jd/jfiles는 테스트 fixture/원본 버전·의존성 확보 후 독립 단계로 실행. 원본 라이브러리 초기화 실패를 J 의미 실패로 오분류하거나 C oracle 15+6 일치를 RustJ 구현 수용으로 승격하지 않는다.
-
-**IO-02 전체 고정 C matrix 재확인(2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953)의 `check` 및 `j64/default`, `j64/portable`, `j64avx2/default`, `j64avx2/portable` 네 reference job은 모두 **success**. 각 reference job은 독립 파일 사례 **15/15**, 순서 시나리오 **6/6(14 JDo step)**, `requires_review=0`, `ordered_requires_review=0`으로 동일하게 통과했다. 이는 조합별 C oracle probe 결과이며 RustJ의 같은 세 연산 경로를 비교하는 시험이 아니고 IO 수용점수는 변하지 않는다.
-
-**IO-25 JMF 첫 독립 smoke 실행 시도(수용 전).** [tools/jmf_smoke.py](tools/jmf_smoke.py)에 J 원본 `jlibrary/bin/profile.ijs`와 `load 'jmf'` 부트스트랩을 고정 라이브러리·별도 임시 HOME으로 실행하고, 임시 JMF file에 대해 RW(0)→RO(1)→COW(2)를 **각각 map → 빈 noun 비교 → unmap 결과 0**으로 관찰하는 독립 실행 후보를 구현했다. [검증용 JMF 시나리오 테스트](tools/test_jmf_smoke.py)를 추가하고 [Linux CI](.github/workflows/linux.yml)에 비수용 탐색 단계를 연결했다. 원본 J profile/add-on 초기화 또는 JMF mapping이 실패하면 `blocked`를 별도로 기록하며, 이 시점에는 JMF CI 실행 결과/기능 지원을 주장하지 않는다. 이 작은 smoke는 **실제 boxed payload, mutable persistence, RO/COW 쓰기 차이, refs에 의한 unmap 거부, resize/remap, Jd partition** 검증이 아니므로 IO-25 [ ] 유지.
-
-**JMF 부트스트랩 첫 실측 결과(2026-10-07, 미수용).** [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000)의 `j64/default`와 `j64/portable` C job에서 JMF 탐색 단계는 `status=blocked`, `stage_count=2`였으며, 첫 `BINPATH_z_` 설정은 실행되고 `0!:0 <.../jlibrary/bin/profile.ijs`에 `domain error`가 발생했다. **map/unmap까지 도달하지 않았다.** 이 결과를 JMF RW/RO/COW의 부정 결과로 해석하지 않는다. [후속 진단 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3)는 실제 J script loader가 짧은 독립 fixture를 읽을 수 있는지 먼저 검사하고, 실패 원본에 `13!:12` 문맥을 포함하도록 분리했다. 후속 CI 결과는 이 기록 시점 미확정이다. IO-25는 [ ]이다.
-
-## 9. 언어 및 구현 범위
-
-### 9.1 현재 지원하는 주요 값
-
-- Boolean
-- i64
-- f64
-- byte character array
-- BigInt / rational / boxed / sparse에 대한 일부 기반 구현
-
-추가 scalar/storage 기반은 존재하지만 전체 J 의미와 모든 primitive 연결이 완료된 것은 아니다.
-
-### 9.2 현재 직접 실행 경로에서 지원하는 대표 기능
-
-- 숫자 scalar/vector literal
-- 밑줄 음수
-- 소수/지수
-- NaN/Infinity literal
-- 작은따옴표 문자열
-- 우측부터 평가
-- 괄호
-- `NB.` 주석
-- noun binding `=:`
-- 기본 `+ - * %`
-- monadic `|`
-- 비교 `= < >`
-- monadic `i.`
-- `$ # ,`
-- 기본 reshape/index/catenate 일부
-- scalar expansion과 제한된 agreement
-- `+/ -/ */ %/`
-- 정수 하나의 monadic rank
-- 일부 array structural verbs
-- 일부 index/search verbs
-- domain/length/rank/index/value/limit/syntax 오류
-
-### 9.3 배열 조작
-
-구현된 범위에는 다음이 포함된다.
-
-- `|. y`: 첫 축 reverse
-- `n |. y`: 첫 축 rotate
-- `|: y`: 축 역순 transpose
-- `n {. y`: take
-- `n }. y`: drop
-
-여러 축의 count list, dyadic transpose, 일반 fill, 모든 고차원 규칙은 아직 완전하지 않다.
-
-### 9.4 index/search 계열
-
-구현된 범위에는 다음이 포함된다.
-
-- `i. y`
-- `x i. y`
-- `x i: y`
-- `i: n`
-- `I. y`
-- `e.`
-- `E.`
-
-다차원·고급 interval/search 의미는 아직 제한적이다.
-
-### 9.5 이름과 품사
-
-중요한 J 의미 원칙:
-
-- Enqueue는 ordinary name의 noun/verb/adverb/conjunction 품사를 최종 확정하지 않는다.
-- Parser가 name을 사용할 때 current local/locale binding을 lookup하여 실제 value/type class를 얻는다.
-- noun name은 현재 value로 resolve되는 반면, 일반 verb/adverb/conjunction name은 jsource의 `name~` reference와 같은 late lookup semantics가 필요할 수 있다.
-- undefined non-by-value function name은 즉시 value error가 아니라 nameref 형태로 남을 수 있는 jsource 경로가 있으므로, undefined name을 전부 frontend 즉시 오류로 만들지 않는다.
-- extension name도 이 규칙의 예외가 아니다.
-- static binding/version proof가 있을 때만 NameRef를 stable primitive/builder identity로 specialize한다.
-- `f.` 같은 J의 fix semantics는 late name reference를 실제 value로 고정하는 별도 의미이므로 일반 compilation specialization과 혼동하지 않는다.
-- nameref는 생성 시 기대한 part of speech를 보존하고, 실행 시 current lookup 결과의 품사가 달라지면 J처럼 domain error가 되어야 한다.
-- name/version 정보를 IR과 plan guard에 반영해야 한다.
-- 한 sentence의 모든 name을 문장 시작 시점 environment로 일괄 resolve하지 않는다. 우측→좌측 evaluation/assignment가 만든 namespace mutation 시점을 보존한다.
-- `=.`/`=:`는 binding을 갱신하면서 assigned J entity(noun/verb/adverb/conjunction 등)도 반환하므로 statement-only IR로 축소하지 않는다.
-- parser가 깊은 식에서 임의의 작은 recursion/height 한계로 J 의미를 바꾸지 않도록 한다.
-
-### 9.6 direct / explicit definition
-
-direct/explicit definition의 parser·AST·binding·execution은 아직 완전 구현되지 않았다.
-
-GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순서로 진행한다.
-
-1. word formation / parser contract
-2. definition AST
-3. local/name binding
-4. verb execution
-5. control flow
-6. conformance
-
-### 9.7 아직 큰 미지원 영역
-
-- 전체 boxed semantics
-- 전체 sparse semantics
-- complex
-- 모든 extended numeric semantics
-- Unicode 전체
-- 전체 verb binding/train
-- 전체 adverb/conjunction
-- 전체 dyadic rank와 rank list
-- scan 전체
-- 모든 system foreign
-- file API
-- serialization
-- embedding ABI
-- 완전한 parallel execution
-- 완전한 CUDA backend
-
----
-
-<a id="architecture-migration-checklist"></a>
-
-## 10. 구현 계획과 체크리스트
-
-이 절이 앞으로 유일한 구현 체크리스트다. **저장장치·느린 I/O·Out-of-core 작업은 [§10 IO-01~IO-30](#out-of-core-io-checklist)을 이 절 안의 단일 수용 목록으로 사용한다.** 순차 CPU 기준 실행과 J 의미 수렴은 계속 M2→M3→M4 우선이며, IO-A 조사만 병행할 수 있다.
-
-<a id="dynamic-boundary-checklist"></a>
-
-### DB — 동적 의미와 컴파일 경계 이행 (DB0–DB7)
-
-이 목록은 §10 M2→M3→M4와 WI3/WI4/M5–M8의 연결 지점이며 별도 병렬 backend 구현 계획이 아니다. **M2 frontend 수렴을 먼저 진행한다.** 해당 semantic 변경을 구현할 때 필요한 회귀를 추가하고, 최적화 자체는 별도 승인된 단계에서 진행한다.
-
-- [x] **DB0 계약 문서화:** 경계·검사 시점·변환 금지 조건·실패 처리와 초기 구현/미완료 상태를 정본과 mirror에 통합한다.
-- [ ] **DB1 구조화된 경계 보고:** source span, semantic phase, reason, 필요한 fact/witness, 허용 분석·거부 변환, 필요한 route capability를 기록한다. unknown facts·J-invalid·implementation coverage·route rejection을 구별하며 valid unsupported 사례의 원인을 보존한다.
-- [ ] **DB2 witness 유효성:** parser POS/constructor snapshot/call-time lookup을 구분한다. binding/frame/locale/path와 unbound-search 결과의 의존성을 추적하고 검사→사용 사이 mutation을 확인한다. WI4·M5/M6의 noun metadata 연결과 함께 구현한다.
-- [ ] **DB3 효과·오류 경계:** lookup/write/context/I/O/resource/error를 ordered region 또는 동등한 명시적 의존성으로 연결한다. fork/selector·같은 이름의 두 호출·assignment expression에서 값과 효과의 live-out을 분리한다.
-- [ ] **DB4 첫 실행 경로 선택:** Native CPU slice에서 effect 이전에 필요한 guard를 검사한다. miss 시 J 오류를 만들거나 replay하지 않고 실제 지원 경로/재분석/coverage 경계로 분기한다. 외부 route와 CUDA는 capability 증명 후 별도 확장한다.
-- [ ] **DB5 중간 전환의 선행 조건:** effect 이후 전환이 필요해질 때 continuation 상태·소유권·정확히 한 번 효과·오류 위치 계약을 먼저 명세·검증한다. 완료 전 중간 fallback을 활성화하지 않는다. full continuation을 첫 CPU slice의 무조건적 선행 조건으로 만들지 않는다.
-- [ ] **DB6 Windows 차분 gate:** NAME 재정의/POS 변경, local 미정의→정의, locale/path 변경, noun snapshot 뒤 재대입, 값 의존 constructor, 효과 뒤 오류/guard miss를 C 기본·AVX2와 비교한다. 값/type/shape뿐 아니라 lookup 시점·효과 순서·실패 후 binding과 실행 횟수를 검사한다. 현재 미지원 locale/execute는 별도 coverage로 보고한다.
-- [ ] **DB7 중후반 의미·성능 gate:** 검증된 direct runtime과 Logical/Physical 실행을 같은 입력으로 대조한다. guard hit/miss와 empty/boxed/sparse 경계를 포함하며 성능·복사/할당은 의미 통과 뒤 별도 측정한다. frontend 통과나 메타데이터 분석을 backend 실행/성능 통과로 승격하지 않는다.
-
-<a id="nv3a-spelling-errors"></a>
-
-**NV3a fixed spelling 오류 분류 — 2026-10-05.** `jsrc/ws.c::spellin`과 `jsrc/w.c::jtenqueue`의 순서를 따른다. 설치·검증된 core dictionary가 우선이며, 등록되지 않은 colon inflection 또는 nonnumeric dot inflection은 spelling error다. numeric dot는 numeric constructor로 넘기고, quote와 simple name은 각각의 분류를 유지한다. 한 자리 constant function은 기존 core descriptor를 통과한다. `99:`/`1.5:`/`_99:`는 reviewed C에서 유효한 constant function이 아니므로 spelling error다. 잔여 잘못된 문자·미설치 primitive도 Unsupported가 아닌 spelling error다. obsolete spelling의 임의 예외 목록은 만들지 않는다.
-
-`name_:`는 문법적으로 유효한 by-value/abandon lookup이다. simple-name validation을 거친 뒤 별도 Unsupported 경계로 남긴다. `foo__:`처럼 suffix 제거 후 명백히 ill-formed인 simple name은 ill-formed name으로 보고한다. bounded locative grammar는 후속 NV3b에서 검증한다. NAME 길이 제한과 오류 순서는 후속 NV3c에서 검증한다. locale lookup·abandon 효과와 complex/extended/rational numeric grammar는 아직 완료되지 않았다. 따라서 fixed spelling seam인 NV3a만 완료했고 NV3/NV5 전체 완료를 주장하지 않는다. invalid lexical spelling과 valid primitive의 constructor/executor 미지원은 계속 구별한다. 기존 enqueue diagnostic의 phase·source span·word index를 유지한다.
-
-`tools/spelling_conformance.py`는 graphic ASCII 93개(quote 제외) × 7개 suffix의 **651** matrix와 추가 이름/숫자 경계를 양 DLL과 비교한다. 오류 종류·word formation·유효 미지원 경계를 각각 검증하며 primitive 실행 지원이나 전체 name/numeric grammar conformance로 세지 않는다. `tools/vocabulary_audit.py`도 기존 code-only 후보 2개와 legacy 8개의 Rust 오류를 C와 반드시 비교한다. 표준 Windows runner에 spelling report를 추가했다.
-
-**NV3a 검증:** native Windows default/portable 각각 **465 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 spelling **667 cases / failed 0**: 오류 종류 **453**(spelling **426**, number **22**, name **1**, syntax **4**), accepted enqueue controls **208**, valid Unsupported 경계 **6**. 이 중 matrix는 **651**이며, quote grammar와 전체 locative/numeric grammar는 범위 밖이다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**를 유지했다. Scan **285 / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**를 별도로 유지했다. 전체 보고서 16개의 binary/source/DLL hash를 확인했다. spelling pass는 실행 지원이나 GPU 성능 검증이 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
-
-<a id="nv3b-name-syntax"></a>
-
-**NV3b bounded name syntax — 2026-10-05.** `sn.c::vnm/vlocnm`을 참조해 shared enqueue name validator를 보강한다. ASCII letter로 시작하고 alphanumeric/underscore로 구성된 이름에서 simple name, trailing direct locative와 empty/base locale `__`, indirect chains, 최종 numeric debug-frame component 및 그 음수 표기를 구분한다. numeric direct locale의 leading zero·x64의 18자리 제한, 잘못된 중간 숫자/isolated underscore/과도한 underscore를 검사한다. `name_:`는 suffix를 제거한 같은 이름 문법으로 검증한다. validator는 locale·symbol을 조회하거나 noun/function을 생성하지 않고 추가 heap allocation 없이 동작한다.
-
-문법적으로 valid인 locative/by-value name은 계속 Unsupported이며 locale lookup·debug-frame 접근·abandon 효과를 구현했다고 주장하지 않는다. malformed name은 enqueue phase/span/word index를 보존한 ill-formed name이다. NV3b 당시 남겼던 NAME 전체·simple-name·locale storage 길이 제한과 오류 우선순위는 후속 NV3c에서 검증한다. full numeric grammar와 locale 실행은 여전히 NV3/DB2의 잔여 작업이다. 따라서 bounded syntax인 NV3b만 완료하며 전체 NV3/DB2/locales 완료가 아니다. 정의의 `for_name.` 분류도 shared enqueue validator를 통과하므로 이 동일한 bounded syntax 검증을 사용한다.
-
-`tools/name_syntax_conformance.py`는 짧은 `a0_` 조합, direct/indirect/debug-frame 사례, 고정 seed의 mixed-case/digit/underscore 이름 및 각 `name_:` 형태를 생성해 양 DLL과 대조한다. C의 enqueue 오류를 실행 이후 value/locale 오류와 구별한다. 후자의 발생은 이름의 lexical validity만 확인하며 lookup/runtime 성공으로 세지 않는다. `sn.c`·`w.c`·`ws.c`·`jerr.h` source hash와 probe/DLL hash를 보고서에 보존하고 표준 Windows runner에 연결한다.
-
-**NV3b 검증:** native Windows default/portable 각각 **466 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 name syntax **4,030 cases / failed 0**: simple name **1,133**, valid Unsupported name **1,901**, invalid name **996**. spelling **667 / failed 0**와 vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**를 유지했다. Scan **285 / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**를 별도로 유지하고 전체 보고서 18개의 binary/source/DLL hash를 확인했다. lexical validity 확인은 locale runtime 지원이나 실행 conformance pass가 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
-
-<a id="nv3c-name-limits"></a>
-
-**NV3c NAME 길이와 오류 순서 — 2026-10-05.** `sn.c::nfs`의 J-visible compatibility 검사를 추가한다. underlying name의 전체 byte 길이는 **1 ≤ n < 32767**이며 이 범위를 벗어나면 ill-formed name이다. 저장될 simple-name 부분과 locale 부분은 각각 **255 bytes 이하**다. direct locative는 마지막 locale separator를 기준으로 나누며 empty/base locale도 구별한다. indirect locative는 첫 `__` 뒤 **전체 chain suffix**를 locale 크기로 검사한다. chain의 각 component만 255 이하인 것으로는 충분하지 않다. 이 값들은 J 호환성 조건이며 Rust storage/allocator/physical layout의 제한이 아니다.
-
-검사 순서를 보존한다: 전체 길이 → indirect 마지막 numeric/debug-frame text의 digit validation → simple/locale 크기 → `vnm` 문법. 마지막 numeric component에 문자가 섞이면 다른 부분이 과도하게 길어도 ill-formed name이 먼저다. 그 외의 malformed locative는 component 크기를 먼저 검사하므로 limit error가 문법 오류보다 앞설 수 있다. `name_:`는 suffix를 제외한 underlying name에 동일한 검사를 적용한다. primitive inflection의 spelling 검사는 그보다 앞에 유지한다. Rust는 이 검사를 allocation 없이 수행하며 C NAME block·hash·symbol table을 도입하지 않는다. enqueue diagnostic phase/span/word index를 유지한다.
-
-Windows name differential에 254/255/256/257, 32766/32767 경계, direct/indirect chain, 크기와 malformed text가 동시에 있는 경우 및 by-value 형태를 추가했다. 길이 오류와 spelling 우선순위도 C와 정확히 비교한다. valid locale/by-value/debug lookup은 계속 Unsupported이며 locale 실행/abandon 효과를 구현하지 않는다. numeric notation의 전체 유효성은 NV3d에 남긴다. 이 단계는 NAME 길이·오류의 수렴이며 전체 NV3/NV5 완료가 아니다.
-
-**NV3c 검증:** native Windows default/portable 각각 **467 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 name syntax **4,125 cases / failed 0**: simple name **1,135**, valid Unsupported name **1,927**, invalid name **1,022**, length limit **40**, spelling precedence **1**. 기존 4,030건에 길이/우선순위 fixture **95건**을 추가했다. spelling **667 / failed 0**, vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 전체 보고서 18개의 binary/source/DLL hash를 확인했다. lexical/길이 비교는 locale runtime 성공을 뜻하지 않는다. Linux/GitHub CI/CUDA는 실행하지 않았다.
-
-<a id="nv3d1-numeric-recognition"></a>
-
-**NV3d1 숫자 word 문맥과 오류 검증 — 2026-10-05.** `src/numeric_input.rs`는 enqueue에서 `wn.c::numcase/connum`의 whole-word dispatch를 검증한다. numeric list의 모든 field가 공유하는 complex/based·extended integer·rational·precision 선택을 보존한다. 한 field만 따로 해석하면 `1x`와 `1.0 1x`, `1j2 1x`, `2b10 1x`의 차이를 놓친다. suffix/operand·rational infinity·rectangular/polar complex·based digit·p/x exponent 표기를 검증한 뒤 실제 malformed word는 ill-formed number로 보고한다. 숫자 family 문자 하나의 존재만으로 Unsupported를 선택하던 heuristic은 제거했다. `1xr2`는 C의 `numfd`가 `r2`의 생략된 numerator를 0으로 읽으므로 valid임을 회귀에 포함한다.
-
-검증 상태 Valid/Invalid/Unknown을 구분한다. 검증된 extended/rational/complex/based 표기의 payload 생성은 아직 Unsupported이다. precision과 플랫폼-specific `strtod` hex/NaN payload 등 완전히 검증하지 않은 문법도 별도 Unsupported reason을 유지하며 Invalid로 추측하지 않는다. half/single 및 일부 quad 조합은 supplied C 자체의 nonce boundary이므로 C 성공 또는 J spelling/number 오류로 세지 않는다. 일반 integer/decimal은 기존 constructor로 바로 넘기므로 추가 float parse/normalized string allocation을 하지 않는다. 잘못된 숫자의 enqueue phase·word index·span을 유지하며 runtime target/array IR/physical allocation 정보를 숫자 문법에 도입하지 않는다.
-
-`tools/numeric_syntax_conformance.py`가 scalar 표기와 교차 numeric lists, 잘못된 suffix/missing operand, infinity, 64-bit overflow, colon spelling 우선순위, precision/platform boundaries를 양 DLL과 비교한다. accepted noun controls, verified lexical errors, valid payload boundaries, unresolved recognition/error boundaries, C reference precision boundaries를 분리한다. latter boundaries는 정확한 오류 비교 pass 또는 numeric payload 실행 지원이 아니다. 표준 Windows runner에 추가하고 `wn.c`/`w.c`/`ws.c`/`jerr.h` 및 실제 binary/DLL hash를 보고서에 보존한다.
-
-**NV3d1 검증:** native Windows default/portable 각각 **469 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **1,099 cases / failed 0**: accepted noun controls **110**, lexical error equality **652**, valid payload 경계 **327**, unresolved recognition **5**, C reference precision **4**, unresolved error **1**. 마지막 경계 1건은 C의 ill-formed number와 Rust의 Unknown/Unsupported 차이를 보존한 미완료 검증이며 pass로 바꾸지 않는다. 기존 name syntax **4,125 / failed 0**, spelling **667 / failed 0**, vocabulary POS **143**/binding **140**/noun **3**, 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 전체 보고서 20개의 binary/source/DLL hash를 확인했다. numeric syntax 검증은 exact/complex/based payload 실행이나 full precision 성공을 뜻하지 않는다. Linux/GitHub CI/CUDA는 실행하지 않았다.
-
-<a id="nv3d2a-quad-hex-recognition"></a>
-
-**NV3d2a quad·Windows hex 문법 검증 — 2026-10-05.** `src/numeric_input.rs`에서 whole-word precision 선택을 유지하면서 `numfq`의 mantissa·fractional scale·소문자 `e`·64-bit exponent·`fq` suffix 및 infinity/NaN 표기를 검증한다. `2fqz`는 이제 C와 같은 ill-formed number다. exponent 자체의 범위 초과와 scale 합산의 signed overflow를 구분하며, 후자는 Unknown으로 보존한다. quad payload 생성과 arbitrary-precision 할당의 자원 오류까지 구현한 것은 아니다.
-
-Windows `strtod`의 hex mantissa·선택적 binary exponent를 Rust에서 검증한다. C `numfd`는 nominal field 끝에 NUL을 넣지 않고 `t >= s+n`을 허용한다. 따라서 `0Xad90`/`0Xb1`은 뒤의 hex digit까지 읽어 유효할 수 있으며, `_0X0ad90`은 magnitude가 음수인 비영 값이 되어 거부된다. 반면 `numbpx`는 `p`/`x` 구분자를 임시 NUL로 바꾸므로 그 앞의 읽기 범위는 좁혀야 한다. field 길이와 실제 읽기 범위를 별도로 전달하여 이 차이를 보존한다. C FFI나 C kernel 의존성을 추가하지 않는다.
-
-음수 hex polar magnitude의 선행 bit/exponent가 기본 IEEE binary64 환경에서 비영 값을 입증할 때만 ill-formed number로 판정한다. 이 checkpoint에서는 0 mantissa를 허용하고, underflow로 음수 0이 될 수 있는 값·합산 overflow·입증하지 못한 hex ratio 부호를 Unknown으로 남겼다. 기본 반올림의 음수 0과 NaN word 경계는 아래 NV3d2b1에서 추가 검증했다. 변경된 rounding/FTZ 환경, parenthesized NaN payload의 word formation, 전체 플랫폼 `strtod` 확장, 숫자 construction의 자원/오류 동등성은 **NV3d2b**다. 유효한 complex/based/quad 표기의 payload 생성은 여전히 Unsupported다.
-
-근거: pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd`, `numfq`, `numj`, `numbpx`; 실제 Windows DLL과 source revision은 별도로 기록한다. NV3d1의 수치는 당시 검증 기록이며, 당시 미확인 quad/hex 경계는 본 단계에서 아래와 같이 갱신했다.
-
-**NV3d2a 검증:** native Windows default/portable 각각 **471 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,078 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,084**, valid payload 경계 **607**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **3**. unresolved error 경계는 **0**이다. `frontend_probe`는 Unsupported의 원문 이유를 별도 진단 field로 제공한다. 검증된 문법·integer overflow conversion·C precision 미지원·미확인 문법을 실제 진단 이유로 분류하며, 구문 표본의 scope만으로 valid를 주장하지 않는다. 경계 수를 숫자 실행 성공으로 합산하지 않는다. 기존 frontend/runtime/name/spelling/vocabulary/Scan 비교를 유지하고 보고서 20개의 source/DLL/binary hash를 확인했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. Linux/GitHub CI/CUDA는 실행하지 않았다. NV3d/NV3d2 전체 완료로 표시하지 않는다.
-
-<a id="nv3d2b1-rounding-nan-words"></a>
-
-**NV3d2b1 기본 반올림과 NaN word 경계 — 2026-10-05.** `hex_nonnegative`는 실제 읽기 범위에서 mantissa의 선행 bit와 나머지 비트를 검사한다. 기본 IEEE binary64 round-to-nearest, ties-to-even에서 `2^-1075` 이하의 음수 magnitude는 `-0`으로 반올림되어 polar 입력으로 유효하다. 정확한 중간값보다 큰 magnitude는 음수 비영 값이므로 ill-formed number다. `_0X1P_1075ad90`과 `_0X1P_9999ad90`은 이제 문법이 확인된 payload 미지원이고, `_0X1.00000000000001P_1075ad90`은 C와 같은 오류다. 긴 mantissa의 끝에 있는 sticky bit도 버리지 않는다. 숫자 payload를 생성하거나 C FFI를 호출하지 않고 이 부호 조건만 검증한다.
-
-`1jNaN(1)`, `1jnan()`, `1jNAN(foo)`, `1j_nan(1)`은 C와 Rust 양쪽에서 숫자 prefix·괄호·선택적 내부 word로 나뉜다. Windows `strtod`의 parenthesized NaN payload 문법을 J 숫자 word로 도입하지 않는다. C의 전체 문장은 syntax error지만 Rust는 앞의 complex noun 생성 미지원에서 멈춘다. 따라서 네 표본은 word formation equality와 **payload/parser coverage boundary**이며 syntax-error 동등성이나 parser 실행 성공으로 집계하지 않는다. 부호 없는/음수 NaN, Infinity, ratio 표기를 별도 숫자 표본에 추가한다.
-
-이 단계는 기본 반올림 환경에서 polar 부호를 검증한 범위다. 외부에서 변경한 rounding/FTZ 환경은 검증하지 않았다. 문법이 확인된 매우 큰 hex exponent도 i128 중간 계산과 부호 보존 saturation으로 polar 부호만 판정한다. 지원하는 64-bit host의 mantissa 길이 보정은 i128 범위보다 작으므로 임계값과의 순서는 보존된다. 이를 실제 숫자 payload 생성 규칙으로 사용하지 않는다. quad fractional-scale 합산 overflow, hex ratio의 변환 후 부호 및 arbitrary-precision payload의 할당/자원 오류 동등성은 **NV3d2b2**로 남긴다. C의 signed overflow를 Rust에서 재현하거나 시스템 메모리를 소진시켜 자원 오류를 추측하지 않는다. 관련 source 근거는 pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd`·`numj`·`numfq`·`numxTEMP`, word formation은 [w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)다.
-
-**NV3d2b1 검증:** native Windows default/portable 각각 **473 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,201 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,140**, valid payload 경계 **672**, integer conversion 경계 **2**, C reference precision 경계 **200**, unresolved recognition **1**, NaN word formation 경계 **4**. unresolved error 경계는 **0**이다. 남은 recognition 1건은 `2.1e_9223372036854775808fq`의 scale/exponent 합산 overflow이며 실행 성공이나 정확한 오류 비교 pass가 아니다. NaN 4건은 C syntax error와 Rust payload Unsupported를 별도로 기록한다. 기존 세 runtime 경로 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, name syntax **4,125**, spelling **667**, vocabulary POS **143**/binding **140**/noun **3**, Scan **285 / failed 0**를 유지했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. 보고서 20개의 source/DLL/binary hash를 확인했다. Linux/GitHub CI/CUDA와 변경된 floating-point 환경 검증은 실행하지 않았다.
-
-<a id="nv3d2b2a-exact-hex-ratios"></a>
-
-**NV3d2b2a exact hex ratio와 quad 생성 경계 — 2026-10-05.** polar magnitude에 ratio가 있으면 원래 문자열의 부호만으로 유효성을 판단하지 않는다. `real_value`에 실제 읽기 범위를 전달하고 정확히 binary64로 표현 가능한 hex 피연산자를 내부 부호 검증에 사용한다. u64로 누적 가능한 mantissa에서 trailing zero bit를 제거한 뒤 최대 53개의 유효 bit, normal exponent 범위 또는 정확한 subnormal 배수를 입증한다. 조건을 만족할 때만 `f64::from_bits`로 정확한 내부 피연산자를 만든다. 이는 J noun/complex/quad payload 실행 지원이 아니다. 누적 범위 초과·추가 반올림·hex overflow/underflow 피연산자의 수치 생성은 보수적으로 미지원으로 남긴다.
-
-C `numfd`의 비율 계산을 따라 분모 0은 numerator/denominator의 sign xor로 signed zero 또는 infinity를 만들며, 그 외에는 나눗셈 결과에 `0 <= magnitude` 조건을 적용한다. `_0X1r2ad90`은 오류, `_0X1r_2ad90`은 유효하고 `_0X1P_1074r2ad90`은 결과가 `-0`으로 반올림되어 유효하다. NaN 결과는 거부한다. 분모도 nominal field 뒤의 hex digit을 읽을 수 있으므로 `0X1r0X0ad90`의 분모를 0으로 단정하지 않는다. C FFI를 추가하지 않고 기존 enqueue 오류 span/index와 whole-word numeric mode를 유지한다.
-
-`2.1e_9223372036854775808fq`는 lexical grammar 미확인 대신 **quad scale/exponent construction boundary**로 분류한다. mantissa·suffix·exponent 문법이 확인되어도 C의 signed scale 합산 overflow, 숫자 생성·할당/자원 오류 동등성까지 입증된 것은 아니다. Unsupported 이유와 보고서 category를 분리하며 정확한 J 오류 비교나 숫자 실행 pass로 집계하지 않는다. malformed field가 함께 있으면 기존 ill-formed number 우선순위를 보존한다.
-
-근거: pinned [wn.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c)의 `numfd` ratio·signed-zero 처리, `numj`의 polar nonnegative 조건, `numfq` scale 계산과 `numxTEMP` 자원 오류다. 남은 비정확 hex ratio·변경된 rounding/FTZ 환경·quad scale overflow의 정의·payload allocation/자원 오류 동등성은 **NV3d2b2b**다. 해당 경계는 RustJ 구현 범위이며 J 언어의 제한으로 만들지 않는다.
-
-**NV3d2b2a 검증:** native Windows default/portable 각각 **474 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. 양 DLL 각각 numeric syntax **2,485 cases / failed 0**: accepted noun controls **182**, lexical error equality **1,244**, valid payload 경계 **850**, integer conversion 경계 **2**, C reference precision 경계 **200**, quad construction 경계 **1**, NaN word formation 경계 **4**, unresolved recognition **1**, unresolved error **1**. 마지막 두 경계는 각각 `_0X1P_1075r1ad90`과 `0X1P9999r0X1P9999ad90`이며, C의 성공/ill-formed number와 Rust의 미지원 차이를 그대로 기록한다. 미확인 경계를 오류 동등성이나 실행 pass로 바꾸지 않는다. exact operand 교차 ratio **280개**, 미확인 conversion **2개**, malformed/quad construction 우선순위 **2개**를 기존 corpus에 추가했다. 기존 frontend/runtime/name/spelling/vocabulary/Scan 비교를 유지하고 보고서 20개의 source/DLL/binary hash를 확인했다. runtime prefix 경계 **285 / executable prefix passes 0**, capture graph 경계 **257**, static 경계 **2**는 별도다. Linux/GitHub CI/CUDA·변경된 FP 환경·메모리 소진 테스트는 실행하지 않았다.
-
-<a id="vocabulary-migration-checklist"></a>
-
-### NV — 현재 J vocabulary 수렴
-
-설계 inventory의 정본은 [현재 vocabulary 감사](#current-j-vocabulary)다. M2 frontend 순서에 연결하고 신규 task/fold/GPU executor를 동시에 구현하지 않는다.
-
-- [x] **NV0** NuVoc current index·관련 페이지를 읽고 source spelling/POS·C DLL provenance와 분리한다. 이전 vocabulary matrix의 Taylor·obsolete 항목과 누락된 현행 form을 수정한다.
-- [x] **NV1** `[.`·`].`·`]:`를 정상 core enqueue·shared parser constructor 경로로 지원하고 noun/verb 결과·NAME snapshot/late lookup·modifier train·discarded noun 효과/오류 회귀를 추가한다.
-- [x] **NV2** pinned core inventory의 spelling/POS 인식을 확장하고 semantic construction/실행 capability와 분리한다. descriptor 108개와 실제 noun `a.`/`a:`를 추가했다. C가 수용한 143개 POS, bare function binding/AR 140개와 noun payload 3개가 양 DLL에서 일치했다. inventory pass를 실행 지원으로 승격하지 않는다.
-- [ ] **NV3** invalid/obsolete spelling의 정확한 J 오류를 C `spellin`/enqueue와 대조해 일반화한다. valid 미지원 primitive와 invalid spelling을 구별하며 임의 예외 목록으로 해결하지 않는다.
-- [x] **NV3a** fixed ASCII spelling과 미등록 inflection의 enqueue 오류를 일반화했다. 현대 core dictionary를 우선 조회하고 obsolete 예외 목록 없이 C 오류 분류를 따른다. `name_:`와 유효 미지원 numeric family는 별도 coverage 경계이며 전체 NV3는 미완료다.
-- [x] **NV3b** bounded direct/indirect/debug-frame/by-value 이름 문법을 shared enqueue에서 검증한다. valid lookup은 Unsupported이며 NAME 길이 제한은 NV3c에서 다루고 locale 실행·numeric grammar를 남긴다.
-- [x] **NV3c** NAME 전체·simple-name·locale storage 길이 제한과 enqueue 오류 우선순위를 C `nfs` 및 양 Windows DLL로 검증했다.
-- [ ] **NV3d** numeric grammar의 valid 미지원 family와 실제 ill-formed number를 C `connum`/`wn.c`로 구별한다.
-- [x] **NV3d1** whole-word numeric family 선택과 검증된 extended/rational/complex/based 표기의 오류를 일반화했다. payload 생성 미지원과 문법 Unknown을 구분한다.
-- [ ] **NV3d2** dedicated quad grammar·플랫폼별 `strtod` 확장 및 숫자 construction의 resource/error 경계를 검증한다. Unknown 문법을 실제 Invalid로 추측하지 않는다.
-- [x] **NV3d2a** bounded quad·Windows hex 문법과 field/read-window 차이를 양 DLL로 검증했다. payload 실행 지원과 구분한다.
-- [ ] **NV3d2b** resource·scale overflow·rounding/FTZ·NaN payload 및 남은 플랫폼 conversion 경계를 검증한다.
-- [x] **NV3d2b1** 기본 ties-to-even의 hex polar 부호와 NaN 괄호 word 경계를 양 DLL로 검증했다. 매우 큰 exponent의 부호 판정과 숫자 payload 생성은 분리한다.
-- [ ] **NV3d2b2** quad scale overflow·hex ratio 부호·변경된 FP 환경·payload 할당/자원 오류 동등성을 검증한다. 숫자 construction 미지원을 J 오류로 바꾸지 않는다.
-- [x] **NV3d2b2a** exact hex 피연산자의 polar ratio 부호·signed zero·분모 읽기 범위와 quad 생성 경계를 양 DLL로 검증했다.
-- [ ] **NV3d2b2b** 추가 반올림/overflow가 필요한 hex ratio·quad scale 정의·변경된 FP 환경·payload allocation/자원 오류 동등성을 검증한다.
-- [ ] **NV4** 누락 family의 valence/rank/constructor/효과·오류 계약을 순차적으로 검토한다. `/..`·Fold·task/pyx·precision·scope의 의미를 단순 alias나 pure array kernel로 축소하지 않는다.
-- [ ] **NV5** NuVoc 전체 form·structural/control inventory와 지원 행렬의 수렴을 확인한다. 각 단계마다 Windows 차분 gate를 갱신하고 full J 지원과 제한 corpus 통과를 구별한다.
-
-**NV1 gate (historical, 2026-10-05):** native Windows default/portable 각각 **431 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. 추가한 공통 구문 **37개**를 포함하여 C 기본·AVX2 각각 세 runtime 경로 **5,368 cases / 5,368 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases**, 실패 0. capture graph **254건**과 static **2건** 경계는 별도다. frontend report 10개와 vocabulary report 2개의 실제 source/reference/binary hash를 확인했다. vocabulary 후보 **145개**에서 **enqueue POS 검증 33 / Rust Unsupported 110 / source code-only 거부 후보 2 (`?:`, `` `. ``)**이며 legacy/invalid 표기 8개는 양 DLL의 spelling error를 확인했다. 이 숫자는 전체 NuVoc/J 실행 지원률이 아니다. 이 gate 당시 NV2–NV5와 DB1–DB7은 미완료였으며 ordered effect graph·정적 discarded-noun 보존 경계, 미지원 task/fold/precision/범용 scope 실행을 분리한다. optimizer/CUDA/Linux 실행 테스트/GitHub CI는 계속 유보한다.
-
-**NV2 gate (2026-10-05):** native Windows default/portable 각각 **435 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. 공통 C 구문 12개를 추가해 양 C DLL의 세 runtime 경로 각각 **5,380 cases / 5,380 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases**, 실패 0. capture graph **257건**, static **2건** 경계는 별도다. vocabulary 후보 145개 중 **enqueue POS 143 / Rust enqueue 미지원 0 / code-only 거부 후보 2**이며 **bare function parser binding/AR 140개 / noun payload 3개**를 비교했다. 전체 NuVoc/J 실행 지원률이 아니다. report 12개의 실제 DLL/binary/source hash를 확인하고 NV2를 완료 처리했다. 다음 단계는 NV3이며 NV4/NV5와 DB1–DB7은 미완료다.
-
-### M — 현재 구조 수렴 실행 순서
-
-이 상위 체크리스트는 **지금 어떤 순서로 구조를 수렴시킬지**를 추적한다. 세부 완료 조건은 아래 A/F/P/G 체크리스트를 그대로 사용하며, 같은 일을 중복 정의하지 않는다.
-
-핵심 목표는 새 계층을 더 만드는 것이 아니라 현재 공존하는 과도기 경계를 제거해 다음 canonical pipeline으로 수렴하는 것이다.
-
-```text
-J source
-  → jsource-compatible frontend
-  → FunctionEntity / J Semantic Construction IR
-  → J Graph IR / Graph Basis
-  → Execution Semantic Lowering
-  → canonical logical_ir::Plan / Execution Basis
-  → Route Partition
-  → Schedule / Transform
-  → Physical Planner / Bufferization
-  → Physical Execution Plan
-  → Executor
-```
-
-Logical J value와 physical representation의 분리는 이 전체 pipeline에 교차하는 불변식으로 유지한다.
-
-#### M0 — 구조 기준선 고정
-
-- [x] 목표 compiler stage와 각 stage의 책임을 문서에서 확정했다.
-- [x] Graph Basis와 Execution Basis를 별도 계층으로 분리했다.
-- [x] Logical Array/J noun과 Physical Array/representation을 별도 계층으로 분리했다.
-- [x] 과거 중복 execution IR 경계를 구조 부채로 식별했고 M1에서 제거했다.
-- [x] `physical.rs`는 read-only CPU affine representation 기반과 제한적 검색 알고리즘 선택기를 제공하지만 전체 Physical Plan/bufferization planner는 아직 없음을 명시했다.
-- [x] `runtime.rs`의 `ResolvedVerb { reduce, rank, ... }` flattening은 과도기 runtime 구현이며 canonical semantic/compiler model이 아님을 확인했다.
-- [x] ArrayFire와 `math_arrayfire`를 semantic oracle이 아니라 execution/fusion/adapter 참고 구현으로 배치했다.
-- [x] compiler module ownership/dependency 표를 코드 구조와 맞춰 확정하고 reverse dependency 금지선을 문서화했다.
-
-현재/목표 module ownership은 다음을 기준으로 한다.
-
-| 책임 | 현재 주요 모듈 | canonical owner / 목표 | 금지되는 역방향 의존 |
-|---|---|---|---|
-| word formation | `scanner.rs` | frontend word former | graph/logical/physical/runtime가 scanner 구현 세부에 의존하지 않음 |
-| enqueue/word interpretation | `enqueuer.rs` | frontend enqueuer | target/backend 정보를 enqueue가 읽지 않음 |
-| parser + semantic construction | `semantic.rs` | frontend/parser + immutable `FunctionEntity` | Graph/Logical/Physical 선택을 parser가 소유하지 않음 |
-| J graph algebra | `j_graph_ir.rs`, `j_graph_rewrite.rs`, `j_graph_resource.rs`, `j_graph_memory.rs` | J Graph IR / Graph Analyzer | Logical/Physical plan을 다시 semantic identity로 역주입하지 않음 |
-| execution semantic contract | `execution_semantics.rs` | 독립 target-independent execution-semantics contract | schedule/buffer/device를 포함하지 않음 |
-| canonical Logical Execution IR | `logical_ir.rs` | `logical_ir::Plan` | `physical.rs`, kernel/runtime concrete storage에 의존하지 않음 |
-| compilation aggregate | `compilation.rs` | cross-stage analysis bundle | lowering semantics 자체를 소유하지 않음 |
-| route legality/capability | `lowering.rs` | verified Logical IR 이후 lowering/route layer | semantic/parser를 target 편의에 맞게 변경하지 않음 |
-| schedule/transform | 아직 없음 | 별도 planner-side representation | canonical Logical IR을 destructive하게 schedule-specific IR로 덮지 않음 |
-| physical representation | `physical.rs`, `storage.rs` | representation layer | semantic facts를 physical layout으로 정의하지 않음 |
-| Physical Plan/bufferization | **전체 planner는 아직 없음** (CPU 검색 strategy selector만 구현) | Physical Planner | J parser/FunctionEntity를 직접 해석하지 않음 |
-| backend kernels | `kernels.rs`, `numeric.rs`, `simd.rs` 등 | backend realization | kernel 구현 세부가 semantic legality를 정의하지 않음 |
-| interpreter/reference runtime | `runtime.rs`, `logical_executor.rs` | transitional/reference execution | compiler canonical IR의 의미를 runtime flattening으로 정의하지 않음 |
-
-M1 transition container는 제거되었다. `analysis`의 remaining re-export는 target-independent execution-semantic contract와 compilation aggregate compatibility surface이며 canonical Logical IR container를 소유하지 않는다.
-
-M0 이후 적용할 dependency 방향:
-
-```text
-frontend
-  ↓
-semantic FunctionEntity
-  ↓
-J Graph IR
-  ↓
-execution semantic contracts
-  ↓
-logical_ir::Plan
-  ↓
-route / schedule
-  ↓
-physical plan / representation
-  ↓
-backend / executor
-```
-
-옆 단계의 provenance/type identity 참조는 허용하지만, **아래 단계의 concrete realization 정보가 위 단계의 semantic identity를 결정하는 dependency는 금지**한다.
-
-**M0 완료 조건:** **완료.** 새 구현이 어느 stage에 속하는지 한 곳으로 결정할 수 있고, 과도기 compatibility bridge를 새 canonical interface로 오인하지 않는다.
-
-#### M1 — canonical Logical Execution IR로 cutover — 완료
-
-`logical_ir::Plan`이 유일한 canonical execution IR이다. 아래는 현재 유지되는 완료 조건이며 제거한 과도기 container를 현행 모듈처럼 설명하지 않는다.
-
-- [x] shared target-independent execution-semantic contract를 `execution_semantics.rs`로 분리했다.
-- [x] `analysis::lower_graph()`가 J Graph IR에서 A3 op/value/check를 직접 생성한다.
-- [x] `Plan::from_transition`, `TransitionProjection`, `transition_ir` module/container 및 `analysis::LogicalPlan`을 제거했다.
-- [x] `CompilationAnalysis`는 `j_graph`, rewrite/resource views와 canonical `logical`만 묶으며 `transition` 필드가 없다.
-- [x] `Engine::analyze`, `analyze_a3`, `analyze_diagnostic`은 canonical Logical IR을 반환한다.
-- [x] verifier/reference-executor/lowering test consumer를 canonical `logical_ir::Plan`으로 전환했다.
-- [x] Graph origin/source span, name version, semantic check와 write ordering의 direct-A3 regression을 추가했다.
-
-**M1 완료 조건:** 충족. `J Graph IR → logical_ir::Plan` 직접 연결과 단일 execution container가 유지되어야 한다. 이 완료는 full frontend, implicit cell semantics 또는 native Physical Executor의 완료를 뜻하지 않는다.
-
-#### M2 — jsource-compatible frontend/parser cutover
-
-목표: 현재 heuristic parser를 jsource-compatible Word Formation → Enqueue → 9-row Parser pipeline으로 교체한다.
-
-- [x] F0 differential 0-mismatch 기록을 완료했다. pinned source 기록과 Windows 일반/AVX2 배포본 재검증을 구분한다.
-- [ ] F1 Enqueuer/PrimitiveResolver를 완료한다.
-- [ ] F2 Parse Queue를 완료한다.
-- [x] P1 parser control class와 semantic entity/value를 분리했다. parser-time lookup/effect sequencing의 완성은 P4/P2의 별도 gate다.
-- [ ] P2 하나의 9-row reduction engine으로 전환한다.
-- [ ] P3 modifier/Hook/Fork/bident/trident construction semantics를 연결한다.
-- [ ] P4 parser-time name resolution/assignment sequencing을 연결한다.
-- [ ] P5 construction semantics와 compiler facts 경계를 완료한다.
-- [ ] P6 differential/conformance gate를 통과한다.
-- [ ] P7 legacy parser heuristic(`reduce_modifier_applications`, `collapse_verb_trains` 중심 경로)을 제거한다.
-- [ ] P8에서 canonical FunctionEntity → J Graph IR → Logical IR handoff를 재검증한다.
-
-**M2 완료 조건:** supported frontend domain의 parser reduction을 jsource row/semantic action으로 설명할 수 있고 compiler가 별도 언어 문법을 갖지 않는다.
-
-#### M3 — Logical/Physical Array 경계의 코드 수렴
-
-목표: logical value identity에 CPU/GPU/layout identity가 역류하지 않게 하고 representation 선택을 physical planning으로 이동한다.
-
-- [x] **M3-RB 설계 명세(2026-10-07):** §2.5.1의 RB-01~08 의미론 보존·proof/guard·source coverage·Write commit 및 RB-V0~V4 검증 기준을 확정했다. **문서만 완료**.
-- [ ] **M3-RB 실행 검증(구현 보류):** 원본 A3 독립 대조, RouteBoundary validator, Check/effect/error/order negative tests, J oracle 차분 결과를 실행 후 수용한다. 현재 `partition_plan`은 분석 후보 분류기다.
-- [x] **M3→M4 인계 설계(2026-10-07):** §5.2.1 H-01~09, HM-V0~V4로 RouteVerified 증거 → PhysicalVerified → RuntimeReady의 소유권·검증 의무를 문서화했다. **설계만 완료, 신규 구현 없음.**
-- [ ] **M3→M4 인계 검증(미구현):** 원본 A3-Route-Physical Check/Write coverage, selected realization, guard/freshness 및 negative/differential 테스트의 실제 통과 증거 확보.
-- [x] `LayoutFact`를 `RepresentationClassFact`로, `Facts.layout`을 `Facts.representation_class`로 바꿔 physical layout과 구분했다.
-- [ ] Dense/Boxed/Sparse처럼 J-visible representation semantics와 row-major/column-major/stride/tile/device 같은 physical representation을 타입/API에서도 구분한다.
-- [ ] 현재 `Value::Data`의 dense `CpuStorage` 직접 소유를 migration artifact로 한정하고, canonical compiler value identity가 CPU backing을 요구하지 않게 한다.
-- [ ] sparse의 J-visible axes/fill/semantic representation과 concrete coordinate/value buffer encoding의 경계를 점검한다.
-- [ ] `PhysicalArray`는 BufferId/lease/shape mapping/stride/offset/encoding 같은 representation-only 책임만 갖게 유지한다.
-- [ ] 같은 logical value의 복수 physical representation과 여러 logical value의 safe buffer reuse를 표현할 planner-side identity를 정의한다.
-- [ ] G2 structural view 작업을 이 경계 위에서 구현한다.
-
-**M3 완료 조건:** Logical IR/semantic facts에는 stride/offset/device/buffer가 없고, physical representation 변경이 J value identity를 바꾸지 않는다.
-
-#### M4 — 최소 RustJ-native CPU vertical slice
-
-목표: optimizer가 똑똑하지 않아도 canonical compiler pipeline이 end-to-end로 실제 실행되게 한다.
-
-- [ ] Logical payload와 분리된 최소 `Schedule/TransformPlan`을 정의한다.
-- [ ] 첫 planner는 비용 최적화 없이 deterministic all-CPU policy를 사용한다.
-- [x] **문서 계약:** §5.2.1에서 최소 Physical Plan op를 `BindInput/Check/View/Materialize/Kernel/Return`으로 정의하고 plan-time/runtime identity·verifier·cleanup 경계를 고정했다.
-- [x] **M4 인계 검증 계약(2026-10-07):** §5.2.1의 H-01~09/HM-V0~V4에서 물리화 전 반드시 필요한 M3 승인, buffer/view/lease, Check/guard/오류 순서와 runtime 재검증을 명문화했다. **문서 완료만** 의미한다.
-- [x] **M3→M4 첫 CPU 경로 승인 판정 명세(2026-10-07):** §5.2.1 H-A의 A0~A5 단계와 HA-V1~7로 `ReferenceSequential` 후보와 실제 compiler-native 실행을 분리하고 Check/Write/guard/region-local 승인 부정 검증을 정의했다. **설계 전용**.
-- [x] **M3→M4 인수 패킷·검증 판정표(문서 전용, 2026-10-07):** §5.2.1 H-P의 HP-01~12 입력 증거/검증/거부 및 HP-V01~09 단일 조건 변조 시험·판정 기록 양식 작성. 코드 구현이나 전역 승인과 무관.
-- [ ] **HP-01/02 원본·커버리지:** immutable A3 identity와 모든 original op/zero-result Check/별도 Write·cross-route interface를 source 보존 증거에 매달아 검증한다(HP-V01/02).
-- [ ] **HP-03/04 native capability·Check:** selected 실제 CPU recipe 존재, 원본 Check의 execute/discharge owner 및 첫 J error precedence를 검증한다(HP-V03).
-- [ ] **HP-05/06 Name·semantic value:** noun snapshot/late NameRef/Write owner 및 zero-frame Rank·boxed/sparse·shape/atom J 의미를 보존한다(HP-V04).
-- [ ] **HP-07/09 buffer·completion:** plan/runtime 버퍼 구분, view span/alias/generation/last-use, 동기 CPU completion 근거를 검사한다. 비동기 토큰/전송 구현은 M5/M6까지 필수 아님(HP-V05/07).
-- [ ] **HP-08 dependency:** producer/check/guard/effect/error 선행 edge를 검증하고 누락·순환을 거부한다(HP-V06).
-- [ ] **HP-10/11 runtime·fallback:** guard freshness/효과 전 대체 경로/자원 한계, CPU+Host+zero-transfer 제한을 검증한다(HP-V08).
-- [ ] **HP-12 acceptance:** 실제 native 결과와 RustJ reference·가능한 J C oracle의 차분 및 부정 테스트 PASS/CI 증거를 gate별 기록한다(HP-V09).
-- [ ] **M3→M4 승인 판정 실행 검증(미착수):** HA-V1~7 verifier·guard 연결 및 jsource/semantic/native 차분 테스트의 실제 PASS 기록.
-- [ ] **구현:** 위 contract를 concrete `PhysicalPlan`/op Rust 타입과 verifier로 구현한다.
-- [ ] logical ValueId → plan-time `PlanBufferId`/PhysicalView → runtime `BufferLease/BufferId` binding을 구현한다.
-- [ ] G2 transpose/reverse/slice/compatible reshape/zero-stride agreement view를 planner에서 선택 가능하게 한다.
-- [ ] G3의 첫 kernel로 contiguous/fixed/general-stride add를 연결한다.
-- [ ] G3 cell mapping과 ExecutionBasis `CellApply`를 physical view iteration에 연결한다.
-- [ ] G4 CPU Physical Executor를 구현한다.
-- [ ] `source → FunctionEntity → J Graph → logical_ir::Plan → Physical Plan → CPU Executor` vertical test를 만든다.
-- [ ] 기존 semantic/reference executor와 결과/error contract를 비교한다.
-
-**M4 완료 조건:** 기존 interpreter 직접 실행을 거치지 않는 최소 compiler-native CPU 경로가 하나 이상 동작한다.
-
-<a id="heterogeneous-execution-checklist"></a>
-
-#### HE — 이종 CPU/GPU 실행 계획 수렴 (2026-10-07, M4→M6 연계 체크리스트)
-
-**설계 결정:** RustJ는 **CPU 멀티코어 컴파일러가 아니라 이종 배열 컴파일러**다. CPU thread 병렬화는 Physical Plan의 device-local 실행 전략일 뿐이다. `ParallelLegality` 또는 CPU 전용 `ParallelPhysicalPlanner`를 독립적인 canonical 상위 단계로 도입하지 않는다. 기존 `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`를 유지한다. 이 체크리스트는 본 §10의 기존 M/IO 이행 계획에 통합되며 별도 Markdown이나 새로운 필수 IR을 만들지 않는다.
-
-**교차 프레임워크 감사 (참조 대상과 채택 경계).**
-
-| 참조 | 실제 근거 | RustJ 도입/비도입 |
-|---|---|---|
-| [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) 및 [stream passes](https://iree.dev/reference/mlir-passes/Stream/) | Flow에서 target affinity, resource, asynchronous scheduling을 명시한 Stream으로 내린 뒤 HAL에서 실제 device execution | Route/physical plan에 region affinity, readiness·completion dependency, ownership/lifetime 계약을 **점진적으로 도입**; IREE 전체 스택 또는 새로운 Stream IR 복제 금지 |
-| [Kokkos View](https://kokkos.org/kokkos-core-wiki/ProgrammingGuide/View.html) · [Memory Spaces](https://kokkos.org/kokkos-core-wiki/API/core/memory_spaces.html) | ExecutionSpace와 MemorySpace가 1:1이 아니고 가시성·동기화가 별도 | **장치 실행 위치 ≠ 버퍼 저장 위치**를 별도 물리 사실로; unified/shared memory를 공짜 zero-copy로 간주 금지 |
-| [MLIR scf.forall](https://mlir.llvm.org/docs/Dialects/SCFDialect/) · [tensor.parallel_insert_slice](https://mlir.llvm.org/docs/Dialects/TensorOps/) | 논리적인 병렬 반복·mapping·부분 결과 결합을 분리, 반복 간 side effect ordering은 미보장 | A3 `IterationDomain`과 schedule/device mapping 분리 유지. 독립 출력/조립 J 의미 proof 없이 동시화 금지 |
-| [XLA CPU ParallelTaskAssignment](https://github.com/openxla/xla/blob/main/xla/service/cpu/parallel_task_assignment.cc) | FLOP/byte 기반 task 수와 thread overhead 평가, 내부 병렬화된 kernel 회피 | CPU backend 내부의 작업량·대역폭 비용 참고; GPU/CPU 장치 배치 비용을 CPU thread threshold로 대체 금지 |
-| [Futhark multicore scheduler](https://github.com/diku-dk/futhark/blob/master/rts/c/scheduler.h) · [Rayon](https://docs.rs/rayon/latest/rayon/) | chunk/task amortization, nested work 분배, work stealing | **CPU 실행기 내부** 실행 전략; RustJ logical IR에 thread pool·thread count 인코딩 금지 |
-
-**소유권/경계 계약:**
-1. **Semantic/legality:** `logical_ir.rs`의 J 결과 타입·Shape, Rank/CellApply/zero-frame virtual fill, dynamic names/versions, comparison/fit, alias, effect와 error precedence가 권위다. `IterationAxisKind::Parallel`은 구조적 축이며 **동시 실행 가능하다는 증명이 아니다**. 동시 실행·분할·중복 계산은 기존 `lowering.rs` legality와 별도 witness/guard에서 결정한다; Unknown은 거절 또는 합법 baseline 경로로 유지한다.
-2. **Route/device:** `RouteRegion`의 후보 장치(CPU/GPU/external)와 intra-device schedule(Sequential/SIMD/CPU workers/GPU grid)은 직교한다. full J에 모든 연산이 동일한 backend에 내려가야 한다는 의무가 없다. 단일 CPU/단일 region/all sequential은 정상적으로 유효한 계획이다.
-3. **Placement/memory:** J `ValueId`, plan-time `PlanBufferId`/logical version, runtime `BufferId`/`BufferLease`/memory residency/ready state는 서로 다르다. Host/NUMA/GPU/managed/pinned/file memory 위치가 계산 실행 장치와 별도 축이다. view, no-op, copy, prefetch, migration, materialize 후보를 의미와 비용에 맞춰 고른다. 공유·통합 메모리는 접근권과 coherence/동기화 검증을 없애지 않는다.
-4. **Dependencies/completion:** 후보 Physical Execution Plan은 value/data readiness, effect/order, error precedence, lease/lifetime, transfer/compute completion을 추적한다. 비동기 overlap은 dependency의 critical path와 실제 capability가 증명될 때만 이득으로 계산한다. 같은 output에 대한 중복 write, check-before-effect 위반, 오류의 arbitrary first-thread winner를 금지한다.
-5. **Resource/cost:** `j_graph_work_depth.rs`와 `j_graph_resource.rs`의 target-independent facts를 소비하되 `ResourceEstimate`(가능 여부), `CostEstimate`(예측), 측정 `CostProfile`(관찰)을 합치지 않는다. compute FLOP·byte, memory bandwidth/capacity·residency, intermediate materialization, transfer bytes/latency, launch/sync, queueing와 peak in-flight bytes를 분리해 비교한다. 리소스 Unknown ≠ feasible, 비용 Unknown ≠ zero.
-6. **범위:** 실제 GPU/CUDA·multi-device/async runtime 도입은 기존 M6/CUDA 보류 정책을 따른다. M4 최소 CPU slice에 GPU, NUMA, 새 필수 IR, 범용 혼합 스케줄러를 끼워 넣지 않는다. 외부 MLIR/StableHLO adapter의 독립적인 경로도 유지한다.
-
-**실행 게이트/체크리스트 (이 표 외 중복 작업표 생성 금지):**
-
-| 게이트 / 선행 | 상태 | 수용 기준 |
-|---|---|---|
-| HE-00 / M2 병행 | [x] 이종 실행 중심 원칙 및 IREE/Kokkos/MLIR/XLA/Futhark/Rayon 역할 문서화 | 본 결정과 `FOUNDATIONS.ko.md`·`AGENTS.md`에 반영한 **설계 완료만** 뜻함; runtime/benchmark 아님 |
-| HE-01 / M4 | [ ] all-CPU / single-device / zero-transfer `PhysicalPlan` 구현 | 원래 `BindInput/Check/View/Materialize/Kernel/Return` 순차 baseline, `logical_executor` 및 J oracle 의미 대비; M4 완료 게이트에 포함 |
-| HE-02 / M4→M5 | [ ] 실행 위치/메모리 위치/내부 병렬화를 분리한 planner-side contract와 verifier | A3 schema·J Graph·parser 불변, unknown capability와 resource 거절, non-overlap/liveness; multi-device 구현은 요구하지 않음 |
-| HE-03 / M5 | [ ] `ExecutionLegality`/witness/guard **분석**을 기존 lowering 경계에 연결 | Effect·NAME version·alias·error precedence·rank fill·dynamic fallback 반례; IR의 Parallel 축만으로 허가하면 실패 |
-| HE-04 / M5 | [ ] CPU Sequential/SIMD/worker 후보와 measured cost selection | worker count/tiling/compute bandwidth/launch/pool overhead, 반복 병렬 폭발과 nested oversubscription 방지; 모든 후보 합법성 검사 |
-| HE-05 / M5 | [ ] Device/Memory placement·데이터 이동 비용 표현 | copy/migrate/prefetch/ready dependencies, capacity/residency, transfer+sync bytes/time, overlapping 가능 범위 구분; `IO-20`과 공통 physical planner 사용 |
-| HE-06 / M5 이후 | [ ] 단일 CPU 실측과 가상의 혼합 candidate의 비용·정합성 비교 | 순차 baseline보다 작업이 적지 않으면 병렬·GPU 경로를 기본 선택하지 않음; cold/warm compile/transfer/performance 분리 |
-| HE-07 / M6 이후 | [ ] CPU+GPU runtime completion/transfer 연결 및 end-to-end 검증 | 검증 가능한 실제 GPU와 별도 구현 재개 승인 전 **미착수**. data version, transfer/check order, async failure, invalid device, unsupported route 검증 |
-| HE-08 / M6 이후 | [ ] 병렬 CellApply/Reduction/Scan의 J 의미 회귀 및 부정 사례 | zero-frame virtual cell, positive frame/empty cell, result-cell shape/type join, boxed/sparse, tolerance, floating reassociation, J error priority; 미증명 fold/scan은 순차 유지 |
-| HE-09 / M5 이후 | [ ] 스케줄 단계별 관찰값·벤치마크 및 diagnostic | route+device+memory+worker 선택 이유, unknown/reject/guard 근거, bytes moved, sync count, peak memory, output J equivalence. GPU 실행 완료로 오인 금지 |
-
-**작업 순서:** HE-00(설계) → 기존 M2→M3 수렴 → M4/HE-01 순차 vertical slice → HE-02/03 legality/representation → HE-04/05/06 cost·CPU worker·transfer 후보 → 별도 승인을 전제로 HE-07/08/09. `IO-20`도 이 범용 physical placement/transfer 모델에 합류하며 두 번째 전송 추상화를 만들지 않는다. 모든 실행·성능 수용은 §11 검증 정책과 실제 결과를 따른다. **이 문서 갱신만으로 HE-01~09를 완료 처리하지 않는다.**
-
----
-
-#### M5 — Route/Schedule/Cost 확장
-
-M4 이후에만 optimizer 선택 문제를 키운다.
-
-- [ ] `RouteRegion`에 boundary inputs/outputs, chosen route, preconditions/witnesses, semantic provenance를 추가한다.
-- [ ] legality와 profitability를 계속 분리한다.
-- [ ] StructuralOpportunity/use-def를 schedule candidate와 연결한다.
-- [ ] materialize/view/fuse 후보의 physical feasibility를 계산한다.
-- [ ] TargetProfile/ResourceEstimate/CostEstimate 최소 schema를 구현한다.
-- [ ] cold compile, warm execution, copy, layout conversion, transfer, synchronization 비용을 분리한다.
-- [ ] simple CPU cost model로 multiple legal realization 중 하나를 선택한다.
-
-**M5 완료 조건:** planner가 단순 고정 policy가 아니라 여러 합법 physical plan 중 cost/resource 근거로 선택할 수 있다.
-
-#### M6 — External/ArrayFire/GPU route
-
-M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 진행한다. 모든 adapter는 먼저 §5.5.1 External adapter boundary contract를 만족해야 한다.
-
-- [ ] Graph/Execution Basis ↔ ArrayFire capability matrix를 만든다.
-- [ ] ArrayFire route의 dtype/rank/shape/layout/J-semantic precondition을 명시한다.
-- [ ] J row-major ↔ ArrayFire column-major mismatch를 view/copy/consumer-absorption 선택 문제로 physical planner에 연결한다.
-- [ ] external handle lifetime/lock/release/sync를 Physical Plan resource/token 경계로 모델링한다.
-- [ ] MLIR adapter와 StableHLO-safe subset adapter의 공통 negotiation interface를 정의한다.
-- [ ] external route failure가 J semantic failure가 아니라 route unsupported/fallback으로 처리되는 테스트를 만든다.
-- [ ] 실제 GPU storage/kernel은 별도 요청과 검증 가능한 환경이 있을 때 재개한다.
-
-**M6 완료 조건:** external library/backend가 J semantics를 정의하지 않고, verified Logical IR의 합법적인 realization route 중 하나로만 동작한다.
-
-#### JE0–JE6 — JEntity / contextual higher-order view 보조 트랙
-
-**목표:** jsource의 공통 `A` 표현에서 **semantic RHS(`NOUN + FUNC`)를 하나의 carrier로 전달하는 원리**를 참고하되 C runtime allocation 구조를 복제하지 않는다. RustJ의 최소 `JEntity`는 parser/binding/assignment/semantic-operand 경계의 얇은 sum type으로 사용한다. `Value`와 `FunctionEntity`의 내부 모델을 하나로 합치거나 모든 IR node의 공통 base type으로 만들지 않는다. higher-order collection은 gerund 등 실제 operator semantics가 요구할 때 operator-specific view부터 도입한다.
-
-**위상과 실행 순서:** 이 트랙은 M0–M6의 critical path에 새 milestone을 끼워 넣지 않는다.
-
-- JE0 감사는 M2와 병행한다.
-- **JE1의 최소 `JEntity` carrier는 M2 중에도 도입할 수 있다.** 단, `AssignedValue`/`SymbolValue`/`ParserNameBinding`/`FunctionOperand` 같은 중복 carrier를 한 seam씩 줄이는 경우에만 한다. full frontend가 끝날 때까지 중복 타입을 더 굳힌 뒤 대규모 migration하는 것을 피한다.
-- JE2 parser/binding/assignment 수렴은 M2 작업 자체와 함께 진행할 수 있지만, jsource compatibility case가 먼저 있어야 한다.
-- gerund/general collection abstraction(JE3+)과 noun storage를 건드리는 migration은 M2가 안정된 뒤 수행하며, physical representation과 결합되는 변경은 M3 경계가 안정된 뒤로 미룬다.
-- 어느 JE 단계도 첫 M4 CPU vertical slice를 불필요하게 막지 않는다.
-
-**jsource에서 채택하는 원리 / 채택하지 않는 구현:**
-
-- 채택: semantic RHS에서 noun과 function entity가 하나의 상위 J-entity universe에 속하고 POS/type가 해석을 결정한다.
-- 채택: `JEntity`의 직접 범위는 jsource `RHS = NOUN + FUNC`, `FUNC = VERB + ADV + CONJ`에 대응한다. NAME/ASGN/MARK/SYMB 같은 parser/runtime block class를 같은 semantic entity kind로 억지 통합하지 않는다.
-- 채택: function의 parser/binding transport는 common entity handle을 사용할 수 있지만 noun snapshot과 function nameref late lookup의 시점 차이를 보존한다.
-- 채택: gerund처럼 boxed noun이 shape를 제공하는 문맥에서는 그 noun의 shape를 보존한 entity-collection view를 만들 수 있다. shape는 container에 속한다.
-- 채택: derived function은 operand/function identity를 보존하는 first-class entity다.
-- 채택: parser/binding/assignment는 noun뿐 아니라 verb/adverb/conjunction 결과도 하나의 J entity로 전달할 수 있어야 한다.
-- 비채택: jsource `AD/A` allocation header, refcount, virtual/in-place flags, allocator metadata를 semantic identity와 결합하는 방식.
-- 비채택: verb를 noun의 physical atom buffer와 동일한 representation으로 강제하는 방식.
-- 비채택: jsource 공통 header에 rank/shape field가 있다는 이유로 Verb/Adverb/Conjunction 자체에 noun-style semantic rank/shape를 부여하는 방식. current jsource도 function의 AN/AR field를 사용하지 않는다.
-- 비채택: unresolved lexical NAME/NameRef를 Noun/Function과 같은 추가 POS/entity kind로 취급하는 방식.
-- 비채택: 공통 entity abstraction이 Logical/Physical Array 경계를 우회하거나 BufferId/device/layout을 semantic layer로 끌어올리는 방식.
-
-##### JE0 — 현행 semantic carrier와 jsource 대응 감사
-
-- [x] 상위 목표를 확정했다: `JEntity`는 noun/function을 묶는 semantic abstraction이고, common physical allocation abstraction이 아니다.
-- [x] jsource의 공통 J-entity 원리와 RustJ의 `Value` / `FunctionEntity` / `FunctionOperand` 구조가 대응 가능함을 설계 수준에서 확인했다.
-- [x] current jsource의 `RHS = NOUN + FUNC`, `FUNC = VERB + ADV + CONJ`를 다시 확인하고 RustJ `JEntity`의 직접 대응 범위를 semantic RHS로 한정했다.
-- [x] current jsource가 function의 AN/AR를 사용하지 않는 것을 확인하여, function 자체에 noun-style shape/rank를 부여하지 않는 원칙을 고정했다.
-- [x] `p.c` row 7이 noun/verb/adverb/conjunction RHS assignment를 허용하고, `sc.c::jtnamerefacv`가 noun value와 function nameref를 서로 다르게 처리하는 것을 확인해 공통 transport와 lookup timing을 분리했다.
-- [x] `cf.c` bident/trident table에 Function뿐 아니라 즉시 Noun 결과가 존재함을 확인하여 parser construction의 일반 result type을 `JEntity`로 정정했다.
-- [x] `cg.c::jtfxeachv/jtfxeach`가 source boxed noun의 rank/shape를 복사하지만, 결과는 jsource 주석상 **BOX라고 주장하는 내부 carrier에 function-typed A를 넣는 realization trick**임을 확인했다. 이것을 generic semantic `EntityArray`의 직접 선례로 사용하지 않는다.
-- [x] current RustJ에 `FunctionOperand`, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, `ExprKind::{VerbValue,ModifierValue,Literal}` 등 Noun/Function carrier가 중복되어 있음을 확인했다. 최소 `JEntity`는 M2 이후의 장기 리팩터링보다 M2 seam 수렴에도 가치가 있다.
-- [x] current `Verb { target, entity }` wrapper와 `FunctionEntity`의 책임이 완전히 수렴하지 않았음을 확인했다. `JEntity::Function` payload를 확정하기 전에 `VerbTarget`이 semantic identity인지 migration/execution adapter인지 감사한다.
-- [x] lexical NAME과 function nameref를 구분했다. lexical/unresolved NAME은 JEntity가 아니지만, lookup 결과로 만들어진 executable nameref는 POS를 가진 Function entity이므로 `JEntity::Function` 안에서 `NameRef` head로 존재할 수 있다.
-- [x] current jsource 기준 revision을 `0db94e768a845e2583c01d00538c3d16379677bb`(2026-10-03 master)로 고정해 이번 JE 감사의 비교 기준을 기록했다.
-- [x] `Value`, `FunctionEntity`, `Verb`/`VerbTarget`, `FunctionOperand`, parser stack item, `ParserNameBinding`, `AssignedValue`, runtime `SymbolValue`, binding result, `NameRef`, `DefinitionCode`, gerund decode/view가 각각 어떤 semantic identity와 transport 책임을 보유하는지 inventory를 만든다.
-- [x] `p.c` runtime parser와 `pv.c` tacit translator의 9-row 계열 코드를 구분해 근거를 기록한다. `pv.c::jtvis` 같은 translator action을 runtime observable semantics의 단독 oracle로 사용하지 않는다.
-- [x] noun/verb/adverb/conjunction이 같은 parser/binding/assignment 경계를 통과하는 대표 jsource differential 사례를 정리한다.
-- [x] 현재 `FunctionOperand::{Function,Noun}`와 다른 sum-type/enum 중 사실상 중복된 J-entity carrier를 식별한다.
-- [x] current `Value`의 `CpuStorage` migration artifact가 `JEntity` API에 새 canonical dependency로 고착되지 않도록 금지 경계를 명시한다.
-
-**JE0 완료 조건:** 모든 current semantic carrier와 lifetime/ownership/provenance 책임을 표로 설명할 수 있고, 새 타입을 만들기 전에 어떤 중복을 제거할지와 어떤 차이는 유지할지가 결정되어 있다.
-
-##### JE0 현행 carrier 감사와 첫 migration seam (2026-10-04)
-
-아래 표는 JE1 이전 감사 snapshot이다. `AssignedValue` 제거와 현재 API는 이어지는 JE1 구현 기록에서 관리한다.
-
-| 현행 carrier | identity·ownership·lifetime | 유지할 metadata와 migration 결정 |
-|---|---|---|
-| `Value` / `Data` | noun의 J type·shape·atom order; boxed child는 `Arc<Value>`, sparse는 shared semantic array. owned dense clone은 payload copy이며 freeze 후 clone은 공유 | CPU payload는 현행 migration artifact다. 미래 `JEntity`는 `Value`를 transport하되 CpuStorage·host slice·BufferId·layout·device API를 새로 노출하지 않는다 |
-| `FunctionEntity` | POS·head·ordered operands를 갖는 immutable `Arc` DAG; definition Code와 intrinsic noun snapshots를 소유 | Function payload는 `Arc<FunctionEntity>`로 충분하다. callable rank 계약과 noun shape를 혼동하지 않는다 |
-| `Verb` / `VerbTarget` | `span + target + Arc<FunctionEntity>`; Primitive/Named target은 semantic head와 중복되고 Derived는 migration marker | production execution은 `resolve_function_entity`로 DAG를 조회한다. target 직접 검사는 현재 parser test host에서만 사용한다. 첫 seam에서 target을 새 semantic identity로 만들지 않고 wrapper의 occurrence span은 따로 보존한다 |
-| `FunctionOperand` | Function child Arc 또는 freeze된 concrete noun + operand span; noun의 생성·대입 정보와 같은 것은 아니다 | JEntity와 payload union이 중복되지만 noun span이 추가되어 있다. 첫 migration 대상에서 제외하고 이후 zero-loss adapter로 연결한다 |
-| parser `Item` / `ParseValue` | class·source/provenance·flags·occurrence·span override; noun은 `Expr + height`, function은 completed DAG/Verb wrapper | expression dependency, abstract/deferred noun 및 parser control state 때문에 concrete entity carrier와 통합할 수 없다. NAME/target/control을 JEntity POS로 만들지 않는다 |
-| `ExprKind` / `Program` | literal/function result 외에도 Group·ReadName·Monad·Dyad 구조와 reduction/write provenance를 소유 | computation structure는 RHS carrier의 중복이 아니다. JEntity 도입으로 application graph를 제거하지 않는다 |
-| `ParserNameBinding` | concrete noun snapshot, abstract noun class, function POS, known modifier + version이라는 lookup observation | 아직 값이 없는 abstract noun/POS와 실제 RHS를 구분하므로 enum을 유지한다. 모든 lookup을 entity snapshot으로 바꾸지 않는다 |
-| `AssignedValue` | row 7의 concrete Noun/Verb/Modifier RHS를 host에 넘기고 대입 결과를 돌려받는 transport | **JE1 첫 seam**. Noun/Function 두 variant로 바꾸되 function POS는 DAG에서 얻고 occurrence/height/assignment source는 parser에 남긴다 |
-| runtime `SymbolValue` / `Binding` | freeze된 noun 또는 shared function wrapper; 별도의 Engine-local NameVersion. replacement는 old noun을 pool에 retire | AssignedValue와 semantic RHS payload가 중복된다. 첫 JE1은 host boundary adapter만 교체하며 전체 symbol table과 pool migration은 JE2 이후다 |
-| binding result / `BoundProgram` | 분석용 reads·versions·dynamic function references·pending write; 실행 가능한 cached plan이 아님 | entity identity와 binding/version proof를 합치지 않는다. read-only prepare는 commit하지 않는다 |
-| lexical NAME / `FunctionHead::NameRef` | lexical queue name은 unresolved spelling/flags; lookup 후 function NameRef는 expected POS를 가진 executable function identity | noun은 lookup snapshot, function은 필요한 경우 적용 때 재조회한다. 같은 공통 carrier가 이 timing 차이를 없애면 안 된다 |
-| `DefinitionSource` / `DefinitionCode` | shared original source·primitive context·span, immutable body/valence/control metadata; invocation locals 없음 | Function head가 Arc Code를 소유한다. noun DD는 Value이며 Code가 아니다. alias assignment는 본문 호출이 아니다 |
-| gerund noun / `decoded_gerund` | source는 boxed noun; decode는 ordered `Vec<Arc<FunctionEntity>>` 실행 auxiliary이며 source semantic children이 아니다 | order와 noun snapshots는 보존하지만 Vec 자체에는 source shape·lookup observation이 없다. parent noun/span과 capture observations를 함께 봐야 한다. shaped view의 operator별 충분성은 JE3에 남기며 EntityArray를 만들지 않는다 |
-
-**중복 판정:** `AssignedValue`와 `SymbolValue`가 첫 concrete RHS seam이고, `FunctionOperand`는 payload가 겹치지만 provenance 계약이 다르다. `ExprKind`, `ParserNameBinding`, stack/control, binding observations는 역할이 달라 유지한다. JE0 자체는 JEntity API를 구현한 단계가 아니다. JE1의 완료 상태와 JE2–JE6의 남은 경계는 아래 항목에서 관리한다.
-
-**근거 구분:** 새 감사 revision `0db94e768a845e2583c01d00538c3d16379677bb`의 `p.c` L87–96은 주석상 tacit translator용 `cases[]`다. runtime `p.c`의 ptcol dispatch와 L1006–1043의 row 7은 이미 stacked된 CAVN RHS를 대입하고 그 값을 stack에 남긴다. `pv.c::jtvis` L158은 translator action이므로 runtime 대입 oracle로 사용하지 않는다. `sc.c::jtnamerefacv` L364–397은 noun value와 expected-POS function nameref를 구분한다. `cf.c` L292–308의 `{0,NOUN}`은 construction result가 항상 Function이라는 가정을 반박한다. `cg.c` L101–121의 BOX carrier는 source rank/shape를 가진 내부 realization이며 semantic EntityArray가 아니다. 새/기존 source의 선언형 row predicate와 constructor disposition은 native Windows Python으로 동일함을 확인하고 5개 파일 hash를 `reports/entity-carrier-source-audit.json`에 기록했다. 이것은 runtime ptcol trace 또는 새 revision DLL 검증이 아니다.
-
-**이 감사에서 수정한 compatibility bug:** row 7이 모든 modifier를 `resolve_modifier`로 적용용 해석한 뒤 대입하여 `copy=:explicit_adverb` / `copy=:explicit_conjunction`을 거부했다. 이제 stacked RHS를 그대로 대입한다. nameless modifier는 기존 lookup 때 by-value로 stack되고, nonnameless modifier는 POS-bearing NameRef를 유지한다. C `5!:1`에서도 explicit/derived modifier alias의 head가 원본 이름임을 확인했다. static prepare는 application semantics가 미지원인 function도 POS-known NameRef로 대입 구조를 보존한다. 본문·지역 invocation frame을 실행하지 않으며 alias 재대입과 실제 modifier application을 분리한다. explicit body 호출의 기존 미완료 상태는 그대로 추적한다.
-
-**JE0 gate:** Rust regression 5개로 네 RHS 품사의 grouped assignment result/POS·commit identity, noun snapshot/function late lookup와 POS mismatch, 48-level Hook DAG의 Arc 공유 및 host 종료 후 lifetime, 65,536-atom noun snapshot의 payload 공유와 rebinding lifetime, explicit modifier alias의 static non-commit·runtime NameRef/POS/span·본문 미실행·재조회 및 POS 변경 오류를 검증했다. C corpus/stage에 **71건**을 추가했다: noun assignment 13, noun value 19, function class/atomic representation 33, J error 6. valid explicit adverb/conjunction alias 사례는 미지원 예외로 분류하지 않고 모두 C와 일치한다.
-
-Windows default/portable 각각 **363 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,810 cases / 4,806 passed / 기존 runtime 경계 4 / failed 0**; stage **9,990 checks**, words **6,618 cases**. capture graph 경계는 106으로 따로 기록하며 static 경계 2와 구분한다. 새 source 감사 pin `0db94e7...`, conformance source pin `13994ff...`, 실제 DLL release `ded7793...`는 서로 구분한다. 새 revision DLL·full upstream suite·private runtime trace·explicit body invocation acceptance를 검증했다고 주장하지 않는다.
-
-**JE0의 handoff:** `AssignedValue` ↔ runtime assignment 한 seam을 JE1으로 넘겼다. semantic nested DD 등 기존 M2 미완료 항목은 유지한다. JE0/JE1을 full frontend rewrite나 첫 M4 CPU slice의 선행조건으로 확장하지 않는다.
-
-Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006), [translator pv.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/pv.c#L158), [nameref sc.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/sc.c#L364), [constructor cf.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cf.c#L292), [gerund cg.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cg.c#L101).
-
-##### JE1 — 최소 공통 `JEntity` identity 도입
-
-- [x] `JEntity`/`JEntityRef`의 최소 API를 **boundary carrier**로 설계한다. 직접 semantic variants는 `Noun`과 `Function`으로 두고 Function이 `Verb|Adverb|Conjunction` POS를 소유하는 구조를 우선 검토한다.
-- [x] `JEntity`를 `Value`/`FunctionEntity` 내부 representation을 통합하는 base class로 사용하지 않는다. 최초 적용 seam은 assignment/binding/parser result 또는 `FunctionOperand` 중 differential test가 가장 잘 갖춰진 한 곳으로 제한한다.
-- [x] `JEntity::Function`이 `Arc<FunctionEntity>`만으로 충분한지, 현재 `Verb`/`VerbTarget` wrapper에서 semantic하게 남겨야 할 것이 있는지 먼저 결정한다.
-- [x] lexical NAME, unresolved reference, binding/version/provenance를 `JEntity` variant와 분리한 reference/control API로 설계한다.
-- [x] `Verb`/`Adverb`/`Conjunction`을 별도 payload 복제로 만들지 않고 shared `FunctionEntity` + `FunctionPartOfSpeech` identity를 재사용한다.
-- [x] noun payload는 logical J noun identity를 가리키며 physical buffer/layout/device를 소유하지 않게 한다.
-- [x] source span/provenance와 binding/version은 entity payload 자체와 필요한 observation/binding metadata를 구분한다.
-- [x] large derived function/train이 `JEntity` conversion에서 deep-copy되지 않는 sharing test를 추가한다.
-- [x] noun/verb/adverb/conjunction round-trip 및 POS mismatch/error semantics regression을 추가한다.
-
-**JE1 완료 조건:** parser/binding API가 noun과 function을 공통 entity handle로 전달할 수 있으면서 기존 `FunctionEntity` DAG와 J noun semantic identity를 훼손하지 않는다.
-
-##### JE1 구현 — 대입 경계의 최소 JEntity (2026-10-04)
-
-아래는 JE1 도입 시점의 snapshot이다. 임시 SymbolValue/Verb adapter의 제거와 현재 namespace carrier는 이어지는 JE2 구현 기록에서 관리한다.
-
-- `semantic::JEntity::{Noun(Value), Function(Arc<FunctionEntity>)}`와 borrowed `JEntityRef::{Noun(&Value), Function(&FunctionEntity)}`를 도입했다. owning carrier를 이동하면 기존 payload를 그대로 넘기며 `as_ref()`는 copy·allocation·refcount update 없이 inspect한다. owning `JEntity`에는 자동 Clone을 제공하지 않는다: 아직 Owned Value의 clone은 전체 noun payload를 복사할 수 있기 때문이다. borrowed view의 Copy/Clone은 참조만 복사한다.
-- `RuntimeParserHost::assign(name, JEntity) -> Result<JEntity>`가 row 7의 Noun/Verb/Adverb/Conjunction을 같은 boundary로 전달한다. 중복 `AssignedValue` enum을 제거했다. 함수의 실제 POS는 FunctionEntity가 소유하며 separate Verb/Modifier payload를 entity에 추가하지 않았다.
-- parser는 verb의 occurrence span/compatibility target, noun의 Expr height, source/provenance·occurrence·assignment flags를 carrier 바깥에 보존한다. capture의 Commit source/class/function identity와 binding version도 기존 경로에 남는다. noun assignment는 기존 host에서 freeze하고 반환·symbol payload를 공유하며 replacement/pool retirement 규칙을 유지한다.
-- runtime `SymbolValue`는 첫 migration의 compatibility adapter로 남는다. `Verb::from_entity`는 Verb POS를 확인하고 shared entity head에서 기존 Primitive/Named/Derived target과 intrinsic span을 복원한다. 이 adapter는 function DAG·DefinitionCode를 복사하거나 NameRef를 현재 함수 값으로 fix하지 않는다. parser reinsertion은 원래 occurrence wrapper의 span/target을 그대로 재사용한다.
-- lexical NAME, abstract noun/POS observations, `ParserNameBinding`, `ExprKind`, `FunctionOperand`, symbol table 및 gerund auxiliary는 이번 seam에 포함하지 않았다. JEntity에 BufferId·stride·layout·target·device·schedule API를 추가하지 않는다. `Value`가 현재 CPU payload를 포함하는 migration artifact는 여전히 남으며 이를 logical/physical 분리 완료로 간주하지 않는다. Function에 noun shape/rank를 추가하지 않았다.
-
-검증은 JE0의 네 품사 grouped/chain assignment·noun snapshot·function late lookup·explicit modifier alias·POS 오류·effect/provenance 비교 71건을 같은 production boundary에서 재사용한다. 기존 48-level Hook DAG test에 JEntity move/borrow round-trip과 refcount 불변을 추가했고, 새 tests는 65,536-atom Owned noun move/borrow 시 payload pointer 유지, explicit Verb/Adverb/Conjunction의 POS·shared DefinitionCode 유지, runtime Verb adapter의 identity/span·modifier POS 거부를 검증한다.
-
-**JE1 gate:** Windows default/portable 각각 **366 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,810 cases / 4,806 passed / 기존 runtime 경계 4 / failed 0**, stage **9,990 checks**, words **6,618 cases**. 새 언어 form을 추가한 변경이 아니므로 JE0의 71건과 전체 기존 corpus를 그대로 재검증했으며 report 10개의 binary/source hash를 확인했다. capture graph 경계 106과 static 경계 2는 별도이고, full upstream suite·definition invocation acceptance·새 audit revision DLL·private C trace 동등성은 미검증이다. conformance source pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실제 reference DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`; JE0 source 감사 `0db94e768a845e2583c01d00538c3d16379677bb`와 구분한다.
-
-JE1의 최소 API/첫 boundary는 완료이며 runtime `SymbolValue` seam을 JE2로 넘겼다. stack의 deferred noun/application structure와 lookup observations를 concrete JEntity로 강제하지 않는다. explicit body invocation·scope, semantic nested DD, JE3+ higher-order views, broader storage migration, full J conformance는 계속 별도 미완료다. optimization·CUDA·GitHub CI는 보류한다.
-
-##### JE2 — parser/binding/assignment 경계 수렴
-
-- [x] `FunctionOperand::as_entity_ref()`로 공통 borrowed JEntityRef를 제공하고 `span()`으로 provenance를 보존한다. noun의 별도 span과 함수 Arc 소유권을 유지하기 위해 owning enum은 유지한다.
-- [ ] parser stack/value model이 noun/function에 대해 공통 entity transport를 사용하되 jsource 9-row class/POS 규칙은 그대로 유지하게 한다. runtime rows 0–2와 row 7의 completed-result transport는 아래 단계에서 완료했고 전체 stack variant 수렴은 별도다.
-- [x] `CompletedParseResult`로 실행 완료 noun과 row 7의 네 RHS class를 JEntity 경계에 연결한다. deferred Expr·NAME·control은 concrete entity로 강제하지 않는다.
-- [x] modifier train의 Noun/Verb/Adverb/Conjunction operand를 같은 completed-result 경계에서 이동하고 noun source span·freeze 정책·함수 DAG identity를 보존한다.
-- [x] rank/@: conjunction operand를 completed-result 경계로 연결하고 right-before-left 검사·gerund quiet fallback·원본 Expr span을 유지한다.
-- [x] noun-left fork의 constant operand와 지원 explicit/direct definition의 mode/body·생성 결과를 completed-result 경계로 연결한다. definition invocation은 별도 미완료다.
-- [x] 생성/대입 경계 이행 후 남은 adapter 책임을 재감사하고 capture의 중복 함수 identity 조회를 borrowed helper로 통합한다.
-- [x] assignment가 `JEntity`를 namespace에 write하고 같은 assigned `JEntity`를 expression result로 반환하는 contract를 공통화한다. `Binding.value`와 runtime host boundary를 JEntity로 연결하고 SymbolValue를 제거했다.
-- [ ] name lookup이 binding에서 `JEntity`를 얻은 뒤 expected POS 검사를 수행하고 late-binding/version semantics를 유지하게 한다. top-level runtime lookup과 verb/modifier POS 검사는 완료했으며 전체 local/locale/definition scope는 미완료다.
-- [x] jsource `jtnamerefacv`의 의미적 차이를 회귀로 고정한다: noun name은 lookup 시점 value/snapshot을 전달할 수 있지만 function name은 실행 시 재조회되는 nameref가 필요할 수 있다. JEntity binding에서도 기존 71건과 새 noun/function replacement 11건으로 timing·POS·binding semantics를 유지한다.
-- [ ] explicit/direct definition constructor와 invocation 결과가 같은 entity boundary를 사용하게 한다.
-- [ ] parser/runtime/static path가 서로 다른 entity wrapper를 만들지 않는지 differential/golden으로 확인한다.
-
-**JE2 완료 조건:** noun과 function의 parser/binding/assignment transport가 하나의 semantic abstraction으로 수렴하고, POS·lookup timing·effect ordering은 jsource-compatible하게 유지된다.
-
-##### JE2 구현 — namespace와 runtime result의 JEntity 수렴 (2026-10-04, partial JE2)
-
-- runtime `SymbolValue`를 제거하고 `Binding { value: JEntity, version: NameVersion }`으로 저장한다. 함수 binding에는 `Arc<FunctionEntity>`만 남으며 별도 Verb wrapper/span/target 복제가 없다. runtime final result도 동일 JEntity를 사용한다. `ExprKind`는 noun application/dependency 구조를 보존하는 parser representation으로 남는다.
-- `commit_binding(name, JEntity) -> Result<JEntity>`가 version 증가 가능성을 먼저 검사하고, noun을 한 번 freeze한 뒤 namespace 저장/대입 반환 payload를 공유한다. 함수는 동일 DAG를 share한다. host assign은 이 함수에 위임하며 기존 noun replacement·OutputPool retirement 경로를 유지한다. automatic JEntity Clone을 추가하지 않고 freeze된 Value/Function Arc만 명시적으로 공유한다.
-- noun lookup은 기존 값 snapshot을 내고 function lookup은 DAG의 result_pos를 전달한다. by-value nameless modifier, POS-known static alias, modifier resolution의 late NameRef chain·versions를 유지한다. 과거 enum variant가 암묵적으로 검사하던 Verb/Modifier class는 각 조회 경로의 명시적인 POS 검사로 대체했다. verb NameRef가 modifier로 바뀌면 같은 domain error/current_name을 보존한다.
-- 더 이상 namespace에 Verb adapter가 필요하지 않아 `Verb::from_entity`와 그 전용 unit test를 제거했다. 보장하던 identity/span·POS 거부는 실제 commit/lookup 경로의 tests로 이행했다. parser occurrence wrapper와 `VerbTarget`은 아직 유지하며 namespace의 intrinsic Function identity와 분리한다. storage representation·Value 내부·gerund/view·optimizer/target policy는 바꾸지 않았다.
-
-새 runtime unit tests 3개는 65,536-atom noun의 stored/returned pointer와 네 RHS class의 shared identity·versions, version overflow의 noun/function replacement 거부·기존 binding/pool/commit 보존, unified Function의 expected-POS/domain/current_name을 검증한다. integration regression은 cache limit 0/4096에서 noun→Verb→Adverb→Conjunction 교체 중 noun alias 생존과 마지막 alias 해제 뒤 bounded retirement·noun 재대입을 검증한다. 기존 adapter test 한 개를 제거하고 이 실제 경로 검사로 대체했다. C corpus/stage에는 noun/function replacement **11건**을 추가하여 entity boundary fixture는 **82건**이다.
-
-**Namespace seam gate:** Windows default/portable 각각 **369 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,821 cases / 4,817 passed / 기존 runtime 경계 4 / failed 0**, stage **10,001 checks**, words **6,618 cases**. capture graph 경계 108과 static 경계 2는 별도이며 full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다. report 10개의 실제 binary/source hash를 확인한다. conformance source pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`; JE0 source 감사 revision `0db94e768a845e2583c01d00538c3d16379677bb`는 새 DLL 검증으로 취급하지 않는다.
-
-**남은 JE2:** parser completed-result transport와 deferred application 구조의 경계, 전체 local/locale/definition scope, explicit body invocation 및 static/runtime/capture 경로의 더 넓은 수렴을 검증한다. 이번 namespace seam 완료를 JE2 전체 완료로 표시하지 않는다. FunctionOperand view는 아래 단계에서 완료했으며 semantic nested DD와 기존 M2 gaps도 계속 추적한다. JE3+ collection·broader storage migration·optimization·CUDA·GitHub CI는 보류한다.
-
-##### JE2 구현 — provenance를 보존하는 borrowed operand view (2026-10-04, partial JE2)
-
-`FunctionOperand::as_entity_ref()`는 noun과 모든 함수 POS를 공통 `JEntityRef`로 조회한다. `span()`은 noun operand의 저장된 source span 또는 함수 identity의 span을 빌려준다. 이후 application occurrence span과 합치지 않는다. 조회에서 Value 복사·Arc 증가·새 entity 할당이 없고, owning enum은 noun provenance와 함수 DAG 소유권을 보존하기 위해 유지한다. gerund collection이나 물리 배열 representation으로 확대하지 않는다.
-
-실제 사용 경계는 nameless modifier의 by-value lookup 판정과 semantic binding의 function NameRef DAG 순회다. 기존 순회 순서·POS/lookup 정책은 유지한다. operand를 실행용 parser item으로 만드는 경계는 공유 Arc 소유권이 필요하므로 기존 materialization 경로를 유지한다.
-
-회귀는 owned 65,536-atom noun의 pointer/span 보존을 추가하고, 기존 host 종료 후 noun snapshot·48단계 shared DAG·explicit Verb/Adverb/Conjunction tests를 공통 view로 확장하여 payload identity, 함수/DefinitionCode 참조 수 및 원본 위치를 확인한다. 새 J 문법은 추가하지 않아 기존 82건 entity-boundary C fixtures를 그대로 사용한다.
-
-**Operand seam gate:** Windows default/portable 각각 **370 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,821 cases / 4,817 passed / 기존 runtime 경계 4 / failed 0**, stage **10,001 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같으며 full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
-
-completed parser result와 deferred noun/application 구조를 구분한 공통 transport는 아래 단계에서 진행한다. 전체 local/locale/definition scope와 explicit body invocation은 미완료다. JE2 전체 완료로 표시하지 않는다.
-
-##### JE2 구현 — completed parser result의 공통 transport (2026-10-04, partial JE2)
-
-`CompletedParseResult { entity: JEntity, span, height, verb_adapter }`는 완료된 RHS의 이동 경계다. noun Value와 함수 Arc를 복사하지 않고 이동하며, source occurrence/height와 Verb의 span/target adapter는 immutable FunctionEntity identity 밖에 둔다. `from_item`은 literal 또는 grouped literal noun만 받아들이고, 미계산 call·ReadName은 기존 unsupported 경계를 유지한다. 이 helper는 계산하거나 이름을 재조회하지 않는다. JEntity에 Clone을 추가하지 않는다.
-
-runtime rows 0–2는 기존 host.apply를 한 번 실행한 뒤 이 경계로 completed noun을 stack에 반환한다. host가 없는 analysis 경로는 기존 Expr 연산 구조를 보존한다. row 7은 같은 경계로 RHS를 host.assign에 전달하고 같은 반환 payload로 parser item을 복원한다. commit capture·provenance inheritance·POS·lookup timing·effect order는 기존 reduction pipeline이 처리한다. ParseValue의 Expr/Verb/Function/NAME/control variants, constructor 경로, final Program 구조 전체를 바꾸지는 않는다.
-
-근거는 [jsource runtime p.c row 7](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006)의 stacked RHS 대입/반환이다. 이는 pv.c tacit translator와 구분하며 새 source pin으로 DLL을 빌드했다는 주장이 아니다.
-
-새 unit regression 3개는 grouped owned 65,536-atom noun의 pointer/occurrence span/height, 세 함수 POS의 shared identity와 NameRef·Verb occurrence adapter, 정적 call/name 보존과 chained assignment의 apply 1회→inner→outer commit 2회를 확인한다. 기존 entity-boundary fixtures에 computed scalar chained assignment와 grouped computed array assignment 및 두 이름의 결과 조회 **6건**을 추가하여 **88건**으로 늘렸다. 이 실행 횟수 검사는 Rust host 경계의 관찰이며 private C trace 동등성 주장이 아니다.
-
-**Completed-result gate:** Windows default/portable 각각 **373 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,827 cases / 4,823 passed / 기존 runtime 경계 4 / failed 0**, stage **10,007 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같다. full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
-
-다음은 남은 parser value/constructor 경계에서 concrete completed result와 분석용 expression이 중복 전달되는 지점을 검토한다. 전체 stack enum 수렴, local/locale/definition scope 및 explicit body invocation은 미완료다. optimizer·CUDA·GitHub CI는 계속 보류한다.
-
-##### JE2 구현 — modifier constructor operand의 공통 경계 (2026-10-04, partial JE2)
-
-`CompletedParseResult::into_operand()`는 완료 noun을 기존처럼 한 번 `into_shared`하고 원본 occurrence span과 함께 FunctionOperand에 이동한다. 함수는 동일 Arc를 이동하며 occurrence용 Verb adapter를 semantic child에 복제하지 않는다. `modifier_train`의 Noun/Verb/Adverb/Conjunction 변환 중복을 이 경계로 대체했다. production rows 5/6과 gerund AR의 동일 modifier-train 생성 경로에 적용되며, result POS는 기존 cf.c disposition/constructor 결정으로 유지한다. raw NAME/control은 syntax error, deferred call/ReadName은 기존 unsupported로 남긴다.
-
-conjunction rank/right-first audit, noun-left fork, definition constructor, immediate bident/trident application은 각각의 검증 순서·실행 의미가 있어 이번 변경에 합치지 않았다. generic entity collection이나 physical storage 변경도 없다.
-
-새 회귀 2개는 grouped owned 65,536-atom noun이 복사 없이 freeze되고 원본 span을 유지하며 train 해제 뒤 application occurrence에서 재사용되는지 확인한다. 함수 세 POS의 DAG identity/참조 수, cf.c disposition과 result POS, 미계산 noun의 거부 및 control의 syntax error도 확인한다. 기존 runtime noun-origin capture·named array snapshot·nested modifier train tests와 88건 entity-boundary C fixtures를 재검증한다.
-
-**Constructor-operand gate:** Windows default/portable 각각 **375 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,827 cases / 4,823 passed / 기존 runtime 경계 4 / failed 0**, stage **10,007 checks**, words **6,618 cases / failed 0**. capture graph 경계 108과 static 경계 2는 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 위 namespace gate와 같다. full upstream suite·definition invocation acceptance·private C runtime trace 동등성은 미검증이다.
-
-다음은 rank/conjunction operand 경계에서 right-before-left 오류 우선순위와 gerund 감사 계약을 먼저 고정한 뒤 공통 transport 사용 여부를 검토한다. JE2 전체 완료와 전체 J parser 지원으로 표시하지 않는다.
-
-##### JE2 구현 — rank/conjunction operand와 오류 우선순위 (2026-10-04, partial JE2)
-
-`apply_conjunction_at`의 좌우 Noun/Verb operand 전달을 `CompletedParseResult::from_item/into_operand`로 연결했다. 먼저 right operand의 형태를 검사하며 @:의 noun-right domain error는 미계산 noun의 unsupported보다 앞선다. rank의 noun-right는 rank→length→numeric domain 순서로 검사한 뒤에만 left operand를 읽거나 gerund를 감사한다. 원본 Expr span과 parser reinsertion span override의 기존 구분을 유지하고, noun freeze와 함수 DAG 이동은 공통 경계를 사용한다.
-
-근거는 [고정 jsource cr.c::jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L733)의 right rank 추출과 그 이후 noun-left 분기다. boxed rank-1 noun만 gerund 감사 대상이며 모든 요청 rank가 RMAX이면 감사를 생략한다. fx 감사의 J 오류는 quiet constant-noun fallback으로 처리하고 partial decoded list를 남기지 않는다. RustJ 구현 경계인 unsupported는 계속 전달하며 성공한 C 기능인 것처럼 fallback하지 않는다. verb-right는 원래 function operand로 유지하고 noun-left function identity로 뒤바꾸지 않는다.
-
-새 unit 2개는 owned 65,536-atom constant와 rank noun의 pointer/Expr span, deferred left보다 오른쪽 rank/length/domain 오류가 먼저 나오는지 및 @: noun-right domain 우선순위를 확인한다. capture 회귀 1개는 right 오류 시 gerund name lookup/commit 부재와 기존 binding version 보존, valid rank/verb-right의 quiet 감사, 무한 rank 감사 생략 및 partial decode 제거를 확인한다. compound gerund C corpus/stage에 setup·오류 뒤 binding 사용·quiet/RMAX/verb-right construction **12건**을 추가한다. entity-boundary fixtures는 별도 88건으로 유지한다.
-
-**Rank-operand gate:** Windows default/portable 각각 **378 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,839 cases / 4,835 passed / 기존 runtime 경계 4 / failed 0**, stage **10,019 checks**, words **6,618 cases / failed 0**. capture graph 경계는 새 사례 2건을 포함한 **110건**, static 경계는 2건이며 runtime pass와 별도로 기록한다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
-
-다음 JE2 후보는 noun-left fork와 definition constructor의 완료 값 전달 경계다. 각각 source span·생성 오류·본문을 실행하지 않는 계약을 먼저 확인한다. 전체 stack variant 수렴, scope와 definition invocation은 여전히 미완료다.
-
-##### JE2 구현 — noun-left fork와 definition 생성 경계 (2026-10-04, partial JE2)
-
-`CompletedParseResult::from_noun`은 grouped literal을 기존 completed_noun 규칙으로 이동하며 Expr span/height를 보존한다. 일반 from_item은 이 경계를 공유하되 기존 Item occurrence override를 복원한다. noun-left fork는 이 결과를 into_operand로 옮겨 source span·g/h DAG identity를 유지한다. 이전 fork만의 owned noun 경로를 공통 one-time freeze 정책으로 바꾸어 큰 상수의 이후 operand 재사용이 전체 배열 복사를 만들지 않도록 했다. allocator/physical representation 자체는 바꾸지 않았다.
-
-지원 DefinitionConstructor는 양쪽 noun class guard를 먼저 수행한 뒤 mode와 body를 기존 순서로 완료 값에서 추출한다. 이 transient 입력은 freeze하거나 FunctionEntity operand로 저장하지 않는다. mode/body 원본 일치와 semantic code validation은 그대로 수행한다. 생성 결과는 실제 Verb/Adverb/Conjunction POS를 가진 FunctionEntity를 공통 function→into_item 경계로 반환한다. DefinitionCode Arc의 불필요한 clone도 제거했다. 원본 code와 source provenance를 보존하며 invocation/local frame을 생성하거나 본문을 실행하지 않는다. computed definition의 미지원 범위는 확대하지 않았다.
-
-새 unit 2개는 grouped owned 65,536-atom fork 상수의 pointer/source span·g/h identity, 두 번 재사용 후 fork 해제까지 공유 생존, 미계산 noun 거부를 검증한다. definition의 양쪽 class guard가 deferred input보다 먼저 적용되는지와 기존 domain/unsupported 우선순위도 검증한다. integration 1개는 explicit/direct 각 세 함수 POS의 생성·commit, 본문 counter의 version/value 불변과 본문 이름 input observation 부재를 확인한다. C definition corpus/stage에 같은 6개 생성과 counter 조회 **12건**을 추가하며 entity-boundary fixture는 별도 88건이다.
-
-**Fork/definition gate:** Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 **114건**과 static 경계 2건은 runtime pass와 별도로 기록한다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
-
-다음은 남은 completed-result/function wrapper 경계를 다시 감사하여 필요 없는 adapter만 제거하고, frontend F/P 체크리스트의 지원 범위와 미지원 생성/실행 범위를 정리한다. 전체 stack variant 수렴·local/locale scope·definition invocation은 여전히 미완료다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
-
-##### JE2 구현 — 잔여 adapter 감사와 frontend 체크리스트 수렴 (2026-10-04, partial JE2)
-
-`ParseValue::function_entity()`로 Verb/Adverb/Conjunction의 완료 함수 Arc를 빌려 읽는다. construction success와 final function result capture의 중복 분기를 제거했으며, observation event가 함수 수명을 실제로 보유해야 할 때만 기존처럼 Arc를 clone한다. completed Verb의 이동도 기존 function factory로 통합하되 Item occurrence span과 Verb adapter span을 각각 유지한다. 새 J 문법이나 실행 지원을 추가하지 않았다.
-
-| 유지하는 구조 | 유지 이유 |
-|---|---|
-| Verb/VerbTarget | 현재 parser occurrence span과 runtime target adapter를 intrinsic FunctionEntity identity와 구분한다 |
-| ParseValue/Item | deferred Expr, lexical NAME/target/control, class/flags/word provenance/occurrence는 concrete JEntity와 역할이 다르다 |
-| ParserNameBinding | noun snapshot·abstract noun·function POS·known modifier/version은 lookup observation 계약이다 |
-| FunctionOperand | noun source span과 함수 DAG의 owning Arc를 유지하며 borrowed JEntity view로 읽는다 |
-| ExprKind | static computation/dependency와 completed value/function을 최종 Program에서 구분한다 |
-| CompletedParseResult | concrete JEntity 이동에 필요한 height/span/Verb occurrence adapter만 둔다 |
-
-AssignedValue/SymbolValue는 앞 단계에서 제거했다. enum 수를 줄이려고 위 차이를 지우지 않는다. 이 감사로 JE2 전체 stack/scope/invocation 완료를 주장하지 않는다.
-
-F2의 same-stack 재삽입, P2의 같은 matcher 재순회·runtime/analysis engine 공유, P4의 ordinary extension NAME·assignment target 분리, P7의 legacy flat application loop 제거·entry-point 공유를 구현된 범위에 맞게 체크했다. P2 rows 3/4/7은 부분 지원을 명시하고 전체 완료 체크는 유지하지 않는다. full runtime ptcol trace, 전체 modifier/immediate bident/trident semantics, scope와 invocation, intrinsic FunctionSemanticInfo 및 최종 cutover gate는 미완료다. English mirror는 아래 단계 요약으로 같은 상태를 전달한다.
-
-기존 explicit/direct 세 POS 회귀를 확장하여 ConstructionSuccess→FunctionResult→Commit에서 같은 FunctionEntity/DefinitionCode Arc를 유지하고 final result observation이 final commit 앞에 위치하는지 확인한다. C corpus는 기존 4,851건을 그대로 재검증한다.
-
-**Adapter-audit gate:** Windows default/portable 각각 **381 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,851 cases / 4,847 passed / 기존 runtime 경계 4 / failed 0**, stage **10,031 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. conformance source/DLL pin은 JE2 namespace gate와 같고 full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
-
-후속 감사에서 확인한 immediate action의 기존 지원과 surface parser row 도달성은 아래 기록을 따른다. 이 단계의 “미지원 immediate action” 우선순위는 기존 구현을 충분히 구분하지 못한 계획이었다.
-
-##### JE2/P3 구현 — immediate constructor 결과 경계와 row 도달성 정정 (2026-10-04, partial)
-
-C `cf.c::jthook`의 `fn == 0`은 invisible modifier 실행으로 생긴 V N / N/V A 및 N V N / N/V C N/V를 즉시 적용한다. RustJ의 `construct_modifier_bident`/`construct_modifier_trident`는 이미 AR decode와 derived modifier 실행에서 이를 지원한다. V N·N V N은 runtime host를 한 번 호출하여 실제 Noun을 반환하고, adverb/conjunction action은 해당 constructor가 반환한 실제 POS를 유지한다. “immediate executor가 전부 미구현”이라는 P3 설명을 정정한다. 지원 primitive/definition 범위를 넘어서는 실행은 여전히 Unsupported이며 전체 P3 완료를 뜻하지 않는다.
-
-surface parser에서는 ordered rows 0/2/3/4가 이 즉시 적용 조합을 rows 5/6보다 먼저 소비한다. 현재 9개 ParseClass의 모든 6,561 stack window를 검사하여 row 5는 NVV/VVV fork만, row 6은 immediate/fork가 아닌 disposition만 선택함을 고정했다. 도달하지 않는 branch의 Unsupported 문구를 row invariant 오류로 바꿨다. static analysis가 실제 값이 필요한 호출을 임의로 실행하거나 Unsupported를 J 오류로 바꾸는 정책 변경이 아니다.
-
-`ConstructionNames::apply_noun`의 성공 결과를 `CompletedParseResult::noun(...).into_item()`으로 통합한다. 기존 once-freeze, span/height와 ConstructorApply의 성공/오류 observation 순서는 유지한다. 새 unit regression은 bident/trident 두 경로에서 owned 256×256 배열 결과의 payload pointer·shape·span·실제 Noun POS와 host 호출 1회를 확인하고, 후속 FunctionOperand로 이동해도 복사 없이 살아 있음을 검증한다. 기존 실패/효과/정적 no-host 회귀를 함께 재검증한다.
-
-- [x] immediate action과 surface row eligibility를 구분하고 전수 검사한다.
-- [x] host Noun 결과를 공통 completed-result carrier로 이동한다.
-- [x] 즉시 계산한 Noun을 rank constructor에 넣는 C corpus/stage 사례 12개를 추가한다. scalar/array 결과 및 domain/length 실패를 비교한다.
-- [ ] 모든 primitive/explicit modifier 실행과 local/locale/definition invocation을 구현한다. 기존 ignored definition acceptance 17개를 완료 증거로 세지 않는다.
-
-**Immediate-boundary gate:** Windows default/portable 각각 **383 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,863 cases / 4,859 passed / 기존 runtime 경계 4 / failed 0**, stage **10,043 checks**, words **6,618 cases / failed 0**. capture graph 경계 114건과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. source/DLL pin은 JE2 namespace gate와 동일하다. full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다.
-
-다음 단계는 실제 미지원 explicit adverb/conjunction 적용을 최소 C 사례로 분리하고, operand/local name binding과 실제 반환 POS를 보존하는 invocation 경계를 구현하는 것이다. noun 본문 결과도 Function으로 강제하지 않는다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
-
-기준 소스: [cf.c bident/trident table](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L292), [cf.c invisible modifier의 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L355), [p.c ordered parser rows](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
-
-##### JE2/P3 구현 — nonoperator explicit modifier의 첫 invocation 경계 (2026-10-04, partial)
-
-rows 3/4와 AR/derived modifier 실행이 `ExplicitDefinition`을 적용할 때 runtime host의 `apply_definition`을 거쳐 실제 `JEntity` 결과를 받는다. `x/y`를 참조하지 않는 mode 1/2에서 선택된 valence의 **단일 Body 문장**을 공유 tokenizer/enqueuer/parser로 실행한다. literal 결과뿐 아니라 `u/`, `m+n`, global noun을 읽는 계산도 기존 semantic kernel 범위에서 실행한다. direct definition의 mode 1/2도 같은 DefinitionCode 경계를 사용한다. definition을 생성·대입하는 단계는 계속 본문을 실행하지 않는다.
-
-`ModifierFrame`은 parent Engine을 빌려 global lookup/semantic calls를 수행하며 전체 symbol table을 복제하거나 global에 operand를 잠시 대입하지 않는다. `u/v`는 실제 operand이고 noun일 때만 `m/n` alias를 정의한다. `RuntimeParserHost::operand_function`은 이 특별 이름의 concrete function substitution만 허용한다. ordinary 함수 NAME의 late lookup·alias 재정의 동작은 유지한다. C `p.c`의 mnuvxy by-value 규칙과 `cx.c`의 operand 설치를 기준으로 했다. gerund의 특별 이름 `u`도 C decoded structure와 대조했다. 일반 gerund 이름을 snapshot으로 바꾸지 않는다.
-
-실제 반환값은 공통 CompletedParseResult를 통해 **Noun/Verb/Adverb/Conjunction의 품사 그대로** 다음 stack reduction에 들어간다. noun 반환을 함수로 강제하거나 capture에서 “completed construction function”으로 가정하던 경로를 제거한다. immutable 함수 Arc 및 noun shared payload를 이동·공유한다. 정적 prepare는 runtime host가 필요한 호출을 실행하지 않고 Unsupported를 유지한다. explicit 정의를 static-known primitive modifier로 분류하지 않는다.
-
-capture에는 `ExplicitModifierApply` invocation marker와 noun 반환의 `ConstructionNounSuccess` occurrence/facts를 추가했다. matching construction attempt·row/POS·sequential occurrence와 실패 후 대입 보존을 검증한다. 본문 내부 dependency/effect graph를 outer graph에 아직 연결하지 않았으므로 J Graph 변환은 `explicit modifier body graph requires invocation scope`라는 경계를 반환한다. **실행 성공은 graph 분석 완료를 뜻하지 않는다.** 본문 source 좌표를 caller source 좌표로 잘못 렌더링하지 않도록 operation/argument context는 유지하고 오류 위치는 outer invocation으로 매핑한다. 별도의 body/caller diagnostic frame은 후속 작업이다.
-
-지원 경계:
-
-- [x] 단일 문장 nonoperator adverb/conjunction의 실제 Noun/Function 반환과 후속 reduction을 지원한다.
-- [x] `u/v`, noun 전용 `m/n`, global late lookup, 반환 함수의 frame 밖 재사용, 오류/재정의/대입 대상 보존을 검증한다.
-- [x] Rust 회귀 3개와 C corpus/stage 사례 **48개**를 추가한다. scalar/matrix/empty/boxed noun, 반환 ADV/CONJ 재적용, gerund operand 및 domain/length 실패를 포함한다.
-- [x] 본문의 simple NAME `=.`/`=:`와 여러 직선 문장은 다음 modifier-scope 단계에서 구현했다. control flow·nested definition scope는 계속 미지원이다.
-- [x] 이후 operator-call 단계에서 x/y operator의 deferred Verb construction과 직선 호출을 구현했다. unbound 특별 이름의 global fallback 및 전체 scope 지원은 포함하지 않는다.
-- [ ] 현재 recursive parser 기반 호출은 Windows stack 보호를 위해 **8중첩**에서 LimitError를 낸다. 일반 invocation executor의 explicit frame/trampoline과 더 넓은 depth는 후속 작업이다. 오류 뒤 depth가 복구됨을 검증했다.
-- [ ] 본문 graph/source frame 및 전체 local/locale/definition 실행을 연결한다. 기존 ignored definition acceptance 17개는 계속 미완료다.
-
-**Explicit-modifier gate:** Windows default/portable 각각 **386 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,911 cases / 4,907 passed / 기존 runtime 경계 4 / failed 0**, stage **10,091 checks**, words **6,618 cases / failed 0**. capture graph 경계 **147건**(invocation 19·modifier value 109·ordered effect 19)과 static 경계 2건은 별도다. report 10개의 실제 binary/source hash를 확인했다. reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`와 실행 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다. Linux/GitHub CI/CUDA 검증은 실행하지 않았다.
-
-이후 modifier-scope 단계에서 local/global assignment dispatch와 여러 직선 문장의 마지막 결과·실패/효과 순서를 구현했다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. body graph 연결과 전체 callable scope는 후속 경계다. CUDA·optimizer 구현·GitHub CI는 보류한다.
-
-기준 소스: [cx.c modifier 호출 및 local frame](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c u/v와 noun m/n 설치](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L322), [p.c mnuvxy의 by-value resolution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c VXOPR executor 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
-
-##### JE2/P3 구현 — modifier 지역·전역 대입과 직선 본문 실행 (2026-10-04, partial)
-
-이 단계는 앞 기록의 단일 문장 제한을 확장한다. `RuntimeParserHost`가 enqueue environment와 scoped assignment를 전달하고, definition 본문은 `ExplicitDefinition` 규칙으로 enqueue한다. 본문의 `=.`를 TopLevel의 전역 대입 규칙으로 승격하지 않는다. Engine은 global namespace와 별도의 호출별 `LocalFrame`을 유지하고 **현재 frame → global** 순서로 읽는다. caller의 다른 frame을 탐색하지 않는다. `u/v`와 noun 전용 `m/n`도 이 frame에 설치한다. noun은 공유 전에 한 번 freeze하며, 함수 Arc 및 큰 배열 payload를 유지한다. 전체 symbol table을 복제하지 않는다.
-
-선택된 nonoperator mode 1/2 valence의 여러 `Body` 문장을 순서대로 실행하고 마지막 문장의 실제 `JEntity`/POS를 반환한다. 마지막 문장이 대입이어도 그 RHS noun/function 값을 반환한다. 뒤 문장이 있는 비대입 함수 결과에는 C와 같은 `noun result was required` 오류를 내지만 함수 대입은 계속 진행할 수 있다. 실패 시 local frame과 호출 depth는 복구된다. 앞서 완료된 global 대입은 유지하고, 실패한 RHS와 바깥 대입 대상은 commit하지 않는다.
-
-C 비교로 구분한 이름 규칙:
-
-- **현재 값이 있는 지역 이름**에 `=:`로 대입하면 domain error이다. 지역 이름이 선언만 되어 있고 아직 값이 없으면 global 대입이 허용되며, 그 이후 `=.`로 지역 값을 넣을 수 있다.
-- ordinary 함수 NAME은 본문에서도 실행 시 lookup한다. 이를 반환할 때 마지막 지역 함수 값으로 재귀 치환하지 않는다. frame 종료 후 같은 이름의 global이 없으면 value error이고, 이후 global이 생기면 그 값을 조회한다. `u/v`의 by-value substitution 및 마지막 함수 대입의 실제 RHS 반환과 구별한다.
-- C가 종료 시 fix하는 implicit locative `u./v.`는 ordinary NAME과 다른 경계다. 아래 x/y 직선 operator executor 구현과 구별하여 후속 구현한다.
-
-체크리스트:
-
-- [x] nonoperator modifier의 simple NAME `=.`/`=:` dispatch와 현재 지역→전역 lookup을 분리한다.
-- [x] 여러 직선 문장, 마지막 대입 결과/POS, 중간 nonnoun 오류, committed global 효과와 실패 후 frame 복구를 검증한다.
-- [x] 직접 정의와 실제 `1/2 : 0` block 입력을 비교한다. block은 C `0!:100` script delivery로 공급하고 Rust에는 같은 원문을 전달한다. JDo 단일 호출로 interactive block을 흉내 내지 않는다.
-- [x] Rust regression **6개**, 공통 C corpus **31건**, stage 전용 **41건**을 추가한다. 지역 noun/function/adverb, ordinary NAME 반환 후 재조회, reserved operand, 대입 실패·효과 순서, 65,536-atom payload의 frame 종료 후 pointer 공유를 포함한다.
-- [x] 아래 ordinary-reference 단계에서 cross-frame 함수 operand, local NAME을 포함한 global publication, 미초기화 local 함수 대입 및 operand/local collision 제한을 해소했다. 실제 implicit locative는 별도 미지원 경계다.
-- [ ] control flow·nested definition framing·locale 및 전체 operator wrapper/scope는 후속 구현한다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. 기존 8중첩 제한과 ignored definition acceptance 17개는 유지한다.
-- [ ] 본문 dependency/effect graph와 별도 body/caller diagnostic frame을 연결한다. graph 변환은 계속 `explicit modifier body graph requires invocation scope`를 반환한다. 실행 성공은 static graph 분석 완료를 뜻하지 않는다.
-
-**Modifier-scope gate:** native Windows default/portable 각각 **392 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,942 cases / 4,938 passed / 기존 runtime 경계 4 / failed 0**, stage **10,163 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **164건**(invocation 28·modifier value 117·ordered effect 19)과 static 경계 2건은 별도다. report 10개의 binary/source hash를 확인했다. reviewed source는 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실행 DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`이다. full upstream suite·ignored definition acceptance·private C trace 동등성은 미검증이다. Linux/GitHub CI/CUDA 검증은 실행하지 않았다.
-
-이후 ordinary-reference 단계에서 scoped-reference 사례를 C와 대조하고 ordinary NAME 제한을 해소했다. x/y 직선 호출은 아래 operator-call 단계에서 구현했으며, 본문 graph/source frame 및 control flow는 후속 경계다. Unsupported 전에 global 효과가 commit될 수 있으므로 이를 안전한 자동 재실행 신호로 사용하지 않는다. optimizer·CUDA 구현·GitHub CI는 보류한다.
-
-기준 소스: [p.c 지역 조회와 global fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L631), [s.c bound private name의 global 대입 금지](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L718), [cx.c 중간 noun 결과 요구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L67), [cx.c implicit locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c implicit u/v 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L53), [jerr.h EVNONNOUN](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h), [i.c 오류 문구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/i.c).
-
-##### JE2/P3 구현 — ordinary NAME scope 경계 해소 (2026-10-04, partial)
-
-- [x] C native oracle로 ordinary NAME의 cross-frame 전달·global publication·미초기화 local 대입·operand/local 이름 충돌을 확인했다. 이전 scoped-reference 보수적 경계는 아래 범위에서 해소했다.
-- [x] ordinary NameRef를 implicit locative로 오인한 네 제한과 전체 함수 DAG의 이름 membership 재검사를 제거했다. 함수 이름은 expected POS를 가진 late reference로 유지한다. 호출은 현재 frame → global을 조회하며 caller frame을 캡처하거나 탐색하지 않는다. `u/v` operand substitution과 noun snapshot은 그대로다.
-- [x] `smf=.u` 후 `smf`를 안쪽 modifier에 전달하면 안쪽에서 ordinary `smf` 실행은 안쪽 local 또는 global을 조회한다. caller의 지역 `smf`로 고정되지 않는다. `smexport=:smf/`도 ordinary 이름을 보존하고 frame 밖 global 재정의를 반영한다. 미초기화 `smf=.smf`는 RHS의 현재 noun/function 품사를 따르며 noun이면 snapshot, 함수면 NameRef이다. 같은 이름의 operand/local 대입도 유효하다.
-- [x] Rust scope regression은 기존 Unsupported golden 1개를 실제 의미 검증 3개로 교체했다. 재정의·POS mismatch·undefined→defined, 실패 뒤 outer target/version 유지·이미 commit된 global publication과 frame 복구를 검증한다. 공통 single-line C corpus **21건**, stage에 이를 포함한 **45건**을 추가했다. 반환 함수의 C atomic representation과 실제 결과/오류를 비교한다. `af.c`를 검토 소스 hash 목록에 추가했다.
-- [ ] 실제 implicit locative `u./v.`, 전체 operator wrapper/scope, control flow·nested scope와 body graph/source diagnostic frame은 후속 작업이다. x/y 직선 호출은 아래 operator-call 단계에서 지원한다. 일반 NAME 지원을 implicit-locative fix나 전체 closure 지원으로 확대하지 않는다. static/no-host modifier application은 계속 명시적 경계이며 실행 성공을 정적 분석 완료로 계산하지 않는다.
-
-**Ordinary-reference gate:** native Windows default/portable 각각 **398 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **4,963 cases / 4,959 passed / 기존 runtime 경계 4 / failed 0**, stage **10,208 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **171건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. 보고서 10개의 실제 binary/source hash를 확인했다. reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실행 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·GitHub CI는 보류한다.
-
-이후 operator-call 단계에서 deferred callable의 직선 호출을 구현했다. implicit locative와 실행되지 않는 definition body graph/source frame은 후속 경계다. effect가 commit된 뒤 Unsupported가 날 수 있으므로 자동 replay하지 않는다.
-
-Sources: [p.c ordinary lookup / mnuvxy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c return-time implicit-locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c hasimploc / fix scope](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L17).
-
-##### JE2/P3 구현 — x/y operator의 deferred verb와 직선 호출 (2026-10-04, partial)
-
-- [x] C `cx.c::jtxop2/VXOPR`처럼 mode 1/2 operator의 operand application은 **본문을 실행하지 않고 Verb를 구성**한다. 기존 `FunctionHead::ExplicitDefinition`과 공유 DefinitionCode를 유지하며 원래 순서의 operand를 붙인다. code의 modifier POS와 적용 결과의 Verb POS를 구별한다. 새로운 modifier 전용 AST나 definition 본문 noun reduction을 만들지 않는다.
-- [x] 반환 verb의 직접/ordinary NAME 호출에 별도 x/y를 설치하고 기존 직선 본문 executor·tokenizer/enqueuer/parser를 공유한다. valence는 modifier operand 수가 아니라 실제 x/y 호출과 DefinitionCode의 monad/dyad section으로 선택한다. 빈 section은 ValenceError, 최종 함수 결과는 EVNONNOUN으로 처리한다. 생성 시 control-flow 본문을 실행하지 않으며, 해당 호출은 아직 Unsupported이다.
-- [x] 호출별 local frame과 u/v 및 noun 전용 m/n을 설치·정리한다. 기존 current-frame→global 조회, ordinary NameRef의 late lookup, global 효과/실패한 outer 대입 보존을 유지한다. 정의 재대입은 이미 생성된 verb의 공유 code를 바꾸지 않고, 함수 operand의 ordinary 이름 재대입은 실행 시 반영한다. primitive 호출에는 새 함수 Arc 복사를 추가하지 않는다.
-- [x] noun operand는 deferred construction에서 공유 저장소로 고정하고 이후 호출에서는 공유한다. 65,536-atom operand의 pointer 보존·이름 재대입 후 생존, code Arc 동일성, 생성/호출 효과 횟수, valence·POS·noun-result 오류와 반복 실패 후 frame 복구를 Rust regression **3개**로 확인했다. 재귀 제한은 기존 Windows **8중첩**을 유지한다.
-- [x] 공통 C corpus **38건**, 이를 포함한 stage **67건**을 추가했다. scalar/vector/empty, noun operand snapshot, named operand 재정의, direct/block/two-valence 정의와 실패 효과를 비교한다. frontend probe와 C `5!:1` adapter는 boxed operator head + operand vector를 보존하여 적용 전 modifier와 적용 후 verb를 구분한다. 기존 nonoperator scope/capture 테스트도 유지한다.
-- [ ] `u./v.` implicit-locative fix, control flow·nested scope, bare mode 3/4 verb invocation의 전체 지원, rank/insert 등 wrapper 안의 operator 실행, body graph/source diagnostic frame과 Logical lowering은 후속 작업이다. static/no-host application은 계속 명시적 경계다. DefinitionCode와 operand graph 보존은 본문 분석·compiled reuse 완료를 뜻하지 않는다.
-
-**Operator-call gate:** native Windows default/portable 각각 **401 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,001 cases / 4,997 passed / 기존 runtime 경계 4 / failed 0**, stage **10,275 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **184건**, static 경계 **2건**은 별도다. 기존 runtime waiver는 추가하지 않았다. 보고서 10개의 binary/reference/source hash를 검증했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 다르다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 Linux/GitHub CI/CUDA는 실행하지 않았다.
-
-**별도 oracle 경계:** 무한 재귀 operator 사례에서 j64 C oracle의 ctypes JDo가 `OSError: exception: stack overflow`로 종료했다. 정상 J LimitError 대조가 아니므로 위 성공 corpus에서 제외하고 `reports/operator-recursion-oracle-boundary-windows.json`에 기록한다. Rust depth-limit/frame-recovery regression만 통과했으며 이 사례의 C 동등성은 주장하지 않는다. 실패한 harness 실행을 successful gate로 계산하지 않았다.
-
-아래 implicit-operand 단계에서 반환 시 fix를 구현했다. caller scope 전환을 포함한 직접 호출과 body graph/source frame·control executor는 후속 작업이다. optimizer·CUDA·GitHub CI 보류를 유지한다.
-
-Sources: [cx.c jtxop2](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L749), [cx.c operator operand extraction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c x/y/u/v installation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L269), [cx.c result audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L671), [cx.c executor selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
-
-##### JE2/P3 구현 — implicit operand의 반환 시 고정 (2026-10-04, partial)
-
-- [x] C `t.c`처럼 `u.`/`v.`를 VERB primitive로 enqueue한다. ordinary NAME이나 extension keyword로 바꾸지 않는다. registry version은 4이다.
-- [x] `cx.c::xop`처럼 direct definition의 mode 판정에서 `u.`는 u, `v.`는 v 사용으로 계산한다. lexical VERB 분류와 adverb/conjunction definition POS는 구별한다.
-- [x] modifier의 직선 본문이 함수를 반환할 때 departing frame의 최종 u/v binding으로 첫 implicit locative를 치환한다. 각 replacement 안으로 더 들어가지 않으며 ordinary NameRef는 유지한다. source operator/operand 순서·decoded gerund를 유지하고 바뀌지 않은 FunctionEntity는 Arc를 공유한다.
-- [x] noun operand를 verb locative로 반환하면 DomainError이다. 미설치 operand의 반환은 C에서 함수 참조가 남을 수 있어 현재 Unsupported 경계이며 ValueError로 단정하지 않는다. 이미 commit된 global publication은 고정하지 않는다. 반환 뒤 ordinary 함수 이름 재정의와 실패 후 frame 복구를 회귀 검증한다.
-- [x] unresolved implicit primitive의 contract는 unknown/effect barrier이며 graph rule은 DynamicOrUnknown이다. 이를 pure 배열 kernel 또는 shape 보존 힌트로 간주하지 않는다.
-- [ ] **후속 진행:** 아래 caller-scope 단계에서 direct `u./v.` 호출과 ordinary alias 호출, publication 밖 호출 오류를 구현했다. wrapper 내부 raw 호출, 미설치 operand 반환 참조, 전체 locale/control/body graph/source diagnostic frame은 후속 경계다. 일반 함수 lookup으로 대체하면 caller-local 이름을 잘못 해석할 수 있다.
-
-Windows C oracle에서 반환 `u.`/`u./`/`v.`, operand의 지역 재대입, ordinary NAME 재정의, 전역 raw locative publication을 확인했다. Rust regression **3개**는 lexical/definition mode, 반환 뒤 호출·오류·frame 복구, fork의 동일 operand Arc 공유와 rank DAG 보존, graph unknown 규칙을 검증한다. 공통 runtime corpus **29건**, 이를 포함한 stage **45건**을 추가했다. raw 호출과 미설치 operand 반환은 새 successful runtime corpus로 계산하지 않는다.
-
-C `5!:1`은 source graph가 아닌 실행 객체의 표현이므로 `u. "0`에서 u를 +로 고정한 뒤 C는 redundant rank를 생략한다. 비교용 frontend probe만 +의 정확한 `[0,0,0]` rank를 생략하며 Semantic IR의 source rank parent는 보존한다. C의 zero-rank +와 rank를 유지하는 ravel을 함께 대조하고, Rust capture에서 rank parent 보존을 확인한다. decoded gerund는 source edge처럼 재귀 고정하지 않고 constructor auxiliary로 유지한다. gerund operator별 AR 재구성과 전체 constructor 특수화는 후속 감사 대상이다. [t.c +의 rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L113), [cr.c rank 재구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L778).
-
-**Implicit-return gate:** native Windows default/portable 각각 **404 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **5,030 cases / 5,026 passed / 기존 runtime 경계 4 / failed 0**, stage **10,320 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **195건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. frontend report 10개의 actual binary/reference/source hash를 검증했으며 `t.c`를 source hash 목록에 추가했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이다. optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
-
-Sources: [t.c primitive 등록](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L221), [cx.c mode 판정](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L766), [cx.c 반환 fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c 첫 implicit reference fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [sc.c caller scope 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L124).
-
-##### JE2/P3 구현 — implicit operand의 caller scope 호출 (2026-10-04, partial)
-
-- [x] C `sc.c::unquote`와 Windows oracle에서 ordinary u와 implicit u.의 caller-local 조회 차이, v., monad/dyad, noun/missing operand 오류를 확인한다.
-- [x] direct primitive 및 ordinary alias를 통한 implicit 호출에서 현재 frame의 operand를 확보한 뒤 caller 환경에서 실행하고, 성공·J 오류 모두에서 현재 frame을 복구한다. 전달 noun을 복사하지 않고 기존 parser/runtime executor를 공유한다.
-- [x] Rust 회귀 및 C 양 버전 대조에 caller-local 충돌, operand 지역 재대입, 전역 publication, 오류 후 frame/전역 효과 복구를 추가한다. graph unknown 계약은 유지한다.
-- [ ] `/`·rank·train 내부의 raw implicit 실행, 미설치 operand의 반환 참조, 전체 locale/control/body graph/source frame은 별도 후속 경계다. 이 단계는 global locale path 전환의 전체 구현이 아니다.
-
-Rust 회귀 **2개**가 ordinary u와 u.의 caller-local 차이, u/v monad/dyad, noun·missing operand 오류, 안쪽 operator의 실패 뒤 global 효과 보존과 frame 복구를 확인한다. 기존 implicit-return regression도 유지한다. 공통 runtime **23건**, 이를 포함한 stage **47건**을 추가했다. **Caller-scope gate:** native Windows default/portable 각각 **406 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,053 cases / 5,049 passed / 기존 runtime 경계 4 / failed 0**, stage **10,367 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **204건**, static 경계 **2건**은 별도다. 새 runtime waiver는 없다. frontend report 10개의 실제 binary/reference/source hash를 검증했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이다. optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다. 미설치 operand의 **호출**은 ValueError이며 **반환** 참조는 아직 별도 경계다. 재귀 depth 제한은 기존 Windows bound를 유지하며, suspend된 callee도 invocation depth에 포함한다.
-
-Sources: [sc.c local operand와 caller 환경 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L122), [sc.c implicit primitive 호출](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L433).
-
-##### JE2/P3 구현 — wrapper와 train의 scope-aware 실행 (2026-10-04, partial)
-
-- [x] C `ar.c::jtredg`의 오른쪽 결합, `j.h::FORK1/FORK2`의 오른쪽 가지 우선, rank의 cell/frame·prefix agreement를 검토한다.
-- [x] A3 executor의 rank/reduction cell 알고리즘을 callback seam으로 공유한다. 기존 primitive kernel 경로는 유지하고, Unsupported composition에만 runtime FunctionEntity 실행을 연결한다. operator/rank DAG를 flatten하지 않는다.
-- [x] `/`의 비어 있지 않은 monad, uniform nonempty rank, Hook/Fork/Atop의 monad/dyad에서 실제 child invocation마다 이름과 implicit caller scope를 조회한다. fork input은 공유 noun으로 보존하고 오른쪽 가지 오류 전에 왼쪽 가지를 실행하지 않는다.
-- [x] Rust 및 C 양 버전 corpus에 wrapper·caller-local 충돌·branch effect/error 순서를 추가한다. static unknown 계약과 effect barrier는 유지한다.
-- [ ] empty identity/prototype, heterogenous rank fill/padding, sparse·dyadic insert와 noun-left/capped train은 별도 확인한다. callback의 Unsupported는 commit된 효과가 없는 재실행 허가가 아니다.
-
-**Wrapper/train gate:** Windows default/portable 각각 **408 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,089 cases / 5,088 passed / runtime 경계 1 / failed 0**, stage **10,424 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **222건**, static 경계 **2건**은 별도다. 기존 runtime 경계 3건(Atop 및 fork 안 named insert 2건)을 해소하고 해당 waiver를 제거했다. 새 waiver는 없다. frontend report 10개의 binary/reference/source hash를 확인했고 `ar.c`를 검토 소스 목록에 추가했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
-
-Rust regression 2개와 기존 named-insert provenance regression은 source DAG 보존·오른쪽 결합·caller-local·rank shape와 branch effect/error 순서를 확인한다. 공통 runtime **36건**, 이를 포함한 stage **57건**을 추가했다. primitive 호출에는 함수 Arc 복사를 추가하지 않고, Runtime fallback만 composition을 순회한다. A3의 Hook/Fork executor와 전체 body graph lowering 완료를 주장하지 않는다. 다음은 empty reduction identity와 empty rank prototype을 C와 대조한다.
-
-Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L513), [j.h fork execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249), [cr.c rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
-
-##### JE2/P3 구현 — empty identity와 순수 ravel prototype (2026-10-04, partial)
-
-- [x] C `ai.c::jtiden`과 Windows oracle로 `+ - * %`의 identity를 확인했다. empty rank에서 사용자 verb가 prototype 계산용으로 한 번 실행되어 global 효과가 남을 수 있다는 점을 확인했다.
-- [x] primitive witness를 현재 이름/POS·implicit caller scope에서 조회하되 definition 본문을 실행하거나 분석한 것으로 계산하지 않는다. 확인된 네 identity를 기존 kernel 경로로 계산하며 caller frame을 복구한다.
-- [x] 순수 monadic ravel은 cell shape만으로 empty rank output shape/type을 계산한다. primitive와 implicit wrapper가 같은 kernel을 사용한다. negative rank·다차원 zero axes·character type·caller-local collision을 검증한다.
-- [x] Rust와 C 양 버전 회귀를 추가하고 일반 사용자 verb의 prototype 및 empty identity 경계를 별도로 유지한다. 일반 prototype의 효과·suppressed error·fill/padding, 다른 primitive prototype, sparse·dyadic insert는 후속 작업이다.
-
-**Empty-scope gate:** native Windows default/portable 각각 **410 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,130 cases / 5,129 passed / runtime 경계 1 / failed 0**, stage **10,474 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **230건**, static 경계 **2건**은 별도다. 새 waiver는 없다. report 10개의 binary/reference/source hash를 확인했고 `ai.c`를 검토 목록에 추가했다. Rust regression **2개**, 공통 runtime **41건**, 이를 포함한 stage **50건**을 추가했다.
-
-일반 explicit verb의 empty rank에서는 C가 body를 한 번 실행해 count를 1로 만들었으며, unknown explicit reduction identity는 DomainError를 내고 count는 0이었다. 두 경계의 j64 probe는 `reports/empty-prototype-oracle-windows.json`에 별도 기록한다. Rust는 아직 명시적 Unsupported이며 이 두 사례의 동등성/순수성을 주장하지 않는다. runtime primitive witness는 compile-time binding proof를 뜻하지 않고 analyzer의 unknown 계약을 바꾸지 않는다. full upstream·ignored definition acceptance·private C trace는 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다. 다음은 noun-left fork이다.
-
-Sources: [ai.c identities](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ai.c#L368), [ar.c empty reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L505), [cr.c rank execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
-
-##### JE2/P3 구현 — noun-left fork 호출과 snapshot 공유 (2026-10-04, partial)
-
-- [x] C `j.h` NVV 경로와 Windows oracle에서 왼쪽 noun은 생성 시 snapshot이고 오른쪽 h 실행 후 g에 넘겨진다는 것을 확인한다. monad/dyad와 이름 재대입·agreement 오류를 대조한다.
-- [x] 기존 parser의 source Fork DAG와 CompletedParseResult의 공유 noun을 그대로 사용한다. 오른쪽 child만 호출하고 왼쪽 값은 지연 이름 조회로 바꾸지 않는다. 두 가지 입력 보존을 위한 불필요한 공유 변환은 하지 않는다.
-- [x] 65,536-atom snapshot의 pointer 유지·이름 재대입 뒤 생존, implicit caller scope, join 실패 전에 commit된 오른쪽 효과와 오류 후 frame 복구를 검증한다.
-- [x] C 양 버전 및 기존 frontend/portable gate를 통과한 뒤 기록한다. capped fork, noun-left GraphForm/Logical lowering 전문화, 일반 prototype/control/body graph는 별도 후속 작업이다.
-
-Sources: [cf.c noun fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L59), [j.h NVV execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1277).
-
-
-**Noun-fork gate:** native Windows default/portable 각각 **412 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,156 cases / 5,155 passed / runtime 경계 1 / failed 0**, stage **10,511 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **234건**, static 경계 **2건**은 별도다. report 10개의 actual binary/reference/source hash를 확인했고 새 waiver는 없다. Rust regression **2개**와 기존 computed-noun capture regression을 실제 실행 결과 검증으로 갱신했다. 공통 runtime **26건**, 이를 포함한 stage **37건**을 추가했다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
-
-##### JE2/P3 구현 — capped fork의 생성 의미와 graph 표현 (2026-10-05, partial)
-
-- [x] C `t.c::CCAP`, `cf.c::jtcap/jtfolk`와 `j.h`를 확인하고 Windows j64/AVX2의 finite probe를 기록했다. 기존 `reports/capped-fork-oracle-windows.json`은 **구현 전 reference-only 관찰**이며 conformance 통과 보고서로 바꾸지 않는다.
-- [x] `[:`를 core VERB primitive로 등록한다(registry **5**). 일반 tokenizer/enqueuer 경로를 쓰고 standalone monad/dyad는 argument type/empty 여부에 관계없이 ValenceError를 낸다. primitive의 보수적 unknown analysis contract는 callable/pure array kernel 지원을 뜻하지 않는다.
-- [x] fork 생성 시 직접 `[:` 또는 현재 **single name의 직접 binding이 `[:`**인지 판정한다. alias chain을 추적하지 않는다. 생성 뒤 첫 이름의 값/POS 변경에도 capped 의미를 유지하며 ordinary fork의 nameref는 계속 late lookup한다. explicit operand substitution과 caller-local constructor 환경, gerund AR decoder도 같은 constructor seam을 쓴다.
-- [x] `FunctionHead::Fork`와 원래 세 operand DAG·NAME/source span을 보존한다. `FunctionEntity.fork_semantics`는 Fork에만 존재하는 불변 constructor 의미(Ordinary/Capped)이며 actual argument fact나 optimizer proof가 아니다. 생성 시점의 첫 이름 read/version은 `Program/Plan.fork_name_reads`와 capture `ForkNameResolved` sidecar에 분리한다. 이 sidecar는 cached execution guard가 아니다. no-host에서 POS만 알려진 이름은 direct-binding proof가 없으므로 Unsupported construction 경계다.
-- [x] capped 호출은 h(x,y) 다음 g(monad)를 실행하고 첫 operand를 호출하지 않는다. source Fork는 그대로 두고 Graph IR **0.5**에서 Pipeline region과 h→g dataflow를 유도한다. ParallelBranchCandidate·RetainedValueCandidate를 주지 않는다. g/h의 late name/POS·effect/error barrier를 유지하며 optimizer는 실행하지 않는다.
-- [x] direct/named cap, alias chain·재대입·POS 변경, monad/dyad, operand/local scope, 오류 뒤 효과/복구, source DAG·constructor dependency·pipeline hint와 gerund AR provenance 회귀를 추가했다. C AR의 첫 operand `[:` 정규화는 oracle projection에만 적용하며 source NAME을 지우지 않는다.
-
-**Cap gate:** native Windows default/portable 각각 **418 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture 경로 **5,207 cases / 5,206 passed / 기존 runtime 경계 1 / failed 0**, stage **10,586 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **239건**, 기존 static 경계 **2건**은 따로 기록한다. 새 runtime waiver는 없다. Rust integration regression **5개**와 POS-only constructor proof unit regression **1개**, 공통 runtime **51건**, 이를 포함한 stage **75건**을 추가했다. frontend report 10개의 actual binary/reference/source hash를 검증했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
-
-**다음 체크리스트:**
-
-- [x] 남은 verb-valued rank operand를 C `cr.c`의 innate rank/constructor 규칙과 대조했다. 아래 verb-valued rank 단계에서 고정 constructor rank와 dynamic operand binding을 구분한다.
-- [ ] noun-left GraphForm/Logical 전문화·일반 empty prototype의 effects/error suppression·heterogeneous fill/padding·sparse·dyadic insert·full definition/control/body graph는 계속 미완료다. 외부 static catalog의 POS-only first NAME은 불충분한 proof이므로 생성 경계를 유지한다.
-
-Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L163), [cf.c single-name cap 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L38), [j.h capped call](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249).
-
-##### JE2/P3 구현 — verb-valued rank의 생성 정보와 실행 이름 분리 (2026-10-05, partial)
-
-- [x] C `cr.c::jtqq`, `sc.c::jtnamerefacv`, `ja.h`의 rank accessor와 core primitive/derived constructor를 검토했다. `u"v`는 오른쪽 verb를 실행하지 않고 **그 함수 객체의 monad/left/right header rank**를 복사한다. negative requested rank와 derived verb의 실제 header rank는 다르다. 예를 들어 `+"_1`의 requested monad rank는 -1이지만 header monad rank는 `_`다. gerund rank-derived verb의 header도 모두 `_`다.
-- [x] ordinary NAME이 parser stack에 들어갈 때 현재 binding의 header rank를 immutable `FunctionEntity.name_ranks`에 복사한다. alias의 기존 header를 읽고 현재 alias target을 따라가지 않는다. 미정의 ordinary name의 C header는 모두 `_`다. 이 metadata는 executable NAME을 고정하거나 pure로 만들지 않는다. 기존 implicit `u.`의 header와 explicit actual operand `u`의 header도 구분한다.
-- [x] 원래 rank conjunction과 두 source operand, NAME/span을 그대로 보존한다. `requested_ranks()`가 noun rank spec 또는 오른쪽 verb header를 읽으며 runtime/name lookup을 수행하지 않는다. 왼쪽 callable의 late binding/POS 검사, nested rank 경계와 기존 prefix agreement·오류 순서는 유지한다. 오른쪽 NAME의 후속 재정의·noun/adverb로의 POS 변경은 이미 생성된 rank를 바꾸지 않는다.
-- [x] constructor header read/version/span은 `Program/Plan.name_rank_snapshots`와 capture `FunctionNameRank` observation으로 별도 기록한다. 오른쪽 rank operand는 executable late-reference 목록에서 제외한다. 이 sidecar는 cache guard나 purity proof가 아니다. 당시 primitive registry는 **6**, Graph IR은 **0.6**이며 `GraphForm::Rank.requested_ranks`를 추가한다. source noun인 `rank_spec`과 source RHS function을 혼동하지 않는다.
-- [x] static catalog의 `declare_primitive_verb`가 header 근거를 제공한다. POS만 알려진 RHS 이름은 유효한 J 문법이지만 **Unsupported construction proof 경계**로 남긴다. known header만으로 executable binding을 동결하지 않는다. 입력 payload 없이 `[1_000_000_000_000, 3]` metadata로 ravel-cell 결과 shape를 분석하는 회귀를 추가했다.
-- [x] Rust 회귀 7개는 RHS 비실행, alias·미정의 이름·재대입, lhs late execution, explicit/implicit operand, 음수·비대칭 rank, empty pure ravel, prefix agreement 오류 후 복구, source/capture/Graph/A3 및 대용량 metadata 분석을 검사한다. C `b.0` header projection과 runtime 값/오류를 각각 대조한다. `reports/verb-rank-oracle-windows.json`은 구현 전 **C reference-only 관찰**이며 conformance 보고서와 구분한다.
-
-**Verb-rank gate:** native Windows default/portable 각각 **425 passed / 17 ignored**, fmt/clippy/build 통과. native Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **5,321 cases / 5,321 passed / runtime 경계 0 / failed 0**, stage **10,757 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **244건**과 static 경계 **2건**은 별도로 남는다. primitive/derived header **39건**과 alias header를 C `b.0`로 대조했다. frontend report 10개의 실제 binary/reference/source hash를 검증했다(`ja.h` 포함). source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. 현재 corpus의 runtime 경계 0은 full J 지원을 뜻하지 않는다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
-
-**반환 경계 후속 검토:** `cx.c`는 explicit modifier가 non-noun을 반환할 때 첫 implicit locative를 fix하고, `af.c::jtfixa`는 치환한 operand로 modifier를 다시 실행해 새 derived entity를 만든다. 따라서 본문에서 `(,"u.) y`를 즉시 실행하면 `u.` header `_`를 쓰지만, `,"u.`를 반환해 `u=+`로 fix한 뒤 실행하면 새 entity의 RHS header 0을 쓴다. `[2,3]` 입력의 ravel 결과는 각각 `[6]`과 `[2,3,1]`이다. 이 재구성은 기존 entity의 rank를 late lookup으로 바꾸는 것과 다르다. C 기본·AVX2와 Rust의 반환 구문 10건을 먼저 직접 대조했고, 동일 결과를 확인했다. 추가 Rust 회귀와 공통 runtime corpus로 이 차이를 보존한다. 런타임 구현 변경은 필요하지 않았다.
-
-**Return-boundary gate:** native Windows default/portable 각각 **426 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. C 기본·AVX2 각각 세 runtime 경로 **5,331 cases / 5,331 passed / runtime 경계 0 / failed 0**, stage **10,767 checks**, words **6,618 cases**, 실패 0. capture graph **250건**, static **2건** 경계는 별도다. report 10개의 실제 source/reference/binary hash를 다시 확인했다. 추가한 10개 공통 구문은 세 runtime 경로와 stage 모두에 포함한다. 위 Verb-rank gate와 이 Return-boundary gate는 이전 단계의 기록이다. **당시에는 NV2가 최신 gate였지만 현재 최신 검증은 §10의 NV3d2b2a이며, graph-readiness 이력은 GF6a까지 진행됐다.** 미검증 범위와 optimizer/CUDA/Linux/GitHub CI 유보는 동일하다.
-
-Sources: [cx.c modifier return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c implicit operand](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [af.c reconstruct modifier](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193).
-
-**다음 체크리스트:**
-
-- [ ] noun-left rank/gerund runtime과 noun-left GraphForm/Logical 전문화를 C constructor/call 규칙에 맞춰 확장한다.
-- [ ] 일반 empty prototype의 effects/error suppression, heterogeneous fill/padding, sparse, dyadic insert 및 full definition/control/body graph는 계속 미완료다. header 정보로 이 실행 경계를 우회하지 않는다.
-
-Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L734), [sc.c NAME header copy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [ja.h rank accessor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ja.h#L745), [t.c primitive headers](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c), [ap.c prefix/infix header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L965), [ar.c insert header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L1009).
-
-##### JE3 — operator-specific higher-order view 필요성 검증
-
-- [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
-- [ ] jsource `jtfxeachv`의 fake-BOX/function payload representation을 RustJ `Value::Boxed`나 새로운 J-visible noun type으로 복제하지 않는다.
-- [ ] view가 shape/rank를 보존해야 하면 source boxed noun에서 가져오고, 그 shape가 실제 selector/agenda/tie 등 observable semantics에 필요한지 operator별로 증명한다.
-- [ ] current `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>`가 shape/order/name-binding 정보를 잃는지 `@.`, grave/tie 계열 등 각 지원 operator에 대해 감사한다.
-- [ ] 단순 ordered sequence면 충분하면 shape-bearing view를 만들지 않는다.
-- [ ] 두 개 이상의 독립적인 J semantic use case가 동일한 shaped-entity algebra를 요구할 때만 generic `EntityCollectionView`를 추출한다.
-- [ ] train/Hook/Fork DAG는 collection으로 flatten하지 않고 shared FunctionEntity graph로 유지한다.
-- [ ] arbitrary verb array를 새 J language feature처럼 허용하지 않는다.
-
-**JE3 완료 조건:** operator-specific view로 충분한지 먼저 판정하고, generic shaped collection은 실제 공통 semantic law가 발견된 경우에만 추출한다. jsource 내부 representation의 편의만으로 `EntityArray`를 만들지 않는다.
-
-##### JE4 — gerund/boxed higher-order semantics 통합
-
-- [ ] gerund를 새 global atom/POS type으로 만들지 않고 **boxed noun + modifier-context interpretation**이라는 기존 J semantics를 유지한다.
-- [ ] gerund interpretation이 필요할 때만 boxed noun에서 operator-specific `GerundView`/`InterpretedEntitySequence`를 만든다. source boxed noun의 shape는 해당 operator가 필요할 때만 view metadata로 보존한다.
-- [ ] generic `EntityCollectionView`는 JE3의 공통성 증명이 끝난 뒤에만 추출한다.
-- [ ] view 내부에 function entity ref가 있어도 그 function에 container의 rank/shape를 복사하지 않는다.
-- [ ] gerund 내부 name/function reference의 fix/late-binding/version 규칙을 보존한다.
-- [ ] ordinary boxed data와 gerund interpretation이 같은 payload에서 context에 따라 달라지는 golden test를 추가한다.
-- [ ] 현재 `decoded_gerund: Option<Vec<Arc<FunctionEntity>>>` 특수 필드를 공통 entity view로 대체할 수 있는지 검토하고, 의미 손실이 있으면 유지한다.
-
-**JE4 완료 조건:** gerund와 boxed data의 문맥적 차이를 잃지 않으면서 higher-order entity collection을 공통 abstraction으로 표현할 수 있다.
-
-##### JE5 — entity algebra와 array-execution algebra의 경계
-
-- [ ] `JEntity` layer와 `Logical Execution IR`의 역할을 분리한다: function entity 자체는 logical array value가 아니고, **적용된 verb가 noun input을 받아 noun result를 만드는 순간** array execution graph로 내려간다.
-- [ ] monadic application을 `JEntity(Verb) × JEntity(Noun) → JEntity(Noun)`, dyadic application을 `Noun × Verb × Noun → Noun`의 semantic contract로 검증한다.
-- [ ] adverb/conjunction application은 일반적으로 function entity derivation이지만, parser bident/trident semantic action이 immediate noun result를 만들 수 있는 경우까지 `JEntity` boundary가 표현한다. 어느 경우에도 parser result를 즉시 physical execution representation으로 고정하지 않는다.
-- [ ] `CellApply`/Reduce/Scan/Reindex가 entity layer가 아니라 applied array-computation layer에 남는지 확인한다.
-- [ ] effect flow(namespace/I/O/state)와 entity/value flow를 직교하게 유지한다.
-- [ ] J Graph/Logical IR이 `JEntityArray`의 physical layout이나 entity-container storage를 알 필요가 없다는 verifier/invariant를 둔다.
-
-**JE5 완료 조건:** `JEntity` 일반화가 현재의 “verb application = logical array computation” 모델을 흐리지 않고 오히려 그 경계를 명시적으로 만든다.
-
-##### JE6 — migration cleanup과 비용 검증
-
-- [ ] compatibility adapter와 중복 `Noun|Function` carrier를 제거한다.
-- [ ] public/internal API 이름을 정리하고 `JEntity`/`EntityArray` ownership/lifetime 문서를 고정한다.
-- [ ] large derived function, gerund, repeated binding에서 deep-copy/refcount churn이 악화되지 않는지 benchmark한다.
-- [ ] compiler coverage manifest에 entity-layer 지원/late-binding/runtime fallback 경계를 추가한다.
-- [ ] M2 frontend conformance corpus와 기존 J Graph/A3 golden을 전부 다시 통과시킨다.
-- [ ] Logical/Physical Array invariant에서 BufferId/stride/device가 entity layer로 역류하지 않았는지 구조 검사를 추가한다.
-
-**JE6 완료 조건:** 기존 observable J semantics와 compiler pipeline 결과가 유지되고, 중복 carrier를 줄였으며, 공통 entity abstraction이 storage/runtime coupling을 새로 만들지 않는다.
-
-**운영 규칙:** 이후 `JEntity`/higher-order view 관련 진행 보고는 반드시 `JE0`–`JE6` 항목 번호로 보고한다. 새 요구사항은 임시 TODO로 분산시키지 않고 먼저 이 체크리스트의 적절한 단계에 추가한다. 최소 `JEntity`는 M2의 중복 carrier를 줄이는 작은 seam부터 허용하지만 broad rewrite는 금지한다. JE3에서 공통 shaped-entity algebra가 입증되지 않으면 generic `EntityArray`/`EntityCollectionView`를 구현 목표로 강제하지 않는다.
-
-### A0 — 문서/아키텍처 경계
-
-- [x] RustJ 내부 compiler stage의 논리적 경계를 확정한다.
-- [x] Semantic Analyzer 입력 전에 hook/fork/train/derived verb/rank를 제거하지 않는 원칙을 확정한다.
-- [x] `J Semantic Array IR`과 `Logical Array IR / Plan`을 구분한다.
-- [x] generic boundary 후보를 semantic analysis 이후의 Logical Array IR로 이동한다.
-- [x] 문서를 `PROJECT.ko.md`로 통합한다.
-- [x] 현재 지원 subset의 source frontend → FunctionEntity → J Graph → canonical Logical IR 분석 경계를 연결했다. full frontend/execution 완료는 M2/M4에서 별도로 추적한다.
-
-### A0.5 — jsource-compatible parser 이행 체크리스트
-
-이 절의 **F0–F2 + P0–P7이 frontend/parser migration의 authoritative checklist**다. F0은 word formation, F1은 enqueue/primitive resolution, F2는 parse-queue skeleton을 담당한다. 그 뒤 P 단계에서 parser semantic construction/name-resolution/cutover를 완성한다. P8은 A1/A2/A3로 넘기는 integration handoff다.
-
-> **운영 원칙 (2026-10-01 확정):** Tokenizer/word formation, Enqueuer, Parser는 RustJ 고유 frontend 문법을 새로 설계하지 않고 current jsource의 observable frontend semantics를 충실히 이식한다. representation은 Rust-native여도 되지만 word boundary, enqueue classification/lookup timing, parser row eligibility/order, modifier construction boundary/result POS/error semantics는 jsource가 기준이다. Parser가 만든 completed `FunctionEntity` DAG가 canonical semantic source이며 downstream이 이를 `reduce/rank` 같은 축약 필드로 대체해서는 안 된다.
->
-> **현재 실행 순서:** F0 differential 0-mismatch 기록 → F1 Enqueuer 분리 → F2 parse queue → P1 stack/value model → P2 9-row engine → P3 construction semantics → P4 name/assignment sequencing → P5 semantic/compiler fact 분리 → P6 conformance gate → P7 legacy parser 제거. 각 단계는 아래 완료 조건을 만족한 경우에만 완료로 체크한다.
-
-검토 기준은 2026-09-30의 `jsoftware/jsource` master(`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`)이다. 특히 다음을 함께 oracle로 본다.
-
-- `jsrc/p.c::cases[]`: 9-row J parsing rule의 선언형 기준. 현재 runtime parser가 직접 순회하는 테이블은 아니고 tacit translator에도 사용된다.
-- `jsrc/p.c` runtime parser의 `ptcol`/bit-mask dispatch: 같은 row eligibility/order를 실제 parser hot path에서 구현한다.
-- `jsrc/cf.c`의 Hook/Fork 및 bident/trident dispatch.
-- 각 ADV/CONJ constructor(`jtslash`, `jtqq` 등): modifier application 시 J-defined construction validation과 실제 result POS를 결정한다.
-
-RustJ가 그대로 맞춰야 하는 것은 **word/class resolution timing, row eligibility와 precedence, reduction extent, result parser class/POS, construction-time J errors, assignment/parenthesis/name-resolution semantics**다. C의 bit packing, refcount, in-place bookkeeping, cached function pointer, `localuse` 최적화는 이식 대상이 아니다.
-
-RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST parser가 아니라는 점을 보존해야 한다. rows 0–2의 verb application은 **parser-visible effect/value dependency가 없다는 것이 증명된 경우에만** Noun-producing semantic application으로 defer할 수 있다. 그 실행이 이후 name/locale lookup, assignment state, modifier operand value, result POS 또는 construction-time error에 영향을 줄 수 있으면 정적 parser가 효과를 무시한 채 진행해서는 안 된다. v0 correctness baseline은 동일한 9-row engine의 runtime semantic action/fallback을 사용하고, 이후 guard/multiversion으로 정적 범위를 넓힌다. rows 3–4 역시 modifier application 시점에 필요한 J construction semantics를 수행하여 completed entity/POS/error를 결정해야 한다.
-
-#### Frontend 파일 경계
-
-| 파일 | 책임 | 입력 → 출력 |
-|---|---|---|
-| `src/tokenizer.rs` | `w.c::jtwordil` state machine, raw words·parse-visible comment cutoff | source bytes → byte spans |
-| `src/enqueuer.rs` | `jtenqueue` 해석, primitive/literal/name/copula·환경별 flags | source + tokenizer spans → `EnqueuedWord` queue |
-| `src/parser.rs` | parse class/9-row matcher, stack reduction, modifier/train construction, parser-time name/POS lookup | typed queue → `Program`/completed `FunctionEntity` |
-| `src/semantic.rs` | target-independent 의미 객체·rank constructor 계약·binding/version model | parser 결과를 실행/분석 계층에 전달 |
-
-Tokenizer·enqueuer·parser 구현은 각각 한 파일이 소유한다. 기존 `scanner` module과 `semantic::parse`/row API는 compatibility re-export만 남겨 기존 사용자를 보호하며 별도 grammar를 유지하지 않는다. parser는 enqueue 결과를 spelling으로 다시 분류하지 않는다. execution/target 선택을 이 세 파일에 넣지 않는다.
-
-#### 최우선 실행 계획과 단계별 논리 동등성 (2026-10-03)
-
-Tokenizer → Enqueuer → Parser의 jsource 충실도를 다른 구현 작업보다 먼저 완성한다. 기존 F0–F2/P0–P7 체크리스트를 그대로 사용하며 새 병렬 로드맵은 만들지 않는다. CUDA 구현은 계속 계획에만 둔다. representation·주소·refcount는 비교 대상이 아니며, 다음 의미 투영과 실패 동작을 비교한다.
-
-| 단계 | 비교 대상 | 검증 방법 | 현재 한계 |
-|---|---|---|---|
-| Tokenizer/F0 | raw word bytes, parser-visible comment cutoff, quote 오류 | C `;:`와 Rust raw spans 비교; 별도로 trailing `NB.`를 parse queue에서 제외 | 기존 256-byte sweep과 새 UTF-8 probe의 입력 범위를 구분한다 |
-| Enqueuer/F1 | 품사, noun type/shape/data, primitive/name 구분, copula·lookup 플래그, 원 word index/span | literal/primitive를 C에 할당하여 값과 `4!:0` 비교; 이름/control 플래그는 `w.c::jtenqueue`에서 도출한 golden | C 내부 queue를 직접 export한 검증은 아니다. 전체 숫자 표기·locative·`_:`·env=0 미완료 |
-| Parser/F2/P2/P3 | first-match row, completed modifier와 hook/fork의 ordered semantic operands, 최종 POS, construction error | 실제 source `p.c::cases[]`를 읽어 9⁴ 조합 비교; C `5!:1`을 의미 구조로 정규화; `4!:0`과 error class 비교 | `cases[]`는 tacit translator용 선언 테이블이다. runtime `ptcol`의 reachable state·reinsertion·effect/name sequencing 증명과는 별도다 |
-
-`examples/frontend_probe.rs`는 backend-independent 관찰 adapter다. source operator가 DAG parent로 남고 noun operand는 type/shape/data와 boxed 구조를 보존한다. `tools/frontend_stage_conformance.py`는 각 단계의 검사 수·불일치·미지원 목록을 따로 보고한다. 알려진 미지원 문법을 성공으로 집계하거나 최종 값 일치만으로 parser 구조 동등성을 선언하지 않는다. source review revision과 실제 oracle DLL revision·hash도 별도로 기록한다.
-
-실행 순서는 다음과 같다. 각 완료 표시는 아래 F/P 항목에만 적용한다.
-
-1. F0 경계 검증을 유지하고 stage probe를 추가한다.
-2. F1의 copula 환경부터 복원하고 literal/name/spelling 오류·전체 core primitive coverage를 넓힌다.
-3. F2/P2의 선언 row 계약과 runtime dispatch·reduction extent를 따로 검증한다.
-4. P3의 modifier/trains 구조와 result POS/construction errors를 C atomic representation으로 확장한다.
-5. P4의 parser-time noun snapshot/late function lookup, 중간 assignment/locale/effect를 runtime semantic action과 검증한다.
-6. P6에서 단계별 비교와 기존 값/error differential을 native Windows gate로 실행한 뒤 P7 cutover 완료를 판단한다. GitHub CI는 사용하지 않는다.
-
-새 stage 검증 실행 예시(Windows, source checkout과 DLL revision은 실제 준비한 값을 사용):
-
-```powershell
-python tools/frontend_stage_conformance.py --binary target/windows-validation/debug/examples/frontend_probe.exe --source-directory target/jref --source-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 --reference-revision ded7793fe5795d79eda8e7138dce94aa056edf78 --report reports/frontend-j64-stages-windows.json
-```
-
-이 명령은 `J_LIBRARY`에 실제 `j.dll`/`javx2.dll` 경로가 설정되어 있어야 한다. source pin이 다르거나 DLL이 다른 revision이면 보고서에 그 차이를 유지한다. Windows local runner에도 source-directory/source-revision을 지정하여 단계 검사를 함께 실행한다.
-
-이번 source 기반 수정은 [w.c::jtenqueue](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [sn.c::vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c), [wn.c::connum](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wn.c), [p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)를 참조했다. `foo_`는 locative 미지원이 아니라 ill-formed name이다. `1q`, `1e`, `1.2.3`, `3..`도 ill-formed number를 보존하며 미구현 숫자 표기·유효 locative는 Unsupported로 남긴다.
-
-<a id="noun-reduction-capture"></a>
-
-#### Noun reduction과 컴파일용 구조 보존 — 조사 및 구현 계획 (2026-10-03)
-
-**결정:** runtime parser는 jsource처럼 verb application을 실행하여 실제 noun으로 reduce하고, 컴파일러는 별도 capture에서 생산 연산과 input/output 연결을 보존한다. noun이 된다는 이유로 provenance를 버리지 않는다. verb 중심의 tacit 표현은 구조를 노출하는 권장 방식이며 필수 언어 제한이 아니다. 이 절은 F2/P2–P6를 구체화하는 계획이고 별도 roadmap이나 두 번째 canonical IR을 만들지 않는다.
-
-**현재 남은 차이:** runtime rows 0–2는 이제 host를 통해 실제 noun으로 reduce한다. static context는 연산 Expr를 보존한다. capture v0는 source operation과 occurrence 연결을 별도로 보존하며, 성공 capture를 기존 J Graph로 변환하는 adapter도 구현했다. top-level single-name non-final assignment는 구현했다. explicit-local/locale/definition/effect 및 전체 modifier POS는 계속 미완료다. 일반 fork executor 미지원도 frontend construction 지원과 구분한다.
-
-##### 다른 언어·배열 프레임워크의 처리
-
-아래 공식 문서/소스는 2026-10-03 확인했다. `main`/`stable`/nightly URL은 움직이는 참고 자료이며 RustJ 호환성 oracle revision을 대신하지 않는다. framework 동작과 RustJ 적용 판단을 구분한다.
-
-| 사례 | 실제 처리 | RustJ에 참고할 요소와 한계 | 출처 |
-|---|---|---|---|
-| PyTorch `make_fx` / ProxyTensor | real tracing은 실제 tensor로 실행하며 operation graph도 수집한다. `proxy_call`은 proxy node를 만들고 실제 operation을 호출한 뒤 `track_tensor_tree`로 결과와 proxy를 연결한다. fake tracing도 별도 mode다 | 실제 noun과 graph reference를 별도로 보존하는 v0의 가장 가까운 사례. 다만 J modifier/train 의미는 tensor primitive tracing만으로 복원할 수 없으므로 parser construction identity를 함께 기록한다 | [make_fx API](https://docs.pytorch.org/docs/stable/generated/torch.fx.experimental.proxy_tensor.make_fx.html), [proxy_tensor.py source](https://github.com/pytorch/pytorch/blob/main/torch/fx/experimental/proxy_tensor.py) |
-| PyTorch FX symbolic tracing / Dynamo | FX Proxy는 값을 대신해 연산을 기록하지만 input-dependent Python control flow에는 제한이 있다. Dynamo는 graph, residual code, validity guards를 만들고 unsupported 구간에서는 graph break 후 일반 실행을 이어간다 | graph가 모르는 noun 값·name/POS·effect를 static 성공으로 꾸미지 않는다. 경계와 재사용 조건을 명시한다. RustJ runtime에도 지원 범위가 있으므로 모든 미지원 J 문법을 처리하는 fallback이 있다고 가정하지 않는다 | [FX tracing limitations](https://docs.pytorch.org/docs/stable/fx.html), [Dynamo graph breaks/guards](https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/compile/programming_model.dynamo_core_concepts.html) |
-| JAX | tracer가 operation을 기록하여 jaxpr를 만든다. abstract tracer는 shape/dtype을 알지만 실제 data를 모른다. static/concrete 값과 traced 값의 경계를 구분하며 Python side effects가 일반 jaxpr에 자동으로 들어가지 않는다 | 이후 no-execution static 경로의 참고 모델. 실제 noun이 필요한 J constructor를 abstract shape/dtype만으로 처리하지 않는다. J observable effects를 trace 때 한 번 실행하고 compiled reuse에서 생략하는 정책은 채택하지 않는다 | [Tracing](https://docs.jax.dev/en/latest/tracing.html), [JIT and side effects](https://docs.jax.dev/en/latest/jit-compilation.html) |
-| TensorFlow `tf.function` | tracing 때 Python은 실행하고 TensorFlow operations는 graph에 기록한다. AutoGraph가 지원 제어 흐름을 변환한다. Python effects와 TensorFlow runtime effects는 서로 다르다 | host/parser-time 작업과 graph runtime 작업의 staging 경계를 명시한다. J error/name/assignment 동작을 graph 밖에서 실행했다는 이유로 subsequent calls에서 누락시키지 않는다 | [tf.function tracing, AutoGraph, effects](https://www.tensorflow.org/guide/function) |
-| ArrayFire / Eigen | ArrayFire는 지원 elementwise operations를 AST에 모으고 explicit `eval`이나 non-JIT consumer가 필요할 때 평가한다. Eigen은 expression templates와 alias/cost 규칙에 따라 평가를 지연하거나 temporary를 만든다 | pure-array fusion과 계산 경계의 참고 사례. 모든 J parser noun을 lazy array로 바꾸는 근거는 아니다. J가 요구하는 오류·효과 시점을 늦출 수 있는지는 별도 증명이 필요하다 | [ArrayFire JIT](https://arrayfire.org/docs/jit.htm), [Eigen lazy evaluation/aliasing](https://libeigen.gitlab.io/eigen/docs-nightly/TopicLazyEvaluation.html) |
-| Julia compiler | compiler는 SSA-form IR에 instruction/result/control-flow 관계를 유지한다. 이는 ordinary runtime value가 생성 이력을 자동으로 갖는다는 의미가 아니다 | J 의미를 확보한 후 application 결과를 SSA value로 연결하는 후속 lowering의 참고 사례. SSA만 도입하면 동적 J parsing이 해결된다는 결론은 내리지 않는다 | [Julia SSA IR](https://docs.julialang.org/en/v1/devdocs/ssair/) |
-
-**RustJ 적용 판단:** 위 사례에서 실행/값과 graph representation이 분리될 수 있다는 점을 취한다. parser-time 의미 보존은 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)가 기준이다. pure-array lazy evaluation은 이후 증명된 구간에서 사용할 최적화이며, 이번 baseline parser의 replacement가 아니다.
-
-##### 값과 기록의 소유권
-
-예: `a + b * c`에서 parser의 오른쪽 reduction은 `b * c`를 실행해 noun을 얻는다. 별도 기록은 다음 연결을 보존한다. `v1/v2`는 설명용 observation id이며 메모리 주소가 아니다.
-
-```text
-capture: v1 = Apply(*, b_read, c_read)   parser: actual noun result + origin(v1)
-capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
-```
-
-- **Parser noun carrier:** 실제 `Value`와 optional capture origin을 가진다. J 품사는 계속 Noun이다. capture 여부가 class matching/POS/error를 바꾸지 않는다. recording-disabled carrier는 추가 array 보관·graph 할당을 하지 않는다.
-- **별도 `CompilerCapture`(제안):** application occurrence별 input ids, shared `FunctionEntity`, monad/dyad valence, original spans/word indices, observed type/shape, sequence/effect dependency, success/failure를 기록한다. 구체적인 `Value` 전체를 모든 node에 복사하지 않는다. literal constants는 intentional immutable constant pool, external nouns는 input slots, 중간 결과는 ids와 facts로 표현한다. scalar 값이 실제 constructor 선택에 사용되었다면 그 의존성/guard를 명시한다.
-- **동일 값과 동일 origin은 다르다:** `2*3`과 `1+5`가 모두 6이어도 다른 production occurrence다. 값 equality나 storage pointer로 node identity를 합치지 않는다. shared operand는 id를 공유할 수 있지만 compiler proof 없이 두 연산을 합치지 않는다. `CaptureValueId`는 기존 J Graph `ValueId`, J name/version, Physical `BufferId`와 구분하고 adapter에서 명시적으로 매핑한다.
-- **Function construction:** rows 3–6의 `/`, `"`, hook/fork completed entity identity는 그대로 보존한다. computed noun을 constructor가 읽으면 실제 값으로 validation하고 capture에는 해당 noun-origin → constructor operand 연결을 별도로 기록한다. 원 operator와 operand 순서를 지우거나 일반 Reduce/Map으로 바꾸지 않는다. sample-dependent rank나 function specialization은 intrinsic function identity와 별개의 reuse witness다.
-- **외부 이름·assignment:** noun은 실제 stack-entry lookup 시점의 값/version을 사용한다. function NameRef는 예상 POS와 late binding을 보존한다. named function 실행에서 관찰한 target은 observation/witness이지 무조건 상수화할 근거가 아니다. 이전 workspace 값의 생성 graph가 없으면 외부 입력으로 기록하며 과거 이력을 추측하지 않는다. 문장 간 capture는 명시적인 scope와 binding versions가 생긴 후 확장한다.
-- **성공/오류/효과:** invoke 직전에 attempt/input edges를 기록하고, 성공 시 output origin을 연결한다. 실패 시 기존 J ErrorKind/ErrorContext를 그대로 반환하고 실패 node와 partial graph를 남길 수 있다. partial graph는 complete executable plan이 아니다. 이미 수행된 J-visible effects를 capture 실패 때문에 문장 전체 rollback하거나 재실행하지 않는다. 아직 성공하지 않은 바깥 assignment를 commit하지 않는 기존 의미를 보존한다. trace 내부 실패는 J 오류를 덮어쓰지 않고 capture 불완전 상태로 분리한다.
-- **최적화 전달:** capture는 새 실행 IR이 아니라 기존 `j_graph_ir::Plan`을 생성/보강하는 입력 sidecar다. `logical_ir::Plan`이 canonical execution IR이라는 M1 원칙은 유지한다. J Graph verifier는 data edges와 effect/error sequencing을 검증한 후 기존 lowering으로 넘긴다. parser에는 target/device/schedule/fusion 결정을 넣지 않는다.
-
-##### 실행 경로와 재사용 경계
-
-1. **Reference semantic execution:** capture on/off 모두 같은 parser class matcher와 row actions를 사용한다. rows 0–2의 runtime action은 그 시점에 실제 noun을 생성한다. record 여부로 실행 횟수·name lookup·오류 시점이 달라지면 안 된다.
-2. **Execute-and-capture:** 제안 API `Engine::eval_with_capture(&mut self, source)`는 사용자 문장을 한 번 실행하고 outcome + capture를 반환한다. 이는 read-only `prepare_semantic/analyze_j_graph(&self, ...)`와 구분한다. 실패를 기록하려면 outcome을 필드로 가진 report가 필요하며 outer `Result` 때문에 partial trace를 잃지 않도록 API를 정한다. 분석 요청을 명분으로 IO/assignment를 몰래 실행하거나 성공 trace를 만들기 위해 두 번 실행하지 않는다.
-3. **Static compilation:** 기본 비실행 경로의 pure/static 범위는 같은 parser row engine의 abstract actions로 graph를 만들 수 있다. 실제 값이 필요한 constructor, unknown POS/binding, effects/error boundary는 typed dependency와 coverage reason으로 드러내며 현재 지원 runtime action/region을 이용한다. no-execution AOT는 unknown dependency를 명시적으로 거부하거나 residual runtime region으로 나타내고 compile-time 실행으로 해결하지 않는다.
-4. **Captured graph reuse:** trace 한 번으로 모든 입력/branch가 표현되었다고 주장하지 않는다. observed shape·data-dependent constructor/POS·binding/environment assumptions를 constants/input dependencies/guards로 구분한다. reuse 전에 검증하거나 재capture/semantic execution으로 되돌린다. 재capture는 이미 일부 effects를 실행한 지점에서 문장 처음부터 다시 시작하는 방식으로 구현하지 않는다. v0 capture는 inspection에 한정하고 재사용 실행을 기본 제공하지 않는다.
-5. **효율:** execute-and-capture는 첫 실행의 array 계산 비용을 없애지 않는다. v0는 trace arena + shared function references + small facts를 기본으로 하여 capture 때문에 모든 temporary가 살아남지 않게 한다. pure-array region reuse/JIT/fusion이 subsequent execution의 성능 단계다. CUDA 구현은 계속 유예한다.
-
-##### 최적화에 사용할 frontend 정보 보존 (2026-10-03)
-
-목표는 SQL 구현 방식을 복제하는 것이 아니라 **실행 전 분석·최적화에 사용할 J tokenizer/enqueuer/parser**이다. 현재 우선순위는 이 세 단계의 정보 보존과 jsource와의 논리적 호환성이다. 이번 변경은 최적화 변환·실행 순서 변경·kernel 선택을 수행하지 않는다.
-
-`static_analysis::StaticAnalyzer`는 입력 이름의 noun/function 품사와 `GraphFacts`를 선언받아 기존 tokenizer → enqueuer → parser → bind → J Graph 경로를 비실행으로 연결한다. parser의 `AbstractNoun`은 실제 `Value`가 아닌 분석용 noun 분류이며, concrete 실행에 들어가면 거부한다. 실제 입력 배열을 할당하거나 이름의 함수를 호출하지 않고 noun을 중간에 사용하는 식도 연산 구조로 남긴다. 리터럴은 기존처럼 실제 상수 payload를 구성하므로 '모든 allocation 없음'을 뜻하지 않는다.
-
-- [x] trillion-element 입력을 metadata만으로 선언하고 `x+y*z`, `(x+y)*z`의 다른 operand 구조와 fork region을 보존하는 regression을 추가했다.
-- [x] `SourceWord` sidecar로 tokenizer span, enqueue 품사·original word index·name lookup/copula flags를 분석 결과에 보존한다. `ParseReduction`이 지원되는 각 reduction의 operand word range·result origin과 연결한다. 미지원 semantic action의 runtime trace 완료를 뜻하지 않는다.
-- [x] 미정 shape는 Unknown, 이름의 함수는 specialization 경계로 유지한다. 품사가 없는 이름과 값이 필요한 미지원 constructor는 분석 coverage 오류로 반환한다.
-- [x] assignment는 proposed graph write만 남기며 input catalog를 변경하지 않는다. runtime에서 domain error인 식도 분석 중 실행하지 않는 regression을 추가했다. 분석 성공이 runtime 오류 없음의 증명은 아니다.
-- [x] `examples/static_explain.rs`로 데이터 없이 graph와 logical memory 정보를 확인한다. catalog version은 runtime guard가 아니며 결과는 실행 가능한 compiled plan이 아니다.
-- [x] 이름 조회를 오른쪽부터 stack entry로 옮기고, 지원되는 각 reduction의 provenance와 final assignment copula를 전달한다.
-- [x] 지원되는 실제 noun reduction·별도 capture·top-level single-name non-final assignment를 구현한다.
-- [ ] 미지원 constructor, explicit-local/locale/definition scope와 effect coverage는 F2/P2–P6에 따라 확장한다.
-- [ ] frontend 검증 후 별도 단계에서 effect/error ordering 증명과 최적화 변환·lowering·실행을 연결한다.
-
-논리적 extent/live range/resource 보고는 기존 분석기를 재사용하며 최적화는 하지 않는다. logical atom 합계는 peak allocation이 아니다. 전체 J, upstream suite, CUDA 실행을 지원·검증했다는 의미는 아니다. 이번 Windows 검증: Rust default/portable 각각 228 passed, 17 ignored; fmt/clippy 통과; Python harness 18 passed; j64/AVX2 각각 direct·semantic-reference 2,063문장 중 2,061 passed, runtime coverage boundary 2개, failed 0; stage 7,014 checks와 words 6,618 cases에서 failed 0. 신규 정적 frontend regression은 7개다. metadata-only 10^12-element 예제도 실행했다. C DLL release metadata는 `ded7793fe5795d79eda8e7138dce94aa056edf78`, source 검토 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`이며 source pin으로 빌드한 DLL이라는 주장은 하지 않는다. 신규 정적 frontend regression과 기존 Windows default/portable·C j64/AVX2 frontend 비교를 함께 검증한다.
-
-##### Runtime noun reduction + 별도 capture v0 (2026-10-03)
-
-- [x] P2/P4 지원 범위에서 `RuntimeParserHost`가 같은 9-row parser의 stack-entry 조회와 rows 0–2 invocation을 제공한다. 각 application은 즉시 실제 `Value`로 reduce되어 같은 stack에 재삽입된다. final noun은 계산을 다시 실행하지 않는다. 분석 context는 host가 없으므로 kernel을 실행하지 않는다.
-- [x] P2/P5 `Engine::eval_captured`가 선택적인 `ParseCapture`를 반환한다. record off/on 모두 같은 parser/kernel을 실행하며 input occurrence, 원래 FunctionEntity를 가진 apply attempt, success facts 또는 failure kind/context, constructor의 noun-input 연결, final commit을 순서대로 기록한다. 실패한 경우에도 partial capture를 돌려준다.
-- [x] P3/P5 `f=:+"(1+0)`와 `f=:(1+2) + *`의 computed noun constructor를 runtime에서 지원한다. 값 생산 occurrence와 constructor 입력을 연결한다. 일반 fork 호출 executor 미지원과 static computed-constructor coverage는 별도 경계이며 fake constant로 통과시키지 않는다.
-- [x] recording parity, 실패 후 기존 binding/version 보존, 괄호 전후 occurrence 유지, 큰 입력의 facts-only 기록, row invocation과 이후 lookup의 순서 및 final Literal 반환을 회귀 검증했다.
-- [x] P5/P8 `j_graph_ir::Plan::from_capture`가 성공 capture를 기존 J Graph로 변환하고 verifier를 통과시킨다. `CapturedGraph`는 occurrence→ValueId, constructor의 computed noun 입력, observed facts를 별도 sidecar로 보존한다. 실패 capture는 완료 graph로 변환하지 않는다.
-- [x] P4 일부: row 7에서 top-level single-name non-final assignment를 즉시 수행하며 이후 stack-entry 조회·RHS POS·후속 오류 이전에 완료한 대입을 보존한다.
-- [ ] P4 explicit-local/locale/definition/effect 및 전체 constructor/result-POS coverage를 확장한다. 17개 definition acceptance ignored는 여전히 미구현이다.
-
-`parser_capture.rs`는 canonical IR을 대체하지 않는 observation log다. input/intermediate 배열 snapshot을 저장하지 않고 dtype/shape·source span·occurrence edge를 저장한다. shared FunctionEntity는 J 의미에 필요한 intrinsic noun operand를 소유하므로 그 lifetime은 capture로 연장될 수 있다. 이를 payload 복사나 buffer/physical scheduling과 혼동하지 않는다. 기록은 실제 한 실행의 관찰이며 purity/binding/value/error guards 없는 compiled replay의 증명이 아니다. capture 켠 상태에서 parser가 실제 값을 계산하는 것과 static analyzer가 실행하지 않는 것은 서로 다른 API 계약이다.
-
-
-**Capture adapter 범위:** source는 capture가 읽기 전용으로 소유한다. source literal은 enqueue payload에서 다시 구성하며, named noun은 관찰 당시 version을 가진 ReadNoun으로 남겨 현재 workspace 값을 다시 읽지 않는다. apply는 기존 Builder를 사용하고 FunctionEntity 및 NameRef를 보존한다. inferred graph facts와 runtime observed facts를 분리하며, 함수 참조는 실제 호출이 성공했더라도 specialization 경계를 유지한다. constructor의 computed noun 의존 관계는 `ConstructorOrigin.noun_inputs`로 보존한다. 이 sidecar를 제외한 일반 graph memory 분석만으로 constructor operand의 완전한 lifetime/physical peak를 추정하지 않는다. 여러 effect·runtime guard·실패 후 continuation·modifier-value graph lowering과 재사용 가능한 실행 계획은 아직 범위 밖이다.
-
-**Parser-time assignment 범위:** 위 reviewed source pin의 `p.c` row 7을 따라 `x+(x=:2)`는 오른쪽 대입을 완료한 뒤 왼쪽 이름을 조회한다. chained/parenthesized assignment도 같은 matcher를 사용하며 explicit local scope가 없는 top-level `=.`은 enqueue에서 global로 분류한다. outer row 7에 도달하기 전 실패하면 그 binding은 유지하며, 이미 수행한 대입은 모두 남긴다. runtime final assignment도 성공적인 parser exit 이후가 아니라 row 7에서 commit한다. `(x=:2`와 `x=:2)`는 syntax error지만 `x=2`를 남기는 C 동작을 따른다. final assignment reduction 후 추가 row 처리를 중단하고 exit validation을 진행하며 runtime에서 다시 commit하지 않는다. 배열 RHS는 shared로 전환한 뒤 반환용 별칭을 만든다. capture는 occurrence/function identity·실제 POS·copula provenance·previous/proposed binding version·final 여부만 기록하며 input/intermediate 배열 snapshot을 추가하지 않는다. static 경로는 실행 없이 non-final assignment를 분석 경계로 거부한다. 일반 locale, explicit local environment, noun/multiple assignment target은 미지원이다.
-
-- [x] P4/P5: noun·verb·adverb·conjunction 중간 대입은 실제 result POS/FunctionEntity를 보존한다. capture verifier는 RHS identity/class·copula scope·Engine-local version 증가·final event 순서를 검사한다.
-- [x] P4/P6: unmatched control이 도달 가능한 대입을 선제 차단하지 않는다. SyntaxError에는 정확한 control span을 보존하며 앞선 runtime error class를 대체하지 않는다. C 관찰에서 `a=:missing + )`가 exit 오류 이후 hook binding을 남김을 확인하고 기존 일괄 rollback 테스트를 수정했다.
-- [x] P5/P8: terminal enqueue/parse/runtime failure kind/context를 별도로 보존하여 ApplyFailure가 없는 partial capture도 completed graph로 오인하지 않는다. 차등 harness는 full-prefix 비교가 성공하면 오래된 repro 파일을 제거한다.
-
-- [x] P3/P4/P5: runtime named primitive modifier는 row 3/4 구성 시점에 expected POS를 확인하고 실제 completed FunctionEntity를 만든다. 일반 modifier alias는 row 7 대입 시 실제 modifier를 snapshot하므로 원래 이름의 후속 재대입이 alias를 바꾸지 않는다. 일반 verb alias의 late reference는 유지한다. C `5!:1`/call 관찰에서 `adv=:/; f=:+adv; adv=:1` 이후에도 `f`는 완성된 insert이고 `f i.3`은 3임을 확인했다. named verb의 late reference는 유지한다. `ModifierResolved`/`CapturedGraph.modifier_bindings`는 모든 modifier 대입/구성 시점 name/version/expected-POS witness·resolution row와 현재 source-use span을 보존하며 graph에도 의존성을 남긴다. 이는 executable reuse guard가 아니다. operand-free primitive modifier alias 조회를 지원하며 arbitrary derived modifier executor와 unknown static modifier action은 별도 coverage 작업이다.
-
-**Ordered-effect graph 경계:** 새 runtime 문장도 capture verifier를 통과시키지만 현재 J Graph adapter에는 final write 슬롯 하나만 있다. non-final write가 있는 capture는 명시적으로 거부하며 commit이 마지막 event인 `(x=:2)`도 포함한다. standalone modifier-value lowering도 명시적인 graph 경계다. parser-capture 차등 보고서의 `graph_coverage_boundaries`에 exact source와 reason을 별도로 기록하며 값/error 불일치를 면제하지 않는다. ordered write/read/effect IR과 replay 합법성은 후속 작업이며 이번 단계에서 최적화를 수행하지 않는다.
-
-Windows 검증: default/portable 각각 **250 passed / 17 ignored**, fmt/clippy 통과, Python 20 passed. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로의 **2,139문장 중 2,137 passed + 명시적 runtime 경계 2개, failed 0**; stage 7,014 checks와 words 6,618 cases 통과. `examples/capture_probe.rs`는 모든 문장의 capture association/attempt-outcome 순서를 검증하며 성공 문장은 명시적으로 보고한 graph 경계 13건(ordered-effect 9건, modifier-value 4건)을 제외하고 J Graph adapter/verifier도 통과시킨다. C oracle은 C word formation으로 outer copula와 inner copula/literal/comment를 구분하며 harness 회귀 테스트 2개로 보호한다. parser-capture JSON 보고서도 저장한다. 기존 oracle/source pin 구분과 GitHub CI 생략 방침을 유지한다.
-
-##### 정적 modifier 구성과 분석 의존성 (2026-10-03)
-
-- [x] P3: modifier의 입력 품사만 알려져 있을 때 application 결과를 Verb로 추측하는 경로를 제거했다. `declare_function(name, Adverb/Conjunction)`은 품사 정보만 선언한다. 이 이름을 구성에 사용하면 현재 이름·source span을 가진 `Unsupported` 경계를 반환한다. 단독 modifier의 품사 관찰과 실제 application은 구분한다.
-- [x] P3/P5: `StaticAnalyzer::declare_primitive_modifier`로 core primitive modifier의 실제 의미를 선언한다. `Engine::prepare_semantic/analyze_j_graph`도 현재 workspace의 operand-free primitive modifier와 그 별칭을 읽어 같은 row 3/4 constructor로 구성한다. 알려진 `/`, `\`, `"`, `@:` 등도 각 constructor가 지원하는 operand legality/result POS/error 규칙을 따르며, arbitrary derived/extension modifier 지원을 뜻하지 않는다.
-- [x] P5: `Program.modifier_snapshots`와 J Graph schema **0.4**의 `Plan.modifier_snapshots`에 이름, catalog/Engine-local version, expected POS, 공유 FunctionEntity, 현재 사용 위치를 보존한다. verifier는 source-use span, 이름, version과 primitive modifier 품사를 검증한다. 이 의존성은 intrinsic 함수 identity나 physical allocation 정보에 섞지 않는다. runtime capture의 `ModifierResolved` 관찰과 정적 분석의 binding 가정은 별도 sidecar다. 둘 모두 executable reuse guard가 아니다.
-- [x] P6: 큰 배열은 metadata만으로 분석하고 reduction kernel을 실행하지 않는다. 알려진 modifier 별칭의 의미는 원래 이름의 재대입 후에도 유지된다. 별칭 자체를 바꾸면 새 분석의 version/구성이 달라지지만 기존 graph는 유지된다. 일반 verb 이름은 late NameRef로 남긴다. 최종 대입은 pending proposal이며 workspace/catalog를 변경하지 않는다.
-- [x] P3/P6: Windows stage probe에 별도 setup/읽기 전용 분석 모드를 추가했다. C `5!:1`/`4!:0`과 구성·품사·domain/length 오류를 비교하고, 분석 후 target version 및 modifier 의존성을 검사한다. `candidate=: + analysisrank (#1 2)`는 C가 실행하면 성공하지만 정적 constructor에는 concrete noun이 필요하므로 정확한 source/reason을 `analysis_coverage_boundaries`에 남긴다. 성공 검사에 포함하지 않는다.
-- [ ] arbitrary derived modifier의 실제 의미/result POS, explicit-local/locale/definition scope, ordered-effect graph와 재사용 guard를 확장한다. 값 계산이 필요한 constructor를 fake noun으로 통과시키지 않는다. 이번 단계는 tokenizer/enqueuer/parser의 분석 가능 범위를 확장하며 최적화 변환을 실행하지 않는다.
-
-Windows 검증: default/portable 각각 **256 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로에서 **2,139문장 중 2,137 passed, runtime 경계 2개, failed 0**; stage **7,056 checks**(새 정적 구성·오류·대입 없음·의존성 검사 42건 포함)와 words **6,618 cases** 통과. 정적 값 의존 경계 1건과 기존 capture graph 경계 13건은 성공 수와 별도로 기록한다. 정적 분석 regression 6개를 추가했다. 기존 C DLL release/source review pin 구분, 미완료 definition 테스트 및 GitHub CI 생략 방침을 유지한다.
-
-##### Modifier train의 구조·품사 보존 (2026-10-03)
-
-- [x] P2/P3: `p.c` row 6처럼 stack의 세 번째 operand가 CAVN이면 trident, 그렇지 않으면 bident를 선택한다. `cf.c::bidents[]/tridents[]`의 nonzero action disposition은 실행 없이 실제 Adverb/Conjunction을 구성한다. SyntaxError와 즉시 semantic application disposition은 구별하며, 미구현 즉시 application을 성공 구조로 바꾸지 않는다.
-- [x] P3/P5: `FunctionHead::ModifierTrain`이 C `CADVF`의 의미적 bident/trident를 나타낸다. arity 2/3, 원래 순서의 noun/function operands, 실제 result POS, source span과 completed child DAG를 보존한다. C `5!:1`의 `4` 표현과 비교하며 일반 verb Hook의 `2`/Fork의 `3`과 구분한다. `+"`, `"1`, `/\`, `@:/`, `/ / /`, `/ / +`, nested train을 지원한다. C의 executor pointer/helper slot을 의미적 operand로 복제하지 않는다.
-- [x] P2/P6: source provenance/capture는 bident의 왼쪽 token과 non-fork trident의 가운데 token을 전달하고 입력 2/3개를 기록한다. runtime의 계산된 noun은 실제 값으로 구성되며 `ConstructionAttempt.noun_inputs`가 생산 occurrence를 연결한다. train이 보유한 named array는 noun by-value 규칙을 따르며 원래 이름을 재대입해도 값이 보존된다. 정적 경로는 계산된 noun을 실행하지 않고 명시적으로 거부한다.
-- [x] P6: C atomic representation/POS 비교를 20문장 확장하고 SyntaxError 사례 2개를 추가했다. runtime value/error corpus에도 구성·실패·배열 이름 재대입 사례를 추가했다. 네 가지 분석 경계(기존 computed rank 1건, derived modifier application 3건)는 C 성공과 Rust `Unsupported`를 exact source로 확인해 성공 수에서 제외한다.
-- [ ] derived modifier application, named derived modifier 조회/alias 구성, row 6 immediate semantic application, 전체 locale/explicit-local/definition scope를 연결한다. standalone modifier의 Semantic IR 보존과 J Graph로의 executable lowering은 별개다. compiler 분석·executor는 새 train을 일반 Hook/Fork나 알려진 primitive로 추측하지 않는다. 이번 단계에서 optimizer/CUDA를 구현하지 않는다.
-
-Windows 검증: default/portable 각각 **261 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,165문장 중 2,163 passed + runtime 경계 2개, failed 0**; stage **7,098 checks**와 words **6,618 cases**에서 failed 0이다. 회귀 테스트 5개를 추가했다. capture graph 경계 34건(ordered-effect 9건, modifier-value 25건)과 정적 분석 경계 4건은 별도로 보고한다. 새 modifier Semantic IR 구성은 executable modifier-value graph lowering의 완료를 뜻하지 않는다. 기존 미완료 definition 테스트·upstream suite 미실행·GitHub CI 생략 방침을 유지한다.
-
-구현 기준: [p.c row 6](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1057), [cf.c disposition tables and jthook](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L288). 기존 Windows DLL release pin과 source review pin은 서로 다르며 이 source로 DLL을 빌드했다는 주장은 하지 않는다.
-
-##### 오른쪽 operand를 묶은 modifier bident application (2026-10-03)
-
-- [x] P3: C `cf.c::tcNV`에 따라 verb 입력 `u (C n/v)`를 `u C n/v`의 실제 constructor에 전달한다. 현재 core `"`/`@:` conjunction과 noun/verb 오른쪽 operand를 지원한다. `+ ("1)`은 completed Rank entity이며 Rank 검증은 train 정의가 아니라 application 시점에 수행한다. 일반 train을 일괄 Verb로 추측하지 않는다.
-- [x] P4/P5: runtime named derived modifier 조회와 row 7 alias 대입이 immutable train 객체를 공유한다. 원래 이름의 재대입은 이미 구성된 alias/verb를 바꾸지 않는다. Engine 정적 조회와 J Graph verifier도 알려진 train identity를 허용하며 `modifier_snapshots`의 이름/version/POS/current-use span을 유지한다. identity가 알려졌다는 사실은 모든 application을 실행할 수 있다는 보장이 아니다. 품사만 선언한 unknown modifier 경계는 유지한다.
-- [x] P5/P6: 실제 완료 결과는 C처럼 Rank/Atop entity다. inline source의 row 6/row 3 provenance와 capture construction 기록, named train의 공유 identity/version witness를 별도로 보존한다. bound operand는 현재 application 위치에 연결하고 원래 train 객체를 수정하지 않는다. train의 noun은 shared storage로 보존하여 다시 구성할 때 큰 payload를 복사하지 않는다. 이 sidecar는 executable cache guard가 아니다.
-- [x] P6: named alias 변경, target 대입 없음, construction-time domain/length 오류, capture witness를 테스트한다. metadata-only 10^12-element 배열의 `- ("1) x`도 kernel 없이 분석한다. C `5!:1`/`4!:0`의 함수 구조/POS 비교와 runtime value/error corpus를 확장한다.
-- [ ] 왼쪽을 묶은 `tNVc`, noun-input adverb, 연속 adverb·derived conjunction·trident application의 각 action semantics를 연결한다. `(+ ("-)) i.4`와 `(+ (@:-)) i.4`는 후속 rank/Atop 단계에서 실행까지 지원했다. 현재 conformance corpus의 해당 runtime waiver는 제거했지만 전체 modifier 의미의 완료를 뜻하지 않는다. row 6 즉시 application과 locale/explicit-local/definition scope도 계속 남는다.
-
-Windows 검증: default/portable 각각 **266 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,185문장 중 2,181 passed, runtime 경계 4개, failed 0**; stage **7,128 checks**(새 정적 검사 30건)와 words **6,618 cases** 통과. 회귀 테스트 5개를 추가했다. capture graph 경계 38건(ordered-effect 9건, modifier-value 29건), static analysis 경계 3건은 성공 수와 별도로 보고한다. 전체 J/upstream suite, optimizer/CUDA 또는 GitHub CI를 구현·실행했다는 의미는 아니다. C DLL release와 source review pin의 구분을 유지한다.
-
-기준 소스: [cf.c tcNV 및 다른 modifier train actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
-
-##### 왼쪽 binding과 연속 adverb application (2026-10-03)
-
-- [x] P3: `cf.c::tNVc`에 따라 `u (v C)`를 `v C u`의 실제 constructor에 전달한다. `1 (-")`처럼 noun 입력이 rank specification인 경우도 처리한다. row 3은 N/V 입력과 실제 결과 품사를 가진 `Item`을 받아 같은 parser stack에 재삽입한다. static computed noun은 계속 명시적 경계이며 noun을 fake constant로 바꾸지 않는다.
-- [x] P3/P5: `taAV`의 `(A A)`/`(A V)`는 첫 adverb를 적용한 뒤 실제 결과와 두 번째 operand를 bident dispatch에 전달한다. `/ / /`의 `taaa`는 f→g→h 순서로 적용한다. `+ (/ /)`의 중첩 Insert, `+ (/ +)`의 Hook, `+ (/ / /)`의 3단계 Insert를 immutable completed DAG로 보존하며 요약 boolean이나 하나의 primitive로 축약하지 않는다. recursion에는 기존 depth limit을 적용한다.
-- [x] P4/P6: left-bound named alias의 snapshot identity, noun-input rank/length/domain 오류, 실패 후 기존 target 유지, computed noun 생산 occurrence와 row 3의 연결을 검증한다. application의 source span은 현재 구문을 가리키며 이전 train 정의 객체를 수정하지 않는다. 지원된 정적 구간은 kernel 없이 함수 구조를 구성한다.
-- [x] P3/P6: `(A C)`의 `tac`를 `(A A/V)`의 `taAV`로 오인하지 않는다. `tac`는 첫 적용 결과뿐 아니라 원래 입력도 필요하므로 미구현 경계로 남긴다. `3 (/@:)`는 첫 `/`의 DomainError가 먼저 발생하며, 유효한 `+ (/@:)`는 잘못된 Adverb 결과를 반환하지 않고 `Unsupported`를 낸다. C 성공/actual POS와 exact source를 stage 보고서에 기록한다.
-- [ ] noun을 왼쪽에 고정한 rank/gerund, `tac`, derived conjunction 및 다른 trident action, train 내부 late modifier NameRef의 동적 조회·effect 계약, row 6 즉시 application을 연결한다. 구성된 nested Insert/Hook의 실행 지원은 기존 kernel/executor coverage와 별개다. locale/explicit-local/definition scope도 계속 미완료다.
-
-Windows 검증: default/portable 각각 **270 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,205문장 중 2,201 passed, 기존 runtime 경계 4개, failed 0**; stage **7,168 checks**(새 정적 검사 40건)와 words **6,618 cases** 통과. 회귀 테스트 4개를 추가했다. capture graph 경계 40건(ordered-effect 9건, modifier-value 31건)과 static analysis 경계 3건을 성공 수와 구분한다. upstream suite, optimizer/CUDA, GitHub CI 실행을 주장하지 않는다. C DLL release/source review pin 구분을 유지한다.
-
-기준 소스: [cf.c taAV/tNVc/tac/taaa](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application 및 재삽입](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
-
-##### Adverbial hook 및 derived conjunction 적용 (2026-10-03)
-
-- [x] P3: `cf.c::tac`에 따라 `(A C)`는 먼저 `t=u A`를 구성하고 `t C u`에 원래 입력을 전달한다. `+ (/@:)`의 Insert와 Atop이 같은 입력 함수 객체를 참조하는지 검증한다. 앞 절에서 기록한 `tac` 미지원 경계는 이 단계에서 해소했다.
-- [x] P3/P5: `tca`는 `u C v` 결과에 A를 적용하고, `tcc`는 같은 원래 입력에 첫 C와 둘째 C를 순서대로 적용한 뒤 결과들을 bident로 구성한다. `taav`는 왼쪽·오른쪽 입력에 각각 A를 적용하고 고정 V와 trident를 구성한다. 실제 결과 품사로 hook·insert·fork 또는 modifier를 구성하며 row 4가 완료된 `Item`을 parser stack에 재삽입한다. 알려진 derived conjunction의 left/right binding도 이 경로를 사용한다.
-- [x] P4/P5: 반복 사용되는 concrete noun은 Owned 저장소를 Shared로 전환해 payload를 복사하지 않는다. Group 내부 noun도 처리하며 65,536개 정수의 원래 payload pointer, 공유 identity, 원본 해제 후 수명을 검증한다. deferred expression은 실행하지 않는다. 함수 DAG와 이전 정의는 immutable로 유지하고 현재 사용 span 및 named alias snapshot을 보존한다. binding/version 관찰은 재사용 허용 조건이 아니다.
-- [x] P6: C의 함수 표현·결과 품사, 첫 constructor 오류가 다음 action을 막는 순서, 실패 후 기존 assignment target 유지, 원래 conjunction을 재정의한 뒤 alias identity를 검증한다. 회귀 테스트 5개, C 비교 문장 16개, 정적 stage 검사 36개를 추가했다.
-- [ ] noun-left rank/gerund, 다른 derived conjunction trident(`tcVCc` 등), train 내부 late modifier NameRef 조회·effect 계약, bident/trident의 즉시 noun 실행을 연결한다. 구성된 함수의 kernel 실행 범위와 locale/explicit-local/definition scope는 별도 미완료 항목이다. 최적화는 아직 구현하지 않는다.
-
-Windows 검증: default/portable 각각 **275 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,221문장 중 2,217 passed, 기존 runtime 경계 4개, failed 0**; stage **7,204 checks**, words **6,618 cases** 통과. capture graph 경계 42건(ordered-effect 9건, modifier-value 33건)은 성공 수와 구분한다. static analysis 경계는 computed rank와 `candidate=: + (@: + @:) -`의 `tcVCc` 2건이다. 앞 절의 3건 중 `tac`와 derived conjunction bident 경계는 해소했고, 다른 trident의 실제 C 성공/품사와 Rust Unsupported를 새로 보고한다. stage의 9⁴ 표 검사는 declarative eligibility 비교이며 전체 parser action trace의 증명이 아니다. C DLL release pin과 검토한 source pin을 구분하며 전체 J/upstream suite, CUDA, GitHub CI 실행을 주장하지 않는다.
-
-기준 소스: [cf.c tac/tca/tcc/taav 및 modifier train dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c conjunction application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
-
-##### Modifier trident action 확장 (2026-10-03)
-
-- [x] P3/P5: `cf.c`의 `tNVvc`, `tcVCc`, `tcaa`, `tNVca`, `tNVcc`, `taVCNV`, `taca`, `tacc`, `tcVCNV`, `tcca`를 연결하고 기존 `taaa`/`taav`도 동일한 trident dispatch에 통합했다. 각 action의 중간 결과·원래 입력·고정 operand와 적용 순서를 보존한다. 결과는 실제 품사로 bident/trident construction에 전달하며 immutable 함수 DAG를 유지한다.
-- [x] P4/P6: `tcVCc`의 두 conjunction 결과가 원래 함수 입력을 공유하는지, constructor의 첫 오류가 뒤 action과 assignment를 막는지 검증했다. named trident conjunction alias는 원래 이름 재정의 후에도 기존 identity를 유지한다. 중간 noun 실행 및 train 내부 late modifier lookup은 여전히 별도 경계다.
-- [x] P6: 20개 derived trident 품사 production을 `/`, `@:`, `+`, `3` 표본과 noun/verb 입력 조합으로 구성한 68문장을 C와 비교했다. 이 표본 검증은 모든 primitive 및 effect 조합에 대한 완전한 호환성 증명이 아니다. 회귀 테스트 3개, 비교 문장 98개, stage 검사 154개를 추가했다.
-- [ ] 다음: noun-left rank construction, 즉시 noun 실행과 capture, train 내부 late modifier 조회, locale/definition scope를 구현한다. 앞 단계에서 미지원이던 `tcVCc`는 해소했다. tokenizer/enqueuer/parser 우선순위와 최적화·CUDA 보류를 유지한다.
-
-Windows default/portable 각각 **278 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 세 실행 경로에서 **2,319문장 중 2,315 passed, runtime 경계 4개, failed 0**; stage **7,358 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 성공 수와 구분한다. static 경계 2건은 computed rank와 `candidate=: 3 (" /) 1`의 noun-left rank이며 이전 `tcVCc` 경계를 후자로 교체했다. DLL release/source review pin, 지원 부분집합, 실제 실행한 검증 범위를 유지한다. GitHub CI는 생략했다.
-
-기준 소스: [cf.c modifier trident actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
-
-##### Noun-left rank 구성과 operand 역할 보존 (2026-10-03)
-
-- [x] P3/P5: `cr.c::jtqq`에 따라 ordinary noun-left rank를 구성한다. 오른쪽 rank의 rank→length→numeric audit를 먼저 수행하고 왼쪽 noun 또는 verb, 오른쪽 noun 또는 verb의 원래 순서·값·span을 immutable Rank entity에 보존한다. noun 저장소는 공유한다. derived modifier binding/trident를 통한 적용도 같은 경로를 사용한다.
-- [x] P4/P6: runtime에서 계산된 `(i.4)` noun과 rank noun의 두 생산 occurrence를 construction capture에 연결한다. 정적 경로는 computed noun을 실행하지 않고 명시적 경계를 유지한다. 실패 시 기존 assignment target과 version을 유지한다.
-- [x] P5/P6: `3"+`에서 오른쪽 `+`를 실제 실행 대상으로 오인하거나 왼쪽 `3`을 rank specification으로 오인하지 않는다. Rank graph form 및 shape/type 추론은 왼쪽 function operand가 있는 기존 지원 형태에만 적용하고 noun-left 형태는 구조를 보존한 Modifier와 unknown facts로 남긴다. 회귀 테스트 5개, C 비교 문장 17개, stage 검사 21개를 추가했다.
-- [ ] boxed rank-1 noun의 gerund audit(오른쪽 rank가 모두 최대값인 경우 제외), constant-rank 함수의 kernel 실행·Logical lowering, 즉시 noun 실행, late modifier 조회 및 locale/definition scope를 연결한다. plain noun-left constructor 성공이 모든 gerund나 실행 지원을 뜻하지 않는다. 최적화/CUDA는 보류한다.
-
-Windows default/portable 각각 **283 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,336문장 중 2,332 passed, runtime 경계 4개, failed 0**; stage **7,379 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 별도이며 static 보고 경계는 computed rank 1건으로 줄었다. gerund 및 다른 computed noun 구간의 미지원까지 없어졌다는 의미는 아니다. stage source hash에 `cr.c`를 추가해 실제 rank-constructor 검토 소스를 식별한다. GitHub CI는 생략했다.
-
-기준 소스: [cr.c jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
-
-##### Primitive gerund 구성과 audit 순서 (2026-10-03)
-
-- [x] P3/P6: `ap.c::jtbslash`→`cg.c::jtfxeachv(1)`에 따라 noun에 `\`를 적용할 때 rank→length→boxed type 순서로 검사한다. 비어 있는 rank-2 입력은 RankError, 빈 rank-1 입력은 LengthError, nonempty nonboxed 입력은 DomainError로 처리한다. 이전 blanket Unsupported를 이 검사 범위에서 해소했다.
-- [x] P3/P5: `r.c::jtfx`의 character primitive leaf를 현재 core PrimitiveResolver로 검증한다. char rank→length→ASCII spelling 및 최종 verb POS를 확인한다. primitive 문자열로 구성된 gerund는 PrefixInfix의 noun operand를 그대로 가진 completed Verb로 구성하고 공유 저장소·원래 span을 보존한다. execution-only decoded fgh는 semantic child로 추가하지 않는다.
-- [x] P3/P6: noun-left rank의 gerund 후보는 동일 audit를 사용한다. 확실한 J audit 실패는 `cr.c`처럼 조용히 constant noun으로 되돌리고, 이름/미등록 primitive/compound AR에 대한 구현 미지원은 숨기지 않는다. gerund 원소 순서, 첫 오류, 실패 시 target/version 유지와 fallback을 검증했다.
-- [x] P6: 회귀 테스트 3개, C 비교 문장 38개, stage 오류 검사 3개를 추가했다. source hash에 `ap.c`, `cg.c`, `r.c`를 추가했다. 정적 분석의 computed gerund noun 경계는 runtime constructor 성공과 별도로 보고한다.
-- [ ] 다음: 이름 및 복합 atomic representation의 `fx` decoding/binding, gerund 실행·Logical lowering, 중간 noun 즉시 실행/capture, train 내부 late modifier 조회와 locale/definition scope를 진행한다. 이 단계는 전체 gerund 지원이나 optimizer/CUDA 구현이 아니다.
-
-Windows default/portable 각각 **286 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 세 실행 경로에서 **2,374문장 중 2,370 passed, 기존 runtime 경계 4개, failed 0**; stage **7,382 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)은 별도다. static 보고 경계 2건은 computed rank와 computed gerund noun으로, 성공 수나 C와의 의미 불일치로 세지 않는다. 완전한 upstream suite나 GitHub CI 실행을 주장하지 않는다.
-
-기준 소스: [ap.c jtbslash](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L940), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
-
-##### 복합 gerund atomic representation 해석 (2026-10-03)
-
-- [x] P3/P5: `r.c::jtfx`의 boxed AR을 재귀 해석한다. primitive 단일 head, noun `0`, hook `2`, fork `3`, modifier `4`, primitive adverb/conjunction 적용 및 boxed head로 구성된 derived modifier 적용을 지원한다. decoder는 기존 parser의 bident/trident disposition과 constructor action을 사용해 실제 결과 품사를 반환한다. 새 J 문법이나 modifier 전용 semantic AST를 만들지 않는다.
-- [x] P3/P6: AR의 boxed type→rank→length, header와 operand vector의 audit, fork의 f→g→h 및 modifier의 왼쪽→오른쪽 audit를 보존한다. hook/modifier train AR은 명시적으로 h를 먼저 해석하고 g→f를 따른다. 마지막 순서는 두 제공된 Windows C DLL에서 확인한 C argument 평가 순서이며, C 언어 일반의 보장이나 Linux compiler 순서로 주장하지 않는다. noun-left rank의 확실한 audit 실패는 기존처럼 constant fallback으로 처리한다.
-- [x] P4/P5: J-visible gerund noun과 현재 construction span을 그대로 보존하며, decoded execution auxiliaries를 parent의 semantic child로 추가하지 않는다. 공유된 65,536개 정수 noun AR의 payload pointer와 원본 해제 후 수명을 검증한다. 재귀 해석·중첩 constructor에는 기존 depth limit을 적용한다. AR 내부 byte offset을 모르는 경우 바깥 operand span을 사용한다.
-- [x] P6: 회귀 테스트 4개, C 비교 문장 103개를 추가했다. `frontend_probe`의 `R`은 명시적 runtime parser construction/capture 관찰이며 completed function을 C `5!:1`/`4!:0`와 비교한다. `A`의 read-only/static 계약은 유지한다. stage에는 constructor 표현/품사 39건, 오류 18건, setup/기존 target 검사 46건을 추가했다. AR fixture 자체의 잘못된 setup은 공통 오류로 통과시키지 않고 검사 실패로 처리한다.
-- [ ] 다음: gerund name/locative와 전체 spellin inventory, serialized entity가 즉시 noun 실행을 요구하는 경우의 host/capture 연결, train 내부 late modifier 조회, gerund 실행·Logical lowering 및 locale/definition scope를 진행한다. 이름·미등록 primitive·미지원 즉시 실행은 명시적 Unsupported이며 임의 품사나 fake noun으로 대체하지 않는다. 최적화/CUDA는 보류한다.
-
-Windows default/portable 각각 **290 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,477문장 중 2,473 passed, 기존 runtime 경계 4개, failed 0**; stage **7,485 checks**, words **6,618 cases** 통과. capture graph 경계 44건(ordered-effect 9건, modifier-value 35건)과 static 경계 2건(computed rank, computed gerund noun)은 별도다. 성공한 AR 해석이 모든 J primitive/name/실행을 지원한다는 뜻은 아니다. C DLL release/source review pin 구분과 declarative parse table/실제 trace 증명 범위 구분을 유지하며 GitHub CI는 생략했다.
-
-기준 소스: [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cf.c hook 및 modifier dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
-
-##### Gerund 이름의 생성 시점 품사 확인 (2026-10-03)
-
-- [x] P3/P4: `r.c::jtfxchar`→`a.c::jtswap`→`sc.c::jtnameref`에 따라 character AR의 ordinary name을 기존 이름 환경에서 생성 시점에 조회한다. 문장 전체의 binding을 미리 snapshot하지 않는다. undefined 이름은 Verb NameRef로, 정의된 함수는 현재 실제 품사의 NameRef로 구성한다. verb의 현재 primitive 값을 고정하거나 alias의 참조를 펼치지 않는다. 기존 extension 이름도 동일한 binding 경로를 사용한다.
-- [x] P3/P6: 현재 noun·adverb·conjunction인 이름은 gerund의 최종 Verb 검사에서 DomainError를 낸다. noun-left rank의 확실한 audit 실패는 기존 constant fallback을 유지한다. 이름 재정의, undefined→verb, verb→noun/modifier, verb alias, 실패 후 target/version 유지와 원래 gerund noun의 함수 표현을 검증한다.
-- [x] P3/P6: alpha로 시작하고 마지막 문자가 `.`/`:`가 아닌 character AR은 이름 검사 경로로 보낸다. ordinary name의 분류·검증은 enqueuer를 재사용하며 잘못된 문자·공백·끝 underscore는 IllFormedName으로 처리한다. primitive 경로와 boxed AR header의 spellin 경로는 구분한다. 이름 환경이 없거나 locative 지원이 필요한 경우에는 Unsupported를 유지한다.
-- [x] P6: 회귀 테스트 3개와 공통 C 비교 문장 30개를 추가했다. stage는 runtime constructor의 함수 표현/POS 9건, 오류 7건, binding 설정·기존 target 실행 14건을 비교한다. source hash에 `a.c`, `sc.c`를 추가했다. decoded Verb NameRef가 값 snapshot을 갖지 않는지, named noun을 사용하는 중첩 fork가 필요한 noun snapshot 없이 성공하지 않는지도 검증한다.
-- [ ] 다음: 복합 AR 내부 named noun의 실제 값 snapshot 및 capture, gerund 이름 조회의 binding/version 관찰, 즉시 noun 실행·capture, train 내부 late modifier 조회를 연결한다. 현재 noun 판별은 품사 검사만 가능하며 값이 필요한 중첩 constructor는 Unsupported다. 원래 noun operand를 유지하는 것만으로 decoded execution auxiliary의 snapshot이나 compiled reuse 조건이 보존되었다고 주장하지 않는다. gerund 실행·Logical lowering, locative/locale/definition scope, 전체 primitive inventory는 별도 미완료다. 최적화/CUDA는 보류한다.
-
-Windows default/portable 각각 **293 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,507문장 중 2,503 passed, 기존 runtime 경계 4개, failed 0**; stage **7,515 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. 현재 gerund 이름 조회는 완전한 capture witness/재사용 guard가 아니다. DLL release pin과 검토 source pin을 구분하며 전체 J/upstream suite나 GitHub CI 실행을 주장하지 않는다.
-
-기준 소스: [r.c fxchar](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [a.c swap](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/a.c#L21), [sc.c nameref](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [sn.c vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
-
-##### Gerund 내부 noun snapshot과 조회 capture (2026-10-03)
-
-- [x] P3/P4: character AR의 named noun을 생성 시점의 실제 `Value`로 가져와 shared Literal로 decode한다. noun-left fork 및 rank operand의 값이 뒤 이름 재정의에 따라 변하지 않도록 한다. abstract noun은 값을 추측하지 않으며 값이 필요한 constructor에서 기존 Unsupported를 유지한다.
-- [x] P4/P5: `FunctionEntity.decoded_gerund`에 완료된 decoded 함수들을 보존한다. 이 정보는 intrinsic noun snapshot을 가진 immutable 공유 객체이며, 원래 boxed gerund noun은 source operand에 그대로 남는다. decoded 함수들을 원래 PrefixInfix/Rank의 semantic child edge로 추가하지 않는다. 성공한 gerund audit만 decoded 결과를 보존하고, rank의 quiet constant fallback에서는 부분 결과를 버린다. 이 보존은 gerund 실행 지원을 뜻하지 않는다.
-- [x] P4/P6: 생성 중의 이름 조회마다 `GerundNameResolved`에 이름·현재 binding version(undef는 없음)·실제 품사·noun facts·outer AR span을 기록한다. 배열 payload는 capture event에 넣지 않는다. 성공·실패·quiet fallback에서 조회 순서를 유지하고, 해당 constructor attempt/outcome 사이에서만 유효하도록 verifier를 확장했다. `CapturedGraph.gerund_name_reads`는 별도 observation sidecar이며 compiled reuse guard가 아니다. static 분석의 내부 이름 dependency/guard 계약은 아직 완성하지 않았다.
-- [x] P6: 회귀 테스트 4개를 추가했다. 65,536개 정수의 payload pointer 공유, 재정의·원본/Engine 해제 후 수명, rank noun snapshot과 verb NameRef의 차이, 첫 오류와 기존 target/version 보존, 부분 decode 폐기, 잘못 배치된 capture event 거절을 검증한다. 공개 정적 분석은 abstract bound noun 경계를 그대로 유지하며 실행·assignment를 수행하지 않는다.
-- [x] P6: C 공통 비교 문장 31개 및 stage 검사 49건을 추가했다. `frontend_probe`의 `D`는 생성된 객체의 decoded 함수 표현을 관찰한다. C에만 적용한 fix adverb `5!:0`의 AR decode 결과를 `5!:1`로 읽어 scalar/vector/boxed named noun snapshot 6건을 비교하고, C 객체의 재정의 후 snapshot 유지 3건을 별도 확인한다. Rust에서는 외래 실행으로 우회하지 않는다. 기존 `R`의 원래 함수 표현/POS 비교도 유지한다.
-- [ ] 다음: bident/trident AR의 즉시 noun 실행 및 capture, train 내부 late modifier 조회·effect 계약을 연결한다. gerund 실행/Logical lowering, compiled reuse 조건, locative/locale/definition scope 및 전체 primitive inventory는 별도 미완료다. tokenizer/enqueuer/parser 우선순위와 최적화/CUDA 보류를 유지한다.
-
-Windows default/portable 각각 **297 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,538문장 중 2,534 passed, 기존 runtime 경계 4개, failed 0**; stage **7,564 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. C DLL release pin과 검토 source pin을 구분한다. 전체 J/upstream suite·GPU·GitHub CI 실행은 주장하지 않는다.
-
-기준 소스: [r.c fxchar/fx 및 noun/fork decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [sc.c nameref의 noun 값 반환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [cg.c fxeachv의 decoded gerund 보존](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c gerund audit 및 constant fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
-
-##### Bident/trident AR 내부 noun 실행과 capture (2026-10-03)
-
-- [x] P3/P4: `cf.c::jthook`의 즉시 적용 production에 따라 `V N` bident는 monad를, `N V N` trident는 dyad를 runtime semantic host에서 실행한다. decoder와 modifier construction의 공통 disposition을 유지하며 실제 noun `Item`을 반환한다. 이를 바깥 noun-left fork 등의 operand로 전달하고 shared Literal 및 기존 decoded gerund 구조에 결과 값을 보존한다. 최종 gerund Verb 검사 전에 함수 실행 오류가 먼저 발생하도록 한다.
-- [x] P4: constructor 동안 host를 잠깐 mutable로 빌려 실제 call을 실행한다. 이후 AR 이름 조회는 갱신된 환경을 읽으며 문장 전체 binding snapshot을 만들지 않는다. static/no-host 경로는 Unsupported를 반환하고 실행하지 않는다. 지원 범위는 기존 runtime verb executor 범위이며 미지원 callable을 임의로 계산하지 않는다.
-- [x] P4/P6: `ConstructorApply`는 완료된 call의 함수 객체·valence에 따른 입력 facts·span·성공 결과 facts 또는 오류 class/context를 기록한다. 배열 argument/result payload는 event에 보관하지 않는다. 이름 조회 event와 같은 buffer를 사용해 실제 순서를 유지하고 바깥 construction 성공·실패 전에 전달한다. verifier는 해당 row 3/4 construction 구간 안의 Verb call만 허용한다. `CapturedGraph.constructor_calls`는 관찰 sidecar이며 재실행 계획이나 최적화 guard가 아니다. 실행된 함수 내부의 전체 효과/조회 trace까지 포착한 것은 아니다.
-- [x] P6: 회귀 테스트 4개로 monadic/dyadic 실제 값, call 성공 뒤의 최종 DomainError, call의 DomainError/LengthError와 quiet rank fallback, 기존 target/version 유지, 잘못 배치된 call event 거절을 검증했다. monadic `+`의 65,536개 정수 payload 공유·원본/Engine 해제 후 수명, Windows hook AR의 g→f 조회 순서도 확인했다. mock host 검사는 첫 call 이후의 binding 변화가 다음 조회에 반영되고 static 경로는 call하지 않는다는 연결 계약을 검증하며 전체 J effect 호환성 증명으로 취급하지 않는다.
-- [x] P6: 공통 C 비교 문장 44개와 stage 검사 56건을 추가했다. stage는 함수 표현/POS 19건, 오류 8건, setup 17건 및 computed snapshot setup 8건·decoded noun 값 4건을 비교한다. decoded 값은 C-only `5!:0`→`5!:1`과 Rust constructor 관찰 `D`로 교차 확인한다. Rust frontend를 외래 실행으로 우회하지 않는다.
-- [ ] 다음: train/AR 내부 late modifier NameRef의 조회 및 적용·effect 계약을 연결한다. 미지원 derived callable, gerund 실행/Logical lowering, compiled reuse 조건, 전체 내부 효과 graph, locative/locale/definition scope와 primitive inventory는 계속 별도 과제다. tokenizer/enqueuer/parser 우선순위를 유지하고 최적화·CUDA·GitHub CI는 진행하지 않는다.
-
-Windows default/portable 각각 **301 passed / 17 ignored**, fmt/clippy 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,582문장 중 2,578 passed, 기존 runtime 경계 4개, failed 0**; stage **7,620 checks**, words **6,618 cases** 통과. capture graph 경계 46건(ordered-effect 9건, modifier-value 37건), static 경계 2건(computed rank, computed gerund noun)은 별도 보고한다. 공급된 Windows DLL release pin과 검토 source pin을 구분하며 전체 J/upstream suite·GPU·Linux·GitHub CI 검증을 주장하지 않는다.
-
-기준 소스: [cf.c hook의 V N/N V N 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L311), [r.c AR hook/fork decode 순서](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L93), [cg.c 최종 gerund Verb 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c quiet gerund audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
-
-##### Nameless modifier snapshot과 train 내부 지연 조회 (2026-10-03)
-
-- [x] P3/P4: ordinary modifier 이름은 모두 NameRef가 되는 것이 아니다. C의 `VALTYPENAMELESS` lookup에 맞춰 primitive modifier 및 primitive ACV/noun으로만 구성된 modifier train은 queue에서 stack으로 들어갈 때 현재 immutable 함수 값을 공유한다. `adv=:/`를 담은 train은 이후 `adv=:1`에도 기존 값을 유지한다. 일반적인 재귀적 이름 없음·순수성 판정으로 확대하지 않는다.
-- [x] P3/P4: 실제 NameRef를 포함한 train/AR의 modifier child는 실제 adverb/conjunction 적용 시점에 기존 runtime resolver로 조회한다. 같은 품사의 재정의는 반영하고, 저장된 품사와 현재 binding의 품사가 다르면 DomainError를 낸다. undefined 이름 및 alias 오류도 기존 resolver 계약을 따른다. 기존 train의 child를 바꾸거나 전체 DAG를 미리 펼치지 않는다. static/no-host 경로는 필요한 조회에서 Unsupported를 유지한다.
-- [x] P4/P5: stack 시점의 `ModifierStacked`와 실제 적용 시점의 `ModifierResolved`를 구분한다. `CapturedGraph.modifier_stack_snapshots`는 이름·version·품사·함수 값·span을 보존하며 snapshot 이름을 late verb reference로 기록하지 않는다. 실제 조회는 constructor row/span과 현재 binding version을 관찰한다. 두 sidecar 모두 observation이며 compiled reuse guard나 replay 계약이 아니다.
-- [x] P3/P6: character AR의 이름은 `fxchar`의 NameRef 경로를 유지한다. ordinary stack의 nameless shortcut을 AR 이름 decode에 적용하지 않는다. gerund 이름의 생성 시점 품사 확인과 실제 modifier 적용의 지연 조회를 별도 event로 검증한다.
-- [x] P6: 회귀 테스트 4개로 nameless snapshot 유지, nonnameless adverb/conjunction 재정의, 저장 품사 검사, 실패 후 target/version 보존, immutable child 공유 및 AR 조회 순서를 검증했다. 기존 snapshot identity 테스트도 실제 stack 시점에 맞췄다. C 공통 문장 63개와 stage 검사 69건을 추가했으며 source hash에 `s.c`, `jtype.h`를 포함했다.
-- [ ] 다음: 남은 modifier constructor/executor inventory와 explicit/local/locative/definition scope의 frontend 계약을 검토한다. 미지원 callable 및 내부 effect/dependency·compiled reuse 계약, gerund 실행/Logical lowering은 남아 있다. tokenizer/enqueuer/parser에 집중하며 최적화·CUDA·GitHub CI는 보류한다.
-
-Windows default/portable 각각 **305 passed / 17 ignored**, fmt/clippy/build 통과, Python **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,645문장 중 2,641 passed, 기존 runtime 경계 4개, failed 0**; stage **7,689 checks**, words **6,618 cases** 통과. capture graph 경계 **71건(ordered-effect 9, modifier-value 62)**과 static 경계 **2건(computed rank, computed gerund noun)**은 별도 보고한다. 추가 modifier-valued 문장의 graph 경계는 noun 실행 실패나 새 runtime waiver가 아니다. DLL release pin `ded7793fe5795d79eda8e7138dce94aa056edf78`과 검토 source pin을 구분하며 전체 J/upstream suite의 동등성을 주장하지 않는다.
-
-기준 소스: [p.c nameless stack lookup](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L693), [s.c binding 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L739), [jtype.h primitive/nameless flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1334), [cf.c train 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L367), [sc.c 저장 품사 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L138), [r.c character AR](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
-
-##### Bident/trident constructor inventory 전체 조합 검증 (2026-10-03)
-
-- [x] P3/P6: 실제 parser row 및 AR decoder가 사용하는 `bident_disposition`/`trident_disposition`을 frontend probe의 `--constructors`에서 관찰한다. 별도 Rust golden dispatch를 만들지 않는다. C `cf.c`의 `bidents[16]`·`tridents[64]`를 읽어 syntax error, 즉시 semantic apply, hook/fork, derived modifier 및 결과 품사 분류를 **80개 조합 모두** 대조한다. 표 밖에서 먼저 처리하는 `V V` hook과 `MARK` fork도 구분한다.
-- [x] P6: C 표의 누락·중복·알 수 없는 operand/action/result 및 probe의 누락·중복 조합을 실패로 처리한다. source extractor 회귀 테스트 3개를 추가했다. 80개 조합이 맞는다는 결과를 runtime ptcol 전체 실행 순서나 모든 operand 값의 지원으로 확대하지 않는다.
-- [x] P3/P6: 모든 16개 bident 및 64개 trident를 boxed AR로 구성하여 surface parser의 다른 reduction과 혼동하지 않고 실제 constructor에 전달한다. 공통 비교 문장 **160개**를 추가했고, stage에서는 AR setup 80건·오류 75건·최종 Verb 성공 5건을 C와 비교한다. 추가로 성공 5건의 decoded 함수 구조를 C의 reference-only `5!:0`/`5!:1`와 비교한다. noun/modifier 반환 후 gerund의 최종 Verb 검사에서 발생하는 DomainError와 불가능한 production의 SyntaxError를 구분한다.
-- [x] P6: Rust 회귀 테스트로 invalid bident/trident와 `N V N` 결과의 최종 audit 실패 후 기존 함수·binding version 및 capture 유효성을 확인한다. static/no-host 경로가 필요한 noun 실행을 임의로 수행하지 않고 Unsupported를 유지하는지도 검증한다. 이번 변경은 constructor 지원 확대를 주장하지 않으며 기존 dispatch의 검증 범위를 넓힌다.
-- [ ] 다음: explicit/direct definition의 입력 수집·실행 없는 frontend 구조와 local/locative/definition scope를 검토한다. 남은 callable inventory, 내부 effect/dependency·compiled reuse 계약, gerund 실행/Logical lowering은 별도 작업이다. tokenizer/enqueuer/parser 우선순위와 최적화·CUDA·GitHub CI 보류를 유지한다.
-
-Windows default/portable 각각 **306 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture에서 **2,805문장 중 2,801 passed, 기존 runtime 경계 4개, failed 0**; stage **7,935 checks**, words **6,618 cases** 통과. capture graph 경계 71건(ordered-effect 9, modifier-value 62), static 경계 2건은 유지한다. 새 waiver는 없으며 C DLL release pin과 검토 source pin을 구분한다.
-
-기준 소스: [cf.c bident/trident 표와 hook dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L310), [cf.c 즉시 적용 및 modifier 구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L349), [r.c AR decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
-
-##### Definition 입력 수집과 실행 없는 source 구조 (2026-10-03, DEF-1 일부)
-
-- [x] `definition_input.rs`의 `DefinitionInput`/`InputFrame`과 parser의 `frame_definition_input` 경로를 추가했다. ordinary sentence, 추가 입력 필요, 완료된 definition을 구분하고 definition operator·본문의 원본 byte span과 중첩 direct definition 범위를 보존한다. tokenizer의 기존 word formation을 재사용하며 본문 이름을 lookup하거나 noun으로 reduce하지 않는다. 이 구조는 enqueue 이전의 source framing이며 아직 `Program`의 DefinitionCode/FunctionEntity가 아니다.
-- [x] 일반 `{{ ... }}`와 literal mode 1–4의 `m : 'body'`, `m : 0`을 수집한다. quote doubling을 해제한 본문과 LF 포함 quoted body를 보존한다. 문자열·NB. 주석 안의 brace를 구분자로 보지 않고 nested direct definition을 수집한다. block은 C `colon0`에 따라 앞뒤 ASCII 공백만 있는 단독 `)` 줄에서 끝내며 nested DD 안의 `)`는 바깥 block을 닫지 않는다. source API는 CRLF를 보존한다.
-- [x] CLI stdin/script가 같은 physical-line collector를 사용한다. 지원되는 block/direct 입력은 닫는 줄까지 모은 다음 기존 미지원 오류를 한 번 보고하고 입력을 중단한다. incomplete 입력은 EOF에서 source span을 가진 입력 오류를 보고한다. CLI physical-line API는 줄 사이에 LF를 넣으며 원본 CRLF byte 보존은 source API의 계약이다. 본문 문장을 따로 실행하지 않는다.
-- [x] 본문 enqueue의 `ExplicitDefinition` 환경에서 local copula를 global로 승격하지 않고 future name을 Name payload/lookup flag로 유지하는지 확인했다. 이는 local frame·binding·invocation 구현을 뜻하지 않는다. callback/Engine 없이 source 구조만 만들며 definition 본문의 future name이나 side effect를 생성 시점에 실행하지 않는다.
-- [x] 회귀 테스트 7개와 CLI 대기/종료 테스트 1개를 추가했다. nested brace·quote·comment, padded terminator/CRLF, EOF, quote 해제 및 LF body, source span, local enqueue flags를 검증한다. 실제 CLI 프로세스는 닫는 줄 전에는 응답하지 않으며 완료 후 미지원 오류를 내고 본문을 실행하지 않는다. 기존 full-definition acceptance 테스트 **17개는 계속 ignored**이며 성공 capability로 계산하지 않는다.
-- [x] stage에 source projection 14건, C `;:` 대비 body words 20건, C literal decode 대비 quoted body 5건, 입력 경계 golden 5건을 추가했다. C에서는 완료된 direct fixture 및 block과 동등한 explicit string fixture의 구성 가능성을 확인한다. C `m : 0` 입력 callback이나 전체 preparse/control-flow 동등성을 검증했다고 주장하지 않는다. 실제 body 생성·호출 테스트를 통과했다고도 주장하지 않는다. source hash에 `cx.c`, `wc.c`, `io.c`를 추가했다.
-- [ ] 다음: DefinitionCode와 invocation frame을 분리한 semantic constructor 및 body/control-word 구조를 설계·구현하고, 기존 9-row parser에 completed definition entity를 연결한다. `{{)n` 등 tagged DD, 같은 문장의 여러 root DD, computed/grouped colon operands, `define` alias, modes 0/9/13는 현재 source framing 지원 범위 밖이다. unknown scope·callable을 임의로 global/static하게 처리하지 않는다. 최적화·CUDA·GitHub CI는 보류한다.
-
-Windows default/portable 각각 **314 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture의 기존 **2,805문장 중 2,801 passed, runtime 경계 4개, failed 0**; stage **7,979 checks**, words **6,618 cases** 통과. capture graph 경계 71건(ordered-effect 9, modifier-value 62)과 static 경계 2건을 유지한다. definition 입력 framing의 비교는 full-J 실행 지원과 구분하며 기존 waiver를 늘리지 않았다.
-
-기준 소스: [cx.c colon0 입력 종료](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L796), [cx.c quoted body line 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L841), [cx.c DD token/nesting 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1345), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [io.c definition 입력](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L383).
-
-##### DefinitionCode 생성·valence·capture provenance (2026-10-04, partial DEF-1/2)
-
-- [x] `definition_code.rs`에 immutable `DefinitionCode`를 추가했다. 원본 source/form/span, decoded body, physical line 및 body-relative word span·품사·enqueue flags를 저장한다. local copula와 future name을 보존하며 본문 이름을 생성 시점에 조회하거나 본문을 실행하지 않는다. Code와 호출별 local value frame은 별개이고 후자는 아직 미구현이다.
-- [x] enqueuer는 완료된 literal 정의를 N C N으로, direct definition은 C처럼 괄호가 있는 `(9 : 'body')`로 전개한다. 기존 parser row 4에서 Code를 생성하고 row 7에서 binding을 commit한다. direct body의 첫 word 앞 공백/초기 LF 정리도 C 기준을 따른다. enqueue에서 Code를 미리 만들어 오류 순서를 바꾸지 않는다. explicit colon 오른쪽의 length error가 먼저 발생할 때 생성·commit은 일어나지 않는다.
-- [x] actual body Name의 `u/m`, `v/n`, `x/y`를 이용해 direct mode/POS를 추론한다. 문자열·주석의 철자를 이름으로 취급하지 않는다. spaces-only `:` 구역, mode 4 dyad 선택, operator x/y 여부와 default valence 이동을 보존한다. x/y 없는 modifier가 두 valence를 정의하면 `ValenceError`를 내고 기존 binding/version을 유지한다. 원본 본문과 valence 재배치 후 함수 표현을 분리한다.
-- [x] 완료된 정의는 `FunctionHead::ExplicitDefinition`으로 보존되며 CLI가 닫는 줄 이후 계속 입력을 받을 수 있다. 일반 실행 오류 뒤 stdin 세션을 계속 읽고 실패 status는 유지한다. 미완료·미지원 정의는 여전히 중단하며 본문 줄을 별도 문장으로 실행하지 않는다.
-- [x] parser capture Input에 expanded enqueue word index를 보존한다. generated mode/body noun은 같은 DD source span을 공유하므로 span만으로 하나의 원본 단어라고 재해석하지 않는다. capture→J graph는 전체 enqueue의 index/span/payload/facts를 검증한다. 잘못된 index는 거부한다. VerbValue의 Code를 unknown 계약으로 보존하지만 내부 본문 graph를 분석했다고 주장하지 않는다. modifier-value graph와 A3 callable lowering은 미지원이다.
-- [x] Code 회귀 테스트 6개와 CLI 오류 후 continuation 테스트 1개를 추가했다. source/local flags, future binding 미조회, mode/POS·valence, 본문 미실행, 실패 transaction, row 4 오류 순서, generated capture 검증을 검사한다. full definition acceptance **17개는 계속 ignored**다.
-- [x] 공유 C corpus에 21문장, stage에 28검사를 추가했다. j64/AVX2에서 생성된 함수 품사·atomic 표현, alias, source/semantic body 구분, multiline valence, 미실행 counter와 실패 후 기존 함수 보존을 비교한다. native C block input callback 및 full preparse/control-flow의 동등성 검증은 아직 아니다.
-- [ ] 다음: `wc.c::getsen/conword/preparse`의 control-word 분할·구조와 nested/tagged 정의, 여러 root DD, computed/grouped colon operands를 구현한다. Code 호출용 local frame, runtime name/POS lookup·scope, complete J graph body 분석과 A3 lowering은 별도 단계다. optimizer·CUDA·GitHub CI는 진행하지 않는다.
-
-Windows default/portable 각각 **321 passed / 17 ignored**, fmt/clippy/build 통과, Python **23 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **2,826 cases / 2,822 passed / 기존 runtime 경계 4 / failed 0**; stage **8,007 checks**, words **6,618 cases** 통과. capture graph 경계 78(ordered-effect 9, modifier-value 69), static 경계 2를 별도 기록한다. 새 modifier 정의 7건의 graph 경계는 실행 비교의 실패/면제가 아니다. upstream full suite는 실행하지 않았다. DLL release `ded7793...`와 source review `13994ff...`는 다른 revision이다.
-
-기준 소스: [cx.c colon·valence 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264), [cx.c xop·mode 추론](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1282), [cx.c direct definition 전개](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [wc.c control-word preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385).
-
-##### Control-word 분할과 body 진단 위치 (2026-10-04, partial DEF-2)
-
-- [x] `definition_control.rs`의 `ControlWord`/`DefinitionPart`/`partition_line`을 추가했다. `wc.c::conword/getsen`을 따라 tokenizer가 만든 실제 word를 고정 control word 20개와 named `for_`·`goto_`·`label_`로 분류한다. control 사이의 실행 문장과 원본 byte span, control 직전 공백을 보존하며 leading/trailing 공백과 NB. comment는 제외한다. quoted text의 control 철자를 제어 구문으로 해석하지 않는다. `if.x`는 실제 word formation 결과가 `if.` + `x`이므로 If로 분할한다.
-- [x] `for_`의 ordinary name을 검사하고 잘못된 `for_.`/`for_1a.`에는 IllFormedName을 반환한다. locative loop name은 Unsupported다. goto/label target 연결·유효성은 C와 같이 후속 audit 과제이며 이 분류기에서 완성했다고 주장하지 않는다.
-- [x] DefinitionCode 생성 경로에서 partition을 먼저 검사한다. control-flow audit을 구현하기 전에는 control body를 Unsupported로 유지하고 binding을 commit하지 않는다. public partition API는 unmatched control도 분할할 수 있지만 정의가 유효하다고 판정하거나 실행하지 않는다.
-- [x] body tokenizer/enqueue/name 오류의 위치를 원본 소스 byte span으로 변환한다. direct body의 공백/초기 LF 정리, block의 물리 줄, quoted body의 quote doubling을 반영한다. body-local word index를 outer sentence index로 잘못 보고하지 않는다. 오류 kind와 기존 diagnostic context는 보존한다.
-- [x] 회귀 테스트 5개로 전체 분류 inventory, named/invalid name, 공백·quote·comment·adjacent control, 미완료 구조와 실행 경계, 실패 후 기존 binding 유지, direct/block/escaped quoted body의 진단 위치를 검증했다. Python에는 source table의 unknown/duplicate/length 변경 거부 테스트를 추가했다.
-- [x] stage에서 pinned `wc.c`의 MATCHNAME8·length·control enum을 읽어 fixed inventory를 비교하고, C `;:`의 실제 words와 검토한 getsen 알고리즘을 사용하는 source projection 33건을 비교한다. UTF-8 quoted body와 모든 고정 control을 포함한다. 이는 C private getsen/preparse 실행 trace를 export한 것이 아니며 full control-flow 동등성 증거와 구분한다. 두 invalid-for definition과 실패 후 old-function 문장 4건도 공유 C 비교에 추가했다.
-- [ ] 다음: `preparse`/`conall`/`congoto`의 control 구조 audit과 jump/section metadata를 구현하고 검증한다. 이후 호출별 local frame·name/POS lookup, nested/tagged/multiple DD, computed colon operand 및 J graph body 분석을 이어간다. Code의 control body 호출, 전체 definition acceptance, 최적화·CUDA·GitHub CI는 미지원/보류다.
-
-Windows default/portable 각각 **326 passed / 17 ignored**, fmt/clippy/build 통과, Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **2,830 cases / 2,826 passed / 기존 runtime 경계 4 / failed 0**; stage **8,045 checks**, words **6,618 cases** 통과. capture graph 경계 78과 static 경계 2는 그대로 별도 기록한다. full upstream suite 및 private C control-flow trace 비교는 실행하지 않았다. source review pin과 DLL release pin은 이전 절과 같다.
-
-기준 소스: [wc.c conword 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L331), [wc.c getsen 문장 분할](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L366), [wc.c preparse audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [sn.c vnm 이름 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
-
-##### Definition control 구조와 valence별 audit (2026-10-04, partial DEF-2)
-
-- [x] `definition_flow.rs`에 control entry·jump metadata를 추가했다. `preparse/conall/conend`를 따라 if/elseif/else, while/whilst/for, break/continue, assert/return/throw, try/catch/catchd/catcht, select/case/fcase의 **정의 생성 단계**를 처리한다. 호출별 local frame과 본문 실행은 아직 구현하지 않았다.
-- [x] physical sentence와 fragment별 word 범위를 함께 보존한다. body-relative span, physical line, valence별 target, assert marker 위치를 검증한다. `go`는 C의 control/error target이며 모든 정상 successor를 표현하는 CFG edge는 아니다. catcht의 runtime 처리를 정적 확정으로 해석하지 않는다.
-- [x] 각 valence의 enqueue를 마친 뒤 control 구조를 검사하고, monad 검사를 끝낸 뒤 dyad를 처리한다. literal mode 4의 divider 이전 monad는 C처럼 검사에서 제외한다. 실패 시 기존 binding을 보존하고 본문의 assignment·name lookup·실행을 하지 않는다.
-- [x] C의 control entry·sentence word·전체 word 한계를 반영했다. control entry 경계는 native C 비교로 검증했다. verifier는 valence 범위, jump 범위, physical line, word/source span 및 assert marker 참조를 검사한다. 전체 word 한계의 대규모 C 실측과 완전한 CFG 의미 증명은 미완료다.
-- [x] 8개 control word의 길이 1–3 조합 **584개**를 C와 비교한다. C의 packed-code interval 검사로 허용되는 비정형 `while. if./while./whilst./for. end.`도 보존하고 `analysis_barrier`로 표시한다. 이를 structured lowering 대상으로 추론하지 않는다. nested loop·try·select target은 검토한 pinned C 알고리즘 기반의 별도 Rust 회귀 테스트로 확인한다.
-- [ ] 다음: goto/label target·구조 진입 제한 audit, `canend`/BBLOCKEND 결과 자격 metadata. 호출 frame·runtime scope, nested/tagged/multiple DD, computed colon operand 및 Code 본문 graph lowering은 별도 단계다. 최적화·CUDA·GitHub CI는 보류한다.
-
-Windows default/portable 각각 **340 passed / 17 ignored**, fmt/clippy/build 통과, Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **3,501 cases / 3,497 passed / 기존 runtime 경계 4 / failed 0**, stage **8,677 checks**, words **6,618 cases** 통과. capture graph 경계 78과 static 경계 2는 별도 기록한다. 생성 결과·오류·atomic representation을 비교했으며 **private C control/jump trace를 export해서 비교한 것은 아니다**. upstream full suite와 definition 호출 acceptance 17건은 미실행이다. 보고서 10개의 실행 파일 및 source hash를 확인했다. DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`와 검토 소스 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`는 서로 다른 revision이다.
-
-Sources: [wc.c conend / packed interval](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L72), [wc.c try/select](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L111), [wc.c conall](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L177), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [cx.c valence ordering](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264).
-
-##### 이전 B-block 결과 자격 metadata (2026-10-04, partial DEF-2)
-
-- [x] `PreviousResult::{Unresolved, CanReturn, CannotReturn}`를 추가하고 C `conall`의 역방향 고정점과 provisional bit 처리를 따라 기록한다. 대상은 **이전 B-block 결과**이며 현재 test 값, purity, CFG reachability 또는 최적화 허용 여부를 뜻하지 않는다. successor 결과가 일치하지 않거나 cycle이 확정되지 않으면 Unresolved를 유지한다.
-- [x] CBBLOCKEND를 `before_fallthrough_end`로 보존한다. 후속 문장이 있는 non-select fallthrough end 바로 앞의 Body만 표시한다. 마지막 end, backward loop end, select end 및 assert/test를 구분하고 verifier에서 잘못 붙인 marker를 거부한다.
-- [x] 회귀 테스트 4개로 loop·분기·assert/throw/return, valence 독립성, analysis barrier 보존 및 잘못된 참조를 검증했다. C corpus에 생성 사례 6개를 추가했다. 이는 source 기반 metadata 검증이며 C의 private canend trace 비교는 아니다. 실행과 최적화는 추가하지 않았다.
-- [ ] 다음: goto/label target 및 구조 진입 제한을 audit하고 upstream goto 위치 matrix를 native C와 비교한다. invocation frame·scope 및 나머지 definition input 지원은 후속 단계다.
-
-Windows default/portable 각각 **344 passed / 17 ignored**, fmt/clippy/build 통과; Python **24 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **3,513 cases / 3,509 passed / 기존 runtime 경계 4 / failed 0**, stage **8,683 checks**, words **6,618 cases**. 보고서 10개의 binary hash를 확인했다. capture graph 경계 78과 static 경계 2, DLL/source review revision 구분 및 upstream full-suite 미실행 상태는 그대로다.
-
-[wc.c CBBLOCKEND and canend](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L238).
-
-##### Goto/label 연결과 구조 진입 audit (2026-10-04, partial DEF-2)
-
-- [x] `congotoblk/congoto/congotochk`를 따라 **conall 이전**에 원래 control kind로 구조 interval을 만들고 target label의 다음 entry를 goto target으로 연결한다. label suffix는 원본 문자열로 보존하며 name lookup을 하지 않는다. 빈 suffix와 숫자로 시작하는 suffix도 일반 J name으로 재분류하지 않는다.
-- [x] 같은 valence에서 target이 없거나 참조된 label이 중복되면 ControlError다. 참조되지 않은 duplicate label은 C처럼 허용한다. target prefix를 정확히 구분하고, 구조 안으로의 진입·sibling branch 이동은 금지하되 구조 밖으로의 이동은 허용한다. malformed interval은 안전한 bounds 검사로 오류 처리한다.
-- [x] verifier가 named suffix와 원본 source 및 label successor 참조를 확인한다. 원본 quoted source의 duplicate label 위치를 보존하고 실패 후 binding을 유지한다. body 호출이나 branchout runtime stack 처리는 구현하지 않았다.
-- [x] pinned `test/ggoto.ijs`의 select/if, while/try, if/for/whilst 3개 template에서 label과 goto를 넣을 수 있는 모든 gap **1,028개**를 비교했다. j64/AVX2 모두 생성 성공 332건·ControlError 696건으로 일치한다. upstream suite 전체 실행이나 private jump trace 비교는 아니다.
-- [x] CLI 문장 단위 corpus에는 한 줄 equivalent를 사용하고, 원본 여러 줄·valence 구분은 stage probe에서 비교한다. 실제 여러 줄 quoted string을 CLI 한 case로 잘못 보내는 transport 문제를 발견해 수정했고, 이후 CR/LF 입력을 거부하는 regression guard를 추가했다. control 정의 생성의 성공을 호출 지원으로 계산하지 않는다.
-- [ ] 다음: nested/tagged/multiple direct definition 및 computed/grouped colon operand의 framing·enqueue provenance를 확장한다. invocation/local frame·scope, Code 본문 structural graph와 A3 lowering은 별도 단계다. for locative name, 최적화·CUDA·GitHub CI는 현재 미지원/보류다.
-
-Windows default/portable 각각 **348 passed / 17 ignored**, fmt/clippy/build 통과. Python **25 passed**(최종 CLI transport regression 포함). j64/AVX2 각각 direct·semantic-reference·parser-capture **4,563 cases / 4,559 passed / 기존 runtime 경계 4 / failed 0**, stage **9,724 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했으며 `test/ggoto.ijs` hash도 추가했다. capture graph 경계 78과 static 경계 2는 별도다. DLL release/source review pin 구분은 이전 절과 동일하다.
-
-Sources: [wc.c goto audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L14), [j.h half-open intervals and DO loop index](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1065), [upstream goto position tests](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/ggoto.ijs).
-
-##### 한 문장의 여러 direct definition 보존 (2026-10-04, partial DEF-1/2)
-
-- [x] `InputFrame::Definitions`로 disjoint root DD를 source 순서대로 보존한다. 각각의 delimiter/body span과 nested 범위 소유권을 분리한다. 뒤쪽 root가 미완성이면 전체가 NeedMore이며 앞쪽 root도 commit되지 않는다. nested 범위 수집은 semantic nested Code 지원을 뜻하지 않는다.
-- [x] enqueuer는 각 root를 독립된 parenthesized `9 : body` constructor로 전개하고 gap의 ordinary word를 유지한다. 원본 source와 primitive context를 constructor끼리 Arc로 공유한다. gap 오류의 blame index도 전개된 queue index를 사용한다. body·constructor의 원본 위치는 전개 위치와 별개로 보존한다.
-- [x] 기존 row 4·row 7과 Hook/Fork 처리를 사용하며 여러 DefinitionCode를 function operand로 유지한다. 본문 이름을 조회하거나 noun으로 실행/reduce하지 않는다. static prepare는 binding을 commit하지 않으며, 실패한 train 정의도 old binding을 보존한다.
-- [x] 회귀 테스트 4개로 quote/comment·nested 소유권, incomplete collection, enqueue provenance/index·Arc 공유, structural train·body 미실행·binding 유지 및 CLI의 두 경로를 검증했다. C corpus에 15건을 추가해 실제 atomic representation과 오류·transaction을 비교했다. stage에는 input projection·incomplete 비교 4건을 더했다.
-- [ ] 다음: semantic nested DD와 tagged DD, computed/grouped colon operands 및 한 문장의 mixed literal-colon/DD framing. 여러 ordinary root DD 지원을 모든 definition form 지원으로 확대 해석하지 않는다. invocation/local scope, A3 및 Code 본문 graph lowering은 후속 단계다. 최적화·CUDA·GitHub CI는 보류한다.
-
-Windows default/portable 각각 **352 passed / 17 ignored**, fmt/clippy/build 통과, Python **25 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,578 cases / 4,574 passed / 기존 runtime 경계 4 / failed 0**, stage **9,743 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했다. capture graph 경계 78과 static 경계 2는 별도이며, full upstream suite·definition invocation acceptance·private C trace 동등성은 미검증이다. DLL release와 source review pin은 이전과 같다.
-
-Sources: [cx.c repeated DD expansion](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [p.c parser reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
-
-##### Tagged noun DD의 raw 입력·noun 보존 (2026-10-04, partial DEF-1/2)
-
-- [x] `DefinitionForm::NounDirect`로 `{{)n ... }}`를 처리한다. 이는 함수 Code가 아니라 **문자 noun**이다. raw body의 quote·NB.·control spelling·`{{`를 word나 실행 문장으로 해석하지 않는다. 첫 물리 줄에서는 어디에 있는 `}}`도 종료하고, 다음 줄부터는 column zero의 `}}`만 종료한다. tag가 첫 줄 끝이면 초기 LF를 생략하고, 첫 줄에 body가 있으면 다음 줄 앞 LF를 보존한다.
-- [x] 원본 delimiter/body byte span은 유지하면서 physical CRLF를 logical LF로 변환한다. 이후 root를 별도로 rescan하므로 raw body의 unmatched quote가 다음 ordinary/noun DD의 word formation을 오염시키지 않는다. ordinary DD 내부의 nested noun DD 및 다른 tag는 아직 Unsupported다.
-- [x] enqueue는 raw noun을 원래 span·word index를 가진 Noun 한 개로 낸다. 길이 1의 char scalar와 빈/여러 byte char 배열을 구분한다. DefinitionConstructor나 local invocation frame을 만들지 않는다. 기존 noun reduction·assignment·snapshot 및 constant-noun fork 구성을 재사용한다. 두 noun의 단순 나열에는 C의 N/N syntax error를 유지하며 임의 concat 규칙을 추가하지 않는다.
-- [x] Rust 회귀 테스트 6개로 raw 값/shape, multiline·column-zero 종료, mixed roots, enqueue provenance·noun snapshot·static 미commit, CLI 두 경로의 quote/comment·CRLF 및 UTF-8 byte-boundary panic을 검증했다. malformed 일반 primitive byte를 framing에서 잘못 slicing하지 않고 enqueue의 오류 경로로 넘긴다.
-- [x] C corpus에 noun 사례 **161건**을 추가했다(고정 body 11개·seed 20261004의 body 64개, 값 관찰·snapshot·mixed train 포함). stage에는 **176 checks**를 추가했다. multiline 6건은 C `0!:100` script 경로로 실제 physical input을 공급해 LF/CRLF·빈 header·embedded delimiter·raw quote를 비교한다. 한 번의 multiline `JDo` 호출을 physical-line collection 증거로 사용하지 않는다.
-- [x] oracle이 raw body의 unmatched quote 때문에 `;:` 관찰을 definition 실행 오류로 잘못 취급하지 않도록 copula prefix를 관찰한다. 원본 문장을 두 번 실행하지 않는다. Windows subprocess 입력의 UTF-8을 명시해 한글 raw noun의 byte 값도 비교한다. 두 adapter regression test를 추가했다.
-- [ ] 다음: semantic nested DD와 nested noun DD, 다른 tagged/computed/grouped definition 및 mixed literal-colon/DD framing. unfinished input의 EOF error-class 정합도 별도 audit 대상이다. callable A3·본문 graph lowering·invocation/local scope, for locative name은 미완료다. 최적화·CUDA·GitHub CI는 보류한다.
-
-Windows default/portable 각각 **358 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture **4,739 cases / 4,735 passed / 기존 runtime 경계 4 / failed 0**, stage **9,919 checks**, words **6,618 cases**. 보고서 10개의 binary/source hash를 확인했고 `test/g0x.ijs` hash도 기록했다. capture graph 경계 78과 static 경계 2는 별도이며 upstream full suite·definition 호출 acceptance·private C trace 동등성은 미검증이다. DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`와 source review `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`는 서로 다른 revision이다.
-
-Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1413), [io.c physical input normalization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L316), [io.c script-line input](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L362), [upstream string-script execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/g0x.ijs#L32).
-
-<a id="static-frontend-review"></a>
-
-##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
-
-**사용자 수용 기준:** 실행 없이 연산 graph와 메모리 요구를 분석할 수 있으면 우선 충분하다. 정적 분석은 기본 경로로 유지한다. 실제 실행 + 별도 capture는 값 의존 구간의 의미 보존과 동적 관찰을 위한 경로이며, 지원되는 정적 분석을 제공하기 위한 전면 선행 조건이 아니다. 완전한 J runtime compatibility, capture, compiled reuse의 완료 상태는 별도로 추적한다.
-
-정적 noun은 “J 품사 = Noun, graph origin, 추론된 facts, 선택적인 constant”를 가진다. concrete noun은 실제 `Value`와 별도 origin을 가진다. 같은 class matcher/row 규칙 아래 semantic action/context가 둘을 구분한다. Unknown 값이나 품사를 실제 값이 있는 Noun으로 가장하지 않는다. constant folding도 J 오류·효과·binding 의미를 보존하는 안전한 범위에 한정한다.
-
-| 현재 파일/구조 | 그대로 유지 | 수정해야 하는 점 |
-|---|---|---|
-| `tokenizer.rs` | `w.c` transition table, raw spans, quote errors, parser-visible comment cutoff | capture 때문에 변경할 사항은 없다. runtime/capture/target 정보를 넣지 않는다 |
-| `enqueuer.rs` | literal construction, core primitive POS, unresolved NAME, lookup/copula flags, word index/span | graph를 만들 필요는 없다. `EnqueueEnvironment`와 flags/provenance를 parser 입구 이후에도 전달하는 contract를 보완한다 |
-| `parser.rs::ParseValue::Noun(Expr, usize)` | Noun class와 원본 표현/의미 구조 | concrete Value carrier와 static noun facts/origin carrier를 명시적으로 구분한다. Expr 하나를 concrete 값처럼 사용하지 않는다. capture origin은 값과 별도이며 보존된 static graph도 버리지 않는다 |
-| `expression()` / queue drain | 같은 queue/stack 규칙과 name의 noun/function 구분 | `resolve_stack_item`이 실제 right-to-left queue→stack entry에서 조회한다. `ParseContext`가 analysis와 runtime noun snapshot을 구분한다. runtime invocation host와 top-level single-name non-final assignment는 구현했으며 explicit-local/locale/effect 확장은 미완료다. static은 안정된 binding/POS 정보만 사용하며 불명확하면 분석 경계로 남긴다 |
-| rows 0–2 / `runtime.rs::eval_program` | monad/dyad 의미와 실제 kernel implementation | static action은 application graph와 facts를 만들고, concrete action은 그 지점에서 실행한 noun을 돌려준다. concrete reduction 후 전체 Expr를 다시 실행하여 중복 계산하지 않도록 runtime return contract를 함께 바꾼다 |
-| `completed_noun()` / rows 3–6 | completed FunctionEntity DAG, source operator, ordered operands | `completed_noun`은 Literal/Group만 추출하지만 runtime rows 0–2가 먼저 실제 Literal로 reduce하므로 computed noun constructor도 처리한다. static context의 값 의존 boundary는 유지한다. static constructor는 필요한 값이 constant/proven이면 진행하고, 아니면 value-dependent 경계로 남긴다. concrete constructor는 실제 값과 origin을 받아 validation한다 |
-| `Item` / row 7 / diagnostics | source spans, enqueue의 local/global/to-name 구분 | `Item`이 original-word range/inherited token과 enqueue flags를 보존하며 row 7은 `AssignmentSource`로 target/copula provenance와 flags를 남긴다. static final assignment는 proposal로 남기며 runtime row 7은 final/non-final assignment를 즉시 수행한다. local 실행 미지원 상태를 유지하면서 metadata를 조용히 global로 해석하지 않는다 |
-| row 8 / graph adapter | 괄호에 따른 reduction boundary | grouping 전후 같은 noun origin을 유지한다. 괄호 자체를 추가 실행 operation으로 만들지 않는다. production 순서·operand slot·original word를 기존 J Graph adapter에 전달한다 |
-| parser API / runtime / analysis | `prepare_semantic/analyze_j_graph(&self, ...)`의 비실행 성격 | `snapshot: bool`은 `ParseContext::{Analysis, Runtime}`으로 대체했다. `ActionContext`/`RuntimeParserHost`가 lookup/invocation과 optional capture를 통합한다. top-level assignment host action은 구현했으며 explicit-local/locale/definition 확장은 후속 작업이다. static 분석과 runtime capture는 동일 grammar를 사용하되 실행 권한과 반환 타입을 구분한다 |
-
-이 변경은 tokenizer/enqueuer/parser 파일 분리를 되돌리는 작업이 아니다. 핵심은 **parser의 payload·semantic actions와 metadata 전달**이며, graph/capture를 lexer나 physical `Value`에 넣지 않는다. 근거는 현재 `parser.rs`의 `Noun(Expr, usize)`, `expression`, `completed_noun`, row 7의 `AssignmentSource`, `runtime.rs::eval_program` 및 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)/[w.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 계약이다. 이전 구조 검토를 현재 parser 변경에 맞게 갱신했다. kernel/executor 변경은 포함하지 않는다.
-
-**메모리 분석의 의미:** 현재 `j_graph_memory.rs`는 알려진 shape의 logical atom count, graph 순서의 live range, intermediate/view materialization 후보를 분석하고 명시적인 representation model로 byte 수를 평가한다. 이는 실제 allocation이나 peak device memory의 보장이 아니다. shape가 미정이면 Unknown/상징식/조건을 유지하고, physical schedule·layout·alias·variable-width boxed/sparse representation이 정해진 뒤 peak/residency를 별도 평가한다. source가 주는 구조와 사용자 input signature가 확보되면 배열 원소를 실행하지 않고 분석한다. 현재 모든 symbolic shape나 J form이 구현되었다는 의미는 아니다.
-
-- [x] 세 파일의 재검토를 완료하고 tokenizer 유지, enqueuer metadata 전달 보완, parser/context/return contract 수정으로 범위를 좁혔다.
-- [x] 최소 수용 기준을 static graph + logical memory analysis로 명시하고 full capture/JIT/physical peak 계산과 구분했다.
-- [ ] **P2/P5 static-first interface:** 기존 static graph 경로를 유지하면서 static/concrete noun carrier와 같은 grammar의 actions를 정의한다. compile 요청이 runtime effects를 실행하지 않는 regression을 추가한다.
-- [x] **F2/P4 supported lookup/provenance:** original word 범위와 inherited token·final copula flags를 유지하고 name resolve를 stack entry로 옮겼다. 지원되는 reduction의 구조와 실패 시 중단을 검증했다. top-level single-name non-final assignment는 후속 gate로 검증하며 explicit-local/locale/effect 동등성은 별도 미완료 항목이다.
-- [ ] **P3/P6 value-dependent boundary:** constant constructor 사례는 분석하며 unknown 실제 값/품사에서는 경계와 reason을 반환한다. Unsupported analysis를 J syntax error로 바꾸지 않는다.
-- [ ] **P5/P6 static memory gate:** input type/shape 또는 facts로 graph/liveness/extent를 분석하고 Unknown을 보존한다. 결과 보고에 logical atoms·represented bytes·추정 peak의 차이를 표시한다.
-
-**구현한 provenance 계약:** `Program.reductions`와 정적 분석 결과의 `reductions`는 row id, 순서대로 나열한 operand word range, result word range/품사, byte span, inherited token을 가진다. actual noun payload는 복사하지 않는다. jsource `p.c`의 modifier·fork·bident hook은 왼쪽 operand의 `.t`, non-fork trident는 가운데 operand의 `.t`, 괄호는 `(`의 `.t`를 이어받는다. rows 0–2의 noun 결과는 오른쪽 noun token을 유지하며 C는 이를 non-executable noun에서 immaterial로 설명한다. 실패 operator의 blame token과 result token은 별도다. Rust의 index는 0부터 시작한다. 이 계약은 [p.c stack entry](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L735), [noun result](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L922), [modifier/train/parenthesis](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1002)를 cross-check한 source 기반 regression이며 C 내부 stack trace를 직접 export한 검증은 아니다.
-
-이번 regression 9개는 이름의 오른쪽→왼쪽 조회·각 stack entry noun snapshot, constructor 실패 후 미방문 이름 조회 중단, named modifier POS, 9개 row의 original-word 전달, grouping된 modifier/fork origin, final copula 보존, 원문 error token 및 named insert/fork 분석 경계를 검증한다. C corpus에도 13문장을 추가했다. `(entryverb/ % #) entrynoun`과 `(entryverb/ % #) entrycopy`는 frontend 구조를 보존하지만 기존 runtime executor가 처리하지 못한다. 보고서 `coverage_boundaries`에 exact source와 실제 C/Rust 결과·이유를 남기며 성공이나 C baseline deviation으로 세지 않는다. Rust가 다른 오류를 내거나 등록하지 않은 구문이 실패하면 일반 failure다. 나머지 2,061문장의 값/error 비교와 stage/word 검증을 통과했다.
-
-위 static 분석 gate는 runtime capture 전부의 완료를 기다리지 않는다. 아래 capture 체크리스트는 별도 실행 경로의 완료 기준으로 유지한다.
-
-##### 구현 순서와 완료 체크리스트
-
-기존 F2/P2–P6에 속한 아래 항목을 순서대로 진행한다. 조사/계획 완료와 runtime 구현 완료를 혼동하지 않는다.
-
-- [x] 공식 문서 및 ProxyTensor source에서 concrete/symbolic capture, lazy evaluation, graph break/guard, SSA 방식의 차이를 조사했다.
-- [x] 실제 noun reduction + 별도 compilation capture를 결정하고 문법상의 verb-only 제한을 두지 않기로 했다.
-- [x] 현재 deferred parser와 목표 runtime parser의 차이, 아래 implementation/test gate를 정본에 기록했다.
-- [x] **P2/P4 — runtime row actions (지원 subset):** `RuntimeParserHost`가 같은 9-row engine에서 stack-entry name lookup과 rows 0–2 invocation을 수행하고 actual `Value`를 같은 stack에 재삽입한다. 미지원 effectful/locale/definition form은 별도 coverage boundary로 남긴다.
-- [x] **P2/P5 — capture carrier:** opt-in `ParseCapture`, occurrence ids, input/output associations와 ordered attempt/success/failure events가 구현되었다. raw `Value`/primitive executor에 compiler identity를 넣지 않으며 capture parity 회귀를 유지한다.
-- [x] **P3/P5 — construction provenance (지원 subset):** completed FunctionEntity DAG, construction attempt/success, computed noun occurrence origin을 capture에 연결했다. runtime actual noun과 static value-dependent boundary를 구분하며 전체 constructor vocabulary 지원 완료를 뜻하지 않는다.
-- [x] **P4 — names/effects (지원 subset):** same-sentence name lookup/assignment/POS와 이미 commit된 effect 대 pending outer assignment의 순서를 capture/runtime 회귀로 보존한다. 일반 user locale/path와 미지원 effect form은 여전히 별도 경계다.
-- [x] **P5/P8 — graph adapter (성공 capture subset):** capture의 input/constant/read/apply/construction dependency를 기존 J Graph로 변환하고 verifier를 통과시키는 adapter가 구현되었다. failed/opaque/dynamic boundary를 executable complete graph로 승격하지 않는다.
-- [x] **P6 — 지원 corpus differential/capture gate:** Windows default/portable와 j64/AVX2 oracle에서 여러 후속 gate를 반복 실행했고 reports에 coverage boundary와 revision/hash를 남겼다. 이는 full runtime `ptcol` internal trace나 full-J/upstream/locale/definition acceptance 완료를 뜻하지 않는다.
-- [ ] **후속 P5/P8 — static/reuse:** purity·error order·binding/value guards를 확보한 구간에서만 abstract actions, region compilation, safe reuse를 추가한다. capture 실행 경로의 completion gate는 runtime reduction + capture parity + verified J Graph다. 최소 static 분석 gate와 구분하며 production CUDA/JIT를 요구하지 않는다.
-
-##### 테스트 matrix와 수용 조건
-
-| 검증 축 | 사례/방법 | 통과 조건 |
-|---|---|---|
-| Arithmetic topology | `a=:2`, `b=:3`, `c=:4` 후 `a+b*c`; `(a+b)*c`; monad chain | C 결과/오류 일치. capture에는 실제 reduction order와 producer-consumer edges가 남고 괄호 차이가 보존된다 |
-| 동일 값, 다른 production | `(2*3)+(1+5)` | 두 6이 별도 origins이며 최종 add가 두 origin을 참조한다 |
-| Constructor noun | `f=:+"(1+0)`; `f=:(1+2) + *`; 계산 rank/length/domain 오류 | C `4!:0`/`5!:1`, 결과 및 오류 일치. actual noun operand와 생산 graph가 연결되고 constructor-time 오류를 뒤로 미루지 않는다 |
-| Completed verb structure | `+/ % #`, hook/fork, nested rank/atop | source operator·operand order·completed modifier 경계가 C atomic structure와 일치한다 |
-| Naming/sequencing | noun assignment 이후 rebind, late function alias rebind, 지원되는 중간 assignment | noun snapshot/version과 function POS/late binding이 유지된다. trace 없는 eval과 effects/lookup 순서가 같다 |
-| Failure and partial graph | `1+('a'+2)`, `(1 2+1 2 3)+('a'+1)` 및 두 실패 분기의 반대 배치 | C error class와 failure precedence 일치. 실패 노드 뒤 성공 output/outer commit이 없고 partial graph를 executable로 오인하지 않는다 |
-| Exactly-once effects | runtime semantic-host test double로 invocation/assignment events 계수; C에서 지원된 J 문장 별도 비교 | capture on/off 실행 횟수 동일. recording failure나 replay가 effects를 중복시키지 않는다. host tests를 C full-J 지원 증거로 계산하지 않는다 |
-| Memory/identity | 큰 array chain·alias 입력·복수 문장·capture 해제 후 temporary lifetimes 관찰 | per-node full-array copy와 diagnostic array retention 없음. BufferId로 semantic id를 생성하지 않는다. bounded metadata/constant policy 검증 |
-| Reuse safety | shape/binding/POS/constructor 값이 바뀐 입력; branch 양쪽 | guard invalidation 또는 semantic region 실행. 한 번 trace한 branch를 universal program으로 재사용하지 않는다 |
-
-**역사 상태 주의:** 이 문단을 처음 작성한 2026-10-03 시점에는 계획/참고자료 정리만 완료되어 있었다. 이후 runtime row actions, capture API, successful-capture→J Graph adapter와 지원 corpus differential은 구현·검증되었다. 현재 미완료는 full runtime `ptcol` 내부 trace 동등성, 일반 locale/definition/control/effect coverage, capture 기반 safe static reuse/guard, 그리고 전체 memory-retention/performance gate다. 아래 212 tests/7,014 stage 수치는 당시 gate의 역사 기록이지 최신 검증이 아니다.
-
-#### F0 — jsource word formation 이식
-
-- [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/tokenizer.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
-- [x] 기존 handwritten `scanner::transition`을 제거하고 lookup-only `TRANSITIONS[state][class]`로 교체했다. follow-on numeric rewind와 UNDD 처리는 `jtwordil`의 별도 boundary action으로 유지한다.
-- [x] numeric follow-on, quoted literal, `NB.`, `NB..`/`NB.:`, `{{`/`}}`, inflection word boundary를 differential corpus로 만든다. `tools/word_conformance.py`가 state-prefix × 256-byte sweep, 특수 사례, seeded random 2,000건을 포함한다.
-- [x] unmatched quote를 jsource `EVOPENQ`에 대응하는 `open quote`로 분류하고 시작 quote byte span을 보존한다.
-- [x] word/parser/runtime source span은 byte offset으로 보존하고 사용자 진단 시 Unicode line/column으로 변환한다.
-- [x] `;:` 기반 word-formation oracle과 RustJ raw `wordil`-equivalent spans를 byte 단위로 비교하는 adapter/probe를 만든다 (`tools/word_conformance.py`, `examples/scan_words.rs`). trailing `NB.` raw field와 parser-visible count는 별도 contract로 유지한다.
-- [x] pinned jsource `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` against 6,618-case differential에서 **failed=0 / zero_mismatch=true**를 확인했다 (seed `20260927`, open-quote cases `1109`).
-
-**F0 완료 조건:** supported source domain에서 word boundaries/comment cutoff/error가 pinned jsource `jtwordil`과 일치한다.
-
-#### F1 — jsource enqueue + PrimitiveResolver 이식
-
-- [x] `syntax::lex_spanned`가 수행하던 word interpretation을 `enqueuer::enqueue`로 이동하고 `syntax`는 legacy Token adapter로 축소했다.
-- [x] `EnqueuedWord { class, payload, span, word_index, flags }`와 `EnqueueClass`/`EnqueueFlags`를 정의해 parser-facing class/payload/provenance를 명시적으로 분리했다.
-- [ ] enqueue의 classification order와 parser class/POS 결정 순서를 `jtenqueue`와 동일하게 유지한다. RustJ convenience lexer가 먼저 품사를 확정하지 않게 한다.
-- [ ] core J primitive lookup을 jsource `spellin -> ds`와 같은 위치와 precedence로 구현한다.
-- [x] `PrimitiveResolver`/`PrimitiveContext`를 만들고 enqueue용 core primitive resolution과 parser/name-binding용 extension lookup을 분리했다.
-- [x] `PrimitiveHandle { semantic_id, source_origin, result_pos, semantic_info, lowering_key }`를 정의했다.
-- [ ] compile 시작 시 `PrimitiveContext`와 `TargetContext`를 함께 확정하되 enqueuer는 semantic primitive resolution에 `PrimitiveContext`만 사용한다.
-- [ ] built-in과 extension 모두 동일 `lowering_key -> active TargetContext` lookup protocol을 사용하게 한다.
-- [x] extension-like spelling은 enabled extension catalog에 있어도 enqueue에서는 ordinary NAME + lookup metadata로 진행한다.
-- [ ] numeric/string construction, name validation, assignment/copula classification을 jsource `jtenqueue` 순서대로 이식한다.
-- [x] ordinary NAME은 처음 non-lookup으로 두고, trailing NAME/뒤에 non-assignment가 오는 NAME만 lookup으로 전환하며 copula 직전 assignment target NAME은 non-lookup으로 유지한다.
-- [x] `EnqueueFlags`에 `global_assignment/local_assignment/assignment_to_name`을 분리했다. `=:`는 global이며 NAME 직후 copula는 to-name flag를 보존한다. `=.`는 TopLevel에서 global로 승격하고 ExplicitDefinition enqueue 환경에서는 local을 유지한다. explicit body의 local 실행과 locative 승격은 미완료다.
-- [x] **F1 env=0/1/2 작은 수렴(2026-10-07):** 고정 [jsource `w.c::jtenqueue`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c)의 `env=0` tacit translator는 copula의 `ASGNTONAME` 특수화를 하지 않고 `=.`를 일반 local로 둔다. RustJ에 `EnqueueEnvironment::TacitTranslator`를 추가하고 env=0/1/2에서 `=.`·`=:`의 global/local/assignment-to-name 및 NAME lookup·source span을 각각 검증하는 Rust 회귀를 추가했다. **이것은 세 환경의 enqueue flag 부분 구현만 수용**하며 locative에 의한 global 승격, tacit translator 전체 사용 경로, C runtime queue의 직접 차분 및 F1 전체 완료를 뜻하지 않는다.
-- [x] one-word sentence는 Noun/Name/Verb/Adverb/Conjunction만 결과 가능 class로 허용하고 copula/괄호 단독 문장을 enqueue 단계에서 거부한다.
-- [ ] jsource sentence-word refcount/inplacing flags와 special in-place sentence rewrites는 optimization-only로 명시적으로 제외한다.
-- [x] parser-time NAME lookup이 extension binding의 Verb/Adverb/Conjunction POS를 얻은 뒤 core와 같은 modifier/parser class 경로에 참여하는 테스트를 만들었다.
-
-- [ ] **F1↔P4 locative 정상 수용(2026-10-07 검토):** 유효한 J direct `name_locale_`, indirect `name__holder`, 호환 `name__`(`name_base_`)는 **문법 오류가 아니며 영구 `Unsupported` 처리 대상도 아니다**. `sn.c::vnm/nfs`로 이름을 검증하고 `w.c::jtenqueue`의 NMLOC/NMILOC·`=.`의 global promotion을 보존한다. 단순 이름의 문자열 key로 속여서 다른 locale과 충돌시키지 않는다. F1의 syntax/name queue와 P4의 locale lookup/assignment는 **연계 구현 후 수용**한다. 현재 RustJ의 유효 locative에 대한 `Unsupported`는 명백한 **미구현 상태**이지 승인된 최종 동작이 아니다.
-
-- [ ] **NP-01/02 (§3.7.3):** NAME occurrence·source span과 noun stack-read·function POS/NameRef·constructor event를 J 시점에 연결한다(NP-V01/02).
-
-**F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
-
-#### F2 — jsource parse queue skeleton
-
-- [x] semantic parser 입력을 legacy `Token`에서 `EnqueuedWord` queue로 바꾸고 span/word-index/flags를 parser 진입까지 보존한다.
-- [x] `EnqueueClass`와 `EnqueuedPayload`를 분리하고 parser가 동일 `EnqueuedWord` carrier에서 둘을 함께 운반한다.
-- [ ] jsource Mark/Edge sentinel을 명시적으로 표현한다.
-- [x] ordinary lookup NAME은 `EnqueueFlags.lookup_name`을 확인한 뒤 parser item 생성 전에 `ParserNameBinding`으로 resolve한다.
-- [x] pinned `cases[]`를 옮긴 `match_parse_row([ParseClass; 4])`가 semantic payload를 보지 않고 parser class만으로 eligibility와 first-match precedence를 결정한다.
-- [x] `cases[]` 기반 row ordering/reduction extent, 동일 stack reinsertion/rescan과 legacy flat train/modifier heuristic 제거를 production parser에 적용했다. **남은 것은 C runtime `ptcol`의 reachable-state/internal trace 동등성 검증**이며 P6에서 별도로 추적한다.
-- [x] 구현된 reduction 결과를 동일 Item stack에 재삽입한다. 원본 word provenance와 occurrence를 reduction pipeline에서 계승하며 전체 runtime ptcol trace 동등성은 P6에서 별도 미완료다.
-- [x] `ParseClass`를 F2 row matcher와 application/modifier reduction의 공통 class domain으로 사용한다.
-
-**F2 완료 조건:** parser는 jsource-compatible enqueue queue를 유일한 입력으로 받아 9-row engine으로 넘길 수 있다.
-
-#### P0 — 기준선과 differential oracle 고정
-
-- [x] jsource 9-row parsing rule(row 0–8)의 eligibility와 precedence를 `cases[]`와 runtime dispatch 양쪽에서 확인한다.
-- [x] ordinary non-assignment NAME은 stack class matching 전에 lookup되며, noun은 value로, 일반 verb/adverb/conjunction은 현재 POS를 가진 nameref/value semantics로 들어감을 확인한다.
-- [x] rows 3–4의 modifier action 결과 `yy`의 실제 `AT(yy)`가 다음 parser class가 됨을 확인한다.
-- [x] modifier application 결과가 하나의 completed J entity로 stack에 재삽입된 뒤 후속 reduction에 참여함을 확인한다.
-- [x] `+/ % #`에서 `+/`가 하나의 derived VERB entity로 만들어진 뒤 Fork의 `f` operand가 됨을 확인한다.
-- [x] 과거 staged modifier/train helper의 의미 한계를 확인했다. 현재 matcher는 `match_parse_row`로 통합되었으며, runtime semantic action 및 전체 POS coverage는 P2–P4에서 계속 추적한다.
-- [x] parser와 compiler-analysis 책임 경계를 고정한다.
-- [x] differential oracle의 최소 contract를 정한다:
-  - 성공/실패 및 J error class,
-  - deterministic noun result,
-  - assignment 후 name class(`4!:0`),
-  - constructed function/modifier의 atomic/linear representation(`5!:1`, `5!:5`)이 유용한 경우,
-  - RustJ 내부에서는 row id/input classes/span/result class를 기록하는 optional ParseTrace.
-- [x] 위 contract를 실제 test harness API로 만든다. `tools/oracle.py` JSON-lines protocol이 `eval`, `sentence`, `name_class`, `representation(atomic|linear)`을 제공하며 기존 string eval 요청과 호환된다.
-
-**P0 완료 조건:** **완료.** observable contract를 사용하는 oracle API가 존재하고, source review는 jsource revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`을 고정한다. 로컬 oracle DLL은 별도 revision/hash로 식별하며 source pin으로 빌드되었다고 가정하지 않는다. GitHub CI는 생략한다.
-
-#### P1 — parser stack model과 semantic value model 분리
-
-- [x] parser class/control(`EnqueueClass`/`ParseClass`)과 semantic payload/entity(`EnqueuedPayload`/`ParseValue`/`FunctionEntity`)를 별도 타입으로 분리했다.
-- [x] `ParseClass`가 `Noun | Verb | Adverb | Conjunction | Name | Assignment | LParen | RParen | Mark`를 명시적으로 표현한다.
-- [x] ordinary lookup NAME은 stack item 생성 전에 `ParserNameBinding`으로 현재 noun/function POS를 resolve하며, unresolved ordinary name만 jsource식 late verb nameref로 남긴다.
-- [x] Noun과 `FunctionEntity`는 별도 representation을 유지하면서 `Item/ParseClass`에서 동일한 parser class interface로 참여한다.
-- [x] source primitive, named modifier, completed derived entity가 모두 `FunctionEntity.result_pos -> ParseClass` 경로로 parser에 참여한다.
-- [x] `FunctionEntity.result_pos`를 completed function entity의 parser POS 근거로 사용한다.
-- [x] enqueue lookup/to-name flags와 parser assignment path로 assignment-target NAME을 ordinary semantic `NameRef`와 분리했다.
-- [x] `EnqueuedWord`의 byte span/word index를 parser 진입까지 보존하고 completed Expr/FunctionEntity reduction span 및 진단 blame provenance로 전달한다.
-
-**P1 완료 조건:** parser control state와 J semantic entity가 분리되어 있으며 ordinary names, assignment names, nouns, verbs/modifiers를 jsource class rules대로 stack에 올릴 수 있다.
-
-#### P2 — 하나의 9-row reduction engine으로 전환
-
-- **jsource invariant:** conjunction chain은 parse-table 구조상 left-to-right로 결합한다. 예: `u @: v @: w`의 semantic graph는 `(u @: v) @: w`이다.
-- [x] row 0 `EDGE VERB NOUN ANY`를 first-match로 선택한다. analysis/no-host 경로는 monadic `Expr`를 보존하고, runtime-host 경로는 그 자리에서 실행해 completed noun `Value`를 같은 stack에 재삽입한다.
-- [x] row 1 `EDGE+AVN VERB VERB NOUN`의 정확한 four-class eligibility/reduction extent를 구현했다. row 0과 마찬가지로 analysis는 application structure를 보존하고 runtime host는 actual noun으로 reduce/reinsert한다.
-- [x] row 2 `EDGE+AVN NOUN VERB NOUN`을 production stack reducer에서 선택한다. analysis/no-host 경로는 dyadic `Expr`를 보존하고 runtime-host 경로는 actual noun을 계산해 같은 stack에 재삽입한다.
-- [ ] row 3 `EDGE+AVN (VERB|NOUN) ADV ANY`를 modifier semantic constructor 호출로 구현한다. 지원 adverb/gerund 생성은 구현되었으며 전체 primitive·explicit modifier application은 미완료다.
-- [ ] row 4 `EDGE+AVN (VERB|NOUN) CONJ (VERB|NOUN)`를 modifier semantic constructor 호출로 구현한다. rank/@:/지원 DefinitionConstructor 경계는 구현되었으며 전체 conjunction 및 invocation은 미완료다.
-- [x] row 5 `EDGE+AVN (VERB|NOUN) VERB VERB`의 production Fork construction을 구현했다. VVV ordinary/capped 판정과 noun-left fork의 지원 construction을 같은 row action에서 처리하며, 전체 noun/value-dependent/static coverage는 P3에서 계속 추적한다.
-- [x] row 6 `EDGE CAVN CAVN ANY`의 production Hook/bident/trident disposition dispatch를 구현했다. basic Hook과 non-executing modifier train을 구성하고 earlier row가 소유해야 할 immediate action을 invariant로 거부한다. 전체 primitive/definition executor coverage는 P3의 미완료 범위다.
-- [ ] row 7 `(NAME|NOUN) ASGN CAVN ANY` assignment reduction과 effect/result semantics를 구현한다. top-level single-name의 네 RHS class와 중간/연속 대입은 구현되었다. 아래 F1/P4 보완에서 문자열 noun/multiple-name target 실행도 추가했다. boxed/AR target·ordered-write lowering·전체 scope는 미완료다.
-- [x] row 8 `LPAR CAVN RPAR ANY`를 production stack action으로 구현하고 recursive parenthesis parser를 제거했다. grouped noun은 `ExprKind::Group`/depth를, grouped function은 semantic identity를 유지한 채 parser provenance span을 괄호 전체로 보존한다.
-- [x] 구현된 각 reduction 결과를 같은 parser stack에 되돌리고 동일한 match_parse_row로 다시 scan/reduce한다. 미지원 semantic form은 해당 action의 오류/coverage 경계로 남긴다.
-- [ ] row action abstraction이 `ReadyParseValue`와 `RequiresRuntimeSemanticParse`를 구분할 수 있게 하여, 정적 compiler path가 parser-visible runtime dependency를 숨기지 않게 한다.
-- [x] runtime semantic host와 analysis가 동일 parse_context/row matcher/action engine을 사용한다. host가 필요한 미지원 form 전체의 executor는 별도 미완료다.
-- [x] 기존 flat-vector modifier/train/application reducer를 삭제하고 production expression reduction을 right-to-left stack + ordered `match_parse_row`로 cutover했다. 아직 미구현 semantic form은 해당 row action에서 명시적으로 남긴다.
-- [ ] one-word sentence의 별도 jsource path와 관찰 가능한 결과가 동일하도록 테스트한다.
-
-**P2 완료 조건:** 모든 parser reduction 선택을 jsource row 번호와 input class 조합으로 설명할 수 있고, deferred semantic action과 runtime semantic action이 동일한 parser engine을 공유한다. parser-visible effect/value dependency를 무시한 정적 진행 경로가 없다.
-
-#### P3 — modifier/Hook/Fork/bident/trident construction semantics
-
-- [ ] rows 3–4에서 result POS를 RustJ가 임의로 고정하지 않고 **modifier semantic constructor가 반환한 실제 POS**를 다음 parser class로 사용한다.
-- [ ] row 3의 `VERB ADV`와 `NOUN ADV`를 각 adverb의 J construction semantics에 따라 처리한다.
-- [ ] row 4의 `(VERB|NOUN) CONJ (VERB|NOUN)` 전체 parser form을 각 conjunction의 J construction semantics에 따라 처리한다.
-- [x] `cf.c::bidents[]`를 `SyntaxError | ImmediateSemanticApply | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 6의 non-executing modifier 구성과 AR/derived modifier 내부의 지원된 immediate action은 구현되어 있다. 전체 primitive/definition executor 지원과는 구분한다.
-- [x] `cf.c::tridents[]`를 `SyntaxError | ImmediateSemanticApply | BuildFork | BuildDerivedModifier(result_pos)`의 semantic disposition으로 옮겼다. row 5 fork와 row 6 non-fork modifier를 구분한다. AR/derived modifier의 지원된 immediate action은 구현되어 있으나 전체 primitive/definition executor는 미완료다.
-- [ ] VV Hook과 NVV/VVV Fork의 construction boundary를 jsource와 동일하게 만든다.
-- [ ] 긴 train은 별도 `LongTrain` algorithm이 아니라 row 5/6 반복 reduction의 결과로만 형성한다.
-- [ ] modifier application마다 completed entity 하나를 만들고 후속 reduction은 그 entity ref만 보게 한다.
-- [ ] parser semantic operand와 jsource execution auxiliary(`fgh` helper slot, `localuse`, cached executor)를 구분한다.
-
-**P3 완료 조건:** derived Verb/Adverb/Conjunction과 immediate semantic application의 구분까지 jsource parser construction behavior와 일치한다.
-
-#### P4 — parser-time name resolution과 assignment sequencing
-
-- [x] enqueue는 ordinary NAME과 lookup metadata를 전달하고 extension 이름을 keyword로 만들지 않는다. F1의 ordinary-name/extension POS 회귀와 같은 계약이다.
-- [ ] parser가 ordinary name을 stack에 넣기 직전에 현재 local/locale binding을 조회해 noun/verb/adverb/conjunction class를 얻는다.
-- [ ] noun name의 by-value resolution과 일반 function/modifier name의 nameref semantics를 구분한다.
-- [ ] jsource의 nameless modifier by-value 최적화는 언어 semantics와 분리하고 RustJ에서 필수로 복제하지 않는다.
-- [ ] named Verb/Adverb/Conjunction이 primitive entity와 동일한 row 0–6 경로에 참여하게 한다.
-- [ ] sentence 시작 시 전체 binding snapshot을 만들지 않고 observable right-to-left lookup/assignment sequencing을 보존한다.
-- [x] assignment-target NAME을 enqueue to-name flags와 ParseValue::NameTarget으로 ordinary lookup과 분리한다. 전체 noun/multiple-name assignment와 scope 지원은 별도 미완료다.
-- [ ] `=.` / `=:`의 symbol-table 선택과 assignment result semantics를 테스트한다.
-- [ ] current POS를 가진 nameref가 later resolution 시 다른 POS로 바뀐 경우의 J-compatible error contract를 보존한다.
-- [ ] extension builder(`conv` 등)의 shadow/rebind도 ordinary J name semantics를 따르게 한다.
-- [ ] row 0–2 실행이 같은 sentence의 이후 parser-time name/locale/POS lookup에 영향을 주는 사례를 식별하고 parser-visible effect로 분류한다.
-- [ ] deferred noun value가 뒤 row 3/4 modifier construction의 실제 operand value로 필요한 경우 정적 placeholder로 construction을 완료하지 않는다.
-- [ ] v0에서는 이러한 dynamic parse dependency를 `RuntimeSemanticParse`/coverage fallback으로 보내고, 정적 compile 성공으로 오인하지 않는다.
-- [ ] 추후 guard/multiversion을 추가하더라도 observable reduction/order/error semantics가 runtime semantic baseline과 같음을 요구한다.
-
-- [ ] **P4-locative J 실행 의미(위 F1 연계):** direct는 지정 locale의 symbol을 읽고/쓴다; indirect는 현재 binding의 boxed locale string을 **해당 조회·대입 시점**에 읽는다; `name__`은 `name_base_`로 귀착한다. locative `=.`/`=:`는 explicit definition 안에서도 global이다. RHS는 원래 실행 locale에서 평가하고 지정 locale에 기록한다. locative로 호출한 function의 current-locale 교체·복원, locale search path, local frame 분리, observable NAME/POS/error/effect/assignment 순서를 테스트한다. 미정의 이름·잘못된 locale 값은 J의 실제 오류를 C oracle로 판정하며 미지원으로 포장하지 않는다. **수용:** pinned J C의 positive/negative·rebind·nested explicit-definition 차분; direct/indirect·읽기/대입·출처 span을 모두 보전해야 한다. 문법만 인정하거나 구문 뒤 일괄 `Unsupported`를 던지는 방식은 P4 통과 아님.
-
-- [ ] **NP-03/06 (§3.7.3):** error-bearing lookup, local/locale/path·holder witness, late NameRef와 constructor/assignment 오류 순서를 검증한다(NP-V03/06).
-
-**P4 완료 조건:** parser 결과가 spelling이 아니라 그 시점의 J binding, assignment state, parse row에 의해 결정된다.
-
-- [ ] **NP-04/05 (§3.7.3):** J Graph/A3까지 name event 출처와 Observed/ProvenStable/GuardRequired/Unknown을 유지한다(NP-V04/05).
-
-#### P5 — construction-time J semantics와 compiler-analysis facts 분리
-
-**구현 방향:** parser/J Semantic Construction IR의 `FunctionEntity` 자체를 compiler convenience를 위해 변형하지 않는다. 대신 그 immutable graph에서 **별도 J Graph IR을 파생**하여 applied topology와 syntax-derived optimization hint를 표현한다. J Graph IR은 graph analysis에 필요한 조기 abstract `GraphFacts(dtype/shape/rank)`를 가질 수 있지만, 이것은 실행 계약의 canonical resolved fact가 아니다. actual valence/effective-rank/cell/frame/agreement/check/effect/error/access/representation을 포함한 최종 call-time 사실은 Logical Execution IR의 `ResolvedCallFacts`/`ResolvedInstantiation`이 소유한다. lowering은 두 층이 공유하는 dtype/shape/rank가 일치하는지 검증한다. target 이후 정보는 `LoweringCapability/TargetFacts -> PhysicalDecision`에 둔다.
-
-parser에서 **모든 의미 해석을 제거하지 않는다.** jsource modifier application이 그 자리에서 검증하고 result entity를 만드는 의미는 그대로 수행한다. 제거 대상은 target/call-dependent compiler facts다.
-
-- [ ] pure/semantic `ModifierSemanticConstructor` interface를 두어 parser row 3/4가 J-defined construction validation과 result POS/entity 생성을 요청하게 한다. operand value가 runtime-dependent하면 같은 action을 runtime semantic parser에서 수행할 수 있어야 한다.
-- [ ] parser-produced `FunctionEntity`는 identity/result POS/source operands/span과 **intrinsic `FunctionSemanticInfo`**를 immutable하게 소유한다.
-- [ ] modifier construction facts는 해당 completed `FunctionEntity.semantic_info.construction`에 보존하여 재귀 traversal에서 바로 참조할 수 있게 한다.
-- [ ] `"` constructor는 jsource `jtqq`와 동일한 noun/verb operand legality, rank/length/domain validation 및 requested-rank normalization을 **modifier application 시점의 construction semantics**로 처리한다. 이는 반드시 compile-time이라는 뜻은 아니며 runtime parser fallback에서도 같은 규칙을 사용한다.
-- [ ] normalized requested rank 같은 node-intrinsic construction fact와 **actual argument rank를 이용한 effective rank/cell/frame 계산**을 분리한다. 후자는 call/Logical IR node의 `ResolvedCallFacts`에 둔다.
-- [x] applied `/`는 completed derived entity로 만들고 `Verb.reduce` 같은 compiler migration boolean을 semantic identity에서 제거했다.
-- [x] `Verb.reduce` 사용처를 제거했다. reduction identity/basis/fact inference는 completed `FunctionEntity`의 Insert 구조에서 Semantic Analyzer/Lowering이 유도한다.
-- [ ] `Verb.rank` 필드/사용처 제거는 완료했다. 남은 일은 requested-rank를 construction fact로 정규화하고 call-time `ResolvedRankContract/CellApply`와 명시적으로 분리하는 것이다.
-- [x] `Callable.reduce` / `Callable.rank` migration field를 제거했다. Analyzer는 shared `FunctionEntity` 구조를 직접 따라 execution basis/facts/outer rank boundary를 유도한다.
-- [ ] innate rank, effective rank, frame/cell split, agreement/repetition, access, optimizer proofs가 parser entity 필드에 들어가지 않게 한다.
-- [ ] architecture/device/lowering/cost metadata가 parser/`FunctionEntity.semantic_info`에 들어가지 않게 한다.
-
-**P5 완료 조건:** parser는 J entity construction의 성공/실패와 completed semantic identity를 정확히 결정하지만, call-dependent 및 target-dependent compiler facts는 소유하지 않는다.
-
-**2026-10-02 구현·검증 증거 (F0/P3/P5의 부분 완료):**
-
-- [x] rank noun의 construction 검사를 rank → length → numeric audit 순서로 통일했다. scalar/vector만 허용하며, empty/4개 이상 operand와 잘못된 numeric operand의 J error class를 보존한다.
-- [x] `semantic::rank_noun_contract`를 parser, analysis/facts, interpreter와 Logical IR reference executor가 공유한다. 고정 fuzz 정수 audit, 무한대/범위 밖 실수/`_.`의 jsource `vib` 처리 및 ±63 requested-rank clamp를 적용하되 FunctionEntity에는 원래 noun을 보존한다.
-- [x] 중첩 괄호의 completed literal noun을 conjunction 및 noun-left fork construction에서 보존한다. 계산이 필요한 noun operand는 여전히 runtime semantic parsing coverage boundary다.
-- [x] noun `/` 및 noun operand의 `@:`는 unreduced-stack syntax error 대신 constructor domain error를 반환한다. 합법적인 noun-left rank 등 미구현 form은 UnsupportedImplementation으로 구분한다.
-- [x] 큰 diagnostic ErrorContext를 box로 분리했다. 기존 kind/span/blame/inner-context 우선순위는 유지하며 Error 크기 ≤32 bytes를 회귀 검사한다.
-- [x] native Windows default/portable는 각각 208 passed / 17 ignored이며, fmt, clippy `-D warnings`, Python harness 11 tests를 통과했다. 17개 pending definition acceptance tests는 완료로 계산하지 않는다. 기존 formatting drift도 정리했다.
-- [x] Windows 공식 C 배포본 일반·AVX2 각각에서 2,050문장 × direct/semantic-reference 경로가 불일치 0 / known deviation 0이다. word formation은 각각 6,618건(seed `20260927`, open quote `1109`) 불일치 0이다.
-
-이번 실행 기준선은 공식 `build/w64.zip`의 release commit metadata `ded7793fe5795d79eda8e7138dce94aa056edf78`이다. `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`은 source-level parser 검토 기준으로 유지한다. 그 고정 소스의 Windows MSVC 빌드는 GNU C 확장 때문에 실패했으므로 이번 배포본 비교를 pinned-build 성공으로 표시하지 않는다. 각 `reports/frontend-*-windows.json`은 실제 DLL/실행 파일 SHA-256과 revision/platform을 기록하며, word harness는 revision을 하드코딩하지 않는다.
-
-재실행: native Windows에서 `tools/check-windows.ps1` 후 `tools/check-frontend-windows.ps1 -ReferenceDirectory <j.dll/javx2.dll 폴더> -ReferenceRevision <확인한 40자리 commit> -SourceDirectory <jsource checkout> -SourceRevision <검토한 40자리 commit> -Avx2`를 실행한다. 기본 Python 3.13 경로는 `-Python`으로 변경할 수 있다. GitHub CI와 Linux tests는 실행하지 않았다. upstream 전체 suite와 CUDA 검증도 수행하지 않았다.
-
-**현재 남은 gate:** intrinsic FunctionSemanticInfo의 최종 수렴, full noun/verb modifier·immediate constructor semantics, 모든 result POS/primitive coverage, full runtime `ptcol` reachable-state trace, 일반 locale/locative/definition-control scope, noun/multiple assignment target과 static/runtime dynamic-boundary 수렴이 남아 있다. **P2 rows 0–2 RuntimeParserHost/reinsertion과 지원 범위의 우측→좌측 name/assignment sequencing 자체는 이미 구현되었으므로 이를 미구현 항목으로 다시 세지 않는다.** 이 증거는 M2 전체 완료를 뜻하지 않는다.
-
-- [ ] **NP-07 (§3.7.3):** J C와 Rust runtime·capture·Graph/A3 차분 및 효과·오류 순서 부정 테스트를 통과한다(NP-V07).
-
-#### P6 — differential/conformance test matrix
-
-- [x] 단계별 probe와 의미 정규화·source-table 비교 harness를 추가한다 (`frontend_probe`, `frontend_stage_conformance`).
-- [x] tokenizer/enqueuer/parser 구현 파일을 분리하고 기존 scanner/semantic parser API는 compatibility export로 유지한다.
-- [x] 단독/괄호 adverb·conjunction 및 최종 이름 할당을 syntax error 없이 `ModifierValue`와 실제 POS로 보존한다. named modifier 실행·전체 derived POS는 계속 미완료다.
-- [x] normalization이 completed modifier 경계·ordered operand·boxed noun type/shape를 보존하고 모르는 atomic encoding을 거부하는 unit tests를 추가한다.
-- [x] 새 stage suite의 native Windows j64/AVX2 실행 결과를 기록한다. 각각 7,014개 검사(선언 row 6,561조합, 함수/POS 구조 111건 포함), 불일치 0이다.
-- [ ] runtime `ptcol`의 reachable stack context와 row actions/provenance trace를 C와 비교한다. 선언 `cases[]` 6,561조합 검사는 이 항목을 대체하지 않는다.
-
-- [ ] 9개 parse row 각각의 최소 positive sentence를 jsource와 differential 비교한다.
-- [ ] row precedence가 충돌할 수 있는 competing-pattern 문장을 추가한다.
-- [ ] `+/ % #`, 2-verb Hook, 3/4/5개 이상 train을 구조 golden으로 비교한다.
-- [ ] 연속 adverb/conjunction 및 derived modifier가 다시 modifier operand가 되는 사례를 추가한다.
-- [ ] modifier constructor의 construction-time rank/length/domain error를 jsource와 비교한다.
-- [ ] Verb/Adverb/Conjunction을 name에 할당한 뒤 사용하는 사례를 추가한다.
-- [ ] sentence 중간 assignment/name lookup이 뒤 reduction의 class에 영향을 주는 사례를 추가한다.
-- [ ] row 0–2의 effectful 실행이 왼쪽의 name/locale/POS resolution을 바꾸는 문장을 differential corpus에 포함한다.
-- [ ] runtime-dependent noun이 modifier operand가 되어 construction success/error/POS가 runtime에 결정되는 사례를 포함한다.
-- [ ] parentheses가 reduction boundary를 바꾸는 사례를 추가한다.
-- [ ] one-word sentence path를 별도 regression으로 둔다.
-- [ ] deterministic noun result와 J error class를 비교한다.
-- [ ] assigned entity의 POS는 `4!:0`, 유용한 derived structure는 `5!:1`/ `5!:5`를 oracle로 비교한다.
-- [ ] RustJ ParseTrace로 row id/input classes/span/result class를 golden화하되 jsource 내부 bitmask/주소/flags와 비교하지 않는다.
-- [ ] 아직 lowering하지 못하는 합법 J form의 **parser success**와 이후 `UnsupportedImplementation`을 syntax error와 구분한다.
-- [x] 현재 지원 범위의 differential suite를 native Windows local gate로 실행할 도구를 추가했다. GitHub CI는 사용자 지시에 따라 생략한다.
-
-**2026-10-03 Windows 실행 기록:** 파일 분리와 `=.`/ill-formed name·number/modifier result POS 수정 후 default/portable 각각 **212 passed, 17 ignored**; fmt/clippy 통과, Python harness **17 passed**. 일반/AVX2 C oracle 각각 direct/semantic-reference **2,050문장**, raw word **6,618건**, 새 stage suite **7,014개 검사**에서 불일치 0이다. 17개 ignored definition tests와 stage report의 pending 목록은 완료가 아니다. 새 보고서는 `reports/frontend-{j64,avx2}-stages-windows.json`이며 기존 6개 value/word 보고서도 현재 binaries의 hash로 갱신했다. source review pin과 공식 Windows DLL revision은 앞 실행 기록처럼 서로 다르다.
-
-**P6 완료 조건:** 지원 parser surface의 변경은 jsource observable differential + RustJ row trace golden 없이 merge되지 않는다.
-
-#### P7 — cutover와 legacy parser 제거
-
-- [ ] 새 9-row engine이 기존 parser/semantic golden을 모두 통과한다.
-- [ ] Analyzer golden(`(+/ % #) y` 포함)이 새 parser output에서도 동일한 completed entity graph를 입력으로 받는다.
-- [x] old `reduce_modifier_applications` 함수는 현재 source에 없다. row engine이 modifier reductions를 소유한다.
-- [x] old `collapse_verb_trains` 함수는 현재 source에 없다. row engine이 train reductions를 소유한다.
-- [x] 과거 flat-vector noun/verb application loop를 제거했다. 현재 Expr application 생성은 동일 9-row semantic action 안에 있으며 필요한 의미 구조라 유지한다.
-- [ ] parser-only migration fields와 dead compatibility code를 제거한다.
-- [x] parse/parse_analysis/parse_runtime_host가 동일 parse_context와 reduction engine을 공유한다. cfg(test) parse_runtime도 같은 parse_with→parse_context를 사용한다.
-- [ ] parser 전환 후 전체 native Windows local 검증을 통과시킨다. GitHub CI는 생략한다.
-
-**P7 완료 조건:** RustJ의 J parser semantics를 정의하는 코드 경로가 하나이며, 그 경로는 jsource-compatible class resolution + 9-row reduction + semantic constructor contract를 따른다.
-
-#### P8 — A1/A2/A3로의 integration handoff
-
-P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 clean parser output을 기존 compiler milestones가 소비하도록 연결하는 후속 작업이다.
-
-- [ ] PrimitiveSpec/ExtensionSpec의 target-independent semantic contract와 parser entity identity를 연결한다.
-- [x] P8에서 J Graph IR을 parser output과 execution IR 사이의 명시적 compiler boundary로 추가한다.
-- [x] `GraphForm/GraphHint`에서 J syntax-derived topology를 기록하고 execution lowering이 이를 소비하도록 한다.
-- [ ] `GraphRuleRefs`를 PrimitiveSpec/derived-composition rule registry와 연결한다.
-- [ ] `FunctionEntity.semantic_info`의 intrinsic facts와 Logical IR node의 `ResolvedCallFacts` 책임을 분리한다.
-- [ ] `ResolvedCallFacts`에서 valence/effective-rank/cell/frame/agreement/repetition/type/shape/effect/error/access를 계산한다.
-- [ ] `+/ % #` matrix golden에서 최종 `%`의 implicit CellApply2를 명시적으로 만든다.
-- [ ] Logical Optimizer가 semantic graph를 보존한 채 `FusionCandidate::Mean` 등을 별도 proof/candidate로 만든다.
-- [ ] built-in과 NN/array extension op가 동일한 LogicalOp/lowering interface로 진입하게 한다.
-- [ ] architecture-specific 구현 정보는 `LoweringRegistry × ArchitectureTarget`에서만 결합한다.
-- [ ] concrete GPU model 정보는 `DeviceProfile`, 후보 선택 성능 정보는 `CostProfile/RuntimeProfile`로 분리한다.
-
-- [ ] P8 지원 범위별 Program→J Graph→A3 admission을 검증하고, 본문 재분석 경계와 NAME proof/guard 요구를 명시한다. ControlNode.go만으로 CFG를 만들지 않는다. 이번 재감사 절과 연결한다.
-
-**P8 완료 조건:** parser를 다시 변경하지 않고 A1/A2/A3의 semantic analysis, CPU/GPU lowering, NN extension을 확장할 수 있다. dynamic J parsing이 필요한 form은 compiler coverage와 runtime semantic fallback의 명시적 경계로 남는다.
-
-#### 진행 규칙
-
-- F0–F2 + P0–P7을 frontend/parser migration의 **single source of truth**로 사용한다. P8은 기존 A1/A2/A3 체크리스트와 함께 추적한다.
-- 이후 frontend 작업의 진행상황 보고는 반드시 이 체크리스트의 phase/item 기준으로 보고한다. 새 작업이 생기면 임시 TODO를 코드에만 남기지 않고 먼저 해당 phase에 checklist item으로 추가한다.
-- jsource와의 차이를 발견하면 "RustJ 구현 편의"로 봉합하지 않고 해당 phase의 compatibility defect로 기록한다. observable semantics가 같다는 differential proof가 있기 전에는 의도적 차이로 간주하지 않는다.
-- frontend 구현은 원칙적으로 F0 → F1 → F2 → P1 → P2 → P3 → P4 → P5 → P6 → P7 순으로 진행하되, 앞 phase interface를 깨지 않는 oracle/test 작업은 병행할 수 있다.
-- 완료 즉시 같은 변경에서 `[ ] -> [x]`로 갱신한다.
-- 부분 구현을 완료로 표시하지 않는다. 각 phase의 완료 조건을 만족해야 phase 완료로 본다.
-- jsource와 의도적으로 다른 observable parser behavior가 필요해지면 구현 전에 rationale과 semantic impact를 이 문서에 기록한다.
-- downstream IR 요구사항은 P8/A1/A2/A3에 추가하고 parser entity에 임시 compiler field로 밀어 넣지 않는다.
-
-
-### A0.6 — Structured diagnostic context
-
-- [x] J-compatible machine error와 diagnostic provenance/context를 분리한다.
-- [x] `ErrorContext`에 phase/span/original word index/current name/operation/valence/argument summary/notes를 표현할 수 있게 한다.
-- [x] inner context 우선 merge 규칙을 만들어 outer stage가 더 정확한 span/blame/context를 덮어쓰지 않게 한다.
-- [x] `DiagnosticAnalyzer`와 Python-style renderer를 분리한다.
-- [x] enqueue word에 original word index를 보존하고 parser diagnostic으로 전달하기 시작한다.
-- [x] runtime monad/dyad failure에 executing primitive, valence, x/y type/shape/rank summary를 붙인다.
-- [x] interpreter execution과 compiler `analyze_diagnostic`이 동일 context/error infrastructure를 사용한다.
-- [x] stable `eval()/analyze()/parse()` machine API는 context wrapper를 제거하고 기존 J error variant/kind를 유지한다.
-- [x] F1 `EnqueuedWord`가 byte span과 original word index를 canonical provenance로 직접 소유한다.
-- [ ] F2 parser stack entry가 original word index를 모든 reduction 동안 보존하고 jsource `infererrtok`에 대응하는 blame inference를 구현한다.
-- [ ] Hook/Fork/derived modifier 실행 시 failing semantic entity의 compact linear representation을 diagnostic context에 넣는다.
-- [ ] rank/agreement failure analyzer가 effective cell/frame facts를 사용해 J처럼 어느 frame/shape가 불일치하는지 구조적으로 설명한다.
-- [ ] index error analyzer가 offending selector/index/path를 작은 structured detail로 보존하고 설명한다.
-- [ ] domain error analyzer가 primitive contract와 argument dtype/value summary를 이용해 구체적 원인을 설명한다.
-- [ ] assembly error analyzer가 cell-result type/shape join failure 위치를 설명한다.
-- [ ] lowering/backend failure도 Logical IR source origin + semantic operation context로 동일 renderer에 연결한다.
-- [ ] diagnostic context가 큰 noun payload를 소유/복사하지 않는지 테스트한다.
-- [ ] 최신 J error corpus의 대표 사례를 RustJ diagnostic golden으로 추가하되 문구 자체보다 semantic information completeness를 검증한다.
-
-**완료 조건:** AOT/interpreter/JIT/backend 어느 경로에서 실패해도 J error class는 안정적으로 유지되고, 동일한 structured context → analyzer → renderer 경로로 source 위치와 semantic 원인을 설명할 수 있다.
-
-- [ ] 정의 body 원문 좌표와 caller 좌표를 분리한 source-unit/map/frame chain을 전달하고 내부 실패 위치·호출 chain 회귀를 추가한다.
-- [ ] J catchable failure / admission miss / verifier defect / backend failure를 구분해 진단·재실행·handler 권한을 검증한다.
-
-### A1 — J Semantic Construction IR / FunctionEntity 경계
-
-- [ ] 현재 `semantic.rs`가 noun/verb/adverb/conjunction과 derived composition을 얼마나 보존하는지 감사한다.
-- [x] jsource `p.c::cases[]`의 parser function-construction rows를 기준으로 immutable shared `FunctionEntity` graph를 만든다.
-- [x] `/` ADV와 `"` CONJ를 source operator identity로 보존하고 parser application 결과의 parent로 사용한다. modifier별 `Insert/Rank/...` semantic node enum을 만들지 않는다.
-- [x] 큰 derived function/train의 `Arc<FunctionEntity>` sharing test로 subtree deep-copy가 없음을 검증한다.
-- [x] semantic FunctionEntity와 runtime/backend executor specialization의 층을 분리한다.
-- [ ] primitive verb identity와 monad/dyad valence를 명시한다.
-- [x] Hook / Fork parser-production parent를 first-class semantic identity로 표현하고, train은 별도 `Train` node 없이 shared Hook/Fork graph로 구성한다.
-- [ ] adverb/conjunction/hook/trident application으로 생긴 DerivedEntity와 result part of speech(Verb/Adverb/Conjunction)를 보존한다.
-- [ ] boxed noun의 ordinary-data 사용과 modifier-context gerund interpretation을 구분한다.
-- [ ] `::` adverse와 `:.` obverse처럼 forward graph 밖의 latent error/inverse semantics를 보존한다.
-- [ ] rank-derived verb와 cell/frame 의미를 Semantic Analyzer가 분석할 수 있게 표현한다.
-- [ ] rank conjunction의 verb"rank-noun, verb"verb, noun/gerund"rank forms를 source operand 품사 손실 없이 표현한다.
-- [ ] Infinite/Absolute/Relative RankSpec과 monad/left/right rank triple을 보존한다.
-- [ ] name reference/binding/version과 source span을 필요한 범위에서 연결한다.
-- [ ] `NameRef.expected_part_of_speech`와 runtime lookup POS mismatch의 domain error를 모델링한다.
-- [ ] sentence 전체의 name environment를 선행 snapshot하지 않고 우측→좌측 assignment/name lookup sequencing을 보존한다.
-- [ ] explicit definition의 DefinitionCode와 invocation CallFrame을 분리한다.
-- [ ] local slot hint와 실제 local binding을 구분하고 unbound local candidate의 locale fallback을 보존한다.
-- [ ] `=.` local assignment와 `=:` public/locale assignment를 구분한다.
-- [ ] assignment가 namespace write effect와 assigned-entity result(noun/verb/adverb/conjunction)를 동시에 갖는지 테스트한다.
-- [ ] primitive contract를 semantic node에 연결한다.
-- [ ] J dyadic rank의 prefix frame agreement와 residual-frame repetition을 명시적으로 테스트한다.
-- [ ] zero-cell rank execution의 fill-cell/prototype result type·shape semantics를 테스트한다.
-- [ ] rank cell 결과의 type/shape가 다른 경우 J result assembly(type join, shape join, framing fill, assembly error)를 테스트한다.
-- [ ] uniform cell-result proof가 있을 때만 rank map을 고정-shape parallel output으로 낮춘다.
-- [ ] boxed와 sparse를 physical encoding이 아닌 J-visible semantic representation으로 보존한다.
-- [ ] comparison tolerance/`!.` fit context와 J error precedence를 semantic contract에 포함한다.
-- [ ] empty operand에서의 context-sensitive type/domain semantics를 dense atomic dyad golden test로 검증한다.
-- [ ] Semantic Analyzer가 source parser 없이 J Semantic Array IR만으로 분석 가능하게 한다.
-- [ ] Semantic Analyzer / Lowering이 semantic structure를 Logical Array IR / Plan으로 낮추는 테스트를 작성한다.
-- [ ] fork/hook의 J-compatible observable execution order를 보존하고 pure/speculatable proof가 있을 때만 branch 병렬화를 허용하는 golden test를 둔다.
-- [ ] reduction derived verb와 rank-conjunction-derived verb를 대표 golden test로 둔다.
-
-완료 조건: Semantic Analyzer를 scanner/parser 없이 테스트할 수 있으면서도 hook/fork/train/rank 및 derived verb/adverb/conjunction의 의미 구조가 분석 입력에 남아 있다.
-
-<a id="j-graph-implementation-checklist"></a>
-
-### A1.5 — J Graph IR / JAXA Array Operation Graph IR
-
-**목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
-
-> **현재 위상:** `j_graph_ir` v0.10은 **explicit applied-operation graph + access-pattern basis + witnessed rewrite/resource analysis** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts/use-count/analyzability와 `ResourceExprGraph`, witnessed rewrite candidate, conservative source-vs-replacement resource evaluation, existing `LoweringRegistry + TargetCapabilities`에 대한 target-only feasibility bridge가 존재한다. 아직 없는 것은 full rewrite-specific shape algebra, executable WindowView lowering, fusion-candidate별 lifetime extension, resolved TargetProfile/ResourceEstimate/CostProfile, 실제 candidate selection/partition이다.
-
-<a id="graph-prior-art-followup"></a>
-
-#### 2026-10-05 선행연구 후속: 작은 basis와 composition algebra
-
-**감사 기준:** GitHub `main`의 `b00f2263decb4777e84f7670cc3bbd2536618f80`에서 문서와 `src/j_graph_ir.rs`를 대조했다. 이전 대화의 선행연구 반영 커밋은 `84b8546`이다. 최초 감사는 설계 계약을 정리했으며 구현 완료 선언이 아니었다. 아래 GF2/GF3의 후속 구현과 검증은 별도로 기록한다. 업로드된 `붙여넣은 텍스트(1).txt`는 이 작업 환경의 로컬 경로/실행 도구 오류로 읽지 못했으므로, 복원한 대화와 사용자가 명시한 후속 항목을 기준으로 한다. 첨부 원문 대조는 미완료다.
-
-| 항목 | 확인한 현재 상태 | 이번 결정 / 남은 구현 |
-|---|---|---|
-| 작은 Graph Basis + composition + witness | basis layers, Pipeline/Hook/Fork region, witnessed rewrite seam 있음 | 조합별 새 op를 증식시키지 않는다 |
-| first-class Scan | GF3의 독립 GraphBasisKind::Scan 및 Boolean atomic prefix identity 후보/검증기 추가; 원본 Window→operand 보존 | numeric/rank/representation 확장 및 실행·reassociation·parallel-prefix 허가는 후속 |
-| vertical / horizontal / nested | GF2의 공통 composition 분석 sidecar/verifier 추가; pipeline, branch/join 및 operand path 보존 | 법적 독립성 witness, noun-left graph 전문화와 실행 연결은 후속 |
-| fusion algebra / registry | GF4의 4개 research schema와 registry/envelope/verifier 추가; 기존 E. witnessed rewrite와 provenance seam 공유 | 일반 equivalence proof·resource transfer·target query·실행 선택은 후속 |
-| symbolic Work / Depth | GF5의 독립 symbolic domain과 ordered map/reduce/region 및 Scan identity 모델 추가 | 일반 rank/window·법적으로 입증된 parallel 모델·실제 target cost와 연결은 후속 |
-| multiversion | specialization/guard 설계와 runtime baseline 있음 | 버전 선택·무효화·bounded cache 구현은 장기 후속 |
-| streaming / inspector-executor | window/access/resource seam은 존재 | streaming 계약과 inspection plan은 장기 설계 후속; 실행 완료 아님 |
-
-**Scan 계약.** Scan은 모든 prefix를 독립적으로 재계산하는 Window→Reduce와 다른 알고리즘 구조이므로 first-class Graph Basis로 보존한다. 원래 PrefixInfix FunctionEntity, valence, rank/cell boundary와 source provenance는 유지한다. 일반 `u\\`와 dyadic infix를 Scan으로 분류하지 않는다. insert-compatible monadic prefix조차 reducer, prefix 방향·길이·shape/assembly, empty/singleton, identity 사용, integer overflow/promotion, floating-point 결과, domain/error/effect 순서의 witness가 필요하다. Unknown이면 Window→operand 구조를 유지한다. associativity나 purity를 spelling만으로 추정하지 않는다. Scan identity 보존과 reassociation/parallel-prefix 허가는 별개다.
-
-**Composition 분석.** Vertical은 producer→consumer edge, Horizontal은 동일 logical input을 사용하는 독립 consumer 관계, Nested는 rank/cell/segment 내부의 computation boundary다. 한 graph는 세 관계를 함께 가질 수 있으므로 배타적인 enum 하나나 `layers` 목록만으로 topology를 대체하지 않는다. sidecar는 node/region/edge identity, input occurrence, fan-out/use-count, live-across와 effect/error dependency를 참조한다. ordinary fork는 horizontal 후보일 수 있지만 h→f→g의 observable 순서와 constructor subtype을 보존한다. capped fork는 pipeline, noun-left fork는 retained noun + h로 구분한다. nested classification은 flattening 허가가 아니다.
-
-**Fusion registry.** 기존 rewrite witness/verifier를 재사용하되 target lowering registry와 별도 역할로 둔다. 각 rule은 stable ID/version, source basis+composition pattern, replacement graph, relevant call facts, semantic proof obligations, witness/provenance mapping, fan-out/retained-value 변화, symbolic resource/work-depth transfer, target capability query를 선언한다. discovery → legality → target feasibility → profitability → selection을 분리한다. Unknown은 불법을 뜻하지도, 합법을 뜻하지도 않는다. Map→Map, Map→Reduce, Map→Scan 및 common-input Map+Map은 첫 후보 연구 목록이며 현재 지원 선언이 아니다. fusion이 shared producer를 복제하거나 lifetime을 늘릴 수 있으므로 cost 감소를 기본 가정하지 않는다. 실행 optimizer/새 executor 도입 없이 먼저 analysis-only seam을 만든다.
-
-**Symbolic Work/Depth.** logical atom/state resource domain과 별도로 Work(총 연산량), Depth(의존 경로 길이)를 유지한다. 둘 다 symbolic extent와 operator 비용, Unknown/provenance를 보유한다. sequence는 Work/Depth를 합산한다. 법적으로 독립인 branch는 Work 합, Depth max + join을 사용할 수 있지만 effect/error dependency가 있으면 ordered dependency를 유지한다. Map은 cell work를 extent에 곱하고 nested cell depth를 보존한다. ordered Reduce/Scan baseline과 reassociation이 입증된 parallel candidate의 식을 별도로 계산한다. unit-cost associative operator라는 조건 아래 work-efficient tree candidate는 O(n) Work/O(log n) Depth일 수 있으나 이를 모든 J reducer에 부여하지 않는다. empty/singleton은 별도 case다. wall-clock latency·launch·traffic·transfer·synchronization은 CostEstimate이며 Work/Depth로 대체하지 않는다.
-
-**장기 후속 계약.** multiversion은 relevant-fact key·binding dependency·guard·bounded cache/widening을 연결하며 guard miss 뒤 observable effect를 재실행하지 않는다. streaming은 chunk boundary, carry/state, ordering, termination, bounded memory와 materialization contract가 증명되는 region에서만 후보를 만든다. inspector-executor는 indirect access를 조사하는 비용·effect·binding/array mutation·alias invalidation과 검사 결과의 witness lifetime을 명시한다. 세 항목은 full-J restriction도 첫 M4 CPU slice의 선행조건도 아니다.
-
-**선행연구를 적용하는 범위.** Futhark의 fusion 설명은 vertical/horizontal 분석의 직접 비교 자료이며, 2026 scan-scatter 작업은 fusion algebra가 확장될 수 있음을 보여 준다. 개별 compiler의 지원/금지 규칙을 RustJ의 영구 법칙으로 복사하지 않는다. Work/Span 자료는 분석 도메인의 비교 근거이며 J numeric/error semantics의 증명이 아니다.
-- https://futhark.readthedocs.io/_/downloads/en/v0.25.4/pdf/
-- https://futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html
-- https://github.com/diku-dk/futhark-book/blob/master/parallel-cost-model.rst
-
-**GF 후속 체크리스트 — M2/M3 및 기존 A1.5 순서를 유지**
-- [x] GF0: 선행연구 설명과 실제 GraphBasis 코드의 차이를 감사하고 Scan의 독립 basis 설계 결정을 정정한다.
-- [ ] GF1: 업로드 원문을 대조하고 위 복원 내용의 누락/차이를 확인한다.
-- [x] GF2: analysis-only CompositionRelation sidecar와 verifier를 추가했다. pipeline/ordinary/capped fork의 wiring·observable dependency, noun-left 미전개 경계, nested rank/window/reduction 및 Copy Rank의 header-only RHS를 회귀 검증한다. noun-left의 실제 h→g graph 전문화는 기존 후속 항목이며 이번 완료에 포함하지 않는다.
-- [x] GF3: first-class Scan basis 및 Boolean `+`/`*` insert-prefix의 identity/contract witness와 conservative recognizer를 추가했다. 원본 Window→operand는 보존하며 일반 prefix/infix·unknown reducer·numeric/rank 경계를 C 기본·AVX2와 대조한다. 실행 prefix 지원을 주장하지 않는다.
-- [ ] GF3a: 관련 value-property/rank/representation witness를 갖춘 integer/float·일반 reducer·nested rank·sparse 경로로 Scan 인식을 확장한다. unknown을 proof로 취급하지 않는다.
-- [x] GF4: 기존 GraphRewriteProvenance와 composition/Scan witness 위에 versioned fusion rule schema·registry·candidate envelope·verifier를 연결했다. 4개 research pattern의 발견만 지원하며 legality/resource/target/profitability/selection은 후속이다.
-- [x] GF5: 독립 symbolic WorkDepthExpr DAG, ordered successful-path node/region 모델, 별도 ordered Scan identity 모델, fusion source 비교와 단일 연산 duplication 가설을 추가하고 verifier/회귀로 검사했다.
-- [ ] GF5a: effective rank/cell/segment 및 일반 window/reducer 모델을 확장하고, 법적 독립성·numeric/error witness를 얻은 경우에만 parallel Depth/max/tree 모델을 추가한다.
-- [ ] GF6: 실행 가능한 lowering과 lifetime/resource/cost 비교가 갖춰진 후보만 선택/partition에 연결한다.
-- [x] GF6a: source-only target feasibility와 fusion/WorkDepth witnesses를 연결한 선택 준비 상태 보고서를 추가했다. semantic proof·fused capability·변환 resource/cost가 없는 후보는 미선택이며 full GF6는 미완료다.
-- [ ] GF7: multiversion·streaming·inspector-executor는 별도 장기 단계로 진행한다.
-
-**최초 문서 변경의 검증 한계:** `e0204d6`/`aba88ff`는 문서 계약/체크리스트만 수정했고 당시 새 Rust/Python/C 검증을 실행하지 못했다. 아래 GF2 검증은 별도 실행 결과다.
-
-<a id="gf2-composition-review"></a>
-
-**GF2 코드 리뷰 및 구현 — 2026-10-05.** `b00f226`→`aba88ff`의 변경은 PROJECT 두 문서에 한정된다. 새 계약을 `j_graph_ir`, graph memory/resource/rewrite, frontend FunctionEntity와 대조했다. 당장 구현한 범위는 analysis-only composition seam이며 GF3–GF7의 Scan/fusion/WorkDepth/실행 선택을 완료로 표시하지 않는다. FOUNDATIONS의 graph/execution 분리 원칙을 따른다.
-
-- `src/j_graph_composition.rs` 및 `Plan::composition_analysis()`는 verified J graph로부터 관계를 파생한다. Vertical은 producer/consumer ValueId와 Left/Right **입력 occurrence**를 기록한다. HorizontalCandidate는 ordinary fork의 region/input/branch identity를 기록하며 독립성 증명이 아니다. ObservableOrder는 region constructor, 전체 child invocation 완료 순서와 live-across를 보존한다. use-count는 result/write 소비를 포함한 기존 `Plan::use_counts()` 기준이다.
-- Nested는 applied owner ValueId와 원래 FunctionEntity의 operand path로 rank/cell·reduction·prefix/window 경계를 참조한다. inner applied ValueId를 만들어 내거나 flattening을 허용하지 않는다. Copy Rank의 RHS 함수는 constructor header 공급원이므로 RHS 본문을 nested computation으로 열거하지 않는다.
-- 리뷰에서 noun-left fork를 generic Modifier로 남기면서 ordinary fork의 ParallelBranch/BranchJoin 힌트를 전달하는 오류를 발견했다. 해당 힌트를 제거하고 RetainedNounBoundary로 미전개 noun snapshot operand를 참조한다. capped fork는 Pipeline/CappedFork, ordinary fork는 h→f→g이며 noun-left에는 가짜 f 호출을 만들지 않는다. snapshot 저장은 원래 entity가 소유한다.
-- sidecar verifier는 원본 graph verifier를 먼저 호출하고 관계를 재유도해 extra/missing/stale edge·input slot·order·constructor·nested path·fan-out 차이를 거부한다. effect/error가 Unknown인 branch도 ObservableOrder를 유지한다. 이것은 binding guard, legal parallelism proof 또는 physical schedule이 아니다.
-- 신규 회귀 7개는 pipeline wiring, unknown-function fork 순서와 fan-out, capped/noun-left 구분, nested rank/window/reduction, repeated input slots, Copy Rank RHS 및 손상된 sidecar/graph 거부를 검사한다. C oracle 근거는 pinned `jsrc/cf.c::jtfolk`의 nvv/vvv/capped 구분과 기존 양 DLL frontend 차분 corpus다. 새 private C trace 동등성을 주장하지 않는다.
-
-**GF2 검증:** native Windows default/portable 각각 **442 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stage **10,810 checks / failed 0**, words **6,623 / failed 0**. vocabulary는 145 후보 중 143 POS, 140 bare-function binding/AR, 3 noun payload를 확인했으며 coverage 0/code-only rejected 2다. capture graph 경계 **257건**과 static 경계 **2건**은 별도다. 보고서 12개의 binary/source/DLL hash를 native 검증기로 확인했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 구분한다. 실행 optimizer/parallel scheduling/CUDA/전체 upstream 동등성은 이 게이트의 검증 대상이 아니다. Linux/GitHub CI는 실행하지 않았다.
-
-<a id="gf6a-fusion-readiness"></a>
-
-**GF6a downstream fusion readiness — 2026-10-05.** `src/fusion_planning.rs`와 `LoweringRegistry::fusion_readiness(plan,rules,target)`가 GF4 후보와 GF5 모델을 target-dependent inspection으로 연결한다. J Graph의 intrinsic identity/grammar에 target 정보를 넣지 않는다. source 각 basis layer는 기존 LoweringRegistry×TargetCapabilities에 target-only metadata 질의를 수행한다. 이는 relevant CallFacts까지 검증한 실행 가능성 또는 전체 fused kernel의 지원을 뜻하지 않는다.
-
-보고서는 candidate/rule identity, source feasibility, 미해결 proof obligations, DeferredUntilLegality fused-target query, AwaitingSemanticProofs 상태 및 selected=false를 보존한다. 원본 target/registry/fusion/work-depth witnesses와 비교하여 변경되거나 위조된 선택·의무 삭제·cost 개선을 거부한다. Unknown을 legal/illegal로 승격하지 않으며 source Unsupported도 J 언어 오류로 바꾸지 않는다. guard/check-to-use/ownership·semantic/error equivalence, 실제 transformed lowering, lifetime/resource bound, empirical CostEstimate와 selection/partition은 full GF6의 후속이다. 준비 보고서는 실행 route나 fallback/replay 계획이 아니다.
-
-`WorkDepthAnalysis::fusion_envelope_batch()`는 source 검증을 공유하고 expression arena를 한 번만 복제한 뒤 후보당 Work sum/Depth sum/Unknown replacement 3개 식을 추가한다. 모든 후보의 source/retained operation identity와 Unknown replacement를 보존하면서 O(candidate×전체 expression graph) 저장량을 피한다. 단일 envelope inspection API도 유지한다. schema/provenance/source proof는 batch verifier에서 재유도한다.
-
-신규 native Rust 회귀 4개는 source capability가 있어도 fusion을 선택하지 않음, target/registry 변경 무효화, 여러 후보에서 arena 공유와 Scan 실행 미승격, 위조 selected/obligation/profitability 및 unknown-valid J graph의 no-candidate 처리를 검사한다. GPU generic target은 metadata-only unit query이며 GPU 실행/컴파일 검증이 아니다.
-
-**GF6a 검증:** native Windows default/portable 각각 **463 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**를 유지했다. Scan **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**와 runtime prefix 경계 **285 / executable prefix passes 0**은 별도다. capture graph 경계 **257**, static 경계 **2**도 별도로 유지했고 전체 보고서 14개의 binary/source/DLL hash를 확인했다. readiness 검증이며 실제 fusion 선택·성능·GPU 실행을 검증한 것은 아니다. Linux/GitHub CI/CUDA는 실행하지 않았다.
-
-<a id="gf5-work-depth"></a>
-
-**GF5 symbolic Work/Depth — 2026-10-05.** `src/j_graph_work_depth.rs` 및 `Plan::work_depth_analysis()`를 추가했다. schema version 1의 별도 expression DAG는 Constant, provenance-bearing Unknown, logical Atoms/LeadingItems/ItemAtoms, metric별 OperatorCost, Sum/Max/Product/Predecessors/IfEmpty를 갖는다. memory resource 식·바이트·strides·buffer·launch·wall-clock cost와 합치지 않는다. caller의 `OperatorCostModel`은 명시적인 abstract operator weight를 공급하며 Unknown/unknown extent/checked arithmetic overflow는 None을 반환한다. 단위 weight 회귀는 수학적 모델 검사이며 성능 측정값이 아니다.
-
-초기 모델은 **ordered successful-path logical baseline**이다. direct elementwise core primitive는 DispatchChecks + atoms×Element 비용을 보존한다. primitive dyadic Map reducer의 ordered Reduce는 DispatchChecks + (leading items−1)×item atoms×ReducerPair 및 empty identity 조건을 모델링한다. source error check를 삭제하거나 failed trace의 실제 work를 예측하는 모델이 아니다. operator cost는 dtype/numeric retry 등 관련 사실이 부족하면 Unknown으로 공급해야 한다. shape-changing/unknown reducer·opaque/name/definition·일반 rank/window 및 최종 assignment는 Unknown이다. noun lookup/guard의 실제 지연, representation/materialization 및 hardware 비용은 이 domain의 대상이 아니다.
-
-region은 external input boundary에서 역방향으로 source operation을 수집하고 원본 순서로 한 번씩 합산한다. nested pipeline/fork의 child region cost를 다시 더해 같은 operation을 중복 계산하지 않는다. total은 모든 원본 operation을 한 번씩 포함한다. 일반 fork는 h→f→g dependency를 유지하므로 Depth도 합산하며, 단순 syntax 관계로 Max를 생성하지 않는다. Map의 cell 작업을 ordered scalar baseline으로 세는 현재 모델은 최적의 parallel critical path를 주장하지 않는다. rank/cell 내부 경계는 필요한 call facts/model이 없으면 Unknown으로 보존한다.
-
-GF3의 Boolean Scan identity에는 source Window 모델과 별도의 **ordered Scan hypothesis**를 만든다. 그 비용은 DispatchChecks + (n−1)×item atoms×ReducerPair + output atoms×ResultAssembly이며 empty/scalar/singleton 타입/identity 계약을 원래 witness에서 보존한다. 원본 PrefixInfix의 비용/실행은 여전히 Unknown이다. ResultAssembly weight는 abstract assembly 비용이며 물리적 materialized buffer/copy를 강제하지 않는다. parallel scan 허가와 실행 선택은 만들지 않는다.
-
-GF4 envelope 비교는 검증된 source operation/retained value를 참조한다. source Work/Depth를 평가할 수 있어도 transformed replacement는 FusionTransferUnproven/Unknown이며 improvement_proven=false다. 단일 source operation의 extra-call duplication 가설은 기존 입력에서 추가 호출의 비용만 곱한다. 전체 upstream graph 복제 모델 또는 legal duplication proof가 아니며 duplication_authorized=false다. 두 가설도 source analysis/fusion witnesses로 재유도 검증하며 위조 permission/improvement를 거부한다.
-
-신규 Rust 회귀 8개는 symbolic unknown/operator weights, ordered fork, nested region 중복 방지, empty/singleton/scalar/matrix Reduce와 별도 Scan, unknown rank/extent/assignment, extra-call duplication 및 source-vs-unproved fusion, expression cycle/잘못된 provenance·total·arithmetic overflow를 검사한다. 호출 error/effect 순서는 보존했으나 일반 failed-path cost, reassociated reducer, parallel Max/tree, 일반 CellApply/Window 및 실행 optimizer는 후속이다.
-
-**GF5 검증:** native Windows default/portable 각각 **459 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 기존 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**이며 failed 0이다. Scan은 **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**, runtime prefix 경계 **285 / executable prefix passes 0**을 별도로 유지했다. capture graph 경계 **257**과 static 경계 **2**도 별도다. 전체 보고서 14개의 binary/source/DLL hash를 native 검증기로 확인했다. 이 게이트는 symbolic 모델·source semantics 회귀 검증이며 실제 성능 측정이나 parallel/fused 실행 검증이 아니다. source pin/DLL release는 구분하고 Linux/GitHub CI/CUDA는 실행하지 않았다.
-
-<a id="gf4-fusion-registry"></a>
-
-**GF4 fusion registry와 source envelope — 2026-10-05.** `src/j_graph_fusion.rs`와 `Plan::fusion_analysis(registry)`를 추가했다. stable ID/version 1의 Map→Map, Map→Reduce, Map→Scan, common-input Map+Map을 등록한다. typed pattern 중복/충돌, 잘못된 version/pattern 및 누락된 rank-cell/assembly·numeric·observable effect/error order·fan-out/retention·resource/work-depth·target capability 의무를 거부한다. 임의 pattern 언어의 일반 overlap solver를 구현한 것은 아니다.
-
-후보의 replacement는 **OrderedSourceEnvelope**다. 원본 applied operation subgraph와 입력 occurrence, source 순서, 외부 output을 보존하는 분석용 영역이며 fused kernel이나 새로운 의미론 op가 아니다. 기존 `GraphRewriteProvenance`를 재사용하고, 전체 GF2 composition 및 GF3 Scan witness를 참조한다. E. identity의 equivalence witness를 다른 fusion의 증명으로 재사용하지 않는다. MapScan은 별도 Scan identity witness가 있는 call만 후보가 된다. noun-left/capped fork에는 가짜 horizontal 관계를 만들지 않는다.
-
-각 envelope는 원본 use-count, 내부 입력 occurrence, 외부 소비자 및 retained value를 기록한다. 같은 producer가 dyadic 두 슬롯에 들어가면 candidate는 중복 등록하지 않되 occurrence 2개를 유지한다. 외부 소비자가 있는 producer/output을 지우거나 복제하지 않는다. 관련 input/operation GraphFacts를 기록하고, source span/basis/value, 순서, fan-out, call fact와 witness를 원본에서 재유도하여 검증한다. candidate 내부 use-count는 작은 sparse map으로 계산해 후보마다 전체 graph 크기의 scratch 배열을 만들지 않는다.
-
-모든 후보는 `legality=Unknown`, `resource_transfer_proven=false`, `selected=false`이며 target query는 DeferredUntilLegality다. 아직 없음은 legal transformed replacement, 실제 lowering query, resource/work-depth transfer proof, profitability 및 selection/partition이다. discovery가 cost 감소나 병렬화를 뜻하지 않는다. 현재 immutable original graph를 변경하는 optimizer는 없다. 신규 Rust 회귀 5개는 registry 거부, 세 vertical pattern, horizontal h→f/join/external retention, repeated input 슬롯·shared producer의 외부 소비자, unknown Scan/noun-left/capped 경계 및 위조 selected/span/order/retention을 검사한다.
-
-**GF4 검증:** native Windows default/portable 각각 **451 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 기존 세 runtime 경로 **5,380 cases / 5,380 passed / failed 0**, stage **10,810**, words **6,623**이며 failed 0이다. Scan identity 검사는 각각 **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**, runtime prefix 경계 **285 / executable prefix passes 0**을 유지했다. 기존 capture graph 경계 **257**, static 경계 **2** 및 vocabulary의 POS/binding/noun 검증은 별도다. 전체 보고서 14개의 binary/source/DLL hash를 native 검증기로 확인했다. 이 게이트는 source graph/발견/검증 경로를 검증하며 fused 실행·reassociation·parallel scheduling을 검증한 것은 아니다. source pin과 DLL release를 구분하며 Linux/GitHub CI/CUDA는 수행하지 않았다.
-
-<a id="gf3-scan-identity"></a>
-
-**GF3 Scan identity 및 보수적 인식 — 2026-10-05.** `src/j_graph_scan.rs` / `Plan::scan_analysis()`는 verified J graph 위에서 독립 `GraphBasisKind::Scan` 후보와 `ExactBooleanAtomicPrefixV1` witness를 생성한다. registry는 8을 유지하고 enum vocabulary 변경으로 Graph IR schema를 **0.9**로 올린다. 원래 PrefixInfix FunctionEntity·span·valence·input ValueId 및 Window→Reduce basis를 변경하지 않는다. candidate output facts는 source facts와 별도이며 실행 lowering에 주입하지 않는다. `execution_basis_for_graph_basis(Scan)`은 None으로 실행 capability를 암시하지 않는다.
-
-- **초기 proof 범위:** 직접 monadic PrefixInfix의 operand가 Insert이고 reducer가 operand-free core Add/Multiply인 경우만 검사한다. input의 exact Boolean dtype, shape/rank consistency와 checked atom extent가 필요하다. Bool sum은 각 lane의 누적값이 leading item 수 이하이고 이 수가 i64 범위 안임을 확인한다. Bool product는 {0,1}에 닫혀 있다. NameRef·일반 verb·다른 reducer·Int/Float/boxed/unknown input은 witness를 얻지 않는다. 값 payload를 읽거나 대용량 배열을 복사해 proof를 만들지 않는다.
-- **prefix/assembly:** leading-axis의 inclusive prefix 길이는 1..n이며 artificial identity를 삽입하지 않는다. scalar는 shape [1]로 바뀐다. item 수 0/1 또는 전체 atom 수 0이면 C atomic scan처럼 input atom/type을 유지한다. 따라서 Boolean sum의 singleton/empty 결과는 Bool이고, 일반 n≥2 비어 있지 않은 sum은 Int다. Boolean product는 Bool을 유지한다. dyadic infix와 nested rank의 effective cell/frame/assembly 사실이 부족한 호출은 명시적 analysis boundary다.
-- **효과/오류와 수치 계약:** 실제 bare core identity와 Boolean 영역의 closure/overflow bound를 검사하며 spelling이나 arbitrary reducer의 associativity를 추측하지 않는다. scalar/empty/singleton 경로에서 reducer 또는 identity 실행을 새로 삽입하지 않는다. 후보는 source order를 유지하고 `parallel_prefix_authorized=false`다. Float accumulation 순서, integer retry/promotion, 이름/locale 효과, sparse/representation 조건과 일반 rank assembly는 별도 proof 대상으로 남긴다. witness는 검증된 plan의 input facts/provenance에 한정되며 실행 전 binding/metadata guard를 대체하지 않는다.
-- **검증/검사 표면:** candidate verifier는 source graph를 검증한 뒤 contract·source/input/span·basis·fact·witness·boundary를 재유도해 stale/missing/forged 값을 거부한다. 새 Rust 회귀 4개는 empty/singleton/scalar/matrix, 일반 prefix/infix/numeric/NameRef/rank 경계, 잘못된 parallel permission·dtype·span, unknown/inconsistent/overflow extent를 검사한다.
-- **C 차분 범위:** `tools/scan_contract_conformance.py`와 `examples/scan_contract_probe.rs`를 Windows runner에 연결했다. Boolean 길이 0..6 전체 패턴, scalar와 empty/matrix/3D shape를 포함한 **274 identity/type/shape checks**, 일반 prefix/infix/rank·integer overflow·float cancellation/signed zero/infinity·char/boxed **11 rejected analysis checks**를 분리한다. 독립 정확 Boolean 모델의 데이터와 C 결과도 비교한다. 모든 **285 prefix runtime 경계**와 **executable prefix passes 0**을 별도 기록하며 Unsupported를 실행 동등성 pass로 세지 않는다. rejected numeric/error 사례의 C 결과는 oracle 관찰이며 Rust prefix 실행의 동등성 주장이 아니다.
-
-**근거:** 검토 소스 [ap.c::jtbslash/jtpscan, Bool prefix kernels](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c), [atomic type dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c), [insert semantics](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c). C source pin과 실제 DLL release를 구분한다. FOUNDATIONS의 graph/execution 분리·J error/rank 보존 가드레일을 따른다.
-
-**GF3 검증:** native Windows default/portable 각각 **446 passed / 17 ignored**, fmt/clippy/build 통과; Python **30 passed**. j64/AVX2 각각 새 Scan report **285 cases / 274 identity checks / 11 rejected analysis checks / failed 0**이며 **runtime prefix 경계 285 / executable prefix passes 0**을 별도 기록했다. 기존 세 runtime 경로는 각각 **5,380 cases / 5,380 passed / failed 0**, stages **10,810**, words **6,623**, vocabulary POS **143**/binding **140**/noun **3**이며 failed 0이다. 기존 capture graph 경계 **257**, static 경계 **2**는 별도다. 보고서 14개의 binary/source/DLL hash를 native 검증기로 확인했다. source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`를 구분한다. Linux/GitHub CI/CUDA/새 실행 optimizer는 수행하지 않았다.
-
-#### A1.5.1 과거 JAXA 역대조 감사
-
-2026-10-01 `yunskim/JAXA`, `yunskim/JAXA-complier`, `yunskim/japchae`, `yunskim/jaxa-analyzer`를 현행 RustJ J Graph IR과 **여러 독립 관점으로 반복 대조**했다. 이번 감사는 (1) language/graph intent, (2) resource/Flow–Storage/static-memory, (3) basis/rewrite/equivalence, (4) frontend prototype, (5) superseded claim 역검토의 다섯 패스로 수행했다.
-
-| 과거 JAXA 개념 | 현행 RustJ 상태 | 판정 |
-|---|---|---|
-| Semantic AST와 Array Operation IR 분리 | `FunctionEntity`와 `j_graph_ir::Plan`을 별도 boundary로 둠 | 반영 |
-| J syntax에서 static graph 직접 유도 | `@:`, Hook/Fork, `/`, `"`를 `GraphForm`으로 분류 | 반영 |
-| `@:` pipeline / Hook/Fork branch-join | `Pipeline`, `Hook`, `Fork` + GraphHint | 반영 |
-| applied graph stage별 shape 전파 | stage/branch가 explicit `ValueId` node와 독립 `GraphFacts`를 보유하며 layout-independent `SemanticFacts`와 `facts::infer_semantic_projection`을 사용한다 | **초기 구현 — container 분리됨** |
-| primitive shape/dtype/rank/effect contract | `GraphRuleRefs` + layout-independent `SemanticFacts` transfer를 J Graph build에서 적용. Execution `Facts` container와 GraphFacts container는 분리 | **초기 구현** |
-| primitive symbolic resource contract | `GraphOperationContract`가 iteration/access/fusion/temporary/accumulator/working_state symbolic requirement를 가짐. 구체 resource expression registry는 미완성 | **부분 반영** |
-| iteration/reduction/access pattern contract | `IterationContract`/`AccessContract`/`FusionStructure`를 J Graph op에 연결 | **초기 구현** |
-| pipeline/reduction/branch/join별 resource composition | Region은 Pipeline/BranchJoin, Apply node는 Reduction/Window/CellMap/Structural composition identity를 직접 기록. `j_graph_resource`가 node/region identity를 노출하나 full symbolic evaluator는 후속 | **부분 반영** |
-| intermediate edge materialization/traffic 분석 | `j_graph_memory`가 pipeline/branch/view materialization opportunity와 logical extent를 계산. traffic/selected materialization plan은 후속 | **초기 구현** |
-| register/live-value pressure 분석 | J Graph use-def/live-range를 계산하고 branch `live_across`가 join까지 lifetime을 확장. register pressure로의 target mapping은 후속 | **초기 구현** |
-| target profile과 graph resource demand 결합 | full TargetProfile/ResourceEstimate는 후속. 다만 Graph rewrite basis를 existing `LoweringRegistry + TargetCapabilities`에 투영하는 target-only feasibility query를 추가해 `Supported / RequiresCallFacts / Unsupported`를 구분한다 | **초기 연결** |
-| fusion partition 산출 | fusion candidate/opportunity만 있으며 선택된 fusion partition은 없음. rewrite의 target-only feasibility bridge와 구분 | **미구현** |
-| reshape/flatten/transpose를 virtual view로 취급 | Ravel/Reverse/Transpose에 `VirtualIndexingCandidate`를 J Graph에서 기록 | **초기 구현** |
-| Flow–Storage | Logical Execution/Planner 쪽에 별도 모델로 보존 | **의도적으로 downstream — 적절** |
-| checkpoint/rematerialization/reversible recovery | `StorageRequirement::ExplicitCheckpoint`와 logical/physical 분리는 설계됨. physical `Rematerialize` decision은 이번 반복 감사에서 명시적 planning option으로 보강했으나 구현은 없음 | **부분 반영 — 후속** |
-| adjoint/VJP graph + parameter-adjoint fan-out | `ParallelFanOut` schema만 있고 transform 없음 | 연구/후속 |
-| Graph basis → rewrite → equivalence algebra | Graph Basis와 첫 witnessed `E.` rewrite registry/candidate/verifier/resource 비교가 있음 | **초기 구현 — 일반 rule/equivalence 확장은 후속** |
-| resource-aware rewrite pruning | 없음 | 과거에도 future work; 미구현 |
-| basis access-pattern taxonomy | Graph Basis에 Window access family를 추가해 `u\`를 `PrefixInfix`로 보존하고 `(+/)\`를 `Window → Reduce`로 표현. 독립 Scan basis와 초기 Boolean identity 후보를 GF3에서 추가했다. 일반 수치/rank witness와 실행은 후속 | **초기 구현** |
-| symbolic resource function/composition | `GraphOperationContract`와 `j_graph_resource`가 최소 합성을 수행한다. `ResourceExprGraph`가 ValueAtoms/Requirement/Sum/Max 식을 보존하고 Pipeline/BranchJoin의 internal/elidable/retained/peak-live provenance를 표현한다. PrefixInfix/Rank는 inner resource requirement를 합성한다. richer accumulator/window-size 함수와 target realization은 후속 | **초기 구현** |
-| resource-aware pruning soundness | checklist에는 있으나 local/global resource 구분, monotonicity/soundness proof requirement가 명문화되지 않았음 | **설계 보강 필요** |
-| Basis → Rewrite → Equivalence → Optimization 의존 순서 | 각 기능은 roadmap에 있으나 선행관계가 약하게 표현됨 | **설계 보강 필요** |
-| static-analyzable subset / validation boundary | `GraphAnalyzability`로 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback을 구분 | **초기 구현** |
-| jsource-style graph normalization(capped fork→atop, tine simplification) | 현 `j_graph_ir`에는 별도 normalization pass 없음 | **미구현/확인 필요** |
-| multi-device static partition | 없음 | future work |
-
-**현재 판정:** v0.3에서 표기에서 얻는 topology를 stage-level applied graph, GraphFacts, use/liveness 및 symbolic resource seam으로 확장했고, v0.9에서 composition/Scan identity 분석을 추가했다. 부족한 것은 graph 부재가 아니라 rewrite-specific facts, 실행 lowering 및 실제 schedule/resource/cost 선택이다.
-
-v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access family, graph-only fact domain 경계, node-level Reduction/Window/CellMap resource composition을 추가했다.
-
-1. `@:` stage, Hook/Fork branch/join은 이제 실제 J Graph `ValueId` node/edge다.
-2. 원래 J combinator identity는 `Region(Pipeline/Hook/Fork)`으로 별도 보존한다.
-3. stage별 `GraphFacts`, `GraphOperationContract`, `GraphAnalyzability`, use-count를 graph에서 질의할 수 있다.
-4. `j_graph_memory`가 logical extent, graph-order live range, pipeline/branch/view materialization opportunity를 계산한다.
-
-남은 핵심 부족은 **rewrite candidate를 실제 executable lowering/schedule/target resource model로 연결하는 단계**다. Graph 쪽에서는 `ResourceExprGraph`로 internal/elidable traffic, retained/peak-live, temporary/accumulator/window-state requirement와 canonical state lifetime을 표현하고, rewrite candidate도 동일 logical-atom/symbolic-state domain에서 비교한다. 다음 경계는 rewrite-specific facts의 확대, WindowView 등 execution lowering capability, fusion 선택에 따른 lifetime extension, resolved TargetProfile 기반 ResourceEstimate/CostEstimate, 그리고 그 뒤의 candidate selection/partition이다.
-
-#### 2026-10-01 반복 감사에서 추가로 확정한 JAXA 계승 원칙
-
-1. **Graph Basis의 historical lower bound는 arithmetic atom이 아니라 access pattern 계층이다.** Japchae D-24의 핵심은 너무 작은 scalar `+`/`*`로 분해해 algorithm/access identity를 잃지 말라는 것이다. RustJ의 Graph Basis는 이 원칙을 유지한다. `Conv` 같은 structured op를 Graph Basis에서 black box로 유지하는 결정과 Execution Basis에서 필요 시 분해하는 결정은 독립적이다.
-2. **Graph Basis vocabulary에는 windowing 계열이 필요하다.** historical 후보는 `map / reduce / window-reduce / static-reindex / dynamic-gather`이고 `scan`은 독립 패턴인지 열린 질문이었다. v0.3에서 `PrefixInfix`/Window access family와 resource identity를 추가했다. 일반 WindowReduce 실행 지원은 후속이다. ExecutionBasis::WindowView가 존재한다는 사실로 이 요구를 대체하지 않는다.
-3. **Basis 연구가 rewrite/equivalence보다 선행한다.** 작업 의존은 `Basis → Rewrite → Equivalence → Optimization`으로 둔다. 완전한 최소 basis 증명까지 기다릴 필요는 없지만, rewrite rule은 어떤 Graph Basis identity를 보존/변환하는지 명시해야 한다.
-4. **resource contract는 node별 고정 숫자도, 단순 enum 합도 아니다.** target-independent graph 층은 symbolic requirement/access/liveness/materialization 관계를 합성하고, schedule/target 이후 concrete register/shared/global resource를 계산한다. 현재 최소 `SymbolicResourceExpr`는 seam일 뿐 최종 모델이 아니다.
-5. **resource-aware pruning은 매우 후순위다.** basis/rewrite/equivalence가 먼저 서야 하며, pruning은 (a) 해당 resource bound가 부분 graph에서 local하게 결정 가능한지, (b) pruning predicate가 monotone하거나 그 밖의 soundness proof를 갖는지 확인된 경우에만 허용한다. 그렇지 않으면 후보 생성 후 cost/resource evaluation만 수행한다.
-6. **static memory claim은 logical determinability로 해석한다.** graph에서 extent/use/lifetime/storage obligation을 정적으로 알 수 있다는 주장은 유지하지만 physical offset/buffer/layout을 J Graph semantic fact로 올리지 않는다.
-7. **adjoint/VJP는 basis/rewrite보다 앞서지 않는다.** historical 연구도 복합 graph의 AD는 basis/graph expansion 위에서 자연스럽게 닫히는 문제로 보았다. 현재 `ParallelFanOut` schema는 유지하되 실제 AD transform은 Graph Basis와 rewrite/equivalence surface가 더 성숙한 뒤 진행한다.
-8. **frontend 역사 prototype은 current jsource보다 우선하지 않는다.** `JAXA-complier`의 tokenizer/enqueuer/parser Python prototype은 유용한 참고 구현이지만, name lookup timing과 parser behavior의 oracle은 current jsource `w.c/p.c/cf.c`다. 특히 전체 name 품사를 parser 전에 미리 확정하는 모델로 되돌아가지 않는다.
-9. **초기 JAXA의 강한 구현 주장은 그대로 계승하지 않는다.** `"RjP`, rank 변화=항상 fusion boundary, 모든 shape op=항상 zero-copy, parse-time complete graph, fixed physical offset, primitive 고정 register 숫자는 후기 연구 또는 current RustJ 계층 분리와 충돌하므로 superseded다.
-
-
-- [x] `src/j_graph_ir.rs`에 독립 J Graph IR을 추가하고 `Engine::analyze_j_graph()` inspection API를 제공한다.
-- [x] `GraphBasis` / `GraphBasisKind`를 Execution basis 타입과 분리하고, derived rank/reduction처럼 outer→inner graph-basis composition을 보존하는 최소 seam을 추가했다.
-- [x] Graph Basis에 Window access family를 추가하고 J `\`을 `GraphForm::PrefixInfix`로 보존한다. operand basis를 중첩해 `(+/)\`가 `Window → Reduce`가 되게 했다. 당시 Scan은 열린 질문으로 남겼으며, 2026-10-05 독립 basis 설계를 확정했다. GF3에서 초기 Boolean identity 후보를 추가했으며 일반 수치/rank witness와 실행은 후속이다.
-- [x] 기존 `SymbolicResourceExpr` requirement leaf 위에 `ResourceExprGraph`를 추가해 logical `ValueAtoms`, symbolic requirement, `Sum`, `Max` composition을 표현한다. node requirement와 region internal/elidable/retained/peak-live 식 provenance를 보존하며 concrete target 숫자는 넣지 않는다.
-- [x] GraphFacts inference에서 execution `Facts`/`LayoutFact` container seed/return adapter를 제거하고 layout-independent `SemanticFacts` domain/API를 사용한다. primitive shape/dtype rule source는 execution inference와 공유한다.
-- [ ] Reduction/CellMap/Window resource composition identity를 실제 Apply node와 verifier/resource summary에 연결했고, Rank/PrefixInfix가 inner accumulator/working-state requirement를 보존하도록 합성했다. 남은 일은 이 node composition을 Pipeline/BranchJoin과 같은 symbolic lifetime/traffic evaluator까지 확장하는 것이다.
-- [ ] Pipeline/BranchJoin의 edge traffic/retained/peak-live와 child resource state를 `ResourceExprGraph`로 합성했다. 각 temporary/accumulator/window-state에는 canonical graph-order `ResourceStateLiveRange`와 `may_extend_across_fusion`을 기록하고 region별 canonical peak와 conservative all-child-state upper bound를 모두 만든다. 남은 일은 실제 fusion candidate별 lifetime extension/overlap 제약과 target realization 함수까지 연결하는 것이다.
-- [x] Graph Basis → rewrite candidate generation → equivalence validation → candidate resource evaluation → sound resource pruning 순서를 `GRAPH_OPTIMIZATION_ORDER`와 rule registry API에 반영했다.
-- [x] resource-aware pruning은 `ResourceBoundLocality::Local` + `PruningMonotonicity::ProvenMonotone`가 모두 있는 rule에만 early pruning을 허용하도록 contract를 정의했다. 현재 `E.` rewrite는 global-context-dependent/unproven이라 pruning 불가다.
-- [x] `GraphForm`으로 Atomic / Pipeline(`@:`) / Hook / Fork / Reduce(`/`) / PrefixInfix(`\`) / Rank(`"`) / generic Modifier를 구분한다.
-- [x] `GraphHint`로 PipelineFusionCandidate / IntermediateMaterializationElision / BranchJoinFusionCandidate / RetainedValueCandidate / ParallelBranchCandidate / ReductionStructure / WindowStructure / CellParallelStructure를 기록한다.
-- [x] `GraphRuleRefs`로 shape/dtype/rank-cell/effect rule source와 resource rule의 StructuralComposition/Unknown을 명시한다.
-- [x] `Engine::analyze_compilation()`이 `j_graph`와 `logical` 두 IR을 함께 반환한다.
-- [x] execution lowering은 BoundProgram을 직접 canonicalize하지 않고 J Graph IR을 소비한다.
-- [x] execution node/A3 op가 `j_origin`으로 originating J Graph node를 보존한다.
-- [x] Hook/Fork/@: topology 분류의 단일 소스를 `j_graph_ir::classify_function()`으로 두고 execution analyzer의 독립 pattern rediscovery를 제거한다.
-- [ ] `\` Prefix/Infix의 graph vocabulary는 추가했다. 남은 Cut/Window(`;.`), Dot/Contract, Power/Iteration, Key/GroupBy 를 GraphForm/GraphHint로 확장한다. 독립 Scan basis의 초기 identity 분석은 GF3에 반영했고 확장은 GF3a에서 추적한다.
-- [ ] `ExecutionBasis::WindowView` semantic payload는 `WindowShapeSpec::PatternShape`로 구현했고 expansion verifier가 inputs/payload 일치를 강제한다. `FindViaWindowMatch` 전체에 대해서는 current `E.` rank≤1 semantics와 동일한 CPU `ReferenceRewriteComposite` evaluator/capability를 추가했다. standalone WindowView value/kernel lowering은 아직 없으며 일반 Window rewrite를 위해 후속 구현한다.
-
-- [x] current primitive/rank/reduce 범위에서 stage별 shape/dtype/rank facts를 J Graph build 중 전파한다. richer rule registry는 계속 확장한다.
-- [x] `GraphOperationContract`로 iteration/access/fusion 및 temporary/accumulator/working_state symbolic requirement의 최소 seam을 추가했다.
-- [x] graph-level use-def/common-input/live-range를 J Graph 및 `j_graph_memory`에서 계산한다.
-- [x] logical extent(atom count)와 materialization opportunity를 J Graph에서 정적으로 계산한다.
-- [x] `j_graph_resource`에서 Pipeline/BranchJoin의 internal/elidable/retained/peak-live atom volume과 reduction accumulator requirement를 합성하는 최소 evaluator를 구현했다. Reduction/CellMap 단독-region 및 traffic 식은 계속 확장한다.
-- [ ] graph rewrite에 대해서는 existing `TargetCapabilities`/`LoweringRegistry`와의 초기 feasibility bridge를 추가했다. representation/schedule/full TargetProfile을 결합한 downstream `ResourceEstimate`는 여전히 후속이다.
-- [x] 최소 graph rewrite registry/candidate sidecar를 추가하고 첫 rule로 `E.` Search → Window+CellApply(Match) 후보를 J Dictionary equivalence witness와 함께 생성한다. 일반 rule set 확장은 계속 필요하다.
-- [x] graph candidate마다 source ValueId/span/basis provenance, registered semantic-equivalence witness, `RewriteFactRuleId`를 유지한다. verifier는 provenance/rule/witness뿐 아니라 rewrite-local GraphFacts를 rule로 재계산해 stale/invented facts도 거부한다.
-- [ ] adjoint/VJP transform을 J Graph IR transform으로 추가하고 fan-out / accumulation topology를 explicit하게 만든다.
-- [ ] name-bound derived verb의 graph summary를 binding version + SpecializationKey로 interprocedurally 전파한다.
-- [ ] graph rewrite candidate를 source/replacement의 동일 logical-atom + symbolic-state resource domain에서 평가하고 rewrite-local GraphFacts를 보존한다. existing `LoweringRegistry + TargetCapabilities`로 replacement GraphBasis를 execution basis에 투영해 target-only feasibility도 질의한다. unknown cost는 `Incomparable`, call-dependent legality는 `RequiresCallFacts`로 남긴다. `RewritePlanningReport`가 resource + target readiness를 합쳐 `TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting`까지만 판정하며 후보 선택은 하지 않는다. 현재 `E.` candidate는 CPU에서 standalone WindowView 없이도 whole-rule `ReferenceRewriteComposite`로 target-feasible하다. 다만 candidate-local Window extent/traffic이 아직 unknown이라 planning state는 `NeedsResourceFacts`이고, GPU/standalone WindowView route는 Unsupported다. 남은 일은 rewrite-specific Window shape/resource 식, 일반 WindowView lowering, full TargetProfile/ResourceEstimate/CostProfile과 연결하는 것이다.
-
-**완료 조건:** 대표 J expressions(`@:`, Hook, Fork, Reduce, Rank, 이후 Window/Contract/Key/Power)가 generic execution DAG를 만들기 전에 J Graph IR에서 구조적으로 식별되고, graph optimizer가 source reparsing이나 execution-DAG pattern recovery 없이 fusion/lifetime/parallel/rewrite 후보를 만들 수 있다.
-
-#### A1.5.2 JAXA의 static-memory claim을 RustJ에서 해석하는 방식
-
-JAXA의 중요한 주장 중 하나는 **배열 연산을 J DSL로 정적으로 표현하면 graph를 실행하기 전에 필요한 메모리 구조를 상당 부분 결정할 수 있다**는 것이다. RustJ는 이 주장을 버리지 않되, `logical memory`와 `physical memory`를 구분한다.
-
-J Graph 단계에서 정적으로 계산할 수 있는 것:
-
-- 각 logical ArrayValue의 shape / rank / dtype fact
-- shape가 known이면 atom count
-- producer-consumer use-def와 fan-out
-- graph-order lifetime / last-use
-- Hook/Fork의 live-across value
-- pipeline/branch 내부 intermediate
-- 어떤 value가 materialization-elision 후보인지
-- static reindex/view가 virtual하게 유지될 가능성
-- reduction accumulator / temporary / working_state의 symbolic requirement
-- representation model이 주어졌을 때 logical extent의 represented byte size
-
-J Graph 단계에서 **아직 결정하지 않는 것**:
-
-- 실제 register allocation
-- register class별 사용량
-- shared/LDS/scratchpad의 concrete byte 수
-- tile/workgroup별 local storage
-- packed-bool/box/sparse 등의 final representation
-- alignment/padding/buffer offset
-- spill/occupancy
-- exact physical allocation/reuse
-
-따라서:
-
-~~~text
-J syntax / J Graph
-    ↓
-Static logical memory analysis
-    shape → atom count → use/lifetime → materialization opportunity
-    ↓
-Representation + Schedule + Target
-    ↓
-ResourceEstimate / bufferization
-    register/shared/global bytes, peak physical memory, traffic
-~~~
-
-현재 구현:
-
-- `src/j_graph_memory.rs`의 `StaticMemoryAnalysis`
-- `LogicalExtent { shape, atoms, dtype }`
-- `GraphOrderLiveRange { defined_at, last_use }`
-- `PipelineIntermediate`, `RetainedAcrossBranch`, `BranchIntermediate`, `VirtualView` materialization opportunity
-- explicit `AtomRepresentation`을 제공할 때만 byte size 평가
-- 모든 logical value를 materialize한다고 가정한 `graph_order_peak_materialized_bytes()` 제공
-
-이 conservative peak는 최종 resource estimate가 아니다. fusion/materialization selection 전의 upper-bound-like graph estimate이며, JAXA의 핵심인 **“graph에서 memory obligation을 정적으로 계산한다”**는 주장을 검증하기 위한 분석 결과다.
-
-현재 `j_graph_resource` 최소 evaluator는 region별 `internal_atoms`, `elidable_materialization_atoms`, `retained_live_atoms`, `graph_order_peak_live_atoms`, `has_reduction_accumulator`, `has_unknown_resource_requirement`를 계산한다. 이것은 target-independent logical resource summary다.
-
-향후 `ResourceCompositionRule` evaluator는 다음 불변조건을 따른다.
-
-- Pipeline: stage temporary는 lifetime이 겹치지 않으면 재사용 가능하며 internal edge materialization을 제거할 수 있다.
-- Reduction: 큰 producer result 대신 accumulator state로 직접 소비할 수 있는지를 표현한다.
-- Branch: sibling branch의 live temporary와 retained input이 겹칠 수 있다.
-- Join: 두 branch result가 join 시점에 동시에 live할 수 있다.
-- memory traffic은 node resource의 단순 합이 아니라 **materialized edge의 write/read**를 중심으로 계산한다.
-- register pressure는 primitive register 숫자의 합이 아니라 **simultaneously-live symbolic values**를 중심으로 계산한다.
-
-
-### A2 — Extension Primitive Registry와 analysis contract
-
-> **구현 주의:** 아래 목록 전체는 A2의 장기 architecture inventory다. A3-v0/첫 CPU vertical slice를 막는 하나의 거대한 선행 milestone로 취급하지 않는다.
->
-> **A2-v0 blocking subset**
-> - built-in/extension이 공유하는 최소 semantic capability interface
-> - valence별 rank + shape/type/effect/error 최소 contract
-> - `ValueFacts`의 최소 Type/Rank/Shape domain + compile-time Witness
-> - Map/Reduce 수준의 IterationDomain
-> - `AccessFact = Known(simple) | Opaque`
-> - lowering eligibility/coverage manifest
-> - 첫 실행 op에 필요한 native CPU lowering
->
-> **A2-later**
-> - richer ArrayPropertyFacts + full morphology worklist/fixpoint
-> - interprocedural morphology/specialization cache
-> - GraphIndex/AnalysisIndex batch-analysis view
-> - full TargetProfile/TargetQueries
-> - target locale chain
-> - ResourceEstimate/CostEstimate/CompiledResourceReport
-> - mixed RoutePartition boundary bridge
-> - richer Window/Scan/Gather/Scatter access/resource model
-
-
-
-- [x] extension name을 parser keyword로 만들지 않고 ordinary name binding으로 등록한다. **F1/P4 현재 구현:** extension catalog가 있어도 enqueue는 NAME으로 유지하고 parser/runtime name environment가 binding/POS를 해석한다.
-- [x] Enqueue는 extension도 ordinary NAME/lookup metadata로 처리하고, parser-time normal name lookup이 현재 binding의 품사를 결정하게 한다. `tests/enqueuer.rs`의 extension-like spelling 회귀와 F1 checklist를 근거로 한다.
-- [ ] parameterized adverb(`conv`, `linear` 등)와 그 결과 derived computational verb/op identity를 분리한다.
-- [ ] built-in과 extension-derived computational entity가 공유하는 semantic capability interface를 정의한다.
-- [ ] extension builder(adverb/conjunction/verb) identity와 derived computational entity identity를 분리한다.
-- [ ] `PrimitiveSpec`을 semantic identity/version record로 축소하고 semantic capability interface와 lowering/realization registry를 분리한다.
-- [ ] monad / dyad-left / dyad-right별 innate RankSpec과 cell axis-role contract를 정의한다.
-- [ ] `IterationDomain`, `AccessRelation`, `InvarianceFact`, `ConstraintSet`, `SemanticMaskSemantics`를 정의하여 leading axis보다 일반적인 hardware-relevant logical contract를 만든다.
-- [ ] access-pattern taxonomy(Map/Reduce/WindowReduce/Scan/StaticReindex/Gather/Scatter)를 최소 형태로 정의한다.
-- [ ] shape/dtype/effect/alias/semantic-reference 계약을 정의한다.
-- [ ] `ValueFacts`를 Type/Rank/Shape/ItemCount/Constant/ArrayProperty/Constraint의 abstract-domain 집합으로 정의한다.
-- [ ] `ArrayPropertyFacts` domain(IntegralValued/NonNegative/Unique/Sorted/Permutation/KnownRange 등)의 최소형과 primitive transfer rule interface를 정의한다.
-- [ ] optimizer가 사용하는 추론 fact에 `FactWitness`/provenance를 연결하는 최소 contract를 정의한다.
-- [ ] logical `ConstraintSet`과 downstream `RepresentationFacts`를 분리한다.
-- [ ] `CompilationTarget = BackendFamily + ArchitectureTarget + DeviceProfile + RuntimeProfile`을 정의하고, 기존 `TargetProfile`은 resolved effective view로 사용한다.
-- [ ] compile invocation 시작 시 `CompilationTargetLocale` / `TargetContext`를 확정하고 lowering lookup의 root로 사용한다.
-- [ ] AOT CLI와 향후 JIT API가 동일한 `TargetSelector/TargetOptions` contract를 사용하게 한다. JIT는 runtime discovery를 추가 evidence로만 사용하고 별도 target-selection 체계를 만들지 않는다.
-- [ ] `target=auto`와 explicit target constraint의 precedence를 정의하고 AOT/JIT 양쪽에서 동일하게 테스트한다.
-- [ ] built-in primitive와 extension-derived op가 source identity와 무관하게 동일 active target locale/path에서 lowering/capability를 조회하는 테스트를 추가한다.
-- [ ] execution hierarchy/register allocation rules/memory & resource coupling/compute & execution scope/sync & memory ordering/data movement/execution mode/ABI capability를 architecture/device profile에 올바르게 분리한다.
-- [ ] compiler target locale chain(device → architecture → family → backend → cpu/gpu → generic)을 정의한다.
-- [ ] built-in J primitive도 extension과 동일하게 target lowering binding을 locale chain에서 조회한다.
-- [ ] lowering lookup key에 primitive/source identity뿐 아니라 resolved valence와 derived rank/fit/numeric semantics를 포함한다.
-- [ ] hard target facts와 empirical `CostProfile`을 분리한다.
-- [ ] Physical Plan에 logical-axis mapping/tile/vector-subgroup-workgroup/memory-space/layout/pipeline 정보를 기록한다.
-- [ ] `ResourceEstimate`를 graph + schedule + TargetProfile의 함수로 계산하고 `CostEstimate`를 별도 계층으로 둔다.
-- [ ] backend가 실제 register/spill/shared-memory 결과를 돌려주는 `CompiledResourceReport`와 re-plan 경로를 정의한다.
-- [ ] `TargetProfile`을 stable facts와 architecture-specific `TargetQueries`로 분리한다.
-- [ ] Logical Array IR → MLIR export adapter의 최소 contract를 설계한다.
-- [ ] whole-program route 선택이 아니라 subgraph/region 단위 `RoutePartition`과 boundary value bridge를 정의한다.
-- [ ] StableHLO로 안전하게 내릴 수 있는 subset을 명시하고 unsupported semantics를 거부하는 규칙을 만든다.
-- [ ] resource 함수는 고정 숫자가 아니라 fusion context/target에 대한 함수로 둔다.
-- [ ] register estimate는 primitive별 합이 아니라 scheduled liveness peak로 계산한다.
-- [ ] accumulator requirement(logical)와 accumulator realization(schedule/target)을 분리한다.
-- [ ] scratchpad/shared usage를 tile/reuse/pipeline-stage 함수로 계산한다.
-- [ ] 첫 extension set(`relu`, `linear`, `conv2d`, `flatten`, reduction/pool)을 port한다.
-- [ ] noun snapshot과 verb/adverb/conjunction nameref late lookup, alias/shadow/rebind, `f.` fix semantics를 구분하는 테스트를 추가한다.
-- [ ] mutable extension state가 hidden verb field가 아니라 explicit StateResource로 나타나는 테스트를 추가한다.
-- [ ] standard-J reference definition이 가능한 extension은 차등 oracle test를 추가한다.
-
-완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, RustJ-native route에서는 별도 TargetProfile을 이용해 schedule/ResourceEstimate를 만들고 external route에서는 adapter가 같은 Logical IR contract를 검증해 lowering할 수 있다.
-
-### A3 — Logical Execution IR core, verification, scheduling boundary
-
-> **단계화:** APEX/Co-dfns/TAIL 반영 항목은 단계적으로 도입한다. 첫 verified single-block Logical IR(A3-v0)은 SSA ValueId + 최소 Type/Rank/Shape/Witness + verifier를 우선한다. full GraphIndex, full morphology fixpoint, interprocedural SpecializationKey cache, richer ArrayPropertyFacts는 A3-v0의 선행조건이 아니며 v1/later에서 추가한다.
->
-- [x] A3-v0에 SSA `ValueId`와 explicit single Function/Region/Block/`Return` Terminator 최소 구조를 정의했다.
-- [x] J name/symbol identity, `BindingVersion`, A3 SSA `ValueId`를 서로 다른 타입/field로 구분한다.
-- [ ] immutable semantic/Logical DAG에서 유도되는 `GraphIndex` / `AnalysisIndex` sidecar(parent/depth/preorder/subtree/op/entity/scope/use-def/source-origin)를 정의한다.
-- [ ] graph index는 derived analysis view이며 semantic DAG의 canonical identity를 대체하지 않는다는 verifier/invariant를 둔다.
-- [ ] morphology transfer를 worklist/fixpoint로 실행할 최소 `MorphologyEngine` interface를 정의한다.
-- [ ] interprocedural summary와 call-site specialization을 `SpecializationKey` + cache로 표현한다.
-- [ ] specialization key에 포함할 fact relevance 정책과 code-explosion merge/widening 정책을 정의한다.
-- [ ] PureArray/GuardedDynamic/Stateful/RuntimeSemantic region 분류를 EffectAnalysis/RoutePartition contract에 추가한다.
-- [ ] `CellApply/Map/Reduce/Scan/Reindex/Loop` 같은 high-level parallel structure의 early scalarization을 금지하는 Logical IR invariant를 추가한다.
-- [x] A3 `CallOp + ExecutionBasisPayload` 공통 contract와 `ExecutionBasisKind` identity를 정의하고, target-specific realization은 `ExecutionBasisLoweringCapability` registry로 분리했다. 이 vocabulary는 GraphBasis와 별도 계층이다.
-- [x] J syntax-derived `StructuralOpportunity` sidecar를 추가했다. `@:`는 Pipeline, hook/fork는 BranchJoin topology와 live-across/shared-input provenance를 analysis/A3 IR에 보존한다.
-- [x] StructuralOpportunity discovery와 semantic legality/target feasibility/physical fusion commitment을 서로 다른 단계로 분리했다.
-- [ ] adjoint/VJP expansion이 생기면 data-adjoint/parameter-adjoint branch를 `ParallelFanOut` opportunity로 연결한다.
-- [ ] name-bound derived verb의 FunctionEntity/topology summary를 binding version + SpecializationKey로 전파해 `@:`/hook/fork opportunity가 call boundary에서 사라지지 않게 한다.
-- [ ] StructuralOpportunity와 use-def/GraphIndex를 결합해 pipeline intermediate materialization-elision 및 branch live-range 분석을 일반화한다.
-- [ ] J Graph IR의 GraphForm/GraphHint vocabulary를 Cut/Window, Dot/Contract, Power/Iteration, Key/GroupBy 등 J graph algebra 전반으로 확장한다.
-- [ ] primitive마다 J Graph IR용 shape/dtype/rank/effect/resource rule reference를 연결하고, 아직 모르는 항목은 명시적 Unknown으로 둔다.
-- [ ] Graph basis verb 위 rewrite/equivalence rule을 J Graph IR에서 표현하여 동일 execution semantics를 갖는 여러 J graph 후보를 생성할 수 있게 한다.
-- [ ] target ResourceEstimate/register/shared-memory model을 opportunity별 feasibility query로 연결하되 Logical IR payload에는 concrete hardware allocation을 넣지 않는다.
-- [x] ResolvedInstantiation 최소 record를 정의하여 우선 target/valence/input-output dtype·rank/requested-rank instance를 기록한다. cell-rank/value-role/numeric-policy 확장은 후속 refinement다.
-- [x] ValueRoleFacts 최소형을 추가했다. 현재 ShapeVector/AxisPermutation/IndexVector/CountVector를 실제 분석에서 생산하며 나머지 role enum은 후속 basis가 사용한다.
-- [x] J-visible predicate failure를 표현하는 first-class zero-result SemanticCheck를 A3 IR에 정의하고 compiler assertion과 분리했다.
-- [x] ExecutionBasisExpansion sidecar에 applicability ConstraintSet + equivalence witness를 두고 original semantic/structured identity를 보존한다. 첫 rule은 E. → WindowView + CellApply(Match)다.
-- [x] A3-v0 correctness executor 범위를 Elementwise/CellApply/Reduce/StaticReindex/IndexSpace/SemanticCheck 중심으로 제한했다. `logical_executor::execute_closed`는 closed expression reference path이며 native Physical Executor와는 별개다.
-- [x] A3 verifier negative tests, runtime/reference-equivalence tests, Rank/Reduce 및 E. expansion composition tests의 golden scaffold를 추가했다.
-- [x] `ParameterizedLoweringRecipe` interface와 `LoweringRegistry` 후보 생성 경로를 정의해 resolved call facts + target capability에서 multiple realization 후보를 만들 수 있게 했다. cost ranking/schedule 선택은 아직 downstream 과제다.
-- [ ] pure graph region과 CFG region을 구분한다.
-- [x] v0 `ConstraintSet + FactWitness`를 정의하고 PrefixAgreement/CellFrameAgreement/IndicesInBounds를 우선 연결했다. runtime branching `Guard`는 v1로 유지한다.
-- [x] v0 `EffectSummary + SpeculationSemantics` resolved-call interface를 정의했다. explicit `EffectToken`은 v1로 유지한다.
-- [x] v0 `PossibleErrors { known, unknown }`와 first-class `SemanticCheck`로 MayRaise를 보존한다. primitive별 완전한 error-set refinement와 exceptional CFG edge는 후속이다.
-- [x] A3 `DestinationRelation`을 정의해 logical alias/reuse legality seam과 physical `BufferId`를 분리했다. 현재 call 기본값은 보수적으로 `Unknown`이다.
-- [x] A3 verifier가 schema/container/op-value producer/order/basis payload/instantiation/constraint/zero-result check invariants를 검증한다.
-- [x] A3-v0 `SemanticCapabilityView`를 정의해 result facts(shape/type/rank 포함), iteration/axis domain, access, effect, speculation, possible errors, destination/alias seam을 공통 API로 노출한다. richer property/alias interface는 후속 확장한다.
-- [ ] schedule/transform representation을 Logical payload IR과 분리한다.
-- [ ] external adapter capability negotiation과 guarded lowering을 정의한다.
-- [x] A3 `IrSchemaVersion`과 compiler version/primitive registry version provenance를 IR header에 추가했다.
-- [x] v0 single-block graph/check/witness/verifier/reference-executor golden tests를 추가했다. branch/loop/effect-token/dynamic-guard tests는 v1로 유지한다.
-
-완료 조건: Logical IR이 RustJ-native planner와 external adapter 양쪽에서 동일한 verifier/interface contract를 통해 소비될 수 있고, buffer/layout/schedule을 넣지 않아도 control/effect/dynamic constraint semantics를 잃지 않는다.
-
-구현은 단계적으로 한다.
-
-```text
-A3-v0
-  single Function
-  single Region / single Block
-  pure array ops
-  SSA ValueId
-  verifier
-  shape/axis/numeric contracts
-  simple Known access or explicit Opaque access fact
-  EffectSummary/Speculation interface
-  ConstraintSet + compile-time Witness의 최소형
-  Basis core: Elementwise / CellApply / Reduce / StaticReindex / IndexSpace
-  first-class SemanticCheck + possible J error set
-
-A3-v1
-  multi-block CFG
-  branch / loop / runtime Guard
-  try/catch/throw exceptional edges
-  EffectToken
-  richer alias/destination analysis
-
-A3-v2
-  portable serialization/version migration
-  async/control-effect extensions as needed
-```
-
-즉 장기 IR이 Region/Block을 지원한다고 해서 첫 구현에서 전체 CFG framework를 완성할 필요는 없다.
-
-### G1 — 논리 값과 물리 표현의 경계
-
-상태: **완료**
-
-- [x] ValueId와 BufferId 분리 기초
-- [x] generation/scoped BufferId
-- [x] BufferLease
-- [x] read-only affine PhysicalArray
-- [x] shape/strides/offset
-- [x] encoding/dtype/backing 검증
-- [x] signed span checking
-- [x] empty/scalar policy
-- [x] standard logical layout 판정
-- [x] Windows 기본/portable 회귀
-
-아직 evaluator/LogicalPlan 실행 경로와 완전히 연결된 것은 아니다.
-
-### G2 — 복사 없는 structural view
-
-- [ ] transpose stride permutation
-- [ ] reverse negative stride
-- [ ] fill 없는 take/drop/slice view
-- [ ] compatible reshape metadata-only
-- [ ] agreement 결과의 zero-stride lowering
-- [ ] logical-order materialization
-- [ ] backing identity/payload copy 테스트
-- [ ] transpose→reverse→slice 조합 테스트
-
-### G3 — CPU kernel 및 cell mapping 연결
-
-- [ ] contiguous / fixed-stride / general-stride 경로
-- [ ] add를 첫 실제 연결 operation으로 사용
-- [ ] SIMD contiguous fast path 유지
-- [ ] explicit cell mapping과 physical view 연결
-- [ ] alias proof 없는 write/reuse 금지
-- [ ] primitive-specific overflow/retry/promotion 및 error precedence 보존
-- [ ] comparison tolerance/`!.` contract 보존
-- [ ] 일반 float reduction과 compensated `+/!.0` 같은 derived numeric policy를 구분한다.
-- [ ] NaN/Inf/signed zero/empty/fill-cell 테스트
-
-### G4 — RustJ-native 최소 Physical Plan과 CPU Executor
-
-- [ ] plan-time `PlanBufferId` / `PhysicalViewId` identity와 verifier
-- [ ] `BindInput`
-- [ ] `Check` — A3 SemanticCheck의 error kind/origin/order 보존
-- [ ] `View`
-- [ ] `Materialize`
-- [ ] `Kernel` call — selected lowering recipe만 실행
-- [ ] `Return` / output ownership
-- [ ] last physical use
-- [ ] buffer reuse proof/witness
-- [ ] layout-compatible view 유지
-- [ ] runtime `BufferLease/BufferId` binding과 plan-time identity 분리
-- [ ] CPU executor
-- [ ] source → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan → RustJ-native Schedule/Physical Plan → CPU end-to-end
-
-### G5 — RustJ-native 성능 및 physical 확장 경계
-
-- [ ] structural view 생성 비용
-- [ ] copy/allocation/peak/retained bytes
-- [ ] general-stride indexing 비용
-- [ ] materialization 비용 비교
-- [ ] contiguous 기존 성능 회귀 확인
-- [ ] Windows default/portable 전체 회귀
-- [ ] 지원 layout/type/operation 표 갱신
-- [ ] tiled/placement/transfer/completion 확장 경계 확인
-
-
-<a id="out-of-core-io-checklist"></a>
-
-### IO — 느린 I/O·Out-of-core 실행 이행 계획·수용 체크리스트 (2026-10-06)
-
-**I/O 프레임워크 처리·실행 구조 상세:** [§8.5.2](#io-framework-execution-comparison)에서 기존 30개 게이트의 계층별 근거를 설명한다. 완료 판정은 이 표만 사용한다.
-
-**상태: 설계·작업표 작성, 구현/실행 검증 0/30 수용.**
-
-**체크리스트 운영 규칙(작업 시마다 적용).** 이 IO-01~IO-30 표가 I/O 구현 및 검증 상태의 단일 원장이다. 기존 표의 ID를 바꾸거나 동일 작업을 별도 계획 파일·새 checklist로 복제하지 않는다. 진행 시 (1) 선행 조건이 충족된 **가장 작은 미완료 실행 단위**를 선정, (2) Jsource/J 애드온/외부 프레임워크의 원본 및 라이선스·적용 가능성을 확정, (3) baseline 의미·negative fixture, (4) 최적화 구현, (5) J C oracle / Rust sync / optimized의 독립 비교 및 메모리·I/O 계측, (6) 해당 행의 증거·미지원·차단 조건을 갱신한다. 소스 검토·계획 완료는 구현 완료가 아니다. 실패·미측정·검증 환경 부재 시 **[ ] 유지**하고 사유를 적는다. 관련 기존 FW/DB/G4/G5 수용 표와 의미·효과/자원 선행 관계를 유지한다.
-
-**현재 다음 작업:** IO-01·IO-25 upstream source pinned 부분 감사와 IO-02 효과/오류 반례 목록은 [§8.5.4](#io-a-source-audit)에서 기록했다. 원본 C의 15개 file-foreign + 6개 ordered-effect 사례를 기준으로 고정했다. 다음에는 파일 핸들·권한·flush/close와 JMF bootstrap·RO/RW/COW 매핑 oracle을 소규모 실행 fixture로 확장한다. **소스 조사만으로는 IO-* 항목을 수용하지 않으며 0/30 [ ] 유지.**
- 기존 M2/frontend와 FW-01~04·Rank/CellApply 의미 수렴을 우선한다. IO-A의 조사/모형화는 병행 가능하지만 I/O 경로를 M4 첫 CPU vertical slice의 필수 조건으로 격상하지 않는다. 단계 순서: **IO-A 근거와 안전 계약 → IO-B 동기 reference → IO-C 접근 최소화 → IO-D bounded async → IO-E 재사용/배치 최적화 → IO-F 실증/확장**. 앞 단계 미통과 시 뒤 단계는 설계 후보만 허용한다. [ ]은 *수용 전*, [x]는 변경 commit·실행한 명령/환경·jsource oracle 적용 범위·결과/남은 제한을 같은 행에 기록하고 독립적인 semantic/negative test가 통과했을 때만 사용한다. **아래 작업의 구현·테스트는 아직 수행하지 않았다.**
-
-| ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 · 최소 수용/negative 검증 |
-|---|---|---|
-| IO-01 / A·M2 병행 | [ ] jsource/J 라이브러리 근거 pin (원본 코드 일부 검토, 실행 oracle 대기; §8.5.4) | `jmf.ijs` mapping modes, `xf.c` partial I/O, alias/in-place, boxed mapping 제약, Jd column/ptable/jmfx, Jfiles/keyfiles, JMF boxed 경로별 source pin·행동/미지원 표. C foreign oracle와 파일 fixture; 추측/확인 분리 |
-| IO-02 / A·M2~M3 | [ ] J 파일·mapping의 의미/효과 계약 (C oracle 15개 독립+6개 순서 사례 일부 실행; 핸들·권한·JMF·Jd 미검증, 수용 전; §8.5.4) | read/write/resize/flush/close, 오류·effect order, alias/late file changes, read-only/COW, J boxed/sparse, zero-frame case 목록. reorder/observable read omission 금지 negative test |
-| IO-03 / A·M3 | [ ] 기존 IR·공통 data-movement 계약과 identity verifier | J Graph의 source topology vs Verified Logical의 `Effect/Dependency`·`AccessRelation` vs Physical Plan의 buffer/file region·transfer·ready token을 분리. `ValueId≠BufferId≠StateResource≠StorageObject/Version`, foreign effect vs immutable backing read; 새 Data Movement IR 도입 금지. 잘못된 계층의 필드·unknown effect를 거부하는 verifier/negative tests. §8.5.3 연결 |
-| IO-04 / A·M3 | [ ] storage capability matrix | local file, mapped, chunk, remote, GPU는 개별 capability; offset/alignment/EOF/seek/atomic write/consistency. Unknown은 route barrier |
-| IO-05 / B·M4 이후 | [ ] `read_at`/`write_at` 동기 독립 기준 | 일반 파일 offset/length, short read/EOF/overflow/error/permission 포함; 구현 전에 J file foreign과 physical array input 구분. 실제 fixture·C oracle 대조 |
-| IO-06 / B·M4 이후 | [ ] versioned dense chunk reader | shape/element type/endianness/alignment/checked address/last short chunk. 파일보다 작은 메모리 예산으로 1회 순차 scan; baseline과 결과/오류 일치 |
-| IO-07 / B·M4 이후 | [ ] mapped dense array 최소 경로 | read-only/mutable/COW·header/shape·flush/unmap/reference lifetime; mapping과 read_at 결과 비교. non-jmf typed boxed/JMF boxed 경로와 sparse capability를 구분해 검증 |
-| IO-08 / B·M4 이후 | [ ] bounded resident/retained memory 기준 | chunk reader·buffer lease·release; RAM보다 큰 데이터와 작은 예산 조건에서 peak bound, leak/early release/cancel 검사 |
-| IO-09 / C·M4~M5 | [ ] logical access region→physical byte-range witness | select/slice/reindex의 원소 범위를 증명한 뒤에만 `BufferSlice`/`FileByteRange` 접근 최적화 후보 생성; dynamic rank·alias·외부 변경·관찰 가능한 file/error effect·empty prototype은 opaque/barrier. byte omission과 J semantics 독립 검증. §8.5.3 연결 |
-| IO-10 / C·M5 | [ ] scan projection/slice pushdown | source+consumer legality proof/guard, I/O 바이트 수와 결과/오류 측정; Reduce/Rank/sparse/boxed 반례 포함 |
-| IO-11 / C·M5 | [ ] shared scan/subplan reuse | 동일 external object+version/policy/byte range일 때만 cache; changed file/late binding/alias가 cache invalidation 유발 |
-| IO-12 / C·M5 | [ ] immutable snapshot/version contract | file content/version/staleness 검출·error precedence; speculative read는 no-visible-effect 조건에서만 허용 |
-| IO-13 / D·M5 | [ ] portable async facade + readiness 계약 | 동기 reference 위 blocking-I/O workers와 `Pending/Ready/Failed/Cancelled` 및 완료 토큰. 파일/메모리 transfer는 공통 스케줄러에서 의존성을 분석하되 오류/취소 의미는 별개; portable sync fallback·negative cases. §8.5.3 연결 |
-| IO-14 / D·M5 | [ ] bounded prefetch / double buffer | `Read(n+1)`↔`Compute(n)` overlap, stage dependency/tokens·buffer lease 테스트; serial·parallel 결과 대조 |
-| IO-15 / D·M5 | [ ] governor/backpressure | inflight bytes+queued jobs+resident+kernel temporary memory 공동 예산; slow consumer/high-latency I/O/oversubscription/OOM negative test |
-| IO-16 / D·M5 | [ ] streaming barriers·cleanup | chunked elementwise와 reduction, rank/cell/zero-frame, producer failure/cancel/error precedence; non-streamable operator는 barrier/materialize |
-| IO-17 / D·M5 | [ ] async completion·buffer lifetime·J effect proof | short/failed read, dirty mapping, cancel/retry, early release, file observable-error order 및 `1!:` 미사용 read 제거 금지; speculative internal immutable read도 오류 노출 위치 증명 요구. 전송 중 buffer 재사용/중복 side effect 금지. §8.5.3 연결 |
-| IO-18 / E·M5 | [ ] mutable weight/checkpoint 정합성 | read snapshot vs write version; partial write, atomic publication/durability/recovery test. 학습 상태 복제·일관성 계약 검증 전 offload 금지 |
-| IO-19 / E·M5 | [ ] weight/scan reuse physical schedule | FlexGen식 layer-block/batch ordering 후보; read bytes↓/cache hit↑, dependency·effect·order unchanged, latency–throughput 별도 평가 |
-| IO-20 / E·M5 | [ ] 공통 physical data-movement·placement cost planner | 기존 Physical Plan에서 memory copy/CPU↔GPU 후보/file byte-range read/write/transfer를 위치·region·lifetime·ready dependency로 함께 계획. bytes/requests/seek/latency/peak/inflight/compute/overlap 분리; unknown capacity는 hard gate, heuristic cost는 미측정 표시. GPU 실행은 보류. 새 IR 필요성은 2개 실제 실패 사례가 있을 때만 재검토. §8.5.3 연결 |
-| IO-21 / F·M5 | [ ] 파일 크기·access shape 측정 suite | cold/warm, sequential/random, small/large, dense/strided, disk-backed NN weights, sparse/boxed guarded, 0-sized; bytes/wait/peak/time/latency |
-| IO-22 / F·M5 | [ ] 3방향 semantic·negative·movement 검증 | C reference(실제 J foreign 효과 있는 영역) / Rust sync / Rust optimized 독립 비교; skipped read vs error precedence, stale version, empty Rank virtual cell, boxed/sparse, alias/early-free/cancel, 중간 copy/전송 bytes 검증. pass/fail/ignored·unsupported 분리. §8.5.3 연결 |
-| IO-23 / F·M5 이후 | [ ] mmap vs read_at vs async 실측 선택 | OS page cache/hard faults, IO bound/compute bound, storage/media/target 차이. 유의미한 실측 이득과 regression 없을 때만 기본 경로 |
-| IO-24 / F·M6 이후 | [ ] 확장 후보 승인 게이트 | io_uring/direct I/O, remote object storage, compression, NVMe↔GPU/pinned DMA, multi-device, Jd adapter. portable implementation·검증 예산 확인 시 별도 소규모 작업으로 승격 |
-
-
-**추가 게이트 IO-25~IO-30 (이행 단계 기준으로 실행; 번호는 추가 발견 순서).**
-
-| ID / 단계·시점 | 완료 체크 · 실행 단위 | 선행 조건 / 수용 기준 |
-|---|---|---|
-| IO-25 / A·M2 병행 | [ ] Jd/jfiles/JMF boxed 원본 교차 감사 (소스 확인·JMF RW/RO/COW smoke 구축, 원본 mapping·boxed/Jd 실행 수용 검증 대기; §8.5.4) | jsource pin과 data_jd pin, J binary oracle, ptable pruning·keyfiles·JMF boxed 분기 검증. IO-01·02 연계 |
-| IO-26 / B·M4 이후 | [ ] Typed array storage metadata 검증 | dtype/shape/order/endian/offset/length/version; invalid overlap/duplicate/off-end/overflow, empty/scalar, sparse/boxed 경계. IO-05·06 연계 |
-| IO-27 / B·M4 이후 | [ ] Read chunk와 write shard 분리 | Zarr/HDF5를 참고해 access axis별 read amplification, coalescing, shard write cost 및 contiguous baseline 비교. IO-06·08 연계 |
-| IO-28 / B·M4 이후 | [ ] mmap·SIMD tail·lifetime 안전성 | EOF next-page, vector overfetch 금지, real page granularity, live lease/remap/unmap/readonly/COW/concurrent readers. IO-07·08 연계 |
-| IO-29 / C·M5 | [ ] Bounded decoded-chunk cache | identity/version/encoding/range cache key, budget+lease-safe eviction, mutation invalidation, strided reuse/cache thrash. IO-09~12 연계 |
-| IO-30 / F·M5 이후 | [ ] Workload별 load mode 선택 실측 | mmap vs buffered read vs async, cache warm/cold, NVMe/remote, NN weights, small/large working set; bytes/page faults/RSS/latency/throughput. IO-21·23 연계 |
-
-**Acceptance log 양식:** `IO-ID | code commit | jsource/library pin | command + OS/target + storage | J C oracle / Rust synchronous / optimized counts | measured cold/warm bytes/time/peak | failures/unsupported | CI 여부 | next gate`. 단순 기법 소개나 파일 존재만으로 [x] 금지. 성능은 의미·자원 안전 통과 후 평가하고, 미지원은 조용한 fallback 성공으로 계산하지 않는다. [`8.5 소유권과 실행 계약](#out-of-core-io-contract) 참조.
-
-### C — frontend / 언어 의미 확장
-
-Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 수정한다. 일반적인 언어 기능 확장은 A1~A3의 core IR 경계를 먼저 안정화한 뒤 진행하며, G2~G5와는 필요 의존성에 따라 병행한다.
-
-- [ ] primitive registry/binding contract 보완
-- [ ] direct/explicit definition
-- [ ] verb binding/train
-- [ ] adverb/conjunction 확대
-- [ ] dyadic rank/rank list
-- [ ] scan
-- [ ] boxed/sparse 전체 의미
-- [ ] scalar type 확대
-- [ ] system/runtime API
-
-### CUDA — 보류
-
-- [ ] CUDA storage
-- [ ] transfer/completion
-- [ ] stream/event
-- [ ] kernel codegen
-- [ ] GPU resident graph
-- [ ] sharding/multi-device
-
-재개 조건: 사용자 요청과 검증 가능한 GPU 환경 확보.
-
----
-
-<a id="validation-policy"></a>
-
-## 11. 검증 정책
-
-모든 구현 변경은 이 절을 따른다.
-
-### 11.1 기본 완료 관문
-
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo test --features portable
-```
-
-관련 Python harness가 바뀌면 해당 테스트도 실행한다.
-
-### 11.2 semantic bug fix
-
-- 재현 사례 추가
-- regression test 추가
-- 필요하면 conformance case 추가
-- C reference와 비교 가능한 경우 비교
-- known deviation과 pass를 분리
-
-### 11.3 storage / memory 변경
-
-확인 항목:
-
-- alias preservation
-- transactional assignment
-- allocation/reuse
-- retained memory
-- empty/scalar
-- stale BufferId
-- overlap
-- source scope 이후 owner 수명
-
-### 11.4 SIMD 변경
-
-- tail
-- overflow/promotion
-- exceptional float
-- portable fallback
-- runtime feature detection
-
-### 11.5 실행했다고 주장할 수 있는 것만 기록
-
-실제로 실행하지 않았다면 실행한 것으로 기록하지 않는다.
-
-현재 정책상 다음은 자동으로 완료됐다고 간주하지 않는다.
-
-- upstream 전체 J suite
-- Miri
-- sanitizer
-- GPU test
-- CUDA benchmark
-
-Linux CI/GitHub Actions는 **별도 요청이 있을 때만 확인**하며, 기본 구조 진행/체크리스트의 완료 gate로 사용하지 않는다.
-
-### 11.6 C reference
-
-참조 `jsource` revision은 검증 재현성을 위해 고정한다.
-
-C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하며 RustJ runtime dependency로 사용하지 않는다.
-
-### 11.7 성능 해석
-
-작은 배열에서 Python/FFI overhead가 섞인 숫자를 언어 성능으로 해석하지 않는다.
-
-성능 비교에는 다음을 분리한다.
-
-- parse/compile
-- execution
-- allocation
-- copy bytes
-- retained bytes
-- peak live bytes
-- cold/warm
-- cache hit/miss
-- transfer
-- synchronization
-
-`Rust가 J보다 빠르다` 같은 전체적 결론은 제한된 microbenchmark만으로 주장하지 않는다.
-
-### 11.8 Semantic hard cases의 golden 관문
-
-prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, name expected-POS mismatch, assignment entity+effect/right-to-left lookup, hook/fork observable order, adverse/obverse latent semantics, tolerance/`!.`, overflow retry/promotion 및 error precedence를 대응 semantic golden으로 잠근다. full-J 전체를 첫 CPU slice 전에 완성할 필요는 없으나, 해당 의미를 optimization/lowering 대상으로 열기 전에 값·dtype·shape·오류·효과 순서의 differential 검증이 있어야 한다. 첫 matrix cell 표본은 [§4.11.4.12](#mean-proof-example)를 사용한다.
-
----
-
-<a id="current-implementation-status"></a>
-
-## 12. 현재 검증·구현 상태 요약
-
-이 절의 오래된 architecture review anchor는 2026-10-04 WI1 입력 metadata 단계였지만, **현재 구현/검증 상태는 2026-10-05 NV3d2b2a와 GF6a까지의 `main`을 기준으로 아래 항목을 갱신한다.** 과거 단계별 gate 수치는 그 시점의 검증 기록이며 현재 HEAD 상태로 읽지 않는다.
-
-- 제한된 CPU J interpreter/runtime 경로가 동작한다.
-- state-table word formation과 transitional Semantic IR parser가 존재한다.
-- parser-produced shared `FunctionEntity`가 primitive, modifier application, hook/fork/train, rank/@: 구조를 보존한다.
-- explicit/direct frontend는 immutable DefinitionCode, 제어/NAME metadata, multiple root/raw noun DD, source provenance를 보존한다. 지원 mode-3/4 verb 호출과 if/while/for/try, 중첩 direct/문자열 explicit의 독립 local scope 및 A3 정의 참조가 구현됐다. 현재 범위 E2E 완료와 full J 표현력/일반 locale·operator-wrapper/본문 Graph·Logical 분석 및 CFG 컴파일/본문-caller source-frame 미완료를 구분한다. 최신 경계와 오류 증거는 Frontend E2E 재감사 절을 따른다.
-- J Graph IR이 별도 canonical analysis surface로 존재하고 Graph Basis, structural opportunity, graph rewrite/resource analysis 기초가 구현되어 있다.
-- **M1 완료:** J Graph lowering이 `logical_ir::Plan`을 직접 생성한다. transition module/container/API는 제거했고 `Engine::analyze/analyze_a3`와 `CompilationAnalysis.logical`은 같은 canonical plan을 사용한다.
-- A3-v0에는 SSA ValueId, Function/Region/Block/Return, Execution Basis payload, SemanticCheck, ConstraintSet/FactWitness, Effect/Speculation/PossibleErrors/DestinationRelation, verifier가 구현되어 있다.
-- `SemanticCapabilityView`, `ParameterizedLoweringRecipe`, `LoweringRegistry`, 기본 target legality/candidate generation과 contiguous route partition prototype이 구현되어 있다.
-- 현재 RoutePartition은 class + operation range 중심의 prototype이며 boundary values/preconditions/chosen external route/bridge representation은 아직 없다.
-- `logical_executor::execute_closed`는 A3 correctness/reference executor이며 native Physical Executor는 아니다.
-- Logical/Physical Array 분리 원칙은 문서와 테스트로 고정되어 있고, G1 read-only CPU affine `PhysicalArray`/BufferId/BufferLease가 구현되어 있다.
-- `Value`의 dense payload가 아직 `CpuStorage`를 직접 소유하므로 runtime carrier는 완전한 logical/physical 분리 이전의 migration state다.
-- `facts::RepresentationClassFact`는 Dense/AxisSparse J-visible representation class만 나타내며, stride/offset/device/buffer 같은 physical layout은 포함하지 않는다.
-- sparse/boxed/packed-bit 기반 구현이 일부 있으나 semantic representation과 concrete backend encoding 경계는 추가 정리가 필요하다.
-- G2~G5와 Schedule/Physical Planner/Physical Execution Plan/CPU native executor는 미완료다.
-- frontend는 동일 ordered 9-row matcher와 runtime/analysis reduction engine을 사용하며 과거 flat modifier/train heuristic reducer는 제거했다. 지원 범위의 name/POS/assignment와 completed-result 경계가 구현되었지만 전체 enqueue/construction/local·locale·definition semantics의 M2 완료 gate는 남아 있다.
-- 최신 frontend/numeric 검증은 **NV3d2b2a**다: Windows default/portable 각각 **474 passed / 17 ignored**, fmt/clippy/build 통과, Python **30 passed**. j64/AVX2의 기존 세 runtime 경로는 각각 **5,380 / 5,380 passed / failed 0**, stage **10,810**, words **6,623**을 유지한다. 양 DLL numeric syntax는 각각 **2,485 cases / failed 0**이며 accepted noun controls 182, lexical-error equality 1,244, valid payload boundary 850, integer conversion boundary 2, C reference precision boundary 200, quad construction boundary 1, NaN word-formation boundary 4를 기록한다. unresolved recognition/error 경계가 각 1건 남아 있으므로 이를 성공 실행이나 정확한 오류 동등성으로 세지 않는다. vocabulary POS 143 / bare binding·AR 140 / noun payload 3, capture graph 257, static 2, runtime prefix 285 / executable prefix passes 0은 별도다. 최신 graph-readiness 검증은 **GF6a(463 passed / 17 ignored)**이며 semantic-proof discharge·fusion selection·성능·GPU 실행 완료를 뜻하지 않는다. full upstream·definition acceptance·private C trace·Linux/GitHub CI/CUDA는 여전히 미검증/보류다.
-- MLIR adapter, StableHLO adapter, ArrayFire external route는 아직 참고/설계 단계다.
-- TargetProfile/CostProfile/ResourceEstimate/CostEstimate의 완전한 구현은 아직 없다.
-- 실제 CUDA storage/kernel은 없다.
-- **Linux CI/GitHub Actions 결과는 별도 요청이 없으면 구조 진행 판단과 완료 gate에서 생략한다.** 로컬/명시적으로 실행한 검증만 완료 기록에 사용한다.
-
-기계 측정 원자료는 `reports/*.json`, `reports/*.jsonl`에 보존한다.
-
----
-
-## 13. 프레임워크 조사에서 채택한 원칙
-
-외부 프레임워크의 언어 의미를 가져오는 것이 아니라 검증된 구현 아이디어를 참고한다.
-
-### ndarray
-
-참고:
-
-- logical order와 memory order 구분
-- checked view construction
-- shape/stride 기반 view
-
-RustJ 적용:
-
-- logical-order contiguous와 memory-contiguous 구분
-- checked affine descriptor
-- reshape compatibility proof
-
-### Apache Arrow
-
-참고:
-
-- buffer ownership
-- offset/shared backing
-- allocation layout
-
-RustJ 적용:
-
-- BufferLease
-- shared backing 수명
-- 부분 view와 allocation owner 구분
-
-### OpenXLA
-
-참고:
-
-- logical IR과 buffer assignment 분리
-- layout conflict의 copy
-- backend-specific lowering
-
-RustJ 적용:
-
-- ValueId/BufferId 분리
-- Logical/Physical Plan 분리
-- layout conflict materialization
-
-### ArrayFire / J ArrayFire add-on / fusion systems
-
-확인 기준: 2026-10-01.
-
-주요 참고 자료:
-
-- ArrayFire JIT: https://arrayfire.org/docs/jit.htm
-- ArrayFire Unified Backend: https://arrayfire.org/docs/unifiedbackend.htm
-- CUDA interoperability: https://arrayfire.org/docs/interop_cuda.htm
-- Memory manager API: https://arrayfire.org/docs/group__memory__manager.htm
-- Jsoftware ArrayFire add-on, pinned at `b0543c8278fe7a50e0ac9f938a936b4a84ee239b`:
-  https://github.com/jsoftware/math_arrayfire/tree/b0543c8278fe7a50e0ac9f938a936b4a84ee239b
-- J add-on manual:
-  https://github.com/jsoftware/math_arrayfire/blob/b0543c8278fe7a50e0ac9f938a936b4a84ee239b/man.txt
-- Alex Shroyer의 J GPU/ArrayFire prototype 자료:
-  https://alexshroyer.com/papers/matmul_j_gpu.pdf
-
-ArrayFire 자체에서 참고할 핵심:
-
-- elementwise 연산을 즉시 실행하지 않고 AST/lazy expression graph로 누적한 뒤 필요할 때 한 kernel로 JIT fusion한다.
-- explicit `eval` 또는 JIT가 지원하지 않는 consumer가 evaluation boundary가 되며, `sync`는 평가 시작과 완료 대기를 구분한다.
-- CUDA/OpenCL/oneAPI/CPU backend를 공통 array API 뒤에 두며 backend 선택은 array 계산 의미와 분리한다.
-- device pointer, stream, lock/unlock, custom memory manager를 명시해 외부 kernel/library와의 ownership·lifetime·synchronization 경계를 관리한다.
-- JIT compilation cache가 있으므로 cold compile cost와 warm execution cost를 분리해 측정해야 한다.
-
-Jsoftware의 `math_arrayfire` add-on에서 특히 참고할 부분:
-
-- 이것은 J 전체를 GPU compiler로 바꾸는 구현이 아니라 J에서 ArrayFire C API로 들어가는 **library adapter/offload 사례**다.
-- J array는 row-major, ArrayFire array는 column-major이므로 add-on은 `rcc` 변환을 사용한다. 이는 logical atom order와 physical layout을 동일시하면 adapter 경계에서 불필요한 전역 변환 비용이 생길 수 있다는 실제 사례다.
-- `families.ijs`는 `af_add`, `af_mul`, `af_sum` 같은 concrete ArrayFire function family를 직접 매핑한다. J의 일반 `/`, `\\`, rank, derived verb 의미 전체가 자동으로 ArrayFire op로 번역되는 구조는 아니다.
-- add-on은 `af_array` handle을 별도 추적하고 release/hold/device GC를 관리한다. RustJ의 ValueId와 외부 backend buffer/handle을 분리해야 한다는 근거로 사용할 수 있다.
-- add-on의 shape/rank validation은 ArrayFire `dim4` 경계에 맞춰 사실상 rank 4 이하를 전제로 한다. 이는 backend capability/precondition이지 J 언어의 rank 제한이 되어서는 안 된다.
-- CPU/CUDA/OpenCL backend를 바꿔 쓸 수 있지만, backend 변경 자체가 J noun의 semantic identity를 바꾸지는 않는다.
-
-RustJ 적용:
-
-1. **ArrayFire는 Graph/Execution optimizer의 선행 구현 사례로 참고한다.**
-   - lazy graph, evaluation boundary, fusion trigger를 참고하되 J Semantic IR 자체를 lazy ArrayFire AST처럼 축소하지 않는다.
-   - fusion 여부와 materialization은 semantic legality가 확정된 뒤 Logical/Physical planning에서 결정한다.
-
-2. **J ArrayFire add-on은 external-library route의 adapter 사례로 참고한다.**
-   - `J logical value → adapter capability check → external array handle → execution → logical result` 경계를 설계할 때 직접 비교한다.
-   - op coverage, dtype/rank/shape/layout 조건은 route precondition으로 명시한다.
-
-3. **row-major/column-major mismatch를 Physical Planner 검증 사례로 사용한다.**
-   - RustJ logical array는 layout-neutral하게 유지한다.
-   - ArrayFire route가 column-major representation을 요구하면 view/consumer absorption/copy 중 어느 것이 합법적이고 싼지 physical plan에서 선택한다.
-   - adapter 편의를 위해 J logical atom order를 바꾸지 않는다.
-
-4. **evaluation/synchronization을 Physical Plan의 별도 개념으로 둔다.**
-   - lazy value의 존재, kernel submission, device completion은 서로 다른 상태다.
-   - 향후 AsyncToken/Timepoint, transfer, external library call의 legality와 lifetime 검증에 ArrayFire의 `eval/sync` 및 interop 경계를 비교한다.
-
-5. **cost model과 benchmark 방법론에 cold/warm JIT를 분리한다.**
-   - compile latency, kernel-cache hit, host/device transfer, layout conversion, intermediate materialization을 별도 비용 항목으로 본다.
-   - 단순 warm-kernel 수치만으로 route profitability를 판단하지 않는다.
-
-6. **Graph Basis ↔ external capability matrix를 만들 때 실물 비교 대상으로 사용한다.**
-   - Elementwise, Reduce, Scan, Gather/Index, MatMul, Conv, Sparse 등 RustJ basis family가 ArrayFire API에서 직접 지원되는지,
-   - J 의미를 그대로 보존하는지,
-   - adapter shim 또는 fallback이 필요한지를 구분한다.
-
-중요한 비채택 사항:
-
-- ArrayFire `af::array`를 RustJ Logical Array/J noun과 동일시하지 않는다.
-- ArrayFire의 rank/dim4 제한, column-major layout, dtype 범위를 J semantics에 역류시키지 않는다.
-- ArrayFire의 fixed reduction API를 J의 일반 adverb `/` 또는 `\\` 의미론과 동일시하지 않는다.
-- ArrayFire JIT가 fuse할 수 있다는 사실만으로 RustJ Graph rewrite/fusion의 semantic legality가 증명되었다고 보지 않는다.
-- J add-on의 FFI 함수 매핑을 RustJ compiler architecture 자체로 채택하지 않는다.
-
-따라서 ArrayFire는 RustJ의 GPU backend 후보 하나라기보다, **lazy array execution, kernel fusion, external-library routing, physical layout mismatch, device-handle lifetime과 synchronization을 동시에 검증할 수 있는 비교 기준**으로 다룬다.
-
-### JAX / multi-device systems
-
-참고:
-
-- logical/global value와 placement/sharding 분리
-
-RustJ 적용:
-
-- logical J noun과 physical placement 분리
-
-### MLIR core / interfaces / regions
-
-참고:
-
-- SSA value + Region/Block 구조로 pure graph와 control flow를 함께 표현
-- verifier를 operation contract의 일부로 둠
-- concrete op를 special-case하지 않고 operation/type/attribute interface를 통해 분석 capability를 질의
-- side effect와 speculation safety를 별도 interface로 모델링
-- data-flow analysis를 typed lattice와 monotonic join으로 구성
-
-RustJ 적용:
-
-- Logical IR에 SSA ValueId + Function/Region/Block/Terminator를 둔다.
-- Primitive/LogicalOp capability를 Shape/Axis/Access/Effect/Alias/Speculation interface로 분리한다.
-- 생성/변환 뒤 verifier를 필수 경계로 둔다.
-- fact domain마다 typed lattice를 사용한다.
-
-### MLIR Shape / dynamic constraints
-
-참고:
-
-- unknown shape와 invalid shape를 구분
-- compile-time constraint가 증명되지 않으면 witness/assuming 구조로 의존성을 명시
-- shape computation과 value computation을 분리하되 필요하면 runtime shape value로 reify
-
-RustJ 적용:
-
-- `ConstraintSet`만 metadata로 저장하지 않고 Witness/Guard를 둔다.
-- dynamic specialization은 fast/fallback region으로 표현한다.
-- semantic error가 증명된 Invalid와 단순 Unknown을 구분한다.
-
-### MLIR Linalg / Bufferization
-
-참고:
-
-- indexing map + iterator type으로 structured computation을 표현
-- tensor-level tiling/fusion/vectorization을 먼저 하고 bufferization을 늦춤
-- Destination-Passing Style과 alias relation을 buffer reuse 분석의 입력으로 사용
-- bufferization은 SSA use-def와 conflict 분석을 통해 실제 in-place/out-of-place를 결정
-
-RustJ 적용:
-
-- `IterationDomain + AccessRelation`을 Logical IR의 핵심 contract로 둔다.
-- `StorageRequirement`와 실제 `MaterializationDecision`을 분리한다.
-- `DestinationRelation`은 BufferId가 아니라 후속 bufferization hint/contract다.
-
-### MLIR Transform dialect / TVM TensorIR schedule
-
-참고:
-
-- payload IR과 transformation/schedule description을 분리
-- 같은 semantic computation에 여러 schedule을 적용 가능
-- TVM은 graph-level Relax와 lower-level TensorIR/schedule을 구분하고 external codegen도 허용
-
-RustJ 적용:
-
-- Logical IR에 tile/vector/workgroup 결정을 박지 않는다.
-- native route의 `Schedule / Transform Plan`을 별도 표현으로 둔다.
-- MLIR/TVM류 external optimizer를 재구현하지 않고 adapter를 통해 활용할 수 있게 한다.
-- external backend는 whole-program 선택이 아니라 legal subgraph/region partition으로 적용할 수 있게 한다.
-
-### IREE Flow / Stream / HAL
-
-참고:
-
-- tensor dataflow(Flow), async scheduling/resource lifetime(Stream), hardware abstraction(HAL)을 분리
-- resource size와 lifetime을 명시적으로 추적
-- async execution은 timepoint로 availability/order를 표현
-- allocation/reuse는 scheduling 뒤에 구체화
-
-RustJ 적용:
-
-- Logical ArrayValue와 physical resource를 분리한다.
-- native Physical Plan의 async dependency는 explicit Timepoint/AsyncToken으로 표현한다.
-- resource lifetime과 buffer reuse는 physical timeline을 기준으로 판단한다.
-
-### StableHLO / VHLO
-
-참고:
-
-- portable high-level op set과 명시적 specification/verifier/type inference
-- side-effecting op는 token으로 ordering 가능
-- custom_call/composite로 확장 가능하지만 semantic contract가 필요
-- portable artifact는 별도의 versioned VHLO/compatibility layer로 관리
-
-RustJ 적용:
-
-- StableHLO는 전체 J IR이 아니라 안전한 tensor/NN subset export target이다.
-- external effect mapping은 token/adapter contract로 검증한다.
-- RustJ Logical IR도 외부 interchange를 시작할 때 schema version과 migration 정책을 둔다.
-
-### Triton
-
-참고:
-
-- tensor/block program과 backend schedule configuration을 분리
-- block size, warp 수, pipeline stage, register limit은 semantic op가 아니라 compilation configuration
-- layout/access constraint가 codegen 품질에 직접 영향
-
-RustJ 적용:
-
-- tile/warp/stage/register cap은 Physical Schedule/TargetProfile 쪽에 둔다.
-- Logical IR에는 이를 선택할 수 있게 하는 axis/access/constraint fact만 유지한다.
-
-### 중요한 비채택 사항
-
-- NumPy broadcasting을 J agreement로 대체하지 않는다.
-- tensor framework dtype policy를 J type semantics로 대체하지 않는다.
-- backend layout을 J noun identity로 만들지 않는다.
-- framework의 JIT 성공 사례를 RustJ 성능 증거로 취급하지 않는다.
 
 ---
 
@@ -13436,50 +14051,6 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 
 ---
 
-## Definition 호출과 frontend E2E 확인 (2026-10-07)
-
-이 절은 과거의 "17 ignored" 기록보다 최신인 definition 실행 상태다. 처음 17개 수용 테스트를 모두 강제로 실행했을 때 **0 passed / 17 failed**였다. `DefinitionCode`와 modifier용 프레임이 존재했지만 일반 mode-3/4 verb가 호출 실행기로 연결되지 않았으므로 일반 explicit/direct verb 지원으로 계산하면 안 되는 상태였다.
-
-- [x] 일반 explicit/direct verb 및 ordinary alias의 monad/dyad 호출을 공유 정의 실행기에 연결한다. 인자는 호출 전에 원래 parser 순서로 평가하고, 본문은 호출별 별도 `LocalFrame`에서 실행한다.
-- [x] `=.` 지역 대입, `=:` 전역 대입, noun snapshot, 호출 시 전역 noun/verb 재조회, caller의 사적인 local을 캡처하지 않는 조회, 실패 후 프레임 복원을 검증한다. ordinary mode-3 verb의 미결합 `u`/`x`는 modifier 인자 누락으로 오판하지 않고 전역으로 fallback한다.
-- [x] 기존 `ControlNode`의 감사된 jump를 사용해 `if./elseif./else.`, `while./whilst.`, `break./continue.`, `return.`, `try./catch./catchd.`를 실행한다. T-block 결과와 마지막 B-block 결과를 분리하며, 초기/오류 후 결과는 C의 Boolean 빈 행렬이다. `Unsupported`는 J 예외처럼 catch하여 성공으로 바꾸지 않는다.
-- [x] 원래 수용 테스트 17개 중 **14개**를 통과시키고 ignore를 해제한다. C의 첫 atom 조건 판정·빈 결과·중첩 catch·scope/effect/error 복원 회귀 테스트 **4개**를 추가한다.
-- [x] `examples/frontend_e2e.rs`에서 실제 tokenizer, enqueuer, 분석용 `Program`, 실행 parser의 `FrontendContext`/NAME/환원 기록과 결과를 관측하고 verifier를 통과시킨다. 분석이 binding을 commit하지 않으며 local `t`가 유출되지 않음을 확인한다.
-- [x] `for./for_name.` 실행: leading-axis item, scalar/빈 iterator/zero-atom row, 읽기 전용 `_index`, noun snapshot, break/continue/예외 시 해제를 구현한다. C forinit 오류의 catch 불가 경계도 보존한다. named sparse iterator는 명시적 Unsupported이며 item 전달은 현재 소유 배열 복사다; zero-copy/GPU 실행 완료가 아니다.
-- [x] 중첩 direct 및 문자열 explicit definition construction과 독립 local scope를 구현한다. 기존 input framer로 multiline unit을 수집하고 내부 control/colon/name을 outer preparse에서 격리한다. inner local은 caller-private local을 캡처하지 않으며 전역 NAME은 호출 시 재조회한다. 본문 안에 colon-zero block을 삽입하는 표기는 C와 같이 syntax error다; 외부 입력 스트림 소비 기능의 구현으로 계산하지 않는다.
-- [x] 정의 값의 A3 callable projection: `VerbReference(Callable { target: Definition, semantic: Arc<FunctionEntity> })`가 immutable `DefinitionCode`와 이름/원문 정보를 보존한다. 배열 literal/type/shape를 꾸며내지 않고 분석 시 binding/body effect를 실행하지 않는다. verifier가 target/semantic 불일치와 Definition target의 직접 SemanticCall을 거부한다. **정의 본문의 CFG lowering/compiled execution은 미완료**이며 호출 분석의 structural lowering 경계는 유지한다.
-
-**실제 전달 구조:** 분석 경로는 `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`이다. `expression`은 `Literal/ReadName/Monad/Dyad/VerbValue/...`이며 `frontend: Arc<FrontendContext>`가 expanded words/flags/span, items, semantic node links, origins, NAME observations, stack/reduce steps와 root를 연결한다. 관측 경로의 `CapturedEvaluation { result, capture }`는 실제 실행 결과와 같은 runtime parser의 context를 함께 제공한다. 관측 sidecar는 독립 실행 가능한 AST/continuation이 아니다. runtime parser는 noun을 실제로 reduce하며, 분석 경로의 지연 표현식을 runtime 결과로 바꿔 설명하지 않는다.
-
-**Definition 경계:** 아래 두 정의는 생성 시 본문을 실행하지 않고 `VerbValue(FunctionEntity { head: ExplicitDefinition(Arc<DefinitionCode>), result_pos: Verb, ... })`를 만든다. `DefinitionCode`는 원문/form/span, decoded body, valence ranges, queued body words/flags, control nodes, `DefinitionNamePlan`을 보존한다. local `t`는 `LocalAssignmentTarget`; `y/g/t` 읽기는 `ReadCurrentFrameThenGlobal`이다. 이는 이름/제어의 preparse 결과이며 **본문 전체의 최적화 가능한 AST를 미리 완성한 것이 아니다**. 본문은 호출 시 공유 runtime parser로 해석된다. outer capture는 본문의 모든 내부 NAME event를 재귀적으로 export하지 않는다.
-
-```j
-a=:1 2 3
-a+2*3                        NB. 7 8 9
-g=:10
-explicit=:3 : 0
-t=.y+g
-t
-)
-direct=:{{ t=.y+g
-t }}
-explicit 2                   NB. 12
-direct 2                     NB. 12
-g=:20
-explicit 2                   NB. 22
-direct 2                     NB. 22
-pair=:4 : 'x+y'
-2 pair 3                     NB. 5
-ddpair=:{{ x+y }}
-2 ddpair 3                   NB. 5
-```
-
-`a+2*3`의 분석 결과는 `Dyad(Add, ReadName("a"), Dyad(Multiply, Literal(2), Literal(3)))`이며 runtime의 noun NAME은 stack 시 snapshot한다. explicit outer queue는 `Name Assignment Noun(3) Conjunction(DefinitionConstructor) Noun(body)`다. direct queue에는 `(9 : body)`에 대응하는 괄호/constructor words가 생기며, `Conjunction → Parenthesis → Assignment`를 거쳐 이 예에서는 mode 3이 추론된다. `explicit 2`/`direct 2`의 분석 결과는 `Monad(NameRef(name), Literal(2))`이고 실제 NAME 관측은 `LateAtCall / FunctionReference / RuntimeClass`다. 두 dyad 예제는 `Dyad(NameRef(name), Literal(2), Literal(3))`이다.
-
-native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports/frontend-e2e-windows.json`, C와의 bounded 비교는 `reports/definition-calls-windows.json`에 보존한다. 시연 14문장 결과는 C j64/AVX2 × direct/semantic-reference 네 경로와 일치했다. 확장 정의 사례 **31 fixtures / 124 observations / 124 matched**, 기존 NAME scope **10 fixtures / 40 observations / 40 matched**다. Python harness **67 tests**를 통과했으며 Windows 경로 quoting helper의 slash 정규화도 바로잡았다. CUDA/Linux/GitHub CI/전체 upstream 동등성 및 최적화된 정의 실행 완료를 주장하지 않는다. parser 중첩 기반 재귀 깊이는 현재 8로 제한되며 explicit 실행 프레임으로의 전환은 후속 작업이다.
-
-**최종 회귀 검증:** Windows default/portable 각각 **596 passed / 3 ignored / 0 failed**. fmt와 clippy `--all-targets -D warnings`를 통과했다. 미완료 3개를 강제 실행하면 for/nested/A3 경계에서 실패하며 성공으로 계산하지 않는다. 보고서 3개의 source/binary hash는 최종 default build와 대조했다.
-
 ## 라이선스 정책
 
 RustJ의 공개 오픈소스 배포 경로는 GNU General Public License version 3, 즉 `GPL-3.0-only`이다.
@@ -13498,269 +14069,3 @@ RustJ의 공개 오픈소스 배포 경로는 GNU General Public License version
 
 `LICENSE`가 라이선스 고지의 기준이고, `COPYING`은 GNU GPL v3 전문을 보존한다. Cargo의 `license` 메타데이터는 공개 오픈소스 선택지를 나타내기 위해 `GPL-3.0-only`로 유지하며 `GPL-3.0-or-later`로 변경하지 않는다.
 
-
-### Definition 반복·중첩·A3 함수 값 후속 검증 (2026-10-07)
-
-위 세 실행 단위를 진행해 기존 `definition_acceptance` 21개 모두의 ignore를 해제했다. 반복문 회귀 5개와 중첩/함수 참조 회귀 4개를 추가했다. Source → Program/FunctionEntity → J Graph → A3의 함수 값 전달과 본문 CFG 실행은 구분한다. 현재 호출은 공유 runtime parser를 사용하며 최대 중첩 깊이 8이다. select/case/fcase, catcht/throw, goto/label, 일반 locale/locative, compiled CFG 및 CUDA 실행은 후속이다. 이전 절의 596/3 기록은 당시 결과다.
-
-검증 원자료는 `reports/definition-loops-windows.json`과 `reports/definition-nested-windows.json`에 기록한다. 각 보고서는 두 Windows J DLL × 두 Rust evaluator 경로의 bounded 관측이며 upstream 전체 동등성 증명이 아니다. Windows `cargo test --all-targets`의 기존 comparison bench는 Linux `dl.lib` 링크 의존성 때문에 실행 불가다. 일반 Windows tests, portable tests, clippy 정적 검사와 구분해 기록한다.
-
-최종 native Windows 검증: default/portable 각각 **608 passed / 0 ignored / 0 failed**, Python **67 passed**, fmt/clippy 통과. C 두 DLL × direct/semantic-reference 비교: for **23 fixtures / 92 matched**, nested **12 / 48**, 기존 definition **31 / 124**, NAME scope **10 / 40**, 합계 **304 observations / 304 matched**. 네 C 보고서의 source/binary SHA-256를 최종 default build와 대조했다. frontend-e2e-windows.json은 이전 시연의 역사적 capture이며 이번에 재생성하지 않았다.
-
-
-## Frontend E2E 재감사: 표현력·후속 전달·오류 (2026-10-07)
-
-사용자가 확정한 **현재 지원 범위의 frontend E2E 완료**는 유지한다. 이는 full J 표현력이나 모든 Program의 J Graph/A3 admission, definition 본문 CFG/compiled execution 완료를 의미하지 않는다. verb 본문의 계산/구조화 영역은 후속 J Graph/Logical 단계에서 구체화하고 필요한 경로에서 CFG로 낮춘다. frontend에 완성 CFG를 요구하지 않는다. 이번 감사는 runtime 변경이 아니라 실제 경계와 필요한 계약의 재확인이다.
-
-### 실제 범위와 재현
-
-`examples/frontend_contract_probe.rs`는 P=prepare_semantic_diagnostic, G=J Graph, L=CompilationAnalysis/A3의 독립 비실행 검사를 수행한 뒤 R=eval_captured를 수행한다. 분석의 성공을 실행 성공으로 세지 않는다. `tools/frontend_contract_audit.py --assets-root ../rustj-project-docs --probe target/debug/examples/frontend_contract_probe.exe --report reports/frontend-contract-audit-windows.json`으로 Windows 두 J DLL과 비교한다. 원자료에는 각 단계 admission, error context/render, 실제 outer capture, setup 및 오류 후 state를 포함한다.
-
-**31 사례 × DLL 2 = 62 관측: runtime/post-state 38 matched / 24 runtime_gap.** 12개 사례의 알려진 미지원 차이를 통과로 계산하지 않았다. complex/extended/rational 3개는 C bridge가 값을 직렬화하지 못해 **C 수용 여부와 noun type만** 확인했다. 그 외는 값/오류 종류와 setup/post-state를 비교했다. C의 diagnostic 위치/문구/내부 parser state와의 동등성은 이번 감사에서 검증하지 않았다. P는 15 accepted / 14 Unsupported / syntax 1 / control 1, G는 14 / 15 / 1 / 1, L은 13 / 16 / 1 / 1이며 전체 upstream 비율로 일반화하지 않는다.
-
-위 38/24와 단계별 수치는 보완 전 감사 기준선이다. 문자열 target 구현 후 최신 결과는 아래 F1/P4 실행 체크리스트에 기록한다.
-
-| 질문/사례 | 실제 판정 | 소유 단계 |
-|---|---|---|
-| jsource의 전체 표현력 | **아직 아님**. 문자열 단일·다중/computed target과 bounded noun/verb/adverb/explicit conjunction abandon 및 nameless conjunction 이름 이관 실행을 추가했다. boxed/AR target, locative, nameless conjunction abandon의 직접 적용, deferred effect lowering, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target·abandon 실행 체크리스트 참조 |
-| `a+a=:2`, `a=:b=:1`, 계산된 rank | runtime은 C와 일치하나 비실행 P/G/L에서 Unsupported. chained assignment 전체가 runtime 미지원이라고 말하면 틀린다 | P 단계 동적 construction/effect 경계, P8 |
-| `adv=:/` | Program의 ModifierValue와 POS는 보존하지만 J Graph가 modifier value lowering을 거부 | P8/A1/A2, frontend lexical 오류 아님 |
-| `". '1+2'` | P/G는 수용하고 L/runtime은 미지원. primitive 인식과 실행 지원을 분리 | lowering/runtime capability |
-| explicit/direct/nested 정의 값 | P/G/L 수용. L은 Definition 함수 참조이며 본문 계산 IR/CFG는 아님 | definition code 보존 → P8/A1/A2/A3 |
-| select 등의 제어문 | preparse metadata 수용과 실제 호출 가능성은 별개. 이번 select 사례는 **정의 생성만** 검사 | 후속 definition semantics/lowering |
-
-### 후속 단계에 전달되는 것과 계약의 한계
-
-| 정보 | 현재 산출물/근거 | 후속 소비 조건 |
-|---|---|---|
-| 환원 결과와 환원 전 맥락 | Program.expression + Arc<FrontendContext>의 words/items/nodes/origins/NAME/reductions/steps/root | Program/FunctionEntity가 semantic authority. sidecar를 별도 실행 AST/continuation으로 사용하지 않는다 |
-| 함수의 J 구조 | FunctionEntity의 head/POS/operands, noun operand 값·span, hook/fork/derived identity 및 header ranks | source modifier 구조를 보존하고 이후에 분석·정규화한다. rank/POS snapshot은 late target 고정 증거가 아니다 |
-| 이름 | NamePolicy(CaptureAtRead/LateAtCall/ResolveAtConstruction), NameEvidence, runtime LookupObservation(frame/global instance, binding generation/version/POS) | catalog/runtime 관측과 executable guard를 구분한다. 현재 guard는 simple name 한정이며 locale/path witness가 아니다 |
-| 정의 본문 | DefinitionCode의 원문·decoded body·form/mode/valence, sentence/word span·class·flags, ControlNode와 name_plan | body words는 payload/본문 AST 전체가 아니다. 후속 단계가 정의별 문장 분석을 수행할 수 있는 입력이며 재-enqueue/semantic parse 경계를 명시한다 |
-| 지역 scope | valence별 local declarations와 읽기/지역·전역 대입 role, 호출 시 별도 LocalFrame | declared-unbound local의 global fallback, caller-private local 비캡처를 보존. local 선언을 미리 값이 결합된 SSA로 치환하지 않는다 |
-| 제어 | ControlKind/go/assertion/previous_result/named_target와 verifier | **go는 단독 정상 successor/CFG edge가 아니다.** C의 control/error target 역할을 kind와 함께 해석해야 한다. If/Loop/Try 영역과 합류·loop-carried value·exception edge는 후속 단계에서 생성한다 |
-| 오류·효과 | ErrorContext, 실패 prefix/pending window, runtime CaptureFailure/ApplyFailure/Commit, A3 PossibleErrors/SemanticCheck/ordered operations | trace는 최적화 허가·effect replay·정확한 resume 증거가 아니다. 정의 본문의 effect/error graph와 handler 관계는 아직 outer A3에 연결되지 않았다 |
-
-**판정:** 지원 사례의 source와 semantic identity를 보존하므로 후속 분석을 시작할 수 있다. 그러나 **모든 표현에 필요한 정보가 이미 분석 완료된 IR로 존재한다거나, 후속 단계가 재분석 없이 바로 최적화할 수 있다는 주장은 불가**다. raw source 보존과 ready-to-optimize handoff를 구분한다. Source map은 기존 body_error가 escaped quote 등을 원문으로 매핑하지만, 공개된 source-unit/frame chain 계약은 아직 없다.
-
-### 오류 처리 재검토 — A0.6/P8/A3 연결
-
-- J error class/diagnostic context/render의 분리, inner context 우선 merge, 실패 대입의 기존 binding 보존은 현재 구현되어 있다. 그러나 정의 경계는 source 좌표가 다르므로 `runtime.rs`의 invoke_definition_verb가 body span/blame를 지우고 parser가 caller 위치를 붙인다. explicit modifier 경계도 caller span으로 대체한다. 이는 잘못된 caller 좌표 사용을 막는 임시 처리이며 **본문 실패 위치 보존 완료가 아니다**.
-- `f=:{{y+1 2 3}}` → `f 1 2`는 length error, primitive `+`, X shape [2]/Y shape [3]을 보존하지만 span은 caller의 `f`인 [0,1]이다. `outer → inner`도 outer 이름 [0,5]만 남는다. 본문 위치와 호출 chain을 같이 제공하지 못한다.
-- `missing+(1 2+1 2 3)`은 오른쪽 length error가 먼저 관측된다. `(1 2+1 2 3)+a=:9`는 length error 뒤에도 a=9이며 static P는 Unsupported다. 분석 단계에서 이 오류를 먼저 발생시키거나 runtime 전체를 replay하면 의미가 달라질 수 있다.
-- `a=:7` 뒤 실패한 `a=:1 2+1 2 3`은 a=7을 유지한다. 잘못된 control로 f 재정의 실패 시 f=42를 유지한다. 이는 문장 전체 rollback이 아니라 실패 대입의 commit 방지다. 이전에 완료한 대입 효과는 남는다.
-- catch는 지원된 J 실행 오류만 처리한다. Unsupported를 잡아 42를 반환하면 미지원 실행을 성공으로 위장한다. forinit의 read-only 실패처럼 C의 **비catch 경계**도 별도로 보존한다. 일반 throw/catcht, 전체 오류 종류·handler 의미와 최적화 후 오류 순서 동등성은 미완료다.
-- **다음 계약:** J semantic failure / route·analysis admission miss / compiler-verifier defect / backend implementation failure를 구분한다. 현재 Error::Unsupported는 여러 의미에 사용되므로 J catchable error와 같은 것으로 해석하지 않는다. backend failure의 무조건 재실행도 금지한다.
-- **진단 계약:** immutable SourceUnit/definition origin, decoded-body↔original source map, primary failure site + callsite frame chain, semantic operation origin을 전달한다. 함수 인자 전체를 복사하지 않고 작은 type/shape 요약만 유지한다. 정적 오류·런타임 의미 오류·구현 실패의 시점과 처리 권한을 구분하고, 컴파일 단계에서 잠재적인 J runtime error를 임의로 앞당기지 않는다.
-
-### 외부 프레임워크에서 적용할 부분
-
-아래는 구현 완료 주장이 아니라 기존 P8/A0.6/A3 계약의 구체화다.
-
-1. **MLIR SCF:** if/while/for와 yield/loop-carried value를 구조화 영역으로 유지하고 필요할 때 cf/CFG로 낮춘다. RustJ에서는 J의 조건 판정·이름·return/exception 의미를 유지해야 하며 scf 규칙으로 J를 제한하지 않는다. [SCF](https://mlir.llvm.org/docs/Dialects/SCFDialect/)
-2. **MLIR verifier/conversion:** 단계별 합법 op와 dynamic legality를 분리한다. syntax/semantic validity와 특정 route lowering eligibility를 별도로 검증한다. [Toy verifier](https://mlir.llvm.org/docs/Tutorials/Toy/Ch-2/), [Dialect conversion](https://mlir.llvm.org/docs/DialectConversion/)
-3. **MLIR source diagnostics:** operation origin과 callsite location/notes를 연결한다. 단일 span을 덮어쓰는 대신 primary body location과 호출 위치를 모두 보존한다. [Diagnostics](https://mlir.llvm.org/docs/Diagnostics/), [Builtin locations](https://mlir.llvm.org/docs/Dialects/Builtin/)
-4. **MLIR effects/speculation:** memory effect와 이동·speculation 허가를 분리한다. 해당 문서도 non-local control flow 모델의 한계를 명시하므로 try/throw 및 J first-error를 MemoryEffects만으로 처리하지 않는다. [Side effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/)
-5. **JAX jaxpr:** 명시적 입력/결과·상수와 하위 계산 영역을 구분하는 표현을 참고한다. J의 late global lookup을 JAX식 trace-time constant capture로 바꾸지 않는다. 해당 문서의 tracing 중 Python control flow 실행을 RustJ의 지연 정의 의미로 그대로 가져오지 않는다. [jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html)
-
-Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으로 유지한다. 이번 Co-dfns pinned manual URL은 열리지 않아 새 소스 재검증 완료로 세지 않았다. 이번 신규 확인의 직접 근거는 MLIR/JAX 공식 자료다.
-
-이번 감사 도구 검증: Windows default/portable 각각 **608 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. runtime 변경은 없다. 새 62개 관측의 미지원 차이는 기존 304 matched 보고서의 수용 사례와 별도로 유지한다.
-
-
-## Frontend 감사 보완 실행 계획 (2026-10-07)
-
-기존 F1/P4/P8/A0.6/A1–A3 체크리스트를 원장으로 사용한다. 현재 지원 subset E2E 완료는 유지하며 frontend에서 CFG를 만들지 않는다. 아래 순서는 기존 항목의 실행 순서이며 각 단계의 구현·독립 검증 후에만 완료로 표시한다.
-
-| 순서 | 기존 소유 항목 | 실행 범위·수용 조건 | 상태 |
-|---|---|---|---|
-| 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 본문·실행 전·반환 frame 구현; source-unit/file provenance 미완료 |
-| 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
-| 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
-| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과·배열 Graph 연결 구현; nameless 직접 적용/일반 locatives 미완료 |
-| 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
-| 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
-
-1단계 데이터 계약: ErrorContext에 source-owned 진단 frame chain을 추가하고 caller-relative span/word-index의 기존 의미는 유지한다. primary body 위치는 DefinitionCode의 sparse quote source map으로 원문에 대응한다. source는 Arc로 공유하고 noun payload를 진단에 복사하지 않는다. frame chain은 진단 정보이며 J semantic identity·CFG·resume 토큰이 아니다. 렌더러는 body 실패와 각 정의 호출 위치, 마지막 외부 caller를 함께 표시한다. 단계 1의 완료는 다른 단계의 미지원을 해결했다는 뜻이 아니다. Windows default/portable, fmt/clippy, Python 및 bounded C 감사로 검증하고 기계 원자료를 reports에 남긴다. CUDA/GitHub CI는 계속 유보한다.
-
-A0.6 실행 체크리스트 — 첫 수정 범위:
-
-- [x] `DefinitionSourceMap`: decoded body byte range를 원문으로 대응. doubled quote만 sparse 위치 목록으로 보존하고 전체 body/source 일치를 verifier에서 확인한다.
-- [x] `DiagnosticSourceFrame`: `kind`, 공유 `source: Arc<str>`, `definition_span`, 원문 `span`, fragment queue 기준 `blame_word_index`를 보존한다. `ErrorContext.source_frames`는 가장 안쪽 실패 → 바깥 정의 호출 순서다. 기존 caller span/word-index 의미는 유지한다.
-- [x] ordinary/modifier/nested 정의의 statement/control 실행 실패를 source frame으로 전달하고 렌더링한다. escaped quote·UTF-8·CRLF·source 재정의 수명·실패한 대입·catch 회귀를 추가한다.
-- [x] 최종 소스 기준 native Windows default/portable 각각 **612 passed / 0 failed / 0 ignored**, fmt/clippy 통과, Python **67 passed**. 정의 호출/loop/nested/NAME scope C 비교 **304/304 일치**. Frontend 감사 **38 matched / 24 runtime_gap**는 기존 미지원 경계를 유지한다. `reports/definition-*-windows.json`, `reports/frontend-contract-audit-windows.json`에 바이너리·소스 hash와 결과를 기록했다. C 오류 위치/문자열 동등성은 검증하지 않았으며 source frame은 Rust 회귀 테스트로 검증했다.
-- [x] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 제어/문장 site가 없으면 정의 span을 사용하며 body 위치를 만들지 않는다.
-- [ ] source-unit/file identity와 nested source의 최상위 원문까지 이어지는 provenance를 확장한다. 현재 frame 위치는 각 DefinitionCode가 소유한 source 단위 기준이며 파일 전체 좌표를 보장하지 않는다.
-- [ ] 순서 2: 오류 분류와 단계별 admission 계약을 보완한다.
-- [ ] 순서 3: NAME·effect·modifier의 후속 IR 전달 계약을 보완한다.
-- [ ] 순서 4–6: NAME 표현력, 수치 literal, modifier 호환성을 독립 C 비교와 함께 확장한다.
-
-F1/P4 noun target 우선 실행 (2026-10-07): 문자열 단일·다중 대입을 먼저 구현한다. `p.c::jtis`에 따라 단일 문자열 이름은 RHS 전체를 보존하고, 다중 이름은 atom 확장 또는 선두 축 item 선택 후 한 번 open하여 왼쪽부터 대입한다. 이름 오류나 read-only/global 충돌은 앞서 성공한 대입을 되돌리지 않는다. 이름 개수 불일치는 대입 전에 검출한다. 따라서 다중 대입을 하나의 transactional write로 축약해서는 안 된다.
-
-- [x] 단일 문자열 및 runtime 계산된 문자열 target, local/global·함수 RHS 처리.
-- [x] 다중 문자열 target의 scalar 확장·item/open·중복 이름·부분 실패와 capture 계약.
-- [x] 원래 noun target과 row-7 provenance 보존; ordered-write IR이 없는 Graph/Logical 경계는 명시적 Unsupported 유지.
-- [x] Windows default/portable 각각 **617 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. 새 대입 **28 fixtures × DLL 2 × route 2 = 112/112 일치**, 기존 정의/loop/nested/NAME scope **304/304 일치**, 합계 **416/416**. `reports/string-assignment-windows.json`과 기존 보고서를 최종 실행 파일로 갱신했다.
-- [ ] boxed target, atomic-representation assignment, locative는 별도 후속 범위로 유지.
-
-Frontend 감사 갱신: **31 cases / 62 observations = 42 matched / 20 runtime_gap**. `computed_target` (`'a'=:7`)와 `multiple_target` (`'a b'=:3 4`)의 runtime/post-state 차이 4건을 해소했다. 고유 미지원 사례는 **12 → 10**이며 나머지 20건은 통과로 계산하지 않는다. P는 **16 accepted / 13 Unsupported / syntax 1 / control 1**, G는 **15 / 14 / 1 / 1**, L은 **14 / 15 / 1 / 1**. P=prepare에는 binding도 포함하므로 parser가 다중 target을 구조화했다는 사실이 P admission을 의미하지 않는다. 다음 NAME 구현 단위는 `name_:` abandon이며 locale/locative와 boxed/AR target은 별도 게이트다.
-
-전달 계약: `Program.noun_assignment: Option<NounAssignment>`는 원래 `target: Expr`와 word formation으로 얻은 `names: Vec<String>`을 가진다. `Program.assignment`는 단일 이름 write 호환 필드이며 다중/빈 target을 대표하지 않는다. 최종 대입 여부는 `has_assignment()`로 확인한다. `FrontendContext::WriteName.target`은 원래 NAME 또는 NOUN item을 가리키며 NOUN의 semantic edge도 검증한다. Runtime에서 완성한 target 값은 원래 enqueue/reduction context와 함께 보존한다. `AssignmentSource.selection`은 capture의 RHS occurrence에서 선두 축 item 선택 또는 atom 확장 후 한 번 open한 결과가 commit되었음을 표시한다. 각 commit의 이름/version/순서/실패까지 보존하며 이 capture는 재실행 계획이 아니다.
-
-여기서 `target: Expr`는 row-7 시점의 완료된 표현이다. runtime 계산 후에는 Literal일 수 있으며 계산 전 구조는 `FrontendContext`의 원래 item/node/reduction link로 찾는다. `AssignmentSource.noun_target`은 computed noun target임을 명시한다. 현재 capture→Graph는 단일 literal을 포함한 noun-target commit을 모두 거절한다. 관측한 이름을 고정 write로 바꾸려면 target 의존성과 guard가 필요하기 때문이다. 단일 literal의 비실행 static Graph 경로와 구별한다.
-
-`parse_frontend`는 literal 문자열 다중 target을 구조화하지만 `prepare_semantic`의 binding과 Graph/Logical은 다중·빈 target을 ordered-write IR 미지원으로 거절한다. 실제 값이 필요한 계산된 target은 static parser에서 실행하지 않고 runtime 경계로 남긴다. 단일 literal 문자열 target은 기존 단일 write 분석 경로로 전달한다. 기존 일반 NAME 대입에는 name-list heap allocation이나 재검증을 추가하지 않는다. 다중 RHS는 한 번 공유 상태로 전환하고 item만 선택한다. 현재 item 선택은 복사이며 zero-copy/GPU buffer view 구현을 뜻하지 않는다. open의 padding·sparse 및 `;` 등 별도 primitive 미지원은 그대로 유지한다.
-
-### F1/P4 `name_:` 실행 체크리스트
-
-후속 실행 계획 (2026-10-08): conjunction을 전부 거절하던 경계를 재검토한다. 두 DLL에서 primitive conjunction의 직접 적용은 valence error지만 explicit conjunction의 직접 적용과 primitive의 별도 이름 이관 후 적용은 정상임을 확인했다. 먼저 explicit/non-nameless conjunction 실행을 허용한다. nameless conjunction은 복사와 직접 적용의 차이를 후속 parser action 계약으로 구분하기 전까지 보수적으로 거절한다. 함수형 abandon의 비실행 parser 산출물도 `FunctionHead::TakeName { name, single_word }`로 구체화하여 POS·원문·abandon 정책을 보존하되 binding/lowering은 아직 실행하지 않는다.
-
-- [x] non-nameless conjunction abandon의 global/local·explicit/direct·실패 후 삭제 순서를 C와 비교한다.
-- [x] 함수형 deferred TakeName과 binding/Graph/Logical의 명시적 거절, 기존 noun/late NameRef와의 구분을 테스트한다. cap 판정과 수동 구성 capture/Graph 경계도 검증한다.
-- [x] Windows default/portable, fmt/clippy/Python 및 최종 C 감사를 갱신한다. 아래 알려진 gap은 통과로 세지 않는다.
-
-함수형 전달 계약: `Engine::parse_frontend(&self, source)`는 현재 Engine의 읽기 전용 catalog를 사용하여 binding 전 `Program` 또는 원래 queue/reduction/NAME/pending action을 가진 `FrontendFailure`를 반환한다. abandon NAME의 class와 가능한 version은 분석 가정으로 관측하며 kernel·정의 본문·대입·삭제는 실행하지 않는다. 일반 modifier의 기존 정적 identity 관측 계약은 유지한다. 기존 `prepare_semantic`은 parser 이후 binding까지 수행하는 별도 API다. catalog 없는 `parser::parse_frontend`는 기존처럼 noun을 기본 가정하며 모든 함수 POS를 추론하는 API가 아니다.
-
-예: `f=:+` 이후 `Engine::parse_frontend("g=:f_:")`의 최종 식은 `VerbValue`이고 `entity.result_pos=Verb`, `entity.head=TakeName { name: "f", single_word: false }`, `entity.operands=[]`다. 실제 `+` 함수 본문을 고정한 값도, 실행 때마다 다시 찾는 일반 `NameRef("f")`도 아니다. `FrontendContext`에는 원래 `g`, `=:`, `f_:`의 span/word index, `CaptureAndAbandon` 정책, `CatalogClass` 근거, 선택적인 관측 version과 NAME→함수 node 연결이 남는다. local/global 의미는 정의의 NAME scope plan과 실행 frame 경계에서 정해지며 catalog 관측은 실행 guard가 아니다.
-
-비실행 modifier 적용과 fork 첫 항의 cap 판정에 실제 abandon 결과가 필요한 경우에는 값을 추측하지 않는다. `h=:-c_:+`는 NAME 정보와 pending Conjunction row를, `f=:(cap_: + *)`는 pending Fork row를 보존하고 Unsupported로 멈춘다. runtime parser는 실제 값을 가져온 뒤 해당 생성 과정을 정상 수행할 수 있다. 아직 deferred modifier constructor IR이 구현됐다는 뜻은 아니다. binding과 Graph builder/verifier는 함수 DAG 안의 TakeName도 찾아 거절하고, 사실 추론·effect 분류는 Unknown을 유지한다. 수동 구성한 BoundProgram이나 capture로도 이를 순수 함수 상수/호출로 승격할 수 없다.
-
-사용자 확인: tokenizer/enqueuer는 `name_:`를 즉시 조회·삭제하지 않는다. 기본 이름·abandon flag·원래 span/word index를 넘긴다. 비실행 parser는 noun의 `ExprKind::TakeName { name, single_word }`를 만들어 일반 ReadName과 구분한다. ordered NAME effect IR이 없는 기존 binding/Graph/Logical 경계는 거절하며 조회·삭제를 실행하지 않는다. 기본 Runtime semantic parser는 C와 같은 stack-entry 순서로 값을 가져오고 실제 발견한 scope를 삭제한다. 아래의 새 명시적 NAME 효과 계획도 해당 순서를 보존하며, 삭제를 옮기는 compiled route는 동일한 lookup/effect/error 순서를 입증해야 한다.
-
-- [x] enqueue flag, deferred noun expression, NAME policy와 원래 context 연결.
-- [x] runtime noun/verb/adverb by-value 반환, 실제 local/global scope 삭제, missing/error 순서, 삭제 후 재대입 ABA guard 회귀. 함수 값 내부의 별도 late nameref는 그대로 유지한다.
-- [x] pinned C의 단일-word local fast path는 값을 반환하되 삭제하지 않는 동작을 별도 확인. `name_:`가 대입 target이면 lookup/delete하지 않고 기본 이름을 대입한다. explicit/direct local 선언도 기본 이름으로 기록한다.
-- [x] capture에서 관측 전 lookup과 실제 삭제 여부를 보존하고 순서 있는 effect를 Graph의 순수 read로 승격하지 않는다. by-value 이름에 ordinary SimpleNameGuard를 만들 수 없다.
-- [x] 두 C DLL·두 실행 경로 및 Windows default/portable·Python·fmt/clippy 검증. 아래 미지원 결과는 통과로 세지 않는다.
-- [ ] locale/locative, execute 내부의 특수 abandon 처리와 deferred function entity lowering은 별도 후속 범위.
-
-초기 `84782fd`의 경계: conjunction abandon을 전부 Unsupported로 거절했다. 2026-10-08 후속 수정은 explicit/non-nameless conjunction을 허용하고 nameless conjunction만 보수적으로 거절한다. nameless primitive의 직접 적용은 두 DLL의 valence error와 차이가 있어 이를 C 호환 성공으로 세지 않는다. primitive를 별도 이름으로 이관한 뒤 적용하는 C 경로는 정상임을 확인했지만 아직 Rust admission에 포함하지 않는다. 읽기 전용 loop index의 일반 삭제는 별도 `j.dll` probe에서 DLL 접근 오류가 관측되어 Rust는 Unsupported로 거절한다. 해당 C probe는 두 DLL 감사의 통과 집계에 포함하지 않는다. 단일-word local index의 비삭제 경로는 독립적으로 검증한다. extension registry binding의 abandon과 일반 function-result display도 미지원이다.
-
-지연의 단위는 조회와 삭제를 결합한 의미 연산이다. suffix를 지운 ReadName이나 이미 계산한 Literal만 전달하면 안 된다. `TakeName.single_word`는 C의 local fast-path 맥락을 보존한다. 분석 단계에서 부작용을 일으키지 않으며, 추후 effect IR은 발견한 scope/binding identity, by-value 결과, 삭제 여부, 오류·다른 NAME 조회와의 순서를 함께 표현해야 한다. `CaptureEvent::Abandon`은 실행 전 lookup observation과 실제 `deleted`를 보존하는 관측 기록이며 실행 계획이 아니다.
-
-2026-10-07 최종 검증: Windows default/portable 각각 **625 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. `tests/name_abandon.rs` 8개 회귀는 비실행 분석, 원문·정책, 값·alias 수명, 평가 순서·실패 후 삭제, explicit/direct local의 단일-word 특례, declared-unbound global fallback, caller-private 비캡처, 함수 내부 late alias, guard ABA와 미지원 non-catchable 경계를 다룬다. `reports/name-abandon-windows.json`은 **17 fixtures × DLL 2 × route 2 = 68 observations: 64 matched / 4 unsupported_gap**이며 네 gap은 conjunction 한 사례다. 기존 문자열 대입·정의/loop/nested/scope는 최종 바이너리에서 **416/416 일치**. 합계 **480 matched / 4 unsupported_gap**이며 full J conformance를 뜻하지 않는다. C 오류 위치/문자열 동등성은 검증하지 않았다.
-
-Frontend 감사 최종 갱신: **31 cases / 62 observations = 44 matched / 18 runtime_gap**. 앞의 문자열 대입 단계 **42/20**에 이어 `abandon_name`의 runtime/post-state 차이 2건을 해소했다. 고유 gap은 **10 → 9**. P/G/L admission은 이전 단계와 같으며 deferred effect의 binding/lowering은 여전히 Unsupported다. `reports/frontend-contract-audit-windows.json`과 위 비교 보고서에 최종 소스·실행 파일 hash를 기록했다. 참고 C 소스 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, 실제 DLL release는 `ded7793fe5795d79eda8e7138dce94aa056edf78`이며 같은 소스를 재빌드했다는 뜻은 아니다.
-
-2026-10-08 후속 최종 검증: Windows default/portable 각각 **635 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. 함수형 transport·verifier 4개 unit 회귀와 실행/공개 frontend API 6개 회귀를 추가했다. `reports/name-abandon-windows.json`은 **27 fixtures × DLL 2 × route 2 = 108 observations: 104 matched / 4 unsupported_gap**. explicit/direct conjunction, local bare-result 오류의 catch 후 binding 유지, global fallback, 생성 실패 후 삭제·catch, 실제 abandon 값이 cap인 fork를 포함한다. 네 gap은 기존 nameless conjunction 직접 적용 사례다. primitive의 별도 이름 이관 경로는 C-only 조사에서만 확인했고 Rust 지원/비교 통과로 세지 않았다. 기존 문자열 대입·정의/loop/nested/scope는 최종 바이너리에서 **416/416 일치**; 합계 **520 matched / 4 unsupported_gap**다.
-
-Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가하여 **34 cases / 68 observations = 50 matched / 18 runtime_gap**이다. 이전 31-case 집합의 고유 gap 9건은 그대로이며 이번 수치 증가는 추가한 정상 runtime 사례 6건이다. P는 **16 accepted / 16 Unsupported / syntax 1 / control 1**, G는 **15 / 17 / 1 / 1**, L은 **14 / 18 / 1 / 1**. 새 `Engine::parse_frontend` 성공과 binding을 포함한 P admission을 구분한다. machine report의 source/binary/DLL hash를 최종 실행 파일로 갱신했다. full J·C 오류 위치/문자열·Linux·GPU·GitHub CI 검증을 주장하지 않는다.
-
-다음 NAME 게이트: nameless conjunction의 별도 이름 이관과 직접 적용 차이를 parser action 계약으로 구분하고, noun/function TakeName을 실제 순서 있는 NAME effect IR로 lowering한다. 발견한 scope/binding identity, by-value 결과, 삭제 여부, 관측 오류 순서를 보존해야 하며 그 전에는 기존 Graph/Logical admission을 완화하지 않는다. locale/locative, boxed/AR target과 나머지 수치/primitive gap은 독립 후속 게이트다.
-
-2026-10-08 이름 이관 실행 계획:
-
-- [x] nameless conjunction의 abandon lookup/delete를 허용하고 parser Item에 적용 미지원 상태를 별도로 보존한다. semantic POS와 FunctionEntity를 변조하지 않는다.
-- [x] 대입·괄호는 상태를 유지하며 이름에 저장한 함수 자체에는 상태를 넣지 않는다. 이후 새 문장의 일반 조회는 정상 적용 가능하다. 문장 내부 대입 직후 직접 적용은 계속 Unsupported로 거절한다.
-- [x] global/local·연쇄/괄호 대입·single-word local 비삭제·실패 후 삭제/commit·capture 순서를 회귀 및 두 C DLL로 검증한다. C valence error와 Rust Unsupported 차이는 별도 gap으로 보고한다.
-- [x] Windows default/portable·fmt/clippy·Python 및 최종 비교 보고서를 갱신한다. ordered NAME effect IR은 다음 독립 구현 단위다.
-
-이 단계의 실제 계약은 `Item.abandoned_nameless_conjunction: bool`이다. 실제 abandon 결과가 nameless conjunction일 때만 설정하는 runtime parser 상태이며 FunctionEntity의 immutable identity·POS·저장된 binding에는 넣지 않는다. row 7 대입과 row 8 괄호는 이 상태를 그대로 전달한다. 그 외 소비 action은 실제 lookup/delete 및 이미 끝난 내부 대입 이후에 Unsupported로 중단하고 pending action·실패 capture를 보존한다. 새 일반 NAME lookup은 새 Item이므로 정상 conjunction 적용을 허용한다. 이는 C의 pointer tag를 Rust 함수 타입으로 흉내 낸 것이 아니며, 아직 C valence error를 구현했다는 뜻도 아니다. Unsupported는 J catch로 숨길 수 없다.
-
-예: `c=:@:` 이후 `d=:(c_:)` → `c` 삭제, `d`에 `@:` 저장; 다음 `h=:-d+`와 `h 3` → `-3`. 반면 `h=:- (d=:c_:) +`는 `c` 삭제·`d` 대입 후 Unsupported이며 `h`는 생성하지 않는다. 이후 `h=:-d+`는 정상이다. runtime capture는 삭제 전 binding observation, 실제 삭제 및 내부 commit 순서를 보존하고 ordered effect Graph 미지원으로 거절한다. 비실행 frontend의 `FunctionHead::TakeName` 전달과 binding/Graph/Logical 거절 계약은 변경하지 않았다.
-
-이름 이관 단계 최종 검증: Windows default/portable 각각 **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. `tests/name_abandon.rs`는 17개 테스트이며 이번에 세 회귀 테스트를 추가했다. `reports/name-abandon-windows.json`은 **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**이다. 새 정상 이관·local bare 사례 7개는 두 DLL·두 route의 **28/28** 일치다. 기존 직접 적용 4건과 추가 괄호/내부 대입/local 직접 적용 12건을 합친 네 종류의 오류 차이는 통과로 세지 않는다. 기존 별도 감사 **416/416**과 합하면 **548 matched / 16 unsupported_gap**다. frontend 감사는 **34 cases / 68 observations = 50 matched / 18 runtime_gap**으로 유지된다. report는 최종 소스·실행 파일/DLL hash를 기록한다. full J·C 오류 위치·Linux·GPU·GitHub CI 검증은 수행하지 않았다.
-
-다음 독립 구현 단위는 noun/function TakeName의 ordered NAME effect IR이다. lookup 시점의 scope/binding identity, by-value 결과, 실제 삭제와 single-word 특례, 후속 조회·대입·실패 순서 및 nameless 적용 admission을 명시적으로 표현한 뒤 Graph/Logical admission을 확대한다.
-
-### Ordered NAME effect IR 첫 실행 단위
-
-- [x] `Program`과 명시적인 parser step/item/node 연결에서 조회·TakeName·primitive apply·최종 단일 NAME write를 순서 있는 의미 계획으로 낮춘다. AST 순회나 span 정렬로 실행 순서를 추측하지 않는다.
-- [x] SSA 값과 성공 효과 token을 분리한다. 실패 시 다음 token/연산을 실행하지 않으며 이미 끝난 삭제를 replay/rollback하지 않는다. lookup의 실제 scope·generation·version 및 삭제 결과는 실행 관측으로 보존한다.
-- [x] 초기 실행 범위는 top-level 단순 NAME, noun primitive 연산, 함수형 TakeName 값 이관 및 최종 단일 대입이다. catalog POS 재사용 조건은 실행 전 검사하고 TakeName의 missing 오류는 실제 조회 순서에서 발생시킨다. ordinary noun의 초기 missing은 POS admission 실패다. 실제 값/version은 고정하지 않는다.
-- [x] 위조/역순 token·잘못된 값 edge·효과 누락을 verifier로 검출하고 순서·오류·계획 재사용·함수 이관·무부작용 admission을 테스트한다. 기존 J Graph/Logical의 pure-route admission은 확대하지 않는다.
-- [x] Windows default/portable·fmt/clippy·Python과 두 C DLL 비교 후 체크리스트·결과를 갱신한다. local definition frame/locative·modifier 생성·동적 verb 호출·중간 write는 다음 확장 범위다.
-
-구체적인 전달 계약:
-
-| 항목 | 계약 |
-| --- | --- |
-| 목적·입력 | `Engine::prepare_name_effects`가 읽기 전용 catalog를 사용한 비실행 `Program`을 받아 `name_effect_ir::Plan`으로 lowering한다. 준비 과정에서 kernel·정의 본문·조회/삭제 효과를 실행하지 않는다. |
-| 출력 | private immutable Plan은 원래 Program, 공유 literal/function payload, `Step { operation, output: Option<ValueId>, before: EffectToken, after: EffectToken, parser_step, span, blame }` 및 결과 ValueId를 보존한다. `Operation`은 Literal/Function/Read/Take/Apply/Commit이다. |
-| 순서 | `FrontendContext.steps`의 명시적 Stack/Reduce 순서에서 lowering한다. 괄호는 값 alias, 최종 단일 대입은 Commit이다. 원래 item/node 연결을 따르고 source span은 진단용으로만 사용한다. function/literal payload의 의미 권위는 Program이다. FrontendContext는 실행하지 않는다. |
-| 실행·오류 | `Engine::execute_name_effects(&Plan)`은 검증과 POS admission 후 각 step을 한 번 실행한다. `Execution { result, completed: EffectToken, names: Vec<NameObservation> }`을 반환한다. 실패 token 이후의 연산을 실행하거나 parser로 replay하지 않는다. 관측에는 step, 조회 전/후 LookupObservation과 deleted가 있으며 배열 payload는 보관하지 않는다. |
-| 재사용 조건 | 준비 당시 품사는 실행 전 조건이다. 현재 ordinary noun 이름이 없거나 품사가 바뀌면 효과 전에 Unsupported다. TakeName이 실행 전에 사라졌다면 missing 오류는 실제 Take step까지 미룬다. value·shape·version·generation을 상수로 고정하지 않는다. 준비 시 catalog 조회 실패도 실행된 value error로 보고하지 않고 dynamic parsing이 필요한 admission 실패로 구분한다. |
-| 예시 | `a=:7` 이후 `a_:+a` → Read(a), primitive + 값, Take(a), Apply(+), 결과 14. 먼저 오른쪽 a를 snapshot하고 왼쪽 abandon이 실제 binding을 삭제한다. `a_:+1 2+1 2 3`은 먼저 length error로 끝나므로 Take는 실행되지 않는다. |
-| 초기 범위 | top-level simple NAME의 noun snapshot/Take와 primitive noun 연산, 함수형 Take의 별도 이름 이관, 마지막 단일 NAME 대입. 함수 이관은 실제 실행 시 함수 값을 저장하고 내부 late NameRef는 유지한다. |
-| 금지·후속 | local definition frame·locale/locative·modifier constructor·dynamic verb application·중간/다중/noun target write는 admission하지 않는다. nameless conjunction의 직접 적용도 이 계획으로 실행하지 않는다. 이 경로는 명시적 API이며 기본 eval이나 기존 pure J Graph/Logical의 admission을 확대하지 않는다. 다음에는 효과 사이의 pure array 영역을 Graph/Logical로 연결한다. |
-| 소유권·검증 | literal은 한 번 공유 상태로 만들고 Program과 계획이 공유한다. 값 사용 횟수에 따라 마지막 사용은 move하고, 여러 사용에만 공유 상태를 만든다. `Plan::verify`는 원래 parser 연결에서 명령을 다시 유도하여 효과 누락/재배열, token·SSA edge·provenance 불일치를 검출한다. 검증은 J kernel이나 parser를 재실행하지 않는다. |
-
-품사 경계의 중요한 예는 `a=:7`일 때 준비한 `b=:a`다. 준비 후 a를 삭제하면 기존 noun 계획은 실행 전에 거절한다. 새 J parse의 `b=:a`는 missing ordinary NAME을 verb 참조로 저장할 수 있기 때문이다. 이 admission 거절은 J 오류를 흉내 낸 것이 아니며, 실행 전 다른 경로를 선택할 수 있는 명시적 경계다. 반면 실제 계획 안에서 `a+a_:`의 오른쪽 Take 후 조회 실패는 실행된 value error이며 삭제를 되돌리지 않는다. 두 C DLL의 bare·대입 문장도 해당 결과와 삭제 상태를 확인했다.
-
-2026-10-08 최종 검증: Windows default/portable 각각 **647 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 새 Rust 회귀는 8개 integration + 1개 verifier unit이며 Python 감사 어댑터 회귀 2개를 추가했다. `reports/name-effects-windows.json`: **19 fixtures × C DLL 2 = 38/38 matched**. effect로 표시한 한 문장만 새 계획으로 실행하며 setup/check는 일반 eval이다. 값·오류·삭제/실패한 최종 대입·array alias/reshape/search·verb/adverb/conjunction 및 explicit 정의 값 이관·내부 late alias를 비교했다. 실패 시 ordinary eval로 재시도하는 fallback은 없다.
-
-기존 감사도 최종 바이너리로 갱신했다. abandon **132 matched / 16 unsupported_gap**, 문자열 대입·정의/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**이다. 기존 미지원 건은 줄었다고 주장하지 않는다. 새 계획 감사는 기존 runtime 두 route와 구분한 별도 38건이다. source/binary/probe/DLL hash를 보고서에 기록하며 참고 C 소스 pin과 실제 DLL release가 같은 소스 재빌드를 뜻하지 않는 기존 제한을 유지한다. Linux·GPU·full J·C 오류 위치·GitHub CI는 검증하지 않았다.
-
-이 단계에서 예정했던 pure array의 J Graph/Logical 연결은 아래 후속 계약으로 구현했다. 다음 실행 단위는 내부 성공 위치를 보존하는 다중 Apply batching이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
-
-### NAME 효과와 배열 IR 연결 실행 체크리스트
-
-- [x] J Graph/Logical에 이름 조회와 구분한 명시적 배열 Input을 추가한다. 값은 효과 token을 통과한 snapshot으로 공급하며 가짜 이름·version·literal로 변환하지 않는다.
-- [x] 각 primitive Apply를 입력 SSA 매핑·원래 parser step·진입/성공 token을 가진 검증된 배열 region으로 낮춘다. 초기에는 한 Apply 단위로 오류 경계를 유지한다.
-- [x] Logical open-input 실행을 추가하고 NAME read/write/dynamic call을 region 안에서 거절한다. 실행 전에 모든 region을 검증하며 실패 후 다른 경로로 replay하지 않는다.
-- [x] 기존 순서 있는 semantic route와 새 Logical route의 값·오류·삭제·실패 token을 비교하고 두 C DLL의 공통 사례를 갱신한다.
-- [x] 후속으로 연속 pure Apply의 다중 결과 region 및 내부 성공 위치를 표현하여 batching을 검토한다. token 경계 밖의 fusion/hoisting은 허용하지 않는다.
-
-
-### NAME 배열 region의 구현 계약 — 2026-10-08
-
-다중 Apply batching 실행 체크리스트:
-
-- [x] Apply와 그 사이의 immutable literal/primitive-function 전달만 하나의 Graph/Logical batch로 묶고 Read/Take/Commit·그 외 parser step은 넘지 않는다. 외부 입력과 batch 밖에서 필요한 결과를 명시한다.
-- [x] 각 Apply의 Logical operation 범위와 원래 step·진입/성공 token을 checkpoint로 보존한다. literal/function 전달은 zero-operation checkpoint다. 오류 시 내부 완료 위치에서 부모 오류·성공 token을 복원하며 replay하지 않는다.
-- [x] 외부 입력은 한 번 이동하고 내부 SSA 수명·외부 alias·live-out을 보존한다. batch 생성은 비실행이며 검사 순서를 이동하지 않는다.
-- [x] 성공·첫/후속 Apply 실패·NAME 경계·live-out·변조 거절을 회귀 및 Windows default/portable·두 C DLL로 검증한다.
-
-`Engine::prepare_name_arrays`는 검증된 ordered NAME plan의 각 primitive Apply를 `ArrayRegion`으로 낮춘다. `ArrayPlan`은 원래 effect plan과 immutable region 목록을 보유하며, 각 region은 `step`, 진입/성공 `EffectToken`, 입력 NAME SSA `ValueId` 목록, 출력 `ValueId`, J Graph와 Logical plan을 가진다. 원래 parser step·span·blame은 부모 effect step에 남는다. Graph Input의 index는 이 입력 목록의 순서이며 NAME 조회나 저장된 literal이 아니다. 실제 조회/Take 결과는 해당 token에 도달한 실행에서 공급한다.
-
-`Engine::execute_name_arrays`는 모든 region과 POS admission을 효과 실행 전에 확인한다. NAME read/delete/commit은 부모 executor만 수행하고 region은 값만 계산한다. 오류 시 부모 step의 진단 위치와 마지막 성공 token·삭제 관측을 보존하며 다른 경로로 재실행하지 않는다. function transfer는 배열 Apply가 없어 region 0개로 처리할 수 있다. 현재는 canonical unspecialized lowering만 허용하며, region verifier는 원래 FunctionEntity·SSA 연결·token·오류 검사와 순서를 확인한다. 최적화된 region은 추후 별도 등가성 witness 계약이 필요하다.
-
-Graph schema **0.10**, A3 schema **0.6**에 명시적 `Input { index }`를 추가했다. `logical_executor::execute_with_inputs`는 실행 전 입력 개수와 알려진 dtype/shape/rank를 확인한다. 모든 값의 사용 횟수에는 semantic check와 최종 결과도 포함한다. 마지막 사용에서는 소유권을 이동하고, 중복 사용에서만 shared handle을 만든다. 4,096개 integer 배열의 +1 회귀는 고유 입력의 실제 data pointer 재사용과 외부 alias가 남은 경우의 원본 보존을 확인한다. 이는 복사 제거의 증거이며 C 대비 속도 우위를 측정한 결과는 아니다.
-
-최초 배열 연결 단계의 지원 범위는 부모 ordered NAME plan과 같다. local definition frame·locative·중간 대입·modifier 생성·dynamic verb call은 별도 게이트다. 기본 eval 및 기존 pure Graph admission을 넓히지 않았다. 최초 단계는 Apply 하나의 오류 경계를 유지했으며, 다중 Apply batching은 아래 후속 계약으로 구현했다. fusion·GPU 실행·비동기 스케줄은 도입하지 않는다.
-
-배열 연결 단계 최종 검증: Windows default/portable 각각 **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 이번 Rust 회귀는 integration 8개와 verifier unit 1개다. region 경계/입력 SSA·검사 변조 거절, 실제 저장소 재사용·alias 보존, shared fanout, shape/generation이 바뀐 계획 재사용, 오류 span/parser blame·실패 token을 확인했다. `reports/name-effects-windows.json`은 **19 fixtures × DLL 2 × route 2 = 76/76 matched**다. semantic/Logical 두 경로 모두 표시된 한 문장만 계획으로 실행하며 setup/check는 일반 eval이다.
-
-기존 최종 바이너리 감사는 **548 matched / 16 unsupported_gap**, 별도 frontend 감사는 **50 matched / 18 runtime_gap**으로 유지됐다. 이 gap을 해결했다고 주장하지 않는다. 8개 보고서의 소스·바이너리·DLL hash **520건**이 최종 파일과 일치했다. C 소스 pin과 실제 DLL release는 앞 단계와 같으며 same-source rebuild/full J conformance·C 오류 위치/문구 동등성을 뜻하지 않는다. 테스트는 이 컴퓨터의 Windows에서만 실행했고 GitHub CI·Linux·GPU 검증은 하지 않았다.
-
-### 다중 Apply batch 전달·실행 계약 — 2026-10-08
-
-`ArrayPlan::batches()`는 private immutable `ArrayBatch` 목록을 반환한다. 기존 per-Apply `regions()`는 원래 경계를 검토할 수 있도록 남긴다. 실행에는 batch의 통합 J Graph/Logical plan과 SSA 작업 공간을 사용한다. `Read/Take/Commit`과 미지원 step을 넘어 묶지 않으며, 처음·마지막 Apply 사이의 immutable Literal/사용되지 않는 Function 값 전달만 내부에 포함한다. source span에서 순서를 추측하지 않고 ordered effect step을 따른다.
-
-| 전달 항목 | 계약 |
-| --- | --- |
-| steps | 원래 effect plan의 연속 step 범위. 각 Apply와 사이의 값 전달 step 모두 포함한다. |
-| inputs | `(부모 ValueId, 대체하는 사용 횟수)` 목록. 실제 조회 결과는 한 번 import하고, 내부 fanout은 Logical SSA가 관리한다. |
-| constants | `(부모 ValueId, 원래 Program literal NodeId)` 목록. 일반 inputs 뒤의 Graph/Logical Input으로 공급한다. 고정된 immutable payload handle만 미리 공유하며 NAME 조회·동적 noun 계산·정의/constructor 실행은 하지 않는다. |
-| outputs | batch 밖에서 사용되는 `(부모 ValueId, Logical ValueId)` 목록. 내부 전용 중간값은 export하지 않는다. 이 계약은 다중 결과를 표현할 수 있으며 기존 Logical plan의 단일 result/스키마를 변경하지 않는다. |
-| checkpoints | 각 원래 step의 `step`, Logical operation range, 진입/성공 token. Apply의 range는 해당 semantic check와 call을 포함한다. Literal/Function 전달은 zero-operation range로 원래 성공 위치를 유지한다. |
-| failure | Logical executor는 성공한 operation prefix 길이를 반환한다. 부모는 해당 checkpoint에서 실패 span/parser blame과 마지막 성공 effect token을 복원한다. 이전 NAME 삭제는 유지하고 실패 뒤 Commit은 실행하지 않는다. 다른 경로로 replay하지 않는다. |
-| verification | 실행 전 원래 effect plan에서 canonical batch를 다시 유도해 입력·literal payload 연결·exports·checkpoint·원래 FunctionEntity·SSA·facts·검사/순서를 검증한다. 임의 최적화 계획을 받아들이는 witness 계약은 아직 아니다. |
-
-예: `b=:1+2+a_:`는 Take(a) 뒤 두 덧셈을 하나의 batch로 실행한다. 첫 결과는 내부 SSA이고 마지막 결과만 b의 Commit으로 넘긴다. `b=:a_:+1+2+3`은 오른쪽 덧셈 batch와 Take 뒤 왼쪽 덧셈 batch로 나뉜다. `b=:1 2+a_:+3`은 Take와 첫 덧셈 성공 뒤 두 번째 덧셈에서 length error가 나면 삭제를 유지하고 b를 보존한다. 실패 위치는 batch 전체가 아니라 실제 실패한 Apply다.
-
-실행은 기존 semantic kernel을 사용한다. 마지막 사용의 move, shared fanout 및 export 수명을 함께 계산하며, 중간 결과를 export하면 후속 in-place kernel이 그 결과를 변조할 수 없다. 순차 CPU이며 kernel fusion·physical schedule·GPU 실행은 하지 않는다. 다음 단계는 verified batch에서의 합법적인 fusion/bufferization 후보 분석과 비용·오류 순서 witness이며, local frame·중간 대입·modifier 확장은 독립 게이트로 유지한다.
-
-batch 단계 최종 검증: Windows default/portable 각각 **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. Rust 회귀는 integration 5개와 unit 2개를 추가했다. 내부 checkpoint·상수/입력 매핑·외부 alias·현재 shape 재조회·실제 고유 data pointer의 두 연산 연속 재사용, 첫/후속 검사·kernel 실패 후 정확한 부모 token/span/parser blame·NAME 상태, 다중/중복 export 및 변조 거절을 확인했다. Pointer 재사용은 복사 제거의 증거이며 성능 벤치마크나 C 대비 우위는 주장하지 않는다.
-
-`reports/name-effects-windows.json`: **26 fixtures × DLL 2 × semantic/Logical route 2 = 104/104 matched**. 새 batch 정상·NAME 경계·첫/후속 length·삭제 후 length/domain·alias 사례 7개는 **28/28** 일치다. 기존 감사 **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**을 유지했고 보고서의 소스/바이너리/DLL hash **528건**이 일치했다. source pin과 DLL release는 앞 단계와 같다. full J·C 진단 문구/위치·성능·Linux·GPU·GitHub CI 검증은 아니다. 기본 eval 및 부모 NAME plan의 admission 범위는 확대하지 않았다.
-
-### Frontend A0.6 — 정의 실행 전·반환 오류 경계 보완
-
-frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/fusion 확장은 이 게이트의 완료 조건이 아니다. 현재 지원 subset E2E 완료 판정은 유지하되, 감사의 runtime gap을 모두 tokenizer/enqueuer/parser 결함으로 해석하지 않는다. NAME 표현력·수치 literal·modifier 실행 미지원과 frontend 정보 전달 누락을 구분한다.
-
-- [x] 실행 전 valence·미지원 control/framing·호출 깊이 및 frame 준비 실패에 `DefinitionAdmission` frame을 붙인다. 제어/문장 위치를 아는 경우 source map으로 대응하고, 그 외에는 실제 정의 span으로 표시한다.
-- [x] 최종 noun-result 검사와 implicit-return fixing 실패에 `DefinitionReturn` frame을 붙인다. 마지막 결과를 만든 body fragment를 보존하며 존재하지 않는 queue blame을 만들지 않는다.
-- [x] 기존 `DefinitionBody/DefinitionCall` chain과 caller-relative span/blame을 유지한다. 반환 실패는 본문 catch 바깥에 남고, 이전 효과·실패한 대입·local frame 정리를 바꾸지 않는다.
-- [x] Windows default/portable·fmt/clippy·Python과 두 C DLL의 오류 종류/실패 후 상태를 확인한다. C 진단 문구/위치 동등성은 주장하지 않는다.
-- [ ] 다음 독립 단위: source-unit/file identity와 중첩 정의의 최상위 원문 provenance. 이번 frame은 DefinitionCode가 소유한 source 단위의 좌표이며 파일 전체 좌표가 아니다.
-
-구체적인 산출물은 `ErrorContext.source_frames`의 기존 `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`다. `kind`에 `DefinitionAdmission/DefinitionReturn`을 추가했고 나머지 전달 구조는 유지한다. `DefinitionCode::diagnostic_error`는 해당 원문 frame만 추가하며 J 오류 종류나 caller 위치를 대체하지 않는다. renderer는 각각 `before definition execution`과 `returning from definition`으로 표시한다. source map은 doubled quote/UTF-8/CRLF 원문 위치를 유지하고 재정의 후에도 공유 원문 수명이 보존된다.
-
-참고 근거는 고정 C 소스 `cx.c`의 본문 실행 후 noun 검사·`FIXAFIRSTIMPLOCONLY` 처리다. 예: `f=:3 : '+'`의 `f 0`은 본문 평가 뒤 noun-result 오류다. `f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'`의 반환 오류는 본문 catch로 처리하지 않으며 count 증가를 유지하고 호출자의 실패한 대입은 commit하지 않는다. 미지원 select 실행은 본문 실행 전에 거절하므로 앞 문장의 전역 변경도 실행하지 않는다. 이는 RustJ admission 정책이며 select를 C처럼 실행한다는 뜻이 아니다.
-
-최종 검증: Windows default/portable 각각 **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 새 회귀 5개를 추가해 `definition_diagnostics`는 9개다. 실행 전 control admission·valence, explicit/direct 최종 noun 검사, implicit return의 domain/Unsupported, 중첩 호출 frame 순서·반복 실패 후 정리, 반환 오류와 catch/이전 전역 효과/실패한 대입·local 수명, escaped quote·UTF-8·CRLF·재정의 후 원문 수명을 확인했다.
-
-정의 호출 감사는 **36 fixtures / 144 observations = 144/144 matched**이며 새 5개 사례는 두 DLL·두 route에서 **20/20** 일치다. multiline body를 CLI에 공급할 때는 명시적 `3 : 0` block을 사용하고 API/hex probe에서는 string form을 검증한다. 기존 NAME·문자열 대입·정의/loop/nested/scope 합계는 **568 matched / 16 unsupported_gap**다. Frontend 감사는 4개 정상 오류/실패 후 상태 사례를 추가하여 **38 cases / 76 observations = 58 matched / 18 runtime_gap**이며 고유 gap 9개는 그대로다. 별도 NAME 효과/배열 감사는 **104/104 matched**를 유지했다. 8개 보고서의 소스·바이너리·DLL hash **528건**이 일치했다. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`은 서로 같은 소스 재빌드를 뜻하지 않는다. full J·C 진단 위치/문구·Linux·GPU·GitHub CI는 검증하지 않았다.
-
-이로써 A0.6의 실행 전·반환 frame 누락 항목을 닫는다. A0.6 전체 완료나 full frontend conformance를 주장하지 않으며, 바로 다음 우선 작업은 source-unit/file identity와 nested source → 최상위 원문의 provenance다. 그 뒤 오류 분류/단계별 admission 계약을 진행한다.
