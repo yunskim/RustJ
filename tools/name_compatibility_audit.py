@@ -105,6 +105,11 @@ SCOPE_FIXTURES = [
 # block-input callback). Keep original source identical on both sides and never
 # script-wrap value queries, whose noun results must remain observable.
 DEFINITION_FIXTURES = [
+    ("diagnostic_return_direct", ["f=:{{+}}", "f 0"]),
+    ("diagnostic_return_explicit", ["f=:3 : '+'", "f 0"]),
+    ("diagnostic_return_post_effect", ["count=:0", "saved=:99", "f=:3 : 0\ncount=:count+1\ntry. local=.+ catch. 42 end.\n)", "saved=:f 0", "count", "saved", "local+0"]),
+    ("diagnostic_missing_valence", ["f=:4 : 'x+y'", "f 0", "2 f 3"]),
+    ("diagnostic_nested_return", ["inner=:3 : '+'", "outer=:{{inner y}}", "outer 0", "inner=:{{y+1}}", "outer 4"]),
     ("verb_direct", ["f=:{{ y+1 }}", "f 41", "f 1 2 3"]),
     ("verb_explicit", ["f=:3 : 'y+1'", "f 41"]),
     ("verb_dyad", ["f=:4 : 'x+y'", "2 f 3", "f 3"]),

@@ -32,7 +32,10 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 9 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion {
+    major: 0,
+    minor: 10,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -190,6 +193,11 @@ pub struct GraphBasis {
 
 #[derive(Clone, Debug)]
 pub enum NodeKind {
+    /// A logical value supplied by the caller after its surrounding effects.
+    /// This is not a NAME lookup, a constant, or a physical buffer.
+    Input {
+        index: usize,
+    },
     Literal(Value),
     ReadNoun {
         name: String,
@@ -867,7 +875,90 @@ fn analyzability_for(
     }
 }
 
+/// Internal batch construction: operands address external inputs followed by
+/// prior call results. Physical placement and NAME lookup are excluded.
+pub(crate) struct ArrayCall {
+    pub function: Arc<FunctionEntity>,
+    pub left: Option<ValueId>,
+    pub right: ValueId,
+    pub span: Range<usize>,
+}
+
 impl Plan {
+    pub(crate) fn from_array_call(
+        source: String,
+        function: Arc<FunctionEntity>,
+        dyadic: bool,
+        span: Range<usize>,
+    ) -> Result<Self> {
+        Self::from_array_calls(
+            source,
+            1 + usize::from(dyadic),
+            vec![ArrayCall {
+                function,
+                left: dyadic.then_some(ValueId(0)),
+                right: ValueId(usize::from(dyadic)),
+                span,
+            }],
+        )
+    }
+
+    pub(crate) fn from_array_calls(
+        source: String,
+        input_count: usize,
+        calls: Vec<ArrayCall>,
+    ) -> Result<Self> {
+        if calls.is_empty() {
+            return Err(Error::Unsupported("empty array batch".into()));
+        }
+        let mut builder = Builder {
+            nodes: Vec::new(),
+            parser_origins: Vec::new(),
+            regions: Vec::new(),
+            reads: HashMap::new(),
+            noun_facts: &|_| GraphFacts::default(),
+        };
+        for index in 0..input_count {
+            builder.push(
+                NodeKind::Input { index },
+                calls[0].span.clone(),
+                GraphFacts::default(),
+                GraphAnalyzability::StaticWithUnknownFacts,
+            );
+        }
+        let mut result = ValueId(0);
+        for call in calls {
+            if !matches!(call.function.head, FunctionHead::PrimitiveVerb(_))
+                || !call.function.operands.is_empty()
+                || call.right.0 >= builder.nodes.len()
+                || call.left.is_some_and(|left| left.0 >= builder.nodes.len())
+            {
+                return Err(Error::Unsupported(
+                    "invalid array batch primitive call".into(),
+                ));
+            }
+            result = builder.apply_function(call.function, call.left, call.right, call.span)?;
+        }
+        let plan = Self {
+            frontend: None,
+            parser_origins: builder.parser_origins,
+            header: GraphIrHeader {
+                schema: J_GRAPH_SCHEMA_VERSION,
+                primitive_registry_version: crate::primitive::REGISTRY_VERSION,
+            },
+            source,
+            nodes: builder.nodes,
+            regions: builder.regions,
+            result: Some(result),
+            write: None,
+            verb_references: Vec::new(),
+            modifier_snapshots: Vec::new(),
+            fork_name_reads: Vec::new(),
+            name_rank_snapshots: Vec::new(),
+        };
+        plan.verify().map_err(Error::Unsupported)?;
+        Ok(plan)
+    }
     pub fn from_bound(bound: BoundProgram) -> Result<Self> {
         Self::from_bound_with_graph_facts(bound, &|_| GraphFacts::default())
     }
@@ -1467,7 +1558,14 @@ impl Plan {
                 return Err("invalid static modifier snapshot".into());
             }
         }
+        let mut input_count = 0;
         for (index, node) in self.nodes.iter().enumerate() {
+            if let NodeKind::Input { index } = node.kind {
+                if index != input_count {
+                    return Err("array input indices must be dense and ordered".into());
+                }
+                input_count += 1;
+            }
             if let NodeKind::Apply { function, .. } | NodeKind::VerbValue { function } = &node.kind
             {
                 function

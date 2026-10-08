@@ -23,7 +23,7 @@ pub struct IrSchemaVersion {
     pub minor: u16,
 }
 
-pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 5 };
+pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 6 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrProvenance {
@@ -119,7 +119,7 @@ pub enum Constraint {
 }
 
 impl Constraint {
-    fn values(&self) -> [Option<ValueId>; 2] {
+    pub(crate) fn values(&self) -> [Option<ValueId>; 2] {
         match *self {
             Self::PrefixAgreement { left, right }
             | Self::CellFrameAgreement { left, right, .. } => [Some(left), Some(right)],
@@ -537,6 +537,10 @@ fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPaylo
 
 #[derive(Clone, Debug)]
 pub enum OpKind {
+    /// Caller-supplied logical array, with no namespace or storage identity.
+    Input {
+        index: usize,
+    },
     Literal(Value),
     ReadNoun {
         symbol: SymbolId,
@@ -905,6 +909,23 @@ impl PlanBuilder {
         )
     }
 
+    pub(crate) fn push_input(
+        &mut self,
+        index: usize,
+        j_origin: Option<crate::j_graph_ir::ValueId>,
+        span: Range<usize>,
+    ) -> ValueId {
+        self.push_value(
+            OpKind::Input { index },
+            Facts::default(),
+            ValueRoleFacts::default(),
+            &ConstraintSet::default(),
+            j_origin,
+            span,
+            false,
+        )
+    }
+
     pub(crate) fn push_read_noun(
         &mut self,
         symbol: SymbolId,
@@ -1162,6 +1183,7 @@ impl Plan {
             ));
         }
 
+        let mut input_count = 0;
         for (index, operation) in self.operations.iter().enumerate() {
             let op_id = OpId(index);
             if operation.span.start > operation.span.end
@@ -1261,6 +1283,15 @@ impl Plan {
             };
 
             match &operation.kind {
+                OpKind::Input { index } => {
+                    if *index != input_count || operation.results.len() != 1 {
+                        return Err(fail(
+                            Some(op_id),
+                            "array inputs require dense indices and one result".into(),
+                        ));
+                    }
+                    input_count += 1;
+                }
                 OpKind::Literal(_) => {}
                 OpKind::ReadNoun { symbol, .. } => check_symbol(*symbol)?,
                 OpKind::VerbReference(callable) => check_callable(callable)?,

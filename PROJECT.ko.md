@@ -4302,10 +4302,10 @@ positive E2E test만으로는 compiler boundary를 보호할 수 없다. 각 sta
 
 | Stage / verifier | 반드시 거부해야 하는 forged/invalid state | 현재/계획 상태 |
 |---|---|---|
-| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.9`와 exact match |
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.10`와 exact match |
 | rewrite candidate `verify` | stale source span/basis, unregistered rule/witness mismatch, replacement DAG forward reference, fact-rule mismatch, output semantic facts drift | **현재 존재** |
 | scan/fusion analysis verifier | forged source order, unsupported rule version, missing/incorrect witness, external-use/retention/fanout drift, candidate를 근거 없이 `selected`로 위조 | **현재 일부 존재**; proof discharge/selection verifier는 future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.5`와 exact match |
+| A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.6`와 exact match |
 | CandidateEvidence / SelectionPlan | stale graph/version evidence, required proof Unknown인데 Selected, Illegal candidate 선택, overlapping incompatible candidates 동시 선택 | **planned** — §4.1.4 |
 | RouteRegion / RouteBoundary | missing live-in/out, value-dead but effect-live dependency drop, SemanticCheck 중복/누락/순서변경, region-wide capability 미증명, guard가 effect 뒤에 배치, bridge requirement 누락 | **planned** — §2.5.1 |
 | PhysicalPlan | invalid plan buffer/view/op id, use-before-bind, view span overflow, selected kernel capability mismatch, unordered Check, unproved writable overlap/reuse, dangling Return | **planned M4** — §5.2.1 |
@@ -4334,8 +4334,8 @@ no later planner/executor is invoked
 현재 RustJ의 J Graph/A3는 주로 in-process compiler artifact이며 장기 portable serialization compatibility를 약속하지 않는다. 현재 verifier는:
 
 ~~~text
-J Graph schema 0.9      exact match required
-A3 schema 0.5           exact match required
+J Graph schema 0.10      exact match required
+A3 schema 0.6           exact match required
 PrimitiveRegistry       current REGISTRY_VERSION exact provenance required
 ~~~
 
@@ -6675,7 +6675,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
-> **현재 위상:** `j_graph_ir` v0.9는 **explicit applied-operation graph + access-pattern basis + witnessed rewrite/resource analysis** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts/use-count/analyzability와 `ResourceExprGraph`, witnessed rewrite candidate, conservative source-vs-replacement resource evaluation, existing `LoweringRegistry + TargetCapabilities`에 대한 target-only feasibility bridge가 존재한다. 아직 없는 것은 full rewrite-specific shape algebra, executable WindowView lowering, fusion-candidate별 lifetime extension, resolved TargetProfile/ResourceEstimate/CostProfile, 실제 candidate selection/partition이다.
+> **현재 위상:** `j_graph_ir` v0.10은 **explicit applied-operation graph + access-pattern basis + witnessed rewrite/resource analysis** 단계다. `@:`/Hook/Fork 내부 stage/branch가 실제 `ValueId` node로 전개되고, `/`, `"`, `\`의 Reduce/CellApply/Window 구조가 graph-level basis/resource identity로 보존된다. stage별 GraphFacts/use-count/analyzability와 `ResourceExprGraph`, witnessed rewrite candidate, conservative source-vs-replacement resource evaluation, existing `LoweringRegistry + TargetCapabilities`에 대한 target-only feasibility bridge가 존재한다. 아직 없는 것은 full rewrite-specific shape algebra, executable WindowView lowering, fusion-candidate별 lifetime extension, resolved TargetProfile/ResourceEstimate/CostProfile, 실제 candidate selection/partition이다.
 
 <a id="graph-prior-art-followup"></a>
 
@@ -7482,10 +7482,10 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 
 | 순서 | 기존 소유 항목 | 실행 범위·수용 조건 | 상태 |
 |---|---|---|---|
-| 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 진행 중 |
+| 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 본문·실행 전·반환 frame 구현; source-unit/file provenance 미완료 |
 | 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
 | 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
-| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과 계획 구현; nameless 직접 적용/효과 계획의 Graph 연결/locatives 미완료 |
+| 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과·배열 Graph 연결 구현; nameless 직접 적용/일반 locatives 미완료 |
 | 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
 | 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
 
@@ -7497,7 +7497,7 @@ A0.6 실행 체크리스트 — 첫 수정 범위:
 - [x] `DiagnosticSourceFrame`: `kind`, 공유 `source: Arc<str>`, `definition_span`, 원문 `span`, fragment queue 기준 `blame_word_index`를 보존한다. `ErrorContext.source_frames`는 가장 안쪽 실패 → 바깥 정의 호출 순서다. 기존 caller span/word-index 의미는 유지한다.
 - [x] ordinary/modifier/nested 정의의 statement/control 실행 실패를 source frame으로 전달하고 렌더링한다. escaped quote·UTF-8·CRLF·source 재정의 수명·실패한 대입·catch 회귀를 추가한다.
 - [x] 최종 소스 기준 native Windows default/portable 각각 **612 passed / 0 failed / 0 ignored**, fmt/clippy 통과, Python **67 passed**. 정의 호출/loop/nested/NAME scope C 비교 **304/304 일치**. Frontend 감사 **38 matched / 24 runtime_gap**는 기존 미지원 경계를 유지한다. `reports/definition-*-windows.json`, `reports/frontend-contract-audit-windows.json`에 바이너리·소스 hash와 결과를 기록했다. C 오류 위치/문자열 동등성은 검증하지 않았으며 source frame은 Rust 회귀 테스트로 검증했다.
-- [ ] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 현재 경로에는 정밀 body 위치가 없을 수 있다.
+- [x] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 제어/문장 site가 없으면 정의 span을 사용하며 body 위치를 만들지 않는다.
 - [ ] source-unit/file identity와 nested source의 최상위 원문까지 이어지는 provenance를 확장한다. 현재 frame 위치는 각 DefinitionCode가 소유한 source 단위 기준이며 파일 전체 좌표를 보장하지 않는다.
 - [ ] 순서 2: 오류 분류와 단계별 admission 계약을 보완한다.
 - [ ] 순서 3: NAME·effect·modifier의 후속 IR 전달 계약을 보완한다.
@@ -7599,7 +7599,79 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 
 기존 감사도 최종 바이너리로 갱신했다. abandon **132 matched / 16 unsupported_gap**, 문자열 대입·정의/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**이다. 기존 미지원 건은 줄었다고 주장하지 않는다. 새 계획 감사는 기존 runtime 두 route와 구분한 별도 38건이다. source/binary/probe/DLL hash를 보고서에 기록하며 참고 C 소스 pin과 실제 DLL release가 같은 소스 재빌드를 뜻하지 않는 기존 제한을 유지한다. Linux·GPU·full J·C 오류 위치·GitHub CI는 검증하지 않았다.
 
-다음 실행 단위는 이 의미 효과 계획에서 pure array 부분을 J Graph/Logical로 내리고 token 경계로 연결하는 것이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
+이 단계에서 예정했던 pure array의 J Graph/Logical 연결은 아래 후속 계약으로 구현했다. 다음 실행 단위는 내부 성공 위치를 보존하는 다중 Apply batching이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
+
+### NAME 효과와 배열 IR 연결 실행 체크리스트
+
+- [x] J Graph/Logical에 이름 조회와 구분한 명시적 배열 Input을 추가한다. 값은 효과 token을 통과한 snapshot으로 공급하며 가짜 이름·version·literal로 변환하지 않는다.
+- [x] 각 primitive Apply를 입력 SSA 매핑·원래 parser step·진입/성공 token을 가진 검증된 배열 region으로 낮춘다. 초기에는 한 Apply 단위로 오류 경계를 유지한다.
+- [x] Logical open-input 실행을 추가하고 NAME read/write/dynamic call을 region 안에서 거절한다. 실행 전에 모든 region을 검증하며 실패 후 다른 경로로 replay하지 않는다.
+- [x] 기존 순서 있는 semantic route와 새 Logical route의 값·오류·삭제·실패 token을 비교하고 두 C DLL의 공통 사례를 갱신한다.
+- [x] 후속으로 연속 pure Apply의 다중 결과 region 및 내부 성공 위치를 표현하여 batching을 검토한다. token 경계 밖의 fusion/hoisting은 허용하지 않는다.
+
+
+### NAME 배열 region의 구현 계약 — 2026-10-08
+
+다중 Apply batching 실행 체크리스트:
+
+- [x] Apply와 그 사이의 immutable literal/primitive-function 전달만 하나의 Graph/Logical batch로 묶고 Read/Take/Commit·그 외 parser step은 넘지 않는다. 외부 입력과 batch 밖에서 필요한 결과를 명시한다.
+- [x] 각 Apply의 Logical operation 범위와 원래 step·진입/성공 token을 checkpoint로 보존한다. literal/function 전달은 zero-operation checkpoint다. 오류 시 내부 완료 위치에서 부모 오류·성공 token을 복원하며 replay하지 않는다.
+- [x] 외부 입력은 한 번 이동하고 내부 SSA 수명·외부 alias·live-out을 보존한다. batch 생성은 비실행이며 검사 순서를 이동하지 않는다.
+- [x] 성공·첫/후속 Apply 실패·NAME 경계·live-out·변조 거절을 회귀 및 Windows default/portable·두 C DLL로 검증한다.
+
+`Engine::prepare_name_arrays`는 검증된 ordered NAME plan의 각 primitive Apply를 `ArrayRegion`으로 낮춘다. `ArrayPlan`은 원래 effect plan과 immutable region 목록을 보유하며, 각 region은 `step`, 진입/성공 `EffectToken`, 입력 NAME SSA `ValueId` 목록, 출력 `ValueId`, J Graph와 Logical plan을 가진다. 원래 parser step·span·blame은 부모 effect step에 남는다. Graph Input의 index는 이 입력 목록의 순서이며 NAME 조회나 저장된 literal이 아니다. 실제 조회/Take 결과는 해당 token에 도달한 실행에서 공급한다.
+
+`Engine::execute_name_arrays`는 모든 region과 POS admission을 효과 실행 전에 확인한다. NAME read/delete/commit은 부모 executor만 수행하고 region은 값만 계산한다. 오류 시 부모 step의 진단 위치와 마지막 성공 token·삭제 관측을 보존하며 다른 경로로 재실행하지 않는다. function transfer는 배열 Apply가 없어 region 0개로 처리할 수 있다. 현재는 canonical unspecialized lowering만 허용하며, region verifier는 원래 FunctionEntity·SSA 연결·token·오류 검사와 순서를 확인한다. 최적화된 region은 추후 별도 등가성 witness 계약이 필요하다.
+
+Graph schema **0.10**, A3 schema **0.6**에 명시적 `Input { index }`를 추가했다. `logical_executor::execute_with_inputs`는 실행 전 입력 개수와 알려진 dtype/shape/rank를 확인한다. 모든 값의 사용 횟수에는 semantic check와 최종 결과도 포함한다. 마지막 사용에서는 소유권을 이동하고, 중복 사용에서만 shared handle을 만든다. 4,096개 integer 배열의 +1 회귀는 고유 입력의 실제 data pointer 재사용과 외부 alias가 남은 경우의 원본 보존을 확인한다. 이는 복사 제거의 증거이며 C 대비 속도 우위를 측정한 결과는 아니다.
+
+최초 배열 연결 단계의 지원 범위는 부모 ordered NAME plan과 같다. local definition frame·locative·중간 대입·modifier 생성·dynamic verb call은 별도 게이트다. 기본 eval 및 기존 pure Graph admission을 넓히지 않았다. 최초 단계는 Apply 하나의 오류 경계를 유지했으며, 다중 Apply batching은 아래 후속 계약으로 구현했다. fusion·GPU 실행·비동기 스케줄은 도입하지 않는다.
+
+배열 연결 단계 최종 검증: Windows default/portable 각각 **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 이번 Rust 회귀는 integration 8개와 verifier unit 1개다. region 경계/입력 SSA·검사 변조 거절, 실제 저장소 재사용·alias 보존, shared fanout, shape/generation이 바뀐 계획 재사용, 오류 span/parser blame·실패 token을 확인했다. `reports/name-effects-windows.json`은 **19 fixtures × DLL 2 × route 2 = 76/76 matched**다. semantic/Logical 두 경로 모두 표시된 한 문장만 계획으로 실행하며 setup/check는 일반 eval이다.
+
+기존 최종 바이너리 감사는 **548 matched / 16 unsupported_gap**, 별도 frontend 감사는 **50 matched / 18 runtime_gap**으로 유지됐다. 이 gap을 해결했다고 주장하지 않는다. 8개 보고서의 소스·바이너리·DLL hash **520건**이 최종 파일과 일치했다. C 소스 pin과 실제 DLL release는 앞 단계와 같으며 same-source rebuild/full J conformance·C 오류 위치/문구 동등성을 뜻하지 않는다. 테스트는 이 컴퓨터의 Windows에서만 실행했고 GitHub CI·Linux·GPU 검증은 하지 않았다.
+
+### 다중 Apply batch 전달·실행 계약 — 2026-10-08
+
+`ArrayPlan::batches()`는 private immutable `ArrayBatch` 목록을 반환한다. 기존 per-Apply `regions()`는 원래 경계를 검토할 수 있도록 남긴다. 실행에는 batch의 통합 J Graph/Logical plan과 SSA 작업 공간을 사용한다. `Read/Take/Commit`과 미지원 step을 넘어 묶지 않으며, 처음·마지막 Apply 사이의 immutable Literal/사용되지 않는 Function 값 전달만 내부에 포함한다. source span에서 순서를 추측하지 않고 ordered effect step을 따른다.
+
+| 전달 항목 | 계약 |
+| --- | --- |
+| steps | 원래 effect plan의 연속 step 범위. 각 Apply와 사이의 값 전달 step 모두 포함한다. |
+| inputs | `(부모 ValueId, 대체하는 사용 횟수)` 목록. 실제 조회 결과는 한 번 import하고, 내부 fanout은 Logical SSA가 관리한다. |
+| constants | `(부모 ValueId, 원래 Program literal NodeId)` 목록. 일반 inputs 뒤의 Graph/Logical Input으로 공급한다. 고정된 immutable payload handle만 미리 공유하며 NAME 조회·동적 noun 계산·정의/constructor 실행은 하지 않는다. |
+| outputs | batch 밖에서 사용되는 `(부모 ValueId, Logical ValueId)` 목록. 내부 전용 중간값은 export하지 않는다. 이 계약은 다중 결과를 표현할 수 있으며 기존 Logical plan의 단일 result/스키마를 변경하지 않는다. |
+| checkpoints | 각 원래 step의 `step`, Logical operation range, 진입/성공 token. Apply의 range는 해당 semantic check와 call을 포함한다. Literal/Function 전달은 zero-operation range로 원래 성공 위치를 유지한다. |
+| failure | Logical executor는 성공한 operation prefix 길이를 반환한다. 부모는 해당 checkpoint에서 실패 span/parser blame과 마지막 성공 effect token을 복원한다. 이전 NAME 삭제는 유지하고 실패 뒤 Commit은 실행하지 않는다. 다른 경로로 replay하지 않는다. |
+| verification | 실행 전 원래 effect plan에서 canonical batch를 다시 유도해 입력·literal payload 연결·exports·checkpoint·원래 FunctionEntity·SSA·facts·검사/순서를 검증한다. 임의 최적화 계획을 받아들이는 witness 계약은 아직 아니다. |
+
+예: `b=:1+2+a_:`는 Take(a) 뒤 두 덧셈을 하나의 batch로 실행한다. 첫 결과는 내부 SSA이고 마지막 결과만 b의 Commit으로 넘긴다. `b=:a_:+1+2+3`은 오른쪽 덧셈 batch와 Take 뒤 왼쪽 덧셈 batch로 나뉜다. `b=:1 2+a_:+3`은 Take와 첫 덧셈 성공 뒤 두 번째 덧셈에서 length error가 나면 삭제를 유지하고 b를 보존한다. 실패 위치는 batch 전체가 아니라 실제 실패한 Apply다.
+
+실행은 기존 semantic kernel을 사용한다. 마지막 사용의 move, shared fanout 및 export 수명을 함께 계산하며, 중간 결과를 export하면 후속 in-place kernel이 그 결과를 변조할 수 없다. 순차 CPU이며 kernel fusion·physical schedule·GPU 실행은 하지 않는다. 다음 단계는 verified batch에서의 합법적인 fusion/bufferization 후보 분석과 비용·오류 순서 witness이며, local frame·중간 대입·modifier 확장은 독립 게이트로 유지한다.
+
+batch 단계 최종 검증: Windows default/portable 각각 **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. Rust 회귀는 integration 5개와 unit 2개를 추가했다. 내부 checkpoint·상수/입력 매핑·외부 alias·현재 shape 재조회·실제 고유 data pointer의 두 연산 연속 재사용, 첫/후속 검사·kernel 실패 후 정확한 부모 token/span/parser blame·NAME 상태, 다중/중복 export 및 변조 거절을 확인했다. Pointer 재사용은 복사 제거의 증거이며 성능 벤치마크나 C 대비 우위는 주장하지 않는다.
+
+`reports/name-effects-windows.json`: **26 fixtures × DLL 2 × semantic/Logical route 2 = 104/104 matched**. 새 batch 정상·NAME 경계·첫/후속 length·삭제 후 length/domain·alias 사례 7개는 **28/28** 일치다. 기존 감사 **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**을 유지했고 보고서의 소스/바이너리/DLL hash **528건**이 일치했다. source pin과 DLL release는 앞 단계와 같다. full J·C 진단 문구/위치·성능·Linux·GPU·GitHub CI 검증은 아니다. 기본 eval 및 부모 NAME plan의 admission 범위는 확대하지 않았다.
+
+### Frontend A0.6 — 정의 실행 전·반환 오류 경계 보완
+
+frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/fusion 확장은 이 게이트의 완료 조건이 아니다. 현재 지원 subset E2E 완료 판정은 유지하되, 감사의 runtime gap을 모두 tokenizer/enqueuer/parser 결함으로 해석하지 않는다. NAME 표현력·수치 literal·modifier 실행 미지원과 frontend 정보 전달 누락을 구분한다.
+
+- [x] 실행 전 valence·미지원 control/framing·호출 깊이 및 frame 준비 실패에 `DefinitionAdmission` frame을 붙인다. 제어/문장 위치를 아는 경우 source map으로 대응하고, 그 외에는 실제 정의 span으로 표시한다.
+- [x] 최종 noun-result 검사와 implicit-return fixing 실패에 `DefinitionReturn` frame을 붙인다. 마지막 결과를 만든 body fragment를 보존하며 존재하지 않는 queue blame을 만들지 않는다.
+- [x] 기존 `DefinitionBody/DefinitionCall` chain과 caller-relative span/blame을 유지한다. 반환 실패는 본문 catch 바깥에 남고, 이전 효과·실패한 대입·local frame 정리를 바꾸지 않는다.
+- [x] Windows default/portable·fmt/clippy·Python과 두 C DLL의 오류 종류/실패 후 상태를 확인한다. C 진단 문구/위치 동등성은 주장하지 않는다.
+- [ ] 다음 독립 단위: source-unit/file identity와 중첩 정의의 최상위 원문 provenance. 이번 frame은 DefinitionCode가 소유한 source 단위의 좌표이며 파일 전체 좌표가 아니다.
+
+구체적인 산출물은 `ErrorContext.source_frames`의 기존 `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`다. `kind`에 `DefinitionAdmission/DefinitionReturn`을 추가했고 나머지 전달 구조는 유지한다. `DefinitionCode::diagnostic_error`는 해당 원문 frame만 추가하며 J 오류 종류나 caller 위치를 대체하지 않는다. renderer는 각각 `before definition execution`과 `returning from definition`으로 표시한다. source map은 doubled quote/UTF-8/CRLF 원문 위치를 유지하고 재정의 후에도 공유 원문 수명이 보존된다.
+
+참고 근거는 고정 C 소스 `cx.c`의 본문 실행 후 noun 검사·`FIXAFIRSTIMPLOCONLY` 처리다. 예: `f=:3 : '+'`의 `f 0`은 본문 평가 뒤 noun-result 오류다. `f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'`의 반환 오류는 본문 catch로 처리하지 않으며 count 증가를 유지하고 호출자의 실패한 대입은 commit하지 않는다. 미지원 select 실행은 본문 실행 전에 거절하므로 앞 문장의 전역 변경도 실행하지 않는다. 이는 RustJ admission 정책이며 select를 C처럼 실행한다는 뜻이 아니다.
+
+최종 검증: Windows default/portable 각각 **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) 통과. 새 회귀 5개를 추가해 `definition_diagnostics`는 9개다. 실행 전 control admission·valence, explicit/direct 최종 noun 검사, implicit return의 domain/Unsupported, 중첩 호출 frame 순서·반복 실패 후 정리, 반환 오류와 catch/이전 전역 효과/실패한 대입·local 수명, escaped quote·UTF-8·CRLF·재정의 후 원문 수명을 확인했다.
+
+정의 호출 감사는 **36 fixtures / 144 observations = 144/144 matched**이며 새 5개 사례는 두 DLL·두 route에서 **20/20** 일치다. multiline body를 CLI에 공급할 때는 명시적 `3 : 0` block을 사용하고 API/hex probe에서는 string form을 검증한다. 기존 NAME·문자열 대입·정의/loop/nested/scope 합계는 **568 matched / 16 unsupported_gap**다. Frontend 감사는 4개 정상 오류/실패 후 상태 사례를 추가하여 **38 cases / 76 observations = 58 matched / 18 runtime_gap**이며 고유 gap 9개는 그대로다. 별도 NAME 효과/배열 감사는 **104/104 matched**를 유지했다. 8개 보고서의 소스·바이너리·DLL hash **528건**이 일치했다. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`과 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`은 서로 같은 소스 재빌드를 뜻하지 않는다. full J·C 진단 위치/문구·Linux·GPU·GitHub CI는 검증하지 않았다.
+
+이로써 A0.6의 실행 전·반환 frame 누락 항목을 닫는다. A0.6 전체 완료나 full frontend conformance를 주장하지 않으며, 바로 다음 우선 작업은 source-unit/file identity와 nested source → 최상위 원문의 provenance다. 그 뒤 오류 분류/단계별 admission 계약을 진행한다.
 
 <a id="read-references"></a>
 ## 13. 프레임워크 조사에서 채택한 원칙
@@ -8518,7 +8590,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 | 순서 | 체크 항목 | RustJ 소유 계층·수용 기준 | 현재 상태 |
 |---|---|---|---|
 | 0 | [x] J 검색 family를 원본 이름·valence·의도에 따라 분류 | J Graph/semantic identity: dyadic `i.`/ `i:`/ `e.`와 monadic generate, dyadic `I.` interval, `E.` window find를 혼동하지 않음 | 코드·§N 정적 확인, full-J 미완료 |
-| 1 | [x] 검색 의미와 실행 전략 분리 | A3 `SearchDescriptor` first/last/member/interval/self; `Operation.j_origin`, rank boundary, J equality를 보유하고 Physical table 정보는 배제; A3 schema 0.5/verifier | 구현·회귀 테스트 추가; **실행 미확인** |
+| 1 | [x] 검색 의미와 실행 전략 분리 | A3 `SearchDescriptor` first/last/member/interval/self; `Operation.j_origin`, rank boundary, J equality를 보유하고 Physical table 정보는 배제; A3 schema 0.6/verifier | 구현·회귀 테스트 추가; **실행 미확인** |
 | 2 | [x] 알고리즘 후보·가드 상태와 비용 선택기 분리 | `LoweringRegistry`의 Baseline/Guard/Proof/Unsupported, `physical.rs::plan_search_algorithm`의 `SearchWorkload/Choice`. Unknown→legal 금지. CPU exact scalar에 한정 | 구현·정적 확인; **벤치마크 미실시** |
 | 3 | [x] 기본 검색 전략과 optional cache 준비 | CPU 순차, 좁은 정수 Direct, Hash, query-side Reverse, immutable-Arc per-Engine Prehash; direct Boolean `e.` 결과와 table allocation 실패 시 순차 fallback | `index_ops.rs`/runtime 구현, 아직 conformance 미통과 |
 | 4 | [x] Tolerant equality 반례와 후보 포괄성 **연구 테스트 작성·연결** | `src/tolerant_search.rs`(테스트 전용, `#[cfg(test)]`)에서 비추이성, first/last, 지수 bucket ±1, ±0, NaN, ±Inf, subnormal 및 독립 **linear search index** 대조 | **테스트 코드만 작성**, 실행·C oracle 검증 미완료; 런타임 미연결 |
@@ -13913,7 +13985,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 | Native Executor | **M4-v0 계약 대체로 닫힘 / 구현 미완료** | §5.2.1/§5.3에 op 역할, verifier, cleanup/error, executor non-responsibility, canonical mean planned route를 연결 | 실제 Physical Executor와 differential E2E test가 없음. stateful/async execution contract는 후속 |
 | fallback / guard miss / replay | **문서 계약 보강됨 / dispatcher 미구현** | §3.9.4에 route fallback/guard miss/replay/continuation 구분, decision table, commit frontier, RuntimeSemanticFallback의 정확한 의미를 통합 | integrated guard dispatcher/exact continuation/transaction rollback은 미구현이며 capability로 주장하지 않음 |
 | external route / GPU | **boundary contract 고정 / 구현 보류** | §5.5.1에 adapter input/capability/output, SemanticCheck/error/effect/token mapping, bridge/ownership, round-trip verifier, failure class를 정의 | production adapter는 미구현. M6까지 implementation gate로만 유지하며 CUDA는 의도적으로 보류 |
-| validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.9/A3 0.5 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
+| validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.10/A3 0.6 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
 
 #### 15.7.1 1차 감사에서 닫은 문서 계약
 

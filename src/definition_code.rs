@@ -570,6 +570,31 @@ pub fn compile(
 }
 
 impl DefinitionCode {
+    /// Attach source-owned coordinates without replacing the caller's context.
+    /// A boundary without a precise body site uses the definition span, never
+    /// a fabricated body word or decoded/file coordinate.
+    pub(crate) fn diagnostic_error(
+        &self,
+        error: Error,
+        kind: crate::error::DiagnosticFrameKind,
+        body_span: Option<Range<usize>>,
+        blame_word_index: Option<usize>,
+    ) -> Error {
+        let mut context = error.context().cloned().unwrap_or_default();
+        let span = body_span
+            .and_then(|span| self.source_map.original_span(span))
+            .unwrap_or_else(|| self.source_span.clone());
+        context
+            .source_frames
+            .push(crate::error::DiagnosticSourceFrame {
+                kind,
+                source: self.source.clone(),
+                definition_span: self.source_span.clone(),
+                span,
+                blame_word_index,
+            });
+        error.into_unlocated().with_context(context)
+    }
     /// Verify source/word/control references before consuming this code in analysis.
     pub fn verify(&self) -> Result<()> {
         let mapped = self

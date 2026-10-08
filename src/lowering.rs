@@ -926,9 +926,10 @@ impl LoweringRegistry {
         target: &TargetCapabilities,
     ) -> RouteDecision {
         match &operation.kind {
-            OpKind::Literal(_) | OpKind::ReadNoun { .. } | OpKind::VerbReference(_) => {
-                RouteDecision::NoKernel
-            }
+            OpKind::Input { .. }
+            | OpKind::Literal(_)
+            | OpKind::ReadNoun { .. }
+            | OpKind::VerbReference(_) => RouteDecision::NoKernel,
             OpKind::SemanticCheck(_) => RouteDecision::SemanticCheck,
             OpKind::SemanticCall(_) => RouteDecision::RuntimeSemanticFallback,
             OpKind::Basis { kind, call, .. } => {

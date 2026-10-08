@@ -23,9 +23,9 @@ class NameEffectAudit(unittest.TestCase):
         with patch.object(audit, "FIXTURES", fixture), patch.object(audit, "Oracle", Oracle), \
                 patch.object(audit.subprocess, "run", return_value=SimpleNamespace(stdout=output)) as run:
             records = audit.audit(Path("assets"), Path("probe.exe"))
-        self.assertEqual([record["status"] for record in records], ["matched", "matched"])
-        for call in run.call_args_list:
-            self.assertEqual(call.kwargs["input"], "eval\ta=:7\neffect\tb=:a_:\neval\ta+0\n")
+        self.assertEqual([record["status"] for record in records], ["matched"] * 4)
+        for call, mode in zip(run.call_args_list, ["effect", "array"] * 2):
+            self.assertEqual(call.kwargs["input"], "eval\ta=:7\n" + mode + "\tb=:a_:\neval\ta+0\n")
             self.assertTrue(call.kwargs["check"])
 
     def test_failed_probe_is_not_retried_as_ordinary_execution(self):

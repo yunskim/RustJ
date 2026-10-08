@@ -2042,7 +2042,7 @@ A fixed-shape parallel map may replace it only after the necessary uniformity pr
 
 J Graph IR preserves algebraic graph structure for reasoning before execution-specific normalization erases useful J structure.
 
-Current schema: **v0.9**. GF2/GF3 add composition and witnessed Scan identity analysis; source Window graphs and execution boundaries remain intact.
+Current schema: **v0.10** (explicit array Inputs). GF2/GF3 add composition and witnessed Scan identity analysis; source Window graphs and execution boundaries remain intact.
 
 It includes:
 
@@ -2932,10 +2932,10 @@ Positive E2E tests are insufficient. Each stage must reject invalid states owned
 
 | Stage | Required rejection examples | Status |
 |---|---|---|
-| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.9 |
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.10 |
 | rewrite candidate verifier | stale source span/basis, unregistered rule/witness mismatch, invalid replacement DAG/facts/output semantics | implemented |
 | scan/fusion analysis verifier | forged order/rule version/witness/retention/fanout or unsupported selected state | partially implemented; proof-discharge/selection verification remains future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.5 |
+| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.6 |
 | CandidateEvidence / SelectionPlan | stale evidence, Selected with required proof Unknown, selected Illegal candidate, incompatible overlapping candidates | planned — §7.5 |
 | RouteRegion / RouteBoundary | missing live-ins/outs, dropped effect-live dependency, duplicated/dropped/reordered SemanticCheck, unproven region capability, post-effect guard, missing bridge | planned — §2.1 |
 | PhysicalPlan | invalid buffer/view/op IDs, use-before-bind, out-of-bounds view, incompatible kernel, unordered Check, unproved overlap/reuse, dangling Return | planned M4 — §17.2.1 |
@@ -2948,8 +2948,8 @@ Use one-mutated-invariant negative tests: build a valid artifact, clone it, brea
 Current J Graph/A3 artifacts are primarily in-process and do not promise long-term portable binary compatibility. Today the verifiers require exact schema and primitive-registry provenance:
 
 ```text
-J Graph schema 0.9   exact match
-A3 schema 0.5        exact match
+J Graph schema 0.10   exact match
+A3 schema 0.6        exact match
 PrimitiveRegistry    current REGISTRY_VERSION provenance
 ```
 
@@ -3104,10 +3104,10 @@ Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset fr
 
 | Order | Existing owner | Scope / acceptance | Status |
 |---|---|---|---|
-| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
+| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | Body/admission/return frames implemented; source-unit/file provenance pending |
 | 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
 | 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
-| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effect plan implemented; direct nameless application/effect-to-Graph integration/locatives pending |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effects/array Graph integration implemented; direct nameless application/general locatives pending |
 | 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
 | 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
 
@@ -3119,7 +3119,7 @@ A0.6 execution checklist — first implementation slice:
 - [x] `DiagnosticSourceFrame` preserves kind, shared `source: Arc<str>`, definition span, original source span and fragment-queue blame word. `ErrorContext.source_frames` runs from the innermost failure to outer definition callsites; existing caller span/word semantics remain intact.
 - [x] Preserve/render statement/control failures across ordinary/modifier/nested invocation. Add escaped-quote, UTF-8, CRLF, source lifetime after redefinition, failed-assignment and catch regressions.
 - [x] Final-source native Windows default/portable: **612 passed / 0 failed / 0 ignored** each; fmt/clippy passed; Python **67 passed**. Definition calls/loops/nested/NAME scopes: **304/304 C matches**. Frontend audit retains **38 matched / 24 runtime_gap** at existing unsupported boundaries. Binary/source hashes and results are in `reports/definition-*-windows.json` and `reports/frontend-contract-audit-windows.json`. C diagnostic location/text equality is not tested; Rust regression tests validate the source frames.
-- [ ] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Precise body locations may still be absent on these paths.
+- [x] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Use the definition span when no control/statement site exists; never fabricate body coordinates.
 - [ ] Extend source-unit/file identity and nested provenance back to top-level original input. Current frames use each DefinitionCode's owned source unit, not guaranteed whole-file coordinates.
 - [ ] Order 2: refine error categories and structured stage admission.
 - [ ] Order 3: refine downstream NAME/effect/modifier handoff.
@@ -3221,7 +3221,79 @@ Final validation, 2026-10-08: native Windows default/portable each **647 passed 
 
 Refreshed existing audits on final binaries: abandon **132 matched / 16 unsupported_gap**, assignment/definition/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**. These existing gaps have not closed. The new plan's 38 comparisons are separate from the existing two runtime routes. Reports record source/binary/probe/DLL hashes; the recorded C source pin and actual DLL release are not a same-source rebuild. Linux, GPU, full J, C diagnostic locations and GitHub CI were not tested.
 
-Next execution unit: lower pure array parts of this semantic effect plan to J Graph/Logical, connected by token boundaries. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
+The planned pure-array J Graph/Logical connection is implemented by the follow-up contract below. Next is multi-Apply batching that preserves internal success positions. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
+
+### NAME effects to array IR execution checklist
+
+- [x] Add explicit array Input to J Graph/Logical, distinct from name reads. Supply snapshots after their effect token; never invent names/versions or turn them into literals.
+- [x] Lower each primitive Apply into a verified region with input SSA mapping, original parser step and entry/success tokens. Initially retain one Apply per error boundary.
+- [x] Add open-input Logical execution; reject NAME reads/writes/dynamic calls inside regions. Verify every region before effects; never retry another route after failure.
+- [x] Compare semantic and Logical routes for values/errors/deletion/failure tokens; extend both C DLL comparisons.
+- [x] Next examine batching consecutive pure Applies with multiple outputs and internal success positions. Never fuse/hoist outside token boundaries.
+
+
+### Implemented NAME array-region contract — 2026-10-08
+
+Multi-Apply batching execution checklist:
+
+- [x] Combine Applies and intervening immutable literal/primitive-function transport into one Graph/Logical batch, never crossing Read/Take/Commit or other parser steps. Declare external inputs and live-outs.
+- [x] Preserve each Apply's Logical operation range and original step/entry/success token as a checkpoint. Literal/function transport has zero-operation checkpoints. Restore parent failure and success position from internal progress, without replay.
+- [x] Move each external input once; preserve internal SSA lifetimes, external aliases and live-outs. Preparation never executes kernels or moves checks.
+- [x] Verify success, first/later Apply failure, NAME boundaries, live-outs and tampering with regressions, Windows default/portable and both C DLLs.
+
+`Engine::prepare_name_arrays` lowers each primitive Apply in a verified ordered NAME plan into an `ArrayRegion`. Immutable `ArrayPlan` retains the effect plan and regions. Each region carries its parent `step`, entry/success `EffectToken`, input NAME SSA `ValueId` list, output `ValueId`, J Graph and Logical plan. Original parser step/span/blame remain on the parent effect step. Graph Input indices map to that list; they are neither NAME reads nor stored literals. Runtime lookup/Take results are supplied only when their effect tokens are reached.
+
+`Engine::execute_name_arrays` verifies every region and POS admission before effects. Only the parent executor reads/deletes/commits names; regions compute values. Failure preserves parent diagnostic provenance, last successful token and deletion observations, with no replay through another route. Function transfer can have zero array regions. Admission currently requires canonical unspecialized lowering: verification authenticates original FunctionEntity, SSA/token mappings, semantic checks and ordering. Optimized regions will require a separate equivalence-witness contract.
+
+Graph schema **0.10** and A3 schema **0.6** add explicit `Input { index }`. `logical_executor::execute_with_inputs` validates arity and known dtype/shape/rank before execution. Use counts include semantic checks and the final result. Last use moves ownership; only repeated use introduces shared handles. A 4,096-integer +1 regression verifies actual data-pointer reuse for unique input and preservation when an external alias remains. This proves copy elimination, not measured performance superiority over C.
+
+The initial array-connection scope remains that of the parent ordered NAME plan. Local definition frames, locatives, intermediate writes, modifier construction and dynamic verb calls are separate gates. Default eval and existing pure Graph admission remain unchanged. The initial implementation retained one Apply error boundary; multi-Apply batching is implemented by the follow-up contract below. Fusion, GPU execution and async scheduling are not introduced.
+
+Final array-connection validation: native Windows default/portable each **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight integration regressions and one verifier unit regression. They cover region/input SSA and check tampering, actual storage reuse/alias preservation, shared fanout, reuse after shape/generation changes, and error span/parser blame/failure tokens. `reports/name-effects-windows.json`: **19 fixtures × two DLLs × two routes = 76/76 matched**. Both semantic and Logical routes execute only the marked sentence through a plan; setup/check use ordinary eval.
+
+Existing final-binary audits remain **548 matched / 16 unsupported_gap**; the separate frontend audit remains **50 matched / 18 runtime_gap**. These gaps are not closed. All **520 source/binary/DLL hashes** across eight reports match final files. C source pin and actual DLL release are unchanged; this is not a same-source rebuild, full J conformance or equivalence of C diagnostic locations/text. Validation ran only on this computer's Windows; GitHub CI, Linux and GPU were not tested.
+
+### Multi-Apply batch handoff/execution contract — 2026-10-08
+
+`ArrayPlan::batches()` returns private immutable `ArrayBatch` objects. Existing per-Apply `regions()` remain available for inspection of original boundaries. Execution uses a combined J Graph/Logical plan and one SSA workspace per batch. Batches never cross Read/Take/Commit or unsupported steps. Only immutable Literal/unused Function transport between first and last Apply is included. Order follows effect steps, never source-span heuristics.
+
+| Field | Contract |
+| --- | --- |
+| steps | Contiguous parent effect-step range including Applies and intervening value transport. |
+| inputs | `(parent ValueId, replaced use count)` list. Import actual lookup results once; Logical SSA manages internal fanout. |
+| constants | `(parent ValueId, original Program literal NodeId)` list, supplied as Graph/Logical Inputs after ordinary imports. Only immutable payload handles are shared early; no NAME lookup, dynamic noun computation, definition or constructor executes. |
+| outputs | `(parent ValueId, Logical ValueId)` values used outside the batch. Internal-only intermediates are not exported. Supports multiple results without changing the existing single-result Logical plan/schema. |
+| checkpoints | Original step, Logical operation range, entry/success token for every step. Apply ranges include semantic checks and the call. Literal/Function transport has zero-operation ranges preserving original success positions. |
+| failure | Logical execution reports the successfully completed operation prefix. Parent restores failing Apply span/parser blame and last successful effect token. Earlier NAME deletion remains; later Commit does not run. No replay through another route. |
+| verification | Before effects, derive canonical batches from the original effect plan and authenticate input/literal payload links, exports, checkpoints, original FunctionEntity, SSA, facts, checks and ordering. This does not yet admit arbitrary optimized plans via equivalence witnesses. |
+
+Example: `b=:1+2+a_:` performs Take(a), then both additions in one batch. The first result stays internal; only the last is exported to Commit(b). `b=:a_:+1+2+3` splits the right additions from the addition after Take. In `b=:1 2+a_:+3`, a length error in the second addition after successful Take/first addition retains deletion and preserves b. Failure provenance identifies the actual Apply, not the whole batch.
+
+Execution reuses existing semantic kernels. Last-use moves, shared fanout and export lifetimes are counted together; exporting an intermediate prevents a later in-place kernel from mutating it. Execution is sequential CPU, without kernel fusion, physical scheduling or GPU execution. Next is legal fusion/bufferization candidate analysis over verified batches, including cost and error-order witnesses. Local frames, intermediate writes and modifiers remain independent gates.
+
+Final batch validation: native Windows default/portable each **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added five integration and two unit regressions. Coverage includes internal checkpoints, constant/input mapping, external aliases, current-shape reuse, actual unique data-pointer reuse across two operations, first/later check/kernel failures with exact parent token/span/parser blame/NAME post-state, multiple/duplicate exports and tampering rejection. Pointer reuse proves copy elimination; no performance benchmark or advantage over C is claimed.
+
+`reports/name-effects-windows.json`: **26 fixtures × two DLLs × semantic/Logical routes = 104/104 matched**. Seven new batch cases covering success, NAME boundaries, first/later length failures, length/domain after deletion and alias preservation match **28/28**. Existing audits remain **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**. All **528 source/binary/DLL hashes** match final files. Source pin and DLL release are unchanged. This is not full J, C diagnostic text/location, performance, Linux, GPU or GitHub CI validation. Default eval and parent NAME-plan admission scope are unchanged.
+
+### Frontend A0.6 — pre-execution and return error boundaries
+
+Frontend E2E remediation is restored as the current priority. Array batching/fusion expansion is not a completion condition for this gate. Supported-subset E2E remains verified; runtime audit gaps are not all tokenizer/enqueue/parser defects. Distinguish unsupported NAME/numeric/modifier execution from missing frontend handoff information.
+
+- [x] Attach `DefinitionAdmission` to pre-execution valence, unsupported control/framing, invocation-depth and frame-preparation failures. Map known control/statement sites; otherwise use the actual definition span.
+- [x] Attach `DefinitionReturn` to final noun-result and implicit-return fixing failures. Preserve the last result-producing body fragment without inventing queue blame.
+- [x] Preserve existing DefinitionBody/DefinitionCall chains and caller-relative span/blame. Return failures stay outside body catches; earlier effects, failed assignment and local-frame cleanup remain unchanged.
+- [x] Validate Windows default/portable, fmt/clippy, Python and error-kind/post-state against both C DLLs. Do not claim C diagnostic text/location equivalence.
+- [ ] Next independent unit: source-unit/file identity and nested definitions' root-source provenance. Current coordinates belong to DefinitionCode's owned source, not the entire file.
+
+The concrete handoff remains `ErrorContext.source_frames` containing `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`. Add DefinitionAdmission/DefinitionReturn kinds without replacing the structure. `DefinitionCode::diagnostic_error` adds source-owned context without changing J error kind or caller coordinates. Renderer labels are `before definition execution` and `returning from definition`. Source maps retain doubled quotes/UTF-8/CRLF coordinates; shared source survives redefinition.
+
+Pinned C `cx.c` performs the final noun check and `FIXAFIRSTIMPLOCONLY` after body execution. Example: `f=:3 : '+'` called with `f 0` raises a post-body noun-result error. Returning from `f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'` fails outside the body catch, retaining count's increment while the caller's failed assignment never commits. Unsupported select execution rejects before body effects. That is RustJ admission policy, not C-compatible select execution.
+
+Final validation: native Windows default/portable each **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added five regressions, bringing `definition_diagnostics` to nine. Coverage includes control/valence admission, explicit/direct final noun checks, implicit-return domain/Unsupported, nested frame order and repeated-failure cleanup, return failure versus catch/prior global effects/failed assignment/local lifetime, escaped quotes/UTF-8/CRLF and source lifetime after redefinition.
+
+Definition-call audit: **36 fixtures / 144 observations = 144/144 matched**, with all **20/20** new comparisons passing across five cases, two DLLs and two routes. CLI multiline bodies use explicit `3 : 0` blocks; API/hex probes validate string form. Existing NAME/assignment/definition/loop/nested/scope audits total **568 matched / 16 unsupported_gap**. Frontend audit adds four matching error/post-state cases: **38 cases / 76 observations = 58 matched / 18 runtime_gap**; nine unique gaps remain. Separate NAME effect/array audit remains **104/104 matched**. All **528 source/binary/DLL hashes** across eight reports match. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` do not imply a same-source rebuild. Full J, C diagnostic text/location, Linux, GPU and GitHub CI were not tested.
+
+This closes the A0.6 pre-execution/return-frame omission item, not all A0.6 or full frontend conformance. Next priority is source-unit/file identity and nested-source → root-source provenance, followed by error categories/stage admission.
 
 
 <a id="read-roadmap"></a>
@@ -5693,7 +5765,7 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 | native executor | **M4-v0 contract mostly closed / unimplemented** | §§17.2/17.2.1 cover op roles, verifier, cleanup/errors, executor non-responsibilities, and the canonical mean planned route | No real Physical Executor or differential E2E test yet; stateful/async execution remains later work |
 | fallback / guard miss / replay | **documentation contract strengthened / dispatcher unimplemented** | §5.2.2 defines route fallback vs guard miss vs replay/continuation, the decision table, commit frontier, and precise RuntimeSemanticFallback meaning | Integrated guard dispatcher, exact continuation, and transactional rollback remain unimplemented and must not be claimed as capabilities |
 | external route / GPU | **boundary contract fixed / implementation deferred** | §12.2 defines adapter input/capabilities/output, check/error/effect/token mapping, bridge/ownership, round-trip verification and failure classes | production adapters remain unimplemented; CUDA remains intentionally deferred |
-| validation / versioning | **documentation contract strengthened / implementation follows stages** | frontend gates, exact J Graph 0.9/A3 0.5 schema+registry verification, §15.2 negative matrix, §15.3 migration/downgrade policy | Candidate/Route/Physical/External negative verifiers land with their stage implementations; portable serialization is not yet offered |
+| validation / versioning | **documentation contract strengthened / implementation follows stages** | frontend gates, exact J Graph 0.10/A3 0.6 schema+registry verification, §15.2 negative matrix, §15.3 migration/downgrade policy | Candidate/Route/Physical/External negative verifiers land with their stage implementations; portable serialization is not yet offered |
 
 **First-pass documentation closures completed on 2026-10-06** without changing the current M2 implementation priority:
 

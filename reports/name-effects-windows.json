@@ -1,16 +1,60 @@
 {
   "scope": "Bounded top-level ordered NAME plan execution; setup/check use ordinary execution; no replay/fallback",
-  "revision": "9e877cab01d2f99e4d5982cdf5e1c764ebcf9101",
+  "revision": "a62ea3143b360e89d14b55a44cbcc8257ad00853",
   "platform": "win32",
-  "fixtures": 19,
-  "observations": 38,
+  "fixtures": 26,
+  "observations": 104,
   "counts": {
-    "matched": 38
+    "matched": 104
   },
   "records": [
     {
       "case": "noun_take",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_:",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "noun_take",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_:",
@@ -53,6 +97,50 @@
     {
       "case": "group_take",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "(a_:)",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "group_take",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "(a_:)",
@@ -95,6 +183,50 @@
     {
       "case": "right_to_left",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_:+a",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "right_to_left",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_:+a",
@@ -137,6 +269,42 @@
     {
       "case": "deleted_later_lookup",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a+a_:",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "deleted_later_lookup",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a+a_:",
@@ -171,6 +339,64 @@
     {
       "case": "deleted_before_failed_write",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "b=:99",
+        "b=:a+a_:",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "deleted_before_failed_write",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "b=:99",
@@ -227,6 +453,50 @@
     {
       "case": "earlier_length",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_:+1 2+1 2 3",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "earlier_length",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_:+1 2+1 2 3",
@@ -269,6 +539,42 @@
     {
       "case": "retained_delete_domain",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_: + 'x'",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "retained_delete_domain",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_: + 'x'",
@@ -303,6 +609,57 @@
     {
       "case": "take_write",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "b=:a_:+a",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "take_write",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "b=:a_:+a",
@@ -352,6 +709,43 @@
     {
       "case": "target_suffix",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a_:=:9",
+        "a"
+      ],
+      "effect_index": 0,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            9
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            9
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "target_suffix",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a_:=:9",
         "a"
@@ -387,6 +781,107 @@
     {
       "case": "array_alias",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:i.6",
+        "b=:a",
+        "c=:a_: + b",
+        "a+0",
+        "b",
+        "c"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "array_alias",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:i.6",
         "b=:a",
@@ -486,6 +981,73 @@
     {
       "case": "reshape",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:i.6",
+        "b=:2 3$a_:",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "reshape",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:i.6",
         "b=:2 3$a_:",
@@ -551,6 +1113,56 @@
     {
       "case": "search",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:3 1 4",
+        "a_: i. 1 9",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            1,
+            3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            1,
+            3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "search",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:3 1 4",
         "a_: i. 1 9",
@@ -599,6 +1211,57 @@
     {
       "case": "verb_transfer",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:+",
+        "saved=:f_:",
+        "f 0",
+        "saved 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "verb_transfer",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:+",
         "saved=:f_:",
@@ -648,6 +1311,57 @@
     {
       "case": "adverb_transfer",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:/",
+        "saved=:(f_:)",
+        "f 0",
+        "+saved 1 2 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "adverb_transfer",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:/",
         "saved=:(f_:)",
@@ -697,6 +1411,64 @@
     {
       "case": "conjunction_transfer",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:@:",
+        "saved=:(f_:)",
+        "f 0",
+        "h=:-saved+",
+        "h 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "conjunction_transfer",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:@:",
         "saved=:(f_:)",
@@ -753,6 +1525,57 @@
     {
       "case": "explicit_verb_transfer",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:3 : 'y+1'",
+        "saved=:f_:",
+        "f 0",
+        "saved 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            4
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            4
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "explicit_verb_transfer",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:3 : 'y+1'",
         "saved=:f_:",
@@ -802,6 +1625,57 @@
     {
       "case": "explicit_adverb_transfer",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:1 : 'u/'",
+        "saved=:f_:",
+        "f 0",
+        "+saved 1 2 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "explicit_adverb_transfer",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:1 : 'u/'",
         "saved=:f_:",
@@ -851,6 +1725,64 @@
     {
       "case": "explicit_conjunction_transfer",
       "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:2 : 'u@:v'",
+        "saved=:f_:",
+        "f 0",
+        "h=:-saved+",
+        "h 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "explicit_conjunction_transfer",
+      "variant": "j.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:2 : 'u@:v'",
         "saved=:f_:",
@@ -907,6 +1839,7 @@
     {
       "case": "late_inner_alias",
       "variant": "j.dll",
+      "route": "ordered-semantic",
       "sources": [
         "base=:+",
         "alias=:base",
@@ -954,6 +1887,967 @@
           "shape": [],
           "data": [
             -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "late_inner_alias",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "base=:+",
+        "alias=:base",
+        "saved=:alias_:",
+        "base=:-",
+        "saved 3"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_chain",
+      "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "b=:1+2+3 4",
+        "b"
+      ],
+      "effect_index": 0,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_chain",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "b=:1+2+3 4",
+        "b"
+      ],
+      "effect_index": 0,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_name_boundary",
+      "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "b=:a_:+1+2+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_name_boundary",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7",
+        "b=:a_:+1+2+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_first_length",
+      "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1+2 3+4 5 6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_first_length",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1+2 3+4 5 6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_later_length",
+      "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1 2+3 4 5+6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_later_length",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1 2+3 4 5+6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_length",
+      "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:1 2+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_length",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:1 2+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_domain",
+      "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:'x'+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_domain",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:'x'+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_alias",
+      "variant": "j.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:i.6",
+        "saved=:a",
+        "b=:1+2+a_:",
+        "a+0",
+        "saved",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_alias",
+      "variant": "j.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:i.6",
+        "saved=:a",
+        "b=:1+2+a_:",
+        "a+0",
+        "saved",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
           ]
         }
       ],
@@ -963,6 +2857,50 @@
     {
       "case": "noun_take",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_:",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "noun_take",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_:",
@@ -1005,6 +2943,50 @@
     {
       "case": "group_take",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "(a_:)",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "group_take",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "(a_:)",
@@ -1047,6 +3029,50 @@
     {
       "case": "right_to_left",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_:+a",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "right_to_left",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_:+a",
@@ -1089,6 +3115,42 @@
     {
       "case": "deleted_later_lookup",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a+a_:",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "deleted_later_lookup",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a+a_:",
@@ -1123,6 +3185,64 @@
     {
       "case": "deleted_before_failed_write",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "b=:99",
+        "b=:a+a_:",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "deleted_before_failed_write",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "b=:99",
@@ -1179,6 +3299,50 @@
     {
       "case": "earlier_length",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_:+1 2+1 2 3",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            7
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "earlier_length",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_:+1 2+1 2 3",
@@ -1221,6 +3385,42 @@
     {
       "case": "retained_delete_domain",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "a_: + 'x'",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "retained_delete_domain",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "a_: + 'x'",
@@ -1255,6 +3455,57 @@
     {
       "case": "take_write",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "b=:a_:+a",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            14
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "take_write",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:7",
         "b=:a_:+a",
@@ -1304,6 +3555,43 @@
     {
       "case": "target_suffix",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a_:=:9",
+        "a"
+      ],
+      "effect_index": 0,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            9
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            9
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "target_suffix",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a_:=:9",
         "a"
@@ -1339,6 +3627,107 @@
     {
       "case": "array_alias",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:i.6",
+        "b=:a",
+        "c=:a_: + b",
+        "a+0",
+        "b",
+        "c"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "array_alias",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:i.6",
         "b=:a",
@@ -1438,6 +3827,73 @@
     {
       "case": "reshape",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:i.6",
+        "b=:2 3$a_:",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "reshape",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:i.6",
         "b=:2 3$a_:",
@@ -1503,6 +3959,56 @@
     {
       "case": "search",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:3 1 4",
+        "a_: i. 1 9",
+        "a+0"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            1,
+            3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            1,
+            3
+          ]
+        },
+        {
+          "error": "value error"
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "search",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "a=:3 1 4",
         "a_: i. 1 9",
@@ -1551,6 +4057,57 @@
     {
       "case": "verb_transfer",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:+",
+        "saved=:f_:",
+        "f 0",
+        "saved 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "verb_transfer",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:+",
         "saved=:f_:",
@@ -1600,6 +4157,57 @@
     {
       "case": "adverb_transfer",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:/",
+        "saved=:(f_:)",
+        "f 0",
+        "+saved 1 2 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "adverb_transfer",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:/",
         "saved=:(f_:)",
@@ -1649,6 +4257,64 @@
     {
       "case": "conjunction_transfer",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:@:",
+        "saved=:(f_:)",
+        "f 0",
+        "h=:-saved+",
+        "h 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "conjunction_transfer",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:@:",
         "saved=:(f_:)",
@@ -1705,6 +4371,57 @@
     {
       "case": "explicit_verb_transfer",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:3 : 'y+1'",
+        "saved=:f_:",
+        "f 0",
+        "saved 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            4
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            4
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "explicit_verb_transfer",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:3 : 'y+1'",
         "saved=:f_:",
@@ -1754,6 +4471,57 @@
     {
       "case": "explicit_adverb_transfer",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:1 : 'u/'",
+        "saved=:f_:",
+        "f 0",
+        "+saved 1 2 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            6
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "explicit_adverb_transfer",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:1 : 'u/'",
         "saved=:f_:",
@@ -1803,6 +4571,64 @@
     {
       "case": "explicit_conjunction_transfer",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "f=:2 : 'u@:v'",
+        "saved=:f_:",
+        "f 0",
+        "h=:-saved+",
+        "h 3"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "explicit_conjunction_transfer",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
       "sources": [
         "f=:2 : 'u@:v'",
         "saved=:f_:",
@@ -1859,6 +4685,7 @@
     {
       "case": "late_inner_alias",
       "variant": "javx2.dll",
+      "route": "ordered-semantic",
       "sources": [
         "base=:+",
         "alias=:base",
@@ -1906,6 +4733,967 @@
           "shape": [],
           "data": [
             -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "late_inner_alias",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "base=:+",
+        "alias=:base",
+        "saved=:alias_:",
+        "base=:-",
+        "saved 3"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -3
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_chain",
+      "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "b=:1+2+3 4",
+        "b"
+      ],
+      "effect_index": 0,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_chain",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "b=:1+2+3 4",
+        "b"
+      ],
+      "effect_index": 0,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "type": 4,
+          "shape": [
+            2
+          ],
+          "data": [
+            6,
+            7
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_name_boundary",
+      "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7",
+        "b=:a_:+1+2+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_name_boundary",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7",
+        "b=:a_:+1+2+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 1,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            13
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_first_length",
+      "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1+2 3+4 5 6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_first_length",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1+2 3+4 5 6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_later_length",
+      "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1 2+3 4 5+6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_later_length",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:a_:+1 2+3 4 5+6",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_length",
+      "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:1 2+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_length",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:1 2+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "length error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_domain",
+      "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:'x'+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_after_take_domain",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:7 8 9",
+        "b=:99",
+        "b=:'x'+a_:+3",
+        "a+0",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "domain error"
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [],
+          "data": [
+            99
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_alias",
+      "variant": "javx2.dll",
+      "route": "ordered-semantic",
+      "sources": [
+        "a=:i.6",
+        "saved=:a",
+        "b=:1+2+a_:",
+        "a+0",
+        "saved",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        }
+      ],
+      "status": "matched",
+      "differences": []
+    },
+    {
+      "case": "batch_alias",
+      "variant": "javx2.dll",
+      "route": "ordered-logical",
+      "sources": [
+        "a=:i.6",
+        "saved=:a",
+        "b=:1+2+a_:",
+        "a+0",
+        "saved",
+        "b"
+      ],
+      "effect_index": 2,
+      "reference": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        }
+      ],
+      "rust": [
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "silent": true
+        },
+        {
+          "error": "value error"
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
           ]
         }
       ],
@@ -1913,21 +5701,21 @@
       "differences": []
     }
   ],
-  "probe_sha256": "a5288702f161638a86d70f52e15a095572865eca813cdc2567664eb0794b9d48",
+  "probe_sha256": "de1b6b1a64ef0e5df7bee7c6b19984022f0ee8f8c4b9550ce294c9cbe55ebd45",
   "rust_source_sha256": {
-    "src\\analysis.rs": "b764c57ca27aebdae39857870b631c59cb98d4e54c1af820d6e491db6f1772eb",
+    "src\\analysis.rs": "f51e8b39916d6d87809253b12491cd4c590fe33df491da7922ac3e9ec13c00be",
     "src\\array_ops.rs": "16b2e2e099d96c013e959028aa8c231a4660405d956869a1b6f9f23c8f33fc3f",
     "src\\assembly.rs": "ed919b5a966abce07234743d295dc23aa8f3ed095c4293feac0829ba66af7cbc",
     "src\\bit_storage.rs": "251408f415e20e90dfa05dc4a58532ce4b931b32be41275745ba890e1b496bc1",
     "src\\comparison_policy.rs": "e4296ee20876a832fd4637df67093920877e6272debc47abafd0aaa9be1dd934",
     "src\\compilation.rs": "e7180bf14c59661260863adba3e8f278150f2b26b65093fed97543f89baaf420",
     "src\\contracts.rs": "5f294485113d34f6c84013cb834a8c597e24f31a7f1f55fb844c31ca6486cda0",
-    "src\\definition_code.rs": "deef4579b3a9991d412e9a8b1a656292bf684b06459d4d1035174a348f1734d4",
+    "src\\definition_code.rs": "de30b2b00b359c4e7573832168bd050a35916d869074c9ad558b6dc3b76cad4d",
     "src\\definition_control.rs": "c42abb5b7417b0e15fff796488053a379e8e352e53d8b1679377d35ff367f075",
     "src\\definition_flow.rs": "3b8d52fea33f484cc56ee57f286353b2f5521d18e9675732af21dd8b50c65de0",
     "src\\definition_input.rs": "aa53392c875d58dd2fd256b398312dcfc1735dbf8b68cbfd9cf17dc0a9c179dd",
     "src\\enqueuer.rs": "6446d9ddb91dccc79f632e707b73fe288913a744fb5dcd37684838689748f729",
-    "src\\error.rs": "655d1937c468349c560f52cc5a48e026600bb043bbbcbdb68c10214e623de0f9",
+    "src\\error.rs": "1d047770bf7aa42a103bda9993d72819128c1aa14a4c865cef54fb527aeae2a8",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src\\expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
     "src\\facts.rs": "4c25fe87f5f4bcd525df7b37eda837a3698071f7c4a2a933054951c0c21fb317",
@@ -1936,7 +5724,7 @@
     "src\\index_ops.rs": "7c6df38ea2cd6037dd853e0b78ac24adcbdd5ae798239435635cbc9343a9b79a",
     "src\\j_graph_composition.rs": "f7cb2c1bd9cce6eda230de1b36f4e38bd02d0cc095f53a6eec2bb66081c4316b",
     "src\\j_graph_fusion.rs": "a07b33357ebf477632afb0c08b0c6f971967be766afd860c2afec75fa66c9923",
-    "src\\j_graph_ir.rs": "deeff0f02cab25befb517620c4d19d495ee38ecd1905f960c0074bdf714fa8e0",
+    "src\\j_graph_ir.rs": "3349d5e2a2efd1fbad10c1eb0a8e1b45d1c83d336c17c6be21298a9d96822a12",
     "src\\j_graph_jsource.rs": "f483e6e45ca216b6873c4b96fc8e30009fbcd3e84c99470c5ec13fc4c7a1b35f",
     "src\\j_graph_memory.rs": "13ffdd263b2c064ecd1345e02e5b3767a6485aa9fc244bc689278bf3bc6304c7",
     "src\\j_graph_resource.rs": "5ea8e8085c8b87699deadbd2b3b4285d4f17492672d1c31e6be75185921c2bc1",
@@ -1944,11 +5732,13 @@
     "src\\j_graph_scan.rs": "3f1b499393ad83552e234578717b711b34564e544fef324eaba0f139deb5c41a",
     "src\\j_graph_work_depth.rs": "dc45462b1f1b9891ba60be681d4dc9cf59ad053d5879a3353ecf4fdec5d1761b",
     "src\\kernels.rs": "88ad7829eca1f54e033ba6491f57ffc6073a46c1b00e38d9a986fd4636021db8",
-    "src\\lib.rs": "e461b2bc4c92197c3184be31711c074ac5a6aa78bab0ce19cf597734503e21ba",
-    "src\\logical_executor.rs": "b8b130d1505f0a26313012cdd8e3d57e6163d68522f72a18a4e484d1dc7a05ad",
-    "src\\logical_ir.rs": "821043c95968413ae66b85ab3bb604fa7c1113595c06a7197b6f0071e68c0c41",
-    "src\\lowering.rs": "3bcee0458f7178c8dfa923c729a2fb6911cca37e0fe0a6efd01117f77a625a3f",
+    "src\\lib.rs": "aaf7facc5044966c8b3ca7721ca1b0e57049c96f2270b4f019471930020436b7",
+    "src\\logical_executor.rs": "5fda0277bf4dd560debb1afb00bec5c62cc56e6f277a360703333a1da753d84e",
+    "src\\logical_ir.rs": "3906b45244d56ea8dc3e16b71a0664f956958268b31fbf1fc5b3f6808d5b945a",
+    "src\\lowering.rs": "325811e6cc4bbca1f12afac10bd11dde1c5a2f3e5befde80f0b4cc39aac6a09e",
     "src\\main.rs": "3827bc98e61d505d4fd14515f7969c4b6fa6520b1bb84470a2310958a7802281",
+    "src\\name_array_batches.rs": "b7370e47d5ec27cac1e4a6a0a870386e07f3c686a7bb88c8c7f727bfeae7a23e",
+    "src\\name_array_regions.rs": "a3f626cfbafae3c98236cfc558a4084e086a3518576b5cba553dee84ac750bd2",
     "src\\name_effect_ir.rs": "259887dec4f256e50c0aed0067429fabf6a054e98ce507b4f4cca86679fe5079",
     "src\\name_guards.rs": "806afb1dfad87b81eb80d22ae3940271a5a612821ae13f74e338f3a206394e89",
     "src\\numeric.rs": "b646a3848a46aefc553cc4a21080ae5527b6db90c1d8f346bef5d9cda75c85d5",
@@ -1959,7 +5749,7 @@
     "src\\physical.rs": "ec45c34d4ee691b216e3db1066553d38889e1f75bbccee80d5dd328100288fd8",
     "src\\pool.rs": "d9e592ce85b6d82f7e7980dbe8f537f98b4e97dbf0ed5f39494f3ca5eaf65d7d",
     "src\\primitive.rs": "159747ae085dab46027e01645e95ddb0c659e1af8bacd46497554548a93afec5",
-    "src\\runtime.rs": "2f5819163a5a01ca0183e16ac83405a39a485471f875f8023175d9d2fc692f62",
+    "src\\runtime.rs": "867dc3de60bd59ba1bf46b019d7b37bc9751cff772131cdface69a29f5dbff88",
     "src\\scanner.rs": "1ea51c5b63e311f4663878fa7be8d455fbabbafc94cc84b76b957931baa25540",
     "src\\search_reference.rs": "ef90e299e0c40da5aa5a5b6e0089303476ad91dff10a309e802dbc49c73fbf38",
     "src\\semantic.rs": "f00cc3eed3c4dbaa893458bf8e13713cc7b0faae5b4edbb15fa2d241de486de1",
@@ -1974,10 +5764,10 @@
     "src\\value.rs": "5e841de33a6ceeecc8f43b3026aee0de7c70d7555039e26174e23c763675ac15"
   },
   "audit_source_sha256": {
-    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\name_effect_audit.py": "710a4545bd8581005202b03087a45fa74deece287dae1dbe5dee74c6ce337db4",
-    "examples\\name_effect_probe.rs": "825c4d39f3d28568f07ce2da0a8405f5e90f3acd473b52447c0ea3b8706ebf6d",
+    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\name_effect_audit.py": "e03957365235aa31eb2d8670433bac980517107f3aab9e80b259e8809eb497a3",
+    "examples\\name_effect_probe.rs": "bf98e38558577d154621e5e2e8aca5658c436517864c85a8f85374e9824c50b5",
     "tools\\oracle.py": "2837273ed79a6cb412d910e09761bfec8deb8b2dcfae69be822a0c623e113fc5",
-    "tools\\name_compatibility_audit.py": "9b25a1fb4b9c4369fd9fdc8e73caeaf548bb1d2940be123a06a1e932a208b4d4",
+    "tools\\name_compatibility_audit.py": "a4737b88e1712ba841f81567cc0ef522c1c00c9aea617ef9353144879f29bbe2",
     "Cargo.toml": "da6954ecceba891bd67e33bb6b434554b16c5dfb6cfb196219f3da7f14980961",
     "Cargo.lock": "f55d06bbb7b0b47bd324f51de6ff71790c735bd5c04fbf8592a60eb4c40b9b5c"
   },

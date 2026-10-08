@@ -33,6 +33,13 @@ FIXTURES = [
     ("explicit_adverb_transfer", ["f=:1 : 'u/'"], "saved=:f_:", ["f 0", "+saved 1 2 3"]),
     ("explicit_conjunction_transfer", ["f=:2 : 'u@:v'"], "saved=:f_:", ["f 0", "h=:-saved+", "h 3"]),
     ("late_inner_alias", ["base=:+", "alias=:base"], "saved=:alias_:", ["base=:-", "saved 3"]),
+    ("batch_chain", [], "b=:1+2+3 4", ["b"]),
+    ("batch_name_boundary", ["a=:7"], "b=:a_:+1+2+3", ["a+0", "b"]),
+    ("batch_first_length", ["a=:7 8 9", "b=:99"], "b=:a_:+1+2 3+4 5 6", ["a+0", "b"]),
+    ("batch_later_length", ["a=:7 8 9", "b=:99"], "b=:a_:+1 2+3 4 5+6", ["a+0", "b"]),
+    ("batch_after_take_length", ["a=:7 8 9", "b=:99"], "b=:1 2+a_:+3", ["a+0", "b"]),
+    ("batch_after_take_domain", ["a=:7 8 9", "b=:99"], "b=:'x'+a_:+3", ["a+0", "b"]),
+    ("batch_alias", ["a=:i.6", "saved=:a"], "b=:1+2+a_:", ["a+0", "saved", "b"]),
 ]
 
 
@@ -47,14 +54,15 @@ def audit(assets, probe):
                 reference = [oracle.eval(source) for source in sources]
             finally:
                 oracle.close()
-            commands = (["eval\t" + source for source in setup] + ["effect\t" + effect]
-                        + ["eval\t" + source for source in after])
-            process = subprocess.run([str(probe.resolve())], input="\n".join(commands) + "\n",
-                                     text=True, capture_output=True, check=True)
-            actual = [json.loads(line) for line in process.stdout.splitlines()]
-            status, differences = compare_trace(sources, reference, actual)
-            records.append(dict(case=name, variant=variant, sources=sources, effect_index=len(setup),
-                                reference=reference, rust=actual, status=status, differences=differences))
+            for mode, route in [("effect", "ordered-semantic"), ("array", "ordered-logical")]:
+                commands = (["eval\t" + source for source in setup] + [mode + "\t" + effect]
+                            + ["eval\t" + source for source in after])
+                process = subprocess.run([str(probe.resolve())], input="\n".join(commands) + "\n",
+                                         text=True, capture_output=True, check=True)
+                actual = [json.loads(line) for line in process.stdout.splitlines()]
+                status, differences = compare_trace(sources, reference, actual)
+                records.append(dict(case=name, variant=variant, route=route, sources=sources, effect_index=len(setup),
+                                    reference=reference, rust=actual, status=status, differences=differences))
     return records
 
 
