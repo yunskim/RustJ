@@ -499,9 +499,9 @@ pub(crate) fn validate(source: &str) -> Result<Mode> {
         Check::Unknown => Err(Error::Unsupported(
             "numeric recognition requires additional grammar facts".into(),
         )),
-        Check::Valid if !matches!(mode, Mode::Real | Mode::Extended) => Err(Error::Unsupported(
-            "validated numeric family payload construction".into(),
-        )),
+        Check::Valid if !matches!(mode, Mode::Real | Mode::Extended | Mode::Rational) => Err(
+            Error::Unsupported("validated numeric family payload construction".into()),
+        ),
         Check::Valid => Ok(mode),
     }
 }

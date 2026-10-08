@@ -52,6 +52,7 @@ pub mod parser_capture;
 pub mod physical;
 mod pool;
 pub mod primitive;
+mod rational;
 pub mod runtime;
 pub mod scanner;
 pub mod semantic;

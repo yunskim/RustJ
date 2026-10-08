@@ -223,6 +223,9 @@ fn source_value(values: &[Option<Value>], id: ValueId) -> crate::Result<Value> {
 }
 
 fn find_window_family(pattern: Value, source: Value) -> crate::Result<ReferenceExpansionValue> {
+    if pattern.is_rational() || source.is_rational() {
+        return Err(Error::Unsupported("rational search".into()));
+    }
     if pattern.is_extended() || source.is_extended() {
         return Err(Error::Unsupported("extended search".into()));
     }

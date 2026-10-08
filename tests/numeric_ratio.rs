@@ -71,14 +71,14 @@ fn zero_denominators_preserve_j_zero_and_infinity_signs() {
 }
 
 #[test]
-fn exact_rational_and_hex_payloads_remain_explicit_boundaries() {
-    for source in ["1r2", "0r0", "1r2 3r4", "0X1r2 1.0"] {
-        assert_eq!(
-            enqueuer::enqueue(source).unwrap_err().kind(),
-            "unsupported",
-            "{source}"
-        );
+fn exact_rational_construction_and_hex_boundary_remain_distinct() {
+    for source in ["1r2", "0r0", "1r2 3r4"] {
+        assert_eq!(noun(source).type_code(), 128);
     }
+    assert_eq!(
+        enqueuer::enqueue("0X1r2 1.0").unwrap_err().kind(),
+        "unsupported"
+    );
     for source in ["1r2 1E0", "1r_ 1.0", "1r2r3 1.0", "1r2.0 1e_", "1r2.0 1x"] {
         assert_eq!(
             enqueuer::enqueue(source).unwrap_err().kind(),

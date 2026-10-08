@@ -94,6 +94,7 @@ impl SemanticFacts {
             crate::Data::Int(_) => DType::Int,
             crate::Data::Float(_) => DType::Float,
             crate::Data::Char(_) => DType::Char,
+            crate::Data::Rational(_) => DType::Rational,
             crate::Data::ExtendedInt(_) => DType::ExtendedInt,
             crate::Data::Boxed(_) => DType::Boxed,
             crate::Data::Sparse(_) => unreachable!(),
@@ -131,6 +132,7 @@ impl Facts {
             crate::Data::Int(_) => DType::Int,
             crate::Data::Float(_) => DType::Float,
             crate::Data::Char(_) => DType::Char,
+            crate::Data::Rational(_) => DType::Rational,
             crate::Data::ExtendedInt(_) => DType::ExtendedInt,
             crate::Data::Boxed(_) => DType::Boxed,
             crate::Data::Sparse(_) => unreachable!(),
@@ -190,6 +192,9 @@ fn infer_semantic_primitive(
     let dtype = match (id, left) {
         (Less, None) => TypeFact::Exact(DType::Boxed),
         (Equal | Less | Greater | Find, Some(_)) => TypeFact::Exact(DType::Bool),
+        (Shape | Tally, None) if right.dtype == TypeFact::Exact(DType::Rational) => {
+            TypeFact::Exact(DType::ExtendedInt)
+        }
         (Shape | Tally | Multiply | Subtract, None)
             if right.dtype == TypeFact::Exact(DType::ExtendedInt) =>
         {
@@ -353,7 +358,14 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     let dtype = match input.shape.as_deref() {
         Some([]) => input.dtype,
         Some([1, ..]) => input.dtype,
-        Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
+        Some(_)
+            if matches!(
+                input.dtype,
+                TypeFact::Exact(DType::ExtendedInt | DType::Rational)
+            ) =>
+        {
+            TypeFact::Unknown
+        }
         Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
         Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
             TypeFact::IntOrFloat
@@ -537,7 +549,14 @@ fn semantic_reduction(id: PrimitiveId, input: &SemanticFacts) -> SemanticFacts {
     let dtype = match input.shape.as_deref() {
         Some([]) => input.dtype,
         Some([1, ..]) => input.dtype,
-        Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
+        Some(_)
+            if matches!(
+                input.dtype,
+                TypeFact::Exact(DType::ExtendedInt | DType::Rational)
+            ) =>
+        {
+            TypeFact::Unknown
+        }
         Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
         Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
             TypeFact::IntOrFloat
@@ -729,6 +748,42 @@ mod extended_type_tests {
             dtype: TypeFact::Exact(DType::ExtendedInt),
             shape: Some(vec![0]),
             rank: Some(1),
+        };
+        assert_eq!(semantic_reduction(Add, &empty).dtype, TypeFact::Unknown);
+    }
+}
+
+#[cfg(test)]
+mod rational_type_tests {
+    use super::*;
+    #[test]
+    fn rational_facts_preserve_dtype_and_extended_counts_without_invented_arithmetic() {
+        let input = SemanticFacts::of(
+            &crate::types::Scalar::Rational(std::sync::Arc::new(
+                crate::types::Rational::new(2.into(), 3.into()).unwrap(),
+            ))
+            .into_value()
+            .unwrap(),
+        );
+        assert_eq!(input.dtype, TypeFact::Exact(DType::Rational));
+        for (id, rule) in [(Shape, ShapeRule::ShapeOf), (Tally, ShapeRule::Tally)] {
+            assert_eq!(
+                infer_semantic_primitive(id, rule, None, &input).dtype,
+                TypeFact::Exact(DType::ExtendedInt)
+            );
+            assert_eq!(
+                infer_semantic_primitive(id, rule, None, &SemanticFacts::default()).dtype,
+                TypeFact::Unknown
+            );
+        }
+        assert_eq!(
+            infer_semantic_primitive(Add, ShapeRule::PrefixAgreement, Some(&input), &input).dtype,
+            TypeFact::Unknown
+        );
+        let empty = SemanticFacts {
+            shape: Some(vec![0]),
+            rank: Some(1),
+            ..input
         };
         assert_eq!(semantic_reduction(Add, &empty).dtype, TypeFact::Unknown);
     }

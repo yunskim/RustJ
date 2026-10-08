@@ -217,9 +217,7 @@ fn extended_definition_scope_alias_and_failed_assignments_preserve_state() {
 #[test]
 fn extended_missing_capabilities_are_not_j_language_errors() {
     let mut engine = Engine::new();
-    for source in [
-        "1x%2x", "1x+1.0", "1x,2x", "+/1x 2x", "1x i. 2x", "i.3x", "1x _", "1x 2r3",
-    ] {
+    for source in ["1x%2x", "1x+1.0", "1x,2x", "+/1x 2x", "1x i. 2x", "i.3x"] {
         assert_eq!(
             engine.eval_diagnostic(source).unwrap_err().kind(),
             "unsupported",

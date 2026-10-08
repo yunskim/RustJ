@@ -19,6 +19,7 @@ pub(crate) struct CellBuilder {
 impl CellBuilder {
     pub(crate) fn new(first: &Value, capacity: usize) -> Result<Self> {
         let out = match first.data() {
+            Data::Rational(_) => return Err(Error::Unsupported("rational rank assembly".into())),
             Data::ExtendedInt(_) => {
                 return Err(Error::Unsupported("extended rank assembly".into()));
             }
@@ -34,6 +35,9 @@ impl CellBuilder {
         Ok(builder)
     }
     pub(crate) fn push(&mut self, cell: &Value) -> Result<()> {
+        if cell.is_rational() {
+            return Err(Error::Unsupported("rational rank assembly".into()));
+        }
         if cell.is_extended() {
             return Err(Error::Unsupported("extended rank assembly".into()));
         }

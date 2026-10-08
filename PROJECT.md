@@ -188,7 +188,7 @@ RustJ's distinguishing requirement is the strong **full-J semantic frontend** pl
 - **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
 - **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
 - **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
-- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal/extended literals):** default/portable each **716 passed / zero failures / zero ignored**, Python **82 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
+- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal/extended/rational literals):** default/portable each **725 passed / zero failures / zero ignored**, Python **85 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
 
@@ -3432,8 +3432,31 @@ Final executed validation: Windows default/portable each **716 passed / zero fai
 
 Existing strict numeric audits retain overflow **36/36**, integer dtype **36/36**, scientific **668/668** and real ratio **296/296 matched**. Frontend improves to **62 matched / 14 runtime_gap**; NAME/definition stays **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched**. Each DLL's numeric syntax audit has **2,485 cases / zero failures**, accepted nouns 198→224 and valid payload boundaries 836→810, with other precision/recognition boundaries kept separate. Verified **15 reports / 918 source/binary/DLL hashes**. GitHub CI was not run.
 
-Next exact-payload unit: establish rational finite/non-finite semantics and storage against C. Complex payloads and remaining extended operations expand through separate checklist units; CUDA remains planned only.
+The rational finite/non-finite construction and storage follow-up identified at N3a is implemented in N3b below. Complex payloads and remaining extended operations expand through separate checklist units; CUDA remains planned only.
 
+
+### N3b — rational literals, non-finite values and shared storage (2026-10-08)
+
+Contract: normalize exact numerator/denominator only after whole-word mode/grammar proves Rational. Finite values have reduced fractions and positive denominators; zero is 0/1, infinities ±1/0. Pinned `wn.c::jtnumr`/`vq.c::qstd` and Windows DLLs confirm `0r0`→zero, `1r0`→infinity, `1r_`→zero, `_r_0`→negative infinity. Preserve dtype 128 across the whole Rational word, even for integral values; do not capture real/complex-mode ratios.
+
+Storage: `Data::Rational(CpuStorage<Arc<Rational>>)` shares normalized exact atoms. Scalars use Inline, arrays Owned, NAME boundaries Shared; selection/views/rearrangement do not copy atom contents. JSON atoms are objects with decimal-string numerator/denominator. Only the CPU runtime carrier expands; physical adapters/GPU layouts and rational arithmetic are separate follow-ups.
+
+Implemented scope: rational literals and integer/extended mixed words, shape/tally (dtype 64), ravel/reshape/reverse/transpose/from/scalar take/drop/rotate and scalar box/open. `Rational::new` retains its Result API while expanding 0/0 to 0/1 and nonzero numerator/0 to ±1/0. Example JSON atom: `{"numerator":"9007199254740993","denominator":"2"}`. Fraction reduction uses finite BigRational only; rearrangement clones atom Arcs.
+
+C validation: 225 fixtures × `j.dll`/`javx2.dll` = **450/450 matched**. The pinned `j.dll` traps internally in `vq.c` (0xc000001d) for a 200-digit numerator/zero denominator. Six source combinations are excluded from both comparison sets and recorded under `reference_exclusions`, never counted as passes. Reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` are not a same-source rebuild.
+
+Limits/next: rational arithmetic/comparison, Float/Complex mixing, rational count/index coercion, catenate, general reduce/rank assembly, sparse/native physical adapters remain distinct Unsupported boundaries. BigInt/Arc allocation failure to workspace-full, large-memory limits/performance, native compiled execution and Linux/GPU remain unverified. Next is the exact rational arithmetic/comparison finite/non-finite and error/promotion contract; CUDA remains planned only.
+
+- [x] Implement finite/infinite/zero and whole-word construction.
+- [x] Connect Value/views/type facts/sharing/selection/empty fills/structural operations.
+- [x] Regress NAME aliases, explicit/direct local/global, failed assignment and handoff/Logical/capture.
+- [x] Preserve Unsupported boundaries for rational arithmetic/mixing/reduce/rank/native adapters.
+- [x] Both C DLL strict comparisons, existing audits/hashes, Windows default/portable/fmt/clippy/Python.
+- [x] Update bilingual docs/checklists, commit/push; skip GitHub CI.
+
+Executed validation: Windows default/portable each **725 passed / zero failures / zero ignored**, fmt/clippy(all-targets) pass, Python **85 passed**. Includes eight new Rust regressions plus one type-fact regression and three Python exact-formatter regressions. Covers alias/overlap/Weak release, failed-assignment state, explicit/direct local/global, enqueue/handoff/Logical/capture and capability boundaries.
+
+Existing strict numeric audits retain overflow **36/36**, integer dtype **36/36**, scientific **668/668**, real ratio **296/296** and extended **126/126 matched**. Frontend audit: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**. Each DLL numeric-syntax audit has **2,485 cases / zero failures**, **313** accepted nouns and **721** valid payload boundaries, with precision/recognition boundaries separate. Verified **16 reports / 1,001 source/binary/DLL hashes**. GitHub CI was skipped. This is not full J or C diagnostic text/location equivalence.
 
 ## 17. Active migration checklist
 

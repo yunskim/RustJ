@@ -33,7 +33,7 @@ class FrontendReportEvidence(unittest.TestCase):
 
     def test_known_gaps_do_not_become_conformance_passes(self):
         self.assertEqual(self.verify(), 3)
-        for fixture_set in ["numeric-overflow", "integer-dtype", "scientific", "real-ratio", "extended-integer"]:
+        for fixture_set in ["numeric-overflow", "integer-dtype", "scientific", "real-ratio", "extended-integer", "rational"]:
             with self.assertRaises(ValueError):
                 self.verify(fixture_set=fixture_set)
 

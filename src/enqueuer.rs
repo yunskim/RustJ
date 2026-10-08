@@ -310,6 +310,21 @@ fn interpret_word<'a>(
 
     if numeric {
         let mode = crate::numeric_input::validate(word)?;
+        if mode == crate::numeric_input::Mode::Rational {
+            let mut values = crate::value::buffer(word.split_ascii_whitespace().count())?;
+            for part in word.split_ascii_whitespace() {
+                values.push(std::sync::Arc::new(crate::rational::literal(part)?));
+            }
+            let payload = if values.len() == 1 {
+                EnqueuedPayload::Scalar(Scalar::Rational(values.pop().unwrap()))
+            } else {
+                EnqueuedPayload::Noun(Box::new(Value::new(
+                    [values.len()],
+                    Data::Rational(CpuStorage::new(values)),
+                )?))
+            };
+            return Ok((EnqueueClass::Noun, payload, EnqueueFlags::default()));
+        }
         if mode == crate::numeric_input::Mode::Extended {
             let mut values = crate::value::buffer(word.split_ascii_whitespace().count())?;
             for part in word.split_ascii_whitespace() {

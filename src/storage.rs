@@ -128,6 +128,7 @@ pub enum CpuView<'a> {
     Int(&'a [i64]),
     Float(&'a [f64]),
     Char(&'a [u8]),
+    Rational(&'a [Arc<crate::types::Rational>]),
     ExtendedInt(&'a [Arc<crate::types::BigInt>]),
     Boxed(&'a [Arc<crate::Value>]),
     Sparse(&'a crate::sparse::SparseArray),
@@ -146,6 +147,11 @@ impl<'a> ArrayView<'a> {
             CpuView::Int(v) => Data::Int(CpuStorage::generate(v.len(), |i| v[i])?),
             CpuView::Float(v) => Data::Float(CpuStorage::generate(v.len(), |i| v[i])?),
             CpuView::Char(v) => Data::Char(CpuStorage::generate(v.len(), |i| v[i])?),
+            CpuView::Rational(v) => {
+                let mut out = crate::value::buffer(v.len())?;
+                out.extend_from_slice(v);
+                Data::Rational(CpuStorage::new(out))
+            }
             CpuView::ExtendedInt(v) => {
                 let mut out = crate::value::buffer(v.len())?;
                 out.extend_from_slice(v);
@@ -167,6 +173,7 @@ impl<'a> ArrayView<'a> {
             CpuView::Bool(v) | CpuView::Char(v) => v.len(),
             CpuView::Int(v) => v.len(),
             CpuView::Float(v) => v.len(),
+            CpuView::Rational(v) => v.len(),
             CpuView::ExtendedInt(v) => v.len(),
             CpuView::Boxed(v) => v.len(),
             CpuView::Sparse(v) => crate::value::count(v.shape()).expect("validated sparse view"),
@@ -181,6 +188,7 @@ impl<'a> ArrayView<'a> {
     pub fn int_at(self, i: usize) -> Result<i64> {
         match self.data {
             CpuView::Bool(v) => Ok(*v.get(i).ok_or(Error::Index)? as i64),
+            CpuView::Rational(_) => Err(Error::Unsupported("rational machine conversion".into())),
             CpuView::Int(v) => v.get(i).copied().ok_or(Error::Index),
             CpuView::ExtendedInt(v) => i64::try_from(v.get(i).ok_or(Error::Index)?.as_ref())
                 .map_err(|_| Error::Unsupported("extended integer machine conversion".into())),
@@ -227,6 +235,7 @@ impl<'a> ArrayView<'a> {
             CpuView::Float(v) => CpuView::Float(v.get(start..end).ok_or(Error::Index)?),
             CpuView::Char(v) => CpuView::Char(v.get(start..end).ok_or(Error::Index)?),
             CpuView::Sparse(_) => unreachable!(),
+            CpuView::Rational(v) => CpuView::Rational(v.get(start..end).ok_or(Error::Index)?),
             CpuView::ExtendedInt(v) => CpuView::ExtendedInt(v.get(start..end).ok_or(Error::Index)?),
             CpuView::Boxed(v) => CpuView::Boxed(v.get(start..end).ok_or(Error::Index)?),
         };

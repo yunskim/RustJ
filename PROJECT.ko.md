@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal/extended literal 변경):** default/portable 각각 **716 passed / 0 failed / 0 ignored**, Python **82 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal/extended/rational literal 변경):** default/portable 각각 **725 passed / 0 failed / 0 ignored**, Python **85 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -7830,8 +7830,31 @@ C 비교 도구는 private GMP 포인터를 읽지 않고 public J formatting으
 
 기존 numeric strict 감사는 overflow **36/36**, integer dtype **36/36**, scientific **668/668**, real ratio **296/296 matched** 유지. frontend 감사는 **62 matched / 14 runtime_gap**로 개선했으며, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched** 유지. 숫자 문법 감사는 각 DLL **2,485 cases / 0 failed**, noun 수용 198→224·valid payload boundary 836→810이며 나머지 precision/recognition 경계는 별도다. **15 reports / 918 source·binary·DLL hashes** 검증 완료. GitHub CI는 실행하지 않았다.
 
-다음 exact payload 단계는 rational의 유한/비유한 의미와 저장 계약을 C와 대조해 정하는 작업이다. complex와 extended의 나머지 연산은 독립 체크리스트로 확장하며, CUDA는 계속 계획에만 둔다.
+N3a 당시 다음 exact payload 단계였던 rational의 유한/비유한 의미와 저장 계약은 아래 N3b에서 구현했다. complex와 extended의 나머지 연산은 독립 체크리스트로 확장하며, CUDA는 계속 계획에만 둔다.
 
+
+### N3b — rational literal·비유한 값·공유 저장 (2026-10-08)
+
+계약: whole-word mode/grammar가 Rational임을 확인한 뒤 exact 분자/분모를 정규화한다. 유한 값은 기약분수와 양수 분모, 0은 0/1, 무한대는 ±1/0이다. C `wn.c::jtnumr`/`vq.c::qstd` 및 Windows DLL에서 `0r0`→0, `1r0`→무한대, `1r_`→0, `_r_0`→음의 무한대를 확인했다. Rational word 전체의 dtype 128은 정수값이라도 보존하며 real/complex 모드의 ratio를 가져오지 않는다.
+
+저장: `Data::Rational(CpuStorage<Arc<Rational>>)`로 정규화된 exact atom을 공유한다. scalar Inline·배열 Owned·NAME Shared, selection/view/rearrangement는 atom 내용을 복제하지 않는다. JSON atom은 decimal string 분자/분모 객체다. CPU runtime carrier만 확장하며 physical adapter/GPU layout과 rational 산술은 별도 후속 범위다.
+
+실행 범위: 유리수 literal과 integer/extended 혼합 word, `$`·`#`(dtype 64), ravel·reshape·reverse·transpose·from·scalar take/drop/rotate·scalar box/open. `Rational::new`는 기존 Result API를 유지하면서 0/0→0/1, 비영 분자/0→±1/0으로 확장했다. JSON 예: `{"numerator":"9007199254740993","denominator":"2"}`. 기약분수 계산은 finite BigRational에서만 수행하며 기존 atom의 재배열은 Arc만 복제한다.
+
+C 검증: 225개 fixture × `j.dll`/`javx2.dll` = **450/450 matched**. pinned `j.dll`은 200자리 분자/0 조합에서 `vq.c` 내부 trap(0xc000001d)이 발생해 해당 6개 source를 양쪽 비교 집합에서 제외했고 report의 `reference_exclusions`에 기록했다. 제외를 통과로 세지 않는다. 검토한 source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`와 DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78`는 동일 source rebuild가 아니다.
+
+제한/다음: rational 산술·비교·Float/Complex 혼합·rational count/index coercion·catenate·일반 reduce/rank assembly·sparse/native physical adapter는 별도 Unsupported 경계다. BigInt/Arc allocation 실패의 workspace-full 매핑, 대용량 메모리 한계·성능, native compiled execution, Linux/GPU는 검증하지 않았다. 다음 단위는 exact rational 산술/비교의 finite/non-finite 및 error/promotion 계약이며 CUDA는 계획만 유지한다.
+
+- [x] 유한·무한대·zero 및 whole-word construction 구현.
+- [x] Value/view/type facts/공유·selection·empty fill·구조 연산 연결.
+- [x] NAME alias·explicit/direct local/global·실패 대입·handoff/Logical/capture 회귀.
+- [x] 미지원 rational 산술·혼합·reduce/rank/native adapter 경계 유지.
+- [x] C DLL 두 종 strict 비교 및 기존 감사/hash, Windows default/portable·fmt/clippy·Python.
+- [x] 한영 문서와 체크리스트 갱신 후 commit/push; GitHub CI 생략.
+
+검증 완료: Windows default/portable 각각 **725 passed / 0 failed / 0 ignored**, fmt·clippy(all-targets) 통과, Python **85 passed**. 신규 Rust 회귀 8개와 type fact 회귀 1개, Python exact formatter 회귀 3개를 포함한다. alias/overlap·Weak 해제·실패 대입 상태·explicit/direct local/global·enqueue/handoff/Logical/capture와 미지원 경계를 검사했다.
+
+기존 strict numeric 감사는 overflow **36/36**, integer dtype **36/36**, scientific **668/668**, real ratio **296/296**, extended **126/126 matched**를 유지한다. frontend 감사 **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**. 각 DLL 숫자 문법 **2,485 cases / 0 failed**, noun 수용 **313**, valid payload boundary **721**이며 precision/recognition 등은 계속 별도다. **16 reports / 1,001 source·binary·DLL hashes**를 검증했다. GitHub CI는 생략했다. full J나 C diagnostic text/location 동등성을 주장하지 않는다.
 
 ## 13. 프레임워크 조사에서 채택한 원칙
 

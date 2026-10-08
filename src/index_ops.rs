@@ -424,10 +424,10 @@ fn lookup(
     // Generic boxed/sparse equality needs separately verified J semantics.
     if matches!(
         indexed.data,
-        Data::ExtendedInt(_) | Data::Boxed(_) | Data::Sparse(_)
+        Data::Rational(_) | Data::ExtendedInt(_) | Data::Boxed(_) | Data::Sparse(_)
     ) || matches!(
         queries.data,
-        Data::ExtendedInt(_) | Data::Boxed(_) | Data::Sparse(_)
+        Data::Rational(_) | Data::ExtendedInt(_) | Data::Boxed(_) | Data::Sparse(_)
     ) {
         return Err(Error::Unsupported("reference boxed/sparse index-of".into()));
     }

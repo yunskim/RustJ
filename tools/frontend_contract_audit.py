@@ -176,6 +176,28 @@ for index, source in enumerate(["9007199254740993x+1", "1+9007199254740993x", "9
     EXTENDED_CASES.append((f"extended_operation_{index}", [], source, []))
 
 
+RATIONAL_CASES = [
+    ("rational_assignment", [], "saved=:9007199254740993r2", ["saved"]),
+    ("rational_alias", ["saved=:9007199254740993r2", "alias=:saved", "saved=:1r0"], "alias", ["saved", "alias"]),
+    ("rational_direct_local", ["saved=:2r3", "f=:{{local=.saved\nlocal}}"], "f 0", ["saved"]),
+    ("rational_explicit_local", ["saved=:2r3", "f=:3 : 'local=.saved\nlocal'"], "f 0", ["saved"]),
+    ("rational_failed_assignment", ["saved=:2r3"], "saved=:1r2 2rr3", ["saved"]),
+    ("rational_uppercase_invalid", ["saved=:2r3"], "saved=:1r2 1E0", ["saved"]),
+]
+RATIONAL_REFERENCE_EXCLUSIONS = []
+for n_index, numerator in enumerate(['0','_0','1','_1','2','_6','9007199254740993','9'*200]):
+    for d_index, denominator in enumerate(['0','_0','1','_1','2','_4','_','__']):
+        for context, source in [('scalar',numerator+'r'+denominator),('first',numerator+'r'+denominator+' 9007199254740993 1x'),('last','9007199254740993 1x '+numerator+'r'+denominator)]:
+            if n_index == 7 and denominator in {'0', '_0'}:
+                # Pinned j.dll traps in vq.c on this large-numerator infinity.
+                # Exclude from both variants, record separately, never as a pass.
+                RATIONAL_REFERENCE_EXCLUSIONS.append(source)
+                continue
+            RATIONAL_CASES.append((f'rational_{n_index}_{d_index}_{context}',[],source,[]))
+for index, source in enumerate(['_r','__r','_r0','__r0','_r_0','__r_0','_r_3','__r_3','1x _','1x __','2r3 1','2r3 0 1','_ 2r3','__ 2r3','+2r3', '$2r3', '#2r3', ',2r3', '|.2r3 3r4', '|:2 2$2r3 3r4', '1{2r3 3r4', '4{.2r3 3r4', '_4{.2r3 3r4', '1}.2r3 3r4', '1|.2r3 3r4', '0$2r3', '2 0$2r3', '> <2r3', '<2r3 3r4', '5{2r3 3r4', '2r3x', '_r_', '2rr3']):
+    RATIONAL_CASES.append((f'rational_special_{index}',[],source,[]))
+
+
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
     operations += [(stage, source) for stage in ("F", "H", "P", "G", "L", "R")]
@@ -244,6 +266,7 @@ def main():
                            help="Strict bounded scientific real narrowing corpus")
     selection.add_argument("--ratio-fixtures-only", action="store_true", help="Strict decimal real-family ratio corpus")
     selection.add_argument("--extended-fixtures-only", action="store_true", help="Strict finite decimal extended integer corpus")
+    selection.add_argument("--rational-fixtures-only", action="store_true", help="Strict exact rational literal and structural corpus")
     args = p.parse_args()
     if sys.platform != "win32":
         p.error("Native Windows audit only")
@@ -252,8 +275,9 @@ def main():
                 INTEGER_DTYPE_CASES if args.integer_dtype_fixtures_only else
                 SCIENTIFIC_CASES if args.scientific_fixtures_only else
                 RATIO_CASES if args.ratio_fixtures_only else
-                EXTENDED_CASES if args.extended_fixtures_only else CASES)
-    cases = [(name, setup, source, [s + "+0" for s in after]) for name, setup, source, after in selected]
+                EXTENDED_CASES if args.extended_fixtures_only else
+                RATIONAL_CASES if args.rational_fixtures_only else CASES)
+    cases = [(name, setup, source, [s if args.rational_fixtures_only else s + "+0" for s in after]) for name, setup, source, after in selected]
     for name, setup, source, after in cases:
         setup_rust, stages, post = probe(args.probe, setup, source, after)
         for value in stages.values():
@@ -274,7 +298,7 @@ def main():
             oracle = Oracle()
             try:
                 setup_results = [oracle.eval(s) for s in setup]
-                if name in {"complex_literal", "rational_literal"}:
+                if name == "complex_literal":
                     # The noun bridge does not serialize these families. Record
                     # C acceptance/type explicitly, never invent a value match.
                     reference = oracle.run("contractvalue=: " + source)
@@ -310,7 +334,9 @@ def main():
                               "integer-dtype" if args.integer_dtype_fixtures_only else
                               "scientific" if args.scientific_fixtures_only else
                               "real-ratio" if args.ratio_fixtures_only else
-                              "extended-integer" if args.extended_fixtures_only else "frontend-boundaries"),
+                              "extended-integer" if args.extended_fixtures_only else
+                              "rational" if args.rational_fixtures_only else "frontend-boundaries"),
+              "reference_exclusions": ({"sources": RATIONAL_REFERENCE_EXCLUSIONS, "reason": "Pinned j.dll traps in vq.c for a 200-digit numerator and zero denominator; excluded from both DLL comparison sets, not passes."} if args.rational_fixtures_only else {}),
               "cases": len(selected), "observations": len(comparisons),
               "counts": dict(Counter(r["status"] for r in comparisons)),
               "stage_admission_counts": {stage: dict(Counter(inspection_outcome(stage, values[1][stage]) for values in rust.values())) for stage in INSPECTION_STAGES},
@@ -319,7 +345,7 @@ def main():
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     print(json.dumps({key: report[key] for key in ("cases", "observations", "counts", "stage_admission_counts")}))
     enforce_acceptance(report, args.numeric_overflow_fixtures_only or args.integer_dtype_fixtures_only
-                       or args.scientific_fixtures_only or args.ratio_fixtures_only or args.extended_fixtures_only)
+                       or args.scientific_fixtures_only or args.ratio_fixtures_only or args.extended_fixtures_only or args.rational_fixtures_only)
 
 
 if __name__ == "__main__":

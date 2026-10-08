@@ -192,6 +192,26 @@ class Oracle:
             result.append(('-' if part.startswith('_') and magnitude != '0' else '') + magnitude)
         return result
 
+    @staticmethod
+    def rational_decimal_atoms(text, count):
+        parts = text.split()
+        if len(parts) != count:
+            raise RuntimeError('Oracle rational atom count mismatch')
+        result = []
+        for part in parts:
+            if part in ('_', '__'):
+                numerator, denominator = ('1' if part == '_' else '-1'), '0'
+            elif 'r' in part:
+                n, d = part.split('r', 1)
+                numerator = Oracle.extended_decimal_atoms(n, 1)[0]
+                denominator = Oracle.extended_decimal_atoms(d, 1)[0]
+                if denominator.startswith('-') or denominator == '0':
+                    raise RuntimeError('Oracle rational formatter must use a positive finite denominator')
+            else:
+                numerator, denominator = Oracle.extended_decimal_atoms(part, 1)[0], '1'
+            result.append({'numerator': numerator, 'denominator': denominator})
+        return result
+
     def read_noun(self, name, depth=0):
         if depth > 128:
             raise RuntimeError('Oracle boxed nesting limit')
@@ -210,7 +230,7 @@ class Oracle:
                     raise RuntimeError(f'Oracle box extraction: {error}')
                 data.append(self.read_noun(child, depth + 1))
             return {'type': 32, 'shape': shape, 'data': data}
-        if t.value == 64:
+        if t.value in (64, 128):
             # Public J formatting avoids interpreting private GMP limb pointers.
             # Flatten before formatting, preserving the original shape above.
             child = f'rustjextendedread{depth}'
@@ -221,7 +241,8 @@ class Oracle:
             if formatted['type'] != 2:
                 raise RuntimeError('Oracle extended formatter must return characters')
             text = bytes(formatted['data']).decode('ascii')
-            return {'type': 64, 'shape': shape, 'data': self.extended_decimal_atoms(text, n)}
+            atoms = self.extended_decimal_atoms(text, n) if t.value == 64 else self.rational_decimal_atoms(text, n)
+            return {'type': t.value, 'shape': shape, 'data': atoms}
         elem = {1: C.c_uint8, 2: C.c_uint8, 4: C.c_int64, 8: C.c_double}.get(t.value)
         if elem is None:
             raise RuntimeError(f'Unexpected oracle type {t.value}')

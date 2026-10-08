@@ -91,6 +91,8 @@ impl ArgumentSummary {
             4 => "integer",
             8 => "floating",
             32 => "boxed",
+            64 => "extended integer",
+            128 => "rational",
             code if code >= 1024 => "sparse",
             _ => "unknown",
         }

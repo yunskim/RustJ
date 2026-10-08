@@ -22,10 +22,9 @@ fn exact_atoms_preserve_precision_and_share_large_payloads() {
     let fraction = Rational::new(n.clone() * 2, BigInt::from(-6)).unwrap();
     assert_eq!(fraction.numerator(), &(-n / 3));
     assert_eq!(fraction.denominator(), &BigInt::from(1));
-    assert!(matches!(
-        Rational::new(1.into(), 0.into()),
-        Err(Error::Unsupported(_))
-    ));
+    let infinity = Rational::new(1.into(), 0.into()).unwrap();
+    assert!(!infinity.is_finite());
+    assert_eq!(infinity.numerator(), &BigInt::from(1));
     let fraction = Rational::new(2.into(), (-4).into()).unwrap();
     assert_eq!(fraction.numerator(), &BigInt::from(-1));
     assert_eq!(fraction.denominator(), &BigInt::from(2));
@@ -37,10 +36,6 @@ fn extended_types_cannot_silently_lower_to_existing_kernels() {
         (
             Scalar::Complex(Complex { re: 1.0, im: 2.0 }),
             DType::Complex,
-        ),
-        (
-            Scalar::Rational(Arc::new(Rational::new(1.into(), 2.into()).unwrap())),
-            DType::Rational,
         ),
         (Scalar::Symbol(Symbol::new("alpha")), DType::Symbol),
     ];
