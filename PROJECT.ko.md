@@ -9,6 +9,7 @@
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
 > 그 외 개별 설계 보고서·진행 보고서·체크리스트 Markdown 파일은 새로 만들지 않는다. 기계가 생성한 측정 원자료(JSON/JSONL)는 `reports/`에 별도로 보존한다.
 
+<a id="read-intro"></a>
 ## 처음 읽는 사람을 위한 소개 — RustJ를 어떻게 이해하면 되는가
 
 이 문서는 구현 세부사항과 검증 기록까지 포함하는 통합 문서이므로, 처음부터 모든 절을 순서대로 읽으면 RustJ의 전체 그림보다 세부사항이 먼저 보일 수 있다. 처음 읽을 때는 먼저 이 절의 **네 단계 mental model**만 잡고, 이후 필요한 세부 절로 내려가는 것을 권장한다.
@@ -166,16 +167,14 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 
 ### 처음 읽을 때의 권장 순서
 
-처음에는 다음 순서만 읽어도 전체 구조를 이해할 수 있다.
+**첫 번째 읽기(전체 그림):** 이 소개 → [§1 프로젝트 목적](#read-goal) → [§2 최상위 아키텍처](#read-architecture). 여기까지 읽으면 네 단계의 책임과 각 단계가 아직 결정하지 않는 사항을 설명할 수 있어야 한다.
 
-1. **이 소개 절** — 왜 여러 단계가 필요한지 mental model을 잡는다.
-2. **§1 프로젝트 목적** — RustJ가 무엇을 만들려는지 확인한다.
-3. **§2 최상위 아키텍처** — 실제 pipeline과 stage boundary를 본다.
-4. **§2의 Frontend ↔ J Graph 설명** — 의미 구조와 계산 구조의 차이를 예제로 확인한다.
-5. **§3 J Semantic Array IR / §4 J Graph Analyzer와 Execution Semantic Lowering** — 구현 계약이 필요할 때 내려간다.
-6. reference implementation, 역사, 세부 checklist와 검증 기록은 해당 설계 결정을 확인하거나 구현할 때 찾아본다.
+**두 번째 읽기(핵심 계약):** [§3 J Semantic IR](#read-semantic) → [§4 J Graph·Execution Semantic Lowering](#read-graph-execution) → [§5 Logical/Physical Plan·Executor](#read-physical). 필요한 단계의 계약만 읽고, 모든 예제와 역사 기록을 연속해서 읽을 필요는 없다.
 
-이 문서의 나머지 세부사항은 위 네 단계의 책임을 구체화하거나, 그 경계가 실제 J semantics에서도 무너지지 않는지 검증하기 위한 것이다.
+**세 번째 읽기(구현 시):** [§9 지원 범위](#read-scope) → [§10 이행 체크리스트](#read-roadmap) → [§11 검증 정책](#read-validation) → [§12 최신 상태](#read-status).
+
+**선택적 심화:** [§13 선행 구현·JAXA 역사·소스 조사](#read-references)와 [심화 기술 계약](#read-advanced)은 특정 설계 선택을 검증할 때 참조한다. 과거 측정·완료 기록은 현재 HEAD의 성공 주장으로 읽지 않는다.
+
 
 ### 빠른 안내 — 현재 우선순위와 문서 읽기
 
@@ -186,6 +185,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
+<a id="read-goal"></a>
 ## 1. 프로젝트 목적
 
 RustJ는 `jsource`의 C 구현을 줄 단위로 Rust로 번역하는 프로젝트가 아니다.
@@ -232,6 +232,7 @@ Jaxa physical plan → Physical Planner / Physical Plan
 
 ---
 
+<a id="read-architecture"></a>
 ## 2. 최상위 아키텍처
 
 채택한 목표 파이프라인은 다음과 같다.
@@ -403,44 +404,11 @@ Physical planning / backend
 
 **J Graph IR은 frontend 결과물의 대체물이 아니다. Frontend가 J 의미를 소유하고, J Graph IR이 그 의미에서 optimizer가 사용할 계산 topology를 추출하는 단계적 관계다.** 이 경계를 무너뜨려 frontend에서 graph/physical 결정을 너무 일찍 하거나, 반대로 Graph IR에 source parser mechanics를 그대로 끌고 내려오지 않는다.
 
-#### 기억용 4단계 요약
+#### 기억용 4단계 요약 — 상세 구현에서 다시 확인할 경계
 
-이 경계를 나중에 다시 읽을 때는 다음 네 문장으로 기억하면 된다.
+처음 읽는 사람은 [도입부의 네 단계 모델](#read-intro)부터 읽는다. 이 절의 Rank/Fork 예제와 아래 §2.1 이후 계약은 그 모델을 구현 관점에서 구체화한 것이다.
 
-> **Frontend = 의미 구조**  
-> **J Graph IR = 계산 구조**  
-> **Execution IR = 실행 의미와 의존관계**  
-> **Physical Plan = 실제 실행 방법**
-
-조금 풀어 쓰면 다음과 같다.
-
-1. **Frontend — “J가 무엇을 의미하는가”**  
-   source를 jsource-compatible하게 reduction하여 J semantic structure를 만든다. Rank, Fork, Hook, adverb/conjunction, derived function, name/binding 같은 **언어 의미 구조**를 보존한다.
-
-2. **J Graph IR — “그 의미가 어떤 계산 graph가 되는가”**  
-   semantic structure를 실제 input에 적용했을 때 생기는 producer/consumer, branch/join, CellApply, Reduce 같은 **배열 연산 topology와 data dependency**를 드러낸다. 이 단계는 optimization opportunity를 찾기 위한 graph이며 아직 실제 실행 방법을 고르지 않는다.
-
-3. **Execution IR — “올바르게 실행하려면 무엇이 반드시 일어나야 하는가”**  
-   Graph의 계산을 explicit operation, SSA value/data dependency, semantic check, effect/error ordering 등으로 정규화한다. 즉 **실행 가능한 논리적 의미**를 만든다. 여기서 중요한 점은 **Execution IR이 곧 하드웨어 실행 계획은 아니라는 것**이다.
-
-4. **Physical Plan / backend — “이 하드웨어에서 실제로 어떻게 실행할 것인가”**  
-   같은 Execution IR에 대해 CPU scalar loop, SIMD/multicore, GPU kernel, MLIR/external compiler 등 서로 다른 realization을 선택할 수 있다. 이 단계에서 fusion, schedule, thread/work mapping, buffer, layout, materialization, memory placement와 synchronization을 구체화한다.
-
-예를 들어 논리적으로 같은 `CellApply(f, y)`는 다음처럼 여러 physical realization을 가질 수 있다.
-
-~~~text
-Execution IR
-  CellApply(f, y)
-        │
-        ├─ CPU scalar loop
-        ├─ CPU SIMD + multicore
-        ├─ GPU kernel
-        └─ MLIR / external compiler
-~~~
-
-따라서 `Execution IR = 실행 계획`이라고 말할 때의 “계획”은 **semantic execution plan**에 가깝고, `GPU block size`, `AVX2`, 특정 `BufferId`처럼 하드웨어에 묶인 최종 계획은 아니다.
-
-이 단계 분리가 jsource와 RustJ의 차이를 이해하는 데도 중요하다. jsource는 parser reduction 결과를 interpreter/runtime 흐름에서 곧바로 의미 동작과 실행에 소비하는 비중이 크다. RustJ도 jsource-compatible parser reduction을 수행하지만, 그 결과를 바로 소모하지 않고 **compiler가 분석·최적화할 수 있도록 semantic structure → computation graph → execution semantics → physical realization의 여러 경계에 걸쳐 보존한다.** 즉 RustJ에 중간 단계가 우연히 많아진 것이 아니라, J 의미를 잃지 않은 채 여러 optimization/backend 선택지를 열어 두기 위해 의도적으로 분리한 것이다.
+**Execution IR은 semantic execution plan이지 하드웨어 실행 계획이 아니다.** Check·effect·error ordering과 SSA dependency는 여기서 확정하지만, AVX2 선택, GPU block 크기, concrete BufferId와 materialization은 physical planning이 담당한다. 동일한 `CellApply(f, y)`도 여러 backend realization을 가질 수 있다.
 
 ### 2.1 RustJ compiler stage의 위상
 
@@ -1086,6 +1054,7 @@ MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 di
 
 ---
 
+<a id="read-semantic"></a>
 ## 3. J Semantic Array IR
 
 ### 3.1 J의 계산 모델
@@ -2704,6 +2673,7 @@ committed
 
 근거: [FOUNDATIONS §21/§33](FOUNDATIONS.ko.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7의 분류·이행 순서는 RustJ 설계 판단이며 upstream의 완성된 guard 시스템을 복제했다는 뜻이 아니다.
 
+<a id="read-graph-execution"></a>
 ## 4. J Graph Analyzer와 Execution Semantic Lowering
 
 RustJ middle-end는 하나의 Analyzer가 모든 일을 하는 구조가 아니라 **두 서로 다른 IR과 두 분석 단계**를 가진다.
@@ -3474,6 +3444,7 @@ JSemanticError(domain/rank/length/value/...)
 
 따라서 분석 lattice의 bottom/top 개념과 사용자-visible error contract를 같은 `Invalid` 상태로 합치지 않는다.
 
+<a id="read-physical"></a>
 ## 5. Logical Plan, Physical Plan, Executor
 
 ### 5.1 Logical Array IR / Logical Execution Plan
@@ -4923,6 +4894,7 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **JMF 부트스트랩 첫 실측 결과(2026-10-07, 미수용).** [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000)의 `j64/default`와 `j64/portable` C job에서 JMF 탐색 단계는 `status=blocked`, `stage_count=2`였으며, 첫 `BINPATH_z_` 설정은 실행되고 `0!:0 <.../jlibrary/bin/profile.ijs`에 `domain error`가 발생했다. **map/unmap까지 도달하지 않았다.** 이 결과를 JMF RW/RO/COW의 부정 결과로 해석하지 않는다. [후속 진단 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3)는 실제 J script loader가 짧은 독립 fixture를 읽을 수 있는지 먼저 검사하고, 실패 원본에 `13!:12` 문맥을 포함하도록 분리했다. 후속 CI 결과는 이 기록 시점 미확정이다. IO-25는 [ ]이다.
 
+<a id="read-scope"></a>
 ## 9. 언어 및 구현 범위
 
 ### 9.1 현재 지원하는 주요 값
@@ -5037,6 +5009,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 
 <a id="architecture-migration-checklist"></a>
 
+<a id="read-roadmap"></a>
 ## 10. 구현 계획과 체크리스트
 
 이 절이 앞으로 유일한 구현 체크리스트다. **저장장치·느린 I/O·Out-of-core 작업은 [§10 IO-01~IO-30](#out-of-core-io-checklist)을 이 절 안의 단일 수용 목록으로 사용한다.** 순차 CPU 기준 실행과 J 의미 수렴은 계속 M2→M3→M4 우선이며, IO-A 조사만 병행할 수 있다.
@@ -7262,6 +7235,7 @@ Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 �
 
 <a id="validation-policy"></a>
 
+<a id="read-validation"></a>
 ## 11. 검증 정책
 
 모든 구현 변경은 이 절을 따른다.
@@ -7353,6 +7327,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 
 <a id="current-implementation-status"></a>
 
+<a id="read-status"></a>
 ## 12. 현재 검증·구현 상태 요약
 
 이 절의 오래된 architecture review anchor는 2026-10-04 WI1 입력 metadata 단계였지만, **현재 구현/검증 상태는 2026-10-05 NV3d2b2a와 GF6a까지의 `main`을 기준으로 아래 항목을 갱신한다.** 과거 단계별 gate 수치는 그 시점의 검증 기록이며 현재 HEAD 상태로 읽지 않는다.
@@ -7626,6 +7601,7 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 
 다음 실행 단위는 이 의미 효과 계획에서 pure array 부분을 J Graph/Logical로 내리고 token 경계로 연결하는 것이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
 
+<a id="read-references"></a>
 ## 13. 프레임워크 조사에서 채택한 원칙
 
 외부 프레임워크의 언어 의미를 가져오는 것이 아니라 검증된 구현 아이디어를 참고한다.
@@ -9114,6 +9090,7 @@ RustJ 적용:
 
 ---
 
+<a id="read-advanced"></a>
 ## 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage
 
 아래는 기존 §4.5~§4.24의 상세 계약을 모아둔 참조 자료다. **핵심 단계 흐름을 이해하는 데 필수 선행 독서는 아니다.** 기존 항목 번호와 앵커는 세부 체크리스트의 교차 참조를 보호하기 위해 보존한다.
