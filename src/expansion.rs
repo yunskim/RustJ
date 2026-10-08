@@ -223,6 +223,9 @@ fn source_value(values: &[Option<Value>], id: ValueId) -> crate::Result<Value> {
 }
 
 fn find_window_family(pattern: Value, source: Value) -> crate::Result<ReferenceExpansionValue> {
+    if pattern.is_extended() || source.is_extended() {
+        return Err(Error::Unsupported("extended search".into()));
+    }
     if pattern.is_sparse() || source.is_sparse() {
         return Err(Error::Unsupported("sparse dyad E.".into()));
     }

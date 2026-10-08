@@ -160,6 +160,22 @@ for index, source in enumerate(["1r2.0", "1.r2", "1r2.", "0r0.0", "_0r0.0", "0r_
     RATIO_CASES.append((f"ratio_scalar_{index}", [], source, []))
 
 
+EXTENDED_CASES = [
+    ("extended_assignment", [], "saved=:9007199254740993x", ["saved"]),
+    ("extended_direct_local", ["saved=:9007199254740993x", "f=:{{local=.saved\nlocal+1}}"], "f 0", ["saved"]),
+    ("extended_explicit_local", ["saved=:9007199254740993x", "f=:3 : 'local=.saved\nlocal+1'"], "f 0", ["saved"]),
+    ("extended_alias", ["saved=:9007199254740993x", "alias=:saved", "saved=:2x"], "alias", ["saved", "alias"]),
+    ("extended_failed_assignment", ["saved=:9007199254740993x"], "saved=:1x 2xx", ["saved"]),
+    ("extended_float_literal_invalid", ["saved=:7x"], "saved=:1x 1.0", ["saved"]),
+    ("extended_uppercase_invalid", [], "1x 1E0", []),
+]
+for index, source in enumerate(["0x", "1x", "01x", "_0x", "_01x", "9223372036854775808x", "_9223372036854775809x", "9"*400 + "x"]):
+    for context, expression in [("scalar",source),("first",source+" 9007199254740993"),("last","9007199254740993 "+source)]:
+        EXTENDED_CASES.append((f"extended_{index}_{context}", [], expression, []))
+for index, source in enumerate(["9007199254740993x+1", "1+9007199254740993x", "9223372036854775808x*2", "2*9223372036854775808x", "0-9223372036854775808x", "9007199254740993x-9007199254740992x", "9007199254740993x=9007199254740992x", "9007199254740993x>9007199254740992x", "9007199254740992x<9007199254740993x", "1 2+9007199254740993x", "- _9223372036854775809x", "|_12345678901234567890x", "*_12345678901234567890x", "+1x", "$1x 2x", "#1x 2x", "$1x", ",1x", "|.1x 2x", "|:2 2$1x 2x 3x 4x", "1{1x 9007199254740993x", "4{.1x 2x", "_4{.1x 2x", "1}.1x 2x", "1|.1x 2x 3x", "0$1x", "2 0$1x", "1x+0$2x", "> <1x", "<1x 2x", "1 2x+1 2 3x", "5{1x 2x"]):
+    EXTENDED_CASES.append((f"extended_operation_{index}", [], source, []))
+
+
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
     operations += [(stage, source) for stage in ("F", "H", "P", "G", "L", "R")]
@@ -227,6 +243,7 @@ def main():
     selection.add_argument("--scientific-fixtures-only", action="store_true",
                            help="Strict bounded scientific real narrowing corpus")
     selection.add_argument("--ratio-fixtures-only", action="store_true", help="Strict decimal real-family ratio corpus")
+    selection.add_argument("--extended-fixtures-only", action="store_true", help="Strict finite decimal extended integer corpus")
     args = p.parse_args()
     if sys.platform != "win32":
         p.error("Native Windows audit only")
@@ -234,7 +251,8 @@ def main():
     selected = (NUMERIC_OVERFLOW_CASES if args.numeric_overflow_fixtures_only else
                 INTEGER_DTYPE_CASES if args.integer_dtype_fixtures_only else
                 SCIENTIFIC_CASES if args.scientific_fixtures_only else
-                RATIO_CASES if args.ratio_fixtures_only else CASES)
+                RATIO_CASES if args.ratio_fixtures_only else
+                EXTENDED_CASES if args.extended_fixtures_only else CASES)
     cases = [(name, setup, source, [s + "+0" for s in after]) for name, setup, source, after in selected]
     for name, setup, source, after in cases:
         setup_rust, stages, post = probe(args.probe, setup, source, after)
@@ -256,7 +274,7 @@ def main():
             oracle = Oracle()
             try:
                 setup_results = [oracle.eval(s) for s in setup]
-                if name in {"complex_literal", "extended_literal", "rational_literal"}:
+                if name in {"complex_literal", "rational_literal"}:
                     # The noun bridge does not serialize these families. Record
                     # C acceptance/type explicitly, never invent a value match.
                     reference = oracle.run("contractvalue=: " + source)
@@ -283,7 +301,7 @@ def main():
                                      for p in sorted(Path("src").rglob("*.rs"))},
               "probe_sha256": hashlib.sha256(args.probe.read_bytes()).hexdigest(),
               "audit_source_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-                                      for p in [Path(__file__), Path("examples/frontend_contract_probe.rs")]},
+                                      for p in [Path(__file__), Path("tools/oracle.py"), Path("examples/frontend_contract_probe.rs")]},
               "reference_sha256": {name: hashlib.sha256((args.assets_root / "target/cj-windows/j64" / name).read_bytes()).hexdigest()
                                    for name in ("j.dll", "javx2.dll")},
               "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
@@ -291,7 +309,8 @@ def main():
               "fixture_set": ("numeric-overflow" if args.numeric_overflow_fixtures_only else
                               "integer-dtype" if args.integer_dtype_fixtures_only else
                               "scientific" if args.scientific_fixtures_only else
-                              "real-ratio" if args.ratio_fixtures_only else "frontend-boundaries"),
+                              "real-ratio" if args.ratio_fixtures_only else
+                              "extended-integer" if args.extended_fixtures_only else "frontend-boundaries"),
               "cases": len(selected), "observations": len(comparisons),
               "counts": dict(Counter(r["status"] for r in comparisons)),
               "stage_admission_counts": {stage: dict(Counter(inspection_outcome(stage, values[1][stage]) for values in rust.values())) for stage in INSPECTION_STAGES},
@@ -300,7 +319,7 @@ def main():
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     print(json.dumps({key: report[key] for key in ("cases", "observations", "counts", "stage_admission_counts")}))
     enforce_acceptance(report, args.numeric_overflow_fixtures_only or args.integer_dtype_fixtures_only
-                       or args.scientific_fixtures_only or args.ratio_fixtures_only)
+                       or args.scientific_fixtures_only or args.ratio_fixtures_only or args.extended_fixtures_only)
 
 
 if __name__ == "__main__":

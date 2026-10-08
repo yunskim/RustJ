@@ -19,8 +19,8 @@ impl Check {
         }
     }
 }
-#[derive(Clone, Copy)]
-enum Mode {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
     Real,
     Extended,
     Rational,
@@ -465,13 +465,13 @@ fn quad(s: &str) -> Check {
     }
 }
 
-pub(crate) fn validate(source: &str) -> Result<()> {
+pub(crate) fn validate(source: &str) -> Result<Mode> {
     // Keep ordinary decimal/integer nouns on the existing constructor path;
     // no extra float parsing or temporary normalized strings for these words.
     if source.bytes().all(|b| {
         b.is_ascii_digit() || b.is_ascii_whitespace() || matches!(b, b'_' | b'.' | b'e' | b'E')
     }) {
-        return Ok(());
+        return Ok(Mode::Real);
     }
     let mode = mode(source);
     if matches!(mode, Mode::ReferenceBoundary) {
@@ -499,9 +499,9 @@ pub(crate) fn validate(source: &str) -> Result<()> {
         Check::Unknown => Err(Error::Unsupported(
             "numeric recognition requires additional grammar facts".into(),
         )),
-        Check::Valid if !matches!(mode, Mode::Real) => Err(Error::Unsupported(
+        Check::Valid if !matches!(mode, Mode::Real | Mode::Extended) => Err(Error::Unsupported(
             "validated numeric family payload construction".into(),
         )),
-        Check::Valid => Ok(()),
+        Check::Valid => Ok(mode),
     }
 }

@@ -17,6 +17,7 @@ REPORTS = [
     "numeric-syntax-j64-windows", "numeric-syntax-avx2-windows", "numeric-integer-dtype-windows",
     "numeric-scientific-windows",
     "numeric-ratio-windows",
+    "numeric-extended-windows",
 ]
 
 
@@ -64,7 +65,7 @@ def verify_report(root, assets, path):
         raise ValueError(f"Unrecognized audit status: {path}")
     if counts and sum(counts.values()) != report["observations"]:
         raise ValueError(f"Incomplete observation counts: {path}")
-    if report.get("fixture_set") in {"numeric-overflow", "integer-dtype", "scientific", "real-ratio"} and set(counts) != {"matched"}:
+    if report.get("fixture_set") in {"numeric-overflow", "integer-dtype", "scientific", "real-ratio", "extended-integer"} and set(counts) != {"matched"}:
         raise ValueError(f"Strict numeric audit contains gaps: {path}")
     return checks
 

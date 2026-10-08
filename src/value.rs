@@ -10,6 +10,8 @@ pub enum Data {
     Int(CpuStorage<i64>),
     Float(CpuStorage<f64>),
     Char(CpuStorage<u8>),
+    /// Immutable arbitrary-precision atoms; selection shares their limbs.
+    ExtendedInt(CpuStorage<Arc<crate::types::BigInt>>),
     Boxed(CpuStorage<Arc<Value>>),
     Sparse(Arc<crate::sparse::SparseArray>),
 }
@@ -83,6 +85,7 @@ impl Value {
             Data::Int(v) => Data::Int(v.into_shared()),
             Data::Float(v) => Data::Float(v.into_shared()),
             Data::Char(v) => Data::Char(v.into_shared()),
+            Data::ExtendedInt(v) => Data::ExtendedInt(v.into_shared()),
             Data::Boxed(v) => Data::Boxed(v.into_shared()),
             Data::Sparse(v) => Data::Sparse(v),
         };
@@ -109,6 +112,7 @@ impl Value {
             Data::Int(v) => CpuView::Int(v),
             Data::Float(v) => CpuView::Float(v),
             Data::Char(v) => CpuView::Char(v),
+            Data::ExtendedInt(v) => CpuView::ExtendedInt(v),
             Data::Boxed(v) => CpuView::Boxed(v),
             Data::Sparse(v) => CpuView::Sparse(v),
         };
@@ -123,6 +127,7 @@ impl Value {
             Data::Bool(v) | Data::Char(v) => v.len(),
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
+            Data::ExtendedInt(v) => v.len(),
             Data::Boxed(v) => v.len(),
             Data::Sparse(v) => {
                 if v.shape() != &*shape {
@@ -144,6 +149,9 @@ impl Value {
     pub fn from_sparse(array: crate::sparse::SparseArray) -> Result<Self> {
         let shape = Shape::from(array.shape());
         Self::new(shape, Data::Sparse(Arc::new(array)))
+    }
+    pub fn is_extended(&self) -> bool {
+        matches!(self.data, Data::ExtendedInt(_))
     }
     pub fn is_sparse(&self) -> bool {
         matches!(self.data, Data::Sparse(_))
@@ -175,6 +183,7 @@ impl Value {
             Data::Bool(v) | Data::Char(v) => v.len(),
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
+            Data::ExtendedInt(v) => v.len(),
             Data::Boxed(v) => v.len(),
             Data::Sparse(v) => count(v.shape()).expect("validated sparse shape"),
         }
@@ -188,6 +197,7 @@ impl Value {
             Data::Char(_) => 2,
             Data::Int(_) => 4,
             Data::Float(_) => 8,
+            Data::ExtendedInt(_) => 64,
             Data::Boxed(_) => 32,
             Data::Sparse(ref v) => v.fill().type_code() << 10,
         }
@@ -196,6 +206,8 @@ impl Value {
         match &self.data {
             Data::Bool(v) => Ok(v[i] as i64),
             Data::Int(v) => Ok(v[i]),
+            Data::ExtendedInt(v) => i64::try_from(v[i].as_ref())
+                .map_err(|_| Error::Unsupported("extended integer machine conversion".into())),
             Data::Float(v)
                 if v[i].is_finite()
                     && v[i].fract() == 0.0
@@ -239,6 +251,12 @@ impl Value {
             Data::Int(_) => Data::Int(CpuStorage::generate(atoms, |_| 0)?),
             Data::Float(_) => Data::Float(CpuStorage::generate(atoms, |_| 0.0)?),
             Data::Char(_) => Data::Char(CpuStorage::generate(atoms, |_| b' ')?),
+            Data::ExtendedInt(_) => {
+                let zero = Arc::new(crate::types::BigInt::from(0));
+                let mut out = buffer(atoms)?;
+                out.resize(atoms, zero);
+                Data::ExtendedInt(CpuStorage::new(out))
+            }
             Data::Boxed(_) => {
                 return Err(Error::Unsupported("boxed rank fill cell".into()));
             }
@@ -262,6 +280,11 @@ impl Value {
             2 => Data::Char(CpuStorage::generate(atoms, |_| b' ')?),
             4 => Data::Int(CpuStorage::generate(atoms, |_| 0)?),
             8 => Data::Float(CpuStorage::generate(atoms, |_| 0.0)?),
+            64 => {
+                let mut out = buffer(atoms)?;
+                out.resize(atoms, Arc::new(crate::types::BigInt::from(0)));
+                Data::ExtendedInt(CpuStorage::new(out))
+            }
             _ => return Err(Error::Unsupported("rank refill target type".into())),
         };
         Self::new(self.shape.clone(), data)
@@ -296,6 +319,7 @@ impl Value {
             Data::Int(v) => select!(v, Int),
             Data::Float(v) => select!(v, Float),
             Data::Char(v) => select!(v, Char),
+            Data::ExtendedInt(v) => select!(v, ExtendedInt),
             Data::Boxed(v) => select!(v, Boxed),
             Data::Sparse(_) => return Err(Error::Unsupported("sparse selection".into())),
         };
@@ -322,6 +346,7 @@ impl Value {
         let values: Vec<String> = match &self.data {
             Data::Bool(v) | Data::Char(v) => v.iter().map(u8::to_string).collect(),
             Data::Int(v) => v.iter().map(i64::to_string).collect(),
+            Data::ExtendedInt(v) => v.iter().map(|x| format!("\"{x}\"")).collect(),
             Data::Boxed(v) => v.iter().map(|x| x.json()).collect(),
             Data::Sparse(_) => unreachable!(),
             Data::Float(v) => v
@@ -372,6 +397,9 @@ impl Value {
                 let parts: Vec<String> = match &self.data {
                     Data::Bool(v) => v.iter().map(u8::to_string).collect(),
                     Data::Int(v) => v.iter().map(|x| x.to_string().replace('-', "_")).collect(),
+                    Data::ExtendedInt(v) => {
+                        v.iter().map(|x| x.to_string().replace('-', "_")).collect()
+                    }
                     Data::Float(v) => v
                         .iter()
                         .map(|x| {

@@ -38,7 +38,6 @@ fn extended_types_cannot_silently_lower_to_existing_kernels() {
             Scalar::Complex(Complex { re: 1.0, im: 2.0 }),
             DType::Complex,
         ),
-        (Scalar::ExtendedInt(Arc::new(1.into())), DType::ExtendedInt),
         (
             Scalar::Rational(Arc::new(Rational::new(1.into(), 2.into()).unwrap())),
             DType::Rational,

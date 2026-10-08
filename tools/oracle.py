@@ -178,6 +178,20 @@ class Oracle:
             names[name] = entry
         return {'outcome': outcome, 'names': names}
 
+    @staticmethod
+    def extended_decimal_atoms(text, count):
+        parts = text.split()
+        if len(parts) != count:
+            raise RuntimeError('Oracle extended atom count mismatch')
+        result = []
+        for part in parts:
+            digits = part.removeprefix('_')
+            if not digits or not digits.isascii() or not digits.isdigit():
+                raise RuntimeError('Oracle invalid extended decimal format')
+            magnitude = digits.lstrip('0') or '0'
+            result.append(('-' if part.startswith('_') and magnitude != '0' else '') + magnitude)
+        return result
+
     def read_noun(self, name, depth=0):
         if depth > 128:
             raise RuntimeError('Oracle boxed nesting limit')
@@ -196,6 +210,18 @@ class Oracle:
                     raise RuntimeError(f'Oracle box extraction: {error}')
                 data.append(self.read_noun(child, depth + 1))
             return {'type': 32, 'shape': shape, 'data': data}
+        if t.value == 64:
+            # Public J formatting avoids interpreting private GMP limb pointers.
+            # Flatten before formatting, preserving the original shape above.
+            child = f'rustjextendedread{depth}'
+            error = self.run(f'{child} =: ": , {name}')
+            if error:
+                raise RuntimeError(f'Oracle extended formatting: {error}')
+            formatted = self.read_noun(child, depth + 1)
+            if formatted['type'] != 2:
+                raise RuntimeError('Oracle extended formatter must return characters')
+            text = bytes(formatted['data']).decode('ascii')
+            return {'type': 64, 'shape': shape, 'data': self.extended_decimal_atoms(text, n)}
         elem = {1: C.c_uint8, 2: C.c_uint8, 4: C.c_int64, 8: C.c_double}.get(t.value)
         if elem is None:
             raise RuntimeError(f'Unexpected oracle type {t.value}')

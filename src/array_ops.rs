@@ -9,6 +9,19 @@ fn mapped(y: &Value, shape: Shape, index: impl Fn(usize) -> Option<usize>) -> Re
     let n = count(&shape)?;
     let data = match &y.data {
         Data::Sparse(_) => return Err(Error::Unsupported("sparse rearrangement".into())),
+        Data::ExtendedInt(v) => {
+            let mut out = crate::value::buffer(n)?;
+            let mut zero = None;
+            for i in 0..n {
+                out.push(match index(i) {
+                    Some(j) => v[j].clone(),
+                    None => zero
+                        .get_or_insert_with(|| std::sync::Arc::new(crate::types::BigInt::from(0)))
+                        .clone(),
+                });
+            }
+            Data::ExtendedInt(CpuStorage::new(out))
+        }
         Data::Boxed(v) => {
             let mut out = crate::value::buffer(n)?;
             for i in 0..n {

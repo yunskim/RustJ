@@ -10,12 +10,12 @@
     "jsrc/jerr.h": "70ed09fa0e3ebd92c151b1a352cfeff5ea0cf23ca5eb379f10c8e27ca06f4e0c"
   },
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "15074ff2095135e5c586b63ef4068d43c9279399a198af9034723d380a958f14",
+  "binary_sha256": "ac3733546994bfbb65887a0cd8408d7e3bbb2e7ef09219e829943d4088cee085",
   "cases": 2485,
   "checks": {
-    "accepted_noun_control": 198,
+    "accepted_noun_control": 224,
     "error_class_verified": 1244,
-    "valid_payload_boundary": 836,
+    "valid_payload_boundary": 810,
     "reference_precision_boundary": 200,
     "quad_construction_boundary": 1,
     "nan_word_formation_boundary": 4,
@@ -141,9 +141,9 @@
       "source": "0 1x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -259,9 +259,9 @@
       "source": "0 2x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -478,9 +478,9 @@
       "source": "1 1x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -596,9 +596,9 @@
       "source": "1 2x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -3832,27 +3832,27 @@
       "source": "1x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
       "source": "1x 0",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
       "source": "1x 1",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -3956,9 +3956,9 @@
       "source": "1x 1x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -3976,9 +3976,9 @@
       "source": "1x 2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -4082,9 +4082,9 @@
       "source": "1x 2x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -4133,9 +4133,9 @@
       "source": "1x _2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -4668,9 +4668,9 @@
       "source": "2 1x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -4786,9 +4786,9 @@
       "source": "2 2x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -8029,27 +8029,27 @@
       "source": "2x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
       "source": "2x 0",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
       "source": "2x 1",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -8153,9 +8153,9 @@
       "source": "2x 1x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -8173,9 +8173,9 @@
       "source": "2x 2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -8279,9 +8279,9 @@
       "source": "2x 2x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -8330,9 +8330,9 @@
       "source": "2x _2",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -9832,9 +9832,9 @@
       "source": "_2 1x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -9950,9 +9950,9 @@
       "source": "_2 2x",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -11233,9 +11233,9 @@
       "source": "1 1x",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -14578,18 +14578,18 @@
       "source": "1x",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
       "source": "1x 1",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -14706,9 +14706,9 @@
       "source": "1x 1x",
       "scope": "precision-reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "validated numeric family payload construction",
-      "status": "valid_payload_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {

@@ -95,6 +95,7 @@ impl Scalar {
             Self::Int(x) => Data::Int(CpuStorage::Inline(x)),
             Self::Float(x) => Data::Float(CpuStorage::Inline(x)),
             Self::Char(x) => Data::Char(CpuStorage::Inline(x)),
+            Self::ExtendedInt(x) => Data::ExtendedInt(CpuStorage::Inline(x)),
             Self::Boxed(x) => Data::Boxed(CpuStorage::Inline(x)),
             other => {
                 return Err(Error::Unsupported(format!(

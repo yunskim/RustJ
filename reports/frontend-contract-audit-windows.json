@@ -1,11 +1,11 @@
 {
   "scope": "Bounded admission, handoff and error audit; gaps are findings, not passes. C diagnostic locations are not compared.",
-  "revision": "5994e6ca5bdbf65be124e2e8e1322bec564f4dbd",
+  "revision": "7f988a4a11aac370955b7428dcf390edf72e8004",
   "rust_source_sha256": {
     "src\\admission.rs": "40cfe69e39169afe58c4471ca5a29094c88e48d5baf2ff4e07a25f72c5660029",
     "src\\analysis.rs": "6b21b318ad6f8227a099023390150d0907a8bb79eacf34a78441a09562067862",
-    "src\\array_ops.rs": "16b2e2e099d96c013e959028aa8c231a4660405d956869a1b6f9f23c8f33fc3f",
-    "src\\assembly.rs": "ed919b5a966abce07234743d295dc23aa8f3ed095c4293feac0829ba66af7cbc",
+    "src\\array_ops.rs": "61f9b055af9ca3703b5d9b4d66f6b33134d5fd890a8ff9a06141e68a6043c5bd",
+    "src\\assembly.rs": "6b2a02cefbc620b9c5ce64dbc786619826b0e5d34f1353d9355e96716299f2af",
     "src\\bit_storage.rs": "251408f415e20e90dfa05dc4a58532ce4b931b32be41275745ba890e1b496bc1",
     "src\\comparison_policy.rs": "e4296ee20876a832fd4637df67093920877e6272debc47abafd0aaa9be1dd934",
     "src\\compilation.rs": "e7180bf14c59661260863adba3e8f278150f2b26b65093fed97543f89baaf420",
@@ -14,15 +14,16 @@
     "src\\definition_control.rs": "c42abb5b7417b0e15fff796488053a379e8e352e53d8b1679377d35ff367f075",
     "src\\definition_flow.rs": "3b8d52fea33f484cc56ee57f286353b2f5521d18e9675732af21dd8b50c65de0",
     "src\\definition_input.rs": "aa53392c875d58dd2fd256b398312dcfc1735dbf8b68cbfd9cf17dc0a9c179dd",
-    "src\\enqueuer.rs": "66c6a49cc84d2b5eef4c080b449936c5cbabf09d0e633e9af4c6d50fe4dd9c6d",
+    "src\\enqueuer.rs": "a28af12838faee49d40f1da02e75ddcae081eb9b4b175a94366a0f04d2018d2e",
     "src\\error.rs": "f475496a7e0970d43081f80ebe59f68a8f03585271a3241de1da587e63c2506c",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
-    "src\\expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
-    "src\\facts.rs": "4c25fe87f5f4bcd525df7b37eda837a3698071f7c4a2a933054951c0c21fb317",
+    "src\\expansion.rs": "eced0f19892ca7ae7ed9ccbb5c2dbb18d66ec92318ce5ea1638e9342ca8d2aea",
+    "src\\extended.rs": "a61bf98cecede91c686695ffc7433c7e1d0c8ea1bf660e5759976ba9a4fcca80",
+    "src\\facts.rs": "e64d066ba9f15ad389ece3ee3493be06715280bebd2627707b453c386453f3d1",
     "src\\frontend_context.rs": "f2e6a3c63feee24ae3ca51bc3e5b5e8e3e4ed51b91de6a9374205a8dfb09a0e3",
     "src\\frontend_handoff.rs": "f0f062fca56c046fb8008068ecabe8fdf1cc2146273c58a6a0d57ec74f2f4ad8",
     "src\\fusion_planning.rs": "96f82d6a1cb5da5558f5faef3d04dfcd1c81fedae7a5ce34244eaedbcdbdc291",
-    "src\\index_ops.rs": "7c6df38ea2cd6037dd853e0b78ac24adcbdd5ae798239435635cbc9343a9b79a",
+    "src\\index_ops.rs": "239fb52c85bd6b023bc10d750ee79e865c640181c1efe1029100569ee5e609bb",
     "src\\j_graph_composition.rs": "f7cb2c1bd9cce6eda230de1b36f4e38bd02d0cc095f53a6eec2bb66081c4316b",
     "src\\j_graph_fusion.rs": "a07b33357ebf477632afb0c08b0c6f971967be766afd860c2afec75fa66c9923",
     "src\\j_graph_ir.rs": "41ab0c7924bc8c06af797c2b33a27198299b7921a3b143aef9e40dfa8a3c3216",
@@ -32,8 +33,8 @@
     "src\\j_graph_rewrite.rs": "511a64c3bd7f52e9e5e32e4ce0ddccc005cccaee6b22ab35ce9e99e541377a11",
     "src\\j_graph_scan.rs": "3f1b499393ad83552e234578717b711b34564e544fef324eaba0f139deb5c41a",
     "src\\j_graph_work_depth.rs": "dc45462b1f1b9891ba60be681d4dc9cf59ad053d5879a3353ecf4fdec5d1761b",
-    "src\\kernels.rs": "88ad7829eca1f54e033ba6491f57ffc6073a46c1b00e38d9a986fd4636021db8",
-    "src\\lib.rs": "284f4f169d21f79f5f1bf95daba3f69b6f4a066618c91b9cf1f9553dd0a8f013",
+    "src\\kernels.rs": "21ae336e933ea074a2694600fb75c53d3c4025bfc6b906994a9564f6d204051c",
+    "src\\lib.rs": "fa8e4856284a8aaeae139291358ce4f72fb15f86ebf3f53904d1a65b06aae3a4",
     "src\\logical_executor.rs": "748be6ba378bae6ed94414b1ae8660ab5d759901d57e0d8ae773c7e4162a77d8",
     "src\\logical_ir.rs": "3906b45244d56ea8dc3e16b71a0664f956958268b31fbf1fc5b3f6808d5b945a",
     "src\\lowering.rs": "325811e6cc4bbca1f12afac10bd11dde1c5a2f3e5befde80f0b4cc39aac6a09e",
@@ -43,7 +44,7 @@
     "src\\name_effect_ir.rs": "6dd3e2760ebcc07c1adb040c81f4f633c4c13adcab9cad52d0e65a85a1a16565",
     "src\\name_guards.rs": "806afb1dfad87b81eb80d22ae3940271a5a612821ae13f74e338f3a206394e89",
     "src\\numeric.rs": "b646a3848a46aefc553cc4a21080ae5527b6db90c1d8f346bef5d9cda75c85d5",
-    "src\\numeric_input.rs": "67ca0d38575f3e39598a0efe716ef868bcf57faa42e00571a9ef6d2ea203dd97",
+    "src\\numeric_input.rs": "d62ad1dd17dc7c9285942b2e6a9a4e25c3c8f01ce2b3a249cb789b873bc7f71f",
     "src\\opportunity.rs": "9205633c5e81a112eca27473b66c10d8e323a38ff260b4db88b4739da7607021",
     "src\\parser.rs": "f7a8c5be05cb19fa178d6ee6b5591d3a9a4aa7bb9d928f4b7b1901c9d4af5362",
     "src\\parser_capture.rs": "995a4edaab38c6fcfec82f184ceca143335c96849614041a1bb381b061e205c3",
@@ -58,16 +59,17 @@
     "src\\source.rs": "80712cc7cf4b06a23c3e4eba7846ec7e4652dc5f9c469fc8860385848418a2ee",
     "src\\sparse.rs": "10cb47166cad2eca8276d8a83d83190440ad100e1f6e762a1327f3b5396f269c",
     "src\\static_analysis.rs": "430d1c509160e0d3409eebd5101317226fbff73a1986a8c23f8e1869473aa3b3",
-    "src\\storage.rs": "ef9de441523ba7b2bcdb02a5413197f8f21a42f3649738420f3666104ca7012f",
+    "src\\storage.rs": "5b2ef7bf5ceea30e650c373e49cf1784aba801dac0337ae5d21b167619ef2ad6",
     "src\\syntax.rs": "4a69e1ecbcfdccb5dbf3cd4a92f7a58e38777fdd7592c49ab7e978d922613b47",
     "src\\tokenizer.rs": "5543c534e662d4156e601bb8b45000dd90630424f48bf9989e78bb7f827cbd64",
     "src\\tolerant_search.rs": "0d5b36414968f9bd8ba66f8d4999919650029e5140b1cd7996b597da191d4377",
-    "src\\types.rs": "502531ee2eeba34a3508a93b1f4320d48d2f9e0d02d753bbdb82e5e3b1f3602b",
-    "src\\value.rs": "b41cc5c45580977a7043cac18ab9044a161d74acc12d756e81f84d403b3a95c5"
+    "src\\types.rs": "37f3bd3847db2f0646e6b4bd0dd1c67a1c83086cb401ad8f44d4778829464b5f",
+    "src\\value.rs": "50b4f244216482bf8ce9bf52d5e5e4978d1ea790b400279a004ab2df54123994"
   },
-  "probe_sha256": "f38fe499398339eccf679da452dfbd2ea93ee42d322974562b544c42b0fa57ea",
+  "probe_sha256": "7604b64c8e3fc7d92e67fa911e93e22d267152691df405d800a5f5941f9b0680",
   "audit_source_sha256": {
-    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "51b7e56ba946fc79469270ba4bf787400f8424d8743bbcf579bec97f74e05d03",
+    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "8e50b749d0fb8b763eb21ca5a8f6175e2d5e5e545b7a3e08235194278a7b3a97",
+    "tools\\oracle.py": "053f8ad736212976dc0f4fee0c0008440986b0d725c0f8b660a0a1cca7416927",
     "examples\\frontend_contract_probe.rs": "459ce2e9f4206767c80b33e03959f2aa28ff9946fc89ac1a7f54c021b5a80143"
   },
   "reference_sha256": {
@@ -80,33 +82,33 @@
   "cases": 38,
   "observations": 76,
   "counts": {
-    "matched": 60,
-    "runtime_gap": 16
+    "matched": 62,
+    "runtime_gap": 14
   },
   "stage_admission_counts": {
     "F": {
-      "accepted-representation": 25,
-      "unsupported-capability": 11,
+      "accepted-representation": 26,
+      "unsupported-capability": 10,
       "j-language": 2
     },
     "H": {
-      "accepted-representation": 25,
-      "unsupported-capability": 11,
+      "accepted-representation": 26,
+      "unsupported-capability": 10,
       "j-language": 2
     },
     "P": {
+      "accepted-representation": 22,
+      "unsupported-capability": 14,
+      "j-language": 2
+    },
+    "G": {
       "accepted-representation": 21,
       "unsupported-capability": 15,
       "j-language": 2
     },
-    "G": {
+    "L": {
       "accepted-representation": 20,
       "unsupported-capability": 16,
-      "j-language": 2
-    },
-    "L": {
-      "accepted-representation": 19,
-      "unsupported-capability": 17,
       "j-language": 2
     }
   },
@@ -1644,99 +1646,62 @@
       "setup_reference": [],
       "setup_rust": [],
       "reference": {
-        "accepted_noun_type": 64
+        "type": 64,
+        "shape": [],
+        "data": [
+          "123"
+        ]
       },
       "stages": {
         "F": {
           "inspection_stage": "frontend",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true,
+          "complete": true,
+          "words": 1,
+          "reductions": 0
         },
         "H": {
           "inspection_stage": "frontend-handoff",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true,
+          "requirements": "Requirements { name_environment: false, ordered_name_effects: false, late_function_lookup: false, construction_observations: false, deferred_definition_bodies: false }"
         },
         "P": {
           "inspection_stage": "semantic-binding",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true,
+          "kind": "literal",
+          "complete": true,
+          "words": 1,
+          "reductions": 0,
+          "names": "[]"
         },
         "G": {
           "inspection_stage": "j-graph",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true
         },
         "L": {
           "inspection_stage": "logical",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true
         },
         "R": {
           "result": {
-            "error": "unsupported",
-            "category": "unsupported-capability",
-            "j_handler_eligible": false,
-            "span": [
-              0,
-              4
-            ],
-            "blame_word": 0,
-            "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-            "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+            "type": 64,
+            "shape": [],
+            "data": [
+              "123"
+            ]
           },
-          "capture": "ParseCapture { source: \"123x\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"123x\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"123x\" }, text: \"123x\", text_range: 0..4, mapping: Root }), words: [], items: [], nodes: [], origins: [], name_uses: [], reductions: [], steps: [], pending: None, root: None, complete: false }), events: [], result: None, failure: Some(CaptureFailure { kind: \"unsupported\", context: Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] }) }), next_id: 0 }"
+          "capture": "ParseCapture { source: \"123x\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"123x\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"123x\" }, text: \"123x\", text_range: 0..4, mapping: Root }), words: [WordRecord { span: 0..4, class: Noun, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }], items: [ItemRecord { producer: Word(WordId(0)), class: Noun, semantic: Some(NodeId(0)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }], nodes: [NodeRecord { kind: Literal, class: Noun }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(0)], reductions: [], name_uses: [] }], name_uses: [], reductions: [], steps: [Stack { queued: ItemId(0), resolved: ItemId(0) }, FrontMark(ItemId(1))], pending: None, root: Some(ItemId(0)), complete: true }), events: [Input { id: OccurrenceId(0), name: None, version: None, span: 0..4, facts: GraphFacts { dtype: Exact(ExtendedInt), shape: Some([]), rank: Some(0) }, word_index: 0 }], result: Some(OccurrenceId(0)), failure: None, next_id: 1 }"
         }
       },
       "post_sources": [],
       "post_reference": [],
       "post_rust": [],
-      "status": "runtime_gap"
+      "status": "matched"
     },
     {
       "case": "rational_literal",
@@ -5197,99 +5162,62 @@
       "setup_reference": [],
       "setup_rust": [],
       "reference": {
-        "accepted_noun_type": 64
+        "type": 64,
+        "shape": [],
+        "data": [
+          "123"
+        ]
       },
       "stages": {
         "F": {
           "inspection_stage": "frontend",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true,
+          "complete": true,
+          "words": 1,
+          "reductions": 0
         },
         "H": {
           "inspection_stage": "frontend-handoff",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true,
+          "requirements": "Requirements { name_environment: false, ordered_name_effects: false, late_function_lookup: false, construction_observations: false, deferred_definition_bodies: false }"
         },
         "P": {
           "inspection_stage": "semantic-binding",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true,
+          "kind": "literal",
+          "complete": true,
+          "words": 1,
+          "reductions": 0,
+          "names": "[]"
         },
         "G": {
           "inspection_stage": "j-graph",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true
         },
         "L": {
           "inspection_stage": "logical",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            4
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+          "ok": true
         },
         "R": {
           "result": {
-            "error": "unsupported",
-            "category": "unsupported-capability",
-            "j_handler_eligible": false,
-            "span": [
-              0,
-              4
-            ],
-            "blame_word": 0,
-            "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-            "render": "  File \"audit\", line 1, column 1\n    123x\n    ^^^^\nUnsupportedError: validated numeric family payload construction\n  before sentence execution"
+            "type": 64,
+            "shape": [],
+            "data": [
+              "123"
+            ]
           },
-          "capture": "ParseCapture { source: \"123x\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"123x\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"123x\" }, text: \"123x\", text_range: 0..4, mapping: Root }), words: [], items: [], nodes: [], origins: [], name_uses: [], reductions: [], steps: [], pending: None, root: None, complete: false }), events: [], result: None, failure: Some(CaptureFailure { kind: \"unsupported\", context: Some(ErrorContext { phase: Some(Enqueue), span: Some(0..4), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] }) }), next_id: 0 }"
+          "capture": "ParseCapture { source: \"123x\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"123x\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"123x\" }, text: \"123x\", text_range: 0..4, mapping: Root }), words: [WordRecord { span: 0..4, class: Noun, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }], items: [ItemRecord { producer: Word(WordId(0)), class: Noun, semantic: Some(NodeId(0)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }], nodes: [NodeRecord { kind: Literal, class: Noun }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(0)], reductions: [], name_uses: [] }], name_uses: [], reductions: [], steps: [Stack { queued: ItemId(0), resolved: ItemId(0) }, FrontMark(ItemId(1))], pending: None, root: Some(ItemId(0)), complete: true }), events: [Input { id: OccurrenceId(0), name: None, version: None, span: 0..4, facts: GraphFacts { dtype: Exact(ExtendedInt), shape: Some([]), rank: Some(0) }, word_index: 0 }], result: Some(OccurrenceId(0)), failure: None, next_id: 1 }"
         }
       },
       "post_sources": [],
       "post_reference": [],
       "post_rust": [],
-      "status": "runtime_gap"
+      "status": "matched"
     },
     {
       "case": "rational_literal",

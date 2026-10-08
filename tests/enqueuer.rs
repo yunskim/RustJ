@@ -261,8 +261,8 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
 #[test]
 fn numeric_families_are_validated_in_whole_word_context_before_unsupported_payloads() {
     for source in [
-        "1x", "1j2", "2r3", "1xr2", "2b102", "2ad90", "2ar1", "1p2", "2x3", "1x 2", "1x 2r3",
-        "1r2 3x", "_r", "_r_3", "2r__", "1j2 1r2",
+        "1j2", "2r3", "1xr2", "2b102", "2ad90", "2ar1", "1p2", "2x3", "1x 2r3", "1r2 3x", "_r",
+        "_r_3", "2r__", "1j2 1r2",
     ] {
         let error = enqueuer::enqueue(source).unwrap_err();
         assert_eq!(error.kind(), "unsupported", "{source}");

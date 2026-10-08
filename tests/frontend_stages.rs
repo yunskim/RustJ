@@ -45,7 +45,7 @@ fn malformed_fields_have_j_error_classes_and_word_provenance() {
         assert!(error.span().is_some());
         assert!(error.context().unwrap().blame_word_index.is_some());
     }
-    for source in ["1j2", "123x", "1r2", "foo__", "foo_bar_"] {
+    for source in ["1j2", "1r2", "foo__", "foo_bar_"] {
         assert_eq!(enqueue(source).unwrap_err().kind(), "unsupported");
     }
 }

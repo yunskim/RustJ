@@ -188,7 +188,7 @@ RustJ's distinguishing requirement is the strong **full-J semantic frontend** pl
 - **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
 - **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
 - **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
-- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal literals):** default/portable each **708 passed / zero failures / zero ignored**, Python **80 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
+- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal/extended literals):** default/portable each **716 passed / zero failures / zero ignored**, Python **82 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
 
@@ -3407,7 +3407,32 @@ Executed validation: native Windows default/portable each **708 passed / zero fa
 
 N1 overflow and N2a integer dtype each remain **36/36**, N2b scientific **668/668**, NAME effects/arrays **104/104 matched**. Frontend **60 matched / 16 runtime_gap** and NAME/definition **568 matched / 16 unsupported_gap** remain bounded gaps. Each DLL's numeric syntax audit has **2,485 cases / zero failures**; accepted nouns increase 184→198 and valid payload boundaries decrease 850→836. Other precision/recognition boundaries remain separately counted. The persistent verifier confirms **14 reports / 832 source/binary/DLL hashes**.
 
-Next: exact rational/extended/complex payloads and Value storage contracts. Decimal ratios have f64 semantics and do not substitute for exact rational construction. Hexadecimal ratios, general locales/locatives, boxed/AR targets, modifier boundaries and definition body Graph/Logical/CFG remain incomplete. Existing reviewed-source versus DLL-release pin limitations apply; no full J, C diagnostic text/location, native compiled execution, Linux, GPU or GitHub CI validation is claimed.
+The finite extended integer part of the next exact-payload/Value-storage work is addressed in N3a below; exact rational/complex remain follow-ups. Decimal ratios have f64 semantics and do not substitute for exact rational construction. Hexadecimal ratios, general locales/locatives, boxed/AR targets, modifier boundaries and definition body Graph/Logical/CFG remain incomplete. Existing reviewed-source versus DLL-release pin limitations apply; no full J, C diagnostic text/location, native compiled execution, Linux, GPU or GitHub CI validation is claimed.
+
+
+### N3a — finite extended integer payload and storage contract (2026-10-08)
+
+The first exact payload unit is the finite decimal `x` family. Parse all atoms as BigInt only after whole-word mode/grammar proves Extended. Preserve precision and dtype 64 in `1x 9007199254740993`; do not capture words belonging to rational/complex modes.
+
+Storage contract: `Data::ExtendedInt(CpuStorage<Arc<BigInt>>)` shares immutable exact atoms. Scalars use Inline, arrays Owned, NAME boundaries Shared buffers. Selection/views/rearrangement clone atom Arcs without copying limbs. This CPU runtime carrier introduces no GPU addresses, BufferId or physical layout into Logical IR. JSON uses exact decimal strings. The native affine physical adapter still rejects this type.
+
+- [x] Typed whole-word mode and finite extended payload construction.
+- [x] Value/views/type facts/sharing/selection/empty fills and structural operations.
+- [x] Exact basic arithmetic and Unsupported boundaries for missing operations.
+- [x] NAME aliases/definition local/global/failed assignment, precision and downstream regressions.
+- [x] Both C DLL comparisons, existing audits/hashes, Windows default/portable/fmt/clippy/Python.
+- [x] Update bilingual docs and commit/push; skip GitHub CI.
+Implemented scope: whole Extended-mode words including unsuffixed integers, scalar/vector storage, exact `+`/`-`/`*`/`=`/`<`/`>` with Bool/Int, monadic `+`/`-`/`*`/`|`, shape/tally/ravel/reshape/reverse/transpose/from/scalar take/drop/rotate and scalar box/open. Shape/tally/signum Semantic/Logical type facts preserve dtype 64. With an unresolved dynamic NAME dtype, these results remain Unknown rather than claiming machine Int. Unsupported extended reductions do not acquire definite Bool/Int result facts. Structural operations do not copy limbs; absolute value also reuses nonnegative atoms. Words belonging to rational/complex modes retain their boundaries.
+
+The C bridge uses public J formatting, avoiding private GMP pointers, to extract exact decimal atoms while preserving original shape. Dtype 64 JSON contains decimal strings without Python Float conversion or integer digit-limit dependence. Frontend reports also hash this oracle code. New strict corpus: **63 fixtures × two C DLLs = 126/126 matched**; each frontend/handoff/binding/Graph/Logical inspection has **60 accepted representations / three J input diagnostics**, with zero verifier/backend failures.
+
+Remaining: exact rational/complex payloads; extended rational division, Float mixing, i.-family, catenate, general reduce/rank assembly, sparse and native physical adapters. Missing capabilities are not disguised as J language errors. Mapping BigInt limb/Arc allocator failure to C workspace-full, large-memory measurements and performance remain unverified. Existing source-pin/DLL-release limitations and lack of full J, C diagnostic text/location, native compiled execution, Linux or GPU evidence remain.
+
+Final executed validation: Windows default/portable each **716 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **82 passed**. Added seven regressions for exact storage/precision, Arc sharing/selection/release, structural operations, handoff/Logical/capture, definitions/assignment and missing capabilities, plus one dtype/dynamic-Unknown inference regression. Two Python bridge regressions cover very long integers, signs, empty arrays and malformed decimal output.
+
+Existing strict numeric audits retain overflow **36/36**, integer dtype **36/36**, scientific **668/668** and real ratio **296/296 matched**. Frontend improves to **62 matched / 14 runtime_gap**; NAME/definition stays **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched**. Each DLL's numeric syntax audit has **2,485 cases / zero failures**, accepted nouns 198→224 and valid payload boundaries 836→810, with other precision/recognition boundaries kept separate. Verified **15 reports / 918 source/binary/DLL hashes**. GitHub CI was not run.
+
+Next exact-payload unit: establish rational finite/non-finite semantics and storage against C. Complex payloads and remaining extended operations expand through separate checklist units; CUDA remains planned only.
 
 
 ## 17. Active migration checklist

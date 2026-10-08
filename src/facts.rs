@@ -94,6 +94,7 @@ impl SemanticFacts {
             crate::Data::Int(_) => DType::Int,
             crate::Data::Float(_) => DType::Float,
             crate::Data::Char(_) => DType::Char,
+            crate::Data::ExtendedInt(_) => DType::ExtendedInt,
             crate::Data::Boxed(_) => DType::Boxed,
             crate::Data::Sparse(_) => unreachable!(),
         };
@@ -130,6 +131,7 @@ impl Facts {
             crate::Data::Int(_) => DType::Int,
             crate::Data::Float(_) => DType::Float,
             crate::Data::Char(_) => DType::Char,
+            crate::Data::ExtendedInt(_) => DType::ExtendedInt,
             crate::Data::Boxed(_) => DType::Boxed,
             crate::Data::Sparse(_) => unreachable!(),
         };
@@ -188,7 +190,21 @@ fn infer_semantic_primitive(
     let dtype = match (id, left) {
         (Less, None) => TypeFact::Exact(DType::Boxed),
         (Equal | Less | Greater | Find, Some(_)) => TypeFact::Exact(DType::Bool),
-        (Shape | Tally | Multiply, None) => TypeFact::Exact(DType::Int),
+        (Shape | Tally | Multiply | Subtract, None)
+            if right.dtype == TypeFact::Exact(DType::ExtendedInt) =>
+        {
+            right.dtype
+        }
+        (Shape | Tally | Multiply, None)
+            if matches!(
+                right.dtype,
+                TypeFact::Exact(
+                    DType::Bool | DType::Int | DType::Float | DType::Char | DType::Boxed
+                ) | TypeFact::IntOrFloat
+            ) =>
+        {
+            TypeFact::Exact(DType::Int)
+        }
         (Ravel | Reverse | Transpose | Add | Sparse, None) => right.dtype,
         (Add | Subtract | Multiply, Some(x))
             if x.dtype == TypeFact::Exact(DType::Int)
@@ -337,6 +353,7 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     let dtype = match input.shape.as_deref() {
         Some([]) => input.dtype,
         Some([1, ..]) => input.dtype,
+        Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
         Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
         Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
             TypeFact::IntOrFloat
@@ -520,6 +537,7 @@ fn semantic_reduction(id: PrimitiveId, input: &SemanticFacts) -> SemanticFacts {
     let dtype = match input.shape.as_deref() {
         Some([]) => input.dtype,
         Some([1, ..]) => input.dtype,
+        Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
         Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
         Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
             TypeFact::IntOrFloat
@@ -684,5 +702,34 @@ mod noun_rank_tests {
         let result = infer_semantic_projection(&verb.entity, None, &input);
         assert!(result.shape.is_none());
         assert_eq!(result.dtype, TypeFact::Unknown);
+    }
+}
+
+#[cfg(test)]
+mod extended_type_tests {
+    use super::*;
+    #[test]
+    fn extended_structural_result_facts_do_not_claim_machine_int() {
+        let input = SemanticFacts::of(
+            &crate::types::Scalar::ExtendedInt(std::sync::Arc::new(crate::types::BigInt::from(1)))
+                .into_value()
+                .unwrap(),
+        );
+        for (id, rule) in [
+            (Shape, ShapeRule::ShapeOf),
+            (Tally, ShapeRule::Tally),
+            (Multiply, ShapeRule::PreserveRight),
+        ] {
+            let result = infer_semantic_primitive(id, rule, None, &input);
+            assert_eq!(result.dtype, TypeFact::Exact(DType::ExtendedInt));
+            let unknown = infer_semantic_primitive(id, rule, None, &SemanticFacts::default());
+            assert_eq!(unknown.dtype, TypeFact::Unknown);
+        }
+        let empty = SemanticFacts {
+            dtype: TypeFact::Exact(DType::ExtendedInt),
+            shape: Some(vec![0]),
+            rank: Some(1),
+        };
+        assert_eq!(semantic_reduction(Add, &empty).dtype, TypeFact::Unknown);
     }
 }

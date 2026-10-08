@@ -93,7 +93,8 @@ fn malformed_suffix_is_not_lost_when_integer_scan_stops_at_overflow() {
         assert_eq!(context.phase, Some(DiagnosticPhase::Enqueue));
         assert_eq!(context.span.as_ref(), Some(&(0..source.len())));
     }
-    for source in ["9223372036854775808x", "9223372036854775808 1x", "1r3"] {
+    {
+        let source = "1r3";
         assert_eq!(
             enqueuer::enqueue(source).unwrap_err().category(),
             FailureCategory::UnsupportedCapability,

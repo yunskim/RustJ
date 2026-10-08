@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal literal 변경):** default/portable 각각 **708 passed / 0 failed / 0 ignored**, Python **80 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal/extended literal 변경):** default/portable 각각 **716 passed / 0 failed / 0 ignored**, Python **82 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -7805,7 +7805,32 @@ N2b 당시 후속이던 real-family decimal ratio는 아래 N2c에서 구현·�
 
 기존 N1 overflow·N2a integer dtype 각각 **36/36**, N2b scientific **668/668**, NAME 효과/배열 **104/104 matched** 유지. frontend **60 matched / 16 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**는 미지원으로 남는다. 숫자 문법 감사는 각 DLL **2,485 cases / 0 failed**, noun 수용 184→198·valid payload boundary 850→836이며 다른 precision/recognition 경계는 그대로 별도 집계한다. **14 reports / 832 source·binary·DLL hashes**를 지속 검증 도구로 확인했다.
 
-다음 작업은 exact rational/extended/complex payload와 Value 저장 계약이다. decimal ratio는 f64 의미이며 exact rational 구현을 대신하지 않는다. hexadecimal ratio, 일반 locale/locative, boxed/AR target, modifier 경계, 정의 본문 Graph/Logical/CFG는 미완료다. 검토한 C source pin과 DLL release가 다른 기존 제한은 유지하며, 전체 J·C 진단 문구/위치·native compiled execution·Linux·GPU·GitHub CI 검증을 주장하지 않는다.
+N2c 다음 작업인 exact payload/Value 저장 계약 중 유한 extended integer는 아래 N3a에서 다룬다. exact rational/complex는 후속이다. decimal ratio는 f64 의미이며 exact rational 구현을 대신하지 않는다. hexadecimal ratio, 일반 locale/locative, boxed/AR target, modifier 경계, 정의 본문 Graph/Logical/CFG는 미완료다. 검토한 C source pin과 DLL release가 다른 기존 제한은 유지하며, 전체 J·C 진단 문구/위치·native compiled execution·Linux·GPU·GitHub CI 검증을 주장하지 않는다.
+
+
+### N3a — 유한 extended integer payload와 저장 계약 (2026-10-08)
+
+첫 exact payload 단위는 유한 decimal `x` family다. whole-word mode/grammar가 Extended임을 증명한 경우에만 모든 atom을 BigInt로 읽는다. `1x 9007199254740993`의 precision과 dtype 64를 유지하고 rational/complex 모드에 속한 word는 이 경로로 가져오지 않는다.
+
+저장 계약: `Data::ExtendedInt(CpuStorage<Arc<BigInt>>)`는 immutable exact atom을 공유한다. scalar는 Inline, 배열은 Owned, NAME 경계는 Shared buffer를 사용한다. selection/view/rearrangement는 atom Arc를 복제하고 limbs를 복제하지 않는다. 이것은 CPU runtime carrier이며 GPU 주소·BufferId·물리 layout을 논리 IR에 추가하지 않는다. JSON은 exact decimal string을 사용한다. native affine physical adapter는 아직 이 타입을 거부한다.
+
+- [x] whole-word typed mode 결과와 유한 extended payload construction.
+- [x] Value/view/type facts/공유·selection·empty fill 및 구조 연산 연결.
+- [x] exact 기본 산술과 미구현 연산의 Unsupported 경계 검증.
+- [x] NAME alias/정의 local/global·실패 대입·정밀도 및 downstream 회귀.
+- [x] C DLL 두 종 비교, 기존 감사·hash, Windows default/portable·fmt/clippy·Python 검증.
+- [x] 한영 문서 갱신 후 commit/push; GitHub CI 생략.
+현재 구현 범위: suffix 없는 정수를 포함한 Extended-mode word 전체, scalar/vector, Bool/Int와의 exact `+`·`-`·`*`·`=`·`<`·`>`, monadic `+`·`-`·`*`·`|`, `$`·`#`·ravel·reshape·reverse·transpose·from·scalar take/drop/rotate·scalar box/open. `$`·`#`·signum의 Semantic/Logical type facts도 dtype 64를 보존한다. 동적 NAME의 dtype이 미정이면 이 결과를 일반 Int로 단정하지 않고 Unknown으로 유지한다. 미구현 extended reduction에도 일반 Bool/Int 결과를 확정하지 않는다. 구조 연산은 limbs를 복제하지 않으며, absolute value의 비음수 atom도 재사용한다. rational/complex 모드 word는 해당 경계에 그대로 남긴다.
+
+C 비교 도구는 private GMP 포인터를 읽지 않고 public J formatting으로 각 exact decimal atom을 추출하고 원래 shape를 보존한다. dtype 64 JSON은 decimal string 배열이며 Python의 Float 변환이나 정수 자릿수 제한을 거치지 않는다. frontend 감사는 이 oracle 코드의 hash도 기록한다. 신규 strict corpus **63 fixtures × C DLL 2 = 126/126 matched**, 각 frontend/handoff/binding/Graph/Logical inspection은 **60 representation 수용 / 3 J 입력 진단**, 내부 verifier/backend 실패는 0이다.
+
+남은 범위: exact rational·complex payload, extended의 rational division·Float 혼합·i.-family·catenate·일반 reduce/rank assembly·sparse/native physical adapter. 미지원 연산은 J language error로 위장하지 않는다. BigInt limb/Arc의 allocator 실패를 C workspace-full로 변환하는 계약과 대규모 메모리/성능 측정은 아직 검증하지 않았다. 기존 source pin/DLL release 차이, full J·C 진단 문구/위치·native compiled execution·Linux·GPU 미검증 제한은 유지한다.
+
+최종 실행 검증: Windows default/portable 각각 **716 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets), Python **82 passed**. 신규 회귀는 exact storage/precision·Arc 공유/선택/해제·구조 연산·handoff/Logical/capture·정의/대입·미지원 경계 7개와 dtype/동적 Unknown 추론 1개다. C bridge에는 매우 긴 정수·부호·empty·잘못된 decimal 출력에 대한 Python 회귀 2개를 추가했다.
+
+기존 numeric strict 감사는 overflow **36/36**, integer dtype **36/36**, scientific **668/668**, real ratio **296/296 matched** 유지. frontend 감사는 **62 matched / 14 runtime_gap**로 개선했으며, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched** 유지. 숫자 문법 감사는 각 DLL **2,485 cases / 0 failed**, noun 수용 198→224·valid payload boundary 836→810이며 나머지 precision/recognition 경계는 별도다. **15 reports / 918 source·binary·DLL hashes** 검증 완료. GitHub CI는 실행하지 않았다.
+
+다음 exact payload 단계는 rational의 유한/비유한 의미와 저장 계약을 C와 대조해 정하는 작업이다. complex와 extended의 나머지 연산은 독립 체크리스트로 확장하며, CUDA는 계속 계획에만 둔다.
 
 
 ## 13. 프레임워크 조사에서 채택한 원칙

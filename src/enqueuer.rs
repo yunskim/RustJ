@@ -309,7 +309,26 @@ fn interpret_word<'a>(
     }
 
     if numeric {
-        crate::numeric_input::validate(word)?;
+        let mode = crate::numeric_input::validate(word)?;
+        if mode == crate::numeric_input::Mode::Extended {
+            let mut values = crate::value::buffer(word.split_ascii_whitespace().count())?;
+            for part in word.split_ascii_whitespace() {
+                let text = part.strip_suffix('x').unwrap_or(part);
+                let integer = numeric_text(text)
+                    .parse::<crate::types::BigInt>()
+                    .map_err(|_| Error::IllFormedNumber)?;
+                values.push(std::sync::Arc::new(integer));
+            }
+            let payload = if values.len() == 1 {
+                EnqueuedPayload::Scalar(Scalar::ExtendedInt(values.pop().unwrap()))
+            } else {
+                EnqueuedPayload::Noun(Box::new(Value::new(
+                    [values.len()],
+                    Data::ExtendedInt(CpuStorage::new(values)),
+                )?))
+            };
+            return Ok((EnqueueClass::Noun, payload, EnqueueFlags::default()));
+        }
         let fields = word.split_ascii_whitespace().count();
         let is_float = word
             .split_ascii_whitespace()

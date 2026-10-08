@@ -19,6 +19,9 @@ pub(crate) struct CellBuilder {
 impl CellBuilder {
     pub(crate) fn new(first: &Value, capacity: usize) -> Result<Self> {
         let out = match first.data() {
+            Data::ExtendedInt(_) => {
+                return Err(Error::Unsupported("extended rank assembly".into()));
+            }
             Data::Sparse(_) => return Err(Error::Unsupported("sparse assembly".into())),
             Data::Bool(_) => Output::Bool(buffer(capacity)?),
             Data::Int(_) => Output::Int(buffer(capacity)?),
@@ -31,6 +34,9 @@ impl CellBuilder {
         Ok(builder)
     }
     pub(crate) fn push(&mut self, cell: &Value) -> Result<()> {
+        if cell.is_extended() {
+            return Err(Error::Unsupported("extended rank assembly".into()));
+        }
         if cell.is_sparse() {
             return Err(Error::Unsupported("sparse assembly".into()));
         }

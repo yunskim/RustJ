@@ -22,6 +22,7 @@ pub mod enqueuer;
 pub mod error;
 pub mod execution_semantics;
 pub mod expansion;
+mod extended;
 pub mod facts;
 pub mod frontend_context;
 pub mod frontend_handoff;
