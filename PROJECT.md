@@ -16,14 +16,6 @@ The current implementation is transitional: a limited J frontend, direct CPU exe
 
 ---
 
-### Quick guide — current priority and reading order
-
-- **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
-- **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
-- **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
-- **Latest validation (2026-10-07):** Windows default/portable each **608 passed / zero ignored / zero failures**, Python **67 passed**; fmt/clippy pass. See the definition follow-up section for newly executed bounded C comparisons. Historical 2026-10-05 5,380-case runtime and GF6a gates are time-local evidence, not newly rerun results.
-- **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
-
 ## Introduction for first-time readers — how to think about RustJ
 
 This is an integrated project document containing architecture, implementation details, and validation history. Reading it strictly from top to bottom can expose details before the overall model is clear. On a first pass, start with the **four-stage mental model** in this section, then descend into the detailed sections as needed.
@@ -192,6 +184,15 @@ A first-time reader can understand the architecture by following only this path:
 
 The rest of this document either makes the responsibilities of those four stages precise or records evidence that the boundaries preserve real J semantics.
 
+### Quick guide — current priority and reading order
+
+- **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
+- **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
+- **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
+- **Latest validation (2026-10-07):** Windows default/portable each **608 passed / zero ignored / zero failures**, Python **67 passed**; fmt/clippy pass. See the definition follow-up section for newly executed bounded C comparisons. Historical 2026-10-05 5,380-case runtime and GF6a gates are time-local evidence, not newly rerun results.
+- **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
+
+
 ## 1. Project goal
 
 RustJ aims to implement:
@@ -210,49 +211,6 @@ RustJ aims to implement:
 - reference differential testing.
 
 The C J engine is not intended to become RustJ's normal fallback runtime.
-
-### Reference implementations
-
-RustJ does not treat all external implementations as having the same authority. They are used as **role-specific reference implementations**.
-
-- **`jsoftware/jsource` — J semantic reference / oracle**
-  - The authority for language semantics, parser/name behavior, primitive corner cases, rank/agreement, errors, and type semantics.
-  - The primary reference for RustJ semantic correctness and differential testing.
-
-- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
-  - A reference for lazy expression graphs, evaluation boundaries, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend selection, and device-memory/stream/synchronization handling.
-  - Used when comparing RustJ Graph/Execution optimization, Physical Planner behavior, external-library routes, and cost models.
-  - **It is not an oracle for J language semantics.**
-
-- **`jsoftware/math_arrayfire` — J ↔ GPU-library adapter/offload reference**
-  - A concrete adapter that passes J arrays into ArrayFire handles.
-  - Useful for studying row-major J versus column-major ArrayFire conversion, backend capability/rank limits, external-handle lifetime, release, and device-GC boundaries.
-  - It must not be interpreted as an implementation of arbitrary J rank/adverb/derived-verb semantics as a GPU compiler.
-
-- **APEX / Co-dfns / TAIL→Futhark — array-compiler research implementations**
-  - References for morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion, and GPU lowering.
-  - Their restricted APL subsets are not inherited as restrictions on RustJ's J semantics.
-
-- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
-  - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family. Source: https://arxiv.org/abs/1907.00509
-  - Bohrium is a precedent for lazily collecting NumPy-style array operations so fusion, allocation/materialization, host-device movement, and backend-specific execution can be delayed. Do not overstate it as dynamically selecting CPU versus GPU for every operation. Publications: https://bohrium.readthedocs.io/publications.html
-  - Lift is a comparison point for rewrite-driven progression from portable map/reduce patterns toward OpenCL-specific functional patterns and increasingly concrete hardware mappings. Do not describe it as a strict separation of rewriting from hardware mapping. Source: https://doi.org/10.1109/CGO.2017.7863730
-  - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops. Source: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
-  - None of these systems define RustJ's J semantics; they are evidence for compiler layering and optimization techniques.
-
-The reference depends on the question being asked:
-
-```text
-J semantic correctness       → jsource
-array graph/JIT fusion       → ArrayFire
-J↔external GPU adapter       → jsoftware/math_arrayfire
-array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
-rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
-```
-
-The detailed ArrayFire source observations, RustJ applications, and non-adoptions are recorded in §14.2, **ArrayFire and the J ArrayFire add-on**.
-
----
 
 ## 2. Target architecture
 
@@ -551,222 +509,6 @@ Rejected      Missing/forged/unsupported evidence; safe alternative
 5. **RB-V4 target variance:** derive candidate CPU/GPU/External RoutePartitions from the same source A3. Static rejection and guard-required cases are valid for currently unavailable GPU/external backends; real device execution, transfer and performance require later M4/M5/M6 gates.
 
 **Status:** RB-01–08 and RB-V0–V4 are **design-complete only**. Implementing/running a certified RouteBoundary verifier, negative tests, jsource differential and reproducible pass evidence is a separate incomplete milestone. Existing `partition_plan` ranges and A3 structural verification alone do not complete M3, M4 or HE-01.
-
----
-
-## 3. JAXA design principle — “SQL for array operations”
-
-Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”** RustJ carries the idea forward in the more general sense of J as a **high-level array language / array query language**.
-
-The analogy is not a claim that J syntax resembles SQL or that full J is a purely declarative language. Full J has names, assignment, effects, observable errors, and control semantics. The relevant principle is:
-
-> **J source is not an execution plan.**
-
-J's array semantics and function composition should preserve **what is being computed** at a high level, while the compiler chooses **how to realize it** subject to J semantic legality.
-
-~~~text
-J source / J semantics
-        ↓
-J Semantic IR / J Graph IR
-        ↓
-Logical Array / Execution IR
-        ↓
-equivalence / fusion / logical optimization
-        ↓
-execution planning / route selection
-        ↓
-CPU / SIMD / multicore / GPU / external compiler / library
-~~~
-
-At the level of responsibilities, the SQL analogy is:
-
-~~~text
-SQL / relational system          RustJ
----------------------------      --------------------------------
-query                             J array computation
-logical query plan                J Graph + Logical Execution IR
-logical rewrite                   J-algebra / logical rewrite
-physical planner                  schedule / route / physical planner
-execution engine                  CPU/GPU/runtime/external backend
-~~~
-
-Users should express the computation and semantic/storage obligations that matter, while the analyzer/compiler/backend decides matters such as:
-
-- which equivalent graph form to use;
-- whether to fuse or materialize;
-- which execution basis and route to use;
-- which memory/layout/schedule strategy to use;
-- whether CPU, SIMD, multicore, GPU, or another realization is appropriate;
-- whether a verified external compiler or library route should be used.
-
-J is unusually useful as a frontend for this model because the source already carries optimization-relevant array structure:
-
-- rank exposes cell/frame boundaries and implicit iteration domains;
-- adverbs, conjunctions, and derived entities preserve reduction, scan, cell-application, and composition structure;
-- hook/fork/train/@: expose producer/consumer, branch/join, and composition topology;
-- reshape/transpose/take/drop allow logical shape/reindex meaning to remain separate from physical materialization;
-- whole-array notation reduces the need to rediscover high-level array intent from scalar loop nests.
-
-### Historical origin of JAXA Graph IR — read optimization topology from J notation
-
-JAXA did not begin from the abstract goal of “building a graph compiler.” It began from a concrete observation:
-
-~~~text
-u@:v
-    → input → v → u
-    → producer/consumer chain
-    → kernel-fusion candidate
-
-(f g h) y
-    → f and h branch from the same input and join at g
-    → branch/join topology
-    → branch parallelism / branch-local fusion candidate
-
-(f g) y
-    → the original input and g(y) both feed f
-    → ordered dependency + input-lifetime relation
-    → producer/consumer fusion candidate
-~~~
-
-J combinators such as `@:`, Hook, and Fork are therefore more than compact syntax. They expose **computation dependencies and topology without committing to a physical execution procedure**. JAXA's initial hypothesis was that a compiler should read and preserve this information before lowering it into scalar loops or backend kernels, so that fusion, parallelism, materialization, reuse, and lifetime candidates remain explicit.
-
-That observation motivates RustJ's independent `J Graph IR` layer:
-
-~~~text
-J syntax / FunctionEntity
-        ↓
-syntax-derived computation topology
-        ↓
-J Graph IR
-        ↓
-candidate generation
-  fusion / branch parallelism / materialization / reuse
-        ↓
-semantic legality
-  effects / errors / names / alias / rank contracts
-        ↓
-profitability / resource / target choice
-        ↓
-Logical/Physical realization
-~~~
-
-Three questions must remain separate:
-
-1. **Does the topology expose an optimization candidate?**
-2. **Is the transformation legal under J semantics?**
-3. **Is that legal strategy actually profitable on the chosen target?**
-
-A Fork does not imply that its branches may always execute in parallel, and `@:` does not imply unconditional fusion. Source structure identifies candidates; effect/error/name/alias semantics establish legality; resource and cost models choose a realization.
-
-The branch/join diagram describes an **ordinary VVV fork**. A constructor-fixed capped `[: g h` instead follows the sequential pipeline `input → h → g(monad)`; a noun-left fork passes `h(input)` and its fixed noun to g. Interpret constructor meaning and operand POS before assuming two executable branches from a Fork parser row/head. Preserve the original source Fork/NAME DAG.
-
-#### Canonical J Graph example suite
-
-| Source | semantic construction / preserved provenance | applied topology | candidate | never infer from syntax alone |
-|---|---|---|---|---|
-| `f @: g` | Atop-derived Verb + Pipeline provenance | `input → g → f` | fusion/materialization elision | fused kernel, target placement, check removal |
-| `(f g h) y` ordinary fork | Fork with original f/g/h + observable branch order | shared-input fan-out into `h(y)` and `f(y)`, joined by dyadic `g` | parallel-branch, branch/join fusion, retained/live-across | actual concurrent execution or branch reordering |
-| `([: g h) y` capped fork | source Fork plus immutable capped-construction fact | `h(y) → g(monad)`; no executable first branch | pipeline/materialization | ordinary-fork parallel/retained treatment or calling `[:` as a branch |
-| `(f g) y` hook | Hook provenance + shared original input | `g(y)` and retained `y` feed dyadic `f` | retained-input/materialization, legal fusion | dropping the shared input or arbitrary reorder |
-| `u"r y` | Rank-derived Verb, requested-rank provenance | outer CellApply around the inner operation basis | cell parallelism, nested CellApply absorption/fusion | physical loop/thread mapping or rank-boundary collapse |
-| `u/ y` | Insert-derived Verb | Reduce basis with operand `u` provenance | reduction realization, legal map/reduce fusion | tree reassociation, altered empty/identity behavior, arbitrary parallel reduction |
-| `u\ y` | Prefix/Infix-derived Verb | preserved prefix/window family structure | witnessed Scan candidate or window/reduce rewrite | immediate replacement by Scan without associativity/error/numeric proof |
-
-The suite deliberately keeps **source construction identity and applied dependency graph together**. Two forms may happen to lower to similar SSA DAGs while differing in name/effect/error/constructor semantics. Current GraphForm/GraphBasis/hint support and capped-fork/scan regressions do not imply that the candidate proof/selection lifecycle is fully implemented.
-
-RustJ does not claim that each ingredient is itself novel. Hook/Fork dataflow, function-level program transformation, graph-based fusion, and high-level array IR all have prior art. The distinctive architectural combination being explored by JAXA/RustJ is to **preserve J's tacit combinator algebra as an independent semantic graph layer, generate optimization candidates directly from that topology, and then separate full-J semantic legality from physical profitability**.
-
-#### Related prior art and RustJ's position
-
-There is direct prior art for the starting observation itself. RustJ therefore does **not** claim novelty for the general proposition that J syntax exposes optimization-relevant information. In particular, Bernecky's APL93 paper is strikingly close to the problem framing that motivated JAXA's use of `@:`, Fork, and Hook: parallel Fork arms, composition as a pipeline, and expression-level merging to reduce intermediate-array and storage overhead.
-
-- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
-  - explicitly observes that the `f` and `h` arms of a J tacit Fork can proceed in parallel, and argues that tacit definition simplifies data-flow/data-dependency analysis;
-  - discusses expression-level **loop jamming / merging**, combining sequences of array primitives into interleaved execution, which directly anticipates temporary-elimination/fusion concerns;
-  - describes J composition as a verb-to-verb **pipeline** and points out cell-level parallelism;
-  - paper: https://www.snakeisland.com/aplhiperf.pdf
-  - DOI: https://doi.org/10.1145/166197.166201
-
-- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
-  - is an important function-level precedent for treating program-combining forms and their algebra as objects of program transformation;
-  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
-
-- **Accelerate / Futhark / Lift / MLIR Linalg**
-  - Accelerate and Futhark preserve high-level array operations and dependency structure for fusion and parallel lowering;
-  - Lift uses the semantics of functional data-parallel patterns such as map/reduce for rewrite-rule optimization and GPU mapping;
-  - MLIR Linalg preserves structured transformation-relevant semantics before loop/CFG lowering and separates transformation validity from profitability;
-  - Accelerate: https://www.acceleratehs.org/publications.html
-  - Futhark: https://futhark.readthedocs.io/
-  - Lift: https://doi.org/10.1109/CGO.2017.7863730
-  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
-
-The conservative novelty framing is therefore:
-
-~~~text
-J syntax exposes optimization-relevant structure
-    → direct prior art exists
-
-Fork/Composition/Rank expose parallelism or pipeline structure
-    → direct J/APL prior art exists
-
-high-level array operations are preserved for fusion/rewrite
-    → prior art exists in Accelerate / Futhark / Lift / MLIR
-
-preserve the full-J tacit combinator algebra
-as an independent J Graph IR,
-generate optimization candidates from that topology,
-then separate full-J semantic legality
-from physical profitability
-    → the distinctive architectural combination explored by RustJ/JAXA
-~~~
-
-The historical JAXA question is therefore recorded as:
-
-> **If J's function-composition notation already exposes computation topology, why destroy that intent into loops and try to rediscover it later?**
-
-RustJ's J Graph IR is the current implementation answer to that question.
-
-A central compiler rule follows: **do not destroy this information too early.** Modifier identity, rank boundaries, and derived structure remain in J Semantic IR/J Graph until Semantic Analyzer/Lowering can normalize them into logical operations such as `Reduce`, `CellApply`, `Scan`, and reindex forms. Explicit loops, threads, blocks, buffers, and device mappings are downstream schedule/physical choices.
-
-Historical JAXA focused mainly on analysis and a restricted vocabulary. RustJ reuses that design work while extending it to **full-J frontend/semantic ownership with incremental optimized-backend coverage**. Analyzable array regions may use aggressive logical/physical planning, while dynamic or effectful regions can remain on semantics-preserving native/runtime routes.
-
-The historical JAXA statements:
-
-> **JAXA specifies logical array intent, not physical execution procedure.**
-
-> **JAXA does not execute fusion — the compiler does.**
-
-remain useful origin points. The more precise long-term RustJ framing is therefore not merely “J with GPU support,” but **a heterogeneous array compiler/runtime using J as a high-level array language**.
-
-This framing does not claim that the product scope is already complete. RustJ's immediate goal remains **a J compiler/runtime that preserves full J semantics**; “SQL for array operations” is a design analogy for compiler layering and optimization freedom.
-
-## 3.1 Core array-model decision — separate Logical Array from Physical Array
-
-Logical Array owns J-visible type/shape/atom order and boxed/sparse semantics. Physical Array owns buffers, strides, offsets, layout and placement. A logical value need not have a distinct materialized buffer.
-
-The model and completion gate are defined once in [§6](#logical-physical-array-model); introductory text does not duplicate its detailed structures or checklists.
-
-## 3.2 Naming policy
-
-`Jaxa` / `JAXA` is not the name of a current RustJ compiler component.
-
-Historical repositories:
-
-- `JAXA`
-- `JAXA-complier`
-- `japchae`
-- `jaxa-analyzer`
-
-are research/prototype sources. Their useful ideas are absorbed into RustJ's current components:
-
-```text
-Jaxa Analyzer      → J Graph analysis + Execution Semantic Lowering
-Jaxa lowering      → J Graph IR → Logical Execution IR lowering
-Jaxa optimizer     → J Graph algebraic optimizer + Logical Optimizer
-Jaxa physical plan → Physical Planner / Physical Plan
-```
-
-New architecture decisions belong in `PROJECT.ko.md` first and are mirrored here.
 
 ---
 
@@ -2722,6 +2464,893 @@ Existing `GraphForm/GraphHint`, applied stages, consumer/liveness and symbolic-r
 
 No external framework builds, Rust/C runtime tests, performance measurements, or CUDA validation were performed for this documentation integration. Earlier validation records retain their original scope.
 
+## 7.5 Candidate lifecycle and proof-discharge contract
+
+A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
+
+Conceptually keep orthogonal evidence dimensions:
+
+```text
+CandidateEvidence
+  provenance         Verified | Stale/Invalid
+  equivalence        Unknown | Proven | Disproven | Guarded(GuardId)
+  semantic_legality  per obligation: Unknown | Proven | Disproven | Guarded(GuardId)
+  target_feasibility Unknown | Supported | RequiresFacts | Unsupported
+  resource_state     Unknown | Symbolic | Resolved | ExceedsHardLimit
+  cost_state         Uncosted | Estimated(CostEstimate)
+  selection          Unselected | Selected | Rejected(reason)
+  lowering_state     NotLowered | Lowered(transform/route identity)
+```
+
+A planner may derive a lifecycle summary such as:
+
+```text
+Discovered
+  -> AwaitingProofs
+       -> Illegal
+       -> Legal / GuardedLegal
+            -> Feasible
+            -> Costed
+            -> Selected / Rejected
+            -> Lowered
+```
+
+This is a commit-gate order, not necessarily pass-execution order. Resource/work-depth/cost side analyses may run speculatively before semantic legality is complete; the forbidden action is committing the candidate to an execution plan before all required legality evidence is discharged.
+
+Evidence ownership:
+
+| Evidence | Primary owner | Selection rule |
+|---|---|---|
+| source topology/provenance | J Graph verifier + candidate registry | stale provenance invalidates the candidate |
+| algebraic equivalence | rewrite/scan/fusion witness validator | required equivalence may not remain Unknown at commit |
+| rank/cell/assembly | execution-semantic facts + candidate legality checker | prove or guard before effects |
+| numeric/tolerance/reassociation | primitive/derived numeric contracts | no unlicensed reassociation/relaxation |
+| effect/error ordering | effect/error/speculation analysis | disproven means illegal; post-effect guards cannot justify replay |
+| fanout/retention/alias | graph use/liveness + alias/storage facts | external uses and alias obligations must survive |
+| resource/work-depth | `j_graph_resource` / `j_graph_work_depth` | separate from cost; only hard-limit violations reject feasibility |
+| target/lowering capability | LoweringRegistry × resolved target | source-basis support does not prove composite/fused legality |
+| empirical profitability | CostProfile / planner | may reject a legal candidate without making it semantically invalid |
+| compatibility/selection | Schedule/Transform planner | the selected candidate set must be mutually compatible |
+
+`Guarded(GuardId)` requires a real guard, execution before observable effects, an explicit miss route, replay safety, and cache/provenance linkage. Do not replay a source region automatically after observable effects have committed.
+
+For overlapping candidates, v0 is conservative: two rewrites that replace the same source operations cannot both be selected; overlapping rewrite/fusion candidates require a registered compatibility/composition rule; otherwise apply one candidate, create a new graph/version, and rediscover candidates. Selection belongs to a Transform/Schedule plan, not semantic IR.
+
+Current code implements only part of this model:
+
+```text
+GraphRewriteCandidate
+  provenance + equivalence witness
+
+FusionCandidate
+  proof obligations
+  legality = Unknown
+  resource_transfer_proven = false
+  selected = false
+
+RewritePlanningReport
+  TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting
+
+FusionReadinessReport
+  AwaitingSemanticProofs
+  fused target query deferred
+  selected = false
+```
+
+There is no common `CandidateEvidence`/`ProofBundle`, per-obligation discharge result, compatibility-aware SelectionPlan, or committed transform identity yet. Those names describe target architecture, not completed APIs.
+
+When implementation reaches this area, preserve the project's one-meaning/one-test discipline: add proof-state provenance and stale-evidence verification first; then per-obligation fusion discharge without selection; then a shared legality view for rewrite/scan candidates; then target-hard-feasibility; overlap compatibility; a separate SelectionPlan; and finally committed lowering with provenance verification.
+
+
+# Part V — Rewrite and equivalence
+
+## 8. Optimization dependency order
+
+The architecture fixes the following dependency:
+
+```text
+Basis discovery
+    ↓
+Rewrite candidate generation
+    ↓
+Equivalence validation
+    ↓
+Candidate resource evaluation
+    ↓
+Sound resource pruning
+    ↓
+Later costing/selection
+```
+
+Rewrite rules must not silently mutate the source J Graph node. They produce sidecar candidates with provenance.
+
+## 8.1 Rewrite registry
+
+Current minimum registry contains a witnessed rule for J Find:
+
+```text
+x E. y
+   Search
+     ⇅  J Dictionary equivalence witness
+Window
+  ↓
+CellApply(Match)
+```
+
+The original Search node remains intact.
+
+Each candidate records:
+
+- source J Graph ValueId;
+- source span;
+- source Graph Basis;
+- rule identity;
+- equivalence witness;
+- replacement graph;
+- rewrite-specific fact rule.
+
+The verifier recomputes rule-derived facts and rejects stale or invented facts.
+
+## 8.2 Current Find rewrite path
+
+For the currently supported RustJ `E.` subset:
+
+- source rank and pattern rank are at most 1;
+- result dtype is Bool;
+- result shape preserves the right argument shape;
+- the logical window family has one logical position per right-argument position;
+- trailing non-fitting windows remain positions whose match result is false.
+
+The candidate can therefore infer a logical Window shape such as:
+
+```text
+right shape [6]
+pattern shape [3]
+→ logical window family shape [6, 3]
+```
+
+while still leaving representation and physical realization downstream.
+
+---
+
+# Part VI — Graph facts and resource model
+
+## 9. GraphFacts
+
+GraphFacts is intentionally separate from execution `Facts`.
+
+Graph IR owns target-independent logical facts:
+
+- dtype;
+- shape;
+- rank;
+- graph analyzability.
+
+It does not import execution layout facts.
+
+Primitive semantic transfer rules may be shared, but GraphFacts and execution Facts remain distinct containers/domains.
+
+## 9.1 Static memory interpretation
+
+JAXA's "static memory" claim is interpreted as logical determinability, not physical buffer assignment.
+
+J Graph analysis may determine:
+
+- logical extent;
+- use count;
+- value lifetime;
+- materialization opportunity;
+- retained values;
+- logical storage obligation;
+- symbolic state requirement.
+
+It must not prematurely own:
+
+- BufferId;
+- byte offset;
+- register count;
+- shared-memory address;
+- physical stride/layout;
+- device allocation.
+
+Those belong to later planning.
+
+## 9.2 ResourceExprGraph
+
+Current resource analysis uses symbolic expressions such as:
+
+- Zero
+- Unknown
+- ValueAtoms(value)
+- Requirement(value, kind)
+- Sum(...)
+- Max(...)
+- Scale(...)
+
+This preserves provenance for resource summaries rather than reducing everything to an unexplained number.
+
+Tracked graph-level quantities include:
+
+- internal logical edge volume;
+- elidable materialization volume;
+- retained live volume;
+- graph-order peak live volume;
+- baseline internal read+write traffic;
+- potentially elidable traffic;
+- temporary state;
+- reduction accumulator state;
+- window working-set state.
+
+## 9.3 Resource-state lifetime
+
+Temporary/accumulator/working-state requirements carry canonical graph-order lifetime records.
+
+A state may be marked as potentially extending across fusion.
+
+Region analysis keeps both:
+
+- canonical graph-order peak state;
+- a conservative all-child-state upper bound.
+
+This avoids treating graph-order locality as proof that a fused realization has the same lifetime.
+
+---
+
+# Part VII — Resource-aware rewrites
+
+## 10. Candidate resource evaluation
+
+Graph rewrite candidates are evaluated in the same target-independent domain as their source:
+
+- logical atoms;
+- internal materialization;
+- read/write traffic;
+- symbolic state requirements.
+
+Known and unknown are never conflated.
+
+If implementation-local costs are unknown, resource metric ordering is `Incomparable`.
+
+Current Find rewrite example:
+
+- result extent is known;
+- logical window extent can be known for the supported rank≤1 subset;
+- WindowWorkingSet lower bound can be derived from pattern extent;
+- structural/composite implementation state may remain unknown.
+
+Therefore the rewrite can be resource-analyzable without claiming complete cost knowledge.
+
+## 10.1 Sound pruning contract
+
+Early resource pruning requires both:
+
+```text
+ResourceBoundLocality::Local
++
+PruningMonotonicity::ProvenMonotone
+```
+
+Without both proofs, candidates remain available and are evaluated later.
+
+The current Find rewrite does **not** satisfy this early-pruning proof contract.
+
+---
+
+# Part VIII — Execution lowering and target feasibility
+
+## 11. Logical Execution IR
+
+Execution Semantic Lowering derives executable dataflow from the semantic/J Graph representation.
+
+Logical IR owns:
+
+- explicit operation/value flow;
+- semantic checks;
+- effect summaries;
+- possible-error facts;
+- speculation/evaluation-order constraints;
+- execution-basis identity;
+- execution-basis payload;
+- resolved call/rank facts.
+
+It must not contain target-specific schedule decisions.
+
+## 11.1 WindowView payload
+
+`ExecutionBasis::WindowView` now has explicit semantic payload support:
+
+```text
+WindowView {
+    source,
+    shape: PatternShape { pattern }
+}
+```
+
+Expansion verification checks that payload provenance agrees with actual inputs.
+
+Standalone WindowView lowering is still incomplete.
+
+## 11.2 Composite rewrite realization
+
+A witnessed rewrite does not require every Graph Basis node to have a standalone kernel.
+
+The Find rewrite currently has a CPU `ReferenceRewriteComposite` realization for the supported rank≤1 `E.` subset.
+
+That route:
+
+- preserves the Window → CellApply(Match) graph model;
+- validates the same current RustJ Find semantics;
+- can execute the whole rewrite as one reference composite;
+- does not pretend that standalone WindowView is already generally lowerable.
+
+GPU support for this rewrite remains unavailable until an appropriate realization exists.
+
+## 11.3 Target-only feasibility
+
+Existing `LoweringRegistry + TargetCapabilities` is reused.
+
+Rewrite target feasibility reports:
+
+- Supported
+- RequiresCallFacts
+- Unsupported
+
+This is deliberately weaker than final legality.
+
+It does not invent call-dependent facts such as:
+
+- purity;
+- observable error freedom;
+- evaluation-order freedom;
+- reassociation legality;
+- precise access relation.
+
+## 11.4 Planning reports
+
+A `RewritePlanningReport` combines:
+
+- target feasibility;
+- resource evaluation;
+- rule pruning permission.
+
+Current readiness states:
+
+- TargetUnsupported
+- NeedsCallFacts
+- NeedsResourceFacts
+- ReadyForCosting
+
+It does not select a winning candidate.
+
+Actual selection requires later `TargetProfile / ResourceEstimate / CostProfile` integration.
+
+---
+
+# Part IX — Target architecture
+
+## 12. Target model
+
+Do not collapse target identity into one opaque object.
+
+The target model is layered:
+
+```text
+BackendFamily
+   ↓
+ArchitectureTarget
+   ↓
+DeviceProfile
+   ↓
+RuntimeProfile
+   ↓
+resolved TargetProfile
+```
+
+Compiler-specific target lookup is separate from user J locales.
+
+```text
+device
+  → architecture
+  → architecture family
+  → backend family
+  → cpu/gpu class
+  → generic
+```
+
+Lookup discovers candidates. Legality/resource/cost analysis chooses among them.
+
+## 12.1 Built-ins and extensions
+
+Hardware lowering applies uniformly to built-in J primitives and extension-derived operations.
+
+Do not create a special hardware path only for extensions.
+
+## 12.2 External adapter boundary contract
+
+An external adapter is a projection of a verified RouteRegion/Logical IR, not a replacement for RustJ semantics. Its input includes region live-ins/outs, ordered operations and SemanticChecks, effect/error edges, provenance, discharged legality evidence/guards, resolved TargetContext, and logical representation requirements.
+
+Capability queries must distinguish operation/ExecutionBasis/valence, dtype, rank/shape/dynamic-shape conditions, representation/layout preconditions, numeric/tolerance/reassociation policy, effect/token support, error/check representation, alias/mutation, and async/completion semantics. `supports Add` alone is not a sufficient contract.
+
+An adapter result must retain a verifiable projection record: adapter/schema identity, source RouteRegion/A3 provenance, emitted external operations/module, host-side checks, mapped effect/token edges, BridgeRequirements, external handles, completion/ownership contract, and failure classification.
+
+Every A3 SemanticCheck must either run on the RustJ side before launch in the same observable order, lower to an external form proven to preserve the same J error class/precedence, or make the region ineligible for that route. Backend traps/assertions/compile failures are not automatically J Domain/Rank/Length errors.
+
+Pure regions may require no token. Stateful/effectful regions may be projected only when equivalent ordering/resources can be represented. Representation/layout/device choices remain bridge/physical concerns and must not change logical dtype/shape/atom order.
+
+The adapter round-trip verifier checks that every source semantic operation maps to translated work, a retained host check, or an explicit bridge/effect action; live-in/out contracts survive; no checks/effect/error edges are dropped or reordered; emitted forms match declared capabilities; output ownership/completion precedes consumer use; provenance maps back to A3/J Graph/source; and unsupported partial modules are never returned as executable success plans.
+
+Keep failure classes distinct: AdapterUnsupported, AdapterCompileFailure, AdapterRuntimeFailure, and actual JSemanticError. Pre-execution failures may choose a verified alternate route under the no-replay contract; failures after committed effects/transfers do not trigger automatic replay.
+
+This is an implementation gate for future MLIR/StableHLO/ArrayFire/library routes. It does not claim that a production external adapter exists today, and it does not resume CUDA work.
+
+---
+
+# Part X — Flow–Storage and materialization
+
+## 13. Identity separation
+
+Keep these identities distinct:
+
+```text
+SSA ValueId
+≠ semantic StateResource
+≠ physical BufferId
+```
+
+Likewise:
+
+```text
+semantic StorageRequirement
+≠ physical MaterializationDecision
+```
+
+## 13.1 Materialization choices
+
+Planning may eventually choose among:
+
+- KeepVirtual
+- FuseAway
+- RegisterResident
+- WorkingStateResident
+- Bufferize(memory_space)
+- Rematerialize(recompute_source_or_region)
+- ExternalResource
+
+Rematerialization is a physical/schedule choice, not deletion of semantic identity.
+
+Its legality requires proofs for effects, errors, state dependencies, name bindings, and observable ordering.
+
+---
+
+# Part XI — Historical JAXA inheritance audit
+
+
+
+## Historical sources and the JAXA-to-RustJ rationale
+
+These reference implementations and the former §3 JAXA rationale are supporting evidence, **not prerequisites for understanding the core compiler pipeline**. Legacy subsection numbers and headings remain in place to protect existing citations and links.
+
+### Reference implementations
+
+RustJ does not treat all external implementations as having the same authority. They are used as **role-specific reference implementations**.
+
+- **`jsoftware/jsource` — J semantic reference / oracle**
+  - The authority for language semantics, parser/name behavior, primitive corner cases, rank/agreement, errors, and type semantics.
+  - The primary reference for RustJ semantic correctness and differential testing.
+
+- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
+  - A reference for lazy expression graphs, evaluation boundaries, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend selection, and device-memory/stream/synchronization handling.
+  - Used when comparing RustJ Graph/Execution optimization, Physical Planner behavior, external-library routes, and cost models.
+  - **It is not an oracle for J language semantics.**
+
+- **`jsoftware/math_arrayfire` — J ↔ GPU-library adapter/offload reference**
+  - A concrete adapter that passes J arrays into ArrayFire handles.
+  - Useful for studying row-major J versus column-major ArrayFire conversion, backend capability/rank limits, external-handle lifetime, release, and device-GC boundaries.
+  - It must not be interpreted as an implementation of arbitrary J rank/adverb/derived-verb semantics as a GPU compiler.
+
+- **APEX / Co-dfns / TAIL→Futhark — array-compiler research implementations**
+  - References for morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion, and GPU lowering.
+  - Their restricted APL subsets are not inherited as restrictions on RustJ's J semantics.
+
+- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
+  - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family. Source: https://arxiv.org/abs/1907.00509
+  - Bohrium is a precedent for lazily collecting NumPy-style array operations so fusion, allocation/materialization, host-device movement, and backend-specific execution can be delayed. Do not overstate it as dynamically selecting CPU versus GPU for every operation. Publications: https://bohrium.readthedocs.io/publications.html
+  - Lift is a comparison point for rewrite-driven progression from portable map/reduce patterns toward OpenCL-specific functional patterns and increasingly concrete hardware mappings. Do not describe it as a strict separation of rewriting from hardware mapping. Source: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops. Source: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+  - None of these systems define RustJ's J semantics; they are evidence for compiler layering and optimization techniques.
+
+The reference depends on the question being asked:
+
+```text
+J semantic correctness       → jsource
+array graph/JIT fusion       → ArrayFire
+J↔external GPU adapter       → jsoftware/math_arrayfire
+array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
+rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
+```
+
+The detailed ArrayFire source observations, RustJ applications, and non-adoptions are recorded in §14.2, **ArrayFire and the J ArrayFire add-on**.
+
+---
+
+
+## 3. JAXA design principle — “SQL for array operations”
+
+Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”** RustJ carries the idea forward in the more general sense of J as a **high-level array language / array query language**.
+
+The analogy is not a claim that J syntax resembles SQL or that full J is a purely declarative language. Full J has names, assignment, effects, observable errors, and control semantics. The relevant principle is:
+
+> **J source is not an execution plan.**
+
+J's array semantics and function composition should preserve **what is being computed** at a high level, while the compiler chooses **how to realize it** subject to J semantic legality.
+
+~~~text
+J source / J semantics
+        ↓
+J Semantic IR / J Graph IR
+        ↓
+Logical Array / Execution IR
+        ↓
+equivalence / fusion / logical optimization
+        ↓
+execution planning / route selection
+        ↓
+CPU / SIMD / multicore / GPU / external compiler / library
+~~~
+
+At the level of responsibilities, the SQL analogy is:
+
+~~~text
+SQL / relational system          RustJ
+---------------------------      --------------------------------
+query                             J array computation
+logical query plan                J Graph + Logical Execution IR
+logical rewrite                   J-algebra / logical rewrite
+physical planner                  schedule / route / physical planner
+execution engine                  CPU/GPU/runtime/external backend
+~~~
+
+Users should express the computation and semantic/storage obligations that matter, while the analyzer/compiler/backend decides matters such as:
+
+- which equivalent graph form to use;
+- whether to fuse or materialize;
+- which execution basis and route to use;
+- which memory/layout/schedule strategy to use;
+- whether CPU, SIMD, multicore, GPU, or another realization is appropriate;
+- whether a verified external compiler or library route should be used.
+
+J is unusually useful as a frontend for this model because the source already carries optimization-relevant array structure:
+
+- rank exposes cell/frame boundaries and implicit iteration domains;
+- adverbs, conjunctions, and derived entities preserve reduction, scan, cell-application, and composition structure;
+- hook/fork/train/@: expose producer/consumer, branch/join, and composition topology;
+- reshape/transpose/take/drop allow logical shape/reindex meaning to remain separate from physical materialization;
+- whole-array notation reduces the need to rediscover high-level array intent from scalar loop nests.
+
+### Historical origin of JAXA Graph IR — read optimization topology from J notation
+
+JAXA did not begin from the abstract goal of “building a graph compiler.” It began from a concrete observation:
+
+~~~text
+u@:v
+    → input → v → u
+    → producer/consumer chain
+    → kernel-fusion candidate
+
+(f g h) y
+    → f and h branch from the same input and join at g
+    → branch/join topology
+    → branch parallelism / branch-local fusion candidate
+
+(f g) y
+    → the original input and g(y) both feed f
+    → ordered dependency + input-lifetime relation
+    → producer/consumer fusion candidate
+~~~
+
+J combinators such as `@:`, Hook, and Fork are therefore more than compact syntax. They expose **computation dependencies and topology without committing to a physical execution procedure**. JAXA's initial hypothesis was that a compiler should read and preserve this information before lowering it into scalar loops or backend kernels, so that fusion, parallelism, materialization, reuse, and lifetime candidates remain explicit.
+
+That observation motivates RustJ's independent `J Graph IR` layer:
+
+~~~text
+J syntax / FunctionEntity
+        ↓
+syntax-derived computation topology
+        ↓
+J Graph IR
+        ↓
+candidate generation
+  fusion / branch parallelism / materialization / reuse
+        ↓
+semantic legality
+  effects / errors / names / alias / rank contracts
+        ↓
+profitability / resource / target choice
+        ↓
+Logical/Physical realization
+~~~
+
+Three questions must remain separate:
+
+1. **Does the topology expose an optimization candidate?**
+2. **Is the transformation legal under J semantics?**
+3. **Is that legal strategy actually profitable on the chosen target?**
+
+A Fork does not imply that its branches may always execute in parallel, and `@:` does not imply unconditional fusion. Source structure identifies candidates; effect/error/name/alias semantics establish legality; resource and cost models choose a realization.
+
+The branch/join diagram describes an **ordinary VVV fork**. A constructor-fixed capped `[: g h` instead follows the sequential pipeline `input → h → g(monad)`; a noun-left fork passes `h(input)` and its fixed noun to g. Interpret constructor meaning and operand POS before assuming two executable branches from a Fork parser row/head. Preserve the original source Fork/NAME DAG.
+
+#### Canonical J Graph example suite
+
+| Source | semantic construction / preserved provenance | applied topology | candidate | never infer from syntax alone |
+|---|---|---|---|---|
+| `f @: g` | Atop-derived Verb + Pipeline provenance | `input → g → f` | fusion/materialization elision | fused kernel, target placement, check removal |
+| `(f g h) y` ordinary fork | Fork with original f/g/h + observable branch order | shared-input fan-out into `h(y)` and `f(y)`, joined by dyadic `g` | parallel-branch, branch/join fusion, retained/live-across | actual concurrent execution or branch reordering |
+| `([: g h) y` capped fork | source Fork plus immutable capped-construction fact | `h(y) → g(monad)`; no executable first branch | pipeline/materialization | ordinary-fork parallel/retained treatment or calling `[:` as a branch |
+| `(f g) y` hook | Hook provenance + shared original input | `g(y)` and retained `y` feed dyadic `f` | retained-input/materialization, legal fusion | dropping the shared input or arbitrary reorder |
+| `u"r y` | Rank-derived Verb, requested-rank provenance | outer CellApply around the inner operation basis | cell parallelism, nested CellApply absorption/fusion | physical loop/thread mapping or rank-boundary collapse |
+| `u/ y` | Insert-derived Verb | Reduce basis with operand `u` provenance | reduction realization, legal map/reduce fusion | tree reassociation, altered empty/identity behavior, arbitrary parallel reduction |
+| `u\ y` | Prefix/Infix-derived Verb | preserved prefix/window family structure | witnessed Scan candidate or window/reduce rewrite | immediate replacement by Scan without associativity/error/numeric proof |
+
+The suite deliberately keeps **source construction identity and applied dependency graph together**. Two forms may happen to lower to similar SSA DAGs while differing in name/effect/error/constructor semantics. Current GraphForm/GraphBasis/hint support and capped-fork/scan regressions do not imply that the candidate proof/selection lifecycle is fully implemented.
+
+RustJ does not claim that each ingredient is itself novel. Hook/Fork dataflow, function-level program transformation, graph-based fusion, and high-level array IR all have prior art. The distinctive architectural combination being explored by JAXA/RustJ is to **preserve J's tacit combinator algebra as an independent semantic graph layer, generate optimization candidates directly from that topology, and then separate full-J semantic legality from physical profitability**.
+
+#### Related prior art and RustJ's position
+
+There is direct prior art for the starting observation itself. RustJ therefore does **not** claim novelty for the general proposition that J syntax exposes optimization-relevant information. In particular, Bernecky's APL93 paper is strikingly close to the problem framing that motivated JAXA's use of `@:`, Fork, and Hook: parallel Fork arms, composition as a pipeline, and expression-level merging to reduce intermediate-array and storage overhead.
+
+- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
+  - explicitly observes that the `f` and `h` arms of a J tacit Fork can proceed in parallel, and argues that tacit definition simplifies data-flow/data-dependency analysis;
+  - discusses expression-level **loop jamming / merging**, combining sequences of array primitives into interleaved execution, which directly anticipates temporary-elimination/fusion concerns;
+  - describes J composition as a verb-to-verb **pipeline** and points out cell-level parallelism;
+  - paper: https://www.snakeisland.com/aplhiperf.pdf
+  - DOI: https://doi.org/10.1145/166197.166201
+
+- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
+  - is an important function-level precedent for treating program-combining forms and their algebra as objects of program transformation;
+  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
+
+- **Accelerate / Futhark / Lift / MLIR Linalg**
+  - Accelerate and Futhark preserve high-level array operations and dependency structure for fusion and parallel lowering;
+  - Lift uses the semantics of functional data-parallel patterns such as map/reduce for rewrite-rule optimization and GPU mapping;
+  - MLIR Linalg preserves structured transformation-relevant semantics before loop/CFG lowering and separates transformation validity from profitability;
+  - Accelerate: https://www.acceleratehs.org/publications.html
+  - Futhark: https://futhark.readthedocs.io/
+  - Lift: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
+
+The conservative novelty framing is therefore:
+
+~~~text
+J syntax exposes optimization-relevant structure
+    → direct prior art exists
+
+Fork/Composition/Rank expose parallelism or pipeline structure
+    → direct J/APL prior art exists
+
+high-level array operations are preserved for fusion/rewrite
+    → prior art exists in Accelerate / Futhark / Lift / MLIR
+
+preserve the full-J tacit combinator algebra
+as an independent J Graph IR,
+generate optimization candidates from that topology,
+then separate full-J semantic legality
+from physical profitability
+    → the distinctive architectural combination explored by RustJ/JAXA
+~~~
+
+The historical JAXA question is therefore recorded as:
+
+> **If J's function-composition notation already exposes computation topology, why destroy that intent into loops and try to rediscover it later?**
+
+RustJ's J Graph IR is the current implementation answer to that question.
+
+A central compiler rule follows: **do not destroy this information too early.** Modifier identity, rank boundaries, and derived structure remain in J Semantic IR/J Graph until Semantic Analyzer/Lowering can normalize them into logical operations such as `Reduce`, `CellApply`, `Scan`, and reindex forms. Explicit loops, threads, blocks, buffers, and device mappings are downstream schedule/physical choices.
+
+Historical JAXA focused mainly on analysis and a restricted vocabulary. RustJ reuses that design work while extending it to **full-J frontend/semantic ownership with incremental optimized-backend coverage**. Analyzable array regions may use aggressive logical/physical planning, while dynamic or effectful regions can remain on semantics-preserving native/runtime routes.
+
+The historical JAXA statements:
+
+> **JAXA specifies logical array intent, not physical execution procedure.**
+
+> **JAXA does not execute fusion — the compiler does.**
+
+remain useful origin points. The more precise long-term RustJ framing is therefore not merely “J with GPU support,” but **a heterogeneous array compiler/runtime using J as a high-level array language**.
+
+This framing does not claim that the product scope is already complete. RustJ's immediate goal remains **a J compiler/runtime that preserves full J semantics**; “SQL for array operations” is a design analogy for compiler layering and optimization freedom.
+
+## 3.1 Core array-model decision — separate Logical Array from Physical Array
+
+Logical Array owns J-visible type/shape/atom order and boxed/sparse semantics. Physical Array owns buffers, strides, offsets, layout and placement. A logical value need not have a distinct materialized buffer.
+
+The model and completion gate are defined once in [§6](#logical-physical-array-model); introductory text does not duplicate its detailed structures or checklists.
+
+## 3.2 Naming policy
+
+`Jaxa` / `JAXA` is not the name of a current RustJ compiler component.
+
+Historical repositories:
+
+- `JAXA`
+- `JAXA-complier`
+- `japchae`
+- `jaxa-analyzer`
+
+are research/prototype sources. Their useful ideas are absorbed into RustJ's current components:
+
+```text
+Jaxa Analyzer      → J Graph analysis + Execution Semantic Lowering
+Jaxa lowering      → J Graph IR → Logical Execution IR lowering
+Jaxa optimizer     → J Graph algebraic optimizer + Logical Optimizer
+Jaxa physical plan → Physical Planner / Physical Plan
+```
+
+New architecture decisions belong in `PROJECT.ko.md` first and are mirrored here.
+
+---
+
+
+<a id="out-of-core-io-contract"></a>
+
+## 13.2 Slow I/O / out-of-core array execution (2026-10-06; design candidate, not implemented)
+
+**Goal.** Evaluate arrays/NN weights larger than RAM/GPU capacity without changing J-visible values, type/shape/atom order, Rank zero-frame prototype behavior, errors or effects. Avoid unnecessary source reads, then overlap bounded I/O with compute. This is a physical planning/scheduling/runtime extension, governed by the canonical §8.5 contract, **not a new J language construct, nor a prerequisite for the first M4 native CPU vertical slice**. The single acceptance checklist is [§17 IO](#out-of-core-io-checklist).
+
+| Source | What is borrowed | What is NOT implied |
+|---|---|---|
+| [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; non-jmf typed boxed mapping is rejected, but JMF-backed boxed regression fixtures exist; scope must be tested per route |
+| [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c), J `1!:11`/`1!:12` | indexed byte-range read/write, sequential baseline based on `fread/fwrite` | effectful foreign I/O is not a pure logical scan and must not be silently rewritten |
+| Jsource in-place/alias machinery | ownership-proved buffer reuse and copy elimination | mapped mutation is not automatically safe in-place reuse |
+| Jd (J data add-on) | Verified on-demand file-backed columns and partition-column selective reads | Borrow storage/layout and pruning techniques only; do not assume arbitrary J effects or queries can be reordered |
+| [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) | independent async blocking-I/O pool, read-ahead, memory-governed queued jobs, park/resume | do not copy a full database engine |
+| [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
+| [Ray Data streaming](https://docs.ray.io/en/latest/data/data-internals.html) | block streams, bounded queues, backpressure/spilling accounting | shuffle/reduce barriers remain |
+| [DeepSpeed ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) | NVMe/CPU/GPU staging and transfer/compute overlap | CUDA work remains deferred |
+| [FlexGen (ICML 2023)](https://proceedings.mlr.press/v202/sheng23a.html) | version-stable weight reuse and layer/batch-block schedules under capacity and latency/throughput constraints | must not reorder visible J effects, late bindings, or failures |
+| TensorFlow `tf.data` | prefetch+parallel data preparation as an additional comparison candidate | not proof of full-J compatibility |
+
+**Ownership and stage contract.** J Semantic/J Graph IR owns J semantics, data+effect dependencies and unknown/opaque facts, but not file offsets, chunk sizes or queues. Verified Logical IR may produce guarded/witnessed byte-access and reuse candidates only if exact J semantics permit. Native Physical Planner/Schedule owns storage placement, byte ranges, materialization, chunk and job boundaries, prefetch, transfer, memory budget, cost and completion edges. Runtime initially owns synchronous `read_at`/`write_at` and chunk iteration; later it owns request pending/ready/error/cancel, exact lease lifetime, finite queues, and backpressure. An external adapter must declare the actual I/O/effect/ownership capabilities and decline unsupported routes.
+
+**Keep identities separate.** `ValueId` is logical SSA; `StateResource` is a mutable semantic resource; `BufferId/BufferLease` owns runtime memory; proposed `StorageObjectId/Version` identifies external backing bytes and consistency; proposed `IoRequestId/CompletionToken` identifies I/O completion. The latter names are not accepted Rust APIs. Semantic `StorageRequirement` is not Physical `MaterializationDecision`.
+
+**Legality.** Preserve J Rank/CellApply empty-frame/prototype, boxed/sparse, tolerance, error precedence, late-bound names and observable foreign I/O. Use checked offset/extent/shape arithmetic. Define short-read, EOF, permission, stale-version, non-atomic file update and cancellation behavior. Unknown access or mutability is an optimization barrier; no speculative I/O that reorders an observable failure/effect, no transparent replay after committed effects. A zero-byte data read never excuses required zero-cell J shape/type derivation.
+
+**Execution route.** Baseline is portable synchronous file/chunk CPU execution. Proven projection/slice/range pruning comes next. Then memory-reserved bounded async read-ahead, double buffering, `Read(n+1)` overlapped with `Compute(n)`, explicit dependency/completion and release; memory pressure reduces depth. Use a scheduling/weight-reuse candidate only when input data is read-only/version-stable and reordering is semantically legal. mmap competes with `read_at`, not universally replaces it; page faults and cache behavior are measured. `io_uring`, remote storage, direct I/O and device DMA remain optional later capabilities.
+
+**Writes/checkpoints.** A J foreign file write, shared mapped mutation and an optimizer checkpoint have different visible effects. Checkpoint design needs explicit immutable version capture, temporary write, platform-specific flush/durability, publication/recovery, cancellation and partial-write behavior. Never declare save success before the required durability level, or change J-visible effect/error timing silently.
+
+**Cost and evidence.** Keep `ResourceEstimate` (peak/resident/inflight bytes, handles, queue budget) separate from `CostEstimate` (bytes, seeks/requests, bandwidth/latency, compute time, transfer/overlap). Compare cold vs warm cache, byte counts, wait, CPU compute, page faults, peak+retained memory, spilling, throughput *and* per-input latency. A feature exists only after code+independent semantic/negative tests+recorded commands and J C oracle coverage, as specified in the `17 checklist.
+
+
+## 13.3 Independent source re-audit: J storage libraries, physical file formats, model loaders (2026-10-06)
+
+**New gap identified.** The first I/O plan concentrated on async read-ahead; separate contracts for physical storage encoding, read-chunk vs write-shard granularity, mapped SIMD tails, remap/refcounts, and cache invalidation were under-specified. Evidence from upstream projects is not evidence of RustJ feature completion. All of the following is proposed pending [§17 IO acceptance](#out-of-core-io-checklist).
+
+| Primary source | Verified mechanism | Adopt or defer |
+|---|---|---|
+| [J jfiles/keyfiles](https://github.com/jsoftware/jsource/tree/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles) | serialized component storage using byte-range indexed read and keyed components | Keep serialized arbitrary J noun distinct from typed dense mmap, avoid copying full Jfiles format |
+| [Jd column.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) | on-demand column mapping, remap/resize; source calls out multi-process reference-count dangers | Verify lease/alias/remap/ownership safety, not a universal global DB lock |
+| [Jd api_read.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) · [ptable tutorial](https://www.jsoftware.com/jd_tuts.html) | partition-column-based table pruning | Use as selective array/partition-access inspiration only with J access, effect and error witnesses |
+| [Jd jmfx.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | padding file endings to avoid SIMD overfetch faults; historical 4-KiB page assumption | Cautionary case: require safe vector tails, checked mapping spans, actual OS granularity and lifecycle validation; do not copy hard-coded padding |
+| [Zarr 3](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 cache](https://docs.h5py.org/en/stable/high/file.html) | independent read chunk and write shard layout, chunk cache/eviction | Physical shape and IO granularity need not equal J logical shape; benchmark amplification and per-workload layouts |
+| [Safetensors](https://github.com/safetensors/safetensors/blob/main/README.md) | tensor dtype/shape/byte offsets and optional slice access, zero-size payload | Validate metadata/offsets/endian/empty/scalar. Do not make a new canonical RustJ disk format mandatory |
+| [llama.cpp loader](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | mmap vs no-mmap/mlock/direct I/O/NUMA/lazy tensor row policies | Choose storage load strategy from page faults, RAM pressure and access/reuse costs, not global mmap dogma |
+| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | parameter.load/read/gather/write, AsyncTransfer and Timepoints encode loading/storing parameter byte ranges plus readiness and resource lifetime | **Most direct IR precedent:** read-only weights can use Physical ParameterRead/Load → Await → consumer; checkpoint write still needs a separate durability contract. Not equivalent to observable J file-foreign effects |
+| DuckDB, Polars, Arrow, Ray, ZeRO-Infinity, FlexGen | skip unnecessary bytes, bounded job/batch read-ahead, backpressure, staged weights and reuse | Physical optimization order: prune bytes → version and alias safety → bounded scheduling → overlap → proven reuse |
+
+**Corrected JMF boxed scope.** [jmf.ijs](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) rejects *non-JMF typed boxed* mapping, while [JMF-backed boxed tests](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) exist and [mbx.c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/mbx.c) says “not supported.” Neither blanket all-boxed-supported nor all-boxed-unsupported is justified without a C-oracle check of the specific representation and operations.
+
+
+**IREE Stream dependency precedent:** `stream.async.parameter.load/read/gather/write`, `stream.async.transfer`, and `stream.timepoint` make parameter byte ranges, readiness, and resource lifetime explicit in a physical schedule. Speculatable parameter loads are not a license to reorder observable J file foreign effects; preserve availability, cancellation and error ordering. Reference for IO-13–18 and IO-20. [Official Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/).
+
+**Clarified abstraction.** Distinguish logical ValueId, physical external StorageObject/Version, StorageEncoding (typed contiguous, typed chunked, serialized components, external adapters), ReadChunk, WriteShard, BufferLease and IoCompletion. These are concepts, *not* committed Rust APIs. Observable J foreign-file I/O cannot be silently rewritten as a pure read of versioned immutable array backing. An empty data region can require no file bytes and still require J Rank fill-cell/shape inference. Cache keys need source/version/range/encoding; memory budgeting must account for decoded/pinned/inflight/kernel buffers while reporting OS page cache/RSS separately.
+
+
+<a id="io-framework-execution-comparison"></a>
+
+## 13.4 Framework I/O optimization mechanisms and RustJ graph-to-physical scheduling (2026-10-06)
+
+**Five independent concerns.** Efficient out-of-core execution combines (1) skipping unnecessary reads, (2) choosing physical read/storage granularity, (3) overlapping reads with computation, (4) reusing already loaded bytes and (5) memory, readiness and failure control. These concerns are owned by different stages. J Semantic/J Graph/Verified Logical IR defines observable J semantics, access and legality proof; Physical Planning/Scheduling/Execution chooses byte ranges, chunks, transfers, buffer lifetime, inflight requests and resource budgets. The table is a source-informed set of design candidates, **not evidence of implemented RustJ functionality**.
+
+| Framework / primary documentation | Mechanism and owning layer | RustJ application and limits |
+|---|---|---|
+| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Predicate, projection and slice pushdown into scans; common subplan/file scan elimination in logical planning | IO-09–12: only prune bytes when `AccessRelation` and witnesses preserve J semantics; otherwise opaque fallback for Rank, dynamic lookup, errors and effects |
+| [DuckDB async I/O announcement (2026-07-31)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group / CSV scan jobs and range fetch tasks; separate `REGULAR` compute and primarily blocking `ASYNC` I/O pools; parked consumers resume at completion. Read-ahead depth negotiates with the temporary-memory manager | IO-13–17: bounded requests, readiness/wakeups, adaptive prefetch under pressure. Announced development/version behavior must not be assumed present in every release |
+| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | `stream.async.parameter.load` creates a resource; `read` fills an allocation; `gather` assembles several parameter archive ranges. Timepoints and await dependencies encode availability and ordering in the physical resource graph | IO-13–18/20: physical `ParameterLoad/Gather → Await → Consumer` for immutable weights; IREE's hoistable parameter loads do not authorize speculation of observable J `1!:` file foreign calls |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | Separate `batch_readahead` and `fragment_readahead` scan concurrency | IO-14–16: independently bound read-ahead at chunk/fragment levels and account for decoded buffers |
+| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | Stream block references through operator queues; schedule only when resources and backpressure permit; spill when needed | IO-15–17: bounded queues, slow-consumer pressure, distinction between spill, workers' working memory and nonstreamable barriers |
+| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) / [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | Chunk/shard layout and decoded chunk caching trade read amplification, file count and reuse | IO-26–29: `LogicalShape`, `ReadChunk` and `WriteShard` remain independent. Small slices may still require decoding entire chunks |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Mapped vs unmapped model loading and residency tradeoffs | IO-23/30: measure page faults, cold/warm cache, resident memory, local/remote throughput rather than mandate mmap |
+| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) / [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | Parameter/optimizer-state offload and prefetch between NVMe, CPU and GPU; layer/batch scheduling to reuse weights at throughput/latency tradeoffs | IO-18–20: only legally reorder loads of immutable/version-stable weights; mutable gradients, checkpointing and J effects need different contracts |
+| [TensorFlow tf.data guide](https://www.tensorflow.org/guide/data_performance) | Input prefetch and parallel-map overlap producer and consumer | IO-14–16: helpful producer/consumer precedent, not permission to reorder arbitrary J cell/verb evaluation |
+| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | Stage mutable state and perform asynchronous persistence | IO-18: snapshot/version/write completion/publish/recovery, not success merely because an asynchronous operation was submitted |
+
+**Two disk-backed weight layers — meaning versus realization.** The logical array computation is `X → MatMul(W1) → Activation → MatMul(W2) → Y`. Provided W1 and W2 are proven immutable/version-stable physical inputs, the physical scheduler may overlap a read of W2 with computing Layer 1. It cannot start Layer 2 before both the activation result and W2's readiness token are available. This is a candidate, not the current implementation.
+
+~~~text
+Logical (J semantics)
+X ---> MatMul(W1) ---> Activation ---> MatMul(W2) ---> Y
+
+Physical candidate
+Reserve W1 -> Read W1 -> Ready W1 -> Compute L1 -> Activation --+
+Reserve W2 -> Read W2 -> Ready W2 ------------------------------+
+                                                               |
+                                                          Compute L2 -> Y
+Read W2 may overlap Compute L1, within the resource budget.
+Compute L2 awaits BOTH Activation and Ready W2.
+Release a buffer only after its last user and all pending I/O/transfers complete.
+~~~
+
+**Why these optimizations compose rather than replace one another.** Polars minimizes the requested bytes; IREE makes physical data movement/readiness explicit; DuckDB/Arrow/Ray manage request scheduling and backpressure; DeepSpeed/FlexGen seek profitable placement and reuse. Read-ahead can hide wait time but does not intrinsically reduce bytes, and merging many small byte ranges trades fewer requests for potential over-reading.
+
+**Semantic and failure guardrails.** Distinguish (A) an internal read of an immutable/versioned storage object, (B) observable J foreign I/O such as `1!:11`/`1!:12`, and (C) mutable weight/checkpoint persistence. Only A admits a proof/guard-authorized speculative prefetch or pruning. B preserves J effect and error ordering; C additionally needs snapshot, version, commit, publication and durability semantics. A zero-byte read does not eliminate J Rank zero-cell fill/prototype, dtype, shape or error obligations. Boxed/sparse, dynamic NAME/Rank, alias changes, stale files, EOF/short reads and premature exposure of speculative failures remain negative-test barriers.
+
+**Resource and cost accounting.** Bound queued + in-flight + decoded + pinned + temporary + output/retained buffers; report OS page cache and allocator RSS independently of runtime reservations. For cold/warm runs record actual bytes and I/O requests, seek/latency, blocking wait, CPU/GPU work, page faults, overlapped time, peak/retained memory, spilling, batch throughput and single-call latency. Approval order stays *semantic conformance → resource safety → measured cost-based route selection*.
+
+**Existing acceptance checklist mapping (no new checklist):** IO-09–12/29 for pruning and cache; IO-05–08/26–28 for storage and chunk/shard representation; IO-13–17/20 for async, transfer and backpressure; IO-18–19 for weights/checkpoint; IO-21–24/30 for comparative measurements; IO-01–04/25 for original-source and semantic contracts. Continue using the [IO-01–IO-30 single acceptance ledger](#out-of-core-io-checklist); writing this design section **does not advance implementation acceptance beyond 0/30**.
+
+
+<a id="unified-data-movement-contract"></a>
+## 13.5 Unified memory I/O and disk I/O planning contract — no new mandatory IR layer (2026-10-06)
+
+**Decision.** Treat memory access/copies, prospective CPU↔GPU transfers, and disk/file-backed range reads/writes as **joint data-movement planning and scheduling concerns of the existing Physical Planner / Physical Execution Plan**. Do not introduce a stand-alone `Data Movement IR` at this stage. Retain independently owned access-region proofs, effect/dependency contracts, and physical location/transfer/readiness/lifetime state at their established boundaries. Reconsider a separate resource/stream execution IR only when at least two concrete asynchronous or mixed-route use cases demonstrate that the existing Physical Plan cannot safely encode dependencies, buffer lifetime, or scheduling. This does **not** collapse the existing J Graph IR → Verified Logical Execution IR → Physical Plan boundaries.
+
+| Existing stage | Owned facts and decisions | Must not own |
+|---|---|---|
+| J Semantic IR / J Graph IR | Source topology; ValueId, Rank/CellApply, empty-frame semantics, source provenance; optional pass-local access-candidate sidecars | BufferId, file offsets, DMA, concrete transfers, physical layouts, or EffectSummary/committed selection embedded into GraphFacts |
+| Verified Logical Execution IR / analysis | Observable J file/namespace/state effects; error, ordering and guard dependencies; value/effect liveness; logical AccessRelation with Unknown/Proven/Guarded evidence | Reclassifying arbitrary file I/O as a pure array load or approving unsound read omission/reordering |
+| Existing Physical Planner / Representation / Schedule | Distinct StorageObject/Version and BufferId/Lease identities, physical regions (buffer slices vs file byte ranges), Read/Write/Copy/Transfer/Materialize/Release, completion/readiness edges, placement/layout and byte/resource/cost estimates | Mandating a physical copy for every access, unifying file/memory semantics, or selecting unsupported device transfers |
+| Executor / Backend | Independent synchronous CPU reference for read_at/write_at/buffer copies first; later separately verified async tokens, queues/backpressure, target implementations | Releasing buffers before transfer completion, replaying visible file effects, or claiming currently deferred GPU implementation |
+
+**Shared interface, distinct meaning.** `AccessRegion` identifies which logical elements are needed. Concrete `BufferSlice` and `FileByteRange` are distinct kinds of physical region; they must not be treated as one alias domain, address space or failure contract. Shared analyses may inspect interval/producer/consumer, placement, lifetime, alias constraints, dependency, capability and cost. Continue distinguishing logical `ValueId`, mutable `StateResource`, external `StorageObjectId/Version`, physical `BufferId/BufferLease`, and `IoRequestId/CompletionToken`. These are proposed conceptual names, not committed Rust APIs.
+
+**Compile time versus runtime.** Compile-time proofs may determine stable shape/dtype/access patterns, users/lifetimes, removable intermediates/copies, buffer-reuse opportunities, required regions and tentative streaming/transfer plans. Runtime must still establish actual file bytes, external modification, EOF/permissions, data sizes, available RAM/GPU capacity, cache/bandwidth conditions and completion, applying explicit guards and hard resource limits. Keep memory bytes, file requests/seeks, transfers, launch/synchronization, overlap, peak/inflight/retained bytes and cold/warm latency as distinct cost dimensions. Unknown is neither zero cost nor permission to reorder.
+
+**Effect safety.** Distinguish (A) an internally accessed, proven immutable/version-stable backing object, (B) J-observable `1!:` foreign file I/O, and (C) mutable-state/checkpoint publication. Even A may expose failures; speculative scheduling must separately prove that user-visible error timing/order is preserved. An unused result of B does not license deleting file existence/permission/error effects. An asynchronous write submission for C is not a durability-completion guarantee. A zero-byte/empty-frame result still has J virtual fill-cell, dtype/shape and applicable error obligations.
+
+**External framework precedents (not imported semantics).** [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) provides physical resource, async transfer, parameter/file read/write and readiness scheduling. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) and [Memory Effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/) motivate separating logical values from buffers and using resource-aware effect interfaces. [XLA GPU architecture](https://openxla.org/xla/gpu_architecture) shows staged fusion/buffer assignment/layout/transfer planning, not general J file I/O. [TVM](https://tvm.apache.org/docs/) informs device placement; [DataFusion](https://datafusion.apache.org/) informs file scan and proven filter/projection pushdown. None automatically enforces full-J foreign error ordering or Rank prototype semantics.
+
+**Trace example.** A proven immutable `File(A) → Slice → Elementwise → Consumer` may lower to a physical byte-range read followed by fused CPU work once an access witness is valid. An unused `1!:1`/`1!:11` read cannot be eliminated solely by dead-value analysis when file-open/EOF/errors are observable. CPU↔GPU copies are candidates for the same physical planner, while CUDA execution remains deferred.
+
+**Single existing acceptance ledger.** Do not create DM-* work items. Refine IO-03 (stage and identity/effect interface), IO-09 (access-region proof), IO-13/14 (sync-to-async readiness), IO-17 (effect/failure/lifetime), IO-20 (shared memory/file/transfer physical cost planning), and IO-22 (independent three-way and negative tests) in the existing [IO checklist](#out-of-core-io-checklist). Reuse FW-05–09 provenance/guard and DB effect evidence as prerequisites. **Status: architecture decision recorded; no implementation or execution evidence; IO acceptance remains 0/30. Not a prerequisite for M2 frontend convergence or the first M4 native CPU vertical slice.**
+
+<a id="io-a-source-audit"></a>
+## 13.6 IO-A pinned source cross-audit and executable witnesses (2026-10-06–07)
+
+**Scope/status.** Reviewed pinned implementation source for IO-01/IO-25 and identified negative tests required by IO-02. **Source inspection is partial progress, not acceptance**: file-foreign fixtures have run against pinned J C binaries, but mapped/Jd and broader effects have not been verified, so IO-01/02/25 remain [ ] and the I/O implementation ledger stays at 0/30.
+
+| Pinned source / location | Directly observed in source | Still to prove for RustJ |
+|---|---|---|
+| [jsource `xf.c` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/xf.c), `jtjiread/jtjiwrite/jtixin` | `1!:11` opens/inspects the file before validating start and length against file size; read enforces `j≤size, j+length≤size, length≥0`. `1!:12` passes null for output length, so it checks nonnegative starting index rather than imposing the same read end-bound, then writes. Negative start offsets are adjusted by file size. `jtrd/jtwa` use synchronous `fread/fwrite`. | Actual precedence of open/index/permission errors, EOF, short I/O, writing past EOF, concurrent mutation, and no replay of visible effects. Source alone does not establish atomicity or concurrent-truncation behavior |
+| [jsource `jmf.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) and [`gmbx.ijs`](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) | Modes 0/1/2 distinguish RW/RO/COW; live refs may prevent unmap. `additem` rejects type 32 boxed, whereas `gmbx.ijs`, despite its mapped-boxed label, contains `'' -: q` and `'' -: r` assertions, not a proof that arbitrary boxed payload read/write works. | Format/type/mode-specific boxed support via executable oracle; never equate COW with committed shared write |
+| [data_jd `column.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) and [`jmfx.ijs`](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | Mapping/remapping and cross-process reference-count hazards are documented, with DB locks providing a restricted usage assumption. The SIMD-tail padding workaround assumes `PAGESIZE=:4096`. | OS-independent checked spans/masked tails, real page size and safe remap/lease tests; do not generalize DB locks to J semantics |
+| [jsource `jfiles.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles/jfiles.ijs) and [data_jd `api_read.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) | jfiles `j_read` uses `3!:2 @ (1!:11)`, reading serialized components from offset-indexed directory entries. Jd `readptable` selects underlying partitions using predicate results. | Distinguish typed contiguous backing from serialized components. Do not generalize Jd's selective reads into arbitrary J/foreign-I/O rewrites |
+
+**Remaining executable fixtures (not yet fully run).** With a fixed J binary and controlled temporary files, observe normal/edge `1!:11` ranges, negative offsets, `1!:12` writes beyond EOF, nonexistent files, permissions, concurrent changes/short reads, named files versus numeric handles, error precedence and close/unlock behavior. Separately test JMF RW/RO/COW and live-reference unmap, exact mapped-boxed payload cases, resize/remap, and Jd/jfiles partition/keyed component access. Derive expected observable behavior from the executable C oracle rather than guessing it from source. Record pin, command/environment, pass/fail/unsupported and blockers in the existing IO ledger.
+
+**IO-A executable diagnostic harness (2026-10-06).** Added 15 isolated temporary-file C-oracle cases in [tools/file_io_audit.py](tools/file_io_audit.py): whole/range reads, file size, negative offsets, zero-length EOF reads, read bounds, partial/beyond-EOF writes, missing files and a discarded read whose failure remains observable. [tools/test_file_io_audit.py](tools/test_file_io_audit.py) checks fixture uniqueness, quoted names, temporary-path isolation and mismatch reporting without a J binary. [Linux CI](.github/workflows/linux.yml) now builds the pinned `j64/j64avx2 × default/portable` J libraries and records non-acceptance diagnostic JSON as an artifact; the default diagnostic mode reports expectation mismatches rather than converting them into a passing J-semantic gate. The audit source pin `0a5101cf` and CI oracle revision `13994ffa` have identical Git blob SHAs for `xf.c`, `jmf.ijs`, `gmbx.ijs` and `jfiles.ijs`. Do not predeclare J error precedence, platform-specific file-hole contents or mapped-boxed behavior before executing oracle fixtures. **IO-01/02/25 remain unchecked; no accepted RustJ I/O implementation is implied.**
+
+**Initial CI diagnostic correction (non-acceptance).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210) initially showed 9 of 15 expected outcomes matching and six requiring review on both `j64` and `j64avx2`. All six initially reported `length error`: this was traced to **incorrectly pre-boxing the file name** in the indexed-foreign fixture, not an established J semantic disagreement. The [J Files manual](https://www.jsoftware.com/help/dictionary/dx001.htm) distinguishes whole-file `1!:1 <'name'` from indexed `1!:11 'name';offset length` and `x 1!:12 'name';offset`. [Fix 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a) uses the unboxed name on indexed calls and prevents `length/rank/syntax` errors from counting as real missing-file effects. [Unit-test update bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) follows. Pending re-execution, 9/15 is not J-semantic acceptance and IO-01/02/25 and the overall 0/30 remain unchecked.
+
+**Executed pinned J evidence (2026-10-06).** In [Linux CI 37470839455](https://github.com/yunskim/RustJ/actions/runs/37470839455), the general `check` job passed and the observed `j64/default`, `j64/portable`, and `j64avx2/default` runs each matched **15/15 C file-foreign fixture expectations, zero review items**. `j64avx2/portable` was still running at this checkpoint and is not counted. [Workflow commit 3d476f6](https://github.com/yunskim/RustJ/commit/3d476f6f4f8bd1c925e2216ee856cfdfcd5fc9d2) enables `--gate` to enforce these C-oracle fixture expectations in subsequent runs. This **J reference fixture gate** is not independent RustJ three-way verification and does not prove JMF/Jd/boxed or async I/O; IO-01/02/25 and the 0/30 acceptance ledger remain unchecked.
+
+**Expanded IO-02 ordered J-reference witnesses (2026-10-07; partial oracle evidence).** [tools/file_io_audit.py](tools/file_io_audit.py) now adds **six ordered-effect cases / 14 J steps** alongside the prior 15 independent file-foreign fixtures. With one J interpreter and one isolated temporary file per case, it inspects file bytes after *every* JDo: (1) a discarded write result still has an observable effect, (2) a failing right read prevents a left write in J evaluation order, (3) a subsequent error does not roll back an earlier completed write, (4) a bad indexed write preserves a preceding completed write, (5) append followed by tail read, and (6) truncate followed by full read. [Offline tests](tools/test_file_io_audit.py) inject a forbidden early write and ensure it is detected. In [CI 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953), the general `check` job and pinned `j64/default` oracle passed with **15/15 independent and 6/6 ordered (14 steps), zero mismatches**; other matrix variants were unresolved at the time of this checkpoint. This is a **J C-reference semantic witness**, not native/optimized RustJ I/O equivalence or mapped/foreign coverage: IO-02 and overall IO remain **[ ] / 0 of 30 accepted**.
+
+**Next IO-02/IO-25 executable slices (within the existing ledger).** (a) Extend reference fixtures to named versus numeric handles and permissions/close/flush, EOF/short reads and concurrent truncation for `1!:1/2/3/4/11/12`; (b) independently verify loading the pinned J standard/add-on library before smoke-testing JMF RW/RO/COW, live-reference unmap/resize and typed/boxed variants; (c) enable Jd/jfiles executable probes only after their fixture and pinned dependency setup is demonstrably reproducible. Do not classify a missing J add-on bootstrap as J semantics, or promote the C-only 15+6 tests to RustJ implementation acceptance.
+
+**Pinned C matrix confirmation for IO-02 (2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953) completed successfully in the generic check job and all four `j64/j64avx2 × default/portable` reference jobs. Each recorded **15/15** independent C file-foreign fixtures and **6/6** ordered-effect cases (**14 JDo steps**), with zero cases requiring review. This is a repeated C-source semantic witness, not RustJ three-way I/O execution equivalence; the IO implementation acceptance ledger stays unchanged.
+
+**First independent IO-25 JMF smoke attempt (not accepted).** [tools/jmf_smoke.py](tools/jmf_smoke.py) attempts to bootstrap the pinned `jlibrary/bin/profile.ijs` and `load 'jmf'` under an isolated temporary HOME and J C binary, then runs RW(0)→RO(1)→COW(2) **map → empty noun check → unmap-result-zero** on a temporary JMF backing file. [Offline plan checks](tools/test_jmf_smoke.py) and a separate [Linux CI](.github/workflows/linux.yml) non-acceptance diagnostic step are added. Missing library bootstrap or JMF execution is reported as `blocked`, not a J semantic mismatch; CI results were not finalized at this checkpoint. This smoke does **not** validate boxed payloads, write durability/RO-COW mutation behavior, refcount-denied unmap, resize/remap, or Jd partitions. IO-25 remains [ ].
+
+**Initial JMF bootstrap observation (2026-10-07; not accepted).** In [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000), the pinned `j64/default` and `j64/portable` non-gating JMF probes recorded `status=blocked`, `stage_count=2`: setting `BINPATH_z_` succeeded but `0!:0 <.../jlibrary/bin/profile.ijs` returned `domain error`. **The probe never reached map/unmap.** This is a bootstrap blocker, not evidence that JMF RW/RO/COW semantics fail. [Diagnostic follow-up 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3) first checks loading a trivial standalone J script and captures `13!:12` on errors, to isolate script loading from full profile setup; the subsequent CI result was not yet confirmed at this checkpoint. IO-25 remains [ ].
+
+
+### Source-level optimization catalog (formerly §7.4.3)
+
+The detailed pinned jsource audits and coverage plans are reference material; the core J Graph IR explanation above is sufficient for a first reading.
+
 ## 7.4.3 jsource-derived optimization principles and RustJ placement
 
 Review baseline: `jsoftware/jsource` source pin **`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`**. This is not a plan to clone jsource's hand-written special entry points one-for-one. It mines accumulated J-specific optimization knowledge and relocates it into RustJ graph facts, candidate rewrites, and downstream execution planning. **J Graph discovers candidates; Execution Semantic Lowering/proof validates call-dependent legality; Physical Planning chooses concrete realization.** This catalog is representative, not exhaustive.
@@ -3449,621 +4078,6 @@ The existing J64 deviation is Q.3's unrelated Rank result dtype issue, **not a K
 
 **Operating rules.** Each JX gate requires **(1) pinned C source and guards → (2) J semantics/support boundaries → (3) graph provenance and candidates → (4) per-obligation proof/guard/fallback → (5) independent Rust reference, negative tests and real C differential → (6) target/resource/measured-cost decision**. Keep [ ] without actual execution evidence. Prefer **one semantic change plus one related regression/counterexample** at a time. A regression or upstream drift invalidates affected proofs and reopens prior FW gates. For each completed row record **JX-ID / code commit / commands and environment / passed-failed-ignored / jsource commit and executed oracle scope / fallback-negative results / measured metrics / known gaps / next gate**. Next actionable work remains **JX-01 source coverage and FW-01 M2**, not enabling new specializations.
 
-## 7.5 Candidate lifecycle and proof-discharge contract
-
-A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
-
-Conceptually keep orthogonal evidence dimensions:
-
-```text
-CandidateEvidence
-  provenance         Verified | Stale/Invalid
-  equivalence        Unknown | Proven | Disproven | Guarded(GuardId)
-  semantic_legality  per obligation: Unknown | Proven | Disproven | Guarded(GuardId)
-  target_feasibility Unknown | Supported | RequiresFacts | Unsupported
-  resource_state     Unknown | Symbolic | Resolved | ExceedsHardLimit
-  cost_state         Uncosted | Estimated(CostEstimate)
-  selection          Unselected | Selected | Rejected(reason)
-  lowering_state     NotLowered | Lowered(transform/route identity)
-```
-
-A planner may derive a lifecycle summary such as:
-
-```text
-Discovered
-  -> AwaitingProofs
-       -> Illegal
-       -> Legal / GuardedLegal
-            -> Feasible
-            -> Costed
-            -> Selected / Rejected
-            -> Lowered
-```
-
-This is a commit-gate order, not necessarily pass-execution order. Resource/work-depth/cost side analyses may run speculatively before semantic legality is complete; the forbidden action is committing the candidate to an execution plan before all required legality evidence is discharged.
-
-Evidence ownership:
-
-| Evidence | Primary owner | Selection rule |
-|---|---|---|
-| source topology/provenance | J Graph verifier + candidate registry | stale provenance invalidates the candidate |
-| algebraic equivalence | rewrite/scan/fusion witness validator | required equivalence may not remain Unknown at commit |
-| rank/cell/assembly | execution-semantic facts + candidate legality checker | prove or guard before effects |
-| numeric/tolerance/reassociation | primitive/derived numeric contracts | no unlicensed reassociation/relaxation |
-| effect/error ordering | effect/error/speculation analysis | disproven means illegal; post-effect guards cannot justify replay |
-| fanout/retention/alias | graph use/liveness + alias/storage facts | external uses and alias obligations must survive |
-| resource/work-depth | `j_graph_resource` / `j_graph_work_depth` | separate from cost; only hard-limit violations reject feasibility |
-| target/lowering capability | LoweringRegistry × resolved target | source-basis support does not prove composite/fused legality |
-| empirical profitability | CostProfile / planner | may reject a legal candidate without making it semantically invalid |
-| compatibility/selection | Schedule/Transform planner | the selected candidate set must be mutually compatible |
-
-`Guarded(GuardId)` requires a real guard, execution before observable effects, an explicit miss route, replay safety, and cache/provenance linkage. Do not replay a source region automatically after observable effects have committed.
-
-For overlapping candidates, v0 is conservative: two rewrites that replace the same source operations cannot both be selected; overlapping rewrite/fusion candidates require a registered compatibility/composition rule; otherwise apply one candidate, create a new graph/version, and rediscover candidates. Selection belongs to a Transform/Schedule plan, not semantic IR.
-
-Current code implements only part of this model:
-
-```text
-GraphRewriteCandidate
-  provenance + equivalence witness
-
-FusionCandidate
-  proof obligations
-  legality = Unknown
-  resource_transfer_proven = false
-  selected = false
-
-RewritePlanningReport
-  TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting
-
-FusionReadinessReport
-  AwaitingSemanticProofs
-  fused target query deferred
-  selected = false
-```
-
-There is no common `CandidateEvidence`/`ProofBundle`, per-obligation discharge result, compatibility-aware SelectionPlan, or committed transform identity yet. Those names describe target architecture, not completed APIs.
-
-When implementation reaches this area, preserve the project's one-meaning/one-test discipline: add proof-state provenance and stale-evidence verification first; then per-obligation fusion discharge without selection; then a shared legality view for rewrite/scan candidates; then target-hard-feasibility; overlap compatibility; a separate SelectionPlan; and finally committed lowering with provenance verification.
-
-
-# Part V — Rewrite and equivalence
-
-## 8. Optimization dependency order
-
-The architecture fixes the following dependency:
-
-```text
-Basis discovery
-    ↓
-Rewrite candidate generation
-    ↓
-Equivalence validation
-    ↓
-Candidate resource evaluation
-    ↓
-Sound resource pruning
-    ↓
-Later costing/selection
-```
-
-Rewrite rules must not silently mutate the source J Graph node. They produce sidecar candidates with provenance.
-
-## 8.1 Rewrite registry
-
-Current minimum registry contains a witnessed rule for J Find:
-
-```text
-x E. y
-   Search
-     ⇅  J Dictionary equivalence witness
-Window
-  ↓
-CellApply(Match)
-```
-
-The original Search node remains intact.
-
-Each candidate records:
-
-- source J Graph ValueId;
-- source span;
-- source Graph Basis;
-- rule identity;
-- equivalence witness;
-- replacement graph;
-- rewrite-specific fact rule.
-
-The verifier recomputes rule-derived facts and rejects stale or invented facts.
-
-## 8.2 Current Find rewrite path
-
-For the currently supported RustJ `E.` subset:
-
-- source rank and pattern rank are at most 1;
-- result dtype is Bool;
-- result shape preserves the right argument shape;
-- the logical window family has one logical position per right-argument position;
-- trailing non-fitting windows remain positions whose match result is false.
-
-The candidate can therefore infer a logical Window shape such as:
-
-```text
-right shape [6]
-pattern shape [3]
-→ logical window family shape [6, 3]
-```
-
-while still leaving representation and physical realization downstream.
-
----
-
-# Part VI — Graph facts and resource model
-
-## 9. GraphFacts
-
-GraphFacts is intentionally separate from execution `Facts`.
-
-Graph IR owns target-independent logical facts:
-
-- dtype;
-- shape;
-- rank;
-- graph analyzability.
-
-It does not import execution layout facts.
-
-Primitive semantic transfer rules may be shared, but GraphFacts and execution Facts remain distinct containers/domains.
-
-## 9.1 Static memory interpretation
-
-JAXA's "static memory" claim is interpreted as logical determinability, not physical buffer assignment.
-
-J Graph analysis may determine:
-
-- logical extent;
-- use count;
-- value lifetime;
-- materialization opportunity;
-- retained values;
-- logical storage obligation;
-- symbolic state requirement.
-
-It must not prematurely own:
-
-- BufferId;
-- byte offset;
-- register count;
-- shared-memory address;
-- physical stride/layout;
-- device allocation.
-
-Those belong to later planning.
-
-## 9.2 ResourceExprGraph
-
-Current resource analysis uses symbolic expressions such as:
-
-- Zero
-- Unknown
-- ValueAtoms(value)
-- Requirement(value, kind)
-- Sum(...)
-- Max(...)
-- Scale(...)
-
-This preserves provenance for resource summaries rather than reducing everything to an unexplained number.
-
-Tracked graph-level quantities include:
-
-- internal logical edge volume;
-- elidable materialization volume;
-- retained live volume;
-- graph-order peak live volume;
-- baseline internal read+write traffic;
-- potentially elidable traffic;
-- temporary state;
-- reduction accumulator state;
-- window working-set state.
-
-## 9.3 Resource-state lifetime
-
-Temporary/accumulator/working-state requirements carry canonical graph-order lifetime records.
-
-A state may be marked as potentially extending across fusion.
-
-Region analysis keeps both:
-
-- canonical graph-order peak state;
-- a conservative all-child-state upper bound.
-
-This avoids treating graph-order locality as proof that a fused realization has the same lifetime.
-
----
-
-# Part VII — Resource-aware rewrites
-
-## 10. Candidate resource evaluation
-
-Graph rewrite candidates are evaluated in the same target-independent domain as their source:
-
-- logical atoms;
-- internal materialization;
-- read/write traffic;
-- symbolic state requirements.
-
-Known and unknown are never conflated.
-
-If implementation-local costs are unknown, resource metric ordering is `Incomparable`.
-
-Current Find rewrite example:
-
-- result extent is known;
-- logical window extent can be known for the supported rank≤1 subset;
-- WindowWorkingSet lower bound can be derived from pattern extent;
-- structural/composite implementation state may remain unknown.
-
-Therefore the rewrite can be resource-analyzable without claiming complete cost knowledge.
-
-## 10.1 Sound pruning contract
-
-Early resource pruning requires both:
-
-```text
-ResourceBoundLocality::Local
-+
-PruningMonotonicity::ProvenMonotone
-```
-
-Without both proofs, candidates remain available and are evaluated later.
-
-The current Find rewrite does **not** satisfy this early-pruning proof contract.
-
----
-
-# Part VIII — Execution lowering and target feasibility
-
-## 11. Logical Execution IR
-
-Execution Semantic Lowering derives executable dataflow from the semantic/J Graph representation.
-
-Logical IR owns:
-
-- explicit operation/value flow;
-- semantic checks;
-- effect summaries;
-- possible-error facts;
-- speculation/evaluation-order constraints;
-- execution-basis identity;
-- execution-basis payload;
-- resolved call/rank facts.
-
-It must not contain target-specific schedule decisions.
-
-## 11.1 WindowView payload
-
-`ExecutionBasis::WindowView` now has explicit semantic payload support:
-
-```text
-WindowView {
-    source,
-    shape: PatternShape { pattern }
-}
-```
-
-Expansion verification checks that payload provenance agrees with actual inputs.
-
-Standalone WindowView lowering is still incomplete.
-
-## 11.2 Composite rewrite realization
-
-A witnessed rewrite does not require every Graph Basis node to have a standalone kernel.
-
-The Find rewrite currently has a CPU `ReferenceRewriteComposite` realization for the supported rank≤1 `E.` subset.
-
-That route:
-
-- preserves the Window → CellApply(Match) graph model;
-- validates the same current RustJ Find semantics;
-- can execute the whole rewrite as one reference composite;
-- does not pretend that standalone WindowView is already generally lowerable.
-
-GPU support for this rewrite remains unavailable until an appropriate realization exists.
-
-## 11.3 Target-only feasibility
-
-Existing `LoweringRegistry + TargetCapabilities` is reused.
-
-Rewrite target feasibility reports:
-
-- Supported
-- RequiresCallFacts
-- Unsupported
-
-This is deliberately weaker than final legality.
-
-It does not invent call-dependent facts such as:
-
-- purity;
-- observable error freedom;
-- evaluation-order freedom;
-- reassociation legality;
-- precise access relation.
-
-## 11.4 Planning reports
-
-A `RewritePlanningReport` combines:
-
-- target feasibility;
-- resource evaluation;
-- rule pruning permission.
-
-Current readiness states:
-
-- TargetUnsupported
-- NeedsCallFacts
-- NeedsResourceFacts
-- ReadyForCosting
-
-It does not select a winning candidate.
-
-Actual selection requires later `TargetProfile / ResourceEstimate / CostProfile` integration.
-
----
-
-# Part IX — Target architecture
-
-## 12. Target model
-
-Do not collapse target identity into one opaque object.
-
-The target model is layered:
-
-```text
-BackendFamily
-   ↓
-ArchitectureTarget
-   ↓
-DeviceProfile
-   ↓
-RuntimeProfile
-   ↓
-resolved TargetProfile
-```
-
-Compiler-specific target lookup is separate from user J locales.
-
-```text
-device
-  → architecture
-  → architecture family
-  → backend family
-  → cpu/gpu class
-  → generic
-```
-
-Lookup discovers candidates. Legality/resource/cost analysis chooses among them.
-
-## 12.1 Built-ins and extensions
-
-Hardware lowering applies uniformly to built-in J primitives and extension-derived operations.
-
-Do not create a special hardware path only for extensions.
-
-## 12.2 External adapter boundary contract
-
-An external adapter is a projection of a verified RouteRegion/Logical IR, not a replacement for RustJ semantics. Its input includes region live-ins/outs, ordered operations and SemanticChecks, effect/error edges, provenance, discharged legality evidence/guards, resolved TargetContext, and logical representation requirements.
-
-Capability queries must distinguish operation/ExecutionBasis/valence, dtype, rank/shape/dynamic-shape conditions, representation/layout preconditions, numeric/tolerance/reassociation policy, effect/token support, error/check representation, alias/mutation, and async/completion semantics. `supports Add` alone is not a sufficient contract.
-
-An adapter result must retain a verifiable projection record: adapter/schema identity, source RouteRegion/A3 provenance, emitted external operations/module, host-side checks, mapped effect/token edges, BridgeRequirements, external handles, completion/ownership contract, and failure classification.
-
-Every A3 SemanticCheck must either run on the RustJ side before launch in the same observable order, lower to an external form proven to preserve the same J error class/precedence, or make the region ineligible for that route. Backend traps/assertions/compile failures are not automatically J Domain/Rank/Length errors.
-
-Pure regions may require no token. Stateful/effectful regions may be projected only when equivalent ordering/resources can be represented. Representation/layout/device choices remain bridge/physical concerns and must not change logical dtype/shape/atom order.
-
-The adapter round-trip verifier checks that every source semantic operation maps to translated work, a retained host check, or an explicit bridge/effect action; live-in/out contracts survive; no checks/effect/error edges are dropped or reordered; emitted forms match declared capabilities; output ownership/completion precedes consumer use; provenance maps back to A3/J Graph/source; and unsupported partial modules are never returned as executable success plans.
-
-Keep failure classes distinct: AdapterUnsupported, AdapterCompileFailure, AdapterRuntimeFailure, and actual JSemanticError. Pre-execution failures may choose a verified alternate route under the no-replay contract; failures after committed effects/transfers do not trigger automatic replay.
-
-This is an implementation gate for future MLIR/StableHLO/ArrayFire/library routes. It does not claim that a production external adapter exists today, and it does not resume CUDA work.
-
----
-
-# Part X — Flow–Storage and materialization
-
-## 13. Identity separation
-
-Keep these identities distinct:
-
-```text
-SSA ValueId
-≠ semantic StateResource
-≠ physical BufferId
-```
-
-Likewise:
-
-```text
-semantic StorageRequirement
-≠ physical MaterializationDecision
-```
-
-## 13.1 Materialization choices
-
-Planning may eventually choose among:
-
-- KeepVirtual
-- FuseAway
-- RegisterResident
-- WorkingStateResident
-- Bufferize(memory_space)
-- Rematerialize(recompute_source_or_region)
-- ExternalResource
-
-Rematerialization is a physical/schedule choice, not deletion of semantic identity.
-
-Its legality requires proofs for effects, errors, state dependencies, name bindings, and observable ordering.
-
----
-
-# Part XI — Historical JAXA inheritance audit
-
-
-<a id="out-of-core-io-contract"></a>
-
-## 13.2 Slow I/O / out-of-core array execution (2026-10-06; design candidate, not implemented)
-
-**Goal.** Evaluate arrays/NN weights larger than RAM/GPU capacity without changing J-visible values, type/shape/atom order, Rank zero-frame prototype behavior, errors or effects. Avoid unnecessary source reads, then overlap bounded I/O with compute. This is a physical planning/scheduling/runtime extension, governed by the canonical §8.5 contract, **not a new J language construct, nor a prerequisite for the first M4 native CPU vertical slice**. The single acceptance checklist is [§17 IO](#out-of-core-io-checklist).
-
-| Source | What is borrowed | What is NOT implied |
-|---|---|---|
-| [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; non-jmf typed boxed mapping is rejected, but JMF-backed boxed regression fixtures exist; scope must be tested per route |
-| [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c), J `1!:11`/`1!:12` | indexed byte-range read/write, sequential baseline based on `fread/fwrite` | effectful foreign I/O is not a pure logical scan and must not be silently rewritten |
-| Jsource in-place/alias machinery | ownership-proved buffer reuse and copy elimination | mapped mutation is not automatically safe in-place reuse |
-| Jd (J data add-on) | Verified on-demand file-backed columns and partition-column selective reads | Borrow storage/layout and pruning techniques only; do not assume arbitrary J effects or queries can be reordered |
-| [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) | independent async blocking-I/O pool, read-ahead, memory-governed queued jobs, park/resume | do not copy a full database engine |
-| [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
-| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
-| [Ray Data streaming](https://docs.ray.io/en/latest/data/data-internals.html) | block streams, bounded queues, backpressure/spilling accounting | shuffle/reduce barriers remain |
-| [DeepSpeed ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) | NVMe/CPU/GPU staging and transfer/compute overlap | CUDA work remains deferred |
-| [FlexGen (ICML 2023)](https://proceedings.mlr.press/v202/sheng23a.html) | version-stable weight reuse and layer/batch-block schedules under capacity and latency/throughput constraints | must not reorder visible J effects, late bindings, or failures |
-| TensorFlow `tf.data` | prefetch+parallel data preparation as an additional comparison candidate | not proof of full-J compatibility |
-
-**Ownership and stage contract.** J Semantic/J Graph IR owns J semantics, data+effect dependencies and unknown/opaque facts, but not file offsets, chunk sizes or queues. Verified Logical IR may produce guarded/witnessed byte-access and reuse candidates only if exact J semantics permit. Native Physical Planner/Schedule owns storage placement, byte ranges, materialization, chunk and job boundaries, prefetch, transfer, memory budget, cost and completion edges. Runtime initially owns synchronous `read_at`/`write_at` and chunk iteration; later it owns request pending/ready/error/cancel, exact lease lifetime, finite queues, and backpressure. An external adapter must declare the actual I/O/effect/ownership capabilities and decline unsupported routes.
-
-**Keep identities separate.** `ValueId` is logical SSA; `StateResource` is a mutable semantic resource; `BufferId/BufferLease` owns runtime memory; proposed `StorageObjectId/Version` identifies external backing bytes and consistency; proposed `IoRequestId/CompletionToken` identifies I/O completion. The latter names are not accepted Rust APIs. Semantic `StorageRequirement` is not Physical `MaterializationDecision`.
-
-**Legality.** Preserve J Rank/CellApply empty-frame/prototype, boxed/sparse, tolerance, error precedence, late-bound names and observable foreign I/O. Use checked offset/extent/shape arithmetic. Define short-read, EOF, permission, stale-version, non-atomic file update and cancellation behavior. Unknown access or mutability is an optimization barrier; no speculative I/O that reorders an observable failure/effect, no transparent replay after committed effects. A zero-byte data read never excuses required zero-cell J shape/type derivation.
-
-**Execution route.** Baseline is portable synchronous file/chunk CPU execution. Proven projection/slice/range pruning comes next. Then memory-reserved bounded async read-ahead, double buffering, `Read(n+1)` overlapped with `Compute(n)`, explicit dependency/completion and release; memory pressure reduces depth. Use a scheduling/weight-reuse candidate only when input data is read-only/version-stable and reordering is semantically legal. mmap competes with `read_at`, not universally replaces it; page faults and cache behavior are measured. `io_uring`, remote storage, direct I/O and device DMA remain optional later capabilities.
-
-**Writes/checkpoints.** A J foreign file write, shared mapped mutation and an optimizer checkpoint have different visible effects. Checkpoint design needs explicit immutable version capture, temporary write, platform-specific flush/durability, publication/recovery, cancellation and partial-write behavior. Never declare save success before the required durability level, or change J-visible effect/error timing silently.
-
-**Cost and evidence.** Keep `ResourceEstimate` (peak/resident/inflight bytes, handles, queue budget) separate from `CostEstimate` (bytes, seeks/requests, bandwidth/latency, compute time, transfer/overlap). Compare cold vs warm cache, byte counts, wait, CPU compute, page faults, peak+retained memory, spilling, throughput *and* per-input latency. A feature exists only after code+independent semantic/negative tests+recorded commands and J C oracle coverage, as specified in the `17 checklist.
-
-
-## 13.3 Independent source re-audit: J storage libraries, physical file formats, model loaders (2026-10-06)
-
-**New gap identified.** The first I/O plan concentrated on async read-ahead; separate contracts for physical storage encoding, read-chunk vs write-shard granularity, mapped SIMD tails, remap/refcounts, and cache invalidation were under-specified. Evidence from upstream projects is not evidence of RustJ feature completion. All of the following is proposed pending [§17 IO acceptance](#out-of-core-io-checklist).
-
-| Primary source | Verified mechanism | Adopt or defer |
-|---|---|---|
-| [J jfiles/keyfiles](https://github.com/jsoftware/jsource/tree/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles) | serialized component storage using byte-range indexed read and keyed components | Keep serialized arbitrary J noun distinct from typed dense mmap, avoid copying full Jfiles format |
-| [Jd column.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) | on-demand column mapping, remap/resize; source calls out multi-process reference-count dangers | Verify lease/alias/remap/ownership safety, not a universal global DB lock |
-| [Jd api_read.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) · [ptable tutorial](https://www.jsoftware.com/jd_tuts.html) | partition-column-based table pruning | Use as selective array/partition-access inspiration only with J access, effect and error witnesses |
-| [Jd jmfx.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | padding file endings to avoid SIMD overfetch faults; historical 4-KiB page assumption | Cautionary case: require safe vector tails, checked mapping spans, actual OS granularity and lifecycle validation; do not copy hard-coded padding |
-| [Zarr 3](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 cache](https://docs.h5py.org/en/stable/high/file.html) | independent read chunk and write shard layout, chunk cache/eviction | Physical shape and IO granularity need not equal J logical shape; benchmark amplification and per-workload layouts |
-| [Safetensors](https://github.com/safetensors/safetensors/blob/main/README.md) | tensor dtype/shape/byte offsets and optional slice access, zero-size payload | Validate metadata/offsets/endian/empty/scalar. Do not make a new canonical RustJ disk format mandatory |
-| [llama.cpp loader](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | mmap vs no-mmap/mlock/direct I/O/NUMA/lazy tensor row policies | Choose storage load strategy from page faults, RAM pressure and access/reuse costs, not global mmap dogma |
-| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | parameter.load/read/gather/write, AsyncTransfer and Timepoints encode loading/storing parameter byte ranges plus readiness and resource lifetime | **Most direct IR precedent:** read-only weights can use Physical ParameterRead/Load → Await → consumer; checkpoint write still needs a separate durability contract. Not equivalent to observable J file-foreign effects |
-| DuckDB, Polars, Arrow, Ray, ZeRO-Infinity, FlexGen | skip unnecessary bytes, bounded job/batch read-ahead, backpressure, staged weights and reuse | Physical optimization order: prune bytes → version and alias safety → bounded scheduling → overlap → proven reuse |
-
-**Corrected JMF boxed scope.** [jmf.ijs](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) rejects *non-JMF typed boxed* mapping, while [JMF-backed boxed tests](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) exist and [mbx.c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/mbx.c) says “not supported.” Neither blanket all-boxed-supported nor all-boxed-unsupported is justified without a C-oracle check of the specific representation and operations.
-
-
-**IREE Stream dependency precedent:** `stream.async.parameter.load/read/gather/write`, `stream.async.transfer`, and `stream.timepoint` make parameter byte ranges, readiness, and resource lifetime explicit in a physical schedule. Speculatable parameter loads are not a license to reorder observable J file foreign effects; preserve availability, cancellation and error ordering. Reference for IO-13–18 and IO-20. [Official Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/).
-
-**Clarified abstraction.** Distinguish logical ValueId, physical external StorageObject/Version, StorageEncoding (typed contiguous, typed chunked, serialized components, external adapters), ReadChunk, WriteShard, BufferLease and IoCompletion. These are concepts, *not* committed Rust APIs. Observable J foreign-file I/O cannot be silently rewritten as a pure read of versioned immutable array backing. An empty data region can require no file bytes and still require J Rank fill-cell/shape inference. Cache keys need source/version/range/encoding; memory budgeting must account for decoded/pinned/inflight/kernel buffers while reporting OS page cache/RSS separately.
-
-
-<a id="io-framework-execution-comparison"></a>
-
-## 13.4 Framework I/O optimization mechanisms and RustJ graph-to-physical scheduling (2026-10-06)
-
-**Five independent concerns.** Efficient out-of-core execution combines (1) skipping unnecessary reads, (2) choosing physical read/storage granularity, (3) overlapping reads with computation, (4) reusing already loaded bytes and (5) memory, readiness and failure control. These concerns are owned by different stages. J Semantic/J Graph/Verified Logical IR defines observable J semantics, access and legality proof; Physical Planning/Scheduling/Execution chooses byte ranges, chunks, transfers, buffer lifetime, inflight requests and resource budgets. The table is a source-informed set of design candidates, **not evidence of implemented RustJ functionality**.
-
-| Framework / primary documentation | Mechanism and owning layer | RustJ application and limits |
-|---|---|---|
-| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Predicate, projection and slice pushdown into scans; common subplan/file scan elimination in logical planning | IO-09–12: only prune bytes when `AccessRelation` and witnesses preserve J semantics; otherwise opaque fallback for Rank, dynamic lookup, errors and effects |
-| [DuckDB async I/O announcement (2026-07-31)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group / CSV scan jobs and range fetch tasks; separate `REGULAR` compute and primarily blocking `ASYNC` I/O pools; parked consumers resume at completion. Read-ahead depth negotiates with the temporary-memory manager | IO-13–17: bounded requests, readiness/wakeups, adaptive prefetch under pressure. Announced development/version behavior must not be assumed present in every release |
-| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | `stream.async.parameter.load` creates a resource; `read` fills an allocation; `gather` assembles several parameter archive ranges. Timepoints and await dependencies encode availability and ordering in the physical resource graph | IO-13–18/20: physical `ParameterLoad/Gather → Await → Consumer` for immutable weights; IREE's hoistable parameter loads do not authorize speculation of observable J `1!:` file foreign calls |
-| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | Separate `batch_readahead` and `fragment_readahead` scan concurrency | IO-14–16: independently bound read-ahead at chunk/fragment levels and account for decoded buffers |
-| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | Stream block references through operator queues; schedule only when resources and backpressure permit; spill when needed | IO-15–17: bounded queues, slow-consumer pressure, distinction between spill, workers' working memory and nonstreamable barriers |
-| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) / [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | Chunk/shard layout and decoded chunk caching trade read amplification, file count and reuse | IO-26–29: `LogicalShape`, `ReadChunk` and `WriteShard` remain independent. Small slices may still require decoding entire chunks |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Mapped vs unmapped model loading and residency tradeoffs | IO-23/30: measure page faults, cold/warm cache, resident memory, local/remote throughput rather than mandate mmap |
-| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) / [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | Parameter/optimizer-state offload and prefetch between NVMe, CPU and GPU; layer/batch scheduling to reuse weights at throughput/latency tradeoffs | IO-18–20: only legally reorder loads of immutable/version-stable weights; mutable gradients, checkpointing and J effects need different contracts |
-| [TensorFlow tf.data guide](https://www.tensorflow.org/guide/data_performance) | Input prefetch and parallel-map overlap producer and consumer | IO-14–16: helpful producer/consumer precedent, not permission to reorder arbitrary J cell/verb evaluation |
-| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | Stage mutable state and perform asynchronous persistence | IO-18: snapshot/version/write completion/publish/recovery, not success merely because an asynchronous operation was submitted |
-
-**Two disk-backed weight layers — meaning versus realization.** The logical array computation is `X → MatMul(W1) → Activation → MatMul(W2) → Y`. Provided W1 and W2 are proven immutable/version-stable physical inputs, the physical scheduler may overlap a read of W2 with computing Layer 1. It cannot start Layer 2 before both the activation result and W2's readiness token are available. This is a candidate, not the current implementation.
-
-~~~text
-Logical (J semantics)
-X ---> MatMul(W1) ---> Activation ---> MatMul(W2) ---> Y
-
-Physical candidate
-Reserve W1 -> Read W1 -> Ready W1 -> Compute L1 -> Activation --+
-Reserve W2 -> Read W2 -> Ready W2 ------------------------------+
-                                                               |
-                                                          Compute L2 -> Y
-Read W2 may overlap Compute L1, within the resource budget.
-Compute L2 awaits BOTH Activation and Ready W2.
-Release a buffer only after its last user and all pending I/O/transfers complete.
-~~~
-
-**Why these optimizations compose rather than replace one another.** Polars minimizes the requested bytes; IREE makes physical data movement/readiness explicit; DuckDB/Arrow/Ray manage request scheduling and backpressure; DeepSpeed/FlexGen seek profitable placement and reuse. Read-ahead can hide wait time but does not intrinsically reduce bytes, and merging many small byte ranges trades fewer requests for potential over-reading.
-
-**Semantic and failure guardrails.** Distinguish (A) an internal read of an immutable/versioned storage object, (B) observable J foreign I/O such as `1!:11`/`1!:12`, and (C) mutable weight/checkpoint persistence. Only A admits a proof/guard-authorized speculative prefetch or pruning. B preserves J effect and error ordering; C additionally needs snapshot, version, commit, publication and durability semantics. A zero-byte read does not eliminate J Rank zero-cell fill/prototype, dtype, shape or error obligations. Boxed/sparse, dynamic NAME/Rank, alias changes, stale files, EOF/short reads and premature exposure of speculative failures remain negative-test barriers.
-
-**Resource and cost accounting.** Bound queued + in-flight + decoded + pinned + temporary + output/retained buffers; report OS page cache and allocator RSS independently of runtime reservations. For cold/warm runs record actual bytes and I/O requests, seek/latency, blocking wait, CPU/GPU work, page faults, overlapped time, peak/retained memory, spilling, batch throughput and single-call latency. Approval order stays *semantic conformance → resource safety → measured cost-based route selection*.
-
-**Existing acceptance checklist mapping (no new checklist):** IO-09–12/29 for pruning and cache; IO-05–08/26–28 for storage and chunk/shard representation; IO-13–17/20 for async, transfer and backpressure; IO-18–19 for weights/checkpoint; IO-21–24/30 for comparative measurements; IO-01–04/25 for original-source and semantic contracts. Continue using the [IO-01–IO-30 single acceptance ledger](#out-of-core-io-checklist); writing this design section **does not advance implementation acceptance beyond 0/30**.
-
-
-<a id="unified-data-movement-contract"></a>
-## 13.5 Unified memory I/O and disk I/O planning contract — no new mandatory IR layer (2026-10-06)
-
-**Decision.** Treat memory access/copies, prospective CPU↔GPU transfers, and disk/file-backed range reads/writes as **joint data-movement planning and scheduling concerns of the existing Physical Planner / Physical Execution Plan**. Do not introduce a stand-alone `Data Movement IR` at this stage. Retain independently owned access-region proofs, effect/dependency contracts, and physical location/transfer/readiness/lifetime state at their established boundaries. Reconsider a separate resource/stream execution IR only when at least two concrete asynchronous or mixed-route use cases demonstrate that the existing Physical Plan cannot safely encode dependencies, buffer lifetime, or scheduling. This does **not** collapse the existing J Graph IR → Verified Logical Execution IR → Physical Plan boundaries.
-
-| Existing stage | Owned facts and decisions | Must not own |
-|---|---|---|
-| J Semantic IR / J Graph IR | Source topology; ValueId, Rank/CellApply, empty-frame semantics, source provenance; optional pass-local access-candidate sidecars | BufferId, file offsets, DMA, concrete transfers, physical layouts, or EffectSummary/committed selection embedded into GraphFacts |
-| Verified Logical Execution IR / analysis | Observable J file/namespace/state effects; error, ordering and guard dependencies; value/effect liveness; logical AccessRelation with Unknown/Proven/Guarded evidence | Reclassifying arbitrary file I/O as a pure array load or approving unsound read omission/reordering |
-| Existing Physical Planner / Representation / Schedule | Distinct StorageObject/Version and BufferId/Lease identities, physical regions (buffer slices vs file byte ranges), Read/Write/Copy/Transfer/Materialize/Release, completion/readiness edges, placement/layout and byte/resource/cost estimates | Mandating a physical copy for every access, unifying file/memory semantics, or selecting unsupported device transfers |
-| Executor / Backend | Independent synchronous CPU reference for read_at/write_at/buffer copies first; later separately verified async tokens, queues/backpressure, target implementations | Releasing buffers before transfer completion, replaying visible file effects, or claiming currently deferred GPU implementation |
-
-**Shared interface, distinct meaning.** `AccessRegion` identifies which logical elements are needed. Concrete `BufferSlice` and `FileByteRange` are distinct kinds of physical region; they must not be treated as one alias domain, address space or failure contract. Shared analyses may inspect interval/producer/consumer, placement, lifetime, alias constraints, dependency, capability and cost. Continue distinguishing logical `ValueId`, mutable `StateResource`, external `StorageObjectId/Version`, physical `BufferId/BufferLease`, and `IoRequestId/CompletionToken`. These are proposed conceptual names, not committed Rust APIs.
-
-**Compile time versus runtime.** Compile-time proofs may determine stable shape/dtype/access patterns, users/lifetimes, removable intermediates/copies, buffer-reuse opportunities, required regions and tentative streaming/transfer plans. Runtime must still establish actual file bytes, external modification, EOF/permissions, data sizes, available RAM/GPU capacity, cache/bandwidth conditions and completion, applying explicit guards and hard resource limits. Keep memory bytes, file requests/seeks, transfers, launch/synchronization, overlap, peak/inflight/retained bytes and cold/warm latency as distinct cost dimensions. Unknown is neither zero cost nor permission to reorder.
-
-**Effect safety.** Distinguish (A) an internally accessed, proven immutable/version-stable backing object, (B) J-observable `1!:` foreign file I/O, and (C) mutable-state/checkpoint publication. Even A may expose failures; speculative scheduling must separately prove that user-visible error timing/order is preserved. An unused result of B does not license deleting file existence/permission/error effects. An asynchronous write submission for C is not a durability-completion guarantee. A zero-byte/empty-frame result still has J virtual fill-cell, dtype/shape and applicable error obligations.
-
-**External framework precedents (not imported semantics).** [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) provides physical resource, async transfer, parameter/file read/write and readiness scheduling. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) and [Memory Effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/) motivate separating logical values from buffers and using resource-aware effect interfaces. [XLA GPU architecture](https://openxla.org/xla/gpu_architecture) shows staged fusion/buffer assignment/layout/transfer planning, not general J file I/O. [TVM](https://tvm.apache.org/docs/) informs device placement; [DataFusion](https://datafusion.apache.org/) informs file scan and proven filter/projection pushdown. None automatically enforces full-J foreign error ordering or Rank prototype semantics.
-
-**Trace example.** A proven immutable `File(A) → Slice → Elementwise → Consumer` may lower to a physical byte-range read followed by fused CPU work once an access witness is valid. An unused `1!:1`/`1!:11` read cannot be eliminated solely by dead-value analysis when file-open/EOF/errors are observable. CPU↔GPU copies are candidates for the same physical planner, while CUDA execution remains deferred.
-
-**Single existing acceptance ledger.** Do not create DM-* work items. Refine IO-03 (stage and identity/effect interface), IO-09 (access-region proof), IO-13/14 (sync-to-async readiness), IO-17 (effect/failure/lifetime), IO-20 (shared memory/file/transfer physical cost planning), and IO-22 (independent three-way and negative tests) in the existing [IO checklist](#out-of-core-io-checklist). Reuse FW-05–09 provenance/guard and DB effect evidence as prerequisites. **Status: architecture decision recorded; no implementation or execution evidence; IO acceptance remains 0/30. Not a prerequisite for M2 frontend convergence or the first M4 native CPU vertical slice.**
-
-<a id="io-a-source-audit"></a>
-## 13.6 IO-A pinned source cross-audit and executable witnesses (2026-10-06–07)
-
-**Scope/status.** Reviewed pinned implementation source for IO-01/IO-25 and identified negative tests required by IO-02. **Source inspection is partial progress, not acceptance**: file-foreign fixtures have run against pinned J C binaries, but mapped/Jd and broader effects have not been verified, so IO-01/02/25 remain [ ] and the I/O implementation ledger stays at 0/30.
-
-| Pinned source / location | Directly observed in source | Still to prove for RustJ |
-|---|---|---|
-| [jsource `xf.c` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/xf.c), `jtjiread/jtjiwrite/jtixin` | `1!:11` opens/inspects the file before validating start and length against file size; read enforces `j≤size, j+length≤size, length≥0`. `1!:12` passes null for output length, so it checks nonnegative starting index rather than imposing the same read end-bound, then writes. Negative start offsets are adjusted by file size. `jtrd/jtwa` use synchronous `fread/fwrite`. | Actual precedence of open/index/permission errors, EOF, short I/O, writing past EOF, concurrent mutation, and no replay of visible effects. Source alone does not establish atomicity or concurrent-truncation behavior |
-| [jsource `jmf.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) and [`gmbx.ijs`](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) | Modes 0/1/2 distinguish RW/RO/COW; live refs may prevent unmap. `additem` rejects type 32 boxed, whereas `gmbx.ijs`, despite its mapped-boxed label, contains `'' -: q` and `'' -: r` assertions, not a proof that arbitrary boxed payload read/write works. | Format/type/mode-specific boxed support via executable oracle; never equate COW with committed shared write |
-| [data_jd `column.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) and [`jmfx.ijs`](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | Mapping/remapping and cross-process reference-count hazards are documented, with DB locks providing a restricted usage assumption. The SIMD-tail padding workaround assumes `PAGESIZE=:4096`. | OS-independent checked spans/masked tails, real page size and safe remap/lease tests; do not generalize DB locks to J semantics |
-| [jsource `jfiles.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles/jfiles.ijs) and [data_jd `api_read.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) | jfiles `j_read` uses `3!:2 @ (1!:11)`, reading serialized components from offset-indexed directory entries. Jd `readptable` selects underlying partitions using predicate results. | Distinguish typed contiguous backing from serialized components. Do not generalize Jd's selective reads into arbitrary J/foreign-I/O rewrites |
-
-**Remaining executable fixtures (not yet fully run).** With a fixed J binary and controlled temporary files, observe normal/edge `1!:11` ranges, negative offsets, `1!:12` writes beyond EOF, nonexistent files, permissions, concurrent changes/short reads, named files versus numeric handles, error precedence and close/unlock behavior. Separately test JMF RW/RO/COW and live-reference unmap, exact mapped-boxed payload cases, resize/remap, and Jd/jfiles partition/keyed component access. Derive expected observable behavior from the executable C oracle rather than guessing it from source. Record pin, command/environment, pass/fail/unsupported and blockers in the existing IO ledger.
-
-**IO-A executable diagnostic harness (2026-10-06).** Added 15 isolated temporary-file C-oracle cases in [tools/file_io_audit.py](tools/file_io_audit.py): whole/range reads, file size, negative offsets, zero-length EOF reads, read bounds, partial/beyond-EOF writes, missing files and a discarded read whose failure remains observable. [tools/test_file_io_audit.py](tools/test_file_io_audit.py) checks fixture uniqueness, quoted names, temporary-path isolation and mismatch reporting without a J binary. [Linux CI](.github/workflows/linux.yml) now builds the pinned `j64/j64avx2 × default/portable` J libraries and records non-acceptance diagnostic JSON as an artifact; the default diagnostic mode reports expectation mismatches rather than converting them into a passing J-semantic gate. The audit source pin `0a5101cf` and CI oracle revision `13994ffa` have identical Git blob SHAs for `xf.c`, `jmf.ijs`, `gmbx.ijs` and `jfiles.ijs`. Do not predeclare J error precedence, platform-specific file-hole contents or mapped-boxed behavior before executing oracle fixtures. **IO-01/02/25 remain unchecked; no accepted RustJ I/O implementation is implied.**
-
-**Initial CI diagnostic correction (non-acceptance).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210) initially showed 9 of 15 expected outcomes matching and six requiring review on both `j64` and `j64avx2`. All six initially reported `length error`: this was traced to **incorrectly pre-boxing the file name** in the indexed-foreign fixture, not an established J semantic disagreement. The [J Files manual](https://www.jsoftware.com/help/dictionary/dx001.htm) distinguishes whole-file `1!:1 <'name'` from indexed `1!:11 'name';offset length` and `x 1!:12 'name';offset`. [Fix 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a) uses the unboxed name on indexed calls and prevents `length/rank/syntax` errors from counting as real missing-file effects. [Unit-test update bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) follows. Pending re-execution, 9/15 is not J-semantic acceptance and IO-01/02/25 and the overall 0/30 remain unchecked.
-
-**Executed pinned J evidence (2026-10-06).** In [Linux CI 37470839455](https://github.com/yunskim/RustJ/actions/runs/37470839455), the general `check` job passed and the observed `j64/default`, `j64/portable`, and `j64avx2/default` runs each matched **15/15 C file-foreign fixture expectations, zero review items**. `j64avx2/portable` was still running at this checkpoint and is not counted. [Workflow commit 3d476f6](https://github.com/yunskim/RustJ/commit/3d476f6f4f8bd1c925e2216ee856cfdfcd5fc9d2) enables `--gate` to enforce these C-oracle fixture expectations in subsequent runs. This **J reference fixture gate** is not independent RustJ three-way verification and does not prove JMF/Jd/boxed or async I/O; IO-01/02/25 and the 0/30 acceptance ledger remain unchecked.
-
-**Expanded IO-02 ordered J-reference witnesses (2026-10-07; partial oracle evidence).** [tools/file_io_audit.py](tools/file_io_audit.py) now adds **six ordered-effect cases / 14 J steps** alongside the prior 15 independent file-foreign fixtures. With one J interpreter and one isolated temporary file per case, it inspects file bytes after *every* JDo: (1) a discarded write result still has an observable effect, (2) a failing right read prevents a left write in J evaluation order, (3) a subsequent error does not roll back an earlier completed write, (4) a bad indexed write preserves a preceding completed write, (5) append followed by tail read, and (6) truncate followed by full read. [Offline tests](tools/test_file_io_audit.py) inject a forbidden early write and ensure it is detected. In [CI 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953), the general `check` job and pinned `j64/default` oracle passed with **15/15 independent and 6/6 ordered (14 steps), zero mismatches**; other matrix variants were unresolved at the time of this checkpoint. This is a **J C-reference semantic witness**, not native/optimized RustJ I/O equivalence or mapped/foreign coverage: IO-02 and overall IO remain **[ ] / 0 of 30 accepted**.
-
-**Next IO-02/IO-25 executable slices (within the existing ledger).** (a) Extend reference fixtures to named versus numeric handles and permissions/close/flush, EOF/short reads and concurrent truncation for `1!:1/2/3/4/11/12`; (b) independently verify loading the pinned J standard/add-on library before smoke-testing JMF RW/RO/COW, live-reference unmap/resize and typed/boxed variants; (c) enable Jd/jfiles executable probes only after their fixture and pinned dependency setup is demonstrably reproducible. Do not classify a missing J add-on bootstrap as J semantics, or promote the C-only 15+6 tests to RustJ implementation acceptance.
-
-**Pinned C matrix confirmation for IO-02 (2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953) completed successfully in the generic check job and all four `j64/j64avx2 × default/portable` reference jobs. Each recorded **15/15** independent C file-foreign fixtures and **6/6** ordered-effect cases (**14 JDo steps**), with zero cases requiring review. This is a repeated C-source semantic witness, not RustJ three-way I/O execution equivalence; the IO implementation acceptance ledger stays unchanged.
-
-**First independent IO-25 JMF smoke attempt (not accepted).** [tools/jmf_smoke.py](tools/jmf_smoke.py) attempts to bootstrap the pinned `jlibrary/bin/profile.ijs` and `load 'jmf'` under an isolated temporary HOME and J C binary, then runs RW(0)→RO(1)→COW(2) **map → empty noun check → unmap-result-zero** on a temporary JMF backing file. [Offline plan checks](tools/test_jmf_smoke.py) and a separate [Linux CI](.github/workflows/linux.yml) non-acceptance diagnostic step are added. Missing library bootstrap or JMF execution is reported as `blocked`, not a J semantic mismatch; CI results were not finalized at this checkpoint. This smoke does **not** validate boxed payloads, write durability/RO-COW mutation behavior, refcount-denied unmap, resize/remap, or Jd partitions. IO-25 remains [ ].
-
-**Initial JMF bootstrap observation (2026-10-07; not accepted).** In [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000), the pinned `j64/default` and `j64/portable` non-gating JMF probes recorded `status=blocked`, `stage_count=2`: setting `BINPATH_z_` succeeded but `0!:0 <.../jlibrary/bin/profile.ijs` returned `domain error`. **The probe never reached map/unmap.** This is a bootstrap blocker, not evidence that JMF RW/RO/COW semantics fail. [Diagnostic follow-up 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3) first checks loading a trivial standalone J script and captures `13!:12` on errors, to isolate script loading from full profile setup; the subsequent CI result was not yet confirmed at this checkpoint. IO-25 remains [ ].
 
 ## 14. Principles retained
 
@@ -4250,6 +4264,216 @@ Remaining transitions:
 Linux/GitHub Actions CI is not a default architectural progress gate unless explicitly requested.
 
 ---
+
+
+### Detailed frontend implementation and validation evidence (2026-10-07)
+
+The material below records time-specific execution evidence and follow-up audits, not the initial architectural reading path. Current support claims and next-action gates remain defined by the status and roadmap sections.
+
+#### Definition calls and frontend E2E evidence (2026-10-07)
+
+This supersedes historical "17 ignored" definition coverage claims. Explicitly running all 17 acceptance tests initially produced **zero passes / 17 failures**: DefinitionCode and modifier frames existed, but ordinary mode-3/4 verbs were not dispatched to the definition executor.
+
+- [x] Dispatch ordinary explicit/direct verbs and ordinary aliases through the shared definition executor for both valences. Evaluate arguments in the established parser order and use a distinct LocalFrame for each call.
+- [x] Validate local/global assignment, noun snapshots, call-time global noun/function rebinding, isolation from caller-private locals, and frame restoration after errors. Unbound `u`/`x` in an ordinary mode-3 verb may fall back globally; they are not missing modifier operands.
+- [x] Execute audited ControlNode targets for if/elseif/else, while/whilst, break/continue, return, and try/catch/catchd. Keep T-block and last B-block results separate; initialize/reset results to C's Boolean empty matrix. Unsupported boundaries must not become successful caught J errors.
+- [x] Pass and unignore **14 of the original 17** acceptance tests; add **four** regression tests for C first-atom conditions, empty results, nested catches, and scope/effect/error restoration.
+- [x] Add `examples/frontend_e2e.rs`, observing the actual tokenizer, enqueuer, analysis Program, runtime FrontendContext/NAME/reduction records and result. Verify contexts, analysis without commits, and no escaped local `t`.
+- [x] Implement for/for_name leading-item iteration, scalar/empty/zero-atom rows, read-only index names, snapshots, and cleanup on branches/errors against C. Preserve uncatchable forinit failures. Named sparse iterators remain Unsupported; item transport currently copies into owned arrays, not zero-copy/GPU execution.
+- [x] Implement nested direct/string explicit construction and independent local scopes. Reuse input framing to collect complete multiline units and isolate inner controls, colon separators, names and inferred modes. Caller-private locals are not captured; global names resolve at call time. Embedded colon-zero blocks are syntax errors as in C; external input consumption is not implemented.
+- [x] Project definition values as A3 `VerbReference(Callable { target: Definition, semantic: Arc<FunctionEntity> })`, retaining immutable DefinitionCode, source and NAME plans without fabricated array facts, binding commits or body effects. Verify target/entity agreement and reject direct Definition SemanticCall. Body CFG lowering/compiled execution remains pending; call analysis retains its structural-lowering boundary.
+
+**Handoff:** analysis returns `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`. Its expression is Literal/ReadName/Monad/Dyad/VerbValue/etc.; `Arc<FrontendContext>` links expanded word flags/spans, parser items, semantic nodes, origins, NAME observations, stack/reduce steps and root. Runtime `CapturedEvaluation { result, capture }` pairs the actual result with the same runtime parser's context. This sidecar is not a second executable AST/continuation. Runtime parsing reduces nouns; the deferred analysis expression must not be misrepresented as a runtime result.
+
+**Definition boundary:** both the multiline explicit definition `explicit=:3 : 0\nt=.y+g\nt\n)` and direct definition `direct=:{{ t=.y+g\nt }}` construct VerbValue with an ExplicitDefinition Arc<DefinitionCode>, without executing their bodies. Code preserves source/form/spans, decoded body, valence ranges, queued body words/flags, control nodes, and DefinitionNamePlan. `t` is a LocalAssignmentTarget; `y/g/t` reads use CurrentFrameThenGlobal. This is preparse metadata, **not a precomputed optimizable AST of the entire body**. Calls parse the body through the shared runtime parser. Outer capture does not recursively export every internal body NAME event.
+
+The executable example uses `a=:1 2 3; a+2*3` (separate sentences), producing 7 8 9. Analysis retains `Dyad(Add, ReadName("a"), Dyad(Multiply, Literal(2), Literal(3)))`; runtime noun NAMEs snapshot when stacked. Explicit outer enqueue is Name / Assignment / Noun(3) / Conjunction(DefinitionConstructor) / Noun(body). Direct enqueue adds the generated `(9 : body)` structure, reduced by Conjunction → Parenthesis → Assignment, inferring mode 3 here. Calls retain `Monad(NameRef(name), Literal(2))` in analysis, with LateAtCall / FunctionReference / RuntimeClass runtime NAME observations. Both definitions return 12 for g=10 and 22 after g is rebound to 20; local t does not escape. Explicit `pair=:4 : 'x+y'` and direct `ddpair=:{{ x+y }}` both produce 5 for `2 pair 3` / `2 ddpair 3`, represented as Dyad(NameRef(name), Literal(2), Literal(3)).
+
+Native Windows reproduction: `cargo run --example frontend_e2e`. Raw evidence is in `reports/frontend-e2e-windows.json` and bounded C comparisons in `reports/definition-calls-windows.json`. All 14 demonstration results match j64/AVX2 × direct/semantic-reference. Extended definition cases have **31 fixtures / 124 observations / 124 matched**; existing NAME scopes have **10 fixtures / 40 observations / 40 matched**. All **67 Python harness tests** pass; the Windows file-quoting helper now normalizes slashes. No CUDA/Linux/GitHub CI/full-upstream or optimized-definition execution claim is made. Parser-nested recursion currently has a depth limit of eight; explicit execution frames remain follow-up work.
+
+**Final regression validation:** Windows default/portable each **596 passed / 3 ignored / zero failures**; fmt and clippy `--all-targets -D warnings` pass. Explicitly running the three pending for/nested/A3 tests fails at the corresponding boundary and is not counted as success. Source/binary hashes in all three evidence files were checked against the final default build.
+
+##### Definition iteration, nesting and A3 function values (2026-10-07)
+
+All 21 existing definition acceptance tests are active. Five loop regressions and four nested/function-reference regressions were added. Source → Program/FunctionEntity → J Graph → A3 function-value transport is distinct from executable body CFG lowering. Calls still use the shared runtime parser with a depth limit of eight. select/case/fcase, catcht/throw, goto/label, general locales/locatives, compiled CFG and CUDA execution remain follow-up work. The preceding 596/3 result is historical.
+
+Raw bounded evidence is in `reports/definition-loops-windows.json` and `reports/definition-nested-windows.json`, comparing two Windows J DLLs × two Rust evaluator routes, not full upstream conformance. Existing comparison bench linking under Windows `cargo test --all-targets` fails because it requires Linux dl.lib; this is separate from ordinary tests, portable tests and clippy static checks.
+
+
+Final native Windows validation: default/portable each **608 passed / zero ignored / zero failures**, Python **67 passed**, fmt/clippy pass. Two C DLLs × direct/semantic-reference: for **23 fixtures / 92 matched**, nested **12 / 48**, existing definitions **31 / 124**, NAME scopes **10 / 40**, totaling **304 observations / 304 matched**. Source and binary SHA-256 in all four C reports were verified against the final default build. frontend-e2e-windows.json remains the historical capture of the preceding demonstration and was not regenerated.
+
+
+
+#### Frontend E2E re-audit: expressiveness, handoff and errors (2026-10-07)
+
+The user-approved **frontend E2E completion for the supported subset** remains in force. It does not mean full J expressiveness, admission of every Program to Graph/A3, or compiled definition CFG execution. Body computations and structured regions belong to subsequent J Graph/Logical analysis, with CFG lowering where needed. No complete frontend CFG is required. This review changes audit tools/documentation, not runtime semantics.
+
+The 38/24 results and stage counts below are the pre-remediation baseline. Current results after the string-target implementation are recorded in its execution checklist below.
+
+`frontend_contract_probe` independently inspects P=prepare_semantic_diagnostic, G=J Graph and L=CompilationAnalysis/A3, then performs R=eval_captured. Reproduce with `python tools/frontend_contract_audit.py --assets-root ../rustj-project-docs --probe target/debug/examples/frontend_contract_probe.exe --report reports/frontend-contract-audit-windows.json` after building the example.
+
+**31 cases × two Windows DLLs = 62 observations: 38 runtime/post-state matches, 24 runtime gaps across 12 cases.** Gaps are findings, not passes. Complex/extended/rational probes establish C acceptance/type only because the noun bridge cannot serialize their values. Other observations compare values/error kinds and setup/post-state. C diagnostic locations/text/internal parser state are not compared. P has 15 accepted/14 Unsupported/one syntax/one control; G has 14/15/1/1; L has 13/16/1/1. These are deliberately selected boundary probes, not upstream coverage percentages.
+
+| Question | Finding | Owner |
+|---|---|---|
+| Full jsource expressiveness | Not yet: runtime supports single/multiple/computed string targets and bounded noun/verb/adverb/explicit conjunction abandon plus nameless conjunction transfer. Boxed/AR targets, locatives, direct nameless conjunction abandon application, deferred-effect lowering and complex/extended/rational/overflow literal conversion remain unsupported | Existing F1/P4/numeric compatibility gates; noun-target and abandon checklists below |
+| Computed rank, `a+a=:2`, `a=:b=:1` | Runtime matches C; non-executing P/G/L reject them. Chained assignment is not universally unsupported at runtime | Dynamic construction/effect boundary, P8 |
+| `adv=:/` | Program preserves modifier/POS; Graph rejects modifier-value lowering | P8/A1/A2 |
+| execute primitive | P/G admit; L/runtime do not implement execution | Route/runtime capability |
+| explicit/direct/nested definitions | P/G/L admit function values. A3 carries Definition reference, not compiled body CFG | P8/A1/A2/A3 |
+| select definition | Preparse metadata admitted; this probe only constructs the definition | Subsequent body execution/lowering |
+
+Program.expression/FunctionEntity remain semantic authority. FrontendContext retains words/items/nodes/origins/NAME policies/reductions/steps/root, not a second executable AST. Function head/POS/operands, intrinsic noun snapshots, fork semantics and header ranks survive. Catalog/rank snapshots are not executable guards. Runtime simple-name observations contain frame/global identities, binding generation/version/POS; they are not locale/path witnesses.
+
+DefinitionCode preserves original/decoded source, form/mode/valences, body word classes/flags/spans, controls and local/global NAME plans. This enables later analysis but does not supply every statement as an already analyzed computation IR. Later semantic parsing/re-enqueue is an explicit boundary. Preserve declared-unbound global fallback and absence of caller-private local capture. **ControlNode.go is a C control/error target, not the sole normal successor/CFG edge**; consume it together with kind/previous-result data. Structured regions, merge/loop-carried values and exception edges belong downstream.
+
+Supported inputs retain enough source/identity to start downstream analysis. It is not justified to claim that every needed property is already a ready-to-optimize IR fact or that arbitrary inputs need no reanalysis. The private body_error mapping handles escaped source, but there is no complete public source-unit/frame-chain contract. Failure prefixes/captures are observations, not effect replay or exact-resume authorization. Body effect/error graphs are not connected to outer A3.
+
+**Error review (A0.6/P8/A3):** J error class, diagnostics and rendering are separate; ordinary inner context wins during merge. However, invoke_definition_verb explicitly clears body span/blame because it is a different source coordinate space, and parsing attaches caller coordinates. Modifier invocation similarly replaces the span. `f=:{{y+1 2 3}}` then `f 1 2` preserves length error, `+` and argument shapes [2]/[3], but locates failure only at caller f [0,1]. Nested outer→inner retains outer [0,5], not body failure location/call chain.
+
+`missing+(1 2+1 2 3)` exposes the right-side length error first. `(1 2+1 2 3)+a=:9` leaves a=9 after that error, although static P rejects it. Failed `a=:1 2+1 2 3` preserves previous a=7; invalid control redefinition preserves f=42. This is failed-write commit prevention, not sentence-wide rollback. Unsupported must not be caught as a successful J error; C forinit read-only failures have a distinct uncatchable boundary. Full throw/catcht, error-class coverage and optimized error ordering remain pending.
+
+Required contracts: distinguish J semantic failure, route/analysis admission miss, verifier/compiler defect and backend implementation failure. Current Unsupported conflates several categories and is not a catchable J error or replay permission. Retain immutable source/definition origin, decoded-to-original mapping, primary failure location plus callsite frames and semantic operation origin; retain bounded type/shape summaries, not full argument arrays. Do not raise potential runtime errors early merely because static analysis can see them.
+
+**Framework practices to apply through existing P8/A0.6/A3 work:**
+
+- [MLIR SCF](https://mlir.llvm.org/docs/Dialects/SCFDialect/): structured if/loop regions, yields and loop-carried values before optional branch CFG lowering; preserve J-specific condition/name/exception meaning.
+- [MLIR verification](https://mlir.llvm.org/docs/Tutorials/Toy/Ch-2/) and [conversion legality](https://mlir.llvm.org/docs/DialectConversion/): separate valid source/semantic IR from route admission, with boundary verifiers.
+- [MLIR diagnostics](https://mlir.llvm.org/docs/Diagnostics/) and [builtin locations](https://mlir.llvm.org/docs/Dialects/Builtin/): connect operation origins/body locations/callsites rather than overwrite one span.
+- [Effects/speculation](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/): memory effects alone do not establish safe speculation or J first-error behavior. MLIR explicitly documents incomplete non-local-control-flow modeling; do not assume it solves J try/throw.
+- [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html): explicit inputs/results/constants and nested computations. Do not adopt tracing-time constant capture for J late-bound globals or execute definition control flow during tracing.
+
+Existing Co-dfns/APEX/TAIL-Futhark research remains historical FOUNDATIONS evidence. The pinned Co-dfns manual could not be reopened in this review and is not counted as newly verified. New framework findings rely directly on official MLIR/JAX material.
+
+Audit-tool validation: native Windows default/portable each **608 passed / zero failed / zero ignored**, Python **67 passed**, fmt/clippy pass. No runtime change. Keep gaps in the new 62 observations separate from the preceding 304 matched acceptance observations.
+
+
+
+#### Frontend audit remediation execution plan (2026-10-07)
+
+Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset frontend E2E remains complete; CFG construction stays downstream. This table sequences existing work; completion requires implementation and independent validation.
+
+| Order | Existing owner | Scope / acceptance | Status |
+|---|---|---|---|
+| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
+| 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
+| 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effect plan implemented; direct nameless application/effect-to-Graph integration/locatives pending |
+| 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
+| 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
+
+Step 1 adds source-owned diagnostic frames to ErrorContext while preserving caller-relative span/word semantics. DefinitionCode maps body offsets through a sparse escaped-quote map. Share source through Arc, never copy noun payloads for diagnostics. The frame chain is diagnostic metadata, not function identity, CFG or a resume token. Render primary body failure, definition callsites and external caller. Validate on native Windows default/portable, fmt/clippy/Python and bounded C audits; CUDA/GitHub CI remain deferred. Step 1 completion does not close other compatibility gaps.
+
+A0.6 execution checklist — first implementation slice:
+
+- [x] `DefinitionSourceMap` maps decoded body byte ranges to original source, stores only doubled-quote positions, and verifies the entire body/source correspondence.
+- [x] `DiagnosticSourceFrame` preserves kind, shared `source: Arc<str>`, definition span, original source span and fragment-queue blame word. `ErrorContext.source_frames` runs from the innermost failure to outer definition callsites; existing caller span/word semantics remain intact.
+- [x] Preserve/render statement/control failures across ordinary/modifier/nested invocation. Add escaped-quote, UTF-8, CRLF, source lifetime after redefinition, failed-assignment and catch regressions.
+- [x] Final-source native Windows default/portable: **612 passed / 0 failed / 0 ignored** each; fmt/clippy passed; Python **67 passed**. Definition calls/loops/nested/NAME scopes: **304/304 C matches**. Frontend audit retains **38 matched / 24 runtime_gap** at existing unsupported boundaries. Binary/source hashes and results are in `reports/definition-*-windows.json` and `reports/frontend-contract-audit-windows.json`. C diagnostic location/text equality is not tested; Rust regression tests validate the source frames.
+- [ ] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Precise body locations may still be absent on these paths.
+- [ ] Extend source-unit/file identity and nested provenance back to top-level original input. Current frames use each DefinitionCode's owned source unit, not guaranteed whole-file coordinates.
+- [ ] Order 2: refine error categories and structured stage admission.
+- [ ] Order 3: refine downstream NAME/effect/modifier handoff.
+- [ ] Orders 4–6: expand NAME expressiveness, numeric literals and modifiers with independent C comparisons.
+
+F1/P4 noun-target priority slice (2026-10-07): implement single/multiple string assignment first. Follow `p.c::jtis`: a single string name receives the whole RHS; multiple names receive scalar extension or leading-axis items, opened once, in left-to-right order. Invalid names and read-only/global collisions retain earlier successful writes; name-count mismatch is checked before writes. Do not collapse this to one transactional write.
+
+- [x] Single string and runtime-computed string targets, local/global scope and function RHS.
+- [x] Multiple string targets: scalar extension, item/open, duplicates, partial failure and capture contract.
+- [x] Preserve original noun target and row-7 provenance; explicitly reject Graph/Logical transport until ordered writes are represented.
+- [x] Native Windows default/portable: **617 passed / 0 failed / 0 ignored** each; Python **67 passed**; fmt/clippy passed. New assignment cases: **28 fixtures × two DLLs × two routes = 112/112 matches**; existing definition/loop/nested/NAME scope cases: **304/304 matches**, total **416/416**. Refresh `reports/string-assignment-windows.json` and existing reports with final binaries.
+- [ ] Keep boxed targets, atomic-representation assignment and locatives as separate follow-ups.
+
+Updated frontend audit: **31 cases / 62 observations = 42 matched / 20 runtime_gap**. Runtime/post-state gaps for `computed_target` (`'a'=:7`) and `multiple_target` (`'a b'=:3 4`) are closed across both DLLs. Unique unsupported cases drop **12 → 10**; remaining 20 observations are not passes. P: **16 accepted / 13 Unsupported / one syntax / one control**; G: **15 / 14 / 1 / 1**; L: **14 / 15 / 1 / 1**. P=prepare includes binding, so parser structuring does not imply P admission for multiple targets. The next NAME implementation slice is `name_:` abandon; locales/locatives and boxed/AR targets remain separate gates.
+
+Handoff contract: `Program.noun_assignment: Option<NounAssignment>` retains original `target: Expr` and word-formed `names: Vec<String>`. `Program.assignment` remains the single-name compatibility field, not a representative of multiple/empty writes; use `has_assignment()` for final-assignment status. `FrontendContext::WriteName.target` refers to the original NAME/NOUN item, verifying noun target semantic edges. Completed runtime target values retain their original enqueue/reduction context. `AssignmentSource.selection` describes leading-axis item selection or scalar extension followed by one open from the capture's whole RHS occurrence. Ordered commit names/versions and partial failure survive; the capture is not a replay plan.
+
+Here `target: Expr` is the completed row-7 expression and may be a Literal after runtime computation. Pre-computation structure is retained through FrontendContext item/node/reduction links. `AssignmentSource.noun_target` explicitly identifies noun targets. Capture→Graph currently rejects all noun-target commits, including single literals: turning an observed target into a fixed write requires target dependencies/guards. This differs from the non-executing static Graph path for single literal targets.
+
+`parse_frontend` structures literal multiple-string targets, while `prepare_semantic` binding and Graph/Logical reject multiple/empty targets until ordered-write IR exists. Static parsing does not execute computed targets requiring values. Single literal string targets use the existing single-write analysis route. Ordinary NAME writes add no name-list heap allocation or repeated validation. Multiple RHS buffers are frozen once, then items are selected. Item selection currently copies; this is not zero-copy/GPU buffer-view support. Existing open-padding/sparse and unrelated primitive boundaries such as `;` remain.
+
+##### F1/P4 `name_:` execution checklist
+
+Follow-up plan (2026-10-08): narrow the blanket conjunction rejection. Both DLLs report valence error for direct primitive-conjunction application but accept explicit-conjunction application and primitive transfer through another name. Admit explicit/non-nameless conjunctions first. Conservatively reject nameless conjunctions until parser action contracts distinguish transfer from direct application. Represent non-executing function abandon as `FunctionHead::TakeName { name, single_word }`, preserving POS/source/abandon policy; binding/lowering still must not execute it.
+
+- [x] Compare non-nameless conjunction abandon across global/local, explicit/direct and retained deletion after failure with C.
+- [x] Test deferred function TakeName, explicit binding/Graph/Logical rejection and distinction from noun/late NameRef. Include cap inspection and hand-constructed capture/Graph boundaries.
+- [x] Refresh native Windows default/portable, fmt/clippy/Python and final C audits. Known gaps below are not passes.
+
+Function transport contract: `Engine::parse_frontend(&self, source)` uses the current Engine's read-only catalog and returns pre-binding `Program` or `FrontendFailure` with original queue/reduction/NAME/pending-action context. For abandon names it observes class and optional version assumptions without running kernels, definition bodies, assignment or deletion. Existing ordinary-modifier static identity observation is retained. Existing `prepare_semantic` also performs subsequent binding and is a separate API. Catalog-free `parser::parse_frontend` retains its noun default assumption; it does not infer every function POS.
+
+Example: after `f=:+`, `Engine::parse_frontend("g=:f_:")` returns a `VerbValue` expression with `entity.result_pos=Verb`, `entity.head=TakeName { name: "f", single_word: false }`, `entity.operands=[]`. It neither captures the actual `+` body nor becomes an ordinary late `NameRef("f")`. `FrontendContext` retains original `g`, `=:`, `f_:` spans/word indices, `CaptureAndAbandon`, `CatalogClass`, optional observed version and NAME-to-function links. Definition NAME scope plans and execution-frame boundaries determine local/global semantics; catalog observations are not executable guards.
+
+If non-executing modifier application or first-fork-operand cap inspection needs the actual abandon result, do not guess it. `h=:-c_:+` retains NAME information and pending Conjunction row; `f=:(cap_: + *)` retains pending Fork row and stops with Unsupported. Runtime parsing can fetch the actual value and perform construction. This does not implement deferred modifier-constructor IR. Binding and Graph builder/verifier reject TakeName anywhere in function DAGs; fact/effect inference remains Unknown. Hand-constructed BoundProgram or capture cannot promote it to a pure function constant/call.
+
+User clarification: tokenizer/enqueue do not immediately read/delete `name_:`. Preserve base name, abandon flag and original span/word index. Non-executing parsing builds noun `ExprKind::TakeName { name, single_word }`, distinct from ordinary ReadName. Existing binding/Graph/Logical reject ordered NAME effects without executing them. Default runtime semantic parsing fetches the value and deletes the found scope at C's stack-entry point. The new explicit NAME effect plan below preserves that order; compiled deferral must prove the same lookup/effect/error order.
+
+- [x] Enqueue flag, deferred noun expression, NAME policy and original context links.
+- [x] Runtime noun/verb/adverb by-value results, actual local/global deletion, missing/error ordering and deletion/recreation ABA guard regressions. Separate late namerefs inside returned functions remain late.
+- [x] Confirm pinned C's single-word local fast path returns without deletion. An assignment-target `name_:` writes the base name without lookup/deletion. Explicit/direct local declarations record the base name too.
+- [x] Preserve pre-action lookup and actual deletion in capture; never convert the effect into a pure Graph read. Ordinary SimpleNameGuard cannot be created for by-value names.
+- [x] Both C DLLs/routes; native Windows default/portable, Python, fmt/clippy validation. Unsupported findings below are not passes.
+- [ ] Locales/locatives, execute's special abandon behavior and deferred function entity lowering remain separate follow-ups.
+
+Initial `84782fd` boundary: all conjunction abandon was rejected. The 2026-10-08 follow-up admits explicit/non-nameless conjunctions while conservatively rejecting nameless conjunctions. Direct nameless primitive application differs from both DLLs' valence error and is not a conformance pass. C transfer through a separate name works but is not yet admitted in Rust. A separate general-path read-only loop index deletion probe caused an access fault inside `j.dll`; Rust rejects that boundary with Unsupported and the C probe is excluded from two-DLL pass totals. Single-word local index lookup without deletion is tested independently. Extension-registry abandon and general function-result display remain unsupported.
+
+The deferred unit combines lookup and deletion into one semantic operation. Do not replace it with a suffix-stripped ReadName or only an already computed Literal. `TakeName.single_word` retains the C local fast-path context. Analysis has no effects; future effect IR must jointly represent found scope/binding identity, by-value result, actual deletion and ordering against errors/other NAME lookups. `CaptureEvent::Abandon` records pre-action lookup and actual `deleted`; it is observational, not an execution plan.
+
+Final validation, 2026-10-07: native Windows default/portable each **625 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. Eight `tests/name_abandon.rs` regressions cover non-executing analysis, source/policy, value/alias lifetime, evaluation order and retained deletion on error, explicit/direct single-word locals, declared-unbound global fallback, no caller-private capture, inner late aliases, guard ABA and non-catchable Unsupported boundaries. `reports/name-abandon-windows.json`: **17 fixtures × two DLLs × two routes = 68 observations: 64 matched / 4 unsupported_gap**; all four gaps are one conjunction case. Existing string-assignment and definition/loop/nested/scope comparisons match **416/416** on the final binary. Combined: **480 matched / 4 unsupported_gap**, not full-J conformance. C diagnostic location/text equivalence was not tested.
+
+Final frontend audit: **31 cases / 62 observations = 44 matched / 18 runtime_gap**. Following the string-target snapshot **42/20** above, the two runtime/post-state `abandon_name` gaps are resolved. Unique gap cases drop **10 → 9**. P/G/L admission totals are unchanged; binding/lowering deferred effects remains Unsupported. `reports/frontend-contract-audit-windows.json` and the comparison reports record final source/binary hashes. Reference C source pin: `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`; actual DLL release: `ded7793fe5795d79eda8e7138dce94aa056edf78`, not a same-source rebuild.
+
+Follow-up final validation, 2026-10-08: native Windows default/portable each **635 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. Added four function-transport/verifier unit regressions and six runtime/public-frontend API regressions. `reports/name-abandon-windows.json`: **27 fixtures × two DLLs × two routes = 108 observations: 104 matched / 4 unsupported_gap**. Coverage includes explicit/direct conjunctions, binding retention after a caught local bare-result error, global fallback, retained deletion/catch after constructor failure and a fork whose actual abandoned value is cap. The four gaps remain the nameless conjunction direct-application case. Primitive transfer through another name was C-only research, not Rust support or a comparison pass. Existing string-assignment and definition/loop/nested/scope comparisons match **416/416** on the final binary; combined **520 matched / 4 unsupported_gap**.
+
+Frontend audit adds verb/adverb transfer and explicit conjunction cases: **34 cases / 68 observations = 50 matched / 18 runtime_gap**. The original 31-case set retains nine unique gaps; the increase is six additional successful runtime observations. P: **16 accepted / 16 Unsupported / one syntax / one control**; G: **15 / 17 / 1 / 1**; L: **14 / 18 / 1 / 1**. Distinguish new `Engine::parse_frontend` success from P admission, which also includes binding. Machine-report source/binary/DLL hashes identify the final executable. No claims of full J, C diagnostic location/text, Linux, GPU or GitHub CI validation.
+
+Next NAME gates: distinguish nameless conjunction transfer from direct application at parser-action boundaries, then lower noun/function TakeName into actual ordered NAME effect IR. Preserve found scope/binding identity, by-value result, actual deletion and observed error ordering; do not relax Graph/Logical admission before that. Locales/locatives, boxed/AR targets and remaining numeric/primitive gaps stay separate follow-ups.
+
+2026-10-08 name-transfer implementation checklist:
+
+- [x] Admit nameless conjunction abandon lookup/deletion; retain a separate application admission marker on parser Items, without changing semantic POS or FunctionEntity.
+- [x] Preserve the marker through assignment and parentheses, never in the stored function. A fresh ordinary lookup can apply the stored value; immediate application of a nested assignment remains Unsupported.
+- [x] Regress global/local, chained/grouped transfers, single-word local nondeletion, effects/commits retained after failure and capture order against both C DLLs. Report C valence error versus Rust Unsupported as a gap.
+- [x] Run Windows default/portable, fmt/clippy, Python and refresh final comparison reports. Ordered NAME effect IR remains the next independent implementation unit.
+
+The concrete contract is `Item.abandoned_nameless_conjunction: bool`, set only for an actual nameless conjunction abandon result. This runtime parser state is absent from immutable FunctionEntity identity, POS and stored bindings. Row 7 assignment and row 8 parentheses preserve it; other consuming actions stop with Unsupported after lookup/deletion and any completed nested commits, retaining pending action/failure capture. A fresh ordinary NAME lookup creates an unmarked Item and permits normal application. This does not change Rust function types to simulate C pointer tags or implement C's valence error. Unsupported remains non-catchable by J.
+
+Example: after `c=:@:`, `d=:(c_:)` deletes `c` and stores `@:` in `d`; subsequent `h=:-d+` and `h 3` yield `-3`. In contrast, `h=:- (d=:c_:) +` deletes `c`, commits `d`, then returns Unsupported without creating `h`. A subsequent `h=:-d+` succeeds. Capture retains the pre-deletion binding observation, actual deletion and nested commit order; admission still rejects it without ordered effect Graph support. Non-executing FunctionHead::TakeName transport and binding/Graph/Logical rejection remain unchanged.
+
+Final transfer validation: native Windows default/portable each **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. `tests/name_abandon.rs` now has 17 tests, with three new regressions. `reports/name-abandon-windows.json`: **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**. Seven new successful transfer/local-bare fixtures match **28/28** across both DLLs/routes. The original four inline gaps plus twelve new grouped/nested-assignment/local inline gaps represent four error-difference cases, never counted as passes. Existing separate audits remain **416/416**; combined **548 matched / 16 unsupported_gap**. Frontend remains **34 cases / 68 observations = 50 matched / 18 runtime_gap**. Reports identify final source/binary/DLL hashes. Full J, C diagnostic locations, Linux, GPU and GitHub CI were not tested.
+
+Next independent unit: ordered NAME effect IR for noun/function TakeName. Represent lookup-time scope/binding identity, by-value results, actual deletion/single-word exceptions, subsequent read/write/failure order and nameless application admission before widening Graph/Logical admission.
+
+##### Initial ordered NAME effect execution unit
+
+- [x] Lower Program plus explicit parser step/item/node edges into ordered lookup/TakeName/primitive apply/final single NAME write operations. Never infer execution order from AST traversal or sorted spans.
+- [x] Separate SSA values from successful effect tokens. Failure stops the chain without replaying or rolling back prior deletion. Observe actual scope/generation/version and deletion outcomes at execution.
+- [x] Initially support top-level simple names, noun primitive calls, function TakeName transfer and a final single assignment. Check catalog POS reuse before effects; missing TakeName errors occur at lookup, while initially missing ordinary nouns fail POS admission. Never freeze values/versions.
+- [x] Verify forged/reversed tokens, invalid value edges and omitted effects; test ordering, failures, reuse, function transfer and effect-free admission. Keep existing J Graph/Logical pure-route admission unchanged.
+- [x] Run Windows default/portable, fmt/clippy, Python and both C DLL comparisons; update outcomes. Local definition frames/locatives, modifier construction, dynamic verb calls and intermediate writes remain follow-ups.
+
+Concrete handoff contract:
+
+| Item | Contract |
+| --- | --- |
+| Purpose/input | `Engine::prepare_name_effects` lowers non-executing Program using a read-only catalog. Preparation executes no kernels, definition bodies or lookup/deletion effects. |
+| Output | Private immutable `name_effect_ir::Plan` retains Program, shared literal/function payloads, `Step { operation, output: Option<ValueId>, before: EffectToken, after: EffectToken, parser_step, span, blame }` and result ValueId. Operations are Literal/Function/Read/Take/Apply/Commit. |
+| Order | Explicit FrontendContext Stack/Reduce steps determine order. Parentheses alias values; a final single assignment commits. Follow item/node edges; spans only diagnose. Program remains the literal/function semantic authority; FrontendContext is never executed. |
+| Execution/errors | `Engine::execute_name_effects(&Plan)` verifies and checks POS admission, then runs each step once. It returns `Execution { result, completed: EffectToken, names: Vec<NameObservation> }`. Failure stops the chain without parser replay. Observations contain step, before/after LookupObservation and deleted, never array payloads. |
+| Reuse | Catalog POS is a precondition. Missing ordinary noun names or changed POS reject before effects. A missing TakeName binding fails at its actual step, not preflight. Values/shapes/versions/generations are not frozen. Catalog lookup failures during preparation are dynamic-parsing admission failures, not executed value errors. |
+| Example | After `a=:7`, `a_:+a` lowers to Read(a), primitive + value, Take(a), Apply(+), yielding 14. The right noun snapshots before left abandon deletes the binding. In `a_:+1 2+1 2 3`, length error precedes Take, so the binding survives. |
+| Initial scope | Top-level simple-name noun snapshot/Take, primitive noun operations, function Take transfer and a final single NAME assignment. Function transfer stores the actual execution-time value and preserves inner late NameRefs. |
+| Exclusions/downstream | No local definition frames, locales/locatives, modifier construction, dynamic verb application or intermediate/multiple/noun-target writes. Direct nameless conjunction application is not executed by this plan. This explicit API does not widen default eval or existing pure J Graph/Logical admission. Next connect pure array regions between effects to Graph/Logical. |
+| Ownership/verification | Freeze literals once and share between Program/plan. Move at last use; share only for multiple uses. `Plan::verify` re-derives operations from original parser edges, detecting omitted/reordered effects, forged tokens/SSA edges/provenance without running a J kernel or parser. |
+
+POS boundary example: prepare `b=:a` while `a=:7`, then delete a. The old noun plan rejects before execution, because a fresh J parse may store the missing ordinary NAME as a verb reference. This is admission, not an emulated J error; another route can be chosen before effects. In contrast, an actual `a+a_:` plan's lookup failure after right Take is an executed value error and retains deletion. Both C DLLs confirm the bare/assignment sentence outcome and deleted state.
+
+Final validation, 2026-10-08: native Windows default/portable each **647 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight Rust integration regressions, one verifier unit regression and two Python audit-adapter regressions. `reports/name-effects-windows.json`: **19 fixtures × two C DLLs = 38/38 matched**. Only the marked effect sentence executes through the new plan; setup/check use ordinary eval. Compared values/errors, deletion/failed final assignment, array alias/reshape/search, verb/adverb/conjunction and explicit-definition transfer, and inner late alias behavior. No failed plan retries through ordinary execution.
+
+Refreshed existing audits on final binaries: abandon **132 matched / 16 unsupported_gap**, assignment/definition/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**. These existing gaps have not closed. The new plan's 38 comparisons are separate from the existing two runtime routes. Reports record source/binary/probe/DLL hashes; the recorded C source pin and actual DLL release are not a same-source rebuild. Linux, GPU, full J, C diagnostic locations and GitHub CI were not tested.
+
+Next execution unit: lower pure array parts of this semantic effect plan to J Graph/Logical, connected by token boundaries. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
+
 
 # Part XIV — Architecture convergence roadmap
 
@@ -5519,210 +5743,6 @@ Code identifiers, comments, doc comments, test names, diagnostics, and commit me
 
 
 ---
-
-## Definition calls and frontend E2E evidence (2026-10-07)
-
-This supersedes historical "17 ignored" definition coverage claims. Explicitly running all 17 acceptance tests initially produced **zero passes / 17 failures**: DefinitionCode and modifier frames existed, but ordinary mode-3/4 verbs were not dispatched to the definition executor.
-
-- [x] Dispatch ordinary explicit/direct verbs and ordinary aliases through the shared definition executor for both valences. Evaluate arguments in the established parser order and use a distinct LocalFrame for each call.
-- [x] Validate local/global assignment, noun snapshots, call-time global noun/function rebinding, isolation from caller-private locals, and frame restoration after errors. Unbound `u`/`x` in an ordinary mode-3 verb may fall back globally; they are not missing modifier operands.
-- [x] Execute audited ControlNode targets for if/elseif/else, while/whilst, break/continue, return, and try/catch/catchd. Keep T-block and last B-block results separate; initialize/reset results to C's Boolean empty matrix. Unsupported boundaries must not become successful caught J errors.
-- [x] Pass and unignore **14 of the original 17** acceptance tests; add **four** regression tests for C first-atom conditions, empty results, nested catches, and scope/effect/error restoration.
-- [x] Add `examples/frontend_e2e.rs`, observing the actual tokenizer, enqueuer, analysis Program, runtime FrontendContext/NAME/reduction records and result. Verify contexts, analysis without commits, and no escaped local `t`.
-- [x] Implement for/for_name leading-item iteration, scalar/empty/zero-atom rows, read-only index names, snapshots, and cleanup on branches/errors against C. Preserve uncatchable forinit failures. Named sparse iterators remain Unsupported; item transport currently copies into owned arrays, not zero-copy/GPU execution.
-- [x] Implement nested direct/string explicit construction and independent local scopes. Reuse input framing to collect complete multiline units and isolate inner controls, colon separators, names and inferred modes. Caller-private locals are not captured; global names resolve at call time. Embedded colon-zero blocks are syntax errors as in C; external input consumption is not implemented.
-- [x] Project definition values as A3 `VerbReference(Callable { target: Definition, semantic: Arc<FunctionEntity> })`, retaining immutable DefinitionCode, source and NAME plans without fabricated array facts, binding commits or body effects. Verify target/entity agreement and reject direct Definition SemanticCall. Body CFG lowering/compiled execution remains pending; call analysis retains its structural-lowering boundary.
-
-**Handoff:** analysis returns `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`. Its expression is Literal/ReadName/Monad/Dyad/VerbValue/etc.; `Arc<FrontendContext>` links expanded word flags/spans, parser items, semantic nodes, origins, NAME observations, stack/reduce steps and root. Runtime `CapturedEvaluation { result, capture }` pairs the actual result with the same runtime parser's context. This sidecar is not a second executable AST/continuation. Runtime parsing reduces nouns; the deferred analysis expression must not be misrepresented as a runtime result.
-
-**Definition boundary:** both the multiline explicit definition `explicit=:3 : 0\nt=.y+g\nt\n)` and direct definition `direct=:{{ t=.y+g\nt }}` construct VerbValue with an ExplicitDefinition Arc<DefinitionCode>, without executing their bodies. Code preserves source/form/spans, decoded body, valence ranges, queued body words/flags, control nodes, and DefinitionNamePlan. `t` is a LocalAssignmentTarget; `y/g/t` reads use CurrentFrameThenGlobal. This is preparse metadata, **not a precomputed optimizable AST of the entire body**. Calls parse the body through the shared runtime parser. Outer capture does not recursively export every internal body NAME event.
-
-The executable example uses `a=:1 2 3; a+2*3` (separate sentences), producing 7 8 9. Analysis retains `Dyad(Add, ReadName("a"), Dyad(Multiply, Literal(2), Literal(3)))`; runtime noun NAMEs snapshot when stacked. Explicit outer enqueue is Name / Assignment / Noun(3) / Conjunction(DefinitionConstructor) / Noun(body). Direct enqueue adds the generated `(9 : body)` structure, reduced by Conjunction → Parenthesis → Assignment, inferring mode 3 here. Calls retain `Monad(NameRef(name), Literal(2))` in analysis, with LateAtCall / FunctionReference / RuntimeClass runtime NAME observations. Both definitions return 12 for g=10 and 22 after g is rebound to 20; local t does not escape. Explicit `pair=:4 : 'x+y'` and direct `ddpair=:{{ x+y }}` both produce 5 for `2 pair 3` / `2 ddpair 3`, represented as Dyad(NameRef(name), Literal(2), Literal(3)).
-
-Native Windows reproduction: `cargo run --example frontend_e2e`. Raw evidence is in `reports/frontend-e2e-windows.json` and bounded C comparisons in `reports/definition-calls-windows.json`. All 14 demonstration results match j64/AVX2 × direct/semantic-reference. Extended definition cases have **31 fixtures / 124 observations / 124 matched**; existing NAME scopes have **10 fixtures / 40 observations / 40 matched**. All **67 Python harness tests** pass; the Windows file-quoting helper now normalizes slashes. No CUDA/Linux/GitHub CI/full-upstream or optimized-definition execution claim is made. Parser-nested recursion currently has a depth limit of eight; explicit execution frames remain follow-up work.
-
-**Final regression validation:** Windows default/portable each **596 passed / 3 ignored / zero failures**; fmt and clippy `--all-targets -D warnings` pass. Explicitly running the three pending for/nested/A3 tests fails at the corresponding boundary and is not counted as success. Source/binary hashes in all three evidence files were checked against the final default build.
-
-### Definition iteration, nesting and A3 function values (2026-10-07)
-
-All 21 existing definition acceptance tests are active. Five loop regressions and four nested/function-reference regressions were added. Source → Program/FunctionEntity → J Graph → A3 function-value transport is distinct from executable body CFG lowering. Calls still use the shared runtime parser with a depth limit of eight. select/case/fcase, catcht/throw, goto/label, general locales/locatives, compiled CFG and CUDA execution remain follow-up work. The preceding 596/3 result is historical.
-
-Raw bounded evidence is in `reports/definition-loops-windows.json` and `reports/definition-nested-windows.json`, comparing two Windows J DLLs × two Rust evaluator routes, not full upstream conformance. Existing comparison bench linking under Windows `cargo test --all-targets` fails because it requires Linux dl.lib; this is separate from ordinary tests, portable tests and clippy static checks.
-
-
-Final native Windows validation: default/portable each **608 passed / zero ignored / zero failures**, Python **67 passed**, fmt/clippy pass. Two C DLLs × direct/semantic-reference: for **23 fixtures / 92 matched**, nested **12 / 48**, existing definitions **31 / 124**, NAME scopes **10 / 40**, totaling **304 observations / 304 matched**. Source and binary SHA-256 in all four C reports were verified against the final default build. frontend-e2e-windows.json remains the historical capture of the preceding demonstration and was not regenerated.
-
-
-
-## Frontend E2E re-audit: expressiveness, handoff and errors (2026-10-07)
-
-The user-approved **frontend E2E completion for the supported subset** remains in force. It does not mean full J expressiveness, admission of every Program to Graph/A3, or compiled definition CFG execution. Body computations and structured regions belong to subsequent J Graph/Logical analysis, with CFG lowering where needed. No complete frontend CFG is required. This review changes audit tools/documentation, not runtime semantics.
-
-The 38/24 results and stage counts below are the pre-remediation baseline. Current results after the string-target implementation are recorded in its execution checklist below.
-
-`frontend_contract_probe` independently inspects P=prepare_semantic_diagnostic, G=J Graph and L=CompilationAnalysis/A3, then performs R=eval_captured. Reproduce with `python tools/frontend_contract_audit.py --assets-root ../rustj-project-docs --probe target/debug/examples/frontend_contract_probe.exe --report reports/frontend-contract-audit-windows.json` after building the example.
-
-**31 cases × two Windows DLLs = 62 observations: 38 runtime/post-state matches, 24 runtime gaps across 12 cases.** Gaps are findings, not passes. Complex/extended/rational probes establish C acceptance/type only because the noun bridge cannot serialize their values. Other observations compare values/error kinds and setup/post-state. C diagnostic locations/text/internal parser state are not compared. P has 15 accepted/14 Unsupported/one syntax/one control; G has 14/15/1/1; L has 13/16/1/1. These are deliberately selected boundary probes, not upstream coverage percentages.
-
-| Question | Finding | Owner |
-|---|---|---|
-| Full jsource expressiveness | Not yet: runtime supports single/multiple/computed string targets and bounded noun/verb/adverb/explicit conjunction abandon plus nameless conjunction transfer. Boxed/AR targets, locatives, direct nameless conjunction abandon application, deferred-effect lowering and complex/extended/rational/overflow literal conversion remain unsupported | Existing F1/P4/numeric compatibility gates; noun-target and abandon checklists below |
-| Computed rank, `a+a=:2`, `a=:b=:1` | Runtime matches C; non-executing P/G/L reject them. Chained assignment is not universally unsupported at runtime | Dynamic construction/effect boundary, P8 |
-| `adv=:/` | Program preserves modifier/POS; Graph rejects modifier-value lowering | P8/A1/A2 |
-| execute primitive | P/G admit; L/runtime do not implement execution | Route/runtime capability |
-| explicit/direct/nested definitions | P/G/L admit function values. A3 carries Definition reference, not compiled body CFG | P8/A1/A2/A3 |
-| select definition | Preparse metadata admitted; this probe only constructs the definition | Subsequent body execution/lowering |
-
-Program.expression/FunctionEntity remain semantic authority. FrontendContext retains words/items/nodes/origins/NAME policies/reductions/steps/root, not a second executable AST. Function head/POS/operands, intrinsic noun snapshots, fork semantics and header ranks survive. Catalog/rank snapshots are not executable guards. Runtime simple-name observations contain frame/global identities, binding generation/version/POS; they are not locale/path witnesses.
-
-DefinitionCode preserves original/decoded source, form/mode/valences, body word classes/flags/spans, controls and local/global NAME plans. This enables later analysis but does not supply every statement as an already analyzed computation IR. Later semantic parsing/re-enqueue is an explicit boundary. Preserve declared-unbound global fallback and absence of caller-private local capture. **ControlNode.go is a C control/error target, not the sole normal successor/CFG edge**; consume it together with kind/previous-result data. Structured regions, merge/loop-carried values and exception edges belong downstream.
-
-Supported inputs retain enough source/identity to start downstream analysis. It is not justified to claim that every needed property is already a ready-to-optimize IR fact or that arbitrary inputs need no reanalysis. The private body_error mapping handles escaped source, but there is no complete public source-unit/frame-chain contract. Failure prefixes/captures are observations, not effect replay or exact-resume authorization. Body effect/error graphs are not connected to outer A3.
-
-**Error review (A0.6/P8/A3):** J error class, diagnostics and rendering are separate; ordinary inner context wins during merge. However, invoke_definition_verb explicitly clears body span/blame because it is a different source coordinate space, and parsing attaches caller coordinates. Modifier invocation similarly replaces the span. `f=:{{y+1 2 3}}` then `f 1 2` preserves length error, `+` and argument shapes [2]/[3], but locates failure only at caller f [0,1]. Nested outer→inner retains outer [0,5], not body failure location/call chain.
-
-`missing+(1 2+1 2 3)` exposes the right-side length error first. `(1 2+1 2 3)+a=:9` leaves a=9 after that error, although static P rejects it. Failed `a=:1 2+1 2 3` preserves previous a=7; invalid control redefinition preserves f=42. This is failed-write commit prevention, not sentence-wide rollback. Unsupported must not be caught as a successful J error; C forinit read-only failures have a distinct uncatchable boundary. Full throw/catcht, error-class coverage and optimized error ordering remain pending.
-
-Required contracts: distinguish J semantic failure, route/analysis admission miss, verifier/compiler defect and backend implementation failure. Current Unsupported conflates several categories and is not a catchable J error or replay permission. Retain immutable source/definition origin, decoded-to-original mapping, primary failure location plus callsite frames and semantic operation origin; retain bounded type/shape summaries, not full argument arrays. Do not raise potential runtime errors early merely because static analysis can see them.
-
-**Framework practices to apply through existing P8/A0.6/A3 work:**
-
-- [MLIR SCF](https://mlir.llvm.org/docs/Dialects/SCFDialect/): structured if/loop regions, yields and loop-carried values before optional branch CFG lowering; preserve J-specific condition/name/exception meaning.
-- [MLIR verification](https://mlir.llvm.org/docs/Tutorials/Toy/Ch-2/) and [conversion legality](https://mlir.llvm.org/docs/DialectConversion/): separate valid source/semantic IR from route admission, with boundary verifiers.
-- [MLIR diagnostics](https://mlir.llvm.org/docs/Diagnostics/) and [builtin locations](https://mlir.llvm.org/docs/Dialects/Builtin/): connect operation origins/body locations/callsites rather than overwrite one span.
-- [Effects/speculation](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/): memory effects alone do not establish safe speculation or J first-error behavior. MLIR explicitly documents incomplete non-local-control-flow modeling; do not assume it solves J try/throw.
-- [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html): explicit inputs/results/constants and nested computations. Do not adopt tracing-time constant capture for J late-bound globals or execute definition control flow during tracing.
-
-Existing Co-dfns/APEX/TAIL-Futhark research remains historical FOUNDATIONS evidence. The pinned Co-dfns manual could not be reopened in this review and is not counted as newly verified. New framework findings rely directly on official MLIR/JAX material.
-
-Audit-tool validation: native Windows default/portable each **608 passed / zero failed / zero ignored**, Python **67 passed**, fmt/clippy pass. No runtime change. Keep gaps in the new 62 observations separate from the preceding 304 matched acceptance observations.
-
-
-
-## Frontend audit remediation execution plan (2026-10-07)
-
-Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset frontend E2E remains complete; CFG construction stays downstream. This table sequences existing work; completion requires implementation and independent validation.
-
-| Order | Existing owner | Scope / acceptance | Status |
-|---|---|---|---|
-| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | In progress |
-| 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
-| 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
-| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effect plan implemented; direct nameless application/effect-to-Graph integration/locatives pending |
-| 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
-| 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
-
-Step 1 adds source-owned diagnostic frames to ErrorContext while preserving caller-relative span/word semantics. DefinitionCode maps body offsets through a sparse escaped-quote map. Share source through Arc, never copy noun payloads for diagnostics. The frame chain is diagnostic metadata, not function identity, CFG or a resume token. Render primary body failure, definition callsites and external caller. Validate on native Windows default/portable, fmt/clippy/Python and bounded C audits; CUDA/GitHub CI remain deferred. Step 1 completion does not close other compatibility gaps.
-
-A0.6 execution checklist — first implementation slice:
-
-- [x] `DefinitionSourceMap` maps decoded body byte ranges to original source, stores only doubled-quote positions, and verifies the entire body/source correspondence.
-- [x] `DiagnosticSourceFrame` preserves kind, shared `source: Arc<str>`, definition span, original source span and fragment-queue blame word. `ErrorContext.source_frames` runs from the innermost failure to outer definition callsites; existing caller span/word semantics remain intact.
-- [x] Preserve/render statement/control failures across ordinary/modifier/nested invocation. Add escaped-quote, UTF-8, CRLF, source lifetime after redefinition, failed-assignment and catch regressions.
-- [x] Final-source native Windows default/portable: **612 passed / 0 failed / 0 ignored** each; fmt/clippy passed; Python **67 passed**. Definition calls/loops/nested/NAME scopes: **304/304 C matches**. Frontend audit retains **38 matched / 24 runtime_gap** at existing unsupported boundaries. Binary/source hashes and results are in `reports/definition-*-windows.json` and `reports/frontend-contract-audit-windows.json`. C diagnostic location/text equality is not tested; Rust regression tests validate the source frames.
-- [ ] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Precise body locations may still be absent on these paths.
-- [ ] Extend source-unit/file identity and nested provenance back to top-level original input. Current frames use each DefinitionCode's owned source unit, not guaranteed whole-file coordinates.
-- [ ] Order 2: refine error categories and structured stage admission.
-- [ ] Order 3: refine downstream NAME/effect/modifier handoff.
-- [ ] Orders 4–6: expand NAME expressiveness, numeric literals and modifiers with independent C comparisons.
-
-F1/P4 noun-target priority slice (2026-10-07): implement single/multiple string assignment first. Follow `p.c::jtis`: a single string name receives the whole RHS; multiple names receive scalar extension or leading-axis items, opened once, in left-to-right order. Invalid names and read-only/global collisions retain earlier successful writes; name-count mismatch is checked before writes. Do not collapse this to one transactional write.
-
-- [x] Single string and runtime-computed string targets, local/global scope and function RHS.
-- [x] Multiple string targets: scalar extension, item/open, duplicates, partial failure and capture contract.
-- [x] Preserve original noun target and row-7 provenance; explicitly reject Graph/Logical transport until ordered writes are represented.
-- [x] Native Windows default/portable: **617 passed / 0 failed / 0 ignored** each; Python **67 passed**; fmt/clippy passed. New assignment cases: **28 fixtures × two DLLs × two routes = 112/112 matches**; existing definition/loop/nested/NAME scope cases: **304/304 matches**, total **416/416**. Refresh `reports/string-assignment-windows.json` and existing reports with final binaries.
-- [ ] Keep boxed targets, atomic-representation assignment and locatives as separate follow-ups.
-
-Updated frontend audit: **31 cases / 62 observations = 42 matched / 20 runtime_gap**. Runtime/post-state gaps for `computed_target` (`'a'=:7`) and `multiple_target` (`'a b'=:3 4`) are closed across both DLLs. Unique unsupported cases drop **12 → 10**; remaining 20 observations are not passes. P: **16 accepted / 13 Unsupported / one syntax / one control**; G: **15 / 14 / 1 / 1**; L: **14 / 15 / 1 / 1**. P=prepare includes binding, so parser structuring does not imply P admission for multiple targets. The next NAME implementation slice is `name_:` abandon; locales/locatives and boxed/AR targets remain separate gates.
-
-Handoff contract: `Program.noun_assignment: Option<NounAssignment>` retains original `target: Expr` and word-formed `names: Vec<String>`. `Program.assignment` remains the single-name compatibility field, not a representative of multiple/empty writes; use `has_assignment()` for final-assignment status. `FrontendContext::WriteName.target` refers to the original NAME/NOUN item, verifying noun target semantic edges. Completed runtime target values retain their original enqueue/reduction context. `AssignmentSource.selection` describes leading-axis item selection or scalar extension followed by one open from the capture's whole RHS occurrence. Ordered commit names/versions and partial failure survive; the capture is not a replay plan.
-
-Here `target: Expr` is the completed row-7 expression and may be a Literal after runtime computation. Pre-computation structure is retained through FrontendContext item/node/reduction links. `AssignmentSource.noun_target` explicitly identifies noun targets. Capture→Graph currently rejects all noun-target commits, including single literals: turning an observed target into a fixed write requires target dependencies/guards. This differs from the non-executing static Graph path for single literal targets.
-
-`parse_frontend` structures literal multiple-string targets, while `prepare_semantic` binding and Graph/Logical reject multiple/empty targets until ordered-write IR exists. Static parsing does not execute computed targets requiring values. Single literal string targets use the existing single-write analysis route. Ordinary NAME writes add no name-list heap allocation or repeated validation. Multiple RHS buffers are frozen once, then items are selected. Item selection currently copies; this is not zero-copy/GPU buffer-view support. Existing open-padding/sparse and unrelated primitive boundaries such as `;` remain.
-
-### F1/P4 `name_:` execution checklist
-
-Follow-up plan (2026-10-08): narrow the blanket conjunction rejection. Both DLLs report valence error for direct primitive-conjunction application but accept explicit-conjunction application and primitive transfer through another name. Admit explicit/non-nameless conjunctions first. Conservatively reject nameless conjunctions until parser action contracts distinguish transfer from direct application. Represent non-executing function abandon as `FunctionHead::TakeName { name, single_word }`, preserving POS/source/abandon policy; binding/lowering still must not execute it.
-
-- [x] Compare non-nameless conjunction abandon across global/local, explicit/direct and retained deletion after failure with C.
-- [x] Test deferred function TakeName, explicit binding/Graph/Logical rejection and distinction from noun/late NameRef. Include cap inspection and hand-constructed capture/Graph boundaries.
-- [x] Refresh native Windows default/portable, fmt/clippy/Python and final C audits. Known gaps below are not passes.
-
-Function transport contract: `Engine::parse_frontend(&self, source)` uses the current Engine's read-only catalog and returns pre-binding `Program` or `FrontendFailure` with original queue/reduction/NAME/pending-action context. For abandon names it observes class and optional version assumptions without running kernels, definition bodies, assignment or deletion. Existing ordinary-modifier static identity observation is retained. Existing `prepare_semantic` also performs subsequent binding and is a separate API. Catalog-free `parser::parse_frontend` retains its noun default assumption; it does not infer every function POS.
-
-Example: after `f=:+`, `Engine::parse_frontend("g=:f_:")` returns a `VerbValue` expression with `entity.result_pos=Verb`, `entity.head=TakeName { name: "f", single_word: false }`, `entity.operands=[]`. It neither captures the actual `+` body nor becomes an ordinary late `NameRef("f")`. `FrontendContext` retains original `g`, `=:`, `f_:` spans/word indices, `CaptureAndAbandon`, `CatalogClass`, optional observed version and NAME-to-function links. Definition NAME scope plans and execution-frame boundaries determine local/global semantics; catalog observations are not executable guards.
-
-If non-executing modifier application or first-fork-operand cap inspection needs the actual abandon result, do not guess it. `h=:-c_:+` retains NAME information and pending Conjunction row; `f=:(cap_: + *)` retains pending Fork row and stops with Unsupported. Runtime parsing can fetch the actual value and perform construction. This does not implement deferred modifier-constructor IR. Binding and Graph builder/verifier reject TakeName anywhere in function DAGs; fact/effect inference remains Unknown. Hand-constructed BoundProgram or capture cannot promote it to a pure function constant/call.
-
-User clarification: tokenizer/enqueue do not immediately read/delete `name_:`. Preserve base name, abandon flag and original span/word index. Non-executing parsing builds noun `ExprKind::TakeName { name, single_word }`, distinct from ordinary ReadName. Existing binding/Graph/Logical reject ordered NAME effects without executing them. Default runtime semantic parsing fetches the value and deletes the found scope at C's stack-entry point. The new explicit NAME effect plan below preserves that order; compiled deferral must prove the same lookup/effect/error order.
-
-- [x] Enqueue flag, deferred noun expression, NAME policy and original context links.
-- [x] Runtime noun/verb/adverb by-value results, actual local/global deletion, missing/error ordering and deletion/recreation ABA guard regressions. Separate late namerefs inside returned functions remain late.
-- [x] Confirm pinned C's single-word local fast path returns without deletion. An assignment-target `name_:` writes the base name without lookup/deletion. Explicit/direct local declarations record the base name too.
-- [x] Preserve pre-action lookup and actual deletion in capture; never convert the effect into a pure Graph read. Ordinary SimpleNameGuard cannot be created for by-value names.
-- [x] Both C DLLs/routes; native Windows default/portable, Python, fmt/clippy validation. Unsupported findings below are not passes.
-- [ ] Locales/locatives, execute's special abandon behavior and deferred function entity lowering remain separate follow-ups.
-
-Initial `84782fd` boundary: all conjunction abandon was rejected. The 2026-10-08 follow-up admits explicit/non-nameless conjunctions while conservatively rejecting nameless conjunctions. Direct nameless primitive application differs from both DLLs' valence error and is not a conformance pass. C transfer through a separate name works but is not yet admitted in Rust. A separate general-path read-only loop index deletion probe caused an access fault inside `j.dll`; Rust rejects that boundary with Unsupported and the C probe is excluded from two-DLL pass totals. Single-word local index lookup without deletion is tested independently. Extension-registry abandon and general function-result display remain unsupported.
-
-The deferred unit combines lookup and deletion into one semantic operation. Do not replace it with a suffix-stripped ReadName or only an already computed Literal. `TakeName.single_word` retains the C local fast-path context. Analysis has no effects; future effect IR must jointly represent found scope/binding identity, by-value result, actual deletion and ordering against errors/other NAME lookups. `CaptureEvent::Abandon` records pre-action lookup and actual `deleted`; it is observational, not an execution plan.
-
-Final validation, 2026-10-07: native Windows default/portable each **625 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. Eight `tests/name_abandon.rs` regressions cover non-executing analysis, source/policy, value/alias lifetime, evaluation order and retained deletion on error, explicit/direct single-word locals, declared-unbound global fallback, no caller-private capture, inner late aliases, guard ABA and non-catchable Unsupported boundaries. `reports/name-abandon-windows.json`: **17 fixtures × two DLLs × two routes = 68 observations: 64 matched / 4 unsupported_gap**; all four gaps are one conjunction case. Existing string-assignment and definition/loop/nested/scope comparisons match **416/416** on the final binary. Combined: **480 matched / 4 unsupported_gap**, not full-J conformance. C diagnostic location/text equivalence was not tested.
-
-Final frontend audit: **31 cases / 62 observations = 44 matched / 18 runtime_gap**. Following the string-target snapshot **42/20** above, the two runtime/post-state `abandon_name` gaps are resolved. Unique gap cases drop **10 → 9**. P/G/L admission totals are unchanged; binding/lowering deferred effects remains Unsupported. `reports/frontend-contract-audit-windows.json` and the comparison reports record final source/binary hashes. Reference C source pin: `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`; actual DLL release: `ded7793fe5795d79eda8e7138dce94aa056edf78`, not a same-source rebuild.
-
-Follow-up final validation, 2026-10-08: native Windows default/portable each **635 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. Added four function-transport/verifier unit regressions and six runtime/public-frontend API regressions. `reports/name-abandon-windows.json`: **27 fixtures × two DLLs × two routes = 108 observations: 104 matched / 4 unsupported_gap**. Coverage includes explicit/direct conjunctions, binding retention after a caught local bare-result error, global fallback, retained deletion/catch after constructor failure and a fork whose actual abandoned value is cap. The four gaps remain the nameless conjunction direct-application case. Primitive transfer through another name was C-only research, not Rust support or a comparison pass. Existing string-assignment and definition/loop/nested/scope comparisons match **416/416** on the final binary; combined **520 matched / 4 unsupported_gap**.
-
-Frontend audit adds verb/adverb transfer and explicit conjunction cases: **34 cases / 68 observations = 50 matched / 18 runtime_gap**. The original 31-case set retains nine unique gaps; the increase is six additional successful runtime observations. P: **16 accepted / 16 Unsupported / one syntax / one control**; G: **15 / 17 / 1 / 1**; L: **14 / 18 / 1 / 1**. Distinguish new `Engine::parse_frontend` success from P admission, which also includes binding. Machine-report source/binary/DLL hashes identify the final executable. No claims of full J, C diagnostic location/text, Linux, GPU or GitHub CI validation.
-
-Next NAME gates: distinguish nameless conjunction transfer from direct application at parser-action boundaries, then lower noun/function TakeName into actual ordered NAME effect IR. Preserve found scope/binding identity, by-value result, actual deletion and observed error ordering; do not relax Graph/Logical admission before that. Locales/locatives, boxed/AR targets and remaining numeric/primitive gaps stay separate follow-ups.
-
-2026-10-08 name-transfer implementation checklist:
-
-- [x] Admit nameless conjunction abandon lookup/deletion; retain a separate application admission marker on parser Items, without changing semantic POS or FunctionEntity.
-- [x] Preserve the marker through assignment and parentheses, never in the stored function. A fresh ordinary lookup can apply the stored value; immediate application of a nested assignment remains Unsupported.
-- [x] Regress global/local, chained/grouped transfers, single-word local nondeletion, effects/commits retained after failure and capture order against both C DLLs. Report C valence error versus Rust Unsupported as a gap.
-- [x] Run Windows default/portable, fmt/clippy, Python and refresh final comparison reports. Ordered NAME effect IR remains the next independent implementation unit.
-
-The concrete contract is `Item.abandoned_nameless_conjunction: bool`, set only for an actual nameless conjunction abandon result. This runtime parser state is absent from immutable FunctionEntity identity, POS and stored bindings. Row 7 assignment and row 8 parentheses preserve it; other consuming actions stop with Unsupported after lookup/deletion and any completed nested commits, retaining pending action/failure capture. A fresh ordinary NAME lookup creates an unmarked Item and permits normal application. This does not change Rust function types to simulate C pointer tags or implement C's valence error. Unsupported remains non-catchable by J.
-
-Example: after `c=:@:`, `d=:(c_:)` deletes `c` and stores `@:` in `d`; subsequent `h=:-d+` and `h 3` yield `-3`. In contrast, `h=:- (d=:c_:) +` deletes `c`, commits `d`, then returns Unsupported without creating `h`. A subsequent `h=:-d+` succeeds. Capture retains the pre-deletion binding observation, actual deletion and nested commit order; admission still rejects it without ordered effect Graph support. Non-executing FunctionHead::TakeName transport and binding/Graph/Logical rejection remain unchanged.
-
-Final transfer validation: native Windows default/portable each **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. `tests/name_abandon.rs` now has 17 tests, with three new regressions. `reports/name-abandon-windows.json`: **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**. Seven new successful transfer/local-bare fixtures match **28/28** across both DLLs/routes. The original four inline gaps plus twelve new grouped/nested-assignment/local inline gaps represent four error-difference cases, never counted as passes. Existing separate audits remain **416/416**; combined **548 matched / 16 unsupported_gap**. Frontend remains **34 cases / 68 observations = 50 matched / 18 runtime_gap**. Reports identify final source/binary/DLL hashes. Full J, C diagnostic locations, Linux, GPU and GitHub CI were not tested.
-
-Next independent unit: ordered NAME effect IR for noun/function TakeName. Represent lookup-time scope/binding identity, by-value results, actual deletion/single-word exceptions, subsequent read/write/failure order and nameless application admission before widening Graph/Logical admission.
-
-### Initial ordered NAME effect execution unit
-
-- [x] Lower Program plus explicit parser step/item/node edges into ordered lookup/TakeName/primitive apply/final single NAME write operations. Never infer execution order from AST traversal or sorted spans.
-- [x] Separate SSA values from successful effect tokens. Failure stops the chain without replaying or rolling back prior deletion. Observe actual scope/generation/version and deletion outcomes at execution.
-- [x] Initially support top-level simple names, noun primitive calls, function TakeName transfer and a final single assignment. Check catalog POS reuse before effects; missing TakeName errors occur at lookup, while initially missing ordinary nouns fail POS admission. Never freeze values/versions.
-- [x] Verify forged/reversed tokens, invalid value edges and omitted effects; test ordering, failures, reuse, function transfer and effect-free admission. Keep existing J Graph/Logical pure-route admission unchanged.
-- [x] Run Windows default/portable, fmt/clippy, Python and both C DLL comparisons; update outcomes. Local definition frames/locatives, modifier construction, dynamic verb calls and intermediate writes remain follow-ups.
-
-Concrete handoff contract:
-
-| Item | Contract |
-| --- | --- |
-| Purpose/input | `Engine::prepare_name_effects` lowers non-executing Program using a read-only catalog. Preparation executes no kernels, definition bodies or lookup/deletion effects. |
-| Output | Private immutable `name_effect_ir::Plan` retains Program, shared literal/function payloads, `Step { operation, output: Option<ValueId>, before: EffectToken, after: EffectToken, parser_step, span, blame }` and result ValueId. Operations are Literal/Function/Read/Take/Apply/Commit. |
-| Order | Explicit FrontendContext Stack/Reduce steps determine order. Parentheses alias values; a final single assignment commits. Follow item/node edges; spans only diagnose. Program remains the literal/function semantic authority; FrontendContext is never executed. |
-| Execution/errors | `Engine::execute_name_effects(&Plan)` verifies and checks POS admission, then runs each step once. It returns `Execution { result, completed: EffectToken, names: Vec<NameObservation> }`. Failure stops the chain without parser replay. Observations contain step, before/after LookupObservation and deleted, never array payloads. |
-| Reuse | Catalog POS is a precondition. Missing ordinary noun names or changed POS reject before effects. A missing TakeName binding fails at its actual step, not preflight. Values/shapes/versions/generations are not frozen. Catalog lookup failures during preparation are dynamic-parsing admission failures, not executed value errors. |
-| Example | After `a=:7`, `a_:+a` lowers to Read(a), primitive + value, Take(a), Apply(+), yielding 14. The right noun snapshots before left abandon deletes the binding. In `a_:+1 2+1 2 3`, length error precedes Take, so the binding survives. |
-| Initial scope | Top-level simple-name noun snapshot/Take, primitive noun operations, function Take transfer and a final single NAME assignment. Function transfer stores the actual execution-time value and preserves inner late NameRefs. |
-| Exclusions/downstream | No local definition frames, locales/locatives, modifier construction, dynamic verb application or intermediate/multiple/noun-target writes. Direct nameless conjunction application is not executed by this plan. This explicit API does not widen default eval or existing pure J Graph/Logical admission. Next connect pure array regions between effects to Graph/Logical. |
-| Ownership/verification | Freeze literals once and share between Program/plan. Move at last use; share only for multiple uses. `Plan::verify` re-derives operations from original parser edges, detecting omitted/reordered effects, forged tokens/SSA edges/provenance without running a J kernel or parser. |
-
-POS boundary example: prepare `b=:a` while `a=:7`, then delete a. The old noun plan rejects before execution, because a fresh J parse may store the missing ordinary NAME as a verb reference. This is admission, not an emulated J error; another route can be chosen before effects. In contrast, an actual `a+a_:` plan's lookup failure after right Take is an executed value error and retains deletion. Both C DLLs confirm the bare/assignment sentence outcome and deleted state.
-
-Final validation, 2026-10-08: native Windows default/portable each **647 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight Rust integration regressions, one verifier unit regression and two Python audit-adapter regressions. `reports/name-effects-windows.json`: **19 fixtures × two C DLLs = 38/38 matched**. Only the marked effect sentence executes through the new plan; setup/check use ordinary eval. Compared values/errors, deletion/failed final assignment, array alias/reshape/search, verb/adverb/conjunction and explicit-definition transfer, and inner late alias behavior. No failed plan retries through ordinary execution.
-
-Refreshed existing audits on final binaries: abandon **132 matched / 16 unsupported_gap**, assignment/definition/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**. These existing gaps have not closed. The new plan's 38 comparisons are separate from the existing two runtime routes. Reports record source/binary/probe/DLL hashes; the recorded C source pin and actual DLL release are not a same-source rebuild. Linux, GPU, full J, C diagnostic locations and GitHub CI were not tested.
-
-Next execution unit: lower pure array parts of this semantic effect plan to J Graph/Logical, connected by token boundaries. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
 
 ## License policy
 
