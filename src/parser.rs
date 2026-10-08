@@ -1456,6 +1456,10 @@ struct PendingAssignment {
 
 fn string_assignment_names(target: &Expr) -> Result<Vec<String>> {
     let value = completed_noun(target.clone(), "computed assignment target")?;
+    literal_assignment_names(&value)
+}
+
+pub(crate) fn literal_assignment_names(value: &Value) -> Result<Vec<String>> {
     let crate::Data::Char(bytes) = value.data() else {
         return Err(Error::Unsupported(
             "non-character/boxed assignment target".into(),

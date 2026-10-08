@@ -54,7 +54,7 @@ impl ArrayBatch {
 }
 
 fn invalid() -> Error {
-    Error::Unsupported("invalid ordered array batch".into())
+    Error::Verification("invalid ordered array batch".into())
 }
 
 pub(crate) fn build(plan: &Plan) -> Result<Vec<ArrayBatch>> {

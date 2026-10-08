@@ -9,6 +9,7 @@ mod search_reference;
 #[cfg(test)]
 mod tolerant_search;
 
+pub mod admission;
 pub mod analysis;
 pub mod bit_storage;
 pub mod compilation;
@@ -23,6 +24,7 @@ pub mod execution_semantics;
 pub mod expansion;
 pub mod facts;
 pub mod frontend_context;
+pub mod frontend_handoff;
 pub mod fusion_planning;
 pub mod j_graph_composition;
 pub mod j_graph_fusion;

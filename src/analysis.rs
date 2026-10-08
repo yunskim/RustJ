@@ -166,7 +166,7 @@ pub(crate) fn lower_graph(
 ) -> Result<Plan> {
     graph
         .verify()
-        .map_err(|message| Error::Unsupported(format!("invalid J graph before A3: {message}")))?;
+        .map_err(|message| Error::Verification(format!("invalid J graph before A3: {message}")))?;
     let parser_provenance =
         graph
             .frontend
@@ -313,7 +313,7 @@ pub(crate) fn lower_graph(
     let mut plan = logical.finish(symbols, opportunities, result, write);
     plan.parser_provenance = parser_provenance;
     plan.verify()
-        .map_err(|error| Error::Unsupported(error.to_string()))?;
+        .map_err(|error| Error::Verification(error.to_string()))?;
     Ok(plan)
 }
 

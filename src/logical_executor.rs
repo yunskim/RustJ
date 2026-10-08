@@ -534,9 +534,9 @@ pub(crate) fn execute_outputs(plan: &Plan, inputs: Vec<Value>, outputs: &[ValueI
     let mut completed_operations = 0;
     let result = (|| -> Result<Vec<Value>> {
         plan.verify()
-            .map_err(|error| Error::Unsupported(error.to_string()))?;
+            .map_err(|error| Error::Verification(error.to_string()))?;
         if outputs.iter().any(|value| value.0 >= plan.values.len()) {
-            return Err(Error::Unsupported("A3 export value is unavailable".into()));
+            return Err(Error::Verification("A3 export value is unavailable".into()));
         }
 
         let expected = plan

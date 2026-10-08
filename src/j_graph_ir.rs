@@ -956,7 +956,7 @@ impl Plan {
             fork_name_reads: Vec::new(),
             name_rank_snapshots: Vec::new(),
         };
-        plan.verify().map_err(Error::Unsupported)?;
+        plan.verify().map_err(Error::Verification)?;
         Ok(plan)
     }
     pub fn from_bound(bound: BoundProgram) -> Result<Self> {
@@ -1022,7 +1022,7 @@ impl Plan {
             name_rank_snapshots: bound.program.name_rank_snapshots,
         };
         plan.verify().map_err(|message| {
-            Error::Unsupported(format!("J graph IR verification failed: {message}"))
+            Error::Verification(format!("J graph IR verification failed: {message}"))
         })?;
         Ok(plan)
     }
@@ -1035,7 +1035,7 @@ impl Plan {
         use crate::parser_capture::{CaptureEvent, CapturedGraph, ConstructorOrigin};
         capture
             .verify()
-            .map_err(|message| Error::Unsupported(format!("invalid capture: {message}")))?;
+            .map_err(|message| Error::Verification(format!("invalid capture: {message}")))?;
         if capture.failure.is_some()
             || capture.events.iter().any(|event| {
                 matches!(
@@ -1308,6 +1308,11 @@ impl Plan {
             if !seen.insert(Arc::as_ptr(&function)) {
                 continue;
             }
+            if matches!(function.head, FunctionHead::TakeName { .. }) {
+                return Err(Error::Unsupported(
+                    "captured deferred NAME abandonment needs ordered effect lowering".into(),
+                ));
+            }
             if let FunctionHead::NameRef(name) = &function.head {
                 verb_references.push((name.clone(), function.span.clone()));
             }
@@ -1347,7 +1352,7 @@ impl Plan {
             name_rank_snapshots,
         };
         graph.verify().map_err(|message| {
-            Error::Unsupported(format!("captured J graph verification failed: {message}"))
+            Error::Verification(format!("captured J graph verification failed: {message}"))
         })?;
         Ok(CapturedGraph {
             modifier_stack_snapshots,

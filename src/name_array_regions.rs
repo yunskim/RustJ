@@ -48,7 +48,7 @@ pub struct ArrayPlan {
 }
 
 fn invalid() -> Error {
-    Error::Unsupported("invalid NAME array region boundary".into())
+    Error::Verification("invalid NAME array region boundary".into())
 }
 
 impl ArrayPlan {

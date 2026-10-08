@@ -1,6 +1,6 @@
 """Bounded frontend admission/handoff/error review, not a full conformance gate.
 
-P/G/L are independent read-only inspections. R is actual captured execution.
+F/H/P/G/L are independent read-only inspections (frontend / handoff / binding / Graph / Logical). R is actual captured execution.
 Only R and post-error state are compared with C; a stage rejection is not a J error.
 """
 import argparse
@@ -58,7 +58,7 @@ CASES = [
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
-    operations += [(stage, source) for stage in ("P", "G", "L", "R")]
+    operations += [(stage, source) for stage in ("F", "H", "P", "G", "L", "R")]
     operations += [("E", s) for s in after]
     data = "".join(f"{stage} {s.encode().hex()}\n" for stage, s in operations)
     result = subprocess.run([str(binary)], input=data, text=True, encoding="utf-8",
@@ -66,11 +66,29 @@ def probe(binary, setup, source, after):
     records = [json.loads(line) for line in result.stdout.splitlines()]
     if len(records) != len(operations):
         raise RuntimeError("Incomplete audit stream")
-    return records[:len(setup)], dict(zip(("P", "G", "L", "R"), records[len(setup):len(setup)+4])), records[len(setup)+4:]
+    return records[:len(setup)], dict(zip(("F", "H", "P", "G", "L", "R"), records[len(setup):len(setup)+6])), records[len(setup)+6:]
 
 
 def semantic_outcome(outcome):
     return {"error": outcome["error"]} if "error" in outcome else outcome
+
+
+INSPECTION_STAGES = {"F": "frontend", "H": "frontend-handoff", "P": "semantic-binding", "G": "j-graph", "L": "logical"}
+
+
+def inspection_outcome(stage, value):
+    if value.get("inspection_stage") != INSPECTION_STAGES[stage] or value.get("execution_performed") is not False:
+        raise ValueError("Inspection stage must not claim execution")
+    if "error" not in value:
+        if value.get("ok") is not True:
+            raise ValueError("Missing representation admission result")
+        return "accepted-representation"
+    if value.get("j_handler_eligible") is not False:
+        raise ValueError("Read-only inspection cannot enter a J handler")
+    category = value.get("category")
+    if category not in {"j-language", "unsupported-capability", "verifier-defect", "backend-failure"}:
+        raise ValueError("Unknown failure category")
+    return category
 
 
 def main():
@@ -86,13 +104,15 @@ def main():
     for name, setup, source, after in cases:
         setup_rust, stages, post = probe(args.probe, setup, source, after)
         for value in stages.values():
-            for key in ("context_hex", "render_hex", "names_hex", "capture_hex"):
+            for key in ("context_hex", "render_hex", "names_hex", "capture_hex", "requirements_hex"):
                 if key in value:
                     value[key.removesuffix("_hex")] = bytes.fromhex(value.pop(key)).decode()
             result = value.get("result", {})
             for key in ("context_hex", "render_hex"):
                 if key in result:
                     result[key.removesuffix("_hex")] = bytes.fromhex(result.pop(key)).decode()
+        for stage in INSPECTION_STAGES:
+            inspection_outcome(stage, stages[stage])
         rust[name] = (setup_rust, stages, post)
     comparisons = []
     for variant in ("j.dll", "javx2.dll"):
@@ -134,10 +154,14 @@ def main():
               "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
               "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
               "cases": len(CASES), "observations": len(comparisons),
-              "counts": dict(Counter(r["status"] for r in comparisons)), "records": comparisons}
+              "counts": dict(Counter(r["status"] for r in comparisons)),
+              "stage_admission_counts": {stage: dict(Counter(inspection_outcome(stage, values[1][stage]) for values in rust.values())) for stage in INSPECTION_STAGES},
+              "records": comparisons}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
-    print(json.dumps({key: report[key] for key in ("cases", "observations", "counts")}))
+    print(json.dumps({key: report[key] for key in ("cases", "observations", "counts", "stage_admission_counts")}))
+    if any(category in {"verifier-defect", "backend-failure"} for counts in report["stage_admission_counts"].values() for category in counts):
+        raise SystemExit("Internal stage failure must not be classified as a runtime gap")
 
 
 if __name__ == "__main__":

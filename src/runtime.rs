@@ -1178,9 +1178,9 @@ impl Engine {
                                 });
                         }
                         let error = error.into_unlocated().with_context(context);
-                        // Unsupported is an implementation boundary, never a
-                        // J error that catch. can turn into a successful value.
-                        if matches!(error.root(), Error::Unsupported(_)) {
+                        // Capability misses, verifier defects and backend failures
+                        // never become successful values through a J catch.
+                        if !error.is_j_catchable() {
                             return Err(error);
                         }
                         // cx.c forinitnames/forinit use BZ/BASSERT and leave the
@@ -1799,7 +1799,7 @@ impl Engine {
                 failure.error
             }
         })?;
-        crate::name_effect_ir::Plan::from_program(program)
+        crate::frontend_handoff::VerifiedFrontend::from_program(program)?.lower_name_effects()
     }
 
     /// Execute verified semantic operations once. No parser replay or fallback
@@ -2067,6 +2067,70 @@ impl Engine {
             completed,
             names,
         }
+    }
+
+    /// Inspect one stage without executing J kernels, definitions or writes.
+    /// Accepted representations still require downstream admission and guards.
+    pub fn admit_frontend(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::semantic::Program> {
+        crate::admission::Admission::frontend(self.parse_frontend(source))
+    }
+    pub fn admit_frontend_handoff(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::frontend_handoff::VerifiedFrontend> {
+        crate::admission::Admission::parsed(
+            crate::admission::Stage::FrontendHandoff,
+            self.parse_frontend(source),
+            crate::frontend_handoff::VerifiedFrontend::from_program,
+        )
+    }
+    pub fn admit_semantic(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::semantic::BoundProgram> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::SemanticBinding,
+            self.prepare_semantic_diagnostic(source),
+        )
+    }
+    pub fn admit_j_graph(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::j_graph_ir::Plan> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::JGraph,
+            self.analyze_j_graph_diagnostic(source),
+        )
+    }
+    pub fn admit_logical(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::compilation::CompilationAnalysis> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::Logical,
+            self.analyze_compilation_diagnostic(source),
+        )
+    }
+    pub fn admit_name_effects(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::name_effect_ir::Plan> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::NameEffects,
+            self.prepare_name_effects(source),
+        )
+    }
+    pub fn admit_name_arrays(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::name_array_regions::ArrayPlan> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::NameArrays,
+            self.prepare_name_arrays(source),
+        )
     }
 
     pub fn prepare_semantic_diagnostic(

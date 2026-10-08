@@ -217,6 +217,25 @@ impl ErrorContext {
     }
 }
 
+/// Failure ownership, independent of diagnostic phase or a particular route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailureCategory {
+    JLanguage,
+    UnsupportedCapability,
+    VerifierDefect,
+    BackendFailure,
+}
+impl FailureCategory {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::JLanguage => "j-language",
+            Self::UnsupportedCapability => "unsupported-capability",
+            Self::VerifierDefect => "verifier-defect",
+            Self::BackendFailure => "backend-failure",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     Syntax(String),
@@ -235,6 +254,10 @@ pub enum Error {
     Limit,
     OpenQuote,
     Unsupported(String),
+    /// Invalid compiler-owned representation; never a source-language error.
+    Verification(String),
+    /// An admitted implementation failed; not a route capability miss.
+    Backend(String),
     /// J error classification plus diagnostic provenance/semantic context.
     /// Stable machine APIs strip this wrapper before returning.
     Context {
@@ -263,6 +286,21 @@ pub struct Diagnostic {
 }
 
 impl Error {
+    pub fn category(&self) -> FailureCategory {
+        match self.root() {
+            Self::Unsupported(_) => FailureCategory::UnsupportedCapability,
+            Self::Verification(_) => FailureCategory::VerifierDefect,
+            Self::Backend(_) => FailureCategory::BackendFailure,
+            _ => FailureCategory::JLanguage,
+        }
+    }
+
+    /// Only for failures raised during actual J execution. Read-only admission
+    /// results must not enter a J handler, even when their error class is J-like.
+    pub fn is_j_catchable(&self) -> bool {
+        self.category() == FailureCategory::JLanguage
+    }
+
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Syntax(_) => "syntax error",
@@ -281,6 +319,8 @@ impl Error {
             Self::Limit => "limit error",
             Self::OpenQuote => "open quote",
             Self::Unsupported(_) => "unsupported",
+            Self::Verification(_) => "verifier failure",
+            Self::Backend(_) => "backend failure",
             Self::Context { error, .. } => error.kind(),
         }
     }
@@ -303,6 +343,8 @@ impl Error {
             Self::Limit => "LimitError",
             Self::OpenQuote => "OpenQuoteError",
             Self::Unsupported(_) => "UnsupportedError",
+            Self::Verification(_) => "VerificationError",
+            Self::Backend(_) => "BackendError",
             Self::Context { .. } => unreachable!(),
         }
     }
@@ -365,7 +407,11 @@ impl Error {
         match self.root() {
             Self::Syntax(detail) if !detail.is_empty() => detail.clone(),
             Self::Value(name) if !name.is_empty() => format!("undefined name {name:?}"),
-            Self::Unsupported(detail) if !detail.is_empty() => detail.clone(),
+            Self::Unsupported(detail) | Self::Verification(detail) | Self::Backend(detail)
+                if !detail.is_empty() =>
+            {
+                detail.clone()
+            }
             root => root.kind().to_owned(),
         }
     }
@@ -592,7 +638,11 @@ impl fmt::Display for Error {
             _ => {
                 write!(f, "{}", self.kind())?;
                 match self {
-                    Self::Syntax(s) | Self::Value(s) | Self::Unsupported(s) => write!(f, ": {s}"),
+                    Self::Syntax(s)
+                    | Self::Value(s)
+                    | Self::Unsupported(s)
+                    | Self::Verification(s)
+                    | Self::Backend(s) => write!(f, ": {s}"),
                     _ => Ok(()),
                 }
             }

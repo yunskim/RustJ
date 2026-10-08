@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **가장 최근의 Windows 검증 기록(2026-10-08, `main` root-source provenance 변경):** default/portable 각각 **674 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, typed admission/verified handoff 변경):** default/portable 각각 **689 passed / 0 failed / 0 ignored**, Python **73 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -6630,7 +6630,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 **완료 조건:** AOT/interpreter/JIT/backend 어느 경로에서 실패해도 J error class는 안정적으로 유지되고, 동일한 structured context → analyzer → renderer 경로로 source 위치와 semantic 원인을 설명할 수 있다.
 
 - [x] 정의 body 원문 좌표와 caller 좌표를 분리한 source-unit/map/frame chain과 내부 실패 위치·호출 chain 회귀. 아래 A0.6 후속 절의 named file/root provenance 계약을 따른다.
-- [ ] J catchable failure / admission miss / verifier defect / backend failure를 구분해 진단·재실행·handler 권한을 검증한다.
+- [x] 현재 frontend 연결 경계의 J failure/admission/verifier/backend 분류와 handler/replay 권한. 아래 A0.6/P8 절의 범위와 남은 legacy/backend 확장을 따른다.
 
 ### A1 — J Semantic Construction IR / FunctionEntity 경계
 
@@ -7483,8 +7483,8 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 | 순서 | 기존 소유 항목 | 실행 범위·수용 조건 | 상태 |
 |---|---|---|---|
 | 1 | A0.6 definition source frames | immutable 원문·decoded body source map, 본문 실패 site와 호출 chain, ordinary/modifier/nested 경계 보존. escaped quote/UTF-8/CRLF·실패 후 재정의·catch/effect 회귀 및 C error-kind/post-state 비교 | 본문·실행 전·반환 frame 및 source-unit/file provenance 구현·검증 완료 |
-| 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 미완료 |
-| 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | 미완료 |
+| 2 | A0.6 error category / P8 admission | J 오류와 분석/route 미지원·verifier/backend 실패의 처리 권한을 구분하고 단계별 admission을 구조적으로 전달. Unsupported의 J catch 금지·실행 replay 금지 유지 | 현재 frontend 경계 구현; 최종 검증 중 |
+| 3 | P8 / A1–A3 handoff | NAME policy·scope·version 관측과 executable guard를 구분. modifier value 전달, 계산된 noun constructor와 문장 내 effect의 명시적 경계; 본문 구조화/CFG는 후속 IR에서 수행 | verified handoff/NAME adapter 구현; 본문 lowering은 후속 |
 | 4 | F1/P4 NAME compatibility | computed/noun/multiple targets → abandon → direct/indirect locatives 순으로 독립 실행 단위 선정. local/global·POS 변경·효과/첫 오류를 C와 비교 | 문자열 target·bounded abandon/nameless 이름 이관 runtime과 top-level NAME 효과·배열 Graph 연결 구현; nameless 직접 적용/일반 locatives 미완료 |
 | 5 | F1 numeric compatibility | complex/extended/rational·큰 정수 literal 변환. recognition/type/value/error를 분리하고 C bridge 지원부터 확장 | 미완료 |
 | 6 | P 단계 modifier inventory | 아직 미지원 core conjunction/derived modifier를 원본별로 추가. vocabulary 인식과 construction/runtime/lowering 수용을 별도로 검증 | 미완료 |
@@ -7499,8 +7499,8 @@ A0.6 실행 체크리스트 — 첫 수정 범위:
 - [x] 최종 소스 기준 native Windows default/portable 각각 **612 passed / 0 failed / 0 ignored**, fmt/clippy 통과, Python **67 passed**. 정의 호출/loop/nested/NAME scope C 비교 **304/304 일치**. Frontend 감사 **38 matched / 24 runtime_gap**는 기존 미지원 경계를 유지한다. `reports/definition-*-windows.json`, `reports/frontend-contract-audit-windows.json`에 바이너리·소스 hash와 결과를 기록했다. C 오류 위치/문자열 동등성은 검증하지 않았으며 source frame은 Rust 회귀 테스트로 검증했다.
 - [x] 정의 실행 전 admission 오류, 최종 noun-result 검사/implicit-return fixing 오류처럼 statement 경로 밖의 실패에도 해당 경계에 맞는 frame을 추가한다. 제어/문장 site가 없으면 정의 span을 사용하며 body 위치를 만들지 않는다.
 - [x] source-unit/file identity와 nested source의 최상위 원문 provenance를 확장한다. named source API와 파일 CLI는 immutable 파일 전체 원문에 연결하고, 익명 입력은 해당 입력 단위에 연결한다.
-- [ ] 순서 2: 오류 분류와 단계별 admission 계약을 보완한다.
-- [ ] 순서 3: NAME·effect·modifier의 후속 IR 전달 계약을 보완한다.
+- [x] 순서 2: 현재 frontend 경계의 오류 분류와 typed stage admission 계약. 아래 A0.6/P8 절의 구현 범위/legacy 제한을 따른다.
+- [x] 순서 3: 검증된 Program/context handoff, NAME·effect·modifier 전달 의무와 bounded NAME adapter. 일반 body/modifier lowering은 후속 IR 범위다.
 - [ ] 순서 4–6: NAME 표현력, 수치 literal, modifier 호환성을 독립 C 비교와 함께 확장한다.
 
 F1/P4 noun target 우선 실행 (2026-10-07): 문자열 단일·다중 대입을 먼저 구현한다. `p.c::jtis`에 따라 단일 문자열 이름은 RHS 전체를 보존하고, 다중 이름은 atom 확장 또는 선두 축 item 선택 후 한 번 open하여 왼쪽부터 대입한다. 이름 오류나 read-only/global 충돌은 앞서 성공한 대입을 되돌리지 않는다. 이름 개수 불일치는 대입 전에 검출한다. 따라서 다중 대입을 하나의 transactional write로 축약해서는 안 된다.
@@ -7692,6 +7692,28 @@ frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/
 제한: 원문 수명 때문에 정의가 살아 있는 동안 해당 파일 전체 Arc가 유지된다. 편집 가능한 source manager, 영속/분산 ID, dynamic execute 원문 연결은 미구현이다. stdin은 아직 입력 단위의 익명 원문이며 세션 전체 파일 좌표를 주장하지 않는다. 오류 위치는 RustJ의 보존 계약이며 C 진단 문구/좌표 동등성을 뜻하지 않는다. A0.6의 다음 작업은 오류 분류/단계별 admission이다. NAME/수치/modifier의 잔여 호환성과 후속 IR admission도 별도 미완료이므로 전체 frontend E2E 완료를 주장하지 않는다.
 
 <a id="read-references"></a>
+
+### Frontend A0.6/P8 — 오류 소유권과 검증된 handoff
+
+두 보완 단위를 연결한다. `FailureCategory`는 `JLanguage`, `UnsupportedCapability`, `VerifierDefect`, `BackendFailure`를 구분한다. 기존 J 오류의 `kind()`는 유지하며 내부 IR 오류는 `Error::Verification`/`verifier failure`, admitted 구현 실패는 `Error::Backend`/`backend failure`로 전달한다. `Error::is_j_catchable`은 실제 실행에서 발생한 J 오류에만 적용하고 정의의 catch 경로는 이 공통 정책을 사용한다. Unsupported·verifier·backend 실패는 catch로 성공값이 되지 않고, 앞서 발생한 효과를 되돌리거나 다른 경로로 자동 replay하지 않는다. backend 종류는 계약/음성 회귀로 검증하며 CUDA나 새 backend 실행 구현을 뜻하지 않는다.
+
+Read-only 경계는 `admission::{Stage, Admission<T>, Rejection}`과 `Engine::admit_frontend/admit_frontend_handoff/admit_semantic/admit_j_graph/admit_logical/admit_name_effects/admit_name_arrays`다. 입력은 현재 catalog를 이용한 J source, 출력은 해당 단계 표현 또는 requested stage·원래 Error/category·알려진 진단 맥락이다. frontend/handoff parsing 실패는 기존 `FrontendFailure.context` prefix도 유지한다. 단계 이름은 요청한 경계이고 실제 실패 phase는 ErrorContext에 따로 유지한다. 분석이 발견한 syntax/domain 등도 실행된 J 오류가 아니므로 `Rejection::is_j_handler_eligible`은 false다. `may_inspect_another_route`는 미지원일 때 다른 read-only 분석을 시도할 수 있음을 뜻하며 실행 허가·자동 fallback·재실행 권한이 아니다. Accepted는 해당 표현을 만들었다는 의미이고 후속 IR/target/NAME guard admission을 보장하지 않는다.
+
+`frontend_handoff::VerifiedFrontend`는 새 IR이 아니라 기존 `Arc<Program>`의 immutable 검증 경계다. 같은 `Arc<FrontendContext>`에 원래 word/item/reduction/NAME policy·resolution·evidence·binding 관측·source origin을 보존한다. verifier는 완결된 Deferred parsing, Program/context source·root, expression과 occurrence의 NAME/함수 Arc/operand edges, final simple/noun assignment 대상·copula flags·resolved names·abandon single-word 규칙, DefinitionCode의 body/name-plan/control/source-map 계약을 확인한다. 변경된 literal 값 전체를 원문으로 재계산해 증명하는 verifier가 아니며, parser가 만든 Program의 값이 의미 정본이다. observed capture·실패 prefix를 지연 실행으로 재사용하지 않는다.
+
+출력 `Requirements`는 name environment, ordered NAME effects, late function lookup, construction observations, deferred definition bodies를 명시한다. 이들은 후속 분석의 의무이며 POS/shape/purity/lookup guard를 충족했다는 증거가 아니다. modifier value/POS와 constructor snapshots를 유지하고 explicit/direct의 monad/dyad local 선언·global 대입·unbound-local fallback 맥락은 기존 DefinitionCode.name_plan에 남긴다. 본문 실행·body CFG·local SSA binding을 frontend에서 결정하지 않는다. literal payload는 한 번 shared ownership으로 전환하고 `lower_name_effects()`는 같은 Program/context를 통해 기존 bounded ordered NAME IR로 내린다. 현재 `prepare_name_effects`도 이 경계를 사용한다.
+
+예: a=7일 때 `b=:1+a_:`의 handoff를 만든 뒤 a=20으로 바꿔도 생성/NAME lowering은 삭제나 계산을 하지 않는다. 명시적 executor가 실행할 때만 현재 a를 읽고 삭제하며 b=21을 쓴다. `b=:a+a_:`는 앞선 Take 뒤의 value 오류와 삭제 상태를 유지한다. 일반 binding/Graph admission 거절과 ordered NAME route 수용을 구분한다. 저장된 capture로 이 문장을 다시 실행할 수는 없다.
+
+- [x] 네 오류 범주, context/unlocated 보존, J catch 권한과 read-only rejection 구분.
+- [x] Graph→A3·capture→Graph·Logical executor·ordered NAME/array/batch의 명시적 verifier 실패를 미지원에서 분리. 잘못된 입력 arity/facts와 유효한 route의 capability miss는 Unsupported 유지.
+- [x] typed stage admission, frontend/handoff 실패 prefix, accepted representation과 실행/guard 권한 분리.
+- [x] 동일 Program/context의 handoff 검증 및 bounded NAME adapter 연결. NAME·modifier·explicit/direct local/global 맥락 보존과 observed replay 거절.
+- [x] 새 Rust 회귀 15개와 Python 감사 계약 회귀 4개 추가. F(frontend)/H(handoff)/P(binding)/G(Graph)/L(Logical)/R(actual execution)를 구분하고 오류 category·handler 권한을 기계 보고한다. P 실패를 tokenizer/parser 실패라고 세지 않는다. verifier/backend 실패가 관찰되면 감사는 runtime_gap으로 숨기지 않고 실패한다.
+- [x] Windows default/portable 각각 **689 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets) 및 Python **73 passed**. 두 C DLL의 기존 NAME/정의 감사 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**; frontend 감사 **58 matched / 18 runtime_gap**. 38개 독립 frontend 사례에서 F/H 각각 24 accepted·12 unsupported·2 J 진단, P 20·16·2, G 19·17·2, L 18·18·2이며 verifier/backend 실패는 0이다. F/H 수용은 전체 J 호환율이 아니다. 8개 report의 **552 source/binary/DLL hash** 검증 완료. C 진단 위치·문구, Linux·GPU·GitHub CI 검증은 수행하지 않았다.
+
+제한/후속: 이 계약은 현재 frontend와 연결된 verifier 경계의 구현이다. 모든 legacy Unsupported callsite와 미래 backend를 전역적으로 전환했다는 뜻은 아니다. 일반 locative/locale·boxed/AR target·complex/extended/rational payload와 overflow conversion·미지원 modifier는 독립 호환성 범위이며 아직 미완료다. non-final/runtime-dependent parsing은 현재 semantic runtime 경로의 경계로 유지하고 정적 prefix를 실행 가능한 continuation으로 주장하지 않는다. 본문 Graph/Logical/CFG 및 일반 modifier effect lowering도 후속 단계다. 다음 frontend 호환성 단위는 numeric recognition과 typed literal payload 변환을 분리해 exact/complex family를 단계적으로 전달하는 것이다.
+
 ## 13. 프레임워크 조사에서 채택한 원칙
 
 외부 프레임워크의 언어 의미를 가져오는 것이 아니라 검증된 구현 아이디어를 참고한다.

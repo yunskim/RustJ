@@ -198,12 +198,15 @@ impl Plan {
         self.program
             .frontend
             .as_ref()
-            .ok_or_else(unsupported)?
+            .ok_or_else(|| Error::Verification("missing ordered NAME frontend".into()))?
             .verify()
-            .map_err(|_| unsupported())?;
-        let (steps, result, value_count) = lower(&self.program, &self.constants, &self.functions)?;
+            .map_err(Error::Verification)?;
+        let (steps, result, value_count) = lower(&self.program, &self.constants, &self.functions)
+            .map_err(|error| {
+            Error::Verification(format!("invalid ordered NAME provenance: {error}"))
+        })?;
         if steps != self.steps || result != self.result || value_count != self.value_count {
-            return Err(Error::Unsupported(
+            return Err(Error::Verification(
                 "invalid ordered NAME effect plan".into(),
             ));
         }
