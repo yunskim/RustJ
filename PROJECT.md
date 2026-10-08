@@ -240,6 +240,45 @@ Physical planning / backend
 
 **J Graph IR is not a replacement for frontend output. The frontend owns J meaning; J Graph IR extracts the optimizer-visible computation topology implied by that meaning.** Do not collapse this boundary by making graph/physical decisions in the frontend, and do not drag source-parser mechanics down into Graph IR.
 
+#### Four-stage memory aid
+
+When revisiting this architecture later, remember these four sentences:
+
+> **Frontend = semantic structure**  
+> **J Graph IR = computation structure**  
+> **Execution IR = execution semantics and dependencies**  
+> **Physical Plan = concrete realization**
+
+Expanded:
+
+1. **Frontend — “What does the J program mean?”**  
+   Perform jsource-compatible reductions and build J semantic structure. Preserve Rank, Fork, Hook, adverb/conjunction application, derived functions, names, bindings, and other **language-semantic structure**.
+
+2. **J Graph IR — “What computation graph does that meaning create?”**  
+   Expose producer/consumer, branch/join, CellApply, Reduce, and other **array-operation topology and data dependencies** that arise when semantic structure is applied to inputs. This is an optimization-facing graph, not yet a concrete execution method.
+
+3. **Execution IR — “What must happen for the computation to execute correctly?”**  
+   Normalize the graph into explicit operations, SSA/data dependencies, semantic checks, and effect/error ordering. It captures **executable logical semantics**. Crucially, **Execution IR is not yet a hardware execution plan**.
+
+4. **Physical Plan / backend — “How should this machine actually execute it?”**  
+   The same Execution IR may be realized by a CPU scalar loop, SIMD/multicore code, a GPU kernel, MLIR, or another external compiler. Fusion, scheduling, thread/work mapping, buffers, layout, materialization, memory placement, and synchronization become concrete here.
+
+For example, one logical `CellApply(f, y)` can have several physical realizations:
+
+~~~text
+Execution IR
+  CellApply(f, y)
+        │
+        ├─ CPU scalar loop
+        ├─ CPU SIMD + multicore
+        ├─ GPU kernel
+        └─ MLIR / external compiler
+~~~
+
+So if Execution IR is called an “execution plan,” the word *plan* means a **semantic execution plan**, not a final hardware-bound plan such as a GPU block size, AVX2 choice, or concrete `BufferId`.
+
+This separation also explains an important difference between jsource and RustJ. jsource commonly consumes parser-reduction results directly in its interpreter/runtime flow as semantic actions and execution proceed. RustJ still performs jsource-compatible parser reductions, but it does not immediately consume the result. It preserves information across **semantic structure → computation graph → execution semantics → physical realization** so a compiler can analyze and optimize the program before committing to a backend. The extra stages are therefore intentional: they keep J meaning intact while preserving multiple optimization and backend choices.
+
 The semantic meaning of a J program must not depend on the selected backend.
 
 ## 2.1 Route-region boundary contract
