@@ -532,9 +532,6 @@ pub fn reduce(verb: &str, y: Value) -> Result<Value> {
 }
 
 fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
-    if matches!(y.data, CpuView::Rational(_)) {
-        return Err(Error::Unsupported("rational reduction".into()));
-    }
     if matches!(y.data, CpuView::ExtendedInt(_)) {
         return Err(Error::Unsupported("extended reduction".into()));
     }
@@ -557,6 +554,9 @@ fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
         let mut data = buffer(cell)?;
         data.resize(cell, fill);
         return Value::new(shape, Data::Bool(CpuStorage::new(data)));
+    }
+    if matches!(y.data, CpuView::Rational(_)) {
+        return crate::rational::reduce(verb, y);
     }
     // Reference implementation: right fold. Specialized reductions come later.
     let mut out = y.cell(shape.len(), items - 1)?.to_owned()?;

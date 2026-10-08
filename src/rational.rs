@@ -183,3 +183,44 @@ pub(crate) fn unary(verb: &str, y: Value) -> Result<Value> {
     }
     Value::new(Shape::from(y.shape()), Data::Rational(CpuStorage::new(out)))
 }
+
+/// Primitive rational reduction. The caller handles zero-item identities.
+pub(crate) fn reduce(verb: &str, y: crate::storage::ArrayView<'_>) -> Result<Value> {
+    let crate::storage::CpuView::Rational(data) = y.data else {
+        unreachable!()
+    };
+    let shape = Shape::from(&y.shape[1..]);
+    let items = y.shape[0];
+    let cell = crate::value::count(&shape)?;
+    if items == 1 {
+        return y.cell(shape.len(), 0)?.to_owned();
+    }
+    if cell == 0 {
+        // ar.c treats zero total atoms as Boolean before primitive dispatch.
+        return match verb {
+            "+" | "-" => Value::new(shape, Data::Int(CpuStorage::new(Vec::new()))),
+            "*" => Value::new(shape, Data::Bool(CpuStorage::new(Vec::new()))),
+            "%" => Value::new(shape, Data::Float(CpuStorage::new(Vec::new()))),
+            _ => unreachable!(),
+        };
+    }
+    let op = match verb {
+        "+" => Op::Add,
+        "-" => Op::Sub,
+        "*" => Op::Mul,
+        "%" => Op::Div,
+        _ => unreachable!(),
+    };
+    let mut out = crate::value::buffer(cell)?;
+    out.extend(data[(items - 1) * cell..].iter().cloned());
+    for row in (0..items - 1).rev() {
+        for (col, result) in out.iter_mut().enumerate() {
+            *result = Arc::new(calculate(
+                op,
+                data[row * cell + col].as_ref(),
+                result.as_ref(),
+            )?);
+        }
+    }
+    Value::new(shape, Data::Rational(CpuStorage::new(out)))
+}

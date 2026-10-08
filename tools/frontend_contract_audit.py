@@ -238,6 +238,25 @@ RATIONAL_CASES += [
     ('xdiv_failed',['saved=:4x 1x 6x'],'saved=:saved%1 2',['saved']),
 ]
 
+# N3e: right-fold semantics and zero-item vs zero-atom primitive dispatch.
+for a_index, a in enumerate(['0r1','1r2','_2r3','1r0','_1r0']):
+    for b_index, b in enumerate(['0r1','1r2','_2r3','1r0','_1r0']):
+        for c_index, c in enumerate(['0r1','1r2','_2r3','1r0','_1r0']):
+            for op_index, op in enumerate(['+','-','*','%']):
+                RATIONAL_CASES.append((f'qreduce_{a_index}_{b_index}_{c_index}_{op_index}',[],op+'/'+a+' '+b+' '+c,[]))
+for op_index, op in enumerate(['+','-','*','%']):
+    for shape_index, shape in enumerate(['0','0 2','0 0','0 2 3','1 0','2 0','3 2 0','4 0 2','1 2','3 2 2']):
+        RATIONAL_CASES.append((f'qreduce_shape_{op_index}_{shape_index}',[],op+'/('+shape+'$2r3)',[]))
+    for case_index, source in enumerate(['2r3','(,2r3)','1r2 2r3 3r4','10r1 3r1 2r1 1r1','9007199254740993r2 _9007199254740991r2','2 2$1r2 2r3 3r4 4r5','9'*200+'r3 _'+'9'*200+'r3']):
+        RATIONAL_CASES.append((f'qreduce_special_{op_index}_{case_index}',[],op+'/'+source,[]))
+RATIONAL_CASES += [
+    ('qreduce_direct',['saved=:1r2 2r3 3r4','f=:{{local=.saved\n-/local}}'],'f 0',['saved']),
+    ('qreduce_explicit',['saved=:1r2 2r3 3r4',"f=:3 : 'local=.saved\n-/local'"],'f 0',['saved']),
+    ('qreduce_alias',['saved=:1r2 2r3 3r4','alias=:saved'],'saved=:+/saved',['saved','alias']),
+    ('qreduce_failed',['saved=:2r3'],'saved=:+/1r0 _1r0',['saved']),
+    ('qreduce_catch',['saved=:2r3','f=:{{try. saved=:+/1r0 _1r0 catch. saved end.}}'],'f 0',['saved']),
+]
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]

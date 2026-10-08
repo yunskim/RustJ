@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal/extended/rational literal 및 rational 산술/extended 나눗셈 변경):** default/portable 각각 **736 passed / 0 failed / 0 ignored**, Python **85 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal/extended/rational literal 및 rational 산술/extended 나눗셈/rational reduce 변경):** default/portable 각각 **741 passed / 0 failed / 0 ignored**, Python **85 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -7887,12 +7887,30 @@ C 특이 규칙: 독립 초기화한 두 DLL은 `1r0%_1r2`→양의 무한대, `
 - [x] N3d: C 두 DLL의 divisible/nondivisible/zero·배열 전체 승격·empty·혼합/역수 규칙 확인.
 - [x] N3d: CPU 구현과 독립 기대값·broadcast/alias/실패대입·정의/handoff/Logical/type-fact 회귀.
 - [x] N3d: 기존 strict 보고서 확장/재검증, Windows default/portable·fmt/clippy·Python, 문서/commit/push(CI 생략).
-- [ ] N3e: 유리수 reduction의 right-fold·empty identity·오류/타입 보존 구현과 독립 C 게이트.
+- [x] N3e: 유리수 reduction의 right-fold·empty identity·오류/타입 보존 구현과 독립 C 게이트.
 - [ ] N3f: 유리수 rank 결과 조립·혼합/fill·empty-frame 계약 구현과 독립 C 게이트.
 
 N3d 실행 결과: Windows default/portable 각각 **736 passed / 0 failed / 0 ignored**, fmt·clippy(all-targets), Python **85 passed**. 신규 Rust 회귀 5개와 기존 handoff/Logical/capture/type-fact 회귀 확장으로 정수/분수 승격·역수·200자리 값·prefix agreement/empty·NAME alias·local/실패대입을 검증했다.
 
-확장된 rational/exact-division strict 감사는 **822 fixtures × DLL 2 = 1,644/1,644 matched**(N3c 대비 신규 173 fixtures/346 observations)이다. 기존 C trap 6개 source 제외는 report에 별도 유지하며 통과로 세지 않는다. 기존 overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126**은 모두 matched 유지, frontend **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**, 숫자 문법 각 DLL **2,485 cases / 0 failed** 유지. **16 reports / 1,001 hashes**를 재검증했다. N3d 완료 후 이 exact numeric 후속 묶음은 **N3e·N3f 2개 미완료**다. GitHub CI는 생략했으며 full J·C 진단 문구/위치·native compiled execution·Linux/GPU 검증을 주장하지 않는다.
+확장된 rational/exact-division strict 감사는 **822 fixtures × DLL 2 = 1,644/1,644 matched**(N3c 대비 신규 173 fixtures/346 observations)이다. 기존 C trap 6개 source 제외는 report에 별도 유지하며 통과로 세지 않는다. 기존 overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126**은 모두 matched 유지, frontend **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**, 숫자 문법 각 DLL **2,485 cases / 0 failed** 유지. **16 reports / 1,001 hashes**를 재검증했다. N3d 당시 이 exact numeric 후속 묶음은 **N3e·N3f 2개 미완료**였으며, 아래 N3e 완료 후 N3f만 남는다. GitHub CI는 생략했으며 full J·C 진단 문구/위치·native compiled execution·Linux/GPU 검증을 주장하지 않는다.
+
+### N3e — rational primitive right-fold reduction (2026-10-08)
+
+계약: Rational 입력의 monadic `+/`·`-/`·`*/`·`%/`를 leading item 축을 따라 오른쪽부터 접는다. scalar/단일 item은 입력 dtype과 atom을 보존하고, 일반 비어 있지 않은 결과는 dtype 128이다. C `ar.c::jtreduce`/`ai.c::jtiden`은 zero item과 positive item/zero atom을 구별한다: zero item은 Bool 0/1 항등값으로 tail shape를 채우며, 두 item 이상이고 tail에 0이 있으면 `+/-`는 빈 Int, `*`는 빈 Bool, `%`는 빈 Float이다. 단일 empty item은 Rational을 유지한다. Static Semantic/Logical dtype facts도 이 shape 계약을 따르되 unknown shape는 Unknown으로 둔다.
+
+CPU는 입력 Arc atom을 빌리고 마지막 item만 output으로 공유 복제한 뒤 private output의 atom을 오른쪽 fold 순서로 갱신한다. intermediate whole-array 복제를 매 row마다 만들지 않고 합법성 증명 없는 재결합/병렬화를 도입하지 않는다. J NaN 오류·실패 대입·try와 NAME alias를 보존하며 primitive identity/Rank/body CFG/physical/GPU 계약을 확장하지 않는다.
+
+제한/다음: 일반 derived reduction의 empty prototype·dyadic insert·extended-only reduction·sparse·미지원 verb는 이번 범위 밖이다. N3f rank 결과 조립도 미완료이므로 primitive reduce 성공을 일반 rank 실행 완료로 해석하지 않는다. Rational finite arithmetic의 limb 복제와 atom별 Arc allocation은 유지하며 OOM→workspace-full, 대용량 peak memory/성능 우위는 검증하지 않았다. reviewed source와 DLL release 차이, native compiled execution·C 진단 위치/문구·Linux/GPU 미검증 제한을 유지한다.
+
+- [x] C 두 DLL의 finite/non-finite·right fold·scalar/one/zero item·empty tail 결과 확인.
+- [x] 공통 CPU primitive reduce와 Semantic/Logical type facts 구현.
+- [x] exact 독립 기대값·shape/empty·alias/해제·실패 대입/try·정의·handoff/Logical/capture 회귀.
+- [x] strict C 감사 확장·기존 보고서/hash·Windows default/portable·fmt/clippy·Python.
+- [x] 문서·체크리스트 갱신 및 commit/push(CI 생략); N3f rank 결과 조립은 후속.
+
+N3e 실행 결과: Windows default/portable 각각 **741 passed / 0 failed / 0 ignored**, fmt·clippy(all-targets), Python **85 passed**. 신규 Rust 회귀 5개 및 기존 type-fact/handoff/Logical/capture 회귀 확장으로 exact right-fold·200자리 cancellation·scalar/단일 item·zero item/empty tail·shape·무한대 NaN·공유/해제·실패 대입/try·explicit/direct local을 검증했다.
+
+확장된 strict rational 감사는 **1,395 fixtures × DLL 2 = 2,790/2,790 matched**(N3d 대비 신규 573 fixtures/1,146 observations). 기존 C trap source 6개 제외는 report에 별도 유지하며 통과로 세지 않는다. overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** 모두 matched 유지. frontend **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**, 숫자 문법 각 DLL **2,485 cases / 0 failed** 유지. **16 reports / 1,001 hashes** 재검증. GitHub CI는 생략했다. 현재 3개 exact numeric 후속 묶음은 N3d·N3e 완료, **N3f rank 결과 조립 1개 미완료**이며 전체 RustJ 잔여 단계 수로 해석하지 않는다.
 
 ## 13. 프레임워크 조사에서 채택한 원칙
 
