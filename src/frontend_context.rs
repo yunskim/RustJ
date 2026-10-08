@@ -18,7 +18,7 @@ macro_rules! ids {
 }
 ids!(WordId, ItemId, NodeId, ReductionId, NameUseId);
 
-pub const FRONTEND_CONTEXT_SCHEMA: u32 = 2;
+pub const FRONTEND_CONTEXT_SCHEMA: u32 = 3;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrontendUnitId(pub u64);
 
@@ -291,6 +291,7 @@ pub struct FrontendContext {
     pub unit: FrontendUnitId,
     pub realization: ParseRealization,
     pub source: Arc<str>,
+    pub source_origin: Option<crate::source::SourceOrigin>,
     pub words: Vec<WordRecord>,
     pub items: Vec<ItemRecord>,
     pub nodes: Vec<NodeRecord>,
@@ -310,6 +311,7 @@ impl Default for FrontendContext {
             unit: FrontendUnitId(ScopeInstanceId::fresh().0),
             realization: ParseRealization::Deferred,
             source: Arc::from(""),
+            source_origin: None,
             words: Vec::new(),
             items: Vec::new(),
             nodes: Vec::new(),
@@ -406,6 +408,12 @@ impl FrontendContext {
     /// This does not prove constructor semantics or authorize NAME specialization.
     pub fn verify(&self) -> Result<(), String> {
         let fail = |message: &str| Err(message.to_owned());
+        if self.source_origin.as_ref().is_some_and(|origin| {
+            origin.text() != self.source.as_ref()
+                || origin.root_span(0..self.source.len()).is_none()
+        }) {
+            return fail("frontend source provenance mismatch");
+        }
         if self.schema != FRONTEND_CONTEXT_SCHEMA || self.unit.0 == 0 {
             return fail("unsupported frontend context schema/unit");
         }

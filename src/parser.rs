@@ -1146,8 +1146,12 @@ fn apply_conjunction_items(
         {
             return Err(Error::Unsupported("computed definition body".into()));
         }
-        let code =
-            crate::definition_code::compile(&origin.source, &origin.input, &origin.primitives)?;
+        let code = crate::definition_code::compile_with_origin(
+            &origin.source,
+            &origin.input,
+            &origin.primitives,
+            origin.origin.clone(),
+        )?;
         let result_pos = code.result_pos;
         let function = FunctionEntity::derived(
             FunctionHead::ExplicitDefinition(code),
@@ -2874,7 +2878,26 @@ pub(crate) fn parse_frontend_with_lookup(
     source: &str,
     lookup: NameLookup<'_>,
 ) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    parse_frontend_origin_with_lookup(
+        crate::source::SourceUnit::new("<input>", source).origin(),
+        lookup,
+    )
+}
+
+/// Execution-free frontend with an owned path to the original input revision.
+pub fn parse_frontend_source(
+    origin: crate::source::SourceOrigin,
+) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    parse_frontend_origin_with_lookup(origin, None)
+}
+
+fn parse_frontend_origin_with_lookup(
+    origin: crate::source::SourceOrigin,
+    lookup: NameLookup<'_>,
+) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    let source = origin.text();
     let mut context = ActionContext {
+        source_origin: origin.clone(),
         single_word: false,
         last_lookup_version: None,
         last_name_policy: None,
@@ -3012,16 +3035,31 @@ pub(crate) trait RuntimeParserHost {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn parse_runtime_host(
     source: &str,
     host: &mut dyn RuntimeParserHost,
     capture: Option<&mut ParseCapture>,
 ) -> Result<Program> {
+    parse_runtime_source(
+        crate::source::SourceUnit::new("<input>", source).origin(),
+        host,
+        capture,
+    )
+}
+
+pub(crate) fn parse_runtime_source(
+    origin: crate::source::SourceOrigin,
+    host: &mut dyn RuntimeParserHost,
+    capture: Option<&mut ParseCapture>,
+) -> Result<Program> {
+    let source = origin.text();
     let mut capture = capture;
     if let Some(capture) = &mut capture {
         capture.set_source(source);
     }
     let mut context = ActionContext {
+        source_origin: origin.clone(),
         single_word: false,
         last_lookup_version: None,
         last_name_policy: None,
@@ -3045,6 +3083,7 @@ pub(crate) fn parse_runtime_host(
 }
 
 struct ActionContext<'a> {
+    source_origin: crate::source::SourceOrigin,
     single_word: bool,
     last_name_policy: Option<NamePolicy>,
     last_lookup_version: Option<crate::semantic::NameVersion>,
@@ -3328,6 +3367,7 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
     parse_context(
         source,
         &mut ActionContext {
+            source_origin: crate::source::SourceUnit::new("<input>", source).origin(),
             single_word: false,
             last_lookup_version: None,
             last_name_policy: None,
@@ -3365,15 +3405,15 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
         .map_or(crate::enqueuer::EnqueueEnvironment::TopLevel, |host| {
             host.enqueue_environment()
         });
-    let mut queue = if environment == crate::enqueuer::EnqueueEnvironment::TopLevel {
-        enqueue(source)?
-    } else {
-        crate::enqueuer::enqueue_in_environment(
-            source,
-            &crate::primitive::PrimitiveContext::core(),
-            environment,
-        )?
-    };
+    if let Some(trace) = &mut context.frontend {
+        trace.source_origin = Some(context.source_origin.clone());
+    }
+    let mut queue = crate::enqueuer::enqueue_with_origin(
+        source,
+        &crate::primitive::PrimitiveContext::core(),
+        environment,
+        Some(&context.source_origin),
+    )?;
     context.single_word = queue.len() == 1;
     if let Some(trace) = &mut context.frontend {
         trace.words = queue

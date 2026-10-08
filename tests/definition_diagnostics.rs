@@ -140,7 +140,7 @@ fn definition_failure_keeps_original_source_and_external_caller_coordinates() {
         assert_eq!(&frames[0].source[frames[0].span.clone()], "+");
         assert_eq!(frames[0].kind, DiagnosticFrameKind::DefinitionBody);
         let rendered = error.render("caller", "f 1 2", 10);
-        assert!(rendered.contains("definition failure, line 3"));
+        assert!(rendered.contains("definition failure in <input>, line 3"));
         assert!(rendered.contains("line 10"));
         assert!(rendered.contains("t+1 2 3"));
         assert!(rendered.contains("f 1 2"));

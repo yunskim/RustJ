@@ -188,7 +188,7 @@ RustJ's distinguishing requirement is the strong **full-J semantic frontend** pl
 - **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
 - **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
 - **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
-- **Latest recorded Windows validation (2026-10-08, `main` `8a7405f`):** default/portable each **668 passed / zero failures / zero ignored**, Python **69 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
+- **Latest recorded Windows validation (2026-10-08, `main` with root-source provenance):** default/portable each **674 passed / zero failures / zero ignored**, Python **69 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
 
@@ -835,7 +835,7 @@ Migration uses existing NP gates: (1) implement logical types and verifier, incl
 ~~~text
 Program: expression (Expr.origin), assignment, constructor snapshots, functions,
          frontend: Arc<FrontendContext>?
-FrontendContext: schema=2, unit, realization=Deferred|Observed,
+FrontendContext: schema=3, unit, realization=Deferred|Observed,
          source, words, items, nodes, origins, name_uses, reductions,
          steps=Stack|FrontMark|Reduce, pending?, root?, complete
 ~~~
@@ -3076,7 +3076,7 @@ Program.expression/FunctionEntity remain semantic authority. FrontendContext ret
 
 DefinitionCode preserves original/decoded source, form/mode/valences, body word classes/flags/spans, controls and local/global NAME plans. This enables later analysis but does not supply every statement as an already analyzed computation IR. Later semantic parsing/re-enqueue is an explicit boundary. Preserve declared-unbound global fallback and absence of caller-private local capture. **ControlNode.go is a C control/error target, not the sole normal successor/CFG edge**; consume it together with kind/previous-result data. Structured regions, merge/loop-carried values and exception edges belong downstream.
 
-Supported inputs retain enough source/identity to start downstream analysis. It is not justified to claim that every needed property is already a ready-to-optimize IR fact or that arbitrary inputs need no reanalysis. The private body_error mapping handles escaped source, but there is no complete public source-unit/frame-chain contract. Failure prefixes/captures are observations, not effect replay or exact-resume authorization. Body effect/error graphs are not connected to outer A3.
+Supported inputs retain enough source/identity to start downstream analysis. It is not justified to claim that every needed property is already a ready-to-optimize IR fact or that arbitrary inputs need no reanalysis. The private body_error mapping handles escaped source, with the public source-unit/frame-chain contract added in the follow-up section. This does not establish full J expressiveness or complete stage admission. Failure prefixes/captures are observations, not effect replay or exact-resume authorization. Body effect/error graphs are not connected to outer A3.
 
 **Error review (A0.6/P8/A3):** J error class, diagnostics and rendering are separate; ordinary inner context wins during merge. However, invoke_definition_verb explicitly clears body span/blame because it is a different source coordinate space, and parsing attaches caller coordinates. Modifier invocation similarly replaces the span. `f=:{{y+1 2 3}}` then `f 1 2` preserves length error, `+` and argument shapes [2]/[3], but locates failure only at caller f [0,1]. Nested outer→inner retains outer [0,5], not body failure location/call chain.
 
@@ -3104,7 +3104,7 @@ Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset fr
 
 | Order | Existing owner | Scope / acceptance | Status |
 |---|---|---|---|
-| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | Body/admission/return frames implemented; source-unit/file provenance pending |
+| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | Body/admission/return frames and source-unit/file provenance implemented and verified |
 | 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Pending |
 | 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Pending |
 | 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effects/array Graph integration implemented; direct nameless application/general locatives pending |
@@ -3120,7 +3120,7 @@ A0.6 execution checklist — first implementation slice:
 - [x] Preserve/render statement/control failures across ordinary/modifier/nested invocation. Add escaped-quote, UTF-8, CRLF, source lifetime after redefinition, failed-assignment and catch regressions.
 - [x] Final-source native Windows default/portable: **612 passed / 0 failed / 0 ignored** each; fmt/clippy passed; Python **67 passed**. Definition calls/loops/nested/NAME scopes: **304/304 C matches**. Frontend audit retains **38 matched / 24 runtime_gap** at existing unsupported boundaries. Binary/source hashes and results are in `reports/definition-*-windows.json` and `reports/frontend-contract-audit-windows.json`. C diagnostic location/text equality is not tested; Rust regression tests validate the source frames.
 - [x] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Use the definition span when no control/statement site exists; never fabricate body coordinates.
-- [ ] Extend source-unit/file identity and nested provenance back to top-level original input. Current frames use each DefinitionCode's owned source unit, not guaranteed whole-file coordinates.
+- [x] Extend source-unit/file identity and nested provenance to root input. Named source APIs and file CLI retain the immutable whole file; anonymous inputs retain their input unit.
 - [ ] Order 2: refine error categories and structured stage admission.
 - [ ] Order 3: refine downstream NAME/effect/modifier handoff.
 - [ ] Orders 4–6: expand NAME expressiveness, numeric literals and modifiers with independent C comparisons.
@@ -3283,7 +3283,7 @@ Frontend E2E remediation is restored as the current priority. Array batching/fus
 - [x] Attach `DefinitionReturn` to final noun-result and implicit-return fixing failures. Preserve the last result-producing body fragment without inventing queue blame.
 - [x] Preserve existing DefinitionBody/DefinitionCall chains and caller-relative span/blame. Return failures stay outside body catches; earlier effects, failed assignment and local-frame cleanup remain unchanged.
 - [x] Validate Windows default/portable, fmt/clippy, Python and error-kind/post-state against both C DLLs. Do not claim C diagnostic text/location equivalence.
-- [ ] Next independent unit: source-unit/file identity and nested definitions' root-source provenance. Current coordinates belong to DefinitionCode's owned source, not the entire file.
+- [x] Implement source-unit/file identity and nested definitions' root-source provenance. Follow the validation and limits in the next section.
 
 The concrete handoff remains `ErrorContext.source_frames` containing `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`. Add DefinitionAdmission/DefinitionReturn kinds without replacing the structure. `DefinitionCode::diagnostic_error` adds source-owned context without changing J error kind or caller coordinates. Renderer labels are `before definition execution` and `returning from definition`. Source maps retain doubled quotes/UTF-8/CRLF coordinates; shared source survives redefinition.
 
@@ -3293,7 +3293,25 @@ Final validation: native Windows default/portable each **668 passed / 0 failed /
 
 Definition-call audit: **36 fixtures / 144 observations = 144/144 matched**, with all **20/20** new comparisons passing across five cases, two DLLs and two routes. CLI multiline bodies use explicit `3 : 0` blocks; API/hex probes validate string form. Existing NAME/assignment/definition/loop/nested/scope audits total **568 matched / 16 unsupported_gap**. Frontend audit adds four matching error/post-state cases: **38 cases / 76 observations = 58 matched / 18 runtime_gap**; nine unique gaps remain. Separate NAME effect/array audit remains **104/104 matched**. All **528 source/binary/DLL hashes** across eight reports match. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` do not imply a same-source rebuild. Full J, C diagnostic text/location, Linux, GPU and GitHub CI were not tested.
 
-This closes the A0.6 pre-execution/return-frame omission item, not all A0.6 or full frontend conformance. Next priority is source-unit/file identity and nested-source → root-source provenance, followed by error categories/stage admission.
+This closes the A0.6 pre-execution/return-frame omission item, not all A0.6 or full frontend conformance. Source-unit/file identity and nested-source → root-source provenance are addressed below; error categories/stage admission follow.
+
+### Frontend A0.6 — input identity and nested root-source provenance
+
+Purpose: connect tokenizer/enqueue/parser fragment coordinates to an immutable input revision. Input is `SourceUnit { id, name, text }` plus checked `SourceOrigin`; outputs are `FrontendContext.source_origin` (schema 3), `DefinitionSource.origin`, `DefinitionCode.origin` and `DiagnosticSourceFrame.origin`. Process-local SourceUnitId distinguishes rereads of identical paths/text. It is not FrontendUnitId, scope, binding version or SSA identity and does not change structural function equality.
+
+SourceOrigin composes shared source slices, decoded-body sparse quote maps and statement slices. Nested definitions created during body reparsing preserve their parent chain. Slices share Arc/ranges; there is no per-byte root map, source-search heuristic or noun-payload copy. Body maps are shared once per invocation. UTF-8/range validation rejects invalid slices; verifiers check parser/origin text agreement. This preserves names and source offsets without deciding CFG, batching, physical storage or replay.
+
+Public boundary: `SourceUnit::new(...).origin().slice(range)`, `parser::parse_frontend_source`, `Engine::eval_source_diagnostic`, `Engine::eval_source_captured`. Existing string APIs create anonymous `<input>` units. File CLI retains the original input once and uses the collector only for framing; evaluation uses exact original byte ranges including internal CRLF. Existing frame source/span/definition_span remain local; `origin.root_span(...)` yields file coordinates. Caller span/queue blame stay unchanged. Rendering uses root file name/line/column.
+
+Example: a nested `inner=:{{ missing+y }}` inside an outer explicit block reports inner failure and outer callsite in their original definition file, followed by the separate external caller. A globally retained inner function keeps its input revision after outer redefinition and dropping the input handle.
+
+- [x] Immutable input identity, checked slice/body-map composition, separate structural semantic equality.
+- [x] Carry provenance from enqueue constructors through parser results/captures, nested reparsing and diagnostic frames.
+- [x] File CLI uses raw LF/CRLF input; anonymous APIs explicitly retain their input unit.
+- [x] Six regressions cover explicit/direct nesting, quotes/UTF-8, escaped function/redefinition lifetime, admission/return, same-path revisions, forged verifier input, frontend success/failure/capture and raw LF/CRLF file CLI on both routes.
+- [x] Native Windows default/portable each **674 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets), Python **69 passed**. Existing C audits retain **568 matched / 16 unsupported_gap**; frontend **58 matched / 18 runtime_gap**; NAME effects **104/104 matched**. All **536 source/binary/DLL hashes** across eight reports match. Nine unique frontend runtime gaps remain; new provenance regressions are Rust-side validation. C pin/DLL release are unchanged from the previous section and do not establish a same-source rebuild. C diagnostic text/location, full J, Linux, GPU and GitHub CI were not tested.
+
+Limits: retained definitions keep the whole file Arc alive. Editable source management, persistent/distributed IDs and dynamic-execute provenance are not implemented. stdin remains anonymous per-input source, not whole-session file coordinates. RustJ provenance does not imply C diagnostic text/location equivalence. Next A0.6 work is error categories/stage admission. Remaining NAME/numeric/modifier compatibility and downstream admission are separate gaps; full frontend E2E completion is not claimed.
 
 
 <a id="read-roadmap"></a>

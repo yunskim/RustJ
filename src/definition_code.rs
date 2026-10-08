@@ -11,6 +11,7 @@ use std::{borrow::Cow, ops::Range, sync::Arc};
 #[derive(Clone, Debug)]
 pub struct DefinitionSource {
     pub source: Arc<str>,
+    pub origin: crate::source::SourceOrigin,
     pub input: DefinitionInput,
     pub primitives: Arc<PrimitiveContext>,
 }
@@ -168,8 +169,9 @@ impl DefinitionSourceMap {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct DefinitionCode {
+    pub origin: crate::source::SourceOrigin,
     pub name_plan: DefinitionNamePlan,
     pub source: Arc<str>,
     pub body: Arc<str>,
@@ -187,6 +189,26 @@ pub struct DefinitionCode {
     pub monad_controls: Vec<crate::definition_flow::ControlNode>,
     pub dyad_controls: Vec<crate::definition_flow::ControlNode>,
 }
+// Diagnostic input revision identity does not change structural function meaning.
+impl PartialEq for DefinitionCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.name_plan == other.name_plan
+            && self.source == other.source
+            && self.body == other.body
+            && self.source_span == other.source_span
+            && self.source_map == other.source_map
+            && self.form == other.form
+            && self.mode == other.mode
+            && self.result_pos == other.result_pos
+            && self.sentences == other.sentences
+            && self.monad == other.monad
+            && self.dyad == other.dyad
+            && self.operator_definition == other.operator_definition
+            && self.monad_controls == other.monad_controls
+            && self.dyad_controls == other.dyad_controls
+    }
+}
+impl Eq for DefinitionCode {}
 
 pub(crate) fn semantic_body<'a>(source: &'a str, input: &DefinitionInput) -> Result<Cow<'a, str>> {
     let raw = input.body_text(source)?;
@@ -242,6 +264,25 @@ pub fn compile(
     input: &DefinitionInput,
     primitives: &PrimitiveContext,
 ) -> Result<Arc<DefinitionCode>> {
+    compile_with_origin(
+        source,
+        input,
+        primitives,
+        crate::source::SourceUnit::new("<input>", source).origin(),
+    )
+}
+
+pub(crate) fn compile_with_origin(
+    source: &str,
+    input: &DefinitionInput,
+    primitives: &PrimitiveContext,
+    origin: crate::source::SourceOrigin,
+) -> Result<Arc<DefinitionCode>> {
+    if origin.text() != source {
+        return Err(Error::Unsupported(
+            "definition source provenance mismatch".into(),
+        ));
+    }
     if input.form == DefinitionForm::NounDirect {
         return Err(Error::Domain.at(input.span.clone()));
     }
@@ -547,6 +588,7 @@ pub fn compile(
         }
     }
     let code = DefinitionCode {
+        origin,
         source_map: DefinitionSourceMap::new(source, input, &body),
         name_plan: DefinitionNamePlan {
             monad: scope_plan(&body, &sentences, monad.clone()),
@@ -588,6 +630,7 @@ impl DefinitionCode {
             .source_frames
             .push(crate::error::DiagnosticSourceFrame {
                 kind,
+                origin: self.origin.clone(),
                 source: self.source.clone(),
                 definition_span: self.source_span.clone(),
                 span,
@@ -597,6 +640,13 @@ impl DefinitionCode {
     }
     /// Verify source/word/control references before consuming this code in analysis.
     pub fn verify(&self) -> Result<()> {
+        if self.origin.text() != self.source.as_ref()
+            || self.origin.root_span(self.source_span.clone()).is_none()
+        {
+            return Err(Error::Unsupported(
+                "definition source provenance mismatch".into(),
+            ));
+        }
         let mapped = self
             .source_map
             .original_span(0..self.body.len())

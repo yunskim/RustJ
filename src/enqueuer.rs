@@ -451,6 +451,15 @@ pub fn enqueue_in_environment<'a>(
     primitives: &crate::primitive::PrimitiveContext,
     environment: EnqueueEnvironment,
 ) -> Result<Vec<EnqueuedWord<'a>>> {
+    enqueue_with_origin(source, primitives, environment, None)
+}
+
+pub(crate) fn enqueue_with_origin<'a>(
+    source: &'a str,
+    primitives: &crate::primitive::PrimitiveContext,
+    environment: EnqueueEnvironment,
+    origin: Option<&crate::source::SourceOrigin>,
+) -> Result<Vec<EnqueuedWord<'a>>> {
     let definitions = match crate::definition_input::frame(source)? {
         crate::definition_input::InputFrame::Definition(input) => vec![input],
         crate::definition_input::InputFrame::Definitions(inputs) => inputs,
@@ -487,10 +496,11 @@ pub fn enqueue_in_environment<'a>(
         .iter()
         .any(|input| input.form != crate::definition_input::DefinitionForm::NounDirect)
         .then(|| {
-            (
-                std::sync::Arc::<str>::from(source),
-                std::sync::Arc::new(primitives.clone()),
-            )
+            let source = std::sync::Arc::<str>::from(source);
+            let origin = origin.cloned().unwrap_or_else(|| {
+                crate::source::SourceUnit::new("<input>", source.clone()).origin()
+            });
+            (source, std::sync::Arc::new(primitives.clone()), origin)
         });
     let mut out = Vec::with_capacity(spans.len());
     for span in spans {
@@ -526,9 +536,10 @@ pub fn enqueue_in_environment<'a>(
                 crate::definition_input::DefinitionForm::ExplicitString(m)
                 | crate::definition_input::DefinitionForm::ExplicitBlock(m) => m,
             };
-            let (source_origin, primitive_origin) = origins.as_ref().unwrap();
+            let (source_origin, primitive_origin, origin) = origins.as_ref().unwrap();
             let provenance = std::sync::Arc::new(crate::definition_code::DefinitionSource {
                 source: source_origin.clone(),
+                origin: origin.clone(),
                 input: input.clone(),
                 primitives: primitive_origin.clone(),
             });

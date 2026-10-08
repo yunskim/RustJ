@@ -123,6 +123,7 @@ pub enum DiagnosticFrameKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagnosticSourceFrame {
     pub kind: DiagnosticFrameKind,
+    pub origin: crate::source::SourceOrigin,
     pub source: Arc<str>,
     pub definition_span: Range<usize>,
     pub span: Range<usize>,
@@ -374,13 +375,18 @@ impl Error {
         let mut out = String::new();
 
         for frame in &diagnostic.context.source_frames {
-            let location = SourceLocation::from_span(&frame.source, frame.span.clone());
-            let begin = frame.source[..location.byte_span.start]
+            let root_span = frame.origin.root_span(frame.span.clone());
+            let (frame_source, frame_name, span) = match root_span {
+                Some(span) => (frame.origin.unit().text(), frame.origin.unit().name(), span),
+                None => (frame.source.as_ref(), "<input>", frame.span.clone()),
+            };
+            let location = SourceLocation::from_span(frame_source, span);
+            let begin = frame_source[..location.byte_span.start]
                 .rfind('\n')
                 .map_or(0, |n| n + 1);
-            let end = frame.source[location.byte_span.start..]
+            let end = frame_source[location.byte_span.start..]
                 .find('\n')
-                .map_or(frame.source.len(), |n| location.byte_span.start + n);
+                .map_or(frame_source.len(), |n| location.byte_span.start + n);
             let label = match frame.kind {
                 DiagnosticFrameKind::DefinitionBody => "definition failure",
                 DiagnosticFrameKind::DefinitionCall => "called from definition",
@@ -388,10 +394,10 @@ impl Error {
                 DiagnosticFrameKind::DefinitionReturn => "returning from definition",
             };
             out.push_str(&format!(
-                "  {label}, line {}, column {}\n    {}\n    {}{}\n",
+                "  {label} in {frame_name}, line {}, column {}\n    {}\n    {}{}\n",
                 location.line,
                 location.column,
-                &frame.source[begin..end],
+                &frame_source[begin..end],
                 " ".repeat(location.column.saturating_sub(1)),
                 "^".repeat(if location.line == location.end_line {
                     location.end_column.saturating_sub(location.column).max(1)

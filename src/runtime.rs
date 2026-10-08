@@ -881,6 +881,7 @@ impl Engine {
             Ok(local)
         })()
         .map_err(|error| admission(error, None))?;
+        let body_origin = code.origin.body(code.body.clone(), code.source_map.clone());
         self.definition_depth += 1;
         self.local_frames.push(local);
         let result = (|| {
@@ -1115,8 +1116,8 @@ impl Engine {
                             ));
                         }
                     }
-                    let program = crate::parser::parse_runtime_host(
-                        &code.body[node.span.clone()],
+                    let program = crate::parser::parse_runtime_source(
+                        body_origin.slice(node.span.clone())?,
                         &mut frame,
                         None,
                     )?;
@@ -1169,6 +1170,7 @@ impl Engine {
                                     } else {
                                         crate::error::DiagnosticFrameKind::DefinitionCall
                                     },
+                                    origin: code.origin.clone(),
                                     source: code.source.clone(),
                                     definition_span: code.source_span.clone(),
                                     span,
@@ -2454,8 +2456,15 @@ impl Engine {
     /// Capture is observational: the same parser/kernel path executes either way.
     /// Input/intermediate facts and edges are retained, not array snapshots.
     pub fn eval_captured(&mut self, source: &str) -> CapturedEvaluation {
+        self.eval_source_captured(crate::source::SourceUnit::new("<input>", source).origin())
+    }
+
+    pub fn eval_source_captured(
+        &mut self,
+        origin: crate::source::SourceOrigin,
+    ) -> CapturedEvaluation {
         let mut capture = crate::parser_capture::ParseCapture::default();
-        let result = self.eval_program(source, true, Some(&mut capture));
+        let result = self.eval_origin(origin, true, Some(&mut capture));
         if let Err(error) = &result {
             capture.failure = Some(crate::parser_capture::CaptureFailure {
                 kind: error.kind().into(),
@@ -2465,14 +2474,37 @@ impl Engine {
         CapturedEvaluation { result, capture }
     }
 
+    /// Evaluate a checked fragment of an immutable named input revision.
+    /// Definition provenance survives later calls and input redefinition.
+    pub fn eval_source_diagnostic(
+        &mut self,
+        origin: crate::source::SourceOrigin,
+        semantic_reference: bool,
+    ) -> Result<Option<Value>> {
+        self.eval_origin(origin, !semantic_reference, None)
+    }
+
     fn eval_program(
         &mut self,
         source: &str,
         pooled: bool,
         capture: Option<&mut crate::parser_capture::ParseCapture>,
     ) -> Result<Option<Value>> {
-        let program = crate::parser::parse_runtime_host(
-            source,
+        self.eval_origin(
+            crate::source::SourceUnit::new("<input>", source).origin(),
+            pooled,
+            capture,
+        )
+    }
+
+    fn eval_origin(
+        &mut self,
+        origin: crate::source::SourceOrigin,
+        pooled: bool,
+        capture: Option<&mut crate::parser_capture::ParseCapture>,
+    ) -> Result<Option<Value>> {
+        let program = crate::parser::parse_runtime_source(
+            origin,
             &mut EngineParserHost {
                 engine: self,
                 pooled,

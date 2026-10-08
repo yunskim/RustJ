@@ -54,6 +54,7 @@ pub mod scanner;
 pub mod semantic;
 #[allow(unsafe_code)]
 mod simd;
+pub mod source;
 pub mod sparse;
 pub mod static_analysis;
 pub mod storage;
