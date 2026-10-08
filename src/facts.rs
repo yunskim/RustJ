@@ -758,6 +758,17 @@ mod extended_type_tests {
             let unknown = infer_semantic_primitive(id, rule, None, &SemanticFacts::default());
             assert_eq!(unknown.dtype, TypeFact::Unknown);
         }
+        // Exact integer division may keep ExtendedInt or promote the whole noun.
+        // No value/divisibility proof is present in these static facts.
+        assert_eq!(
+            infer_semantic_primitive(Divide, ShapeRule::PreserveRight, None, &input).dtype,
+            TypeFact::Unknown
+        );
+        assert_eq!(
+            infer_semantic_primitive(Divide, ShapeRule::PrefixAgreement, Some(&input), &input)
+                .dtype,
+            TypeFact::Unknown
+        );
         let empty = SemanticFacts {
             dtype: TypeFact::Exact(DType::ExtendedInt),
             shape: Some(vec![0]),

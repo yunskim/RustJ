@@ -282,6 +282,7 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
         match verb {
             "$" => return crate::extended::counts([y.shape.len()], y.shape.iter().copied()),
             "#" => return crate::extended::counts([], [y.shape.first().copied().unwrap_or(1)]),
+            "%" => return atomic(Op::Div, Value::scalar(1), y),
             "-" | "*" | "|" => return crate::extended::unary(verb, y),
             "+" | "," | "<" | ">" | "|." | "|:" => {}
             _ => return Err(Error::Unsupported(format!("extended monad {verb}"))),

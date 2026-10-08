@@ -1,6 +1,6 @@
 {
   "scope": "Bounded admission, handoff and error audit; gaps are findings, not passes. C diagnostic locations are not compared.",
-  "revision": "495ba5295dc182558b971c279416272fefbd994a",
+  "revision": "fac0e59ff66cc5bc29f1c9536c093ad08827beda",
   "rust_source_sha256": {
     "src\\admission.rs": "40cfe69e39169afe58c4471ca5a29094c88e48d5baf2ff4e07a25f72c5660029",
     "src\\analysis.rs": "6b21b318ad6f8227a099023390150d0907a8bb79eacf34a78441a09562067862",
@@ -18,8 +18,8 @@
     "src\\error.rs": "64dc0f2b694a4680e4a008a6250218101d41aeaca82ac8f131f4b30d6d205031",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src\\expansion.rs": "2d6baa6f91574450fe6f0ee5cacbd0e544503504674d307128a3789c7d20644a",
-    "src\\extended.rs": "a61bf98cecede91c686695ffc7433c7e1d0c8ea1bf660e5759976ba9a4fcca80",
-    "src\\facts.rs": "6089bb133d86cf6426723467b13c4cbee263161baffd14a7c44a30b9a92df4e6",
+    "src\\extended.rs": "e2f50ef2367a512f697c048290245ec26ed84b10c7dda28a0eebbdb4db4783e3",
+    "src\\facts.rs": "66e6fed7d09fad90b5b9a8950547c69ae045ae88be95565bc5689fd168f40397",
     "src\\frontend_context.rs": "f2e6a3c63feee24ae3ca51bc3e5b5e8e3e4ed51b91de6a9374205a8dfb09a0e3",
     "src\\frontend_handoff.rs": "f0f062fca56c046fb8008068ecabe8fdf1cc2146273c58a6a0d57ec74f2f4ad8",
     "src\\fusion_planning.rs": "96f82d6a1cb5da5558f5faef3d04dfcd1c81fedae7a5ce34244eaedbcdbdc291",
@@ -33,7 +33,7 @@
     "src\\j_graph_rewrite.rs": "511a64c3bd7f52e9e5e32e4ce0ddccc005cccaee6b22ab35ce9e99e541377a11",
     "src\\j_graph_scan.rs": "3f1b499393ad83552e234578717b711b34564e544fef324eaba0f139deb5c41a",
     "src\\j_graph_work_depth.rs": "dc45462b1f1b9891ba60be681d4dc9cf59ad053d5879a3353ecf4fdec5d1761b",
-    "src\\kernels.rs": "22e1529e8aed6ebccfdece518d139c48d9946f5061ef37bbdeeba09f794c118f",
+    "src\\kernels.rs": "afb238d6881656696d014386b39edb07b44e9afce70b4ecb96e1fc6aa047edb4",
     "src\\lib.rs": "e36a27badb700921c9d0f3e5d7f34939aca7b70f8dbfbaa0ababad4b4206a193",
     "src\\logical_executor.rs": "748be6ba378bae6ed94414b1ae8660ab5d759901d57e0d8ae773c7e4162a77d8",
     "src\\logical_ir.rs": "3906b45244d56ea8dc3e16b71a0664f956958268b31fbf1fc5b3f6808d5b945a",
@@ -67,9 +67,9 @@
     "src\\types.rs": "dc8f28d80623a1d369fe4ba37091c8c4479f545638030fb87cf25b8e2d8623b8",
     "src\\value.rs": "fcc28c3c8191e15afdc801d22aceb84d7300ac0f121bb636680ce04306e2cbf9"
   },
-  "probe_sha256": "7a6a5083f32226cb39a4415fd5b3590da4cfdb4603a4a8be81e3d3e49723519c",
+  "probe_sha256": "5a74bc42dbbde304c69bc28f15e1d9e14dbcca9a7dcc7ddc537a1851a6221738",
   "audit_source_sha256": {
-    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "e38e774fc9663d2ac108f4fa80d81dddb499fcf450c51d30a31d45d1e696c106",
+    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "7d7e484872b85c9049f3c1cd4b636206331b97c650c544b03b5cacfd4513a958",
     "tools\\oracle.py": "35f8a6a62ca8ceb9e50ba61b6d2d7a406d8e643afca4fc09117ddf95d7e04edc",
     "examples\\frontend_contract_probe.rs": "459ce2e9f4206767c80b33e03959f2aa28ff9946fc89ac1a7f54c021b5a80143"
   },

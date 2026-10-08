@@ -4,6 +4,7 @@ use crate::{
     storage::{CpuStorage, Shape},
     types::BigInt,
 };
+use num_integer::Integer;
 use std::{borrow::Cow, sync::Arc};
 
 fn atom(value: &Value, index: usize) -> Result<Cow<'_, BigInt>> {
@@ -40,11 +41,11 @@ pub(crate) fn atomic(
     ) || !matches!(
         b.data(),
         Data::ExtendedInt(_) | Data::Int(_) | Data::Bool(_)
-    ) || matches!(op, Op::Div)
-    {
-        return Err(Error::Unsupported(
-            "extended mixed-type arithmetic or rational division".into(),
-        ));
+    ) {
+        return Err(Error::Unsupported("extended mixed-type arithmetic".into()));
+    }
+    if matches!(op, Op::Div) {
+        return divide(a, b, shape, ad, bd);
     }
     let n = crate::value::count(&shape)?;
     if matches!(op, Op::Eq | Op::Lt | Op::Gt) {
@@ -107,4 +108,43 @@ pub(crate) fn unary(verb: &str, y: Value) -> Result<Value> {
         Shape::from(y.shape()),
         Data::ExtendedInt(CpuStorage::new(out)),
     )
+}
+
+// Preserve the C whole-result promotion policy without replaying earlier atoms.
+fn divide(a: &Value, b: &Value, shape: Shape, ad: usize, bd: usize) -> Result<Value> {
+    let n = crate::value::count(&shape)?;
+    let zero = BigInt::from(0);
+    let mut integers = crate::value::buffer(n)?;
+    for i in 0..n {
+        let (x, y) = (atom(a, i / ad)?, atom(b, i / bd)?);
+        if x.as_ref() == &zero {
+            integers.push(Arc::new(BigInt::from(0)));
+            continue;
+        }
+        if y.as_ref() != &zero {
+            let (quotient, remainder) = x.div_rem(&y);
+            if remainder == zero {
+                integers.push(Arc::new(quotient));
+                continue;
+            }
+        }
+        let mut rationals = crate::value::buffer(n)?;
+        for quotient in integers {
+            // These freshly constructed quotients have no external aliases.
+            let quotient = Arc::try_unwrap(quotient).expect("private division quotient");
+            rationals.push(Arc::new(crate::types::Rational::new(quotient, 1.into())?));
+        }
+        rationals.push(Arc::new(crate::types::Rational::new(
+            x.into_owned(),
+            y.into_owned(),
+        )?));
+        for j in i + 1..n {
+            rationals.push(Arc::new(crate::types::Rational::new(
+                atom(a, j / ad)?.into_owned(),
+                atom(b, j / bd)?.into_owned(),
+            )?));
+        }
+        return Value::new(shape, Data::Rational(CpuStorage::new(rationals)));
+    }
+    Value::new(shape, Data::ExtendedInt(CpuStorage::new(integers)))
 }

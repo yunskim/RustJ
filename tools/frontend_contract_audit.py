@@ -223,6 +223,21 @@ RATIONAL_CASES += [
     ('qop_catch',['saved=:2r3','f=:{{try. saved=:1r0-1r0 catch. saved end.}}'],'f 0',['saved']),
 ]
 
+# N3d: ExtendedInt division chooses one result family for the whole noun.
+for a_index, a in enumerate(['0x','1x','_1x','4x','_6x','9007199254740993x','9'*200+'x']):
+    for b_index, b in enumerate(['0x','1x','_1x','2x','_2x','3x','9007199254740993x']):
+        for context, source in [('scalar',a+'%'+b),('first','('+a+' 4x)%'+b),('last','(4x '+a+')%'+b)]:
+            RATIONAL_CASES.append((f'xdiv_{a_index}_{b_index}_{context}',[],source,[]))
+    RATIONAL_CASES.append((f'xreciprocal_{a_index}',[],'%'+a,[]))
+for index, source in enumerate(['4x%2','4%2x','1x%2','1%2x','1x%0','_1x%0','0%0x','1x%0$2x','%(0$2x)','%1x _1x','%1x _2x 0x','(2 2$4x 6x 1x 3x)%2 3','1x%(2 0$2)','4x 1x 6x%2','0x 2x 0x%0 0 0']):
+    RATIONAL_CASES.append((f'xdiv_special_{index}',[],source,[]))
+RATIONAL_CASES += [
+    ('xdiv_direct',['saved=:4x 1x 6x','f=:{{local=.saved\nlocal%2}}'],'f 0',['saved']),
+    ('xdiv_explicit',['saved=:4x 1x 6x',"f=:3 : 'local=.saved\nlocal%2'"],'f 0',['saved']),
+    ('xdiv_alias',['saved=:4x 1x 6x','alias=:saved'],'saved=:saved%2',['saved','alias']),
+    ('xdiv_failed',['saved=:4x 1x 6x'],'saved=:saved%1 2',['saved']),
+]
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
