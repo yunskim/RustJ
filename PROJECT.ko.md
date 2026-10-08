@@ -7745,13 +7745,13 @@ C `wn.c::jtconnum`의 `bcvtmask`는 연속된 두 비공백 문자가 있으면 
 
 다음 단위인 N2b(scientific real의 Int 축소와 whole-word dtype)는 아래 독립 절에서 다룬다. N2a의 기존 숫자 표기/Bool 축소 수용 결과를 N2b까지 소급 확대하지 않는다.
 
-### Frontend 숫자 변환 N2b — scientific real의 정수 축소 (구현 브랜치·검증 대기)
+### Frontend 숫자 변환 N2b — scientific real의 정수 축소 (Linux CI·C 차분 수용)
 
 **목적.** C `wn.c::jtconnum`은 real payload를 읽은 뒤 `k.c::jtbcvt`에 `bcvtmask`를 전달해 축소를 판단한다. `bcvtmask`의 bit 1은 Bool 변환을, bit 2는 Int 변환을 금지하며, 마침표가 있으면 Int 축소를 막는다. `CVTNOFUZZ` 경로는 허용 오차 없이 정확히 변환 가능한 경우에만 정수 타입을 선택한다. 특히 `1e0`은 **Bool이 아니라 Int**, `1.0`은 **Float**이다.
 
 **이번 구현 경계.** 기존 숫자 인식기(`numeric_input`)와 J parser reduction 구조를 바꾸지 않고, `src/enqueuer.rs`의 이미 검증된 real payload를 배열 전체에 대해 축소한다. 모든 Float 값이 finite·integral이고 `[-2^63, 2^63)`에 들어갈 때만 Int 배열을 만들며, 한 원소라도 조건을 만족하지 않으면 전체를 Float로 유지한다. `i64::MAX as f64`가 `2^63`로 반올림되는 점 때문에 상한은 `2^63` 미만으로 직접 비교한다. 숫자 spelling에 마침표가 포함되거나 기존 정수 변환이 overflow해서 Float으로 승격한 경우에는 해당 Float 유지 계약을 보존한다. `1e0 2e0`과 `1e0 1e_1`, `9223372036854775808e0`을 구분한다.
 
-**검증·수용 게이트.** `tests/numeric_scientific.rs`에 scalar/word dtype, min/max 경계, decimal-point inhibition, noun의 semantic handoff·Graph/Logical·runtime·definition propagation을 추가했다. 이 브랜치에서 실제 Cargo 테스트·두 C DLL과의 독립 차분·Linux CI 성공은 **아직 확인하지 않았다**. 따라서 N2b 수용 완료라고 표시하지 않으며 CI/차분 결과를 확인한 뒤 완료 판정을 기록한다.
+**검증·수용 근거 (2026-10-08).** `tests/numeric_scientific.rs`의 신규 5개 테스트가 Linux 기본/portable에서 모두 통과했다. PR #16 head `30b2306462055d99b3471005df2f2fbe97294e96`의 GitHub Actions `Linux milestone` run `37756981527`에서 `check`(Python 79개, fmt, Clippy, Cargo 기본/portable 테스트, release build, milestone)와 pinned jsource (`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`) 기반 reference 4개(`j64`/`j64avx2` × default/portable)가 모두 성공했다. `tools/conformance.py`에는 N2b scientific dtype 21개 사례가 포함되며 값·dtype·shape를 비교한다. 각 reference의 5,411-case corpus 결과는 `j64avx2` 두 경로 5,411 matched / 0 failed, `j64` 두 경로 5,410 matched / 1 기존 허용 편차 / 0 failed, coverage boundary 0이다. 기존 허용 편차는 N2b가 아닌 rank fixture 한 건이다. 이는 **N2b의 지원 subset에 대한 Linux·pinned C 차분 수용**이며 전체 J, Windows, GPU, 미지원 numeric payload를 수용했다는 뜻이 아니다. GitHub 검증: `https://github.com/yunskim/RustJ/actions/runs/37756981527`.
 
 **별도 미완료.** real ratio conversion, extended/rational/complex payload, 일반 locative/locale·boxed/AR target 및 미지원 modifier, definition body CFG/Logical lowering은 이번 범위가 아니다.
 

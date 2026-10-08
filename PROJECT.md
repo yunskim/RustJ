@@ -3373,13 +3373,13 @@ Executed evidence: native Windows default/portable each **698 passed / zero fail
 
 N2b (scientific real-to-Int narrowing and whole-word dtype selection) is tracked as a separate implementation unit below; do not retroactively count N2a acceptance as proof of N2b.
 
-### Frontend numeric conversion N2b — integral scientific real (implementation branch; validation pending)
+### Frontend numeric conversion N2b — integral scientific real (Linux CI and pinned C differential accepted)
 
 **Rationale.** C `wn.c::jtconnum` reads real payloads and passes the spelling-derived `bcvtmask` to `k.c::jtbcvt`. Mask bit 1 suppresses Bool narrowing, bit 2 suppresses Int narrowing, and a decimal point blocks Int conversion. `CVTNOFUZZ` permits an Int result only when conversion is exact; `1e0` is **Int rather than Bool**, while `1.0` remains **Float**.
 
 **Implementation boundary.** Keep numeric recognition (`numeric_input`) and jsource-compatible parser reductions unchanged. In `src/enqueuer.rs`, narrow an already validated real word **as a whole** only if every atom is finite, integral, and within `[-2^63, 2^63)`; otherwise keep every atom Float. The upper bound is compared explicitly as `2^63`, since `i64::MAX as f64` rounds to `2^63`. Preserve the decimal-point spelling inhibition and the existing whole-word Float promotion on integer overflow. Distinguish `1e0 2e0`, `1e0 1e_1`, and `9223372036854775808e0`.
 
-**Verification gate.** `tests/numeric_scientific.rs` adds scalar/word dtype, signed limits, decimal-point suppression, and handoff/Graph/Logical/runtime/definition propagation coverage. Cargo tests, independent comparison with both C DLLs, and a successful Linux CI run have **not yet been confirmed on this branch**. Do not mark N2b accepted until those results are recorded.
+**Verification and acceptance evidence (2026-10-08).** All five new `tests/numeric_scientific.rs` tests passed on Linux default and portable. For PR #16 head `30b2306462055d99b3471005df2f2fbe97294e96`, GitHub Actions `Linux milestone` run `37756981527` passed `check` (79 Python tests, fmt, Clippy, Cargo default/portable tests, release build and milestone) and all four pinned jsource (`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`) reference jobs (`j64`/`j64avx2` × default/portable). `tools/conformance.py` includes 21 N2b scientific dtype fixtures comparing values, dtype and shape. Each 5,411-case reference corpus produced 5,411 matched / 0 failed on both `j64avx2` paths, and 5,410 matched / one pre-existing allowed non-N2b rank deviation / 0 failed on both `j64` paths, with zero coverage boundaries. This accepts **only the N2b supported subset under Linux and pinned C differential**; it does not claim full J, Windows, GPU, or unsupported numeric payload acceptance. GitHub evidence: `https://github.com/yunskim/RustJ/actions/runs/37756981527`.
 
 **Still separate.** Real-family ratio conversion, extended/rational/complex payloads, general locative/locale and boxed/AR assignment targets, unsupported modifiers, and definition-body CFG/Logical lowering are not addressed in this slice.
 
