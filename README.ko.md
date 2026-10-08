@@ -162,6 +162,7 @@ ParameterizedLoweringRecipe
 - A3-v0의 SSA ValueId, Execution Basis, semantic check/constraint/effect/error contract와 verifier/reference executor
 - explicit/direct 정의의 원문·제어·NAME metadata와 mode-3/4 호출, 지원 if/while/for/try 및 중첩 direct/문자열 explicit의 독립 local scope, A3 정의 함수 참조를 지원한다. 현재 범위의 frontend E2E는 검증됐다. statement/control·실행 전 admission·반환 검사 실패는 정의 원문과 중첩 호출 경로를 구분한 진단 frame으로 보존한다. named source API/파일 CLI의 중첩 정의는 파일 전체 원문까지 추적한다. 전체 J 표현력, 본문 Graph/Logical 분석·CFG 컴파일 및 일반 locale/locative는 미완료다. PROJECT.ko.md의 감사 결과와 보완 실행 체크리스트를 따른다.
 - parser→후속 단계는 `VerifiedFrontend`로 같은 `Program + FrontendContext`의 NAME·대입·정의 연결을 검증한다. typed admission은 표현 수용과 실행 권한을 구분하며, J 오류·미지원·내부 검증·backend 실패를 별도로 전달한다. 실행 capture를 지연 실행 입력으로 재사용하지 않는다.
+- 접미사 없는 십진 정수 literal은 64비트 범위 초과 시 C처럼 숫자 word 전체를 Float으로 변환한다. 범위 안 Int 정확도와 Float JSON 왕복을 보존한다. complex/extended/rational payload 지원은 별도 미완료 범위다.
 - 문자열 단일·다중 및 runtime 계산된 문자열 대입 대상을 지원한다. local/global, scalar 확장·item/open, 순서 있는 부분 실패를 보존한다. 다중 대입의 Graph/Logical 변환과 boxed/atomic-representation target은 미지원이다.
 - `name_:`는 enqueue에서 실행하지 않고 flag와 원문을 보존한다. 비실행 parser는 noun의 `ExprKind::TakeName`과 함수의 `FunctionHead::TakeName`으로 POS·원문·문장 맥락을 전달한다. `Engine::parse_frontend`는 binding 전 산출물/실패 context를 실행·삭제 없이 반환한다. runtime은 noun/verb/adverb 및 explicit/non-nameless conjunction의 by-value 조회와 local/global 삭제 순서를 보존한다. nameless conjunction은 별도 이름으로 이관한 뒤 적용할 수 있다. 직접 적용은 삭제·내부 대입을 보존한 뒤 Unsupported로 거절하며 C의 valence error와 차이가 있다. 단일-word local은 C처럼 삭제하지 않는다. 읽기 전용 loop index의 일반 삭제와 deferred effect의 Graph/Logical 변환은 미지원이다.
 - `Engine::prepare_name_effects` / `execute_name_effects`는 top-level simple NAME의 noun 연산·TakeName 및 함수 값 이관·최종 단일 대입을 순서 있는 의미 계획으로 실행한다. SSA 값과 성공 effect token, 실제 scope/generation/version·삭제 관측을 보존하고 실패 후 replay하지 않는다. 계획 재사용 시 품사 조건을 먼저 확인한다. 정의 frame·modifier 생성·동적 verb 호출·중간 write는 후속 범위다.
@@ -228,6 +229,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo test --features portable
 ```
+
+현재 frontend 감사 report를 재생성한 뒤 `python tools/verify_frontend_reports.py --assets-root ../rustj-project-docs`로 source·binary·C DLL hash를 확인합니다. 파일 일치는 알려진 미지원 항목의 해결을 뜻하지 않습니다.
 
 추가 conformance·성능·메모리 검증 원칙은 [PROJECT.ko.md](PROJECT.ko.md)의 검증 절을 따릅니다.
 

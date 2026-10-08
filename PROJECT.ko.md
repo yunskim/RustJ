@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **가장 최근의 Windows 검증 기록(2026-10-08, typed admission/verified handoff 변경):** default/portable 각각 **689 passed / 0 failed / 0 ignored**, Python **73 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, frontend admission/handoff 및 decimal overflow 변경):** default/portable 각각 **696 passed / 0 failed / 0 ignored**, Python **79 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -7430,7 +7430,7 @@ native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports
 
 | 질문/사례 | 실제 판정 | 소유 단계 |
 |---|---|---|
-| jsource의 전체 표현력 | **아직 아님**. 문자열 단일·다중/computed target과 bounded noun/verb/adverb/explicit conjunction abandon 및 nameless conjunction 이름 이관 실행을 추가했다. boxed/AR target, locative, nameless conjunction abandon의 직접 적용, deferred effect lowering, complex/extended/rational/overflow literal conversion 등은 미지원 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target·abandon 실행 체크리스트 참조 |
+| jsource의 전체 표현력 | **아직 아님**. 문자열 단일·다중/computed target과 bounded noun/verb/adverb/explicit conjunction abandon 및 nameless conjunction 이름 이관 실행을 추가했다. boxed/AR target, locative, nameless conjunction abandon의 직접 적용, deferred effect lowering, complex/extended/rational literal conversion 등은 미지원; decimal overflow는 아래 N1에서 보완 | F1/P4 및 기존 숫자·NAME 호환성 게이트; 아래 noun target·abandon 실행 체크리스트 참조 |
 | `a+a=:2`, `a=:b=:1`, 계산된 rank | runtime은 C와 일치하나 비실행 P/G/L에서 Unsupported. chained assignment 전체가 runtime 미지원이라고 말하면 틀린다 | P 단계 동적 construction/effect 경계, P8 |
 | `adv=:/` | Program의 ModifierValue와 POS는 보존하지만 J Graph가 modifier value lowering을 거부 | P8/A1/A2, frontend lexical 오류 아님 |
 | `". '1+2'` | P/G는 수용하고 L/runtime은 미지원. primitive 인식과 실행 지원을 분리 | lowering/runtime capability |
@@ -7712,7 +7712,24 @@ Read-only 경계는 `admission::{Stage, Admission<T>, Rejection}`과 `Engine::ad
 - [x] 새 Rust 회귀 15개와 Python 감사 계약 회귀 4개 추가. F(frontend)/H(handoff)/P(binding)/G(Graph)/L(Logical)/R(actual execution)를 구분하고 오류 category·handler 권한을 기계 보고한다. P 실패를 tokenizer/parser 실패라고 세지 않는다. verifier/backend 실패가 관찰되면 감사는 runtime_gap으로 숨기지 않고 실패한다.
 - [x] Windows default/portable 각각 **689 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets) 및 Python **73 passed**. 두 C DLL의 기존 NAME/정의 감사 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**; frontend 감사 **58 matched / 18 runtime_gap**. 38개 독립 frontend 사례에서 F/H 각각 24 accepted·12 unsupported·2 J 진단, P 20·16·2, G 19·17·2, L 18·18·2이며 verifier/backend 실패는 0이다. F/H 수용은 전체 J 호환율이 아니다. 8개 report의 **552 source/binary/DLL hash** 검증 완료. C 진단 위치·문구, Linux·GPU·GitHub CI 검증은 수행하지 않았다.
 
-제한/후속: 이 계약은 현재 frontend와 연결된 verifier 경계의 구현이다. 모든 legacy Unsupported callsite와 미래 backend를 전역적으로 전환했다는 뜻은 아니다. 일반 locative/locale·boxed/AR target·complex/extended/rational payload와 overflow conversion·미지원 modifier는 독립 호환성 범위이며 아직 미완료다. non-final/runtime-dependent parsing은 현재 semantic runtime 경로의 경계로 유지하고 정적 prefix를 실행 가능한 continuation으로 주장하지 않는다. 본문 Graph/Logical/CFG 및 일반 modifier effect lowering도 후속 단계다. 다음 frontend 호환성 단위는 numeric recognition과 typed literal payload 변환을 분리해 exact/complex family를 단계적으로 전달하는 것이다.
+제한/후속: 이 계약은 현재 frontend와 연결된 verifier 경계의 구현이다. 모든 legacy Unsupported callsite와 미래 backend를 전역적으로 전환했다는 뜻은 아니다. 일반 locative/locale·boxed/AR target·complex/extended/rational payload·N1 밖의 숫자 변환·미지원 modifier는 독립 호환성 범위이며 아직 미완료다. non-final/runtime-dependent parsing은 현재 semantic runtime 경로의 경계로 유지하고 정적 prefix를 실행 가능한 continuation으로 주장하지 않는다. 본문 Graph/Logical/CFG 및 일반 modifier effect lowering도 후속 단계다. 다음 frontend 호환성 단위는 numeric recognition과 typed literal payload 변환을 분리해 exact/complex family를 단계적으로 전달하는 것이다.
+
+### Frontend 숫자 변환 N1 — decimal integer overflow
+
+범위는 접미사 없는 십진 정수 word다. C `wn.c::jtnumi/jtconnum`은 signed 64-bit 경계를 허용하고, 한 atom이라도 범위를 넘으면 word 전체를 다시 Float으로 읽으며 INT/Bool 축소를 금지한다. 이때 같은 word의 다른 정수도 Float 반올림을 따른다. `x` exact 정수와 `r` rational은 이 규칙의 대상이 아니며 아직 Unsupported다. 새 IR이나 host/device storage 선택을 frontend에 넣지 않는다.
+
+- [x] pin된 C source의 전체 word promotion 규칙과 Windows DLL 관찰 확인.
+- [x] scalar/array의 overflow를 Float payload로 변환하되 범위 내 Int의 정확도 유지.
+- [x] 경계값·음수·긴 decimal·mixed word·뒤쪽 ill-formed 숫자와 정의/대입 실패 상태 회귀.
+- [x] frontend/handoff/Graph/Logical/실행 및 두 C DLL 비교, 기존 8개 감사 재검증.
+- [x] 전체 Windows default/portable·Python·fmt/clippy·hash 결과 기록 및 push.
+
+엄격한 C 비교에서 Float JSON의 기존 표현 문제도 발견했다. `f64::to_string`의 `9223372036854776000` 같은 shortest-roundtrip 문자열을 JSON decoder가 정수로 읽으면 실제 Float과 다르게 비교한다. finite Float에는 소수점/지수 표기가 반드시 남게 하고 `-0.0`도 보존한다. dtype=8을 정수 dtype으로 바꾸거나 비교 tolerance를 늘리지 않는다. `tests/numeric_overflow.rs`는 JSON numeric spelling의 비트 왕복도 검증한다.
+
+
+실행 결과: Windows default/portable 각각 **696 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets) 및 Python **79 passed**. 새 numeric corpus는 **18 fixtures × DLL 2 = 36/36 matched**, 실제 오류·대입 후 상태를 비교하며 gap 허용은 없다. 각 DLL의 숫자 문법 감사 **2,485 cases / 0 failed**는 별도 recognition 검사이며 payload 미지원·precision 경계는 통과로 계산하지 않는다. 기존 frontend 감사는 **60 matched / 16 runtime_gap**로 개선되어 8개 독립 runtime gap이 남는다. NAME/정의 감사 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**는 유지됐다. **11개 report / 631 source·binary·DLL hash**를 `tools/verify_frontend_reports.py --assets-root ../rustj-project-docs`로 검증했다. source/DLL pin 차이와 bounded 비교의 제한은 기존 계약을 따른다. JSON 수정은 machine 출력 호환성 변경이며 kernel 성능 개선의 증거는 아니다. Linux·GPU·GitHub CI는 실행하지 않았다.
+
+다음 수치 호환성 게이트는 decimal spelling에 따른 Bool/Int/Float 최소 dtype 선택과 real-family ratio conversion, 이후 exact/complex payload와 Value 저장 계약이다. 새 literal family를 단순 Float으로 바꾸거나 NAME parsing을 실행해 보충하지 않는다. general locative/locale·boxed/AR target·modifier 경계와 본문 Graph/Logical/CFG 작업도 미완료로 유지한다.
 
 ## 13. 프레임워크 조사에서 채택한 원칙
 

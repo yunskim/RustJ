@@ -1,6 +1,6 @@
 {
   "scope": "Bounded admission, handoff and error audit; gaps are findings, not passes. C diagnostic locations are not compared.",
-  "revision": "f1c634a07682210e2314a0837736bd639b3578ea",
+  "revision": "9d4802b7891baec131b4ba988a469dd09934856f",
   "rust_source_sha256": {
     "src\\admission.rs": "40cfe69e39169afe58c4471ca5a29094c88e48d5baf2ff4e07a25f72c5660029",
     "src\\analysis.rs": "6b21b318ad6f8227a099023390150d0907a8bb79eacf34a78441a09562067862",
@@ -14,7 +14,7 @@
     "src\\definition_control.rs": "c42abb5b7417b0e15fff796488053a379e8e352e53d8b1679377d35ff367f075",
     "src\\definition_flow.rs": "3b8d52fea33f484cc56ee57f286353b2f5521d18e9675732af21dd8b50c65de0",
     "src\\definition_input.rs": "aa53392c875d58dd2fd256b398312dcfc1735dbf8b68cbfd9cf17dc0a9c179dd",
-    "src\\enqueuer.rs": "2c9d312447a3d1396ac0bd55269f7c3e3c38ef8d1ff4642dcba4af8f0f390291",
+    "src\\enqueuer.rs": "551a61eca8208377bea33773efbf0181f3218bb2b20e08b47f1ca6875a699b1e",
     "src\\error.rs": "f475496a7e0970d43081f80ebe59f68a8f03585271a3241de1da587e63c2506c",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src\\expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
@@ -63,11 +63,11 @@
     "src\\tokenizer.rs": "5543c534e662d4156e601bb8b45000dd90630424f48bf9989e78bb7f827cbd64",
     "src\\tolerant_search.rs": "0d5b36414968f9bd8ba66f8d4999919650029e5140b1cd7996b597da191d4377",
     "src\\types.rs": "502531ee2eeba34a3508a93b1f4320d48d2f9e0d02d753bbdb82e5e3b1f3602b",
-    "src\\value.rs": "5e841de33a6ceeecc8f43b3026aee0de7c70d7555039e26174e23c763675ac15"
+    "src\\value.rs": "b41cc5c45580977a7043cac18ab9044a161d74acc12d756e81f84d403b3a95c5"
   },
-  "probe_sha256": "0d390b1e1fe2147079315aa4270f72d10cd2762f2e35c1d963f8343e14a527d9",
+  "probe_sha256": "66ddcefb7655ae71b83c92be364cda067e04fd84d6c5123a5189591e09d72490",
   "audit_source_sha256": {
-    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "4ce4b47a7dade6c53bee10012ec9d9373bf2f57b586fdf52139a1ad4a52a8229",
+    "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\frontend_contract_audit.py": "f4eeb48cde56b199e08d17135fd1533e411874e2d92651276865281a597e65ee",
     "examples\\frontend_contract_probe.rs": "459ce2e9f4206767c80b33e03959f2aa28ff9946fc89ac1a7f54c021b5a80143"
   },
   "reference_sha256": {
@@ -76,36 +76,37 @@
   },
   "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
   "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "fixture_set": "frontend-boundaries",
   "cases": 38,
   "observations": 76,
   "counts": {
-    "matched": 58,
-    "runtime_gap": 18
+    "matched": 60,
+    "runtime_gap": 16
   },
   "stage_admission_counts": {
     "F": {
-      "accepted-representation": 24,
-      "unsupported-capability": 12,
+      "accepted-representation": 25,
+      "unsupported-capability": 11,
       "j-language": 2
     },
     "H": {
-      "accepted-representation": 24,
-      "unsupported-capability": 12,
+      "accepted-representation": 25,
+      "unsupported-capability": 11,
       "j-language": 2
     },
     "P": {
+      "accepted-representation": 21,
+      "unsupported-capability": 15,
+      "j-language": 2
+    },
+    "G": {
       "accepted-representation": 20,
       "unsupported-capability": 16,
       "j-language": 2
     },
-    "G": {
+    "L": {
       "accepted-representation": 19,
       "unsupported-capability": 17,
-      "j-language": 2
-    },
-    "L": {
-      "accepted-representation": 18,
-      "unsupported-capability": 18,
       "j-language": 2
     }
   },
@@ -1857,93 +1858,52 @@
         "F": {
           "inspection_stage": "frontend",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true,
+          "complete": true,
+          "words": 1,
+          "reductions": 0
         },
         "H": {
           "inspection_stage": "frontend-handoff",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true,
+          "requirements": "Requirements { name_environment: false, ordered_name_effects: false, late_function_lookup: false, construction_observations: false, deferred_definition_bodies: false }"
         },
         "P": {
           "inspection_stage": "semantic-binding",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true,
+          "kind": "literal",
+          "complete": true,
+          "words": 1,
+          "reductions": 0,
+          "names": "[]"
         },
         "G": {
           "inspection_stage": "j-graph",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true
         },
         "L": {
           "inspection_stage": "logical",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true
         },
         "R": {
           "result": {
-            "error": "unsupported",
-            "category": "unsupported-capability",
-            "j_handler_eligible": false,
-            "span": [
-              0,
-              19
-            ],
-            "blame_word": 0,
-            "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-            "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+            "type": 8,
+            "shape": [],
+            "data": [
+              9.223372036854776e+18
+            ]
           },
-          "capture": "ParseCapture { source: \"9223372036854775808\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"9223372036854775808\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"9223372036854775808\" }, text: \"9223372036854775808\", text_range: 0..19, mapping: Root }), words: [], items: [], nodes: [], origins: [], name_uses: [], reductions: [], steps: [], pending: None, root: None, complete: false }), events: [], result: None, failure: Some(CaptureFailure { kind: \"unsupported\", context: Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] }) }), next_id: 0 }"
+          "capture": "ParseCapture { source: \"9223372036854775808\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"9223372036854775808\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"9223372036854775808\" }, text: \"9223372036854775808\", text_range: 0..19, mapping: Root }), words: [WordRecord { span: 0..19, class: Noun, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }], items: [ItemRecord { producer: Word(WordId(0)), class: Noun, semantic: Some(NodeId(0)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }], nodes: [NodeRecord { kind: Literal, class: Noun }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(0)], reductions: [], name_uses: [] }], name_uses: [], reductions: [], steps: [Stack { queued: ItemId(0), resolved: ItemId(0) }, FrontMark(ItemId(1))], pending: None, root: Some(ItemId(0)), complete: true }), events: [Input { id: OccurrenceId(0), name: None, version: None, span: 0..19, facts: GraphFacts { dtype: Exact(Float), shape: Some([]), rank: Some(0) }, word_index: 0 }], result: Some(OccurrenceId(0)), failure: None, next_id: 1 }"
         }
       },
       "post_sources": [],
       "post_reference": [],
       "post_rust": [],
-      "status": "runtime_gap"
+      "status": "matched"
     },
     {
       "case": "core_conjunction",
@@ -5451,93 +5411,52 @@
         "F": {
           "inspection_stage": "frontend",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true,
+          "complete": true,
+          "words": 1,
+          "reductions": 0
         },
         "H": {
           "inspection_stage": "frontend-handoff",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true,
+          "requirements": "Requirements { name_environment: false, ordered_name_effects: false, late_function_lookup: false, construction_observations: false, deferred_definition_bodies: false }"
         },
         "P": {
           "inspection_stage": "semantic-binding",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true,
+          "kind": "literal",
+          "complete": true,
+          "words": 1,
+          "reductions": 0,
+          "names": "[]"
         },
         "G": {
           "inspection_stage": "j-graph",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true
         },
         "L": {
           "inspection_stage": "logical",
           "execution_performed": false,
-          "error": "unsupported",
-          "category": "unsupported-capability",
-          "j_handler_eligible": false,
-          "span": [
-            0,
-            19
-          ],
-          "blame_word": 0,
-          "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-          "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+          "ok": true
         },
         "R": {
           "result": {
-            "error": "unsupported",
-            "category": "unsupported-capability",
-            "j_handler_eligible": false,
-            "span": [
-              0,
-              19
-            ],
-            "blame_word": 0,
-            "context": "Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] })",
-            "render": "  File \"audit\", line 1, column 1\n    9223372036854775808\n    ^^^^^^^^^^^^^^^^^^^\nUnsupportedError: overflowing integer literal conversion\n  before sentence execution"
+            "type": 8,
+            "shape": [],
+            "data": [
+              9.223372036854776e+18
+            ]
           },
-          "capture": "ParseCapture { source: \"9223372036854775808\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"9223372036854775808\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"9223372036854775808\" }, text: \"9223372036854775808\", text_range: 0..19, mapping: Root }), words: [], items: [], nodes: [], origins: [], name_uses: [], reductions: [], steps: [], pending: None, root: None, complete: false }), events: [], result: None, failure: Some(CaptureFailure { kind: \"unsupported\", context: Some(ErrorContext { phase: Some(Enqueue), span: Some(0..19), blame_word_index: Some(0), current_name: None, operation: None, valence: None, arguments: [], details: [], source_frames: [] }) }), next_id: 0 }"
+          "capture": "ParseCapture { source: \"9223372036854775808\", frontend: Some(FrontendContext { schema: 3, unit: FrontendUnitId(7), realization: Observed, source: \"9223372036854775808\", source_origin: Some(SourceOrigin { unit: SourceUnit { id: SourceUnitId(6), name: \"<input>\", text: \"9223372036854775808\" }, text: \"9223372036854775808\", text_range: 0..19, mapping: Root }), words: [WordRecord { span: 0..19, class: Noun, flags: EnqueueFlags { lookup_name: false, abandon_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }], items: [ItemRecord { producer: Word(WordId(0)), class: Noun, semantic: Some(NodeId(0)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }], nodes: [NodeRecord { kind: Literal, class: Noun }], origins: [NodeOrigin { node: NodeId(0), items: [ItemId(0)], reductions: [], name_uses: [] }], name_uses: [], reductions: [], steps: [Stack { queued: ItemId(0), resolved: ItemId(0) }, FrontMark(ItemId(1))], pending: None, root: Some(ItemId(0)), complete: true }), events: [Input { id: OccurrenceId(0), name: None, version: None, span: 0..19, facts: GraphFacts { dtype: Exact(Float), shape: Some([]), rank: Some(0) }, word_index: 0 }], result: Some(OccurrenceId(0)), failure: None, next_id: 1 }"
         }
       },
       "post_sources": [],
       "post_reference": [],
       "post_rust": [],
-      "status": "runtime_gap"
+      "status": "matched"
     },
     {
       "case": "core_conjunction",

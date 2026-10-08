@@ -334,7 +334,15 @@ impl Value {
                     } else if *x == f64::NEG_INFINITY {
                         "\"-inf\"".into()
                     } else {
-                        x.to_string()
+                        let mut text = x.to_string();
+                        // Keep JSON decoders on the floating-point path. A
+                        // shortest round-trip Float spelling can look like an
+                        // integer whose exact decimal value differs from x.
+                        // This also retains negative zero through JSON.
+                        if !text.contains(['.', 'e', 'E']) {
+                            text.push_str(".0");
+                        }
+                        text
                     }
                 })
                 .collect(),

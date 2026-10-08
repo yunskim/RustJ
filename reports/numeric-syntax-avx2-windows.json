@@ -10,13 +10,12 @@
     "jsrc/jerr.h": "70ed09fa0e3ebd92c151b1a352cfeff5ea0cf23ca5eb379f10c8e27ca06f4e0c"
   },
   "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
-  "binary_sha256": "603efa5c4dcfd8ff3e7ef5e71acdaf4dc4b7c2dceb326e7cb25bbb0f01860581",
+  "binary_sha256": "a92d53baab927c367f26308878a44e14445a27deb1b7558c2c9a1f714a900da7",
   "cases": 2485,
   "checks": {
-    "accepted_noun_control": 182,
+    "accepted_noun_control": 184,
     "error_class_verified": 1244,
     "valid_payload_boundary": 850,
-    "integer_conversion_boundary": 2,
     "reference_precision_boundary": 200,
     "quad_construction_boundary": 1,
     "nan_word_formation_boundary": 4,
@@ -9057,9 +9056,9 @@
       "source": "9223372036854775808",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "overflowing integer literal conversion",
-      "status": "integer_conversion_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {
@@ -10399,9 +10398,9 @@
       "source": "_9223372036854775809",
       "scope": "reviewed",
       "c_result": null,
-      "rust_error": "unsupported",
-      "rust_unsupported_reason": "overflowing integer literal conversion",
-      "status": "integer_conversion_boundary",
+      "rust_error": null,
+      "rust_unsupported_reason": null,
+      "status": "accepted_noun_control",
       "failures": []
     },
     {

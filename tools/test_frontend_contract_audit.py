@@ -41,6 +41,21 @@ class FrontendAdmissionAudit(unittest.TestCase):
     def test_machine_comparison_ignores_diagnostics_but_preserves_j_error_kind(self):
         self.assertEqual(audit.semantic_outcome({"error": "length error", "category": "j-language", "j_handler_eligible": True}), {"error": "length error"})
 
+    def test_strict_numeric_corpus_cannot_waive_runtime_differences(self):
+        report = {"counts": {"matched": 35, "runtime_gap": 1},
+                  "stage_admission_counts": {"F": {"accepted-representation": 18}}}
+        audit.enforce_acceptance(report)
+        with self.assertRaises(SystemExit):
+            audit.enforce_acceptance(report, strict_runtime=True)
+        audit.enforce_acceptance(report | {"counts": {"matched": 36}}, strict_runtime=True)
+
+    def test_internal_failures_block_both_audit_modes(self):
+        for category in ["verifier-defect", "backend-failure"]:
+            report = {"counts": {"matched": 36}, "stage_admission_counts": {"H": {category: 1}}}
+            for strict in [False, True]:
+                with self.assertRaises(SystemExit):
+                    audit.enforce_acceptance(report, strict_runtime=strict)
+
 
 if __name__ == "__main__":
     unittest.main()

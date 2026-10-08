@@ -1,8 +1,8 @@
 {
   "scope": "Bounded observable sentence/value/error audit; not full NAME, event, Graph/A3 or compiled-route conformance",
   "platform": "win32",
-  "rust_revision": "f1c634a+admission-handoff-working-tree",
-  "rust_binary_sha256": "137a322e9b5815680360b4c74689f864a2af85a9129619851b15f37441dceaa9",
+  "rust_revision": "9d4802b+numeric-overflow-working-tree",
+  "rust_binary_sha256": "bc6b2e77b25479f2589bcfba6d5db1052655da960bb998cb3b4f1f432aefc6c8",
   "rust_source_sha256": {
     "src/admission.rs": "40cfe69e39169afe58c4471ca5a29094c88e48d5baf2ff4e07a25f72c5660029",
     "src/analysis.rs": "6b21b318ad6f8227a099023390150d0907a8bb79eacf34a78441a09562067862",
@@ -16,7 +16,7 @@
     "src/definition_control.rs": "c42abb5b7417b0e15fff796488053a379e8e352e53d8b1679377d35ff367f075",
     "src/definition_flow.rs": "3b8d52fea33f484cc56ee57f286353b2f5521d18e9675732af21dd8b50c65de0",
     "src/definition_input.rs": "aa53392c875d58dd2fd256b398312dcfc1735dbf8b68cbfd9cf17dc0a9c179dd",
-    "src/enqueuer.rs": "2c9d312447a3d1396ac0bd55269f7c3e3c38ef8d1ff4642dcba4af8f0f390291",
+    "src/enqueuer.rs": "551a61eca8208377bea33773efbf0181f3218bb2b20e08b47f1ca6875a699b1e",
     "src/error.rs": "f475496a7e0970d43081f80ebe59f68a8f03585271a3241de1da587e63c2506c",
     "src/execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src/expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
@@ -65,7 +65,7 @@
     "src/tokenizer.rs": "5543c534e662d4156e601bb8b45000dd90630424f48bf9989e78bb7f827cbd64",
     "src/tolerant_search.rs": "0d5b36414968f9bd8ba66f8d4999919650029e5140b1cd7996b597da191d4377",
     "src/types.rs": "502531ee2eeba34a3508a93b1f4320d48d2f9e0d02d753bbdb82e5e3b1f3602b",
-    "src/value.rs": "5e841de33a6ceeecc8f43b3026aee0de7c70d7555039e26174e23c763675ac15",
+    "src/value.rs": "b41cc5c45580977a7043cac18ab9044a161d74acc12d756e81f84d403b3a95c5",
     "Cargo.toml": "da6954ecceba891bd67e33bb6b434554b16c5dfb6cfb196219f3da7f14980961",
     "Cargo.lock": "f55d06bbb7b0b47bd324f51de6ff71790c735bd5c04fbf8592a60eb4c40b9b5c",
     "tools/name_compatibility_audit.py": "a4737b88e1712ba841f81567cc0ef522c1c00c9aea617ef9353144879f29bbe2",

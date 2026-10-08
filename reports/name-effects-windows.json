@@ -1,6 +1,6 @@
 {
   "scope": "Bounded top-level ordered NAME plan execution; setup/check use ordinary execution; no replay/fallback",
-  "revision": "f1c634a07682210e2314a0837736bd639b3578ea",
+  "revision": "9d4802b7891baec131b4ba988a469dd09934856f",
   "platform": "win32",
   "fixtures": 26,
   "observations": 104,
@@ -5701,7 +5701,7 @@
       "differences": []
     }
   ],
-  "probe_sha256": "fa55de93fd47789c7b777890d4088ba470ac35ccca55c81f4c0fddf83f26f0cb",
+  "probe_sha256": "14e05d738f3adf01556943ddfebe60db9947c6394939f9bd49cef427ebdf2de9",
   "rust_source_sha256": {
     "src\\admission.rs": "40cfe69e39169afe58c4471ca5a29094c88e48d5baf2ff4e07a25f72c5660029",
     "src\\analysis.rs": "6b21b318ad6f8227a099023390150d0907a8bb79eacf34a78441a09562067862",
@@ -5715,7 +5715,7 @@
     "src\\definition_control.rs": "c42abb5b7417b0e15fff796488053a379e8e352e53d8b1679377d35ff367f075",
     "src\\definition_flow.rs": "3b8d52fea33f484cc56ee57f286353b2f5521d18e9675732af21dd8b50c65de0",
     "src\\definition_input.rs": "aa53392c875d58dd2fd256b398312dcfc1735dbf8b68cbfd9cf17dc0a9c179dd",
-    "src\\enqueuer.rs": "2c9d312447a3d1396ac0bd55269f7c3e3c38ef8d1ff4642dcba4af8f0f390291",
+    "src\\enqueuer.rs": "551a61eca8208377bea33773efbf0181f3218bb2b20e08b47f1ca6875a699b1e",
     "src\\error.rs": "f475496a7e0970d43081f80ebe59f68a8f03585271a3241de1da587e63c2506c",
     "src\\execution_semantics.rs": "8304cc08776827860a19e4e48d108d4500fd221047bcb88d3c1eba9f74d65655",
     "src\\expansion.rs": "b9d5be58073f25196d8dfeba778ca8bb81fbb5ae554776532ce7f56ba68b6129",
@@ -5764,7 +5764,7 @@
     "src\\tokenizer.rs": "5543c534e662d4156e601bb8b45000dd90630424f48bf9989e78bb7f827cbd64",
     "src\\tolerant_search.rs": "0d5b36414968f9bd8ba66f8d4999919650029e5140b1cd7996b597da191d4377",
     "src\\types.rs": "502531ee2eeba34a3508a93b1f4320d48d2f9e0d02d753bbdb82e5e3b1f3602b",
-    "src\\value.rs": "5e841de33a6ceeecc8f43b3026aee0de7c70d7555039e26174e23c763675ac15"
+    "src\\value.rs": "b41cc5c45580977a7043cac18ab9044a161d74acc12d756e81f84d403b3a95c5"
   },
   "audit_source_sha256": {
     "C:\\Users\\yeons\\.codex\\.chatgpt-projects\\g-p-6ab74ea2e3448191b85a1e61d37179cf\\rustj\\tools\\name_effect_audit.py": "e03957365235aa31eb2d8670433bac980517107f3aab9e80b259e8809eb497a3",

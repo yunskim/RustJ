@@ -92,15 +92,21 @@ fn numeric_failure(s: &str) -> Error {
     }
 }
 
-fn parse_int(s: &str) -> Result<i64> {
-    numeric_text(s)
-        .parse()
-        .map_err(|e: std::num::ParseIntError| match e.kind() {
-            std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow => {
-                Error::Unsupported("overflowing integer literal conversion".into())
-            }
-            _ => numeric_failure(s),
-        })
+// None requests whole-word Float promotion, as wn.c::jtconnum does after
+// jtnumi overflows. It is not an exact-integer payload or a J error.
+fn parse_int(s: &str) -> Result<Option<i64>> {
+    match numeric_text(s).parse::<i64>() {
+        Ok(value) => Ok(Some(value)),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(_) => Err(numeric_failure(s)),
+    }
 }
 
 fn parse_float(s: &str) -> Result<f64> {
@@ -275,8 +281,9 @@ fn interpret_word<'a>(
                 Scalar::Float(parse_float(word)?)
             } else {
                 match parse_int(word)? {
-                    x @ (0 | 1) => Scalar::Bool(x != 0),
-                    x => Scalar::Int(x),
+                    Some(x @ (0 | 1)) => Scalar::Bool(x != 0),
+                    Some(x) => Scalar::Int(x),
+                    None => Scalar::Float(parse_float(word)?),
                 }
             };
             return Ok((
@@ -295,13 +302,23 @@ fn interpret_word<'a>(
             let values = word
                 .split_ascii_whitespace()
                 .map(parse_int)
-                .collect::<Result<Vec<_>>>()?;
-            if values.iter().all(|&n| n == 0 || n == 1) {
-                Data::Bool(CpuStorage::new(
-                    values.into_iter().map(|n| n as u8).collect(),
-                ))
+                .collect::<Result<Option<Vec<_>>>>()?;
+            if let Some(values) = values {
+                if values.iter().all(|&n| n == 0 || n == 1) {
+                    Data::Bool(CpuStorage::new(
+                        values.into_iter().map(|n| n as u8).collect(),
+                    ))
+                } else {
+                    Data::Int(CpuStorage::new(values))
+                }
             } else {
-                Data::Int(CpuStorage::new(values))
+                // Reread every atom, including those before the overflow, and
+                // validate the suffix too. Never retain a mixed Int/Float word.
+                Data::Float(CpuStorage::new(
+                    word.split_ascii_whitespace()
+                        .map(parse_float)
+                        .collect::<Result<Vec<_>>>()?,
+                ))
             }
         };
         return Ok((

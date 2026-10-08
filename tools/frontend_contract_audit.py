@@ -55,6 +55,27 @@ CASES = [
     ("definition_return_post_effect", ["count=:0", "saved=:99", "f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'"], "saved=:f 0", ["count", "saved"]),
 ]
 
+NUMERIC_OVERFLOW_CASES = [
+    ("int_max", [], "9223372036854775807", []),
+    ("int_min", [], "_9223372036854775808", []),
+    ("int_exact_above_float_precision", [], "9007199254740993", []),
+    ("positive_overflow", [], "9223372036854775808", []),
+    ("negative_overflow", [], "_9223372036854775809", []),
+    ("leading_zero_overflow", [], "000000009223372036854775808", []),
+    ("word_overflow_last", [], "9007199254740993 1 9223372036854775808", []),
+    ("word_overflow_first", [], "9223372036854775808 9007199254740993 1", []),
+    ("word_overflow_middle", [], "1 _9223372036854775809 9007199254740993", []),
+    ("word_no_overflow", [], "9007199254740993 9223372036854775807", []),
+    ("huge_positive", [], "9" * 400, []),
+    ("huge_negative", [], "_" + "9" * 400, []),
+    ("overflow_expression", [], "1+9223372036854775808", []),
+    ("overflow_assignment", [], "saved=:9223372036854775808", ["saved"]),
+    ("malformed_after_overflow", ["saved=:7"], "saved=:9223372036854775808 1_2", ["saved"]),
+    ("malformed_before_overflow", ["saved=:7"], "saved=:1_2 9223372036854775808", ["saved"]),
+    ("direct_overflow_body", ["f=:{{9223372036854775808}}"], "f 0", []),
+    ("explicit_overflow_body", ["f=:3 : '9223372036854775808'"], "f 0", []),
+]
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
@@ -91,16 +112,27 @@ def inspection_outcome(stage, value):
     return category
 
 
+def enforce_acceptance(report, strict_runtime=False):
+    if any(category in {"verifier-defect", "backend-failure"}
+           for counts in report["stage_admission_counts"].values() for category in counts):
+        raise SystemExit("Internal stage failure must not be classified as a runtime gap")
+    if strict_runtime and report["counts"].get("runtime_gap", 0):
+        raise SystemExit("Numeric overflow conformance difference")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--assets-root", type=Path, required=True)
     p.add_argument("--probe", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
+    p.add_argument("--numeric-overflow-fixtures-only", action="store_true",
+                   help="Strict bounded decimal-overflow corpus: any runtime difference fails")
     args = p.parse_args()
     if sys.platform != "win32":
         p.error("Native Windows audit only")
     rust = {}
-    cases = [(name, setup, source, [s + "+0" for s in after]) for name, setup, source, after in CASES]
+    selected = NUMERIC_OVERFLOW_CASES if args.numeric_overflow_fixtures_only else CASES
+    cases = [(name, setup, source, [s + "+0" for s in after]) for name, setup, source, after in selected]
     for name, setup, source, after in cases:
         setup_rust, stages, post = probe(args.probe, setup, source, after)
         for value in stages.values():
@@ -153,15 +185,15 @@ def main():
                                    for name in ("j.dll", "javx2.dll")},
               "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
               "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
-              "cases": len(CASES), "observations": len(comparisons),
+              "fixture_set": "numeric-overflow" if args.numeric_overflow_fixtures_only else "frontend-boundaries",
+              "cases": len(selected), "observations": len(comparisons),
               "counts": dict(Counter(r["status"] for r in comparisons)),
               "stage_admission_counts": {stage: dict(Counter(inspection_outcome(stage, values[1][stage]) for values in rust.values())) for stage in INSPECTION_STAGES},
               "records": comparisons}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     print(json.dumps({key: report[key] for key in ("cases", "observations", "counts", "stage_admission_counts")}))
-    if any(category in {"verifier-defect", "backend-failure"} for counts in report["stage_admission_counts"].values() for category in counts):
-        raise SystemExit("Internal stage failure must not be classified as a runtime gap")
+    enforce_acceptance(report, args.numeric_overflow_fixtures_only)
 
 
 if __name__ == "__main__":
