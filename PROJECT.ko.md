@@ -181,7 +181,7 @@ RustJ의 특징은 그 보편적인 compiler 구조 앞단에 **full J semantics
 - **정의 실행·E2E 최신 상태(2026-10-07):** 일반 explicit/direct 호출에 이어 for/for_name 반복, 중첩 direct/문자열 explicit의 독립 scope, A3 함수 참조 전달을 구현했다. 기존 definition 수용 테스트 21개 모두 활성화했다. 본문 CFG lowering/compiled execution, 일반 locale 및 CUDA 실행은 후속이다. 아래 Definition 후속 검증 절을 따른다.
 - **목표와 원칙:** full J의 의미를 보존하는 Rust 커널/컴파일러. C는 차분 oracle이며 정상 실행 fallback이 아니다. Logical Array와 Physical Representation은 분리한다.
 - **현재 우선순위:** M2 tokenizer → enqueuer → parser 의미 수렴을 계속한다. [§O.5 프레임워크 이행 체크리스트](#framework-migration-checklist)와 [§Q 전체 jsource 최적화 이행 체크리스트](#jsource-optimization-migration) 및 [§10 IO 이행 체크리스트](#out-of-core-io-checklist)를 M2→M3→M4 완료 게이트의 단일 추적표로 사용한다. Graph IR의 구조·부분 facts 보존과 최적화/실행 허가는 별개다. 이후 M3 경계를 정리하고 M4 Native CPU vertical slice를 검증한다. GPU 친화적 설계는 유지하되 CUDA 실행 구현은 유보한다. 외부 route는 capability를 증명한 영역에서 점진적으로 연다.
-- **최신 검증(2026-10-07):** Windows default/portable 각각 **608 passed / 0 ignored / 0 failed**, Python **67 passed**. fmt/clippy를 통과했다. 신규 bounded C 차분 결과는 아래 Definition 후속 검증 절을 따른다. 과거 2026-10-05의 5,380-case runtime 및 GF6a gate는 해당 시점의 이력이며 이번 실행 결과로 재계산하지 않는다.
+- **가장 최근의 Windows 검증 기록(2026-10-08, `main` `8a7405f`):** default/portable 각각 **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy 통과. Definition 호출 감사 **144/144 matched**, 별도 NAME 효과/배열 감사 **104/104 matched**를 기록했다. 이는 해당 Windows 검증 범위의 결과이며 Linux·GitHub CI·GPU 또는 full J 동등성 검증이 아니다. 과거 gate 수치는 각 시점의 기록으로만 읽는다.
 - **읽기 순서:** 설계 근거는 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md), 이름·효과·실행 경로의 조건은 [동적 의미와 컴파일 경계 계약](#dynamic-semantic-boundaries), 실행 가능한 작업과 검증은 §10–§11을 따른다. 과거 단계별 gate는 이력이며 최신 지원 상태와 구분한다. 정본·체크리스트를 별도 Markdown으로 분리하지 않는다.
 
 
@@ -7330,7 +7330,7 @@ prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, nam
 <a id="read-status"></a>
 ## 12. 현재 검증·구현 상태 요약
 
-이 절의 오래된 architecture review anchor는 2026-10-04 WI1 입력 metadata 단계였지만, **현재 구현/검증 상태는 2026-10-05 NV3d2b2a와 GF6a까지의 `main`을 기준으로 아래 항목을 갱신한다.** 과거 단계별 gate 수치는 그 시점의 검증 기록이며 현재 HEAD 상태로 읽지 않는다.
+이 절의 항목은 architecture·migration 상태를 개괄하는 목록이며 **2026-10-05 시점까지 축적한 기준선**이 포함되어 있다. 최신 실행 증거는 도입부의 **2026-10-08 Windows 기록**과 바로 뒤 **상세 구현·검증 기록**, §10 체크리스트를 함께 확인한다. 이력상의 테스트 수치와 단계별 gate를 현재 HEAD의 검증 완료 주장으로 읽지 않는다.
 
 - 제한된 CPU J interpreter/runtime 경로가 동작한다.
 - state-table word formation과 transitional Semantic IR parser가 존재한다.
