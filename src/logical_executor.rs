@@ -149,6 +149,11 @@ fn execute_ranked_semantic(
     left: Option<Value>,
     right: Value,
 ) -> Result<Value> {
+    if left.is_none() {
+        if let Some(result) = exact_empty_rank_reduction(function, ranks[0], &right) {
+            return result;
+        }
+    }
     // Admit only a concrete primitive or a structural Rank chain above one.
     // Unknown and user-defined functions may execute observable fill effects.
     let primitive_fill = has_value_only_rank_fill_semantics(function);
@@ -169,6 +174,41 @@ fn execute_ranked_semantic(
         primitive_catenate,
         |x, y| execute_semantic(function, x, y),
     )
+}
+
+/// Only a concrete primitive insert may use the empty-total-atom dispatch.
+/// Never infer this shortcut from an arbitrary function's output dtype.
+pub(crate) fn exact_empty_rank_reduction(
+    function: &FunctionEntity,
+    rank: i64,
+    right: &Value,
+) -> Option<Result<Value>> {
+    if !right.is_rational() {
+        return None;
+    }
+    let r = cell_rank(right.shape().len(), rank);
+    if !right.shape()[..right.shape().len() - r].contains(&0) {
+        return None;
+    }
+    if !matches!(
+        function.head,
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+    ) {
+        return None;
+    }
+    let operand = semantic_function_operand(function)?;
+    let FunctionHead::PrimitiveVerb(id) = operand.head else {
+        return None;
+    };
+    if !matches!(id.spelling(), "+" | "-" | "*" | "%") {
+        return None;
+    }
+    Some(crate::kernels::ranked(
+        id.spelling(),
+        true,
+        rank,
+        right.clone(),
+    ))
 }
 
 /// Interpret only a *value-only, zero-result-frame* fill-cell call.

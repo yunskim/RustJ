@@ -716,11 +716,14 @@ fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
 }
 
 pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
-    if cells.iter().any(Value::is_rational) {
-        return Err(Error::Unsupported("rational rank assembly".into()));
-    }
-    if cells.iter().any(Value::is_extended) {
-        return Err(Error::Unsupported("extended rank assembly".into()));
+    if cells.iter().any(|v| v.is_rational() || v.is_extended()) {
+        let mut cells = cells.iter();
+        let first = cells.next().expect("exact cell exists");
+        let mut builder = crate::assembly::CellBuilder::new(first, count(&shape)?)?;
+        for cell in cells {
+            builder.push(cell)?;
+        }
+        return Value::new(shape, builder.finish());
     }
     if cells.iter().any(Value::is_sparse) {
         return Err(Error::Unsupported("sparse assembly".into()));
@@ -915,6 +918,20 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
     }
     let frames = count(&y.shape[..f])?;
     if frames == 0 {
+        // Primitive insert dispatches empty total-atom arguments before rank
+        // iteration (ar.c). A synthetic nonempty rational cell would keep RAT
+        // and therefore give the wrong empty-result type.
+        if reduction && y.is_rational() && r > 0 && y.shape[f] > 1 {
+            let mut shape = y.shape[..f].to_vec();
+            shape.extend_from_slice(&y.shape[f + 1..]);
+            let data = match verb {
+                "+" | "-" => Data::Int(CpuStorage::new(Vec::new())),
+                "*" => Data::Bool(CpuStorage::new(Vec::new())),
+                "%" => Data::Float(CpuStorage::new(Vec::new())),
+                _ => return Err(Error::Unsupported("empty rational rank reduction".into())),
+            };
+            return Value::new(shape, data);
+        }
         if verb == "," && !reduction && !y.is_sparse() {
             // Ravel is pure and preserves atom type/order. Its prototype shape
             // follows from the cell shape without invoking an unknown verb.

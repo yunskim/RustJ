@@ -608,3 +608,168 @@ fn rational_reduction_definitions_aliases_and_error_handlers_preserve_state() {
         assert_eq!(engine.eval("alias").unwrap().unwrap().json(), original);
     }
 }
+
+#[test]
+fn rational_rank_assembles_exact_cells_in_both_execution_routes() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for (source, expected) in [
+            ("(-\"0)1r2 _2r3", vec![("-1", "2"), ("2", "3")]),
+            ("(%\"0)1x 2x 0x", vec![("1", "1"), ("1", "2"), ("1", "0")]),
+            ("(%\"0)0x 2x 1x", vec![("1", "0"), ("1", "2"), ("1", "1")]),
+            ("(+/\"1)2 2$1r2 2r3", vec![("7", "6"), ("7", "6")]),
+        ] {
+            let result = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                atoms(&result),
+                expected
+                    .into_iter()
+                    .map(|(n, d)| (n.into(), d.into()))
+                    .collect::<Vec<_>>(),
+                "{semantic}: {source}"
+            );
+        }
+    }
+}
+#[test]
+fn rational_rank_empty_frames_preserve_primitive_dispatch_types() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for (source, ty, shape) in [
+            ("(-\"0)0$2r3", 128, vec![0]),
+            ("(*\"0)0$2r3", 64, vec![0]),
+            ("(+/\"1)0 3$2r3", 4, vec![0]),
+            ("(-/\"1)0 3$2r3", 4, vec![0]),
+            ("(*/\"1)0 3$2r3", 1, vec![0]),
+            ("(%/\"1)0 3$2r3", 8, vec![0]),
+            ("(+/\"1)0 1$2r3", 128, vec![0]),
+            ("(+/\"1)0 0$2r3", 1, vec![0]),
+            ("(+/\"1)2 0$2r3", 1, vec![2]),
+        ] {
+            let result = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                (result.type_code(), result.shape()),
+                (ty, shape.as_slice()),
+                "{semantic}: {source}"
+            );
+        }
+    }
+}
+#[test]
+fn exact_rank_builder_promotes_empty_cells_and_preserves_atom_ownership() {
+    let input = noun("123456789012345678901234567891r7").into_shared();
+    let Data::Rational(data) = input.data() else {
+        panic!()
+    };
+    let weak = Arc::downgrade(&data[0]);
+    let result =
+        rustj::kernels::assemble(vec![3], vec![Value::scalar(1), input.clone(), noun("2x")])
+            .unwrap();
+    assert_eq!(
+        atoms(&result),
+        [
+            ("1".into(), "1".into()),
+            ("123456789012345678901234567891".into(), "7".into()),
+            ("2".into(), "1".into())
+        ]
+    );
+    let Data::Rational(out) = result.data() else {
+        panic!()
+    };
+    assert!(Arc::ptr_eq(&data[0], &out[1]));
+    drop(input);
+    assert!(weak.upgrade().is_some());
+    drop(result);
+    assert!(weak.upgrade().is_none());
+    for cells in [
+        vec![noun("0r1").select([0], []).unwrap(), Value::scalar(1)],
+        vec![Value::scalar(1), noun("0r1").select([0], []).unwrap()],
+    ] {
+        let result = rustj::kernels::assemble(vec![1], cells).unwrap();
+        assert_eq!(atoms(&result), [("1".into(), "1".into())]);
+    }
+    for cells in [
+        vec![noun("1r2"), noun("1.5")],
+        vec![noun("1.5"), noun("1r2")],
+    ] {
+        assert_eq!(
+            rustj::kernels::assemble(vec![2], cells).unwrap_err().kind(),
+            "unsupported"
+        );
+    }
+}
+#[test]
+fn rational_rank_definition_alias_and_failed_assignment_are_transactional() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for source in [
+            "saved=:1r2 2r3",
+            "alias=:saved",
+            "f=:{{local=.saved\n(-\"0)local}}",
+            "g=:3 : 'local=.saved\n(-\"0)local'",
+        ] {
+            engine.eval(source).unwrap();
+        }
+        for source in ["f 0", "g 0"] {
+            let result = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                atoms(&result),
+                [("-1".into(), "2".into()), ("-2".into(), "3".into())]
+            );
+        }
+        let original = engine.eval("saved").unwrap().unwrap().json();
+        let error = if semantic {
+            engine.eval_semantic_reference_diagnostic("saved=:(1r0 1r2)(+\"0)_1r0 2r3")
+        } else {
+            engine.eval_diagnostic("saved=:(1r0 1r2)(+\"0)_1r0 2r3")
+        }
+        .unwrap_err();
+        assert_eq!(error.kind(), "NaN error");
+        assert_eq!(engine.eval("saved").unwrap().unwrap().json(), original);
+        engine.eval("saved=: (-\"0)saved").unwrap();
+        assert_eq!(engine.eval("alias").unwrap().unwrap().json(), original);
+    }
+}
+
+#[test]
+fn rational_rank_definition_cells_promote_bool_int_extended_in_either_order() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for integer in ["1", "01", "123456789012345678901234567891x"] {
+            for order in ["0 1", "1 0"] {
+                let source = format!("({{{{if. y=0 do. {integer} else. 1r2 end.}}}}\"0){order}");
+                let result = if semantic {
+                    engine.eval_semantic_reference_diagnostic(&source)
+                } else {
+                    engine.eval_diagnostic(&source)
+                }
+                .unwrap()
+                .unwrap();
+                let whole = integer.strip_suffix('x').unwrap_or("1");
+                let mut expected = vec![(whole.into(), "1".into()), ("1".into(), "2".into())];
+                if order == "1 0" {
+                    expected.reverse();
+                }
+                assert_eq!(atoms(&result), expected, "{semantic}: {source}");
+            }
+        }
+    }
+}

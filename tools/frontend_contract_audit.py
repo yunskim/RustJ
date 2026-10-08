@@ -257,6 +257,30 @@ RATIONAL_CASES += [
     ('qreduce_catch',['saved=:2r3','f=:{{try. saved=:+/1r0 _1r0 catch. saved end.}}'],'f 0',['saved']),
 ]
 
+# N3f: cell assembly promotion order, exact payload, and typed empty frames.
+for op_index, op in enumerate(['-', '|', '*', '%', '+']):
+    for shape_index, shape in enumerate(['3', '2 3', '0', '0 2', '2 0']):
+        RATIONAL_CASES.append((f'qrank_unary_{op_index}_{shape_index}',[],f'({op}"0)({shape}$1r2 _2r3 0r1)',[]))
+for op_index, op in enumerate(['+', '-', '*', '%']):
+    for shape_index, shape in enumerate(['2 3', '0 3', '0 1', '0 0', '2 0', '2 2 3']):
+        RATIONAL_CASES.append((f'qrank_reduce_{op_index}_{shape_index}',[],f'({op}/"1)({shape}$1r2 2r3 3r4)',[]))
+for i, source in enumerate(['(%"0)1x 2x 0x','(%"0)0x 2x 1x','(%"0)1x 1x 1x','(1x 2x 3x)(%"0)1x 4x 3x','(1r2 2r3 3r4)(+"0)1 2 3','(1 2 3)(+"0)1r2 2r3 3r4']):
+    RATIONAL_CASES.append((f'qrank_mix_{i}',[],source,[]))
+
+RATIONAL_CASES += [
+    ('qrank_direct',['saved=:1r2 2r3','f=:{{local=.saved\n(-"0)local}}'],'f 0',['saved']),
+    ('qrank_explicit',['saved=:1r2 2r3',"f=:3 : 'local=.saved\n(-\"0)local'"],'f 0',['saved']),
+    ('qrank_alias',['saved=:1r2 2r3','alias=:saved'],'saved=:(-"0)saved',['saved','alias']),
+    ('qrank_failed',['saved=:2r3'],'saved=:(1r0 1r2)(+"0)_1r0 2r3',['saved']),
+]
+
+for i, source in enumerate(['(0$1r2)(+"0)2r3','2r3(+"0)0$1r2','(0 2$1r2)(+"1)2r3 3r4','(2 0$1r2)(+"1)2 0$2r3','(%"0)'+('9'*200)+'x 2x 1x','(|"0)'+('9'*200)+'r7 1r2']):
+    RATIONAL_CASES.append((f'qrank_fill_precision_{i}',[],source,[]))
+
+for i, atom in enumerate(['1','01','123456789012345678901234567891x']):
+    for j, order in enumerate(['0 1','1 0','0 0 1','1 0 0']):
+        RATIONAL_CASES.append((f'qrank_definition_mix_{i}_{j}',[],f'({{{{if. y=0 do. {atom} else. 1r2 end.}}}}"0){order}',[]))
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
