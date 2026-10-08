@@ -7220,6 +7220,33 @@ Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 �
 - [ ] scalar type 확대
 - [ ] system/runtime API
 
+<a id="formal-ir-verification-checklist"></a>
+
+### FV — IR 정확성 형식 검증: 장기 후속 체크리스트 (2026-10-08; 계획만 기록)
+
+**상태와 우선순위:** IR 정확성을 수학적으로 검증할 수 있는 체계는 장기적으로 필요하다. **도구 도입·형식 모델 작성·정리 증명·SMT 실행·Rust 검증·CI 연동은 전부 미착수**이며 지금 진행하지 않는다. M2 frontend 의미 수렴 → M3 경계 → M4 첫 native CPU 실행 우선순위를 바꾸거나 초기 CPU slice의 선행 조건으로 추가하지 않는다. 기존 verifier/negative tests, jsource differential/golden 검증은 계속 별개로 필요하다.
+
+**검증 목표:** (1) IR well-formedness와 SSA·참조·scope 불변식, (2) J source/frontend → FunctionEntity/J Graph → A3 Logical Execution IR의 의미 보존, (3) rewrite/fusion/route/lowering 및 CPU/GPU realization의 관찰 가능한 동치성. 관찰 범위에는 값뿐 아니라 dtype/shape/rank, boxed/sparse/empty frame의 fill-cell/prototype/assembly, name lookup 시점·binding version, 효과와 오류 종류·우선순위·순서, 숫자/overflow/fit 정책을 포함한다. 명세에서의 증명과 실제 Rust 코드의 정확성은 다른 주장이다.
+
+**도구 후보(채택 결정 아님):** Lean 4 / Rocq(CoQ) / Isabelle/HOL은 일반 의미론·변환 정리, Z3 / cvc5는 제한된 최적화·Shape 제약의 반례 탐색과 동치성, Verus / Creusot / Kani는 지원 범위 내 Rust 구현 검증, Alive2는 LLVM IR까지 정확하게 lowering된 경로의 LLVM-level 최적화 검증에 검토한다. Alive2로 J Graph/A3 자체를 직접 증명했다고 주장하지 않는다.
+
+- [ ] **FV-01 — 착수·범위 결정:** M2/M3/M4 진행과 별개로 비용 대비 이득, 고위험 변환, 전제와 검증 대상 및 필요한 인력/유지보수 비용을 재평가한다. 첫 proof pilot 하나를 명시적으로 승인하기 전에는 형식 검증을 일정의 필수 gate로 승격하지 않는다.
+- [ ] **FV-02 — 관찰 가능 의미론 명세:** 참조 jsource revision과 RustJ의 지원/미지원 의미를 구분하고 Source/Frontend·J Graph·A3의 결과/오류/효과·상태 관찰을 정의한다. 모델 범위 밖의 J 기능을 '증명됨'에 포함하지 않는다.
+- [ ] **FV-03 — IR 구조 불변식:** ValueId·region·block·SSA 정의/사용·dominance·provenance·registry/schema·effect/Check/Write·name/binding-version·buffer identity의 각 단계 검증 전제를 명시한다.
+- [ ] **FV-04 — J 배열 특수 의미:** Rank prefix agreement, CellApply, zero-frame 가상 fill-cell과 empty-cell의 구별, prototype/shape/type/heterogeneous assembly, boxed/sparse·tolerance·오류 우선순위를 형식화하고 반례를 준비한다.
+- [ ] **FV-05 — 단계 간 의미 보존:** 대표 J Graph → A3 lowering 정리와 동적 guard/Unsupported 경계를 정의한다. Frontend → J Graph와 Route/Physical lowering의 증명 범위를 각각 구분한다.
+- [ ] **FV-06 — rewrite 합법성:** DCE/CSE/fusion/scan, 값 재사용/재계산, zero-trip elimination, name lookup과 effect/error 재정렬 금지에 대해 변환별 전제·사후조건·반례를 정의한다. Unknown을 동치성 증거로 사용하지 않는다.
+- [ ] **FV-07 — SMT 소규모 실험:** Z3 또는 cvc5를 한정된 Shape/정수·SSA rewrite에 적용해 counterexample·SAT/UNSAT/UNKNOWN을 구별한다. bounded 검사 결과를 전 입력에 대한 증명으로 보고하지 않는다.
+- [ ] **FV-08 — Rust 구현 연결:** Verus/Creusot/Kani 중 실제 RustJ 코드·지원 기능·proof burden에 맞는 방법을 실험하고, 추상 IR 모델과 production Rust 구현 사이 정제(refinement)/계약 검증 공백을 기록한다.
+- [ ] **FV-09 — backend 한정 검증:** LLVM 경로에만 Alive2 적용 가능 범위를 시험하고, GPU 병렬 효과·오류·race/lifetime 및 부동소수점 재결합/오차 정책은 별도 모델과 실행 검사로 다룬다. GPU 도입 보류는 유지한다.
+- [ ] **FV-10 — 도구와 신뢰 경계 결정:** Lean/Rocq/Isabelle·SMT·Rust verifier 가운데 최소 조합을 정하고 모델 인코딩, 솔버 가정, timeout/unknown, proof checker, 코드-명세 버전 결합, 지원 범위를 문서화한다.
+- [ ] **FV-11 — 회귀·CI 수용:** 선택한 proof/SMT witness 및 실패 반례를 해당 IR schema/rule/compiler revision과 묶는다. negative tests와 pinned C differential을 유지하고, proof pass와 실제 runtime/differential pass를 따로 기록한다. CI 자동화는 별도 승인 후 진행한다.
+- [ ] **FV-12 — 수용·유지보수 판정:** 대표 변환의 실제 증명 재실행 가능성, 코드 변경 시 증명 유지 비용, 미증명 단계와 trusted assumptions, failure/UNKNOWN 처리 방식을 확인한 후에만 '검증 완료' 표시를 허용한다.
+
+**재개 기준:** 사용자의 명시적 재개 요청 또는 핵심 IR 의미/변환이 충분히 안정화된 뒤 고위험 최적화를 실제로 승인할 시점에 FV-01부터 검토한다. **2026-10-08 기록은 필요성과 체크리스트의 문서화만 완료한 것이며, 위 FV-01~12 항목은 모두 미완료다.**
+
+---
+
 ### CUDA — 보류
 
 - [ ] CUDA storage
@@ -7322,6 +7349,10 @@ C reference는 별도 프로세스/벤치마크 경로에서 oracle로 사용하
 ### 11.8 Semantic hard cases의 golden 관문
 
 prefix agreement, zero-cell fill/prototype와 heterogeneous result assembly, name expected-POS mismatch, assignment entity+effect/right-to-left lookup, hook/fork observable order, adverse/obverse latent semantics, tolerance/`!.`, overflow retry/promotion 및 error precedence를 대응 semantic golden으로 잠근다. full-J 전체를 첫 CPU slice 전에 완성할 필요는 없으나, 해당 의미를 optimization/lowering 대상으로 열기 전에 값·dtype·shape·오류·효과 순서의 differential 검증이 있어야 한다. 첫 matrix cell 표본은 [§4.11.4.12](#mean-proof-example)를 사용한다.
+
+### 11.9 IR 형식 검증의 미래 도입
+
+IR의 구조적·의미론적 정확성, 최적화 및 lowering의 관찰 가능한 의미 보존에 대한 형식 검증은 장기 필요 과제다. 별도의 필수 도구나 CI gate를 현재 도입하지 않는다. 유일한 실행 체크리스트는 [§10 FV-01~FV-12](#formal-ir-verification-checklist)이며, 현재 모든 실제 항목이 미완료다.
 
 ---
 

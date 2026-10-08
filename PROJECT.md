@@ -2961,6 +2961,10 @@ Compiler version is provenance; schema/registry plus explicit migration contract
 
 Unsupported schema/registry/migration is a compiler/artifact diagnostic, never a J Domain/Rank/Length error. Before 1.0, schemas may change frequently, but semantic field meaning must not change without a version bump.
 
+## 15.4 Future formal verification policy
+
+Formal proof of IR well-formedness, semantic preservation and rewrite/lowering correctness is a long-term need, not a current required gate. The single [FV-01–FV-12 deferred checklist](#formal-ir-verification-checklist) in §17 controls future activation; all execution/proof items are pending.
+
 ---
 
 <a id="read-status"></a>
@@ -3008,6 +3012,7 @@ Remaining transitions:
 - broad AD/VJP transforms;
 - aggressive resource pruning;
 - mature multi-route partitioning;
+- eventual formally checked IR semantics, rewrites and lowering (deferred; §17 FV-01–FV-12; no tool selected or proof work started).
 - complete full-J implementation.
 
 Linux/GitHub Actions CI is not a default architectural progress gate unless explicitly requested.
@@ -3393,6 +3398,33 @@ Next incomplete unit N2b is scientific real-to-Int narrowing and whole-word dtyp
 **M3-RB proof boundary (2026-10-07):** [x] Design contract RB-01–08 and verification gates RB-V0–V4 in §2.1.1, covering original A3 op/Check/Write provenance, cross-region liveness, ordered errors and guards without introducing a new IR. [ ] Actual RouteBoundary verifier, one-invariant negative tests and J C/reference differential remain **unimplemented and unverified**. M2→M3→M4 order unchanged.
 
 **I/O tracking:** All storage, slow-I/O and out-of-core acceptance work belongs to the [IO-01–IO-30 checklist](#out-of-core-io-checklist). M2→M3→M4 semantic/CPU baseline remains the project priority; IO-A primary-source audits may proceed concurrently. Do not create another checklist.
+
+<a id="formal-ir-verification-checklist"></a>
+
+### FV — Formal verification of IR correctness: deferred checklist (2026-10-08; documentation only)
+
+**State and priority.** A formal verification capability for IR correctness is a long-term requirement, **not a current implementation task**. No tool adoption, formal model, theorem proof, SMT run, Rust proof, or CI integration has occurred. Preserve the M2 frontend → M3 boundary → M4 first native CPU slice priorities; formal verification is **not** an acceptance prerequisite for that slice. Existing stage verifiers/negative tests and pinned jsource differential/golden tests remain independently necessary.
+
+**Goals.** (1) IR well-formedness including SSA/references/scopes; (2) semantics preservation from J source/frontend through FunctionEntity/J Graph to A3 Logical Execution IR; (3) observational equivalence of rewrites, fusion, routes, lowering and eventually CPU/GPU realization. Observations include values, dtype/shape/rank, boxed/sparse/empty-frame fill-cell/prototype/assembly, lookup timing/binding versions, effects and error class/priority/order, and numeric/overflow/fit policy. A theorem about an abstract model alone is **not** a proof of the production Rust implementation.
+
+**Candidate tools, not selected dependencies:** Lean 4 / Rocq (Coq) / Isabelle/HOL for general semantic and transformation theorems; Z3 / cvc5 for SMT equivalence/counterexamples over accurately modeled restricted cases; Verus / Creusot / Kani for supported Rust implementation contracts; Alive2 for LLVM-level optimizations only when a relevant path is faithfully lowered to LLVM IR. Alive2 does not directly verify native J Graph/A3.
+
+- [ ] **FV-01 — Activation and scope:** Reassess risk, benefit, proof surface, ownership and maintenance cost. Explicitly approve a minimal pilot before making formal verification a required schedule gate.
+- [ ] **FV-02 — Observable semantics:** Pin the jsource reference, distinguish supported J semantics from unsupported behavior, and specify values/errors/effects/state observables of frontend, J Graph and A3. Never imply proof of unmodeled J features.
+- [ ] **FV-03 — IR invariants:** Define proof preconditions for ValueId, regions/blocks, SSA definition/use/dominance, provenance, schema/registry, effect/Check/Write, name/binding versions and physical identity separation.
+- [ ] **FV-04 — J-specific array behavior:** Specify Rank prefix agreement, CellApply, virtual fill-cell for zero-frame versus empty cell, prototype/shape/type/heterogeneous assembly, boxed/sparse, tolerance and error precedence; maintain counterexamples.
+- [ ] **FV-05 — Cross-stage preservation:** State and prove a representative J Graph → A3 lowering property with explicit dynamic guard/Unsupported assumptions; keep frontend→graph and route→physical proof scopes separate.
+- [ ] **FV-06 — Rewrite legality:** Specify preconditions/postconditions and counterexamples for DCE, CSE, fusion, scan, sharing/recomputation, zero-trip elimination, name lookup and effect/error reordering; Unknown never discharges a proof.
+- [ ] **FV-07 — Small SMT pilot:** Trial Z3 or cvc5 on a bounded Shape/integer/SSA rule, distinguishing SAT, UNSAT and UNKNOWN; bounded checking is not a universal theorem.
+- [ ] **FV-08 — Production Rust link:** Trial supported Verus/Creusot/Kani paths and document the refinement/contract gap between the abstract semantics and actual RustJ implementation.
+- [ ] **FV-09 — Backend-limited verification:** Evaluate Alive2 only for eligible LLVM lowering; separately model or test GPU parallel effects/errors, race/lifetime and floating-point reassociation/numeric policy. The CUDA implementation hold remains.
+- [ ] **FV-10 — Tool/trust selection:** Choose a minimal proof/SMT/Rust verifier combination, documenting encoding assumptions, timeouts/unknowns, proof checker, version coupling and verified coverage.
+- [ ] **FV-11 — Regression and CI acceptance:** Version proof witnesses/counterexamples with IR schema, rewrite rule and compiler revision; keep negative and pinned C differential evidence distinct from theorem status. CI integration requires a later explicit go-ahead.
+- [ ] **FV-12 — Completion and maintenance:** Require repeatable theorem checks, assessed proof upkeep, explicit unproved steps/trusted assumptions, and failure/UNKNOWN policy before marking verification complete.
+
+**Restart gate.** Revisit FV-01 only upon explicit user request or when stable core IR semantics and a high-risk optimization justify the pilot. This 2026-10-08 entry records the need and future checklist only: **FV-01–FV-12 are all pending**.
+
+---
 
 <a id="heterogeneous-execution-checklist"></a>
 
