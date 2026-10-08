@@ -16,6 +16,7 @@ The current implementation is transitional: a limited J frontend, direct CPU exe
 
 ---
 
+<a id="read-intro"></a>
 ## Introduction for first-time readers — how to think about RustJ
 
 This is an integrated project document containing architecture, implementation details, and validation history. Reading it strictly from top to bottom can expose details before the overall model is clear. On a first pass, start with the **four-stage mental model** in this section, then descend into the detailed sections as needed.
@@ -173,16 +174,14 @@ RustJ's distinguishing requirement is the strong **full-J semantic frontend** pl
 
 ### Recommended first-reading path
 
-A first-time reader can understand the architecture by following only this path:
+**First reading (overall model):** this introduction → [§1 Project goal](#read-goal) → [§2 Target architecture](#read-architecture). After this, the reader should be able to explain the four questions and what each stage deliberately leaves undecided.
 
-1. **This introduction** — build the mental model for why the stages exist.
-2. **§1 Project goal** — understand what RustJ is trying to build.
-3. **§2 Target architecture** — see the actual pipeline and stage boundaries.
-4. **The Frontend ↔ J Graph explanation in §2** — verify the semantic/computation distinction with concrete examples.
-5. **§3 J Semantic Array IR and §4 J Graph Analyzer / Execution Semantic Lowering** — descend into contracts when implementation detail is needed.
-6. Read reference implementations, historical rationale, checklists, and validation records when a particular design decision or implementation task requires them.
+**Second reading (core contracts):** [Part I Frontend](#read-frontend) → [Part II Semantic identity](#read-semantic) → [Part III Rank/cell meaning](#read-rank) → [Part IV J Graph IR](#read-graph) → [Part VIII Execution lowering](#read-execution) → [Part IX physical targets](#read-physical). Parts V–VII add optimizer/resource detail when needed.
 
-The rest of this document either makes the responsibilities of those four stages precise or records evidence that the boundaries preserve real J semantics.
+**Third reading (implementation):** [Part XIII Current status](#read-status) → [Part XIV Roadmap](#read-roadmap) → [Part XII Validation policy](#read-validation).
+
+**Optional references:** [Part XI JAXA history, implementation references and source audits](#read-references), and detailed checklists/evidence are not prerequisites. Historical test counts must not be treated as current HEAD validation.
+
 
 ### Quick guide — current priority and reading order
 
@@ -193,6 +192,7 @@ The rest of this document either makes the responsibilities of those four stages
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
 
+<a id="read-goal"></a>
 ## 1. Project goal
 
 RustJ aims to implement:
@@ -212,6 +212,7 @@ RustJ aims to implement:
 
 The C J engine is not intended to become RustJ's normal fallback runtime.
 
+<a id="read-architecture"></a>
 ## 2. Target architecture
 
 ```text
@@ -366,46 +367,11 @@ Physical planning / backend
 
 **J Graph IR is not a replacement for frontend output. The frontend owns J meaning; J Graph IR extracts the optimizer-visible computation topology implied by that meaning.** Do not collapse this boundary by making graph/physical decisions in the frontend, and do not drag source-parser mechanics down into Graph IR.
 
-#### Four-stage memory aid
+#### Four-stage memory aid — boundary reminder for implementers
 
-When revisiting this architecture later, remember these four sentences:
+First-time readers should start with the [four-stage model in the introduction](#read-intro); the Rank/Fork examples above and the contracts below make it precise for implementation.
 
-> **Frontend = semantic structure**  
-> **J Graph IR = computation structure**  
-> **Execution IR = execution semantics and dependencies**  
-> **Physical Plan = concrete realization**
-
-Expanded:
-
-1. **Frontend — “What does the J program mean?”**  
-   Perform jsource-compatible reductions and build J semantic structure. Preserve Rank, Fork, Hook, adverb/conjunction application, derived functions, names, bindings, and other **language-semantic structure**.
-
-2. **J Graph IR — “What computation graph does that meaning create?”**  
-   Expose producer/consumer, branch/join, CellApply, Reduce, and other **array-operation topology and data dependencies** that arise when semantic structure is applied to inputs. This is an optimization-facing graph, not yet a concrete execution method.
-
-3. **Execution IR — “What must happen for the computation to execute correctly?”**  
-   Normalize the graph into explicit operations, SSA/data dependencies, semantic checks, and effect/error ordering. It captures **executable logical semantics**. Crucially, **Execution IR is not yet a hardware execution plan**.
-
-4. **Physical Plan / backend — “How should this machine actually execute it?”**  
-   The same Execution IR may be realized by a CPU scalar loop, SIMD/multicore code, a GPU kernel, MLIR, or another external compiler. Fusion, scheduling, thread/work mapping, buffers, layout, materialization, memory placement, and synchronization become concrete here.
-
-For example, one logical `CellApply(f, y)` can have several physical realizations:
-
-~~~text
-Execution IR
-  CellApply(f, y)
-        │
-        ├─ CPU scalar loop
-        ├─ CPU SIMD + multicore
-        ├─ GPU kernel
-        └─ MLIR / external compiler
-~~~
-
-So if Execution IR is called an “execution plan,” the word *plan* means a **semantic execution plan**, not a final hardware-bound plan such as a GPU block size, AVX2 choice, or concrete `BufferId`.
-
-This separation also explains an important difference between jsource and RustJ. jsource commonly consumes parser-reduction results directly in its interpreter/runtime flow as semantic actions and execution proceed. RustJ still performs jsource-compatible parser reductions, but it does not immediately consume the result. It preserves information across **semantic structure → computation graph → execution semantics → physical realization** so a compiler can analyze and optimize the program before committing to a backend. The extra stages are therefore intentional: they keep J meaning intact while preserving multiple optimization and backend choices.
-
-The semantic meaning of a J program must not depend on the selected backend.
+**Execution IR is a semantic execution plan, not a hardware plan.** It fixes explicit checks, effects/error ordering and SSA dependencies, but it does not choose AVX2, GPU block sizes, concrete buffer IDs or materialization. The same `CellApply(f, y)` may have several physical realizations. J meaning must remain backend-independent.
 
 ## 2.1 Route-region boundary contract
 
@@ -512,6 +478,7 @@ Rejected      Missing/forged/unsupported evidence; safe alternative
 
 ---
 
+<a id="read-frontend"></a>
 # Part I — Frontend compatibility
 
 ## 4. Frontend principle
@@ -1431,6 +1398,7 @@ These static-analysis gates do not wait for completion of all runtime-capture wo
 
 ---
 
+<a id="read-semantic"></a>
 # Part II — Semantic identity
 
 ## 5. FunctionEntity DAG
@@ -1964,6 +1932,7 @@ Future reports connect each fact to source node/span, assumptions, proof scope, 
 - [x] **WI0d** Document SA0–SA8, framework methods/boundaries and current implementation with sources.
 - [ ] **WI3c** Connect SA categories, proof scopes and unresolved conditions to frontend graph/facts reports; add regressions for supported portions first. Do not require general solvers or physical scheduling before frontend completion.
 
+<a id="read-rank"></a>
 # Part III — Rank, cells, and array semantics
 
 <a id="logical-physical-array-model"></a>
@@ -2066,6 +2035,7 @@ A fixed-shape parallel map may replace it only after the necessary uniformity pr
 
 ---
 
+<a id="read-graph"></a>
 # Part IV — J Graph IR
 
 ## 7. Purpose
@@ -2736,6 +2706,7 @@ The current Find rewrite does **not** satisfy this early-pruning proof contract.
 
 ---
 
+<a id="read-execution"></a>
 # Part VIII — Execution lowering and target feasibility
 
 ## 11. Logical Execution IR
@@ -2826,6 +2797,7 @@ Actual selection requires later `TargetProfile / ResourceEstimate / CostProfile`
 
 ---
 
+<a id="read-physical"></a>
 # Part IX — Target architecture
 
 ## 12. Target model
@@ -2922,6 +2894,7 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 
 ---
 
+<a id="read-references"></a>
 # Part XI — Historical JAXA inheritance audit
 
 
@@ -4149,6 +4122,7 @@ For later adapter work, build a Graph Basis ↔ ArrayFire capability matrix for 
 
 ---
 
+<a id="read-validation"></a>
 # Part XII — Validation policy
 
 <a id="validation-policy"></a>
@@ -4216,6 +4190,7 @@ Unsupported schema/registry/migration is a compiler/artifact diagnostic, never a
 
 ---
 
+<a id="read-status"></a>
 # Part XIII — Current implementation status
 
 <a id="current-implementation-status"></a>
@@ -4475,6 +4450,7 @@ Refreshed existing audits on final binaries: abandon **132 matched / 16 unsuppor
 Next execution unit: lower pure array parts of this semantic effect plan to J Graph/Logical, connected by token boundaries. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
 
 
+<a id="read-roadmap"></a>
 # Part XIV — Architecture convergence roadmap
 
 <a id="architecture-migration-checklist"></a>
