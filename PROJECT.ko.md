@@ -7743,7 +7743,17 @@ C `wn.c::jtconnum`의 `bcvtmask`는 연속된 두 비공백 문자가 있으면 
 
 실행 결과: Windows default/portable 각각 **698 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets), Python **79 passed**. `numeric-integer-dtype-windows.json`의 **18 fixtures × 두 DLL = 36/36 matched**, N1 overflow **36/36 matched**. 기존 frontend **60 matched / 16 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched** 유지. 두 DLL 숫자 문법 감사는 각각 **2,485 cases / 0 failed**이며 미지원 payload/precision 경계는 그대로 별도 집계한다. `tools/verify_frontend_reports.py --assets-root ../rustj-project-docs`로 **12개 report / 698 source·binary·DLL hash** 확인 완료. C 진단 위치, 전체 J, Linux·GPU·GitHub CI 검증은 아니다.
 
-다음 미완료 단위 N2b는 scientific real의 Int 축소와 whole-word dtype 결합이다. C에서는 `1e0`이 Int지만 현재 RustJ의 real constructor는 Float으로 남긴다. C `bcvt`의 범위·정수성·변환 규칙을 먼저 확인하고 원문 dot/overflow의 축소 금지 mask와 함께 검증한다. 그 뒤 real ratio conversion, exact/complex payload 및 일반 NAME/locale 경계를 진행한다. 이번 N2a가 이 범위를 해결한 것으로 표시하지 않는다.
+다음 단위인 N2b(scientific real의 Int 축소와 whole-word dtype)는 아래 독립 절에서 다룬다. N2a의 기존 숫자 표기/Bool 축소 수용 결과를 N2b까지 소급 확대하지 않는다.
+
+### Frontend 숫자 변환 N2b — scientific real의 정수 축소 (구현 브랜치·검증 대기)
+
+**목적.** C `wn.c::jtconnum`은 real payload를 읽은 뒤 `k.c::jtbcvt`에 `bcvtmask`를 전달해 축소를 판단한다. `bcvtmask`의 bit 1은 Bool 변환을, bit 2는 Int 변환을 금지하며, 마침표가 있으면 Int 축소를 막는다. `CVTNOFUZZ` 경로는 허용 오차 없이 정확히 변환 가능한 경우에만 정수 타입을 선택한다. 특히 `1e0`은 **Bool이 아니라 Int**, `1.0`은 **Float**이다.
+
+**이번 구현 경계.** 기존 숫자 인식기(`numeric_input`)와 J parser reduction 구조를 바꾸지 않고, `src/enqueuer.rs`의 이미 검증된 real payload를 배열 전체에 대해 축소한다. 모든 Float 값이 finite·integral이고 `[-2^63, 2^63)`에 들어갈 때만 Int 배열을 만들며, 한 원소라도 조건을 만족하지 않으면 전체를 Float로 유지한다. `i64::MAX as f64`가 `2^63`로 반올림되는 점 때문에 상한은 `2^63` 미만으로 직접 비교한다. 숫자 spelling에 마침표가 포함되거나 기존 정수 변환이 overflow해서 Float으로 승격한 경우에는 해당 Float 유지 계약을 보존한다. `1e0 2e0`과 `1e0 1e_1`, `9223372036854775808e0`을 구분한다.
+
+**검증·수용 게이트.** `tests/numeric_scientific.rs`에 scalar/word dtype, min/max 경계, decimal-point inhibition, noun의 semantic handoff·Graph/Logical·runtime·definition propagation을 추가했다. 이 브랜치에서 실제 Cargo 테스트·두 C DLL과의 독립 차분·Linux CI 성공은 **아직 확인하지 않았다**. 따라서 N2b 수용 완료라고 표시하지 않으며 CI/차분 결과를 확인한 뒤 완료 판정을 기록한다.
+
+**별도 미완료.** real ratio conversion, extended/rational/complex payload, 일반 locative/locale·boxed/AR target 및 미지원 modifier, definition body CFG/Logical lowering은 이번 범위가 아니다.
 
 ## 13. 프레임워크 조사에서 채택한 원칙
 
