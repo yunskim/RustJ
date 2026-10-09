@@ -1047,6 +1047,47 @@ Verdict:
 **완료 판정:** RB-01~08/RB-V0~V4가 정본·영어 미러에 들어간 것은 **M3-RB 설계 명세 완료**뿐이다. **구현/검증 완료**는 실재하는 verifier, 각 negative test의 PASS, 3자 의미론 차분 결과와 증거 기록이 필요하다. `partition_plan`의 range/class, A3 `verify` 통과, 문서 수정만으로 M3·M4·HE-01을 완료 처리하지 않는다.
 
 
+<a id="sw-mlpl-reference-checklist"></a>
+##### 외부 구현 사례: sw-MLPL → RustJ 적용·검증 체크리스트 (2026-10-08, 설계 조사만)
+
+**검토 대상 및 성격:** [sw-MLPL](https://github.com/sw-ml-study/sw-mlpl/tree/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f)의 2026-10-03 `main` snapshot (`d53c35f810aa`)에서 구현·테스트·설계 문서를 대조했다. 이 절은 **기존 M3 RouteBoundary / M4 Physical CPU / M5+ heterogeneous planning의 구현 참고와 수용 항목**이며 새로운 필수 IR, 실행 경로, RustJ 언어 문법, 별도 진행 문서를 추가하지 않는다. RustJ 기존 RB-01~08, RB-V0~V4, M4→M5 검증, §17/HE 체크리스트가 우선한다. **[x] 외부 설계·소스 검토 / [ ] RustJ 도입·검증은 아직 미실시**이다. 이 문서 갱신을 기능 구현/테스트 통과로 세지 않는다.
+
+**비교로 확정한 경계:** sw-MLPL은 Rust 인터프리터, NumPy식 trailing-axis broadcasting, named-axis metadata, 일부 compile-to-Rust, MLX resident tape 및 제한된 CUDA 경로를 갖는다([S0], [S2], [S3]). RustJ는 J의 Rank/CellApply 및 zero-frame virtual fill, NAME/locale/`".`, J dtype·boxed·sparse·fit·오류·효과 우선순위를 보존한다. sw-MLPL의 `AxisSpec`/device handle/컴파일 가능 subset을 RustJ의 J semantic identity, Logical `ValueId` 또는 전체 J 지원 범위로 **그대로 치환하지 않는다**. 특히 `[0,3]`의 zero frame과 `[2,0]`의 positive frame/empty cell은 원소 수가 같아도 실행·prototype 의무가 다르다(§P.12).
+
+**실행 체크리스트** — 한 항목을 닫을 때 *변경 코드 위치 + PR/commit + 재현 입력/음성 케이스 + 실행한 테스트 명령과 실제 결과 + 해당 source 근거*를 §17의 기존 단계 체크리스트에 연결한다. CI 대기, 테스트 미실행, 특정 backend 부재는 통과가 아니다.
+
+| ID / 단계 | RustJ에 채택할 방법 (기존 계약에 추가) | 수용 게이트 / 실패해야 할 반례 | 근거 |
+|---|---|---|---|
+| **SW-01 / M3** | [ ] `LoweringRegistry`의 *기계 판독 가능한 coverage/capability 표*를 primitive + valence + rank/cell + J dtype/representation + effect/error + route/target/guard 축으로 점검한다. supported, runtime/guarded, 구현 미지원 후보를 구분하되 **op별 supported ≠ region Verified**로 고정한다. 문서의 범위 선언과 테스트의 registry 목록이 일치하게 한다. | 새 lowering 등록/제거 시 coverage gate 갱신 요구; 미등록 op, 틀린 valence, blocked boxed/sparse, stale witness, zero-frame 의무 누락 및 `ReferenceSequential`을 native로 오인한 계획은 `Rejected`/`GuardRequired`; RB-06/08, RB-V2~4까지 통과해야 완료. | [S4], [S5] |
+| **SW-02 / M3** | [ ] `RankPlan`/A3 `IterationDomain`/SemanticCheck에 이미 있는 shape, frame/cell/reduction-axis, 결과 cell 조립, 추론 증거를 **공통 구조화 진단/설명**으로 제공한다. axis 선택 규칙을 중복 구현하지 않고 source span/provenance 및 `ErrorKind + ErrorContext`를 유지한다. 사용자 문법에 MLPL named axes를 이식하지 않는다. | 동일한 Rank/Shape 문제의 A3/diagnostic 표시가 일관되며, 잘못된 축·중복/범위 오류·`[0,3]` 대 `[2,0]`·불명확한 결과 cell 조립·원래 첫 J 오류가 보존되는지 회귀 검증; diagnostic이 J 오류를 가리거나 변경하면 실패. | [S1], [S2], [S7] |
+| **SW-03 / M4** | [ ] 여러 compiler-native 작은 사례를 묶어 컴파일 비용을 분산하는 **batched parity harness**를 기존 3자 차분(jsource C, RustJ semantic reference, 실제 Physical/native route)의 보조 도구로 사용한다. 지원 범위 밖 입력은 명시적으로 분류한다. | 수치 scalar 하나만이 아니라 dtype·shape·ordered atoms·boxed/sparse(해당 지원 범위)·J error class/first error·effect/name 상태까지 비교. 가상 Cell/fill, Checked overflow, fit/tolerance, 동적 NAME, unsupported route negative를 포함. compiler가 reference evaluator를 호출한 것은 native 통과가 아님. | [S6], [S4] |
+| **SW-04 / M4** | [ ] parse/compile/실행 시간, allocation/peak memory, materialization, 읽기·쓰기 bytes를 나누고 **동일한 실제 lowering 결과**를 기준으로 micro/macro benchmark를 남긴다. 변경 blast radius에 맞는 빠른 proxy test와 느린 release gate를 구분한다. | CPU reference/native 동일 입력 비교, scalar/short array/reduce/reindex/빈 frame·복합 rank/effect-boundary 별도 기록; 결과 검증이 선행하며 환경/커밋/설정·median·회귀 기준 기록. 실행하지 않은 benchmark는 증거가 아님. | [S8], [S9] |
+| **SW-05 / M5+** | [ ] CPU/GPU/External의 실제 Physical/Bridge 경계에 upload/download, materialize, submit, fallback, transfer bytes, sync/ready wait, guard miss를 **측정 이벤트**로 정의한다. 실제 storage/lease/version과 event를 연결하되 A3 `ValueId`에 device handle을 넣지 않는다. | zero-transfer CPU baseline; 같은 J값의 physical residency 변화가 J-visible 의미를 바꾸지 않음; transfer-before-produce/read-before-ready/stale version/double-commit 거부. GPU 실장치가 없으면 설계/정적 verifier만 기록하고 resident 실행·성능을 성공으로 표시하지 않음. | [S3], [S10] |
+| **SW-06 / M4→M5+** | [ ] source span, original A3 OpId/`j_origin`, dtype/shape, effect/error check, physical route·materialization·fallback을 연결하는 **선택적 structured trace**를 만든다. 대형 noun 본문은 복사하지 않고 제한된 요약/ID만 기록하며 비용을 별도 측정한다. | trace enable/disable 결과가 J 값·오류·효과·순서에 영향을 주지 않는 회귀; source→A3→physical 대응 및 reject 이유 확인; 구조 진단과 runtime 관찰을 혼동하지 않는다. | [S7], [S11] |
+
+**진행 의존성 및 도입 금지 사항**
+
+- **M2 우선순위 유지:** jsource 기반 frontend/Rank/empty-frame 및 C oracle mismatch 수렴을 먼저 수행한다. SW-01/02가 M2 의미론 수정을 우회하는 shortcut이 되어서는 안 된다.
+- **M3 → M4 → M5(→ M6):** SW-01/02는 RB 검증기에 붙이고, SW-03/04는 실제 native CPU vertical slice가 있을 때 측정한다. SW-05는 M5의 transfer/residency 모델 이후, GPU 실제 실행은 별도 M6/재개 승인 뒤에만 한다. SW-06은 관찰 필요 시 단계적으로 추가한다.
+- **비채택:** NumPy broadcasting으로 J Rank 대체, J의 `".`/동적 이름을 금지하는 closed-world AOT, MLPL `Value`/`TensorHandle`을 J noun/FunctionEntity/A3 `ValueId`와 통합, autograd tape를 범용 J SSA로 대체, sw-MLPL의 숫자 하나 parity를 전체 J 적합성으로 간주하는 것은 모두 금지한다.
+- **완료 상태 (2026-10-08):** [x] 자료 조사·적용 경계 결정 및 출처 고정, [ ] SW-01, [ ] SW-02, [ ] SW-03, [ ] SW-04, [ ] SW-05, [ ] SW-06. 각 항목은 **실제 구현 + 해당 negative/conformance test PASS + 출처·명령·commit/CI 증거**가 있기 전까지 열린 상태다.
+
+**원본 자료 (모두 동일 commit으로 고정; 설계/문서와 실제 구현을 구분)**
+
+- **[S0]** [sw-MLPL README: 언어·backend와 실험적 범위](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/README.md).
+- **[S1]** [AxisSpec 공통 axis resolver 구현](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-axes/src/axis_spec.rs).
+- **[S2]** [trailing-axis broadcast 구현](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array-element/crates/mlpl-array-ops-element/src/broadcast.rs), [shape/empty 회귀 테스트](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array-element/crates/mlpl-array-ops-element/tests/broadcast_shape_tests.rs).
+- **[S3]** [CPU/device TensorHandle](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/handle.rs), [DeviceOps trait](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/ops.rs), [upload/download/submit/fallback counters](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/metrics.rs).
+- **[S4]** [컴파일러 coverage boundary 테스트](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/syntax-codegen/crates/mlpl-lower-rs/tests/coverage_boundary_tests.rs), [coverage 가이드](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/compiler-coverage.md).
+- **[S5]** [supported lowering dispatch coverage 테스트](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/syntax-codegen/crates/mlpl-lower-rs/tests/dispatch_coverage_tests.rs).
+- **[S6]** [interpreter vs compiled parity harness](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/dev-tools/crates/mlpl-parity-tests/tests/parity_tests.rs) — 현재 수치 scalar 중심 비교이므로 RustJ 전체 오라클의 대체가 아니다.
+- **[S7]** [typed TraceEvent 구조](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/autograd/crates/mlpl-trace/src/event.rs).
+- **[S8]** [actual lowering 기반 bench 방식과 수치](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/benchmarks.md), [benchmark harness](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/dev-tools/crates/mlpl-bench/benches/interp_vs_compiled.rs).
+- **[S9]** [blast-radius별 빠른/느린 테스트 cadence](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/testing-cadence.md).
+- **[S10]** [sw-MLPL architecture: resident device seam과 GPU 범위](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/architecture.md).
+- **[S11]** [구조적 dataflow renderer 설계(도입 의무 아님)](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/dataflow-renderer-design.md).
+
+
 MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 dialect conversion으로 점진적으로 lowering할 수 있으므로 RustJ의 multi-level IR 구조와 특히 잘 맞는다.
 
 향후 RustJ Logical IR 전체를 MLIR tooling 안에서 보존할 필요가 생기면 **RustJ-specific MLIR dialect**를 fidelity-preserving bridge로 둘 수 있다. 다만 v0의 필수 구현은 아니다. 초기 adapter는 안전하게 표현 가능한 op만 기존 `tensor/linalg/arith/scf` 등으로 직접 lowering하고, 의미 손실이 생기는 op는 거부한다. StableHLO는 ML framework/compiler 사이의 portability layer를 목표로 하는 high-level op set이므로 NN/tensor subset의 선택적 export 대상으로 본다. LLVM IR/SPIR-V는 더 낮은 execution target으로 사용한다.
@@ -3729,6 +3770,8 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 
 **상태 (2026-10-07):** 본 절의 **조건·검증 프로토콜만 문서 확정**. 모든 새로운 실행/성능 수용은 아직 미검증이며, M4/HE-01~09 미완료 체크박스를 유지한다. 구현 재개 시 각 수용 결과를 기존 §17/HE 체크리스트에 증거 링크로 기록한다.
 
+**연계 체크리스트:** [sw-MLPL 실행·검증 참고 SW-03/04/06](#sw-mlpl-reference-checklist)는 위 M4 수용 게이트의 보조 구현 패턴이며, 이 문서 추가만으로 체크박스를 닫지 않는다.
+
 ##### 기존 아키텍처 대조 감사: M4 준비도와 검증 공백 (2026-10-07, 설계 검증 전용)
 
 **결론:** J Graph → verified A3 → target-dependent lowering 후보 → Physical Representation이라는 기존 계층은 **그대로 확장 가능**하다. CPU 전용 Parallel Planner/IR, 새로운 Data Movement IR, GPU 실구현 선행은 필요하지 않다. 단, **A3 구조 검증**, **후보별 적법성 평가**, **원본 A3에서 Physical Plan까지 의미 보존의 증명**은 서로 다르다. 앞 단계의 성공이 뒤 단계의 완전한 실행 허가는 아니다. 아래는 현재 main의 실제 코드와 기존 테스트를 대조한 **정적 감사**이며 신규 테스트를 실행한 것이 아니다.
@@ -5333,7 +5376,7 @@ backend / executor
 
 #### M5 — Route/Schedule/Cost 확장
 
-M4 이후에만 optimizer 선택 문제를 키운다.
+M4 이후에만 optimizer 선택 문제를 키운다. [sw-MLPL SW-05/06 계측 참고](#sw-mlpl-reference-checklist)는 기존 physical residency/transfer 비용 검증에만 적용하고 M5/M6 구현 완료를 뜻하지 않는다.
 
 - [ ] `RouteRegion`에 boundary inputs/outputs, chosen route, preconditions/witnesses, semantic provenance를 추가한다.
 - [ ] legality와 profitability를 계속 분리한다.
