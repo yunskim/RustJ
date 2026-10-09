@@ -91,7 +91,11 @@ fn scientific_whole_word_mixed_spellings_retain_int_array_type() {
         ("_1e0 1e1", vec![-1, 10]),
     ] {
         let value = noun(source);
-        assert_eq!(value.type_code(), 4, "{source}: expected Int, not Bool/Float");
+        assert_eq!(
+            value.type_code(),
+            4,
+            "{source}: expected Int, not Bool/Float"
+        );
         assert_eq!(value.shape(), &[expected.len()], "{source}");
         for (index, atom) in expected.into_iter().enumerate() {
             assert_eq!(value.int_at(index).unwrap(), atom, "{source}: {index}");
