@@ -2128,6 +2128,8 @@ future CFG lowering이 추가될 때 필요한 최소 증명:
 
 **NJ-03 오류 전달 경계의 제한된 구현:** `RuntimeParserHost::lookup`은 `Result<Option<ParserNameBinding>>`으로 조회 실패와 미정의 이름을 구별한다. parser는 실패의 오류 종류를 유지하고 해당 NAME span과 원래 enqueue 단어 번호를 추가하며 이후 조회·version 관측·실행을 중단한다. 오류 전에 완료된 우측 호출의 효과와 capture는 보존하며 replay하지 않는다. 성공적인 read capture를 합성하지 않는다. 현재 flat namespace host는 기존 조회를 `Ok`로 감싸며 실제 locale/path/holder 해석과 resolution witness는 여전히 미구현이다. NJ-03 전체·NJ-04 및 L3 완료를 뜻하지 않는다.
 
+NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_reference.py` 산출물을 사용할 수 있다. 빌드 manifest의 고정 commit·platform·variant와 실제 library 존재를 검사하고 binary SHA256을 기록한다. 없는 variant는 미실행으로 남으며, unsupported/mismatch를 통과로 계산하지 않는다. 기존 Windows `--assets-root` 경로도 유지한다.
+
 | ID | jsource 관찰 계약 | RustJ 현재 구조/차이 | 수용 조건 |
 |---|---|---|---|
 | **NJ-01 NAME 인식** | 단순 이름(내부 `_` 허용), direct `name_locale_`, indirect `name__holder`, base alias `name__`; 적법한 `name_:`는 `NAMEBYVALUE/NAMEABANDON` 별도 inflection. `nfs` 길이/오류 precedence, `vnm` 문법 유지 | `enqueuer::validate_name_syntax`가 일부 문법·길이 검사를 구현하지만 적법한 locative와 `name_:`를 `Unsupported`로 차단함. 32-bit numeric locale 제한 등 플랫폼 경계 미검증 | 모든 jsource-valid NAME을 정상 parse queue에 전달하고 invalid/limit/spelling만 해당 J 오류로 구분. `Unsupported`를 최종 NAME 구문 결과로 인정하지 않음 |

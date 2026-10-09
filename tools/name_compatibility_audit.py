@@ -275,9 +275,54 @@ def rust_trace(binary, route, sources):
     return [json.loads(line) for line in result.stdout.splitlines()]
 
 
+PIN = "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528"
+
+
+def reference_inputs(assets_root=None, reference_root=None, platform=None):
+    """Select actual oracle files without certifying missing variants as passes."""
+    platform = sys.platform if platform is None else platform
+    if reference_root is None:
+        if assets_root is None or platform != "win32":
+            raise ValueError("Use --reference-root for Linux/WSL builds or native Windows --assets-root")
+        assets = assets_root.resolve()
+        libraries = [(name, assets / "target/cj-windows/j64" / name)
+                     for name in ["j.dll", "javx2.dll"]]
+        for _, library in libraries:
+            if not library.is_file():
+                raise ValueError(f"Missing reference library: {library}")
+        return libraries, {"unrun_reference_variants": [],
+                           "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+                           "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild"}
+    if assets_root is not None or platform != "linux":
+        raise ValueError("--reference-root requires Linux/WSL and cannot accompany --assets-root")
+    root = reference_root.resolve()
+    libraries, manifests = [], {}
+    for variant in ["j64", "j64avx2"]:
+        manifest = root / f"manifest-{variant}.json"
+        library = root / "bin/linux" / variant / "libj.so"
+        if not manifest.exists() and not library.exists():
+            continue
+        if not manifest.is_file() or not library.is_file():
+            raise ValueError(f"Incomplete {variant} reference: require manifest and libj.so")
+        metadata = json.loads(manifest.read_text(encoding="utf-8"))
+        if (metadata.get("commit") != PIN or metadata.get("platform") != "linux"
+                or metadata.get("variant") != variant):
+            raise ValueError(f"Mismatched pinned reference manifest: {manifest}")
+        libraries.append((variant, library))
+        manifests[variant] = metadata
+    if not libraries:
+        raise ValueError("No built Linux reference libraries found")
+    return libraries, {"reference_revision": PIN, "reference_manifests": manifests,
+                       "unrun_reference_variants": [v for v in ["j64", "j64avx2"] if v not in manifests],
+                       "revision_note": "Pinned build manifests select supplied Linux libraries; actual SHA256 identifies each binary. Absent variants are unrun, not passes."}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--assets-root", type=Path, required=True)
+    references = parser.add_mutually_exclusive_group(required=True)
+    references.add_argument("--assets-root", type=Path)
+    references.add_argument("--reference-root", type=Path,
+                            help="Linux .reference directory produced by tools/build_reference.py")
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--rust-revision", required=True)
     parser.add_argument("--report", type=Path, required=True)
@@ -290,9 +335,10 @@ def main():
     selection.add_argument("--assignment-fixtures-only", action="store_true")
     selection.add_argument("--abandon-fixtures-only", action="store_true")
     args = parser.parse_args()
-    if sys.platform != "win32":
-        parser.error("Use native Windows Python, J DLLs and Rust binary")
-    assets = args.assets_root.resolve()
+    try:
+        libraries, reference_metadata = reference_inputs(args.assets_root, args.reference_root)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
     fixtures = (ABANDON_FIXTURES if args.abandon_fixtures_only else
                 ASSIGNMENT_FIXTURES if args.assignment_fixtures_only else
                 NESTED_FIXTURES if args.nested_fixtures_only else
@@ -301,8 +347,8 @@ def main():
                 BOUNDARY_FIXTURES if args.boundary_fixtures_only else
                 SCOPE_FIXTURES if args.scope_fixtures_only else FIXTURES)
     records = []
-    for variant in ["j.dll", "javx2.dll"]:
-        os.environ["J_LIBRARY"] = str(assets / "target/cj-windows/j64" / variant)
+    for variant, library in libraries:
+        os.environ["J_LIBRARY"] = str(library)
         for name, sources in fixtures:
             oracle = Oracle()
             try:
@@ -328,10 +374,8 @@ def main():
                                [Path("Cargo.toml"), Path("Cargo.lock"),
                                 Path("tools/name_compatibility_audit.py"), Path("tools/oracle.py")]},
         "source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
-        "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
-        "revision_note": "Recorded asset revisions; DLL hashes identify the actual oracle, not a same-source rebuild",
-        "reference_sha256": {name: sha(assets / "target/cj-windows/j64" / name)
-                             for name in ["j.dll", "javx2.dll"]},
+        **reference_metadata,
+        "reference_sha256": {name: sha(library) for name, library in libraries},
         "fixture_set": ("name-abandon" if args.abandon_fixtures_only else
                         "string-assignment" if args.assignment_fixtures_only else
                         "definition-nested" if args.nested_fixtures_only else

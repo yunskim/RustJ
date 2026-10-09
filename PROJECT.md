@@ -658,6 +658,8 @@ The declarative class matcher is unified now. Full runtime semantic actions, mod
 
 **Bounded NJ-03 error boundary implementation:** `RuntimeParserHost::lookup` returns `Result<Option<ParserNameBinding>>`, distinguishing lookup failure from an undefined name. The parser preserves the error class, attaches the NAME span and original enqueue word index, and stops subsequent lookup, version observation and execution. Earlier completed right-hand calls and their capture survive failure without replay without synthesizing a successful read capture. Existing flat namespace hosts wrap their lookup in `Ok`; actual locale/path/holder resolution and resolution witnesses remain unimplemented. This does not complete NJ-03, NJ-04 or L3.
 
+The NAME audit accepts Linux/WSL `build_reference.py` outputs via `--reference-root .reference`. It checks the manifest pin/platform/variant and actual library existence, and records binary SHA256. Missing variants remain unrun; unsupported cases and mismatches are never counted as passes. Existing Windows `--assets-root` selection is preserved.
+
 | ID | jsource observable contract | RustJ gap / required acceptance |
 |---|---|---|
 | **NJ-01 syntax** | Simple names with internal underscores; direct `name_locale_`, indirect `name__holder`, base alias `name__`, and by-value/abandon `name_:`; name length, invalid-name and spelling error precedence | Enqueuer currently rejects valid locatives and `name_:` as Unsupported; make these native J syntax, distinguish invalid/limit/spelling per `sn.c`. Cross-target numeric locale limits must be proven |
