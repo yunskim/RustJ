@@ -2975,7 +2975,7 @@ pub(crate) trait RuntimeParserHost {
         None
     }
 
-    fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>>;
     fn fork_cap_binding(
         &self,
         _name: &str,
@@ -3183,7 +3183,7 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
         return Ok(resolved);
     }
     let binding = if let Some(host) = &mut context.host {
-        host.lookup(&name)
+        host.lookup(&name).map_err(|error| error.at(span.clone()))?
     } else {
         context.lookup.and_then(|lookup| lookup(&name))
     };
@@ -4210,18 +4210,80 @@ mod stack_entry_tests {
 #[cfg(test)]
 mod runtime_action_tests {
     use super::*;
+
+    #[test]
+    fn lookup_failure_preserves_error_span_and_stops_left_lookup_and_execution() {
+        struct FailingHost {
+            reads: Vec<String>,
+            error: Option<Error>,
+        }
+        impl RuntimeParserHost for FailingHost {
+            fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>> {
+                self.reads.push(name.into());
+                Err(self.error.take().expect("no lookup after failure"))
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                panic!("no version observation after failed lookup")
+            }
+            fn apply(&mut self, _: Expr) -> Result<Value> {
+                panic!("no execution after failed lookup")
+            }
+        }
+        for failure in [
+            Error::Domain,
+            Error::Value("holder".into()),
+            Error::Unsupported("locale lookup".into()),
+        ] {
+            let kind = failure.kind();
+            let mut host = FailingHost {
+                reads: Vec::new(),
+                error: Some(failure),
+            };
+            let mut capture = ParseCapture::default();
+            let error =
+                parse_runtime_host("left + right", &mut host, Some(&mut capture)).unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(error.span(), Some(&(7..12)));
+            assert_eq!(host.reads, ["right"]);
+            assert!(
+                capture.events.is_empty(),
+                "failed lookup is not a successful read"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_lookup_still_builds_a_late_function_reference() {
+        struct MissingHost;
+        impl RuntimeParserHost for MissingHost {
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
+                Ok(None)
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                None
+            }
+            fn apply(&mut self, _: Expr) -> Result<Value> {
+                panic!("bare missing name is deferred")
+            }
+        }
+        let program = parse_runtime_host("future", &mut MissingHost, None).unwrap();
+        let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!("missing name must remain a function reference");
+        };
+        assert_eq!(verb.target, VerbTarget::Named("future".into()));
+        assert!(matches!(&verb.entity.head, FunctionHead::NameRef(name) if name == "future"));
+    }
+
     struct Host {
         log: Vec<String>,
         left: i64,
     }
     impl RuntimeParserHost for Host {
-        fn lookup(&mut self, name: &str) -> Option<ParserNameBinding> {
+        fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>> {
             self.log.push(format!("lookup:{name}"));
-            Some(ParserNameBinding::Noun(Value::scalar(if name == "left" {
-                self.left
-            } else {
-                3
-            })))
+            Ok(Some(ParserNameBinding::Noun(Value::scalar(
+                if name == "left" { self.left } else { 3 },
+            ))))
         }
         fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
             None
@@ -4311,8 +4373,8 @@ mod gerund_ar_tests {
             calls: usize,
         }
         impl RuntimeParserHost for Host {
-            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
-                None
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
+                Ok(None)
             }
             fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
                 None
@@ -4383,8 +4445,8 @@ mod gerund_ar_tests {
             calls: usize,
         }
         impl RuntimeParserHost for Host {
-            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
-                None
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
+                Ok(None)
             }
             fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
                 None
@@ -4737,7 +4799,7 @@ mod completed_result_tests {
             version: u64,
         }
         impl RuntimeParserHost for Host {
-            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
                 panic!("no name reads")
             }
             fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {

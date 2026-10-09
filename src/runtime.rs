@@ -383,8 +383,8 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             .is_nameless_modifier()
             .then(|| (function.clone(), binding.version))
     }
-    fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
-        self.engine.parser_name_binding(name)
+    fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
+        Ok(self.engine.parser_name_binding(name))
     }
     fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         Ok(self.engine.parser_name_binding(name))
@@ -503,7 +503,7 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn enqueue_environment(&self) -> crate::enqueuer::EnqueueEnvironment {
         crate::enqueuer::EnqueueEnvironment::ExplicitDefinition
     }
-    fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
+    fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         self.parent.lookup(name)
     }
     fn stacked_modifier(
