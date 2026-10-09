@@ -172,7 +172,27 @@ fn rational_structural_verbs_preserve_type_and_zero_fills() {
 #[test]
 fn rational_payload_survives_frontend_handoff_logical_execution_and_capture() {
     let mut engine = Engine::new();
-    for source in ["2r4", "0r0", "1r0", "__r_0", "1x 2r3 _", ",2r3", "#2r3"] {
+    for source in [
+        "2r4",
+        "0r0",
+        "1r0",
+        "__r_0",
+        "1x 2r3 _",
+        ",2r3",
+        "#2r3",
+        "1r2+1r3",
+        "1r2%2x",
+        "*1r2",
+        "1r2<2r3",
+        "+/1r2 2r3 3r4",
+        "-/1r2 2r3 3r4",
+        "*/1r2 2r3 3r4",
+        "%/1r2 2r3 3r4",
+        "+/(0$2r3)",
+        "+/(2 0$2r3)",
+        "%/(2 0$2r3)",
+        "+/(1 0$2r3)",
+    ] {
         let handoff = engine.admit_frontend_handoff(source).into_result().unwrap();
         assert!(handoff.program().expression.is_some());
         let direct = engine.eval(source).unwrap().unwrap();
@@ -234,24 +254,14 @@ fn rational_names_definitions_and_failed_assignments_preserve_state() {
 #[test]
 fn rational_missing_capabilities_are_not_caught_or_coerced_to_float() {
     let mut engine = Engine::new();
-    for source in [
-        "1r2+1r3",
-        "1r2%2r3",
-        "1r2+1.0",
-        "-1r2",
-        "*1r2",
-        "1r2,2r3",
-        "+/1r2 2r3",
-        "1r2 i.2r3",
-        "1r1$2r3",
-    ] {
+    for source in ["1r2+1.0", "1r2,2r3", "1r2 i.2r3", "1r1$2r3"] {
         assert_eq!(
             engine.eval_diagnostic(source).unwrap_err().kind(),
             "unsupported",
             "{source}"
         );
     }
-    engine.eval("f=:{{try. 1r2+1r3 catch. 42 end.}}").unwrap();
+    engine.eval("f=:{{try. 1r2+1.0 catch. 42 end.}}").unwrap();
     assert_eq!(
         engine.eval_diagnostic("f 0").unwrap_err().kind(),
         "unsupported"
@@ -265,4 +275,501 @@ fn rational_missing_capabilities_are_not_caught_or_coerced_to_float() {
             .register(value),
         Err(rustj::Error::Unsupported(_))
     ));
+}
+
+#[test]
+fn rational_arithmetic_has_independent_exact_expectations_and_integer_promotion() {
+    let mut engine = Engine::new();
+    for (source, n, d) in [
+        ("1r2+1r3", "5", "6"),
+        ("1r2-2r3", "-1", "6"),
+        ("_2r3*9r4", "-3", "2"),
+        ("_2r3%9r4", "-8", "27"),
+        ("9007199254740993r2+1", "9007199254740995", "2"),
+        ("1+9007199254740993r2", "9007199254740995", "2"),
+        ("9007199254740993x-1r2", "18014398509481985", "2"),
+        ("1r2%2x", "1", "4"),
+        ("2x%1r2", "4", "1"),
+        ("0+1r2", "1", "2"),
+        ("1r2+0", "1", "2"),
+    ] {
+        let value = engine.eval(source).unwrap().unwrap();
+        assert_eq!(value.type_code(), 128, "{source}");
+        assert_eq!(atoms(&value), [(n.into(), d.into())], "{source}");
+    }
+    // Exact cancellation beyond both f64 and i64 ranges.
+    let digits = "9".repeat(200);
+    let value = engine
+        .eval(&format!("({digits}r7%{digits}r3)*7r3"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(atoms(&value), [("1".into(), "1".into())]);
+}
+#[test]
+fn rational_non_finite_rules_distinguish_zero_infinity_and_j_nan_error() {
+    let mut engine = Engine::new();
+    for (source, n, d) in [
+        ("0r1*1r0", "0", "1"),
+        ("1r0*0r1", "0", "1"),
+        ("0r1%0r1", "0", "1"),
+        ("0r1%1r0", "0", "1"),
+        ("1r2%0r1", "1", "0"),
+        ("_1r2%0r1", "-1", "0"),
+        ("1r0+2r3", "1", "0"),
+        ("2r3-_1r0", "1", "0"),
+        ("_1r0-1r0", "-1", "0"),
+        ("_1r0*_1r0", "1", "0"),
+        ("1r0%_2r3", "1", "0"),
+        ("_1r0%0r1", "-1", "0"),
+    ] {
+        assert_eq!(
+            atoms(&engine.eval(source).unwrap().unwrap()),
+            [(n.into(), d.into())],
+            "{source}"
+        );
+    }
+    for source in [
+        "1r0+_1r0",
+        "_1r0+1r0",
+        "1r0-1r0",
+        "_1r0-_1r0",
+        "1r0%1r0",
+        "1r0%_1r0",
+    ] {
+        let error = engine.eval_diagnostic(source).unwrap_err();
+        assert_eq!(error.kind(), "NaN error", "{source}");
+        assert_eq!(error.class_name(), "NaNError");
+        assert!(error.is_j_catchable());
+        assert!(error.context().is_some());
+    }
+}
+#[test]
+fn rational_comparison_is_exact_and_orders_infinities() {
+    let mut engine = Engine::new();
+    for (source, expected) in [
+        ("9007199254740993r1=9007199254740992r1", 0),
+        ("9007199254740993r1>9007199254740992x", 1),
+        ("9007199254740992x<9007199254740993r1", 1),
+        ("2r4=1r2", 1),
+        ("_1r0<1r0", 1),
+        ("1r0=1r0", 1),
+        ("1r0>9007199254740993x", 1),
+        ("0r1=0", 1),
+    ] {
+        let value = engine.eval(source).unwrap().unwrap();
+        assert_eq!(value.type_code(), 1, "{source}");
+        assert_eq!(value.int_at(0).unwrap(), expected, "{source}");
+    }
+}
+#[test]
+fn rational_unary_operations_preserve_type_and_reuse_nonnegative_absolute_atoms() {
+    let mut engine = Engine::new();
+    for (source, n, d) in [
+        ("-2r3", "-2", "3"),
+        ("|_2r3", "2", "3"),
+        ("%2r3", "3", "2"),
+        ("%0r1", "1", "0"),
+        ("%1r0", "0", "1"),
+        ("%_1r0", "0", "1"),
+    ] {
+        let value = engine.eval(source).unwrap().unwrap();
+        assert_eq!(value.type_code(), 128);
+        assert_eq!(atoms(&value), [(n.into(), d.into())]);
+    }
+    let value = engine.eval("*_1r0 0r1 2r3 1r0").unwrap().unwrap();
+    assert_eq!(value.type_code(), 64);
+    assert_eq!(
+        value.json(),
+        "{\"type\":64,\"shape\":[4],\"data\":[\"-1\",\"0\",\"1\",\"1\"]}"
+    );
+    let source = noun("2r3");
+    let result = rustj::kernels::monad("|", source.clone()).unwrap();
+    let (Data::Rational(a), Data::Rational(b)) = (source.data(), result.data()) else {
+        panic!()
+    };
+    assert!(Arc::ptr_eq(&a[0], &b[0]));
+}
+#[test]
+fn rational_array_arithmetic_handles_prefix_agreement_empty_and_failed_assignment() {
+    let mut engine = Engine::new();
+    engine.eval("a=:2 2$1r2 2r3 3r4 4r5").unwrap();
+    engine.eval("alias=:a").unwrap();
+    let result = engine.eval("1 2+a").unwrap().unwrap();
+    assert_eq!(result.shape(), &[2, 2]);
+    assert_eq!(
+        atoms(&result),
+        [
+            ("3".into(), "2".into()),
+            ("5".into(), "3".into()),
+            ("11".into(), "4".into()),
+            ("14".into(), "5".into())
+        ]
+    );
+    for source in ["a=:1r0 2r3+_1r0 1r2", "a=:1r2 2r3+1 2 3"] {
+        assert!(engine.eval_diagnostic(source).is_err());
+        assert_eq!(
+            engine.eval("a").unwrap().unwrap().json(),
+            engine.eval("alias").unwrap().unwrap().json()
+        );
+    }
+    for (source, t) in [("1r2+0$1", 128), ("(0$1r2)%0r1", 128), ("(0$1r2)=1r2", 1)] {
+        let value = engine.eval(source).unwrap().unwrap();
+        assert_eq!(value.shape(), &[0]);
+        assert_eq!(value.type_code(), t);
+    }
+}
+#[test]
+fn rational_runtime_errors_are_caught_and_definition_calls_preserve_exact_names() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for s in [
+            "saved=:9007199254740993r2",
+            "f=:{{local=.saved\nlocal+1r3}}",
+            "g=:3 : 'local=.saved\nlocal+1r3'",
+            "caught=:{{try. saved=:1r0-1r0 catch. saved end.}}",
+        ] {
+            engine.eval(s).unwrap();
+        }
+        for s in ["f 0", "g 0"] {
+            let value = if semantic {
+                engine.eval_semantic_reference_diagnostic(s)
+            } else {
+                engine.eval_diagnostic(s)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(atoms(&value), [("27021597764222981".into(), "6".into())]);
+        }
+        let value = if semantic {
+            engine.eval_semantic_reference_diagnostic("caught 0")
+        } else {
+            engine.eval_diagnostic("caught 0")
+        }
+        .unwrap()
+        .unwrap();
+        assert_eq!(atoms(&value), [("9007199254740993".into(), "2".into())]);
+    }
+}
+
+#[test]
+fn rational_primitive_reduction_uses_exact_right_fold_without_reassociation() {
+    let mut engine = Engine::new();
+    for (source, n, d) in [
+        ("+/1r2 2r3 3r4", "23", "12"),
+        ("-/1r2 2r3 3r4", "7", "12"),
+        ("*/1r2 2r3 3r4", "1", "4"),
+        ("%/1r2 2r3 3r4", "9", "16"),
+        ("-/10r1 3r1 2r1 1r1", "8", "1"),
+        ("%/2r1 3r1 4r1", "8", "3"),
+        ("+/9007199254740993r2 _9007199254740991r2", "1", "1"),
+    ] {
+        let result = engine.eval(source).unwrap().unwrap();
+        assert_eq!(result.type_code(), 128, "{source}");
+        assert_eq!(atoms(&result), [(n.into(), d.into())], "{source}");
+    }
+    let huge = "9".repeat(200);
+    assert_eq!(
+        atoms(
+            &engine
+                .eval(&format!("+/{huge}r3 _{huge}r3"))
+                .unwrap()
+                .unwrap()
+        ),
+        [("0".into(), "1".into())]
+    );
+    let result = engine.eval("+/2 2$1r2 2r3 3r4 4r5").unwrap().unwrap();
+    assert_eq!(result.shape(), &[2]);
+    assert_eq!(
+        atoms(&result),
+        [("5".into(), "4".into()), ("22".into(), "15".into())]
+    );
+}
+#[test]
+fn rational_reduction_distinguishes_zero_items_from_empty_items() {
+    let mut engine = Engine::new();
+    for verb in ["+", "-", "*", "%"] {
+        let identity = if matches!(verb, "+" | "-") { 0 } else { 1 };
+        for shape in ["0", "0 2", "0 2 3", "0 0"] {
+            let source = format!("{verb}/({shape}$2r3)");
+            let result = engine.eval(&source).unwrap().unwrap();
+            assert_eq!(result.type_code(), 1, "{source}");
+            for i in 0..result.len() {
+                assert_eq!(result.int_at(i).unwrap(), identity);
+            }
+        }
+        for shape in ["2 0", "3 2 0", "4 0 2"] {
+            let source = format!("{verb}/({shape}$2r3)");
+            let result = engine.eval(&source).unwrap().unwrap();
+            let expected = match verb {
+                "+" | "-" => 4,
+                "*" => 1,
+                _ => 8,
+            };
+            assert_eq!(result.type_code(), expected, "{source}");
+            assert!(result.is_empty());
+        }
+        for source in [format!("{verb}/2r3"), format!("{verb}/(,2r3)")] {
+            let result = engine.eval(&source).unwrap().unwrap();
+            assert_eq!(result.shape(), &[]);
+            assert_eq!(atoms(&result), [("2".into(), "3".into())]);
+        }
+        let result = engine.eval(&format!("{verb}/(1 0$2r3)")).unwrap().unwrap();
+        assert_eq!(result.type_code(), 128);
+        assert_eq!(result.shape(), &[0]);
+    }
+}
+#[test]
+fn rational_reduction_preserves_non_finite_errors_in_right_fold_order() {
+    let mut engine = Engine::new();
+    for source in [
+        "+/1r0 _1r0 0r1",
+        "-/1r0 1r0 1r0",
+        "%/0r1 1r0 1r0",
+        "%/1r0 _1r0 0r1",
+    ] {
+        let error = engine.eval_diagnostic(source).unwrap_err();
+        assert_eq!(error.kind(), "NaN error", "{source}");
+        assert!(error.is_j_catchable());
+        assert!(error.context().is_some());
+    }
+    for (source, n, d) in [
+        ("*/1r0 _1r0 0r1", "0", "1"),
+        ("-/1r0 _1r0 0r1", "1", "0"),
+        ("%/1r0 0r1 1r0", "1", "0"),
+    ] {
+        assert_eq!(
+            atoms(&engine.eval(source).unwrap().unwrap()),
+            [(n.into(), d.into())],
+            "{source}"
+        );
+    }
+}
+#[test]
+fn rational_single_item_reduction_shares_atoms_without_retaining_array_backing() {
+    let input = Value::new([1, 2], noun("1r2 2r3").data().clone())
+        .unwrap()
+        .into_shared();
+    let Data::Rational(CpuStorage::Shared(backing)) = input.data() else {
+        panic!()
+    };
+    let weak_backing = Arc::downgrade(backing);
+    let weak_atom = Arc::downgrade(&backing[0]);
+    let result = rustj::kernels::reduce("+", input.clone()).unwrap();
+    let Data::Rational(out) = result.data() else {
+        panic!()
+    };
+    assert!(Arc::ptr_eq(&backing[0], &out[0]));
+    drop(input);
+    assert!(weak_backing.upgrade().is_none());
+    assert!(weak_atom.upgrade().is_some());
+    drop(result);
+    assert!(weak_atom.upgrade().is_none());
+}
+#[test]
+fn rational_reduction_definitions_aliases_and_error_handlers_preserve_state() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for source in [
+            "saved=:1r2 2r3 3r4",
+            "alias=:saved",
+            "f=:{{local=.saved\n-/local}}",
+            "g=:3 : 'local=.saved\n-/local'",
+            "caught=:{{try. saved=:+/1r0 _1r0 catch. saved end.}}",
+        ] {
+            engine.eval(source).unwrap();
+        }
+        for source in ["f 0", "g 0"] {
+            let value = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(atoms(&value), [("7".into(), "12".into())]);
+        }
+        let original = engine.eval("saved").unwrap().unwrap().json();
+        assert_eq!(
+            engine
+                .eval_diagnostic("saved=:+/1r0 _1r0")
+                .unwrap_err()
+                .kind(),
+            "NaN error"
+        );
+        let caught = if semantic {
+            engine.eval_semantic_reference_diagnostic("caught 0")
+        } else {
+            engine.eval_diagnostic("caught 0")
+        }
+        .unwrap()
+        .unwrap();
+        assert_eq!(caught.json(), original);
+        engine.eval("saved=:+/saved").unwrap();
+        assert_eq!(engine.eval("alias").unwrap().unwrap().json(), original);
+    }
+}
+
+#[test]
+fn rational_rank_assembles_exact_cells_in_both_execution_routes() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for (source, expected) in [
+            ("(-\"0)1r2 _2r3", vec![("-1", "2"), ("2", "3")]),
+            ("(%\"0)1x 2x 0x", vec![("1", "1"), ("1", "2"), ("1", "0")]),
+            ("(%\"0)0x 2x 1x", vec![("1", "0"), ("1", "2"), ("1", "1")]),
+            ("(+/\"1)2 2$1r2 2r3", vec![("7", "6"), ("7", "6")]),
+        ] {
+            let result = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                atoms(&result),
+                expected
+                    .into_iter()
+                    .map(|(n, d)| (n.into(), d.into()))
+                    .collect::<Vec<_>>(),
+                "{semantic}: {source}"
+            );
+        }
+    }
+}
+#[test]
+fn rational_rank_empty_frames_preserve_primitive_dispatch_types() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for (source, ty, shape) in [
+            ("(-\"0)0$2r3", 128, vec![0]),
+            ("(*\"0)0$2r3", 64, vec![0]),
+            ("(+/\"1)0 3$2r3", 4, vec![0]),
+            ("(-/\"1)0 3$2r3", 4, vec![0]),
+            ("(*/\"1)0 3$2r3", 1, vec![0]),
+            ("(%/\"1)0 3$2r3", 8, vec![0]),
+            ("(+/\"1)0 1$2r3", 128, vec![0]),
+            ("(+/\"1)0 0$2r3", 1, vec![0]),
+            ("(+/\"1)2 0$2r3", 1, vec![2]),
+        ] {
+            let result = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                (result.type_code(), result.shape()),
+                (ty, shape.as_slice()),
+                "{semantic}: {source}"
+            );
+        }
+    }
+}
+#[test]
+fn exact_rank_builder_promotes_empty_cells_and_preserves_atom_ownership() {
+    let input = noun("123456789012345678901234567891r7").into_shared();
+    let Data::Rational(data) = input.data() else {
+        panic!()
+    };
+    let weak = Arc::downgrade(&data[0]);
+    let result =
+        rustj::kernels::assemble(vec![3], vec![Value::scalar(1), input.clone(), noun("2x")])
+            .unwrap();
+    assert_eq!(
+        atoms(&result),
+        [
+            ("1".into(), "1".into()),
+            ("123456789012345678901234567891".into(), "7".into()),
+            ("2".into(), "1".into())
+        ]
+    );
+    let Data::Rational(out) = result.data() else {
+        panic!()
+    };
+    assert!(Arc::ptr_eq(&data[0], &out[1]));
+    drop(input);
+    assert!(weak.upgrade().is_some());
+    drop(result);
+    assert!(weak.upgrade().is_none());
+    for cells in [
+        vec![noun("0r1").select([0], []).unwrap(), Value::scalar(1)],
+        vec![Value::scalar(1), noun("0r1").select([0], []).unwrap()],
+    ] {
+        let result = rustj::kernels::assemble(vec![1], cells).unwrap();
+        assert_eq!(atoms(&result), [("1".into(), "1".into())]);
+    }
+    for cells in [
+        vec![noun("1r2"), noun("1.5")],
+        vec![noun("1.5"), noun("1r2")],
+    ] {
+        assert_eq!(
+            rustj::kernels::assemble(vec![2], cells).unwrap_err().kind(),
+            "unsupported"
+        );
+    }
+}
+#[test]
+fn rational_rank_definition_alias_and_failed_assignment_are_transactional() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for source in [
+            "saved=:1r2 2r3",
+            "alias=:saved",
+            "f=:{{local=.saved\n(-\"0)local}}",
+            "g=:3 : 'local=.saved\n(-\"0)local'",
+        ] {
+            engine.eval(source).unwrap();
+        }
+        for source in ["f 0", "g 0"] {
+            let result = if semantic {
+                engine.eval_semantic_reference_diagnostic(source)
+            } else {
+                engine.eval_diagnostic(source)
+            }
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                atoms(&result),
+                [("-1".into(), "2".into()), ("-2".into(), "3".into())]
+            );
+        }
+        let original = engine.eval("saved").unwrap().unwrap().json();
+        let error = if semantic {
+            engine.eval_semantic_reference_diagnostic("saved=:(1r0 1r2)(+\"0)_1r0 2r3")
+        } else {
+            engine.eval_diagnostic("saved=:(1r0 1r2)(+\"0)_1r0 2r3")
+        }
+        .unwrap_err();
+        assert_eq!(error.kind(), "NaN error");
+        assert_eq!(engine.eval("saved").unwrap().unwrap().json(), original);
+        engine.eval("saved=: (-\"0)saved").unwrap();
+        assert_eq!(engine.eval("alias").unwrap().unwrap().json(), original);
+    }
+}
+
+#[test]
+fn rational_rank_definition_cells_promote_bool_int_extended_in_either_order() {
+    for semantic in [false, true] {
+        let mut engine = Engine::new();
+        for integer in ["1", "01", "123456789012345678901234567891x"] {
+            for order in ["0 1", "1 0"] {
+                let source = format!("({{{{if. y=0 do. {integer} else. 1r2 end.}}}}\"0){order}");
+                let result = if semantic {
+                    engine.eval_semantic_reference_diagnostic(&source)
+                } else {
+                    engine.eval_diagnostic(&source)
+                }
+                .unwrap()
+                .unwrap();
+                let whole = integer.strip_suffix('x').unwrap_or("1");
+                let mut expected = vec![(whole.into(), "1".into()), ("1".into(), "2".into())];
+                if order == "1 0" {
+                    expected.reverse();
+                }
+                assert_eq!(atoms(&result), expected, "{semantic}: {source}");
+            }
+        }
+    }
 }

@@ -188,7 +188,7 @@ RustJ's distinguishing requirement is the strong **full-J semantic frontend** pl
 - **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
 - **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
 - **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
-- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal/extended/rational literals):** default/portable each **725 passed / zero failures / zero ignored**, Python **85 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
+- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal/extended/rational literals and rational arithmetic/extended division/rational reduce/uniform rank assembly):** default/portable each **746 passed / zero failures / zero ignored**, Python **85 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
 
@@ -3486,7 +3486,7 @@ Implemented scope: rational literals and integer/extended mixed words, shape/tal
 
 C validation: 225 fixtures × `j.dll`/`javx2.dll` = **450/450 matched**. The pinned `j.dll` traps internally in `vq.c` (0xc000001d) for a 200-digit numerator/zero denominator. Six source combinations are excluded from both comparison sets and recorded under `reference_exclusions`, never counted as passes. Reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` are not a same-source rebuild.
 
-Limits/next: rational arithmetic/comparison, Float/Complex mixing, rational count/index coercion, catenate, general reduce/rank assembly, sparse/native physical adapters remain distinct Unsupported boundaries. BigInt/Arc allocation failure to workspace-full, large-memory limits/performance, native compiled execution and Linux/GPU remain unverified. Next is the exact rational arithmetic/comparison finite/non-finite and error/promotion contract; CUDA remains planned only.
+Limits/next: rational arithmetic/comparison, Float/Complex mixing, rational count/index coercion, catenate, general reduce/rank assembly, sparse/native physical adapters remain distinct Unsupported boundaries. BigInt/Arc allocation failure to workspace-full, large-memory limits/performance, native compiled execution and Linux/GPU remain unverified. The N3b arithmetic/comparison follow-up is implemented in N3c below; CUDA remains planned only.
 
 - [x] Implement finite/infinite/zero and whole-word construction.
 - [x] Connect Value/views/type facts/sharing/selection/empty fills/structural operations.
@@ -3498,6 +3498,83 @@ Limits/next: rational arithmetic/comparison, Float/Complex mixing, rational coun
 Executed validation: Windows default/portable each **725 passed / zero failures / zero ignored**, fmt/clippy(all-targets) pass, Python **85 passed**. Includes eight new Rust regressions plus one type-fact regression and three Python exact-formatter regressions. Covers alias/overlap/Weak release, failed-assignment state, explicit/direct local/global, enqueue/handoff/Logical/capture and capability boundaries.
 
 Existing strict numeric audits retain overflow **36/36**, integer dtype **36/36**, scientific **668/668**, real ratio **296/296** and extended **126/126 matched**. Frontend audit: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**. Each DLL numeric-syntax audit has **2,485 cases / zero failures**, **313** accepted nouns and **721** valid payload boundaries, with precision/recognition boundaries separate. Verified **16 reports / 1,001 source/binary/DLL hashes**. GitHub CI was skipped. This is not full J or C diagnostic text/location equivalence.
+
+### N3c — exact rational arithmetic/comparison (2026-10-08)
+
+Contract: connect canonical N3b rationals to CPU `+`/`-`/`*`/`%`/`=`/`<`/`>` and monadic `-`/`|`/`*`/`%`. Bool/Int/ExtendedInt mixing promotes exactly; Float/Complex mixing remains a separate capability boundary. Finite operations use num-rational exact arithmetic; non-finite cases follow explicit pinned `vq.c` rules first. Opposite-infinity addition, same-infinity subtraction and infinity/infinity division raise J `NaN error` through shared diagnostics/try handling and transactional assignment. Zero times infinity and zero divided by zero yield rational zero. No parser deferral, physical adapter or GPU placement changes.
+
+Implementation/validation boundary: arithmetic results retain dtype 128 even when integral, comparisons return Bool, and monadic signum returns ExtendedInt (dtype 64). Rational on either side supports exact Bool/Int/ExtendedInt mixing. Division of two ExtendedInts is not included. Finite calculation constructs BigRational from canonical inputs, uses num-rational reduction/exact BigInt operations, and moves the canonical result via `into_raw` without a second reduction. Input atoms are borrowed, but finite numerator/denominator working values are cloned: arithmetic still copies limbs and allocates. Existing arrays/NAME aliases remain immutable; nonnegative absolute atoms reuse Arcs. No performance advantage or allocation-free arithmetic is claimed.
+
+C-specific rule: independently initialized DLLs return positive infinity for `1r0%_1r2` and negative infinity for `_1r0%_1r2`. Match `vq.c::qdiv`/`QdivQQ` zero-denominator behavior retaining the infinite numerator sign rather than ordinary real-division sign rules. This is covered by the strict Cartesian regressions. Existing reviewed-source versus DLL-release pin limitations remain.
+
+Remaining: Float/Complex/Char mixing, rational count/index coercion, catenate/general reduce/rank assembly/i.-family/sparse/native physical adapters. Limb/Arc OOM to J workspace-full and large-memory/performance measurements remain unverified. CUDA stays planned only. The ExtendedInt division follow-up is implemented in N3d below; rational reduction/assembly remain the N3e/N3f gates.
+
+- [x] Check C source/DLL finite/non-finite, promotion and errors.
+- [x] Connect exact arithmetic/comparison, unary operations, type facts and shared diagnostics.
+- [x] Independent expectations, broadcast/empty/alias, failed assignment/try, definitions and IR regressions.
+- [x] Both C DLL strict comparisons, refresh existing reports, Windows default/portable/fmt/clippy/Python.
+- [x] Update bilingual documentation/checklists, commit/push; skip CI.
+
+Executed validation: Windows default/portable each **731 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Six new Rust regressions and expanded type-fact/handoff/Logical/capture coverage verify exact 200-digit cancellation, promotion, infinity/NaN, prefix agreement/empty arrays, aliases/absolute Arc sharing, failed assignment, try, explicit/direct locals and shared diagnostics.
+
+Rational strict audit including prior construction: **649 fixtures × two DLLs = 1,298/1,298 matched**. The six N3b C-trap source exclusions remain recorded and are never passes. Existing strict numeric audits (overflow 36, integer dtype 36, scientific 668, real ratio 296, extended 126) remain matched. Frontend: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**; numeric syntax per DLL: **2,485 cases / zero failures**. Reverified **16 reports / 1,001 hashes**. No native compiled execution, full J, C diagnostic text/location, Linux/GPU/CI equivalence claim.
+
+### N3d — ExtendedInt exact division/reciprocal and three next units (2026-10-08)
+
+The immediate exact numeric follow-up has three acceptance units: (1) N3d conditional Rational promotion for ExtendedInt division/reciprocal (this change), (2) N3e rational right-fold reduction/empty identity/type/error ordering, (3) N3f rational rank result assembly/mixing/fill/empty frames. Completing (1) leaves two in this bounded group. This is not a full J or whole-RustJ remaining-stage count. Numeric/primitive, locale/modifier and definition-body analysis gaps, M3 boundary verification, M4 native CPU, optimization/performance and future GPU work remain; raw checkbox counts do not form a project estimate.
+
+Contract: support `%` with at least one ExtendedInt and both operands Bool/Int/ExtendedInt, plus monadic `%`. Pinned `vx.c::jtxdiv`/`va2.c` retain dtype 64 if every result is an exact integer; one fractional or infinite atom promotes the entire result to dtype 128. Zero/zero is integer zero, nonzero/zero rational infinity, empty outputs dtype 64. Preserve existing Rational-input dtype 128 and ordinary Int/Int Float division. Static facts remain Unknown without divisor/value proof; actual capture records exact dtype. Use num-integer single div_rem, moving earlier exact quotients on first promotion; inputs/NAME aliases remain immutable.
+
+Implementation details/limits: make already-transitive num-integer 0.1.47 a direct dependency for BigInt `div_rem`. Move private exact-prefix quotients out of Arcs into Rational numerators without recomputing earlier inputs. Two output vectors may coexist during promotion; Rational construction and limb/Arc allocations remain. OOM to J workspace-full, large peak-memory behavior and performance superiority remain unverified. Float/Char/Complex mixing stays Unsupported. This does not complete general reduce/rank, search, native physical adapters or GPU execution.
+
+- [x] N3d: both C DLL divisible/nondivisible/zero, whole-array promotion, empty, mixed/reciprocal rules.
+- [x] N3d: CPU implementation; independent expectations, broadcast/aliases/failed assignment, definitions/handoff/Logical/type-fact regressions.
+- [x] N3d: extend/refresh strict reports, Windows default/portable/fmt/clippy/Python, docs/commit/push (skip CI).
+- [x] N3e: rational right-fold/empty identity/error/type preservation with independent C gate.
+- [x] N3f: uniform-cell rational rank assembly/exact mixing/fill/empty-frame contract with independent C gate (nonuniform padding is separate).
+
+N3d executed results: Windows default/portable each **736 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Five new Rust regressions plus expanded handoff/Logical/capture/type-fact tests verify integer/fraction promotion, reciprocal, 200-digit values, prefix agreement/empties, NAME aliases, locals and failed assignment.
+
+Expanded rational/exact-division strict audit: **822 fixtures × two DLLs = 1,644/1,644 matched** (173 new fixtures/346 observations since N3c). The six existing C-trap source exclusions remain separately recorded, never counted as passes. Existing overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** remain matched. Frontend: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**; numeric syntax per DLL: **2,485 cases / zero failures**. Reverified **16 reports / 1,001 hashes**. At N3d this exact numeric follow-up group had **two unfinished units, N3e/N3f**; completion of N3e below leaves N3f. GitHub CI was skipped. No full J, C diagnostic text/location, native compiled execution, Linux/GPU validation claim.
+
+### N3e — rational primitive right-fold reduction (2026-10-08)
+
+Contract: monadic `+/`/`-/`/`*/`/`%/` on Rational folds right along the leading item axis. Scalars/single items retain dtype and atoms; ordinary nonempty results retain dtype 128. Pinned `ar.c::jtreduce`/`ai.c::jtiden` distinguish zero items from positive items/zero atoms: zero items return Bool 0/1 identities with tail shape; two or more items with a zero tail extent produce empty Int for add/subtract, Bool for multiply, Float for divide. One empty item retains Rational. Static Semantic/Logical dtype facts obey this shape contract, keeping unknown shapes Unknown.
+
+CPU borrows input Arc atoms, shares the last item into one private output, then replaces its atoms in right-fold order. Avoid per-row intermediate whole-array copies; introduce no unproven reassociation or parallelism. Preserve J NaN errors, failed assignment, try and NAME aliases. No primitive-identity/Rank/body CFG/physical/GPU contract expansion.
+
+Limits/next: general derived-reduction empty prototypes, dyadic insert, extended-only reduction, sparse and unsupported verbs remain outside this unit. N3f rank assembly remains unfinished; primitive reduce success does not establish general rank execution. Finite Rational arithmetic still copies limbs and allocates atom Arcs. OOM to workspace-full, large peak-memory behavior and performance superiority remain unverified. Preserve reviewed-source versus DLL-release and native compiled execution/C diagnostic locations/text/Linux/GPU limitations.
+
+- [x] Both C DLL finite/non-finite/right-fold/scalar/one/zero item/empty-tail outcomes.
+- [x] Shared CPU primitive reduce and Semantic/Logical dtype facts.
+- [x] Independent exact expectations, shape/empties, aliases/release, failed assignment/try, definitions/handoff/Logical/capture regressions.
+- [x] Extend strict C audit, refresh existing reports/hashes; Windows default/portable/fmt/clippy/Python.
+- [x] Update docs/checklists, commit/push (skip CI); N3f rank result assembly remains next.
+
+N3e executed results: Windows default/portable each **741 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Five new Rust regressions plus expanded type-fact/handoff/Logical/capture tests cover exact right-fold, 200-digit cancellation, scalar/single item, zero items/empty tails, shapes, infinity NaN, sharing/release, failed assignment/try and explicit/direct locals.
+
+Expanded strict rational audit: **1,395 fixtures × two DLLs = 2,790/2,790 matched** (573 new fixtures/1,146 observations since N3d). The six existing C-trap source exclusions remain separately recorded, never passes. Overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** remain matched. Frontend: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**; numeric syntax per DLL: **2,485 cases / zero failures**. Reverified **16 reports / 1,001 hashes**. GitHub CI was skipped. The three-unit exact numeric follow-up now has N3d/N3e complete and **one unfinished unit, N3f rank result assembly**, not a whole-RustJ remaining-stage count.
+
+### N3f — exact rank result assembly (2026-10-08)
+
+The bounded scope is **uniform result cells**: Rational/ExtendedInt assembly and exact Bool→Int→ExtendedInt→Rational promotion, including earlier/empty cells' types. Scalar rank, primitive reduce rank and explicit/direct definitions over positive frames use the existing CellBuilder execution order. `(%"0)1x 2x 0x` yields Rational `[1/1,1/2,1/0]`. Float mixing remains an explicit capability error rather than an implicit rounding conversion.
+
+Memory: retain the streaming one-cell plus output-buffer path. Existing Rational/ExtendedInt atoms share Arcs without retaining the input array backing. Integer→Rational constructs denominator 1 directly, avoiding GCD/normalization. Promotion converts the assembled prefix once; ExtendedInt limb copies, per-atom Arc allocation and overlapping old/new buffers during promotion remain. Performance superiority, OOM to workspace-full and large peak-memory behavior remain unverified.
+
+Empty frames distinguish generic fill evaluation from **primitive insert empty-total-atom dispatch**. `(+/"1)0 3$2r3` and `-/` produce empty Int, `*/` Bool, `%/` Float. One item retains Rational; zero items use Boolean identities. The same witnessed shortcut applies in kernel and concrete primitive insert semantic/composite routes, never arbitrary functions or dtype-only inference. Empty cells in positive frames retain reduction identity behavior. Reviewed pinned sources: `jsrc/ar.c` primitive dispatch and `jsrc/cr.c` fill/result assembly. The source and DLL release pins differ; this is not a same-source rebuild comparison.
+
+- [x] Uniform Rational/ExtendedInt cells and exact Bool/Int/X→R promotion; Float mixing stays explicitly unsupported.
+- [x] Regressions and two C DLL comparisons for typed fills, empty frames/cells, NAME aliases, failed assignment and errors.
+- [x] Record the existing nonuniform-cell padding boundary separately; do not overclaim completion.
+- [x] Windows default/portable, fmt/clippy, Python, all audits/hash verification, commit/push (skip CI).
+
+N3f executed results: Windows default/portable each **746 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Five new Rust regressions cover promotion in both orders, large exact atoms, empty cells/frames, sharing/release, explicit/direct locals, aliases, failed assignment and NaN errors.
+
+Strict rational audit: **1,472 fixtures × two DLLs = 2,944/2,944 matched** (77 new fixtures/154 observations since N3e). Six existing C-trap source exclusions remain separate, never passes. F/H/P/G: 1,467 accepted-representation / 5 J errors; L: 1,455 accepted-representation / 5 J errors / 12 unsupported-capability. Twelve new conditional definition rank cases match C at runtime while Logical IR lowering remains unsupported. Runtime agreement does not establish compiled execution support.
+
+Existing overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** remain matched. Frontend **64 matched / 12 runtime_gap**, NAME/definition **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched**, numeric syntax per DLL **2,485 cases / zero failures** remain unchanged. Reverified **16 reports / 1,001 hashes**. GitHub CI skipped. This completes the **explicitly bounded three-unit N3d–N3f exact numeric group**, not general rank, full J, C diagnostic text/locations, native compiled execution or Linux/GPU verification.
+
+Independent remaining scope: nonuniform result-cell padding, effectful/user-defined empty-frame execution, boxed/sparse fill, Float/Complex mixing, general derived reduce, extended-only reduce and native physical adapters. This does not complete general rank, all frontend E2E or full J. CUDA remains planned only.
 
 ## 17. Active migration checklist
 

@@ -96,7 +96,7 @@ pub(crate) fn atomic_with_pool(
     let (shape, ad, bd) = agreement(&a, &b)?;
     let n = count(&shape)?;
     if a.is_rational() || b.is_rational() {
-        return Err(Error::Unsupported("rational arithmetic/comparison".into()));
+        return crate::rational::atomic(op, &a, &b, shape, ad, bd);
     }
     if a.is_extended() || b.is_extended() {
         return crate::extended::atomic(op, &a, &b, shape, ad, bd);
@@ -273,6 +273,7 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
         match verb {
             "$" => return crate::extended::counts([y.shape.len()], y.shape.iter().copied()),
             "#" => return crate::extended::counts([], [y.shape.first().copied().unwrap_or(1)]),
+            "-" | "|" | "*" | "%" => return crate::rational::unary(verb, y),
             "+" | "," | "<" | ">" | "|." | "|:" => {}
             _ => return Err(Error::Unsupported(format!("rational monad {verb}"))),
         }
@@ -281,6 +282,7 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
         match verb {
             "$" => return crate::extended::counts([y.shape.len()], y.shape.iter().copied()),
             "#" => return crate::extended::counts([], [y.shape.first().copied().unwrap_or(1)]),
+            "%" => return atomic(Op::Div, Value::scalar(1), y),
             "-" | "*" | "|" => return crate::extended::unary(verb, y),
             "+" | "," | "<" | ">" | "|." | "|:" => {}
             _ => return Err(Error::Unsupported(format!("extended monad {verb}"))),
@@ -420,6 +422,7 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
         return Err(Error::Unsupported(format!("sparse dyad {verb}")));
     }
     if (a.is_rational() || b.is_rational())
+        && !matches!(verb, "+" | "-" | "*" | "%" | "=" | "<" | ">")
         && (!matches!(verb, "$" | "{" | "|." | "{." | "}.") || a.is_rational())
     {
         return Err(Error::Unsupported(format!("rational dyad {verb}")));
@@ -529,9 +532,6 @@ pub fn reduce(verb: &str, y: Value) -> Result<Value> {
 }
 
 fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
-    if matches!(y.data, CpuView::Rational(_)) {
-        return Err(Error::Unsupported("rational reduction".into()));
-    }
     if matches!(y.data, CpuView::ExtendedInt(_)) {
         return Err(Error::Unsupported("extended reduction".into()));
     }
@@ -554,6 +554,9 @@ fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
         let mut data = buffer(cell)?;
         data.resize(cell, fill);
         return Value::new(shape, Data::Bool(CpuStorage::new(data)));
+    }
+    if matches!(y.data, CpuView::Rational(_)) {
+        return crate::rational::reduce(verb, y);
     }
     // Reference implementation: right fold. Specialized reductions come later.
     let mut out = y.cell(shape.len(), items - 1)?.to_owned()?;
@@ -594,7 +597,7 @@ fn reduction_step(op: Op, lhs: ArrayView<'_>, rhs: Value) -> Result<Value> {
 // storage is owned, so no borrowed cell can escape into the evaluator.
 fn arithmetic_views(op: Op, a: ArrayView<'_>, b: ArrayView<'_>) -> Result<Value> {
     if matches!(a.data, CpuView::Rational(_)) || matches!(b.data, CpuView::Rational(_)) {
-        return Err(Error::Unsupported("rational arithmetic".into()));
+        return atomic(op, a.to_owned()?, b.to_owned()?);
     }
     if matches!(a.data, CpuView::ExtendedInt(_)) || matches!(b.data, CpuView::ExtendedInt(_)) {
         return atomic(op, a.to_owned()?, b.to_owned()?);
@@ -713,11 +716,14 @@ fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
 }
 
 pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
-    if cells.iter().any(Value::is_rational) {
-        return Err(Error::Unsupported("rational rank assembly".into()));
-    }
-    if cells.iter().any(Value::is_extended) {
-        return Err(Error::Unsupported("extended rank assembly".into()));
+    if cells.iter().any(|v| v.is_rational() || v.is_extended()) {
+        let mut cells = cells.iter();
+        let first = cells.next().expect("exact cell exists");
+        let mut builder = crate::assembly::CellBuilder::new(first, count(&shape)?)?;
+        for cell in cells {
+            builder.push(cell)?;
+        }
+        return Value::new(shape, builder.finish());
     }
     if cells.iter().any(Value::is_sparse) {
         return Err(Error::Unsupported("sparse assembly".into()));
@@ -912,6 +918,20 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
     }
     let frames = count(&y.shape[..f])?;
     if frames == 0 {
+        // Primitive insert dispatches empty total-atom arguments before rank
+        // iteration (ar.c). A synthetic nonempty rational cell would keep RAT
+        // and therefore give the wrong empty-result type.
+        if reduction && y.is_rational() && r > 0 && y.shape[f] > 1 {
+            let mut shape = y.shape[..f].to_vec();
+            shape.extend_from_slice(&y.shape[f + 1..]);
+            let data = match verb {
+                "+" | "-" => Data::Int(CpuStorage::new(Vec::new())),
+                "*" => Data::Bool(CpuStorage::new(Vec::new())),
+                "%" => Data::Float(CpuStorage::new(Vec::new())),
+                _ => return Err(Error::Unsupported("empty rational rank reduction".into())),
+            };
+            return Value::new(shape, data);
+        }
         if verb == "," && !reduction && !y.is_sparse() {
             // Ravel is pure and preserves atom type/order. Its prototype shape
             // follows from the cell shape without invoking an unknown verb.

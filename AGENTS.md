@@ -1,5 +1,51 @@
 # RustJ change validation
 
+## Iterative execution loop (required for outstanding-work requests)
+
+This is an **execution policy**, not a second architecture/status specification.
+The canonical technical requirements, acceptance checklist and completion states
+remain in `PROJECT.ko.md` (with synchronized `PROJECT.md`); `FOUNDATIONS.ko.md`
+remains the architectural correctness guardrail. A GitHub issue may hold an
+*ephemeral execution queue and run evidence*, with links to canonical gates.
+
+Every work iteration must:
+1. **Observe:** read the latest `main` head, open issues/PRs, exact-commit CI runs,
+   relevant canonical checklist items, and pinned jsource evidence. Do not infer
+   branch freshness or milestone success from a PR description or historical run.
+2. **Select:** pick the smallest unblocking vertical slice. Prioritize baseline
+   test/CI failures and semantic correctness over M2 frontend convergence,
+   then M3 legality/route proof, M4 single-CPU physical execution, and later
+   M5/M6 heterogeneous optimization. Independent nonblocking research may
+   proceed only if it does not preempt these gates.
+3. **Bound:** state the exact positive and negative scope before editing. Preserve
+   J Rank/frame/cell/fill semantics, NAME/locale/late binding, first observable
+   errors, effect ordering, source provenance and logical/physical ownership.
+   Reject unsupported routes; do not silently reinterpret J or soften a gate.
+4. **Implement:** use a focused branch/PR, reuse proven changes without
+   overwriting unrelated newer `main` edits, add regression coverage for any
+   semantic fix, and update the Korean canonical checklist plus English mirror
+   for changed semantics, milestones or acceptance status.
+5. **Verify:** record `PASS`/`FAIL`/`UNRUN` **per check** for fmt, clippy,
+   Rust default and portable, Python, pinned J-C differential (where relevant),
+   structural/negative verifier tests, and exact-head CI. A missing runner or
+   untested C-oracle is `UNRUN`, never `PASS`. Report known deviations.
+6. **Integrate:** before merging, confirm the live PR is conflict-free,
+   required checks on its *current* head are green, and the affected semantic
+   contract has sufficient evidence. A draft or dirty PR remains blocked.
+   After merging, independently check the new `main` SHA and CI. A branch pass
+   does not certify `main`.
+7. **Reconcile:** annotate an active execution issue with main/head SHAs,
+   selected scope, exact evidence URLs, accepted/rejected changes, blocker,
+   next slice and any canonical-checklist update. Re-inventory and repeat.
+
+Failure and stop conditions: on conflicts, changed SHAs, incomplete semantic
+proof, tooling gaps, unexplained CI failures, stale oracle fixtures, or ambiguous
+ownership, do not force-merge or mark acceptance complete. Record a specific
+`BLOCKED` reason and its next diagnostic; select another independent ready
+slice. Do not spin or retry an identical failing operation without a hypothesis.
+Keep GitHub operations bounded to the current user-requested execution session:
+these instructions do not imply autonomous background execution.
+
 ## Core architecture invariants
 
 - Keep **Logical Array and Physical Array / Representation separate**. J-visible type/value/shape/atom order and J-visible boxed/sparse semantics belong to logical/semantic layers. BufferId, strides, offsets, concrete layout/tiling/alignment, memory space, device placement, sharding, transfer, and materialization belong to representation/physical planning. Do not equate ValueId with BufferId or logical-value existence with a materialized buffer.

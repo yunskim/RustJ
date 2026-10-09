@@ -1595,6 +1595,13 @@ impl Engine {
                 let ranks = function.requested_ranks().ok_or_else(|| {
                     Error::Unsupported("rank construction has no innate-rank witness".into())
                 })?;
+                if x.is_none() {
+                    if let Some(result) =
+                        crate::logical_executor::exact_empty_rank_reduction(operand, ranks[0], &y)
+                    {
+                        return result;
+                    }
+                }
                 // Pure ravel's empty-frame result follows only from logical
                 // cell shape. Unknown/explicit verbs retain the prototype boundary.
                 if x.is_none() && !y.is_sparse() {

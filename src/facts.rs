@@ -192,7 +192,7 @@ fn infer_semantic_primitive(
     let dtype = match (id, left) {
         (Less, None) => TypeFact::Exact(DType::Boxed),
         (Equal | Less | Greater | Find, Some(_)) => TypeFact::Exact(DType::Bool),
-        (Shape | Tally, None) if right.dtype == TypeFact::Exact(DType::Rational) => {
+        (Shape | Tally | Multiply, None) if right.dtype == TypeFact::Exact(DType::Rational) => {
             TypeFact::Exact(DType::ExtendedInt)
         }
         (Shape | Tally | Multiply | Subtract, None)
@@ -211,6 +211,20 @@ fn infer_semantic_primitive(
             TypeFact::Exact(DType::Int)
         }
         (Ravel | Reverse | Transpose | Add | Sparse, None) => right.dtype,
+        (Subtract | Divide, None) if right.dtype == TypeFact::Exact(DType::Rational) => right.dtype,
+        (Add | Subtract | Multiply | Divide, Some(x))
+            if [x.dtype, right.dtype].contains(&TypeFact::Exact(DType::Rational))
+                && [x.dtype, right.dtype].iter().all(|t| {
+                    matches!(
+                        t,
+                        TypeFact::Exact(
+                            DType::Bool | DType::Int | DType::ExtendedInt | DType::Rational
+                        )
+                    )
+                }) =>
+        {
+            TypeFact::Exact(DType::Rational)
+        }
         (Add | Subtract | Multiply, Some(x))
             if x.dtype == TypeFact::Exact(DType::Int)
                 && right.dtype == TypeFact::Exact(DType::Int) =>
@@ -358,14 +372,22 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
     let dtype = match input.shape.as_deref() {
         Some([]) => input.dtype,
         Some([1, ..]) => input.dtype,
-        Some(_)
-            if matches!(
-                input.dtype,
-                TypeFact::Exact(DType::ExtendedInt | DType::Rational)
-            ) =>
-        {
-            TypeFact::Unknown
+        Some([0, ..]) if input.dtype == TypeFact::Exact(DType::Rational) => {
+            TypeFact::Exact(DType::Bool)
         }
+        Some([_, tail @ ..]) if input.dtype == TypeFact::Exact(DType::Rational) => {
+            TypeFact::Exact(if tail.contains(&0) {
+                match id {
+                    Add | Subtract => DType::Int,
+                    Multiply => DType::Bool,
+                    Divide => DType::Float,
+                    _ => unreachable!(),
+                }
+            } else {
+                DType::Rational
+            })
+        }
+        Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
         Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
         Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
             TypeFact::IntOrFloat
@@ -549,14 +571,22 @@ fn semantic_reduction(id: PrimitiveId, input: &SemanticFacts) -> SemanticFacts {
     let dtype = match input.shape.as_deref() {
         Some([]) => input.dtype,
         Some([1, ..]) => input.dtype,
-        Some(_)
-            if matches!(
-                input.dtype,
-                TypeFact::Exact(DType::ExtendedInt | DType::Rational)
-            ) =>
-        {
-            TypeFact::Unknown
+        Some([0, ..]) if input.dtype == TypeFact::Exact(DType::Rational) => {
+            TypeFact::Exact(DType::Bool)
         }
+        Some([_, tail @ ..]) if input.dtype == TypeFact::Exact(DType::Rational) => {
+            TypeFact::Exact(if tail.contains(&0) {
+                match id {
+                    Add | Subtract => DType::Int,
+                    Multiply => DType::Bool,
+                    Divide => DType::Float,
+                    _ => unreachable!(),
+                }
+            } else {
+                DType::Rational
+            })
+        }
+        Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
         Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
         Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
             TypeFact::IntOrFloat
@@ -744,6 +774,17 @@ mod extended_type_tests {
             let unknown = infer_semantic_primitive(id, rule, None, &SemanticFacts::default());
             assert_eq!(unknown.dtype, TypeFact::Unknown);
         }
+        // Exact integer division may keep ExtendedInt or promote the whole noun.
+        // No value/divisibility proof is present in these static facts.
+        assert_eq!(
+            infer_semantic_primitive(Divide, ShapeRule::PreserveRight, None, &input).dtype,
+            TypeFact::Unknown
+        );
+        assert_eq!(
+            infer_semantic_primitive(Divide, ShapeRule::PrefixAgreement, Some(&input), &input)
+                .dtype,
+            TypeFact::Unknown
+        );
         let empty = SemanticFacts {
             dtype: TypeFact::Exact(DType::ExtendedInt),
             shape: Some(vec![0]),
@@ -778,6 +819,70 @@ mod rational_type_tests {
         }
         assert_eq!(
             infer_semantic_primitive(Add, ShapeRule::PrefixAgreement, Some(&input), &input).dtype,
+            TypeFact::Exact(DType::Rational)
+        );
+        for (id, dtype) in [
+            (Subtract, DType::Rational),
+            (Divide, DType::Rational),
+            (Multiply, DType::ExtendedInt),
+        ] {
+            assert_eq!(
+                infer_semantic_primitive(id, ShapeRule::PreserveRight, None, &input).dtype,
+                TypeFact::Exact(dtype)
+            );
+        }
+        assert_eq!(
+            infer_semantic_primitive(
+                Add,
+                ShapeRule::PrefixAgreement,
+                Some(&SemanticFacts::default()),
+                &input
+            )
+            .dtype,
+            TypeFact::Unknown
+        );
+        for (shape, id, expected) in [
+            (vec![0, 2], Add, DType::Bool),
+            (vec![0], Divide, DType::Bool),
+            (vec![2, 0], Add, DType::Int),
+            (vec![2, 0], Subtract, DType::Int),
+            (vec![2, 0], Multiply, DType::Bool),
+            (vec![2, 0], Divide, DType::Float),
+            (vec![1, 0], Add, DType::Rational),
+            (vec![3, 2], Divide, DType::Rational),
+        ] {
+            let sample = SemanticFacts {
+                dtype: input.dtype,
+                rank: Some(shape.len()),
+                shape: Some(shape),
+            };
+            assert_eq!(
+                semantic_reduction(id, &sample).dtype,
+                TypeFact::Exact(expected)
+            );
+            assert_eq!(
+                reduction(
+                    id,
+                    &Facts {
+                        dtype: sample.dtype,
+                        shape: sample.shape.clone(),
+                        rank: sample.rank,
+                        ..Facts::default()
+                    }
+                )
+                .dtype,
+                TypeFact::Exact(expected)
+            );
+        }
+        assert_eq!(
+            semantic_reduction(
+                Add,
+                &SemanticFacts {
+                    dtype: input.dtype,
+                    ..SemanticFacts::default()
+                }
+            )
+            .dtype,
             TypeFact::Unknown
         );
         let empty = SemanticFacts {
@@ -785,6 +890,9 @@ mod rational_type_tests {
             rank: Some(1),
             ..input
         };
-        assert_eq!(semantic_reduction(Add, &empty).dtype, TypeFact::Unknown);
+        assert_eq!(
+            semantic_reduction(Add, &empty).dtype,
+            TypeFact::Exact(DType::Bool)
+        );
     }
 }

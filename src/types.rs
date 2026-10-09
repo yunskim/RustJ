@@ -47,6 +47,20 @@ impl Rational {
             denominator,
         })
     }
+    /// Integer promotion needs no GCD or sign normalization.
+    pub(crate) fn from_integer(numerator: BigInt) -> Self {
+        Self {
+            numerator,
+            denominator: BigInt::from(1),
+        }
+    }
+    pub(crate) fn from_finite(value: BigRational) -> Self {
+        let (numerator, denominator) = value.into_raw();
+        Self {
+            numerator,
+            denominator,
+        }
+    }
     pub fn numerator(&self) -> &BigInt {
         &self.numerator
     }

@@ -33,9 +33,16 @@ impl SourceUnit {
     /// A new immutable input revision, even when its name/text match another.
     pub fn new(name: impl Into<Arc<str>>, text: impl Into<Arc<str>>) -> Arc<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(1);
-        let id = NEXT
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-            .expect("source unit identity exhausted");
+        // Preserve non-wrapping unique IDs on Rust 1.85 without the deprecated
+        // fetch_update API or the newer (1.95+) try_update API.
+        let mut id = NEXT.load(Ordering::Relaxed);
+        loop {
+            let next = id.checked_add(1).expect("source unit identity exhausted");
+            match NEXT.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(current) => id = current,
+            }
+        }
         Arc::new(Self {
             id: SourceUnitId(id),
             name: name.into(),

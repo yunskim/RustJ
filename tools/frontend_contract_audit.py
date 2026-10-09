@@ -197,6 +197,90 @@ for n_index, numerator in enumerate(['0','_0','1','_1','2','_6','900719925474099
 for index, source in enumerate(['_r','__r','_r0','__r0','_r_0','__r_0','_r_3','__r_3','1x _','1x __','2r3 1','2r3 0 1','_ 2r3','__ 2r3','+2r3', '$2r3', '#2r3', ',2r3', '|.2r3 3r4', '|:2 2$2r3 3r4', '1{2r3 3r4', '4{.2r3 3r4', '_4{.2r3 3r4', '1}.2r3 3r4', '1|.2r3 3r4', '0$2r3', '2 0$2r3', '> <2r3', '<2r3 3r4', '5{2r3 3r4', '2r3x', '_r_', '2rr3']):
     RATIONAL_CASES.append((f'rational_special_{index}',[],source,[]))
 
+# N3c: Cartesian non-finite arithmetic and exact comparisons. Outcomes come
+# from both C engines; independent Rust expectations separately cover precision.
+for a_index, a in enumerate(['0r1','1r2','_1r2','1r0','_1r0','9007199254740993r2','2r3']):
+    for b_index, b in enumerate(['0r1','1r2','_1r2','1r0','_1r0','9007199254740993r2','2r3']):
+        for op_index, op in enumerate(['+','-','*','%','=','<','>']):
+            RATIONAL_CASES.append((f'qop_{a_index}_{b_index}_{op_index}',[],a+op+b,[]))
+    for op_index, op in enumerate(['-','|','*','%']):
+        RATIONAL_CASES.append((f'qunary_{a_index}_{op_index}',[],op+a,[]))
+for n_index, n in enumerate(['0','2','9007199254740993x']):
+    for op_index, op in enumerate(['+','-','*','%','=','<','>']):
+        for side, source in [('left', n+op+'2r3'),('right','2r3'+op+n)]:
+            RATIONAL_CASES.append((f'qmix_{n_index}_{op_index}_{side}',[],source,[]))
+RATIONAL_CASES += [
+    ('qop_prefix',[], '1 2+2 2$1r2 2r3 3r4 4r5', []),
+    ('qop_empty',[], '1r2+0$1', []),
+    ('qdiv_empty',[], '(0$1r2)%0r1', []),
+    ('qeq_empty',[], '(0$1r2)=1r2', []),
+    ('qop_length',[], '1r2 2r3+1 2 3', []),
+    ('qop_large',[], '('+'9'*200+'r7%'+'9'*200+'r3)*7r3', []),
+    ('qop_direct',['saved=:9007199254740993r2','f=:{{local=.saved\nlocal+1r3}}'],'f 0',['saved']),
+    ('qop_explicit',['saved=:9007199254740993r2',"f=:3 : 'local=.saved\nlocal+1r3'"],'f 0',['saved']),
+    ('qop_alias',['saved=:2r3','alias=:saved'],'saved=:saved+1r2',['saved','alias']),
+    ('qop_failed_assignment',['saved=:2r3'],'saved=:1r0-1r0',['saved']),
+    ('qop_catch',['saved=:2r3','f=:{{try. saved=:1r0-1r0 catch. saved end.}}'],'f 0',['saved']),
+]
+
+# N3d: ExtendedInt division chooses one result family for the whole noun.
+for a_index, a in enumerate(['0x','1x','_1x','4x','_6x','9007199254740993x','9'*200+'x']):
+    for b_index, b in enumerate(['0x','1x','_1x','2x','_2x','3x','9007199254740993x']):
+        for context, source in [('scalar',a+'%'+b),('first','('+a+' 4x)%'+b),('last','(4x '+a+')%'+b)]:
+            RATIONAL_CASES.append((f'xdiv_{a_index}_{b_index}_{context}',[],source,[]))
+    RATIONAL_CASES.append((f'xreciprocal_{a_index}',[],'%'+a,[]))
+for index, source in enumerate(['4x%2','4%2x','1x%2','1%2x','1x%0','_1x%0','0%0x','1x%0$2x','%(0$2x)','%1x _1x','%1x _2x 0x','(2 2$4x 6x 1x 3x)%2 3','1x%(2 0$2)','4x 1x 6x%2','0x 2x 0x%0 0 0']):
+    RATIONAL_CASES.append((f'xdiv_special_{index}',[],source,[]))
+RATIONAL_CASES += [
+    ('xdiv_direct',['saved=:4x 1x 6x','f=:{{local=.saved\nlocal%2}}'],'f 0',['saved']),
+    ('xdiv_explicit',['saved=:4x 1x 6x',"f=:3 : 'local=.saved\nlocal%2'"],'f 0',['saved']),
+    ('xdiv_alias',['saved=:4x 1x 6x','alias=:saved'],'saved=:saved%2',['saved','alias']),
+    ('xdiv_failed',['saved=:4x 1x 6x'],'saved=:saved%1 2',['saved']),
+]
+
+# N3e: right-fold semantics and zero-item vs zero-atom primitive dispatch.
+for a_index, a in enumerate(['0r1','1r2','_2r3','1r0','_1r0']):
+    for b_index, b in enumerate(['0r1','1r2','_2r3','1r0','_1r0']):
+        for c_index, c in enumerate(['0r1','1r2','_2r3','1r0','_1r0']):
+            for op_index, op in enumerate(['+','-','*','%']):
+                RATIONAL_CASES.append((f'qreduce_{a_index}_{b_index}_{c_index}_{op_index}',[],op+'/'+a+' '+b+' '+c,[]))
+for op_index, op in enumerate(['+','-','*','%']):
+    for shape_index, shape in enumerate(['0','0 2','0 0','0 2 3','1 0','2 0','3 2 0','4 0 2','1 2','3 2 2']):
+        RATIONAL_CASES.append((f'qreduce_shape_{op_index}_{shape_index}',[],op+'/('+shape+'$2r3)',[]))
+    for case_index, source in enumerate(['2r3','(,2r3)','1r2 2r3 3r4','10r1 3r1 2r1 1r1','9007199254740993r2 _9007199254740991r2','2 2$1r2 2r3 3r4 4r5','9'*200+'r3 _'+'9'*200+'r3']):
+        RATIONAL_CASES.append((f'qreduce_special_{op_index}_{case_index}',[],op+'/'+source,[]))
+RATIONAL_CASES += [
+    ('qreduce_direct',['saved=:1r2 2r3 3r4','f=:{{local=.saved\n-/local}}'],'f 0',['saved']),
+    ('qreduce_explicit',['saved=:1r2 2r3 3r4',"f=:3 : 'local=.saved\n-/local'"],'f 0',['saved']),
+    ('qreduce_alias',['saved=:1r2 2r3 3r4','alias=:saved'],'saved=:+/saved',['saved','alias']),
+    ('qreduce_failed',['saved=:2r3'],'saved=:+/1r0 _1r0',['saved']),
+    ('qreduce_catch',['saved=:2r3','f=:{{try. saved=:+/1r0 _1r0 catch. saved end.}}'],'f 0',['saved']),
+]
+
+# N3f: cell assembly promotion order, exact payload, and typed empty frames.
+for op_index, op in enumerate(['-', '|', '*', '%', '+']):
+    for shape_index, shape in enumerate(['3', '2 3', '0', '0 2', '2 0']):
+        RATIONAL_CASES.append((f'qrank_unary_{op_index}_{shape_index}',[],f'({op}"0)({shape}$1r2 _2r3 0r1)',[]))
+for op_index, op in enumerate(['+', '-', '*', '%']):
+    for shape_index, shape in enumerate(['2 3', '0 3', '0 1', '0 0', '2 0', '2 2 3']):
+        RATIONAL_CASES.append((f'qrank_reduce_{op_index}_{shape_index}',[],f'({op}/"1)({shape}$1r2 2r3 3r4)',[]))
+for i, source in enumerate(['(%"0)1x 2x 0x','(%"0)0x 2x 1x','(%"0)1x 1x 1x','(1x 2x 3x)(%"0)1x 4x 3x','(1r2 2r3 3r4)(+"0)1 2 3','(1 2 3)(+"0)1r2 2r3 3r4']):
+    RATIONAL_CASES.append((f'qrank_mix_{i}',[],source,[]))
+
+RATIONAL_CASES += [
+    ('qrank_direct',['saved=:1r2 2r3','f=:{{local=.saved\n(-"0)local}}'],'f 0',['saved']),
+    ('qrank_explicit',['saved=:1r2 2r3',"f=:3 : 'local=.saved\n(-\"0)local'"],'f 0',['saved']),
+    ('qrank_alias',['saved=:1r2 2r3','alias=:saved'],'saved=:(-"0)saved',['saved','alias']),
+    ('qrank_failed',['saved=:2r3'],'saved=:(1r0 1r2)(+"0)_1r0 2r3',['saved']),
+]
+
+for i, source in enumerate(['(0$1r2)(+"0)2r3','2r3(+"0)0$1r2','(0 2$1r2)(+"1)2r3 3r4','(2 0$1r2)(+"1)2 0$2r3','(%"0)'+('9'*200)+'x 2x 1x','(|"0)'+('9'*200)+'r7 1r2']):
+    RATIONAL_CASES.append((f'qrank_fill_precision_{i}',[],source,[]))
+
+for i, atom in enumerate(['1','01','123456789012345678901234567891x']):
+    for j, order in enumerate(['0 1','1 0','0 0 1','1 0 0']):
+        RATIONAL_CASES.append((f'qrank_definition_mix_{i}_{j}',[],f'({{{{if. y=0 do. {atom} else. 1r2 end.}}}}"0){order}',[]))
+
 
 def probe(binary, setup, source, after):
     operations = [("E", s) for s in setup]
