@@ -80,6 +80,30 @@ fn real_words_round_all_atoms_before_int_narrowing_or_remain_float_together() {
 }
 
 #[test]
+fn scientific_whole_word_mixed_spellings_retain_int_array_type() {
+    // Additional N2b cases from the older #16 branch, imported without
+    // reverting later real-ratio/exact-type changes on main.
+    for (source, expected) in [
+        ("1e0 2e0", vec![1_i64, 2]),
+        ("1e0 2", vec![1, 2]),
+        ("1e0 01", vec![1, 1]),
+        ("0e0 1", vec![0, 1]),
+        ("_1e0 1e1", vec![-1, 10]),
+    ] {
+        let value = noun(source);
+        assert_eq!(
+            value.type_code(),
+            4,
+            "{source}: expected Int, not Bool/Float"
+        );
+        assert_eq!(value.shape(), &[expected.len()], "{source}");
+        for (index, atom) in expected.into_iter().enumerate() {
+            assert_eq!(value.int_at(index).unwrap(), atom, "{source}: {index}");
+        }
+    }
+}
+
+#[test]
 fn scientific_payload_survives_shared_frontend_and_logical_execution() {
     let mut engine = Engine::new();
     for source in ["1e0", "1E0", "9007199254740993 1e0", "1e0 1e_1", "1+1e0"] {

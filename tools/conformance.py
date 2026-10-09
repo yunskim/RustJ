@@ -412,6 +412,19 @@ def operator_definition_multiline_cases():
     ]
 
 
+def scientific_real_dtype_cases():
+    # Pinned jsource wn.c::jtconnum / k.c::jtbcvt: exact Float->Int
+    # narrowing, whole-word dtype, and spelling-based inhibition.
+    return [
+        '1e0', '0e0', '_0e0', '_1e0', '1e1', '1e_0',
+        '1e0 0e0', '1e0 2', '0e0 1', '1e0 01', '1e0 2e0',
+        '1.0', '1.e0', '1e0 0.5', '1e0 1e_1', '1e_1 1e0',
+        '_9223372036854775808e0', '9223372036854775808e0',
+        '9223372036854775807e0', '9007199254740993e0',
+        '1e0 9223372036854775808e0',
+    ]
+
+
 def ordinary_reference_cases():
     return [
         "srfunc=:+", "srself=:1 : 'srfunc=.srfunc'",
@@ -914,6 +927,7 @@ def cases():
     fixed.extend(definition_code_cases())
     fixed.extend(explicit_modifier_cases())
     fixed.extend(modifier_scope_cases())
+    fixed.extend(scientific_real_dtype_cases())
     fixed.extend(ordinary_reference_cases())
     fixed.extend(operator_definition_cases())
     fixed.extend(implicit_operand_cases())
