@@ -3183,7 +3183,13 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
         return Ok(resolved);
     }
     let binding = if let Some(host) = &mut context.host {
-        host.lookup(&name).map_err(|error| error.at(span.clone()))?
+        host.lookup(&name).map_err(|error| {
+            let error = error.at(span.clone());
+            match &item.provenance {
+                Some(provenance) => error.blamed_on_word(provenance.blame_word_index),
+                None => error,
+            }
+        })?
     } else {
         context.lookup.and_then(|lookup| lookup(&name))
     };
@@ -4244,12 +4250,47 @@ mod runtime_action_tests {
                 parse_runtime_host("left + right", &mut host, Some(&mut capture)).unwrap_err();
             assert_eq!(error.kind(), kind);
             assert_eq!(error.span(), Some(&(7..12)));
+            assert_eq!(error.context().unwrap().blame_word_index, Some(2));
             assert_eq!(host.reads, ["right"]);
             assert!(
                 capture.events.is_empty(),
                 "failed lookup is not a successful read"
             );
         }
+    }
+
+    #[test]
+    fn failed_lookup_keeps_prior_execution_and_capture_without_replay() {
+        struct Host {
+            calls: usize,
+            reads: usize,
+        }
+        impl RuntimeParserHost for Host {
+            fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>> {
+                assert_eq!(name, "missing");
+                self.reads += 1;
+                Err(Error::Domain)
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                panic!("failed read has no version witness")
+            }
+            fn apply(&mut self, _: Expr) -> Result<Value> {
+                self.calls += 1;
+                Ok(Value::scalar(3))
+            }
+        }
+        let mut host = Host { calls: 0, reads: 0 };
+        let mut capture = ParseCapture::default();
+        let error =
+            parse_runtime_host("missing + (1 + 2)", &mut host, Some(&mut capture)).unwrap_err();
+        assert_eq!(error.kind(), "domain error");
+        assert_eq!(error.span(), Some(&(0..7)));
+        assert_eq!(error.context().unwrap().blame_word_index, Some(0));
+        assert_eq!((host.calls, host.reads), (1, 1));
+        assert!(
+            !capture.events.is_empty(),
+            "completed right call remains captured"
+        );
     }
 
     #[test]
