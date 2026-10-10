@@ -94,3 +94,18 @@ class RawNounTransportTests(unittest.TestCase):
         oracle.run_script("raw=:{{)n\n'broken\n}}")
         self.assertEqual(calls,["0!:100 'raw=:{{)n\n''broken\n}}'"])
         with self.assertRaises(ValueError): oracle.run_script('a\x00b')
+
+
+class OracleErrorTransportTests(unittest.TestCase):
+    def test_jdo_errors_preserve_locale_class_and_unknown_code(self):
+        from unittest.mock import Mock
+        oracle = Oracle.__new__(Oracle)
+        oracle.jt = 123
+        oracle.lib = Mock()
+        oracle.lib.JDo.side_effect = [30, 21, 999, 0]
+        self.assertEqual(oracle.run('a__holder+0'), {'error': 'locale error'})
+        self.assertEqual(oracle.run('missing+0'), {'error': 'value error'})
+        self.assertEqual(oracle.run('1'), {'error': 'J error 999'})
+        self.assertIsNone(oracle.run('1'))
+        self.assertEqual(oracle.lib.JDo.call_args_list[0].args,
+                         (123, b'a__holder+0'))
