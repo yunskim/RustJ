@@ -781,13 +781,16 @@ impl FrontendContext {
                             z,
                             holder_found,
                             holder_local_state,
-                            ..
+                            holder_version,
+                            holder_generation,
                         },
                         state,
                         found,
                     ) => {
                         let word = &self.words[name_use.word.0];
                         word.flags.name_form == crate::enqueuer::NameForm::IndirectLocative
+                            && holder_version.0 != 0
+                            && holder_generation.0 != 0
                             && lookup.binding_class == Some(ParseClass::Noun)
                             && z.is_none_or(|z| z != start && z != lookup.engine)
                             && match found {
