@@ -563,8 +563,8 @@ fn named_direct_address(name: &str) -> Option<(&str, &str)> {
     text.rsplit_once('_')
 }
 
-// Only a single ordinary holder is admitted by this error boundary.
-// General chained indirect resolution and successful noun reads stay closed.
+// Only a single ordinary holder is admitted by this bounded noun read.
+// General chained/debug resolution remains closed.
 fn indirect_holder(name: &str) -> Option<&str> {
     let (_, holder) = name.split_once("__")?;
     (holder
@@ -586,8 +586,19 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     }
     fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
         if indirect_holder(name).is_some() {
-            // A failed or unimplemented resolution cannot be a flat read witness.
-            return None;
+            let (key, locale) = self.engine.indirect_named_address(name)?;
+            if !self.engine.named_locales.contains_key(locale)
+                || !matches!(
+                    self.engine.direct_read_binding(key, locale),
+                    Some(Binding {
+                        value: JEntity::Noun(_),
+                        ..
+                    })
+                )
+            {
+                return None;
+            }
+            return Some(self.engine.lookup_observation(name));
         }
         if let Some((_, locale)) = named_direct_address(name)
             && locale != "base"
@@ -599,7 +610,10 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Some(self.engine.lookup_observation(name))
     }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
-        if base_locative_key(name).is_some() || named_direct_address(name).is_some() {
+        if base_locative_key(name).is_some()
+            || named_direct_address(name).is_some()
+            || indirect_holder(name).is_some()
+        {
             return None;
         }
         match self.engine.visible_binding(name) {
@@ -645,7 +659,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn supports_named_direct_locative_nouns(&self) -> bool {
         true
     }
-    fn supports_indirect_lookup_errors(&self) -> bool {
+    fn supports_indirect_noun_reads(&self) -> bool {
         true
     }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
@@ -680,9 +694,22 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             {
                 return Err(Error::Locale);
             }
-            return Err(Error::Unsupported(
-                "indirect noun namespace resolution".into(),
-            ));
+            let Some((key, locale)) = self.engine.indirect_named_address(name) else {
+                return Err(Error::Unsupported(
+                    "indirect noun namespace resolution".into(),
+                ));
+            };
+            let (key, locale) = (key.to_owned(), locale.to_owned());
+            self.engine.ensure_named_locale(&locale)?;
+            return match self.engine.direct_read_binding(&key, &locale) {
+                Some(Binding {
+                    value: JEntity::Noun(value),
+                    ..
+                }) => Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone()))),
+                _ => Err(Error::Unsupported(
+                    "indirect function/path-future reference".into(),
+                )),
+            };
         }
         if name.contains("__") && !name.ends_with('_') {
             return Err(Error::Unsupported(
@@ -726,6 +753,12 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Ok(self.engine.parser_name_binding(name))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
+        if let Some((key, locale)) = self.engine.indirect_named_address(name) {
+            return self
+                .engine
+                .direct_read_binding(key, locale)
+                .map(|binding| binding.version);
+        }
         if let Some((key, locale)) = named_direct_address(name) {
             return self
                 .engine
@@ -869,7 +902,7 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn supports_named_direct_locative_nouns(&self) -> bool {
         true
     }
-    fn supports_indirect_lookup_errors(&self) -> bool {
+    fn supports_indirect_noun_reads(&self) -> bool {
         true
     }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
@@ -2644,6 +2677,36 @@ impl Engine {
         }
         Ok(())
     }
+    // s.c::locindirect: scalar box containing an atomic/list literal locale name.
+    // Base aliases and numbered/debug/chained resolution remain separate gates.
+    fn indirect_named_address<'a>(&'a self, name: &'a str) -> Option<(&'a str, &'a str)> {
+        let holder = indirect_holder(name)?;
+        let (key, _) = name.split_once("__")?;
+        let JEntity::Noun(value) = &self.visible_binding(holder)?.value else {
+            return None;
+        };
+        if !value.shape().is_empty() {
+            return None;
+        }
+        let crate::value::Data::Boxed(boxes) = &value.data else {
+            return None;
+        };
+        let contents = &boxes[0];
+        if contents.shape().len() > 1 {
+            return None;
+        }
+        let crate::value::Data::Char(chars) = &contents.data else {
+            return None;
+        };
+        if !chars.first().is_some_and(u8::is_ascii_alphabetic)
+            || !chars.iter().all(u8::is_ascii_alphanumeric)
+        {
+            return None;
+        }
+        let locale = std::str::from_utf8(chars).ok()?;
+        (locale != "base").then_some((key, locale))
+    }
+
     fn direct_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
         if locale == "base" {
             self.names.get(key)
@@ -2827,6 +2890,38 @@ impl Engine {
         use crate::frontend_context::{
             FoundScope, LocalLookupState, LookupObservation, ScopeSearch,
         };
+        if let Some((key, locale)) = self.indirect_named_address(name)
+            && let Some(start) = self.named_locales.get(locale).map(|locale| locale.instance)
+            && let Some(binding) = self.direct_read_binding(key, locale)
+        {
+            let holder_name = indirect_holder(name).expect("validated indirect holder");
+            let holder = self.lookup_observation(holder_name);
+            let z = self
+                .direct_binding(key, locale)
+                .is_none()
+                .then(|| self.named_locales["z"].instance);
+            return LookupObservation {
+                engine: self.namespace_instance,
+                frame: self.local_frames.last().map(|frame| frame.instance),
+                search: ScopeSearch::IndirectNamedNoun {
+                    start,
+                    z,
+                    holder_found: holder.found,
+                    holder_version: holder.binding_version.expect("noun holder"),
+                    holder_generation: holder.binding_generation.expect("noun holder"),
+                    holder_local_state: holder.local_state,
+                },
+                local_state: if self.local_frames.is_empty() {
+                    LocalLookupState::NoFrame
+                } else {
+                    LocalLookupState::Bypassed
+                },
+                found: FoundScope::Locale(z.unwrap_or(start)),
+                binding_version: Some(binding.version),
+                binding_generation: Some(binding.generation),
+                binding_class: Some(crate::parser::ParseClass::Noun),
+            };
+        }
         if let Some((key, locale)) = named_direct_address(name) {
             let start = if locale == "base" {
                 Some(self.namespace_instance)

@@ -3000,7 +3000,7 @@ pub(crate) trait RuntimeParserHost {
     fn supports_named_direct_locative_nouns(&self) -> bool {
         false
     }
-    fn supports_indirect_lookup_errors(&self) -> bool {
+    fn supports_indirect_noun_reads(&self) -> bool {
         false
     }
 
@@ -3624,7 +3624,7 @@ fn expression(
                     && context
                         .host
                         .as_ref()
-                        .is_some_and(|host| host.supports_indirect_lookup_errors());
+                        .is_some_and(|host| host.supports_indirect_noun_reads());
                 if tokens[*pos].flags.name_form.is_locative()
                     && !base_noun_host
                     && !named_noun_host
