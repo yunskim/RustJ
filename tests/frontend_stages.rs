@@ -45,8 +45,13 @@ fn malformed_fields_have_j_error_classes_and_word_provenance() {
         assert!(error.span().is_some());
         assert!(error.context().unwrap().blame_word_index.is_some());
     }
-    for source in ["1j2", "foo__", "foo_bar_"] {
-        assert_eq!(enqueue(source).unwrap_err().kind(), "unsupported");
+    assert_eq!(enqueue("1j2").unwrap_err().kind(), "unsupported");
+    for source in ["foo__", "foo_bar_"] {
+        assert!(enqueue(source).unwrap()[0].flags.name_form.is_locative());
+        assert_eq!(
+            rustj::semantic::parse(source).unwrap_err().kind(),
+            "unsupported"
+        );
     }
 }
 

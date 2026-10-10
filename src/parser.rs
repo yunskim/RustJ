@@ -683,6 +683,9 @@ fn gerund_character(
         {
             return Err(Error::IllFormedName);
         }
+        if queue[0].flags.name_form.is_locative() {
+            return Err(Error::Unsupported("J locative gerund lookup".into()));
+        }
         let binding = names.binding(spelling)?;
         if let Some(observations) = names.observations {
             let (class, facts) = match &binding {
@@ -3570,6 +3573,17 @@ fn expression(
             }
             EnqueuedPayload::Name(name) => {
                 let span = tokens[*pos].span.clone();
+                // Enqueue recognizes the J NAME grammar. Until locale-scoped
+                // lookup/write exists, never flatten a locative into a key in
+                // the ordinary namespace, including assignment targets.
+                if tokens[*pos].flags.name_form.is_locative() {
+                    return Err(Error::Unsupported("J locative namespace resolution".into())
+                        .with_context(
+                            ErrorContext::phase(DiagnosticPhase::Parse)
+                                .with_span(span)
+                                .with_blame_word(tokens[*pos].word_index),
+                        ));
+                }
                 items.push(if tokens[*pos].flags.lookup_name {
                     Item::lookup_name((*name).to_owned(), span)
                 } else {
