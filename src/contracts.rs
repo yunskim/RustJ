@@ -148,35 +148,29 @@ pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Con
     use crate::primitive::PrimitiveId::*;
     let class = match (id, valence) {
         (Sparse, _) => OperationClass::Structural,
-        (Add | Subtract | Multiply | Divide | Equal | Less | Greater, Valence::Dyad) => {
-            OperationClass::Map
+        (Plus | Minus | Star | Div | Eq | Lt | Gt, Valence::Dyad) => OperationClass::Map,
+        (Plus | Minus | Star | Div | Stile, Valence::Monad) => OperationClass::Map,
+        (Iota | Ico | Eps | Ebar, Valence::Dyad) => OperationClass::Search,
+        (Lbrace, Valence::Dyad) => OperationClass::Gather,
+        (Dollar | Comma | Rev | Take | Drop, Valence::Dyad) => OperationClass::Structural,
+        (Dollar | Pound | Comma | Iota | Ico | Icap | Rev | Cant | Lt | Gt, Valence::Monad) => {
+            OperationClass::Structural
         }
-        (Add | Subtract | Multiply | Divide | Magnitude, Valence::Monad) => OperationClass::Map,
-        (IndexOf | Steps | Member | Find, Valence::Dyad) => OperationClass::Search,
-        (From, Valence::Dyad) => OperationClass::Gather,
-        (Shape | Ravel | Reverse | Take | Drop, Valence::Dyad) => OperationClass::Structural,
-        (
-            Shape | Tally | Ravel | IndexOf | Steps | Indices | Reverse | Transpose | Less
-            | Greater,
-            Valence::Monad,
-        ) => OperationClass::Structural,
         _ => OperationClass::Unknown,
     };
     let known = class != OperationClass::Unknown;
     Contract {
         shape_rule: match (id, valence) {
-            (Add | Subtract | Multiply | Divide | Equal | Less | Greater, Valence::Dyad) => {
-                ShapeRule::PrefixAgreement
-            }
-            (Add | Subtract | Multiply | Divide | Magnitude | Reverse | Sparse, Valence::Monad) => {
+            (Plus | Minus | Star | Div | Eq | Lt | Gt, Valence::Dyad) => ShapeRule::PrefixAgreement,
+            (Plus | Minus | Star | Div | Stile | Rev | Sparse, Valence::Monad) => {
                 ShapeRule::PreserveRight
             }
-            (Ravel, Valence::Monad) => ShapeRule::Ravel,
-            (Transpose, Valence::Monad) => ShapeRule::ReverseAxes,
-            (Shape, Valence::Monad) => ShapeRule::ShapeOf,
-            (Tally, Valence::Monad) => ShapeRule::Tally,
-            (Less, Valence::Monad) => ShapeRule::Scalar,
-            (Find, Valence::Dyad) => ShapeRule::PreserveRight,
+            (Comma, Valence::Monad) => ShapeRule::Ravel,
+            (Cant, Valence::Monad) => ShapeRule::ReverseAxes,
+            (Dollar, Valence::Monad) => ShapeRule::ShapeOf,
+            (Pound, Valence::Monad) => ShapeRule::Tally,
+            (Lt, Valence::Monad) => ShapeRule::Scalar,
+            (Ebar, Valence::Dyad) => ShapeRule::PreserveRight,
             _ => ShapeRule::Unknown,
         },
         effect: if known { Effect::Pure } else { Effect::Unknown },
@@ -188,7 +182,7 @@ pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Con
         } else {
             ValueRule::PrimitiveSpecific
         },
-        overflow: if matches!(id, Add | Subtract | Multiply) && valence == Valence::Dyad {
+        overflow: if matches!(id, Plus | Minus | Star) && valence == Valence::Dyad {
             Overflow::WholeResultPromotion
         } else if known {
             Overflow::PrimitiveSpecific

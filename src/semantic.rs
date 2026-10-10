@@ -169,15 +169,13 @@ impl FunctionEntity {
                 Some([63; 3])
             }
             FunctionHead::PrimitiveAdverb(
-                crate::primitive::AdverbId::Insert | crate::primitive::AdverbId::Key,
+                crate::primitive::AdverbId::Slash | crate::primitive::AdverbId::Sldot,
             )
-            | FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+            | FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atco) => {
                 Some([63; 3])
             }
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
-                Some([63, 0, 63])
-            }
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Bslash) => Some([63, 0, 63]),
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
                 if self.decoded_gerund.is_some() {
                     return Some([63; 3]);
                 }
@@ -196,7 +194,7 @@ impl FunctionEntity {
         if depth > MAX_EXPR_DEPTH
             || !matches!(
                 self.head,
-                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq)
             )
         {
             return None;
@@ -576,7 +574,7 @@ pub(crate) fn bind(
                             && matches!(
                                 function.head,
                                 FunctionHead::PrimitiveConjunction(
-                                    crate::primitive::ConjunctionId::Rank
+                                    crate::primitive::ConjunctionId::Qq
                                 )
                             ))
                     {

@@ -12,11 +12,11 @@ fn parse_is_execution_free_and_right_associative() {
     };
     assert_eq!(
         verb.target,
-        semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Add)
+        semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Plus)
     );
     assert!(matches!(left.kind,Expr::ReadName(ref name) if name=="missing"));
     assert!(
-        matches!(right.kind,Expr::Dyad{ref verb,..} if verb.target==semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Multiply))
+        matches!(right.kind,Expr::Dyad{ref verb,..} if verb.target==semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Star))
     );
     // Shape-producing operation is represented, not run or allocated here.
     assert!(semantic::parse("i.9223372036854775807").is_ok());
@@ -27,7 +27,7 @@ fn parse_is_execution_free_and_right_associative() {
     let rank = verb.entity;
     assert_eq!(
         rank.head,
-        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank)
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Qq)
     );
     let [
         FunctionOperand::Function(insert),
@@ -41,14 +41,14 @@ fn parse_is_execution_free_and_right_associative() {
     assert_eq!(rank_value.int_at(0).unwrap(), 1);
     assert_eq!(
         insert.head,
-        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
     );
     let [FunctionOperand::Function(base)] = insert.operands.as_slice() else {
         panic!("insert should retain its operand");
     };
     assert_eq!(
         base.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Plus)
     );
 }
 
@@ -60,21 +60,21 @@ fn prefix_infix_adverb_is_preserved_as_a_derived_function_entity() {
     };
     assert_eq!(
         verb.entity.head,
-        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::PrefixInfix)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Bslash)
     );
     let [FunctionOperand::Function(reducer)] = verb.entity.operands.as_slice() else {
         panic!("prefix/infix should retain its operand function")
     };
     assert_eq!(
         reducer.head,
-        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
     );
     let [FunctionOperand::Function(base)] = reducer.operands.as_slice() else {
         panic!("insert should retain +")
     };
     assert_eq!(
         base.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Plus)
     );
 }
 
@@ -88,7 +88,7 @@ fn key_derived_verb_keeps_operator_and_operand_without_licensing_execution() {
     };
     assert_eq!(
         key.entity.head,
-        FunctionHead::PrimitiveAdverb(AdverbId::Key)
+        FunctionHead::PrimitiveAdverb(AdverbId::Sldot)
     );
     // ao.c::jtsldot installs RMAX for monad and both dyadic ranks.
     assert_eq!(key.entity.innate_ranks(), Some([63; 3]));
@@ -96,7 +96,7 @@ fn key_derived_verb_keeps_operator_and_operand_without_licensing_execution() {
     else {
         panic!("Key must preserve its construction-time verb operand");
     };
-    assert_eq!(operand.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add));
+    assert_eq!(operand.head, FunctionHead::PrimitiveVerb(PrimitiveId::Plus));
 
     for (source, expected_dyad) in [("+/. 1 2 3", false), ("1 0 1 +/. 4 5 6", true)] {
         let program = semantic::parse(source).unwrap();
@@ -104,7 +104,7 @@ fn key_derived_verb_keeps_operator_and_operand_without_licensing_execution() {
             (false, Expr::Monad { verb, .. }) | (true, Expr::Dyad { verb, .. }) => {
                 assert_eq!(
                     verb.entity.head,
-                    FunctionHead::PrimitiveAdverb(AdverbId::Key)
+                    FunctionHead::PrimitiveAdverb(AdverbId::Sldot)
                 );
             }
             _ => panic!("Key parsed with wrong application valence: {source}"),
@@ -626,15 +626,15 @@ fn verb_trains_build_shared_hook_fork_graphs_right_to_left() {
     };
     assert_eq!(
         f.head,
-        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
     );
     assert_eq!(
         g.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Divide)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Div)
     );
     assert_eq!(
         h.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Tally)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Pound)
     );
 
     let p = semantic::parse("(+ - * %)").unwrap();
@@ -651,7 +651,7 @@ fn verb_trains_build_shared_hook_fork_graphs_right_to_left() {
     };
     assert_eq!(
         first.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Plus)
     );
     assert_eq!(tail.head, FunctionHead::Fork);
 }
@@ -664,7 +664,7 @@ fn mixed_noun_sentences_do_not_prematurely_collapse_verbs_into_trains() {
     };
     assert_eq!(
         verb.target,
-        semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Add)
+        semantic::VerbTarget::Primitive(rustj::primitive::PrimitiveId::Plus)
     );
     assert!(matches!(right.kind, Expr::Monad { .. }));
 }
@@ -720,7 +720,7 @@ fn chained_conjunctions_preserve_jsource_left_to_right_association() {
 
     assert_eq!(
         verb.entity.head,
-        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atco)
     );
     let [
         FunctionOperand::Function(left),
@@ -731,7 +731,7 @@ fn chained_conjunctions_preserve_jsource_left_to_right_association() {
     };
     assert_eq!(
         left.head,
-        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop),
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atco),
         "J conjunctions associate left-to-right"
     );
     let [
@@ -743,15 +743,15 @@ fn chained_conjunctions_preserve_jsource_left_to_right_association() {
     };
     assert_eq!(
         first.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Reverse)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Rev)
     );
     assert_eq!(
         second.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Ravel)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Comma)
     );
     assert_eq!(
         right.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Reverse)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Rev)
     );
 }
 
@@ -1041,7 +1041,7 @@ fn right_bound_verb_operand_preserves_construction_separately_from_executor_cove
         };
         assert_eq!(
             right.head,
-            FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Subtract)
+            FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Minus)
         );
     }
 }
@@ -1084,13 +1084,13 @@ fn successive_adverbs_keep_completed_nested_insert_and_hook_entities() {
     for (source, head, count) in [
         (
             "+ (/ /)",
-            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash),
             1,
         ),
         ("+ (/ +)", FunctionHead::Hook, 2),
         (
             "+ (/ / /)",
-            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash),
             1,
         ),
     ] {
@@ -1105,7 +1105,7 @@ fn successive_adverbs_keep_completed_nested_insert_and_hook_entities() {
         };
         assert_eq!(
             child.head,
-            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
         );
         assert_eq!(verb.span, 0..source.len());
     }
@@ -1140,7 +1140,7 @@ fn adverbial_hook_reuses_original_input_not_the_first_result() {
     };
     assert_eq!(
         verb.entity.head,
-        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atop)
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Atco)
     );
     let [
         FunctionOperand::Function(insert),
@@ -1151,7 +1151,7 @@ fn adverbial_hook_reuses_original_input_not_the_first_result() {
     };
     assert_eq!(
         insert.head,
-        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
     );
     let FunctionOperand::Function(input) = &insert.operands[0] else {
         panic!();
@@ -1159,7 +1159,7 @@ fn adverbial_hook_reuses_original_input_not_the_first_result() {
     assert!(std::sync::Arc::ptr_eq(input, original));
     assert_eq!(
         original.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Plus)
     );
 }
 
@@ -1169,14 +1169,14 @@ fn conjunction_actions_produce_completed_insert_hook_and_fork() {
     for (source, head, count) in [
         (
             "+ (@:/) -",
-            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash),
             1,
         ),
         ("+ (@:@:) -", FunctionHead::Hook, 2),
         ("+ (/ / +) *", FunctionHead::Fork, 3),
         (
             "+ ((@:/) -)",
-            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert),
+            FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash),
             1,
         ),
     ] {
@@ -1223,37 +1223,37 @@ fn modifier_trident_actions_preserve_intermediate_function_structure() {
         ("+ (@: + @:) -", FunctionHead::Fork),
         (
             "+ (@: / /) -",
-            FunctionHead::PrimitiveAdverb(AdverbId::Insert),
+            FunctionHead::PrimitiveAdverb(AdverbId::Slash),
         ),
         (
             "+ (+ @: /)",
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atco),
         ),
         (
             "+ (+ @: @:) -",
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atco),
         ),
         ("+ (/ + -)", FunctionHead::Fork),
         (
             "+ (/ @: -)",
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atco),
         ),
         (
             "+ (/ @: /) -",
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atco),
         ),
         (
             "+ (/ @: @:) -",
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atco),
         ),
         ("+ (@: + -) *", FunctionHead::Fork),
         (
             "+ (@: @: -) *",
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atco),
         ),
         (
             "+ (@: @: /) -",
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Atop),
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Atco),
         ),
     ] {
         let program = semantic::parse(source).unwrap_or_else(|error| panic!("{source}: {error:?}"));

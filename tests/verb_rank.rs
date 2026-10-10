@@ -175,7 +175,7 @@ fn supported_primitive_headers_are_intrinsic_without_executing_arguments() {
             CaptureEvent::ConstructionSuccess { function, .. }
                 if matches!(
                     function.head,
-                    FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank)
+                    FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Qq)
                 ) =>
             {
                 Some(function)
@@ -211,7 +211,7 @@ fn static_catalog_header_evidence_analyzes_large_arrays_without_input_payloads()
         "unsupported"
     );
     analyzer
-        .declare_primitive_verb("right", PrimitiveId::Add)
+        .declare_primitive_verb("right", PrimitiveId::Plus)
         .unwrap();
     let report = analyzer.analyze("(,\"right) input").unwrap();
     report.graph.verify().unwrap();

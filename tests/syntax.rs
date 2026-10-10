@@ -16,15 +16,15 @@ fn compact_tokens_borrow_names_and_keep_literal_semantics() {
     let modifier_tokens = lex("+/\"1").unwrap();
     assert!(matches!(
         modifier_tokens[0],
-        Token::Verb(rustj::primitive::PrimitiveId::Add)
+        Token::Verb(rustj::primitive::PrimitiveId::Plus)
     ));
     assert!(matches!(
         modifier_tokens[1],
-        Token::Adverb(rustj::primitive::AdverbId::Insert)
+        Token::Adverb(rustj::primitive::AdverbId::Slash)
     ));
     assert!(matches!(
         modifier_tokens[2],
-        Token::Conjunction(rustj::primitive::ConjunctionId::Rank)
+        Token::Conjunction(rustj::primitive::ConjunctionId::Qq)
     ));
     let mut e = Engine::new();
     for (s, kind, shape) in [

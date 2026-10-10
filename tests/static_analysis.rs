@@ -270,7 +270,7 @@ fn known_modifiers_build_static_structure_and_memory_from_metadata_only() {
         .declare_noun("x", input(Some(vec![1_000_000_000_000])))
         .unwrap();
     analyzer
-        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Insert))
+        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Slash))
         .unwrap();
     let report = analyzer.analyze("out=: + fold x").unwrap();
     report.graph.verify().unwrap();
@@ -284,7 +284,7 @@ fn known_modifiers_build_static_structure_and_memory_from_metadata_only() {
     };
     assert_eq!(
         function.head,
-        rustj::semantic::FunctionHead::PrimitiveAdverb(AdverbId::Insert)
+        rustj::semantic::FunctionHead::PrimitiveAdverb(AdverbId::Slash)
     );
     let snapshot = &report.graph.modifier_snapshots[0];
     assert_eq!(snapshot.name, "fold");
@@ -295,7 +295,7 @@ fn known_modifiers_build_static_structure_and_memory_from_metadata_only() {
     analyzer
         .declare_primitive_modifier(
             "ranked",
-            PrimitiveSemanticId::Conjunction(ConjunctionId::Rank),
+            PrimitiveSemanticId::Conjunction(ConjunctionId::Qq),
         )
         .unwrap();
     let report = analyzer.analyze("+ ranked 1 x").unwrap();
@@ -319,12 +319,12 @@ fn known_constructor_errors_and_value_boundaries_are_preserved_without_execution
     let mut analyzer = StaticAnalyzer::new();
     analyzer.declare_noun("x", input(Some(vec![3]))).unwrap();
     analyzer
-        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Insert))
+        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Slash))
         .unwrap();
     analyzer
         .declare_primitive_modifier(
             "ranked",
-            PrimitiveSemanticId::Conjunction(ConjunctionId::Rank),
+            PrimitiveSemanticId::Conjunction(ConjunctionId::Qq),
         )
         .unwrap();
     for (source, error) in [
@@ -347,19 +347,19 @@ fn invalid_modifier_declaration_does_not_replace_the_existing_binding() {
     use rustj::primitive::{AdverbId, PrimitiveId, PrimitiveSemanticId};
     let mut analyzer = StaticAnalyzer::new();
     analyzer
-        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Insert))
+        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Slash))
         .unwrap();
     let previous = analyzer.binding("fold").unwrap().clone();
     assert_eq!(
         analyzer
-            .declare_primitive_modifier("fold", PrimitiveSemanticId::Verb(PrimitiveId::Add))
+            .declare_primitive_modifier("fold", PrimitiveSemanticId::Verb(PrimitiveId::Plus))
             .unwrap_err(),
         Error::Domain
     );
     assert_eq!(analyzer.binding("fold").unwrap(), &previous);
     assert!(
         analyzer
-            .declare_primitive_modifier("+", PrimitiveSemanticId::Adverb(AdverbId::Insert))
+            .declare_primitive_modifier("+", PrimitiveSemanticId::Adverb(AdverbId::Slash))
             .is_err()
     );
     assert_eq!(analyzer.binding("fold").unwrap(), &previous);
@@ -405,11 +405,11 @@ fn snapshot_identity_survives_engine_rebinding_and_analysis_does_not_assign() {
     };
     assert_eq!(
         old.head,
-        rustj::semantic::FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        rustj::semantic::FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
     );
     assert_eq!(
         new.head,
-        rustj::semantic::FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::PrefixInfix)
+        rustj::semantic::FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Bslash)
     );
     // The engine supplies noun metadata without evaluating the reduction.
     assert_eq!(
@@ -428,7 +428,7 @@ fn graph_verifier_checks_snapshot_pos_version_and_source_use() {
     let mut analyzer = StaticAnalyzer::new();
     analyzer.declare_noun("x", input(Some(vec![3]))).unwrap();
     analyzer
-        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Insert))
+        .declare_primitive_modifier("fold", PrimitiveSemanticId::Adverb(AdverbId::Slash))
         .unwrap();
     let report = analyzer.analyze("+fold x").unwrap();
     for mutation in 0..3 {

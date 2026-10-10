@@ -114,10 +114,10 @@ impl AliasCallGuard {
                         && *id == self.primitive
                         && matches!(
                             id,
-                            PrimitiveId::Add
-                                | PrimitiveId::Subtract
-                                | PrimitiveId::Multiply
-                                | PrimitiveId::Divide
+                            PrimitiveId::Plus
+                                | PrimitiveId::Minus
+                                | PrimitiveId::Star
+                                | PrimitiveId::Div
                         ) => {}
                 _ => return Err("alias target/next-read mismatch".into()),
             }
@@ -244,7 +244,7 @@ mod tests {
                     bad.reads.swap(0, 1);
                 }
                 3 => {
-                    bad.primitive = PrimitiveId::Multiply;
+                    bad.primitive = PrimitiveId::Star;
                 }
                 4 => {
                     bad.reads[1].observation.binding_generation = None;

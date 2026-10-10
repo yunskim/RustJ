@@ -34,8 +34,8 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
         // its compiler alias/evaluation proof remains conservative.
         if matches!(
             id,
-            PrimitiveId::OperandU
-                | PrimitiveId::OperandV
+            PrimitiveId::Udot
+                | PrimitiveId::Vdot
                 | PrimitiveId::Cap
                 | PrimitiveId::Left
                 | PrimitiveId::Right
@@ -55,7 +55,7 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
 
 #[test]
 fn registered_adverb_spellings_reach_the_shared_frontend() {
-    for id in [AdverbId::Insert, AdverbId::Key, AdverbId::PrefixInfix] {
+    for id in [AdverbId::Slash, AdverbId::Sldot, AdverbId::Bslash] {
         let tokens = syntax::lex(id.spelling()).unwrap();
         assert!(matches!(tokens.as_slice(), [Token::Adverb(actual)] if *actual == id));
     }
@@ -64,11 +64,11 @@ fn registered_adverb_spellings_reach_the_shared_frontend() {
 #[test]
 fn valence_and_dynamic_names_do_not_get_conflated() {
     assert_eq!(
-        contracts::for_primitive(PrimitiveId::Member, Valence::Monad).effect,
+        contracts::for_primitive(PrimitiveId::Eps, Valence::Monad).effect,
         Effect::Unknown
     );
     assert_eq!(
-        contracts::for_primitive(PrimitiveId::Member, Valence::Dyad).effect,
+        contracts::for_primitive(PrimitiveId::Eps, Valence::Dyad).effect,
         Effect::Pure
     );
     assert_ne!(
@@ -93,7 +93,7 @@ fn valence_and_dynamic_names_do_not_get_conflated() {
 }
 
 #[test]
-fn all_core_primitives_have_source_names_without_changing_identity() {
+fn all_core_primitive_identifiers_use_canonical_source_names() {
     use rustj::primitive::{PrimitiveName, PrimitiveNames, VocabularyPrimitive};
     let mut spellings = std::collections::HashSet::new();
     for names in PrimitiveNames::ALL {
@@ -103,6 +103,7 @@ fn all_core_primitives_have_source_names_without_changing_identity() {
     }
     for &id in PrimitiveId::ALL {
         assert_eq!(id.names().spelling, id.spelling());
+        assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
     }
     for &id in VocabularyPrimitive::ALL {
         assert_eq!(id.names().spelling, id.spelling());
@@ -110,12 +111,14 @@ fn all_core_primitives_have_source_names_without_changing_identity() {
     for spelling in ["/", "/.", "\\", "]:"] {
         let id = AdverbId::from_spelling(spelling).unwrap();
         assert_eq!(id.names().spelling, spelling);
+        assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
     }
     for spelling in ["\"", "@:", "[.", "]."] {
         let id = rustj::primitive::ConjunctionId::from_spelling(spelling).unwrap();
         assert_eq!(id.names().spelling, spelling);
+        assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
     }
-    let plus = PrimitiveId::Add.names();
+    let plus = PrimitiveId::Plus.names();
     assert_eq!(plus.name, PrimitiveName::Plus);
     assert_eq!(plus.name.jsource_name(), "CPLUS");
     assert_eq!(plus.monad, Some("jtatomic1"));

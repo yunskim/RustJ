@@ -133,7 +133,7 @@ fn primitive_resolver_rejects_invalid_extension_registration_before_binding() {
     assert!(PrimitiveResolver::with_extensions([entry("relu", stale)]).is_err());
 
     let mut core_identity = handle;
-    core_identity.semantic_id = PrimitiveSemanticId::Verb(rustj::primitive::PrimitiveId::Add);
+    core_identity.semantic_id = PrimitiveSemanticId::Verb(rustj::primitive::PrimitiveId::Plus);
     assert!(PrimitiveResolver::with_extensions([entry("relu", core_identity)]).is_err());
 }
 

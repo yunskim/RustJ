@@ -127,7 +127,7 @@ impl ScanAnalysis {
                 if !reducer.operands.is_empty() {
                     return Err(NonPrimitiveInsert);
                 }
-                if !matches!(id, PrimitiveId::Add | PrimitiveId::Multiply) {
+                if !matches!(id, PrimitiveId::Plus | PrimitiveId::Star) {
                     return Err(UnprovenNumericOrErrorSemantics);
                 }
                 let facts = &plan.nodes[right.0].facts;
@@ -152,7 +152,7 @@ impl ScanAnalysis {
                 } else {
                     shape.clone()
                 };
-                let output_dtype = if id == PrimitiveId::Add && !returns_input_atoms {
+                let output_dtype = if id == PrimitiveId::Plus && !returns_input_atoms {
                     DType::Int
                 } else {
                     DType::Bool

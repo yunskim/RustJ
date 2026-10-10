@@ -301,7 +301,7 @@ fn graph_header_and_rule_provenance_are_explicit() {
     let NodeKind::Apply { rules, .. } = &graph.nodes[result.0].kind else {
         panic!()
     };
-    assert_eq!(rules.shape, GraphRuleRef::Primitive(PrimitiveId::Add));
+    assert_eq!(rules.shape, GraphRuleRef::Primitive(PrimitiveId::Plus));
     assert_eq!(rules.resource, ResourceRuleRef::Unknown);
 }
 

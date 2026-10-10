@@ -158,7 +158,7 @@ fn primitive_and_derived_contracts_are_conservative() {
     let p = e.analyze_a3("+/1 2").unwrap();
     assert_eq!(
         result_call(&p).callable.semantic.head,
-        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
     );
 
     for source in ["+/1 2", "+\"0 (1 2)", "future 3"] {
@@ -421,19 +421,19 @@ fn canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order() {
     assert_eq!(calls.len(), 3);
     assert!(matches!(
         calls[0].2.callable.target,
-        CallTarget::Primitive(PrimitiveId::Tally)
+        CallTarget::Primitive(PrimitiveId::Pound)
     ));
     assert!(matches!(
         calls[1].2.callable.target,
-        CallTarget::Primitive(PrimitiveId::Add)
+        CallTarget::Primitive(PrimitiveId::Plus)
     ));
     assert!(matches!(
         &calls[1].2.callable.semantic.head,
-        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Insert)
+        FunctionHead::PrimitiveAdverb(rustj::primitive::AdverbId::Slash)
     ));
     assert!(matches!(
         calls[2].2.callable.target,
-        CallTarget::Primitive(PrimitiveId::Divide)
+        CallTarget::Primitive(PrimitiveId::Div)
     ));
     assert!(ordered_after(&p, calls[1].0, calls[0].0));
     assert!(ordered_after(&p, calls[2].0, calls[1].0));
@@ -452,19 +452,19 @@ fn longer_train_analysis_uses_nested_hook_and_fork_graphs() {
     assert_eq!(calls.len(), 4);
     assert!(matches!(
         calls[0].2.callable.target,
-        CallTarget::Primitive(PrimitiveId::Divide)
+        CallTarget::Primitive(PrimitiveId::Div)
     ));
     assert!(matches!(
         calls[1].2.callable.target,
-        CallTarget::Primitive(PrimitiveId::Subtract)
+        CallTarget::Primitive(PrimitiveId::Minus)
     ));
     assert!(matches!(
         calls[2].2.callable.target,
-        CallTarget::Primitive(PrimitiveId::Multiply)
+        CallTarget::Primitive(PrimitiveId::Star)
     ));
     assert!(matches!(
         calls[3].2.callable.target,
-        CallTarget::Primitive(PrimitiveId::Add)
+        CallTarget::Primitive(PrimitiveId::Plus)
     ));
     assert!(ordered_after(&p, calls[1].0, calls[0].0));
     assert!(ordered_after(&p, calls[2].0, calls[1].0));

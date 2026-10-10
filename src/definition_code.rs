@@ -466,8 +466,8 @@ pub(crate) fn compile_with_origin(
                         if let crate::enqueuer::EnqueuedPayload::Verb(id) = &word.payload {
                             use crate::primitive::PrimitiveId;
                             match id {
-                                PrimitiveId::OperandU => names.push("u".into()),
-                                PrimitiveId::OperandV => names.push("v".into()),
+                                PrimitiveId::Udot => names.push("u".into()),
+                                PrimitiveId::Vdot => names.push("v".into()),
                                 _ => {}
                             }
                         }

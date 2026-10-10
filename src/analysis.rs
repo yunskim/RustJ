@@ -29,16 +29,16 @@ fn primitive_execution_basis(
 
     let dyad = valence == Valence::Dyad;
     match (id, dyad) {
-        (IndexOf | Steps, false) => Some(ExecutionBasisKind::IndexSpace),
-        (Equal, false) => Some(ExecutionBasisKind::LookupClassify),
-        (Indices, false) => Some(ExecutionBasisKind::ReplicateCompactExpand),
-        (Shape, true) | (Ravel, false) | (Reverse, _) | (Transpose, _) | (Take, _) | (Drop, _) => {
+        (Iota | Ico, false) => Some(ExecutionBasisKind::IndexSpace),
+        (Eq, false) => Some(ExecutionBasisKind::LookupClassify),
+        (Icap, false) => Some(ExecutionBasisKind::ReplicateCompactExpand),
+        (Dollar, true) | (Comma, false) | (Rev, _) | (Cant, _) | (Take, _) | (Drop, _) => {
             Some(ExecutionBasisKind::StaticReindex)
         }
-        (Ravel, true) => Some(ExecutionBasisKind::ConcatAssemble),
-        (From, true) => Some(ExecutionBasisKind::Gather),
-        (IndexOf | Steps | Indices | Member, true) => Some(ExecutionBasisKind::LookupClassify),
-        (Magnitude, true) => Some(ExecutionBasisKind::Elementwise),
+        (Comma, true) => Some(ExecutionBasisKind::ConcatAssemble),
+        (Lbrace, true) => Some(ExecutionBasisKind::Gather),
+        (Iota | Ico | Icap | Eps, true) => Some(ExecutionBasisKind::LookupClassify),
+        (Stile, true) => Some(ExecutionBasisKind::Elementwise),
         _ if contracts::for_primitive(id, valence).class
             == crate::contracts::OperationClass::Map =>
         {
@@ -54,13 +54,13 @@ fn append_execution_basis(
     layers: &mut Vec<ExecutionBasisKind>,
 ) {
     match &function.head {
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
             layers.push(ExecutionBasisKind::CellApply);
             if let Some(FunctionOperand::Function(operand)) = function.operands.first() {
                 append_execution_basis(operand, valence, layers);
             }
         }
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
             layers.push(ExecutionBasisKind::Reduce);
             if let Some(FunctionOperand::Function(operand)) = function.operands.first() {
                 if matches!(
@@ -119,11 +119,11 @@ fn input_roles(
         return Vec::new();
     };
     match (id, left) {
-        (IndexOf, None) => vec![(right, ValueRole::ShapeVector)],
-        (Shape, Some(left)) => vec![(left, ValueRole::ShapeVector)],
-        (From, Some(left)) => vec![(left, ValueRole::IndexVector)],
+        (Iota, None) => vec![(right, ValueRole::ShapeVector)],
+        (Dollar, Some(left)) => vec![(left, ValueRole::ShapeVector)],
+        (Lbrace, Some(left)) => vec![(left, ValueRole::IndexVector)],
         (Take | Drop, Some(left)) => vec![(left, ValueRole::CountVector)],
-        (Transpose, Some(left)) => vec![(left, ValueRole::AxisPermutation)],
+        (Cant, Some(left)) => vec![(left, ValueRole::AxisPermutation)],
         _ => Vec::new(),
     }
 }
@@ -136,8 +136,8 @@ fn result_roles(target: CallTarget, dyad: bool) -> ValueRoleFacts {
         return roles;
     };
     match (id, dyad) {
-        (Shape, false) => roles.insert(ValueRole::ShapeVector),
-        (Indices, false) | (IndexOf | Steps, true) => roles.insert(ValueRole::IndexVector),
+        (Dollar, false) => roles.insert(ValueRole::ShapeVector),
+        (Icap, false) | (Iota | Ico, true) => roles.insert(ValueRole::IndexVector),
         _ => {}
     }
     roles
@@ -147,7 +147,7 @@ fn access_fact(callable: &Callable, left: Option<ValueId>, contract: Contract) -
     if left.is_none()
         && matches!(
             &callable.semantic.head,
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash)
         )
     {
         return AccessFact::Known(AccessRelation::ReduceLeadingAxis);
@@ -355,7 +355,7 @@ impl Builder<'_> {
                         semantic,
                     });
                 }
-                FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+                FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash)
                     if current.result_pos == FunctionPartOfSpeech::Verb =>
                 {
                     let [FunctionOperand::Function(base)] = current.operands.as_slice() else {
@@ -365,7 +365,7 @@ impl Builder<'_> {
                     };
                     current = base.clone();
                 }
-                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq)
                     if current.result_pos == FunctionPartOfSpeech::Verb =>
                 {
                     let [FunctionOperand::Function(base), _] = current.operands.as_slice() else {
@@ -463,7 +463,7 @@ impl Builder<'_> {
         span: Range<usize>,
     ) -> Result<ValueId> {
         match &semantic.head {
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atco)
             | FunctionHead::DefinitionConstructor(_)
             | FunctionHead::ExplicitDefinition(_)
             | FunctionHead::ModifierTrain

@@ -95,7 +95,7 @@ fn unresolved_shapes_do_not_synthesize_geometry_or_execution_proof() {
             .is_none()
     );
     assert_eq!(
-        rustj::contracts::innate_rank(rustj::primitive::PrimitiveId::Divide).monad,
+        rustj::contracts::innate_rank(rustj::primitive::PrimitiveId::Div).monad,
         RankSpec::Absolute(0)
     );
 }

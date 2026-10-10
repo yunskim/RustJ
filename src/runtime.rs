@@ -1719,8 +1719,8 @@ impl Engine {
         }
         use crate::primitive::PrimitiveId;
         let operand = match function.head {
-            FunctionHead::PrimitiveVerb(PrimitiveId::OperandU) => Some("u"),
-            FunctionHead::PrimitiveVerb(PrimitiveId::OperandV) => Some("v"),
+            FunctionHead::PrimitiveVerb(PrimitiveId::Udot) => Some("u"),
+            FunctionHead::PrimitiveVerb(PrimitiveId::Vdot) => Some("v"),
             _ => None,
         };
         if let Some(name) = operand {
@@ -1838,7 +1838,7 @@ impl Engine {
         if !matches!(
             function.head,
             FunctionHead::NameRef(_)
-                | FunctionHead::PrimitiveVerb(PrimitiveId::OperandU | PrimitiveId::OperandV)
+                | FunctionHead::PrimitiveVerb(PrimitiveId::Udot | PrimitiveId::Vdot)
         ) {
             return Ok(None);
         }
@@ -1858,15 +1858,13 @@ impl Engine {
                     }
                     current = target.clone();
                 }
-                FunctionHead::PrimitiveVerb(PrimitiveId::OperandU | PrimitiveId::OperandV) => {
-                    let name = if matches!(
-                        current.head,
-                        FunctionHead::PrimitiveVerb(PrimitiveId::OperandU)
-                    ) {
-                        "u"
-                    } else {
-                        "v"
-                    };
+                FunctionHead::PrimitiveVerb(PrimitiveId::Udot | PrimitiveId::Vdot) => {
+                    let name =
+                        if matches!(current.head, FunctionHead::PrimitiveVerb(PrimitiveId::Udot)) {
+                            "u"
+                        } else {
+                            "v"
+                        };
                     let binding = self
                         .local_frames
                         .last()
@@ -2003,7 +2001,7 @@ impl Engine {
         }
         if !matches!(
             &function.head,
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq)
         ) || function.requested_ranks().is_none()
         {
             return Ok(false);
@@ -2036,7 +2034,7 @@ impl Engine {
                 };
                 self.call_composite(target.clone(), x, y, pooled, depth + 1)
             }
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
                 if x.is_some() {
                     return Err(Error::Unsupported("dyadic runtime insert".into()));
                 }
@@ -2046,10 +2044,10 @@ impl Engine {
                 if !y.is_sparse() && y.shape().first() == Some(&0) {
                     use crate::primitive::PrimitiveId;
                     if let Some(
-                        id @ (PrimitiveId::Add
-                        | PrimitiveId::Subtract
-                        | PrimitiveId::Multiply
-                        | PrimitiveId::Divide),
+                        id @ (PrimitiveId::Plus
+                        | PrimitiveId::Minus
+                        | PrimitiveId::Star
+                        | PrimitiveId::Div),
                     ) = self.primitive_witness(operand, depth)?
                     {
                         return kernels::reduce(id.spelling(), y);
@@ -2059,7 +2057,7 @@ impl Engine {
                     self.call_entity(operand.clone(), x, y, pooled, depth)
                 })
             }
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
                 let [FunctionOperand::Function(operand), _] = function.operands.as_slice() else {
                     return Err(Error::Unsupported("runtime noun-left rank".into()));
                 };
@@ -2080,7 +2078,7 @@ impl Engine {
                     let frame_rank = y.shape().len() - rank;
                     if y.shape()[..frame_rank].contains(&0)
                         && self.primitive_witness(operand, depth)?
-                            == Some(crate::primitive::PrimitiveId::Ravel)
+                            == Some(crate::primitive::PrimitiveId::Comma)
                     {
                         return kernels::ranked(",", false, ranks[0], y);
                     }
@@ -2090,8 +2088,8 @@ impl Engine {
                 // retain the explicit effect/prototype boundary.
                 let primitive_fill = self.rank_fill_is_value_only(operand, depth)?;
                 let primitive = self.primitive_witness(operand, depth)?;
-                let atomic_add = primitive == Some(crate::primitive::PrimitiveId::Add);
-                let primitive_catenate = primitive == Some(crate::primitive::PrimitiveId::Ravel);
+                let atomic_add = primitive == Some(crate::primitive::PrimitiveId::Plus);
+                let primitive_catenate = primitive == Some(crate::primitive::PrimitiveId::Comma);
                 crate::logical_executor::apply_ranked(
                     ranks,
                     x,
@@ -2102,7 +2100,7 @@ impl Engine {
                     |x, y| self.call_entity(operand.clone(), x, y, pooled, depth),
                 )
             }
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atco) => {
                 let [
                     FunctionOperand::Function(outer),
                     FunctionOperand::Function(inner),
@@ -3287,10 +3285,10 @@ impl Engine {
             match &target.head {
                 FunctionHead::NameRef(next) => name = next.clone(),
                 FunctionHead::PrimitiveVerb(
-                    id @ (PrimitiveId::Add
-                    | PrimitiveId::Subtract
-                    | PrimitiveId::Multiply
-                    | PrimitiveId::Divide),
+                    id @ (PrimitiveId::Plus
+                    | PrimitiveId::Minus
+                    | PrimitiveId::Star
+                    | PrimitiveId::Div),
                 ) => {
                     return Ok(AliasCallGuard {
                         context: context.clone(),
@@ -3525,7 +3523,7 @@ impl Engine {
 
         match &function.head {
             FunctionHead::PrimitiveVerb(
-                crate::primitive::PrimitiveId::OperandU | crate::primitive::PrimitiveId::OperandV,
+                crate::primitive::PrimitiveId::Udot | crate::primitive::PrimitiveId::Vdot,
             ) => Err(Error::Unsupported(
                 "implicit-locative call requires caller-scope execution".into(),
             )),
@@ -3555,7 +3553,7 @@ impl Engine {
                 }
                 self.resolve_function_entity(target, depth + 1)
             }
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
                 let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
                     return Err(Error::Unsupported(
                         "malformed insert semantic entity".into(),
@@ -3570,7 +3568,7 @@ impl Engine {
                 resolved.reduce = true;
                 Ok(resolved)
             }
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
                 let [FunctionOperand::Function(operand), _] = function.operands.as_slice() else {
                     return Err(Error::Unsupported("malformed rank semantic entity".into()));
                 };
@@ -3698,9 +3696,9 @@ impl Engine {
                     } else if !pooled
                         && matches!(
                             verb.id,
-                            crate::primitive::PrimitiveId::IndexOf
-                                | crate::primitive::PrimitiveId::Steps
-                                | crate::primitive::PrimitiveId::Member
+                            crate::primitive::PrimitiveId::Iota
+                                | crate::primitive::PrimitiveId::Ico
+                                | crate::primitive::PrimitiveId::Eps
                         )
                     {
                         // The semantic-reference interpreter must not route
@@ -3708,29 +3706,29 @@ impl Engine {
                         // physical planner. Keep ordered scalar/cell search
                         // independent of direct/reverse/prepared hash.
                         match verb.id {
-                            crate::primitive::PrimitiveId::IndexOf => {
+                            crate::primitive::PrimitiveId::Iota => {
                                 crate::search_reference::index_of(&x, &y, false)
                             }
-                            crate::primitive::PrimitiveId::Steps => {
+                            crate::primitive::PrimitiveId::Ico => {
                                 crate::search_reference::index_of(&x, &y, true)
                             }
-                            crate::primitive::PrimitiveId::Member => {
+                            crate::primitive::PrimitiveId::Eps => {
                                 crate::search_reference::member(&x, &y)
                             }
                             _ => unreachable!(),
                         }
                     } else if pooled && !x.is_sparse() && !y.is_sparse() {
                         match verb.id {
-                            crate::primitive::PrimitiveId::Add => {
+                            crate::primitive::PrimitiveId::Plus => {
                                 kernels::atomic_with_pool(kernels::Op::Add, x, y, &mut self.pool)
                             }
-                            crate::primitive::PrimitiveId::Subtract => {
+                            crate::primitive::PrimitiveId::Minus => {
                                 kernels::atomic_with_pool(kernels::Op::Sub, x, y, &mut self.pool)
                             }
-                            crate::primitive::PrimitiveId::Multiply => {
+                            crate::primitive::PrimitiveId::Star => {
                                 kernels::atomic_with_pool(kernels::Op::Mul, x, y, &mut self.pool)
                             }
-                            crate::primitive::PrimitiveId::IndexOf
+                            crate::primitive::PrimitiveId::Iota
                                 if matches!(
                                     x.data(),
                                     crate::value::Data::Int(_) | crate::value::Data::Bool(_)
@@ -3746,7 +3744,7 @@ impl Engine {
                                     &mut self.exact_search_cache,
                                 )
                             }
-                            crate::primitive::PrimitiveId::Steps
+                            crate::primitive::PrimitiveId::Ico
                                 if matches!(
                                     x.data(),
                                     crate::value::Data::Int(_) | crate::value::Data::Bool(_)
@@ -3762,7 +3760,7 @@ impl Engine {
                                     &mut self.exact_search_cache,
                                 )
                             }
-                            crate::primitive::PrimitiveId::Member
+                            crate::primitive::PrimitiveId::Eps
                                 if matches!(
                                     x.data(),
                                     crate::value::Data::Int(_) | crate::value::Data::Bool(_)
@@ -3823,9 +3821,9 @@ mod entity_binding_tests {
         }
         drop(returned);
         for (index, function) in [
-            FunctionEntity::primitive(crate::primitive::PrimitiveId::Add, 3..4),
-            FunctionEntity::primitive_adverb(crate::primitive::AdverbId::Insert, 5..6),
-            FunctionEntity::primitive_conjunction(crate::primitive::ConjunctionId::Rank, 7..8),
+            FunctionEntity::primitive(crate::primitive::PrimitiveId::Plus, 3..4),
+            FunctionEntity::primitive_adverb(crate::primitive::AdverbId::Slash, 5..6),
+            FunctionEntity::primitive_conjunction(crate::primitive::ConjunctionId::Qq, 7..8),
         ]
         .into_iter()
         .enumerate()
@@ -3863,7 +3861,7 @@ mod entity_binding_tests {
         for replacement in [
             JEntity::Noun(Value::scalar(9)),
             JEntity::Function(FunctionEntity::primitive(
-                crate::primitive::PrimitiveId::Add,
+                crate::primitive::PrimitiveId::Plus,
                 0..1,
             )),
         ] {

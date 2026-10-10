@@ -134,7 +134,7 @@ fn assemble_uniform_cells(
 fn has_value_only_rank_fill_semantics(function: &FunctionEntity) -> bool {
     match &function.head {
         FunctionHead::PrimitiveVerb(_) => true,
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
             function.requested_ranks().is_some()
                 && semantic_function_operand(function)
                     .is_some_and(|operand| has_value_only_rank_fill_semantics(operand))
@@ -159,11 +159,11 @@ fn execute_ranked_semantic(
     let primitive_fill = has_value_only_rank_fill_semantics(function);
     let atomic_add = matches!(
         function.head,
-        FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Add)
+        FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Plus)
     );
     let primitive_catenate = matches!(
         function.head,
-        FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Ravel)
+        FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Comma)
     );
     apply_ranked(
         ranks,
@@ -192,7 +192,7 @@ pub(crate) fn exact_empty_rank_reduction(
     }
     if !matches!(
         function.head,
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash)
     ) {
         return None;
     }
@@ -466,20 +466,20 @@ fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value
         FunctionHead::PrimitiveVerb(id) => match left {
             // FW-02: independent dense sequential oracle, no physical routing.
             Some(left) => match id {
-                crate::primitive::PrimitiveId::IndexOf => {
+                crate::primitive::PrimitiveId::Iota => {
                     crate::search_reference::index_of(&left, &right, false)
                 }
-                crate::primitive::PrimitiveId::Steps => {
+                crate::primitive::PrimitiveId::Ico => {
                     crate::search_reference::index_of(&left, &right, true)
                 }
-                crate::primitive::PrimitiveId::Member => {
+                crate::primitive::PrimitiveId::Eps => {
                     crate::search_reference::member(&left, &right)
                 }
                 _ => crate::kernels::dyad(id.spelling(), left, right),
             },
             None => crate::kernels::monad(id.spelling(), right),
         },
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
             if left.is_some() {
                 return Err(Error::Unsupported("dyadic insert-derived call".into()));
             }
@@ -487,7 +487,7 @@ fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value
                 .ok_or_else(|| Error::Unsupported("malformed insert semantic entity".into()))?;
             execute_derived_reduction(operand, right)
         }
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
             let operand = semantic_function_operand(function)
                 .ok_or_else(|| Error::Unsupported("malformed rank semantic entity".into()))?;
             let ranks = semantic_rank_triplet(function)

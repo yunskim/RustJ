@@ -23,7 +23,7 @@ fn current_nuvoc_selector_words_have_distinct_modifier_parts_of_speech() {
         vec!["[.", "].", "]:"]
     );
     // @: is At; the rank-sensitive @ Atop is not an alias for it.
-    assert_eq!(rustj::primitive::ConjunctionId::Atop.spelling(), "@:");
+    assert_eq!(rustj::primitive::ConjunctionId::Atco.spelling(), "@:");
     assert_eq!(rustj::primitive::ConjunctionId::from_spelling("@"), None);
 }
 
@@ -82,7 +82,7 @@ fn selecting_an_entity_does_not_skip_operand_reduction_effects_or_errors() {
     };
     assert_eq!(
         v.entity.head,
-        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Subtract)
+        FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Minus)
     );
 }
 
