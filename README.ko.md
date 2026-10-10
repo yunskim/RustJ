@@ -160,7 +160,13 @@ ParameterizedLoweringRecipe
 - 별도 canonical analysis surface인 J Graph IR과 Graph Basis/rewrite/resource-analysis 기초
 - **M1 완료:** J Graph lowering이 canonical A3 `logical_ir::Plan`을 직접 생성하며 transition IR/container는 제거됨
 - A3-v0의 SSA ValueId, Execution Basis, semantic check/constraint/effect/error contract와 verifier/reference executor
-- explicit/direct definition frontend의 `DefinitionCode`, control-flow metadata, multiple root DD, raw noun DD, UTF-8/source provenance 지원; 지원 mode 1/2의 straight-line invocation과 per-call local frame/x-y-u-v-m-n·local/global assignment subset은 동작하지만, control-flow/nested scope·전체 locale/locative 의미와 Code body graph/A3 CFG lowering은 미완료
+- explicit/direct 정의의 원문·제어·NAME metadata와 mode-3/4 호출, 지원 if/while/for/try 및 중첩 direct/문자열 explicit의 독립 local scope, A3 정의 함수 참조를 지원한다. 현재 범위의 frontend E2E는 검증됐다. statement/control·실행 전 admission·반환 검사 실패는 정의 원문과 중첩 호출 경로를 구분한 진단 frame으로 보존한다. named source API/파일 CLI의 중첩 정의는 파일 전체 원문까지 추적한다. 전체 J 표현력, 본문 Graph/Logical 분석·CFG 컴파일 및 일반 locale/locative는 미완료다. PROJECT.ko.md의 감사 결과와 보완 실행 체크리스트를 따른다.
+- parser→후속 단계는 `VerifiedFrontend`로 같은 `Program + FrontendContext`의 NAME·대입·정의 연결을 검증한다. typed admission은 표현 수용과 실행 권한을 구분하며, J 오류·미지원·내부 검증·backend 실패를 별도로 전달한다. 실행 capture를 지연 실행 입력으로 재사용하지 않는다.
+- 접미사 없는 십진 정수 literal은 64비트 범위 초과 시 C처럼 숫자 word 전체를 Float으로 변환한다. 범위 안 Int 정확도와 Float JSON 왕복을 보존하며, 정수 표기의 Bool/Int 선택도 C처럼 구분한다(`1`은 Bool, `01`은 Int). scientific real은 원문 mask와 정확한 signed 범위/정수성에 따라 word 전체를 Int로 축소한다(`1e0`은 Int, `1E0`은 Float). real-family decimal ratio는 C의 whole-word 타입·signed zero 규칙을 따른다(`1r2.0`은 Float, `2r1 1e0`은 Int 배열). 유한 extended integer(`123x`)는 exact 저장·기본 산술/비교·구조 연산을 지원한다. exact rational(`2r3`)은 유한/무한대 정규화·dtype 128·공유 저장·구조 연산, 정수와의 exact 산술/비교 및 부호 반전·절댓값·역수·signum을 지원한다. 비정의 무한대 연산은 포착 가능한 `NaN error`를 낸다. ExtendedInt 나눗셈·역수는 몫이 모두 정수이면 dtype 64를 유지하고 분수/무한대가 하나라도 있으면 배열 전체를 Rational로 승격한다. rational의 `+/`·`-/`·`*/`·`%/`는 exact right-fold와 C의 empty/type/error 규칙을 지원한다. Rational/ExtendedInt의 균일 rank 결과 조립과 정수 타입 간 exact 승격, 지원 primitive의 typed fill·빈 frame 규칙을 지원한다. 비균일 셀 padding·user-defined empty-frame 실행·Float/Complex 혼합·일반 derived reduce, complex·hexadecimal ratio는 미완료다.
+- 문자열 단일·다중 및 runtime 계산된 문자열 대입 대상을 지원한다. local/global, scalar 확장·item/open, 순서 있는 부분 실패를 보존한다. 다중 대입의 Graph/Logical 변환과 boxed/atomic-representation target은 미지원이다.
+- `name_:`는 enqueue에서 실행하지 않고 flag와 원문을 보존한다. 비실행 parser는 noun의 `ExprKind::TakeName`과 함수의 `FunctionHead::TakeName`으로 POS·원문·문장 맥락을 전달한다. `Engine::parse_frontend`는 binding 전 산출물/실패 context를 실행·삭제 없이 반환한다. runtime은 noun/verb/adverb 및 explicit/non-nameless conjunction의 by-value 조회와 local/global 삭제 순서를 보존한다. nameless conjunction은 별도 이름으로 이관한 뒤 적용할 수 있다. 직접 적용은 삭제·내부 대입을 보존한 뒤 Unsupported로 거절하며 C의 valence error와 차이가 있다. 단일-word local은 C처럼 삭제하지 않는다. 읽기 전용 loop index의 일반 삭제와 deferred effect의 Graph/Logical 변환은 미지원이다.
+- `Engine::prepare_name_effects` / `execute_name_effects`는 top-level simple NAME의 noun 연산·TakeName 및 함수 값 이관·최종 단일 대입을 순서 있는 의미 계획으로 실행한다. SSA 값과 성공 effect token, 실제 scope/generation/version·삭제 관측을 보존하고 실패 후 replay하지 않는다. 계획 재사용 시 품사 조건을 먼저 확인한다. 정의 frame·modifier 생성·동적 verb 호출·중간 write는 후속 범위다.
+- `prepare_name_arrays` / `execute_name_arrays`는 이 계획의 primitive Apply를 명시적 Input과 token 경계를 가진 J Graph/Logical region으로 연결한다. Apply와 immutable 값 전달을 하나의 batch/SSA 작업 공간에서 실행하며 내부 checkpoint로 오류·성공 위치를 복원한다. NAME 효과는 부모 계획에 남으며 배열 마지막 사용에서 소유권을 이동한다. 고유 저장소 재사용과 외부 alias 보존을 검증했다. kernel fusion·Physical 실행은 후속 범위다. 기존 pure Graph 경로는 deferred effect를 계속 거절한다.
 - CPU Inline/Owned/Shared storage, runtime AVX2 + portable fallback
 - sparse/boxed/packed-bit 기반 일부와 read-only affine PhysicalArray(G1)
 - M2 jsource-compatible frontend cutover와 M3 logical/physical value 경계 수렴, M4 native Physical Planner/CPU executor는 미완료
@@ -223,6 +229,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo test --features portable
 ```
+
+현재 frontend 감사 report를 재생성한 뒤 `python tools/verify_frontend_reports.py --assets-root ../rustj-project-docs`로 source·binary·C DLL hash를 확인합니다. 파일 일치는 알려진 미지원 항목의 해결을 뜻하지 않습니다.
 
 추가 conformance·성능·메모리 검증 원칙은 [PROJECT.ko.md](PROJECT.ko.md)의 검증 절을 따릅니다.
 

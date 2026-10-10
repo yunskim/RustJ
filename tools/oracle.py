@@ -8,8 +8,8 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-ERRORS = {4: 'ill-formed name', 5: 'ill-formed number', 16: 'spelling error', 3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
-          13: 'open quote', 14: 'rank error', 19: 'syntax error', 21: 'value error', 37: 'valence error', 23: 'control error', 34: 'noun result was required'}
+ERRORS = {33: 'NaN error', 4: 'ill-formed name', 5: 'ill-formed number', 16: 'spelling error', 3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
+          13: 'open quote', 14: 'rank error', 19: 'syntax error', 21: 'value error', 37: 'valence error', 23: 'control error', 34: 'noun result was required', 31: 'read-only data'}
 
 PARSER_OBSERVE_OPS = {'eval', 'sentence', 'name_class', 'representation', 'words'}
 
@@ -178,6 +178,40 @@ class Oracle:
             names[name] = entry
         return {'outcome': outcome, 'names': names}
 
+    @staticmethod
+    def extended_decimal_atoms(text, count):
+        parts = text.split()
+        if len(parts) != count:
+            raise RuntimeError('Oracle extended atom count mismatch')
+        result = []
+        for part in parts:
+            digits = part.removeprefix('_')
+            if not digits or not digits.isascii() or not digits.isdigit():
+                raise RuntimeError('Oracle invalid extended decimal format')
+            magnitude = digits.lstrip('0') or '0'
+            result.append(('-' if part.startswith('_') and magnitude != '0' else '') + magnitude)
+        return result
+
+    @staticmethod
+    def rational_decimal_atoms(text, count):
+        parts = text.split()
+        if len(parts) != count:
+            raise RuntimeError('Oracle rational atom count mismatch')
+        result = []
+        for part in parts:
+            if part in ('_', '__'):
+                numerator, denominator = ('1' if part == '_' else '-1'), '0'
+            elif 'r' in part:
+                n, d = part.split('r', 1)
+                numerator = Oracle.extended_decimal_atoms(n, 1)[0]
+                denominator = Oracle.extended_decimal_atoms(d, 1)[0]
+                if denominator.startswith('-') or denominator == '0':
+                    raise RuntimeError('Oracle rational formatter must use a positive finite denominator')
+            else:
+                numerator, denominator = Oracle.extended_decimal_atoms(part, 1)[0], '1'
+            result.append({'numerator': numerator, 'denominator': denominator})
+        return result
+
     def read_noun(self, name, depth=0):
         if depth > 128:
             raise RuntimeError('Oracle boxed nesting limit')
@@ -196,6 +230,19 @@ class Oracle:
                     raise RuntimeError(f'Oracle box extraction: {error}')
                 data.append(self.read_noun(child, depth + 1))
             return {'type': 32, 'shape': shape, 'data': data}
+        if t.value in (64, 128):
+            # Public J formatting avoids interpreting private GMP limb pointers.
+            # Flatten before formatting, preserving the original shape above.
+            child = f'rustjextendedread{depth}'
+            error = self.run(f'{child} =: ": , {name}')
+            if error:
+                raise RuntimeError(f'Oracle extended formatting: {error}')
+            formatted = self.read_noun(child, depth + 1)
+            if formatted['type'] != 2:
+                raise RuntimeError('Oracle extended formatter must return characters')
+            text = bytes(formatted['data']).decode('ascii')
+            atoms = self.extended_decimal_atoms(text, n) if t.value == 64 else self.rational_decimal_atoms(text, n)
+            return {'type': t.value, 'shape': shape, 'data': atoms}
         elem = {1: C.c_uint8, 2: C.c_uint8, 4: C.c_int64, 8: C.c_double}.get(t.value)
         if elem is None:
             raise RuntimeError(f'Unexpected oracle type {t.value}')

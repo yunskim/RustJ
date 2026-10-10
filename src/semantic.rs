@@ -43,6 +43,12 @@ pub enum FunctionHead {
     PrimitiveAdverb(crate::primitive::AdverbId),
     PrimitiveConjunction(crate::primitive::ConjunctionId),
     NameRef(String),
+    /// Deferred by-value function lookup/deletion, not a late call reference.
+    /// result_pos is a catalog class assumption; no function body is captured.
+    TakeName {
+        name: String,
+        single_word: bool,
+    },
     ExplicitDefinition(Arc<crate::definition_code::DefinitionCode>),
     DefinitionConstructor(Arc<crate::definition_code::DefinitionSource>),
     /// Parser-production identities with no source operator token.
@@ -107,6 +113,42 @@ pub struct FunctionEntity {
     pub name_ranks: Option<[i64; 3]>,
 }
 impl FunctionEntity {
+    /// Admission check for stages without ordered NAME effects. Visit shared
+    /// function DAG nodes once; do not resolve names or inspect array payloads.
+    pub(crate) fn reject_deferred_name_effects(&self) -> Result<()> {
+        if matches!(self.head, FunctionHead::TakeName { .. }) {
+            return Err(Error::Unsupported(
+                "function abandon requires ordered NAME effect IR".into(),
+            )
+            .at(self.span.clone()));
+        }
+        if self.operands.is_empty() {
+            return Ok(());
+        }
+        let mut pending = vec![self];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(function) = pending.pop() {
+            if !seen.insert(std::ptr::from_ref(function)) {
+                continue;
+            }
+            if matches!(function.head, FunctionHead::TakeName { .. }) {
+                return Err(Error::Unsupported(
+                    "function abandon requires ordered NAME effect IR".into(),
+                )
+                .at(function.span.clone()));
+            }
+            pending.extend(
+                function
+                    .operands
+                    .iter()
+                    .filter_map(|operand| match operand {
+                        FunctionOperand::Function(child) => Some(child.as_ref()),
+                        FunctionOperand::Noun { .. } => None,
+                    }),
+            );
+        }
+        Ok(())
+    }
     pub(crate) fn with_name_ranks(mut entity: Arc<Self>, ranks: Option<[i64; 3]>) -> Arc<Self> {
         debug_assert!(matches!(entity.head, FunctionHead::NameRef(_)));
         Arc::get_mut(&mut entity).expect("fresh nameref").name_ranks = ranks;
@@ -372,6 +414,8 @@ pub enum VerbTarget {
 
 #[derive(Clone, Debug)]
 pub struct Expr {
+    /// Parser semantic occurrence, not a physical buffer or a source-span key.
+    pub origin: Option<crate::frontend_context::NodeId>,
     pub span: std::ops::Range<usize>,
     pub kind: ExprKind,
 }
@@ -383,6 +427,11 @@ pub enum ExprKind {
     ModifierValue(Arc<FunctionEntity>),
     Literal(Value),
     ReadName(String),
+    /// Deferred NAME read/delete effect, never an ordinary pure read.
+    TakeName {
+        name: String,
+        single_word: bool,
+    },
     Monad {
         verb: Verb,
         argument: Box<Expr>,
@@ -395,8 +444,14 @@ pub enum ExprKind {
 }
 #[derive(Clone, Debug)]
 pub struct Program {
+    /// Immutable parser inputs, reductions and NAME/result links. Runtime-only
+    /// evaluation may omit this index; analysis always retains it.
+    pub frontend: Option<Arc<crate::frontend_context::FrontendContext>>,
     pub source: String,
     pub assignment: Option<String>,
+    /// Original noun target and resolved string words. These are not a single
+    /// write when there are multiple names; ordered lowering is required.
+    pub noun_assignment: Option<NounAssignment>,
     pub assignment_span: Option<std::ops::Range<usize>>,
     pub expression: Option<Expr>,
     /// Parser-row provenance, separate from semantic operation payloads.
@@ -407,6 +462,18 @@ pub struct Program {
     /// Constructor-time single-name cap inspections, not executable namerefs.
     pub fork_name_reads: Vec<NameUse>,
     pub name_rank_snapshots: Vec<NameRankSnapshot>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NounAssignment {
+    pub target: Expr,
+    pub names: Vec<String>,
+}
+
+impl Program {
+    pub fn has_assignment(&self) -> bool {
+        self.assignment.is_some() || self.noun_assignment.is_some()
+    }
 }
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
@@ -472,6 +539,16 @@ pub(crate) fn bind(
     program: Program,
     lookup: impl Fn(&str) -> Option<NameVersion>,
 ) -> Result<BoundProgram> {
+    if program
+        .noun_assignment
+        .as_ref()
+        .is_some_and(|target| target.names.len() != 1)
+    {
+        return Err(Error::Unsupported(
+            "multiple/empty assignment requires ordered write IR".into(),
+        )
+        .at(program.assignment_span.clone().expect("assignment span")));
+    }
     let mut pending = Vec::new();
     let mut verb_references = Vec::new();
     let mut stack = Vec::new();
@@ -487,6 +564,7 @@ pub(crate) fn bind(
             _ => None,
         };
         if let Some(function) = function_root {
+            function.reject_deferred_name_effects()?;
             let mut functions = vec![function];
             while let Some(function) = functions.pop() {
                 if let FunctionHead::NameRef(name) = &function.head {
@@ -511,6 +589,12 @@ pub(crate) fn bind(
             }
         }
         match &expr.kind {
+            ExprKind::TakeName { .. } => {
+                return Err(
+                    Error::Unsupported("abandon requires ordered NAME effect IR".into())
+                        .at(expr.span.clone()),
+                );
+            }
             ExprKind::ReadName(name) => pending.push((name.clone(), expr.span.clone())),
             ExprKind::Group(inner) => stack.push(inner),
             ExprKind::Monad { argument, .. } => stack.push(argument),

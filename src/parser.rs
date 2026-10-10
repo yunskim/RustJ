@@ -1,5 +1,10 @@
 //! J parser queue/stack reductions and parser-time construction.
 //! Consumes typed enqueue records; produces target-independent Semantic IR.
+use crate::frontend_context::{
+    FrontendContext, ItemId, ItemProducer, ItemRecord, NameEvidence, NamePolicy, NameUseId,
+    NameUseRecord, NodeKind, ParseStep, PendingAction, ReductionId, ReductionRecord, WordId,
+    WordRecord,
+};
 use crate::parser_capture::{CaptureEvent, OccurrenceId, ParseCapture};
 use crate::{
     Error, Result, Value,
@@ -37,6 +42,15 @@ pub struct AssignmentSource {
     pub target: ParseProvenance,
     pub copula: ParseProvenance,
     pub flags: EnqueueFlags,
+    pub noun_target: bool,
+    /// Commit.value denotes the whole RHS. A multiple assignment selects a
+    /// leading-axis item (None for scalar extension), then opens it once.
+    pub selection: Option<AssignmentSelection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssignmentSelection {
+    pub item: Option<usize>,
 }
 
 fn train_hook(f: Verb, g: Verb) -> Verb {
@@ -126,6 +140,12 @@ fn resolve_modifier(
     context: &mut ActionContext<'_>,
     row: ParseRow,
 ) -> Result<Arc<FunctionEntity>> {
+    if matches!(operator.head, FunctionHead::TakeName { .. }) {
+        return Err(Error::Unsupported(
+            "deferred modifier abandon requires ordered NAME effect IR".into(),
+        )
+        .at(span));
+    }
     let FunctionHead::NameRef(name) = &operator.head else {
         return Ok(operator);
     };
@@ -175,6 +195,11 @@ fn construction_host<'h>(
 
 impl ConstructionNames<'_, '_> {
     fn fork_cap(self, first: &FunctionEntity) -> Result<bool> {
+        if matches!(first.head, FunctionHead::TakeName { .. }) {
+            return Err(Error::Unsupported(
+                "fork cap inspection requires the deferred abandon value".into(),
+            ));
+        }
         if matches!(
             first.head,
             FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap)
@@ -356,15 +381,18 @@ impl ConstructionNames<'_, '_> {
         });
         let function = verb.entity.clone();
         let right = Box::new(Expr {
+            origin: None,
             span: right_span,
             kind: ExprKind::Literal(right),
         });
         let expression = Expr {
+            origin: None,
             span: span.clone(),
             kind: if let Some((value, noun_span)) = left {
                 ExprKind::Dyad {
                     verb,
                     left: Box::new(Expr {
+                        origin: None,
                         span: noun_span,
                         kind: ExprKind::Literal(value),
                     }),
@@ -655,15 +683,8 @@ fn gerund_character(
         {
             return Err(Error::IllFormedName);
         }
-        // Gerund name decoding bypasses the ordinary parser-stack NAME arm.
-        // Do not resolve locatives through a flat symbol table or silently
-        // accept an unresolved dynamic NameRef before locale-aware P4 exists.
-        if queue[0].flags.name_form != crate::enqueuer::NameForm::Simple
-            || queue[0].flags.name_by_value
-        {
-            return Err(Error::Unsupported(
-                "gerund locative/by-value lookup requires P4 locale semantics".into(),
-            ));
+        if queue[0].flags.name_form.is_locative() {
+            return Err(Error::Unsupported("J locative gerund lookup".into()));
         }
         let binding = names.binding(spelling)?;
         if let Some(observations) = names.observations {
@@ -697,6 +718,7 @@ fn gerund_character(
             Some(ParserNameBinding::Noun(value)) => {
                 return Ok(Item::noun(
                     Expr {
+                        origin: None,
                         span,
                         kind: ExprKind::Literal(value.into_shared()),
                     },
@@ -706,6 +728,7 @@ fn gerund_character(
             Some(ParserNameBinding::AbstractNoun) => {
                 return Ok(Item::noun(
                     Expr {
+                        origin: None,
                         span,
                         kind: ExprKind::ReadName(spelling.into()),
                     },
@@ -752,12 +775,35 @@ fn gerund_character(
 /// r.c::jtfx core AR decoding. Constructor reductions share the parser's
 /// disposition/actions; this is a serialized entity format, not another grammar.
 fn decode_gerund_ar(
-    value: &Value,
+    mut value: &Value,
     span: std::ops::Range<usize>,
-    depth: usize,
+    mut depth: usize,
     names: ConstructionNames<'_, '_>,
 ) -> Result<Item> {
     use crate::value::Data;
+    // Singleton boxed headers only transport their decoded entity. Peel this
+    // tail path iteratively so retained provenance cannot inflate recursive
+    // stack usage; keep exactly the same depth/rank/empty checks and no lookup.
+    loop {
+        if depth >= MAX_EXPR_DEPTH {
+            return Err(Error::Limit);
+        }
+        let Data::Boxed(fields) = &value.data else {
+            break;
+        };
+        if value.shape.len() > 1 || value.len() != 1 {
+            break;
+        }
+        let first = &fields[0];
+        if first.is_empty() {
+            return Err(Error::Length);
+        }
+        if !matches!(first.data, Data::Boxed(_)) {
+            break;
+        }
+        value = first;
+        depth += 1;
+    }
     if depth >= MAX_EXPR_DEPTH {
         return Err(Error::Limit);
     }
@@ -787,14 +833,19 @@ fn decode_gerund_ar(
         return Err(Error::Length);
     }
     enum Head {
-        Entity(Item),
+        Entity(Box<Item>),
         Noun,
         Hook,
         Fork,
         Modifier,
     }
     let head = if matches!(first.data, Data::Boxed(_)) {
-        Head::Entity(decode_gerund_ar(first, span.clone(), depth + 1, names)?)
+        Head::Entity(Box::new(decode_gerund_ar(
+            first,
+            span.clone(),
+            depth + 1,
+            names,
+        )?))
     } else {
         // u.c::vs audits header rank before converting to literal.
         if first.shape.len() > 1 {
@@ -809,12 +860,13 @@ fn decode_gerund_ar(
             "2" => Head::Hook,
             "3" => Head::Fork,
             "4" => Head::Modifier,
-            _ => Head::Entity(gerund_primitive(spelling, span.clone())?),
+            _ => Head::Entity(Box::new(gerund_primitive(spelling, span.clone())?)),
         }
     };
     if fields.len() == 2 && matches!(head, Head::Noun) {
         return Ok(Item::noun(
             Expr {
+                origin: None,
                 span,
                 kind: ExprKind::Literal(fields[1].as_ref().clone().into_shared()),
             },
@@ -875,6 +927,7 @@ fn decode_gerund_ar(
             construct_modifier_trident(first, second, third, span, depth + 1, names)
         }
         Head::Entity(operator) => {
+            let operator = *operator;
             if args.is_empty() {
                 return Ok(operator);
             }
@@ -925,6 +978,7 @@ fn share_modifier_input(mut item: Item) -> Item {
             other => other,
         };
         Expr {
+            origin: expr.origin,
             span: expr.span,
             kind,
         }
@@ -1095,8 +1149,12 @@ fn apply_conjunction_items(
         {
             return Err(Error::Unsupported("computed definition body".into()));
         }
-        let code =
-            crate::definition_code::compile(&origin.source, &origin.input, &origin.primitives)?;
+        let code = crate::definition_code::compile_with_origin(
+            &origin.source,
+            &origin.input,
+            &origin.primitives,
+            origin.origin.clone(),
+        )?;
         let result_pos = code.result_pos;
         let function = FunctionEntity::derived(
             FunctionHead::ExplicitDefinition(code),
@@ -1279,6 +1337,7 @@ fn modifier_operand(operand: &FunctionOperand, span: std::ops::Range<usize>) -> 
     match operand {
         FunctionOperand::Noun { value, .. } => Item::noun(
             Expr {
+                origin: None,
                 span,
                 kind: ExprKind::Literal(value.clone()),
             },
@@ -1392,9 +1451,47 @@ fn apply_conjunction_at(
 /// queue/stack discipline. Hook/fork reduction is performed separately below.
 #[derive(Clone, Debug)]
 struct PendingAssignment {
-    name: String,
+    name: Option<String>,
+    noun: Option<crate::semantic::NounAssignment>,
     span: std::ops::Range<usize>,
     source: AssignmentSource,
+}
+
+fn string_assignment_names(target: &Expr) -> Result<Vec<String>> {
+    let value = completed_noun(target.clone(), "computed assignment target")?;
+    literal_assignment_names(&value)
+}
+
+pub(crate) fn literal_assignment_names(value: &Value) -> Result<Vec<String>> {
+    let crate::Data::Char(bytes) = value.data() else {
+        return Err(Error::Unsupported(
+            "non-character/boxed assignment target".into(),
+        ));
+    };
+    if value.shape().len() > 1 {
+        return Err(Error::Rank);
+    }
+    if bytes.first() == Some(&b'`') {
+        return Err(Error::Unsupported(
+            "atomic-representation assignment".into(),
+        ));
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| Error::IllFormedName)?;
+    Ok(crate::tokenizer::word_texts(text)?
+        .into_iter()
+        .map(str::to_owned)
+        .collect())
+}
+
+fn assignment_item(value: &Value, item: Option<usize>) -> Result<Value> {
+    let selected = if let Some(index) = item {
+        let shape = &value.shape()[1..];
+        let atoms = crate::value::count(shape)?;
+        value.select(shape, index * atoms..(index + 1) * atoms)?
+    } else {
+        value.clone()
+    };
+    crate::kernels::monad(">", selected)
 }
 
 fn reduce_parse_stack_subset(
@@ -1406,14 +1503,67 @@ fn reduce_parse_stack_subset(
     let mut assignment = None;
 
     while let Some(item) = queue.pop() {
+        let queued_id = item.frontend_id();
         let name = match &item.value {
             ParseValue::LookupName { name, .. } => Some(name.clone()),
             _ => None,
         };
-        let mut item = resolve_stack_item(item, context)?;
-        let version = name
+        let lookup_before = name
             .as_deref()
-            .and_then(|name| context.host.as_ref().and_then(|host| host.version(name)));
+            .filter(|_| context.frontend.is_some())
+            .and_then(|name| {
+                context
+                    .host
+                    .as_ref()
+                    .and_then(|host| host.lookup_observation(name))
+            });
+        let mut item = resolve_stack_item(item, context)?;
+        if let Some(trace) = &mut context.frontend {
+            let queued = queued_id.expect("queued frontend occurrence");
+            if name.is_some() {
+                let id = NameUseId(trace.name_uses.len());
+                let policy = context.last_name_policy.expect("NAME resolution policy");
+                let kind = (item.class == ParseClass::Noun).then_some(
+                    if policy == NamePolicy::CaptureAndAbandon {
+                        NodeKind::TakeName(id)
+                    } else {
+                        NodeKind::ReadNoun(id)
+                    },
+                );
+                item.record_frontend(trace, ItemProducer::NameUse(id), kind, None);
+                trace.name_uses.push(NameUseRecord {
+                    word: WordId(trace.items[queued.0].word_range.start),
+                    input: queued,
+                    output: item.frontend_id().unwrap(),
+                    result_class: item.class,
+                    policy,
+                    resolution: match (policy, item.class) {
+                        (
+                            NamePolicy::CaptureAtRead | NamePolicy::CaptureAndAbandon,
+                            ParseClass::Noun,
+                        ) => crate::frontend_context::NameResolution::NounValue,
+                        (NamePolicy::CaptureAtRead | NamePolicy::CaptureAndAbandon, _) => {
+                            crate::frontend_context::NameResolution::FunctionValue
+                        }
+                        _ => crate::frontend_context::NameResolution::FunctionReference,
+                    },
+                    binding_version: context.last_lookup_version,
+                    lookup: lookup_before,
+                    evidence: if context.host.is_some() {
+                        NameEvidence::RuntimeClass
+                    } else if context.lookup.is_some() {
+                        NameEvidence::CatalogClass
+                    } else {
+                        NameEvidence::DiagnosticAssumption
+                    },
+                });
+            }
+            trace.steps.push(ParseStep::Stack {
+                queued,
+                resolved: item.frontend_id().expect("stack frontend occurrence"),
+            });
+        }
+        let version = name.as_ref().and(context.last_lookup_version);
         if let (Some(capture), ParseValue::Noun(expr, _)) = (&mut context.capture, &item.value) {
             if let ExprKind::Literal(value) = &expr.kind {
                 let id = capture.next();
@@ -1444,7 +1594,14 @@ fn reduce_parse_stack_subset(
 
     // jsource realizes the virtual FRONT MARK only after the queue is empty.
     if assignment.is_none() {
-        stack.insert(0, Item::mark(0));
+        let mut mark = Item::mark(0);
+        if let Some(trace) = &mut context.frontend {
+            mark.record_frontend(trace, ItemProducer::FrontMark, None, None);
+            trace
+                .steps
+                .push(ParseStep::FrontMark(mark.frontend_id().unwrap()));
+        }
+        stack.insert(0, mark);
         reduce_stack_prefix(&mut stack, &mut assignment, true, context, reductions)?;
     }
 
@@ -1514,6 +1671,18 @@ fn reduce_stack_prefix(
             _ => None,
         };
         let mut output = None;
+        let frontend_window =
+            std::array::from_fn(|i| stack.get(i).and_then(|item| item.frontend_id()));
+        let frontend_inputs: Vec<_> = stack[start..start + count]
+            .iter()
+            .filter_map(|item| item.frontend_id())
+            .collect();
+        if let Some(trace) = &mut context.frontend {
+            trace.pending = Some(PendingAction {
+                row,
+                window: frontend_window,
+            });
+        }
         if let Some(capture) = &mut context.capture {
             if is_call {
                 let verb_slot = if row == ParseRow::MonadEdge { 1 } else { 2 };
@@ -1574,6 +1743,60 @@ fn reduce_stack_prefix(
         if reduced {
             let result = &mut stack[start];
             result.provenance = Some(provenance.clone());
+            if let Some(trace) = &mut context.frontend {
+                let reduction = ReductionId(trace.reductions.len());
+                let node = |index: usize| {
+                    trace.items[frontend_inputs[index].0]
+                        .semantic
+                        .expect("semantic parser operand")
+                };
+                let (kind, alias) = match row {
+                    ParseRow::MonadEdge | ParseRow::MonadVVN => (
+                        Some(NodeKind::Monad {
+                            function: node(0),
+                            argument: node(1),
+                        }),
+                        None,
+                    ),
+                    ParseRow::DyadNVN => (
+                        Some(NodeKind::Dyad {
+                            function: node(1),
+                            left: node(0),
+                            right: node(2),
+                        }),
+                        None,
+                    ),
+                    ParseRow::Parenthesis => (None, Some(node(1))),
+                    ParseRow::Assignment => (
+                        Some(NodeKind::WriteName {
+                            target: frontend_inputs[0],
+                            copula: WordId(trace.items[frontend_inputs[1].0].word_range.start),
+                            value: node(2),
+                        }),
+                        None,
+                    ),
+                    _ => (
+                        Some(NodeKind::Construct {
+                            row,
+                            inputs: frontend_inputs
+                                .iter()
+                                .filter_map(|item| trace.items[item.0].semantic)
+                                .collect(),
+                            function: result.value.function_entity().cloned(),
+                        }),
+                        None,
+                    ),
+                };
+                result.record_frontend(trace, ItemProducer::Reduction(reduction), kind, alias);
+                trace.reductions.push(ReductionRecord {
+                    row,
+                    window: frontend_window,
+                    consumed: frontend_inputs,
+                    produced: result.frontend_id().unwrap(),
+                });
+                trace.steps.push(ParseStep::Reduce(reduction));
+                trace.pending = None;
+            }
             let selected_input = is_construction.then_some(result.occurrence).flatten();
             result.occurrence = output.or(retained);
             if let Some(capture) = &mut context.capture {
@@ -1628,6 +1851,11 @@ fn reduce_stack_prefix(
         }
 
         if !reduced || assignment.is_some() {
+            if !reduced {
+                if let Some(trace) = &mut context.frontend {
+                    trace.pending = None;
+                }
+            }
             return Ok(());
         }
     }
@@ -1651,12 +1879,33 @@ fn apply_parse_row(
     queue_exhausted: bool,
     context: &mut ActionContext<'_>,
 ) -> Result<bool> {
+    // C's by-value abandon path can retain nameless conjunction tagging.
+    // Transport is supported, but consuming that transient stack value is
+    // not ordinary conjunction application. Keep this boundary after lookup
+    // and deletion, and after any nested assignment that already committed.
+    if !matches!(row, ParseRow::Assignment | ParseRow::Parenthesis) {
+        let range = match row {
+            ParseRow::MonadEdge | ParseRow::Adverb => 1..3,
+            ParseRow::MonadVVN => 2..4,
+            ParseRow::Hook if !stack.get(3).is_some_and(|item| is_cavn(item.class)) => 1..3,
+            _ => 1..4,
+        };
+        if stack[range]
+            .iter()
+            .any(|item| item.abandoned_nameless_conjunction)
+        {
+            return Err(Error::Unsupported(
+                "abandoned nameless conjunction application".into(),
+            ));
+        }
+    }
     Ok(match row {
         ParseRow::MonadEdge => {
             let mut phrase: Vec<_> = stack.drain(1..3).collect();
             let verb = phrase.remove(0).into_verb().expect("row 0 verb");
             let (argument, height) = phrase.remove(0).into_noun().expect("row 0 noun");
             let expr = Expr {
+                origin: None,
                 span: verb.span.start..argument.span.end,
                 kind: ExprKind::Monad {
                     verb,
@@ -1671,6 +1920,7 @@ fn apply_parse_row(
             let verb = phrase.remove(0).into_verb().expect("row 1 verb");
             let (argument, height) = phrase.remove(0).into_noun().expect("row 1 noun");
             let expr = Expr {
+                origin: None,
                 span: verb.span.start..argument.span.end,
                 kind: ExprKind::Monad {
                     verb,
@@ -1686,6 +1936,7 @@ fn apply_parse_row(
             let verb = phrase.remove(0).into_verb().expect("row 2 verb");
             let (right, right_height) = phrase.remove(0).into_noun().expect("row 2 right noun");
             let expr = Expr {
+                origin: None,
                 span: left.span.start..right.span.end,
                 kind: ExprKind::Dyad {
                     verb,
@@ -1890,24 +2141,35 @@ fn apply_parse_row(
                     "multiple assignments in one sentence".into(),
                 ));
             }
-            if stack
-                .first()
-                .is_some_and(|item| item.class == ParseClass::Noun)
-            {
-                return Err(Error::Unsupported("noun/multiple assignment target".into()));
-            }
-
             let mut phrase: Vec<_> = stack.drain(0..3).collect();
             let target = phrase.remove(0);
             let copula = phrase.remove(0);
             let value = phrase.remove(0);
-            let ParseValue::NameTarget { name, span } = target.value else {
-                return Err(Error::Syntax("row 7 requires a name target".into()));
+            let span = target.span();
+            let (single, noun) = match target.value {
+                ParseValue::NameTarget { name, .. } => (Some(name), None),
+                ParseValue::Noun(expr, _) => {
+                    let names = string_assignment_names(&expr)?;
+                    let noun = crate::semantic::NounAssignment {
+                        target: expr,
+                        names,
+                    };
+                    (None, Some(noun))
+                }
+                _ => return Err(Error::Syntax("row 7 requires a name/noun target".into())),
             };
-            let source = AssignmentSource {
+            // Simple NAME writes retain their existing allocation/validation
+            // path; only noun targets need a computed name list.
+            let names = single
+                .as_ref()
+                .map(std::slice::from_ref)
+                .unwrap_or_else(|| noun.as_ref().expect("noun target").names.as_slice());
+            let mut source = AssignmentSource {
                 target: target.provenance.expect("assignment target provenance"),
                 copula: copula.provenance.expect("copula provenance"),
                 flags: copula.flags,
+                noun_target: noun.is_some(),
+                selection: None,
             };
             // p.c row 7 transports the stacked RHS. A nonnameless modifier
             // remains a POS-bearing NameRef; assigning it is not application.
@@ -1915,34 +2177,100 @@ fn apply_parse_row(
             if let Some(host) = context.host.as_mut() {
                 let occurrence = value.occurrence;
                 let class = value.class;
+                let abandoned_nameless_conjunction = value.abandoned_nameless_conjunction;
                 let mut completed = CompletedParseResult::from_item(value, "assignment value")?;
-                let previous = host.version(&name);
-                completed.entity =
-                    host.assign_scoped(&name, completed.entity, source.flags.local_assignment)?;
+                if names.len() != 1 {
+                    if names.is_empty()
+                        && !matches!(&completed.entity, JEntity::Noun(rhs) if !rhs.shape().is_empty() && rhs.shape()[0] == 0)
+                    {
+                        return Err(Error::IllFormedName);
+                    }
+                    let JEntity::Noun(rhs) = &mut completed.entity else {
+                        return Err(Error::Domain);
+                    };
+                    if !rhs.shape().is_empty() && rhs.shape()[0] != names.len() {
+                        return Err(Error::Length);
+                    }
+                    // Freeze once before selecting/cloning. Never clone an owned
+                    // whole RHS separately for each target or capture event.
+                    *rhs = std::mem::replace(rhs, Value::scalar(0)).into_shared();
+                }
                 let function = match &completed.entity {
                     JEntity::Function(function) => Some(function.clone()),
                     _ => None,
                 };
-                if let Some(capture) = &mut context.capture {
-                    capture.events.push(CaptureEvent::Commit {
-                        name: name.clone(),
-                        version: host.version(&name).expect("committed version"),
-                        previous,
-                        span: span.clone(),
-                        value: occurrence,
-                        final_assignment: queue_exhausted,
-                        class,
-                        function,
-                        source: source.clone(),
-                    });
+                for (index, name) in names.iter().enumerate() {
+                    if noun.is_some() {
+                        crate::enqueuer::validate_assignment_name(name)?;
+                    }
+                    let previous = host.assignment_version(name, source.flags.local_assignment);
+                    if names.len() == 1 {
+                        completed.entity = host.assign_scoped(
+                            name,
+                            completed.entity,
+                            source.flags.local_assignment,
+                        )?;
+                    } else {
+                        let JEntity::Noun(rhs) = &completed.entity else {
+                            unreachable!()
+                        };
+                        let item = (!rhs.shape().is_empty()).then_some(index);
+                        source.selection = Some(AssignmentSelection { item });
+                        let selected = assignment_item(rhs, item)?;
+                        host.assign_scoped(
+                            name,
+                            JEntity::Noun(selected),
+                            source.flags.local_assignment,
+                        )?;
+                    }
+                    if let Some(capture) = &mut context.capture {
+                        capture.events.push(CaptureEvent::Commit {
+                            name: name.clone(),
+                            version: host
+                                .assignment_version(name, source.flags.local_assignment)
+                                .expect("committed version"),
+                            previous,
+                            span: span.clone(),
+                            value: occurrence,
+                            final_assignment: queue_exhausted && index + 1 == names.len(),
+                            class,
+                            function: function.clone(),
+                            source: source.clone(),
+                        });
+                    }
                 }
-                let result = completed.into_item()?;
+                source.selection = None;
+                let mut result = completed.into_item()?;
+                result.abandoned_nameless_conjunction = abandoned_nameless_conjunction;
                 stack.insert(0, result);
                 if queue_exhausted {
-                    *assignment = Some(PendingAssignment { name, span, source });
+                    let name = single.or_else(|| {
+                        noun.as_ref()
+                            .and_then(|n| (n.names.len() == 1).then(|| n.names[0].clone()))
+                    });
+                    *assignment = Some(PendingAssignment {
+                        name,
+                        noun,
+                        span,
+                        source,
+                    });
                 }
             } else {
-                *assignment = Some(PendingAssignment { name, span, source });
+                if noun.is_some() {
+                    for name in names {
+                        crate::enqueuer::validate_assignment_name(name)?;
+                    }
+                }
+                let name = single.or_else(|| {
+                    noun.as_ref()
+                        .and_then(|n| (n.names.len() == 1).then(|| n.names[0].clone()))
+                });
+                *assignment = Some(PendingAssignment {
+                    name,
+                    noun,
+                    span,
+                    source,
+                });
                 stack.insert(0, value);
             }
             true
@@ -1953,10 +2281,12 @@ fn apply_parse_row(
             let value = phrase.remove(0);
             let right = phrase.remove(0);
             let group_span = left.span().start..right.span().end;
+            let abandoned_nameless_conjunction = value.abandoned_nameless_conjunction;
 
-            let grouped = match value.value {
+            let mut grouped = match value.value {
                 ParseValue::Noun(expr, height) => Item::noun(
                     Expr {
+                        origin: None,
                         span: group_span.clone(),
                         kind: ExprKind::Group(Box::new(expr)),
                     },
@@ -1976,6 +2306,7 @@ fn apply_parse_row(
                     );
                 }
             };
+            grouped.abandoned_nameless_conjunction = abandoned_nameless_conjunction;
             stack.insert(0, grouped);
             true
         }
@@ -2279,6 +2610,7 @@ impl CompletedParseResult {
         Ok(match self.entity {
             JEntity::Noun(value) => Item::noun(
                 Expr {
+                    origin: None,
                     span: self.span,
                     kind: ExprKind::Literal(value),
                 },
@@ -2329,6 +2661,9 @@ impl ParseValue {
 
 #[derive(Clone)]
 struct Item {
+    // Parser transport state, not a property of the immutable function value.
+    abandoned_nameless_conjunction: bool,
+    frontend_occurrence: Option<std::num::NonZeroUsize>,
     class: ParseClass,
     value: ParseValue,
     span_override: Option<std::ops::Range<usize>>,
@@ -2338,6 +2673,44 @@ struct Item {
 }
 
 impl Item {
+    fn record_frontend(
+        &mut self,
+        trace: &mut FrontendContext,
+        producer: ItemProducer,
+        kind: Option<NodeKind>,
+        alias: Option<crate::frontend_context::NodeId>,
+    ) {
+        let semantic = alias.or_else(|| {
+            let kind = kind.or_else(|| match &self.value {
+                ParseValue::Noun(..) => Some(NodeKind::Literal),
+                ParseValue::Verb(verb) => Some(NodeKind::Function(verb.entity.clone())),
+                ParseValue::Function(function) => Some(NodeKind::Function(function.clone())),
+                _ => None,
+            });
+            kind.map(|kind| trace.node(kind, self.class))
+        });
+        if let ParseValue::Noun(expr, _) = &mut self.value {
+            expr.origin = semantic;
+        }
+        let id = trace.item(ItemRecord {
+            producer,
+            class: self.class,
+            semantic,
+            word_range: self
+                .provenance
+                .as_ref()
+                .map_or(0..0, |p| p.word_range.clone()),
+            blame_word: self.provenance.as_ref().map(|p| WordId(p.blame_word_index)),
+        });
+        self.frontend_occurrence = std::num::NonZeroUsize::new(
+            id.0.checked_add(1).expect("parser item identity exhausted"),
+        );
+    }
+
+    fn frontend_id(&self) -> Option<ItemId> {
+        self.frontend_occurrence.map(|id| ItemId(id.get() - 1))
+    }
+
     fn span(&self) -> std::ops::Range<usize> {
         if let Some(span) = &self.span_override {
             return span.clone();
@@ -2370,6 +2743,8 @@ impl Item {
             provenance: None,
             flags: EnqueueFlags::default(),
             occurrence: None,
+            frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2386,6 +2761,8 @@ impl Item {
             provenance: None,
             flags: EnqueueFlags::default(),
             occurrence: None,
+            frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2401,6 +2778,8 @@ impl Item {
             provenance: None,
             flags: EnqueueFlags::default(),
             occurrence: None,
+            frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2412,6 +2791,8 @@ impl Item {
             provenance: None,
             flags: EnqueueFlags::default(),
             occurrence: None,
+            frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2423,6 +2804,8 @@ impl Item {
             provenance: None,
             flags: EnqueueFlags::default(),
             occurrence: None,
+            frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2435,6 +2818,8 @@ impl Item {
             provenance: None,
             flags: EnqueueFlags::default(),
             occurrence: None,
+            frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2446,6 +2831,8 @@ impl Item {
             provenance: None,
             flags: EnqueueFlags::default(),
             occurrence: None,
+            frontend_occurrence: None,
+            abandoned_nameless_conjunction: false,
         }
     }
 
@@ -2488,6 +2875,59 @@ pub fn parse_diagnostic(source: &str) -> Result<Program> {
     parse_with(source, None, ParseContext::Analysis)
 }
 
+/// The same parser, retaining a structured prefix even on an error/boundary.
+/// Diagnostic NAME assumptions are explicitly marked, not execution proofs.
+pub fn parse_frontend(
+    source: &str,
+) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    parse_frontend_with_lookup(source, None)
+}
+
+pub(crate) fn parse_frontend_with_lookup(
+    source: &str,
+    lookup: NameLookup<'_>,
+) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    parse_frontend_origin_with_lookup(
+        crate::source::SourceUnit::new("<input>", source).origin(),
+        lookup,
+    )
+}
+
+/// Execution-free frontend with an owned path to the original input revision.
+pub fn parse_frontend_source(
+    origin: crate::source::SourceOrigin,
+) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    parse_frontend_origin_with_lookup(origin, None)
+}
+
+fn parse_frontend_origin_with_lookup(
+    origin: crate::source::SourceOrigin,
+    lookup: NameLookup<'_>,
+) -> std::result::Result<Program, crate::frontend_context::FrontendFailure> {
+    let source = origin.text();
+    let mut context = ActionContext {
+        source_origin: origin.clone(),
+        single_word: false,
+        last_lookup_version: None,
+        last_name_policy: None,
+        frontend: Some(FrontendContext {
+            source: Arc::from(source),
+            ..Default::default()
+        }),
+        mode: ParseContext::Analysis,
+        lookup,
+        host: None,
+        capture: None,
+        modifier_snapshots: Vec::new(),
+        fork_name_reads: Default::default(),
+        name_rank_snapshots: Vec::new(),
+    };
+    parse_context(source, &mut context).map_err(|error| crate::frontend_context::FrontendFailure {
+        error,
+        context: Box::new(context.frontend.take().expect("failed frontend context")),
+    })
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum ParserNameBinding {
     Noun(Value),
@@ -2527,11 +2967,29 @@ pub(crate) struct ResolvedModifier {
 }
 
 pub(crate) trait RuntimeParserHost {
+    fn take_name(&mut self, _name: &str, _single_word: bool) -> Result<(JEntity, bool)> {
+        Err(Error::Unsupported("abandon lookup host".into()))
+    }
+    fn lookup_observation(
+        &self,
+        _name: &str,
+    ) -> Option<crate::frontend_context::LookupObservation> {
+        None
+    }
     fn function_name_ranks(&self, _name: &str) -> Option<[i64; 3]> {
         None
     }
 
-    fn lookup(&mut self, name: &str) -> Option<ParserNameBinding>;
+    /// Opt in only when the host implements explicit base-locale noun lookup
+    /// and writes; lexical acceptance alone must not enable namespace access.
+    fn supports_base_locative_nouns(&self) -> bool {
+        false
+    }
+    fn supports_named_direct_locative_nouns(&self) -> bool {
+        false
+    }
+
+    fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>>;
     fn fork_cap_binding(
         &self,
         _name: &str,
@@ -2576,6 +3034,10 @@ pub(crate) trait RuntimeParserHost {
         ))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion>;
+    /// Observe the table that assignment will update, without lookup fallback.
+    fn assignment_version(&self, name: &str, _local: bool) -> Option<crate::semantic::NameVersion> {
+        self.version(name)
+    }
     /// Operands have already reduced to actual nouns; execute exactly one call.
     fn apply(&mut self, expression: Expr) -> Result<Value>;
     fn resolve_modifier(
@@ -2595,30 +3057,59 @@ pub(crate) trait RuntimeParserHost {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn parse_runtime_host(
     source: &str,
     host: &mut dyn RuntimeParserHost,
     capture: Option<&mut ParseCapture>,
 ) -> Result<Program> {
+    parse_runtime_source(
+        crate::source::SourceUnit::new("<input>", source).origin(),
+        host,
+        capture,
+    )
+}
+
+pub(crate) fn parse_runtime_source(
+    origin: crate::source::SourceOrigin,
+    host: &mut dyn RuntimeParserHost,
+    capture: Option<&mut ParseCapture>,
+) -> Result<Program> {
+    let source = origin.text();
     let mut capture = capture;
     if let Some(capture) = &mut capture {
         capture.set_source(source);
     }
-    parse_context(
-        source,
-        &mut ActionContext {
-            mode: ParseContext::Runtime,
-            lookup: None,
-            host: Some(host),
-            capture,
-            modifier_snapshots: Vec::new(),
-            fork_name_reads: Default::default(),
-            name_rank_snapshots: Vec::new(),
-        },
-    )
+    let mut context = ActionContext {
+        source_origin: origin.clone(),
+        single_word: false,
+        last_lookup_version: None,
+        last_name_policy: None,
+        frontend: None,
+        mode: ParseContext::Runtime,
+        lookup: None,
+        host: Some(host),
+        capture,
+        modifier_snapshots: Vec::new(),
+        fork_name_reads: Default::default(),
+        name_rank_snapshots: Vec::new(),
+    };
+    let result = parse_context(source, &mut context);
+    if let Some(capture) = &mut context.capture {
+        capture.frontend = match &result {
+            Ok(program) => program.frontend.clone(),
+            Err(_) => context.frontend.take().map(Arc::new),
+        };
+    }
+    result
 }
 
 struct ActionContext<'a> {
+    source_origin: crate::source::SourceOrigin,
+    single_word: bool,
+    last_name_policy: Option<NamePolicy>,
+    last_lookup_version: Option<crate::semantic::NameVersion>,
+    frontend: Option<FrontendContext>,
     mode: ParseContext,
     lookup: NameLookup<'a>,
     host: Option<&'a mut dyn RuntimeParserHost>,
@@ -2635,8 +3126,88 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
     };
     let name = name.clone();
     let span = span.clone();
+    if item.flags.abandon_name {
+        context.last_name_policy = Some(NamePolicy::CaptureAndAbandon);
+        context.last_lookup_version = context.host.as_ref().and_then(|host| host.version(&name));
+        let mut resolved = if let Some(host) = &mut context.host {
+            let lookup = context
+                .capture
+                .as_ref()
+                .and_then(|_| host.lookup_observation(&name));
+            let (entity, deleted) = host
+                .take_name(&name, context.single_word)
+                .map_err(|e| e.at(span.clone()))?;
+            let abandoned_nameless_conjunction = matches!(&entity,
+                JEntity::Function(function)
+                if function.result_pos == FunctionPartOfSpeech::Conjunction
+                    && function.is_nameless_modifier());
+            if let (Some(capture), Some(lookup)) = (&mut context.capture, lookup) {
+                capture.events.push(CaptureEvent::Abandon {
+                    name: name.clone(),
+                    lookup,
+                    deleted,
+                    span: span.clone(),
+                });
+            }
+            let completed = match entity {
+                JEntity::Noun(value) => CompletedParseResult::noun(value, span.clone(), 0),
+                JEntity::Function(function) => {
+                    CompletedParseResult::function(function, span.clone(), VerbTarget::Derived)
+                }
+            };
+            let mut resolved = completed.into_item()?;
+            resolved.abandoned_nameless_conjunction = abandoned_nameless_conjunction;
+            resolved
+        } else {
+            let pos = match context.lookup.and_then(|lookup| lookup(&name)) {
+                Some(ParserNameBinding::Function(pos)) => Some(pos),
+                Some(
+                    ParserNameBinding::KnownVerb { function, version }
+                    | ParserNameBinding::KnownModifier { function, version },
+                ) => {
+                    context.last_lookup_version = Some(version);
+                    Some(function.result_pos)
+                }
+                None if context.lookup.is_some() => return Err(Error::Value(name).at(span)),
+                _ => None,
+            };
+            if let Some(pos) = pos {
+                let function = FunctionEntity::derived(
+                    FunctionHead::TakeName {
+                        name,
+                        single_word: context.single_word,
+                    },
+                    pos,
+                    span.clone(),
+                    Vec::new(),
+                );
+                CompletedParseResult::function(function, span, VerbTarget::Derived).into_item()?
+            } else {
+                Item::noun(
+                    Expr {
+                        origin: None,
+                        span,
+                        kind: ExprKind::TakeName {
+                            name,
+                            single_word: context.single_word,
+                        },
+                    },
+                    0,
+                )
+            }
+        };
+        resolved.provenance = item.provenance;
+        resolved.flags = item.flags;
+        return Ok(resolved);
+    }
     let binding = if let Some(host) = &mut context.host {
-        host.lookup(&name)
+        host.lookup(&name).map_err(|error| {
+            let error = error.at(span.clone());
+            match &item.provenance {
+                Some(provenance) => error.blamed_on_word(provenance.blame_word_index),
+                None => error,
+            }
+        })?
     } else {
         context.lookup.and_then(|lookup| lookup(&name))
     };
@@ -2647,20 +3218,35 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
             Some(ParserNameBinding::KnownVerb { function, version }) => {
                 (function.innate_ranks(), Some(*version))
             }
+            Some(ParserNameBinding::KnownModifier { version, .. }) => (None, Some(*version)),
             None if context.lookup.is_some() => (Some([63; 3]), None),
             _ => (None, None),
         }
     };
+    context.last_lookup_version = name_version;
     let binding = match binding {
         Some(ParserNameBinding::KnownVerb { function, .. }) => {
             Some(ParserNameBinding::Function(function.result_pos))
         }
         other => other,
     };
+    context.last_name_policy = Some(match &binding {
+        Some(
+            ParserNameBinding::Noun(_)
+            | ParserNameBinding::AbstractNoun
+            | ParserNameBinding::KnownModifier { .. },
+        ) => NamePolicy::CaptureAtRead,
+        Some(ParserNameBinding::Function(FunctionPartOfSpeech::Verb)) => NamePolicy::LateAtCall,
+        Some(ParserNameBinding::Function(_)) => NamePolicy::ResolveAtConstruction,
+        None if context.lookup.is_none() && context.host.is_none() => NamePolicy::CaptureAtRead,
+        None => NamePolicy::LateAtCall,
+        Some(ParserNameBinding::KnownVerb { .. }) => unreachable!("normalized verb witness"),
+    });
     let mut resolved = match binding {
         Some(ParserNameBinding::KnownVerb { .. }) => unreachable!("normalized verb witness"),
         Some(ParserNameBinding::Noun(value)) => Item::noun(
             Expr {
+                origin: None,
                 span,
                 kind: if context.mode == ParseContext::Runtime {
                     ExprKind::Literal(value)
@@ -2679,6 +3265,7 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
         }
         Some(ParserNameBinding::AbstractNoun) => Item::noun(
             Expr {
+                origin: None,
                 span,
                 kind: ExprKind::ReadName(name),
             },
@@ -2686,6 +3273,7 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
         ),
         None if context.lookup.is_none() && context.host.is_none() => Item::noun(
             Expr {
+                origin: None,
                 span,
                 kind: ExprKind::ReadName(name),
             },
@@ -2719,6 +3307,7 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
                     CompletedParseResult::function(function, span, VerbTarget::Derived)
                         .into_item()?;
                 substituted.provenance = item.provenance;
+                context.last_name_policy = Some(NamePolicy::CaptureAtRead);
                 substituted.flags = item.flags;
                 return Ok(substituted);
             }
@@ -2743,6 +3332,7 @@ fn resolve_stack_item(item: Item, context: &mut ActionContext<'_>) -> Result<Ite
                     context.modifier_snapshots.push(snapshot);
                     let mut stacked = Item::function(function).with_span(span);
                     stacked.provenance = item.provenance;
+                    context.last_name_policy = Some(NamePolicy::CaptureAtRead);
                     stacked.flags = item.flags;
                     return Ok(stacked);
                 }
@@ -2805,6 +3395,11 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
     parse_context(
         source,
         &mut ActionContext {
+            source_origin: crate::source::SourceUnit::new("<input>", source).origin(),
+            single_word: false,
+            last_lookup_version: None,
+            last_name_policy: None,
+            frontend: None,
             mode,
             lookup,
             host: None,
@@ -2817,25 +3412,61 @@ fn parse_with(source: &str, lookup: NameLookup<'_>, mode: ParseContext) -> Resul
 }
 
 fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Program> {
+    if context.frontend.is_none()
+        && (context.mode == ParseContext::Analysis || context.capture.is_some())
+    {
+        context.frontend = Some(FrontendContext {
+            source: Arc::from(source),
+            ..Default::default()
+        });
+    }
+    if let Some(trace) = &mut context.frontend {
+        trace.realization = if context.mode == ParseContext::Runtime {
+            crate::frontend_context::ParseRealization::Observed
+        } else {
+            crate::frontend_context::ParseRealization::Deferred
+        };
+    }
     let environment = context
         .host
         .as_ref()
         .map_or(crate::enqueuer::EnqueueEnvironment::TopLevel, |host| {
             host.enqueue_environment()
         });
-    let mut queue = if environment == crate::enqueuer::EnqueueEnvironment::TopLevel {
-        enqueue(source)?
-    } else {
-        crate::enqueuer::enqueue_in_environment(
-            source,
-            &crate::primitive::PrimitiveContext::core(),
-            environment,
-        )?
-    };
+    if let Some(trace) = &mut context.frontend {
+        trace.source_origin = Some(context.source_origin.clone());
+    }
+    let mut queue = crate::enqueuer::enqueue_with_origin(
+        source,
+        &crate::primitive::PrimitiveContext::core(),
+        environment,
+        Some(&context.source_origin),
+    )?;
+    context.single_word = queue.len() == 1;
+    if let Some(trace) = &mut context.frontend {
+        trace.words = queue
+            .iter()
+            .map(|word| WordRecord {
+                span: word.span.clone(),
+                class: word.class,
+                flags: word.flags,
+                environment,
+                name: match &word.payload {
+                    EnqueuedPayload::Name(name) => Some((*name).to_owned()),
+                    _ => None,
+                },
+            })
+            .collect();
+    }
     if queue.is_empty() {
         return Ok(Program {
+            frontend: context.frontend.take().map(|mut trace| {
+                trace.complete = true;
+                Arc::new(trace)
+            }),
             source: source.to_owned(),
             assignment: None,
+            noun_assignment: None,
             assignment_span: None,
             expression: None,
             reductions: Vec::new(),
@@ -2872,13 +3503,21 @@ fn parse_context(source: &str, context: &mut ActionContext<'_>) -> Result<Progra
         return Err(Error::Syntax("trailing tokens".into()).with_context(context));
     }
 
-    let (assignment, assignment_span, assignment_source) = match pending_assignment {
-        Some(PendingAssignment { name, span, source }) => (Some(name), Some(span), Some(source)),
-        None => (None, None, None),
+    let (assignment, noun_assignment, assignment_span, assignment_source) = match pending_assignment
+    {
+        Some(PendingAssignment {
+            name,
+            noun,
+            span,
+            source,
+        }) => (name, noun, Some(span), Some(source)),
+        None => (None, None, None, None),
     };
     Ok(Program {
+        frontend: context.frontend.take().map(Arc::new),
         source: source.to_owned(),
         assignment,
+        noun_assignment,
         assignment_span,
         expression: Some(result),
         reductions,
@@ -2919,6 +3558,7 @@ fn expression(
             EnqueuedPayload::Scalar(v) => {
                 items.push(Item::noun(
                     Expr {
+                        origin: None,
                         span: tokens[*pos].span.clone(),
                         kind: ExprKind::Literal(
                             v.clone()
@@ -2938,6 +3578,7 @@ fn expression(
                 };
                 items.push(Item::noun(
                     Expr {
+                        origin: None,
                         span: tokens[*pos].span.clone(),
                         kind: ExprKind::Literal(*v),
                     },
@@ -2947,18 +3588,31 @@ fn expression(
             }
             EnqueuedPayload::Name(name) => {
                 let span = tokens[*pos].span.clone();
-                // F1 now preserves every valid J NAME. Until P4 has a
-                // locale-aware namespace and NAMEBYVALUE/NAMEABANDON actions,
-                // never reinterpret those words as flat ordinary bindings.
-                let flags = tokens[*pos].flags;
-                if flags.name_form != crate::enqueuer::NameForm::Simple || flags.name_by_value {
-                    return Err(Error::Unsupported(
-                        "J locative/name-by-value runtime resolution (P4)".into(),
-                    )
-                    .at(span)
-                    .blamed_on_word(tokens[*pos].word_index));
+                // Enqueue recognizes the J NAME grammar. Until locale-scoped
+                // lookup/write exists, never flatten a locative into a key in
+                // the ordinary namespace, including assignment targets.
+                let base_noun_host = tokens[*pos].flags.name_form
+                    == crate::enqueuer::NameForm::BaseLocative
+                    && context
+                        .host
+                        .as_ref()
+                        .is_some_and(|host| host.supports_base_locative_nouns());
+                let named_noun_host = tokens[*pos].flags.name_form
+                    == crate::enqueuer::NameForm::DirectLocative
+                    && context
+                        .host
+                        .as_ref()
+                        .is_some_and(|host| host.supports_named_direct_locative_nouns());
+                if tokens[*pos].flags.name_form.is_locative() && !base_noun_host && !named_noun_host
+                {
+                    return Err(Error::Unsupported("J locative namespace resolution".into())
+                        .with_context(
+                            ErrorContext::phase(DiagnosticPhase::Parse)
+                                .with_span(span)
+                                .with_blame_word(tokens[*pos].word_index),
+                        ));
                 }
-                items.push(if flags.lookup_name {
+                items.push(if tokens[*pos].flags.lookup_name {
                     Item::lookup_name((*name).to_owned(), span)
                 } else {
                     Item::name_target((*name).to_owned(), span)
@@ -3010,7 +3664,16 @@ fn expression(
             }
         }
         let item = items.pop().expect("one item per enqueue word");
-        items.push(item.with_source(&tokens[source_word]));
+        let mut item = item.with_source(&tokens[source_word]);
+        if let Some(trace) = &mut context.frontend {
+            item.record_frontend(
+                trace,
+                ItemProducer::Word(WordId(tokens[source_word].word_index)),
+                None,
+                None,
+            );
+        }
+        items.push(item);
     }
     // Diagnose unmatched controls after reachable actions, preserving their
     // original source token. Do not replace an earlier runtime error class.
@@ -3051,6 +3714,9 @@ fn expression(
     }
 
     let item = items.pop().expect("one reduced parser item");
+    if let Some(trace) = &mut context.frontend {
+        trace.root = item.frontend_id();
+    }
     let span = item.span();
     if let Some(capture) = &mut context.capture {
         capture.result = item.occurrence;
@@ -3075,10 +3741,17 @@ fn expression(
             }
         }
     }
-    match item.value {
+    let result_origin = item.frontend_id().and_then(|id| {
+        context
+            .frontend
+            .as_ref()
+            .and_then(|trace| trace.items[id.0].semantic)
+    });
+    let result = match item.value {
         ParseValue::Noun(expr, height) => Ok((expr, height, assignment)),
         ParseValue::Verb(verb) => Ok((
             Expr {
+                origin: result_origin,
                 span: verb.span.clone(),
                 kind: ExprKind::VerbValue(verb),
             },
@@ -3087,6 +3760,7 @@ fn expression(
         )),
         ParseValue::Function(entity) => Ok((
             Expr {
+                origin: result_origin,
                 span,
                 kind: ExprKind::ModifierValue(entity),
             },
@@ -3098,7 +3772,11 @@ fn expression(
         | ParseValue::Control { .. } => {
             Err(Error::Syntax("unexpected parser control result".into()).at(span))
         }
+    }?;
+    if let Some(trace) = &mut context.frontend {
+        trace.complete = true;
     }
+    Ok(result)
 }
 
 fn checked_height(child_height: usize) -> Result<usize> {
@@ -3111,8 +3789,199 @@ fn checked_height(child_height: usize) -> Result<usize> {
 }
 
 #[cfg(test)]
+mod deferred_abandon_tests {
+    use super::*;
+
+    fn function(program: &Program) -> &Arc<FunctionEntity> {
+        match &program.expression.as_ref().unwrap().kind {
+            ExprKind::VerbValue(verb) | ExprKind::Monad { verb, .. } => &verb.entity,
+            ExprKind::ModifierValue(function) => function,
+            kind => panic!("unexpected expression {kind:?}"),
+        }
+    }
+
+    #[test]
+    fn deferred_function_transport_preserves_pos_source_and_context() {
+        for pos in [
+            FunctionPartOfSpeech::Verb,
+            FunctionPartOfSpeech::Adverb,
+            FunctionPartOfSpeech::Conjunction,
+        ] {
+            for (source, single) in [
+                ("taken_:", true),
+                ("saved=:taken_:", false),
+                ("(taken_:)", false),
+            ] {
+                let program =
+                    parse_analysis(source, &|_| Some(ParserNameBinding::Function(pos))).unwrap();
+                let entity = function(&program);
+                assert_eq!(entity.result_pos, pos);
+                assert!(
+                    matches!(&entity.head, FunctionHead::TakeName { name, single_word } if name == "taken" && *single_word == single)
+                );
+                assert!(entity.operands.is_empty());
+                assert!(entity.innate_ranks().is_none());
+                let context = program.frontend.as_ref().unwrap();
+                context.verify().unwrap();
+                assert!(context.complete);
+                assert_eq!(context.name_uses[0].policy, NamePolicy::CaptureAndAbandon);
+                assert_eq!(context.name_uses[0].evidence, NameEvidence::CatalogClass);
+                assert!(program.name_rank_snapshots.is_empty());
+                assert_eq!(
+                    crate::semantic::bind(program.clone(), |_| Some(crate::semantic::NameVersion(
+                        1
+                    )))
+                    .unwrap_err()
+                    .kind(),
+                    "unsupported"
+                );
+                // Even callers constructing BoundProgram themselves cannot
+                // silently turn the deferred effect into a function constant.
+                if source == "taken_:" && pos == FunctionPartOfSpeech::Verb {
+                    let mut observed = ParseCapture::default();
+                    observed.set_source(source);
+                    observed.events.push(CaptureEvent::FunctionResult {
+                        function: function(&program).clone(),
+                        span: 0..source.len(),
+                    });
+                    observed.verify().unwrap();
+                    assert_eq!(
+                        crate::j_graph_ir::Plan::from_capture(&observed)
+                            .unwrap_err()
+                            .kind(),
+                        "unsupported"
+                    );
+                }
+                let forged = crate::semantic::BoundProgram {
+                    program,
+                    reads: vec![],
+                    verb_references: vec![],
+                    write: None,
+                };
+                assert_eq!(
+                    crate::j_graph_ir::Plan::from_bound(forged)
+                        .unwrap_err()
+                        .kind(),
+                    "unsupported"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn deferred_function_effect_is_not_erased_inside_applied_trains() {
+        for source in ["taken_: 3", "(-taken_:)3"] {
+            let program = parse_analysis(source, &|_| {
+                Some(ParserNameBinding::Function(FunctionPartOfSpeech::Verb))
+            })
+            .unwrap();
+            program.frontend.as_ref().unwrap().verify().unwrap();
+            assert_eq!(
+                function(&program)
+                    .reject_deferred_name_effects()
+                    .unwrap_err()
+                    .kind(),
+                "unsupported"
+            );
+            assert_eq!(
+                crate::semantic::bind(program.clone(), |_| Some(crate::semantic::NameVersion(1)))
+                    .unwrap_err()
+                    .kind(),
+                "unsupported"
+            );
+            let forged = crate::semantic::BoundProgram {
+                program,
+                reads: vec![],
+                verb_references: vec![],
+                write: None,
+            };
+            assert_eq!(
+                crate::j_graph_ir::Plan::from_bound(forged)
+                    .unwrap_err()
+                    .kind(),
+                "unsupported"
+            );
+        }
+    }
+
+    #[test]
+    fn catalog_identity_is_not_a_captured_function_value() {
+        for binding in [
+            ParserNameBinding::KnownVerb {
+                function: FunctionEntity::primitive(crate::primitive::PrimitiveId::Add, 0..1),
+                version: crate::semantic::NameVersion(7),
+            },
+            ParserNameBinding::KnownModifier {
+                function: FunctionEntity::primitive_adverb(
+                    crate::primitive::AdverbId::Insert,
+                    0..1,
+                ),
+                version: crate::semantic::NameVersion(7),
+            },
+        ] {
+            let program = parse_analysis("taken_:", &|_| Some(binding.clone())).unwrap();
+            let context = program.frontend.as_ref().unwrap();
+            context.verify().unwrap();
+            assert_eq!(
+                context.name_uses[0].binding_version,
+                Some(crate::semantic::NameVersion(7))
+            );
+            assert!(matches!(
+                function(&program).head,
+                FunctionHead::TakeName { .. }
+            ));
+            assert!(program.modifier_snapshots.is_empty());
+        }
+    }
+
+    #[test]
+    fn deferred_function_verifier_rejects_wrong_name_or_sentence_context() {
+        let program = parse_analysis("saved=:taken_:", &|_| {
+            Some(ParserNameBinding::Function(FunctionPartOfSpeech::Verb))
+        })
+        .unwrap();
+        let context = program.frontend.unwrap();
+        for (name, single_word) in [("other", false), ("taken", true)] {
+            let mut invalid = context.as_ref().clone();
+            for node in &mut invalid.nodes {
+                if matches!(&node.kind, NodeKind::Function(f) if matches!(f.head, FunctionHead::TakeName { .. }))
+                {
+                    node.kind = NodeKind::Function(FunctionEntity::derived(
+                        FunctionHead::TakeName {
+                            name: name.into(),
+                            single_word,
+                        },
+                        FunctionPartOfSpeech::Verb,
+                        7..14,
+                        Vec::new(),
+                    ));
+                }
+            }
+            assert!(invalid.verify().is_err());
+        }
+    }
+}
+
+#[cfg(test)]
 mod parser_table_tests {
     use super::{ParseClass::*, ParseRow, match_parse_row};
+
+    #[test]
+    fn modifier_nameref_is_resolved_at_construction_not_at_verb_call() {
+        let program = super::parse_analysis("modifier", &|_| {
+            Some(super::ParserNameBinding::Function(
+                crate::semantic::FunctionPartOfSpeech::Conjunction,
+            ))
+        })
+        .unwrap();
+        let context = program.frontend.unwrap();
+        context.verify().unwrap();
+        assert_eq!(
+            context.name_uses[0].policy,
+            crate::frontend_context::NamePolicy::ResolveAtConstruction
+        );
+        assert_eq!(context.name_uses[0].result_class, Conjunction);
+    }
 
     #[test]
     fn pinned_jsource_rows_and_precedence_are_exact() {
@@ -3389,18 +4258,115 @@ mod stack_entry_tests {
 #[cfg(test)]
 mod runtime_action_tests {
     use super::*;
+
+    #[test]
+    fn lookup_failure_preserves_error_span_and_stops_left_lookup_and_execution() {
+        struct FailingHost {
+            reads: Vec<String>,
+            error: Option<Error>,
+        }
+        impl RuntimeParserHost for FailingHost {
+            fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>> {
+                self.reads.push(name.into());
+                Err(self.error.take().expect("no lookup after failure"))
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                panic!("no version observation after failed lookup")
+            }
+            fn apply(&mut self, _: Expr) -> Result<Value> {
+                panic!("no execution after failed lookup")
+            }
+        }
+        for failure in [
+            Error::Domain,
+            Error::Value("holder".into()),
+            Error::Unsupported("locale lookup".into()),
+        ] {
+            let kind = failure.kind();
+            let mut host = FailingHost {
+                reads: Vec::new(),
+                error: Some(failure),
+            };
+            let mut capture = ParseCapture::default();
+            let error =
+                parse_runtime_host("left + right", &mut host, Some(&mut capture)).unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(error.span(), Some(&(7..12)));
+            assert_eq!(error.context().unwrap().blame_word_index, Some(2));
+            assert_eq!(host.reads, ["right"]);
+            assert!(
+                capture.events.is_empty(),
+                "failed lookup is not a successful read"
+            );
+        }
+    }
+
+    #[test]
+    fn failed_lookup_keeps_prior_execution_and_capture_without_replay() {
+        struct Host {
+            calls: usize,
+            reads: usize,
+        }
+        impl RuntimeParserHost for Host {
+            fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>> {
+                assert_eq!(name, "missing");
+                self.reads += 1;
+                Err(Error::Domain)
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                panic!("failed read has no version witness")
+            }
+            fn apply(&mut self, _: Expr) -> Result<Value> {
+                self.calls += 1;
+                Ok(Value::scalar(3))
+            }
+        }
+        let mut host = Host { calls: 0, reads: 0 };
+        let mut capture = ParseCapture::default();
+        let error =
+            parse_runtime_host("missing + (1 + 2)", &mut host, Some(&mut capture)).unwrap_err();
+        assert_eq!(error.kind(), "domain error");
+        assert_eq!(error.span(), Some(&(0..7)));
+        assert_eq!(error.context().unwrap().blame_word_index, Some(0));
+        assert_eq!((host.calls, host.reads), (1, 1));
+        assert!(
+            !capture.events.is_empty(),
+            "completed right call remains captured"
+        );
+    }
+
+    #[test]
+    fn missing_lookup_still_builds_a_late_function_reference() {
+        struct MissingHost;
+        impl RuntimeParserHost for MissingHost {
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
+                Ok(None)
+            }
+            fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
+                None
+            }
+            fn apply(&mut self, _: Expr) -> Result<Value> {
+                panic!("bare missing name is deferred")
+            }
+        }
+        let program = parse_runtime_host("future", &mut MissingHost, None).unwrap();
+        let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
+            panic!("missing name must remain a function reference");
+        };
+        assert_eq!(verb.target, VerbTarget::Named("future".into()));
+        assert!(matches!(&verb.entity.head, FunctionHead::NameRef(name) if name == "future"));
+    }
+
     struct Host {
         log: Vec<String>,
         left: i64,
     }
     impl RuntimeParserHost for Host {
-        fn lookup(&mut self, name: &str) -> Option<ParserNameBinding> {
+        fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>> {
             self.log.push(format!("lookup:{name}"));
-            Some(ParserNameBinding::Noun(Value::scalar(if name == "left" {
-                self.left
-            } else {
-                3
-            })))
+            Ok(Some(ParserNameBinding::Noun(Value::scalar(
+                if name == "left" { self.left } else { 3 },
+            ))))
         }
         fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
             None
@@ -3450,11 +4416,13 @@ mod modifier_storage_tests {
         };
         let pointer = storage.as_slice().as_ptr();
         let literal = Expr {
+            origin: None,
             span: 0..1,
             kind: ExprKind::Literal(value),
         };
         let item = Item::noun(
             Expr {
+                origin: None,
                 span: 0..1,
                 kind: ExprKind::Group(Box::new(literal)),
             },
@@ -3488,8 +4456,8 @@ mod gerund_ar_tests {
             calls: usize,
         }
         impl RuntimeParserHost for Host {
-            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
-                None
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
+                Ok(None)
             }
             fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
                 None
@@ -3560,8 +4528,8 @@ mod gerund_ar_tests {
             calls: usize,
         }
         impl RuntimeParserHost for Host {
-            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
-                None
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
+                Ok(None)
             }
             fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
                 None
@@ -3830,8 +4798,10 @@ mod completed_result_tests {
         let pointer = data.as_ptr();
         let item = Item::noun(
             Expr {
+                origin: None,
                 span: 2..9,
                 kind: ExprKind::Group(Box::new(Expr {
+                    origin: None,
                     span: 3..8,
                     kind: ExprKind::Literal(value),
                 })),
@@ -3912,7 +4882,7 @@ mod completed_result_tests {
             version: u64,
         }
         impl RuntimeParserHost for Host {
-            fn lookup(&mut self, _: &str) -> Option<ParserNameBinding> {
+            fn lookup(&mut self, _: &str) -> Result<Option<ParserNameBinding>> {
                 panic!("no name reads")
             }
             fn version(&self, _: &str) -> Option<crate::semantic::NameVersion> {
@@ -3979,8 +4949,10 @@ mod completed_constructor_operand_tests {
         let pointer = data.as_ptr();
         let noun = Item::noun(
             Expr {
+                origin: None,
                 span: 2..8,
                 kind: ExprKind::Group(Box::new(Expr {
+                    origin: None,
                     span: 3..7,
                     kind: ExprKind::Literal(value),
                 })),
@@ -4095,6 +5067,7 @@ mod rank_constructor_transport_tests {
         let verb = apply_conjunction_at(
             Item::noun(
                 Expr {
+                    origin: None,
                     span: 1..8,
                     kind: ExprKind::Literal(left),
                 },
@@ -4104,6 +5077,7 @@ mod rank_constructor_transport_tests {
             FunctionEntity::primitive_conjunction(ConjunctionId::Rank, 9..10),
             Item::noun(
                 Expr {
+                    origin: None,
                     span: 11..16,
                     kind: ExprKind::Literal(right),
                 },
@@ -4141,6 +5115,7 @@ mod rank_constructor_transport_tests {
         let deferred = || {
             Item::noun(
                 Expr {
+                    origin: None,
                     span: 0..4,
                     kind: ExprKind::ReadName("late".into()),
                 },
@@ -4151,6 +5126,7 @@ mod rank_constructor_transport_tests {
         let noun = |value| {
             Item::noun(
                 Expr {
+                    origin: None,
                     span: 5..9,
                     kind: ExprKind::Literal(value),
                 },
@@ -4229,8 +5205,10 @@ mod fork_definition_transport_tests {
         let original_h = h.entity.clone();
         let fork = train_noun_fork(
             Expr {
+                origin: None,
                 span: 1..9,
                 kind: ExprKind::Group(Box::new(Expr {
+                    origin: None,
                     span: 2..8,
                     kind: ExprKind::Literal(value),
                 })),
@@ -4271,6 +5249,7 @@ mod fork_definition_transport_tests {
         }
         let error = train_noun_fork(
             Expr {
+                origin: None,
                 span: 0..4,
                 kind: ExprKind::ReadName("late".into()),
             },
@@ -4294,6 +5273,7 @@ mod fork_definition_transport_tests {
         let deferred = || {
             Item::noun(
                 Expr {
+                    origin: None,
                     span: 0..4,
                     kind: ExprKind::ReadName("late".into()),
                 },
@@ -4303,6 +5283,7 @@ mod fork_definition_transport_tests {
         let scalar = |value| {
             Item::noun(
                 Expr {
+                    origin: None,
                     span: 0..1,
                     kind: ExprKind::Literal(Value::scalar(value)),
                 },

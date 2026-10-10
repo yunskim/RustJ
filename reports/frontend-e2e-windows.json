@@ -1,0 +1,547 @@
+{
+  "schema": 1,
+  "platform": "win32",
+  "rust_revision": "7e9abdd+definition-calls-working-tree",
+  "reproduce": "cargo run --example frontend_e2e",
+  "example_sha256": "c691a64dc553a5111c184d8f5e9361f56e4dea6d5d657e4d394c3b446fc9c29d",
+  "runtime_source_sha256": "9f1dd3c7a331c27c1e7e4f142dc7cf26500cf2678e8d501e45f0fb702381d0d3",
+  "example_binary_sha256": "307b241201d4db6f14f6885c74affeefe1551e33815125fc8af732f4a7c9e264",
+  "notes": [
+    "Trace fields preserve actual Rust Debug output; they are not a stable IR serialization API.",
+    "ANALYSIS_PROGRAM is read-only deferred analysis, not the eager runtime result.",
+    "ENQUEUE/PARSER/NAME_USES are from the actual outer runtime parser; inner definition body events are not recursively exported.",
+    "Every observed frontend context and capture was verified by the executable example.",
+    "All 14 result observations agree with both pinned C DLLs and both Rust evaluation paths."
+  ],
+  "records": [
+    {
+      "source": "a=:1 2 3",
+      "tokens": [
+        "a",
+        "=:",
+        "1 2 3"
+      ],
+      "result": {
+        "silent": true
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..1 class=Name flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"a\")",
+        "QUEUED_WORD 1 span=1..3 class=Assignment flags=EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } payload=Assign",
+        "QUEUED_WORD 2 span=3..8 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload={\"type\":4,\"shape\":[3],\"data\":[1,2,3]}",
+        "ANALYSIS_PROGRAM assignment=Some(\"a\") assignment_source=Some(AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } }) expression=Literal({\"type\":4,\"shape\":[3],\"data\":[1,2,3]})",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(3))",
+        "ENQUEUE [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"a\") }, WordRecord { span: 1..3, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 3..8, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(3))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(1)), word_range: 0..3, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(2)), None], consumed: [ItemId(0), ItemId(1), ItemId(2)], produced: ItemId(3) }]",
+        "NAME_USES []",
+        "NODE 0 Noun Literal",
+        "NODE 1 Noun WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(0) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(3)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "COMMIT name=\"a\" version=NameVersion(1) class=Noun",
+        "RESULT {\"silent\":true}"
+      ]
+    },
+    {
+      "source": "a+2*3",
+      "tokens": [
+        "a",
+        "+",
+        "2",
+        "*",
+        "3"
+      ],
+      "result": {
+        "type": 4,
+        "shape": [
+          3
+        ],
+        "data": [
+          7,
+          8,
+          9
+        ]
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..1 class=Name flags=EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"a\")",
+        "QUEUED_WORD 1 span=1..2 class=Verb flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Verb(Add)",
+        "QUEUED_WORD 2 span=2..3 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(2))",
+        "QUEUED_WORD 3 span=3..4 class=Verb flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Verb(Multiply)",
+        "QUEUED_WORD 4 span=4..5 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(3))",
+        "ANALYSIS_PROGRAM assignment=None assignment_source=None expression=Dyad { function: PrimitiveVerb(Add), left: ReadName(\"a\"), right: Dyad { function: PrimitiveVerb(Multiply), left: Literal({\"type\":4,\"shape\":[],\"data\":[2]}), right: Literal({\"type\":4,\"shape\":[],\"data\":[3]}) } }",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(8))",
+        "ENQUEUE [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"a\") }, WordRecord { span: 1..2, class: Verb, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 2..3, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 3..4, class: Verb, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 4..5, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(8))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Verb, semantic: Some(NodeId(0)), word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(1)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Word(WordId(3)), class: Verb, semantic: Some(NodeId(2)), word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Word(WordId(4)), class: Noun, semantic: Some(NodeId(3)), word_range: 4..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(4)), word_range: 2..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Noun, semantic: Some(NodeId(5)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }, ItemRecord { producer: Reduction(ReductionId(1)), class: Noun, semantic: Some(NodeId(6)), word_range: 0..5, blame_word: Some(WordId(4)) }]",
+        "STEPS [Stack { queued: ItemId(4), resolved: ItemId(4) }, Stack { queued: ItemId(3), resolved: ItemId(3) }, Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Reduce(ReductionId(0)), Stack { queued: ItemId(0), resolved: ItemId(6) }, FrontMark(ItemId(7)), Reduce(ReductionId(1))]",
+        "REDUCTIONS [ReductionRecord { row: DyadNVN, window: [Some(ItemId(1)), Some(ItemId(2)), Some(ItemId(3)), Some(ItemId(4))], consumed: [ItemId(2), ItemId(3), ItemId(4)], produced: ItemId(5) }, ReductionRecord { row: DyadNVN, window: [Some(ItemId(7)), Some(ItemId(6)), Some(ItemId(1)), Some(ItemId(5))], consumed: [ItemId(6), ItemId(1), ItemId(5)], produced: ItemId(8) }]",
+        "NAME_USES [NameUseRecord { word: WordId(0), input: ItemId(0), output: ItemId(6), result_class: Noun, policy: CaptureAtRead, resolution: NounValue, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(4)), binding_class: Some(Noun) }) }]",
+        "NODE 0 Verb PrimitiveVerb(Add)",
+        "NODE 1 Noun Literal",
+        "NODE 2 Verb PrimitiveVerb(Multiply)",
+        "NODE 3 Noun Literal",
+        "NODE 4 Noun Dyad { function: NodeId(2), left: NodeId(1), right: NodeId(3) }",
+        "NODE 5 Noun ReadNoun(NameUseId(0))",
+        "NODE 6 Noun Dyad { function: NodeId(0), left: NodeId(5), right: NodeId(4) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(1)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(3)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(3), items: [ItemId(4)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(4), items: [ItemId(5)], reductions: [ReductionId(0)], name_uses: [] }, NodeOrigin { node: NodeId(5), items: [ItemId(6)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(6), items: [ItemId(8)], reductions: [ReductionId(1)], name_uses: [] }]",
+        "APPLY PrimitiveVerb(Multiply) x=Some(OccurrenceId(1)) y=OccurrenceId(0)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([]), rank: Some(0) }",
+        "APPLY PrimitiveVerb(Add) x=Some(OccurrenceId(3)) y=OccurrenceId(2)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([3]), rank: Some(1) }",
+        "RESULT {\"type\":4,\"shape\":[3],\"data\":[7,8,9]}"
+      ]
+    },
+    {
+      "source": "g=:10",
+      "tokens": [
+        "g",
+        "=:",
+        "10"
+      ],
+      "result": {
+        "silent": true
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..1 class=Name flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"g\")",
+        "QUEUED_WORD 1 span=1..3 class=Assignment flags=EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } payload=Assign",
+        "QUEUED_WORD 2 span=3..5 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(10))",
+        "ANALYSIS_PROGRAM assignment=Some(\"g\") assignment_source=Some(AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } }) expression=Literal({\"type\":4,\"shape\":[],\"data\":[10]})",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(3))",
+        "ENQUEUE [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"g\") }, WordRecord { span: 1..3, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 3..5, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(3))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(1)), word_range: 0..3, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(2)), None], consumed: [ItemId(0), ItemId(1), ItemId(2)], produced: ItemId(3) }]",
+        "NAME_USES []",
+        "NODE 0 Noun Literal",
+        "NODE 1 Noun WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(0) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(3)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "COMMIT name=\"g\" version=NameVersion(1) class=Noun",
+        "RESULT {\"silent\":true}"
+      ]
+    },
+    {
+      "source": "explicit=:3 : 0\nt=.y+g\nt\n)",
+      "tokens": [
+        "explicit",
+        "=:",
+        "3",
+        ":",
+        "0",
+        "\n",
+        "t",
+        "=.",
+        "y",
+        "+",
+        "g",
+        "\n",
+        "t",
+        "\n",
+        ")"
+      ],
+      "result": {
+        "silent": true
+      },
+      "trace": [
+        "FRAME Definition(DefinitionInput { form: ExplicitBlock(3), span: 10..26, body: 16..25, nested: [] })",
+        "QUEUED_WORD 0 span=0..8 class=Name flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"explicit\")",
+        "QUEUED_WORD 1 span=8..10 class=Assignment flags=EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } payload=Assign",
+        "QUEUED_WORD 2 span=10..26 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(3))",
+        "QUEUED_WORD 3 span=10..26 class=Conjunction flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=DefinitionConstructor { form: ExplicitBlock(3), source_span: 10..26 }",
+        "QUEUED_WORD 4 span=10..26 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload={\"type\":2,\"shape\":[9],\"data\":[116,61,46,121,43,103,10,116,10]}",
+        "ANALYSIS_PROGRAM assignment=Some(\"explicit\") assignment_source=Some(AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } }) expression=VerbValue(ExplicitDefinition { pos: Verb, form: ExplicitBlock(3), mode: 3, source_span: 10..26, body: \"t=.y+g\\nt\\n\", monad: 0..2, dyad: 2..2, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [\"t\"], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: LocalAssignmentTarget }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 4, span: 5..6, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 1, word: 0, span: 7..8, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] } }, monad_controls: [ControlNode { span: 0..6, line: 0, words: 0..5, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }, ControlNode { span: 7..8, line: 1, words: 0..1, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }], dyad_controls: [] })",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(6))",
+        "ENQUEUE [WordRecord { span: 0..8, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"explicit\") }, WordRecord { span: 8..10, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 10..26, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 10..26, class: Conjunction, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 10..26, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(6))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Word(WordId(3)), class: Conjunction, semantic: Some(NodeId(1)), word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Word(WordId(4)), class: Noun, semantic: Some(NodeId(2)), word_range: 4..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(3)), word_range: 2..5, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(1)), class: Verb, semantic: Some(NodeId(4)), word_range: 0..5, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(4), resolved: ItemId(4) }, Stack { queued: ItemId(3), resolved: ItemId(3) }, Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Reduce(ReductionId(0)), Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(1))]",
+        "REDUCTIONS [ReductionRecord { row: Conjunction, window: [Some(ItemId(1)), Some(ItemId(2)), Some(ItemId(3)), Some(ItemId(4))], consumed: [ItemId(2), ItemId(3), ItemId(4)], produced: ItemId(5) }, ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(5)), None], consumed: [ItemId(0), ItemId(1), ItemId(5)], produced: ItemId(6) }]",
+        "NAME_USES []",
+        "NODE 0 Noun Literal",
+        "NODE 1 Conjunction DefinitionConstructor { form: ExplicitBlock(3), source_span: 10..26 }",
+        "NODE 2 Noun Literal",
+        "NODE 3 Verb Construct { row: Conjunction, inputs: [NodeId(0), NodeId(1), NodeId(2)], function: ExplicitDefinition { pos: Verb, form: ExplicitBlock(3), mode: 3, source_span: 10..26, body: \"t=.y+g\\nt\\n\", monad: 0..2, dyad: 2..2, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [\"t\"], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: LocalAssignmentTarget }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 4, span: 5..6, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 1, word: 0, span: 7..8, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] } }, monad_controls: [ControlNode { span: 0..6, line: 0, words: 0..5, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }, ControlNode { span: 7..8, line: 1, words: 0..1, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }], dyad_controls: [] } }",
+        "NODE 4 Verb WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(3) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(3)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(4)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(3), items: [ItemId(5)], reductions: [ReductionId(0)], name_uses: [] }, NodeOrigin { node: NodeId(4), items: [ItemId(6)], reductions: [ReductionId(1)], name_uses: [] }]",
+        "COMMIT name=\"explicit\" version=NameVersion(1) class=Verb",
+        "COMMITTED_FUNCTION ExplicitDefinition { pos: Verb, form: ExplicitBlock(3), mode: 3, source_span: 10..26, body: \"t=.y+g\\nt\\n\", monad: 0..2, dyad: 2..2, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [\"t\"], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: LocalAssignmentTarget }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 4, span: 5..6, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 1, word: 0, span: 7..8, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] } }, monad_controls: [ControlNode { span: 0..6, line: 0, words: 0..5, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }, ControlNode { span: 7..8, line: 1, words: 0..1, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }], dyad_controls: [] }",
+        "DEFINITION_BODY_WORDS [DefinitionSentence { span: 0..6, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..3, index: 1, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: true, assignment_to_name: true } }, DefinitionWord { span: 3..4, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 4..5, index: 3, class: Verb, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 5..6, index: 4, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }, DefinitionSentence { span: 7..8, line: 1, words: [DefinitionWord { span: 7..8, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }]",
+        "RESULT {\"silent\":true}"
+      ]
+    },
+    {
+      "source": "direct=:{{ t=.y+g\nt }}",
+      "tokens": [
+        "direct",
+        "=:",
+        "{{",
+        "t",
+        "=.",
+        "y",
+        "+",
+        "g",
+        "\n",
+        "t",
+        "}}"
+      ],
+      "result": {
+        "silent": true
+      },
+      "trace": [
+        "FRAME Definition(DefinitionInput { form: Direct, span: 8..22, body: 10..20, nested: [] })",
+        "QUEUED_WORD 0 span=0..6 class=Name flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"direct\")",
+        "QUEUED_WORD 1 span=6..8 class=Assignment flags=EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } payload=Assign",
+        "QUEUED_WORD 2 span=8..22 class=LeftParen flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Open",
+        "QUEUED_WORD 3 span=8..22 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(9))",
+        "QUEUED_WORD 4 span=8..22 class=Conjunction flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=DefinitionConstructor { form: Direct, source_span: 8..22 }",
+        "QUEUED_WORD 5 span=8..22 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload={\"type\":2,\"shape\":[9],\"data\":[116,61,46,121,43,103,10,116,32]}",
+        "QUEUED_WORD 6 span=8..22 class=RightParen flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Close",
+        "ANALYSIS_PROGRAM assignment=Some(\"direct\") assignment_source=Some(AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } }) expression=VerbValue(ExplicitDefinition { pos: Verb, form: Direct, mode: 3, source_span: 8..22, body: \"t=.y+g\\nt \", monad: 0..2, dyad: 2..2, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [\"t\"], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: LocalAssignmentTarget }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 4, span: 5..6, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 1, word: 0, span: 7..8, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] } }, monad_controls: [ControlNode { span: 0..6, line: 0, words: 0..5, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }, ControlNode { span: 7..8, line: 1, words: 0..1, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }], dyad_controls: [] })",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(9))",
+        "ENQUEUE [WordRecord { span: 0..6, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"direct\") }, WordRecord { span: 6..8, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 8..22, class: LeftParen, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..22, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..22, class: Conjunction, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..22, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..22, class: RightParen, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(9))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: LParen, semantic: None, word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Word(WordId(3)), class: Noun, semantic: Some(NodeId(0)), word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Word(WordId(4)), class: Conjunction, semantic: Some(NodeId(1)), word_range: 4..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: Word(WordId(5)), class: Noun, semantic: Some(NodeId(2)), word_range: 5..6, blame_word: Some(WordId(5)) }, ItemRecord { producer: Word(WordId(6)), class: RParen, semantic: None, word_range: 6..7, blame_word: Some(WordId(6)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(3)), word_range: 3..6, blame_word: Some(WordId(3)) }, ItemRecord { producer: Reduction(ReductionId(1)), class: Verb, semantic: Some(NodeId(3)), word_range: 2..7, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(2)), class: Verb, semantic: Some(NodeId(4)), word_range: 0..7, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(6), resolved: ItemId(6) }, Stack { queued: ItemId(5), resolved: ItemId(5) }, Stack { queued: ItemId(4), resolved: ItemId(4) }, Stack { queued: ItemId(3), resolved: ItemId(3) }, Stack { queued: ItemId(2), resolved: ItemId(2) }, Reduce(ReductionId(0)), Reduce(ReductionId(1)), Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(2))]",
+        "REDUCTIONS [ReductionRecord { row: Conjunction, window: [Some(ItemId(2)), Some(ItemId(3)), Some(ItemId(4)), Some(ItemId(5))], consumed: [ItemId(3), ItemId(4), ItemId(5)], produced: ItemId(7) }, ReductionRecord { row: Parenthesis, window: [Some(ItemId(2)), Some(ItemId(7)), Some(ItemId(6)), None], consumed: [ItemId(2), ItemId(7), ItemId(6)], produced: ItemId(8) }, ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(8)), None], consumed: [ItemId(0), ItemId(1), ItemId(8)], produced: ItemId(9) }]",
+        "NAME_USES []",
+        "NODE 0 Noun Literal",
+        "NODE 1 Conjunction DefinitionConstructor { form: Direct, source_span: 8..22 }",
+        "NODE 2 Noun Literal",
+        "NODE 3 Verb Construct { row: Conjunction, inputs: [NodeId(0), NodeId(1), NodeId(2)], function: ExplicitDefinition { pos: Verb, form: Direct, mode: 3, source_span: 8..22, body: \"t=.y+g\\nt \", monad: 0..2, dyad: 2..2, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [\"t\"], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: LocalAssignmentTarget }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 4, span: 5..6, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 1, word: 0, span: 7..8, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] } }, monad_controls: [ControlNode { span: 0..6, line: 0, words: 0..5, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }, ControlNode { span: 7..8, line: 1, words: 0..1, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }], dyad_controls: [] } }",
+        "NODE 4 Verb WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(3) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(3)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(5)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(3), items: [ItemId(7), ItemId(8)], reductions: [ReductionId(0), ReductionId(1)], name_uses: [] }, NodeOrigin { node: NodeId(4), items: [ItemId(9)], reductions: [ReductionId(2)], name_uses: [] }]",
+        "COMMIT name=\"direct\" version=NameVersion(1) class=Verb",
+        "COMMITTED_FUNCTION ExplicitDefinition { pos: Verb, form: Direct, mode: 3, source_span: 8..22, body: \"t=.y+g\\nt \", monad: 0..2, dyad: 2..2, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [\"t\"], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: LocalAssignmentTarget }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 3..4, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 4, span: 5..6, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 1, word: 0, span: 7..8, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] } }, monad_controls: [ControlNode { span: 0..6, line: 0, words: 0..5, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }, ControlNode { span: 7..8, line: 1, words: 0..1, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }], dyad_controls: [] }",
+        "DEFINITION_BODY_WORDS [DefinitionSentence { span: 0..6, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..3, index: 1, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: true, assignment_to_name: true } }, DefinitionWord { span: 3..4, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 4..5, index: 3, class: Verb, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 5..6, index: 4, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }, DefinitionSentence { span: 7..9, line: 1, words: [DefinitionWord { span: 7..8, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }]",
+        "RESULT {\"silent\":true}"
+      ]
+    },
+    {
+      "source": "explicit 2",
+      "tokens": [
+        "explicit",
+        "2"
+      ],
+      "result": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          12
+        ]
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..8 class=Name flags=EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"explicit\")",
+        "QUEUED_WORD 1 span=9..10 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(2))",
+        "ANALYSIS_PROGRAM assignment=None assignment_source=None expression=Monad { function: NameRef(\"explicit\"), argument: Literal({\"type\":4,\"shape\":[],\"data\":[2]}) }",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(4))",
+        "ENQUEUE [WordRecord { span: 0..8, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"explicit\") }, WordRecord { span: 9..10, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(4))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Noun, semantic: Some(NodeId(0)), word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(1)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(2)), word_range: 0..2, blame_word: Some(WordId(1)) }]",
+        "STEPS [Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(2) }, FrontMark(ItemId(3)), Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: MonadEdge, window: [Some(ItemId(3)), Some(ItemId(2)), Some(ItemId(1)), None], consumed: [ItemId(2), ItemId(1)], produced: ItemId(4) }]",
+        "NAME_USES [NameUseRecord { word: WordId(0), input: ItemId(0), output: ItemId(2), result_class: Verb, policy: LateAtCall, resolution: FunctionReference, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(12)), binding_class: Some(Verb) }) }]",
+        "NODE 0 Noun Literal",
+        "NODE 1 Verb NameRef(\"explicit\")",
+        "NODE 2 Noun Monad { function: NodeId(1), argument: NodeId(0) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(1)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(2)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(2), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "APPLY NameRef(\"explicit\") x=None y=OccurrenceId(0)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([]), rank: Some(0) }",
+        "RESULT {\"type\":4,\"shape\":[],\"data\":[12]}"
+      ]
+    },
+    {
+      "source": "direct 2",
+      "tokens": [
+        "direct",
+        "2"
+      ],
+      "result": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          12
+        ]
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..6 class=Name flags=EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"direct\")",
+        "QUEUED_WORD 1 span=7..8 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(2))",
+        "ANALYSIS_PROGRAM assignment=None assignment_source=None expression=Monad { function: NameRef(\"direct\"), argument: Literal({\"type\":4,\"shape\":[],\"data\":[2]}) }",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(4))",
+        "ENQUEUE [WordRecord { span: 0..6, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"direct\") }, WordRecord { span: 7..8, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(4))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Noun, semantic: Some(NodeId(0)), word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(1)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(2)), word_range: 0..2, blame_word: Some(WordId(1)) }]",
+        "STEPS [Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(2) }, FrontMark(ItemId(3)), Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: MonadEdge, window: [Some(ItemId(3)), Some(ItemId(2)), Some(ItemId(1)), None], consumed: [ItemId(2), ItemId(1)], produced: ItemId(4) }]",
+        "NAME_USES [NameUseRecord { word: WordId(0), input: ItemId(0), output: ItemId(2), result_class: Verb, policy: LateAtCall, resolution: FunctionReference, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(15)), binding_class: Some(Verb) }) }]",
+        "NODE 0 Noun Literal",
+        "NODE 1 Verb NameRef(\"direct\")",
+        "NODE 2 Noun Monad { function: NodeId(1), argument: NodeId(0) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(1)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(2)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(2), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "APPLY NameRef(\"direct\") x=None y=OccurrenceId(0)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([]), rank: Some(0) }",
+        "RESULT {\"type\":4,\"shape\":[],\"data\":[12]}"
+      ]
+    },
+    {
+      "source": "g=:20",
+      "tokens": [
+        "g",
+        "=:",
+        "20"
+      ],
+      "result": {
+        "silent": true
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..1 class=Name flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"g\")",
+        "QUEUED_WORD 1 span=1..3 class=Assignment flags=EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } payload=Assign",
+        "QUEUED_WORD 2 span=3..5 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(20))",
+        "ANALYSIS_PROGRAM assignment=Some(\"g\") assignment_source=Some(AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } }) expression=Literal({\"type\":4,\"shape\":[],\"data\":[20]})",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(3))",
+        "ENQUEUE [WordRecord { span: 0..1, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"g\") }, WordRecord { span: 1..3, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 3..5, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(3))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(1)), word_range: 0..3, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(2)), None], consumed: [ItemId(0), ItemId(1), ItemId(2)], produced: ItemId(3) }]",
+        "NAME_USES []",
+        "NODE 0 Noun Literal",
+        "NODE 1 Noun WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(0) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(3)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "COMMIT name=\"g\" version=NameVersion(2) class=Noun",
+        "RESULT {\"silent\":true}"
+      ]
+    },
+    {
+      "source": "explicit 2",
+      "tokens": [
+        "explicit",
+        "2"
+      ],
+      "result": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          22
+        ]
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..8 class=Name flags=EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"explicit\")",
+        "QUEUED_WORD 1 span=9..10 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(2))",
+        "ANALYSIS_PROGRAM assignment=None assignment_source=None expression=Monad { function: NameRef(\"explicit\"), argument: Literal({\"type\":4,\"shape\":[],\"data\":[2]}) }",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(4))",
+        "ENQUEUE [WordRecord { span: 0..8, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"explicit\") }, WordRecord { span: 9..10, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(4))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Noun, semantic: Some(NodeId(0)), word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(1)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(2)), word_range: 0..2, blame_word: Some(WordId(1)) }]",
+        "STEPS [Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(2) }, FrontMark(ItemId(3)), Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: MonadEdge, window: [Some(ItemId(3)), Some(ItemId(2)), Some(ItemId(1)), None], consumed: [ItemId(2), ItemId(1)], produced: ItemId(4) }]",
+        "NAME_USES [NameUseRecord { word: WordId(0), input: ItemId(0), output: ItemId(2), result_class: Verb, policy: LateAtCall, resolution: FunctionReference, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(12)), binding_class: Some(Verb) }) }]",
+        "NODE 0 Noun Literal",
+        "NODE 1 Verb NameRef(\"explicit\")",
+        "NODE 2 Noun Monad { function: NodeId(1), argument: NodeId(0) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(1)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(2)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(2), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "APPLY NameRef(\"explicit\") x=None y=OccurrenceId(0)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([]), rank: Some(0) }",
+        "RESULT {\"type\":4,\"shape\":[],\"data\":[22]}"
+      ]
+    },
+    {
+      "source": "direct 2",
+      "tokens": [
+        "direct",
+        "2"
+      ],
+      "result": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          22
+        ]
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..6 class=Name flags=EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"direct\")",
+        "QUEUED_WORD 1 span=7..8 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(2))",
+        "ANALYSIS_PROGRAM assignment=None assignment_source=None expression=Monad { function: NameRef(\"direct\"), argument: Literal({\"type\":4,\"shape\":[],\"data\":[2]}) }",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(4))",
+        "ENQUEUE [WordRecord { span: 0..6, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"direct\") }, WordRecord { span: 7..8, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(4))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Noun, semantic: Some(NodeId(0)), word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(1)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(2)), word_range: 0..2, blame_word: Some(WordId(1)) }]",
+        "STEPS [Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(2) }, FrontMark(ItemId(3)), Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: MonadEdge, window: [Some(ItemId(3)), Some(ItemId(2)), Some(ItemId(1)), None], consumed: [ItemId(2), ItemId(1)], produced: ItemId(4) }]",
+        "NAME_USES [NameUseRecord { word: WordId(0), input: ItemId(0), output: ItemId(2), result_class: Verb, policy: LateAtCall, resolution: FunctionReference, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(15)), binding_class: Some(Verb) }) }]",
+        "NODE 0 Noun Literal",
+        "NODE 1 Verb NameRef(\"direct\")",
+        "NODE 2 Noun Monad { function: NodeId(1), argument: NodeId(0) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(1)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(2)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(2), items: [ItemId(4)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "APPLY NameRef(\"direct\") x=None y=OccurrenceId(0)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([]), rank: Some(0) }",
+        "RESULT {\"type\":4,\"shape\":[],\"data\":[22]}"
+      ]
+    },
+    {
+      "source": "pair=:4 : 'x+y'",
+      "tokens": [
+        "pair",
+        "=:",
+        "4",
+        ":",
+        "'x+y'"
+      ],
+      "result": {
+        "silent": true
+      },
+      "trace": [
+        "FRAME Definition(DefinitionInput { form: ExplicitString(4), span: 6..15, body: 10..15, nested: [] })",
+        "QUEUED_WORD 0 span=0..4 class=Name flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"pair\")",
+        "QUEUED_WORD 1 span=4..6 class=Assignment flags=EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } payload=Assign",
+        "QUEUED_WORD 2 span=6..15 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(4))",
+        "QUEUED_WORD 3 span=6..15 class=Conjunction flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=DefinitionConstructor { form: ExplicitString(4), source_span: 6..15 }",
+        "QUEUED_WORD 4 span=6..15 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload={\"type\":2,\"shape\":[3],\"data\":[120,43,121]}",
+        "ANALYSIS_PROGRAM assignment=Some(\"pair\") assignment_source=Some(AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } }) expression=VerbValue(ExplicitDefinition { pos: Verb, form: ExplicitString(4), mode: 4, source_span: 6..15, body: \"x+y\", monad: 0..0, dyad: 0..1, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 2..3, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, monad_controls: [], dyad_controls: [ControlNode { span: 0..3, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] })",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(6))",
+        "ENQUEUE [WordRecord { span: 0..4, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"pair\") }, WordRecord { span: 4..6, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 6..15, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 6..15, class: Conjunction, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 6..15, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(6))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(0)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Word(WordId(3)), class: Conjunction, semantic: Some(NodeId(1)), word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Word(WordId(4)), class: Noun, semantic: Some(NodeId(2)), word_range: 4..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(3)), word_range: 2..5, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(1)), class: Verb, semantic: Some(NodeId(4)), word_range: 0..5, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(4), resolved: ItemId(4) }, Stack { queued: ItemId(3), resolved: ItemId(3) }, Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(1) }, Reduce(ReductionId(0)), Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(1))]",
+        "REDUCTIONS [ReductionRecord { row: Conjunction, window: [Some(ItemId(1)), Some(ItemId(2)), Some(ItemId(3)), Some(ItemId(4))], consumed: [ItemId(2), ItemId(3), ItemId(4)], produced: ItemId(5) }, ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(5)), None], consumed: [ItemId(0), ItemId(1), ItemId(5)], produced: ItemId(6) }]",
+        "NAME_USES []",
+        "NODE 0 Noun Literal",
+        "NODE 1 Conjunction DefinitionConstructor { form: ExplicitString(4), source_span: 6..15 }",
+        "NODE 2 Noun Literal",
+        "NODE 3 Verb Construct { row: Conjunction, inputs: [NodeId(0), NodeId(1), NodeId(2)], function: ExplicitDefinition { pos: Verb, form: ExplicitString(4), mode: 4, source_span: 6..15, body: \"x+y\", monad: 0..0, dyad: 0..1, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 2..3, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, monad_controls: [], dyad_controls: [ControlNode { span: 0..3, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] } }",
+        "NODE 4 Verb WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(3) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(3)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(4)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(3), items: [ItemId(5)], reductions: [ReductionId(0)], name_uses: [] }, NodeOrigin { node: NodeId(4), items: [ItemId(6)], reductions: [ReductionId(1)], name_uses: [] }]",
+        "COMMIT name=\"pair\" version=NameVersion(1) class=Verb",
+        "COMMITTED_FUNCTION ExplicitDefinition { pos: Verb, form: ExplicitString(4), mode: 4, source_span: 6..15, body: \"x+y\", monad: 0..0, dyad: 0..1, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 2..3, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, monad_controls: [], dyad_controls: [ControlNode { span: 0..3, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] }",
+        "DEFINITION_BODY_WORDS [DefinitionSentence { span: 0..3, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..2, index: 1, class: Verb, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 2..3, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }]",
+        "RESULT {\"silent\":true}"
+      ]
+    },
+    {
+      "source": "2 pair 3",
+      "tokens": [
+        "2",
+        "pair",
+        "3"
+      ],
+      "result": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          5
+        ]
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..1 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(2))",
+        "QUEUED_WORD 1 span=2..6 class=Name flags=EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"pair\")",
+        "QUEUED_WORD 2 span=7..8 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(3))",
+        "ANALYSIS_PROGRAM assignment=None assignment_source=None expression=Dyad { function: NameRef(\"pair\"), left: Literal({\"type\":4,\"shape\":[],\"data\":[2]}), right: Literal({\"type\":4,\"shape\":[],\"data\":[3]}) }",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(5))",
+        "ENQUEUE [WordRecord { span: 0..1, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 2..6, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"pair\") }, WordRecord { span: 7..8, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(5))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Noun, semantic: Some(NodeId(0)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Name, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(1)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(2)), word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(3)), word_range: 0..3, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(3) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, FrontMark(ItemId(4)), Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: DyadNVN, window: [Some(ItemId(4)), Some(ItemId(0)), Some(ItemId(3)), Some(ItemId(2))], consumed: [ItemId(0), ItemId(3), ItemId(2)], produced: ItemId(5) }]",
+        "NAME_USES [NameUseRecord { word: WordId(1), input: ItemId(1), output: ItemId(3), result_class: Verb, policy: LateAtCall, resolution: FunctionReference, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(41)), binding_class: Some(Verb) }) }]",
+        "NODE 0 Noun Literal",
+        "NODE 1 Noun Literal",
+        "NODE 2 Verb NameRef(\"pair\")",
+        "NODE 3 Noun Dyad { function: NodeId(2), left: NodeId(0), right: NodeId(1) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(0)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(3)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(3), items: [ItemId(5)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "APPLY NameRef(\"pair\") x=Some(OccurrenceId(1)) y=OccurrenceId(0)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([]), rank: Some(0) }",
+        "RESULT {\"type\":4,\"shape\":[],\"data\":[5]}"
+      ]
+    },
+    {
+      "source": "ddpair=:{{ x+y }}",
+      "tokens": [
+        "ddpair",
+        "=:",
+        "{{",
+        "x",
+        "+",
+        "y",
+        "}}"
+      ],
+      "result": {
+        "silent": true
+      },
+      "trace": [
+        "FRAME Definition(DefinitionInput { form: Direct, span: 8..17, body: 10..15, nested: [] })",
+        "QUEUED_WORD 0 span=0..6 class=Name flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"ddpair\")",
+        "QUEUED_WORD 1 span=6..8 class=Assignment flags=EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } payload=Assign",
+        "QUEUED_WORD 2 span=8..17 class=LeftParen flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Open",
+        "QUEUED_WORD 3 span=8..17 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(9))",
+        "QUEUED_WORD 4 span=8..17 class=Conjunction flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=DefinitionConstructor { form: Direct, source_span: 8..17 }",
+        "QUEUED_WORD 5 span=8..17 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload={\"type\":2,\"shape\":[4],\"data\":[120,43,121,32]}",
+        "QUEUED_WORD 6 span=8..17 class=RightParen flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Close",
+        "ANALYSIS_PROGRAM assignment=Some(\"ddpair\") assignment_source=Some(AssignmentSource { target: ParseProvenance { word_range: 0..1, blame_word_index: 0 }, copula: ParseProvenance { word_range: 1..2, blame_word_index: 1 }, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true } }) expression=VerbValue(ExplicitDefinition { pos: Verb, form: Direct, mode: 4, source_span: 8..17, body: \"x+y \", monad: 0..0, dyad: 0..1, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 2..3, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, monad_controls: [], dyad_controls: [ControlNode { span: 0..3, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] })",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(9))",
+        "ENQUEUE [WordRecord { span: 0..6, class: Name, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"ddpair\") }, WordRecord { span: 6..8, class: Assignment, flags: EnqueueFlags { lookup_name: false, global_assignment: true, local_assignment: false, assignment_to_name: true }, environment: TopLevel, name: None }, WordRecord { span: 8..17, class: LeftParen, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..17, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..17, class: Conjunction, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..17, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 8..17, class: RightParen, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(9))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Name, semantic: None, word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Assignment, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: LParen, semantic: None, word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: Word(WordId(3)), class: Noun, semantic: Some(NodeId(0)), word_range: 3..4, blame_word: Some(WordId(3)) }, ItemRecord { producer: Word(WordId(4)), class: Conjunction, semantic: Some(NodeId(1)), word_range: 4..5, blame_word: Some(WordId(4)) }, ItemRecord { producer: Word(WordId(5)), class: Noun, semantic: Some(NodeId(2)), word_range: 5..6, blame_word: Some(WordId(5)) }, ItemRecord { producer: Word(WordId(6)), class: RParen, semantic: None, word_range: 6..7, blame_word: Some(WordId(6)) }, ItemRecord { producer: Reduction(ReductionId(0)), class: Verb, semantic: Some(NodeId(3)), word_range: 3..6, blame_word: Some(WordId(3)) }, ItemRecord { producer: Reduction(ReductionId(1)), class: Verb, semantic: Some(NodeId(3)), word_range: 2..7, blame_word: Some(WordId(2)) }, ItemRecord { producer: Reduction(ReductionId(2)), class: Verb, semantic: Some(NodeId(4)), word_range: 0..7, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(6), resolved: ItemId(6) }, Stack { queued: ItemId(5), resolved: ItemId(5) }, Stack { queued: ItemId(4), resolved: ItemId(4) }, Stack { queued: ItemId(3), resolved: ItemId(3) }, Stack { queued: ItemId(2), resolved: ItemId(2) }, Reduce(ReductionId(0)), Reduce(ReductionId(1)), Stack { queued: ItemId(1), resolved: ItemId(1) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, Reduce(ReductionId(2))]",
+        "REDUCTIONS [ReductionRecord { row: Conjunction, window: [Some(ItemId(2)), Some(ItemId(3)), Some(ItemId(4)), Some(ItemId(5))], consumed: [ItemId(3), ItemId(4), ItemId(5)], produced: ItemId(7) }, ReductionRecord { row: Parenthesis, window: [Some(ItemId(2)), Some(ItemId(7)), Some(ItemId(6)), None], consumed: [ItemId(2), ItemId(7), ItemId(6)], produced: ItemId(8) }, ReductionRecord { row: Assignment, window: [Some(ItemId(0)), Some(ItemId(1)), Some(ItemId(8)), None], consumed: [ItemId(0), ItemId(1), ItemId(8)], produced: ItemId(9) }]",
+        "NAME_USES []",
+        "NODE 0 Noun Literal",
+        "NODE 1 Conjunction DefinitionConstructor { form: Direct, source_span: 8..17 }",
+        "NODE 2 Noun Literal",
+        "NODE 3 Verb Construct { row: Conjunction, inputs: [NodeId(0), NodeId(1), NodeId(2)], function: ExplicitDefinition { pos: Verb, form: Direct, mode: 4, source_span: 8..17, body: \"x+y \", monad: 0..0, dyad: 0..1, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 2..3, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, monad_controls: [], dyad_controls: [ControlNode { span: 0..3, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] } }",
+        "NODE 4 Verb WriteName { target: ItemId(0), copula: WordId(1), value: NodeId(3) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(3)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(4)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(5)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(3), items: [ItemId(7), ItemId(8)], reductions: [ReductionId(0), ReductionId(1)], name_uses: [] }, NodeOrigin { node: NodeId(4), items: [ItemId(9)], reductions: [ReductionId(2)], name_uses: [] }]",
+        "COMMIT name=\"ddpair\" version=NameVersion(1) class=Verb",
+        "COMMITTED_FUNCTION ExplicitDefinition { pos: Verb, form: Direct, mode: 4, source_span: 8..17, body: \"x+y \", monad: 0..0, dyad: 0..1, names: DefinitionNamePlan { monad: DefinitionScopePlan { local_declarations: [], occurrences: [], dynamic_assignment_targets: [] }, dyad: DefinitionScopePlan { local_declarations: [], occurrences: [DefinitionNameOccurrence { sentence: 0, word: 0, span: 0..1, role: ReadCurrentFrameThenGlobal }, DefinitionNameOccurrence { sentence: 0, word: 2, span: 2..3, role: ReadCurrentFrameThenGlobal }], dynamic_assignment_targets: [] } }, monad_controls: [], dyad_controls: [ControlNode { span: 0..3, line: 0, words: 0..3, kind: Body, go: DynamicError, assertion: None, analysis_barrier: false, before_fallthrough_end: false, previous_result: CannotReturn, named_target: None }] }",
+        "DEFINITION_BODY_WORDS [DefinitionSentence { span: 0..4, line: 0, words: [DefinitionWord { span: 0..1, index: 0, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 1..2, index: 1, class: Verb, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } }, DefinitionWord { span: 2..3, index: 2, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } }] }]",
+        "RESULT {\"silent\":true}"
+      ]
+    },
+    {
+      "source": "2 ddpair 3",
+      "tokens": [
+        "2",
+        "ddpair",
+        "3"
+      ],
+      "result": {
+        "type": 4,
+        "shape": [],
+        "data": [
+          5
+        ]
+      },
+      "trace": [
+        "FRAME Sentence",
+        "QUEUED_WORD 0 span=0..1 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(2))",
+        "QUEUED_WORD 1 span=2..8 class=Name flags=EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Name(\"ddpair\")",
+        "QUEUED_WORD 2 span=9..10 class=Noun flags=EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false } payload=Scalar(Int(3))",
+        "ANALYSIS_PROGRAM assignment=None assignment_source=None expression=Dyad { function: NameRef(\"ddpair\"), left: Literal({\"type\":4,\"shape\":[],\"data\":[2]}), right: Literal({\"type\":4,\"shape\":[],\"data\":[3]}) }",
+        "ANALYSIS_CONTEXT realization=Deferred complete=true root=Some(ItemId(5))",
+        "ENQUEUE [WordRecord { span: 0..1, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }, WordRecord { span: 2..8, class: Name, flags: EnqueueFlags { lookup_name: true, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: Some(\"ddpair\") }, WordRecord { span: 9..10, class: Noun, flags: EnqueueFlags { lookup_name: false, global_assignment: false, local_assignment: false, assignment_to_name: false }, environment: TopLevel, name: None }]",
+        "PARSER realization=Observed complete=true root=Some(ItemId(5))",
+        "ITEMS [ItemRecord { producer: Word(WordId(0)), class: Noun, semantic: Some(NodeId(0)), word_range: 0..1, blame_word: Some(WordId(0)) }, ItemRecord { producer: Word(WordId(1)), class: Name, semantic: None, word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: Word(WordId(2)), class: Noun, semantic: Some(NodeId(1)), word_range: 2..3, blame_word: Some(WordId(2)) }, ItemRecord { producer: NameUse(NameUseId(0)), class: Verb, semantic: Some(NodeId(2)), word_range: 1..2, blame_word: Some(WordId(1)) }, ItemRecord { producer: FrontMark, class: Mark, semantic: None, word_range: 0..0, blame_word: None }, ItemRecord { producer: Reduction(ReductionId(0)), class: Noun, semantic: Some(NodeId(3)), word_range: 0..3, blame_word: Some(WordId(2)) }]",
+        "STEPS [Stack { queued: ItemId(2), resolved: ItemId(2) }, Stack { queued: ItemId(1), resolved: ItemId(3) }, Stack { queued: ItemId(0), resolved: ItemId(0) }, FrontMark(ItemId(4)), Reduce(ReductionId(0))]",
+        "REDUCTIONS [ReductionRecord { row: DyadNVN, window: [Some(ItemId(4)), Some(ItemId(0)), Some(ItemId(3)), Some(ItemId(2))], consumed: [ItemId(0), ItemId(3), ItemId(2)], produced: ItemId(5) }]",
+        "NAME_USES [NameUseRecord { word: WordId(1), input: ItemId(1), output: ItemId(3), result_class: Verb, policy: LateAtCall, resolution: FunctionReference, evidence: RuntimeClass, binding_version: Some(NameVersion(1)), lookup: Some(LookupObservation { engine: ScopeInstanceId(1), frame: None, search: GlobalOnly, local_state: NoFrame, found: Global(ScopeInstanceId(1)), binding_version: Some(NameVersion(1)), binding_generation: Some(BindingGeneration(49)), binding_class: Some(Verb) }) }]",
+        "NODE 0 Noun Literal",
+        "NODE 1 Noun Literal",
+        "NODE 2 Verb NameRef(\"ddpair\")",
+        "NODE 3 Noun Dyad { function: NodeId(2), left: NodeId(0), right: NodeId(1) }",
+        "ORIGINS [NodeOrigin { node: NodeId(0), items: [ItemId(0)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(1), items: [ItemId(2)], reductions: [], name_uses: [] }, NodeOrigin { node: NodeId(2), items: [ItemId(3)], reductions: [], name_uses: [NameUseId(0)] }, NodeOrigin { node: NodeId(3), items: [ItemId(5)], reductions: [ReductionId(0)], name_uses: [] }]",
+        "APPLY NameRef(\"ddpair\") x=Some(OccurrenceId(1)) y=OccurrenceId(0)",
+        "APPLY_SUCCESS GraphFacts { dtype: Exact(Int), shape: Some([]), rank: Some(0) }",
+        "RESULT {\"type\":4,\"shape\":[],\"data\":[5]}"
+      ]
+    }
+  ],
+  "c_audit": "definition-calls-windows.json"
+}

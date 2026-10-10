@@ -178,7 +178,7 @@ def _run_ordered_case(oracle: Oracle, case: OrderedCase, directory: Path) -> dic
 
 def j_file_name(path: Path) -> str:
     """Unboxed J string name for indexed file foreign x;y argument pairs."""
-    return "'" + str(path).replace("'", "''") + "'"
+    return "'" + path.as_posix().replace("'", "''") + "'"
 
 
 def j_file_argument(path: Path) -> str:

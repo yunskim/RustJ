@@ -32,7 +32,10 @@ pub struct GraphSchemaVersion {
     pub minor: u16,
 }
 
-pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion { major: 0, minor: 9 };
+pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion {
+    major: 0,
+    minor: 10,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphIrHeader {
@@ -190,6 +193,11 @@ pub struct GraphBasis {
 
 #[derive(Clone, Debug)]
 pub enum NodeKind {
+    /// A logical value supplied by the caller after its surrounding effects.
+    /// This is not a NAME lookup, a constant, or a physical buffer.
+    Input {
+        index: usize,
+    },
     Literal(Value),
     ReadNoun {
         name: String,
@@ -325,6 +333,9 @@ pub struct Region {
 
 #[derive(Clone, Debug)]
 pub struct Plan {
+    /// Parser-owned context and explicit origins, never reconstructed from spans.
+    pub frontend: Option<Arc<crate::frontend_context::FrontendContext>>,
+    pub parser_origins: Vec<Vec<crate::frontend_context::NodeId>>,
     pub header: GraphIrHeader,
     pub source: String,
     pub nodes: Vec<Node>,
@@ -497,6 +508,7 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
         FunctionHead::PrimitiveVerb(_)
         | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_) => GraphRuleRefs {
             shape: GraphRuleRef::DynamicOrUnknown,
@@ -834,6 +846,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         FunctionHead::PrimitiveVerb(_)
         | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_)
         | FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Ident)
@@ -862,7 +875,90 @@ fn analyzability_for(
     }
 }
 
+/// Internal batch construction: operands address external inputs followed by
+/// prior call results. Physical placement and NAME lookup are excluded.
+pub(crate) struct ArrayCall {
+    pub function: Arc<FunctionEntity>,
+    pub left: Option<ValueId>,
+    pub right: ValueId,
+    pub span: Range<usize>,
+}
+
 impl Plan {
+    pub(crate) fn from_array_call(
+        source: String,
+        function: Arc<FunctionEntity>,
+        dyadic: bool,
+        span: Range<usize>,
+    ) -> Result<Self> {
+        Self::from_array_calls(
+            source,
+            1 + usize::from(dyadic),
+            vec![ArrayCall {
+                function,
+                left: dyadic.then_some(ValueId(0)),
+                right: ValueId(usize::from(dyadic)),
+                span,
+            }],
+        )
+    }
+
+    pub(crate) fn from_array_calls(
+        source: String,
+        input_count: usize,
+        calls: Vec<ArrayCall>,
+    ) -> Result<Self> {
+        if calls.is_empty() {
+            return Err(Error::Unsupported("empty array batch".into()));
+        }
+        let mut builder = Builder {
+            nodes: Vec::new(),
+            parser_origins: Vec::new(),
+            regions: Vec::new(),
+            reads: HashMap::new(),
+            noun_facts: &|_| GraphFacts::default(),
+        };
+        for index in 0..input_count {
+            builder.push(
+                NodeKind::Input { index },
+                calls[0].span.clone(),
+                GraphFacts::default(),
+                GraphAnalyzability::StaticWithUnknownFacts,
+            );
+        }
+        let mut result = ValueId(0);
+        for call in calls {
+            if !matches!(call.function.head, FunctionHead::PrimitiveVerb(_))
+                || !call.function.operands.is_empty()
+                || call.right.0 >= builder.nodes.len()
+                || call.left.is_some_and(|left| left.0 >= builder.nodes.len())
+            {
+                return Err(Error::Unsupported(
+                    "invalid array batch primitive call".into(),
+                ));
+            }
+            result = builder.apply_function(call.function, call.left, call.right, call.span)?;
+        }
+        let plan = Self {
+            frontend: None,
+            parser_origins: builder.parser_origins,
+            header: GraphIrHeader {
+                schema: J_GRAPH_SCHEMA_VERSION,
+                primitive_registry_version: crate::primitive::REGISTRY_VERSION,
+            },
+            source,
+            nodes: builder.nodes,
+            regions: builder.regions,
+            result: Some(result),
+            write: None,
+            verb_references: Vec::new(),
+            modifier_snapshots: Vec::new(),
+            fork_name_reads: Vec::new(),
+            name_rank_snapshots: Vec::new(),
+        };
+        plan.verify().map_err(Error::Verification)?;
+        Ok(plan)
+    }
     pub fn from_bound(bound: BoundProgram) -> Result<Self> {
         Self::from_bound_with_graph_facts(bound, &|_| GraphFacts::default())
     }
@@ -884,6 +980,7 @@ impl Plan {
 
         let mut builder = Builder {
             nodes: Vec::new(),
+            parser_origins: Vec::new(),
             regions: Vec::new(),
             reads,
             noun_facts,
@@ -908,6 +1005,8 @@ impl Plan {
             .transpose()?;
 
         let plan = Self {
+            frontend: bound.program.frontend,
+            parser_origins: builder.parser_origins,
             header: GraphIrHeader {
                 schema: J_GRAPH_SCHEMA_VERSION,
                 primitive_registry_version: crate::primitive::REGISTRY_VERSION,
@@ -923,7 +1022,7 @@ impl Plan {
             name_rank_snapshots: bound.program.name_rank_snapshots,
         };
         plan.verify().map_err(|message| {
-            Error::Unsupported(format!("J graph IR verification failed: {message}"))
+            Error::Verification(format!("J graph IR verification failed: {message}"))
         })?;
         Ok(plan)
     }
@@ -936,7 +1035,7 @@ impl Plan {
         use crate::parser_capture::{CaptureEvent, CapturedGraph, ConstructorOrigin};
         capture
             .verify()
-            .map_err(|message| Error::Unsupported(format!("invalid capture: {message}")))?;
+            .map_err(|message| Error::Verification(format!("invalid capture: {message}")))?;
         if capture.failure.is_some()
             || capture.events.iter().any(|event| {
                 matches!(
@@ -949,13 +1048,36 @@ impl Plan {
                 "failed capture is not a completed J graph".into(),
             ));
         }
+        if capture.frontend.as_ref().is_some_and(|context| {
+            context
+                .words
+                .iter()
+                .any(|word| word.flags.name_form.is_locative())
+        }) {
+            return Err(Error::Unsupported(
+                "captured locative needs namespace dependency guards".into(),
+            ));
+        }
         if capture.requires_ordered_effect_graph() {
             return Err(Error::Unsupported(
                 "capture needs ordered assignment/effect graph".into(),
             ));
         }
+        // An observed computed target cannot become a fixed write name merely
+        // because this execution succeeded. Target dependencies/guards need a
+        // dedicated write contract; static literal targets use from_bound.
+        if capture
+            .events
+            .iter()
+            .any(|event| matches!(event, CaptureEvent::Commit { source, .. } if source.noun_target))
+        {
+            return Err(Error::Unsupported(
+                "capture needs noun-target write dependencies".into(),
+            ));
+        }
         let mut builder = Builder {
             nodes: Vec::new(),
+            parser_origins: Vec::new(),
             regions: Vec::new(),
             reads: HashMap::new(),
             noun_facts: &|_| GraphFacts::default(),
@@ -980,6 +1102,7 @@ impl Plan {
             .collect();
         for event in &capture.events {
             match event {
+                CaptureEvent::Abandon { .. } => unreachable!("abandon capture rejected above"),
                 CaptureEvent::ModifierStacked { snapshot } => {
                     modifier_stack_snapshots.push(snapshot.clone())
                 }
@@ -1036,6 +1159,7 @@ impl Plan {
                             ));
                         }
                         builder.expression(Expr {
+                            origin: None,
                             span: span.clone(),
                             kind: ExprKind::Literal(literal),
                         })?
@@ -1194,6 +1318,11 @@ impl Plan {
             if !seen.insert(Arc::as_ptr(&function)) {
                 continue;
             }
+            if matches!(function.head, FunctionHead::TakeName { .. }) {
+                return Err(Error::Unsupported(
+                    "captured deferred NAME abandonment needs ordered effect lowering".into(),
+                ));
+            }
             if let FunctionHead::NameRef(name) = &function.head {
                 verb_references.push((name.clone(), function.span.clone()));
             }
@@ -1216,6 +1345,8 @@ impl Plan {
             }
         }
         let graph = Self {
+            frontend: None,
+            parser_origins: builder.parser_origins,
             header: GraphIrHeader {
                 schema: J_GRAPH_SCHEMA_VERSION,
                 primitive_registry_version: crate::primitive::REGISTRY_VERSION,
@@ -1231,7 +1362,7 @@ impl Plan {
             name_rank_snapshots,
         };
         graph.verify().map_err(|message| {
-            Error::Unsupported(format!("captured J graph verification failed: {message}"))
+            Error::Verification(format!("captured J graph verification failed: {message}"))
         })?;
         Ok(CapturedGraph {
             modifier_stack_snapshots,
@@ -1377,6 +1508,29 @@ impl Plan {
     }
 
     pub fn verify(&self) -> std::result::Result<(), String> {
+        if self.parser_origins.len() != self.nodes.len() {
+            return Err("J graph parser-origin coverage mismatch".into());
+        }
+        if let Some(frontend) = &self.frontend {
+            frontend.verify()?;
+            if frontend.source.as_ref() != self.source {
+                return Err("J graph/parser source mismatch".into());
+            }
+            if !frontend.complete {
+                return Err("incomplete parser context in J graph".into());
+            }
+            if self.parser_origins.iter().any(|origins| {
+                origins.is_empty() || origins.iter().any(|id| id.0 >= frontend.nodes.len())
+            }) {
+                return Err("missing or invalid J graph parser origin".into());
+            }
+        } else if self
+            .parser_origins
+            .iter()
+            .any(|origins| !origins.is_empty())
+        {
+            return Err("parser origins without owning context".into());
+        }
         if self.header.schema != J_GRAPH_SCHEMA_VERSION {
             return Err("unsupported J Graph IR schema version".into());
         }
@@ -1419,7 +1573,20 @@ impl Plan {
                 return Err("invalid static modifier snapshot".into());
             }
         }
+        let mut input_count = 0;
         for (index, node) in self.nodes.iter().enumerate() {
+            if let NodeKind::Input { index } = node.kind {
+                if index != input_count {
+                    return Err("array input indices must be dense and ordered".into());
+                }
+                input_count += 1;
+            }
+            if let NodeKind::Apply { function, .. } | NodeKind::VerbValue { function } = &node.kind
+            {
+                function
+                    .reject_deferred_name_effects()
+                    .map_err(|_| format!("node {index} contains a deferred NAME effect"))?;
+            }
             if node.span.start > node.span.end
                 || node.span.end > source_len
                 || !self.source.is_char_boundary(node.span.start)
@@ -1516,6 +1683,10 @@ impl Plan {
         }
 
         for (index, region) in self.regions.iter().enumerate() {
+            region
+                .function
+                .reject_deferred_name_effects()
+                .map_err(|_| format!("region {index} contains a deferred NAME effect"))?;
             if region.span.start > region.span.end
                 || region.span.end > source_len
                 || !self.source.is_char_boundary(region.span.start)
@@ -1746,6 +1917,7 @@ impl Plan {
 
 struct Builder<'a> {
     nodes: Vec<Node>,
+    parser_origins: Vec<Vec<crate::frontend_context::NodeId>>,
     regions: Vec<Region>,
     reads: HashMap<(String, usize, usize), NameVersion>,
     noun_facts: &'a dyn Fn(&str) -> GraphFacts,
@@ -1760,6 +1932,7 @@ impl Builder<'_> {
         analyzability: GraphAnalyzability,
     ) -> ValueId {
         let id = ValueId(self.nodes.len());
+        self.parser_origins.push(Vec::new());
         self.nodes.push(Node {
             kind,
             span,
@@ -1774,8 +1947,10 @@ impl Builder<'_> {
     }
 
     fn expression(&mut self, expression: Expr) -> Result<ValueId> {
+        let origin = expression.origin;
+        let first_new_node = self.nodes.len();
         let span = expression.span;
-        match expression.kind {
+        let result = match expression.kind {
             ExprKind::Group(inner) => self.expression(*inner),
             ExprKind::Literal(value) => {
                 let semantic_facts = SemanticFacts::of(&value);
@@ -1790,14 +1965,17 @@ impl Builder<'_> {
             ExprKind::ModifierValue(_) => {
                 Err(Error::Unsupported("modifier value graph lowering".into()).at(span))
             }
-            ExprKind::VerbValue(verb) => Ok(self.push(
-                NodeKind::VerbValue {
-                    function: verb.entity,
-                },
-                span,
-                GraphFacts::default(),
-                GraphAnalyzability::StaticWithUnknownFacts,
-            )),
+            ExprKind::VerbValue(verb) => {
+                verb.entity.reject_deferred_name_effects()?;
+                Ok(self.push(
+                    NodeKind::VerbValue {
+                        function: verb.entity,
+                    },
+                    span,
+                    GraphFacts::default(),
+                    GraphAnalyzability::StaticWithUnknownFacts,
+                ))
+            }
             ExprKind::ReadName(name) => {
                 let version = *self
                     .reads
@@ -1816,6 +1994,11 @@ impl Builder<'_> {
                     analyzability,
                 ))
             }
+            ExprKind::TakeName { .. } => {
+                return Err(Error::Unsupported(
+                    "abandon requires ordered NAME effect IR".into(),
+                ));
+            }
             ExprKind::Monad { verb, argument } => {
                 let right = self.expression(*argument)?;
                 self.apply_function(verb.entity, None, right, span)
@@ -1826,7 +2009,18 @@ impl Builder<'_> {
                 let left = self.expression(*left)?;
                 self.apply_function(verb.entity, Some(left), right, span)
             }
+        }?;
+        if let Some(origin) = origin {
+            for origins in &mut self.parser_origins[first_new_node..] {
+                if !origins.contains(&origin) {
+                    origins.push(origin);
+                }
+            }
+            if !self.parser_origins[result.0].contains(&origin) {
+                self.parser_origins[result.0].push(origin);
+            }
         }
+        Ok(result)
     }
 
     fn apply_function(
@@ -1836,6 +2030,7 @@ impl Builder<'_> {
         right: ValueId,
         span: Range<usize>,
     ) -> Result<ValueId> {
+        function.reject_deferred_name_effects()?;
         let (form, base_hints) = classify_function(&function);
         match form {
             GraphForm::Pipeline { stages } => {

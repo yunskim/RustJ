@@ -412,6 +412,19 @@ def operator_definition_multiline_cases():
     ]
 
 
+def scientific_real_dtype_cases():
+    # Pinned jsource wn.c::jtconnum / k.c::jtbcvt: exact Float->Int
+    # narrowing, whole-word dtype, and spelling-based inhibition.
+    return [
+        '1e0', '0e0', '_0e0', '_1e0', '1e1', '1e_0',
+        '1e0 0e0', '1e0 2', '0e0 1', '1e0 01', '1e0 2e0',
+        '1.0', '1.e0', '1e0 0.5', '1e0 1e_1', '1e_1 1e0',
+        '_9223372036854775808e0', '9223372036854775808e0',
+        '9223372036854775807e0', '9007199254740993e0',
+        '1e0 9223372036854775808e0',
+    ]
+
+
 def ordinary_reference_cases():
     return [
         "srfunc=:+", "srself=:1 : 'srfunc=.srfunc'",
@@ -558,6 +571,24 @@ def definition_flow_cases():
     return ['flowcounter=:0', "flowfn=:3 : 'if. y do. flowcounter=:99 else. 7 end.'", 'flowcounter'] + [
         sentence for body in definition_flow_bodies() if '\n' not in body
         for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
+
+
+def named_locale_noun_cases():
+    return ['locnoun=:1', 'locnoun_probe_=:7', 'locnoun_other_=.11',
+            'locnoun', 'locnoun_probe_', 'locnoun_other_', 'locnoun_base_=.2',
+            'locnoun__', 'locnoun_probe_+(locnoun_probe_=:2)',
+            '(locnoun_probe_=:3)+locnoun_probe_', 'locnoun_other_',
+            "locfn=:3 : '(locnoun=.9)+locnoun_probe_'", 'locfn 0', 'locnoun',
+            'locnoun_probe_=:1 2+1 2 3', 'locnoun_probe_']
+
+
+def base_locative_noun_cases():
+    # One stateful CLI sentence per case; empty direct locale selects base.
+    return ['basenoun=:1', 'basenoun__', 'basenoun__+(basenoun__=:2)',
+            '(basenoun__=:3)+basenoun__', 'basenoun', 'basenoun__=.7',
+            'basenoun', 'basecreated__=:9', 'basecreated',
+            "basefn=:3 : '(basenoun=.9)+basenoun__'", 'basefn 0', 'basenoun',
+            'basenoun__=:1 2+1 2 3', 'basenoun']
 
 
 def entity_boundary_cases():
@@ -914,6 +945,7 @@ def cases():
     fixed.extend(definition_code_cases())
     fixed.extend(explicit_modifier_cases())
     fixed.extend(modifier_scope_cases())
+    fixed.extend(scientific_real_dtype_cases())
     fixed.extend(ordinary_reference_cases())
     fixed.extend(operator_definition_cases())
     fixed.extend(implicit_operand_cases())
@@ -929,6 +961,8 @@ def cases():
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
     fixed.extend(entity_boundary_cases())
+    fixed.extend(base_locative_noun_cases())
+    fixed.extend(named_locale_noun_cases())
     fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
     fixed.extend("gotomatrix=:3 : '"+body.replace("\n", " ").replace("'", "''")+"'" for body in goto_position_matrix())
     return fixed

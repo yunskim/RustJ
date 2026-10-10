@@ -59,9 +59,8 @@ pub fn classify(word: &str) -> Result<Option<ControlWord>> {
         return Ok(Some(*kind));
     }
     if let Some(name) = word.strip_prefix("for_").and_then(|s| s.strip_suffix('.')) {
-        // conword audits vnm here. The NAME queue recognizes locative
-        // syntax, but control-variable locale assignment must not be
-        // flattened into a simple loop name before P4 implements it.
+        // conword audits vnm here. Reuse the supported ordinary name contract;
+        // locative names remain an explicit unsupported capability.
         if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
             || !name
                 .bytes()
@@ -75,12 +74,8 @@ pub fn classify(word: &str) -> Result<Option<ControlWord>> {
         {
             return Err(Error::IllFormedName);
         }
-        if queue[0].flags.name_form != crate::enqueuer::NameForm::Simple
-            || queue[0].flags.name_by_value
-        {
-            return Err(Error::Unsupported(
-                "locative for-control target requires P4 locale assignment".into(),
-            ));
+        if queue[0].flags.name_form.is_locative() {
+            return Err(Error::Unsupported("J locative loop binding".into()));
         }
         return Ok(Some(ControlWord::For));
     }
@@ -104,12 +99,25 @@ pub struct DefinitionPart {
 /// spacing before controls and discarding leading/trailing space and comments.
 pub fn partition_line(source: &str) -> Result<Vec<DefinitionPart>> {
     let spans = crate::tokenizer::parse_word_spans(source.as_bytes())?;
+    use crate::definition_input::InputFrame;
+    let definitions = match crate::definition_input::frame(source)? {
+        InputFrame::Definition(input) => vec![input.span],
+        InputFrame::Definitions(inputs) => inputs.into_iter().map(|input| input.span).collect(),
+        _ => Vec::new(),
+    };
     let mut parts = Vec::new();
     let mut start = None;
     let mut last_end = 0;
     for span in spans {
         let first = *start.get_or_insert(span.start);
-        let control = classify(&source[span.clone()]).map_err(|error| error.at(span.clone()))?;
+        let control = if definitions
+            .iter()
+            .any(|definition| definition.start <= span.start && span.end <= definition.end)
+        {
+            None
+        } else {
+            classify(&source[span.clone()]).map_err(|error| error.at(span.clone()))?
+        };
         if control.is_some() {
             if first < span.start {
                 parts.push(DefinitionPart {

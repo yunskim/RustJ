@@ -30,6 +30,9 @@ pub enum CallTarget {
     Primitive(crate::primitive::PrimitiveId),
     /// Do not freeze this target to its current definition without a proof/guard.
     Dynamic(SymbolId),
+    /// Immutable semantic definition value. Body execution still requires
+    /// structural lowering; this is never a primitive or a tensor constant.
+    Definition,
 }
 
 #[derive(Clone, Debug)]

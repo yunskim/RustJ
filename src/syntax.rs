@@ -38,6 +38,11 @@ pub fn lex_spanned(source: &str) -> Result<Vec<SpannedToken<'_>>> {
     crate::enqueuer::enqueue(source)?
         .into_iter()
         .map(|word| {
+            if word.flags.abandon_name && word.flags.lookup_name {
+                return Err(crate::Error::Unsupported(
+                    "legacy syntax adapter cannot erase abandon semantics".into(),
+                ));
+            }
             let token = match word.payload {
                 EnqueuedPayload::Scalar(value) => Token::Scalar(value),
                 EnqueuedPayload::Noun(value) => Token::Noun(value),

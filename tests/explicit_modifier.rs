@@ -133,7 +133,6 @@ fn failed_and_unsupported_bodies_preserve_targets_and_restore_invocation_depth()
     for (source, error) in [
         ("emkeep=:+emfail", "length error"),
         ("emkeep=:+emscope", "domain error"),
-        ("emkeep=:(+emop)7", "unsupported"),
         ("emkeep=:+emmissing", "unsupported"),
         ("emkeep=:+emrecursive", "limit error"),
     ] {
@@ -143,4 +142,5 @@ fn failed_and_unsupported_bodies_preserve_targets_and_restore_invocation_depth()
         assert_eq!(engine.binding_version("emkeep"), version);
         scalar(&mut engine, "+emgood", 7);
     }
+    scalar(&mut engine, "(+emop)7", 7);
 }

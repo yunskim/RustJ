@@ -88,6 +88,13 @@ fn function(f: &FunctionEntity) -> String {
         FunctionHead::ModifierTrain => "4",
         FunctionHead::Fork => "3",
         FunctionHead::NameRef(name) => name,
+        FunctionHead::TakeName { name, single_word } => {
+            return format!(
+                "{{\"take_name_hex\":\"{}\",\"single_word\":{single_word},\"pos\":\"{:?}\"}}",
+                hex(name.as_bytes()),
+                f.result_pos
+            );
+        }
         FunctionHead::DefinitionConstructor(_) => ":",
         FunctionHead::ExplicitDefinition(_) => unreachable!("explicit definition projected above"),
     };
@@ -183,7 +190,7 @@ fn inspect(source: &str) -> rustj::Result<String> {
                     EnqueuedPayload::Noun(v) => Ok(v.json()),
                     _ => Ok("null".to_owned()),
                 }?;
-                Ok(format!("{{\"class\":\"{:?}\",\"span\":[{},{}],\"index\":{},\"lookup\":{},\"global\":{},\"local\":{},\"to_name\":{},\"noun\":{}}}", w.class, w.span.start,w.span.end,w.word_index,w.flags.lookup_name,w.flags.global_assignment,w.flags.local_assignment,w.flags.assignment_to_name,noun))
+                Ok(format!("{{\"class\":\"{:?}\",\"span\":[{},{}],\"index\":{},\"lookup\":{},\"global\":{},\"local\":{},\"to_name\":{},\"name_form\":\"{:?}\",\"noun\":{}}}", w.class, w.span.start,w.span.end,w.word_index,w.flags.lookup_name,w.flags.global_assignment,w.flags.local_assignment,w.flags.assignment_to_name,w.flags.name_form,noun))
             }).collect::<rustj::Result<Vec<_>>>()?;
             format!("[{}]", entries.join(","))
         }

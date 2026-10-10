@@ -5,15 +5,23 @@ use std::{
     process::ExitCode,
 };
 
+struct InputSource<'a> {
+    name: &'a str,
+    unit: Option<std::sync::Arc<rustj::source::SourceUnit>>,
+}
+
 fn run(
     engine: &mut Engine,
     line: &str,
     json: bool,
     semantic: bool,
-    source_name: &str,
-    line_number: usize,
+    location: (&str, usize, Option<rustj::source::SourceOrigin>),
 ) -> rustj::Result<()> {
-    match if semantic {
+    let (source_name, line_number, origin) = location;
+    let line = origin.as_ref().map_or(line, |origin| origin.text());
+    match if let Some(origin) = &origin {
+        engine.eval_source_diagnostic(origin.clone(), semantic)
+    } else if semantic {
         engine.eval_semantic_reference_diagnostic(line)
     } else {
         engine.eval_diagnostic(line)
@@ -43,11 +51,32 @@ fn run_input(
     lines: impl Iterator<Item = io::Result<String>>,
     json: bool,
     semantic: bool,
-    source_name: &str,
+    input: InputSource<'_>,
     stop_on_error: bool,
     interactive: bool,
 ) -> ExitCode {
     use rustj::definition_input::{DefinitionCollector, InputFrame};
+    let source_name = input.name;
+    // The collector normalizes line endings for framing only. Execute file
+    // fragments from the original immutable bytes, including internal CRLF.
+    let mut offset = 0;
+    let file_lines: Vec<_> = input.unit.as_ref().map_or(Vec::new(), |unit| {
+        unit.text()
+            .split_inclusive('\n')
+            .map(|line| {
+                let start = offset;
+                offset += line.len();
+                start..start + line.trim_end_matches(['\r', '\n']).len()
+            })
+            .collect()
+    });
+    let origin_for = |start: usize, end: usize| {
+        input.unit.as_ref().map(|unit| {
+            unit.origin()
+                .slice(file_lines[start - 1].start..file_lines[end - 1].end)
+                .expect("file line ranges are UTF-8 boundaries")
+        })
+    };
     let mut pending: Option<(DefinitionCollector, usize)> = None;
     let mut ok = true;
     for (index, line) in lines.enumerate() {
@@ -75,8 +104,7 @@ fn run_input(
                         collector.source(),
                         json,
                         semantic,
-                        source_name,
-                        *start,
+                        (source_name, *start, origin_for(*start, index + 1)),
                     );
                     let succeeded = result.is_ok();
                     ok &= succeeded;
@@ -98,8 +126,7 @@ fn run_input(
                         collector.source(),
                         json,
                         semantic,
-                        source_name,
-                        *start,
+                        (source_name, *start, origin_for(*start, index + 1)),
                     );
                 }
                 Err(error) => {
@@ -111,7 +138,14 @@ fn run_input(
             );
             return ExitCode::FAILURE;
         }
-        let succeeded = run(engine, &line, json, semantic, source_name, index + 1).is_ok();
+        let succeeded = run(
+            engine,
+            &line,
+            json,
+            semantic,
+            (source_name, index + 1, origin_for(index + 1, index + 1)),
+        )
+        .is_ok();
         ok &= succeeded;
         if !succeeded && stop_on_error {
             return ExitCode::FAILURE;
@@ -185,7 +219,19 @@ fn main() -> ExitCode {
     }
     let mut engine = Engine::new();
     if let Some(s) = expr {
-        return if run(&mut engine, &s, json, semantic, "<command-line>", 1).is_ok() {
+        return if run(
+            &mut engine,
+            &s,
+            json,
+            semantic,
+            (
+                "<command-line>",
+                1,
+                Some(rustj::source::SourceUnit::new("<command-line>", s.as_str()).origin()),
+            ),
+        )
+        .is_ok()
+        {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
@@ -204,7 +250,13 @@ fn main() -> ExitCode {
             source.lines().map(|line| Ok(line.to_owned())),
             json,
             semantic,
-            &path,
+            InputSource {
+                name: &path,
+                unit: Some(rustj::source::SourceUnit::new(
+                    path.as_str(),
+                    source.as_str(),
+                )),
+            },
             true,
             false,
         );
@@ -220,7 +272,10 @@ fn main() -> ExitCode {
         input.lock().lines(),
         json,
         semantic,
-        "<stdin>",
+        InputSource {
+            name: "<stdin>",
+            unit: None,
+        },
         false,
         interactive,
     )
