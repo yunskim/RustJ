@@ -2215,7 +2215,9 @@ fn apply_parse_row(
                     if noun.is_some() {
                         crate::enqueuer::validate_assignment_name(name)?;
                     }
-                    let previous = host.assignment_version(name, source.flags.local_assignment);
+                    let version_name = host.assignment_version_name(name);
+                    let previous =
+                        host.assignment_version(&version_name, source.flags.local_assignment);
                     if names.len() == 1 {
                         completed.entity = host.assign_scoped(
                             name,
@@ -2239,7 +2241,7 @@ fn apply_parse_row(
                         capture.events.push(CaptureEvent::Commit {
                             name: name.clone(),
                             version: host
-                                .assignment_version(name, source.flags.local_assignment)
+                                .assignment_version(&version_name, source.flags.local_assignment)
                                 .expect("committed version"),
                             previous,
                             span: span.clone(),
@@ -3003,6 +3005,9 @@ pub(crate) trait RuntimeParserHost {
     fn supports_indirect_noun_reads(&self) -> bool {
         false
     }
+    fn supports_indirect_noun_assignments(&self) -> bool {
+        false
+    }
 
     fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>>;
     fn fork_cap_binding(
@@ -3049,6 +3054,10 @@ pub(crate) trait RuntimeParserHost {
         ))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion>;
+    /// Freeze target identity before the commit can rebind its holder.
+    fn assignment_version_name(&self, name: &str) -> String {
+        name.to_owned()
+    }
     /// Observe the table that assignment will update, without lookup fallback.
     fn assignment_version(&self, name: &str, _local: bool) -> Option<crate::semantic::NameVersion> {
         self.version(name)
@@ -3618,13 +3627,15 @@ fn expression(
                         .host
                         .as_ref()
                         .is_some_and(|host| host.supports_named_direct_locative_nouns());
-                let indirect_error_host = tokens[*pos].flags.lookup_name
-                    && !tokens[*pos].flags.abandon_name
+                let indirect_error_host = !tokens[*pos].flags.abandon_name
                     && tokens[*pos].flags.name_form == crate::enqueuer::NameForm::IndirectLocative
-                    && context
-                        .host
-                        .as_ref()
-                        .is_some_and(|host| host.supports_indirect_noun_reads());
+                    && context.host.as_ref().is_some_and(|host| {
+                        if tokens[*pos].flags.lookup_name {
+                            host.supports_indirect_noun_reads()
+                        } else {
+                            host.supports_indirect_noun_assignments()
+                        }
+                    });
                 if tokens[*pos].flags.name_form.is_locative()
                     && !base_noun_host
                     && !named_noun_host
