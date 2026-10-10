@@ -772,16 +772,19 @@ fn extension_names_enter_as_names_then_join_modifier_rows_by_parser_time_pos() {
         },
         lowering_key: LoweringKey::Extension(id),
     };
-    let context = PrimitiveContext::new(PrimitiveResolver::with_extensions([
-        ExtensionPrimitive {
-            spelling: "advx",
-            handle: handle("test.advx", PrimitivePartOfSpeech::Adverb),
-        },
-        ExtensionPrimitive {
-            spelling: "conjx",
-            handle: handle("test.conjx", PrimitivePartOfSpeech::Conjunction),
-        },
-    ]));
+    let context = PrimitiveContext::new(
+        PrimitiveResolver::with_extensions([
+            ExtensionPrimitive {
+                spelling: "advx",
+                handle: handle("test.advx", PrimitivePartOfSpeech::Adverb),
+            },
+            ExtensionPrimitive {
+                spelling: "conjx",
+                handle: handle("test.conjx", PrimitivePartOfSpeech::Conjunction),
+            },
+        ])
+        .unwrap(),
+    );
     let engine = Engine::with_primitive_context(context);
 
     for source in ["f=: + advx", "g=: + conjx *"] {
