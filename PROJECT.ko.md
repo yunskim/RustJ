@@ -9671,7 +9671,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 **의도적으로 extension primitive로 중복하지 않을 것:** `+`, `*`, `+/`, `|:`, Rank `"`, `@:`, fork/hook 등 기존 J 어휘; 일반 residual connection·MLP/Transformer block·모델/학습 loop는 **라이브러리의 derived verb 조합**을 우선한다. `matmul`/reshape처럼 기존 J가 표현하는 연산은 이름을 추가하더라도 최적화 경로를 기존 J 표현과 공유해야 한다. `with`는 이미 선택된 *typed semantic-contract conjunction*이고 device/tile 지정 통로가 아니다.
 
-**Extension별 완료 조건 (각 NN-xx 항목을 체크하려면 아래 모두 적용):**
+**Extension별 완료 조건 (각 NN-xx 항목을 체크하려면 해당 유형에 적용되는 gate를 모두 통과):** 계산 extension에는 NN-G3/G5의 Graph primitive 및 실행 경로가 필수다. `adjoint` 같은 **선언/등록 API**는 계산 Graph node로 위장하지 않고 별도 registry schema·정적 검증·테스트로 gate를 충족한다. `matmul`처럼 기존 J 계산을 그대로 인식하는 별칭은 별도 extension node를 강제하지 않고 동등한 Graph 분석/Lowering 증거를 제공한다.
 
 - [ ] **NN-G0 / 공개 identity:** 일반 J name 및 실제 POS(verb/adverb/conjunction), builder operand schema, 생성된 verb의 valence/innate rank, late NAME/locale/rebinding 및 버전 지정. 파서 keyword 추가 금지.
 - [ ] **NN-G1 / 정밀 의미론:** 표준 J 참조 정의가 가능하면 oracle로 제공하고, 그렇지 않으면 독립적인 수학/프레임워크 oracle을 버전 고정. axis 역할, frame/cell, empty-frame의 prototype/fill/assembly, empty cell, scalar, 동적 shape, type/promotion, NaN/Inf/signed zero, boundary/error precedence를 명세.
