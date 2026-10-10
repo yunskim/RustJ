@@ -96,6 +96,11 @@ INDIRECT_NOUN_FIXTURES = [
     ("indirect_noun_first_error", ["holder=:7", "a__holder+(1 2+1 2 3)"]),
 ]
 FIXTURES += INDIRECT_NOUN_FIXTURES
+FIXTURES += [
+    ("indirect_base_holder_snapshot", ["a=:i.3", "holder=:<'base'", "saved=:a__holder", "a=:a+10", "saved"]),
+    ("indirect_base_holder_z_rebind", ["fallback_z_=:11", "fallback_probe_=:9", "holder=:<'base'", "fallback__holder+0", "holder=:<'probe'", "fallback__holder+0"]),
+]
+
 
 # Invalid holder contents follow s.c::locindirect rank/length/type/name order.
 INDIRECT_HOLDER_VALIDATION_FIXTURES = [
