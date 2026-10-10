@@ -97,6 +97,21 @@ INDIRECT_NOUN_FIXTURES = [
 ]
 FIXTURES += INDIRECT_NOUN_FIXTURES
 
+# Invalid holder contents follow s.c::locindirect rank/length/type/name order.
+INDIRECT_HOLDER_VALIDATION_FIXTURES = [
+    ("indirect_holder_" + label,
+     ["a_probe_=:7", "holder=:" + holder, "a__holder+(a_probe_=:9)",
+      "a_probe_+0", "(a_probe_=:11)+a__holder", "a_probe_+0"])
+    for label, holder in [
+        ("boolean", "1"), ("float", "1.5"), ("char_atom", "'p'"),
+        ("empty", "<''"), ("numeric_list", "<1 2"),
+        ("matrix", "<i.2 2"), ("boxed_float", "<2.5"),
+        ("invalid_name", "<'bad_name'"), ("boxed_number", "<7"),
+    ]
+]
+FIXTURES += INDIRECT_HOLDER_VALIDATION_FIXTURES
+
+
 # Boundary probes pin observable runtime behavior. They do not test a future
 # admission verifier or parser continuation and must never be reported as such.
 BOUNDARY_FIXTURES = [

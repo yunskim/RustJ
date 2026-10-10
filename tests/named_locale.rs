@@ -1141,3 +1141,68 @@ fn indirect_noun_capture_separates_holder_and_target_versions_and_locales() {
     };
     assert_ne!((holder_version, holder_generation), (v2, g2));
 }
+
+#[test]
+fn indirect_holder_contents_errors_preserve_order_state_and_no_witness() {
+    let cases = [
+        ("1", "locale error"),
+        ("0", "locale error"),
+        ("1.5", "domain error"),
+        ("'p'", "domain error"),
+        ("a:", "length error"),
+        ("<''", "length error"),
+        ("<1 2", "domain error"),
+        ("<i.2 2", "rank error"),
+        ("<2.5", "domain error"),
+        ("<'bad_name'", "ill-formed name"),
+        ("<'1probe'", "ill-formed name"),
+        ("<7", "locale error"),
+        ("<0", "locale error"),
+    ];
+    for semantic in [false, true] {
+        for (holder, expected) in cases {
+            let mut e = Engine::new();
+            e.eval("a_probe_=:7").unwrap();
+            e.eval(&format!("holder=:{holder}")).unwrap();
+            let eval = |e: &mut Engine, source: &str| {
+                if semantic {
+                    e.eval_semantic_reference(source)
+                } else {
+                    e.eval(source)
+                }
+            };
+            assert_eq!(eval(&mut e, "a__holder+0").unwrap_err().kind(), expected);
+            assert_eq!(
+                eval(&mut e, "a__holder+(1 2+1 2 3)").unwrap_err().kind(),
+                "length error"
+            );
+            assert_eq!(
+                eval(&mut e, "a__holder+(a_probe_=:9)").unwrap_err().kind(),
+                expected
+            );
+            assert_eq!(
+                eval(&mut e, "(a_probe_=:11)+a__holder").unwrap_err().kind(),
+                expected
+            );
+            scalar(&mut e, "a_probe_", 9);
+            let r = e.eval_captured("a__holder+0");
+            assert_eq!(r.result.unwrap_err().kind(), expected);
+            r.capture.verify().unwrap();
+            assert!(
+                r.capture
+                    .frontend
+                    .as_ref()
+                    .unwrap()
+                    .name_uses
+                    .iter()
+                    .all(|u| u.lookup.is_none())
+            );
+        }
+    }
+    // Negative debug and base-alias resolution are still separate contracts.
+    let mut e = Engine::new();
+    for holder in ["_1", "<_1", "<'base'"] {
+        e.eval(&format!("holder=:{holder}")).unwrap();
+        assert_eq!(e.eval("a__holder+0").unwrap_err().kind(), "unsupported");
+    }
+}
