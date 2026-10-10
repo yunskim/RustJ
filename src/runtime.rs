@@ -2679,6 +2679,28 @@ impl Engine {
                 }
             };
         }
+        if let Some((key, locale)) = named_direct_address(name) {
+            let own = self.named_locales.get_mut(locale);
+            return match own.and_then(|locale| locale.names.get(key)) {
+                Some(Binding {
+                    value: JEntity::Noun(_),
+                    ..
+                }) => Ok((
+                    self.named_locales
+                        .get_mut(locale)
+                        .expect("found named locale")
+                        .names
+                        .remove(key)
+                        .expect("found named noun")
+                        .value,
+                    true,
+                )),
+                Some(_) => Err(Error::Unsupported("named-locative function abandon".into())),
+                None => Err(Error::Unsupported(
+                    "named-locative path/future abandon".into(),
+                )),
+            };
+        }
         // Enqueue retains address form independently of abandon policy. Do not
         // reinterpret unsupported locatives as flat ordinary-name keys.
         if name.ends_with('_') || name.contains("__") {

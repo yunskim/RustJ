@@ -103,8 +103,8 @@ fn unsupported_paths_functions_and_computed_locatives_do_not_mutate_bindings() {
         "a_0_=:9",
         "a__holder",
         "'a_probe_'=:9",
-        "a_probe__:9",
-        "a_probe__:",
+        "missing_probe__:9",
+        "missing_probe__:",
     ] {
         assert_eq!(
             e.eval(source).unwrap_err().kind(),
@@ -554,7 +554,7 @@ fn z_abandon_observation_rejects_frame_alias_and_wrong_search_state() {
 #[test]
 fn locative_abandon_enqueue_does_not_admit_unimplemented_deletion() {
     for semantic in [false, true] {
-        for source in ["a_probe__:", "a_z__:", "a__holder_:"] {
+        for source in ["missing_probe__:", "missing_z__:", "a__holder_:"] {
             let mut e = Engine::new();
             e.eval("a=:9").unwrap();
             e.eval("a_probe_=:11").unwrap();
@@ -700,5 +700,79 @@ fn explicit_base_z_abandon_preserves_snapshots_errors_and_local_bypass() {
         e.eval("f=:3 : 0\na=.11\na_base__:+a\n)").unwrap();
         assert_eq!(run(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 18);
         assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+    }
+}
+
+#[test]
+fn named_own_abandon_preserves_other_tables_snapshots_and_error_order() {
+    for semantic in [false, true] {
+        for locale in ["probe", "z"] {
+            let mut e = Engine::new();
+            let address = format!("a_{locale}_");
+            let take = format!("{address}_:");
+            e.eval("a=:9").unwrap();
+            e.eval("a_other_=:11").unwrap();
+            e.eval(&format!("{address}=:i.3")).unwrap();
+            e.eval(&format!("saved=:{address}")).unwrap();
+            let run = |e: &mut Engine, source: &str| {
+                if semantic {
+                    e.eval_semantic_reference(source)
+                } else {
+                    e.eval(source)
+                }
+            };
+            assert_eq!(
+                run(&mut e, &format!("{take}+1 2+1 2 3"))
+                    .unwrap_err()
+                    .kind(),
+                "length error"
+            );
+            assert_eq!(e.eval(&address).unwrap().unwrap().shape(), &[3]);
+            assert_eq!(
+                run(&mut e, &format!("1 2+{take}")).unwrap_err().kind(),
+                "length error"
+            );
+            assert_eq!(run(&mut e, &take).unwrap_err().kind(), "unsupported");
+            assert_eq!(e.eval("saved").unwrap().unwrap().shape(), &[3]);
+            scalar(&mut e, "a", 9);
+            scalar(&mut e, "a_other_", 11);
+            e.eval(&format!("{address}=:7")).unwrap();
+            e.eval(&format!("f=:3 : 0\na=.13\n{take}+a\n)")).unwrap();
+            assert_eq!(run(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 20);
+            assert_eq!(run(&mut e, &take).unwrap_err().kind(), "unsupported");
+        }
+        let mut e = Engine::new();
+        e.eval("a_z_=:7").unwrap();
+        assert_eq!(e.eval("a_probe__:").unwrap_err().kind(), "unsupported");
+        scalar(&mut e, "a_z_", 7);
+    }
+}
+
+#[test]
+fn named_own_abandon_capture_rejects_found_and_frame_mutation() {
+    for locale in ["probe", "z"] {
+        let mut e = Engine::new();
+        e.eval(&format!("a_{locale}_=:7")).unwrap();
+        let r = e.eval_captured(&format!("a_{locale}__:+0"));
+        assert_eq!(r.result.unwrap().unwrap().int_at(0).unwrap(), 7);
+        r.capture.verify().unwrap();
+        assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+        for mutate_frame in [false, true] {
+            let mut bad = r.capture.clone();
+            let rustj::parser_capture::CaptureEvent::Abandon { lookup, .. } = bad
+                .events
+                .iter_mut()
+                .find(|event| matches!(event, rustj::parser_capture::CaptureEvent::Abandon { .. }))
+                .unwrap()
+            else {
+                unreachable!()
+            };
+            if mutate_frame {
+                lookup.frame = Some(lookup.engine);
+            } else {
+                lookup.found = FoundScope::Locale(lookup.engine);
+            }
+            assert!(bad.verify().is_err());
+        }
     }
 }

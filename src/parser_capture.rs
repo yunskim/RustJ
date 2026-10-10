@@ -258,6 +258,19 @@ impl ParseCapture {
                                         Some(frame) => frame != z && frame != lookup.engine
                                             && lookup.local_state == crate::frontend_context::LocalLookupState::Bypassed,
                                     }
+                        ) || matches!(
+                            (lookup.search, lookup.found),
+                            (crate::frontend_context::ScopeSearch::DirectLocaleOnly(start),
+                             crate::frontend_context::FoundScope::Locale(hit))
+                                if start == hit && start != lookup.engine && *deleted
+                                    && name.ends_with('_') && !name.ends_with("__")
+                                    && !name.ends_with("_base_") && !name.contains("__")
+                                    && lookup.binding_class == Some(crate::parser::ParseClass::Noun)
+                                    && match lookup.frame {
+                                        None => lookup.local_state == crate::frontend_context::LocalLookupState::NoFrame,
+                                        Some(frame) => frame != start && frame != lookup.engine
+                                            && lookup.local_state == crate::frontend_context::LocalLookupState::Bypassed,
+                                    }
                         ))
                     {
                         return Err("invalid abandon observation");
