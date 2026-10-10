@@ -2134,7 +2134,7 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **NJ-04 base 명사 경계:** 런타임 `a__` 조회·명사 대입은 Engine의 base namespace를 명시적으로 선택하고 호출 지역 table을 우회한다. `a__`라는 별도 flat key를 만들지 않으며 기존 base `a`의 generation/version과 동일한 저장소를 사용한다. noun은 parser stack 진입 시 snapshot하고 대입·오류·효과 순서는 공유 parser로 보존한다. `BaseLocaleOnly`/`Bypassed` 관찰은 실제 검색과 lexical form을 verifier에서 대조한다. 일반 simple-name guard로 승격하지 않으며 locative capture의 J Graph 변환도 namespace dependency 증명 전까지 거부한다. 함수 locative, 미정의 future reference, computed/abandon locative, numbered/indirect locale 및 path·실행 locale 전환은 Unsupported로 남긴다. named locale 자체 table의 명사는 아래 별도 단위로 지원한다. 회귀·고정 C 차분에는 base 공유/배열 snapshot, 지역 shadow 우회·대입, 우측부터의 조회와 실패 대입의 상태 보존을 포함한다. NJ-04 전체·L3는 계속 미완료다.
 
-**NJ-04 named-own 명사 경계:** `a_probe_` 같은 직접 locative의 simple name과 locale spelling을 분리하고 `Engine.named_locales`의 독립 table·ScopeInstanceId로 조회/대입한다. 명사 lookup 때 locale이 없으면 생성하며, RHS 실패 전에 대상 locale을 미리 만들지 않는다. `a_base_`는 기존 base binding을 사용한다. `DirectLocaleOnly(start)`와 실제 `FoundScope::Locale(hit)`을 구분하여 verifier가 일치·POS·local 우회를 검사한다. 각 locale의 version이 같더라도 scope/generation을 혼동하지 않는다. named 함수/미정의 future reference, numbered/z locale, 기본 z path 검색, path 변경/indirect/호출 locale 전환, computed/abandon 및 컴파일 수용은 별도 Unsupported 경계다. C 감사의 z-path fixture는 미지원으로 기록하며 통과 수에 넣지 않는다. 일반 NJ-04/NJ-05 및 L3는 미완료다.
+**NJ-04 named-own 명사 경계:** `a_probe_` 같은 직접 locative의 simple name과 locale spelling을 분리하고 `Engine.named_locales`의 독립 table·ScopeInstanceId로 조회/대입한다. 명사 lookup 때 locale이 없으면 생성하며, RHS 실패 전에 대상 locale을 미리 만들지 않는다. `a_base_`는 기존 base binding을 사용한다. `DirectLocaleOnly(start)`와 실제 `FoundScope::Locale(hit)`을 구분하여 verifier가 일치·POS·local 우회를 검사한다. 각 locale의 version이 같더라도 scope/generation을 혼동하지 않는다. named 함수/미정의 future reference, numbered locale, 기본 z path 검색, path 변경/indirect/호출 locale 전환, computed/abandon 및 컴파일 수용은 별도 Unsupported 경계다. C 감사의 z-path fixture는 미지원으로 기록하며 통과 수에 넣지 않는다. 일반 NJ-04/NJ-05 및 L3는 미완료다.
 
 
 
@@ -2143,6 +2143,8 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 **NJ-04 direct own-table witness 검증 보강:** `DirectLocaleOnly`의 시작 ID와 발견 ID를 함께 변조하여 named locale을 base로, 또는 `a_base_`를 named locale으로 위장하는 capture를 거부한다. NAME의 실제 `_base_` 별칭 표기와 engine scope 선택을 대조하며 정상 base/named noun snapshot은 유지한다. 회귀는 양쪽 위장과 정상 capture를 검사한다. 이는 own-table 역할 검증이며 default z-path·일반 locale identity 매핑·full resolution witness 또는 L3 완료를 의미하지 않는다.
 
 **NJ-04 검색 종류 witness 보강:** base/direct locative의 조회 기록을 `GlobalOnly` 또는 `CurrentFrameThenGlobal` 일반 이름 검색으로 위장하면 verifier가 거부한다. 일반 검색은 lexical Simple NAME만 허용하며 정상 base/named capture는 유지한다. 세 locative 표기의 변조 회귀로 경계를 검증한다. default z-path·완전한 namespace witness 및 L3 완료는 별도 미완료 계약이다.
+
+**NJ-04 z own-table 선행 단위:** `a_z_` 직접 명사 조회·대입을 독립 z locale table과 ScopeInstanceId로 지원한다. 다른 named-own과 같은 snapshot·버전·local 우회·실패 RHS 보존을 사용하며 함수·미정의 참조와 컴파일 수용은 계속 거부한다. 일반/base/named의 기본 z path 검색은 아직 구현하지 않았으므로 path fixture의 성공한 z 대입과 미지원 검색을 각각 구분한다. 회귀·고정 C 감사는 z 자체 값, 배열 snapshot, local shadow 우회 및 실패 대입 이후 값을 검증한다. NJ-04 전체/L3 미완료.
 
 **NJ-07 대입 버전 경계:** parser commit의 이전/새 버전은 `assignment_version(name, local)`로 실제 대입 대상 테이블에서 관찰한다. 지역 선언이 아직 없을 때 RHS가 전역 값을 읽더라도 지역 첫 commit의 이전 버전은 없음이며, 다음 지역 commit은 지역 버전을 사용한다. base/named-own locative는 지역 flag와 무관하게 해당 own table을 사용한다. 읽기용 `version`은 기존 조회 의미를 유지한다. 실패한 RHS는 commit을 만들지 않는다. 이 경계는 default z path의 읽기 발견 테이블과 쓰기 대상 테이블을 분리하기 위한 선행 단위이며, path 지원·완전한 namespace commit witness·L3 완료를 뜻하지 않는다. 회귀는 지역 첫/반복 commit, 전역 값 보존, 전역 첫 commit과 RHS 오류를 검사한다.
 
