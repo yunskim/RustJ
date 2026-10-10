@@ -75,3 +75,68 @@ fn modifier_results_and_assignments_preserve_pos_before_lowering() {
         assert_eq!(engine.eval(name).unwrap_err().kind(), "unsupported");
     }
 }
+
+#[test]
+fn pytorch_named_nn_catalog_is_complete_and_frontend_only() {
+    use rustj::{
+        enqueuer::{EnqueueClass, enqueue},
+        nn_extensions::{FAMILIES, NAMES, ProofStatus, family, frontend_preview_context},
+        primitive::{PrimitivePartOfSpeech, PrimitiveSemanticId},
+        semantic::ExprKind,
+    };
+    use std::collections::HashSet;
+
+    assert_eq!(FAMILIES.len(), 34);
+    assert_eq!(
+        FAMILIES
+            .iter()
+            .map(|spec| spec.id)
+            .collect::<HashSet<_>>()
+            .len(),
+        34,
+    );
+    let preview = frontend_preview_context();
+    let engine = rustj::Engine::with_primitive_context(preview.clone());
+    let mut names = HashSet::new();
+    for spec in NAMES {
+        assert!(names.insert(spec.spelling), "duplicate: {}", spec.spelling);
+        let f = family(spec.family_id).expect("missing family");
+        assert_eq!(f.empty_fill_proof, ProofStatus::Unverified);
+        assert_eq!(f.error_order_proof, ProofStatus::Unverified);
+        assert_eq!(f.numeric_proof, ProofStatus::Unverified);
+        assert_eq!(spec.intrinsic_ranks.is_some(), spec.pos == PrimitivePartOfSpeech::Verb);
+        assert!(spec.intrinsic_ranks.is_none() || spec.derived_verb_ranks.is_none());
+        if !spec.frontend_preview {
+            assert!(preview.resolve_extension_binding(spec.spelling).is_none());
+            continue;
+        }
+        let words = enqueue(spec.spelling).unwrap();
+        assert_eq!(words.len(), 1);
+        assert_eq!(words[0].class, EnqueueClass::Name);
+        let handle = preview.resolve_extension_binding(spec.spelling).unwrap();
+        assert_eq!(
+            handle.semantic_id,
+            PrimitiveSemanticId::Extension(spec.semantic_identity),
+        );
+        assert_eq!(handle.result_pos, spec.pos);
+        let parsed = engine.parse_frontend(spec.spelling).unwrap();
+        parsed.frontend.as_ref().unwrap().verify().unwrap();
+        let kind = parsed.expression.unwrap().kind;
+        match spec.pos {
+            PrimitivePartOfSpeech::Verb => {
+                assert!(matches!(kind, ExprKind::VerbValue(_)), "{}", spec.spelling);
+            }
+            PrimitivePartOfSpeech::Adverb | PrimitivePartOfSpeech::Conjunction => {
+                assert!(matches!(kind, ExprKind::ModifierValue(_)), "{}", spec.spelling);
+            }
+        }
+    }
+    // Names are never reserved tokens; an explicit user binding wins.
+    let mut engine = rustj::Engine::with_primitive_context(preview);
+    engine.eval("relu=:42").unwrap();
+    let result = engine.parse_frontend("relu").unwrap();
+    assert!(matches!(
+        result.expression.unwrap().kind,
+        ExprKind::ReadName(ref name) if name == "relu"
+    ));
+}
