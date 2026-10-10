@@ -2477,15 +2477,14 @@ impl Engine {
     }
 
     // sl.c initializes a named locale with a z path. This slice supports its
-    // own noun table only: z/path mutation and numbered locales stay closed.
+    // own noun table only, including z: path lookup/mutation and numbered locales stay closed.
     fn ensure_named_locale(&mut self, locale: &str) -> Result<()> {
         if !locale
             .as_bytes()
             .first()
             .is_some_and(u8::is_ascii_alphabetic)
-            || locale == "z"
         {
-            return Err(Error::Unsupported("numbered/z locale namespace".into()));
+            return Err(Error::Unsupported("numbered locale namespace".into()));
         }
         if locale != "base" {
             self.named_locales

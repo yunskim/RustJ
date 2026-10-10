@@ -100,7 +100,6 @@ fn unsupported_paths_functions_and_computed_locatives_do_not_mutate_bindings() {
     e.eval("a_probe_=:7").unwrap();
     for source in [
         "a_probe_=:+",
-        "a_z_=:9",
         "a_0_=:9",
         "a__holder",
         "'a_probe_'=:9",
@@ -183,5 +182,68 @@ fn locative_witness_cannot_masquerade_as_simple_name_search() {
             lookup.found = FoundScope::Global(lookup.engine);
             assert!(bad.verify().is_err(), "forged simple search: {source}");
         }
+    }
+}
+
+#[test]
+fn z_own_nouns_keep_scope_versions_snapshots_and_failed_writes() {
+    let mut e = Engine::new();
+    e.eval("a=:1").unwrap();
+    e.eval("a_probe_=:2").unwrap();
+    e.eval("a_z_=:i.4").unwrap();
+    let first = e.eval_captured("a_z_");
+    first.result.unwrap();
+    first.capture.verify().unwrap();
+    let read = &first.capture.frontend.as_ref().unwrap().name_uses[0];
+    let obs = read.lookup.as_ref().unwrap();
+    let ScopeSearch::DirectLocaleOnly(z) = obs.search else {
+        panic!()
+    };
+    assert_eq!(obs.found, FoundScope::Locale(z));
+    assert_ne!(z, obs.engine);
+    assert!(
+        SimpleNameGuard::from_name_use(first.capture.frontend.as_ref().unwrap(), NameUseId(0))
+            .is_err()
+    );
+    assert!(rustj::j_graph_ir::Plan::from_capture(&first.capture).is_err());
+    e.eval("saved=:a_z_").unwrap();
+    e.eval("a_z_=.a_z_+10").unwrap();
+    assert_eq!(
+        e.eval("saved").unwrap().unwrap().json(),
+        e.eval("i.4").unwrap().unwrap().json()
+    );
+    e.eval("a_z_=:7").unwrap();
+    let before = e.eval_captured("a_z_");
+    e.eval("a_z_=:1 2+1 2 3").unwrap_err();
+    e.eval("a_z_=:+").unwrap_err();
+    let after = e.eval_captured("a_z_");
+    after.result.unwrap();
+    after.capture.verify().unwrap();
+    assert_eq!(
+        before.capture.frontend.as_ref().unwrap().name_uses[0].lookup,
+        after.capture.frontend.as_ref().unwrap().name_uses[0].lookup
+    );
+    scalar(&mut e, "a_z_", 7);
+    scalar(&mut e, "a", 1);
+    scalar(&mut e, "a_probe_", 2);
+    assert_eq!(e.eval("missing_z_").unwrap_err().kind(), "unsupported");
+    assert_eq!(e.eval("missing_probe_").unwrap_err().kind(), "unsupported");
+}
+
+#[test]
+fn z_own_nouns_bypass_local_shadowing_in_both_execution_paths() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("a=:1").unwrap();
+        e.eval("a_z_=:7").unwrap();
+        e.eval("f=:3 : 0\na=.9\na_z_=.11\na+a_z_\n)").unwrap();
+        let r = if semantic {
+            e.eval_semantic_reference("f 0")
+        } else {
+            e.eval("f 0")
+        };
+        assert_eq!(r.unwrap().unwrap().int_at(0).unwrap(), 20);
+        scalar(&mut e, "a", 1);
+        scalar(&mut e, "a_z_", 11);
     }
 }
