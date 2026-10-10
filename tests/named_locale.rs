@@ -743,8 +743,8 @@ fn named_own_abandon_preserves_other_tables_snapshots_and_error_order() {
         }
         let mut e = Engine::new();
         e.eval("a_z_=:7").unwrap();
-        assert_eq!(e.eval("a_probe__:").unwrap_err().kind(), "unsupported");
-        scalar(&mut e, "a_z_", 7);
+        scalar(&mut e, "a_probe__:", 7);
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
     }
 }
 
@@ -775,4 +775,71 @@ fn named_own_abandon_capture_rejects_found_and_frame_mutation() {
             assert!(bad.verify().is_err());
         }
     }
+}
+
+#[test]
+fn named_z_abandon_preserves_order_snapshots_and_local_bypass() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        let run = |e: &mut Engine, source: &str| {
+            if semantic {
+                e.eval_semantic_reference(source)
+            } else {
+                e.eval(source)
+            }
+        };
+        e.eval("a_z_=:i.3").unwrap();
+        e.eval("saved=:a_probe_").unwrap();
+        assert_eq!(
+            run(&mut e, "a_probe__:+1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        assert_eq!(e.eval("a_z_").unwrap().unwrap().shape(), &[3]);
+        assert_eq!(
+            run(&mut e, "1 2+a_probe__:").unwrap_err().kind(),
+            "length error"
+        );
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+        assert_eq!(e.eval("saved").unwrap().unwrap().shape(), &[3]);
+        e.eval("a_z_=:7").unwrap();
+        e.eval("f=:3 : 0\na=.11\na_probe__:+a\n)").unwrap();
+        assert_eq!(run(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 18);
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+    }
+}
+
+#[test]
+fn named_z_abandon_capture_keeps_start_hit_and_frame_distinct() {
+    let mut e = Engine::new();
+    e.eval("a_z_=:7").unwrap();
+    let first = e.eval_captured("a_fresh__:+0");
+    assert_eq!(first.result.unwrap().unwrap().int_at(0).unwrap(), 7);
+    first.capture.verify().unwrap();
+    assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+    e.eval("a_z_=:7").unwrap();
+    let r = e.eval_captured("a_fresh__:+a_fresh_");
+    assert_eq!(r.result.unwrap().unwrap().int_at(0).unwrap(), 14);
+    r.capture.verify().unwrap();
+    assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+    for mutation in 0..3 {
+        let mut bad = r.capture.clone();
+        let rustj::parser_capture::CaptureEvent::Abandon { lookup, .. } = bad
+            .events
+            .iter_mut()
+            .find(|event| matches!(event, rustj::parser_capture::CaptureEvent::Abandon { .. }))
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        let ScopeSearch::NamedDefaultZ { start, z } = lookup.search else {
+            panic!()
+        };
+        match mutation {
+            0 => lookup.found = FoundScope::Locale(start),
+            1 => lookup.search = ScopeSearch::NamedDefaultZ { start: z, z },
+            _ => lookup.frame = Some(z),
+        }
+        assert!(bad.verify().is_err());
+    }
+    assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
 }

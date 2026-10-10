@@ -2696,9 +2696,27 @@ impl Engine {
                     true,
                 )),
                 Some(_) => Err(Error::Unsupported("named-locative function abandon".into())),
-                None => Err(Error::Unsupported(
-                    "named-locative path/future abandon".into(),
-                )),
+                None => {
+                    if locale != "z"
+                        && self
+                            .direct_binding(key, "z")
+                            .is_some_and(|binding| matches!(binding.value, JEntity::Noun(_)))
+                    {
+                        return Ok((
+                            self.named_locales
+                                .get_mut("z")
+                                .expect("found z")
+                                .names
+                                .remove(key)
+                                .expect("found z noun")
+                                .value,
+                            true,
+                        ));
+                    }
+                    Err(Error::Unsupported(
+                        "named-locative path/future abandon".into(),
+                    ))
+                }
             };
         }
         // Enqueue retains address form independently of abandon policy. Do not
