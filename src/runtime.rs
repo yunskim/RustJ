@@ -623,6 +623,13 @@ struct EngineParserHost<'a> {
     pooled: bool,
 }
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn prepare_take_name(&mut self, name: &str) -> Result<()> {
+        if indirect_holder(name).is_some() {
+            let (_, locale) = self.engine.resolve_indirect_noun_address(name)?;
+            self.engine.ensure_named_locale(&locale)?;
+        }
+        Ok(())
+    }
     fn take_name(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
         self.engine.take_binding(name, single_word)
     }
@@ -699,6 +706,9 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         true
     }
     fn supports_named_direct_locative_nouns(&self) -> bool {
+        true
+    }
+    fn supports_indirect_noun_abandon(&self) -> bool {
         true
     }
     fn supports_indirect_noun_reads(&self) -> bool {
@@ -901,6 +911,9 @@ struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
 }
 impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
+    fn prepare_take_name(&mut self, name: &str) -> Result<()> {
+        self.parent.prepare_take_name(name)
+    }
     fn take_name(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
         self.parent.take_name(name, single_word)
     }
@@ -922,6 +935,9 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
         true
     }
     fn supports_named_direct_locative_nouns(&self) -> bool {
+        true
+    }
+    fn supports_indirect_noun_abandon(&self) -> bool {
         true
     }
     fn supports_indirect_noun_reads(&self) -> bool {
@@ -2895,6 +2911,12 @@ impl Engine {
     }
 
     fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        if indirect_holder(name).is_some() {
+            let (key, locale) = self.resolve_indirect_noun_address(name)?;
+            self.ensure_named_locale(&locale)?;
+            // Direct abandon already selects own then z and bypasses locals.
+            return self.take_binding(&format!("{key}_{locale}_"), single_word);
+        }
         let base_key = base_locative_key(name).or_else(|| {
             named_direct_address(name).and_then(|(key, locale)| (locale == "base").then_some(key))
         });
