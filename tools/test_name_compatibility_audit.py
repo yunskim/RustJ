@@ -115,6 +115,16 @@ class AuditClassification(unittest.TestCase):
                                   [{"error": "domain error"}])
         self.assertEqual(status, "semantic_mismatch")
 
+    def test_locale_error_difference_and_unsupported_are_distinct(self):
+        reference = [{'error': 'locale error'}, {'data': [7]}]
+        sources = ['a__holder+0', 'a_probe_+0']
+        self.assertEqual(compare_trace(sources, reference,
+            [{'error': 'value error'}, {'data': [7]}])[0], 'semantic_mismatch')
+        status, differences = compare_trace(sources, reference,
+            [{'error': 'unsupported'}, {'data': [7]}])
+        self.assertEqual(status, 'unsupported_gap')
+        self.assertEqual(len(differences), 1)
+
     def test_inconsistent_reference_is_a_harness_error(self):
         with self.assertRaises(RuntimeError):
             compare_trace(["a"], [], [])
