@@ -121,6 +121,8 @@ impl ScopeInstanceId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopeSearch {
+    /// A direct locative resolved in the selected locale's own noun table.
+    DirectLocaleOnly(ScopeInstanceId),
     /// Empty direct locale selects base explicitly, bypassing local search.
     BaseLocaleOnly,
     GlobalOnly,
@@ -137,6 +139,7 @@ pub enum LocalLookupState {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FoundScope {
+    Locale(ScopeInstanceId),
     Local(ScopeInstanceId),
     Global(ScopeInstanceId),
     Extension,
@@ -681,6 +684,24 @@ impl FrontendContext {
                     lookup.local_state,
                     lookup.found,
                 ) {
+                    (frame, ScopeSearch::DirectLocaleOnly(start), state, found) => {
+                        self.words[name_use.word.0].flags.name_form
+                            == crate::enqueuer::NameForm::DirectLocative
+                            && lookup.binding_class == Some(ParseClass::Noun)
+                            && match found {
+                                FoundScope::Locale(hit) => hit == start && hit != lookup.engine,
+                                FoundScope::Global(hit) => hit == start && hit == lookup.engine,
+                                _ => false,
+                            }
+                            && match frame {
+                                None => state == LocalLookupState::NoFrame,
+                                Some(frame) => {
+                                    frame != start
+                                        && frame != lookup.engine
+                                        && state == LocalLookupState::Bypassed
+                                }
+                            }
+                    }
                     (frame, ScopeSearch::BaseLocaleOnly, state, FoundScope::Global(_)) => {
                         self.words[name_use.word.0].flags.name_form
                             == crate::enqueuer::NameForm::BaseLocative
@@ -714,8 +735,10 @@ impl FrontendContext {
                 };
                 if !frame_valid
                     || matches!(lookup.found, FoundScope::Global(scope) if scope != lookup.engine)
-                    || (matches!(lookup.found, FoundScope::Local(_) | FoundScope::Global(_))
-                        != lookup.binding_version.is_some())
+                    || (matches!(
+                        lookup.found,
+                        FoundScope::Local(_) | FoundScope::Global(_) | FoundScope::Locale(_)
+                    ) != lookup.binding_version.is_some())
                     || lookup.binding_version.is_some() != lookup.binding_generation.is_some()
                     || lookup.binding_version.is_some() != lookup.binding_class.is_some()
                     || lookup

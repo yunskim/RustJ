@@ -66,6 +66,41 @@ mod scope_provenance_tests {
         assert_eq!(base.int_at(0).unwrap(), 11);
     }
 
+    #[test]
+    fn named_locale_frame_capture_and_creation_respect_errors() {
+        let mut engine = Engine::new();
+        engine.eval("a=:1").unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::new(),
+        });
+        parse_frame(&mut engine, "a=.9");
+        parse_frame(&mut engine, "a_probe_=.7");
+        let program = parse_frame(&mut engine, "a_probe_");
+        let context = program.frontend.as_ref().unwrap();
+        let read = context.name_uses[0].lookup.as_ref().unwrap();
+        let scope = engine.named_locales["probe"].instance;
+        assert_eq!(read.search, ScopeSearch::DirectLocaleOnly(scope));
+        assert_eq!(read.found, FoundScope::Locale(scope));
+        assert_eq!(read.local_state, LocalLookupState::Bypassed);
+        assert_ne!(scope, engine.namespace_instance);
+        assert_eq!(
+            engine.eval("missing_newplace_").unwrap_err().kind(),
+            "unsupported"
+        );
+        assert!(engine.named_locales["newplace"].names.is_empty());
+        assert_eq!(
+            engine.eval("a_bad_=:1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        assert!(!engine.named_locales.contains_key("bad"));
+        let JEntity::Noun(local) = &engine.local_frames.last().unwrap().names["a"].value else {
+            panic!()
+        };
+        assert_eq!(local.int_at(0).unwrap(), 9);
+    }
+
     fn guard_for(engine: &mut Engine, name: &str) -> crate::frontend_context::SimpleNameGuard {
         let program = parse_frame(engine, name);
         crate::frontend_context::SimpleNameGuard::from_name_use(
@@ -351,6 +386,8 @@ mod scope_provenance_tests {
 pub struct Engine {
     namespace_instance: crate::frontend_context::ScopeInstanceId,
     names: HashMap<String, Binding>,
+    /// User named locales are independent symbol tables, never locative keys.
+    named_locales: HashMap<String, NamedLocale>,
     pool: crate::pool::OutputPool,
     /// A bounded physical exact-search table, keyed by immutable Arc identity.
     /// Never inferred from a J name string or parser binding version.
@@ -372,6 +409,20 @@ fn base_locative_key(name: &str) -> Option<&str> {
     name.strip_suffix("__")
 }
 
+struct NamedLocale {
+    instance: crate::frontend_context::ScopeInstanceId,
+    names: HashMap<String, Binding>,
+}
+
+/// Validated direct NAME: separate simple symbol and named locale spelling.
+fn named_direct_address(name: &str) -> Option<(&str, &str)> {
+    let text = name.strip_suffix('_')?;
+    if name.ends_with("__") {
+        return None;
+    }
+    text.rsplit_once('_')
+}
+
 struct EngineParserHost<'a> {
     engine: &'a mut Engine,
     pooled: bool,
@@ -384,7 +435,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Some(self.engine.lookup_observation(name))
     }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
-        if base_locative_key(name).is_some() {
+        if base_locative_key(name).is_some() || named_direct_address(name).is_some() {
             return None;
         }
         match self.engine.visible_binding(name) {
@@ -427,7 +478,25 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn supports_base_locative_nouns(&self) -> bool {
         true
     }
+    fn supports_named_direct_locative_nouns(&self) -> bool {
+        true
+    }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            self.engine.ensure_named_locale(locale)?;
+            return match self.engine.direct_binding(key, locale) {
+                Some(Binding {
+                    value: JEntity::Noun(value),
+                    ..
+                }) => Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone()))),
+                Some(_) => Err(Error::Unsupported(
+                    "direct-locative function reference".into(),
+                )),
+                None => Err(Error::Unsupported(
+                    "direct-locative path/future reference".into(),
+                )),
+            };
+        }
         if let Some(key) = base_locative_key(name) {
             // sn.c/sl.c: an empty direct locale selects base, bypassing the
             // invocation-local table. Nouns snapshot at parser stack entry.
@@ -450,6 +519,12 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Ok(self.engine.parser_name_binding(name))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            return self
+                .engine
+                .direct_binding(key, locale)
+                .map(|binding| binding.version);
+        }
         if let Some(key) = base_locative_key(name) {
             return self.engine.names.get(key).map(|binding| binding.version);
         }
@@ -569,6 +644,9 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn supports_base_locative_nouns(&self) -> bool {
         true
     }
+    fn supports_named_direct_locative_nouns(&self) -> bool {
+        true
+    }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         self.parent.lookup(name)
     }
@@ -613,7 +691,7 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     }
     fn assign_scoped(&mut self, name: &str, value: JEntity, local: bool) -> Result<JEntity> {
         let engine = &mut self.parent.engine;
-        if base_locative_key(name).is_some() {
+        if base_locative_key(name).is_some() || named_direct_address(name).is_some() {
             return engine.commit_runtime_binding(name, value);
         }
         if local {
@@ -733,6 +811,7 @@ impl Engine {
         Self {
             namespace_instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
+            named_locales: HashMap::new(),
             pool: crate::pool::OutputPool::new(bytes),
             exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
             primitives: crate::primitive::PrimitiveContext::core(),
@@ -771,6 +850,7 @@ impl Engine {
         Self {
             namespace_instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
+            named_locales: HashMap::new(),
             pool: crate::pool::OutputPool::new(64 * 1024 * 1024),
             exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
             primitives,
@@ -2306,7 +2386,57 @@ impl Engine {
         self.names.get(name).map(|binding| binding.version)
     }
 
+    // sl.c initializes a named locale with a z path. This slice supports its
+    // own noun table only: z/path mutation and numbered locales stay closed.
+    fn ensure_named_locale(&mut self, locale: &str) -> Result<()> {
+        if !locale
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic)
+            || locale == "z"
+        {
+            return Err(Error::Unsupported("numbered/z locale namespace".into()));
+        }
+        if locale != "base" {
+            self.named_locales
+                .entry(locale.to_owned())
+                .or_insert_with(|| NamedLocale {
+                    instance: crate::frontend_context::ScopeInstanceId::fresh(),
+                    names: HashMap::new(),
+                });
+        }
+        Ok(())
+    }
+    fn direct_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
+        if locale == "base" {
+            self.names.get(key)
+        } else {
+            self.named_locales.get(locale)?.names.get(key)
+        }
+    }
+
     fn commit_runtime_binding(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            if !matches!(value, JEntity::Noun(_)) {
+                return Err(Error::Unsupported(
+                    "direct-locative function assignment".into(),
+                ));
+            }
+            self.ensure_named_locale(locale)?;
+            if locale == "base" {
+                return self.commit_binding(key.to_owned(), value);
+            }
+            return store_binding(
+                &mut self
+                    .named_locales
+                    .get_mut(locale)
+                    .expect("created locale")
+                    .names,
+                &mut self.pool,
+                key.to_owned(),
+                value,
+            );
+        }
         if let Some(key) = base_locative_key(name) {
             if !matches!(value, JEntity::Noun(_)) {
                 return Err(Error::Unsupported(
@@ -2361,6 +2491,39 @@ impl Engine {
         use crate::frontend_context::{
             FoundScope, LocalLookupState, LookupObservation, ScopeSearch,
         };
+        if let Some((key, locale)) = named_direct_address(name) {
+            let start = if locale == "base" {
+                Some(self.namespace_instance)
+            } else {
+                self.named_locales.get(locale).map(|locale| locale.instance)
+            };
+            let binding = self.direct_binding(key, locale);
+            return LookupObservation {
+                engine: self.namespace_instance,
+                frame: self.local_frames.last().map(|frame| frame.instance),
+                search: ScopeSearch::DirectLocaleOnly(
+                    start.expect("successful lookup created locale"),
+                ),
+                local_state: if self.local_frames.is_empty() {
+                    LocalLookupState::NoFrame
+                } else {
+                    LocalLookupState::Bypassed
+                },
+                found: if binding.is_none() {
+                    FoundScope::Missing
+                } else if locale == "base" {
+                    FoundScope::Global(self.namespace_instance)
+                } else {
+                    FoundScope::Locale(start.unwrap())
+                },
+                binding_version: binding.map(|binding| binding.version),
+                binding_generation: binding.map(|binding| binding.generation),
+                binding_class: binding.map(|binding| match &binding.value {
+                    JEntity::Noun(_) => crate::parser::ParseClass::Noun,
+                    JEntity::Function(function) => function.result_pos.into(),
+                }),
+            };
+        }
         if let Some(key) = base_locative_key(name) {
             let binding = self.names.get(key);
             return LookupObservation {

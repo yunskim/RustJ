@@ -620,7 +620,8 @@ fn locative_copulas_follow_all_three_enqueue_environments() {
 fn locative_execution_stops_before_ordinary_namespace_mutation() {
     let mut engine = rustj::runtime::Engine::new();
     engine.eval("kept=:7").unwrap();
-    for source in ["kept_base_", "kept__holder", "kept_base_=.9"] {
+    {
+        let source = "kept__holder";
         let error = engine.eval_diagnostic(source).unwrap_err();
         assert_eq!(error.kind(), "unsupported", "{source}");
         assert_eq!(
