@@ -2632,8 +2632,10 @@ impl Engine {
         if let Some(binding) = self.names.remove(name) {
             return Ok((binding.value, true));
         }
-        if self.direct_binding(name, "z").is_some() {
-            return Err(Error::Unsupported("abandon default z path binding".into()));
+        if let Some(locale) = self.named_locales.get_mut("z")
+            && let Some(binding) = locale.names.remove(name)
+        {
+            return Ok((binding.value, true));
         }
         if self.primitives.resolve_extension_binding(name).is_some() {
             return Err(Error::Unsupported(

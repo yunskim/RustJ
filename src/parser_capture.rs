@@ -217,17 +217,28 @@ impl ParseCapture {
         for (event_index, event) in self.events.iter().enumerate() {
             match event {
                 CaptureEvent::Abandon {
-                    name, lookup, span, ..
+                    name,
+                    lookup,
+                    span,
+                    deleted,
+                    ..
                 } => {
                     if name.is_empty()
                         || self.source.get(span.clone()).is_none()
                         || lookup.binding_version.is_none()
                         || lookup.binding_generation.is_none()
-                        || !matches!(
+                        || !(matches!(
                             lookup.found,
                             crate::frontend_context::FoundScope::Local(_)
                                 | crate::frontend_context::FoundScope::Global(_)
-                        )
+                        ) || matches!(
+                            (lookup.search, lookup.found),
+                            (crate::frontend_context::ScopeSearch::SimpleDefaultZ { z },
+                             crate::frontend_context::FoundScope::Locale(hit))
+                                if z == hit && z != lookup.engine
+                                    && *deleted
+                                    && lookup.binding_class == Some(crate::parser::ParseClass::Noun)
+                        ))
                     {
                         return Err("invalid abandon observation");
                     }
