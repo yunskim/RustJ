@@ -61,10 +61,13 @@ fn primitive_resolver_keeps_extensions_as_names_until_parser_binding() {
         },
         lowering_key: LoweringKey::Extension("test.addx"),
     };
-    let context = PrimitiveContext::new(PrimitiveResolver::with_extensions([ExtensionPrimitive {
-        spelling: "addx",
-        handle: extension,
-    }]));
+    let context = PrimitiveContext::new(
+        PrimitiveResolver::with_extensions([ExtensionPrimitive {
+            spelling: "addx",
+            handle: extension,
+        }])
+        .unwrap(),
+    );
 
     let words = enqueuer::enqueue_with_context("addx +", &context).unwrap();
     assert_eq!(
@@ -81,6 +84,57 @@ fn primitive_resolver_keeps_extensions_as_names_until_parser_binding() {
     let core = context.resolve_core_for_enqueue("+").unwrap();
     assert_eq!(core.source_origin, PrimitiveSourceOrigin::Core);
     assert!(matches!(core.lowering_key, LoweringKey::Core(_)));
+}
+
+#[test]
+fn primitive_resolver_rejects_invalid_extension_registration_before_binding() {
+    use rustj::primitive::{
+        ExtensionPrimitive, LoweringKey, PrimitiveHandle, PrimitivePartOfSpeech, PrimitiveResolver,
+        PrimitiveSemanticId, PrimitiveSemanticInfo, PrimitiveSourceOrigin, REGISTRY_VERSION,
+    };
+
+    let handle = PrimitiveHandle {
+        semantic_id: PrimitiveSemanticId::Extension("nn.relu"),
+        source_origin: PrimitiveSourceOrigin::Extension,
+        result_pos: PrimitivePartOfSpeech::Verb,
+        semantic_info: PrimitiveSemanticInfo {
+            registry_version: REGISTRY_VERSION,
+        },
+        lowering_key: LoweringKey::Extension("nn.relu"),
+    };
+    let entry = |spelling, handle| ExtensionPrimitive { spelling, handle };
+    let accepted = PrimitiveResolver::with_extensions([entry("relu", handle)]).unwrap();
+    assert_eq!(accepted.resolve_extension_binding("relu"), Some(handle));
+    assert!(accepted.resolve_core_for_enqueue("relu").is_none());
+
+    // Core tokens, numerals, locatives and multiword strings cannot acquire
+    // extension identities at the NAME boundary.
+    for spelling in ["+", "3", "relu__z", "relu other", ""] {
+        assert!(
+            PrimitiveResolver::with_extensions([entry(spelling, handle)]).is_err(),
+            "{spelling:?}"
+        );
+    }
+    assert!(
+        PrimitiveResolver::with_extensions([entry("relu", handle), entry("relu", handle),])
+            .is_err()
+    );
+
+    let mut mismatched = handle;
+    mismatched.lowering_key = LoweringKey::Extension("nn.other");
+    assert!(PrimitiveResolver::with_extensions([entry("relu", mismatched)]).is_err());
+
+    let mut wrong_origin = handle;
+    wrong_origin.source_origin = PrimitiveSourceOrigin::Core;
+    assert!(PrimitiveResolver::with_extensions([entry("relu", wrong_origin)]).is_err());
+
+    let mut stale = handle;
+    stale.semantic_info.registry_version -= 1;
+    assert!(PrimitiveResolver::with_extensions([entry("relu", stale)]).is_err());
+
+    let mut core_identity = handle;
+    core_identity.semantic_id = PrimitiveSemanticId::Verb(rustj::primitive::PrimitiveId::Add);
+    assert!(PrimitiveResolver::with_extensions([entry("relu", core_identity)]).is_err());
 }
 
 #[test]

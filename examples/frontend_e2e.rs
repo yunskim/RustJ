@@ -185,5 +185,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!();
     }
+    // Once the frontend E2E pathway is inspected, an opt-in PyTorch-aligned
+    // profile reports catalog identity and POS without claiming callable kernels.
+    // Normal Engine::new() keeps the core-J-only default namespace unchanged.
+    let nn_engine =
+        Engine::with_primitive_context(rustj::nn_extensions::frontend_preview_context());
+    for spec in rustj::nn_extensions::NAMES
+        .iter()
+        .filter(|spec| spec.frontend_preview)
+    {
+        let parsed = nn_engine
+            .parse_frontend(spec.spelling)
+            .map_err(|failure| failure.error)?;
+        let frontend = parsed.frontend.as_ref().ok_or("missing NN frontend")?;
+        frontend.verify()?;
+        let family =
+            rustj::nn_extensions::family(spec.family_id).ok_or("missing NN family contract")?;
+        println!(
+            "NN_EXTENSION_FRONTEND id={} name={} identity={} pytorch={:?} pos={:?} intrinsic={:?} derived={:?} shape={:?} dtype={:?} effect={:?} route={:?} empty={:?} errors={:?} status=RECOGNIZED_ONLY",
+            spec.family_id,
+            spec.spelling,
+            spec.semantic_identity,
+            spec.pytorch_api,
+            spec.pos,
+            spec.intrinsic_ranks,
+            spec.derived_verb_ranks,
+            family.shape_rule,
+            family.dtype_rule,
+            family.effect_rule,
+            family.logical_route_candidate,
+            family.empty_fill_proof,
+            family.error_order_proof,
+        );
+    }
     Ok(())
 }

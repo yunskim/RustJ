@@ -44,6 +44,7 @@ pub mod name_array_batches;
 pub mod name_array_regions;
 pub mod name_effect_ir;
 pub mod name_guards;
+pub mod nn_extensions;
 mod numeric;
 mod numeric_input;
 pub mod opportunity;
