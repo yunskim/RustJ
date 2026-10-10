@@ -86,13 +86,11 @@ fn primitive_resolver_keeps_extensions_as_names_until_parser_binding() {
     assert!(matches!(core.lowering_key, LoweringKey::Core(_)));
 }
 
-
 #[test]
 fn primitive_resolver_rejects_invalid_extension_registration_before_binding() {
     use rustj::primitive::{
-        ExtensionPrimitive, LoweringKey, PrimitiveHandle, PrimitivePartOfSpeech,
-        PrimitiveResolver, PrimitiveSemanticId, PrimitiveSemanticInfo, PrimitiveSourceOrigin,
-        REGISTRY_VERSION,
+        ExtensionPrimitive, LoweringKey, PrimitiveHandle, PrimitivePartOfSpeech, PrimitiveResolver,
+        PrimitiveSemanticId, PrimitiveSemanticInfo, PrimitiveSourceOrigin, REGISTRY_VERSION,
     };
 
     let handle = PrimitiveHandle {
@@ -106,10 +104,7 @@ fn primitive_resolver_rejects_invalid_extension_registration_before_binding() {
     };
     let entry = |spelling, handle| ExtensionPrimitive { spelling, handle };
     let accepted = PrimitiveResolver::with_extensions([entry("relu", handle)]).unwrap();
-    assert_eq!(
-        accepted.resolve_extension_binding("relu"),
-        Some(handle)
-    );
+    assert_eq!(accepted.resolve_extension_binding("relu"), Some(handle));
     assert!(accepted.resolve_core_for_enqueue("relu").is_none());
 
     // Core tokens, numerals, locatives and multiword strings cannot acquire
@@ -121,11 +116,8 @@ fn primitive_resolver_rejects_invalid_extension_registration_before_binding() {
         );
     }
     assert!(
-        PrimitiveResolver::with_extensions([
-            entry("relu", handle),
-            entry("relu", handle),
-        ])
-        .is_err()
+        PrimitiveResolver::with_extensions([entry("relu", handle), entry("relu", handle),])
+            .is_err()
     );
 
     let mut mismatched = handle;

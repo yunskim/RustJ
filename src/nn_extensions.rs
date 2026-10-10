@@ -487,12 +487,60 @@ pub const FAMILIES: &[NnFamilySpec] = &[
 /// PyTorch-aligned spellings; speculative/nonstandard names remain hidden
 /// from the frontend preview, and all names remain non-executable.
 pub const NAMES: &[NnExtensionName] = &[
-    nn!("NN-01", "relu", Some("torch.nn.functional.relu"), Verb, Some([0; 3]), None, true),
-    nn!("NN-01", "sigmoid", Some("torch.nn.functional.sigmoid"), Verb, Some([0; 3]), None, true),
-    nn!("NN-01", "tanh", Some("torch.nn.functional.tanh"), Verb, Some([0; 3]), None, true),
-    nn!("NN-02", "linear", Some("torch.nn.functional.linear"), Adverb, None, Some([63; 3]), true),
-    nn!("NN-03", "flatten", Some("torch.flatten"), Verb, Some([63; 3]), None, true),
-    nn!("NN-04", "conv2d", Some("torch.nn.functional.conv2d"), Adverb, None, Some([63; 3]), true),
+    nn!(
+        "NN-01",
+        "relu",
+        Some("torch.nn.functional.relu"),
+        Verb,
+        Some([0; 3]),
+        None,
+        true
+    ),
+    nn!(
+        "NN-01",
+        "sigmoid",
+        Some("torch.nn.functional.sigmoid"),
+        Verb,
+        Some([0; 3]),
+        None,
+        true
+    ),
+    nn!(
+        "NN-01",
+        "tanh",
+        Some("torch.nn.functional.tanh"),
+        Verb,
+        Some([0; 3]),
+        None,
+        true
+    ),
+    nn!(
+        "NN-02",
+        "linear",
+        Some("torch.nn.functional.linear"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        true
+    ),
+    nn!(
+        "NN-03",
+        "flatten",
+        Some("torch.flatten"),
+        Verb,
+        Some([63; 3]),
+        None,
+        true
+    ),
+    nn!(
+        "NN-04",
+        "conv2d",
+        Some("torch.nn.functional.conv2d"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        true
+    ),
     nn!(
         "NN-05",
         "avg_pool2d",
@@ -538,8 +586,24 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         true,
     ),
-    nn!("NN-08", "conv1d", Some("torch.nn.functional.conv1d"), Adverb, None, Some([63; 3]), true),
-    nn!("NN-08", "conv3d", Some("torch.nn.functional.conv3d"), Adverb, None, Some([63; 3]), true),
+    nn!(
+        "NN-08",
+        "conv1d",
+        Some("torch.nn.functional.conv1d"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        true
+    ),
+    nn!(
+        "NN-08",
+        "conv3d",
+        Some("torch.nn.functional.conv3d"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        true
+    ),
     nn!(
         "NN-09",
         "layer_norm",
@@ -567,8 +631,24 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         true,
     ),
-    nn!("NN-10", "gelu", Some("torch.nn.functional.gelu"), Verb, Some([0; 3]), None, true),
-    nn!("NN-10", "silu", Some("torch.nn.functional.silu"), Verb, Some([0; 3]), None, true),
+    nn!(
+        "NN-10",
+        "gelu",
+        Some("torch.nn.functional.gelu"),
+        Verb,
+        Some([0; 3]),
+        None,
+        true
+    ),
+    nn!(
+        "NN-10",
+        "silu",
+        Some("torch.nn.functional.silu"),
+        Verb,
+        Some([0; 3]),
+        None,
+        true
+    ),
     nn!(
         "NN-11",
         "embedding",
@@ -587,8 +667,24 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         true,
     ),
-    nn!("NN-13", "rotary_embedding", None, Adverb, None, Some([63; 3]), false),
-    nn!("NN-14", "matmul", Some("torch.matmul"), Verb, Some([63; 3]), None, true),
+    nn!(
+        "NN-13",
+        "rotary_embedding",
+        None,
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-14",
+        "matmul",
+        Some("torch.matmul"),
+        Verb,
+        Some([63; 3]),
+        None,
+        true
+    ),
     nn!(
         "NN-15",
         "dropout",
@@ -598,10 +694,42 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         true,
     ),
-    nn!("NN-16", "vjp", Some("torch.func.vjp"), Adverb, None, None, false),
-    nn!("NN-17", "SGD", Some("torch.optim.SGD"), Adverb, None, None, false),
-    nn!("NN-17", "Adam", Some("torch.optim.Adam"), Adverb, None, None, false),
-    nn!("NN-17", "AdamW", Some("torch.optim.AdamW"), Adverb, None, None, false),
+    nn!(
+        "NN-16",
+        "vjp",
+        Some("torch.func.vjp"),
+        Adverb,
+        None,
+        None,
+        false
+    ),
+    nn!(
+        "NN-17",
+        "SGD",
+        Some("torch.optim.SGD"),
+        Adverb,
+        None,
+        None,
+        false
+    ),
+    nn!(
+        "NN-17",
+        "Adam",
+        Some("torch.optim.Adam"),
+        Adverb,
+        None,
+        None,
+        false
+    ),
+    nn!(
+        "NN-17",
+        "AdamW",
+        Some("torch.optim.AdamW"),
+        Adverb,
+        None,
+        None,
+        false
+    ),
     nn!(
         "NN-18",
         "register_autograd",
@@ -611,7 +739,15 @@ pub const NAMES: &[NnExtensionName] = &[
         None,
         false,
     ),
-    nn!("NN-19", "to", Some("torch.Tensor.to"), Adverb, None, Some([63; 3]), false),
+    nn!(
+        "NN-19",
+        "to",
+        Some("torch.Tensor.to"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
     nn!(
         "NN-20",
         "conv_transpose2d",
@@ -648,7 +784,15 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         false,
     ),
-    nn!("NN-21", "dequantize", Some("torch.Tensor.dequantize"), Verb, Some([63; 3]), None, false),
+    nn!(
+        "NN-21",
+        "dequantize",
+        Some("torch.Tensor.dequantize"),
+        Verb,
+        Some([63; 3]),
+        None,
+        false
+    ),
     nn!("NN-22", "kv_cache_update", None, Adverb, None, None, false),
     nn!(
         "NN-23",
@@ -659,8 +803,24 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         false,
     ),
-    nn!("NN-24", "logsumexp", Some("torch.logsumexp"), Adverb, None, Some([63; 3]), true),
-    nn!("NN-25", "topk", Some("torch.topk"), Adverb, None, Some([63; 3]), true),
+    nn!(
+        "NN-24",
+        "logsumexp",
+        Some("torch.logsumexp"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        true
+    ),
+    nn!(
+        "NN-25",
+        "topk",
+        Some("torch.topk"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        true
+    ),
     nn!(
         "NN-26",
         "group_norm",
@@ -706,7 +866,15 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         true,
     ),
-    nn!("NN-28", "index_add", Some("torch.index_add"), Adverb, None, Some([63; 3]), true),
+    nn!(
+        "NN-28",
+        "index_add",
+        Some("torch.index_add"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        true
+    ),
     nn!(
         "NN-29",
         "interpolate",
@@ -725,14 +893,78 @@ pub const NAMES: &[NnExtensionName] = &[
         Some([63; 3]),
         true,
     ),
-    nn!("NN-30", "rand", Some("torch.rand"), Adverb, None, Some([63; 3]), false),
-    nn!("NN-30", "randn", Some("torch.randn"), Adverb, None, Some([63; 3]), false),
-    nn!("NN-30", "bernoulli", Some("torch.bernoulli"), Adverb, None, Some([63; 3]), false),
-    nn!("NN-30", "multinomial", Some("torch.multinomial"), Adverb, None, Some([63; 3]), false),
-    nn!("NN-31", "RNN", Some("torch.nn.RNN"), Adverb, None, Some([63; 3]), false),
-    nn!("NN-31", "GRU", Some("torch.nn.GRU"), Adverb, None, Some([63; 3]), false),
-    nn!("NN-31", "LSTM", Some("torch.nn.LSTM"), Adverb, None, Some([63; 3]), false),
-    nn!("NN-32", "nms", Some("torchvision.ops.nms"), Adverb, None, Some([63; 3]), false),
+    nn!(
+        "NN-30",
+        "rand",
+        Some("torch.rand"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-30",
+        "randn",
+        Some("torch.randn"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-30",
+        "bernoulli",
+        Some("torch.bernoulli"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-30",
+        "multinomial",
+        Some("torch.multinomial"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-31",
+        "RNN",
+        Some("torch.nn.RNN"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-31",
+        "GRU",
+        Some("torch.nn.GRU"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-31",
+        "LSTM",
+        Some("torch.nn.LSTM"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
+    nn!(
+        "NN-32",
+        "nms",
+        Some("torchvision.ops.nms"),
+        Adverb,
+        None,
+        Some([63; 3]),
+        false
+    ),
     nn!(
         "NN-33",
         "roi_align",
@@ -759,8 +991,10 @@ pub fn family(id: &str) -> Option<&'static NnFamilySpec> {
 
 /// Preview recognition only. Does not change Engine::new() or J built-ins.
 pub fn frontend_preview_context() -> PrimitiveContext {
-    let extensions = NAMES.iter().filter(|spec| spec.frontend_preview).map(|spec| {
-        ExtensionPrimitive {
+    let extensions = NAMES
+        .iter()
+        .filter(|spec| spec.frontend_preview)
+        .map(|spec| ExtensionPrimitive {
             spelling: spec.spelling,
             handle: PrimitiveHandle {
                 semantic_id: PrimitiveSemanticId::Extension(spec.semantic_identity),
@@ -771,8 +1005,7 @@ pub fn frontend_preview_context() -> PrimitiveContext {
                 },
                 lowering_key: LoweringKey::Extension(spec.semantic_identity),
             },
-        }
-    });
+        });
     PrimitiveContext::new(
         PrimitiveResolver::with_extensions(extensions)
             .expect("checked static NN frontend-only catalog"),

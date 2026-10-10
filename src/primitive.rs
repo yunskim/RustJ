@@ -678,14 +678,21 @@ impl PrimitiveResolver {
                     && word.span == (0..spelling.len())
                     && !word.flags.name_form.is_locative())
             {
-                return Err(format!("extension must be a single ordinary J NAME: {spelling}"));
+                return Err(format!(
+                    "extension must be a single ordinary J NAME: {spelling}"
+                ));
             }
-            if admitted.iter().any(|previous| previous.spelling == spelling) {
+            if admitted
+                .iter()
+                .any(|previous| previous.spelling == spelling)
+            {
                 return Err(format!("duplicate extension NAME: {spelling}"));
             }
             let handle = extension.handle;
             let PrimitiveSemanticId::Extension(identity) = handle.semantic_id else {
-                return Err(format!("extension has non-extension semantic identity: {spelling}"));
+                return Err(format!(
+                    "extension has non-extension semantic identity: {spelling}"
+                ));
             };
             if handle.source_origin != PrimitiveSourceOrigin::Extension
                 || handle.lowering_key != LoweringKey::Extension(identity)
@@ -695,7 +702,9 @@ impl PrimitiveResolver {
             }
             admitted.push(extension);
         }
-        Ok(Self { extensions: admitted })
+        Ok(Self {
+            extensions: admitted,
+        })
     }
 
     /// Resolve only spellings that are J core primitives at enqueue time.

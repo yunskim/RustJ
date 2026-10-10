@@ -104,7 +104,10 @@ fn pytorch_named_nn_catalog_is_complete_and_frontend_only() {
         assert_eq!(f.empty_fill_proof, ProofStatus::Unverified);
         assert_eq!(f.error_order_proof, ProofStatus::Unverified);
         assert_eq!(f.numeric_proof, ProofStatus::Unverified);
-        assert_eq!(spec.intrinsic_ranks.is_some(), spec.pos == PrimitivePartOfSpeech::Verb);
+        assert_eq!(
+            spec.intrinsic_ranks.is_some(),
+            spec.pos == PrimitivePartOfSpeech::Verb
+        );
         assert!(spec.intrinsic_ranks.is_none() || spec.derived_verb_ranks.is_none());
         if !spec.frontend_preview {
             assert!(preview.resolve_extension_binding(spec.spelling).is_none());
@@ -127,7 +130,11 @@ fn pytorch_named_nn_catalog_is_complete_and_frontend_only() {
                 assert!(matches!(kind, ExprKind::VerbValue(_)), "{}", spec.spelling);
             }
             PrimitivePartOfSpeech::Adverb | PrimitivePartOfSpeech::Conjunction => {
-                assert!(matches!(kind, ExprKind::ModifierValue(_)), "{}", spec.spelling);
+                assert!(
+                    matches!(kind, ExprKind::ModifierValue(_)),
+                    "{}",
+                    spec.spelling
+                );
             }
         }
     }
