@@ -91,3 +91,44 @@ fn valence_and_dynamic_names_do_not_get_conflated() {
     assert!(matches!(call.callable.target, CallTarget::Dynamic(_)));
     assert_eq!(call.contract.effect, Effect::Unknown);
 }
+
+#[test]
+fn all_core_primitives_have_source_names_without_changing_identity() {
+    use rustj::primitive::{PrimitiveName, PrimitiveNames, VocabularyPrimitive};
+    let mut spellings = std::collections::HashSet::new();
+    for names in PrimitiveNames::ALL {
+        assert!(spellings.insert(names.spelling));
+        assert!(names.name.jsource_name().starts_with('C'));
+        assert_eq!(PrimitiveNames::from_spelling(names.spelling), Some(names));
+    }
+    for &id in PrimitiveId::ALL {
+        assert_eq!(id.names().spelling, id.spelling());
+    }
+    for &id in VocabularyPrimitive::ALL {
+        assert_eq!(id.names().spelling, id.spelling());
+    }
+    for spelling in ["/", "/.", "\\", "]:"] {
+        let id = AdverbId::from_spelling(spelling).unwrap();
+        assert_eq!(id.names().spelling, spelling);
+    }
+    for spelling in ["\"", "@:", "[.", "]."] {
+        let id = rustj::primitive::ConjunctionId::from_spelling(spelling).unwrap();
+        assert_eq!(id.names().spelling, spelling);
+    }
+    let plus = PrimitiveId::Add.names();
+    assert_eq!(plus.name, PrimitiveName::Plus);
+    assert_eq!(plus.name.jsource_name(), "CPLUS");
+    assert_eq!(plus.monad, Some("jtatomic1"));
+    assert_eq!(plus.dyad, Some("jtatomic2"));
+    let domino = PrimitiveNames::from_spelling("%.").unwrap();
+    assert_eq!(domino.monad, Some("jtminv"));
+    assert_eq!(domino.dyad, Some("jtmdiv"));
+    let resolver = rustj::primitive::PrimitiveResolver::core();
+    for spelling in ["a.", "a:", "=.", "=:", "(", ")"] {
+        assert!(PrimitiveNames::from_spelling(spelling).is_some());
+        assert!(resolver.resolve_core_for_enqueue(spelling).is_none());
+    }
+    for spelling in ["ordinaryname", "++", "each"] {
+        assert!(PrimitiveNames::from_spelling(spelling).is_none());
+    }
+}
