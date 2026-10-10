@@ -213,7 +213,10 @@ impl SimpleNameGuard {
             .as_ref()
             .ok_or("guard requires a runtime lookup")?;
         if usage.evidence != NameEvidence::RuntimeClass
-            || !matches!(expected.found, FoundScope::Local(_) | FoundScope::Global(_))
+            || !(matches!(expected.found, FoundScope::Local(_) | FoundScope::Global(_))
+                || matches!((expected.search, expected.found),
+                    (ScopeSearch::SimpleDefaultZ { z }, FoundScope::Locale(hit))
+                        if z == hit && expected.binding_class == Some(ParseClass::Noun)))
             || expected.binding_generation.is_none()
             || expected.binding_class != Some(usage.result_class)
         {

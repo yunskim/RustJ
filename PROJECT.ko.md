@@ -2150,7 +2150,7 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **NJ-04 explicit base default z 명사 경계:** `a__`와 `a_base_`는 base own miss 시 z noun을 읽고 `BaseDefaultZ { z }`/`FoundScope::Locale(z)`로 base 시작과 z 발견을 분리한다. local table을 우회하고 base own 대입 version/commit을 사용하므로 첫 대입 이전 버전은 없음이며 z 값은 보존한다. 두 별칭의 동일 값, snapshot, local shadow 우회, 실패 RHS 보존 및 잘못된 found ID 거부를 회귀·고정 C 감사로 검증한다. path 변경, path epoch guard·임의 path·함수/indirect/numbered와 full NJ-04/L3는 미완료다.
 
-**NJ-04 일반 NAME default z 명사 경계:** 일반 이름은 local → base own → z noun → extension registry 순서로 조회한다. `SimpleDefaultZ { z }`/실제 found locale·generation·version을 기록하며 base/지역 대입은 own 대상 버전만 사용한다. path 발견 관찰은 기존 SimpleNameGuard로 승인하지 않는다. 일반 z path noun abandon은 아래 경계에서 지원한다. 일반/base/named 일관성, noun snapshot, local shadow/첫 지역 대입, 실패 RHS와 z 보존을 회귀·고정 C 감사로 검증한다. 임의 path/epoch guard·호출 locale 전환·함수/indirect/numbered와 full NJ-04/L3는 미완료다.
+**NJ-04 일반 NAME default z 명사 경계:** 일반 이름은 local → base own → z noun → extension registry 순서로 조회한다. `SimpleDefaultZ { z }`/실제 found locale·generation·version을 기록하며 base/지역 대입은 own 대상 버전만 사용한다. 일반 z noun path 관찰의 제한된 guard는 아래 경계에서 지원한다. 일반 z path noun abandon은 아래 경계에서 지원한다. 일반/base/named 일관성, noun snapshot, local shadow/첫 지역 대입, 실패 RHS와 z 보존을 회귀·고정 C 감사로 검증한다. 임의 path/epoch guard·호출 locale 전환·함수/indirect/numbered와 full NJ-04/L3는 미완료다.
 
 **NJ-04 일반 z-path noun abandon:** 일반 `a_:`는 local/base own 우선순위를 유지하고 fallback으로 찾은 z 항목을 반환·삭제한다. 단일 지역 word의 local binding 비삭제 규칙은 유지하며, 지역 miss의 z 발견은 삭제한다. snapshot 수명, 오른쪽 오류 전 삭제 없음, 삭제 후 오류에서도 삭제 유지, own-table 우선순위와 실제 발견 locale capture를 회귀·고정 C 감사로 검증한다. ordered effect/guard 및 명시적 locative abandon·임의 path는 계속 별도 미완료 계약이며 full NJ-04/L3를 완료하지 않는다.
 
@@ -2165,6 +2165,8 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 **NJ-04 named own noun abandon:** `a_probe__:`/`a_z__:` 등 direct named 주소는 local을 우회하여 해당 locale own noun을 반환·삭제한다. 다른 table과 noun snapshot을 보존하고 최초 오류·삭제 후 오류·지역 shadow 및 실제 found capture/변조 거부를 회귀·고정 C 감사로 검증한다. 미발견 path/future 삭제·함수·indirect/numbered 및 static/Graph/guard 수용은 Unsupported로 유지하며 full NJ-04/L3는 미완료다.
 
 **NJ-04 named default z noun abandon:** direct named own miss의 `a_probe__:`는 실제 발견 z noun을 반환·삭제한다. 시작 named locale과 found z·local 우회·삭제 전 version/generation을 분리하며 첫 locale 조회·snapshot·최초 오류·삭제 후 오류와 start/found/frame 변조 거부를 회귀·고정 C 감사로 검증한다. 임의 path/future·함수·indirect/numbered 및 static/Graph/guard 수용은 미지원이며 full NJ-04/L3는 미완료다.
+
+**NJ-04 일반 z noun guard:** 일반 NAME의 SimpleDefaultZ noun hit도 제한된 SimpleNameGuard를 만들 수 있다. 검사 때 전체 lookup observation을 재확인하여 base shadow·z 재대입·삭제·동일 값 재생성 ABA·다른 engine을 거부하며 무관한 z 이름 대입은 허용한다. 이는 검사 시점의 사실이며 read hoisting·effect replay·컴파일 실행 허용이 아니다. locative/abandon/function path guard와 임의 path epoch 및 full NJ-04/L3는 미완료다.
 
 **NJ-07 대입 버전 경계:** parser commit의 이전/새 버전은 `assignment_version(name, local)`로 실제 대입 대상 테이블에서 관찰한다. 지역 선언이 아직 없을 때 RHS가 전역 값을 읽더라도 지역 첫 commit의 이전 버전은 없음이며, 다음 지역 commit은 지역 버전을 사용한다. base/named-own locative는 지역 flag와 무관하게 해당 own table을 사용한다. 읽기용 `version`은 기존 조회 의미를 유지한다. 실패한 RHS는 commit을 만들지 않는다. 이 경계는 default z path의 읽기 발견 테이블과 쓰기 대상 테이블을 분리하기 위한 선행 단위이며, path 지원·완전한 namespace commit witness·L3 완료를 뜻하지 않는다. 회귀는 지역 첫/반복 commit, 전역 값 보존, 전역 첫 commit과 RHS 오류를 검사한다.
 
@@ -2533,7 +2535,7 @@ FrontendContext
 
 이 slice는 **지원 중인 parsing action과 compilation 경로의 구조 보존**을 닫는다. full-J/locale/control executor 또는 NAME 특수화 실행 적법성 완료를 의미하지 않는다. 상세 실행 검증 결과는 아래에 기록한다.
 
-**Simple NAME guard 첫 구현:** `SimpleNameGuard::from_name_use(context, NameUseId)`는 검증된 완료 context의 runtime bound simple NAME만 받으며 `(FrontendUnitId, NameUseId)`를 보존한다. catalog/diagnostic 가정, missing/extension, locative/by-value form은 이 recipe의 수용 범위 밖이다. `Engine::check_name_guard`는 원래 engine·현재 frame 정체성을 먼저 확인하고 current-frame→global 검색을 다시 수행하여 local bound/declared-unbound/absent 상태, found scope, binding version·generation·POS를 대조한다. 결과는 `ValidAtCheck/EngineChanged/FrameChanged/LookupChanged`이며 J 오류나 자동 fallback이 아니다. 성공한 할당마다 `BindingGeneration`을 새로 발급하여 삭제·재생성 후 version/POS가 같아지는 ABA도 거부한다. 현재 expunge 언어 지원을 추가한 것은 아니며 ABA 회귀는 내부 table 삭제로 재현한다.
+**Simple NAME guard 첫 구현:** `SimpleNameGuard::from_name_use(context, NameUseId)`는 검증된 완료 context의 runtime bound simple NAME만 받으며 `(FrontendUnitId, NameUseId)`를 보존한다. catalog/diagnostic 가정, missing/extension, locative/by-value form은 이 recipe의 수용 범위 밖이다. `Engine::check_name_guard`는 원래 engine·현재 frame 정체성을 먼저 확인하고 current-frame→global→기본 z noun 검색을 다시 수행하여 local bound/declared-unbound/absent 상태, found scope, binding version·generation·POS를 대조한다. 결과는 `ValidAtCheck/EngineChanged/FrameChanged/LookupChanged`이며 J 오류나 자동 fallback이 아니다. 성공한 할당마다 `BindingGeneration`을 새로 발급하여 삭제·재생성 후 version/POS가 같아지는 ABA도 거부한다. 현재 expunge 언어 지원을 추가한 것은 아니며 ABA 회귀는 내부 table 삭제로 재현한다.
 
 이 recipe는 검색을 생략하는 epoch fast path가 아니다. 같은 이름의 재할당과 fallback을 가리는 local 생성, invocation 변경은 무효화하고 관계없는 binding 변경은 허용한다. 실패한 RHS는 기존 guard를 유지한다. noun snapshot을 새 값으로 갱신하거나 ordinary verb의 late lookup을 고정하지 않는다. `ValidAtCheck` 이후 effect 또는 다른 mutable engine 접근을 넘는 유효성, locale/path, concurrent lease, compiled dispatcher와 effect 이전 route admission은 여전히 미구현이다. 따라서 full LookupWitness/GuardRecipe 체크리스트는 열린 상태로 유지한다.
 

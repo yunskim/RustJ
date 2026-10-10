@@ -388,7 +388,7 @@ fn base_z_snapshots_failed_writes_and_local_bypass_match_both_paths() {
 }
 
 #[test]
-fn ordinary_z_read_hits_do_not_become_global_assignment_versions_or_guards() {
+fn ordinary_z_read_hits_keep_assignment_targets_separate_from_guard_checks() {
     let mut e = Engine::new();
     e.eval("a_z_=:7").unwrap();
     let r = e.eval_captured("a=:a+1");
@@ -404,7 +404,11 @@ fn ordinary_z_read_hits_do_not_become_global_assignment_versions_or_guards() {
         panic!()
     };
     assert_eq!(obs.found, FoundScope::Locale(z));
-    assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
+    let guard = SimpleNameGuard::from_name_use(c, NameUseId(0)).unwrap();
+    assert_eq!(
+        e.check_name_guard(&guard),
+        rustj::frontend_context::NameGuardCheck::LookupChanged
+    );
     let mut bad = (**c).clone();
     bad.name_uses[0].lookup.as_mut().unwrap().found = FoundScope::Global(obs.engine);
     assert!(bad.verify().is_err());
@@ -842,4 +846,33 @@ fn named_z_abandon_capture_keeps_start_hit_and_frame_distinct() {
         assert!(bad.verify().is_err());
     }
     assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+}
+
+#[test]
+fn simple_z_noun_guard_detects_shadow_rebind_delete_and_aba() {
+    use rustj::frontend_context::NameGuardCheck;
+    for change in ["a_z_=:8", "a=:7", "a_z__:+0", "a_z__:+0\na_z_=:7"] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:7").unwrap();
+        let r = e.eval_captured("a+0");
+        r.result.unwrap();
+        let guard =
+            SimpleNameGuard::from_name_use(r.capture.frontend.as_ref().unwrap(), NameUseId(0))
+                .unwrap();
+        assert_eq!(e.check_name_guard(&guard), NameGuardCheck::ValidAtCheck);
+        e.eval("other_z_=:9").unwrap();
+        assert_eq!(e.check_name_guard(&guard), NameGuardCheck::ValidAtCheck);
+        assert_eq!(
+            Engine::new().check_name_guard(&guard),
+            NameGuardCheck::EngineChanged
+        );
+        for line in change.lines() {
+            e.eval(line).unwrap();
+        }
+        assert_eq!(
+            e.check_name_guard(&guard),
+            NameGuardCheck::LookupChanged,
+            "{change}"
+        );
+    }
 }
