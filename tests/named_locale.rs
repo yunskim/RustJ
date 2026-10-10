@@ -152,3 +152,36 @@ fn direct_locale_witness_cannot_swap_base_and_named_namespace_roles() {
         assert!(bad.verify().is_err(), "forged namespace role: {source}");
     }
 }
+
+#[test]
+fn locative_witness_cannot_masquerade_as_simple_name_search() {
+    use rustj::frontend_context::LocalLookupState;
+    let mut e = Engine::new();
+    e.eval("a=:7").unwrap();
+    e.eval("a_probe_=:7").unwrap();
+    let mut other = Engine::new();
+    other.eval("a=:7").unwrap();
+    let frame_capture = other.eval_captured("a");
+    let frame = frame_capture.capture.frontend.as_ref().unwrap().name_uses[0]
+        .lookup
+        .as_ref()
+        .unwrap()
+        .engine;
+    for source in ["a__", "a_base_", "a_probe_"] {
+        let r = e.eval_captured(source);
+        r.result.unwrap();
+        r.capture.verify().unwrap();
+        for search in [ScopeSearch::GlobalOnly, ScopeSearch::CurrentFrameThenGlobal] {
+            let mut bad = (**r.capture.frontend.as_ref().unwrap()).clone();
+            let lookup = bad.name_uses[0].lookup.as_mut().unwrap();
+            lookup.search = search;
+            (lookup.frame, lookup.local_state) = if search == ScopeSearch::GlobalOnly {
+                (None, LocalLookupState::NoFrame)
+            } else {
+                (Some(frame), LocalLookupState::Absent)
+            };
+            lookup.found = FoundScope::Global(lookup.engine);
+            assert!(bad.verify().is_err(), "forged simple search: {source}");
+        }
+    }
+}

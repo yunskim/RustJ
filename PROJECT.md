@@ -672,6 +672,8 @@ Ordinary locatives now enqueue as NAME with lexical Simple/DirectLocative/Indire
 
 **NJ-04 direct own-table witness validation:** reject captures that jointly rewrite starting/found IDs to masquerade a named locale as base, or `a_base_` as a named locale. Compare the NAME base-alias spelling with engine-scope selection while preserving valid base/named noun snapshots. Regression covers both forgeries and valid captures. This validates own-table roles; it does not implement default z-path, general locale identity mapping, full resolution witnesses or L3 acceptance.
 
+**NJ-04 search-kind witness validation:** reject base/direct locative observations masquerading as `GlobalOnly` or `CurrentFrameThenGlobal` simple-name searches. Ordinary search requires lexical Simple NAME; valid base/named captures remain accepted. Mutation regression covers all three locative spellings. Default z-path, complete namespace witnesses and full L3 remain open.
+
 **NJ-07 assignment version boundary:** parser commit previous/new versions use `assignment_version(name, local)` to observe the actual target table. When a first local assignment reads a global RHS binding, its previous local version is absent; subsequent local commits use the local version. Base/named-own locatives use their own table regardless of the local flag. Read `version` retains lookup semantics. Failed RHS evaluation produces no commit. This prerequisite separates a future default z-path read hit from the write target; it does not implement paths, complete namespace commit witnesses or L3. Regression coverage checks first/repeated local commits, global value preservation, first global commit and RHS errors.
 
 | ID | jsource observable contract | RustJ gap / required acceptance |

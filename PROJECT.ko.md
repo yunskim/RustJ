@@ -2142,6 +2142,8 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **NJ-04 direct own-table witness 검증 보강:** `DirectLocaleOnly`의 시작 ID와 발견 ID를 함께 변조하여 named locale을 base로, 또는 `a_base_`를 named locale으로 위장하는 capture를 거부한다. NAME의 실제 `_base_` 별칭 표기와 engine scope 선택을 대조하며 정상 base/named noun snapshot은 유지한다. 회귀는 양쪽 위장과 정상 capture를 검사한다. 이는 own-table 역할 검증이며 default z-path·일반 locale identity 매핑·full resolution witness 또는 L3 완료를 의미하지 않는다.
 
+**NJ-04 검색 종류 witness 보강:** base/direct locative의 조회 기록을 `GlobalOnly` 또는 `CurrentFrameThenGlobal` 일반 이름 검색으로 위장하면 verifier가 거부한다. 일반 검색은 lexical Simple NAME만 허용하며 정상 base/named capture는 유지한다. 세 locative 표기의 변조 회귀로 경계를 검증한다. default z-path·완전한 namespace witness 및 L3 완료는 별도 미완료 계약이다.
+
 **NJ-07 대입 버전 경계:** parser commit의 이전/새 버전은 `assignment_version(name, local)`로 실제 대입 대상 테이블에서 관찰한다. 지역 선언이 아직 없을 때 RHS가 전역 값을 읽더라도 지역 첫 commit의 이전 버전은 없음이며, 다음 지역 commit은 지역 버전을 사용한다. base/named-own locative는 지역 flag와 무관하게 해당 own table을 사용한다. 읽기용 `version`은 기존 조회 의미를 유지한다. 실패한 RHS는 commit을 만들지 않는다. 이 경계는 default z path의 읽기 발견 테이블과 쓰기 대상 테이블을 분리하기 위한 선행 단위이며, path 지원·완전한 namespace commit witness·L3 완료를 뜻하지 않는다. 회귀는 지역 첫/반복 commit, 전역 값 보존, 전역 첫 commit과 RHS 오류를 검사한다.
 
 | ID | jsource 관찰 계약 | RustJ 현재 구조/차이 | 수용 조건 |
