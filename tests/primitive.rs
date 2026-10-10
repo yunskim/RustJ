@@ -19,6 +19,17 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
             panic!()
         };
         assert_eq!(verb.target, rustj::semantic::VerbTarget::Primitive(id));
+        if id.support() == rustj::primitive::PrimitiveSupport::Unimplemented {
+            for valence in [Valence::Monad, Valence::Dyad] {
+                assert_eq!(contracts::for_primitive(id, valence), contracts::unknown());
+            }
+            assert!(
+                Engine::new()
+                    .analyze_a3(&format!("f=:{}", id.spelling()))
+                    .is_err()
+            );
+            continue;
+        }
         let plan = Engine::new()
             .analyze_a3(&format!("f=:{}", id.spelling()))
             .unwrap();
@@ -94,7 +105,7 @@ fn valence_and_dynamic_names_do_not_get_conflated() {
 
 #[test]
 fn all_core_primitive_identifiers_use_canonical_source_names() {
-    use rustj::primitive::{PrimitiveName, PrimitiveNames, VocabularyPrimitive};
+    use rustj::primitive::{PrimitiveName, PrimitiveNames};
     let mut spellings = std::collections::HashSet::new();
     for names in PrimitiveNames::ALL {
         assert!(spellings.insert(names.spelling));
@@ -103,20 +114,28 @@ fn all_core_primitive_identifiers_use_canonical_source_names() {
     }
     for &id in PrimitiveId::ALL {
         assert_eq!(id.names().spelling, id.spelling());
-        assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
+        if id.names().name != PrimitiveName::Fcons {
+            assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
+        }
     }
-    for &id in VocabularyPrimitive::ALL {
-        assert_eq!(id.names().spelling, id.spelling());
-    }
-    for spelling in ["/", "/.", "\\", "]:"] {
-        let id = AdverbId::from_spelling(spelling).unwrap();
+    for &id in AdverbId::ALL {
+        let spelling = id.spelling();
+        assert_eq!(AdverbId::from_spelling(spelling), Some(id));
         assert_eq!(id.names().spelling, spelling);
-        assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
+        if id.names().name != PrimitiveName::Fcons {
+            assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
+        }
     }
-    for spelling in ["\"", "@:", "[.", "]."] {
-        let id = rustj::primitive::ConjunctionId::from_spelling(spelling).unwrap();
+    for &id in rustj::primitive::ConjunctionId::ALL {
+        let spelling = id.spelling();
+        assert_eq!(
+            rustj::primitive::ConjunctionId::from_spelling(spelling),
+            Some(id)
+        );
         assert_eq!(id.names().spelling, spelling);
-        assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
+        if id.names().name != PrimitiveName::Fcons {
+            assert_eq!(format!("{id:?}"), format!("{:?}", id.names().name));
+        }
     }
     let plus = PrimitiveId::Plus.names();
     assert_eq!(plus.name, PrimitiveName::Plus);

@@ -34,7 +34,7 @@ pub struct GraphSchemaVersion {
 
 pub const J_GRAPH_SCHEMA_VERSION: GraphSchemaVersion = GraphSchemaVersion {
     major: 0,
-    minor: 10,
+    minor: 11,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -481,10 +481,11 @@ fn noun_operand_value(function: &FunctionEntity) -> Option<Value> {
 fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
     match &function.head {
         FunctionHead::PrimitiveVerb(id)
-            if !matches!(
-                id,
-                crate::primitive::PrimitiveId::Udot | crate::primitive::PrimitiveId::Vdot
-            ) =>
+            if id.support() != crate::primitive::PrimitiveSupport::Unimplemented
+                && !matches!(
+                    id,
+                    crate::primitive::PrimitiveId::Udot | crate::primitive::PrimitiveId::Vdot
+                ) =>
         {
             GraphRuleRefs {
                 shape: GraphRuleRef::Primitive(*id),
@@ -493,6 +494,16 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
                 effect: GraphRuleRef::Primitive(*id),
                 resource: ResourceRuleRef::Unknown,
             }
+        }
+        FunctionHead::PrimitiveAdverb(id)
+            if id.support() == crate::primitive::PrimitiveSupport::Unimplemented =>
+        {
+            unknown_rule_refs()
+        }
+        FunctionHead::PrimitiveConjunction(id)
+            if id.support() == crate::primitive::PrimitiveSupport::Unimplemented =>
+        {
+            unknown_rule_refs()
         }
         FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
@@ -506,7 +517,6 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
             resource: ResourceRuleRef::StructuralComposition,
         },
         FunctionHead::PrimitiveVerb(_)
-        | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
         | FunctionHead::TakeName { .. }
         | FunctionHead::DefinitionConstructor(_)
@@ -844,15 +854,12 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
             operands: function_operands(function),
         },
         FunctionHead::PrimitiveVerb(_)
-        | FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
         | FunctionHead::TakeName { .. }
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_)
-        | FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Ident)
-        | FunctionHead::PrimitiveConjunction(
-            crate::primitive::ConjunctionId::Lev | crate::primitive::ConjunctionId::Dex,
-        ) => GraphForm::Atomic,
+        | FunctionHead::PrimitiveAdverb(_)
+        | FunctionHead::PrimitiveConjunction(_) => GraphForm::Atomic,
     };
     (form, hints)
 }
@@ -2168,5 +2175,15 @@ impl Builder<'_> {
                 ))
             }
         }
+    }
+}
+
+fn unknown_rule_refs() -> GraphRuleRefs {
+    GraphRuleRefs {
+        shape: GraphRuleRef::DynamicOrUnknown,
+        dtype: GraphRuleRef::DynamicOrUnknown,
+        rank_cell: GraphRuleRef::DynamicOrUnknown,
+        effect: GraphRuleRef::DynamicOrUnknown,
+        resource: ResourceRuleRef::Unknown,
     }
 }

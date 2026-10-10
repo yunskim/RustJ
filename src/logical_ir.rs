@@ -300,8 +300,7 @@ fn semantic_effect_summary(
             };
             semantic_effect_summary(operand, valence)
         }
-        FunctionHead::VocabularyPrimitive(_)
-        | FunctionHead::NameRef(_)
+        FunctionHead::NameRef(_)
         | FunctionHead::TakeName { .. }
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)

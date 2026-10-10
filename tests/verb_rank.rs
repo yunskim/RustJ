@@ -148,7 +148,7 @@ fn supported_primitive_headers_are_intrinsic_without_executing_arguments() {
         let ExprKind::VerbValue(verb) = program.expression.unwrap().kind else {
             panic!()
         };
-        assert_eq!(verb.entity.innate_ranks(), Some(id.innate_ranks()));
+        assert_eq!(verb.entity.innate_ranks(), id.innate_ranks());
     }
     let mut engine = Engine::new();
     for (source, expected) in [
