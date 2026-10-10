@@ -668,6 +668,8 @@ Ordinary locatives now enqueue as NAME with lexical Simple/DirectLocative/Indire
 
 
 
+**PR #14 history integration:** NAME lexical classification and locative copulas were ported into the current frontend in #25, followed by error propagation (#22/#23), base/named-own nouns (#26/#27) and assignment versions (#28). Its obsolete blanket parser rejection is superseded by the current bounded runtime support during integration. Existing simple by-value/abandon support is retained. Full locale/path/function/locative-by-value and platform NAME acceptance remain open.
+
 **NJ-07 assignment version boundary:** parser commit previous/new versions use `assignment_version(name, local)` to observe the actual target table. When a first local assignment reads a global RHS binding, its previous local version is absent; subsequent local commits use the local version. Base/named-own locatives use their own table regardless of the local flag. Read `version` retains lookup semantics. Failed RHS evaluation produces no commit. This prerequisite separates a future default z-path read hit from the write target; it does not implement paths, complete namespace commit witnesses or L3. Regression coverage checks first/repeated local commits, global value preservation, first global commit and RHS errors.
 
 | ID | jsource observable contract | RustJ gap / required acceptance |

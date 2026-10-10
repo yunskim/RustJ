@@ -2138,6 +2138,8 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 
 
+**PR #14 이력 통합:** NAME lexical 분류·locative copula는 #25에서 현재 frontend에 이식되고, 오류 전달(#22/#23)·base/named-own noun(#26/#27)·대입 버전(#28)이 후속 구현됐다. #14의 오래된 parser 전면 거부는 병합 시 현재 bounded runtime 지원을 보존하는 것으로 대체한다. 단순 by-value/abandon의 기존 지원도 유지한다. full locale/path/function/by-value locative 및 플랫폼 NAME 수용은 여전히 미완료다.
+
 **NJ-07 대입 버전 경계:** parser commit의 이전/새 버전은 `assignment_version(name, local)`로 실제 대입 대상 테이블에서 관찰한다. 지역 선언이 아직 없을 때 RHS가 전역 값을 읽더라도 지역 첫 commit의 이전 버전은 없음이며, 다음 지역 commit은 지역 버전을 사용한다. base/named-own locative는 지역 flag와 무관하게 해당 own table을 사용한다. 읽기용 `version`은 기존 조회 의미를 유지한다. 실패한 RHS는 commit을 만들지 않는다. 이 경계는 default z path의 읽기 발견 테이블과 쓰기 대상 테이블을 분리하기 위한 선행 단위이며, path 지원·완전한 namespace commit witness·L3 완료를 뜻하지 않는다. 회귀는 지역 첫/반복 commit, 전역 값 보존, 전역 첫 commit과 RHS 오류를 검사한다.
 
 | ID | jsource 관찰 계약 | RustJ 현재 구조/차이 | 수용 조건 |
