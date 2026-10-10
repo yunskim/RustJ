@@ -36,6 +36,48 @@ mod scope_provenance_tests {
     }
 
     #[test]
+    fn indirect_write_capture_freezes_target_and_excludes_z_version() {
+        use crate::parser_capture::{CaptureEvent, ParseCapture};
+        let mut engine = Engine::new();
+        engine.eval("a_z_=:7").unwrap();
+        engine.eval("holder=:<'fresh'").unwrap();
+        for (source, previous) in [
+            ("a__holder=.9", None),
+            ("a__holder=:11", Some(crate::semantic::NameVersion(1))),
+        ] {
+            let mut capture = ParseCapture::default();
+            let mut host = EngineParserHost {
+                engine: &mut engine,
+                pooled: false,
+            };
+            crate::parser::parse_runtime_host(source, &mut host, Some(&mut capture)).unwrap();
+            assert!(capture.events.iter().any(|event| matches!(event, CaptureEvent::Commit { previous: actual, .. } if *actual == previous)));
+            capture.verify().unwrap();
+        }
+        engine.eval("holder=:<'base'").unwrap();
+        let mut capture = ParseCapture::default();
+        let mut host = EngineParserHost {
+            engine: &mut engine,
+            pooled: false,
+        };
+        crate::parser::parse_runtime_host(
+            "holder__holder=:<'other'",
+            &mut host,
+            Some(&mut capture),
+        )
+        .unwrap();
+        assert!(capture.events.iter().any(|event| matches!(
+            event,
+            CaptureEvent::Commit {
+                version: crate::semantic::NameVersion(3),
+                previous: Some(crate::semantic::NameVersion(2)),
+                ..
+            }
+        )));
+        capture.verify().unwrap();
+    }
+
+    #[test]
     fn assignment_capture_uses_target_table_instead_of_read_fallback() {
         use crate::parser_capture::{CaptureEvent, ParseCapture};
         let mut engine = Engine::new();
@@ -662,70 +704,12 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn supports_indirect_noun_reads(&self) -> bool {
         true
     }
+    fn supports_indirect_noun_assignments(&self) -> bool {
+        true
+    }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
-        if let Some(holder) = indirect_holder(name) {
-            let binding = match self.engine.visible_binding(holder) {
-                Some(binding) => binding,
-                None if self.engine.direct_binding(holder, "z").is_some()
-                    || self
-                        .engine
-                        .primitives
-                        .resolve_extension_binding(holder)
-                        .is_some() =>
-                {
-                    return Err(Error::Unsupported(
-                        "indirect function holder resolution".into(),
-                    ));
-                }
-                None => return Err(Error::Value(holder.to_owned())),
-            };
-            let JEntity::Noun(value) = &binding.value else {
-                return Err(Error::Unsupported(
-                    "indirect function holder resolution".into(),
-                ));
-            };
-            if !value.shape().is_empty() {
-                return Err(Error::Rank);
-            }
-            // This runtime has neither created numbered locales nor suspended
-            // debugger call frames. Both numeric address families are absent.
-            let numbered = |value: &Value| match &value.data {
-                crate::value::Data::Int(numbers) if value.shape().is_empty() => Some(numbers[0]),
-                crate::value::Data::Bool(numbers) if value.shape().is_empty() => {
-                    Some(i64::from(numbers[0]))
-                }
-                _ => None,
-            };
-            if numbered(value).is_some() {
-                return Err(Error::Locale);
-            }
-            let crate::value::Data::Boxed(boxes) = &value.data else {
-                return Err(Error::Domain);
-            };
-            let contents = &boxes[0];
-            if numbered(contents).is_some() {
-                return Err(Error::Locale);
-            }
-            if contents.shape().len() > 1 {
-                return Err(Error::Rank);
-            }
-            if contents.is_empty() {
-                return Err(Error::Length);
-            }
-            let crate::value::Data::Char(chars) = &contents.data else {
-                return Err(Error::Domain);
-            };
-            if !chars.first().is_some_and(u8::is_ascii_alphabetic)
-                || !chars.iter().all(u8::is_ascii_alphanumeric)
-            {
-                return Err(Error::IllFormedName);
-            }
-            let Some((key, locale)) = self.engine.indirect_noun_address(name) else {
-                return Err(Error::Unsupported(
-                    "indirect noun namespace resolution".into(),
-                ));
-            };
-            let (key, locale) = (key.to_owned(), locale.to_owned());
+        if indirect_holder(name).is_some() {
+            let (key, locale) = self.engine.resolve_indirect_noun_address(name)?;
             self.engine.ensure_named_locale(&locale)?;
             return match self.engine.direct_read_binding(&key, &locale) {
                 Some(Binding {
@@ -801,7 +785,19 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             .visible_binding(name)
             .map(|binding| binding.version)
     }
+    fn assignment_version_name(&self, name: &str) -> String {
+        self.engine.indirect_noun_address(name).map_or_else(
+            || name.to_owned(),
+            |(key, locale)| format!("{key}_{locale}_"),
+        )
+    }
     fn assignment_version(&self, name: &str, _local: bool) -> Option<crate::semantic::NameVersion> {
+        if let Some((key, locale)) = self.engine.indirect_noun_address(name) {
+            return self
+                .engine
+                .direct_binding(key, locale)
+                .map(|binding| binding.version);
+        }
         if let Some((key, locale)) = named_direct_address(name) {
             return self
                 .engine
@@ -931,6 +927,9 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn supports_indirect_noun_reads(&self) -> bool {
         true
     }
+    fn supports_indirect_noun_assignments(&self) -> bool {
+        true
+    }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         self.parent.lookup(name)
     }
@@ -960,8 +959,15 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
         self.parent.version(name)
     }
+    fn assignment_version_name(&self, name: &str) -> String {
+        self.parent.assignment_version_name(name)
+    }
     fn assignment_version(&self, name: &str, local: bool) -> Option<crate::semantic::NameVersion> {
-        if local && base_locative_key(name).is_none() && named_direct_address(name).is_none() {
+        if local
+            && base_locative_key(name).is_none()
+            && named_direct_address(name).is_none()
+            && !name.contains("__")
+        {
             return self
                 .parent
                 .engine
@@ -988,7 +994,10 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     }
     fn assign_scoped(&mut self, name: &str, value: JEntity, local: bool) -> Result<JEntity> {
         let engine = &mut self.parent.engine;
-        if base_locative_key(name).is_some() || named_direct_address(name).is_some() {
+        if base_locative_key(name).is_some()
+            || named_direct_address(name).is_some()
+            || name.contains("__")
+        {
             return engine.commit_runtime_binding(name, value);
         }
         if local {
@@ -2733,6 +2742,69 @@ impl Engine {
         Some((key, locale))
     }
 
+    fn resolve_indirect_noun_address(&self, name: &str) -> Result<(String, String)> {
+        let holder = indirect_holder(name)
+            .ok_or_else(|| Error::Unsupported("indirect noun namespace resolution".into()))?;
+        let binding = match self.visible_binding(holder) {
+            Some(binding) => binding,
+            None if self.direct_binding(holder, "z").is_some()
+                || self.primitives.resolve_extension_binding(holder).is_some() =>
+            {
+                return Err(Error::Unsupported(
+                    "indirect function holder resolution".into(),
+                ));
+            }
+            None => return Err(Error::Value(holder.to_owned())),
+        };
+        let JEntity::Noun(value) = &binding.value else {
+            return Err(Error::Unsupported(
+                "indirect function holder resolution".into(),
+            ));
+        };
+        if !value.shape().is_empty() {
+            return Err(Error::Rank);
+        }
+        // This runtime has neither created numbered locales nor suspended
+        // debugger call frames. Both numeric address families are absent.
+        let numbered = |value: &Value| match &value.data {
+            crate::value::Data::Int(numbers) if value.shape().is_empty() => Some(numbers[0]),
+            crate::value::Data::Bool(numbers) if value.shape().is_empty() => {
+                Some(i64::from(numbers[0]))
+            }
+            _ => None,
+        };
+        if numbered(value).is_some() {
+            return Err(Error::Locale);
+        }
+        let crate::value::Data::Boxed(boxes) = &value.data else {
+            return Err(Error::Domain);
+        };
+        let contents = &boxes[0];
+        if numbered(contents).is_some() {
+            return Err(Error::Locale);
+        }
+        if contents.shape().len() > 1 {
+            return Err(Error::Rank);
+        }
+        if contents.is_empty() {
+            return Err(Error::Length);
+        }
+        let crate::value::Data::Char(chars) = &contents.data else {
+            return Err(Error::Domain);
+        };
+        if !chars.first().is_some_and(u8::is_ascii_alphabetic)
+            || !chars.iter().all(u8::is_ascii_alphanumeric)
+        {
+            return Err(Error::IllFormedName);
+        }
+        let Some((key, locale)) = self.indirect_noun_address(name) else {
+            return Err(Error::Unsupported(
+                "indirect noun namespace resolution".into(),
+            ));
+        };
+        Ok((key.to_owned(), locale.to_owned()))
+    }
+
     fn direct_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
         if locale == "base" {
             self.names.get(key)
@@ -2753,6 +2825,28 @@ impl Engine {
     }
 
     fn commit_runtime_binding(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
+        if name.contains("__") && !name.ends_with('_') {
+            let (key, locale) = self.resolve_indirect_noun_address(name)?;
+            if !matches!(value, JEntity::Noun(_)) {
+                return Err(Error::Unsupported(
+                    "indirect-locative function assignment".into(),
+                ));
+            }
+            self.ensure_named_locale(&locale)?;
+            if locale == "base" {
+                return self.commit_binding(key, value);
+            }
+            return store_binding(
+                &mut self
+                    .named_locales
+                    .get_mut(&locale)
+                    .expect("created locale")
+                    .names,
+                &mut self.pool,
+                key,
+                value,
+            );
+        }
         if let Some((key, locale)) = named_direct_address(name) {
             if !matches!(value, JEntity::Noun(_)) {
                 return Err(Error::Unsupported(

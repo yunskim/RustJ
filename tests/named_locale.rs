@@ -999,8 +999,9 @@ fn indirect_holder_errors_preserve_first_error_and_state() {
         }
         e.eval("holder=:<'probe'").unwrap();
         scalar(&mut e, "a__holder+0", 9);
-        assert_eq!(e.eval("a__holder=:99").unwrap_err().kind(), "unsupported");
-        scalar(&mut e, "a_probe_", 9);
+        e.eval("a__holder=:99").unwrap();
+        scalar(&mut e, "a__holder", 99);
+        scalar(&mut e, "a_probe_", 99);
     }
 }
 
@@ -1068,7 +1069,8 @@ fn boxed_holder_noun_reads_snapshot_rebind_and_local_scope() {
             e.prepare_semantic("a__holder+0").unwrap_err().kind(),
             "unsupported"
         );
-        assert_eq!(e.eval("a__holder=:99").unwrap_err().kind(), "unsupported");
+        e.eval("a__holder=:99").unwrap();
+        scalar(&mut e, "a__holder", 99);
     }
 }
 
@@ -1245,7 +1247,8 @@ fn boxed_base_holder_reads_own_z_snapshots_and_local_holder() {
         assert_eq!(eval(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 11);
         scalar(&mut e, "a__holder+0", 9);
         e.eval("holder=:<'base'").unwrap();
-        assert_eq!(e.eval("a__holder=:99").unwrap_err().kind(), "unsupported");
+        e.eval("a__holder=:99").unwrap();
+        scalar(&mut e, "a__holder", 99);
         assert_eq!(
             e.prepare_semantic("a__holder").unwrap_err().kind(),
             "unsupported"
@@ -1318,5 +1321,46 @@ fn negative_holder_does_not_alias_an_active_unsuspended_local_frame() {
         };
         assert_eq!(err.unwrap_err().kind(), "locale error");
         scalar(&mut e, "a__holder+0", 7);
+    }
+}
+
+#[test]
+fn indirect_noun_writes_use_own_table_and_commit_time_holder() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        let eval = |e: &mut Engine, s: &str| {
+            if semantic {
+                e.eval_semantic_reference(s)
+            } else {
+                e.eval(s)
+            }
+        };
+        e.eval("a_z_=:7").unwrap();
+        e.eval("holder=:<'fresh'").unwrap();
+        eval(&mut e, "a__holder=.9").unwrap();
+        scalar(&mut e, "a_fresh_", 9);
+        scalar(&mut e, "a_z_", 7);
+        assert_eq!(
+            eval(&mut e, "a__holder=:1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        scalar(&mut e, "a_fresh_", 9);
+        eval(&mut e, "a__holder=:holder=:<'other'").unwrap();
+        assert_eq!(
+            e.eval("a_other_").unwrap().unwrap().json(),
+            e.eval("holder").unwrap().unwrap().json()
+        );
+        scalar(&mut e, "a_fresh_", 9);
+        e.eval("holder=:<'base'").unwrap();
+        eval(&mut e, "a__holder=:13").unwrap();
+        scalar(&mut e, "a", 13);
+        e.eval("f=:3 : 0\nholder=.<'fresh'\na=.99\na__holder=.21\na+a__holder\n)")
+            .unwrap();
+        assert_eq!(
+            eval(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(),
+            120
+        );
+        scalar(&mut e, "a_fresh_", 21);
+        scalar(&mut e, "a", 13);
     }
 }
