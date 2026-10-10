@@ -998,7 +998,7 @@ fn indirect_holder_errors_preserve_first_error_and_state() {
             scalar(&mut e, "a_probe_", 9);
         }
         e.eval("holder=:<'probe'").unwrap();
-        assert_eq!(e.eval("a__holder+0").unwrap_err().kind(), "unsupported");
+        scalar(&mut e, "a__holder+0", 9);
         assert_eq!(e.eval("a__holder=:99").unwrap_err().kind(), "unsupported");
         scalar(&mut e, "a_probe_", 9);
     }
@@ -1025,4 +1025,119 @@ fn indirect_error_resolution_uses_local_and_z_holder_without_successful_read_cap
     );
     assert_eq!(rustj::Error::Locale.class_name(), "LocaleError");
     assert!(rustj::Error::Locale.is_j_catchable());
+}
+
+#[test]
+fn boxed_holder_noun_reads_snapshot_rebind_and_local_scope() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        for s in ["a_probe_=:i.3", "a_other_=:11", "holder=:<'probe'"] {
+            e.eval(s).unwrap();
+        }
+        let eval = |e: &mut Engine, s: &str| {
+            if semantic {
+                e.eval_semantic_reference(s)
+            } else {
+                e.eval(s)
+            }
+        };
+        eval(&mut e, "saved=:a__holder").unwrap();
+        e.eval("a_probe_=:a_probe_+10").unwrap();
+        assert_eq!(
+            eval(&mut e, "saved").unwrap().unwrap().json(),
+            e.eval("i.3").unwrap().unwrap().json()
+        );
+        e.eval("holder=:<'other'").unwrap();
+        assert_eq!(
+            eval(&mut e, "a__holder+0")
+                .unwrap()
+                .unwrap()
+                .int_at(0)
+                .unwrap(),
+            11
+        );
+        e.eval("holder=:<'probe'").unwrap();
+        e.eval("f=:3 : 0\nholder=.<'other'\na=.99\na__holder+0\n)")
+            .unwrap();
+        assert_eq!(eval(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 11);
+        assert_eq!(
+            eval(&mut e, "a__holder").unwrap().unwrap().json(),
+            e.eval("a_probe_").unwrap().unwrap().json()
+        );
+        assert_eq!(
+            e.prepare_semantic("a__holder+0").unwrap_err().kind(),
+            "unsupported"
+        );
+        assert_eq!(e.eval("a__holder=:99").unwrap_err().kind(), "unsupported");
+    }
+}
+
+#[test]
+fn indirect_noun_capture_separates_holder_and_target_versions_and_locales() {
+    use rustj::frontend_context::{LocalLookupState, LocativeNounGuard};
+    let mut e = Engine::new();
+    e.eval("a_z_=:7").unwrap();
+    e.eval("holder_z_=:<'fresh'").unwrap();
+    let r = e.eval_captured("a__holder+0");
+    assert_eq!(r.result.unwrap().unwrap().int_at(0).unwrap(), 7);
+    r.capture.verify().unwrap();
+    assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+    let c = r.capture.frontend.as_ref().unwrap();
+    assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
+    assert!(LocativeNounGuard::from_name_use(c, NameUseId(0)).is_err());
+    let obs = c.name_uses[0].lookup.as_ref().unwrap();
+    let ScopeSearch::IndirectNamedNoun {
+        start,
+        z: Some(z),
+        holder_found,
+        holder_version,
+        holder_generation,
+        ..
+    } = obs.search
+    else {
+        panic!()
+    };
+    assert_ne!(start, z);
+    assert_eq!(holder_found, FoundScope::Locale(z));
+    assert_eq!(obs.found, FoundScope::Locale(z));
+    for mutation in 0..3 {
+        let mut bad = (**c).clone();
+        let obs = bad.name_uses[0].lookup.as_mut().unwrap();
+        if mutation == 0 {
+            obs.found = FoundScope::Global(obs.engine);
+        }
+        if let ScopeSearch::IndirectNamedNoun {
+            holder_found,
+            holder_local_state,
+            ..
+        } = &mut obs.search
+        {
+            if mutation == 1 {
+                *holder_found = FoundScope::Global(start);
+            }
+            if mutation == 2 {
+                *holder_local_state = LocalLookupState::Bound;
+            }
+        }
+        assert!(bad.verify().is_err());
+    }
+    // Same-spelling rebind changes the holder witness, while target version is fixed.
+    e.eval("holder_z_=:<'fresh'").unwrap();
+    let next = e.eval_captured("a__holder+0");
+    next.result.unwrap();
+    next.capture.verify().unwrap();
+    let obs2 = next.capture.frontend.as_ref().unwrap().name_uses[0]
+        .lookup
+        .as_ref()
+        .unwrap();
+    assert_eq!(obs.binding_version, obs2.binding_version);
+    let ScopeSearch::IndirectNamedNoun {
+        holder_version: v2,
+        holder_generation: g2,
+        ..
+    } = obs2.search
+    else {
+        panic!()
+    };
+    assert_ne!((holder_version, holder_generation), (v2, g2));
 }

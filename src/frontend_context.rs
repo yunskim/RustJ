@@ -121,6 +121,15 @@ impl ScopeInstanceId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopeSearch {
+    /// Bounded boxed-holder named noun read; not a path epoch or compiler proof.
+    IndirectNamedNoun {
+        start: ScopeInstanceId,
+        z: Option<ScopeInstanceId>,
+        holder_found: FoundScope,
+        holder_version: crate::semantic::NameVersion,
+        holder_generation: BindingGeneration,
+        holder_local_state: LocalLookupState,
+    },
     /// A direct locative resolved in the selected locale's own noun table.
     DirectLocaleOnly(ScopeInstanceId),
     /// A named locale's own table missed; its default z table supplied a noun.
@@ -765,6 +774,59 @@ impl FrontendContext {
                     lookup.local_state,
                     lookup.found,
                 ) {
+                    (
+                        frame,
+                        ScopeSearch::IndirectNamedNoun {
+                            start,
+                            z,
+                            holder_found,
+                            holder_local_state,
+                            ..
+                        },
+                        state,
+                        FoundScope::Locale(hit),
+                    ) => {
+                        let word = &self.words[name_use.word.0];
+                        word.flags.name_form == crate::enqueuer::NameForm::IndirectLocative
+                            && !word.flags.abandon_name
+                            && lookup.binding_class == Some(ParseClass::Noun)
+                            && start != lookup.engine
+                            && z.is_none_or(|z| z != start && z != lookup.engine)
+                            && hit == z.unwrap_or(start)
+                            && match frame {
+                                None => {
+                                    state == LocalLookupState::NoFrame
+                                        && holder_local_state == LocalLookupState::NoFrame
+                                        && match holder_found {
+                                            FoundScope::Global(id) => id == lookup.engine,
+                                            FoundScope::Locale(id) => id != lookup.engine,
+                                            _ => false,
+                                        }
+                                }
+                                Some(frame) => {
+                                    frame != lookup.engine
+                                        && frame != start
+                                        && z != Some(frame)
+                                        && state == LocalLookupState::Bypassed
+                                        && match (holder_local_state, holder_found) {
+                                            (LocalLookupState::Bound, FoundScope::Local(id)) => {
+                                                id == frame
+                                            }
+                                            (
+                                                LocalLookupState::Absent
+                                                | LocalLookupState::DeclaredUnbound,
+                                                FoundScope::Global(id),
+                                            ) => id == lookup.engine,
+                                            (
+                                                LocalLookupState::Absent
+                                                | LocalLookupState::DeclaredUnbound,
+                                                FoundScope::Locale(id),
+                                            ) => id != frame && id != lookup.engine,
+                                            _ => false,
+                                        }
+                                }
+                            }
+                    }
                     (frame, ScopeSearch::DirectLocaleOnly(start), state, found) => {
                         self.words[name_use.word.0].flags.name_form
                             == crate::enqueuer::NameForm::DirectLocative
