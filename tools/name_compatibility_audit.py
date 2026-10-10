@@ -83,6 +83,20 @@ FIXTURES = [(name, setup + [query]) for name, setup, query, _, _ in CASES] + [
     ("invalid_name", ["foo_ 1"]),
 ]
 
+# Prerequisite matrix for indirect noun resolution. Unsupported Rust results
+# remain gaps; C values/errors and post-error state are observable contracts.
+INDIRECT_NOUN_FIXTURES = [
+    ("indirect_noun_holder_rebind", ["a_probe_=:7", "a_other_=:11", "holder=:<'probe'", "a__holder+0", "holder=:<'other'", "a__holder+0"]),
+    ("indirect_noun_z_write", ["a_z_=:7", "holder=:<'probe'", "a__holder+0", "a__holder=:9", "a_probe_+0", "a_z_+0"]),
+    ("indirect_noun_snapshot", ["a_probe_=:i.3", "holder=:<'probe'", "saved=:a__holder", "a_probe_=:a_probe_+10", "saved"]),
+    ("indirect_noun_failed_rhs", ["a_probe_=:7", "holder=:<'probe'", "a__holder=:1 2+1 2 3", "a_probe_+0"]),
+    ("indirect_noun_missing_holder", ["a_probe_=:7", "a__missingholder+0", "a_probe_+0"]),
+    ("indirect_noun_numeric_holder", ["a_probe_=:7", "holder=:7", "a__holder+0", "a_probe_+0"]),
+    ("indirect_noun_unboxed_holder", ["a_probe_=:7", "holder=:'probe'", "a__holder+0", "a_probe_+0"]),
+    ("indirect_noun_first_error", ["holder=:7", "a__holder+(1 2+1 2 3)"]),
+]
+FIXTURES += INDIRECT_NOUN_FIXTURES
+
 # Boundary probes pin observable runtime behavior. They do not test a future
 # admission verifier or parser continuation and must never be reported as such.
 BOUNDARY_FIXTURES = [
