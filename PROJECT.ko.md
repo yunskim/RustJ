@@ -9552,7 +9552,9 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 ### 4.6 확장 primitive 목록 — 기능, 필요성, 채택 상태
 
-갱신일: **2026-10-02**. 아래 표는 원격 기본 브랜치 HEAD를 확인하고 그 revision의 문서와 prototype registry를 읽어 갱신했다. 가장 후기의 주제별 결정과 현행 RustJ 원칙을 우선한다. 원본 연구 문서의 서술 전체를 그대로 채택하거나 historical registry를 실행 구현으로 간주하지 않는다.
+갱신일: **2026-10-02**. 아래 표는 원격 기본 브랜치 HEAD를 확인하고 그 revision의 문서와 prototype registry를 읽어 갱신한 **역사적 연구·출처 인벤토리**다. 가장 후기의 주제별 결정과 현행 RustJ 원칙을 우선한다. 원본 연구 문서의 서술 전체를 그대로 채택하거나 historical registry를 실행 구현으로 간주하지 않는다.
+
+**중복 방지·정본 경계(2026-10-10):** 이 표의 후보/연구/미결 표시는 **2026-10-02 연구 분류의 스냅샷**이지, 현재 구현·검증 완료 표시가 아니다. NN-01–NN-23 도입 우선순위·항목별 진행상태·승격 조건의 **단일 관리 위치는 [§4.6.3a NN Extension 체크리스트](#nn-extension-checklist)**다. §A2는 여전히 *공통 Registry/IR 기반* 구현 상태의 정본이고, NN-G0–G7은 그 기반에 의존하는 **개별 NN 연산 수용 기준**이지 A2의 복제 체크리스트가 아니다. `store`/`load`/`with` 같은 독립적인 비-NN 기능의 상태는 기존 A2/소관 절에서 관리한다.
 
 | 저장소 | 확인한 최신 HEAD | 근거의 역할 |
 |---|---|---|
@@ -9569,7 +9571,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 모든 source 이름은 ordinary J binding이며 예약 keyword가 아니다. **Adverb → parameter/verb operand를 받아 derived verb 생성**, **Verb → 배열 계산**, **Conjunction → 두 operand로 derived entity 생성**, **등록 API → 선언/관계 설정**을 구분한다. builder의 품사와 생성된 계산 verb의 valence/rank를 혼동하지 않는다.
 
-| 이름/family | 표면 품사·종류 | 기능 | 필요한 이유와 최소 계약 | RustJ 상태 | 출처 |
+| 이름/family | 표면 품사·종류 | 기능 | 필요한 이유와 최소 계약 | 2026-10-02 연구 분류(현재 진행 상태 아님) | 출처 |
 |---|---|---|---|---|---|
 | `conv / conv_forward` | Adverb | 파라미터 noun을 받아 공간 convolution verb를 생성한다. | 국소 window·채널 contraction을 고수준 graph에 남겨 reference/library/kernel 경로를 비교한다. kernel·stride·padding·dilation·bias 및 explicit weight resource 계약이 필요하다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
 | `depthwise_conv / depthwise_conv_forward` | Adverb | 채널별로 독립된 convolution verb를 생성한다. | 일반 convolution과 다른 채널 연결·재사용 구조를 분석한다. multiplier와 출력 shape를 명세해야 하며 prototype의 identity shape rule만으로 등록할 수 없다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
@@ -9619,19 +9621,78 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 4. **dtype와 품사만으로 physical 실행을 확정하지 않는다.** 역사 cast 문서의 “adverb이면 fusion 강제”, “narrowing이면 in-place”, “widening이면 새 버퍼”는 현행 불변식이 아니다. numeric correctness·alias·use/liveness·target/cost 판단 후 실제 realization을 선택한다.
 5. **상태는 explicit resource다.** prototype의 hidden weight/moment, fixed offset, 고정 barrier/stream/register 숫자를 primitive identity로 복사하지 않는다. `ValueId`, `StateResource`, `BufferId`를 구분한다.
 
-#### 4.6.3 구현 상태와 체크리스트
+#### 4.6.3 기존 조사·구현 증거 기록 (2026-10-02 스냅샷)
 
 이 절의 코드 대조 기준은 **2026-10-02 조사 당시 checkout `89b87b8`**이다. 현재 `main`의 구현 상태를 뜻하지 않으며 최신 상태는 §12/A1.5를 따른다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
 
-- [x] 네 저장소 최신 HEAD를 확인하고 commit 고정 출처로 기능·필요성·품사·채택 상태를 갱신했다.
-- [x] 이전 inventory에서 빠진 forward/backward family, `grad`·`consume`과 후기 cast/storage/registration 어휘를 구분했다.
-- [x] 한국어 정본과 영어 mirror에 통합했다.
-- [ ] 각 채택 후보의 parameter schema, valence/innate rank, shape/dtype/numeric rule과 reference를 확정한다.
-- [ ] effect/error/alias·StateResource/version 및 가능한 access/reduction 계약을 검증한다.
-- [ ] 최소 한 개의 검증된 execution/lowering route를 연결한 뒤에만 개별 지원 완료로 표시한다.
-- [ ] ordinary name 재정의/locale/POS, empty/exceptional 입력 및 값·shape·dtype·오류·효과 순서를 Windows 네이티브에서 비교한다.
+**조사 당시 수행한 작업(기록 전용; 현행 NN 진행 체크박스 아님):**
+- 네 저장소의 당시 HEAD를 확인하고 commit 고정 출처로 기능·품사·연구 분류를 기록했다.
+- 과거 forward/backward 및 `grad`/`consume`, 후기 cast/storage/registration 어휘를 구분했다.
+- 당시 한국어 정본과 영어 mirror에 통합했다.
 
-가장 작은 구현 검증 후보는 `relu` → `linear`/`flatten` → `conv`/`avgpool2d`다. 기존 M1–M6/frontend 이행 순서가 우선하며 이 목록을 새 선행 작업 전체로 강제하지 않는다. training/AD/state family는 뒤에 진행하고 실제 CUDA 구현 보류는 유지한다.
+**기존 미완료 체크 4개의 관리 위치를 통일한다.** parameter/POS/rank는 **NN-G0**, shape/dtype/reference·empty/error는 **NN-G1**, effect/alias/StateResource는 **NN-G2**, 개별 실행 경로는 **NN-G5**, Windows/J 오라클 비교와 오류/효과 검증은 **NN-G6**에서 각각 추적한다. 공통 extension registry 및 분석 기반의 구현 상태는 **§A2**에서만 관리한다. 이 역사 절에서 별도 완료 상태를 더 이상 갱신하지 않는다.
+
+당시 권장 첫 후보(`relu` → `linear`/`flatten` → `conv`/`avgpool2d`)는 현행 **NN-D1/NN-D2** 실행 계획으로 대체했다. 기존 M1–M6/frontend 이행 순서가 계속 우선하고 실제 CUDA 구현 보류는 유지한다.
+
+
+
+<a id="nn-extension-checklist"></a>
+
+#### 4.6.3a NN/배열 Extension-first 도입 목록 및 실행 체크리스트 (2026-10-10; 설계/계획만)
+
+**결정:** 먼저 ordinary J 이름의 extension을 추가하고 **J Graph IR에서는 의미가 정의된 단일 계산 primitive**로 보존한다. 그다음 **Execution Semantic Lowering / Logical Execution IR**에서 검증된 조합으로 *선택적으로* 분해하거나, 원자 op를 유지한 채 native CPU, 검증된 외부 library, MLIR/StableHLO subset, GPU kernel로 내린다. "확장 → 나중에 native"는 **source API/semantic identity의 불변**을 뜻하며, Graph IR primitive를 반드시 core J 문법 primitive로 승격한다는 뜻은 아니다. 분해와 fusion, 특정 backend 사용은 별도 합법성/수치/비용 검증 결과다. [JAXA 원자/참조 정의 연구(A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [prototype 목록(P)](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [현행 A2 계약](#a2--extension-primitive-registry와-analysis-contract).
+
+**활성 체크리스트(단일 진행 상태):** 위 §4.6 연구 인벤토리는 출처 기록이고, §4.6.3의 미완료 체크는 이 절에 통합했다. §A2와 §4.6.3a는 공통 기반 구현 vs 개별 NN 연산 수용의 서로 다른 축이다. 아래 모든 미체크는 *미검증 도입 후보/미완료 과제*이며, 실제 사용 가능함을 의미하지 않는다. P0/P1/P2/P3은 **이 확장 track 내부의 상대 우선순위**이다. 기존 frontend·M3 검증·M4 CPU 실행 gate를 선행/차단하는 신규 milestone이 아니다. JAXA 명칭·품사는 기존 §4.6 prototype의 이력일 뿐, 신규 이름·표면 품사는 호환성 검증 후 확정한다. 특히 stateful layer는 hidden weight를 보유하는 primitive가 아니라 explicit `StateResource` 인자를 가진 계산 및 parameterized builder로 해석한다.
+
+| 우선 | ID/체크 | Extension 이름/연산군(가칭) | Graph IR 원자 의미 및 필요성 | 후속 Logical IR 분해/실행 후보 |
+|---|---|---|---|---|
+| P0 | [ ] NN-01 | `relu`, `sigmoid`, `tanh` | 원소별 활성화; 편의용 이름/수치 규약(표준 J 식으로 충분하면 별도 원자 op는 선택) | Map/elementwise; 기존 J primitive로도 참조 |
+| P0 | [ ] NN-02 | `linear` builder | 명시적 W/bias를 받는 affine/dense layer; batch·axis 및 parameter schema | MatMul + Bias → GEMM/fused route |
+| P0 | [ ] NN-03 | `flatten` / feature reshape | J atom order, 지정 축·frame을 보존하는 feature flatten | StaticReindex/Reshape; zero-copy는 별도 판정 |
+| P0 | [ ] NN-04 | `conv2d` / 역사적 `conv` builder | 2D convolution; kernel/stride/padding/dilation/groups/축과 출력 shape | Window/Gather + Contract/Reduce 또는 외부 Conv 커널 |
+| P0 | [ ] NN-05 | `avgpool2d`, `maxpool2d` builders | 윈도우 pooling; padding 분모·NaN·동률·빈 window | WindowReduce / library |
+| P0 | [ ] NN-06 | `softmax`, `log_softmax` | 축별 수치안정 정규화; empty/Inf/NaN·축 규약 | MaxReduce + Exp + SumReduce + Normalize / fused |
+| P0 | [ ] NN-07 | `crossentropy` (logits/probability 모드 명시) | label 형식, log 안정화, reduction 및 손실 반환 shape | Gather/LogSumExp/Reduce 또는 전용 loss |
+| P1 | [ ] NN-08 | `conv1d`, `conv3d`, `depthwise_conv`, `grouped_conv` | 공간 차원·groups·channels/innate cell rank 계약; conv2d 단순 이름 바꾸기 금지 | Window + Contraction / target Conv |
+| P1 | [ ] NN-09 | `layernorm`, `rmsnorm`, `batchnorm` | feature/batch 통계축, epsilon, affine, training/inference running-state 구분 | Reduce + Normalize + Scale/Shift; effect 있는 BN은 별도 |
+| P1 | [ ] NN-10 | `gelu`, `silu` | 활성화 수치 정의와 근사 버전 구분 | Elementwise; fused activation |
+| P1 | [ ] NN-11 | `embedding` | 정수 인덱스 조회·범위 오류, padding index, 선택적 weight 공유 | Gather; 역방향은 indexed scatter-add |
+| P1 | [ ] NN-12 | `scaled_dot_product_attn` | Q/K/V, scale, causal/padding mask, layout·head 축, 출력 dtype | MatMul + Mask + Softmax + MatMul / fused attention; FlashAttention과 동의어 아님 |
+| P1 | [ ] NN-13 | `rotary_embedding` / positional transform | 위치 인덱스, 회전 축, 주파수/precision 수치 규약 | Slice/Pairwise Map/Rotate; 단순 positional add는 기본 J 조합 |
+| P1 | [ ] NN-14 | `matmul` / batched contraction **별칭 선택** | `+/ .*` 같은 기존 J 표현의 인식·최적화 기준; 새 필수 문법/extension 아님 | Dot/Reduce/Rank → GEMM/batched GEMM |
+| P2 | [ ] NN-15 | `dropout` builder | 명시적 RNG seed/state/version, 학습/추론, mask 저장·재사용 | RNG + Mask + Scale; 효과/재현성 보존 |
+| P2 | [ ] NN-16 | `*_vjp_x`, `*_vjp_weight` / `*_grad_*` | 입력별 독립 backward 계산, residual 필요성, gradient shape | 구성 가능한 것은 조합 미분, 불가능한 것은 등록된 VJP 커널 |
+| P2 | [ ] NN-17 | `sgd`, `adam`, `adamw` optimizer builders | step, weight, gradient, moment, decay의 explicit read/write/version | Elementwise updates + Reduce(필요 시); optimizer state는 `StateResource` |
+| P2 | [ ] NN-18 | `adjoint` / VJP 관계 등록 | 계산 op가 아닌 정적 등록 API; J inverse/obverse(`:. `) 재정의 금지 | 추후 AD 변환에서 참조; 현재 자동미분 완료 주장 금지 |
+| P2 | [ ] NN-19 | `cast_*`, `to_*`, `cp`, `emit`/accumulate 후보 | mixed precision·residual 보존·side output/effect의 설계 대상; `cp`/`emit` surface 채택 미결 | Type conversion, explicit Value/State effect; physical 배치 아님 |
+| P3 | [ ] NN-20 | `conv_transpose`, adaptive/global pooling | 업샘플·동적 출력 크기·경계/윈도우 규약 | Scatter/WindowReduce 또는 전용 kernel |
+| P3 | [ ] NN-21 | `quantize`, `dequantize`, `quantized_matmul` | scale/zero-point, saturation/rounding, accumulate dtype 계약 후에만 | Q/DQ + Contract 또는 정수 GEMM |
+| P3 | [ ] NN-22 | KV-cache update / paged attention | 추론 상태·버전·alias/순서·증분 인덱싱; effect-free attention과 분리 | Gather/Scatter + Attention, backend-specific fused route |
+| P3 | [ ] NN-23 | MoE gate/dispatch/combine | routing index·capacity/drop/pad·재조립·gradient contract | TopK/Gather/Scatter/SegmentedReduce; 모듈 전체를 필수 원자로 만들지 않음 |
+
+**의도적으로 extension primitive로 중복하지 않을 것:** `+`, `*`, `+/`, `|:`, Rank `"`, `@:`, fork/hook 등 기존 J 어휘; 일반 residual connection·MLP/Transformer block·모델/학습 loop는 **라이브러리의 derived verb 조합**을 우선한다. `matmul`/reshape처럼 기존 J가 표현하는 연산은 이름을 추가하더라도 최적화 경로를 기존 J 표현과 공유해야 한다. `with`는 이미 선택된 *typed semantic-contract conjunction*이고 device/tile 지정 통로가 아니다.
+
+**Extension별 완료 조건 (각 NN-xx 항목을 체크하려면 해당 유형에 적용되는 gate를 모두 통과):** 계산 extension에는 NN-G3/G5의 Graph primitive 및 실행 경로가 필수다. `adjoint` 같은 **선언/등록 API**는 계산 Graph node로 위장하지 않고 별도 registry schema·정적 검증·테스트로 gate를 충족한다. `matmul`처럼 기존 J 계산을 그대로 인식하는 별칭은 별도 extension node를 강제하지 않고 동등한 Graph 분석/Lowering 증거를 제공한다.
+
+- [ ] **NN-G0 / 공개 identity:** 일반 J name 및 실제 POS(verb/adverb/conjunction), builder operand schema, 생성된 verb의 valence/innate rank, late NAME/locale/rebinding 및 버전 지정. 파서 keyword 추가 금지.
+- [ ] **NN-G1 / 정밀 의미론:** 표준 J 참조 정의가 가능하면 oracle로 제공하고, 그렇지 않으면 독립적인 수학/프레임워크 oracle을 버전 고정. axis 역할, frame/cell, empty-frame의 prototype/fill/assembly, empty cell, scalar, 동적 shape, type/promotion, NaN/Inf/signed zero, boundary/error precedence를 명세.
+- [ ] **NN-G2 / 상태 및 미분:** effect/alias 및 명시적 `StateResource`와 `ValueId` 구분; RNG, 파라미터, buffer/version/read/write ordering; 학습 항목은 입력별 VJP, residual/gradient 합산 규칙. `BufferId`·layout·tile·device 숫자를 의미론에 넣지 않음.
+- [ ] **NN-G3 / Graph IR:** 출처·binding/derived-function identity 및 계약을 갖춘 단일 primitive call로 Graph IR에 등록; unknown contract는 보수적으로 barrier/unsupported로 처리하며 실행 가능함으로 오인하지 않음.
+- [ ] **NN-G4 / 선택적 분해:** *Graph IR 원본은 보존*하고, 다음 Execution Semantic Lowering/Logical IR에서 분해 후보 + semantic equivalence witness/guard + provenance를 만든다. 불충분한 증거, 수치 순서/오류/effect 차이 또는 비가역 레이아웃 변화 시 분해 불허; 원자 경로 유지 또는 명시적 unsupported.
+- [ ] **NN-G5 / 실행 경로:** portable CPU/reference **또는** 검증된 external/library route 하나 이상의 실사용 경로, preconditions 및 fallback/unsupported를 증명. 이름/Graph 등록만으로 implementation complete 체크 금지. Native/GPU/fused/FlashAttention은 각각 독립 완료 상태.
+- [ ] **NN-G6 / 검증 증거:** 정상/경계/음성 case의 value·dtype·shape·rank·J error/effect order 비교, 미분 gradient check(해당 시), 각 단계 verifier와 분해 on/off 동등성, target별 reproducible CI SHA·테스트 결과. J 호환식은 pinned jsource와, 신규 NN 의미는 버전 고정 oracle과 비교; 실행하지 않은 것은 `UNRUN`.
+- [ ] **NN-G7 / 승격 기준:** 공개 J interface와 observable semantics 그대로 유지하며, 구체 workload의 의미·비용·성능 근거를 확보한 경우에만 optimized native realization/패턴 recognition을 추가. Graph IR atom, Logical 분해, native kernel, **J core primitive 편입**을 서로 다른 결정으로 기록.
+
+**트랙 진행 체크리스트 (설계만 기록; 구현·CI 완료로 간주하지 않음):**
+
+- [x] **NN-D0:** 기존 §4.6 JAXA/Japchae prototype 근거 및 현행 A2/IR 불변식에 연결된 도입 후보/우선순위·진입/종료 gate를 문서화.
+- [ ] **NN-D1:** P0 `relu` 한 개에 대해 name binding → Graph atom → reference CPU → decomposition/no-decomposition 동일 결과 vertical slice 및 음성 verifier 실증.
+- [ ] **NN-D2:** `linear` + `flatten` + `softmax` 최소 MLP, `conv2d` + `avgpool2d` 최소 CNN으로 Shape/Rank/empty-frame 증거 수집.
+- [ ] **NN-D3:** P1 attention/embedding/norm 연결로 작은 Transformer inference; 마스킹과 numeric stability/target route 차이 검증.
+- [ ] **NN-D4:** P2 backward/optimizer/state/AD 관계는 명시적 effect·gradient 계약 확보 후 별도 구현; P3은 구체 workload와 외부 커널 수요가 확인된 뒤 판단.
+- [ ] **NN-D5:** 각 완료 항목을 §A2/해당 M-stage gate 및 영어 mirror와 일치시키고, 정확한 main SHA/CI/미검증 범위를 기록.
+
+**참조/경계:** [§4.6 기존 기능·출처 인벤토리](#extension-primitive-inventory), [A2 extension/analysis checklist](#a2--extension-primitive-registry와-analysis-contract), [Graph vs Execution Basis](#a15--j-graph-ir--jaxa-array-operation-graph-ir), [JAXA 후기 설계 문서(A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md). 과거 문서의 "conv는 hidden weight 소유 blackbox"는 RustJ의 **explicit StateResource** 규약보다 우선하지 않는다. 이 절은 신규 구현과 검증을 주장하지 않는다.
 
 
 ### 4.7 과거 JAXA/Japchae 저장소 통합 기준
