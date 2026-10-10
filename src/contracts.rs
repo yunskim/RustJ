@@ -4,7 +4,6 @@ pub enum Valence {
     Monad,
     Dyad,
 }
-
 /// Semantic J rank, independent of jsource's integer RMAX sentinel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RankSpec {
@@ -31,7 +30,9 @@ impl RankSpec {
                 if raw <= 0 {
                     0
                 } else {
-                    usize::try_from(raw).unwrap_or(usize::MAX).min(argument_rank)
+                    usize::try_from(raw)
+                        .unwrap_or(usize::MAX)
+                        .min(argument_rank)
                 }
             }
         }
@@ -55,25 +56,23 @@ impl RankContract {
     }
 }
 
-/// Innate ranks cross-checked against jsource's primitive table (jsrc/t.c).
-pub const fn innate_rank(id: crate::primitive::PrimitiveId) -> RankContract {
-    use crate::primitive::PrimitiveId::*;
-    use RankSpec::{Absolute as A, Infinite as I};
-    match id {
-        Add | Subtract | Multiply | Divide | Magnitude => RankContract::all(A(0)),
-        Shape => RankContract::new(I, A(1), I),
-        Sparse | Ravel | Member => RankContract::all(I),
-        Tally => RankContract::new(I, A(1), I),
-        Equal | Less => RankContract::new(I, A(0), A(0)),
-        Greater => RankContract::all(A(0)),
-        From => RankContract::new(A(1), A(0), I),
-        IndexOf => RankContract::new(A(1), I, I),
-        Reverse | Transpose | Take | Drop => RankContract::new(I, A(1), I),
-        Steps => RankContract::new(A(0), I, I),
-        Indices => RankContract::new(A(1), I, I),
-        Find => RankContract::new(A(0), I, I),
+impl RankContract {
+    pub fn from_normalized(ranks: [i64; 3]) -> Self {
+        let at = |rank| {
+            if rank == 63 {
+                RankSpec::Infinite
+            } else {
+                RankSpec::from_integer(rank)
+            }
+        };
+        Self::new(at(ranks[0]), at(ranks[1]), at(ranks[2]))
     }
 }
+/// Consume the authoritative primitive registry rather than duplicating its table.
+pub fn innate_rank(id: crate::primitive::PrimitiveId) -> RankContract {
+    RankContract::from_normalized(id.innate_ranks())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
     Pure,
@@ -177,6 +176,7 @@ pub fn for_primitive(id: crate::primitive::PrimitiveId, valence: Valence) -> Con
             (Shape, Valence::Monad) => ShapeRule::ShapeOf,
             (Tally, Valence::Monad) => ShapeRule::Tally,
             (Less, Valence::Monad) => ShapeRule::Scalar,
+            (Find, Valence::Dyad) => ShapeRule::PreserveRight,
             _ => ShapeRule::Unknown,
         },
         effect: if known { Effect::Pure } else { Effect::Unknown },

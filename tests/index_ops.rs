@@ -44,3 +44,123 @@ fn membership_and_overlapping_pattern() {
     assert_eq!(eval("'abcd' E. 'ab'"), eval("0 0"));
     assert_eq!(eval("2 2 E. 2 2 2"), eval("1 1 0"));
 }
+
+#[test]
+fn direct_range_index_preserves_first_last_missing_and_negative_keys() {
+    // At least 33 comparisons force an index; the narrow domain admits a
+    // bounded direct-address table rather than a general HashMap.
+    assert_eq!(
+        eval("_2 _1 0 _2 1 i. _2 1 3 _1 _2 1 3"),
+        eval("0 4 5 1 0 4 5")
+    );
+    assert_eq!(
+        eval("_2 _1 0 _2 1 i: _2 1 3 _1 _2 1 3"),
+        eval("3 4 5 1 3 4 5")
+    );
+    assert_eq!(
+        eval("_2 1 10 1 _2 1 10 e. _2 _1 0 1"),
+        eval("1 1 0 1 1 1 0")
+    );
+}
+
+#[test]
+fn exact_search_keeps_wide_range_and_boolean_membership_semantics() {
+    assert_eq!(
+        eval("_1000000000 0 1000000000 i. 0 1000000000 2 _1000000000 0"),
+        eval("1 2 3 0 1")
+    );
+    assert_eq!(eval("0 1 0 1 0 1 0 1 e. 0 1"), eval("1 1 1 1 1 1 1 1"));
+    assert_eq!(eval("0 1 0 1 0 1 0 1 i: 0 1 2 0 1"), eval("6 7 8 6 7"));
+}
+
+#[test]
+fn member_preserves_cell_shapes_and_empty_query_semantics() {
+    assert_eq!(eval("(i.2 3)e.(i.2 3)"), eval("1 1"));
+
+    // x e. y is Boolean and retains the frame of the left query x.
+    let empty_query = Engine::new().eval("(i.0)e.3 4").unwrap().unwrap();
+    assert_eq!(empty_query.type_code(), 1);
+    assert_eq!(empty_query.shape(), &[0]);
+
+    // If the indexed right side is empty, each left query is false.
+    let missing = Engine::new().eval("3 4 e.(i.0)").unwrap().unwrap();
+    assert_eq!(missing.type_code(), 1);
+    assert_eq!(missing.shape(), &[2]);
+    assert_eq!(missing.int_at(0).unwrap(), 0);
+    assert_eq!(missing.int_at(1).unwrap(), 0);
+
+    // Index-of uses an integer missing sentinel, not Boolean false.
+    let index = Engine::new().eval("(i.0)i.3 4").unwrap().unwrap();
+    assert_eq!(index.type_code(), 4);
+    assert_eq!(index.shape(), &[2]);
+    assert_eq!(index.int_at(0).unwrap(), 0);
+    assert_eq!(index.int_at(1).unwrap(), 0);
+}
+
+#[test]
+fn engine_prehashed_index_reuses_only_immutable_shared_key_and_mode() {
+    let mut engine = Engine::new();
+    engine.eval("keys=: i. 128").unwrap();
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+
+    assert_eq!(
+        engine.eval("keys i. 17 199").unwrap().unwrap().json(),
+        eval("17 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (1, 0));
+    assert_eq!(
+        engine.eval("keys i. 18 199").unwrap().unwrap().json(),
+        eval("18 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (1, 1));
+
+    // Membership uses the same first-position table as dyadic i.
+    assert_eq!(
+        engine.eval("17 199 e. keys").unwrap().unwrap().json(),
+        eval("1 0")
+    );
+    assert_eq!(engine.index_prehash_stats(), (1, 2));
+
+    // The last-match index cannot silently borrow a first-match prehash.
+    assert_eq!(
+        engine.eval("keys i: 18 199").unwrap().unwrap().json(),
+        eval("18 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (2, 2));
+
+    // A redefined name has a different shared backing, even if the shape
+    // matches. No stale prehash table may answer the new lookup.
+    engine.eval("keys=: 1000 + i. 128").unwrap();
+    assert_eq!(
+        engine.eval("keys i. 1017 17").unwrap().unwrap().json(),
+        eval("17 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (3, 2));
+
+    engine.clear_index_prehash();
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+}
+
+#[test]
+fn reference_execution_does_not_consume_interpreter_prehash() {
+    let mut engine = Engine::new();
+    engine.eval("keys=: i. 128").unwrap();
+    assert_eq!(
+        engine
+            .eval_semantic_reference("keys i. 17 199")
+            .unwrap()
+            .unwrap()
+            .json(),
+        eval("17 128")
+    );
+    assert_eq!(engine.index_prehash_stats(), (0, 0));
+}
+
+#[test]
+fn literal_index_family_can_reverse_hash_queries_without_prehashed_binding() {
+    // A generated temporary has no retained name-backed Arc. Reverse hashing
+    // therefore remains a one-shot choice rather than an implicit prehash.
+    assert_eq!(eval("(i. 128) i. 17 17 199"), eval("17 17 128"));
+    assert_eq!(eval("(i. 128) i: 17 17 199"), eval("17 17 128"));
+    assert_eq!(eval("17 199 e. (i. 128)"), eval("1 0"));
+}

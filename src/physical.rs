@@ -13,6 +13,140 @@ use std::sync::{
 
 static NEXT_REGISTRY: AtomicU64 = AtomicU64::new(1);
 
+/// Physical search-strategy inputs. These are runtime/target facts, never
+/// canonical J values or A3 semantic identities. The index/key span may stay
+/// unknown until the relevant input has been inspected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SearchWorkload {
+    pub indexed_items: usize,
+    pub query_items: usize,
+    pub integer_span: Option<u128>,
+    pub immutable_shared_index: bool,
+    /// A prehash is a permissible candidate only when the caller already owns
+    /// a compatible per-Engine cache. It is not requested by a J name alone.
+    pub prehash_available: bool,
+    /// Reverse hashing needs the actual query values available for indexing.
+    pub allow_reverse: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchSelectionBasis {
+    /// No semantics-changing optimization has been selected.
+    Reference,
+    /// Guarded at execution by exact Int/Bool scalar item/value checks.
+    RuntimeExactScalarGuard,
+    /// No legal route is registered for this target or J search form.
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SearchPhysicalChoice {
+    pub algorithm: crate::lowering::SearchAlgorithm,
+    pub basis: SearchSelectionBasis,
+    /// Estimate of temporary dictionary/lookup entries, not bytes or a
+    /// performance measurement; optional allocations may fail and fall back.
+    pub estimated_table_entries: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    // Same-thread test-only witness: reference execution must never invoke
+    // physical search choice, even when the optimized evaluator does.
+    static SEARCH_PLANNER_CALLS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+/// A small deterministic *physical* cost heuristic. Registered candidates are
+/// checked against target and search output meaning first (MLIR-style dynamic
+/// legality). Actual J comparison/rank/effect proof is NOT inferred from the
+/// workload. The caller must have verified exact scalar Int/Bool input shape,
+/// or the only available route is reference sequential execution.
+///
+/// Alternative algorithms are kept visible in the registry; this function
+/// picks one conditional implementation without mutating the canonical IR.
+/// Thresholds are provisional, not TVM-style measured tuning records.
+pub fn plan_search_algorithm(
+    output: crate::logical_ir::SearchOutputKind,
+    target: &crate::lowering::TargetCapabilities,
+    workload: SearchWorkload,
+    runtime_exact_scalar_guard: bool,
+) -> SearchPhysicalChoice {
+    #[cfg(test)]
+    SEARCH_PLANNER_CALLS.with(|count| count.set(count.get() + 1));
+    use crate::logical_ir::SearchComparison;
+    use crate::lowering::{SearchAlgorithm as A, SearchAlgorithmReadiness as R};
+
+    // One shared registry legality rule, without a per-lookup registry/vector
+    // allocation. Compiler diagnostics can request the full report separately.
+    let status = |algorithm| {
+        Some(
+            crate::lowering::LoweringRegistry::search_algorithm_readiness(
+                output,
+                SearchComparison::JEquality,
+                true,
+                algorithm,
+                target,
+            ),
+        )
+    };
+    let fallback = SearchPhysicalChoice {
+        algorithm: A::Sequential,
+        basis: if status(A::Sequential) == Some(R::Baseline) {
+            SearchSelectionBasis::Reference
+        } else {
+            SearchSelectionBasis::Unavailable
+        },
+        estimated_table_entries: 0,
+    };
+    if !runtime_exact_scalar_guard || fallback.basis == SearchSelectionBasis::Unavailable {
+        return fallback;
+    }
+    if workload.indexed_items == 0
+        || workload.query_items == 0
+        || workload.indexed_items.saturating_mul(workload.query_items) <= 32
+    {
+        return fallback;
+    }
+
+    let choice = if workload.prehash_available
+        && workload.immutable_shared_index
+        && (64..=16_384).contains(&workload.indexed_items)
+    {
+        A::PreparedHash
+    } else if workload.allow_reverse
+        && workload.indexed_items >= 64
+        && workload.indexed_items / 2 > workload.query_items
+    {
+        A::ReverseQueryHash
+    } else if workload.integer_span.is_some_and(|span| {
+        span <= 65_536
+            && span
+                <= (workload
+                    .indexed_items
+                    .saturating_add(workload.query_items)
+                    .saturating_mul(4) as u128)
+    }) {
+        A::DirectAddress
+    } else {
+        A::IndexedHash
+    };
+
+    // Semantic proof and target availability trump the cost heuristic.
+    if status(choice) != Some(R::RequiresExactScalarGuard) {
+        return fallback;
+    }
+    SearchPhysicalChoice {
+        algorithm: choice,
+        basis: SearchSelectionBasis::RuntimeExactScalarGuard,
+        estimated_table_entries: match choice {
+            A::DirectAddress => workload.integer_span.unwrap_or(0) as usize,
+            A::ReverseQueryHash => workload.query_items,
+            A::IndexedHash | A::PreparedHash => workload.indexed_items,
+            _ => 0,
+        },
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BufferId {
     registry: u64,
@@ -170,6 +304,7 @@ pub struct BufferRegistry {
 }
 impl BufferRegistry {
     pub fn new() -> Result<Self> {
+        #[allow(deprecated)] // try_update requires Rust 1.95; preserve the 1.85 MSRV.
         let identity = NEXT_REGISTRY
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| Error::Limit)?;
@@ -233,8 +368,15 @@ impl BufferRegistry {
     }
 }
 
-/// Immutable affine mapping into a leased CPU allocation. Logical dtype comes
-/// from its encoding, preventing caller-supplied dtype/backing mismatches.
+/// Immutable affine mapping into a leased CPU allocation.
+///
+/// The descriptor's `shape` is the logical index domain needed to interpret
+/// this particular physical mapping; it is not the authoritative semantic
+/// identity of a J noun.  Strides, offset, encoding, and BufferId are physical
+/// realization details and must remain downstream of logical/semantic analysis.
+///
+/// Logical dtype comes from its encoding, preventing caller-supplied
+/// dtype/backing mismatches.
 #[derive(Clone, Debug)]
 pub struct PhysicalArray {
     buffer: BufferLease,
@@ -429,5 +571,43 @@ impl PhysicalArray {
             CpuView::Char(v) => Some(CpuView::Char(v.get(start..end)?)),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod search_reference_isolation_tests {
+    use super::SEARCH_PLANNER_CALLS;
+    use crate::Engine;
+
+    #[test]
+    fn fw02_semantic_reference_never_calls_physical_search_planner() {
+        let mut engine = Engine::new();
+        engine.eval("keys=:i.256").unwrap();
+        SEARCH_PLANNER_CALLS.with(|count| count.set(0));
+
+        let reference = engine
+            .eval_semantic_reference("keys i. 17 255 999")
+            .unwrap()
+            .unwrap();
+        engine
+            .eval_semantic_reference("keys i: 17 255 999")
+            .unwrap();
+        engine
+            .eval_semantic_reference("17 255 999 e. keys")
+            .unwrap();
+        assert_eq!(
+            SEARCH_PLANNER_CALLS.with(|count| count.get()),
+            0,
+            "reference executor unexpectedly entered physical search planner"
+        );
+
+        // Positive control: an ordinary optimized path must exercise this
+        // counter; otherwise a zero on the reference path proves nothing.
+        let optimized = engine.eval("keys i. 17 255 999").unwrap().unwrap();
+        assert_eq!(reference.json(), optimized.json());
+        assert!(
+            SEARCH_PLANNER_CALLS.with(|count| count.get()) > 0,
+            "test instrumentation must observe an optimized planner call"
+        );
     }
 }

@@ -4,18 +4,9 @@ use rustj::{Engine, Error, semantic, syntax};
 #[test]
 fn definition_forms_are_rejected_without_binding_or_running_the_body() {
     let forms = [
-        "f=:{{ y+1 }}",
-        "f=:{{ x+y }}",
-        "f=:{{ {{y+1}} y }}",
-        "f=:{{)n literal data }}",
-        "f=:{{ t=.y+1\nt }}",
-        "f=:{{ if. y do. 1 else. 0 end. }}",
-        "f=:3 : 'y+1'",
-        "f=:4 : 'x+y'",
-        "f=:3 : 0\nleaked=:99\ny+1\n)",
-        "f=:3 : 0\ny+1\n:\nx+y\n)",
-        "f=:1 : 'u y'",
-        "f=:2 : 'u v y'",
+        "f=:{{)v unsupported tag }}",
+        "f=:{{ for_i_base_. y do. y end. }}",
+        "f=:3 : 0\nfor_i_base_. y do.\nleaked=:99\nend.\n)",
     ];
     let mut e = Engine::new();
     e.eval("f=:42").unwrap();

@@ -121,10 +121,12 @@ fn dyadic_scalar_rank_frame_repetition_and_errors() {
         e.eval("a").unwrap().unwrap().json(),
         e.eval("alias").unwrap().unwrap().json()
     );
-    assert!(matches!(
-        e.eval("(i.0 3)+\"1(i.0 3)"),
-        Err(Error::Unsupported(_))
-    ));
+    // A zero frame is assembled from one typed fill-cell result, as in
+    // jsource cr.c; it does not need a physical element to execute.
+    let empty = e.eval("(i.0 3)+\"1(i.0 3)").unwrap().unwrap();
+    assert_eq!(empty.shape(), &[0, 3]);
+    assert_eq!(empty.type_code(), 4);
+    assert_eq!(empty.len(), 0);
     assert_eq!(eval("(i.2 0)+\"1(i.2 0)"), eval("i.2 0"));
 }
 

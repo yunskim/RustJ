@@ -59,10 +59,9 @@ fn real(op: Op, a: f64, b: f64) -> f64 {
     }
 }
 pub(crate) fn near(a: f64, b: f64) -> bool {
-    a == b
-        || (a.is_finite()
-            && b.is_finite()
-            && (a - b).abs() <= 2f64.powi(-44) * a.abs().max(b.abs()))
+    // One semantic comparator identity for equality and all search modes.
+    // Pinned J default CCT; dynamic 9!:19 and Fit remain unsupported.
+    crate::comparison_policy::ComparisonPolicySnapshot::pinned_j_default_cct().float_equal(a, b)
 }
 
 fn int_pair<const OP: u8>(
@@ -96,6 +95,27 @@ pub(crate) fn atomic_with_pool(
     }
     let (shape, ad, bd) = agreement(&a, &b)?;
     let n = count(&shape)?;
+    if a.is_rational() || b.is_rational() {
+        return crate::rational::atomic(op, &a, &b, shape, ad, bd);
+    }
+    if a.is_extended() || b.is_extended() {
+        return crate::extended::atomic(op, &a, &b, shape, ad, bd);
+    }
+    // + has intrinsic scalar rank. With an empty atom frame, pinned J
+    // cr.c::jtrank2ex0 evaluates a synthetic scalar fill, quietly
+    // replacing a char/numeric domain failure with integer zero. The
+    // resulting vacuous array is INT with the original *atom frame*.
+    // Do not extend this to real (nonempty) cells or unrelated verbs.
+    if n == 0
+        && matches!(op, Op::Add)
+        && matches!(
+            (&a.data, &b.data),
+            (Data::Char(_), Data::Bool(_) | Data::Int(_) | Data::Float(_))
+                | (Data::Bool(_) | Data::Int(_) | Data::Float(_), Data::Char(_))
+        )
+    {
+        return Value::ints(shape, Vec::new());
+    }
     if n == 1 && matches!(op, Op::Add | Op::Sub | Op::Mul | Op::Div) {
         return arithmetic_views(op, a.view(), b.view());
     }
@@ -240,11 +260,33 @@ fn dimensions(v: &Value) -> Result<Vec<usize>> {
 }
 
 pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
+    if verb == "[:" {
+        return Err(Error::Valence);
+    }
     if verb == "$." {
         return crate::sparse::monad(y);
     }
     if y.is_sparse() && !matches!(verb, "$" | "#") {
         return Err(Error::Unsupported(format!("sparse monad {verb}")));
+    }
+    if y.is_rational() {
+        match verb {
+            "$" => return crate::extended::counts([y.shape.len()], y.shape.iter().copied()),
+            "#" => return crate::extended::counts([], [y.shape.first().copied().unwrap_or(1)]),
+            "-" | "|" | "*" | "%" => return crate::rational::unary(verb, y),
+            "+" | "," | "<" | ">" | "|." | "|:" => {}
+            _ => return Err(Error::Unsupported(format!("rational monad {verb}"))),
+        }
+    }
+    if y.is_extended() {
+        match verb {
+            "$" => return crate::extended::counts([y.shape.len()], y.shape.iter().copied()),
+            "#" => return crate::extended::counts([], [y.shape.first().copied().unwrap_or(1)]),
+            "%" => return atomic(Op::Div, Value::scalar(1), y),
+            "-" | "*" | "|" => return crate::extended::unary(verb, y),
+            "+" | "," | "<" | ">" | "|." | "|:" => {}
+            _ => return Err(Error::Unsupported(format!("extended monad {verb}"))),
+        }
     }
     match verb {
         "<" => Ok(Value::boxed(y)),
@@ -370,11 +412,28 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
 }
 
 pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
+    if verb == "[:" {
+        return Err(Error::Valence);
+    }
     if verb == "$." {
         return crate::sparse::dyad(a, b);
     }
     if a.is_sparse() || b.is_sparse() {
         return Err(Error::Unsupported(format!("sparse dyad {verb}")));
+    }
+    if (a.is_rational() || b.is_rational())
+        && !matches!(verb, "+" | "-" | "*" | "%" | "=" | "<" | ">")
+        && (!matches!(verb, "$" | "{" | "|." | "{." | "}.") || a.is_rational())
+    {
+        return Err(Error::Unsupported(format!("rational dyad {verb}")));
+    }
+    if (a.is_extended() || b.is_extended())
+        && !matches!(
+            verb,
+            "+" | "-" | "*" | "%" | "=" | "<" | ">" | "$" | "{" | "|." | "{." | "}."
+        )
+    {
+        return Err(Error::Unsupported(format!("extended dyad {verb}")));
     }
     if matches!(verb, "i." | "i:" | "e." | "E.")
         && (matches!(a.data, Data::Boxed(_)) || matches!(b.data, Data::Boxed(_)))
@@ -440,6 +499,16 @@ pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
             if a.shape.len() > 1 || b.shape.len() > 1 {
                 return Err(Error::Unsupported("catenate rank > 1".into()));
             }
+            // A *positive outer Rank frame* may contain zero-atom cells.
+            // Pinned J uses the higher-priority dense type for heterogeneous
+            // empty catenate cells, without manufacturing a scalar result.
+            if a.is_empty() && b.is_empty() {
+                if let Some(target) =
+                    crate::logical_executor::inhomogeneous_catenate_retry_type(&a, &b, false, false)
+                {
+                    return a.rank_refill_as(target);
+                }
+            }
             assemble(
                 vec![a.len().checked_add(b.len()).ok_or(Error::Limit)?],
                 vec![a, b],
@@ -463,6 +532,9 @@ pub fn reduce(verb: &str, y: Value) -> Result<Value> {
 }
 
 fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
+    if matches!(y.data, CpuView::ExtendedInt(_)) {
+        return Err(Error::Unsupported("extended reduction".into()));
+    }
     if matches!(y.data, CpuView::Sparse(_)) {
         return Err(Error::Unsupported("sparse reduction".into()));
     }
@@ -476,13 +548,15 @@ fn reduce_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
     let shape = Shape::from(&y.shape[1..]);
     let cell = count(&shape)?;
     if items == 0 {
-        if !matches!(verb, "+" | "*") {
-            return Err(Error::Unsupported("empty reduction identity".into()));
-        }
-        let fill = if verb == "+" { 0 } else { 1 };
+        // ai.c iden: subtraction shares additive zero; division shares
+        // multiplicative one. This is a right-fold identity, not reassociation.
+        let fill = if matches!(verb, "+" | "-") { 0 } else { 1 };
         let mut data = buffer(cell)?;
         data.resize(cell, fill);
         return Value::new(shape, Data::Bool(CpuStorage::new(data)));
+    }
+    if matches!(y.data, CpuView::Rational(_)) {
+        return crate::rational::reduce(verb, y);
     }
     // Reference implementation: right fold. Specialized reductions come later.
     let mut out = y.cell(shape.len(), items - 1)?.to_owned()?;
@@ -522,6 +596,12 @@ fn reduction_step(op: Op, lhs: ArrayView<'_>, rhs: Value) -> Result<Value> {
 // Right-fold and rank read their inputs through lifetime-bound views. Output
 // storage is owned, so no borrowed cell can escape into the evaluator.
 fn arithmetic_views(op: Op, a: ArrayView<'_>, b: ArrayView<'_>) -> Result<Value> {
+    if matches!(a.data, CpuView::Rational(_)) || matches!(b.data, CpuView::Rational(_)) {
+        return atomic(op, a.to_owned()?, b.to_owned()?);
+    }
+    if matches!(a.data, CpuView::ExtendedInt(_)) || matches!(b.data, CpuView::ExtendedInt(_)) {
+        return atomic(op, a.to_owned()?, b.to_owned()?);
+    }
     if matches!(
         a.data,
         CpuView::Char(_) | CpuView::Boxed(_) | CpuView::Sparse(_)
@@ -578,6 +658,9 @@ fn arithmetic_views(op: Op, a: ArrayView<'_>, b: ArrayView<'_>) -> Result<Value>
 }
 
 fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
+    if matches!(y.data, CpuView::ExtendedInt(_) | CpuView::Rational(_)) {
+        return monad(verb, y.to_owned()?);
+    }
     match verb {
         "#" => Ok(Value::scalar(y.shape.first().copied().unwrap_or(1) as i64)),
         "$" => Value::new(
@@ -633,6 +716,15 @@ fn monad_view(verb: &str, y: ArrayView<'_>) -> Result<Value> {
 }
 
 pub fn assemble(shape: Vec<usize>, cells: Vec<Value>) -> Result<Value> {
+    if cells.iter().any(|v| v.is_rational() || v.is_extended()) {
+        let mut cells = cells.iter();
+        let first = cells.next().expect("exact cell exists");
+        let mut builder = crate::assembly::CellBuilder::new(first, count(&shape)?)?;
+        for cell in cells {
+            builder.push(cell)?;
+        }
+        return Value::new(shape, builder.finish());
+    }
     if cells.iter().any(Value::is_sparse) {
         return Err(Error::Unsupported("sparse assembly".into()));
     }
@@ -720,15 +812,58 @@ pub fn ranked_dyad_ranks(verb: &str, left: i64, right: i64, a: Value, b: Value) 
     }
     let frames = count(frame)?;
     if frames == 0 {
-        return Err(Error::Unsupported(
-            "dyadic rank over empty frame (prototype inference)".into(),
-        ));
+        // Rank semantics, not an index-of exception: execute once on the
+        // corresponding typed fill cells and retain only result type/shape.
+        let left_fill = a.rank_fill_cell(ar)?;
+        let right_fill = b.rank_fill_cell(br)?;
+        let atomic_shape = if verb == "+" {
+            crate::logical_executor::atomic_add_mixed_char_fill_shape(&left_fill, &right_fill)
+        } else {
+            None
+        };
+        let outcome = if verb == "," {
+            crate::logical_executor::retry_inhomogeneous_catenate_fill(
+                &a,
+                &b,
+                left_fill,
+                right_fill,
+                |x, y| dyad(verb, x, y),
+            )
+        } else {
+            dyad(verb, left_fill, right_fill)
+        };
+        let prototype = crate::logical_executor::recover_zero_frame_fill_domain(
+            outcome,
+            atomic_shape.as_deref(),
+            Some(crate::logical_executor::VerifiedValueOnlyZeroFrame),
+        )?;
+        return prototype.empty_rank_result(frame);
     }
     let ad = count(&frame[af.len()..])?;
     let bd = count(&frame[bf.len()..])?;
     let evaluate = |i| {
         let x = a.view().cell(ar, i / ad)?;
         let y = b.view().cell(br, i / bd)?;
+        // A positive outer Rank frame can contain zero-atom scalar frames.
+        // The SIMD view path rejects char/numeric types before noticing
+        // the empty inner frame. Use the pure primitive's rank-0 semantic
+        // path so its pinned-J integer-empty prototype is preserved.
+        if verb == "+"
+            && x.is_empty()
+            && y.is_empty()
+            && matches!(
+                (x.data(), y.data()),
+                (
+                    CpuView::Char(_),
+                    CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_)
+                ) | (
+                    CpuView::Bool(_) | CpuView::Int(_) | CpuView::Float(_),
+                    CpuView::Char(_)
+                )
+            )
+        {
+            return dyad(verb, x.to_owned()?, y.to_owned()?);
+        }
         match verb {
             "+" => arithmetic_views(Op::Add, x, y),
             "-" => arithmetic_views(Op::Sub, x, y),
@@ -783,9 +918,37 @@ pub fn ranked(verb: &str, reduction: bool, rank: i64, y: Value) -> Result<Value>
     }
     let frames = count(&y.shape[..f])?;
     if frames == 0 {
-        return Err(Error::Unsupported(
-            "rank over empty frame (prototype inference)".into(),
-        ));
+        // Primitive insert dispatches empty total-atom arguments before rank
+        // iteration (ar.c). A synthetic nonempty rational cell would keep RAT
+        // and therefore give the wrong empty-result type.
+        if reduction && y.is_rational() && r > 0 && y.shape[f] > 1 {
+            let mut shape = y.shape[..f].to_vec();
+            shape.extend_from_slice(&y.shape[f + 1..]);
+            let data = match verb {
+                "+" | "-" => Data::Int(CpuStorage::new(Vec::new())),
+                "*" => Data::Bool(CpuStorage::new(Vec::new())),
+                "%" => Data::Float(CpuStorage::new(Vec::new())),
+                _ => return Err(Error::Unsupported("empty rational rank reduction".into())),
+            };
+            return Value::new(shape, data);
+        }
+        if verb == "," && !reduction && !y.is_sparse() {
+            // Ravel is pure and preserves atom type/order. Its prototype shape
+            // follows from the cell shape without invoking an unknown verb.
+            let atoms = count(&y.shape[f..])?;
+            let mut shape = y.shape[..f].to_vec();
+            shape.push(atoms);
+            return y.select(shape, std::iter::empty());
+        }
+        // Generic jtrank1ex-style fill evaluation for the supported
+        // dense primitive subset. Retain the pure-ravel fast path above.
+        let fill = y.rank_fill_cell(r)?;
+        let prototype = crate::logical_executor::recover_zero_frame_fill_domain(
+            call(fill),
+            None,
+            Some(crate::logical_executor::VerifiedValueOnlyZeroFrame),
+        )?;
+        return prototype.empty_rank_result(&y.shape[..f]);
     }
     let evaluate_cell = |i| {
         let cell = y.view().cell(r, i)?;

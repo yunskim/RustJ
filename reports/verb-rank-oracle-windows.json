@@ -1,0 +1,1664 @@
+{
+  "platform": "nt",
+  "classification": "C innate-rank and construction probes, not Rust conformance",
+  "source_review_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+  "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "variants": [
+    {
+      "reference_library": "j.dll",
+      "reference_sha256": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+      "primitive_ranks": {
+        "+": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "-": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "*": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "%": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "$": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "$.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "#": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        ",": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "=": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            0.0
+          ]
+        },
+        "<": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            0.0
+          ]
+        },
+        ">": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "{": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            1.0,
+            0.0,
+            "inf"
+          ]
+        },
+        "|": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "i.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            1.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "|.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "|:": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "{.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "}.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "i:": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            0.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "I.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            1.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "e.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "E.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            0.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "u.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "v.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "[:": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        }
+      },
+      "derived_ranks": {
+        "+/": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+\\": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            "inf"
+          ]
+        },
+        "+\"_1": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+\"_1 0 1": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            1.0
+          ]
+        },
+        "+@:-": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+ -": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+ % #": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "[: + -": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "3 + -": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        ",\"+": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "3\"+": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "(,<'+')\"0": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "3 : 'y'": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "(+ (\"-))": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "observations": [
+        {
+          "source": "v=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "alias=:v",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:,\"alias",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "v=:#",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "alias=:#",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "alias=:9",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "g=:,\"(,\"_1)",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "h=:,\"(+\"_1)",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "h i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "future=:,\"undefined_rank",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "future i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : ',\"u y'",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:+a",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : ',\"u. y'",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:+a",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "v=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "alias=:v",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "v=:#",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g=:,\"alias",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        }
+      ],
+      "implicit_return_observations": [
+        {
+          "source": "a=:1 : ',\"u.'",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:+a",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "value": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "(,\"f) i.2 3",
+          "value": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : ',\"u'",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g=:+a",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g i.2 3",
+          "value": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : '+\"u.'",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "h=:-a",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "h 7",
+          "value": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              7
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "reference_library": "javx2.dll",
+      "reference_sha256": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1",
+      "primitive_ranks": {
+        "+": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "-": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "*": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "%": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "$": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "$.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "#": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        ",": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "=": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            0.0
+          ]
+        },
+        "<": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            0.0
+          ]
+        },
+        ">": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "{": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            1.0,
+            0.0,
+            "inf"
+          ]
+        },
+        "|": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "i.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            1.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "|.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "|:": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "{.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "}.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            1.0,
+            "inf"
+          ]
+        },
+        "i:": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            0.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "I.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            1.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "e.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "E.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            0.0,
+            "inf",
+            "inf"
+          ]
+        },
+        "u.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "v.": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "[:": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        }
+      },
+      "derived_ranks": {
+        "+/": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+\\": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            "inf"
+          ]
+        },
+        "+\"_1": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+\"_1 0 1": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            0.0,
+            1.0
+          ]
+        },
+        "+@:-": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+ -": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "+ % #": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "[: + -": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "3 + -": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        ",\"+": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "3\"+": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        },
+        "(,<'+')\"0": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "3 : 'y'": {
+          "type": 8,
+          "shape": [
+            3
+          ],
+          "data": [
+            "inf",
+            "inf",
+            "inf"
+          ]
+        },
+        "(+ (\"-))": {
+          "type": 4,
+          "shape": [
+            3
+          ],
+          "data": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "observations": [
+        {
+          "source": "v=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "alias=:v",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:,\"alias",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "v=:#",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "alias=:#",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "alias=:9",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "g=:,\"(,\"_1)",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "h=:,\"(+\"_1)",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "h i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "future=:,\"undefined_rank",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "future i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : ',\"u y'",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:+a",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : ',\"u. y'",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:+a",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              6
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "v=:+",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "alias=:v",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "v=:#",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g=:,\"alias",
+          "result": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g i.2 3",
+          "result": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        }
+      ],
+      "implicit_return_observations": [
+        {
+          "source": "a=:1 : ',\"u.'",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f=:+a",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "f i.2 3",
+          "value": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "(,\"f) i.2 3",
+          "value": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : ',\"u'",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g=:+a",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "g i.2 3",
+          "value": {
+            "type": 4,
+            "shape": [
+              2,
+              3,
+              1
+            ],
+            "data": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "source": "a=:1 : '+\"u.'",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "h=:-a",
+          "value": {
+            "silent": true
+          }
+        },
+        {
+          "source": "h 7",
+          "value": {
+            "type": 4,
+            "shape": [],
+            "data": [
+              7
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

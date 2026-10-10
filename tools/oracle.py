@@ -8,8 +8,44 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-ERRORS = {16: 'spelling error', 3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
-          14: 'rank error', 19: 'syntax error', 21: 'value error'}
+ERRORS = {33: 'NaN error', 4: 'ill-formed name', 5: 'ill-formed number', 16: 'spelling error', 3: 'domain error', 6: 'index error', 9: 'length error', 10: 'limit error',
+          13: 'open quote', 14: 'rank error', 19: 'syntax error', 21: 'value error', 37: 'valence error', 23: 'control error', 34: 'noun result was required', 31: 'read-only data'}
+
+PARSER_OBSERVE_OPS = {'eval', 'sentence', 'name_class', 'representation', 'words'}
+
+def normalize_request(request):
+    """Normalize one JSON-lines oracle request.
+
+    Backward-compatible strings mean {"op":"eval","source":...}.  Parser
+    conformance uses object requests so it can observe J name class and
+    representations without coupling RustJ to jsource internals.
+    """
+    if isinstance(request, str):
+        return {'op': 'eval', 'source': request}
+    if not isinstance(request, dict):
+        raise ValueError('oracle request must be a string or object')
+    op = request.get('op')
+    if op not in PARSER_OBSERVE_OPS:
+        raise ValueError(f'unsupported oracle op: {op!r}')
+    out = dict(request)
+    if op in {'eval', 'sentence', 'words'}:
+        if not isinstance(out.get('source'), str):
+            raise ValueError(f'{op} requires string source')
+    if op in {'name_class', 'representation'}:
+        if not isinstance(out.get('name'), str) or not out['name']:
+            raise ValueError(f'{op} requires nonempty string name')
+    if op == 'sentence':
+        names = out.get('names', [])
+        if not isinstance(names, list) or not all(isinstance(n, str) and n for n in names):
+            raise ValueError('sentence names must be a list of nonempty strings')
+        out['names'] = names
+        reps = out.get('representations', [])
+        if not isinstance(reps, list) or not all(r in {'atomic', 'linear'} for r in reps):
+            raise ValueError('representations must contain only atomic/linear')
+        out['representations'] = reps
+    if op == 'representation' and out.get('kind') not in {'atomic', 'linear'}:
+        raise ValueError('representation kind must be atomic or linear')
+    return out
 
 class Oracle:
     def __init__(self):
@@ -33,14 +69,148 @@ class Oracle:
             return {'error': ERRORS.get(code, f'J error {code}')}
         return None
 
+    def run_script(self, source):
+        # 0!:100 supplies real script lines to jgets; feeding one multiline
+        # JDo string does not test noun-DD continuation/column-zero delimiters.
+        if '\x00' in source:
+            raise ValueError('script contains NUL')
+        return self.run("0!:100 '" + source.replace("'", "''") + "'")
+
     def eval(self, source):
-        # Corpus uses one top-level assignment per line; no assignment-in-string.
-        if '=:' in source:
-            return self.run(source) or {'silent': True}
+        # Single-name/noun-target outer assignments are silent. Use C ;: word
+        # formation to avoid treating inner copulas, literals or comments as
+        # final assignments. This adapter does not classify arbitrary J trains.
+        if '=:' in source or '=.' in source:
+            formed = self.words(source)
+            # Raw noun DD may contain unmatched quotes. ;: of the original
+            # text is not DD preprocessing; inspect only the prefix before
+            # a real tag to classify the outer copula, without executing twice.
+            if 'error' in formed:
+                start = 0
+                while True:
+                    tag = source.find('{{)n', start)
+                    if tag < 0:
+                        break
+                    prefix = self.words(source[:tag])
+                    if 'error' not in prefix:
+                        formed = prefix
+                        break
+                    start = tag + 4
+            if 'error' in formed:
+                return self.run(source) or formed
+            words = [bytes.fromhex(word) for word in formed['words_hex']]
+            if len(words) >= 2 and words[1] in (b'=:', b'=.'):
+                return self.run(source) or {'silent': True}
         error = self.run('rustjresult =: ' + source)
         if error:
             return error
         return self.read_noun('rustjresult')
+
+    @staticmethod
+    def _quote_name(name):
+        return "'" + name.replace("'", "''") + "'"
+
+    def _eval_probe_noun(self, expression):
+        error = self.run('rustjprobe =: ' + expression)
+        if error:
+            return error
+        return self.read_noun('rustjprobe')
+
+    def name_class(self, name):
+        observed = self._eval_probe_noun('4!:0 <' + self._quote_name(name))
+        if 'error' in observed:
+            return observed
+        if observed.get('type') != 4 or observed.get('shape') != [] or len(observed.get('data', [])) != 1:
+            raise RuntimeError(f'unexpected 4!:0 result: {observed!r}')
+        return {'class': observed['data'][0]}
+
+    def representation(self, name, kind):
+        foreign = '5!:1' if kind == 'atomic' else '5!:5'
+        observed = self._eval_probe_noun(foreign + ' <' + self._quote_name(name))
+        if 'error' in observed:
+            return observed
+        return {'kind': kind, 'value': observed}
+
+    def words(self, source):
+        # Reconstruct the exact UTF-8 byte string as a J literal noun instead
+        # of interpolating source text into J code. This keeps quotes, LF and
+        # other word-forming bytes observable by ;: exactly as supplied.
+        raw = source.encode('utf-8')
+        indexes = ' '.join(str(b) for b in raw)
+        expression = "''" if not raw else f'({indexes}) {{ a.'
+        error = self.run('rustjsource =: ' + expression)
+        if error:
+            return error
+        error = self.run('rustjwords =: ;: rustjsource')
+        if error:
+            return error
+        observed = self.read_noun('rustjwords')
+        if observed.get('type') != 32:
+            raise RuntimeError(f'unexpected ;: result: {observed!r}')
+        words_hex = []
+        for item in observed['data']:
+            if item.get('type') != 2 or len(item.get('shape', [])) != 1:
+                raise RuntimeError(f'unexpected ;: word: {item!r}')
+            words_hex.append(bytes(item['data']).hex())
+        return {'words_hex': words_hex}
+
+    def observe(self, request):
+        request = normalize_request(request)
+        op = request['op']
+        if op == 'eval':
+            return self.eval(request['source'])
+        if op == 'name_class':
+            return self.name_class(request['name'])
+        if op == 'representation':
+            return self.representation(request['name'], request['kind'])
+        if op == 'words':
+            return self.words(request['source'])
+
+        outcome = self.eval(request['source'])
+        names = {}
+        for name in request['names']:
+            info = self.name_class(name)
+            entry = {'class': info.get('class')} if 'class' in info else {'class_error': info['error']}
+            if 'class' in info and info['class'] in (1, 2, 3):
+                for kind in request['representations']:
+                    rep = self.representation(name, kind)
+                    entry[kind] = rep.get('value') if 'value' in rep else {'error': rep['error']}
+            names[name] = entry
+        return {'outcome': outcome, 'names': names}
+
+    @staticmethod
+    def extended_decimal_atoms(text, count):
+        parts = text.split()
+        if len(parts) != count:
+            raise RuntimeError('Oracle extended atom count mismatch')
+        result = []
+        for part in parts:
+            digits = part.removeprefix('_')
+            if not digits or not digits.isascii() or not digits.isdigit():
+                raise RuntimeError('Oracle invalid extended decimal format')
+            magnitude = digits.lstrip('0') or '0'
+            result.append(('-' if part.startswith('_') and magnitude != '0' else '') + magnitude)
+        return result
+
+    @staticmethod
+    def rational_decimal_atoms(text, count):
+        parts = text.split()
+        if len(parts) != count:
+            raise RuntimeError('Oracle rational atom count mismatch')
+        result = []
+        for part in parts:
+            if part in ('_', '__'):
+                numerator, denominator = ('1' if part == '_' else '-1'), '0'
+            elif 'r' in part:
+                n, d = part.split('r', 1)
+                numerator = Oracle.extended_decimal_atoms(n, 1)[0]
+                denominator = Oracle.extended_decimal_atoms(d, 1)[0]
+                if denominator.startswith('-') or denominator == '0':
+                    raise RuntimeError('Oracle rational formatter must use a positive finite denominator')
+            else:
+                numerator, denominator = Oracle.extended_decimal_atoms(part, 1)[0], '1'
+            result.append({'numerator': numerator, 'denominator': denominator})
+        return result
 
     def read_noun(self, name, depth=0):
         if depth > 128:
@@ -60,6 +230,19 @@ class Oracle:
                     raise RuntimeError(f'Oracle box extraction: {error}')
                 data.append(self.read_noun(child, depth + 1))
             return {'type': 32, 'shape': shape, 'data': data}
+        if t.value in (64, 128):
+            # Public J formatting avoids interpreting private GMP limb pointers.
+            # Flatten before formatting, preserving the original shape above.
+            child = f'rustjextendedread{depth}'
+            error = self.run(f'{child} =: ": , {name}')
+            if error:
+                raise RuntimeError(f'Oracle extended formatting: {error}')
+            formatted = self.read_noun(child, depth + 1)
+            if formatted['type'] != 2:
+                raise RuntimeError('Oracle extended formatter must return characters')
+            text = bytes(formatted['data']).decode('ascii')
+            atoms = self.extended_decimal_atoms(text, n) if t.value == 64 else self.rational_decimal_atoms(text, n)
+            return {'type': t.value, 'shape': shape, 'data': atoms}
         elem = {1: C.c_uint8, 2: C.c_uint8, 4: C.c_int64, 8: C.c_double}.get(t.value)
         if elem is None:
             raise RuntimeError(f'Unexpected oracle type {t.value}')
@@ -71,6 +254,11 @@ if __name__ == '__main__':
     oracle = Oracle()
     try:
         for line in sys.stdin:
-            print(json.dumps(oracle.eval(json.loads(line))), flush=True)
+            try:
+                request = json.loads(line)
+                response = oracle.observe(request)
+            except (ValueError, TypeError) as error:
+                response = {'harness_error': str(error)}
+            print(json.dumps(response), flush=True)
     finally:
         oracle.close()

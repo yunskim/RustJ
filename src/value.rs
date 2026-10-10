@@ -10,11 +10,25 @@ pub enum Data {
     Int(CpuStorage<i64>),
     Float(CpuStorage<f64>),
     Char(CpuStorage<u8>),
+    /// Immutable arbitrary-precision atoms; selection shares their limbs.
+    ExtendedInt(CpuStorage<Arc<crate::types::BigInt>>),
+    Rational(CpuStorage<Arc<crate::types::Rational>>),
     Boxed(CpuStorage<Arc<Value>>),
     Sparse(Arc<crate::sparse::SparseArray>),
 }
 
 #[derive(Clone, Debug)]
+/// Transitional runtime carrier for a logical J value.
+///
+/// `shape` and J-visible Data variants belong to logical semantics, while the
+/// current dense payloads still use `CpuStorage` directly.  That CPU backing is
+/// a migration artifact, not a license to add strides, offsets, BufferId,
+/// device placement, tiling, or other physical-representation identity here.
+///
+/// The target architecture keeps logical array identity separate from
+/// `physical::PhysicalArray`/BufferId and eventually treats CpuStorage as one
+/// backend storage realization.
+///
 /// Cloning an owned value copies its payload. Call `into_shared` before cloning
 /// to explicitly share storage without copying (as name bindings do).
 pub struct Value {
@@ -72,6 +86,8 @@ impl Value {
             Data::Int(v) => Data::Int(v.into_shared()),
             Data::Float(v) => Data::Float(v.into_shared()),
             Data::Char(v) => Data::Char(v.into_shared()),
+            Data::Rational(v) => Data::Rational(v.into_shared()),
+            Data::ExtendedInt(v) => Data::ExtendedInt(v.into_shared()),
             Data::Boxed(v) => Data::Boxed(v.into_shared()),
             Data::Sparse(v) => Data::Sparse(v),
         };
@@ -98,6 +114,8 @@ impl Value {
             Data::Int(v) => CpuView::Int(v),
             Data::Float(v) => CpuView::Float(v),
             Data::Char(v) => CpuView::Char(v),
+            Data::Rational(v) => CpuView::Rational(v),
+            Data::ExtendedInt(v) => CpuView::ExtendedInt(v),
             Data::Boxed(v) => CpuView::Boxed(v),
             Data::Sparse(v) => CpuView::Sparse(v),
         };
@@ -112,6 +130,8 @@ impl Value {
             Data::Bool(v) | Data::Char(v) => v.len(),
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
+            Data::Rational(v) => v.len(),
+            Data::ExtendedInt(v) => v.len(),
             Data::Boxed(v) => v.len(),
             Data::Sparse(v) => {
                 if v.shape() != &*shape {
@@ -133,6 +153,12 @@ impl Value {
     pub fn from_sparse(array: crate::sparse::SparseArray) -> Result<Self> {
         let shape = Shape::from(array.shape());
         Self::new(shape, Data::Sparse(Arc::new(array)))
+    }
+    pub fn is_rational(&self) -> bool {
+        matches!(self.data, Data::Rational(_))
+    }
+    pub fn is_extended(&self) -> bool {
+        matches!(self.data, Data::ExtendedInt(_))
     }
     pub fn is_sparse(&self) -> bool {
         matches!(self.data, Data::Sparse(_))
@@ -164,6 +190,8 @@ impl Value {
             Data::Bool(v) | Data::Char(v) => v.len(),
             Data::Int(v) => v.len(),
             Data::Float(v) => v.len(),
+            Data::Rational(v) => v.len(),
+            Data::ExtendedInt(v) => v.len(),
             Data::Boxed(v) => v.len(),
             Data::Sparse(v) => count(v.shape()).expect("validated sparse shape"),
         }
@@ -177,6 +205,8 @@ impl Value {
             Data::Char(_) => 2,
             Data::Int(_) => 4,
             Data::Float(_) => 8,
+            Data::Rational(_) => 128,
+            Data::ExtendedInt(_) => 64,
             Data::Boxed(_) => 32,
             Data::Sparse(ref v) => v.fill().type_code() << 10,
         }
@@ -184,7 +214,10 @@ impl Value {
     pub fn int_at(&self, i: usize) -> Result<i64> {
         match &self.data {
             Data::Bool(v) => Ok(v[i] as i64),
+            Data::Rational(_) => Err(Error::Unsupported("rational machine conversion".into())),
             Data::Int(v) => Ok(v[i]),
+            Data::ExtendedInt(v) => i64::try_from(v[i].as_ref())
+                .map_err(|_| Error::Unsupported("extended integer machine conversion".into())),
             Data::Float(v)
                 if v[i].is_finite()
                     && v[i].fract() == 0.0
@@ -199,11 +232,99 @@ impl Value {
     pub fn float_at(&self, i: usize) -> Result<f64> {
         match &self.data {
             Data::Bool(v) => Ok(v[i] as f64),
+            Data::Rational(_) => Err(Error::Unsupported("rational float conversion".into())),
             Data::Int(v) => Ok(v[i] as f64),
             Data::Float(v) => Ok(v[i]),
             _ => Err(Error::Domain),
         }
     }
+    /// Build one representative rank cell when a result frame has zero items.
+    ///
+    /// jsource cr.c's generic rank path evaluates a fill-cell to determine
+    /// the type and shape of the empty result. An existing nonempty argument
+    /// contributes its first real cell; an empty dense argument contributes
+    /// a cell of type-correct fills. This intentionally does not interpret
+    /// boxed or sparse J prototypes.
+    pub(crate) fn rank_fill_cell(&self, rank: usize) -> Result<Self> {
+        if rank > self.shape.len() {
+            return Err(Error::Rank);
+        }
+        if self.is_sparse() {
+            return Err(Error::Unsupported("sparse rank fill cell".into()));
+        }
+        if !self.is_empty() {
+            return self.view().cell(rank, 0)?.to_owned();
+        }
+        let shape = Shape::from(&self.shape[self.shape.len() - rank..]);
+        let atoms = count(&shape)?;
+        let data = match &self.data {
+            Data::Bool(_) => Data::Bool(CpuStorage::generate(atoms, |_| 0)?),
+            Data::Int(_) => Data::Int(CpuStorage::generate(atoms, |_| 0)?),
+            Data::Float(_) => Data::Float(CpuStorage::generate(atoms, |_| 0.0)?),
+            Data::Char(_) => Data::Char(CpuStorage::generate(atoms, |_| b' ')?),
+            Data::Rational(_) => {
+                let mut out = buffer(atoms)?;
+                out.resize(
+                    atoms,
+                    Arc::new(crate::types::Rational::new(0.into(), 1.into())?),
+                );
+                Data::Rational(CpuStorage::new(out))
+            }
+            Data::ExtendedInt(_) => {
+                let zero = Arc::new(crate::types::BigInt::from(0));
+                let mut out = buffer(atoms)?;
+                out.resize(atoms, zero);
+                Data::ExtendedInt(CpuStorage::new(out))
+            }
+            Data::Boxed(_) => {
+                return Err(Error::Unsupported("boxed rank fill cell".into()));
+            }
+            Data::Sparse(_) => unreachable!(),
+        };
+        Self::new(shape, data)
+    }
+
+    /// Rebuild a rank fill-cell at a J dense type chosen by cr.c's
+    /// EVINHOMO retry. Deliberately discard input values: jtfiller builds
+    /// default fillers of the target type, it does not cast the old data.
+    /// Boxed/sparse retries remain unsupported until their J contract is
+    /// separately witnessed.
+    pub(crate) fn rank_refill_as(&self, target_type: i32) -> Result<Self> {
+        if self.is_sparse() || matches!(self.data, Data::Boxed(_)) {
+            return Err(Error::Unsupported("boxed/sparse rank refill".into()));
+        }
+        let atoms = count(&self.shape)?;
+        let data = match target_type {
+            1 => Data::Bool(CpuStorage::generate(atoms, |_| 0)?),
+            2 => Data::Char(CpuStorage::generate(atoms, |_| b' ')?),
+            4 => Data::Int(CpuStorage::generate(atoms, |_| 0)?),
+            8 => Data::Float(CpuStorage::generate(atoms, |_| 0.0)?),
+            128 => {
+                let mut out = buffer(atoms)?;
+                out.resize(
+                    atoms,
+                    Arc::new(crate::types::Rational::new(0.into(), 1.into())?),
+                );
+                Data::Rational(CpuStorage::new(out))
+            }
+            64 => {
+                let mut out = buffer(atoms)?;
+                out.resize(atoms, Arc::new(crate::types::BigInt::from(0)));
+                Data::ExtendedInt(CpuStorage::new(out))
+            }
+            _ => return Err(Error::Unsupported("rank refill target type".into())),
+        };
+        Self::new(self.shape.clone(), data)
+    }
+
+    /// Assemble a zero-frame result from the type and shape of its fill-cell.
+    /// No atom is copied from that synthetic cell into the final result.
+    pub(crate) fn empty_rank_result(&self, frame: &[usize]) -> Result<Self> {
+        let mut shape = Shape::from(frame);
+        shape.extend_from_slice(&self.shape);
+        self.select(shape, std::iter::empty())
+    }
+
     pub fn select(
         &self,
         shape: impl Into<Shape>,
@@ -225,6 +346,8 @@ impl Value {
             Data::Int(v) => select!(v, Int),
             Data::Float(v) => select!(v, Float),
             Data::Char(v) => select!(v, Char),
+            Data::Rational(v) => select!(v, Rational),
+            Data::ExtendedInt(v) => select!(v, ExtendedInt),
             Data::Boxed(v) => select!(v, Boxed),
             Data::Sparse(_) => return Err(Error::Unsupported("sparse selection".into())),
         };
@@ -251,6 +374,17 @@ impl Value {
         let values: Vec<String> = match &self.data {
             Data::Bool(v) | Data::Char(v) => v.iter().map(u8::to_string).collect(),
             Data::Int(v) => v.iter().map(i64::to_string).collect(),
+            Data::Rational(v) => v
+                .iter()
+                .map(|x| {
+                    format!(
+                        "{{\"numerator\":\"{}\",\"denominator\":\"{}\"}}",
+                        x.numerator(),
+                        x.denominator()
+                    )
+                })
+                .collect(),
+            Data::ExtendedInt(v) => v.iter().map(|x| format!("\"{x}\"")).collect(),
             Data::Boxed(v) => v.iter().map(|x| x.json()).collect(),
             Data::Sparse(_) => unreachable!(),
             Data::Float(v) => v
@@ -263,7 +397,15 @@ impl Value {
                     } else if *x == f64::NEG_INFINITY {
                         "\"-inf\"".into()
                     } else {
-                        x.to_string()
+                        let mut text = x.to_string();
+                        // Keep JSON decoders on the floating-point path. A
+                        // shortest round-trip Float spelling can look like an
+                        // integer whose exact decimal value differs from x.
+                        // This also retains negative zero through JSON.
+                        if !text.contains(['.', 'e', 'E']) {
+                            text.push_str(".0");
+                        }
+                        text
                     }
                 })
                 .collect(),
@@ -293,6 +435,10 @@ impl Value {
                 let parts: Vec<String> = match &self.data {
                     Data::Bool(v) => v.iter().map(u8::to_string).collect(),
                     Data::Int(v) => v.iter().map(|x| x.to_string().replace('-', "_")).collect(),
+                    Data::Rational(v) => v.iter().map(ToString::to_string).collect(),
+                    Data::ExtendedInt(v) => {
+                        v.iter().map(|x| x.to_string().replace('-', "_")).collect()
+                    }
                     Data::Float(v) => v
                         .iter()
                         .map(|x| {
@@ -325,5 +471,75 @@ impl Value {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod rank_fill_cell_tests {
+    use super::{Data, Value};
+    use crate::storage::CpuStorage;
+
+    #[test]
+    fn dense_empty_rank_cells_have_j_type_fills_and_result_shape() {
+        let integer = Value::ints([0, 3], vec![]).unwrap();
+        let fill = integer.rank_fill_cell(1).unwrap();
+        assert_eq!(fill.shape(), &[3]);
+        assert_eq!(fill.type_code(), 4);
+        for index in 0..3 {
+            assert_eq!(fill.int_at(index).unwrap(), 0);
+        }
+        let empty_result = fill.empty_rank_result(&[0]).unwrap();
+        assert_eq!(empty_result.shape(), &[0, 3]);
+        assert_eq!(empty_result.type_code(), 4);
+        assert_eq!(empty_result.len(), 0);
+
+        let character = Value::new([0, 2], Data::Char(CpuStorage::new(vec![]))).unwrap();
+        let char_fill = character.rank_fill_cell(1).unwrap();
+        assert_eq!(char_fill.type_code(), 2);
+        assert_eq!(char_fill.shape(), &[2]);
+        assert_eq!(char_fill.display(), "  ");
+
+        let floating = Value::new([0, 2], Data::Float(CpuStorage::new(vec![]))).unwrap();
+        let float_fill = floating.rank_fill_cell(1).unwrap();
+        assert_eq!(float_fill.type_code(), 8);
+        assert_eq!(float_fill.float_at(0).unwrap(), 0.0);
+        assert_eq!(float_fill.float_at(1).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn nonempty_rank_argument_reuses_actual_first_cell_not_fill() {
+        let value = Value::ints([2, 3], vec![5, 6, 7, 8, 9, 10]).unwrap();
+        let fill = value.rank_fill_cell(1).unwrap();
+        assert_eq!(fill.shape(), &[3]);
+        assert_eq!(fill.int_at(0).unwrap(), 5);
+        assert_eq!(fill.int_at(1).unwrap(), 6);
+        assert_eq!(fill.int_at(2).unwrap(), 7);
+    }
+
+    #[test]
+    fn rank_refill_uses_target_type_default_not_original_values() {
+        let source = Value::ints([3], vec![11, 22, 33]).unwrap();
+        let ch = source.rank_refill_as(2).unwrap();
+        assert_eq!(ch.type_code(), 2);
+        assert_eq!(ch.shape(), &[3]);
+        assert_eq!(ch.display(), "   ");
+        let int = ch.rank_refill_as(4).unwrap();
+        assert_eq!(int.type_code(), 4);
+        assert_eq!(int.shape(), &[3]);
+        for i in 0..3 {
+            assert_eq!(int.int_at(i).unwrap(), 0);
+        }
+        let fl = ch.rank_refill_as(8).unwrap();
+        assert_eq!(fl.type_code(), 8);
+        assert_eq!(fl.float_at(2).unwrap(), 0.0);
+        assert_eq!(ch.rank_refill_as(32).unwrap_err().kind(), "unsupported",);
+        let empty = Value::ints([0, 3], vec![]).unwrap();
+        assert_eq!(empty.rank_refill_as(2).unwrap().shape(), &[0, 3]);
+    }
+
+    #[test]
+    fn unknown_boxed_fill_is_not_guessed() {
+        let boxed = Value::new([0], Data::Boxed(CpuStorage::new(vec![]))).unwrap();
+        assert_eq!(boxed.rank_fill_cell(0).unwrap_err().kind(), "unsupported");
     }
 }

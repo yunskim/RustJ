@@ -1,0 +1,2314 @@
+{
+  "scope": "Bounded explicit Rust alias-call lease versus C values/errors; guard outcomes are Rust-only assertions, not observed C events or compiler dispatch",
+  "platform": "win32",
+  "rust_revision": "4c6c621+alias-call-ready-working-tree",
+  "rust_probe_sha256": "a45a011178addf7cf8b2c5b0cc5887b2c6c5daabc521e3f144d7f404261722b2",
+  "reference_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "reference_sha256": {
+    "j.dll": "420bf4ff757ebb6c726107a65b591724a93030c87ae09850da781e51ae50341b",
+    "javx2.dll": "70b5aa7da266dcb18b1f727b4ff51cbba1a8b35dbd49cab42bb3f7d04a3af8f1"
+  },
+  "fixtures": 27,
+  "observations": 54,
+  "counts": {
+    "matched": 54
+  },
+  "records": [
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            1,
+            3,
+            5,
+            7,
+            9,
+            11
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            1,
+            3,
+            5,
+            7,
+            9,
+            11
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "-",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "-",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            2,
+            1,
+            0,
+            -1,
+            -2,
+            -3
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            2,
+            1,
+            0,
+            -1,
+            -2,
+            -3
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "*",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "*",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            2,
+            6,
+            12,
+            20,
+            30
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            2,
+            6,
+            12,
+            20,
+            30
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            6,
+            9,
+            12,
+            15,
+            18
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            6,
+            9,
+            12,
+            15,
+            18
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "%",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            1.0,
+            0.5,
+            0.3333333333333333,
+            0.25,
+            0.2,
+            0.16666666666666666
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            0.5,
+            0.3333333333333333,
+            0.25,
+            0.2,
+            0.16666666666666666
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "%",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0.0,
+            0.5,
+            0.6666666666666666,
+            0.75,
+            0.8,
+            0.8333333333333334
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            0.5,
+            0.6666666666666666,
+            0.75,
+            0.8,
+            0.8333333333333334
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            3.0,
+            1.5,
+            1.0,
+            0.75,
+            0.6,
+            0.5
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            1.5,
+            1,
+            0.75,
+            0.6,
+            0.5
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "effect-miss",
+        "",
+        ""
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2",
+        "count=:0",
+        "change=:{{ count=:count+1\nf=:*\nu }}",
+        "argument=:_2 change"
+      ],
+      "query": "h argument",
+      "expected": {
+        "guard": "miss",
+        "result": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -1
+          ]
+        },
+        "count": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            1
+          ]
+        }
+      },
+      "actual": {
+        "guard": "miss",
+        "result": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -1
+          ]
+        },
+        "count": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            1
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "noun-miss",
+        "",
+        ""
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2",
+        "f=:7",
+        "argument=:_2"
+      ],
+      "query": "h argument",
+      "expected": {
+        "guard": "miss",
+        "result": {
+          "error": "domain error"
+        }
+      },
+      "actual": {
+        "guard": "miss",
+        "result": {
+          "error": "domain error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "j.dll",
+      "fixture": [
+        "+",
+        "missing-miss",
+        "",
+        ""
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2",
+        "f=:later",
+        "argument=:_2"
+      ],
+      "query": "h argument",
+      "expected": {
+        "guard": "miss",
+        "result": {
+          "error": "value error"
+        }
+      },
+      "actual": {
+        "guard": "miss",
+        "result": {
+          "error": "value error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            1,
+            3,
+            5,
+            7,
+            9,
+            11
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            1,
+            3,
+            5,
+            7,
+            9,
+            11
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "-",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "-",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            2,
+            1,
+            0,
+            -1,
+            -2,
+            -3
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            2,
+            1,
+            0,
+            -1,
+            -2,
+            -3
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "-",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:-",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "*",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "*",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            2,
+            6,
+            12,
+            20,
+            30
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            2,
+            6,
+            12,
+            20,
+            30
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            6,
+            9,
+            12,
+            15,
+            18
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            6,
+            9,
+            12,
+            15,
+            18
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 4,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "*",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:*",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "%",
+        "monad",
+        "",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            1.0,
+            0.5,
+            0.3333333333333333,
+            0.25,
+            0.2,
+            0.16666666666666666
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            1,
+            0.5,
+            0.3333333333333333,
+            0.25,
+            0.2,
+            0.16666666666666666
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "%",
+        "monad",
+        "",
+        "i.0"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "2 3$i.6",
+        "2 3$1+i.6"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(2 3$i.6) h (2 3$1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0.0,
+            0.5,
+            0.6666666666666666,
+            0.75,
+            0.8,
+            0.8333333333333334
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            2,
+            3
+          ],
+          "data": [
+            0,
+            0.5,
+            0.6666666666666666,
+            0.75,
+            0.8,
+            0.8333333333333334
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "3",
+        "1+i.6"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(3) h (1+i.6)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            3.0,
+            1.5,
+            1.0,
+            0.75,
+            0.6,
+            0.5
+          ]
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            6
+          ],
+          "data": [
+            3,
+            1.5,
+            1,
+            0.75,
+            0.6,
+            0.5
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "i.0",
+        "i.0"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.0) h (i.0)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "type": 8,
+          "shape": [
+            0
+          ],
+          "data": []
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "%",
+        "dyad",
+        "i.2",
+        "i.3"
+      ],
+      "setup": [
+        "f=:%",
+        "g=:f",
+        "h=:g",
+        "h 2"
+      ],
+      "query": "(i.2) h (i.3)",
+      "expected": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "actual": {
+        "guard": "valid",
+        "result": {
+          "error": "length error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "effect-miss",
+        "",
+        ""
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2",
+        "count=:0",
+        "change=:{{ count=:count+1\nf=:*\nu }}",
+        "argument=:_2 change"
+      ],
+      "query": "h argument",
+      "expected": {
+        "guard": "miss",
+        "result": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -1
+          ]
+        },
+        "count": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            1
+          ]
+        }
+      },
+      "actual": {
+        "guard": "miss",
+        "result": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            -1
+          ]
+        },
+        "count": {
+          "type": 4,
+          "shape": [],
+          "data": [
+            1
+          ]
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "noun-miss",
+        "",
+        ""
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2",
+        "f=:7",
+        "argument=:_2"
+      ],
+      "query": "h argument",
+      "expected": {
+        "guard": "miss",
+        "result": {
+          "error": "domain error"
+        }
+      },
+      "actual": {
+        "guard": "miss",
+        "result": {
+          "error": "domain error"
+        }
+      },
+      "status": "matched"
+    },
+    {
+      "variant": "javx2.dll",
+      "fixture": [
+        "+",
+        "missing-miss",
+        "",
+        ""
+      ],
+      "setup": [
+        "f=:+",
+        "g=:f",
+        "h=:g",
+        "h 2",
+        "f=:later",
+        "argument=:_2"
+      ],
+      "query": "h argument",
+      "expected": {
+        "guard": "miss",
+        "result": {
+          "error": "value error"
+        }
+      },
+      "actual": {
+        "guard": "miss",
+        "result": {
+          "error": "value error"
+        }
+      },
+      "status": "matched"
+    }
+  ]
+}

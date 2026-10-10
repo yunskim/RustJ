@@ -1,0 +1,20 @@
+{
+  "audit_revision": "0db94e768a845e2583c01d00538c3d16379677bb",
+  "source_hashes": {
+    "jsrc/cf.c": "8b3d39221d9cd214b684d642bb6d204c7eba0df87170c7a13a5924c4944f36b2",
+    "jsrc/cg.c": "b37b3d5e3cef8db5349100843ffe5f08406b37555f1e51a8f9bf2a624e0b383c",
+    "jsrc/p.c": "d38cc3255eaea15f6361a14c3b03696cd489b65398cde7831e0bb4a2573f7364",
+    "jsrc/pv.c": "f4970b614301a164ec7c3e68f6cc3934ff059f0e046a4b1f8c4aacb3495ee7eb",
+    "jsrc/sc.c": "1abfd822020758ed28b15011f36d6a2911304bbb1c62361b7cfa78cab0ef54aa"
+  },
+  "conformance_source_revision": "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528",
+  "reference_library_revision": "ded7793fe5795d79eda8e7138dce94aa056edf78",
+  "declarative_row_predicates_match": true,
+  "constructor_dispositions_match": true,
+  "entity_boundary_cases": 71,
+  "limitations": [
+    "Source-table comparisons are not runtime ptcol trace equivalence.",
+    "The new source revision was reviewed, not built into a new reference DLL.",
+    "No JEntity production API or broad carrier migration is implemented in JE0."
+  ]
+}

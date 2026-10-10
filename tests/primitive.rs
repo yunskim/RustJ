@@ -1,8 +1,9 @@
 use rustj::{
     Engine,
-    analysis::{CallTarget, Operation},
+    analysis::CallTarget,
     contracts::{self, Effect, Valence},
-    primitive::PrimitiveId,
+    logical_ir::OpKind,
+    primitive::{AdverbId, PrimitiveId},
     syntax::{self, Token},
 };
 
@@ -19,19 +20,39 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
         };
         assert_eq!(verb.target, rustj::semantic::VerbTarget::Primitive(id));
         let plan = Engine::new()
-            .analyze(&format!("f=:{}", id.spelling()))
+            .analyze_a3(&format!("f=:{}", id.spelling()))
             .unwrap();
-        let Operation::VerbReference(callable) = &plan.nodes[plan.result.unwrap().0].operation
-        else {
+        let result = plan.result.unwrap();
+        let producer = plan.values[result.0].producer;
+        let OpKind::VerbReference(callable) = &plan.operations[producer.0].kind else {
             panic!()
         };
         assert_eq!(callable.target, CallTarget::Primitive(id));
-        // Every registered symbol has at least one supported valence contract.
+        // Implicit locatives are recognized primitives with context-dependent
+        // execution, so lexical support must not imply a pure kernel contract.
+        // Cap has no callable valence; keep its analysis contract conservative.
+        if matches!(
+            id,
+            PrimitiveId::OperandU | PrimitiveId::OperandV | PrimitiveId::Cap
+        ) {
+            for valence in [Valence::Monad, Valence::Dyad] {
+                assert_eq!(contracts::for_primitive(id, valence), contracts::unknown());
+            }
+            continue;
+        }
         assert!(
             [Valence::Monad, Valence::Dyad]
                 .into_iter()
                 .any(|v| contracts::for_primitive(id, v).effect != Effect::Unknown)
         );
+    }
+}
+
+#[test]
+fn registered_adverb_spellings_reach_the_shared_frontend() {
+    for id in [AdverbId::Insert, AdverbId::Key, AdverbId::PrefixInfix] {
+        let tokens = syntax::lex(id.spelling()).unwrap();
+        assert!(matches!(tokens.as_slice(), [Token::Adverb(actual)] if *actual == id));
     }
 }
 
@@ -56,13 +77,12 @@ fn valence_and_dynamic_names_do_not_get_conflated() {
             Effect::Unknown
         );
     }
-    let plan = Engine::new().analyze("custom 3").unwrap();
-    let Operation::Call {
-        callable, contract, ..
-    } = &plan.nodes[plan.result.unwrap().0].operation
-    else {
+    let plan = Engine::new().analyze_a3("custom 3").unwrap();
+    let result = plan.result.unwrap();
+    let producer = plan.values[result.0].producer;
+    let OpKind::SemanticCall(call) = &plan.operations[producer.0].kind else {
         panic!()
     };
-    assert!(matches!(callable.target, CallTarget::Dynamic(_)));
-    assert_eq!(contract.effect, Effect::Unknown);
+    assert!(matches!(call.callable.target, CallTarget::Dynamic(_)));
+    assert_eq!(call.contract.effect, Effect::Unknown);
 }

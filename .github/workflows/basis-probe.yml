@@ -1,0 +1,24 @@
+name: Basis compile probe
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/basis-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo test
+      - run: cargo test --features portable
+      - run: cargo build --release
+      - run: cargo clippy --all-targets -- -D warnings -A clippy::result_large_err

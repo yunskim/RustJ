@@ -1,9 +1,6 @@
-//! C1 prototype: execution-free parsing into a backend-neutral semantic tree.
-//! Nodes retain byte spans; binding and execution remain separate phases.
-use crate::{
-    Error, Result, Value,
-    syntax::{Token, lex_spanned},
-};
+//! Target-independent semantic objects and binding/version model.
+//! Parser construction lives in `parser`; execution and lowering are separate.
+use crate::{Error, Result, Value};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -13,15 +10,52 @@ pub enum FunctionPartOfSpeech {
     Conjunction,
 }
 
+/// Concrete semantic RHS transport at parser/host boundaries.
+/// Binding versions and occurrence provenance belong to the caller. This does
+/// not merge noun storage with function identity or introduce function arrays.
+/// Deliberately not Clone: cloning an owned Value can copy its entire payload.
+#[derive(Debug)]
+pub enum JEntity {
+    Noun(Value),
+    Function(Arc<FunctionEntity>),
+}
+
+/// Borrowed inspection without payload copies or reference-count updates.
+#[derive(Clone, Copy, Debug)]
+pub enum JEntityRef<'a> {
+    Noun(&'a Value),
+    Function(&'a FunctionEntity),
+}
+
+impl JEntity {
+    pub fn as_ref(&self) -> JEntityRef<'_> {
+        match self {
+            Self::Noun(value) => JEntityRef::Noun(value),
+            Self::Function(function) => JEntityRef::Function(function),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FunctionHead {
     PrimitiveVerb(crate::primitive::PrimitiveId),
+    VocabularyPrimitive(crate::primitive::VocabularyPrimitive),
     PrimitiveAdverb(crate::primitive::AdverbId),
     PrimitiveConjunction(crate::primitive::ConjunctionId),
     NameRef(String),
+    /// Deferred by-value function lookup/deletion, not a late call reference.
+    /// result_pos is a catalog class assumption; no function body is captured.
+    TakeName {
+        name: String,
+        single_word: bool,
+    },
+    ExplicitDefinition(Arc<crate::definition_code::DefinitionCode>),
+    DefinitionConstructor(Arc<crate::definition_code::DefinitionSource>),
     /// Parser-production identities with no source operator token.
     Hook,
     Fork,
+    /// cf.c CADVF: non-executing bident/trident returning a modifier.
+    ModifierTrain,
 }
 
 #[derive(Debug)]
@@ -31,6 +65,31 @@ pub enum FunctionOperand {
         value: Value,
         span: std::ops::Range<usize>,
     },
+}
+
+impl FunctionOperand {
+    /// Inspect the concrete RHS without copying a noun or retaining a function.
+    /// Operand provenance remains available separately through `span`.
+    pub fn as_entity_ref(&self) -> JEntityRef<'_> {
+        match self {
+            Self::Noun { value, .. } => JEntityRef::Noun(value),
+            Self::Function(function) => JEntityRef::Function(function),
+        }
+    }
+
+    /// Original operand provenance, not the span of a later application.
+    pub fn span(&self) -> &std::ops::Range<usize> {
+        match self {
+            Self::Noun { span, .. } => span,
+            Self::Function(function) => &function.span,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForkSemantics {
+    Ordinary,
+    Capped,
 }
 
 /// Immutable semantic function object. Operands are shared references so large
@@ -43,27 +102,200 @@ pub struct FunctionEntity {
     pub result_pos: FunctionPartOfSpeech,
     pub head: FunctionHead,
     pub operands: Vec<FunctionOperand>,
+    /// Constructor-decoded gerund functions. Not source semantic operand edges.
+    /// Retains intrinsic noun snapshots independently of the original boxed AR.
+    pub decoded_gerund: Option<Vec<Arc<FunctionEntity>>>,
+    /// Constructor-fixed meaning for a Fork. Original source operands survive;
+    /// this is neither a call-site fact nor a late binding/purity proof.
+    pub fork_semantics: Option<ForkSemantics>,
+    /// Header copied when a NAME enters the parser stack (sc.c::namerefacv).
+    /// Does not fix the eventual executable binding or imply purity.
+    pub name_ranks: Option<[i64; 3]>,
 }
 impl FunctionEntity {
-    fn primitive(id: crate::primitive::PrimitiveId, span: std::ops::Range<usize>) -> Arc<Self> {
+    /// Admission check for stages without ordered NAME effects. Visit shared
+    /// function DAG nodes once; do not resolve names or inspect array payloads.
+    pub(crate) fn reject_deferred_name_effects(&self) -> Result<()> {
+        if matches!(self.head, FunctionHead::TakeName { .. }) {
+            return Err(Error::Unsupported(
+                "function abandon requires ordered NAME effect IR".into(),
+            )
+            .at(self.span.clone()));
+        }
+        if self.operands.is_empty() {
+            return Ok(());
+        }
+        let mut pending = vec![self];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(function) = pending.pop() {
+            if !seen.insert(std::ptr::from_ref(function)) {
+                continue;
+            }
+            if matches!(function.head, FunctionHead::TakeName { .. }) {
+                return Err(Error::Unsupported(
+                    "function abandon requires ordered NAME effect IR".into(),
+                )
+                .at(function.span.clone()));
+            }
+            pending.extend(
+                function
+                    .operands
+                    .iter()
+                    .filter_map(|operand| match operand {
+                        FunctionOperand::Function(child) => Some(child.as_ref()),
+                        FunctionOperand::Noun { .. } => None,
+                    }),
+            );
+        }
+        Ok(())
+    }
+    pub(crate) fn with_name_ranks(mut entity: Arc<Self>, ranks: Option<[i64; 3]>) -> Arc<Self> {
+        debug_assert!(matches!(entity.head, FunctionHead::NameRef(_)));
+        Arc::get_mut(&mut entity).expect("fresh nameref").name_ranks = ranks;
+        entity
+    }
+    /// Intrinsic header ranks, separate from call-site rank/frame facts.
+    pub fn innate_ranks(&self) -> Option<[i64; 3]> {
+        self.innate_ranks_at(0)
+    }
+    fn innate_ranks_at(&self, depth: usize) -> Option<[i64; 3]> {
+        if depth > MAX_EXPR_DEPTH || self.result_pos != FunctionPartOfSpeech::Verb {
+            return None;
+        }
+        match self.head {
+            FunctionHead::PrimitiveVerb(id) => Some(id.innate_ranks()),
+            FunctionHead::NameRef(_) => self.name_ranks,
+            FunctionHead::ExplicitDefinition(_) | FunctionHead::Hook | FunctionHead::Fork => {
+                Some([63; 3])
+            }
+            FunctionHead::PrimitiveAdverb(
+                crate::primitive::AdverbId::Insert | crate::primitive::AdverbId::Key,
+            )
+            | FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+                Some([63; 3])
+            }
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
+                Some([63, 0, 63])
+            }
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+                if self.decoded_gerund.is_some() {
+                    return Some([63; 3]);
+                }
+                self.requested_ranks_at(depth + 1)
+                    .map(|ranks| ranks.map(|rank| if rank < 0 { 63 } else { rank }))
+            }
+            _ => None,
+        }
+    }
+    /// cr.c::jtqq request: noun triple or the right verb's fixed header.
+    /// Never execute or resolve the right operand here.
+    pub(crate) fn requested_ranks(&self) -> Option<[i64; 3]> {
+        self.requested_ranks_at(0)
+    }
+    fn requested_ranks_at(&self, depth: usize) -> Option<[i64; 3]> {
+        if depth > MAX_EXPR_DEPTH
+            || !matches!(
+                self.head,
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+            )
+        {
+            return None;
+        }
+        match self.operands.get(1)? {
+            FunctionOperand::Noun { value, .. } => rank_noun_contract(value).ok(),
+            FunctionOperand::Function(function) => function.innate_ranks_at(depth + 1),
+        }
+    }
+
+    /// p.c stacks primitive modifiers and cf.c trains of primitive ACVs/nouns
+    /// by value. This is a lookup policy, not an optimizer purity guarantee.
+    pub(crate) fn is_nameless_modifier(&self) -> bool {
+        self.is_primitive_modifier()
+            || (matches!(self.head, FunctionHead::ModifierTrain)
+                && self
+                    .operands
+                    .iter()
+                    .all(|operand| match operand.as_entity_ref() {
+                        JEntityRef::Noun(_) => true,
+                        JEntityRef::Function(function) => {
+                            function.operands.is_empty()
+                                && matches!(
+                                    function.head,
+                                    FunctionHead::PrimitiveVerb(_)
+                                        | FunctionHead::PrimitiveAdverb(_)
+                                        | FunctionHead::PrimitiveConjunction(_)
+                                        | FunctionHead::VocabularyPrimitive(_)
+                                )
+                        }
+                    }))
+    }
+    pub(crate) fn with_decoded_gerund(
+        mut entity: Arc<Self>,
+        decoded: Option<Vec<Arc<FunctionEntity>>>,
+    ) -> Arc<Self> {
+        Arc::get_mut(&mut entity)
+            .expect("fresh constructor entity")
+            .decoded_gerund = decoded;
+        entity
+    }
+    /// Registered, operand-free core modifier identity known without a call.
+    pub(crate) fn is_primitive_modifier(&self) -> bool {
+        self.operands.is_empty()
+            && (matches!(&self.head, FunctionHead::VocabularyPrimitive(id) if FunctionPartOfSpeech::from(id.part_of_speech()) == self.result_pos && self.result_pos != FunctionPartOfSpeech::Verb)
+                || matches!(
+                    (&self.head, self.result_pos),
+                    (
+                        FunctionHead::PrimitiveAdverb(_),
+                        FunctionPartOfSpeech::Adverb
+                    ) | (
+                        FunctionHead::PrimitiveConjunction(_),
+                        FunctionPartOfSpeech::Conjunction
+                    )
+                ))
+    }
+    /// Construction identity can be observed without applying the modifier.
+    /// A known train identity does not imply its application is implemented.
+    pub(crate) fn is_known_modifier(&self) -> bool {
+        self.is_primitive_modifier()
+            || (matches!(self.head, FunctionHead::ModifierTrain)
+                && matches!(
+                    self.result_pos,
+                    FunctionPartOfSpeech::Adverb | FunctionPartOfSpeech::Conjunction
+                )
+                && matches!(self.operands.len(), 2 | 3))
+    }
+    pub(crate) fn primitive(
+        id: crate::primitive::PrimitiveId,
+        span: std::ops::Range<usize>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             span,
             result_pos: FunctionPartOfSpeech::Verb,
             head: FunctionHead::PrimitiveVerb(id),
             operands: Vec::new(),
+            decoded_gerund: None,
+            fork_semantics: None,
+            name_ranks: None,
         })
     }
 
-    fn name_ref(name: String, span: std::ops::Range<usize>) -> Arc<Self> {
+    pub(crate) fn name_ref(
+        name: String,
+        result_pos: FunctionPartOfSpeech,
+        span: std::ops::Range<usize>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             span,
-            result_pos: FunctionPartOfSpeech::Verb,
+            result_pos,
             head: FunctionHead::NameRef(name),
             operands: Vec::new(),
+            decoded_gerund: None,
+            fork_semantics: None,
+            name_ranks: None,
         })
     }
 
-    fn primitive_adverb(
+    pub(crate) fn primitive_adverb(
         id: crate::primitive::AdverbId,
         span: std::ops::Range<usize>,
     ) -> Arc<Self> {
@@ -72,10 +304,13 @@ impl FunctionEntity {
             result_pos: FunctionPartOfSpeech::Adverb,
             head: FunctionHead::PrimitiveAdverb(id),
             operands: Vec::new(),
+            decoded_gerund: None,
+            fork_semantics: None,
+            name_ranks: None,
         })
     }
 
-    fn primitive_conjunction(
+    pub(crate) fn primitive_conjunction(
         id: crate::primitive::ConjunctionId,
         span: std::ops::Range<usize>,
     ) -> Arc<Self> {
@@ -84,261 +319,81 @@ impl FunctionEntity {
             result_pos: FunctionPartOfSpeech::Conjunction,
             head: FunctionHead::PrimitiveConjunction(id),
             operands: Vec::new(),
+            decoded_gerund: None,
+            fork_semantics: None,
+            name_ranks: None,
         })
     }
 
-    fn derived(
+    pub(crate) fn derived(
         head: FunctionHead,
         result_pos: FunctionPartOfSpeech,
         span: std::ops::Range<usize>,
         operands: Vec<FunctionOperand>,
     ) -> Arc<Self> {
+        let fork_semantics = matches!(head, FunctionHead::Fork).then(|| {
+            if matches!(operands.first(), Some(FunctionOperand::Function(first))
+                if matches!(first.head, FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap)))
+            {
+                ForkSemantics::Capped
+            } else {
+                ForkSemantics::Ordinary
+            }
+        });
         Arc::new(Self {
             span,
             result_pos,
             head,
             operands,
+            decoded_gerund: None,
+            fork_semantics,
+            name_ranks: None,
         })
     }
 }
 
-fn train_hook(f: Verb, g: Verb) -> Verb {
-    let span = f.span.start..g.span.end;
-    Verb {
-        span: span.clone(),
-        target: VerbTarget::Derived,
-        entity: FunctionEntity::derived(
-            FunctionHead::Hook,
-            FunctionPartOfSpeech::Verb,
-            span,
-            vec![
-                FunctionOperand::Function(f.entity),
-                FunctionOperand::Function(g.entity),
-            ],
-        ),
-        reduce: false,
-        rank: None,
+/// J rank-conjunction noun construction (cr.c::jtqq): rank, then length,
+/// then numeric audit. Keep the original noun in FunctionEntity operands;
+/// the requested triple is intrinsic and does not use actual argument ranks.
+pub(crate) fn rank_noun_contract(value: &Value) -> Result<[i64; 3]> {
+    if value.shape.len() > 1 {
+        return Err(Error::Rank);
     }
-}
-
-fn train_fork(f: Verb, g: Verb, h: Verb) -> Verb {
-    let span = f.span.start..h.span.end;
-    Verb {
-        span: span.clone(),
-        target: VerbTarget::Derived,
-        entity: FunctionEntity::derived(
-            FunctionHead::Fork,
-            FunctionPartOfSpeech::Verb,
-            span,
-            vec![
-                FunctionOperand::Function(f.entity),
-                FunctionOperand::Function(g.entity),
-                FunctionOperand::Function(h.entity),
-            ],
-        ),
-        reduce: false,
-        rank: None,
+    if !(1..=3).contains(&value.len()) {
+        return Err(Error::Length);
     }
-}
-
-/// Collapse one contiguous verb train using J's right-to-left hook/fork
-/// construction. The build is iterative so large trains do not recurse while
-/// being constructed, and each derived node only holds shared operand handles.
-fn make_verb_train(mut verbs: Vec<Verb>) -> Result<Verb> {
-    match verbs.len() {
-        0 => return Err(Error::Syntax("empty verb train".into())),
-        1 => return Ok(verbs.pop().expect("one verb")),
-        2 => {
-            let g = verbs.pop().expect("right hook verb");
-            let f = verbs.pop().expect("left hook verb");
-            return Ok(train_hook(f, g));
-        }
-        _ => {}
-    }
-
-    let h = verbs.pop().expect("fork h");
-    let g = verbs.pop().expect("fork g");
-    let f = verbs.pop().expect("fork f");
-    let mut tail = train_fork(f, g, h);
-    while verbs.len() >= 2 {
-        let g = verbs.pop().expect("train g");
-        let f = verbs.pop().expect("train f");
-        tail = train_fork(f, g, tail);
-    }
-    if let Some(f) = verbs.pop() {
-        tail = train_hook(f, tail);
-    }
-    Ok(tail)
-}
-
-fn apply_adverb(left: Verb, operator: Arc<FunctionEntity>) -> Result<Verb> {
-    let FunctionHead::PrimitiveAdverb(id) = &operator.head else {
-        return Err(Error::Unsupported("named/derived adverb application".into()));
-    };
-    let id = *id;
-    let span = left.span.start..operator.span.end;
-    let reduce = matches!(id, crate::primitive::AdverbId::Insert);
-    Ok(Verb {
-        span: span.clone(),
-        target: VerbTarget::Derived,
-        entity: FunctionEntity::derived(
-            FunctionHead::PrimitiveAdverb(id),
-            FunctionPartOfSpeech::Verb,
-            span,
-            vec![FunctionOperand::Function(left.entity)],
-        ),
-        reduce,
-        rank: left.rank,
-    })
-}
-
-fn compatibility_rank_at(value: &Value, index: usize) -> Result<i64> {
-    match value.data() {
-        crate::Data::Float(values) if values[index] == f64::INFINITY => Ok(i64::MAX),
-        crate::Data::Float(values) if values[index] == f64::NEG_INFINITY => Ok(i64::MIN),
-        _ => value.int_at(index),
-    }
-}
-
-fn apply_conjunction(
-    left: Verb,
-    operator: Arc<FunctionEntity>,
-    right: Item,
-) -> Result<Verb> {
-    let FunctionHead::PrimitiveConjunction(id) = &operator.head else {
-        return Err(Error::Unsupported("named/derived conjunction application".into()));
-    };
-    let id = *id;
-    let mut operands = vec![FunctionOperand::Function(left.entity)];
-    let mut rank = left.rank;
-    let right_end;
-    match right {
-        Item::Noun(expr, _) => {
-            right_end = expr.span.end;
-            let value = match expr.kind {
-                ExprKind::Literal(value) => value,
-                ExprKind::Group(inner) => match inner.kind {
-                    ExprKind::Literal(value) => value,
-                    _ => {
-                        return Err(Error::Unsupported(
-                            "non-literal conjunction noun operand".into(),
-                        ))
+    let at = |index: usize| -> Result<i64> {
+        let rank = match &value.data {
+            crate::value::Data::Float(values) => {
+                let x = values[index];
+                if x.abs() < -(i64::MIN as f64) {
+                    let rounded = x.round();
+                    // u.c::jtvib uses fixed fuzz against the integer, even
+                    // when the caller's comparison tolerance differs.
+                    if x != rounded && (x - rounded).abs() > 2f64.powi(-44) * rounded.abs() {
+                        return Err(Error::Domain);
                     }
-                },
-                _ => {
-                    return Err(Error::Unsupported(
-                        "non-literal conjunction noun operand".into(),
-                    ))
+                    rounded as i64
+                } else if x > 0.0 {
+                    i64::MAX
+                } else {
+                    // Matches vib for negative infinity and J's _. rank.
+                    -i64::MAX
                 }
-            };
-            if matches!(id, crate::primitive::ConjunctionId::Rank) {
-                if value.is_empty() || value.len() > 3 {
-                    return Err(Error::Length);
-                }
-                let at = |i| compatibility_rank_at(&value, i);
-                rank = Some(match value.len() {
-                    1 => [at(0)?, at(0)?, at(0)?],
-                    2 => [at(1)?, at(0)?, at(1)?],
-                    _ => [at(0)?, at(1)?, at(2)?],
-                });
             }
-            operands.push(FunctionOperand::Noun {
-                span: expr.span,
-                value,
-            });
+            _ => value.int_at(index)?,
+        };
+        // J's maximum array rank is 63. Retain the source noun unchanged.
+        Ok(rank.clamp(-63, 63))
+    };
+    Ok(match value.len() {
+        1 => {
+            let r = at(0)?;
+            [r, r, r]
         }
-        Item::Verb(verb) => {
-            right_end = verb.span.end;
-            operands.push(FunctionOperand::Function(verb.entity));
-            if matches!(id, crate::primitive::ConjunctionId::Rank) {
-                rank = None;
-            }
-        }
-        Item::Adverb(_) | Item::Conjunction(_) => {
-            return Err(Error::Syntax("invalid conjunction right operand".into()))
-        }
-    }
-    let span = left.span.start..right_end;
-    Ok(Verb {
-        span: span.clone(),
-        target: VerbTarget::Derived,
-        entity: FunctionEntity::derived(
-            FunctionHead::PrimitiveConjunction(id),
-            FunctionPartOfSpeech::Verb,
-            span,
-            operands,
-        ),
-        reduce: left.reduce,
-        rank,
+        2 => [at(1)?, at(0)?, at(1)?],
+        _ => [at(0)?, at(1)?, at(2)?],
     })
-}
-
-/// Apply the jsource parser's function-construction rows for the subset currently
-/// represented by this frontend: AVN ADV (row 3) and AVN CONJ AVN (row 4).
-/// We select the rightmost reducible phrase to match the parser's right-to-left
-/// queue/stack discipline. Hook/fork reduction is performed separately below.
-fn reduce_modifier_applications(mut items: Vec<Item>) -> Result<Vec<Item>> {
-    loop {
-        let mut reduced = false;
-
-        if items.len() >= 2 {
-            for i in (0..items.len() - 1).rev() {
-                if matches!(&items[i], Item::Verb(_)) && matches!(&items[i + 1], Item::Adverb(_)) {
-                    let pair: Vec<_> = items.drain(i..i + 2).collect();
-                    let mut pair = pair.into_iter();
-                    let Item::Verb(left) = pair.next().unwrap() else { unreachable!() };
-                    let Item::Adverb(operator) = pair.next().unwrap() else { unreachable!() };
-                    items.insert(i, Item::Verb(apply_adverb(left, operator)?));
-                    reduced = true;
-                    break;
-                }
-            }
-        }
-        if reduced {
-            continue;
-        }
-
-        if items.len() >= 3 {
-            for i in (0..items.len() - 2).rev() {
-                if matches!(&items[i], Item::Verb(_))
-                    && matches!(&items[i + 1], Item::Conjunction(_))
-                    && matches!(&items[i + 2], Item::Verb(_) | Item::Noun(_, _))
-                {
-                    let triple: Vec<_> = items.drain(i..i + 3).collect();
-                    let mut triple = triple.into_iter();
-                    let Item::Verb(left) = triple.next().unwrap() else { unreachable!() };
-                    let Item::Conjunction(operator) = triple.next().unwrap() else { unreachable!() };
-                    let right = triple.next().unwrap();
-                    items.insert(i, Item::Verb(apply_conjunction(left, operator, right)?));
-                    reduced = true;
-                    break;
-                }
-            }
-        }
-
-        if !reduced {
-            return Ok(items);
-        }
-    }
-}
-
-fn collapse_verb_trains(items: Vec<Item>) -> Result<Vec<Item>> {
-    // A pure function phrase (for example `+/ % #` inside parentheses or on
-    // an assignment RHS) is a train. Do not collapse verb runs embedded in a
-    // mixed noun sentence yet: jsource's parse table may execute a V N / N V N
-    // fragment before hook/fork construction (e.g. `1 + - 2`).
-    if items.len() > 1 && items.iter().all(|item| matches!(item, Item::Verb(_))) {
-        let verbs = items
-            .into_iter()
-            .map(|item| match item {
-                Item::Verb(verb) => verb,
-                Item::Noun(..) | Item::Adverb(_) | Item::Conjunction(_) => unreachable!(),
-            })
-            .collect();
-        Ok(vec![Item::Verb(make_verb_train(verbs)?)])
-    } else {
-        Ok(items)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -347,10 +402,6 @@ pub struct Verb {
     pub target: VerbTarget,
     /// Shared semantic identity/provenance graph.
     pub entity: Arc<FunctionEntity>,
-    /// Legacy runtime compatibility fields. Do not add more modifier kinds here;
-    /// migrate runtime/analyzer consumers to the shared entity graph instead.
-    pub reduce: bool,
-    pub rank: Option<[i64; 3]>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerbTarget {
@@ -360,8 +411,11 @@ pub enum VerbTarget {
     /// by the shared FunctionEntity graph (hook/fork and later open forms).
     Derived,
 }
+
 #[derive(Clone, Debug)]
 pub struct Expr {
+    /// Parser semantic occurrence, not a physical buffer or a source-span key.
+    pub origin: Option<crate::frontend_context::NodeId>,
     pub span: std::ops::Range<usize>,
     pub kind: ExprKind,
 }
@@ -369,8 +423,15 @@ pub struct Expr {
 pub enum ExprKind {
     Group(Box<Expr>),
     VerbValue(Verb),
+    /// First-class adverb/conjunction result, distinct from a noun or verb.
+    ModifierValue(Arc<FunctionEntity>),
     Literal(Value),
     ReadName(String),
+    /// Deferred NAME read/delete effect, never an ordinary pure read.
+    TakeName {
+        name: String,
+        single_word: bool,
+    },
     Monad {
         verb: Verb,
         argument: Box<Expr>,
@@ -383,266 +444,47 @@ pub enum ExprKind {
 }
 #[derive(Clone, Debug)]
 pub struct Program {
+    /// Immutable parser inputs, reductions and NAME/result links. Runtime-only
+    /// evaluation may omit this index; analysis always retains it.
+    pub frontend: Option<Arc<crate::frontend_context::FrontendContext>>,
     pub source: String,
     pub assignment: Option<String>,
+    /// Original noun target and resolved string words. These are not a single
+    /// write when there are multiple names; ordered lowering is required.
+    pub noun_assignment: Option<NounAssignment>,
     pub assignment_span: Option<std::ops::Range<usize>>,
     pub expression: Option<Expr>,
+    /// Parser-row provenance, separate from semantic operation payloads.
+    pub reductions: Vec<crate::parser::ParseReduction>,
+    pub assignment_source: Option<crate::parser::AssignmentSource>,
+    /// Read-only analysis dependencies, outside intrinsic function identity.
+    pub modifier_snapshots: Vec<ModifierSnapshot>,
+    /// Constructor-time single-name cap inspections, not executable namerefs.
+    pub fork_name_reads: Vec<NameUse>,
+    pub name_rank_snapshots: Vec<NameRankSnapshot>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NounAssignment {
+    pub target: Expr,
+    pub names: Vec<String>,
+}
+
+impl Program {
+    pub fn has_assignment(&self) -> bool {
+        self.assignment.is_some() || self.noun_assignment.is_some()
+    }
 }
 /// Maximum number of edges from a parsed root to a leaf.
 pub const MAX_EXPR_DEPTH: usize = 128;
 
-enum Item {
-    Noun(Expr, usize),
-    Verb(Verb),
-    Adverb(Arc<FunctionEntity>),
-    Conjunction(Arc<FunctionEntity>),
-}
-
-/// Parse without reading bindings, changing state, or invoking any kernels.
-pub fn parse(source: &str) -> Result<Program> {
-    parse_with(source, None, false)
-}
-
-pub(crate) fn parse_runtime(source: &str, noun: &dyn Fn(&str) -> Option<Value>) -> Result<Program> {
-    parse_with(source, Some(noun), true)
-}
-
-pub(crate) fn parse_analysis(
-    source: &str,
-    noun: &dyn Fn(&str) -> Option<Value>,
-) -> Result<Program> {
-    parse_with(source, Some(noun), false)
-}
-
-type NounLookup<'a> = Option<&'a dyn Fn(&str) -> Option<Value>>;
-fn parse_with(source: &str, noun: NounLookup<'_>, snapshot: bool) -> Result<Program> {
-    let spanned = lex_spanned(source)?;
-    let spans: Vec<_> = spanned.iter().map(|t| t.span.clone()).collect();
-    let mut tokens: Vec<_> = spanned.into_iter().map(|t| t.token).collect();
-    let mut assignment_span = None;
-    let mut assignment = None;
-    let expression = if tokens.is_empty() {
-        None
-    } else {
-        let (expr, expr_spans) = if tokens.len() > 1 && matches!(tokens[1], Token::Assign) {
-            let Token::Name(name) = &tokens[0] else {
-                return Err(Error::Syntax("assignment target".into()));
-            };
-            assignment = Some((*name).to_owned());
-            assignment_span = Some(spans[0].clone());
-            (&mut tokens[2..], &spans[2..])
-        } else {
-            (tokens.as_mut_slice(), spans.as_slice())
-        };
-        let mut pos = 0;
-        let (result, _) = expression(expr, expr_spans, &mut pos, false, 0, noun, snapshot)?;
-        if pos != expr.len() {
-            return Err(Error::Syntax("trailing tokens".into()));
+impl From<crate::primitive::PrimitivePartOfSpeech> for FunctionPartOfSpeech {
+    fn from(pos: crate::primitive::PrimitivePartOfSpeech) -> Self {
+        match pos {
+            crate::primitive::PrimitivePartOfSpeech::Verb => Self::Verb,
+            crate::primitive::PrimitivePartOfSpeech::Adverb => Self::Adverb,
+            crate::primitive::PrimitivePartOfSpeech::Conjunction => Self::Conjunction,
         }
-        Some(result)
-    };
-    Ok(Program {
-        source: source.to_owned(),
-        assignment,
-        assignment_span,
-        expression,
-    })
-}
-fn expression(
-    tokens: &mut [Token<'_>],
-    spans: &[std::ops::Range<usize>],
-    pos: &mut usize,
-    nested: bool,
-    depth: usize,
-    noun: NounLookup<'_>,
-    snapshot: bool,
-) -> Result<(Expr, usize)> {
-    if depth > MAX_EXPR_DEPTH {
-        return Err(Error::Limit);
-    }
-    let mut items = Vec::new();
-    while *pos < tokens.len() {
-        match &tokens[*pos] {
-            Token::Close => {
-                if nested {
-                    break;
-                } else {
-                    return Err(Error::Syntax("unexpected )".into()));
-                }
-            }
-            Token::Open => {
-                let start = spans[*pos].start;
-                *pos += 1;
-                let (v, height) = expression(tokens, spans, pos, true, depth + 1, noun, snapshot)?;
-                let height = checked_height(height)?;
-                if !matches!(tokens.get(*pos), Some(Token::Close)) {
-                    return Err(Error::Syntax("missing )".into()));
-                }
-                let v = Expr {
-                    span: start..spans[*pos].end,
-                    kind: ExprKind::Group(Box::new(v)),
-                };
-                *pos += 1;
-                if let ExprKind::Group(inner) = &v.kind {
-                    if let ExprKind::VerbValue(verb) = &inner.kind {
-                        let mut verb = verb.clone();
-                        verb.span = v.span;
-                        items.push(Item::Verb(verb));
-                        continue;
-                    }
-                }
-                items.push(Item::Noun(v, height));
-            }
-            Token::Scalar(v) => {
-                items.push(Item::Noun(
-                    Expr {
-                        span: spans[*pos].clone(),
-                        kind: ExprKind::Literal(v.clone().into_value()?),
-                    },
-                    0,
-                ));
-                *pos += 1;
-            }
-            Token::Noun(_) => {
-                let Token::Noun(v) = std::mem::replace(&mut tokens[*pos], Token::Open) else {
-                    unreachable!()
-                };
-                items.push(Item::Noun(
-                    Expr {
-                        span: spans[*pos].clone(),
-                        kind: ExprKind::Literal(*v),
-                    },
-                    0,
-                ));
-                *pos += 1;
-            }
-            Token::Verb(_) | Token::Name(_) => {
-                if let Token::Name(n) = &tokens[*pos] {
-                    let kind = match noun {
-                        None => Some(ExprKind::ReadName((*n).to_owned())),
-                        Some(lookup) => lookup(n).map(|v| {
-                            if snapshot {
-                                ExprKind::Literal(v)
-                            } else {
-                                ExprKind::ReadName((*n).to_owned())
-                            }
-                        }),
-                    };
-                    if let Some(kind) = kind {
-                        items.push(Item::Noun(
-                            Expr {
-                                span: spans[*pos].clone(),
-                                kind,
-                            },
-                            0,
-                        ));
-                        *pos += 1;
-                        continue;
-                    }
-                }
-                let target = match &tokens[*pos] {
-                    Token::Verb(id) => VerbTarget::Primitive(*id),
-                    Token::Name(n) => VerbTarget::Named((*n).to_owned()),
-                    _ => unreachable!(),
-                };
-                let verb_span = spans[*pos].clone();
-                let entity = match &target {
-                    VerbTarget::Primitive(id) => FunctionEntity::primitive(*id, verb_span.clone()),
-                    VerbTarget::Named(name) => {
-                        FunctionEntity::name_ref(name.clone(), verb_span.clone())
-                    }
-                    VerbTarget::Derived => unreachable!("source token is not a derived target"),
-                };
-                let verb = Verb {
-                    span: verb_span,
-                    target,
-                    entity,
-                    reduce: false,
-                    rank: None,
-                };
-                *pos += 1;
-                items.push(Item::Verb(verb));
-            }
-            Token::Adverb(id) => {
-                items.push(Item::Adverb(FunctionEntity::primitive_adverb(
-                    *id,
-                    spans[*pos].clone(),
-                )));
-                *pos += 1;
-            }
-            Token::Conjunction(id) => {
-                items.push(Item::Conjunction(FunctionEntity::primitive_conjunction(
-                    *id,
-                    spans[*pos].clone(),
-                )));
-                *pos += 1;
-            }
-            _ => {
-                return Err(Error::Unsupported(
-                    "assignment/modifier in expression".into(),
-                ));
-            }
-        }
-    }
-    let items = reduce_modifier_applications(items)?;
-    let mut items = collapse_verb_trains(items)?;
-
-    if items.len() == 1 && matches!(items.first(), Some(Item::Verb(_))) {
-        let Some(Item::Verb(verb)) = items.pop() else {
-            unreachable!()
-        };
-        return Ok((
-            Expr {
-                span: verb.span.clone(),
-                kind: ExprKind::VerbValue(verb),
-            },
-            0,
-        ));
-    }
-    let Some(Item::Noun(mut rhs, mut height)) = items.pop() else {
-        return Err(Error::Syntax("expected right argument".into()));
-    };
-    while let Some(item) = items.pop() {
-        let Item::Verb(v) = item else {
-            return Err(Error::Syntax("unreduced function modifier or adjacent nouns".into()));
-        };
-        if matches!(items.last(), Some(Item::Noun(_, _))) {
-            let Some(Item::Noun(lhs, left_height)) = items.pop() else {
-                unreachable!()
-            };
-            if v.reduce {
-                return Err(Error::Unsupported("dyadic derived verb".into()));
-            }
-            height = checked_height(height.max(left_height))?;
-            rhs = Expr {
-                span: lhs.span.start..rhs.span.end,
-                kind: ExprKind::Dyad {
-                    verb: v,
-                    left: Box::new(lhs),
-                    right: Box::new(rhs),
-                },
-            };
-        } else {
-            height = checked_height(height)?;
-            rhs = Expr {
-                span: v.span.start..rhs.span.end,
-                kind: ExprKind::Monad {
-                    verb: v,
-                    argument: Box::new(rhs),
-                },
-            };
-        }
-    }
-
-    Ok((rhs, height))
-}
-
-fn checked_height(child_height: usize) -> Result<usize> {
-    let height = child_height + 1;
-    if height > MAX_EXPR_DEPTH {
-        Err(Error::Limit)
-    } else {
-        Ok(height)
     }
 }
 
@@ -662,6 +504,27 @@ pub struct PendingWrite {
     pub proposed: NameVersion,
     pub span: std::ops::Range<usize>,
 }
+/// Known construction identity used by a non-executing frontend observation.
+/// Versions are local to its catalog/Engine; no executable guard is implied.
+#[derive(Clone, Debug)]
+pub struct ModifierSnapshot {
+    pub name: String,
+    pub version: NameVersion,
+    pub expected: FunctionPartOfSpeech,
+    pub function: Arc<FunctionEntity>,
+    pub span: std::ops::Range<usize>,
+}
+
+/// Parser-time header observation; version/absence belongs to this sidecar,
+/// not immutable function identity. This is not an executable binding guard.
+#[derive(Clone, Debug)]
+pub struct NameRankSnapshot {
+    pub name: String,
+    pub version: Option<NameVersion>,
+    pub ranks: Option<[i64; 3]>,
+    pub span: std::ops::Range<usize>,
+}
+
 /// Analysis snapshot only. It cannot be executed later as a cached plan.
 #[derive(Clone, Debug)]
 pub struct BoundProgram {
@@ -676,6 +539,16 @@ pub(crate) fn bind(
     program: Program,
     lookup: impl Fn(&str) -> Option<NameVersion>,
 ) -> Result<BoundProgram> {
+    if program
+        .noun_assignment
+        .as_ref()
+        .is_some_and(|target| target.names.len() != 1)
+    {
+        return Err(Error::Unsupported(
+            "multiple/empty assignment requires ordered write IR".into(),
+        )
+        .at(program.assignment_span.clone().expect("assignment span")));
+    }
     let mut pending = Vec::new();
     let mut verb_references = Vec::new();
     let mut stack = Vec::new();
@@ -683,26 +556,45 @@ pub(crate) fn bind(
         stack.push(expr);
     }
     while let Some(expr) = stack.pop() {
-        let verb = match &expr.kind {
+        let function_root = match &expr.kind {
             ExprKind::VerbValue(v)
             | ExprKind::Monad { verb: v, .. }
-            | ExprKind::Dyad { verb: v, .. } => Some(v),
+            | ExprKind::Dyad { verb: v, .. } => Some(v.entity.as_ref()),
+            ExprKind::ModifierValue(f) => Some(f.as_ref()),
             _ => None,
         };
-        if let Some(verb) = verb {
-            let mut functions = vec![verb.entity.as_ref()];
+        if let Some(function) = function_root {
+            function.reject_deferred_name_effects()?;
+            let mut functions = vec![function];
             while let Some(function) = functions.pop() {
                 if let FunctionHead::NameRef(name) = &function.head {
                     verb_references.push((name.clone(), function.span.clone()));
                 }
-                for operand in function.operands.iter().rev() {
-                    if let FunctionOperand::Function(child) = operand {
-                        functions.push(child.as_ref());
+                for (index, operand) in function.operands.iter().enumerate().rev() {
+                    if (index == 0 && function.fork_semantics == Some(ForkSemantics::Capped))
+                        || (index == 1
+                            && matches!(
+                                function.head,
+                                FunctionHead::PrimitiveConjunction(
+                                    crate::primitive::ConjunctionId::Rank
+                                )
+                            ))
+                    {
+                        continue;
+                    }
+                    if let JEntityRef::Function(child) = operand.as_entity_ref() {
+                        functions.push(child);
                     }
                 }
             }
         }
         match &expr.kind {
+            ExprKind::TakeName { .. } => {
+                return Err(
+                    Error::Unsupported("abandon requires ordered NAME effect IR".into())
+                        .at(expr.span.clone()),
+                );
+            }
             ExprKind::ReadName(name) => pending.push((name.clone(), expr.span.clone())),
             ExprKind::Group(inner) => stack.push(inner),
             ExprKind::Monad { argument, .. } => stack.push(argument),
@@ -710,11 +602,11 @@ pub(crate) fn bind(
                 stack.push(left);
                 stack.push(right);
             }
-            ExprKind::Literal(_) | ExprKind::VerbValue(_) => {}
+            ExprKind::Literal(_) | ExprKind::VerbValue(_) | ExprKind::ModifierValue(_) => {}
         }
     }
     pending.sort_by_key(|(_, span)| span.start);
-    let reads = pending
+    let mut reads = pending
         .into_iter()
         .map(|(name, span)| {
             let version = lookup(&name).ok_or_else(|| Error::Value(name.clone()))?;
@@ -725,6 +617,7 @@ pub(crate) fn bind(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    reads.extend(program.fork_name_reads.iter().cloned());
     let write = if let Some(name) = &program.assignment {
         let previous = lookup(name);
         let proposed = NameVersion(
@@ -749,3 +642,6 @@ pub(crate) fn bind(
         write,
     })
 }
+
+// Compatibility exports for existing consumers. The implementations live in parser.rs.
+pub use crate::parser::{ParseClass, ParseRow, match_parse_row, parse, parse_diagnostic};

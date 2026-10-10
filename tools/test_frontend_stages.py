@@ -1,0 +1,81 @@
+import unittest
+from frontend_stage_conformance import atomic_function, atomic_node, expected_row, source_rows, source_constructors, equivalent, source_control_words
+
+
+def chars(s):
+    return {'type': 2, 'shape': [len(s)], 'data': list(s.encode())}
+
+
+def box(shape, data):
+    return {'type': 32, 'shape': shape, 'data': data}
+
+
+class FrontendProjectionTests(unittest.TestCase):
+    def test_control_source_projection_rejects_unknown_duplicate_or_bad_lengths(self):
+        prefix = 'static I jtconword(J jt,I n,C*s){\n'
+        suffix = '\n// w is string'
+        do = "if((MATCHNAME8(3,'d','o','.',' ',' ',' ',' ',' ')))cwtlen=(CDO<<8)+3;"
+        self.assertEqual(source_control_words(prefix+do+suffix), {'do.':'Do'})
+        for body in [do+'\n'+do, do.replace('CDO','CUNKNOWN'), do.replace('+3;','+9;')]:
+            with self.assertRaises(ValueError):
+                source_control_words(prefix+body+suffix)
+
+    def test_completed_modifier_is_single_fork_child(self):
+        modifier = box([2], [chars('/'), box([1], [chars('+')])])
+        fork = box([], [box([2], [chars('3'), box([3], [modifier, chars('%'), chars('#')])])])
+        expected = {'head_hex': '33', 'operands': [
+            {'head_hex':'2f', 'operands':[{'head_hex':'2b', 'operands':[]}]},
+            {'head_hex':'25', 'operands':[]}, {'head_hex':'23', 'operands':[]}]}
+        self.assertEqual(atomic_function(fork), expected)
+
+    def test_noun_shape_type_and_boxing_survive(self):
+        noun = box([], [{'type':4, 'shape':[], 'data':[7]}])
+        self.assertEqual(atomic_node(box([2], [chars('0'), noun])), {'noun':noun})
+
+    def test_unknown_atomic_encoding_fails_closed(self):
+        for value in [chars('+'), box([1], [chars('+')]), box([], [])]:
+            with self.assertRaises(ValueError):
+                atomic_function(value)
+
+    def test_operand_comparison_preserves_float_contract(self):
+        def operand(x):
+            return {'noun': {'type':8, 'shape':[], 'data':[x]}}
+        self.assertFalse(equivalent(operand(0.0), operand(-0.0)))
+        self.assertTrue(equivalent(operand(1.0), operand(1.0+1e-15)))
+
+    def test_row_priority_is_first_match(self):
+        rows = [[set(['Verb'])]*4, [set(['Verb','Noun'])]*4]
+        self.assertEqual(expected_row(rows, ['Verb']*4), 0)
+        self.assertEqual(expected_row(rows, ['Noun']*4), 1)
+        self.assertIsNone(expected_row(rows, ['Mark']*4))
+
+    def test_missing_source_contract_is_not_a_pass(self):
+        with self.assertRaises(ValueError):
+            source_rows('PT cases[] = {};')
+
+    def test_constructor_inventory_reads_sparse_source_and_hook_special_case(self):
+        source = """if(AT(a)&AT(w)&VERB) {}
+        static DF1(taAV) {}
+        bidents[16] = {[TYPE2(ADV,VERB)]={taAV,ADV},};
+        tridents[64] = {[TYPE3(VERB,VERB,VERB)]={0,MARK},};"""
+        table = source_constructors(source)
+        self.assertEqual(len(table), 80)
+        self.assertEqual(table[('Verb', 'Verb')], 'BuildHook')
+        self.assertEqual(table[('Verb', 'Verb', 'Verb')], 'BuildFork')
+        self.assertEqual(table[('Adverb', 'Verb')], 'BuildDerivedModifier(Adverb)')
+        self.assertEqual(table[('Noun', 'Noun')], 'SyntaxError')
+
+    def test_unknown_or_duplicate_constructor_entries_fail_closed(self):
+        base = "if(AT(a)&AT(w)&VERB) {} bidents[16] = {%s}; tridents[64] = {};"
+        for entry in ['[TYPE2(NOUN,NOUN)]={missing,ADV},',
+                      '[TYPE2(B01,VERB)]={0,NOUN},',
+                      '[TYPE2(VERB,NOUN)]={0,NOUN},[TYPE2(VERB,NOUN)]={0,NOUN},',
+                      '[TYPE2(VERB,NOUN)]={0,MARK},', 'unexpected']:
+            with self.subTest(entry=entry), self.assertRaises(ValueError):
+                source_constructors(base % entry)
+
+    def test_constructor_inventory_requires_both_tables_and_hook_dispatch(self):
+        for source in ['', 'bidents[16] = {}; tridents[64] = {};',
+                       'if(AT(a)&AT(w)&VERB) {} bidents[16] = {};']:
+            with self.assertRaises(ValueError):
+                source_constructors(source)

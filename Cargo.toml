@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A compiler-oriented J array language implementation in Rust"
-license = "GPL-3.0-or-later"
+license = "GPL-3.0-only"
 
 [features]
 portable = []
@@ -31,4 +31,5 @@ harness = false
 
 [dependencies]
 num-bigint = "0.4.8"
+num-integer = "0.1.47"
 num-rational = "0.4.2"

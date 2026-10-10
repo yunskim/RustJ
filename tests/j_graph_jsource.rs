@@ -1,0 +1,320 @@
+use std::collections::HashSet;
+
+use rustj::{
+    Engine,
+    j_graph_jsource::{
+        DecisionOwner, DiscoveryCoverage, JSOURCE_CATALOG_VERSION, JSOURCE_FAMILY_RULES,
+        JSOURCE_SOURCE_PIN, JsourceFamily, OpportunityLegality, family_rule,
+    },
+};
+
+fn graph(source: &str) -> rustj::j_graph_ir::Plan {
+    Engine::new().analyze_j_graph(source).unwrap()
+}
+
+#[test]
+fn reviewed_rules_have_unique_identifiers_and_explicit_ownership() {
+    assert_eq!(JSOURCE_CATALOG_VERSION, 2);
+    assert_eq!(
+        JSOURCE_SOURCE_PIN,
+        "13994ffa1ed5f06f79fad6e9822a7ed2d29b1528"
+    );
+    let mut ids = HashSet::new();
+    let mut families = HashSet::new();
+    for r in JSOURCE_FAMILY_RULES {
+        assert!(ids.insert(r.stable_id));
+        assert!(families.insert(r.family));
+        assert!(r.source_file.starts_with("jsrc/"));
+        assert!(!r.source_symbol.is_empty());
+        assert!(!r.proof_requirements.is_empty());
+        assert_eq!(family_rule(r.family), r);
+        assert_eq!(
+            r.pinned_source_url(),
+            format!(
+                "https://github.com/jsoftware/jsource/blob/{}/{}",
+                JSOURCE_SOURCE_PIN, r.source_file
+            )
+        );
+    }
+    for family in [
+        JsourceFamily::GroupAggregate,
+        JsourceFamily::MatrixContraction,
+        JsourceFamily::GradeRanking,
+        JsourceFamily::ResultAssemblyDemand,
+    ] {
+        assert_eq!(
+            family_rule(family).discovery,
+            DiscoveryCoverage::AwaitingFrontendOrFacts
+        );
+    }
+    assert_eq!(
+        family_rule(JsourceFamily::ReductionFastPath).owner,
+        DecisionOwner::ExecutionAlgorithm
+    );
+    assert_eq!(
+        family_rule(JsourceFamily::MapReduceStreaming).discovery,
+        DiscoveryCoverage::ExistingAnalyzer
+    );
+    assert_eq!(
+        family_rule(JsourceFamily::NameLookupCache).discovery,
+        DiscoveryCoverage::DownstreamOnly
+    );
+}
+
+#[test]
+fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
+    use rustj::primitive::{PrimitivePartOfSpeech as Pos, PrimitiveResolver, PrimitiveSemanticId};
+
+    // jsource enqueue can classify a word before RustJ supports constructing
+    // or executing that primitive. A known POS is not a semantic proof.
+    for (spelling, expected_pos) in [
+        (".", Pos::Conjunction),  // Dot/inner product
+        ("/:", Pos::Verb),        // Grade up
+        ("\\:", Pos::Verb),       // Grade down
+        (";.", Pos::Conjunction), // Cut
+        ("&.", Pos::Conjunction), // Under
+        ("M.", Pos::Adverb),      // Explicit memo
+        ("?", Pos::Verb),         // Roll/deal
+        ("?.", Pos::Verb),        // Fixed-seed random variant
+        ("!.", Pos::Conjunction), // Fit/tolerance
+    ] {
+        let handle = PrimitiveResolver::core()
+            .resolve_core_for_enqueue(spelling)
+            .unwrap_or_else(|| panic!("missing known J vocabulary {spelling}"));
+        assert_eq!(handle.result_pos, expected_pos, "{spelling}");
+        assert!(
+            matches!(handle.semantic_id, PrimitiveSemanticId::Vocabulary(_)),
+            "{spelling} must remain a vocabulary identity until its semantic implementation exists"
+        );
+    }
+
+    // Key was promoted to a *constructor*, not to an executable
+    // GroupAggregate optimizer. It must have an explicit Adverb identity.
+    let key = PrimitiveResolver::core()
+        .resolve_core_for_enqueue("/.")
+        .unwrap();
+    assert_eq!(key.result_pos, Pos::Adverb);
+    assert!(matches!(
+        key.semantic_id,
+        PrimitiveSemanticId::Adverb(rustj::primitive::AdverbId::Key)
+    ));
+
+    // The source catalog must not turn known frontend forms into
+    // executable optimizer candidates without semantic proofs.
+    for family in [
+        JsourceFamily::GroupAggregate,
+        JsourceFamily::MatrixContraction,
+        JsourceFamily::GradeRanking,
+        JsourceFamily::ResultAssemblyDemand,
+    ] {
+        assert_eq!(
+            family_rule(family).discovery,
+            DiscoveryCoverage::AwaitingFrontendOrFacts,
+            "{family:?} is source-audited, not frontend-proven"
+        );
+    }
+}
+
+#[test]
+fn key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection() {
+    use rustj::{
+        j_graph_ir::{GraphForm, NodeKind},
+        primitive::AdverbId,
+        semantic::FunctionHead,
+    };
+
+    for source in ["+/. 1 2 3", "1 0 1 +/. 4 5 6"] {
+        let plan = graph(source);
+        plan.verify().unwrap();
+        assert!(
+            plan.nodes.iter().any(|node| matches!(
+                &node.kind,
+                NodeKind::Apply { function, form: GraphForm::Modifier { .. }, .. }
+                    if function.head == FunctionHead::PrimitiveAdverb(AdverbId::Key)
+            )),
+            "{source} lost its opaque Key modifier identity"
+        );
+        assert!(
+            plan.jsource_opportunities()
+                .iter()
+                .all(
+                    |candidate| candidate.family != JsourceFamily::GroupAggregate
+                        && !candidate.selected
+                ),
+            "{source} incorrectly enabled a Key/GroupBy fast path"
+        );
+    }
+}
+
+#[test]
+fn source_idioms_are_detected_without_fabricating_equivalence_or_execution() {
+    for (source, expected) in [
+        ("+/1 2 3", JsourceFamily::ReductionFastPath),
+        ("(+/)\\ 1 2 3", JsourceFamily::WindowAlgorithm),
+        ("1 { 10 20 30", JsourceFamily::GatherCopyOrView),
+        ("|. 1 2 3", JsourceFamily::ReindexCopyOrView),
+        ("3 1 3 2 i. 3 4 1", JsourceFamily::SearchAlgorithm),
+        ("3 1 3 2 i: 3 4 1", JsourceFamily::SearchAlgorithm),
+        ("1 2 3 e. 2 4", JsourceFamily::SearchAlgorithm),
+    ] {
+        let source_graph = graph(source);
+        let opportunities = source_graph.jsource_opportunities();
+        let c = opportunities
+            .iter()
+            .find(|c| c.family == expected)
+            .unwrap_or_else(|| panic!("no {expected:?} from {source}"));
+        assert_eq!(c.legality, OpportunityLegality::AwaitingSemanticProofs);
+        assert!(!c.selected);
+        assert_eq!(c.source_span, source_graph.nodes[c.source_value.0].span);
+        assert_eq!(c.source_facts, source_graph.nodes[c.source_value.0].facts);
+        assert_eq!(c.rule().discovery, DiscoveryCoverage::AnalysisOnly);
+        c.verify(&source_graph).unwrap();
+        assert!(opportunities.iter().all(|c| !c.selected));
+    }
+}
+
+#[test]
+fn interval_index_is_separate_from_general_index_of_and_monadic_index_space() {
+    let g = graph("1 3 5 I. 2 4");
+    let c = g.jsource_opportunities();
+    assert!(c.iter().any(|c| c.family == JsourceFamily::IntervalLookup));
+    assert!(!c.iter().any(|c| c.family == JsourceFamily::SearchAlgorithm));
+
+    let g = graph("i. 4");
+    assert!(
+        !g.jsource_opportunities()
+            .iter()
+            .any(|c| c.family == JsourceFamily::SearchAlgorithm)
+    );
+}
+
+#[test]
+fn provenance_and_unknown_legality_cannot_be_forged() {
+    let g = graph("1 { 10 20 30");
+    let original = g.jsource_opportunities().pop().unwrap();
+    let mut modified = original.clone();
+    modified.selected = true;
+    assert!(modified.verify(&g).is_err());
+    modified = original.clone();
+    modified.source_span = 999..1000;
+    assert!(modified.verify(&g).is_err());
+    modified = original.clone();
+    modified.source_facts.rank = Some(999);
+    assert!(modified.verify(&g).is_err());
+
+    // These families may have upstream fast paths but are not supported
+    // as graph rewrites merely by registering their source evidence.
+    for family in [
+        JsourceFamily::GroupAggregate,
+        JsourceFamily::MatrixContraction,
+        JsourceFamily::GradeRanking,
+        JsourceFamily::MapReduceStreaming,
+        JsourceFamily::NameLookupCache,
+    ] {
+        assert!(!g.jsource_opportunities().iter().any(|c| c.family == family));
+    }
+}
+
+#[test]
+fn compilation_bundle_preserves_independent_existing_rewrite_and_fusion_analysis() {
+    let compilation = Engine::new()
+        .analyze_compilation("'ana' E. 'banana'")
+        .unwrap();
+    assert_eq!(compilation.graph_rewrites.len(), 1);
+    // E. belongs to FindViaWindowMatch and must not be mislabeled as i.
+    assert!(
+        !compilation
+            .jsource_opportunities
+            .iter()
+            .any(|c| c.family == JsourceFamily::SearchAlgorithm)
+    );
+    assert!(
+        compilation
+            .jsource_opportunities
+            .iter()
+            .all(|c| !c.selected)
+    );
+
+    let g = graph("(+/ @: *) 1 2 3");
+    let fusion = g.fusion_analysis(&Default::default()).unwrap();
+    assert!(
+        fusion
+            .candidates
+            .iter()
+            .any(|c| { c.rule == rustj::j_graph_fusion::FusionRuleId::MapReduce })
+    );
+    assert!(
+        g.jsource_opportunities()
+            .iter()
+            .all(|c| { c.family != JsourceFamily::MapReduceStreaming })
+    );
+}
+
+#[test]
+fn mean_fork_uses_derived_verb_identity_and_preserves_source_order() {
+    let g = graph("(+/ % #) 1 2 3 4");
+    let opportunities = g.jsource_opportunities();
+    let mean = opportunities
+        .iter()
+        .find(|c| c.family == JsourceFamily::MeanIdiom)
+        .expect("exact mean fork should be recognized");
+    assert_eq!(mean.legality, OpportunityLegality::AwaitingSemanticProofs);
+    assert!(!mean.selected);
+    mean.verify(&g).unwrap();
+    // The enclosing J fork is monadic (one region input), while its
+    // join is necessarily the dyadic % on the two monadic branch results.
+    // This is the regression: checking the join valence discards the Mean.
+    let region = g
+        .regions
+        .iter()
+        .find(|r| r.result == mean.source_value)
+        .expect("mean candidate must remain anchored to its source region");
+    assert_eq!(region.inputs.len(), 1);
+    let rustj::j_graph_ir::NodeKind::Apply { valence, .. } = &g.nodes[region.result.0].kind else {
+        panic!("fork join must be an application");
+    };
+    assert_eq!(*valence, rustj::contracts::Valence::Dyad);
+
+    // A general fork is not evidence of a mean; syntax must match all
+    // three component verb identities and the Insert-derived left operand.
+    // cf.c::jtfolk assigns jtmean to f1 only. A dyadic invocation must
+    // never acquire monadic MeanIdiom provenance merely by sharing the fork.
+    for source in [
+        "(+/ + #) 1 2 3",
+        "(-/ % #) 1 2 3",
+        "(- + *) 1 2 3",
+        "2 (+/ % #) 1 2 3",
+    ] {
+        let g = graph(source);
+        assert!(
+            !g.jsource_opportunities()
+                .iter()
+                .any(|c| c.family == JsourceFamily::MeanIdiom),
+            "{source} was incorrectly treated as mean"
+        );
+    }
+}
+
+#[test]
+fn index_of_family_and_substring_find_keep_distinct_source_provenance() {
+    for source in ["3 1 3 i. 3", "3 1 3 i: 3", "1 2 e. 1 3"] {
+        let plan = graph(source);
+        let candidate = plan
+            .jsource_opportunities()
+            .into_iter()
+            .find(|c| c.family == JsourceFamily::SearchAlgorithm)
+            .expect("dyadic index-of or membership must be discovered");
+        candidate.verify(&plan).unwrap();
+        assert!(!candidate.selected);
+    }
+
+    for source in ["i. 4", "i: 4", "'ana' E. 'banana'"] {
+        let plan = graph(source);
+        assert!(
+            !plan
+                .jsource_opportunities()
+                .iter()
+                .any(|c| c.family == JsourceFamily::SearchAlgorithm)
+        );
+    }
+}

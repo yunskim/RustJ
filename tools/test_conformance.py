@@ -1,5 +1,5 @@
 import unittest
-from conformance import equal, generated
+from conformance import equal, generated, runtime_coverage_boundary, cases, validate_cli_corpus
 
 class ComparatorTests(unittest.TestCase):
     def test_structure_and_types(self):
@@ -27,3 +27,24 @@ class ComparatorTests(unittest.TestCase):
         self.assertFalse(equal(box(number(0.0)),box(number(-0.0))))
         self.assertFalse(equal(box(number(1.0)),box({'type':4,'shape':[],'data':[1]})))
         self.assertFalse(equal(box(number(1.0)),box({'type':8,'shape':[1],'data':[1.0]})))
+
+
+class CoverageBoundaryTests(unittest.TestCase):
+    def test_only_exact_unsupported_runtime_forms_are_classified(self):
+        reference = {'type': 8, 'shape': [], 'data': [2.0]}
+        source = '(+ ("-)) i.4'
+        self.assertIsNone(runtime_coverage_boundary(source, reference, {'error': 'unsupported'}))
+        self.assertIsNone(runtime_coverage_boundary(source, reference, {'error': 'domain error'}))
+        self.assertIsNone(runtime_coverage_boundary('+/entrynoun', reference, {'error': 'unsupported'}))
+        for supported in ['(+ (@:-)) i.4', '(entryverb/ % #) entrynoun', '(entryverb/ % #) entrycopy']:
+            self.assertIsNone(runtime_coverage_boundary(supported, reference, {'error': 'unsupported'}))
+        self.assertIsNone(runtime_coverage_boundary(source, {'error': 'domain error'}, {'error': 'unsupported'}))
+        self.assertIsNone(runtime_coverage_boundary(source, reference, reference))
+
+
+class CliTransportTests(unittest.TestCase):
+    def test_corpus_has_one_physical_sentence_per_cli_request(self):
+        validate_cli_corpus(cases())
+        for body in ["f=:3 : 'goto_a.\nlabel_a.'", "1\r2"]:
+            with self.assertRaisesRegex(ValueError, 'physical line break'):
+                validate_cli_corpus([body])

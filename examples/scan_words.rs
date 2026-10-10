@@ -1,4 +1,8 @@
-//! Local test transport: hex input bytes -> JSON word spans, one case per line.
+//! Local word-formation transport: hex input bytes -> raw `wordil`-equivalent spans.
+//!
+//! This intentionally uses `scanner::scan`, not parser-visible `parse_word_spans`:
+//! jsource keeps a trailing `NB.` field in the raw boundary buffer and excludes
+//! it only through the separate AM parse-word count.
 use std::io::{self, BufRead};
 fn main() {
     for line in io::stdin().lock().lines() {

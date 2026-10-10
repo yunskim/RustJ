@@ -25,22 +25,70 @@ pub struct Complex {
     pub im: f64,
 }
 
-/// A finite, reduced fraction with a positive denominator.
-/// J's non-finite rational semantics still require an explicit implementation.
+/// Canonical J rational: reduced finite n/d (d>0), zero 0/1, infinities +/-1/0.
+/// Non-finite values never enter num-rational's finite arithmetic routines.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Rational(BigRational);
+pub struct Rational {
+    numerator: BigInt,
+    denominator: BigInt,
+}
 impl Rational {
     pub fn new(numerator: BigInt, denominator: BigInt) -> Result<Self> {
-        if denominator == BigInt::from(0) {
-            return Err(Error::Unsupported("non-finite rational".into()));
+        let zero = BigInt::from(0);
+        let (numerator, denominator) = if numerator == zero {
+            (zero, BigInt::from(1))
+        } else if denominator == zero {
+            (BigInt::from(if numerator < zero { -1 } else { 1 }), zero)
+        } else {
+            BigRational::new(numerator, denominator).into_raw()
+        };
+        Ok(Self {
+            numerator,
+            denominator,
+        })
+    }
+    /// Integer promotion needs no GCD or sign normalization.
+    pub(crate) fn from_integer(numerator: BigInt) -> Self {
+        Self {
+            numerator,
+            denominator: BigInt::from(1),
         }
-        Ok(Self(BigRational::new(numerator, denominator)))
+    }
+    pub(crate) fn from_finite(value: BigRational) -> Self {
+        let (numerator, denominator) = value.into_raw();
+        Self {
+            numerator,
+            denominator,
+        }
     }
     pub fn numerator(&self) -> &BigInt {
-        self.0.numer()
+        &self.numerator
     }
     pub fn denominator(&self) -> &BigInt {
-        self.0.denom()
+        &self.denominator
+    }
+    pub fn is_finite(&self) -> bool {
+        self.denominator != BigInt::from(0)
+    }
+}
+impl std::fmt::Display for Rational {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.is_finite() {
+            f.write_str(if self.numerator < BigInt::from(0) {
+                "__"
+            } else {
+                "_"
+            })
+        } else if self.denominator == BigInt::from(1) {
+            f.write_str(&self.numerator.to_string().replace('-', "_"))
+        } else {
+            write!(
+                f,
+                "{}r{}",
+                self.numerator.to_string().replace('-', "_"),
+                self.denominator
+            )
+        }
     }
 }
 
@@ -95,6 +143,8 @@ impl Scalar {
             Self::Int(x) => Data::Int(CpuStorage::Inline(x)),
             Self::Float(x) => Data::Float(CpuStorage::Inline(x)),
             Self::Char(x) => Data::Char(CpuStorage::Inline(x)),
+            Self::Rational(x) => Data::Rational(CpuStorage::Inline(x)),
+            Self::ExtendedInt(x) => Data::ExtendedInt(CpuStorage::Inline(x)),
             Self::Boxed(x) => Data::Boxed(CpuStorage::Inline(x)),
             other => {
                 return Err(Error::Unsupported(format!(

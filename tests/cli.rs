@@ -64,8 +64,8 @@ fn script_and_argument_failures_have_nonzero_status() {
 #[test]
 fn unsupported_definitions_never_execute_following_body_lines() {
     for source in [
-        "f=:{{\nleaked=:99\n}}\nleaked\n",
-        "f=:3 : 0\nleaked=:99\n)\nleaked\n",
+        "f=:{{\nfor_i_base_. y do.\nleaked=:99\nend.\n}}\nleaked\n",
+        "f=:3 : 0\nfor_i_base_. y do.\nleaked=:99\nend.\n)\nleaked\n",
         "f=:{{ 'unfinished\nleaked=:99\n}}\nleaked\n",
         "f=:verb define\nleaked=:99\n)\nleaked\n",
     ] {
@@ -127,5 +127,188 @@ fn delimiter_text_in_a_failed_sentence_does_not_abort_later_sentences() {
                 .unwrap()
                 .contains("stopping input")
         );
+    }
+}
+
+#[test]
+fn human_errors_use_python_style_source_diagnostics() {
+    let result = Command::new(env!("CARGO_BIN_EXE_rustj"))
+        .args(["-e", "1 + )"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    assert!(
+        stderr.contains("File \"<command-line>\", line 1, column 5"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("1 + )"), "{stderr}");
+    assert!(stderr.contains("^"), "{stderr}");
+    assert!(stderr.contains("SyntaxError: unexpected )"), "{stderr}");
+}
+
+#[test]
+fn human_length_errors_include_semantic_execution_context() {
+    let result = Command::new(env!("CARGO_BIN_EXE_rustj"))
+        .args(["-e", "2 3 + 4 5 6"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    assert!(stderr.contains("LengthError"), "{stderr}");
+    assert!(stderr.contains("while executing dyad +"), "{stderr}");
+    assert!(stderr.contains("x: integer, rank 1, shape 2"), "{stderr}");
+    assert!(stderr.contains("y: integer, rank 1, shape 3"), "{stderr}");
+    assert!(stderr.contains("shapes 2 and 3 do not conform"), "{stderr}");
+}
+
+#[test]
+fn definition_input_waits_for_closing_line_before_binding_code() {
+    use std::{io::BufRead, sync::mpsc, time::Duration};
+    for (header, closing) in [("f=:{{", "}}"), ("f=:3 : 0", ")")] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rustj"))
+            .arg("--json")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            sender.send(line).unwrap();
+            let mut remaining = String::new();
+            std::io::Read::read_to_string(&mut reader, &mut remaining).unwrap();
+            remaining
+        });
+        writeln!(input, "{header}\nleaked=:99").unwrap();
+        input.flush().unwrap();
+        assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
+        writeln!(input, "{closing}\nleaked 0").unwrap();
+        drop(input);
+        let response = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(response.contains("silent"));
+        let remaining = reader.join().unwrap();
+        assert!(remaining.contains("value error"));
+        assert!(!remaining.contains("99"));
+        assert_eq!(child.wait().unwrap().code(), Some(1));
+    }
+}
+
+#[test]
+fn completed_definition_error_does_not_truncate_a_json_session() {
+    for semantic in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rustj"));
+        command.arg("--json");
+        if semantic {
+            command.arg("--semantic-reference");
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"f=:+\nf=:3 : 'goto_done.' 1 2+1 2 3\nf 7\n")
+            .unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        let text = String::from_utf8(result.stdout).unwrap();
+        assert_eq!(text.lines().count(), 3, "{text}");
+        assert!(text.contains("length error"));
+        assert!(text.ends_with("{\"type\":4,\"shape\":[],\"data\":[7]}\n"));
+    }
+}
+
+#[test]
+fn multiple_root_collection_emits_one_sentence_without_executing_either_body() {
+    for semantic in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rustj"));
+        command.arg("--json");
+        if semantic {
+            command.arg("--semantic-reference");
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"counter=:0\ncombined=:{{counter=:99+y}} + {{\nfuture+y\n}}\ncounter\n")
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines[0], "{\"silent\":true}");
+        assert_eq!(lines[1], "{\"silent\":true}");
+        assert_eq!(lines[2], "{\"type\":1,\"shape\":[],\"data\":[0]}");
+    }
+}
+
+#[test]
+fn raw_noun_collection_preserves_quotes_comments_and_normalizes_crlf() {
+    for (source, body) in [
+        ("raw=:{{)n\n'broken NB. {{\n}}\nraw\n", "'broken NB. {{\n"),
+        ("raw=:{{)n\r\nabc\r\n}}\r\nraw\r\n", "abc\n"),
+    ] {
+        for semantic in [false, true] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_rustj"));
+            command.arg("--json");
+            if semantic {
+                command.arg("--semantic-reference");
+            }
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(source.as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let text = String::from_utf8(output.stdout).unwrap();
+            let lines: Vec<_> = text.lines().collect();
+            let data = body
+                .bytes()
+                .map(|byte| byte.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            assert_eq!(
+                lines,
+                vec![
+                    "{\"silent\":true}".to_string(),
+                    format!(
+                        "{{\"type\":2,\"shape\":[{}],\"data\":[{data}]}}",
+                        body.len()
+                    )
+                ]
+            );
+        }
     }
 }

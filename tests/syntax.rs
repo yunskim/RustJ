@@ -87,3 +87,32 @@ fn word_formation_states_and_spans() {
     }
     assert!(e.eval("1\n2").is_err());
 }
+
+#[test]
+fn raw_word_formation_keeps_trailing_comment_while_parser_words_exclude_it() {
+    let source = b"1 + 2 NB. trailing comment";
+    let raw = rustj::scanner::scan(source).unwrap();
+    let parse = rustj::scanner::parse_word_spans(source).unwrap();
+
+    assert_eq!(
+        &source[raw.last().unwrap().clone()],
+        b"NB. trailing comment"
+    );
+    assert_eq!(raw.len(), parse.len() + 1);
+    assert_eq!(
+        parse
+            .iter()
+            .map(|span| &source[span.clone()])
+            .collect::<Vec<_>>(),
+        vec![b"1".as_slice(), b"+".as_slice(), b"2".as_slice()]
+    );
+}
+
+#[test]
+fn diagnostic_context_does_not_expand_every_success_result() {
+    assert!(std::mem::size_of::<rustj::Error>() <= 32);
+    let error = rustj::Error::Domain.at(3..7).blamed_on_word(2);
+    assert_eq!(error.kind(), "domain error");
+    assert_eq!(error.span(), Some(&(3..7)));
+    assert_eq!(error.context().unwrap().blame_word_index, Some(2));
+}

@@ -36,12 +36,20 @@ jobs:
         run: |
           git init /tmp/jsource
           git -C /tmp/jsource remote add origin https://github.com/jsoftware/jsource.git
-          git -C /tmp/jsource fetch --depth 1 origin e75016ca74b5e595dd323226e6a4990172f72ec6
+          git -C /tmp/jsource fetch --depth 1 origin 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
           git -C /tmp/jsource checkout --detach FETCH_HEAD
       - run: python3 tools/build_reference.py --source /tmp/jsource --variant ${{ matrix.variant }}
       - run: cargo build --release
       - if: matrix.backend == 'portable'
         run: cargo build --release --features portable
+      - name: Word formation differential gate
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          mkdir -p reports
+          python3 tools/word_conformance.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/word-conformance-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - name: Differential gate
         env:
           J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
@@ -52,12 +60,79 @@ jobs:
             rounds=1000
             seed=$(date -u +%Y%m%d)
           fi
-          python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64
+          python3 tools/conformance.py --seed "$seed" --rounds "$rounds" --allow-known-j64 --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528
+      - name: IO-02 pinned C foreign fixture gate (not RustJ I/O acceptance)
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/file_io_audit.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --gate \
+            --report "reports/file-io-audit-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: IO-25 JMF loader and mapped-mode probe (non-acceptance)
+        continue-on-error: true
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/jmf_smoke.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/jmf-smoke-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: FW-04 pinned search three-way differential gate
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/search_three_way.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/search-three-way-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: FW-03 CCT boundary diagnostic (not semantic acceptance)
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/tolerance_audit.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/tolerance-audit-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: FW-04 ranked search diagnostic (non-acceptance)
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/ranked_search_audit.py \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/ranked-search-audit-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: RK-06 pinned 32-case adversarial Rank differential gate
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/ranked_search_audit.py --adversarial --gate-adversarial \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/rank-adversarial-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: RK-07 pinned 10-case EVINHOMO typed retry differential gate
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/ranked_search_audit.py --retry-probes --gate-retry-probes \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/rank-inhomo-${{ matrix.variant }}-${{ matrix.backend }}.json"
+      - name: RK-07 pinned 8-case error precedence differential gate
+        env:
+          J_LIBRARY: ${{ github.workspace }}/.reference/bin/linux/${{ matrix.variant }}/libj.so
+        run: |
+          python3 tools/ranked_search_audit.py --error-probes --gate-error-probes \
+            --reference-revision 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528 \
+            --report "reports/rank-error-${{ matrix.variant }}-${{ matrix.backend }}.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: verification-${{ matrix.variant }}-${{ matrix.backend }}
           path: |
             reports/conformance*
+            reports/word-conformance-*.json
+            reports/search-three-way-*.json
+            reports/file-io-audit-*.json
+            reports/jmf-smoke-*.json
+            reports/tolerance-audit-*.json
+            reports/ranked-search-audit-*.json
+            reports/rank-adversarial-*.json
+            reports/rank-inhomo-*.json
+            reports/rank-error-*.json
             .reference/manifest*.json
             .reference/build.log

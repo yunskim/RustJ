@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""FW-04 ranked search exploratory three-way diagnostic.
+
+Rank changes how cells/frames are applied; not all forms are supported by
+RustJ's closed A3 reference executor. Every discrepancy is recorded by its
+exact source and result; this is NOT an acceptance gate or silent waiver.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+
+from conformance import validate_cli_corpus
+from search_three_way import ROOT, _run, classify
+
+
+def ranked_search_cases():
+    return [
+        ("whole_first", '(i.3) (i."1 1) (i.3)'),
+        ("whole_last", '(i.3) (i:"1 1) (i.3)'),
+        ("whole_member", '(i.3) (e."1 1) (i.3)'),
+        ("scalar_cells_first", '(i.3) (i."0 0) (i.3)'),
+        ("scalar_cells_last", '(i.3) (i:"0 0) (i.3)'),
+        ("scalar_cells_member", '(i.3) (e."0 0) (i.3)'),
+        ("row_first", '(i.2 3) (i."1 1) (i.2 3)'),
+        ("row_last", '(i.2 3) (i:"1 1) (i.2 3)'),
+        ("row_member", '(i.2 3) (e."1 1) (i.2 3)'),
+        ("left_broadcast", '(i.3) (i."1 1) (i.2 3)'),
+        ("right_broadcast", '(i.2 3) (i."1 1) (i.3)'),
+        ("scalar_left_broadcast", '3 (i."0 0) (i.2 3)'),
+        ("frame_mismatch", '(i.2 3) (i."1 1) (i.3 3)'),
+        ("empty_frame", '(i.0 3) (i."1 1) (i.0 3)'),
+        ("empty_frame_last", '(i.0 3) (i:"1 1) (i.0 3)'),
+        ("empty_frame_member", '(i.0 3) (e."1 1) (i.0 3)'),
+        ("empty_frame_char", "(0 3 $ 'abc') (i.\"1 1) (0 3 $ 'abc')"),
+        ("empty_frame_float", '(0 3 $ 1.5) (i."1 1) (0 3 $ 1.5)'),
+        ("empty_frame_sum", '+/"1 (i.0 3)'),
+        ("empty_frame_add", '(i.0 3) (+"1 1) (i.0 3)'),
+    ]
+
+
+def rank_adversarial_cases():
+    """RK-06 exploratory zero-cardinality witnesses, NOT an acceptance set.
+
+    In particular, [0,3] has no rank-1 cells; [2,0] has two empty rank-1
+    cells. A zero inside a larger frame is neither of those cases.
+    """
+    return [
+        ("zero_frame_front_reduce", '+/"1 (i.0 3)'),
+        ("empty_cells_nonzero_frame_reduce", '+/"1 (i.2 0)'),
+        ("empty_cells_nonzero_frame_add", '(i.2 0) (+"1 1) (i.2 0)'),
+        ("zero_frame_middle_reduce", '+/"1 (i.2 0 3)'),
+        ("zero_frame_middle_add", '(i.2 0 3) (+"1 1) (i.2 0 3)'),
+        ("zero_frame_middle_search", '(i.2 0 3) (i."1 1) (i.2 0 3)'),
+        ("zero_frame_tail_rank0_add", '(i.2 3 0) (+"0 0) (i.2 3 0)'),
+        ("zero_frame_front_ravel", ',"1 (i.0 3)'),
+        ("one_side_empty_left_add", '(i.0 3) (+"1 1) (i.3)'),
+        ("one_side_empty_right_add", '(i.3) (+"1 1) (i.0 3)'),
+        ("one_side_empty_left_search", '(i.0 3) (i."1 1) (i.3)'),
+        ("one_side_empty_right_search", '(i.3) (i."1 1) (i.0 3)'),
+        ("frame_mismatch_empty_vs_full", '(i.0 3) (+"1 1) (i.2 3)'),
+        ("middle_frame_mismatch", '(i.2 0 3) (+"1 1) (i.2 2 3)'),
+        ("negative_rank_reduce", '+/"_1 (i.0 3)'),
+        ("oversized_rank_reduce", '+/"99 (i.0 3)'),
+        ("negative_rank_add", '(i.0 3) (+"_1 _1) (i.0 3)'),
+        ("oversized_rank_add", '(i.0 3) (+"99 99) (i.0 3)'),
+        ("empty_type_mismatch", "(0 3 $ 'abc') (+\"1 1) (i.0 3)"),
+        # cr.c::jtrank2ex: distinguish EVINHOMO fill-type retry from
+        # a computational-domain fallback and from real-cell execution.
+        ("empty_type_mismatch_reversed", '(i.0 3) (+"1 1) (0 3 $ \'abc\')'),
+        ("empty_char_float_fill", "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1.5)"),
+        ("empty_char_bool_fill", "(0 3 $ 'abc') (+\"1 1) (0 3 $ 1=1)"),
+        ("empty_char_left_real_right", "(0 3 $ 'abc') (+\"1 1) (i.3)"),
+        ("empty_char_right_real_left", "(i.3) (+\"1 1) (0 3 $ 'abc')"),
+        ("nonempty_char_int_domain", "(2 3 $ 'abc') (+\"1 1) (i.2 3)"),
+        ("positive_frame_empty_char_cells", "(2 0 $ 'abc') (+\"1 1) (i.2 0)"),
+        ("nested_rank_nonempty_cells", '(i.2 3) ((+"0 0)"1 1) (i.2 3)'),
+        ("empty_division", '(i.0 3) (%"1 1) (i.0 3)'),
+        ("empty_zero_cell_rank0_reduce", '+/"0 (i.2 0)'),
+        ("empty_bool_member", '(0 3 $ 1) (e."1 1) (0 3 $ 1)'),
+        ("empty_char_index", "(0 3 $ 'abc') (i.\"1 1) (0 3 $ 'abc')"),
+        ("nested_rank_empty", '(i.0 3) ((+"0 0)"1 1) (i.0 3)'),
+    ]
+
+
+
+def rank_inhomo_cases():
+    """RK-07 pinned-C EVINHOMO vs Domain probes; diagnostic, not acceptance.
+
+    Dyadic catenate can report internal inhomogeneous types (unlike +,
+    where a numeric/char domain failure may follow a different path).
+    Keep positive-frame empty cells distinct from zero *result* frames.
+    """
+    return [
+        ("cat_both_empty_char_int", "(0 3 $ 'abc') (,\"1 1) (i.0 3)"),
+        ("cat_both_empty_int_char", "(i.0 3) (,\"1 1) (0 3 $ 'abc')"),
+        ("cat_both_empty_char_float", "(0 3 $ 'abc') (,\"1 1) (0 3 $ 1.5)"),
+        ("cat_both_empty_char_bool", "(0 3 $ 'abc') (,\"1 1) (0 3 $ 1=1)"),
+        ("cat_empty_char_nonempty_int", "(0 3 $ 'abc') (,\"1 1) (i.3)"),
+        ("cat_nonempty_char_empty_int", "('abc') (,\"1 1) (i.0 3)"),
+        ("cat_both_empty_char_char", "(0 3 $ 'abc') (,\"1 1) (0 3 $ 'def')"),
+        ("cat_nonempty_char_int", "(2 3 $ 'abc') (,\"1 1) (i.2 3)"),
+        ("cat_empty_frame_mismatch", "(i.0 3) (,\"1 1) (i.2 3)"),
+        ("cat_positive_frame_empty_cells", "(2 0 $ 'abc') (,\"1 1) (i.2 0)"),
+    ]
+
+
+def rank_error_cases():
+    """RK-07 *exploratory* error precedence/suppression C-oracle witnesses.
+
+    Zero *result* frames must not be conflated with positive frames of
+    nonempty cells; error categories are observations, not waived results.
+    """
+    return [
+        ("zero_frame_cell_length", '(i.0 3) (+"1 1) (i.0 4)'),
+        ("zero_frame_mixed_type_cell_length", "(0 3 $ 'abc') (+\"1 1) (i.0 4)"),
+        ("positive_frame_cell_length", '(i.2 3) (+"1 1) (i.2 4)'),
+        ("frame_prefix_length_before_fill", '(i.0 3) (+"1 1) (i.2 3)'),
+        ("zero_frame_index", '(i.0 3) ({"1 1) (i.0 3)'),
+        ("positive_frame_index_failure", '(2 3 $ 99) ({"1 1) (i.2 3)'),
+        ("zero_frame_division", '(i.0 3) (%"1 1) (i.0 3)'),
+        ("positive_frame_division", '(i.2 3) (%"1 1) (i.2 3)'),
+    ]
+
+
+def run(binary, library, revision, path, adversarial=False, retry_probes=False, error_probes=False):
+    if not binary.is_file() or not library.is_file():
+        raise FileNotFoundError(f"missing Rust executable or C library: {binary}, {library}")
+    cases = (rank_error_cases() if error_probes else
+             rank_inhomo_cases() if retry_probes else
+             rank_adversarial_cases() if adversarial else ranked_search_cases())
+    corpus = [expression for _, expression in cases]
+    validate_cli_corpus(corpus)
+    expected = _run(
+        [sys.executable, str(ROOT / "tools/oracle.py")],
+        "".join(json.dumps(expr) + "\n" for expr in corpus),
+        len(corpus), "jsource",
+    )
+    text = "\n".join(corpus) + "\n"
+    rust_cmd = [str(binary), "--json"]
+    reference = _run(rust_cmd + ["--semantic-reference"], text, len(corpus), "rust-reference")
+    optimized = _run(rust_cmd, text, len(corpus), "rust-optimized")
+    counts = {}
+    observations = []
+    for (name, expression), c, r, o in zip(cases, expected, reference, optimized, strict=True):
+        kind = classify(c, r, o)
+        counts[kind] = counts.get(kind, 0) + 1
+        observations.append({
+            "name": name, "source": expression, "classification": kind,
+            "jsource": c, "rust_reference": r, "rust_optimized": o,
+        })
+    report = {
+        "kind": ("RK-07 pinned-C error precedence exploratory diagnostic"
+                 if error_probes else
+                 "RK-07 pinned-C internal inhomogeneous fill retry diagnostic"
+                 if retry_probes else
+                 "RK-06 pinned-C adversarial Rank corpus (gate selected by CLI)"
+                 if adversarial else "FW-04 bounded Rank three-way regression"),
+        "reference_revision": revision,
+        "reference_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
+        "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+        "cases": len(cases),
+        "classifications": counts,
+        "observations": observations,
+        "limitations": [
+            "Ranked call/derived-entity and empty-prototype behavior may be unsupported",
+            "C/Rust triple matches do not prove all J Rank semantics",
+            "No source-form differences are waived or counted as conformance",
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def gate_failed(report, adversarial, gate_adversarial=False,
+                retry_probes=False, gate_retry_probes=False,
+                error_probes=False, gate_error_probes=False):
+    """Only explicitly witnessed corpora are blocking; error probes are not."""
+    strict = (gate_error_probes if error_probes else
+              gate_retry_probes if retry_probes else
+              not adversarial or gate_adversarial)
+    return strict and any(
+        row["classification"] != "pass" for row in report["observations"]
+    )
+
+
+def diagnostic_summary(report, adversarial, gate_adversarial=False,
+                       retry_probes=False, gate_retry_probes=False,
+                       error_probes=False, gate_error_probes=False):
+    """Report all differences even if the caller does not yet enforce the gate."""
+    mismatches = [
+        row for row in report["observations"] if row["classification"] != "pass"
+    ]
+    if error_probes:
+        gate = ("RK-07 PINNED-C ERROR REGRESSION: fail on any mismatch"
+                if gate_error_probes else
+                "RK-07 ERROR EXPLORATORY: mismatches unwaived; not accepted")
+    elif retry_probes:
+        gate = ("RK-07 PINNED-C RETRY REGRESSION: fail on any mismatch"
+                if gate_retry_probes else
+                "RK-07 EXPLORATORY: pinned-C typing/retry not yet accepted")
+    elif adversarial and gate_adversarial:
+        gate = "RK-06 PINNED-C REGRESSION: fail on any mismatch"
+    elif adversarial:
+        gate = "EXPLORATORY: mismatches remain open, NOT accepted"
+    else:
+        gate = "BOUNDED REGRESSION: fail on any mismatch"
+    summary = {
+        "cases": report["cases"],
+        "classifications": report["classifications"],
+        "not_matching": [row["name"] for row in mismatches],
+        "gate": gate,
+    }
+    if adversarial or retry_probes or error_probes:
+        summary["mismatch_observations"] = mismatches
+    return summary
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--binary", type=Path, default=ROOT / "target/release/rustj")
+    parser.add_argument("--reference-revision", required=True)
+    parser.add_argument("--report", type=Path, default=ROOT / "reports/ranked-search-audit.json")
+    parser.add_argument("--adversarial", action="store_true",
+                        help="Select the RK-06 pinned-C adversarial corpus")
+    parser.add_argument("--gate-adversarial", action="store_true",
+                        help="Fail on an RK-06 mismatch (requires --adversarial)")
+    parser.add_argument("--retry-probes", action="store_true",
+                        help="Select RK-07 pinned-C inhomogeneous fill probes")
+    parser.add_argument("--gate-retry-probes", action="store_true",
+                        help="Fail on an RK-07 mismatch (requires --retry-probes)")
+    parser.add_argument("--error-probes", action="store_true",
+                        help="Select RK-07 error-precedence corpus")
+    parser.add_argument("--gate-error-probes", action="store_true",
+                        help="Fail on an RK-07 error mismatch (requires --error-probes)")
+    args = parser.parse_args()
+    if args.gate_adversarial and not args.adversarial:
+        parser.error("--gate-adversarial requires --adversarial")
+    if args.retry_probes and (args.adversarial or args.gate_adversarial):
+        parser.error("--retry-probes and --adversarial are mutually exclusive")
+    if args.gate_retry_probes and not args.retry_probes:
+        parser.error("--gate-retry-probes requires --retry-probes")
+    if args.error_probes and (args.retry_probes or args.adversarial):
+        parser.error("--error-probes cannot be combined with another corpus")
+    if args.gate_error_probes and not args.error_probes:
+        parser.error("--gate-error-probes requires --error-probes")
+    library = Path(os.environ.get("J_LIBRARY", str(ROOT / ".reference/bin/linux/j64/libj.so")))
+    try:
+        report = run(args.binary.resolve(), library.resolve(), args.reference_revision,
+                     args.report, adversarial=args.adversarial,
+                     retry_probes=args.retry_probes,
+                     error_probes=args.error_probes)
+    except (OSError, RuntimeError) as error:
+        print(f"FW-04 ranked diagnostic failed: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(
+        diagnostic_summary(report, args.adversarial, args.gate_adversarial,
+                           args.retry_probes, args.gate_retry_probes,
+                           args.error_probes, args.gate_error_probes),
+        indent=2,
+    ))
+    return int(gate_failed(report, args.adversarial, args.gate_adversarial,
+                           args.retry_probes, args.gate_retry_probes,
+                           args.error_probes, args.gate_error_probes))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
