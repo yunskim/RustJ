@@ -2203,7 +2203,7 @@ fn apply_parse_row(
                     if noun.is_some() {
                         crate::enqueuer::validate_assignment_name(name)?;
                     }
-                    let previous = host.version(name);
+                    let previous = host.assignment_version(name, source.flags.local_assignment);
                     if names.len() == 1 {
                         completed.entity = host.assign_scoped(
                             name,
@@ -2226,7 +2226,9 @@ fn apply_parse_row(
                     if let Some(capture) = &mut context.capture {
                         capture.events.push(CaptureEvent::Commit {
                             name: name.clone(),
-                            version: host.version(name).expect("committed version"),
+                            version: host
+                                .assignment_version(name, source.flags.local_assignment)
+                                .expect("committed version"),
                             previous,
                             span: span.clone(),
                             value: occurrence,
@@ -3032,6 +3034,10 @@ pub(crate) trait RuntimeParserHost {
         ))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion>;
+    /// Observe the table that assignment will update, without lookup fallback.
+    fn assignment_version(&self, name: &str, _local: bool) -> Option<crate::semantic::NameVersion> {
+        self.version(name)
+    }
     /// Operands have already reduced to actual nouns; execute exactly one call.
     fn apply(&mut self, expression: Expr) -> Result<Value>;
     fn resolve_modifier(

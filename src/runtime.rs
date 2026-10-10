@@ -15,6 +15,7 @@ mod scope_provenance_tests {
     use crate::frontend_context::{
         FoundScope, LocalLookupState, NamePolicy, ScopeInstanceId, ScopeSearch,
     };
+    use crate::parser::RuntimeParserHost;
 
     fn parse_frame(engine: &mut Engine, source: &str) -> crate::semantic::Program {
         let mut capture = crate::parser_capture::ParseCapture::default();
@@ -32,6 +33,70 @@ mod scope_provenance_tests {
         ));
         program.frontend.as_ref().unwrap().verify().unwrap();
         program
+    }
+
+    #[test]
+    fn assignment_capture_uses_target_table_instead_of_read_fallback() {
+        use crate::parser_capture::{CaptureEvent, ParseCapture};
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let global = engine.binding_version("a");
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::new(),
+        });
+        for expected_local in [None, Some(crate::semantic::NameVersion(1))] {
+            let mut capture = ParseCapture::default();
+            let mut host = ModifierFrame {
+                parent: EngineParserHost {
+                    engine: &mut engine,
+                    pooled: false,
+                },
+            };
+            assert_eq!(host.version("a"), expected_local.or(global));
+            crate::parser::parse_runtime_host("a=.a+1", &mut host, Some(&mut capture)).unwrap();
+            let (previous, version) = capture
+                .events
+                .iter()
+                .find_map(|event| match event {
+                    CaptureEvent::Commit {
+                        previous, version, ..
+                    } => Some((*previous, *version)),
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(previous, expected_local);
+            assert_eq!(version, host.assignment_version("a", true).unwrap());
+            capture.verify().unwrap();
+        }
+        assert_eq!(engine.binding_version("a"), global);
+        let mut capture = ParseCapture::default();
+        let mut host = ModifierFrame {
+            parent: EngineParserHost {
+                engine: &mut engine,
+                pooled: false,
+            },
+        };
+        crate::parser::parse_runtime_host("fresh=:11", &mut host, Some(&mut capture)).unwrap();
+        assert!(
+            capture
+                .events
+                .iter()
+                .any(|event| matches!(event, CaptureEvent::Commit { previous: None, .. }))
+        );
+        assert!(
+            crate::parser::parse_runtime_host(
+                "a=.1 2+1 2 3",
+                &mut host,
+                Some(&mut ParseCapture::default())
+            )
+            .is_err()
+        );
+        assert_eq!(
+            host.assignment_version("a", true),
+            Some(crate::semantic::NameVersion(2))
+        );
     }
 
     #[test]
@@ -532,6 +597,18 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             .visible_binding(name)
             .map(|binding| binding.version)
     }
+    fn assignment_version(&self, name: &str, _local: bool) -> Option<crate::semantic::NameVersion> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            return self
+                .engine
+                .direct_binding(key, locale)
+                .map(|binding| binding.version);
+        }
+        self.engine
+            .names
+            .get(base_locative_key(name).unwrap_or(name))
+            .map(|binding| binding.version)
+    }
     fn apply(&mut self, expression: crate::semantic::Expr) -> Result<Value> {
         self.engine.interpret_ir(expression, self.pooled, 0)
     }
@@ -675,6 +752,19 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
         self.parent.version(name)
+    }
+    fn assignment_version(&self, name: &str, local: bool) -> Option<crate::semantic::NameVersion> {
+        if local && base_locative_key(name).is_none() && named_direct_address(name).is_none() {
+            return self
+                .parent
+                .engine
+                .local_frames
+                .last()?
+                .names
+                .get(name)
+                .map(|binding| binding.version);
+        }
+        self.parent.assignment_version(name, local)
     }
     fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         self.parent.gerund_binding(name)
