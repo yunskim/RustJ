@@ -615,7 +615,7 @@ fn locative_execution_stops_before_ordinary_namespace_mutation() {
     {
         let source = "kept__holder";
         let error = engine.eval_diagnostic(source).unwrap_err();
-        assert_eq!(error.kind(), "unsupported", "{source}");
+        assert_eq!(error.kind(), "value error", "{source}");
         assert_eq!(
             error.span(),
             Some(&(0..source.split('=').next().unwrap().len()))
