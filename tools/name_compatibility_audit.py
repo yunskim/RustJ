@@ -26,6 +26,12 @@ FIXTURES = [(name, setup + [query]) for name, setup, query, _, _ in CASES] + [
     ("nameless_adverb_alias", ["a=:/", "b=:a", "a=:\\", "+b 1 2 3"]),
     ("conjunction_alias", ["c=:@:", "d=:c", "c=:&", "(+d-) 3"]),
     ("base_locative", ["a=:7", "a__"]),
+    ("base_noun_write", ["a=:7", "a__=.9", "a", "a__", "fresh__=:11", "fresh"]),
+    ("base_noun_snapshot", ["a=:i.4", "saved=:a__", "a__=:a__+10", "saved", "a"]),
+    ("base_noun_order", ["a=:1", "a__+(a__=:2)", "(a__=:3)+a__", "a"]),
+    ("base_noun_local_shadow", ["a=:7", "f=:3 : '(a=.9)+a__'", "f 0", "a"]),
+    ("base_noun_local_write", ["a=:7", "f=:3 : 0\na=.9\na__=.11\na+a__\n)", "f 0", "a"]),
+    ("base_noun_failed_write", ["a=:7", "a__=:1 2+1 2 3", "a"]),
     ("indirect_locative_rebind", ["loc=:<'probe'", "f_probe_=:+", "f_other_=:*",
                                   "g=:f__loc", "loc=:<'other'", "g 3"]),
     ("locative_execution_context", ["a=:9", "a_probe_=:7", "f_probe_=:3 : 'a'", "f_probe_ 0"]),
@@ -233,7 +239,7 @@ ABANDON_FIXTURES = [
 SCRIPT_SETUPS = {source for name, sources in SCOPE_FIXTURES
                  if name in {"explicit_local_function_escape", "explicit_local_global_collision"}
                  for source in sources if " : 0\n" in source}
-SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES + FOR_FIXTURES + NESTED_FIXTURES + ASSIGNMENT_FIXTURES + ABANDON_FIXTURES
+SCRIPT_SETUPS.update(source for _, sources in DEFINITION_FIXTURES + FOR_FIXTURES + NESTED_FIXTURES + ASSIGNMENT_FIXTURES + ABANDON_FIXTURES + FIXTURES
                      for source in sources if " : 0\n" in source and not source.startswith("outer=:{{"))
 
 

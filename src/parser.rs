@@ -2978,6 +2978,12 @@ pub(crate) trait RuntimeParserHost {
         None
     }
 
+    /// Opt in only when the host implements explicit base-locale noun lookup
+    /// and writes; lexical acceptance alone must not enable namespace access.
+    fn supports_base_locative_nouns(&self) -> bool {
+        false
+    }
+
     fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>>;
     fn fork_cap_binding(
         &self,
@@ -3576,7 +3582,13 @@ fn expression(
                 // Enqueue recognizes the J NAME grammar. Until locale-scoped
                 // lookup/write exists, never flatten a locative into a key in
                 // the ordinary namespace, including assignment targets.
-                if tokens[*pos].flags.name_form.is_locative() {
+                let base_noun_host = tokens[*pos].flags.name_form
+                    == crate::enqueuer::NameForm::BaseLocative
+                    && context
+                        .host
+                        .as_ref()
+                        .is_some_and(|host| host.supports_base_locative_nouns());
+                if tokens[*pos].flags.name_form.is_locative() && !base_noun_host {
                     return Err(Error::Unsupported("J locative namespace resolution".into())
                         .with_context(
                             ErrorContext::phase(DiagnosticPhase::Parse)

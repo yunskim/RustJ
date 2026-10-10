@@ -69,6 +69,20 @@ class AuditClassification(unittest.TestCase):
         self.assertEqual(outcomes[0], {"silent": True})
         self.assertEqual(outcomes[1], {"data": [7]})
 
+    def test_base_local_write_uses_script_setup_but_observes_queries(self):
+        from name_compatibility_audit import FIXTURES
+        sources = dict(FIXTURES)["base_noun_local_write"]
+        calls = []
+        class FakeOracle:
+            def run_script(self, source):
+                calls.append(("script", source))
+            def eval(self, source):
+                calls.append(("sentence", source))
+                return {"data": [7]}
+        _, transport = reference_trace(FakeOracle(), sources)
+        self.assertEqual(transport, ["sentence", "script", "sentence", "sentence"])
+        self.assertEqual(calls, list(zip(transport, sources)))
+
     def test_script_setup_error_is_preserved(self):
         class FakeOracle:
             def run_script(self, source):

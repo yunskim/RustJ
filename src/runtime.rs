@@ -34,6 +34,38 @@ mod scope_provenance_tests {
         program
     }
 
+    #[test]
+    fn base_noun_capture_in_frame_records_bypass_and_checks_lexical_form() {
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::new(),
+        });
+        parse_frame(&mut engine, "a=.9");
+        let program = parse_frame(&mut engine, "a__");
+        let context = program.frontend.as_ref().unwrap();
+        let observation = context.name_uses[0].lookup.as_ref().unwrap();
+        assert_eq!(observation.search, ScopeSearch::BaseLocaleOnly);
+        assert_eq!(observation.local_state, LocalLookupState::Bypassed);
+        let mut invalid = (**context).clone();
+        invalid.words[0].flags.name_form = crate::enqueuer::NameForm::Simple;
+        assert!(invalid.verify().is_err());
+        let mut invalid = (**context).clone();
+        invalid.name_uses[0].lookup.as_mut().unwrap().local_state = LocalLookupState::Bound;
+        assert!(invalid.verify().is_err());
+        parse_frame(&mut engine, "a__=.11");
+        let JEntity::Noun(local) = &engine.local_frames.last().unwrap().names["a"].value else {
+            panic!()
+        };
+        assert_eq!(local.int_at(0).unwrap(), 9);
+        let JEntity::Noun(base) = &engine.names["a"].value else {
+            panic!()
+        };
+        assert_eq!(base.int_at(0).unwrap(), 11);
+    }
+
     fn guard_for(engine: &mut Engine, name: &str) -> crate::frontend_context::SimpleNameGuard {
         let program = parse_frame(engine, name);
         crate::frontend_context::SimpleNameGuard::from_name_use(
@@ -334,6 +366,12 @@ pub struct CapturedEvaluation {
     pub capture: crate::parser_capture::ParseCapture,
 }
 
+/// Only validated empty-direct-locale NAMEs enter this runtime boundary.
+/// This selects the Engine's base namespace; it never searches local frames.
+fn base_locative_key(name: &str) -> Option<&str> {
+    name.strip_suffix("__")
+}
+
 struct EngineParserHost<'a> {
     engine: &'a mut Engine,
     pooled: bool,
@@ -346,6 +384,9 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Some(self.engine.lookup_observation(name))
     }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
+        if base_locative_key(name).is_some() {
+            return None;
+        }
         match self.engine.visible_binding(name) {
             Some(Binding {
                 value: JEntity::Function(function),
@@ -383,13 +424,35 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             .is_nameless_modifier()
             .then(|| (function.clone(), binding.version))
     }
+    fn supports_base_locative_nouns(&self) -> bool {
+        true
+    }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
+        if let Some(key) = base_locative_key(name) {
+            // sn.c/sl.c: an empty direct locale selects base, bypassing the
+            // invocation-local table. Nouns snapshot at parser stack entry.
+            return match self.engine.names.get(key) {
+                Some(Binding {
+                    value: JEntity::Noun(value),
+                    ..
+                }) => Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone()))),
+                Some(_) => Err(Error::Unsupported(
+                    "base-locative function reference".into(),
+                )),
+                None => Err(Error::Unsupported(
+                    "unbound base-locative future reference".into(),
+                )),
+            };
+        }
         Ok(self.engine.parser_name_binding(name))
     }
     fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         Ok(self.engine.parser_name_binding(name))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
+        if let Some(key) = base_locative_key(name) {
+            return self.engine.names.get(key).map(|binding| binding.version);
+        }
         self.engine
             .visible_binding(name)
             .map(|binding| binding.version)
@@ -445,7 +508,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             .invoke_modifier(operator, left, right, self.pooled)
     }
     fn assign(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
-        self.engine.commit_binding(name.to_owned(), value)
+        self.engine.commit_runtime_binding(name, value)
     }
 }
 
@@ -503,6 +566,9 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn enqueue_environment(&self) -> crate::enqueuer::EnqueueEnvironment {
         crate::enqueuer::EnqueueEnvironment::ExplicitDefinition
     }
+    fn supports_base_locative_nouns(&self) -> bool {
+        true
+    }
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         self.parent.lookup(name)
     }
@@ -547,6 +613,9 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     }
     fn assign_scoped(&mut self, name: &str, value: JEntity, local: bool) -> Result<JEntity> {
         let engine = &mut self.parent.engine;
+        if base_locative_key(name).is_some() {
+            return engine.commit_runtime_binding(name, value);
+        }
         if local {
             let frame = engine.local_frames.last_mut().expect("modifier frame");
             if frame
@@ -2237,6 +2306,18 @@ impl Engine {
         self.names.get(name).map(|binding| binding.version)
     }
 
+    fn commit_runtime_binding(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
+        if let Some(key) = base_locative_key(name) {
+            if !matches!(value, JEntity::Noun(_)) {
+                return Err(Error::Unsupported(
+                    "base-locative function assignment".into(),
+                ));
+            }
+            return self.commit_binding(key.to_owned(), value);
+        }
+        self.commit_binding(name.to_owned(), value)
+    }
+
     fn commit_binding(&mut self, name: String, value: JEntity) -> Result<JEntity> {
         store_binding(&mut self.names, &mut self.pool, name, value)
     }
@@ -2280,6 +2361,30 @@ impl Engine {
         use crate::frontend_context::{
             FoundScope, LocalLookupState, LookupObservation, ScopeSearch,
         };
+        if let Some(key) = base_locative_key(name) {
+            let binding = self.names.get(key);
+            return LookupObservation {
+                engine: self.namespace_instance,
+                frame: self.local_frames.last().map(|frame| frame.instance),
+                search: ScopeSearch::BaseLocaleOnly,
+                local_state: if self.local_frames.is_empty() {
+                    LocalLookupState::NoFrame
+                } else {
+                    LocalLookupState::Bypassed
+                },
+                found: if binding.is_some() {
+                    FoundScope::Global(self.namespace_instance)
+                } else {
+                    FoundScope::Missing
+                },
+                binding_version: binding.map(|binding| binding.version),
+                binding_generation: binding.map(|binding| binding.generation),
+                binding_class: binding.map(|binding| match &binding.value {
+                    JEntity::Noun(_) => crate::parser::ParseClass::Noun,
+                    JEntity::Function(function) => function.result_pos.into(),
+                }),
+            };
+        }
         let frame = self.local_frames.last();
         let local_state = match frame {
             None => LocalLookupState::NoFrame,

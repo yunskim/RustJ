@@ -573,6 +573,15 @@ def definition_flow_cases():
         for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
 
 
+def base_locative_noun_cases():
+    # One stateful CLI sentence per case; empty direct locale selects base.
+    return ['basenoun=:1', 'basenoun__', 'basenoun__+(basenoun__=:2)',
+            '(basenoun__=:3)+basenoun__', 'basenoun', 'basenoun__=.7',
+            'basenoun', 'basecreated__=:9', 'basecreated',
+            "basefn=:3 : '(basenoun=.9)+basenoun__'", 'basefn 0', 'basenoun',
+            'basenoun__=:1 2+1 2 3', 'basenoun']
+
+
 def entity_boundary_cases():
     """JE0 RHS transport, snapshots and expected-POS baseline; no new syntax."""
     out = []
@@ -943,6 +952,7 @@ def cases():
     fixed.extend(multiple_definition_cases())
     fixed.extend(noun_direct_cases())
     fixed.extend(entity_boundary_cases())
+    fixed.extend(base_locative_noun_cases())
     fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
     fixed.extend("gotomatrix=:3 : '"+body.replace("\n", " ").replace("'", "''")+"'" for body in goto_position_matrix())
     return fixed
