@@ -381,7 +381,9 @@ pub(crate) fn rank_noun_contract(value: &Value) -> Result<[i64; 3]> {
             }
             _ => value.int_at(index)?,
         };
-        // J's maximum array rank is 63. Retain the source noun unchanged.
+        // jsource RMAX = 63 is both the maximum array rank and the
+        // effective infinite verb rank over permitted arrays. Normalize
+        // requested ranks here; retain the original source noun unchanged.
         Ok(rank.clamp(-63, 63))
     };
     Ok(match value.len() {

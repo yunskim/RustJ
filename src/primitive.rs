@@ -1237,7 +1237,12 @@ primitives! {
 
 impl PrimitiveId {
     /// C t.c's intrinsic (monad, dyad-left, dyad-right) header ranks.
-    /// 63 is J's unbounded-rank sentinel, not an actual argument rank.
+    /// jsource RMAX is 63: six rank bits in RANKT, leaving two flag bits.
+    /// It is also the maximum permitted array rank; an actual rank-63
+    /// argument is a 63-dimensional array. As an innate verb rank, 63
+    /// acts as infinite rank over permitted arrays: the effective cell
+    /// rank is capped by the argument rank, so the whole argument is a cell.
+    /// Retain this integer representation for current jsource compatibility.
     pub const fn innate_ranks(self) -> [i64; 3] {
         use PrimitiveId::*;
         match self {
