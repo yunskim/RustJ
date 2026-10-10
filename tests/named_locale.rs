@@ -554,7 +554,7 @@ fn z_abandon_observation_rejects_frame_alias_and_wrong_search_state() {
 #[test]
 fn locative_abandon_enqueue_does_not_admit_unimplemented_deletion() {
     for semantic in [false, true] {
-        for source in ["a___:", "a_base__:", "a_probe__:", "a_z__:", "a__holder_:"] {
+        for source in ["a_probe__:", "a_z__:", "a__holder_:"] {
             let mut e = Engine::new();
             e.eval("a=:9").unwrap();
             e.eval("a_probe_=:11").unwrap();
@@ -567,6 +567,73 @@ fn locative_abandon_enqueue_does_not_admit_unimplemented_deletion() {
             assert_eq!(result.unwrap_err().kind(), "unsupported");
             scalar(&mut e, "a", 9);
             scalar(&mut e, "a_probe_", 11);
+            scalar(&mut e, "a_z_", 7);
+        }
+    }
+}
+
+#[test]
+fn explicit_base_own_abandon_preserves_snapshots_and_first_error_order() {
+    for semantic in [false, true] {
+        for name in ["a___:", "a_base__:"] {
+            let mut e = Engine::new();
+            e.eval("a=:i.3").unwrap();
+            e.eval("saved=:a").unwrap();
+            e.eval("a_z_=:7").unwrap();
+            let run = |e: &mut Engine, source: &str| {
+                if semantic {
+                    e.eval_semantic_reference(source)
+                } else {
+                    e.eval(source)
+                }
+            };
+            assert_eq!(
+                run(&mut e, &format!("{name}+1 2+1 2 3"))
+                    .unwrap_err()
+                    .kind(),
+                "length error"
+            );
+            assert!(e.binding_version("a").is_some());
+            assert_eq!(
+                run(&mut e, &format!("1 2+{name}")).unwrap_err().kind(),
+                "length error"
+            );
+            assert!(e.binding_version("a").is_none());
+            assert_eq!(e.eval("saved").unwrap().unwrap().shape(), &[3]);
+            scalar(&mut e, "a", 7);
+            assert_eq!(run(&mut e, name).unwrap_err().kind(), "unsupported");
+            scalar(&mut e, "a_z_", 7);
+            e.eval("a=:+").unwrap();
+            assert_eq!(run(&mut e, name).unwrap_err().kind(), "unsupported");
+            scalar(&mut e, "a 3", 3);
+        }
+    }
+}
+
+#[test]
+fn explicit_base_own_abandon_capture_and_local_bypass_select_base() {
+    for (name, address) in [("a___:", "a__"), ("a_base__:", "a_base_")] {
+        let mut e = Engine::new();
+        e.eval("a=:9").unwrap();
+        let r = e.eval_captured(&format!("{name}+0"));
+        assert_eq!(r.result.unwrap().unwrap().int_at(0).unwrap(), 9);
+        r.capture.verify().unwrap();
+        assert!(r.capture.events.iter().any(|event| matches!(event,
+            rustj::parser_capture::CaptureEvent::Abandon { name, lookup, deleted: true, .. }
+            if name == address && lookup.found == FoundScope::Global(lookup.engine))));
+        assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+        assert!(e.binding_version("a").is_none());
+        for semantic in [false, true] {
+            e.eval("a=:9").unwrap();
+            e.eval("a_z_=:7").unwrap();
+            e.eval(&format!("f=:3 : 0\na=.11\n{name}+a\n)")).unwrap();
+            let r = if semantic {
+                e.eval_semantic_reference("f 0")
+            } else {
+                e.eval("f 0")
+            };
+            assert_eq!(r.unwrap().unwrap().int_at(0).unwrap(), 20);
+            assert!(e.binding_version("a").is_none());
             scalar(&mut e, "a_z_", 7);
         }
     }
