@@ -9552,7 +9552,9 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 ### 4.6 확장 primitive 목록 — 기능, 필요성, 채택 상태
 
-갱신일: **2026-10-02**. 아래 표는 원격 기본 브랜치 HEAD를 확인하고 그 revision의 문서와 prototype registry를 읽어 갱신했다. 가장 후기의 주제별 결정과 현행 RustJ 원칙을 우선한다. 원본 연구 문서의 서술 전체를 그대로 채택하거나 historical registry를 실행 구현으로 간주하지 않는다.
+갱신일: **2026-10-02**. 아래 표는 원격 기본 브랜치 HEAD를 확인하고 그 revision의 문서와 prototype registry를 읽어 갱신한 **역사적 연구·출처 인벤토리**다. 가장 후기의 주제별 결정과 현행 RustJ 원칙을 우선한다. 원본 연구 문서의 서술 전체를 그대로 채택하거나 historical registry를 실행 구현으로 간주하지 않는다.
+
+**중복 방지·정본 경계(2026-10-10):** 이 표의 후보/연구/미결 표시는 **2026-10-02 연구 분류의 스냅샷**이지, 현재 구현·검증 완료 표시가 아니다. NN-01–NN-23 도입 우선순위·항목별 진행상태·승격 조건의 **단일 관리 위치는 [§4.6.3a NN Extension 체크리스트](#nn-extension-checklist)**다. §A2는 여전히 *공통 Registry/IR 기반* 구현 상태의 정본이고, NN-G0–G7은 그 기반에 의존하는 **개별 NN 연산 수용 기준**이지 A2의 복제 체크리스트가 아니다. `store`/`load`/`with` 같은 독립적인 비-NN 기능의 상태는 기존 A2/소관 절에서 관리한다.
 
 | 저장소 | 확인한 최신 HEAD | 근거의 역할 |
 |---|---|---|
@@ -9569,7 +9571,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 모든 source 이름은 ordinary J binding이며 예약 keyword가 아니다. **Adverb → parameter/verb operand를 받아 derived verb 생성**, **Verb → 배열 계산**, **Conjunction → 두 operand로 derived entity 생성**, **등록 API → 선언/관계 설정**을 구분한다. builder의 품사와 생성된 계산 verb의 valence/rank를 혼동하지 않는다.
 
-| 이름/family | 표면 품사·종류 | 기능 | 필요한 이유와 최소 계약 | RustJ 상태 | 출처 |
+| 이름/family | 표면 품사·종류 | 기능 | 필요한 이유와 최소 계약 | 2026-10-02 연구 분류(현재 진행 상태 아님) | 출처 |
 |---|---|---|---|---|---|
 | `conv / conv_forward` | Adverb | 파라미터 noun을 받아 공간 convolution verb를 생성한다. | 국소 window·채널 contraction을 고수준 graph에 남겨 reference/library/kernel 경로를 비교한다. kernel·stride·padding·dilation·bias 및 explicit weight resource 계약이 필요하다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
 | `depthwise_conv / depthwise_conv_forward` | Adverb | 채널별로 독립된 convolution verb를 생성한다. | 일반 convolution과 다른 채널 연결·재사용 구조를 분석한다. multiplier와 출력 shape를 명세해야 하며 prototype의 identity shape rule만으로 등록할 수 없다. | 후보; 개별 실행 미검증 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
@@ -9619,19 +9621,18 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 4. **dtype와 품사만으로 physical 실행을 확정하지 않는다.** 역사 cast 문서의 “adverb이면 fusion 강제”, “narrowing이면 in-place”, “widening이면 새 버퍼”는 현행 불변식이 아니다. numeric correctness·alias·use/liveness·target/cost 판단 후 실제 realization을 선택한다.
 5. **상태는 explicit resource다.** prototype의 hidden weight/moment, fixed offset, 고정 barrier/stream/register 숫자를 primitive identity로 복사하지 않는다. `ValueId`, `StateResource`, `BufferId`를 구분한다.
 
-#### 4.6.3 구현 상태와 체크리스트
+#### 4.6.3 기존 조사·구현 증거 기록 (2026-10-02 스냅샷)
 
 이 절의 코드 대조 기준은 **2026-10-02 조사 당시 checkout `89b87b8`**이다. 현재 `main`의 구현 상태를 뜻하지 않으며 최신 상태는 §12/A1.5를 따른다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
 
-- [x] 네 저장소 최신 HEAD를 확인하고 commit 고정 출처로 기능·필요성·품사·채택 상태를 갱신했다.
-- [x] 이전 inventory에서 빠진 forward/backward family, `grad`·`consume`과 후기 cast/storage/registration 어휘를 구분했다.
-- [x] 한국어 정본과 영어 mirror에 통합했다.
-- [ ] 각 채택 후보의 parameter schema, valence/innate rank, shape/dtype/numeric rule과 reference를 확정한다.
-- [ ] effect/error/alias·StateResource/version 및 가능한 access/reduction 계약을 검증한다.
-- [ ] 최소 한 개의 검증된 execution/lowering route를 연결한 뒤에만 개별 지원 완료로 표시한다.
-- [ ] ordinary name 재정의/locale/POS, empty/exceptional 입력 및 값·shape·dtype·오류·효과 순서를 Windows 네이티브에서 비교한다.
+**조사 당시 수행한 작업(기록 전용; 현행 NN 진행 체크박스 아님):**
+- 네 저장소의 당시 HEAD를 확인하고 commit 고정 출처로 기능·품사·연구 분류를 기록했다.
+- 과거 forward/backward 및 `grad`/`consume`, 후기 cast/storage/registration 어휘를 구분했다.
+- 당시 한국어 정본과 영어 mirror에 통합했다.
 
-가장 작은 구현 검증 후보는 `relu` → `linear`/`flatten` → `conv`/`avgpool2d`다. 기존 M1–M6/frontend 이행 순서가 우선하며 이 목록을 새 선행 작업 전체로 강제하지 않는다. training/AD/state family는 뒤에 진행하고 실제 CUDA 구현 보류는 유지한다.
+**기존 미완료 체크 4개의 관리 위치를 통일한다.** parameter/POS/rank는 **NN-G0**, shape/dtype/reference·empty/error는 **NN-G1**, effect/alias/StateResource는 **NN-G2**, 개별 실행 경로는 **NN-G5**, Windows/J 오라클 비교와 오류/효과 검증은 **NN-G6**에서 각각 추적한다. 공통 extension registry 및 분석 기반의 구현 상태는 **§A2**에서만 관리한다. 이 역사 절에서 별도 완료 상태를 더 이상 갱신하지 않는다.
+
+당시 권장 첫 후보(`relu` → `linear`/`flatten` → `conv`/`avgpool2d`)는 현행 **NN-D1/NN-D2** 실행 계획으로 대체했다. 기존 M1–M6/frontend 이행 순서가 계속 우선하고 실제 CUDA 구현 보류는 유지한다.
 
 
 
@@ -9641,7 +9642,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 **결정:** 먼저 ordinary J 이름의 extension을 추가하고 **J Graph IR에서는 의미가 정의된 단일 계산 primitive**로 보존한다. 그다음 **Execution Semantic Lowering / Logical Execution IR**에서 검증된 조합으로 *선택적으로* 분해하거나, 원자 op를 유지한 채 native CPU, 검증된 외부 library, MLIR/StableHLO subset, GPU kernel로 내린다. "확장 → 나중에 native"는 **source API/semantic identity의 불변**을 뜻하며, Graph IR primitive를 반드시 core J 문법 primitive로 승격한다는 뜻은 아니다. 분해와 fusion, 특정 backend 사용은 별도 합법성/수치/비용 검증 결과다. [JAXA 원자/참조 정의 연구(A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [prototype 목록(P)](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [현행 A2 계약](#a2--extension-primitive-registry와-analysis-contract).
 
-**현황 표기:** 아래 모든 미체크는 *미검증 도입 후보/미완료 과제*이며, 실제 사용 가능함을 의미하지 않는다. P0/P1/P2/P3은 **이 확장 track 내부의 상대 우선순위**이다. 기존 frontend·M3 검증·M4 CPU 실행 gate를 선행/차단하는 신규 milestone이 아니다. JAXA 명칭·품사는 기존 §4.6 prototype의 이력일 뿐, 신규 이름·표면 품사는 호환성 검증 후 확정한다. 특히 stateful layer는 hidden weight를 보유하는 primitive가 아니라 explicit `StateResource` 인자를 가진 계산 및 parameterized builder로 해석한다.
+**활성 체크리스트(단일 진행 상태):** 위 §4.6 연구 인벤토리는 출처 기록이고, §4.6.3의 미완료 체크는 이 절에 통합했다. §A2와 §4.6.3a는 공통 기반 구현 vs 개별 NN 연산 수용의 서로 다른 축이다. 아래 모든 미체크는 *미검증 도입 후보/미완료 과제*이며, 실제 사용 가능함을 의미하지 않는다. P0/P1/P2/P3은 **이 확장 track 내부의 상대 우선순위**이다. 기존 frontend·M3 검증·M4 CPU 실행 gate를 선행/차단하는 신규 milestone이 아니다. JAXA 명칭·품사는 기존 §4.6 prototype의 이력일 뿐, 신규 이름·표면 품사는 호환성 검증 후 확정한다. 특히 stateful layer는 hidden weight를 보유하는 primitive가 아니라 explicit `StateResource` 인자를 가진 계산 및 parameterized builder로 해석한다.
 
 | 우선 | ID/체크 | Extension 이름/연산군(가칭) | Graph IR 원자 의미 및 필요성 | 후속 Logical IR 분해/실행 후보 |
 |---|---|---|---|---|
