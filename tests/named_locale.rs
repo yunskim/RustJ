@@ -100,8 +100,10 @@ fn unsupported_paths_functions_and_computed_locatives_do_not_mutate_bindings() {
     e.eval("a_probe_=:7").unwrap();
     for source in [
         "a_probe_=:+",
+        "a__holder__other",
+        "a___1",
+        "a__holder_:",
         "a_0_=:9",
-        "a__holder",
         "'a_probe_'=:9",
         "missing_probe__:9",
         "missing_probe__:",
@@ -942,4 +944,85 @@ fn locative_noun_guard_rejects_abandon_and_same_value_recreation() {
             NameGuardCheck::LookupChanged
         );
     }
+}
+
+#[test]
+fn indirect_holder_errors_preserve_first_error_and_state() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("a_probe_=:7").unwrap();
+        for (setup, expected) in [
+            (None, "value error"),
+            (Some("holder=:7"), "locale error"),
+            (Some("holder=:'probe'"), "rank error"),
+        ] {
+            // Use a fresh holder name for the missing case.
+            if let Some(setup) = setup {
+                e.eval(setup).unwrap();
+            }
+            let read = if setup.is_none() {
+                "a__missingholder"
+            } else {
+                "a__holder"
+            };
+            let eval = |e: &mut Engine, source: &str| {
+                if semantic {
+                    e.eval_semantic_reference(source)
+                } else {
+                    e.eval(source)
+                }
+            };
+            assert_eq!(
+                eval(&mut e, &format!("{read}+0")).unwrap_err().kind(),
+                expected
+            );
+            assert_eq!(
+                eval(&mut e, &format!("{read}+(1 2+1 2 3)"))
+                    .unwrap_err()
+                    .kind(),
+                "length error"
+            );
+            assert_eq!(
+                eval(&mut e, &format!("{read}+(a_probe_=:9)"))
+                    .unwrap_err()
+                    .kind(),
+                expected
+            );
+            scalar(&mut e, "a_probe_", 9);
+            assert_eq!(
+                eval(&mut e, &format!("(a_probe_=:11)+{read}"))
+                    .unwrap_err()
+                    .kind(),
+                expected
+            );
+            scalar(&mut e, "a_probe_", 9);
+        }
+        e.eval("holder=:<'probe'").unwrap();
+        assert_eq!(e.eval("a__holder+0").unwrap_err().kind(), "unsupported");
+        assert_eq!(e.eval("a__holder=:99").unwrap_err().kind(), "unsupported");
+        scalar(&mut e, "a_probe_", 9);
+    }
+}
+
+#[test]
+fn indirect_error_resolution_uses_local_and_z_holder_without_successful_read_capture() {
+    let mut e = Engine::new();
+    e.eval("holder=:<'probe'").unwrap();
+    e.eval("f=:3 : 0\nholder=.'probe'\na__holder+0\n)").unwrap();
+    assert_eq!(e.eval("f 0").unwrap_err().kind(), "rank error");
+    e.eval("fallback_z_=:7").unwrap();
+    let r = e.eval_captured("a__fallback+0");
+    assert_eq!(r.result.unwrap_err().kind(), "locale error");
+    r.capture.verify().unwrap();
+    assert!(
+        r.capture
+            .frontend
+            .as_ref()
+            .unwrap()
+            .name_uses
+            .iter()
+            .all(|use_| use_.lookup.is_none())
+    );
+    assert_eq!(rustj::Error::Locale.class_name(), "LocaleError");
+    assert!(rustj::Error::Locale.is_j_catchable());
 }
