@@ -439,7 +439,75 @@ fn ordinary_z_snapshot_and_local_first_write_preserve_z_in_both_paths() {
         scalar(&mut e, "a", 7);
         scalar(&mut e, "a_z_", 7);
         assert!(e.binding_version("a").is_none());
-        assert_eq!(e.eval("a_:").unwrap_err().kind(), "unsupported");
-        scalar(&mut e, "a_z_", 7);
+        scalar(&mut e, "a_:", 7);
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
     }
+}
+
+#[test]
+fn simple_z_abandon_deletes_found_table_and_retains_snapshot_and_error_order() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:i.3").unwrap();
+        e.eval("saved=:a").unwrap();
+        let run = |e: &mut Engine, source: &str| {
+            if semantic {
+                e.eval_semantic_reference(source)
+            } else {
+                e.eval(source)
+            }
+        };
+        assert_eq!(
+            run(&mut e, "a_:+1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        assert_eq!(e.eval("a_z_").unwrap().unwrap().shape(), &[3]);
+        assert_eq!(run(&mut e, "1 2+a_:").unwrap_err().kind(), "length error");
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+        assert_eq!(e.eval("saved").unwrap().unwrap().shape(), &[3]);
+        e.eval("a_z_=:7").unwrap();
+        e.eval("a=:9").unwrap();
+        assert_eq!(run(&mut e, "a_:").unwrap().unwrap().int_at(0).unwrap(), 9);
+        scalar(&mut e, "a", 7);
+        e.eval("f=:3 : 'a_:'").unwrap();
+        assert_eq!(run(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 7);
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+    }
+}
+
+#[test]
+fn simple_z_abandon_capture_identifies_deleted_locale() {
+    let mut e = Engine::new();
+    e.eval("a_z_=:7").unwrap();
+    let r = e.eval_captured("a_:+a");
+    assert_eq!(r.result.unwrap().unwrap().int_at(0).unwrap(), 14);
+    r.capture.verify().unwrap();
+    let event = r
+        .capture
+        .events
+        .iter()
+        .find(|event| matches!(event, rustj::parser_capture::CaptureEvent::Abandon { .. }))
+        .unwrap();
+    let rustj::parser_capture::CaptureEvent::Abandon {
+        lookup, deleted, ..
+    } = event
+    else {
+        unreachable!()
+    };
+    assert!(*deleted);
+    let ScopeSearch::SimpleDefaultZ { z } = lookup.search else {
+        panic!()
+    };
+    assert_eq!(lookup.found, FoundScope::Locale(z));
+    assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+    let mut bad = r.capture.clone();
+    if let rustj::parser_capture::CaptureEvent::Abandon { lookup, .. } = bad
+        .events
+        .iter_mut()
+        .find(|event| matches!(event, rustj::parser_capture::CaptureEvent::Abandon { .. }))
+        .unwrap()
+    {
+        lookup.found = FoundScope::Locale(lookup.engine);
+    }
+    assert!(bad.verify().is_err());
 }
