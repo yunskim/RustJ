@@ -687,12 +687,46 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             if !value.shape().is_empty() {
                 return Err(Error::Rank);
             }
-            // No numbered locales can be created through this runtime yet.
-            // Nonnegative integer holders therefore designate absent locales.
-            if let crate::value::Data::Int(numbers) = &value.data
-                && numbers[0] >= 0
+            // Numbered locales cannot be created here; negative debug holders
+            // remain a separate execution-context contract.
+            let numbered = |value: &Value| match &value.data {
+                crate::value::Data::Int(numbers) if value.shape().is_empty() => Some(numbers[0]),
+                crate::value::Data::Bool(numbers) if value.shape().is_empty() => {
+                    Some(i64::from(numbers[0]))
+                }
+                _ => None,
+            };
+            if let Some(number) = numbered(value) {
+                return Err(if number >= 0 {
+                    Error::Locale
+                } else {
+                    Error::Unsupported("indirect debug locale resolution".into())
+                });
+            }
+            let crate::value::Data::Boxed(boxes) = &value.data else {
+                return Err(Error::Domain);
+            };
+            let contents = &boxes[0];
+            if let Some(number) = numbered(contents) {
+                return Err(if number >= 0 {
+                    Error::Locale
+                } else {
+                    Error::Unsupported("indirect debug locale resolution".into())
+                });
+            }
+            if contents.shape().len() > 1 {
+                return Err(Error::Rank);
+            }
+            if contents.is_empty() {
+                return Err(Error::Length);
+            }
+            let crate::value::Data::Char(chars) = &contents.data else {
+                return Err(Error::Domain);
+            };
+            if !chars.first().is_some_and(u8::is_ascii_alphabetic)
+                || !chars.iter().all(u8::is_ascii_alphanumeric)
             {
-                return Err(Error::Locale);
+                return Err(Error::IllFormedName);
             }
             let Some((key, locale)) = self.engine.indirect_named_address(name) else {
                 return Err(Error::Unsupported(
