@@ -92,7 +92,7 @@ pub struct NnExtensionName {
 
 macro_rules! nn {
     ($family:expr, $name:literal, $api:expr, $pos:ident,
-     $intrinsic:expr, $derived:expr, $preview:expr) => {
+     $intrinsic:expr, $derived:expr, $preview:expr $(,)?) => {
         NnExtensionName {
             family_id: $family,
             spelling: $name,
