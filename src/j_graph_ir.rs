@@ -1048,6 +1048,16 @@ impl Plan {
                 "failed capture is not a completed J graph".into(),
             ));
         }
+        if capture.frontend.as_ref().is_some_and(|context| {
+            context
+                .words
+                .iter()
+                .any(|word| word.flags.name_form.is_locative())
+        }) {
+            return Err(Error::Unsupported(
+                "captured locative needs namespace dependency guards".into(),
+            ));
+        }
         if capture.requires_ordered_effect_graph() {
             return Err(Error::Unsupported(
                 "capture needs ordered assignment/effect graph".into(),

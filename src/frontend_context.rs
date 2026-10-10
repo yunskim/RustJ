@@ -121,11 +121,15 @@ impl ScopeInstanceId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopeSearch {
+    /// Empty direct locale selects base explicitly, bypassing local search.
+    BaseLocaleOnly,
     GlobalOnly,
     CurrentFrameThenGlobal,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocalLookupState {
+    /// A frame exists but this locative does not search it.
+    Bypassed,
     NoFrame,
     Bound,
     DeclaredUnbound,
@@ -139,7 +143,7 @@ pub enum FoundScope {
     Missing,
 }
 
-/// Actual simple-name lookup observation. Locale/path/epoch guards are not
+/// Actual simple-name or bounded base-noun lookup observation. Locale/path/epoch guards are not
 /// supplied by this record; it must not be promoted to a full LookupWitness.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LookupObservation {
@@ -677,6 +681,17 @@ impl FrontendContext {
                     lookup.local_state,
                     lookup.found,
                 ) {
+                    (frame, ScopeSearch::BaseLocaleOnly, state, FoundScope::Global(_)) => {
+                        self.words[name_use.word.0].flags.name_form
+                            == crate::enqueuer::NameForm::BaseLocative
+                            && lookup.binding_class == Some(ParseClass::Noun)
+                            && match frame {
+                                None => state == LocalLookupState::NoFrame,
+                                Some(frame) => {
+                                    frame != lookup.engine && state == LocalLookupState::Bypassed
+                                }
+                            }
+                    }
                     (
                         None,
                         ScopeSearch::GlobalOnly,
