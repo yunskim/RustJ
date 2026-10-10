@@ -1824,7 +1824,7 @@ Small validation candidates are `relu` → `linear`/`flatten` → `conv`/`avgpoo
 
 **Do not duplicate core J vocabulary:** `+`, `*`, `+/`, `|:`, Rank `"`, `@:`, fork/hook; ordinary residual connections, MLP/Transformer blocks and full model/training loops should primarily remain **compositions of derived verbs**. A `matmul` or reshape convenience name must share the lowering pipeline used by equivalent built-in J forms. Existing `with` is a **typed semantic-contract conjunction**, not a device/tile policy channel.
 
-**Per-entry closure gates (all apply before checking an NN-xx item):**
+**Per-entry closure gates (all applicable gates must pass before checking NN-xx):** Computational extensions must meet NN-G3/G5 graph-node/runnable-route gates. **Declaration/registration APIs** such as `adjoint` meet equivalent registry-schema, static-validation, and test gates *without pretending to be computation Graph nodes*. An optional alias such as `matmul` must demonstrate the same Graph analysis/lowering through its equivalent core-J form; a redundant extension atom is not required.
 
 - [ ] **NN-G0 / public identity:** ordinary J name with correct POS (verb/adverb/conjunction), builder operand schema, derived verb valence/innate ranks, late binding/locale/redefinition and versioning; no new parser keyword.
 - [ ] **NN-G1 / exact semantics:** use standard-J reference/oracle where expressible; otherwise pin a mathematical/framework oracle. Specify axis/frame/cell, zero-frame virtual/prototype/fill/assembly semantics, empty cell, scalar, dynamic shape, dtype/promotion, NaN/Inf/signed zero, boundary checks and observable error precedence.
@@ -1844,7 +1844,7 @@ Small validation candidates are `relu` → `linear`/`flatten` → `conv`/`avgpoo
 - [ ] **NN-D4:** only after separate proof, implement P2 VJP/optimizer/state/AD; choose P3 additions only with workload and kernel demand.
 - [ ] **NN-D5:** keep per-entry status aligned with A2/affected M-stage gates and Korean canonical checklist, with exact main SHA, CI and UNRUN scope.
 
-**Boundary/sources:** [Existing extension inventory](#section), [Korean canonical counterpart](PROJECT.ko.md#nn-extension-checklist), [JAXA late architecture (A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md). Historical "conv owns hidden weights" does not override RustJ's explicit `StateResource` invariant. This subsection does not report newly implemented features or executed tests.
+**Boundary/sources:** [Existing extension inventory](#extension-primitive-inventory), [Korean canonical counterpart](PROJECT.ko.md#nn-extension-checklist), [JAXA late architecture (A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md). Historical "conv owns hidden weights" does not override RustJ's explicit `StateResource` invariant. This subsection does not report newly implemented features or executed tests.
 
 
 ### 5.3.4 Pre-execution input information — ``with (X`Y)`` candidate and metadata validation
