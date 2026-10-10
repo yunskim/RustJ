@@ -167,6 +167,40 @@ mod scope_provenance_tests {
     }
 
     #[test]
+    fn z_abandon_observation_accepts_actual_local_miss_frames() {
+        use crate::parser_capture::{CaptureEvent, ParseCapture};
+        for declared in [false, true] {
+            let mut engine = Engine::new();
+            engine.eval("a_z_=:7").unwrap();
+            let frame = ScopeInstanceId::fresh();
+            engine.local_frames.push(LocalFrame {
+                instance: frame,
+                names: HashMap::new(),
+                declared: if declared {
+                    HashSet::from(["a".to_owned()])
+                } else {
+                    HashSet::new()
+                },
+            });
+            let mut capture = ParseCapture::default();
+            let mut host = ModifierFrame {
+                parent: EngineParserHost {
+                    engine: &mut engine,
+                    pooled: false,
+                },
+            };
+            crate::parser::parse_runtime_host("a_:+0", &mut host, Some(&mut capture)).unwrap();
+            capture.verify().unwrap();
+            assert!(capture.events.iter().any(|event| matches!(event,
+                CaptureEvent::Abandon { lookup, deleted: true, .. }
+                    if lookup.frame == Some(frame) && lookup.local_state == if declared {
+                        LocalLookupState::DeclaredUnbound
+                    } else { LocalLookupState::Absent })));
+            assert!(engine.direct_binding("a", "z").is_none());
+        }
+    }
+
+    #[test]
     fn first_local_z_read_capture_retains_frame_and_own_commit_version() {
         use crate::parser_capture::{CaptureEvent, ParseCapture};
         let mut engine = Engine::new();

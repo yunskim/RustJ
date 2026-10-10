@@ -2154,6 +2154,8 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **NJ-04 일반 z-path noun abandon:** 일반 `a_:`는 local/base own 우선순위를 유지하고 fallback으로 찾은 z 항목을 반환·삭제한다. 단일 지역 word의 local binding 비삭제 규칙은 유지하며, 지역 miss의 z 발견은 삭제한다. snapshot 수명, 오른쪽 오류 전 삭제 없음, 삭제 후 오류에서도 삭제 유지, own-table 우선순위와 실제 발견 locale capture를 회귀·고정 C 감사로 검증한다. ordered effect/guard 및 명시적 locative abandon·임의 path는 계속 별도 미완료 계약이며 full NJ-04/L3를 완료하지 않는다.
 
+**NJ-04 z abandon 관찰 검증 보강:** 삭제 event의 독립 pre-action lookup도 frame/search-state 계약을 검증한다. 프레임 없음은 NoFrame, 프레임 있음은 engine/z와 다른 ID 및 Absent/DeclaredUnbound여야 한다. frontend NAME 관찰을 그대로 둔 채 event frame을 engine/z로 위장하거나 local state를 바꾸는 회귀가 이전 검증 우회를 재현하며 이제 거부된다. 기존 값·삭제 의미와 guard/compiler 수용 범위는 유지한다. 완전한 namespace witness 및 NJ-04/L3 전체는 미완료다.
+
 **NJ-07 대입 버전 경계:** parser commit의 이전/새 버전은 `assignment_version(name, local)`로 실제 대입 대상 테이블에서 관찰한다. 지역 선언이 아직 없을 때 RHS가 전역 값을 읽더라도 지역 첫 commit의 이전 버전은 없음이며, 다음 지역 commit은 지역 버전을 사용한다. base/named-own locative는 지역 flag와 무관하게 해당 own table을 사용한다. 읽기용 `version`은 기존 조회 의미를 유지한다. 실패한 RHS는 commit을 만들지 않는다. 이 경계는 default z path의 읽기 발견 테이블과 쓰기 대상 테이블을 분리하기 위한 선행 단위이며, path 지원·완전한 namespace commit witness·L3 완료를 뜻하지 않는다. 회귀는 지역 첫/반복 commit, 전역 값 보존, 전역 첫 commit과 RHS 오류를 검사한다.
 
 | ID | jsource 관찰 계약 | RustJ 현재 구조/차이 | 수용 조건 |

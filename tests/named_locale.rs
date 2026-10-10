@@ -511,3 +511,42 @@ fn simple_z_abandon_capture_identifies_deleted_locale() {
     }
     assert!(bad.verify().is_err());
 }
+
+#[test]
+fn z_abandon_observation_rejects_frame_alias_and_wrong_search_state() {
+    use rustj::frontend_context::LocalLookupState;
+    {
+        let mut e = Engine::new();
+        e.eval("a_z_=:7").unwrap();
+        let r = e.eval_captured("a_:+a");
+        r.result.unwrap().unwrap();
+        r.capture.verify().unwrap();
+        // Abandon events carry their own pre-action observation. Mutating that
+        // observation must be rejected even when frontend NAME uses are valid.
+        for mutation in 0..4 {
+            let mut bad = r.capture.clone();
+            let rustj::parser_capture::CaptureEvent::Abandon { lookup, .. } = bad
+                .events
+                .iter_mut()
+                .find(|event| matches!(event, rustj::parser_capture::CaptureEvent::Abandon { .. }))
+                .unwrap()
+            else {
+                unreachable!()
+            };
+            let ScopeSearch::SimpleDefaultZ { z } = lookup.search else {
+                panic!()
+            };
+            match mutation {
+                0 => lookup.frame = Some(lookup.engine),
+                1 => lookup.frame = Some(z),
+                2 => lookup.local_state = LocalLookupState::Bypassed,
+                3 => lookup.local_state = LocalLookupState::DeclaredUnbound,
+                _ => unreachable!(),
+            }
+            assert!(
+                bad.verify().is_err(),
+                "mutation {mutation} unexpectedly passed"
+            );
+        }
+    }
+}
