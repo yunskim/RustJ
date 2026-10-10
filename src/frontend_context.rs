@@ -135,6 +135,10 @@ pub enum ScopeSearch {
     BaseDefaultZ {
         z: ScopeInstanceId,
     },
+    /// A simple NAME missed local/base own tables and read a default z noun.
+    SimpleDefaultZ {
+        z: ScopeInstanceId,
+    },
     GlobalOnly,
     CurrentFrameThenGlobal,
 }
@@ -774,6 +778,25 @@ impl FrontendContext {
                                     frame != z
                                         && frame != lookup.engine
                                         && state == LocalLookupState::Bypassed
+                                }
+                            }
+                    }
+                    (frame, ScopeSearch::SimpleDefaultZ { z }, state, FoundScope::Locale(hit)) => {
+                        self.words[name_use.word.0].flags.name_form
+                            == crate::enqueuer::NameForm::Simple
+                            && lookup.binding_class == Some(ParseClass::Noun)
+                            && z != lookup.engine
+                            && hit == z
+                            && match frame {
+                                None => state == LocalLookupState::NoFrame,
+                                Some(frame) => {
+                                    frame != z
+                                        && frame != lookup.engine
+                                        && matches!(
+                                            state,
+                                            LocalLookupState::Absent
+                                                | LocalLookupState::DeclaredUnbound
+                                        )
                                 }
                             }
                     }
