@@ -232,7 +232,7 @@ fn dense_encoding(value: &Value) -> Option<Encoding> {
         Data::Int(_) => Some(Encoding::Int64),
         Data::Float(_) => Some(Encoding::Float64),
         Data::Char(_) => Some(Encoding::Char8),
-        Data::Sparse(_) | Data::Boxed(_) => None,
+        Data::Sparse(_) | Data::Boxed(_) | Data::ExtendedInt(_) | Data::Rational(_) => None,
     }
 }
 

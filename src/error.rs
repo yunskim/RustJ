@@ -1,4 +1,4 @@
-use std::{fmt, ops::Range};
+use std::{fmt, ops::Range, sync::Arc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiagnosticPhase {
@@ -91,6 +91,8 @@ impl ArgumentSummary {
             4 => "integer",
             8 => "floating",
             32 => "boxed",
+            64 => "extended integer",
+            128 => "rational",
             code if code >= 1024 => "sparse",
             _ => "unknown",
         }
@@ -110,6 +112,28 @@ impl ArgumentSummary {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DiagnosticFrameKind {
+    #[default]
+    DefinitionBody,
+    DefinitionCall,
+    DefinitionAdmission,
+    DefinitionReturn,
+}
+
+/// Source-owned coordinates, distinct from the current caller's span/index.
+/// Ordered from the innermost failure to outer definition callsites.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticSourceFrame {
+    pub kind: DiagnosticFrameKind,
+    pub origin: crate::source::SourceOrigin,
+    pub source: Arc<str>,
+    pub definition_span: Range<usize>,
+    pub span: Range<usize>,
+    /// Index in the failing/calling control fragment's queue, not the entire body.
+    pub blame_word_index: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ErrorContext {
     pub phase: Option<DiagnosticPhase>,
     pub span: Option<Range<usize>>,
@@ -122,6 +146,7 @@ pub struct ErrorContext {
     pub valence: Option<DiagnosticValence>,
     pub arguments: Vec<ArgumentSummary>,
     pub details: Vec<FailureDetail>,
+    pub source_frames: Vec<DiagnosticSourceFrame>,
 }
 
 impl ErrorContext {
@@ -190,6 +215,26 @@ impl ErrorContext {
             self.arguments = outer.arguments;
         }
         self.details.extend(outer.details);
+        self.source_frames.extend(outer.source_frames);
+    }
+}
+
+/// Failure ownership, independent of diagnostic phase or a particular route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailureCategory {
+    JLanguage,
+    UnsupportedCapability,
+    VerifierDefect,
+    BackendFailure,
+}
+impl FailureCategory {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::JLanguage => "j-language",
+            Self::UnsupportedCapability => "unsupported-capability",
+            Self::VerifierDefect => "verifier-defect",
+            Self::BackendFailure => "backend-failure",
+        }
     }
 }
 
@@ -200,16 +245,22 @@ pub enum Error {
     IllFormedName,
     IllFormedNumber,
     Domain,
+    NaN,
     Length,
     Rank,
     Valence,
     Control,
     NounResult,
+    ReadOnly,
     Index,
     Value(String),
     Limit,
     OpenQuote,
     Unsupported(String),
+    /// Invalid compiler-owned representation; never a source-language error.
+    Verification(String),
+    /// An admitted implementation failed; not a route capability miss.
+    Backend(String),
     /// J error classification plus diagnostic provenance/semantic context.
     /// Stable machine APIs strip this wrapper before returning.
     Context {
@@ -238,6 +289,21 @@ pub struct Diagnostic {
 }
 
 impl Error {
+    pub fn category(&self) -> FailureCategory {
+        match self.root() {
+            Self::Unsupported(_) => FailureCategory::UnsupportedCapability,
+            Self::Verification(_) => FailureCategory::VerifierDefect,
+            Self::Backend(_) => FailureCategory::BackendFailure,
+            _ => FailureCategory::JLanguage,
+        }
+    }
+
+    /// Only for failures raised during actual J execution. Read-only admission
+    /// results must not enter a J handler, even when their error class is J-like.
+    pub fn is_j_catchable(&self) -> bool {
+        self.category() == FailureCategory::JLanguage
+    }
+
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Syntax(_) => "syntax error",
@@ -245,16 +311,20 @@ impl Error {
             Self::IllFormedName => "ill-formed name",
             Self::IllFormedNumber => "ill-formed number",
             Self::Domain => "domain error",
+            Self::NaN => "NaN error",
             Self::Length => "length error",
             Self::Rank => "rank error",
             Self::Valence => "valence error",
             Self::Control => "control error",
             Self::NounResult => "noun result was required",
+            Self::ReadOnly => "read-only data",
             Self::Index => "index error",
             Self::Value(_) => "value error",
             Self::Limit => "limit error",
             Self::OpenQuote => "open quote",
             Self::Unsupported(_) => "unsupported",
+            Self::Verification(_) => "verifier failure",
+            Self::Backend(_) => "backend failure",
             Self::Context { error, .. } => error.kind(),
         }
     }
@@ -266,16 +336,20 @@ impl Error {
             Self::IllFormedName => "IllFormedNameError",
             Self::IllFormedNumber => "IllFormedNumberError",
             Self::Domain => "DomainError",
+            Self::NaN => "NaNError",
             Self::Length => "LengthError",
             Self::Rank => "RankError",
             Self::Valence => "ValenceError",
             Self::Control => "ControlError",
             Self::NounResult => "NounResultError",
+            Self::ReadOnly => "ReadOnlyError",
             Self::Index => "IndexError",
             Self::Value(_) => "ValueError",
             Self::Limit => "LimitError",
             Self::OpenQuote => "OpenQuoteError",
             Self::Unsupported(_) => "UnsupportedError",
+            Self::Verification(_) => "VerificationError",
+            Self::Backend(_) => "BackendError",
             Self::Context { .. } => unreachable!(),
         }
     }
@@ -338,7 +412,11 @@ impl Error {
         match self.root() {
             Self::Syntax(detail) if !detail.is_empty() => detail.clone(),
             Self::Value(name) if !name.is_empty() => format!("undefined name {name:?}"),
-            Self::Unsupported(detail) if !detail.is_empty() => detail.clone(),
+            Self::Unsupported(detail) | Self::Verification(detail) | Self::Backend(detail)
+                if !detail.is_empty() =>
+            {
+                detail.clone()
+            }
             root => root.kind().to_owned(),
         }
     }
@@ -346,6 +424,39 @@ impl Error {
     pub fn render(&self, source_name: &str, source: &str, base_line: usize) -> String {
         let diagnostic = self.diagnostic(source);
         let mut out = String::new();
+
+        for frame in &diagnostic.context.source_frames {
+            let root_span = frame.origin.root_span(frame.span.clone());
+            let (frame_source, frame_name, span) = match root_span {
+                Some(span) => (frame.origin.unit().text(), frame.origin.unit().name(), span),
+                None => (frame.source.as_ref(), "<input>", frame.span.clone()),
+            };
+            let location = SourceLocation::from_span(frame_source, span);
+            let begin = frame_source[..location.byte_span.start]
+                .rfind('\n')
+                .map_or(0, |n| n + 1);
+            let end = frame_source[location.byte_span.start..]
+                .find('\n')
+                .map_or(frame_source.len(), |n| location.byte_span.start + n);
+            let label = match frame.kind {
+                DiagnosticFrameKind::DefinitionBody => "definition failure",
+                DiagnosticFrameKind::DefinitionCall => "called from definition",
+                DiagnosticFrameKind::DefinitionAdmission => "before definition execution",
+                DiagnosticFrameKind::DefinitionReturn => "returning from definition",
+            };
+            out.push_str(&format!(
+                "  {label} in {frame_name}, line {}, column {}\n    {}\n    {}{}\n",
+                location.line,
+                location.column,
+                &frame_source[begin..end],
+                " ".repeat(location.column.saturating_sub(1)),
+                "^".repeat(if location.line == location.end_line {
+                    location.end_column.saturating_sub(location.column).max(1)
+                } else {
+                    1
+                })
+            ));
+        }
 
         if let Some(location) = &diagnostic.location {
             let display_line = base_line + location.line.saturating_sub(1);
@@ -532,7 +643,11 @@ impl fmt::Display for Error {
             _ => {
                 write!(f, "{}", self.kind())?;
                 match self {
-                    Self::Syntax(s) | Self::Value(s) | Self::Unsupported(s) => write!(f, ": {s}"),
+                    Self::Syntax(s)
+                    | Self::Value(s)
+                    | Self::Unsupported(s)
+                    | Self::Verification(s)
+                    | Self::Backend(s) => write!(f, ": {s}"),
                     _ => Ok(()),
                 }
             }

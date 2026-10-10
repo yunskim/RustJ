@@ -9,8 +9,450 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
+mod scope_provenance_tests {
+    use super::*;
+    use crate::frontend_context::{
+        FoundScope, LocalLookupState, NamePolicy, ScopeInstanceId, ScopeSearch,
+    };
+    use crate::parser::RuntimeParserHost;
+
+    fn parse_frame(engine: &mut Engine, source: &str) -> crate::semantic::Program {
+        let mut capture = crate::parser_capture::ParseCapture::default();
+        let mut host = ModifierFrame {
+            parent: EngineParserHost {
+                engine,
+                pooled: false,
+            },
+        };
+        let program =
+            crate::parser::parse_runtime_host(source, &mut host, Some(&mut capture)).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            program.frontend.as_ref().unwrap(),
+            capture.frontend.as_ref().unwrap()
+        ));
+        program.frontend.as_ref().unwrap().verify().unwrap();
+        program
+    }
+
+    #[test]
+    fn assignment_capture_uses_target_table_instead_of_read_fallback() {
+        use crate::parser_capture::{CaptureEvent, ParseCapture};
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let global = engine.binding_version("a");
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::new(),
+        });
+        for expected_local in [None, Some(crate::semantic::NameVersion(1))] {
+            let mut capture = ParseCapture::default();
+            let mut host = ModifierFrame {
+                parent: EngineParserHost {
+                    engine: &mut engine,
+                    pooled: false,
+                },
+            };
+            assert_eq!(host.version("a"), expected_local.or(global));
+            crate::parser::parse_runtime_host("a=.a+1", &mut host, Some(&mut capture)).unwrap();
+            let (previous, version) = capture
+                .events
+                .iter()
+                .find_map(|event| match event {
+                    CaptureEvent::Commit {
+                        previous, version, ..
+                    } => Some((*previous, *version)),
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(previous, expected_local);
+            assert_eq!(version, host.assignment_version("a", true).unwrap());
+            capture.verify().unwrap();
+        }
+        assert_eq!(engine.binding_version("a"), global);
+        let mut capture = ParseCapture::default();
+        let mut host = ModifierFrame {
+            parent: EngineParserHost {
+                engine: &mut engine,
+                pooled: false,
+            },
+        };
+        crate::parser::parse_runtime_host("fresh=:11", &mut host, Some(&mut capture)).unwrap();
+        assert!(
+            capture
+                .events
+                .iter()
+                .any(|event| matches!(event, CaptureEvent::Commit { previous: None, .. }))
+        );
+        assert!(
+            crate::parser::parse_runtime_host(
+                "a=.1 2+1 2 3",
+                &mut host,
+                Some(&mut ParseCapture::default())
+            )
+            .is_err()
+        );
+        assert_eq!(
+            host.assignment_version("a", true),
+            Some(crate::semantic::NameVersion(2))
+        );
+    }
+
+    #[test]
+    fn base_noun_capture_in_frame_records_bypass_and_checks_lexical_form() {
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::new(),
+        });
+        parse_frame(&mut engine, "a=.9");
+        let program = parse_frame(&mut engine, "a__");
+        let context = program.frontend.as_ref().unwrap();
+        let observation = context.name_uses[0].lookup.as_ref().unwrap();
+        assert_eq!(observation.search, ScopeSearch::BaseLocaleOnly);
+        assert_eq!(observation.local_state, LocalLookupState::Bypassed);
+        let mut invalid = (**context).clone();
+        invalid.words[0].flags.name_form = crate::enqueuer::NameForm::Simple;
+        assert!(invalid.verify().is_err());
+        let mut invalid = (**context).clone();
+        invalid.name_uses[0].lookup.as_mut().unwrap().local_state = LocalLookupState::Bound;
+        assert!(invalid.verify().is_err());
+        parse_frame(&mut engine, "a__=.11");
+        let JEntity::Noun(local) = &engine.local_frames.last().unwrap().names["a"].value else {
+            panic!()
+        };
+        assert_eq!(local.int_at(0).unwrap(), 9);
+        let JEntity::Noun(base) = &engine.names["a"].value else {
+            panic!()
+        };
+        assert_eq!(base.int_at(0).unwrap(), 11);
+    }
+
+    #[test]
+    fn named_locale_frame_capture_and_creation_respect_errors() {
+        let mut engine = Engine::new();
+        engine.eval("a=:1").unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::new(),
+        });
+        parse_frame(&mut engine, "a=.9");
+        parse_frame(&mut engine, "a_probe_=.7");
+        let program = parse_frame(&mut engine, "a_probe_");
+        let context = program.frontend.as_ref().unwrap();
+        let read = context.name_uses[0].lookup.as_ref().unwrap();
+        let scope = engine.named_locales["probe"].instance;
+        assert_eq!(read.search, ScopeSearch::DirectLocaleOnly(scope));
+        assert_eq!(read.found, FoundScope::Locale(scope));
+        assert_eq!(read.local_state, LocalLookupState::Bypassed);
+        assert_ne!(scope, engine.namespace_instance);
+        assert_eq!(
+            engine.eval("missing_newplace_").unwrap_err().kind(),
+            "unsupported"
+        );
+        assert!(engine.named_locales["newplace"].names.is_empty());
+        assert_eq!(
+            engine.eval("a_bad_=:1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        assert!(!engine.named_locales.contains_key("bad"));
+        let JEntity::Noun(local) = &engine.local_frames.last().unwrap().names["a"].value else {
+            panic!()
+        };
+        assert_eq!(local.int_at(0).unwrap(), 9);
+    }
+
+    fn guard_for(engine: &mut Engine, name: &str) -> crate::frontend_context::SimpleNameGuard {
+        let program = parse_frame(engine, name);
+        crate::frontend_context::SimpleNameGuard::from_name_use(
+            program.frontend.as_ref().unwrap(),
+            crate::frontend_context::NameUseId(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn alias_guard_tracks_local_fallback_and_shadowing_in_explicit_invocation_frame() {
+        use crate::{frontend_context::NameUseId, name_guards::AliasGuardCheck};
+        let mut engine = Engine::new();
+        engine.eval("f=:+").unwrap();
+        engine.eval("g=:f").unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: ["f".to_owned()].into_iter().collect(),
+        });
+        let program = parse_frame(&mut engine, "g");
+        let guard = engine
+            .prepare_alias_call_guard(program.frontend.as_ref().unwrap(), NameUseId(0))
+            .unwrap();
+        assert_eq!(
+            guard.reads()[1].observation().local_state,
+            LocalLookupState::DeclaredUnbound
+        );
+        parse_frame(&mut engine, "f=.-");
+        assert_eq!(
+            engine.check_name_guard(guard.root()),
+            crate::frontend_context::NameGuardCheck::ValidAtCheck
+        );
+        assert_eq!(
+            engine.check_alias_call_guard(&guard),
+            AliasGuardCheck::Invalidated {
+                read: 1,
+                reason: crate::frontend_context::NameGuardCheck::LookupChanged,
+            }
+        );
+        let program = parse_frame(&mut engine, "g");
+        let local = engine
+            .prepare_alias_call_guard(program.frontend.as_ref().unwrap(), NameUseId(0))
+            .unwrap();
+        assert_eq!(
+            local.reads()[1].observation().found,
+            FoundScope::Local(engine.local_frames.last().unwrap().instance)
+        );
+        let value = engine
+            .validate_alias_call_guard(&local)
+            .unwrap()
+            .apply_monad(Value::scalar(2))
+            .unwrap();
+        assert_eq!(value.int_at(0).unwrap(), -2);
+        engine.local_frames.pop();
+        assert_eq!(
+            engine.check_alias_call_guard(&local),
+            AliasGuardCheck::Invalidated {
+                read: 0,
+                reason: crate::frontend_context::NameGuardCheck::FrameChanged,
+            }
+        );
+        assert_eq!(engine.eval("g 2").unwrap().unwrap().int_at(0).unwrap(), 2);
+        use crate::name_guards::{AliasCall, AliasCallAttempt};
+        let AliasCallAttempt::Miss(miss) = engine.try_alias_call(AliasCall::new(
+            std::sync::Arc::new(local),
+            None,
+            Value::scalar(2),
+        )) else {
+            panic!()
+        };
+        let AliasCallAttempt::Miss(rejected) = engine.resume_alias_call(miss) else {
+            panic!()
+        };
+        assert_eq!(rejected.call.right().int_at(0).unwrap(), 2);
+    }
+
+    #[test]
+    fn simple_guard_rejects_rebinding_and_other_engines_but_not_unrelated_writes() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let guard = guard_for(&mut engine, "a");
+        assert_eq!(guard.name(), "a");
+        assert_eq!(engine.check_name_guard(&guard), ValidAtCheck);
+        engine.eval("other=:8").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), ValidAtCheck);
+        assert!(engine.eval("a=:1 2+1 2 3").is_err());
+        assert_eq!(engine.check_name_guard(&guard), ValidAtCheck);
+        engine.eval("a=:7").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+        let mut other = Engine::new();
+        other.eval("a=:7").unwrap();
+        assert_eq!(other.check_name_guard(&guard), EngineChanged);
+    }
+
+    #[test]
+    fn simple_guard_tracks_unbound_fallback_shadowing_and_frame_lifetime() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let global = guard_for(&mut engine, "a");
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: ["a".to_owned()].into_iter().collect(),
+        });
+        assert_eq!(engine.check_name_guard(&global), FrameChanged);
+        let fallback = guard_for(&mut engine, "a");
+        assert_eq!(engine.check_name_guard(&fallback), ValidAtCheck);
+        engine.eval("a=:8").unwrap();
+        assert_eq!(engine.check_name_guard(&fallback), LookupChanged);
+        let fallback = guard_for(&mut engine, "a");
+        parse_frame(&mut engine, "a=.9");
+        assert_eq!(engine.check_name_guard(&fallback), LookupChanged);
+        let local = guard_for(&mut engine, "a");
+        engine.eval("other=:10").unwrap();
+        assert_eq!(engine.check_name_guard(&local), ValidAtCheck);
+        engine.local_frames.pop();
+        assert_eq!(engine.check_name_guard(&local), FrameChanged);
+        assert_eq!(engine.check_name_guard(&global), LookupChanged);
+    }
+
+    #[test]
+    fn binding_generation_rejects_remove_recreate_aba_even_at_equal_version_and_pos() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("f=:+").unwrap();
+        let guard = guard_for(&mut engine, "f");
+        let old = engine.names.remove("f").unwrap();
+        // Simulate future expunge/recreation without claiming support for 4!:55.
+        engine.eval("f=:+").unwrap();
+        assert_eq!(old.version, engine.names["f"].version);
+        assert_ne!(old.generation, engine.names["f"].generation);
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+        engine.eval("f=:3").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+    }
+
+    #[test]
+    fn guard_admission_requires_runtime_bound_simple_name_and_valid_origin() {
+        use crate::frontend_context::{NameUseId, SimpleNameGuard};
+        let diagnostic = crate::parser::parse_frontend("a").unwrap();
+        assert!(
+            SimpleNameGuard::from_name_use(diagnostic.frontend.as_ref().unwrap(), NameUseId(0))
+                .is_err()
+        );
+        let mut engine = Engine::new();
+        let missing = parse_frame(&mut engine, "missing");
+        assert!(
+            SimpleNameGuard::from_name_use(missing.frontend.as_ref().unwrap(), NameUseId(0))
+                .is_err()
+        );
+        engine.eval("a=:7").unwrap();
+        let program = parse_frame(&mut engine, "a");
+        let context = program.frontend.unwrap();
+        let guard = SimpleNameGuard::from_name_use(&context, NameUseId(0)).unwrap();
+        assert_eq!(guard.origin(), (context.unit, NameUseId(0)));
+        assert!(SimpleNameGuard::from_name_use(&context, NameUseId(1)).is_err());
+        let mut bad = (*context).clone();
+        bad.name_uses[0].lookup.as_mut().unwrap().binding_generation = None;
+        assert!(bad.verify().is_err());
+        for spelling in ["a_base_", "a__loc", "a::"] {
+            let mut locative = (*context).clone();
+            locative.words[0].name = Some(spelling.into());
+            assert!(SimpleNameGuard::from_name_use(&locative, NameUseId(0)).is_err());
+        }
+    }
+
+    #[test]
+    fn guard_miss_does_not_refresh_captured_noun_or_freeze_late_function() {
+        use crate::frontend_context::NameGuardCheck::*;
+        let mut engine = Engine::new();
+        engine.eval("a=:7").unwrap();
+        let program = parse_frame(&mut engine, "a");
+        let guard = crate::frontend_context::SimpleNameGuard::from_name_use(
+            program.frontend.as_ref().unwrap(),
+            crate::frontend_context::NameUseId(0),
+        )
+        .unwrap();
+        engine.eval("a=:8").unwrap();
+        assert_eq!(engine.check_name_guard(&guard), LookupChanged);
+        let crate::semantic::ExprKind::Literal(value) = program.expression.unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(value.int_at(0).unwrap(), 7);
+        engine.eval("f=:+").unwrap();
+        let late = guard_for(&mut engine, "f");
+        engine.eval("g=:f").unwrap();
+        let alias = guard_for(&mut engine, "g");
+        engine.eval("f=:*").unwrap();
+        assert_eq!(engine.check_name_guard(&late), LookupChanged);
+        // A guard for g does not cover its transitive late target f. A future
+        // specialization must guard every semantic read it actually freezes.
+        assert_eq!(engine.check_name_guard(&alias), ValidAtCheck);
+        assert_eq!(engine.eval("g _2").unwrap().unwrap().int_at(0).unwrap(), -1);
+    }
+
+    #[test]
+    fn declared_unbound_local_falls_back_then_local_write_shadows_without_global_commit() {
+        let mut engine = Engine::new();
+        engine.eval("shared=:10").unwrap();
+        let global_version = engine.binding_version("shared");
+        let frame = ScopeInstanceId::fresh();
+        engine.local_frames.push(LocalFrame {
+            instance: frame,
+            names: HashMap::new(),
+            declared: ["shared".to_owned()].into_iter().collect(),
+        });
+        let program = parse_frame(&mut engine, "shared=.shared+1");
+        let context = program.frontend.unwrap();
+        let read = &context.name_uses[0];
+        let lookup = read.lookup.as_ref().unwrap();
+        assert_eq!(lookup.search, ScopeSearch::CurrentFrameThenGlobal);
+        assert_eq!(lookup.frame, Some(frame));
+        assert_eq!(lookup.local_state, LocalLookupState::DeclaredUnbound);
+        assert_eq!(lookup.found, FoundScope::Global(engine.namespace_instance));
+        assert!(context.words.iter().any(|word| word.flags.local_assignment));
+        assert_eq!(engine.binding_version("shared"), global_version);
+        let later = parse_frame(&mut engine, "shared").frontend.unwrap();
+        let lookup = later.name_uses[0].lookup.as_ref().unwrap();
+        assert_eq!(lookup.local_state, LocalLookupState::Bound);
+        assert_eq!(lookup.found, FoundScope::Local(frame));
+        let mut bad = (*later).clone();
+        bad.name_uses[0].lookup.as_mut().unwrap().found =
+            FoundScope::Global(engine.namespace_instance);
+        assert!(bad.verify().is_err());
+        engine.local_frames.pop();
+        assert_eq!(
+            engine.eval("shared").unwrap().unwrap().int_at(0).unwrap(),
+            10
+        );
+    }
+
+    #[test]
+    fn frame_instances_distinguish_equal_local_versions_and_implicit_function_substitution() {
+        let mut engine = Engine::new();
+        let mut observations = Vec::new();
+        for _ in 0..2 {
+            engine.local_frames.push(LocalFrame {
+                instance: ScopeInstanceId::fresh(),
+                names: HashMap::new(),
+                declared: ["f".to_owned(), "u".to_owned()].into_iter().collect(),
+            });
+            parse_frame(&mut engine, "f=.+");
+            let ordinary = parse_frame(&mut engine, "f").frontend.unwrap();
+            assert_eq!(ordinary.name_uses[0].policy, NamePolicy::LateAtCall);
+            observations.push(ordinary.name_uses[0].lookup.clone().unwrap());
+            parse_frame(&mut engine, "u=.+");
+            let implicit = parse_frame(&mut engine, "u").frontend.unwrap();
+            assert_eq!(
+                implicit.name_uses[0].policy,
+                NamePolicy::CaptureAtRead,
+                "{:#?}",
+                implicit
+            );
+            assert!(matches!(
+                implicit.name_uses[0].lookup.as_ref().unwrap().found,
+                FoundScope::Local(_)
+            ));
+            // u substitutes the supplied entity even when that entity is itself
+            // an ordinary late NameRef. The u lookup must not become late.
+            parse_frame(&mut engine, "u=.f");
+            let implicit_alias = parse_frame(&mut engine, "u").frontend.unwrap();
+            assert_eq!(
+                implicit_alias.name_uses[0].policy,
+                NamePolicy::CaptureAtRead
+            );
+            assert_eq!(
+                implicit_alias.name_uses[0].resolution,
+                crate::frontend_context::NameResolution::FunctionValue
+            );
+            engine.local_frames.pop();
+        }
+        assert_ne!(observations[0].frame, observations[1].frame);
+        assert_eq!(
+            observations[0].binding_version,
+            observations[1].binding_version
+        );
+    }
+}
+
 pub struct Engine {
+    namespace_instance: crate::frontend_context::ScopeInstanceId,
     names: HashMap<String, Binding>,
+    /// User named locales are independent symbol tables, never locative keys.
+    named_locales: HashMap<String, NamedLocale>,
     pool: crate::pool::OutputPool,
     /// A bounded physical exact-search table, keyed by immutable Arc identity.
     /// Never inferred from a J name string or parser binding version.
@@ -26,12 +468,41 @@ pub struct CapturedEvaluation {
     pub capture: crate::parser_capture::ParseCapture,
 }
 
+/// Only validated empty-direct-locale NAMEs enter this runtime boundary.
+/// This selects the Engine's base namespace; it never searches local frames.
+fn base_locative_key(name: &str) -> Option<&str> {
+    name.strip_suffix("__")
+}
+
+struct NamedLocale {
+    instance: crate::frontend_context::ScopeInstanceId,
+    names: HashMap<String, Binding>,
+}
+
+/// Validated direct NAME: separate simple symbol and named locale spelling.
+fn named_direct_address(name: &str) -> Option<(&str, &str)> {
+    let text = name.strip_suffix('_')?;
+    if name.ends_with("__") {
+        return None;
+    }
+    text.rsplit_once('_')
+}
+
 struct EngineParserHost<'a> {
     engine: &'a mut Engine,
     pooled: bool,
 }
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
+    fn take_name(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        self.engine.take_binding(name, single_word)
+    }
+    fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
+        Some(self.engine.lookup_observation(name))
+    }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
+        if base_locative_key(name).is_some() || named_direct_address(name).is_some() {
+            return None;
+        }
         match self.engine.visible_binding(name) {
             Some(Binding {
                 value: JEntity::Function(function),
@@ -69,15 +540,73 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             .is_nameless_modifier()
             .then(|| (function.clone(), binding.version))
     }
-    fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
-        self.engine.parser_name_binding(name)
+    fn supports_base_locative_nouns(&self) -> bool {
+        true
+    }
+    fn supports_named_direct_locative_nouns(&self) -> bool {
+        true
+    }
+    fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            self.engine.ensure_named_locale(locale)?;
+            return match self.engine.direct_binding(key, locale) {
+                Some(Binding {
+                    value: JEntity::Noun(value),
+                    ..
+                }) => Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone()))),
+                Some(_) => Err(Error::Unsupported(
+                    "direct-locative function reference".into(),
+                )),
+                None => Err(Error::Unsupported(
+                    "direct-locative path/future reference".into(),
+                )),
+            };
+        }
+        if let Some(key) = base_locative_key(name) {
+            // sn.c/sl.c: an empty direct locale selects base, bypassing the
+            // invocation-local table. Nouns snapshot at parser stack entry.
+            return match self.engine.names.get(key) {
+                Some(Binding {
+                    value: JEntity::Noun(value),
+                    ..
+                }) => Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone()))),
+                Some(_) => Err(Error::Unsupported(
+                    "base-locative function reference".into(),
+                )),
+                None => Err(Error::Unsupported(
+                    "unbound base-locative future reference".into(),
+                )),
+            };
+        }
+        Ok(self.engine.parser_name_binding(name))
     }
     fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         Ok(self.engine.parser_name_binding(name))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            return self
+                .engine
+                .direct_binding(key, locale)
+                .map(|binding| binding.version);
+        }
+        if let Some(key) = base_locative_key(name) {
+            return self.engine.names.get(key).map(|binding| binding.version);
+        }
         self.engine
             .visible_binding(name)
+            .map(|binding| binding.version)
+    }
+    fn assignment_version(&self, name: &str, _local: bool) -> Option<crate::semantic::NameVersion> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            return self
+                .engine
+                .direct_binding(key, locale)
+                .map(|binding| binding.version);
+        }
+        self.engine
+            .names
+            .get(base_locative_key(name).unwrap_or(name))
             .map(|binding| binding.version)
     }
     fn apply(&mut self, expression: crate::semantic::Expr) -> Result<Value> {
@@ -131,20 +660,53 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             .invoke_modifier(operator, left, right, self.pooled)
     }
     fn assign(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
-        self.engine.commit_binding(name.to_owned(), value)
+        self.engine.commit_runtime_binding(name, value)
     }
 }
 
 /// Current invocation owns local values separately from the global namespace.
 struct LocalFrame {
+    instance: crate::frontend_context::ScopeInstanceId,
     names: HashMap<String, Binding>,
     declared: HashSet<String>,
+}
+
+/// Invocation-local control state, never part of logical array identity.
+struct DefinitionForLoop {
+    start: usize,
+    do_index: usize,
+    exit: usize,
+    names: Option<(String, String)>,
+    iterator: Option<Value>,
+    count: Option<usize>,
+    next: usize,
+    owns_index: bool,
+}
+
+impl DefinitionForLoop {
+    fn release(&self, frame: &mut LocalFrame) {
+        if !self.owns_index {
+            return;
+        }
+        let Some((_, index)) = &self.names else {
+            return;
+        };
+        if let Some(binding) = frame.names.get_mut(index) {
+            binding.read_only = false;
+        }
+    }
 }
 
 struct ModifierFrame<'a> {
     parent: EngineParserHost<'a>,
 }
 impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
+    fn take_name(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        self.parent.take_name(name, single_word)
+    }
+    fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
+        self.parent.lookup_observation(name)
+    }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
         self.parent.function_name_ranks(name)
     }
@@ -156,7 +718,13 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn enqueue_environment(&self) -> crate::enqueuer::EnqueueEnvironment {
         crate::enqueuer::EnqueueEnvironment::ExplicitDefinition
     }
-    fn lookup(&mut self, name: &str) -> Option<crate::parser::ParserNameBinding> {
+    fn supports_base_locative_nouns(&self) -> bool {
+        true
+    }
+    fn supports_named_direct_locative_nouns(&self) -> bool {
+        true
+    }
+    fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         self.parent.lookup(name)
     }
     fn stacked_modifier(
@@ -185,6 +753,19 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
         self.parent.version(name)
     }
+    fn assignment_version(&self, name: &str, local: bool) -> Option<crate::semantic::NameVersion> {
+        if local && base_locative_key(name).is_none() && named_direct_address(name).is_none() {
+            return self
+                .parent
+                .engine
+                .local_frames
+                .last()?
+                .names
+                .get(name)
+                .map(|binding| binding.version);
+        }
+        self.parent.assignment_version(name, local)
+    }
     fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         self.parent.gerund_binding(name)
     }
@@ -200,8 +781,18 @@ impl crate::parser::RuntimeParserHost for ModifierFrame<'_> {
     }
     fn assign_scoped(&mut self, name: &str, value: JEntity, local: bool) -> Result<JEntity> {
         let engine = &mut self.parent.engine;
+        if base_locative_key(name).is_some() || named_direct_address(name).is_some() {
+            return engine.commit_runtime_binding(name, value);
+        }
         if local {
             let frame = engine.local_frames.last_mut().expect("modifier frame");
+            if frame
+                .names
+                .get(name)
+                .is_some_and(|binding| binding.read_only)
+            {
+                return Err(Error::ReadOnly);
+            }
             frame.declared.insert(name.to_owned());
             store_binding(&mut frame.names, &mut engine.pool, name.to_owned(), value)
         } else {
@@ -258,6 +849,8 @@ fn store_binding(
         Binding {
             value: stored,
             version,
+            generation: crate::frontend_context::BindingGeneration::fresh(),
+            read_only: false,
         },
     ) {
         pool.retire(value);
@@ -293,6 +886,8 @@ fn operation_label(verb: &ResolvedVerb) -> String {
 struct Binding {
     value: JEntity,
     version: crate::semantic::NameVersion,
+    generation: crate::frontend_context::BindingGeneration,
+    read_only: bool,
 }
 
 impl Default for Engine {
@@ -304,7 +899,9 @@ impl Engine {
     /// Limits retained integer payload bytes. Zero disables caching.
     pub fn with_output_cache_limit(bytes: usize) -> Self {
         Self {
+            namespace_instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
+            named_locales: HashMap::new(),
             pool: crate::pool::OutputPool::new(bytes),
             exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
             primitives: crate::primitive::PrimitiveContext::core(),
@@ -341,7 +938,9 @@ impl Engine {
     /// consulted only during parser-time name lookup after user bindings.
     pub fn with_primitive_context(primitives: crate::primitive::PrimitiveContext) -> Self {
         Self {
+            namespace_instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
+            named_locales: HashMap::new(),
             pool: crate::pool::OutputPool::new(64 * 1024 * 1024),
             exact_search_cache: crate::index_ops::ExactPrehashCache::default(),
             primitives,
@@ -378,13 +977,13 @@ impl Engine {
                 operands,
             )));
         }
-        self.invoke_definition_body(operator, left, right, None, pooled)
+        self.invoke_definition_body(operator, Some(left), right, None, pooled)
     }
 
     fn invoke_definition_body(
         &mut self,
         operator: std::sync::Arc<FunctionEntity>,
-        left: FunctionOperand,
+        left: Option<FunctionOperand>,
         right: Option<FunctionOperand>,
         arguments: Option<(Option<Value>, Value)>,
         pooled: bool,
@@ -393,6 +992,7 @@ impl Engine {
             return Err(Error::Domain);
         };
         let verb_call = arguments.is_some();
+        let operand_call = left.is_some();
         let dyadic = arguments
             .as_ref()
             .map_or(right.is_some(), |(x, _)| x.is_some());
@@ -401,23 +1001,60 @@ impl Engine {
         } else {
             (&code.monad, &code.monad_controls)
         };
+        let admission = |error, span| {
+            code.diagnostic_error(
+                error,
+                crate::error::DiagnosticFrameKind::DefinitionAdmission,
+                span,
+                None,
+            )
+        };
         if section.is_empty() {
-            return Err(Error::Valence);
+            return Err(admission(Error::Valence, None));
         }
-        if controls
-            .iter()
-            .any(|node| node.kind != crate::definition_flow::ControlKind::Body)
-        {
-            return Err(Error::Unsupported("explicit modifier control flow".into()));
+        use crate::definition_control::ControlWord as W;
+        use crate::definition_flow::{ControlJump, ControlKind as K};
+        if let Some(node) = controls.iter().find(|node| {
+            node.analysis_barrier
+                || !matches!(
+                    node.kind,
+                    K::Body
+                        | K::Test
+                        | K::DoFor
+                        | K::BreakFor
+                        | K::Word(
+                            W::If
+                                | W::Do
+                                | W::Else
+                                | W::ElseIf
+                                | W::End
+                                | W::Return
+                                | W::While
+                                | W::Whilst
+                                | W::Break
+                                | W::Continue
+                                | W::Try
+                                | W::Catch
+                                | W::CatchD
+                                | W::For
+                        )
+                )
+        }) {
+            return Err(admission(
+                Error::Unsupported("definition control flow outside executable subset".into()),
+                Some(node.span.clone()),
+            ));
         }
         // Reject unsupported framing before any statement has side effects.
         for sentence in &code.sentences[section.clone()] {
-            if !matches!(
-                crate::parser::frame_definition_input(&code.body[sentence.span.clone()])?,
-                crate::parser::InputFrame::Sentence
+            if matches!(
+                crate::parser::frame_definition_input(&code.body[sentence.span.clone()])
+                    .map_err(|error| admission(error, Some(sentence.span.clone())))?,
+                crate::parser::InputFrame::NeedMore
             ) {
-                return Err(Error::Unsupported(
-                    "nested explicit modifier definition scope".into(),
+                return Err(admission(
+                    Error::Unsupported("nested explicit modifier definition scope".into()),
+                    Some(sentence.span.clone()),
                 ));
             }
         }
@@ -425,62 +1062,65 @@ impl Engine {
         // Windows stack bound until the general executor uses explicit frames.
         const MAX_MODIFIER_INVOCATION_DEPTH: usize = 8;
         if self.definition_depth >= MAX_MODIFIER_INVOCATION_DEPTH {
-            return Err(Error::Limit);
+            return Err(admission(Error::Limit, None));
         }
-        let mut local = LocalFrame {
-            names: HashMap::new(),
-            declared: ["u", "m", "x", "y"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        };
-        if right.is_some() {
-            local.declared.extend(["v".to_owned(), "n".to_owned()]);
-        }
-        for sentence in &code.sentences[section.clone()] {
-            for pair in sentence.words.windows(2) {
-                if pair[1].flags.local_assignment
-                    && pair[0].class == crate::enqueuer::EnqueueClass::Name
-                {
-                    local
-                        .declared
-                        .insert(code.body[pair[0].span.clone()].to_owned());
+        let local = (|| -> Result<LocalFrame> {
+            let mut local = LocalFrame {
+                instance: crate::frontend_context::ScopeInstanceId::fresh(),
+                names: HashMap::new(),
+                declared: ["x", "y"].into_iter().map(str::to_owned).collect(),
+            };
+            if operand_call {
+                local.declared.extend(["u".to_owned(), "m".to_owned()]);
+            }
+            if right.is_some() {
+                local.declared.extend(["v".to_owned(), "n".to_owned()]);
+            }
+            let name_plan = if dyadic {
+                &code.name_plan.dyad
+            } else {
+                &code.name_plan.monad
+            };
+            local
+                .declared
+                .extend(name_plan.local_declarations.iter().cloned());
+            for (name, alias, operand) in [("u", "m", left), ("v", "n", right)] {
+                if let Some(operand) = operand {
+                    let value = match operand {
+                        FunctionOperand::Noun { value, .. } => {
+                            store_binding(
+                                &mut local.names,
+                                &mut self.pool,
+                                alias.to_owned(),
+                                JEntity::Noun(value.clone()),
+                            )?;
+                            JEntity::Noun(value)
+                        }
+                        FunctionOperand::Function(function) => JEntity::Function(function),
+                    };
+                    store_binding(&mut local.names, &mut self.pool, name.to_owned(), value)?;
                 }
             }
-        }
-        for (name, alias, operand) in [("u", "m", Some(left)), ("v", "n", right)] {
-            if let Some(operand) = operand {
-                let value = match operand {
-                    FunctionOperand::Noun { value, .. } => {
-                        store_binding(
-                            &mut local.names,
-                            &mut self.pool,
-                            alias.to_owned(),
-                            JEntity::Noun(value.clone()),
-                        )?;
-                        JEntity::Noun(value)
-                    }
-                    FunctionOperand::Function(function) => JEntity::Function(function),
-                };
-                store_binding(&mut local.names, &mut self.pool, name.to_owned(), value)?;
-            }
-        }
-        if let Some((x, y)) = arguments {
-            store_binding(
-                &mut local.names,
-                &mut self.pool,
-                "y".into(),
-                JEntity::Noun(y),
-            )?;
-            if let Some(x) = x {
+            if let Some((x, y)) = arguments {
                 store_binding(
                     &mut local.names,
                     &mut self.pool,
-                    "x".into(),
-                    JEntity::Noun(x),
+                    "y".into(),
+                    JEntity::Noun(y),
                 )?;
+                if let Some(x) = x {
+                    store_binding(
+                        &mut local.names,
+                        &mut self.pool,
+                        "x".into(),
+                        JEntity::Noun(x),
+                    )?;
+                }
             }
-        }
+            Ok(local)
+        })()
+        .map_err(|error| admission(error, None))?;
+        let body_origin = code.origin.body(code.body.clone(), code.source_map.clone());
         self.definition_depth += 1;
         self.local_frames.push(local);
         let result = (|| {
@@ -490,66 +1130,339 @@ impl Engine {
                     pooled,
                 },
             };
-            let mut last = None;
-            for (position, sentence) in code.sentences[section.clone()].iter().enumerate() {
-                for word in &sentence.words {
-                    let name = &code.body[word.span.clone()];
-                    if word.flags.lookup_name
-                        && matches!(name, "u" | "v" | "m" | "n" | "x" | "y")
-                        && !frame
+            // cx.c initializes z to the Boolean empty matrix (mtm).
+            let empty_result = || {
+                Value::new(
+                    vec![0, 0],
+                    crate::value::Data::Bool(crate::storage::CpuStorage::new(Vec::new())),
+                )
+                .map(JEntity::Noun)
+            };
+            let mut last = Some(empty_result()?);
+            let mut last_result_span = None;
+            let mut test = None;
+            let mut pc = 0;
+            // Only currently protected try bodies catch errors. Branching out,
+            // entering a handler, and recursion must not retain stale handlers.
+            let mut handlers: Vec<(usize, usize, usize)> = Vec::new();
+            let mut loops: Vec<DefinitionForLoop> = Vec::new();
+            while let Some(node) = controls.get(pc) {
+                handlers.retain(|&(start, end, _)| start < pc && pc < end);
+                while loops
+                    .last()
+                    .is_some_and(|state| pc <= state.start || pc >= state.exit)
+                {
+                    loops.pop().expect("exiting loop").release(
+                        frame
                             .parent
                             .engine
                             .local_frames
-                            .last()
-                            .expect("modifier frame")
-                            .names
-                            .contains_key(name)
-                    {
-                        return Err(Error::Unsupported(
-                            "undefined explicit operand alias".into(),
-                        ));
-                    }
+                            .last_mut()
+                            .expect("definition frame"),
+                    );
                 }
-                let program = crate::parser::parse_runtime_host(
-                    &code.body[sentence.span.clone()],
-                    &mut frame,
-                    None,
-                )?;
-                if let Some(expression) = program.expression {
-                    let assigned = program.assignment.is_some();
-                    let value = match expression.kind {
-                        crate::semantic::ExprKind::Literal(value) => JEntity::Noun(value),
-                        crate::semantic::ExprKind::VerbValue(verb) => {
-                            JEntity::Function(verb.entity)
-                        }
-                        crate::semantic::ExprKind::ModifierValue(function) => {
-                            JEntity::Function(function)
-                        }
-                        _ => JEntity::Noun(crate::parser::RuntimeParserHost::apply(
-                            &mut frame, expression,
-                        )?),
+                let step = (|| -> Result<Option<usize>> {
+                    let jump = || match node.go {
+                        ControlJump::Index(target) => Ok(target),
+                        _ => Err(Error::Control),
                     };
-                    if !assigned
-                        && matches!(value, JEntity::Function(_))
-                        && code.sentences[section.start + position + 1..section.end]
-                            .iter()
-                            .any(|next| !next.words.is_empty())
-                    {
-                        return Err(Error::NounResult);
+                    match node.kind {
+                        K::Word(W::Return) => return Ok(None),
+                        K::Word(W::For) => {
+                            let end = jump()?;
+                            let do_index = match controls[end].go {
+                                ControlJump::Index(index) if controls[index].kind == K::DoFor => {
+                                    index
+                                }
+                                _ => return Err(Error::Control),
+                            };
+                            let spelling = &code.body[node.span.clone()];
+                            let names = spelling
+                                .strip_prefix("for_")
+                                .and_then(|s| s.strip_suffix('.'))
+                                .map(|name| (name.to_owned(), format!("{name}_index")));
+                            if let Some((item, index)) = &names {
+                                if item.len() > 249 {
+                                    return Err(Error::IllFormedName);
+                                }
+                                let local = frame
+                                    .parent
+                                    .engine
+                                    .local_frames
+                                    .last_mut()
+                                    .expect("definition frame");
+                                local.declared.extend([item.clone(), index.clone()]);
+                            }
+                            loops.push(DefinitionForLoop {
+                                start: pc,
+                                do_index,
+                                exit: end + 1,
+                                names,
+                                iterator: None,
+                                count: None,
+                                next: 0,
+                                owns_index: false,
+                            });
+                            return Ok(Some(pc + 1));
+                        }
+                        K::DoFor => {
+                            let state = loops.last_mut().ok_or(Error::Control)?;
+                            if state.do_index != pc {
+                                return Err(Error::Control);
+                            }
+                            let engine = &mut frame.parent.engine;
+                            let local = engine.local_frames.last_mut().expect("definition frame");
+                            if state.count.is_none() {
+                                let value = match test.take() {
+                                    Some(JEntity::Noun(value)) => value,
+                                    Some(JEntity::Function(_)) => return Err(Error::NounResult),
+                                    None => return Err(Error::Control),
+                                };
+                                if let Some((_, index)) = &state.names {
+                                    if value.is_sparse() {
+                                        return Err(Error::Unsupported(
+                                            "sparse named for iterator".into(),
+                                        ));
+                                    }
+                                    if local
+                                        .names
+                                        .get(index)
+                                        .is_some_and(|binding| binding.read_only)
+                                    {
+                                        return Err(Error::ReadOnly);
+                                    }
+                                }
+                                state.count = Some(value.shape().first().copied().unwrap_or(1));
+                                if state.names.is_some() {
+                                    state.iterator = Some(value.into_shared());
+                                }
+                            }
+                            let count = state.count.expect("initialized loop");
+                            if let Some((item, index)) = &state.names {
+                                let iteration =
+                                    i64::try_from(state.next).map_err(|_| Error::Limit)?;
+                                store_binding(
+                                    &mut local.names,
+                                    &mut engine.pool,
+                                    index.clone(),
+                                    JEntity::Noun(Value::scalar(iteration)),
+                                )?;
+                                local.names.get_mut(index).expect("index binding").read_only = true;
+                                state.owns_index = true;
+                                let value = if state.next < count {
+                                    let iterator = state.iterator.as_ref().expect("named iterator");
+                                    iterator
+                                        .view()
+                                        .cell(iterator.shape().len().saturating_sub(1), state.next)?
+                                        .to_owned()?
+                                } else {
+                                    Value::new(
+                                        vec![0],
+                                        crate::value::Data::Bool(crate::storage::CpuStorage::new(
+                                            Vec::new(),
+                                        )),
+                                    )?
+                                };
+                                store_binding(
+                                    &mut local.names,
+                                    &mut engine.pool,
+                                    item.clone(),
+                                    JEntity::Noun(value),
+                                )?;
+                            }
+                            if state.next < count {
+                                state.next += 1;
+                                return Ok(Some(pc + 1));
+                            }
+                            return Ok(Some(jump()?));
+                        }
+                        K::BreakFor => return Ok(Some(jump()?)),
+                        K::Word(W::Try) => {
+                            let first = jump()?;
+                            let mut handler = first;
+                            while !matches!(controls[handler].kind, K::Word(W::Catch | W::CatchD)) {
+                                handler = match controls[handler].go {
+                                    ControlJump::Index(target) if target < controls.len() => target,
+                                    _ => return Err(Error::Control),
+                                };
+                            }
+                            handlers.push((pc, first, handler + 1));
+                            return Ok(Some(pc + 1));
+                        }
+                        K::Word(W::Do) => {
+                            // cx.c CDO: empty/missing tests and nonnumeric nouns are
+                            // true; numeric tests inspect the first atom only.
+                            let truth = match test.take() {
+                                None => true,
+                                Some(JEntity::Function(_)) => return Err(Error::NounResult),
+                                Some(JEntity::Noun(value)) => {
+                                    if value.is_sparse() {
+                                        return Err(Error::Unsupported(
+                                            "sparse definition condition".into(),
+                                        ));
+                                    }
+                                    value.is_empty()
+                                        || match value.data() {
+                                            crate::value::Data::Bool(_)
+                                            | crate::value::Data::Int(_)
+                                            | crate::value::Data::Float(_) => {
+                                                value.float_at(0)? != 0.0
+                                            }
+                                            _ => true,
+                                        }
+                                }
+                            };
+                            return Ok(Some(if truth { pc + 1 } else { jump()? }));
+                        }
+                        K::Word(
+                            W::Else
+                            | W::ElseIf
+                            | W::End
+                            | W::Whilst
+                            | W::Break
+                            | W::Continue
+                            | W::Catch
+                            | W::CatchD,
+                        ) => {
+                            return Ok(Some(jump()?));
+                        }
+                        K::Word(W::If | W::While) => {
+                            return Ok(Some(pc + 1));
+                        }
+                        K::Body | K::Test => {}
+                        _ => unreachable!("preflight executable controls"),
                     }
-                    last = Some(value);
+                    let sentence = &code.sentences[section.clone()]
+                        .iter()
+                        .find(|sentence| sentence.line == node.line)
+                        .expect("control physical sentence");
+                    for word in &sentence.words[node.words.clone()] {
+                        let name = &code.body[word.span.clone()];
+                        if operand_call
+                            && word.flags.lookup_name
+                            && matches!(name, "u" | "v" | "m" | "n" | "x" | "y")
+                            && !frame
+                                .parent
+                                .engine
+                                .local_frames
+                                .last()
+                                .expect("modifier frame")
+                                .names
+                                .contains_key(name)
+                        {
+                            return Err(Error::Unsupported(
+                                "undefined explicit operand alias".into(),
+                            ));
+                        }
+                    }
+                    let program = crate::parser::parse_runtime_source(
+                        body_origin.slice(node.span.clone())?,
+                        &mut frame,
+                        None,
+                    )?;
+                    let assigned = program.has_assignment();
+                    if let Some(expression) = program.expression {
+                        let value = match expression.kind {
+                            crate::semantic::ExprKind::Literal(value) => JEntity::Noun(value),
+                            crate::semantic::ExprKind::VerbValue(verb) => {
+                                JEntity::Function(verb.entity)
+                            }
+                            crate::semantic::ExprKind::ModifierValue(function) => {
+                                JEntity::Function(function)
+                            }
+                            _ => JEntity::Noun(crate::parser::RuntimeParserHost::apply(
+                                &mut frame, expression,
+                            )?),
+                        };
+                        if !assigned
+                            && matches!(value, JEntity::Function(_))
+                            && node.kind == K::Body
+                            && controls[pc + 1..].iter().any(|next| next.kind == K::Body)
+                        {
+                            return Err(Error::NounResult);
+                        }
+                        if node.kind == K::Test {
+                            test = Some(value);
+                        } else {
+                            last = Some(value);
+                            last_result_span = Some(node.span.clone());
+                        }
+                    }
+                    Ok(Some(pc + 1))
+                })();
+                match step {
+                    Ok(Some(next)) => pc = next,
+                    Ok(None) => break,
+                    Err(error) => {
+                        // Statement-parser spans are fragment-relative. Preserve
+                        // original definition coordinates before caller relocation.
+                        let mut context = error.context().cloned().unwrap_or_default();
+                        let relative = context.span.clone().unwrap_or(0..node.span.len());
+                        let body_span =
+                            node.span.start + relative.start..node.span.start + relative.end;
+                        if let Some(span) = code.source_map.original_span(body_span) {
+                            context
+                                .source_frames
+                                .push(crate::error::DiagnosticSourceFrame {
+                                    kind: if context.source_frames.is_empty() {
+                                        crate::error::DiagnosticFrameKind::DefinitionBody
+                                    } else {
+                                        crate::error::DiagnosticFrameKind::DefinitionCall
+                                    },
+                                    origin: code.origin.clone(),
+                                    source: code.source.clone(),
+                                    definition_span: code.source_span.clone(),
+                                    span,
+                                    blame_word_index: context.blame_word_index,
+                                });
+                        }
+                        let error = error.into_unlocated().with_context(context);
+                        // Capability misses, verifier defects and backend failures
+                        // never become successful values through a J catch.
+                        if !error.is_j_catchable() {
+                            return Err(error);
+                        }
+                        // cx.c forinitnames/forinit use BZ/BASSERT and leave the
+                        // definition directly. Only CHECKNOUN routes a for-test
+                        // non-noun through its surrounding catch handler.
+                        if node.kind == K::Word(W::For)
+                            || (node.kind == K::DoFor && !matches!(error.root(), Error::NounResult))
+                        {
+                            return Err(error);
+                        }
+                        let Some((_, _, handler)) = handlers.pop() else {
+                            return Err(error);
+                        };
+                        pc = handler;
+                        last = Some(empty_result()?);
+                        last_result_span = Some(node.span.clone());
+                        test = None;
+                    }
                 }
             }
-            let value =
-                last.ok_or_else(|| Error::Unsupported("empty explicit modifier result".into()))?;
+            let returning = |error| {
+                code.diagnostic_error(
+                    error,
+                    crate::error::DiagnosticFrameKind::DefinitionReturn,
+                    last_result_span.clone(),
+                    None,
+                )
+            };
+            let value = last.ok_or_else(|| {
+                returning(Error::Unsupported("empty explicit modifier result".into()))
+            })?;
             if verb_call && matches!(value, JEntity::Function(_)) {
-                return Err(Error::NounResult);
+                return Err(returning(Error::NounResult));
             }
             // cx.c fixes only the first implicit locative on each branch.
             // Replacement operands and ordinary names remain untouched.
             match value {
                 JEntity::Function(function) => Ok(JEntity::Function(
-                    frame.parent.engine.fix_implicit_return(&function, 0)?,
+                    frame
+                        .parent
+                        .engine
+                        .fix_implicit_return(&function, 0)
+                        .map_err(returning)?,
                 )),
                 noun => Ok(noun),
             }
@@ -675,7 +1588,9 @@ impl Engine {
             }
             return Ok(
                 matches!(&current.head, FunctionHead::ExplicitDefinition(code)
-                if code.operator_definition && !current.operands.is_empty())
+                if current.result_pos == FunctionPartOfSpeech::Verb
+                    && (code.result_pos == FunctionPartOfSpeech::Verb
+                        || (code.operator_definition && !current.operands.is_empty())))
                 .then_some(current),
             );
         }
@@ -760,6 +1675,7 @@ impl Engine {
             entity: function,
         };
         let right = Box::new(Expr {
+            origin: None,
             span: span.clone(),
             kind: ExprKind::Literal(y),
         });
@@ -767,6 +1683,7 @@ impl Engine {
             ExprKind::Dyad {
                 verb,
                 left: Box::new(Expr {
+                    origin: None,
                     span: span.clone(),
                     kind: ExprKind::Literal(x),
                 }),
@@ -778,7 +1695,15 @@ impl Engine {
                 argument: right,
             }
         };
-        self.interpret_ir(Expr { span, kind }, pooled, depth + 1)
+        self.interpret_ir(
+            Expr {
+                origin: None,
+                span,
+                kind,
+            },
+            pooled,
+            depth + 1,
+        )
     }
 
     fn call_implicit_operand(
@@ -909,6 +1834,13 @@ impl Engine {
                 let ranks = function.requested_ranks().ok_or_else(|| {
                     Error::Unsupported("rank construction has no innate-rank witness".into())
                 })?;
+                if x.is_none() {
+                    if let Some(result) =
+                        crate::logical_executor::exact_empty_rank_reduction(operand, ranks[0], &y)
+                    {
+                        return result;
+                    }
+                }
                 // Pure ravel's empty-frame result follows only from logical
                 // cell shape. Unknown/explicit verbs retain the prototype boundary.
                 if x.is_none() && !y.is_sparse() {
@@ -1018,14 +1950,11 @@ impl Engine {
                 span: span.clone(),
             },
         };
-        let [left, rest @ ..] = function.operands.as_slice() else {
-            return Err(Error::Domain);
-        };
-        if rest.len() > 1 {
+        if function.operands.len() > 2 {
             return Err(Error::Domain);
         }
-        let left = copy_operand(left);
-        let right = rest.first().map(copy_operand);
+        let left = function.operands.first().map(copy_operand);
+        let right = function.operands.get(1).map(copy_operand);
         let result = self.invoke_definition_body(function, left, right, Some((x, y)), pooled);
         match result {
             Ok(JEntity::Noun(value)) => Ok(value),
@@ -1058,6 +1987,7 @@ impl Engine {
         if let Some(Binding {
             value: JEntity::Function(function),
             version,
+            ..
         }) = self.names.get(name)
         {
             // Unknown application semantics do not prevent transporting the
@@ -1079,10 +2009,374 @@ impl Engine {
         self.parser_name_binding(name)
     }
     /// Inspect bindings without execution or mutation. Versions are Engine-local.
+    /// Return the parser transport before binding/admission. Catalog class and
+    /// version observations are assumptions, not runtime binding guards.
+    pub fn parse_frontend(
+        &self,
+        source: &str,
+    ) -> std::result::Result<crate::semantic::Program, crate::frontend_context::FrontendFailure>
+    {
+        crate::parser::parse_frontend_with_lookup(
+            source,
+            Some(&|name| self.parser_analysis_binding(name)),
+        )
+    }
+
+    /// Inspect bindings without execution or mutation. Versions are Engine-local.
     /// Stable machine API: diagnostic wrappers are stripped before return.
     pub fn prepare_semantic(&self, source: &str) -> Result<crate::semantic::BoundProgram> {
         self.prepare_semantic_diagnostic(source)
             .map_err(Error::into_unlocated)
+    }
+
+    /// Lower without executing kernels, reading noun payloads or deleting names.
+    /// Unlike BoundProgram, this bounded route carries ordered NAME effects.
+    pub fn prepare_name_effects(&self, source: &str) -> Result<crate::name_effect_ir::Plan> {
+        let program = self.parse_frontend(source).map_err(|failure| {
+            // A catalog lookup failure is an admission failure, not an
+            // executed J error that may overtake an earlier runtime action.
+            if failure.error.kind() == "value error" {
+                let mut error = Error::Unsupported("ordered NAME requires dynamic parsing".into());
+                if let Some(context) = failure.error.context() {
+                    error = error.with_context(context.clone());
+                }
+                error.in_phase(DiagnosticPhase::SemanticAnalysis)
+            } else {
+                failure.error
+            }
+        })?;
+        crate::frontend_handoff::VerifiedFrontend::from_program(program)?.lower_name_effects()
+    }
+
+    /// Execute verified semantic operations once. No parser replay or fallback
+    /// occurs after effects. Binding transitions are observations, not guards.
+    pub fn execute_name_effects(
+        &mut self,
+        plan: &crate::name_effect_ir::Plan,
+    ) -> crate::name_effect_ir::Execution {
+        self.execute_name_effects_route(plan, None)
+    }
+
+    pub fn prepare_name_arrays(
+        &self,
+        source: &str,
+    ) -> Result<crate::name_array_regions::ArrayPlan> {
+        crate::name_array_regions::ArrayPlan::from_effects(self.prepare_name_effects(source)?)
+    }
+
+    pub fn execute_name_arrays(
+        &mut self,
+        plan: &crate::name_array_regions::ArrayPlan,
+    ) -> crate::name_effect_ir::Execution {
+        self.execute_name_effects_route(plan.effects(), Some(plan))
+    }
+
+    fn execute_name_effects_route(
+        &mut self,
+        plan: &crate::name_effect_ir::Plan,
+        arrays: Option<&crate::name_array_regions::ArrayPlan>,
+    ) -> crate::name_effect_ir::Execution {
+        use crate::name_effect_ir::{EffectToken, Execution, NameObservation, Operation, ValueId};
+        fn consume(values: &mut [Option<JEntity>], uses: &mut [usize], id: ValueId) -> JEntity {
+            uses[id.0] -= 1;
+            if uses[id.0] == 0 {
+                values[id.0].take().expect("verified ready value")
+            } else {
+                match values[id.0].as_ref().expect("verified ready value") {
+                    JEntity::Noun(value) => JEntity::Noun(value.clone()),
+                    JEntity::Function(function) => JEntity::Function(function.clone()),
+                }
+            }
+        }
+        let mut completed = EffectToken(0);
+        let mut names = Vec::new();
+        let result = (|| -> Result<Option<Value>> {
+            plan.verify()?;
+            if let Some(arrays) = arrays {
+                arrays.verify()?;
+            }
+            if !self.local_frames.is_empty() {
+                return Err(Error::Unsupported("ordered NAME definition frame".into()));
+            }
+            // Only POS is a parse-specialization precondition. Do not prefetch
+            // payloads or report missing-name errors ahead of the effect chain.
+            for step in plan.steps() {
+                if let Operation::Read { name, expected } | Operation::Take { name, expected, .. } =
+                    &step.operation
+                {
+                    let observation = self.lookup_observation(name);
+                    if observation
+                        .binding_class
+                        .is_some_and(|class| class != *expected)
+                        || matches!(
+                            observation.found,
+                            crate::frontend_context::FoundScope::Extension
+                        )
+                        || (matches!(step.operation, Operation::Read { .. })
+                            && observation.binding_class.is_none())
+                    {
+                        return Err(Error::Unsupported(
+                            "ordered NAME POS precondition changed".into(),
+                        ));
+                    }
+                }
+            }
+            let mut values: Vec<Option<JEntity>> = (0..plan.value_count()).map(|_| None).collect();
+            let mut uses = vec![0; plan.value_count()];
+            for step in plan.steps() {
+                for input in step.operation.inputs() {
+                    uses[input.0] += 1;
+                }
+            }
+            uses[plan.result().0] += 1;
+            let mut index = 0;
+            while index < plan.steps().len() {
+                if let Some(batch) = arrays.and_then(|arrays| arrays.batch_at_step(index)) {
+                    // Replace all parent uses inside this batch with one import.
+                    // A parent value with later uses is shared; otherwise it moves.
+                    let mut inputs: Vec<_> = batch
+                        .inputs()
+                        .iter()
+                        .map(|(id, count)| {
+                            uses[id.0] -= count - 1;
+                            let JEntity::Noun(value) = consume(&mut values, &mut uses, *id) else {
+                                unreachable!("verified array batch input")
+                            };
+                            value
+                        })
+                        .collect();
+                    // Only immutable literal payloads may be supplied ahead of
+                    // their zero-operation transport checkpoint. No lookup,
+                    // constructor or computation is performed here.
+                    inputs.extend(
+                        batch
+                            .constants()
+                            .iter()
+                            .map(|(_, node)| plan.literal(*node).clone()),
+                    );
+                    let exports: Vec<_> = batch.outputs().iter().map(|(_, value)| *value).collect();
+                    let progress =
+                        crate::logical_executor::execute_outputs(batch.logical(), inputs, &exports);
+                    match progress.result {
+                        Ok(results) => {
+                            // Internal uses are satisfied by batch SSA, not parent slots.
+                            for step in &plan.steps()[batch.steps()] {
+                                for id in step.operation.inputs() {
+                                    if !batch.inputs().iter().any(|(input, _)| *input == id) {
+                                        uses[id.0] -= 1;
+                                    }
+                                }
+                            }
+                            for ((id, _), value) in batch.outputs().iter().zip(results) {
+                                values[id.0] = Some(JEntity::Noun(if uses[id.0] > 1 {
+                                    value.into_shared()
+                                } else {
+                                    value
+                                }));
+                            }
+                            completed = batch
+                                .checkpoints()
+                                .last()
+                                .expect("nonempty verified batch")
+                                .success;
+                            index = batch.steps().end;
+                            continue;
+                        }
+                        Err(error) => {
+                            let failed = batch
+                                .checkpoints()
+                                .iter()
+                                .find(|point| point.operations.end > progress.completed_operations)
+                                .expect("verified batch failure checkpoint");
+                            completed = failed.entry;
+                            let step = &plan.steps()[failed.step];
+                            return Err(error.at(step.span.clone()).blamed_on_word(step.blame.0));
+                        }
+                    }
+                }
+                let step = &plan.steps()[index];
+                let observation = match &step.operation {
+                    Operation::Read { name, .. }
+                    | Operation::Take { name, .. }
+                    | Operation::Commit { name, .. } => Some((name, self.lookup_observation(name))),
+                    _ => None,
+                };
+                let mut deleted = false;
+                let value = (|| -> Result<Option<JEntity>> {
+                    Ok(match &step.operation {
+                        Operation::Literal(node) => {
+                            Some(JEntity::Noun(plan.literal(*node).clone()))
+                        }
+                        Operation::Function(node) => {
+                            Some(JEntity::Function(plan.function(*node).clone()))
+                        }
+                        Operation::Read { name, .. } => Some(match self.visible_binding(name) {
+                            Some(Binding {
+                                value: JEntity::Noun(value),
+                                ..
+                            }) => JEntity::Noun(value.clone()),
+                            Some(_) => return Err(Error::Domain),
+                            None => return Err(Error::Value(name.clone())),
+                        }),
+                        Operation::Take {
+                            name, single_word, ..
+                        } => {
+                            let (entity, removed) = self.take_binding(name, *single_word)?;
+                            deleted = removed;
+                            Some(entity)
+                        }
+                        Operation::Apply {
+                            primitive,
+                            function,
+                            left,
+                            right,
+                        } => {
+                            let JEntity::Noun(y) = consume(&mut values, &mut uses, *right) else {
+                                unreachable!("verified noun operand")
+                            };
+                            let literal = |value| crate::semantic::Expr {
+                                origin: None,
+                                span: step.span.clone(),
+                                kind: crate::semantic::ExprKind::Literal(value),
+                            };
+                            let verb = crate::semantic::Verb {
+                                span: step.span.clone(),
+                                target: crate::semantic::VerbTarget::Primitive(*primitive),
+                                entity: plan.function(*function).clone(),
+                            };
+                            let kind = if let Some(left) = left {
+                                let JEntity::Noun(x) = consume(&mut values, &mut uses, *left)
+                                else {
+                                    unreachable!("verified noun operand")
+                                };
+                                crate::semantic::ExprKind::Dyad {
+                                    verb,
+                                    left: Box::new(literal(x)),
+                                    right: Box::new(literal(y)),
+                                }
+                            } else {
+                                crate::semantic::ExprKind::Monad {
+                                    verb,
+                                    argument: Box::new(literal(y)),
+                                }
+                            };
+                            Some(JEntity::Noun(self.interpret_ir(
+                                crate::semantic::Expr {
+                                    origin: None,
+                                    span: step.span.clone(),
+                                    kind,
+                                },
+                                true,
+                                0,
+                            )?))
+                        }
+                        Operation::Commit { name, value } => {
+                            let value = consume(&mut values, &mut uses, *value);
+                            self.commit_binding(name.clone(), value)?;
+                            None
+                        }
+                    })
+                })();
+                if let Some((name, before)) = observation {
+                    names.push(NameObservation {
+                        step: index,
+                        before,
+                        after: self.lookup_observation(name),
+                        deleted,
+                    });
+                }
+                let value = value
+                    .map_err(|error| error.at(step.span.clone()).blamed_on_word(step.blame.0))?;
+                if let (Some(output), Some(value)) = (step.output, value) {
+                    if uses[output.0] > 0 {
+                        values[output.0] = Some(match value {
+                            JEntity::Noun(value) if uses[output.0] > 1 => {
+                                JEntity::Noun(value.into_shared())
+                            }
+                            value => value,
+                        });
+                    }
+                }
+                completed = step.after;
+                index += 1;
+            }
+            if plan.program().has_assignment() {
+                return Ok(None);
+            }
+            match consume(&mut values, &mut uses, plan.result()) {
+                JEntity::Noun(value) => Ok(Some(value)),
+                JEntity::Function(_) => Err(Error::Unsupported("function result display".into())),
+            }
+        })();
+        Execution {
+            result,
+            completed,
+            names,
+        }
+    }
+
+    /// Inspect one stage without executing J kernels, definitions or writes.
+    /// Accepted representations still require downstream admission and guards.
+    pub fn admit_frontend(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::semantic::Program> {
+        crate::admission::Admission::frontend(self.parse_frontend(source))
+    }
+    pub fn admit_frontend_handoff(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::frontend_handoff::VerifiedFrontend> {
+        crate::admission::Admission::parsed(
+            crate::admission::Stage::FrontendHandoff,
+            self.parse_frontend(source),
+            crate::frontend_handoff::VerifiedFrontend::from_program,
+        )
+    }
+    pub fn admit_semantic(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::semantic::BoundProgram> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::SemanticBinding,
+            self.prepare_semantic_diagnostic(source),
+        )
+    }
+    pub fn admit_j_graph(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::j_graph_ir::Plan> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::JGraph,
+            self.analyze_j_graph_diagnostic(source),
+        )
+    }
+    pub fn admit_logical(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::compilation::CompilationAnalysis> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::Logical,
+            self.analyze_compilation_diagnostic(source),
+        )
+    }
+    pub fn admit_name_effects(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::name_effect_ir::Plan> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::NameEffects,
+            self.prepare_name_effects(source),
+        )
+    }
+    pub fn admit_name_arrays(
+        &self,
+        source: &str,
+    ) -> crate::admission::Admission<crate::name_array_regions::ArrayPlan> {
+        crate::admission::Admission::inspected(
+            crate::admission::Stage::NameArrays,
+            self.prepare_name_arrays(source),
+        )
     }
 
     pub fn prepare_semantic_diagnostic(
@@ -1182,6 +2476,68 @@ impl Engine {
         self.names.get(name).map(|binding| binding.version)
     }
 
+    // sl.c initializes a named locale with a z path. This slice supports its
+    // own noun table only: z/path mutation and numbered locales stay closed.
+    fn ensure_named_locale(&mut self, locale: &str) -> Result<()> {
+        if !locale
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic)
+            || locale == "z"
+        {
+            return Err(Error::Unsupported("numbered/z locale namespace".into()));
+        }
+        if locale != "base" {
+            self.named_locales
+                .entry(locale.to_owned())
+                .or_insert_with(|| NamedLocale {
+                    instance: crate::frontend_context::ScopeInstanceId::fresh(),
+                    names: HashMap::new(),
+                });
+        }
+        Ok(())
+    }
+    fn direct_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
+        if locale == "base" {
+            self.names.get(key)
+        } else {
+            self.named_locales.get(locale)?.names.get(key)
+        }
+    }
+
+    fn commit_runtime_binding(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            if !matches!(value, JEntity::Noun(_)) {
+                return Err(Error::Unsupported(
+                    "direct-locative function assignment".into(),
+                ));
+            }
+            self.ensure_named_locale(locale)?;
+            if locale == "base" {
+                return self.commit_binding(key.to_owned(), value);
+            }
+            return store_binding(
+                &mut self
+                    .named_locales
+                    .get_mut(locale)
+                    .expect("created locale")
+                    .names,
+                &mut self.pool,
+                key.to_owned(),
+                value,
+            );
+        }
+        if let Some(key) = base_locative_key(name) {
+            if !matches!(value, JEntity::Noun(_)) {
+                return Err(Error::Unsupported(
+                    "base-locative function assignment".into(),
+                ));
+            }
+            return self.commit_binding(key.to_owned(), value);
+        }
+        self.commit_binding(name.to_owned(), value)
+    }
+
     fn commit_binding(&mut self, name: String, value: JEntity) -> Result<JEntity> {
         store_binding(&mut self.names, &mut self.pool, name, value)
     }
@@ -1191,6 +2547,316 @@ impl Engine {
             .last()
             .and_then(|frame| frame.names.get(name))
             .or_else(|| self.names.get(name))
+    }
+
+    fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        if let Some(frame) = self.local_frames.last_mut()
+            && let Some(binding) = frame.names.get(name)
+        {
+            // p.c finlocal1 bypasses nameundco for a single local word.
+            if single_word {
+                let value = match &binding.value {
+                    JEntity::Noun(value) => JEntity::Noun(value.clone()),
+                    JEntity::Function(function) => JEntity::Function(function.clone()),
+                };
+                return Ok((value, false));
+            }
+            if binding.read_only {
+                return Err(Error::Unsupported("abandon read-only loop binding".into()));
+            }
+            return Ok((frame.names.remove(name).expect("found local").value, true));
+        }
+        if let Some(binding) = self.names.remove(name) {
+            return Ok((binding.value, true));
+        }
+        if self.primitives.resolve_extension_binding(name).is_some() {
+            return Err(Error::Unsupported(
+                "abandon extension registry binding".into(),
+            ));
+        }
+        Err(Error::Value(name.to_owned()))
+    }
+
+    fn lookup_observation(&self, name: &str) -> crate::frontend_context::LookupObservation {
+        use crate::frontend_context::{
+            FoundScope, LocalLookupState, LookupObservation, ScopeSearch,
+        };
+        if let Some((key, locale)) = named_direct_address(name) {
+            let start = if locale == "base" {
+                Some(self.namespace_instance)
+            } else {
+                self.named_locales.get(locale).map(|locale| locale.instance)
+            };
+            let binding = self.direct_binding(key, locale);
+            return LookupObservation {
+                engine: self.namespace_instance,
+                frame: self.local_frames.last().map(|frame| frame.instance),
+                search: ScopeSearch::DirectLocaleOnly(
+                    start.expect("successful lookup created locale"),
+                ),
+                local_state: if self.local_frames.is_empty() {
+                    LocalLookupState::NoFrame
+                } else {
+                    LocalLookupState::Bypassed
+                },
+                found: if binding.is_none() {
+                    FoundScope::Missing
+                } else if locale == "base" {
+                    FoundScope::Global(self.namespace_instance)
+                } else {
+                    FoundScope::Locale(start.unwrap())
+                },
+                binding_version: binding.map(|binding| binding.version),
+                binding_generation: binding.map(|binding| binding.generation),
+                binding_class: binding.map(|binding| match &binding.value {
+                    JEntity::Noun(_) => crate::parser::ParseClass::Noun,
+                    JEntity::Function(function) => function.result_pos.into(),
+                }),
+            };
+        }
+        if let Some(key) = base_locative_key(name) {
+            let binding = self.names.get(key);
+            return LookupObservation {
+                engine: self.namespace_instance,
+                frame: self.local_frames.last().map(|frame| frame.instance),
+                search: ScopeSearch::BaseLocaleOnly,
+                local_state: if self.local_frames.is_empty() {
+                    LocalLookupState::NoFrame
+                } else {
+                    LocalLookupState::Bypassed
+                },
+                found: if binding.is_some() {
+                    FoundScope::Global(self.namespace_instance)
+                } else {
+                    FoundScope::Missing
+                },
+                binding_version: binding.map(|binding| binding.version),
+                binding_generation: binding.map(|binding| binding.generation),
+                binding_class: binding.map(|binding| match &binding.value {
+                    JEntity::Noun(_) => crate::parser::ParseClass::Noun,
+                    JEntity::Function(function) => function.result_pos.into(),
+                }),
+            };
+        }
+        let frame = self.local_frames.last();
+        let local_state = match frame {
+            None => LocalLookupState::NoFrame,
+            Some(frame) if frame.names.contains_key(name) => LocalLookupState::Bound,
+            Some(frame) if frame.declared.contains(name) => LocalLookupState::DeclaredUnbound,
+            Some(_) => LocalLookupState::Absent,
+        };
+        let found = match frame {
+            Some(frame) if frame.names.contains_key(name) => FoundScope::Local(frame.instance),
+            _ if self.names.contains_key(name) => FoundScope::Global(self.namespace_instance),
+            _ if self.primitives.resolve_extension_binding(name).is_some() => FoundScope::Extension,
+            _ => FoundScope::Missing,
+        };
+        LookupObservation {
+            engine: self.namespace_instance,
+            frame: frame.map(|frame| frame.instance),
+            search: if frame.is_some() {
+                ScopeSearch::CurrentFrameThenGlobal
+            } else {
+                ScopeSearch::GlobalOnly
+            },
+            local_state,
+            found,
+            binding_version: self.visible_binding(name).map(|binding| binding.version),
+            binding_generation: self.visible_binding(name).map(|binding| binding.generation),
+            binding_class: self
+                .visible_binding(name)
+                .map(|binding| match &binding.value {
+                    JEntity::Noun(_) => crate::parser::ParseClass::Noun,
+                    JEntity::Function(function) => function.result_pos.into(),
+                }),
+        }
+    }
+
+    /// Recheck the full supported simple-name search. This does not execute a
+    /// specialized plan or authorize skipping any future semantic lookup.
+    pub fn check_name_guard(
+        &self,
+        guard: &crate::frontend_context::SimpleNameGuard,
+    ) -> crate::frontend_context::NameGuardCheck {
+        self.check_lookup_observation(&guard.name, &guard.expected)
+    }
+
+    fn check_lookup_observation(
+        &self,
+        name: &str,
+        expected: &crate::frontend_context::LookupObservation,
+    ) -> crate::frontend_context::NameGuardCheck {
+        use crate::frontend_context::NameGuardCheck;
+        if self.namespace_instance != expected.engine {
+            return NameGuardCheck::EngineChanged;
+        }
+        if self.local_frames.last().map(|frame| frame.instance) != expected.frame {
+            return NameGuardCheck::FrameChanged;
+        }
+        if self.lookup_observation(name) == *expected {
+            NameGuardCheck::ValidAtCheck
+        } else {
+            NameGuardCheck::LookupChanged
+        }
+    }
+
+    /// Inspect only ordinary call-target aliases. Never walk derived operands
+    /// speculatively or execute a definition to discover its eventual target.
+    pub fn prepare_alias_call_guard(
+        &self,
+        context: &std::sync::Arc<crate::frontend_context::FrontendContext>,
+        id: crate::frontend_context::NameUseId,
+    ) -> std::result::Result<
+        crate::name_guards::AliasCallGuard,
+        crate::name_guards::AliasGuardAdmission,
+    > {
+        use crate::frontend_context::{NameGuardCheck, NamePolicy, SimpleNameGuard};
+        use crate::name_guards::{AliasCallGuard, AliasGuardAdmission as Failure, AliasRead};
+        use crate::primitive::PrimitiveId;
+        let root = SimpleNameGuard::from_name_use(context, id).map_err(Failure::InvalidOrigin)?;
+        if context.name_uses[id.0].policy != NamePolicy::LateAtCall {
+            return Err(Failure::UnsupportedTarget);
+        }
+        let checked = self.check_name_guard(&root);
+        if checked != NameGuardCheck::ValidAtCheck {
+            return Err(Failure::RootChanged(checked));
+        }
+        let mut name = root.name().to_owned();
+        let mut reads = Vec::new();
+        let mut seen = HashSet::new();
+        for _ in 0..=crate::semantic::MAX_EXPR_DEPTH {
+            // Each alias has the same supported simple-name search recipe.
+            if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                || name.ends_with('_')
+                || name.contains("__")
+            {
+                return Err(Failure::UnsupportedTarget);
+            }
+            let binding = self
+                .visible_binding(&name)
+                .ok_or_else(|| Failure::UnboundTarget(name.clone()))?;
+            let JEntity::Function(target) = &binding.value else {
+                return Err(Failure::WrongPartOfSpeech(name));
+            };
+            if target.result_pos != FunctionPartOfSpeech::Verb {
+                return Err(Failure::WrongPartOfSpeech(name));
+            }
+            if !seen.insert(binding.generation) {
+                return Err(Failure::Cycle(name));
+            }
+            reads.push(AliasRead {
+                name: name.clone(),
+                observation: self.lookup_observation(&name),
+                target: target.clone(),
+            });
+            if !target.operands.is_empty() {
+                return Err(Failure::UnsupportedTarget);
+            }
+            match &target.head {
+                FunctionHead::NameRef(next) => name = next.clone(),
+                FunctionHead::PrimitiveVerb(
+                    id @ (PrimitiveId::Add
+                    | PrimitiveId::Subtract
+                    | PrimitiveId::Multiply
+                    | PrimitiveId::Divide),
+                ) => {
+                    return Ok(AliasCallGuard {
+                        context: context.clone(),
+                        root,
+                        reads,
+                        primitive: *id,
+                    });
+                }
+                _ => return Err(Failure::UnsupportedTarget),
+            }
+        }
+        Err(Failure::DepthLimit)
+    }
+
+    pub fn check_alias_call_guard(
+        &self,
+        guard: &crate::name_guards::AliasCallGuard,
+    ) -> crate::name_guards::AliasGuardCheck {
+        use crate::{frontend_context::NameGuardCheck, name_guards::AliasGuardCheck};
+        if guard.verify().is_err() {
+            return AliasGuardCheck::InvalidRecipe;
+        }
+        for (read, dependency) in guard.reads.iter().enumerate() {
+            let reason = self.check_lookup_observation(&dependency.name, &dependency.observation);
+            if reason != NameGuardCheck::ValidAtCheck {
+                return AliasGuardCheck::Invalidated { read, reason };
+            }
+        }
+        AliasGuardCheck::ValidAtCheck
+    }
+
+    /// Validate after argument evaluation, immediately before the pure call.
+    /// A miss returns without invoking kernels or replaying any prior effects.
+    pub fn validate_alias_call_guard<'a>(
+        &'a self,
+        guard: &'a crate::name_guards::AliasCallGuard,
+    ) -> std::result::Result<
+        crate::name_guards::ValidatedAliasTarget<'a>,
+        crate::name_guards::AliasGuardCheck,
+    > {
+        let check = self.check_alias_call_guard(guard);
+        if check != crate::name_guards::AliasGuardCheck::ValidAtCheck {
+            return Err(check);
+        }
+        Ok(crate::name_guards::ValidatedAliasTarget {
+            _engine: self,
+            guard,
+        })
+    }
+
+    /// Try one pure guarded call with already evaluated arguments. A miss moves
+    /// the unchanged call back to the caller; it is never a language error.
+    pub fn try_alias_call(
+        &self,
+        call: crate::name_guards::AliasCall,
+    ) -> crate::name_guards::AliasCallAttempt {
+        use crate::name_guards::{AliasCallAttempt, AliasCallMiss};
+        match self.validate_alias_call_guard(&call.guard) {
+            Ok(lease) => AliasCallAttempt::Executed(match call.x {
+                Some(x) => lease.apply_dyad(x, call.y),
+                None => lease.apply_monad(call.y),
+            }),
+            Err(check) => AliasCallAttempt::Miss(AliasCallMiss { check, call }),
+        }
+    }
+
+    /// Explicit semantic call at the same call-ready boundary. Recheck engine
+    /// and frame, then use the original NameRef and retained values through the
+    /// existing Rust caller. No source parsing or argument/effect replay occurs.
+    /// Wrong-engine/frame or damaged recipes return ownership without calling.
+    pub fn resume_alias_call(
+        &mut self,
+        miss: crate::name_guards::AliasCallMiss,
+    ) -> crate::name_guards::AliasCallAttempt {
+        use crate::{
+            frontend_context::NameGuardCheck,
+            name_guards::{AliasCallAttempt, AliasCallMiss, AliasGuardCheck},
+        };
+        let call = miss.call;
+        let check = self.check_alias_call_guard(&call.guard);
+        let rejected = matches!(
+            check,
+            AliasGuardCheck::InvalidRecipe
+                | AliasGuardCheck::Invalidated {
+                    reason: NameGuardCheck::EngineChanged | NameGuardCheck::FrameChanged,
+                    ..
+                }
+        );
+        if rejected {
+            return AliasCallAttempt::Miss(AliasCallMiss { check, call });
+        }
+        let function = call
+            .guard
+            .call_function()
+            .expect("verified original callee")
+            .clone();
+        AliasCallAttempt::Executed(self.call_entity(function, call.x, call.y, true, 0))
     }
 
     /// Reference execution with stable machine-readable J errors.
@@ -1219,8 +2885,15 @@ impl Engine {
     /// Capture is observational: the same parser/kernel path executes either way.
     /// Input/intermediate facts and edges are retained, not array snapshots.
     pub fn eval_captured(&mut self, source: &str) -> CapturedEvaluation {
+        self.eval_source_captured(crate::source::SourceUnit::new("<input>", source).origin())
+    }
+
+    pub fn eval_source_captured(
+        &mut self,
+        origin: crate::source::SourceOrigin,
+    ) -> CapturedEvaluation {
         let mut capture = crate::parser_capture::ParseCapture::default();
-        let result = self.eval_program(source, true, Some(&mut capture));
+        let result = self.eval_origin(origin, true, Some(&mut capture));
         if let Err(error) = &result {
             capture.failure = Some(crate::parser_capture::CaptureFailure {
                 kind: error.kind().into(),
@@ -1230,20 +2903,44 @@ impl Engine {
         CapturedEvaluation { result, capture }
     }
 
+    /// Evaluate a checked fragment of an immutable named input revision.
+    /// Definition provenance survives later calls and input redefinition.
+    pub fn eval_source_diagnostic(
+        &mut self,
+        origin: crate::source::SourceOrigin,
+        semantic_reference: bool,
+    ) -> Result<Option<Value>> {
+        self.eval_origin(origin, !semantic_reference, None)
+    }
+
     fn eval_program(
         &mut self,
         source: &str,
         pooled: bool,
         capture: Option<&mut crate::parser_capture::ParseCapture>,
     ) -> Result<Option<Value>> {
-        let program = crate::parser::parse_runtime_host(
-            source,
+        self.eval_origin(
+            crate::source::SourceUnit::new("<input>", source).origin(),
+            pooled,
+            capture,
+        )
+    }
+
+    fn eval_origin(
+        &mut self,
+        origin: crate::source::SourceOrigin,
+        pooled: bool,
+        capture: Option<&mut crate::parser_capture::ParseCapture>,
+    ) -> Result<Option<Value>> {
+        let program = crate::parser::parse_runtime_source(
+            origin,
             &mut EngineParserHost {
                 engine: self,
                 pooled,
             },
             capture,
         )?;
+        let assigned = program.has_assignment();
         let Some(expr) = program.expression else {
             return Ok(None);
         };
@@ -1256,21 +2953,32 @@ impl Engine {
             // Parentheses only wrap completed nouns; no kernel replay occurs.
             _ => JEntity::Noun(self.interpret_ir(expr, pooled, 0)?),
         };
-        if program.assignment.is_some() {
+        if assigned {
             // Runtime row 7 already committed the value. Even a later parser
             // exit error must not roll back that J-visible assignment.
             Ok(None)
         } else {
             match value {
                 JEntity::Noun(value) => Ok(Some(value)),
-                JEntity::Function(function) => Err(Error::Unsupported(
-                    if function.result_pos == FunctionPartOfSpeech::Verb {
-                        "verb result display"
-                    } else {
-                        "modifier result display"
+                JEntity::Function(function) => {
+                    // A bare unresolved ordinary NAME is a delayed nameref
+                    // during parsing, but C reports its missing binding when
+                    // the sentence result is requested. Do not call the verb.
+                    if let FunctionHead::NameRef(name) = &function.head
+                        && self.visible_binding(name).is_none()
+                        && self.primitives.resolve_extension_binding(name).is_none()
+                    {
+                        return Err(Error::Value(name.clone()).at(function.span.clone()));
                     }
-                    .into(),
-                )),
+                    Err(Error::Unsupported(
+                        if function.result_pos == FunctionPartOfSpeech::Verb {
+                            "verb result display"
+                        } else {
+                            "modifier result display"
+                        }
+                        .into(),
+                    ))
+                }
             }
         }
     }
@@ -1347,6 +3055,7 @@ impl Engine {
                 Ok(resolved)
             }
             FunctionHead::VocabularyPrimitive(_)
+            | FunctionHead::TakeName { .. }
             | FunctionHead::PrimitiveAdverb(_)
             | FunctionHead::PrimitiveConjunction(_)
             | FunctionHead::DefinitionConstructor(_)
@@ -1384,6 +3093,9 @@ impl Engine {
                     Some(_) => Err(Error::Domain),
                     None => Err(Error::Value(name)),
                 },
+                Expr::TakeName { .. } => Err(Error::Unsupported(
+                    "deferred abandon requires ordered semantic execution".into(),
+                )),
                 Expr::Monad { verb, argument } => {
                     let verb_span = verb.span.clone();
                     let y = self.interpret_ir(*argument, pooled, depth + 1)?;

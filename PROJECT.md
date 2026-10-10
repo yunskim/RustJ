@@ -16,13 +16,183 @@ The current implementation is transitional: a limited J frontend, direct CPU exe
 
 ---
 
+<a id="read-intro"></a>
+## Introduction for first-time readers — how to think about RustJ
+
+This is an integrated project document containing architecture, implementation details, and validation history. Reading it strictly from top to bottom can expose details before the overall model is clear. On a first pass, start with the **four-stage mental model** in this section, then descend into the detailed sections as needed.
+
+### RustJ in one sentence
+
+RustJ is a **compiler/runtime that preserves J language semantics compatibly with jsource, turns those semantics into analyzable array computation, optimizes it, and can lower it to multiple execution routes such as CPU, GPU, and external compilers**.
+
+The key is that RustJ does not translate J source directly into loops or GPU kernels. J contains Rank, adverbs, conjunctions, hook/fork/train, name lookup, and other constructs where **language meaning itself determines computation structure**. Lowering them too early loses both J semantics and high-level information useful to an optimizer.
+
+RustJ therefore asks four different questions at four different stages.
+
+~~~text
+J source
+   ↓
+Frontend
+   "What does this J program mean?"
+   = semantic structure
+   ↓
+J Graph IR
+   "What array computation does that meaning create?"
+   = computation structure
+   ↓
+Execution IR
+   "What must happen for it to execute correctly?"
+   = execution semantics and dependencies
+   ↓
+Physical Plan / backend
+   "How should this machine actually execute it?"
+   = concrete realization
+   ↓
+execution
+~~~
+
+For a first reading, these four lines are enough:
+
+> **Frontend = semantic structure**  
+> **J Graph IR = computation structure**  
+> **Execution IR = execution semantics and dependencies**  
+> **Physical Plan = concrete realization**
+
+### Why split the system into four stages?
+
+Because each stage answers a different question.
+
+| Stage | Core question | Preserves or decides | Does not decide yet |
+|---|---|---|---|
+| Frontend | What does J mean? | noun/verb/adverb/conjunction, derived functions, Rank, Hook/Fork, names/bindings | fusion, buffers, GPU kernels |
+| J Graph IR | What computation graph exists? | producer/consumer, branch/join, CellApply, Reduce, dataflow | a specific CPU/GPU realization |
+| Execution IR | What is required for correct execution? | explicit operations, SSA/data dependencies, semantic checks, effect/error order | AVX2, GPU block size, concrete buffers |
+| Physical Plan | How should this machine run it? | route, committed fusion, schedule, layout, buffers, SIMD/thread/GPU mapping | — |
+
+This is not layering for its own sake. The purpose is to **preserve J meaning while keeping optimization choices open until the stage that has enough information to make them**.
+
+For example, the same logical execution meaning CellApply(f, y) may later become any of:
+
+~~~text
+CPU scalar loop
+CPU SIMD + multicore
+GPU kernel
+MLIR / external compiler
+verified library call
+~~~
+
+Choosing one of those in Execution IR would close the optimizer/backend search space too early.
+
+### How is this different from jsource?
+
+jsource also performs parser reductions and constructs meanings such as derived verbs and hook/fork/train. The difference is primarily **how those reduction results are consumed**.
+
+~~~text
+jsource
+tokens → enqueue → parser reduction
+                     ↓
+               semantic action
+                     ↓
+              runtime execution
+~~~
+
+In jsource, parser reduction, semantic action, and runtime execution are closely connected inside an interpreter/runtime flow. There is therefore less need to retain several independent compiler representations for a long time.
+
+RustJ must still perform jsource-compatible reductions in its frontend, but it does not immediately consume the result through execution.
+
+~~~text
+RustJ
+parser reduction
+      ↓
+J semantic structure
+      ↓
+computation graph
+      ↓
+execution semantics
+      ↓
+physical realization
+~~~
+
+So the difference is not that RustJ happened to accumulate more intermediate stages. **The stages are intentional because analysis, optimization, and multiple backends require semantics to remain available across several compiler boundaries.**
+
+### What evolved from JAXA?
+
+JAXA's important starting point was to read optimization-relevant structure directly from J function composition and array notation: for example, treating a Fork as branch/join topology and composition as a producer/consumer chain.
+
+RustJ keeps that insight but makes one additional boundary explicit.
+
+~~~text
+JAXA's central concern
+J syntax / analyzer
+      ↓
+optimization-relevant structure
+
+RustJ
+J semantic structure
+      ↓
+J computation graph
+      ↓
+execution semantics
+      ↓
+physical realization
+~~~
+
+RustJ therefore **does not treat J language-semantic structure and optimizer-facing computation structure as the same representation**. Making that distinction explicit is one of the important architectural advances from JAXA to RustJ.
+
+For example, in f"1 y, the frontend first preserves this meaning:
+
+~~~text
+Rank conjunction (")
+  ├─ left operand:  f
+  └─ right operand: 1
+          ↓
+      derived verb
+          ↓ apply
+          y
+~~~
+
+J Graph IR may then expose the same meaning to the optimizer as cell application:
+
+~~~text
+y
+│
+▼
+Rank / CellApply
+│  function = f
+│  cell rank = 1
+▼
+result
+~~~
+
+The first representation owns **what the J program means**; the second owns **what computation structure that meaning creates**. Neither replaces the other.
+
+### Relationship to other compilers
+
+The broad direction is not unique to RustJ. LLVM, MLIR, XLA/JAX, Futhark, and other modern compiler systems also preserve higher-level meaning or operations and progressively lower them toward target-specific representations.
+
+RustJ's distinguishing requirement is the strong **full-J semantic frontend** placed in front of that familiar compiler architecture. RustJ can borrow proven layering ideas from other systems without redefining Rank, derived verbs, Hook/Fork, name semantics, or other J behavior for compiler convenience.
+
+### Recommended first-reading path
+
+**First reading (overall model):** this introduction → [§1 Project goal](#read-goal) → [§2 Target architecture](#read-architecture). After this, the reader should be able to explain the four questions and what each stage deliberately leaves undecided.
+
+**Second reading (core contracts):** [Part I Frontend](#read-frontend) → [Part II Semantic identity](#read-semantic) → [Part III Rank/cell meaning](#read-rank) → [Part IV J Graph IR](#read-graph) → [Part VIII Execution lowering](#read-execution) → [Part IX physical targets](#read-physical). Parts V–VII add optimizer/resource detail when needed.
+
+**Third reading (implementation):** [Part XI Validation policy](#read-validation) → [Part XII Current status](#read-status) → [Part XIII Roadmap](#read-roadmap).
+
+**Optional references:** [Part XIV JAXA history, implementation references and source audits](#read-references), and detailed checklists/evidence are not prerequisites. Historical test counts must not be treated as current HEAD validation.
+
+
 ### Quick guide — current priority and reading order
 
+- **Latest definition/E2E status (2026-10-07):** ordinary explicit/direct calls now include for/for_name loops, nested direct/string explicit scopes, and A3 function-reference transport. All 21 definition acceptance tests are active. Body CFG lowering/compiled execution, general locales and CUDA execution remain follow-up work. See the definition follow-up evidence below.
 - **Goal and invariants:** a Rust kernel/compiler preserving full J semantics. C is the differential oracle, not the normal runtime fallback. Keep Logical Array and Physical Representation separate.
 - **Current priority:** [§O.5 framework migration checklist](#framework-migration-checklist) and [§Q whole-jsource optimization checklist](#jsource-optimization-migration) tracks M2→M3→M4 acceptance gates; continue M2 tokenizer → enqueuer → parser convergence. Preserving graph structure/partial facts is distinct from permitting optimization/execution. Then close M3 boundaries and validate the M4 Native CPU vertical slice. Retain GPU-friendly design while deferring CUDA implementation. Open external routes incrementally where capability is proven.
-- **Latest validation:** as of NV3d2b2a (2026-10-05), Windows default/portable each **474 passed / 17 ignored** and Python **30 passed**. Existing j64/AVX2 runtime routes remain **5,380 / 5,380 passed / zero failures**, with stages **10,810** and words **6,623**. Numeric syntax is **2,485 cases / zero failures** per DLL, but one unresolved recognition boundary and one unresolved error boundary remain and are not counted as execution/error-equivalence success. Keep 257 capture-graph, two static, and 285 runtime-prefix / zero executable-prefix-pass boundaries separate. The latest graph-readiness gate is GF6a and does not mean fusion selection or GPU execution is implemented. See the NV3d2b2a/GF6a gates and current validation summary.
+- **Latest recorded Windows validation (2026-10-08, frontend admission/handoff and decimal/extended/rational literals and rational arithmetic/extended division/rational reduce/uniform rank assembly):** default/portable each **746 passed / zero failures / zero ignored**, Python **85 passed**, fmt/clippy pass. Definition-call audit **144/144 matched** and a separate NAME effect/array audit **104/104 matched**. This is limited Windows evidence, not Linux/GitHub CI, GPU, or full-J equivalence. Earlier gate counts remain historical.
 - **Reading order:** rationale in [FOUNDATIONS.md](FOUNDATIONS.md); name/effect/route conditions in [dynamic semantic boundary contracts](#dynamic-semantic-boundaries); work and gates in the frontend/milestone checklists and validation policy. Historical gates are not current support claims. Keep the canonical design and checklists in this document pair.
 
+
+<a id="read-goal"></a>
 ## 1. Project goal
 
 RustJ aims to implement:
@@ -42,49 +212,7 @@ RustJ aims to implement:
 
 The C J engine is not intended to become RustJ's normal fallback runtime.
 
-### Reference implementations
-
-RustJ does not treat all external implementations as having the same authority. They are used as **role-specific reference implementations**.
-
-- **`jsoftware/jsource` — J semantic reference / oracle**
-  - The authority for language semantics, parser/name behavior, primitive corner cases, rank/agreement, errors, and type semantics.
-  - The primary reference for RustJ semantic correctness and differential testing.
-
-- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
-  - A reference for lazy expression graphs, evaluation boundaries, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend selection, and device-memory/stream/synchronization handling.
-  - Used when comparing RustJ Graph/Execution optimization, Physical Planner behavior, external-library routes, and cost models.
-  - **It is not an oracle for J language semantics.**
-
-- **`jsoftware/math_arrayfire` — J ↔ GPU-library adapter/offload reference**
-  - A concrete adapter that passes J arrays into ArrayFire handles.
-  - Useful for studying row-major J versus column-major ArrayFire conversion, backend capability/rank limits, external-handle lifetime, release, and device-GC boundaries.
-  - It must not be interpreted as an implementation of arbitrary J rank/adverb/derived-verb semantics as a GPU compiler.
-
-- **APEX / Co-dfns / TAIL→Futhark — array-compiler research implementations**
-  - References for morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion, and GPU lowering.
-  - Their restricted APL subsets are not inherited as restrictions on RustJ's J semantics.
-
-- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
-  - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family. Source: https://arxiv.org/abs/1907.00509
-  - Bohrium is a precedent for lazily collecting NumPy-style array operations so fusion, allocation/materialization, host-device movement, and backend-specific execution can be delayed. Do not overstate it as dynamically selecting CPU versus GPU for every operation. Publications: https://bohrium.readthedocs.io/publications.html
-  - Lift is a comparison point for rewrite-driven progression from portable map/reduce patterns toward OpenCL-specific functional patterns and increasingly concrete hardware mappings. Do not describe it as a strict separation of rewriting from hardware mapping. Source: https://doi.org/10.1109/CGO.2017.7863730
-  - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops. Source: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
-  - None of these systems define RustJ's J semantics; they are evidence for compiler layering and optimization techniques.
-
-The reference depends on the question being asked:
-
-```text
-J semantic correctness       → jsource
-array graph/JIT fusion       → ArrayFire
-J↔external GPU adapter       → jsoftware/math_arrayfire
-array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
-rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
-```
-
-The detailed ArrayFire source observations, RustJ applications, and non-adoptions are recorded in §14.2, **ArrayFire and the J ArrayFire add-on**.
-
----
-
+<a id="read-architecture"></a>
 ## 2. Target architecture
 
 ```text
@@ -95,11 +223,12 @@ Word formation / tokenizer
    ↓
 Enqueue / glyph-control-name classification
    ↓
-Parser-time name/POS lookup
+J Parser + Semantic Construction  [one integrated frontend stage]
+   │ Queue/Stack reductions · parser-time name/POS lookup
+   │ adverb/conjunction actions · hook/fork/train construction
+   │ noun/verb construction · required binding/runtime-host actions
    ↓
-J parser reductions
-   ↓
-J Semantic Construction IR / FunctionEntity DAG
+J Semantic Construction IR / JEntity / FunctionEntity DAG
    │
    │ nouns / verbs / adverbs / conjunctions
    │ primitive and derived entities
@@ -142,7 +271,107 @@ Route Partition
    └─ verified library / custom-kernel route
 ```
 
-The semantic meaning of a J program must not depend on the selected backend.
+**Frontend stage-boundary correction (2026-10-07).** Word Formation and Enqueue are preparatory processing phases, but **J Parser and Semantic Construction are not two separately completed compiler passes**. In jsource, queue/stack parsing rules trigger semantic actions and execution interleaved with parsing: name resolution, adverb/conjunction application, derived entities, verb application and assignments. In RustJ, `src/parser.rs` constructs `JEntity`/`FunctionEntity` as reductions happen; `src/semantic.rs` defines target-independent semantic entities and binding/version contracts rather than a mandatory subsequent construction pass. RustJ's analysis-mode `parse` builds semantic structure without executing arbitrary noun kernels; runtime parser/host effects must still match J observation. **J Graph IR and Execution Semantic Lowering remain separate downstream compiler stages.**
+
+
+### Frontend output versus J Graph IR output
+
+This boundary is easy to misunderstand, so RustJ states it explicitly. **The two representations answer different questions about the same program; one does not replace the other.**
+
+- **Frontend / J Semantic Construction asks:** “What does this J expression mean?”
+- **J Graph IR asks:** “When that meaning is applied to noun inputs, what array computation and dependency/topology does it create?”
+- **Execution Semantic Lowering asks:** “Which explicit execution operations, checks, and effect/error ordering realize that computation?”
+- **Physical planning asks:** “Which kernels, buffers, layouts, devices, and schedules realize those execution semantics?”
+
+“Frontend AST” can be used as an informal teaching shorthand, but the canonical RustJ frontend result is not a generic syntax AST. It is the **`JEntity` / `FunctionEntity` semantic DAG plus related frontend context** constructed by parser reductions. This layer preserves J part of speech and composition semantics, primitive/derived functions, adverb/conjunction operands, hook/fork/train, rank, name/binding/version information, and source provenance. It does not decide fusion, materialization, kernels, or devices.
+
+J Graph IR instead describes an **applied computation**: a completed function/entity acting on inputs. It therefore exposes producer/consumer, branch/join, rank/cell boundaries, reductions, and related array topology as first-class graph forms/bases. Shape/type/rank facts and optimization hints may be attached here, but this is still not a physical plan.
+
+| Concern | Frontend / J Semantic Construction | J Graph IR |
+|---|---|---|
+| Primary object | J entities and composition meaning | Applied array-operation graph |
+| Central structure | noun/verb/adverb/conjunction, derived functions, hook/fork/train, rank operands, names | input/output values, producer/consumer, branch/join, GraphForm/GraphBasis, facts/hints |
+| Must preserve | J parser/semantic structure and source provenance | computation topology justified by J semantics and graph provenance |
+| Must not decide yet | graph optimization or physical execution | kernel/buffer/layout/device/schedule |
+| Next stage | J Graph IR construction | Execution Semantic Lowering |
+
+**Rank example:** in `(f"1) y`, the frontend must not collapse `"` into a mere attribute on `f`. Rank is a conjunction: it receives function operand `f` on the left and rank operand `1` on the right, produces a derived verb, and that derived verb is then applied to `y`. The actual `FunctionEntity` shape follows jsource parser reductions; the following is conceptual notation only.
+
+~~~text
+frontend semantic view
+
+Rank conjunction (")
+  ├─ left operand:  f
+  └─ right operand: 1
+          ↓
+     derived verb
+          ↓ apply
+          y
+~~~
+
+After conversion to J Graph IR, the emphasis moves from “how Rank was written as a conjunction” to “what cell/frame application computation exists.” In the current graph representation this can appear, for example, as `GraphForm::Rank { .. }` with `GraphBasisKind::CellApply`.
+
+~~~text
+J Graph view
+
+y
+│
+▼
+Rank / CellApply
+│  function = f
+│  cell rank = 1
+▼
+result
+~~~
+
+The frontend therefore preserves implicit rank semantics as **J language structure**, while Graph IR exposes the **cell-application boundary and dataflow** for optimizer analysis. J Rank behavior such as virtual cells/fill for empty frames must not be prematurely erased into a physical loop model.
+
+**Fork example:** for `(f g h) y`, the frontend preserves the fork as J composition in the `FunctionEntity` structure. J Graph IR exposes the same meaning as fan-out from `y`, independent producers `f(y)` and `h(y)`, and a join at `g`. The current `GraphForm::Fork { .. }` is an analysis surface for that topology.
+
+~~~text
+          y
+         / \
+        /   \
+       ▼     ▼
+     f(y)   h(y)
+        \   /
+         \ /
+          ▼
+    g(f(y), h(y))
+          │
+          ▼
+        result
+~~~
+
+Once exposed as a graph, RustJ can analyze common-input reuse, branch-local fusion, retained-value lifetime, and materialization candidates. It still must not decide here that the expression is one GPU kernel, uses AVX2, or allocates a particular physical buffer.
+
+The stage boundary can be summarized as:
+
+~~~text
+J source
+  ↓
+Frontend / J Semantic Construction
+  = what the J program means
+  ↓
+JEntity / FunctionEntity semantic DAG
+  ↓
+J Graph IR
+  = what array-computation graph that meaning creates
+  ↓
+Execution Semantic Lowering
+  = explicit execution semantics/checks/effects
+  ↓
+Physical planning / backend
+  = how it is physically executed
+~~~
+
+**J Graph IR is not a replacement for frontend output. The frontend owns J meaning; J Graph IR extracts the optimizer-visible computation topology implied by that meaning.** Do not collapse this boundary by making graph/physical decisions in the frontend, and do not drag source-parser mechanics down into Graph IR.
+
+#### Four-stage memory aid — boundary reminder for implementers
+
+First-time readers should start with the [four-stage model in the introduction](#read-intro); the Rank/Fork examples above and the contracts below make it precise for implementation.
+
+**Execution IR is a semantic execution plan, not a hardware plan.** It fixes explicit checks, effects/error ordering and SSA dependencies, but it does not choose AVX2, GPU block sizes, concrete buffer IDs or materialization. The same `CellApply(f, y)` may have several physical realizations. J meaning must remain backend-independent.
 
 ## 2.1 Route-region boundary contract
 
@@ -188,224 +417,109 @@ Current `lowering.rs::partition_plan` is only a v0 analysis helper: it classifie
 
 When mixed-route implementation starts, extend it in this order: compute/verify live-ins and live-outs; distinguish value live-out from effect live-out; preserve SemanticCheck/order edges; add region-wide legality and guard ownership; add representation-neutral BridgeRequirement; lower bridges into concrete transfers/materializations; then differential-test target-specific RoutePartitions from the same Logical IR.
 
----
 
-## 3. JAXA design principle — “SQL for array operations”
+### 2.1.1 M3-RB proof and verification contract for A3 → RouteBoundary (2026-10-07; design only)
 
-Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”** RustJ carries the idea forward in the more general sense of J as a **high-level array language / array query language**.
+**Scope:** This specifies executable acceptance obligations for the existing §2.1 conceptual RouteBoundary. The current `lowering.rs::partition_plan` emits `RouteRegion { class, operations: Range<usize> }` as an **analysis/candidate partition**, not a certified runnable route or heterogeneous scheduler. Add no new mandatory Route/Parallel/Transfer IR; eventually attach a verified sidecar or equivalent evidence to the existing route boundary. No implementation or tests are claimed here.
 
-The analogy is not a claim that J syntax resembles SQL or that full J is a purely declarative language. Full J has names, assignment, effects, observable errors, and control semantics. The relevant principle is:
+**Authority:** Retain an *independently verified, pre-transformation source A3 plan*. `Plan::verify` checks A3 structure, provenance and some SSA constraints, but does **not** independently rederive the truth of arbitrary edited `CallOp.effect`, `possible_errors`, `SpeculationSemantics` or `FactWitness` from J semantics. A transformed/mutated candidate must not certify itself using only its own altered fields. Track original source/primitive registry, operation identities, spans/`j_origin` and witness construction. A fingerprint can catch staleness but is not a semantic proof.
 
-> **J source is not an execution plan.**
-
-J's array semantics and function composition should preserve **what is being computed** at a high level, while the compiler chooses **how to realize it** subject to J semantic legality.
+**Conceptual input and decision (no Rust API selected):**
 
 ~~~text
-J source / J semantics
-        ↓
-J Semantic IR / J Graph IR
-        ↓
-Logical Array / Execution IR
-        ↓
-equivalence / fusion / logical optimization
-        ↓
-execution planning / route selection
-        ↓
-CPU / SIMD / multicore / GPU / external compiler / library
+Inputs: immutable verified source A3; candidate RouteRegion coverage;
+  chosen per-region route/target; optional rewrite/fusion witnesses;
+  binding/semantic facts and required runtime guards.
+Outputs: source op/Check/Write mapping; live-ins/outs; value/effect/ordered
+  error dependencies; per-region capability and discharged proofs/guard
+  ownership; representation-neutral bridge and commit/replay obligations.
+
+Verified      Every obligation discharged; selection may commit.
+GuardRequired Guards and safe fallback not yet placed/proven; NOT runnable.
+Rejected      Missing/forged/unsupported evidence; safe alternative
+              reference/runtime route or explicit Unsupported.
 ~~~
 
-At the level of responsibilities, the SQL analogy is:
+**Required invariants**
 
-~~~text
-SQL / relational system          RustJ
----------------------------      --------------------------------
-query                             J array computation
-logical query plan                J Graph + Logical Execution IR
-logical rewrite                   J-algebra / logical rewrite
-physical planner                  schedule / route / physical planner
-execution engine                  CPU/GPU/runtime/external backend
-~~~
+| ID / owner | Required evidence | Reject if |
+|---|---|---|
+| **RB-01 source coverage** | Original single-block A3 operations `[0,N)` must be covered in original order by contiguous non-overlapping RouteRegion ranges. Preserve each source OpId/span/`j_origin`, Checks and result. Non-1:1 rewrites/fusion require independently witnessed whole-operation semantic equivalence | Any gap/overlap/reordered or ungrounded op; accept an empty partition **only for N=0** |
+| **RB-02 values and region liveness** | Compute producer/consumer closure for all operand kinds, including call left/right, `SemanticCheck.constraint` operands, dynamic reads/guards, intermediate and cross-region uses, and `Plan.result` | A zero-result Check still **consumes** inputs; reject missing live-in/out, dangling producer/consumer, stale version or dropped Return |
+| **RB-03 Check completeness** | Every original zero-result `SemanticCheck` has one proven obligation owner: **(a)** execute with J error class and precedence, **(b)** discharge by a sound `FactWitness` tied to stable input facts, or **(c)** use a proven observationally equivalent guard/check | Reject missing, duplicated, moved or reclassified Checks, spurious witness Some or altered first-error precedence. A **proven discharge** need not execute a redundant Check |
+| **RB-04 effect/error order** | Preserve SSA def-use, `Operation.order_after`, Check→Call, observable error/effect ordering and `Plan.write.after`. First J-visible error is defined by J semantics, not CPU/GPU worker completion | Reject dropping a dead-value but error/effect-live call, moving Checks after effects, changing handled errors or arbitrary completion-first error |
+| **RB-05 dynamic NAME and Write** | Distinguish `ReadNoun {symbol,version}` noun snapshots from late function `CallTarget::Dynamic`/NameRef resolution. `Plan.write` is an **independent commit event outside the operations vector**, requiring symbol/value/previous/proposed/span/after obligations | Range coverage alone does not cover Write. Reject stale snapshot/future-read versions, prematurely frozen function targets, dropped/duplicate/reordered write, replay after committed effects |
+| **RB-06 region-wide legality** | `LoweringRegistry::legal_candidates` supplies candidate families, **not** proof that a complete region is runnable. Verify chosen route, primitive/valence, Rank/CellApply/zero-frame fill, error/effect/alias, target features, runtime guards and bridge compatibility for the whole region | Reject op-wise capability aggregation as region proof, treating `ReferenceSequential` as a native CPU kernel, mutating unknown error/effect to NoError/Pure, unsupported boxed/sparse/tolerance, variable result-cell join, illegal reassociation |
+| **RB-07 bridges and fallback** | Route boundary states only J-visible dtype/shape/rank/boxed/sparse and value/effect ordering constraints. Concrete `BufferId`, strides, host↔device transfer, ready/completion tokens belong downstream to Physical/Bridge lowering. Run guards before observable effects | Reject cuts without a feasible legal bridge; late guard; transparent replay after commit; inferring device residency from a logical route |
+| **RB-08 proof freshness and diagnostics** | Tie witnesses to original A3/registry/op/name version and guard-observation time, with explicit unmet obligations and op/region-specific rejection explanations | Reject witness reuse across different ops/input versions, stale registry, forged effect/error summary, unsupported backend/bridge reported Verified |
 
-Users should express the computation and semantic/storage obligations that matter, while the analyzer/compiler/backend decides matters such as:
+**Planned positive and one-invariant-negative cases (tests not written/run):**
 
-- which equivalent graph form to use;
-- whether to fuse or materialize;
-- which execution basis and route to use;
-- which memory/layout/schedule strategy to use;
-- whether CPU, SIMD, multicore, GPU, or another realization is appropriate;
-- whether a verified external compiler or library route should be used.
+| Source / reference A3 | Expected accepted obligation | Individually forged plan must be rejected |
+|---|---|---|
+| `1+2` | Literal ValueOnly → Elementwise candidate, complete operands/result; CPU `ReferenceSequential` is **not** proof of a native kernel | Missing result operation, live-in or selected target capability |
+| `1 2+3 4` | Sound PrefixAgreement shape witness may legitimately remove an unnecessary Check | Change input shape/version or claim `witness: Some` without source proof |
+| `1 2+1 2 3` | Zero-result Length Check retained before its call | Drop/duplicate/move Check, map only SSA result, or change error kind |
+| `3 { 10 20 30` | Gather Index Check retains first-error semantics | Drop/relabel/move the Index Check after a selected kernel |
+| `future 3` | Unsupported native call stays RuntimeSemantic candidate | Promote to GPU/native Verified without a route/guard |
+| `a` and `a=:1+2` | Noun snapshot vs independently tracked Write commit and name-version/order obligations | Omit Write due to its position outside op ranges; freeze late function name prematurely; unconditional replay after write |
+| `+/\"1 (2 3$ i.6)` and zero-frame variant | Preserve Rank cell/frame and zero-frame virtual fill until separately proven; no automatic flat parallel map | Drop virtual prototype work or skip result-cell type/shape assembly |
+| Same source with CPU/GPU/External candidates | Compare all partitions to **one authoritative source A3** and its value/error/effect obligations; GPU implementation is deferred | Mark unimplemented GPU runtime, bridge or performance as verified |
 
-J is unusually useful as a frontend for this model because the source already carries optimization-relevant array structure:
+**Verification stages and acceptance:**
 
-- rank exposes cell/frame boundaries and implicit iteration domains;
-- adverbs, conjunctions, and derived entities preserve reduction, scan, cell-application, and composition structure;
-- hook/fork/train/@: expose producer/consumer, branch/join, and composition topology;
-- reshape/transpose/take/drop allow logical shape/reindex meaning to remain separate from physical materialization;
-- whole-array notation reduces the need to rediscover high-level array intent from scalar loop nests.
+1. **RB-V0 coverage:** source A3 verify; identity/fused mapping and total partition coverage including genuinely empty blocks; separately test missing, overlapping, reversed and invalid ranges.
+2. **RB-V1 semantics:** cross-boundary def-use/value-live/effect-live, zero-result Checks, final `Plan.result` and separate `Plan.write`, `order_after`/error priority; every Check executed, proof-discharged or equivalently guarded.
+3. **RB-V2 legality/guards:** witness freshness vs immutable A3 and input versions; region-wide target legality, guard-before-effect, commit frontier and safe fallback. GuardRequired does **not** permit execution.
+4. **RB-V3 differential:** compare valid plans and one-field mutations against jsource C, RustJ closed A3 reference where supported, and interpreter for dynamic NAME/state; match values/dtype/shape/logical atom order, first error and effect/name observations. `logical_executor::execute_closed` alone cannot validate dynamic names and Write.
+5. **RB-V4 target variance:** derive candidate CPU/GPU/External RoutePartitions from the same source A3. Static rejection and guard-required cases are valid for currently unavailable GPU/external backends; real device execution, transfer and performance require later M4/M5/M6 gates.
 
-### Historical origin of JAXA Graph IR — read optimization topology from J notation
+**Status:** RB-01–08 and RB-V0–V4 are **design-complete only**. Implementing/running a certified RouteBoundary verifier, negative tests, jsource differential and reproducible pass evidence is a separate incomplete milestone. Existing `partition_plan` ranges and A3 structural verification alone do not complete M3, M4 or HE-01.
 
-JAXA did not begin from the abstract goal of “building a graph compiler.” It began from a concrete observation:
+<a id="sw-mlpl-reference-checklist"></a>
+### 2.1.2 sw-MLPL implementation references and RustJ acceptance checklist (2026-10-08; research/design only)
 
-~~~text
-u@:v
-    → input → v → u
-    → producer/consumer chain
-    → kernel-fusion candidate
+**Source and scope:** Reviewed the [sw-MLPL repository at pinned commit `d53c35f810aa`](https://github.com/sw-ml-study/sw-mlpl/tree/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f) (2026-10-03) across source, tests and design docs. The result is a set of **implementation references and acceptance gates within the existing M3 RouteBoundary, M4 native CPU, and M5+ heterogeneous plans**, not a new mandatory IR, language syntax, backend, status report or independent roadmap. Existing RB-01–08/RB-V0–V4, M4→M5 gates and §17/HE items retain authority. **[x] Research and source review; [ ] RustJ implementation and validation remain pending.** Document edits do not close runtime gates.
 
-(f g h) y
-    → f and h branch from the same input and join at g
-    → branch/join topology
-    → branch parallelism / branch-local fusion candidate
+**Semantic firewall:** sw-MLPL is an array interpreter with NumPy-style trailing-axis broadcasting, axis-name metadata, a partial compile-to-Rust path, a resident MLX tensor tape and experimental CUDA coverage ([S0], [S2], [S3]). RustJ must instead preserve the actual J Rank/CellApply and zero-frame virtual fill contracts, dynamic names/locales/`".`, observable J types/boxed/sparse/fit, error precedence and effect ordering. Never replace J semantic identity, A3 `ValueId` or full-language scope with sw-MLPL `AxisSpec`, `TensorHandle` or its closed compiled subset. `[0,3]` zero frame and `[2,0]` positive frame/empty cells have different prototype/execution obligations even though both contain zero atoms (§P.12 in Korean canonical).
 
-(f g) y
-    → the original input and g(y) both feed f
-    → ordered dependency + input-lifetime relation
-    → producer/consumer fusion candidate
-~~~
+**Actionable checklist:** Close each item only with a linked code change, PR/commit, positive and single-invariant negative test, *actually executed* command/result, and upstream source reference recorded against the matching §17/HE checklist. Pending/skipped CI and unimplemented hardware are not passes.
 
-J combinators such as `@:`, Hook, and Fork are therefore more than compact syntax. They expose **computation dependencies and topology without committing to a physical execution procedure**. JAXA's initial hypothesis was that a compiler should read and preserve this information before lowering it into scalar loops or backend kernels, so that fusion, parallelism, materialization, reuse, and lifetime candidates remain explicit.
+| ID / stage | RustJ adoption inside existing contracts | Acceptance gate and rejection examples | Sources |
+|---|---|---|---|
+| **SW-01 / M3** | [ ] Machine-check a `LoweringRegistry` coverage/capability manifest keyed by primitive, valence, rank/cell, J dtype/representation, error/effect, route/target and guard. Distinguish supported, runtime/guarded and unimplemented cases. **Per-op support is not region-wide Verified.** Keep docs and checked registry synchronized. | Registry additions/removals trigger coverage updates; reject unregistered ops, wrong valence, boxed/sparse mismatch, stale witnesses, missing zero-frame duties and `ReferenceSequential` misclassified as native. Meet RB-06/08 and RB-V2–4 before closing. | [S4], [S5] |
+| **SW-02 / M3** | [ ] Reuse existing `RankPlan`, A3 `IterationDomain` and SemanticCheck to explain logical shapes, frame/cell/reduction axes, result-cell assembly and evidence via consistent structured diagnostics. Retain source provenance and `ErrorKind + ErrorContext`; do not import named-axis language syntax. | Regression on invalid/repeated/out-of-range axes, `[0,3]` vs `[2,0]`, uncertain result cells and original J first errors. Fail if diagnostics mask or alter a J error. | [S1], [S2], [S7] |
+| **SW-03 / M4** | [ ] Batch compilation of many small compiler-native parity cases to amortize build cost. Use as an adjunct to **three independent paths**: jsource C oracle, RustJ semantic reference and an actual physical/native route; categorize unsupported cases explicitly. | Match J dtype, shape, logical atom order, values, boxed/sparse where supported, first error, observable effects and names—not just one scalar. Include zero-frame fill, overflow, fit/tolerance, dynamic names and negative routing. Calling the reference evaluator is not native acceptance. | [S6], [S4] |
+| **SW-04 / M4** | [ ] Benchmark actual lowered code and separate parse/compile/runtime, allocations/peak residency, materialization and bytes touched. Separate fast blast-radius proxies from slow release gates. | Reproducible reference/native cases for scalars, small arrays, reductions, reindex, zero frame, ranked composition and effect boundary; correctness first, then record machine, SHA, settings, median and regressions. Unrun benches are not evidence. | [S8], [S9] |
+| **SW-05 / M5+** | [ ] Instrument real Physical/Bridge seams: upload/download, materialize, submit, CPU fallback, transfer bytes, sync/ready waits and guard misses. Tie events to physical storage/leases/versions; do not place handles in Logical `ValueId`. | Zero-transfer CPU baseline, unchanged J observables despite residency, and plan-verifier rejection for missing transfers, read-before-ready, stale versions and duplicate commits. Without real GPU, record design/static verification only, not GPU runtime or performance passes. | [S3], [S10] |
+| **SW-06 / M4→M5+** | [ ] Optional structured trace connecting source spans, original A3 OpId/`j_origin`, dtype/shape, checks/effects, chosen physical route, materialization and fallback. Record IDs/bounded summaries—not copied large noun payloads—and measure trace overhead separately. | Trace on/off parity for J values, errors, effects and order; inspect original-source→A3→physical mapping and rejection reasons. Do not confuse speculative analysis facts with observed runtime events. | [S7], [S11] |
 
-That observation motivates RustJ's independent `J Graph IR` layer:
+**Priority and explicit non-adoptions**
 
-~~~text
-J syntax / FunctionEntity
-        ↓
-syntax-derived computation topology
-        ↓
-J Graph IR
-        ↓
-candidate generation
-  fusion / branch parallelism / materialization / reuse
-        ↓
-semantic legality
-  effects / errors / names / alias / rank contracts
-        ↓
-profitability / resource / target choice
-        ↓
-Logical/Physical realization
-~~~
+- **M2 remains first:** Fix jsource/frontend/Rank/empty-frame semantic mismatches against the C oracle before using any of these techniques to claim route legality.
+- **M3 → M4 → M5 (then M6):** SW-01/02 enhance the existing RB verifier; SW-03/04 need a real M4 compiler-native CPU vertical slice; SW-05 follows M5 placement/transfer modeling and actual GPU execution remains gated by separately authorized M6/hardware conditions. SW-06 can be introduced incrementally.
+- **Do not adopt:** NumPy broadcasting in place of J Rank; an AOT model that prohibits J `".` and dynamic names; conflating MLPL `Value` or device handles with J nouns/functions or A3 values; replacing general J SSA with an autograd tape; treating numeric-scalar parity as whole-J conformance.
+- **Status (2026-10-08):** [x] sources and design boundaries captured; [ ] SW-01; [ ] SW-02; [ ] SW-03; [ ] SW-04; [ ] SW-05; [ ] SW-06. Each stays open until implementation, passing negative/conformance coverage, and recorded commands/commits/CI links.
 
-Three questions must remain separate:
+**Pinned upstream implementation sources** (each link targets the same commit; implementation and planning documents are distinguished):
 
-1. **Does the topology expose an optimization candidate?**
-2. **Is the transformation legal under J semantics?**
-3. **Is that legal strategy actually profitable on the chosen target?**
+- **[S0]** [sw-MLPL README and maturity boundaries](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/README.md).
+- **[S1]** [Shared AxisSpec resolver](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-axes/src/axis_spec.rs).
+- **[S2]** [Trailing-axis broadcasting implementation](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array-element/crates/mlpl-array-ops-element/src/broadcast.rs), [shape/empty regressions](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array-element/crates/mlpl-array-ops-element/tests/broadcast_shape_tests.rs).
+- **[S3]** [TensorHandle](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/handle.rs), [DeviceOps](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/ops.rs), [seam counters](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/array/crates/mlpl-tensor-handle/src/metrics.rs).
+- **[S4]** [Coverage boundary tests](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/syntax-codegen/crates/mlpl-lower-rs/tests/coverage_boundary_tests.rs), [coverage guide](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/compiler-coverage.md).
+- **[S5]** [Lowering-dispatch coverage tests](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/syntax-codegen/crates/mlpl-lower-rs/tests/dispatch_coverage_tests.rs).
+- **[S6]** [Interpreter/compiled parity harness](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/dev-tools/crates/mlpl-parity-tests/tests/parity_tests.rs) (currently scalar-numeric oriented; insufficient as the only J oracle).
+- **[S7]** [Structured TraceEvent](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/autograd/crates/mlpl-trace/src/event.rs).
+- **[S8]** [Real-lowering benchmarking method and results](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/benchmarks.md), [bench harness](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/components/dev-tools/crates/mlpl-bench/benches/interp_vs_compiled.rs).
+- **[S9]** [Risk-tiered testing cadence](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/testing-cadence.md).
+- **[S10]** [Architecture/resident device backend scope](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/architecture.md).
+- **[S11]** [Dataflow renderer design (reference, not a dependency)](https://github.com/sw-ml-study/sw-mlpl/blob/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f/docs/dataflow-renderer-design.md).
 
-A Fork does not imply that its branches may always execute in parallel, and `@:` does not imply unconditional fusion. Source structure identifies candidates; effect/error/name/alias semantics establish legality; resource and cost models choose a realization.
-
-The branch/join diagram describes an **ordinary VVV fork**. A constructor-fixed capped `[: g h` instead follows the sequential pipeline `input → h → g(monad)`; a noun-left fork passes `h(input)` and its fixed noun to g. Interpret constructor meaning and operand POS before assuming two executable branches from a Fork parser row/head. Preserve the original source Fork/NAME DAG.
-
-#### Canonical J Graph example suite
-
-| Source | semantic construction / preserved provenance | applied topology | candidate | never infer from syntax alone |
-|---|---|---|---|---|
-| `f @: g` | Atop-derived Verb + Pipeline provenance | `input → g → f` | fusion/materialization elision | fused kernel, target placement, check removal |
-| `(f g h) y` ordinary fork | Fork with original f/g/h + observable branch order | shared-input fan-out into `h(y)` and `f(y)`, joined by dyadic `g` | parallel-branch, branch/join fusion, retained/live-across | actual concurrent execution or branch reordering |
-| `([: g h) y` capped fork | source Fork plus immutable capped-construction fact | `h(y) → g(monad)`; no executable first branch | pipeline/materialization | ordinary-fork parallel/retained treatment or calling `[:` as a branch |
-| `(f g) y` hook | Hook provenance + shared original input | `g(y)` and retained `y` feed dyadic `f` | retained-input/materialization, legal fusion | dropping the shared input or arbitrary reorder |
-| `u"r y` | Rank-derived Verb, requested-rank provenance | outer CellApply around the inner operation basis | cell parallelism, nested CellApply absorption/fusion | physical loop/thread mapping or rank-boundary collapse |
-| `u/ y` | Insert-derived Verb | Reduce basis with operand `u` provenance | reduction realization, legal map/reduce fusion | tree reassociation, altered empty/identity behavior, arbitrary parallel reduction |
-| `u\ y` | Prefix/Infix-derived Verb | preserved prefix/window family structure | witnessed Scan candidate or window/reduce rewrite | immediate replacement by Scan without associativity/error/numeric proof |
-
-The suite deliberately keeps **source construction identity and applied dependency graph together**. Two forms may happen to lower to similar SSA DAGs while differing in name/effect/error/constructor semantics. Current GraphForm/GraphBasis/hint support and capped-fork/scan regressions do not imply that the candidate proof/selection lifecycle is fully implemented.
-
-RustJ does not claim that each ingredient is itself novel. Hook/Fork dataflow, function-level program transformation, graph-based fusion, and high-level array IR all have prior art. The distinctive architectural combination being explored by JAXA/RustJ is to **preserve J's tacit combinator algebra as an independent semantic graph layer, generate optimization candidates directly from that topology, and then separate full-J semantic legality from physical profitability**.
-
-#### Related prior art and RustJ's position
-
-There is direct prior art for the starting observation itself. RustJ therefore does **not** claim novelty for the general proposition that J syntax exposes optimization-relevant information. In particular, Bernecky's APL93 paper is strikingly close to the problem framing that motivated JAXA's use of `@:`, Fork, and Hook: parallel Fork arms, composition as a pipeline, and expression-level merging to reduce intermediate-array and storage overhead.
-
-- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
-  - explicitly observes that the `f` and `h` arms of a J tacit Fork can proceed in parallel, and argues that tacit definition simplifies data-flow/data-dependency analysis;
-  - discusses expression-level **loop jamming / merging**, combining sequences of array primitives into interleaved execution, which directly anticipates temporary-elimination/fusion concerns;
-  - describes J composition as a verb-to-verb **pipeline** and points out cell-level parallelism;
-  - paper: https://www.snakeisland.com/aplhiperf.pdf
-  - DOI: https://doi.org/10.1145/166197.166201
-
-- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
-  - is an important function-level precedent for treating program-combining forms and their algebra as objects of program transformation;
-  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
-
-- **Accelerate / Futhark / Lift / MLIR Linalg**
-  - Accelerate and Futhark preserve high-level array operations and dependency structure for fusion and parallel lowering;
-  - Lift uses the semantics of functional data-parallel patterns such as map/reduce for rewrite-rule optimization and GPU mapping;
-  - MLIR Linalg preserves structured transformation-relevant semantics before loop/CFG lowering and separates transformation validity from profitability;
-  - Accelerate: https://www.acceleratehs.org/publications.html
-  - Futhark: https://futhark.readthedocs.io/
-  - Lift: https://doi.org/10.1109/CGO.2017.7863730
-  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
-
-The conservative novelty framing is therefore:
-
-~~~text
-J syntax exposes optimization-relevant structure
-    → direct prior art exists
-
-Fork/Composition/Rank expose parallelism or pipeline structure
-    → direct J/APL prior art exists
-
-high-level array operations are preserved for fusion/rewrite
-    → prior art exists in Accelerate / Futhark / Lift / MLIR
-
-preserve the full-J tacit combinator algebra
-as an independent J Graph IR,
-generate optimization candidates from that topology,
-then separate full-J semantic legality
-from physical profitability
-    → the distinctive architectural combination explored by RustJ/JAXA
-~~~
-
-The historical JAXA question is therefore recorded as:
-
-> **If J's function-composition notation already exposes computation topology, why destroy that intent into loops and try to rediscover it later?**
-
-RustJ's J Graph IR is the current implementation answer to that question.
-
-A central compiler rule follows: **do not destroy this information too early.** Modifier identity, rank boundaries, and derived structure remain in J Semantic IR/J Graph until Semantic Analyzer/Lowering can normalize them into logical operations such as `Reduce`, `CellApply`, `Scan`, and reindex forms. Explicit loops, threads, blocks, buffers, and device mappings are downstream schedule/physical choices.
-
-Historical JAXA focused mainly on analysis and a restricted vocabulary. RustJ reuses that design work while extending it to **full-J frontend/semantic ownership with incremental optimized-backend coverage**. Analyzable array regions may use aggressive logical/physical planning, while dynamic or effectful regions can remain on semantics-preserving native/runtime routes.
-
-The historical JAXA statements:
-
-> **JAXA specifies logical array intent, not physical execution procedure.**
-
-> **JAXA does not execute fusion — the compiler does.**
-
-remain useful origin points. The more precise long-term RustJ framing is therefore not merely “J with GPU support,” but **a heterogeneous array compiler/runtime using J as a high-level array language**.
-
-This framing does not claim that the product scope is already complete. RustJ's immediate goal remains **a J compiler/runtime that preserves full J semantics**; “SQL for array operations” is a design analogy for compiler layering and optimization freedom.
-
-## 3.1 Core array-model decision — separate Logical Array from Physical Array
-
-Logical Array owns J-visible type/shape/atom order and boxed/sparse semantics. Physical Array owns buffers, strides, offsets, layout and placement. A logical value need not have a distinct materialized buffer.
-
-The model and completion gate are defined once in [§6](#logical-physical-array-model); introductory text does not duplicate its detailed structures or checklists.
-
-## 3.2 Naming policy
-
-`Jaxa` / `JAXA` is not the name of a current RustJ compiler component.
-
-Historical repositories:
-
-- `JAXA`
-- `JAXA-complier`
-- `japchae`
-- `jaxa-analyzer`
-
-are research/prototype sources. Their useful ideas are absorbed into RustJ's current components:
-
-```text
-Jaxa Analyzer      → J Graph analysis + Execution Semantic Lowering
-Jaxa lowering      → J Graph IR → Logical Execution IR lowering
-Jaxa optimizer     → J Graph algebraic optimizer + Logical Optimizer
-Jaxa physical plan → Physical Planner / Physical Plan
-```
-
-New architecture decisions belong in `PROJECT.ko.md` first and are mirrored here.
 
 ---
 
+<a id="read-frontend"></a>
 # Part I — Frontend compatibility
 
 ## 4. Frontend principle
@@ -536,6 +650,308 @@ P8  Handoff to compiler IR
 
 The declarative class matcher is unified now. Full runtime semantic actions, modifier result-POS coverage, and name/effect sequencing remain incomplete; table matching alone does not complete the frontend.
 
+**F1↔P4 valid J locative acceptance (2026-10-07):** Direct `name_locale_`, indirect `name__holder` (where holder supplies a boxed locale-name string at lookup/assignment time), and compatibility `name__` = `name_base_` are **valid J syntax and functionality**, not permanently unsupported forms. Enqueuer retains `sn.c::vnm/nfs` name validity, `w.c::jtenqueue` NMLOC/NMILOC and locative-`=.` global promotion; parser/runtime resolve the addressed locale, not a faux flat `name` with underscores. Both `=.` and `=:` assign globally to locatives, including in explicit definitions. Preserve RHS evaluation in caller locale, dynamic indirect lookup, locale search path, current-locale switching/restoration for invoked locative functions, local-frame separation, actual J name/POS/errors/effects and source provenance. P6 differential acceptance: pinned J C positive and negative tests for direct/indirect reads and writes, `name__`, holder rebinds, local shadowing, nested calls and error precedence. **Existing RustJ `Unsupported` for valid locatives denotes unimplemented behavior, not an acceptable F1/P4 completion.** A syntax-only patch followed by blanket parser `Unsupported` is rejected as incomplete. Keep F1/P4 [ ] until runtime/reference and oracle tests pass.
+
+#### Name compatibility audit (2026-10-07; F1/P4 acceptance, static inspection only)
+
+**Normative target:** pinned `jsource@13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` [`sn.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c), [`w.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [`p.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [`s.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c) and [`sl.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sl.c), together with the J Dictionary. All legal J NAME forms and **observable** semantics are required; RustJ may differ only in private data representation and optimization machinery. This audit is **not** evidence of runtime/differential acceptance.
+
+**Bounded NJ-03 error boundary implementation:** `RuntimeParserHost::lookup` returns `Result<Option<ParserNameBinding>>`, distinguishing lookup failure from an undefined name. The parser preserves the error class, attaches the NAME span and original enqueue word index, and stops subsequent lookup, version observation and execution. Earlier completed right-hand calls and their capture survive failure without replay without synthesizing a successful read capture. Ordinary NAME lookup retains the flat namespace, while base-noun locatives use explicit scope selection and error propagation. General locale/path/holder resolution and complete resolution witnesses remain unimplemented. This does not complete NJ-03, NJ-04 or L3.
+
+The NAME audit accepts Linux/WSL `build_reference.py` outputs via `--reference-root .reference`. It checks the manifest pin/platform/variant and actual library existence, and records binary SHA256. Missing variants remain unrun; unsupported cases and mismatches are never counted as passes. Existing Windows `--assets-root` selection is preserved.
+
+Ordinary locatives now enqueue as NAME with lexical Simple/DirectLocative/IndirectLocative/BaseLocative metadata. The env=2 local copula is forced global for locative NAME targets, while env=0 remains unspecialized. Source spans and queue indices survive. Static parsing, gerund lookup, catalog declarations and loop bindings still reject locative execution before ordinary namespace access; runtime base and named-own nouns use the bounded boundaries below; computed/abandon locatives remain Unsupported. This bounded NJ-01 classification port from #14 does not complete NJ-04 locale/path resolution or L3. Regression coverage includes all three environments and both copulas, malformed/limit precedence and nonmutation boundaries. Pinned-source/public-C stage comparisons check lexical grammar and value probes; internal C queue flags remain source-derived goldens, not exported runtime traces.
+
+**NJ-04 base-noun boundary:** Runtime `a__` lookup and noun assignment explicitly select the Engine base namespace and bypass invocation-local tables. No duplicate flat `a__` key is created: the existing base `a` storage, generation and version are shared. Nouns snapshot at parser stack entry; the shared parser preserves lookup/write/error/effect order. The verifier checks `BaseLocaleOnly`/`Bypassed` observations against the lexical form and actual search. They cannot become simple-name guards; locative capture-to-J-Graph conversion is rejected until namespace dependencies are proven. Function locatives, undefined future references, computed/abandon locatives, numbered/indirect locales and paths/execution-locale transitions remain Unsupported; named own-table nouns use the separate slice below. Regression/pinned-C coverage includes base sharing/array snapshots, local-shadow bypass and writes, right-to-left reads and retained state after failed writes. Full NJ-04 and L3 remain open.
+
+**NJ-04 named-own noun boundary:** Split the simple symbol and locale spelling in direct names such as `a_probe_`; use independent `Engine.named_locales` tables and ScopeInstanceIds. Noun lookup creates an absent named locale, but a failed RHS does not pre-create the assignment target locale. `a_base_` shares the existing base binding. Separate `DirectLocaleOnly(start)` from `FoundScope::Locale(hit)`; verify scope equality, noun POS and local bypass without confusing equal versions in different locales. Named functions/undefined future references, numbered/z locales, default z-path lookup, path mutation/indirect lookup/call-context changes, computed/abandon and compiler admission remain separate Unsupported boundaries. The C z-path fixture records an unsupported gap, never a pass. Full NJ-04/NJ-05 and L3 remain open.
+
+
+
+**NJ-07 assignment version boundary:** parser commit previous/new versions use `assignment_version(name, local)` to observe the actual target table. When a first local assignment reads a global RHS binding, its previous local version is absent; subsequent local commits use the local version. Base/named-own locatives use their own table regardless of the local flag. Read `version` retains lookup semantics. Failed RHS evaluation produces no commit. This prerequisite separates a future default z-path read hit from the write target; it does not implement paths, complete namespace commit witnesses or L3. Regression coverage checks first/repeated local commits, global value preservation, first global commit and RHS errors.
+
+| ID | jsource observable contract | RustJ gap / required acceptance |
+|---|---|---|
+| **NJ-01 syntax** | Simple names with internal underscores; direct `name_locale_`, indirect `name__holder`, base alias `name__`, and by-value/abandon `name_:`; name length, invalid-name and spelling error precedence | Ordinary locative lexical classification and bounded simple by-value/abandon support are implemented. Locative by-value/abandon and cross-target numeric locale limits remain unproven |
+| **NJ-02 enqueue** | `jtenqueue` env=0/1/2 and name/assignment flags; a locative `=.` must be global in explicit definitions | Ordinary and locative copula classification across env=0/1/2, including locative-global promotion, is covered by source goldens/public C. Locative by-value flags and complete internal traces remain unproven |
+| **NJ-03 lookup API** | Distinguish missing value from erroneous locale resolution, including POS and resolution provenance | `RuntimeParserHost::lookup(&str)->Result<Option<ParserNameBinding>>` now propagates lookup errors; actual locale resolution and resolved namespace/path/value/version evidence remain required |
+| **NJ-04 namespace** | Local first; current locale then **its direct search path only**. Direct locative chooses an explicit start, indirect uses live holder; named/numbered locale/path mutation matters | Bounded runtime base-noun reads/writes explicitly bypass the top local frame via `a__`, sharing the existing base binding. Named own-noun tables are implemented in the separate slice; default z paths, path mutation and current-context transitions remain absent; implement remaining locale semantics without flattening locatives into string keys |
+| **NJ-05 invocation context** | Calling `f_locale_` switches current execution locale and restores it. Found-symbol locale may differ from **starting/executing locale** when path search succeeds | Current Function `NameRef(String)` has no full locale-current/restore execution mechanism; preserve distinct lookup-start, found and execution locales and no cross-call local-frame leakage |
+| **NJ-06 NameRef/by-value** | Nouns snapshot at parse stack entry; ordinary named functions have POS-bearing late NameRef; valid `name_:` uses by-value and abandons/deletes binding; undefined-name parser handling is context-sensitive | Partial noun snapshot/Function NameRef/POS mismatch already exists; complete modifier and locative function semantics, special name inflection, by-value abandon and undefined behavior |
+| **NJ-07 assignment** | `=.` vs `=:`, locative always public, computed single and multiple name targets, public assignment over a locally bound simple name can give J Domain error | `PendingAssignment`/`assign_scoped(&str,..)` largely assume raw single target; require actual target resolution/table and J value/effect/error order |
+| **NJ-08 time/proof** | Right-to-left name lookup, assignment/locale effects, path changes and dynamic rebinding affect later reads/calls | Do not rely on statement-entry name snapshots or flat binding versions as a global path/locale proof; revalidate namespace, path, local shadow and indirect holder at use |
+| **NJ-09 target separation** | User J locale is a language semantic namespace | RustJ's separately defined compiler `CompilationTargetLocale` is **not** an incompatibility. Never merge compiler target bindings with J namespace |
+
+**Order:** NJ-01/02 queue syntax and flags → NJ-03/04 error-bearing lookup + namespace → NJ-05/06 locative call, NameRef, by-value abandon → NJ-07/08 computed assignments and mutation/order → P6 differential evidence. A syntax-only patch that always returns Unsupported during parsing is **not a completed J NAME implementation**. Current Unsupported denotes a temporary implementation gap, not an authorized language subset.
+
+**Positive/negative matrix:** `NJ-V01` simple/direct/indirect/base/abandon names vs invalid/limit/spelling; `NJ-V02` env 0/1/2 and locative `=.`; `NJ-V03` local shadow/unbound fallback/one-level path/missing or invalid locale error; `NJ-V04` indirect holder rebind/invalid value, numeric/erased locales; `NJ-V05` locative invocation current-locale switch and restoration with path-found functions; `NJ-V06` noun snapshot vs late NameRef/POS changes and by-value abandon; `NJ-V07` computed/multiple assignment, local/global name collision and first observable J error/effect. Record `source revision | C DLL/binary variant/hash | Rust SHA | positive and one-mutated-negative | value/POS/locale/path/effect/error | PASS/FAIL/UNRUN`. All full acceptance gates **remain UNRUN**, notwithstanding smaller existing frontend regressions.
+
+#### NAME execution timing versus preserved optimization provenance (2026-10-07; design only)
+
+**Decision:** Follow pinned jsource [`w.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [`p.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [`s.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c) and [`sn.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c). A noun NAME is looked up and replaced with its actual value **when pushed on the parser stack**. Normal Verb NAME gets its POS inspected for parse-row selection but generally retains `nameref` until execution/call-time. Adverb/Conjunction/gerund/fork constructors sometimes read and fix an operand **at construction time**; locatives and `name_:` have distinct effects. RustJ must retain NAME provenance for optimizers **without moving any of those semantic events**. The proposed carrier names below are contracts, not currently implemented Rust structs or required new IR layers.
+
+| NAME | J-visible execution | Optimizer provenance |
+|---|---|---|
+| Noun | Snapshot noun at precise parser-stack read; a later rebind does not alter that value | Original occurrence/spelling/form/source span, read-time resolved frame/locale/path, semantic event, SSA result and observed dtype/Shape/rank |
+| Normal Verb | Expected POS at parsing, late `FunctionHead::NameRef` lookup at use; preserve missing binding/POS errors | Candidate primitive/rank hint, original NameRef, call-time lookup obligation—not a prematurely fixed target |
+| Modifier/gerund/fork | Distinguish construction-time operand capture from ordinary later NameRef | Separate capture-event and late-reference records, no one-size-fits-all eager/deferred policy |
+| Locative/special | Direct/indirect lookup, invocation locale context, `name_:` by-value/abandon | Holder dependencies, local shadow, start/found/execution locale, path/versions, effect/error edges |
+
+**Separate identities, potentially as sidecars on existing data structures:**
+
+~~~text
+NameOccurrence {id, original_spelling, address_form: Simple|Direct|Indirect,
+                read_policy: Ordinary|ByValue|ByValueAndAbandon, special_operand?,
+                enqueue_word_index, source_span, parse_use_site}
+NameResolutionEvent {occurrence_id,
+   time: StackNounRead|StackPOS|ConstructorRead|CallLookup|AssignmentTarget|LocaleRead|Abandon,
+   outcome: NounSnapshot(value_id)|FunctionRef(expected_pos)|CapturedConstructor(entity)|
+            MissingNameRef|WriteResult|JError,
+   witness?: {frame, local_presence_or_absence, start_locale, path_order,
+              found_locale, execution_locale, symbol_generation, binding_version,
+              observed_pos, indirect_holder_reads, locale_path_epochs},
+   effect_error_edges, diagnostics}
+OptimizationNameEvidence {event_id, candidate_callable_family?, observed_dtype_shape_rank?,
+  constructor_fixed_facts?, status: Observed|ProvenStable|GuardRequired|Unknown, guard_footprint?}
+~~~
+
+Source occurrence, lookup event, JEntity/SSA value, candidate hint and physical BufferId are **not interchangeable**. Even the same spelling in one sentence can refer to different symbols as frames, local shadows, current/search paths or indirect holders change. A flat `NameVersion` cannot validate a **negative local lookup**, locale/path changes or holder rebinds.
+
+**Semantics and reuse example:** Once a runtime parser has read noun `a`, `NameRead(a,event#A) -> SSA v0` retains its origin; later rebinding `a` does **not** change v0, and a re-used execution must not read `a` again for event#A. Conversely, compiling when `a` has a particular value does **not** allow future runs to reuse that stale analysis-time snapshot; each invocation must respect the original J read point or prove a guard/continuation. If `f` changes from `+` to `*`, `NameRef(f)` must re-resolve (or verify a correct call-time binding/locale/path guard), regardless of an earlier Add-family *hint*.
+
+**Owners:** F1 EnqueuedWord retains syntactic NAME identity only, never binding/POS. P4 `resolve_stack_item` executes the noun snapshot and captures its event; function parser POS and late NameRef remain distinct. `RuntimeParserHost::lookup(&str)->Result<Option<ParserNameBinding>>` now provides an error path; actual invalid-locale resolution remains unimplemented. Semantic `NameUse/BoundProgram/ModifierSnapshot/NameRankSnapshot` distinguish observed from executable proof. J Graph `NodeKind::ReadNoun` and `VerbValue/Apply(NameRef)` retain source/event links and `RequiresSpecialization` for dynamic names. A3 `ReadNoun`, `VerbReference`, Write, SemanticCheck and order_after own executable read/value/effect order; current `Symbol{name,scope=CurrentGlobal|LocalFrame}` lacks full locale identity. M3+ may consume hints but requires separately validated `BindingStabilityProof/GuardRecipe` through actual use. Do not hoist name reads or replay after effects on a guard miss.
+
+**Frameworks:** [MLIR SymbolRef/SymbolTable](https://mlir.llvm.org/docs/SymbolsAndSymbolTables/) separates symbolic uses and SSA values; [LLVM MemorySSA](https://llvm.org/docs/MemorySSA.html) models dependency/clobber and movement legality; [Truffle Assumptions](https://www.graalvm.org/truffle/javadoc/com/oracle/truffle/api/Assumption.html) invalidate speculative optimization; [JAX captured constants](https://docs.jax.dev/en/latest/internals/constants.html) illustrate separating constant carriers, but JAX [global-capture behavior](https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html) **must not** become J's name semantics. Reuse structural concepts, never their different language rules.
+
+**Pending gates / negative tests (all UNRUN):** `NP-01/NP-V01` source occurrence and separate scopes not conflated by spelling; `NP-02/NP-V02` precise noun snapshot vs POS/late NameRef/constructor timing; `NP-03/NP-V03` error-bearing locale/local/path/holder and negative-lookup witness; `NP-04/NP-V04` Parser→J Graph→A3 provenance survives literal folding; `NP-05/NP-V05` Observed≠ProvenStable, actual guard and effect/error-order proof; `NP-06/NP-V06` locative, by-value abandon, modifier capture and assignment/POS/error semantics; `NP-07/NP-V07` pinned C `j64/j64avx2` against runtime/parser events and actual Rust semantic/graph/route behavior, normal and one-mutated-negative test. Record `source pin | occurrence/event→SSA | J oracle | PASS/FAIL/UNRUN | guard owner | CI SHA`. The design does not complete implementation of F1/P4/P5/M3.
+
+#### NAME cache and multiprocessor handoff contract (2026-10-07; design only)
+
+Canonical §3.7.4 extends the NAME audit at `cd6ac8c`; **NP-01–07 remain the sole acceptance checklist**. Continue the repository's M3→M4 handoff with one CPU first. These contracts are proposed, not implemented Rust types or completed concurrency support.
+
+**Identity and retention (NP-01/03/04):** An Engine-owned interned `NameId` reduces spelling/hash cost; it is not global semantic identity. Proposed `BindingStamp = (EngineIdentity, ScopeInstanceIdentity, SymbolGeneration, Revision)` prevents stale matches after frame reuse, symbol expunge/recreation or locale recreation. Current per-name `NameVersion` is insufficient. Requested lookup identity differs from the binding actually found. Occurrences include source span and expanded-word position. Keep IDs/facts/witnesses in provenance sidecars, not an `Arc<Value>` for every intermediate: actual dataflow and execution leases own payload lifetime.
+
+**Guard-to-use handoff (NP-03/05):** At the original J lookup point, the namespace owner validates lookup/POS/guards and acquires an immutable value/entity lease consistently. A single owner can sequence this initially; shared namespaces later require locks or a verified snapshot protocol. Checking first and taking an unprotected pointer later is invalid. A lease protects that resolved read/call, not every dynamic NAME in the called function. Include negative local lookup, path/holder dependencies and execution locale in the footprint. Unknown namespace effects are proof barriers. Guard misses after observable effects must resume a valid continuation without replaying the whole sentence.
+
+**Optimization (NP-04/05):** Preserve occurrence → resolution event → semantic value/function identity → relevant dtype/rank/shape/effect facts → proof/guard → specialization. An observed Add target allows a fusion candidate, not unconditional Add execution. Never dispatch primitives by source NAME spelling. Separate summary and executable caches; use relevant binding stamps, lookup dependencies, semantic identity and argument facts, with target/numeric policy added to code caches. Bound variants and use merge/widening instead of specializing on every exact shape/constant. Structurally equivalent code may be shared with separate source/occurrence mappings.
+
+| Array compiler reference | RustJ design adaptation |
+|---|---|
+| [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html): typed inputs/constants/intermediates | Pass resolved nouns as explicit SSA inputs/constant carriers with NAME/event sidecars; do not import trace-time global freezing. |
+| [PyTorch Dynamo](https://docs.pytorch.org/docs/2.14/user_guide/torch_compiler/compile/programming_model.dynamo_core_concepts.html): guards and graph breaks | Delimit dynamic semantic execution and proven array regions; RustJ owns J-specific POS/locale/error continuations. |
+| [OpenXLA HLO→Thunks](https://openxla.org/xla/hlo_to_thunks): scheduling before buffer assignment | Derive physical storage from alias/liveness/readiness proofs; NAME/SSA identity is not a buffer address or reuse proof. |
+
+**Workers/devices (NP-05):** The namespace owner supplies immutable value versions, validated callables or closed array regions, readiness/effect/error edges and leases at J-defined lookup points. Workers do not independently re-read names at arbitrary times. Later dynamic reads remain semantic boundaries. Retain leases until completion, not merely submission. Separate processes require value/region transport and receiving-side identity remapping, never raw pointers or Engine-local NameIds. This does not automatically replicate a shared mutable namespace. CUDA implementation stays deferred.
+
+**Evidence (NP-07):** Added [native Windows C probe](tools/name_system_research.py) and [machine-readable results](reports/name-system-research-windows.json): noun snapshot, verb late lookup, undefined→defined, expected-POS error, intra-sentence assignment/read order, direct locative, `f.` fixing and `name_:` abandon; **8 cases × C j64/AVX2 = 16/16 PASS**. Source pin `13994ffa…` and reference asset pin `ded7793…` are distinct; actual file SHA256 hashes are recorded. Reproduce with native Windows Python: `tools/name_system_research.py --assets-root <reference-assets-checkout>`. This is C research, not RustJ locative/abandon support or completion of NP-07. On the clean integration baseline `cd6ac8c`, `cargo test --locked [--features portable] --test semantic --test parser_capture name` passed **17/17 each** for default and portable; `test_oracle_protocol.py` passed **9/9**, and `git diff --check` passed. The full Rust suite, fmt/clippy, Linux, GPU and GitHub CI were not run for this design change.
+
+Extend NP-03 negatives with scope/symbol/locale recreation and stale stamps, NP-04 with provenance after optimization and no intermediate payload retention, and NP-05 with rebinding between guard and lease, premature worker-buffer reuse and guard failure after effects. Implement NP-01/02 events → NP-03 namespace/stamps → NP-04 IR links → NP-05 guards/leases → NP-06 special NAME → NP-07 differential execution. **Full acceptance gates remain incomplete** despite the C research subset passing.
+
+#### Additional array-compiler review and NAME compatibility audit (2026-10-07)
+
+**Conclusion:** The §3.7.3/4 NAME carrier is necessary but insufficient for compiler legality or jsource compatibility. It additionally requires SSA use-def/CFG joins, namespace effects, alias/escape/liveness analysis, scoped shape facts, transformation provenance and verifiers. These are refinements on existing layers, not mandatory new IR layers. NP-01–07 remain the acceptance checklist.
+
+| Primary reference and observed mechanism | RustJ adaptation and limitation |
+|---|---|
+| [Futhark §3.10/3.11](https://futhark.readthedocs.io/en/latest/language-reference.html): size variables, branch/loop alias joins and fixed points, consuming parameters and fresh returns | Carry argument/result alias, escape and read/write summaries; merge across CFG and iterate loops. Derive size identities from actual value shapes. Do not impose Futhark consuming/higher-order restrictions on J; copy or choose another legal execution when aliases remain live. |
+| [TVM Relax](https://tvm.apache.org/docs/deep_dive/relax/learning.html) and [Var/DataflowVar/MatchCast API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html): visible/dataflow variables, symbolic shapes, runtime structural checking, pure regions | Distinguish J NAMEs from internal variables and shape symbols. Delimit proven array regions. Purity alone does not permit moving J errors/name lookups; structural guards need J-specific timing and failure contracts. |
+| [MLIR One-Shot Bufferization](https://mlir.llvm.org/docs/Bufferization/): SSA use-def and read-after-write conflict analysis | Check noun aliases, live readers and worker completion before buffer reuse. NameId, binding versions and reference counts alone do not prove uniqueness/liveness. |
+
+**Carrier refinements:**
+
+1. Orthogonalize NAME address syntax and read policy: a locative and by-value/abandon behavior are not mutually exclusive forms. The earlier §3.7.3 pseudocode is corrected to `address_form`, `read_policy` and special-operand/context flags. Preserve holder chains/terminal selectors and spelling; numeric debug-frame/implicit-operand details need pinned-source differential coverage.
+2. A runtime `ReadNoun(event) -> ValueId` is not compile-time environment capture. Merge reachable values/facts/aliases with block arguments/phi equivalents and loop fixed points/widening. Track namespace state and late NameRefs through separate effects; branch-local binding proofs cannot escape a merge unchecked. Current A3 remains single-block/Return-only.
+3. Attach dtype/rank/shape constraints, alias/escape, errors/effects and nested dynamic-name dependencies to relevant values/calls. Target guards do not prove every NAME in the called function stable or pure. Unknown calls/execute require conservative effect summaries.
+4. Fold/CSE/fusion/inlining produce many-to-many origins: retain shared origin sets/derivation mappings without repeating runtime reads or retaining all payloads. Eliminated checks/lookups need proof/guard/order witnesses, not source metadata alone.
+5. Keep actual resolution outcomes (noun snapshot, expected-POS NameRef, constructor capture, undefined ordinary function reference, J error) separate from analysis states Unknown/Observed/GuardRequired/ProvenStable. Undefined ordinary references are not uniformly immediate errors.
+
+**Measured compatibility:** [audit tool](tools/name_compatibility_audit.py) and [Windows results](reports/name-compatibility-windows.json) compare runtime source at `c151f36`: **26 independent stateful fixtures × C j64/AVX2 × direct/semantic-reference = 104 observations: 64 matched, 40 unsupported gaps, zero semantic mismatches**. Each combination has the same 16 matching and 10 unsupported fixtures. This is not an overall J compatibility percentage. Compare all setup sentences and observed queries by dtype/shape/data or error kind; record an unobserved suffix when the CLI stops on an unsupported definition. Existing `Oracle.eval` observes assignment/results, not internal lookup events, POS reflection or complete namespace state.
+
+| Feature | Actual boundary |
+|---|---|
+| Noun snapshots, alias/reshape preservation, failed assignment retention | Selected fixtures match all four combinations; not all storage/alias forms verified. |
+| Verb late lookup/alias chain, undefined→defined/call, expected-POS error, sentence mutation/read order | Selected fixtures match; rank/header changes, recursion/self and all constructors still require acceptance. |
+| Named adverb construction, nameless modifier and conjunction aliases | Selected fixtures match; not a universal late-binding policy for every function. |
+| Straight-line explicit modifier local shadow/unbound fallback | Selected fixtures match. Two ordinary `3 :` explicit-verb local-call fixtures are Unsupported; local frames are not wholly absent. |
+| Direct/base/indirect locatives and invocation locale context | Unsupported fixtures; full locale/path namespace and context restoration incomplete. |
+| `name_:`, `f.`, computed single/multiple assignment | Unsupported fixtures; C research passes are not Rust support. |
+| Locale lifecycle/path, numeric/debug-frame locatives, full special-operand combinations | Not exercised by this execution audit; NJ/NP gates remain open. |
+| Reflection `4!:`/`5!:`, execute, recursion/escape/fix, guard invalidation after namespace changes | Full compatibility unverified; NP-06/07 must compare class/list/representation, first errors and effects. |
+| Compiled specialization, CFG guards, M4/worker/device handoff | Design/full acceptance incomplete. The semantic-reference CLI is not compiled native execution. |
+
+**Order:** NP-01/02 events/orthogonal syntax → NP-03 error-bearing locale namespace/stamps → NP-04 use-def/many-origin mapping → NP-05 effects/aliases/guard-lease verifier → NP-06 special/reflective semantics → NP-07 runtime/event/Graph/A3/actual-route differential. Add NP-V negatives for branch-proof escape, loop namespace clobber, dropped origins, overwriting a live noun alias and omitted nested NameRef dependencies. Close the single-CPU route before independent worker lookup.
+
+This change adds design and audit tooling, with no Rust semantic change. Native Windows enqueuer 19 + modifier_scope 8 + parser_capture 41 + semantic 54 = **122 tests each on default/portable passed**, plus **6 audit-classification tests**. C source and DLL asset pins differ; binary hashes identify the supplied oracles, with no same-source rebuild claim. Full upstream J/reflection/locale suites, Miri, GPU, Linux and GitHub CI were not run. Full NP gates remain incomplete.
+
+#### Concrete parser→compiler handoff: deferred nouns versus concrete JEntity (2026-10-07)
+
+Canonical §3.7.6 clarifies that **parser reduction is not kernel execution**. The compiler path emits a semantic computation program with deferred noun-producing applications. It does not require a separate unreduced AST plus precomputed results. This clarifies existing stages rather than adding a mandatory IR pass.
+
+**Actual realizations:** `parser::runtime_noun` retains `Expr::Monad/Dyad` without a host, but calls `RuntimeParserHost::apply` and returns a concrete noun with a host. `parse_analysis`/`StaticAnalyzer` use the former; runtime parsing and the current semantic-reference evaluator use the latter. Runtime/capture execution is validation, not a required precomputation step for compilation. The analysis route already has `Program -> BoundProgram -> j_graph_ir::Plan::from_bound_with_graph_facts`.
+
+| Boundary | Handoff | Limit / gap |
+|---|---|---|
+| Enqueue→Parser | EnqueuedWord queue with payload/class, NAME flags, word/span | No lexical binding/POS freeze or array execution. |
+| Parser+Semantic Construction→Graph builder | Current `semantic::Program`: root Expr, shared FunctionEntity DAG, assignment/reduction/name/constructor metadata. ReadName/Monad/Dyad are deferred; literals/already captured nouns are concrete Values. | JEntity transports concrete noun/function entities, not deferred expressions. General ordered writes, NAME events and continuations remain incomplete. |
+| Binding/analysis→J Graph | BoundProgram dependencies/pending write; Plan with ReadNoun, Apply using value IDs, regions, source mappings and facts | Catalog versions/shapes are not runtime binding proofs. ValueId is not a buffer/materialized noun. |
+| J Graph→Execution Semantic Lowering/A3 | logical_ir::Plan with SSA operations, reads/references/calls/checks, writes and observable ordering | Preserve J origins. Current A3 is single-block/Return-only; general CFG/namespace/guard bridges incomplete. |
+| A3→native physical route or verified external adapter | Verified region/input/guard contracts, then representation/buffer/lease/readiness/target decisions | External routes need not use the native optimizer/scheduler. CPU M4 execution and fallback are separate acceptance gates. |
+| Execution→namespace/caller | Concrete results and effects/assignment commits at semantic points | Deferral is compilation, not an unrequested lazy-language change across observable sentence/error boundaries. |
+
+For `b =: a + c * d`, assuming a proven/guarded noun-POS input contract for `a,c,d`:
+
+~~~text
+Semantic Program (unevaluated):
+  target=b
+  root=Dyad(+, ReadName(a), Dyad(*, ReadName(c), ReadName(d)))
+  shared primitive identities +,* and source/reduction/name metadata
+
+J Graph (illustrative IDs, right-to-left construction):
+  v0=ReadNoun(d,eventD); v1=ReadNoun(c,eventC)
+  v2=Apply(*,left=v1,right=v0)
+  v3=ReadNoun(a,eventA); v4=Apply(+,left=v3,right=v2)
+  pending WriteName(b,v4)
+
+A3: call contracts/checks/data and effect/error dependencies
+Physical: legally fused or separate kernels with actual buffer/lease decisions
+Runtime: supply semantic read values, execute, commit at the write point
+~~~
+
+`eventD` etc. illustrate the pending NP provenance links; current `ReadNoun{name,version}` does not have that event field. These nodes express future execution, not computations performed by the compiler. Runtime inputs must satisfy the actual semantic read or a proven equivalent bridge. Never replace an already read snapshot after rebinding, or silently capture a future read at compilation time. Ordinary unknown POS cannot be assumed noun merely to build this example.
+
+**Value-dependent parsing:** Use already known small literal operands normally. If deferred contents determine constructor result POS, later lookup or dynamic source, the target handoff is a closed prefix/region, a requested value/class and an exact parser continuation. Execute only the required dependency portion and resume with correct frame/locale/queue/stack/effect state. This is a proposed boundary contract, not an implemented Rust enum or general continuation capability. Current unsupported analysis boundaries stay explicit; never invent concrete nouns/functions or replay the whole sentence after effects. Do not make eager execution of an otherwise analyzable region the compiler default.
+
+Keep acceptance under NP-02/04/05/07 and M3→M4: kernel/allocation-free analysis→Program→Graph→A3 examples, source/runtime-input mappings, rejection of concrete/deferred confusion, and correct POS/name/constructor boundaries. No second canonical AST or competing checklist.
+
+**Executed check:** native Windows `static_explain 'data + data * data'` produced three ReadNoun and two Apply nodes using only declared Float[1000000000000] metadata, with no data/result arrays computed. This proves the existing deferred graph path, not runtime binding guards, instrumented allocation bounds or M4 end-to-end execution. Two existing execution-free semantic regressions passed each on default/portable; `git diff --check` passed. This is a documentation-only change; the full suite, fmt/clippy and GitHub CI were not run. Close this path into actual CPU execution next; do not make eager capture the sole compiler input.
+
+#### SemanticHandoff v1: decided logical parser output (2026-10-07; logical contract and first implementation)
+
+Canonical §3.7.7 fixes the logical parser→analyzer contract. Earlier sections specified information and boundaries without a concrete carrier. The output is one `SemanticHandoff`; it retains both the semantic reduction result and the inputs/context before reduction, with explicit links between them. This is a target replacement of existing Program storage, not an additional mandatory IR stage or a second semantic authority. Container types, integer widths, arena layout and serialization remain implementation choices.
+
+~~~text
+SemanticHandoff {
+  schema, unit,
+  program: { nodes, root? },
+  context: {
+    sources, words, items, reductions, names, name_uses,
+    observations, events, demands, function_origins
+  },
+  origins, status: Complete | Blocked(DemandId)
+}
+
+SemanticNode =
+  Literal(Value) | ReadNoun(NameUseId) | FunctionUse(FunctionEntity)
+  | Monad(function: NodeId, argument: NodeId)
+  | Dyad(function: NodeId, left: NodeId, right: NodeId)
+  | WriteName(target: NameUseId, value: NodeId, event: EventId)
+
+ItemRecord { producer, class, semantic?: NodeId, word_range, blame_word? }
+ReductionRecord {
+  row, window: [ItemId?; 4], consumed: [ItemId], produced: ItemId,
+  name_uses: [NameUseId], events: [EventId]
+}
+NameUseRecord {
+  syntax: NameSyntaxId, input_item: ItemId, phase, expected_pos?, policy,
+  event: EventId, observation?: ObservationId
+}
+NodeOrigin { node: NodeId, items, reductions, name_uses }
+FunctionOperandOrigin { owner: NodeId, operand_path, items, name_uses }
+~~~
+
+The remaining logical records and rules are:
+
+| Record | Required content and interpretation |
+|---|---|
+| IDs | Distinct local Source/Node/Word/Item/Reduction/NameSyntax/NameUse/Observation/Event/Demand identities, owned by a nonreused FrontendUnitId. External references carry `(unit, local_id)`; spelling, pointer address and movable Expr position are not identities. |
+| SourceRecord / SourceSpan | Immutable text and optional parent expansion span; a span contains SourceId and byte range. Generated DD text has its own source and parent mapping. |
+| WordRecord | SourceSpan, enqueue class/flags/environment, optional expansion-origin WordId. Equal spans do not imply equal expanded word occurrences. |
+| ItemProducer | Word / NameUse / Reduction / Mark. NAME class resolution creates a new immutable item; the previous occurrence is retained. Inspected window and consumed items are distinct. |
+| NameSyntax | WordId, Simple/Direct/Indirect address, components with kind and SourceSpan, Ordinary/ByValue/ByValueAndAbandon read mode, optional implicit operand. Runtime locale/frame identities are not syntax. |
+| NameUse | Phase StackRead/StackPOS/ConstructorRead/CallLookup/AssignmentTarget/Abandon; policy CaptureAtRead/LateAtCall/ResolveAtConstruction/CaptureAtConstruction/Assignment/ReadAndAbandon. POS is Noun/Verb/Adverb/Conjunction; missing POS is not assumed noun. A spelling occurrence may have several uses. The first implementation below restricts stack policies to the first three. |
+| NameObservation | Catalog/Runtime origin, Noun/Function/Missing/JError outcome, optional POS and LookupWitness, small constructor metadata. Observations are not automatic runtime proofs; noun payload is not duplicated here. |
+| LookupWitness | Engine, frame instance, start/found/execution locale, binding stamp (scope instance, symbol generation, revision), typed LocalPresent/LocalAbsent/LocalePathEpoch/HolderRead/NamespaceEpoch dependencies. Missing evidence remains explicit, not a fabricated flat NameVersion. Future GuardRecipe is separate. |
+| SemanticEvent | NameUse/Constructor/Call/Write/Check kind, owner ItemId, optional NodeId, predecessor EventIds, NamespaceRead/NamespaceWrite/ArrayCall/UnknownCall/Constructor effect, Planned/Observed realization. Preserve potential error order; weakening conservative dependencies requires proof. |
+| BoundaryDemand | NeedNameClass/NeedConstructorValue/NeedConstructorResult/NeedNamespaceAction/NeedDynamicSemantics/NeedCallableProof kind, at_item, optional row, inspected four-item window, required NodeIds, predecessor events and typed reason. This does not claim an implemented runtime continuation. |
+| Origins | NodeOrigin is many-to-many. FunctionOperandOrigin additionally identifies an operand path within a particular function use, so shared intrinsic function identity does not erase nested NAME occurrence context. |
+
+WriteName returns the assigned entity and may occur inside an expression, not only at its end. Its event fixes the namespace write point. Parentheses may share a semantic node while retaining distinct item/reduction provenance. ReductionRecord represents a completed action; a blocked attempt retains its window in BoundaryDemand. Complete means semantic construction completed, not execution admitted. Blocked prefixes are inspection artifacts, not executable complete graphs; actual J errors remain separate diagnostics.
+
+CaptureAtRead fixes binding/value identity at the semantic read point; it does not require the compiler to compute array contents. A read of a deferred result preserves its semantic value identity and ordering dependency through later rebinding. LateAtCall denotes function lookup at invocation; equal name spelling does not merge these distinct uses.
+
+For `a+c*d` under a noun-POS contract, queue NAME items and resolved noun items have different ItemIds. The first dyadic reduction consumes the noun c, verb *, noun d items and produces an item pointing to the deferred multiplication NodeId. The next reduction consumes a, + and that produced item, producing the addition NodeId. Origins explicitly link both results to reductions and NAME uses; spans are never used to guess these links. No intermediate array is required.
+
+Graph/A3 adapters retain target node→original `(unit, NodeId)` sets and share the immutable context. Fusion/CSE union origins; inlining retains caller/callee unit mappings. Shared FunctionEntity DAGs keep intrinsic identity separate from each use's NodeId, operand-path origin, NAME witnesses and guards. Buffer/layout/schedule/GPU decisions stay downstream.
+
+Migration uses existing NP gates: (1) implement logical types and verifier, including bad-ID/producer/origin/event/demand negative tests; (2) emit records from the existing parser matcher and actions, replacing Expr storage through adapters without permanently retaining two authorities; (3) connect actual error-bearing lookup/witness APIs, preserving explicit unsupported boundaries; (4) retain origins through Graph/A3 and reject lost provenance; (5) compare C-visible POS, values, errors and namespace effects. Unobservable C internals require source-derived or instrumented evidence and are not proved by matching values. Structural verification is not an independent proof of J semantics.
+
+**Implemented priority slice — parser output and NAME scope (2026-10-07).** The actual carrier is existing `semantic::Program` plus `frontend: Option<Arc<FrontendContext>>`. Program's expression/assignment/shared FunctionEntity DAG remains the sole semantic authority. Context is an immutable structural/provenance index emitted by the same parser actions; its Literal descriptor has no array payload and is not independently executable. `Expr.origin` links the structures directly. This implements the logical contract without requiring immediate whole-Program arena migration or a second parser pass.
+
+~~~text
+Program: expression (Expr.origin), assignment, constructor snapshots, functions,
+         frontend: Arc<FrontendContext>?
+FrontendContext: schema=3, unit, realization=Deferred|Observed,
+         source, words, items, nodes, origins, name_uses, reductions,
+         steps=Stack|FrontMark|Reduce, pending?, root?, complete
+~~~
+
+| Requirement | Actual realization and limit |
+|---|---|
+| Before/after reduction | Distinct Word/Item/Node/Reduction/NameUse IDs; NAME substitution creates another item. Record the actual four-slot window, consumed IDs and produced ID. Absent suffix slots denote virtual Marks. Parentheses preserve multiple item/reduction origins for one result. |
+| Usable during parsing | Emission occurs inside the existing matcher/actions. Context verification replays right-to-left queue/stack, FRONT MARK timing, row choice and operand/result links. `parse_frontend` returns FrontendFailure with a completed prefix and pending action/window on failure, without inventing an output. This is not a runtime continuation. |
+| NAME timing | NameResolution=NounValue/FunctionValue/FunctionReference; policy=CaptureAtRead/LateAtCall/ResolveAtConstruction. Record the actual resolve branch, not a guess from the returned function head: u may substitute a value that is itself another NameRef. CatalogClass/RuntimeClass/DiagnosticAssumption and optional binding version/lookup observations stay distinct. Diagnostic noun assumptions are not POS execution proofs. |
+| Runtime scope | LookupObservation contains engine, frame, GlobalOnly/CurrentFrameThenGlobal search, NoFrame/Bound/DeclaredUnbound/Absent local state, Local(scope)/Global(scope)/Extension/Missing result, binding version/generation and POS. Engine/global namespace and invocation frames have nonreused ScopeInstanceIds. Equal spelling/version=1 in different frames does not identify one binding. |
+| Definition source scope | DefinitionCode.name_plan has separate monad/dyad DefinitionScopePlans: literal local declarations, source sentence/word/span, ReadCurrentFrameThenGlobal/LocalAssignmentTarget/GlobalAssignmentTarget roles, and dynamic assignment target positions. Construction performs no body lookup or POS/value evaluation. Invocation consumes the declaration inventory and supplies implicit operands/arguments separately. Explicit/direct spellings share this contract. |
+| Declaration versus binding | In t=.t+u, declared-but-uninitialized t can read the global binding; later reads see local t. Declaration does not freeze a read into local SSA. Ordinary local function names remain late references on return rather than capturing a caller frame as a closure; implicit function-value substitution is separate. |
+| Optimization handoff | Every J Graph node retains parser-origin NodeId sets and the same context Arc. A3 parser_provenance closes operation.j_origin→Graph ID→parser NodeId. Derived expansion retains conservative enclosing-call origins, not a claimed unique smallest source occurrence. Verifiers reject missing/out-of-range origins and source mismatches. |
+| Memory and execution | Analysis retains context; runtime records it when capture is requested, without imposing tracing on ordinary body evaluation. Existing function Arcs are shared and intermediate array payloads are not copied into context. Singleton boxed gerund headers are peeled iteratively with the existing depth/rank/empty/error checks to avoid increased Windows recursive stack usage. |
+
+DefinitionScopePlan is a source inventory, not a closed local set or proof of current POS/value. Computed assignments, execute and control flow can introduce names. Removing/hoisting lookup on a local-absence/global-fallback assumption requires independent frame-liveness, symbol-generation, namespace/local-epoch, locale/path and semantic-read witnesses/guards. LookupObservation or a flat binding version alone does not authorize specialization. C buckets/lookaside are implementation details; lookup result, timing and fallback are the contract.
+
+Acceptance checklist:
+
+- [x] Decide logical input/result/NAME identities and ownership; verify context schema/unit.
+- [x] Emit from all nine existing parser actions, retain pre-action windows and result links, and preserve pending failure context.
+- [x] Compare all 9^4=6,561 class windows against a literal-mask transcription of pinned C p.c::cases; distinguish source-derived row evidence from instrumented C execution traces.
+- [x] Replay queue/stack and reject fabricated producer/operand/origin/scope observations.
+- [x] Preserve provenance into Graph/A3 and reject lost origins; keep trillion-element metadata-only analysis deferred.
+- [x] Regress explicit/direct declarations, fallback, shadowing, global writes, escaped ordinary function references and implicit operand substitution.
+- [x] Add nonreused BindingGeneration/POS to supported simple-NAME runtime observations; construct SimpleNameGuard from an actual NAME use ID and recheck the full search in Engine with typed invalidation outcomes.
+- [ ] Complete LookupWitness/GuardRecipe, individual events for every constructor NAME use, function operand-path provenance and multi-unit inlining origin merging.
+- [ ] Complete expansion source entries, typed demands/exact runtime continuations and whole-Program arena migration. A failed context is not an executable continuation.
+
+This closes structural preservation for currently supported parser actions and compilation paths, not full-J/locale/control execution or NAME-specialization admission. Executed validation is recorded below.
+
+**First simple-NAME guard:** `SimpleNameGuard::from_name_use(context, NameUseId)` admits only runtime bound simple names in a verified complete context and retains `(FrontendUnitId, NameUseId)`. Catalog/diagnostic assumptions, missing/extension bindings and locative/by-value forms are outside this recipe. `Engine::check_name_guard` first checks engine/current-frame identity, then repeats current-frame→global search and compares local bound/declared-unbound/absent state, found scope, binding version, generation and POS. Outcomes are `ValidAtCheck/EngineChanged/FrameChanged/LookupChanged`, not J errors or automatic fallback. Each successful assignment gets a new BindingGeneration, rejecting remove/recreate ABA even with equal versions/POS. This does not add language-level expunge; the ABA regression removes an internal table entry.
+
+This recipe does not skip search through an epoch fast path. Reassignment, local shadowing of global fallback and invocation changes invalidate it; unrelated writes do not. Failed RHS evaluation preserves the original guard. It neither refreshes noun snapshots nor freezes ordinary verb late lookup. Validity across subsequent effects/mutable Engine access, locale/path, concurrent leases, compiled dispatch and pre-effect route admission remain unimplemented. The full LookupWitness/GuardRecipe checklist therefore stays open.
+
+After `g=:f`, changing only f can leave g's guard `ValidAtCheck` while changing g's execution result. This deliberately validates a direct binding, not execution equivalence of a transitive function DAG. Subsequent specialization must guard each late read it freezes and establish validity at its semantic read point across effects.
+
+**Transitive alias-call guard and one pure-call lease (2026-10-07):** `name_guards::AliasCallGuard` admits only an ordinary runtime `LateAtCall` NAME followed by **simple aliases ending in an operand-free `+/-/*/%` Verb**. `Engine::prepare_alias_call_guard(&Arc<FrontendContext>, NameUseId)` first rechecks the root observation, then retains each spelling, actual LookupObservation and shared immutable target Arc in `AliasRead[]`. For `h→g→f`, changing only f invalidates read index 2. It does not turn noun snapshots, constructor-time modifiers or implicit function-value substitution into ordinary call-time reads. It never speculatively traverses derived operands, hook/fork, rank/reduce or definition bodies. Missing/POS-changed/cyclic/over-depth targets produce typed admission outcomes, without an automatic dispatcher exposing them before original J errors.
+
+The guard shares the original FrontendContext Arc and `(unit, NameUseId)`. `AliasCallGuard::verify` checks root/use observation identity, next-name/target links, terminal primitive, absent operands, generation uniqueness/presence and nonempty bounded chains. `Engine::check_alias_call_guard` rechecks namespace/frame and every read. This is derived runtime evidence, not another executable function IR.
+
+Arguments must be evaluated in semantic order **before call-time validation**. `validate_alias_call_guard` returns `ValidatedAliasTarget<'engine>`, borrowing Engine and guard immutably until its consuming `apply_monad/apply_dyad` performs one existing arithmetic kernel call. A compile-fail doctest rejects Engine mutation with a live token. This slice changes no automatic parser/runtime/Logical executor routing and adds no CLI execution mode. It is an explicit API returning raw kernel errors. A miss invokes no kernel and replays no sentence/argument effects; the caller can explicitly choose supported Rust evaluation with retained nouns. Whole-region admission, CFG continuations, arbitrary effectful functions, locale/path and concurrent Engine leases remain unimplemented.
+
+`ParseCapture.frontend` exposes the same Program.frontend Arc emitted by the parser and preserves the completed prefix on failure. It performs no second parse or event-to-context reconstruction. Failed contexts remain non-executable and cannot admit guards. Regressions cover transitive global fallback becoming shadowed by a local binding and explicit invocation frame exit.
+
+- [x] Transitive ordinary alias reads, parser-context ownership, typed invalidation and verifier.
+- [x] One call-time borrow lease for supported arithmetic, actual kernel execution and no-effect-replay regressions.
+- [x] Public successful/failed capture contexts, cycles/depth, malformed recipes and local fallback/frame lifetime regressions.
+- [x] AliasCall owns already computed arguments by move; typed misses and explicit single semantic-call resumption in the same engine/frame. Wrong engine/frame or invalid recipes return ownership.
+- [ ] Semantic lookup points/operand-origin paths for derived functions and general effect/region admission. The alias chain does not prove this wider domain.
+
+**One call-ready boundary:** `AliasCall { guard: Arc<AliasCallGuard>, x: Option<Value>, y: Value }` retains the original parser callee and already computed logical values. `try_alias_call(&self, call)` returns `Executed(Result<Value>)` or `Miss(AliasCallMiss { check, call })`. Kernel length/domain errors remain Executed J errors, not guard misses. A miss returns the unchanged arguments and calls nothing. Explicit `resume_alias_call(&mut self, miss)` rechecks engine/frame and passes the **original NameRef Arc plus saved x/y** to existing `call_entity`. Current POS/value changes receive ordinary Rust Domain/Value behavior. The callee is not reconstructed from a source span.
+
+Wrong engine/frame or damaged recipes return a Miss retaining argument ownership without executing. Resumption neither reparses RHS/argument evaluation nor rereads nouns from the namespace. An argument-side count increment/function rebind runs once, and later noun reassignment cannot replace captured arguments. This applies only to **an ordinary call whose arguments are already computed**. It does not implement pending parser/constructor or control-block continuations, arbitrary sentence resumption, or automatic compiled dispatch. The lease API returns raw kernel errors while semantic resumption retains existing runtime diagnostics; complete human-diagnostic equivalence between routes is not yet verified.
+
+**Alias/call-ready validation (2026-10-07, native Windows):** default/portable each **578 passed / 17 ignored / 0 failed**, including 75 library tests, 10 `tests/name_guards.rs` tests and the compile-fail doctest rejecting Engine mutation with a live lease. fmt/clippy passed. Python alias audit: 3, NAME audit: 8 and oracle protocol: 9 passed. `examples/alias_guard_probe.rs` invokes actual lease kernels and, after misses, `resume_alias_call` with retained arguments. `tools/alias_guard_audit.py`: 27 fixtures × C j64/AVX2 = **54 observations matched** (`reports/alias-call-guard-windows.json`). Coverage includes arrays/empty arrays/scalar extension/length errors, argument effects once, noun/missing target Domain/Value outcomes. Guard states are Rust-only assertions, not instrumented C events. This finite comparison is limited to oracle output dtypes and proves neither all numeric categories nor performance. Existing scope **40 matched**, NAME **64 matched / 40 unsupported**, boundary **36 matched / 4 unsupported** were also rerun. Full diagnostics, GPU/Linux/remote CI were not tested. The 565-test guard and 560-test parser records below belong to earlier slices.
+
+**Guard-slice validation (2026-10-07, native Windows):** default/portable each **565 passed / 17 ignored / 0 failed** (73 library tests, including 5 new guard regressions). After adding the transitive late-target assertion, all 7 relevant library scope tests were rerun and passed under both configurations. fmt/clippy passed; Python audit tests: 8 and oracle protocol: 9 passed. C j64/AVX2 × both Rust routes rerun: scope **40/40 matched**, existing NAME **64 matched / 40 unsupported**, semantic boundary **36 matched / 4 unsupported**, with no semantic mismatches. C value/error comparison is not an independent proof of Rust guard legality. The 560-test record below belongs to the preceding parser-context slice.
+
+**Executed validation (2026-10-07, native Windows):** default and portable each **560 passed / 17 ignored / 0 failed**, including 15 new frontend integration regressions and 68 total library tests. `cargo fmt --all` and `cargo clippy --all-targets --all-features -- -D warnings` passed. Python audit classification/transport tests: 8; oracle protocol tests: 9, all passed. C j64/AVX2 × Rust direct/semantic-reference comparison: all **40 observations matched** across 10 explicit/direct NAME scope fixtures (`reports/name-scope-handoff-windows.json`); existing 26 NAME fixtures: **64 matched / 40 unsupported**; 10 semantic boundary fixtures: **36 matched / 4 unsupported**. Each observation is a sentence sequence including setup and post-error reads, not an internal C event trace or compiled-route test. Only multiline explicit block setups use C script transport, retaining identical original source on both sides. Reports record binary/DLL hashes and distinct source/asset revisions. Unsupported locale/execute cases are not passes. GPU/Linux/remote CI checks were not run.
+
 #### Frontend file ownership
 
 `src/tokenizer.rs` owns word formation; `src/enqueuer.rs` owns word interpretation and environment flags; `src/parser.rs` owns class matching, stack reductions, construction and parser-time name/POS resolution. `src/semantic.rs` owns semantic objects, intrinsic rank-construction contracts and binding/version models. `scanner` and the old `semantic::parse` APIs are compatibility re-exports, not duplicate grammars. No stage chooses a backend or schedule.
@@ -594,6 +1010,7 @@ Complete tokenizer → enqueuer → parser fidelity before other implementation 
 - [x] Preserve standalone/parenthesized adverb and conjunction results and final name assignments as `ModifierValue` with actual POS. Named modifier execution and complete derived-POS coverage remain pending.
 - [x] Add projection tests preserving completed modifiers and boxed noun type/shape.
 - [x] Restore `=.` enqueue metadata: top-level local copulas become global, explicit-definition enqueue keeps them local. Local body execution and locative upgrades remain pending.
+- [x] **F1 env=0/1/2 copula slice (2026-10-07):** Pinned [jsource `w.c::jtenqueue`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c) leaves copulas unspecialized for tacit translation (`env=0`, including no `ASGNTONAME`), versus top-level `=.` force-global (`env=1`) and explicit-body local `=.` (`env=2`). RustJ adds `EnqueueEnvironment::TacitTranslator` and a Rust regression on both copulas, name-lookup flags and source span. This accepts **only** the three-environment enqueue flag slice: locative force-global, integration with a tacit-translation caller, direct C runtime-queue differential and the full F1 gate remain open.
 - [x] Record Windows j64/AVX2 stage results: 7,014 checks each (including 6,561 declarative row tuples and 111 function/POS graphs), zero mismatches.
 - [ ] Complete numeric/name/core spelling coverage, then runtime reachable-state/reinsertion traces.
 - [ ] Complete constructor POS and runtime noun operands, then right-to-left name/effect/local assignment semantics.
@@ -681,7 +1098,7 @@ Logical extent/liveness/resource reports reuse existing analysis without optimiz
 
 **Capture-adapter scope:** capture owns read-only source text. Literals are reconstructed from enqueue payloads; named nouns become ReadNoun nodes with observed binding versions without rereading current workspace values. Applications use the existing Builder, preserving FunctionEntity and NameRef. Inferred graph facts remain distinct from observed runtime facts; successful named calls still require specialization. `ConstructorOrigin.noun_inputs` preserves computed operand dependencies. Ordinary graph-memory analysis alone must not be treated as complete constructor-operand liveness or physical peak analysis without those sidecars. Multiple effects, runtime guards, failure continuation, modifier-value graph lowering and reusable executable plans remain outside this gate.
 
-**Parser-time assignment scope:** following `p.c` row 7 (reviewed source pin above), `x+(x=:2)` commits the RHS before the later left-name lookup. Chained assignments and parenthesized assignments use the same matcher; top-level `=.` is enqueued as global when no explicit local scope is active. A failure before outer row 7 leaves its binding untouched; any assignment already performed remains visible. Runtime final assignment also commits at row 7, rather than after successful parser exit: `(x=:2` and `x=:2)` report syntax errors but retain `x=2`, matching C. A final-assignment reduction ends row processing before exit validation; the runtime does not commit it again. Array RHS buffers become shared before making a returned alias; capture records only occurrence/function identity, actual POS, copula provenance, previous/proposed binding versions and whether assignment is final. No input/intermediate array snapshots are added. The static path rejects non-final assignments without executing them. General locales, explicit local environments and noun/multiple assignment targets remain unsupported.
+**Parser-time assignment scope:** following `p.c` row 7 (reviewed source pin above), `x+(x=:2)` commits the RHS before the later left-name lookup. Chained assignments and parenthesized assignments use the same matcher; top-level `=.` is enqueued as global when no explicit local scope is active. A failure before outer row 7 leaves its binding untouched; any assignment already performed remains visible. Runtime final assignment also commits at row 7, rather than after successful parser exit: `(x=:2` and `x=:2)` report syntax errors but retain `x=2`, matching C. A final-assignment reduction ends row processing before exit validation; the runtime does not commit it again. Array RHS buffers become shared before making a returned alias; capture records only occurrence/function identity, actual POS, copula provenance, previous/proposed binding versions and whether assignment is final. No input/intermediate array snapshots are added. The static path rejects non-final assignments without executing them. This records the original step; later definition/local-scope work and the string-target implementation below extend runtime coverage. General locales, boxed/AR targets and ordered-write lowering remain incomplete.
 
 - [x] P4/P5: intermediate noun, verb, adverb and conjunction writes preserve actual result POS/FunctionEntity; capture verifier checks RHS identity/class, copula scope, Engine-local version progression and final-event ordering.
 - [x] P4/P6: unmatched controls do not preempt reachable assignment actions. Precise control spans remain in SyntaxError diagnostics without replacing earlier runtime error classes. C observation of `a=:missing + )` confirms a hook assignment survives the exit error; the old blanket rollback test is corrected.
@@ -1036,6 +1453,7 @@ These static-analysis gates do not wait for completion of all runtime-capture wo
 
 ---
 
+<a id="read-semantic"></a>
 # Part II — Semantic identity
 
 ## 5. FunctionEntity DAG
@@ -1198,6 +1616,37 @@ RustJ generally permits **pre-execution route fallback**. A pre-effect guard mis
 Current `lowering.rs::RouteDecision::RuntimeSemanticFallback` means **compile-time classification that this operation needs a semantic/runtime route because no current native ExecutionBasis realization is available**. It does not promise that RustJ may run a native kernel, fail halfway, and jump back to the interpreter. If the semantic/runtime route itself does not support the form, the result is conceptually `UnsupportedImplementation`; the current concrete API is `Error::Unsupported(...)` with kind `"unsupported"`.
 
 Future dispatch must distinguish at least these commit frontiers:
+
+#### First-CPU-route boundary decisions and acceptance (2026-10-07)
+
+Canonical §3.9.5 makes the first CPU route **pre-execution admission only**. This is a route profile, not a J language restriction. Proposed demand names below are contracts, not implemented Rust enums/dispatcher capabilities. Current StaticAnalyzer Unsupported/AnalysisBoundary covers only part of the seam.
+
+| Decision point | Continue criterion | Otherwise |
+|---|---|---|
+| NAME queue→stack, resolve_stack_item | POS evidence matches the semantic lookup and no preceding namespace effect invalidates it | NeedNameClass with occurrence/context/effect dependencies. Missing catalog metadata is not a J Value error or an actual undefined-name fallback. |
+| Rows 0–2, analysis runtime_noun | Known callable POS/valence and noun-result structure | Keep Monad/Dyad expressions. No atom demand for unknown shape. Unresolved target retains NameRef and NeedCallableProof for execution admission. |
+| Rows 3/4, noun-left fork/gerund/definition constructors | Required concrete operands, or a verified symbolic constructor preserving result POS/errors | NeedConstructorValue/Result with exact operand/use and constructor identity. Computed rank `(1+0)` is currently an analysis boundary; verified constant evaluation could discharge it later. |
+| Row 7 | Single static final outer assignment; deferred RHS, runtime commit | NeedNamespaceAction for intermediate/computed/multiple/local/locale actions. Do not continue lookup against a stale catalog. |
+| Execute/unknown explicit modifier/opaque call | Actual source/POS/effect semantics available | NeedDynamicSemantics; never assume purity. |
+| Graph→A3→physical execution admission | All demands discharged, correctly scoped name/POS/nested-call/error/input/lifetime evidence and supported route | NeedsGuardOrRoute/UnsupportedRoute. Graph construction is not execution permission. |
+
+Proposed result fields: `kind | span/word/occurrence | parser row/use | required value/POS/callable | dependency/effect frontier | evidence | selected action`. Continue permits graph construction; ExecuteAllowed is a separate verdict.
+
+**v0 dispatch:** analyze the whole candidate sentence without modifying the workspace. Admit only a closed region without internal namespace writes, unknown effects or dynamic construction requests, with actual proofs/guards and target capability. A terminal write commits only after success. Otherwise select an actually supported runtime route before any sentence execution, or report compiler coverage refusal. No C fallback. Guard misses are not J errors. No prefix-execute/resume, effectful replay, fake concrete nouns or assumed fallback executors. General continuations remain disabled pending exact-state/exactly-once validation. `a+a=:2` may be rejected by this compiler profile while its runtime evaluation must still yield 4 and final a=2.
+
+| Acceptance layer / existing gates | Required evidence and one-mutated negative | Current status |
+|---|---|---|
+| Analysis / NP-02/04, DB-C | Pure/unknown-shape expressions stay deferred; computed constructor and non-final write stop without commits. Reject fake literal operands or stale-catalog continuation. | Existing 14 plus 3 new static-analysis regressions; no typed demand API yet. |
+| Admission verifier / NP-03/05 | Scope/timing of name/POS/constructor/call/input proofs, source mapping, no unresolved demands, error order/lifetimes and actual route. Remove a guard, swap scope stamp, drop nested NAME dependency/order edge, or mark an unresolved demand Ready. | **Unimplemented/UNRUN**; Plan structural verification/catalog versions are insufficient. |
+| Actual C/runtime/compiled differential / NP-07, DB-E, M4 | dtype/shape/data, POS/first error, namespace/effects/aliases. Reject result 3 for assignment/read, early missing-left error, repeated committed effects, stale callable. | Current runtime subset tested; **compiled-route and internal NAME/effect traces UNRUN**. |
+
+[Boundary audit](tools/name_compatibility_audit.py) `--boundary-fixtures-only` and [Windows results](reports/semantic-boundary-windows.json) pin **10 fixtures × C j64/AVX2 × Rust direct/semantic-reference = 40 observations: 36 matched, 4 unsupported gaps**. Neither Rust path is compiled execution. Source and DLL pins differ; actual binary hashes are recorded.
+
+Fixtures: `b=:a+a*a` preserves a; `i.n` accepts unknown analysis result shape; literal/computed rank both execute to [3,12] but the latter stops analysis; `a+a=:2` and a writing modifier yield 4/final a=2; `missing+(1 2+1 2 3)` raises Length before Value; a modifier writes count=5 before a later Length error and the count remains 5; `". '1+2'` is C=3/Rust Unsupported; rebinding a referenced verb to a noun produces Domain. These pin runtime outcomes and analysis boundaries, not resumable-parser correctness or admission completion. Add no competing checklist; use NP/DB/M3→M4 gates. First close one deferred pure region through Graph/A3 to admitted CPU execution with kernel/allocation instrumentation and C comparison, then expand by the specified negative tests.
+
+Windows validation: static_analysis **17/17 default and 17/17 portable**, Python audit classification **6/6**, oracle protocol **9/9**, fmt, clippy (`--all-targets --all-features -D warnings`) and diff checks passed. Full Rust/upstream J suites, Linux, GPU and GitHub CI were not run. To prevent NAME risk from being deferred into later optimizations, **do not admit specialization based only on observed NAME metadata before the admission verifier and the negative tests above are implemented and passing.**
+
+The remaining frontier description applies to the future dispatcher:
 
 ```text
 before_start
@@ -1538,6 +1987,7 @@ Future reports connect each fact to source node/span, assumptions, proof scope, 
 - [x] **WI0d** Document SA0–SA8, framework methods/boundaries and current implementation with sources.
 - [ ] **WI3c** Connect SA categories, proof scopes and unresolved conditions to frontend graph/facts reports; add regressions for supported portions first. Do not require general solvers or physical scheduling before frontend completion.
 
+<a id="read-rank"></a>
 # Part III — Rank, cells, and array semantics
 
 <a id="logical-physical-array-model"></a>
@@ -1640,13 +2090,14 @@ A fixed-shape parallel map may replace it only after the necessary uniformity pr
 
 ---
 
+<a id="read-graph"></a>
 # Part IV — J Graph IR
 
 ## 7. Purpose
 
 J Graph IR preserves algebraic graph structure for reasoning before execution-specific normalization erases useful J structure.
 
-Current schema: **v0.9**. GF2/GF3 add composition and witnessed Scan identity analysis; source Window graphs and execution boundaries remain intact.
+Current schema: **v0.10** (explicit array Inputs). GF2/GF3 add composition and witnessed Scan identity analysis; source Window graphs and execution boundaries remain intact.
 
 It includes:
 
@@ -2038,733 +2489,6 @@ Existing `GraphForm/GraphHint`, applied stages, consumer/liveness and symbolic-r
 
 No external framework builds, Rust/C runtime tests, performance measurements, or CUDA validation were performed for this documentation integration. Earlier validation records retain their original scope.
 
-## 7.4.3 jsource-derived optimization principles and RustJ placement
-
-Review baseline: `jsoftware/jsource` source pin **`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`**. This is not a plan to clone jsource's hand-written special entry points one-for-one. It mines accumulated J-specific optimization knowledge and relocates it into RustJ graph facts, candidate rewrites, and downstream execution planning. **J Graph discovers candidates; Execution Semantic Lowering/proof validates call-dependent legality; Physical Planning chooses concrete realization.** This catalog is representative, not exhaustive.
-
-| jsource observation | Direct source | Generalized RustJ idea | Placement |
-|---|---|---|---|
-| Derived verbs propagate execution-relevant properties | `ca.c::jtatop/jtatco`; `jtype.h` `VF2*` | Distinguish intrinsic traits from engine-specific result-assembly/consumer-demand hints; propagated runtime flags are not themselves J semantic identity. | **J Graph provenance + call facts / assembly** |
-| `@:`/capped-fork/special-form recognition | `ca.c` `SPECAT/SPECATCO`; `cf.c::jtfolk` | Canonicalize equivalent applied topology while retaining source provenance; expose composition as fusion/materialization candidates. | **J Graph canonicalization + discovery** |
-| Atomic `f/@:g` can reduce intermediate materialization | `ca.c::jtatco`; `va2.c::jtfslashatg` | Cell-at-a-time execution is **not proof of a single fused kernel**; source checks dense/nonempty, type compatibility and whether inplace is more beneficial, and may fall back. | **Graph fusion/streaming candidate → guarded execution schedule** |
-| Nested rank loops can be subsumed | `jtype.h` `VF2RANKATOP*/RANKONLY*`; `ca.c`; `cr.c` | Preserve cell/frame iteration domains and discover compatible rank-domain absorption/fusion. | **Graph/execution semantic analysis**, concrete loop later |
-| `+/%#` gets `jtmean` | `cf.c::jtfolk`; `ar.c::jtmean` | Mean is a high-level idiom, not necessarily a fused pass: jsource computes reduce then divides by cell length. Require numeric/rank/error witnesses before replacement. | **Graph idiom → execution selection** |
-| Mean under infix/window becomes moving average | `ap.c::jtbslash/jtmovavg/jtmovsumavg`, with generic fallback | Rewrite rediscovery matters, but so do sliding-window algorithm/dtype choices, NaN/overflow handling and exact numeric behavior. | **Graph idiom → Window planning** |
-| `+/@:*"1 1` gets `jtsumattymes1` | `cr.c` choice; `va2.c::jtsumattymes1` | Dot-like only under specific rank/dtype/empty/sparse/fit (`!.0/!.1`) paths. Generic Dot substitution is not automatically valid. | **Graph idiom + witnessed numeric lowering** |
-| `#@,`, `#@$`, `*/@$` shortcut to rank/atom count | `ca.c`; `v.c::jtrank/jtnatoms` (sparse has a shape-based route) | Use shape/rank/count demand while preserving sparse/empty/prototype and observable check/error behavior. | **Graph facts / shape rewrite** |
-| `BOXATOP/WILLOPEN/ATOPOPEN/USESITEMCOUNT` coordinate result assembly and consumer | `ca.c` explanation; `cr.c` result assembly; `jtype.h`, `result.h` | This is **not universal algebraic Box→Open cancellation**: it controls virtual boxed contents, recursive assembly/EPILOG, and raze count/shape checks. | **Graph demand → guarded assembly/materialization** |
-| Ravel can use virtual blocks/header reshaping | `v.c::jtravel` incl. `ASGNINPLACESGN`, `AFNJA` | Expose a logical view opportunity, but not every reshape/take/transpose is zero-copy or a simple stride view; alias/pristinity/ownership matter. | **Graph view fact → physical representation** |
-| Comparison/search/set combinations get specialized algorithms | `ca.c` ranking and comparison forms; `cf.c::jtfolk` `jtintersect` under `#if C_VIAVX` | Promote recognized Ranking/Intersection/Search idioms, but keep build capability and tolerance/type restrictions distinct from semantic proof. | **Graph candidate → target/algorithm selection** |
-| Use count and inplaceability drive storage reuse | `v.c::jtravel` incl. use count, pristine and incorpable checks; `JTINPLACE*` | SSA liveness alone is insufficient: require ownership/alias, recursive boxed contents, rank/result shape, and error/retry legality. | **Buffer planner / physical lowering** |
-| Cache footprint/SIMD/special routines influence the execution path | `va2.c::jtfslashatg` and specialized entry points | Keep fusion/streaming freedom and logical extent in graph IR; select chunking, SIMD, GPU workgroups, and libraries later. | **Target lowering / schedule / cost** |
-| Reduce has empty/singleton/two-item/type-specialized paths | `ar.c::jtreduce/jtslash` | Identify neutral/singleton shape candidates, but preserve prototype/numeric semantics and select small-cell routines downstream. | **Graph facts → Reduce lowering** |
-| Scan/infix has multiple specialized sliding algorithms | `ap.c::jtpscan/jtmovfslash` | Distinguish Scan from Window; sliding sum/min/max/boolean/XOR paths need numeric, NaN, overflow, and fallback contracts. | **Graph Scan/Window → schedule** |
-| Search/index-of can use prehash or sorting + binary search | `vi.c` IPH modes and `jtiobs` | Prehash modes do not guarantee applicability; `jtiobs` is limited to `ct=0` tolerance and selected boxed high-rank/numeric-box cases. Select hash/sort/generic based on facts and cost. | **Graph Search → execution algorithm selection** |
-| Under/each has structural and specialized paths | `cu.c` `u&.>`, `jtsunder`, inverse caching for `nameless(wvb)` | Preserve inverse and dynamic-name binding timing, effects, aliases; structural and cached-inverse routes require legality proof. | **J Graph Under provenance → execution** |
-| Bound constants enable specialized numeric algorithms | `ca.c` constant `2&^.` log2 and modular-power cases | Preserve bound constants as facts; demand full numeric-domain/fit/overflow witnesses. | **Graph constant candidate → numeric lowering** |
-
-Pinned sources:
-
-- [`jsrc/ca.c` — Result Assembly flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L269-L289) · [`jtatop/jtatco` patterns](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L293-L516)
-- [`jsrc/cf.c` — `jtfolk`, capped-fork normalization, mean and intersection specializations](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L55-L198)
-- [`jsrc/cr.c` — rank/IRS selection and `jtsumattymes1`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L779-L799)
-- [`jsrc/ap.c` — infix dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L940-L965) · [moving-average fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L769-L780)
-- [`jsrc/va2.c::jtfslashatg` — cell-at-a-time execution and fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1806-L1850)
-- [`jsrc/v.c` — rank/atom-count shortcuts, virtual ravel and inplace/header reuse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/v.c#L8-L40)
-- [`jsrc/jtype.h` — BOXATOP/WILLOPEN/USESITEMCOUNT/RANKATOP/RANKONLY contracts](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1280-L1320)
-- [`jsrc/result.h` — WILLBEOPENED/COUNTITEMS result-assembly contract](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/result.h#L20-L36)
-
-- [`jsrc/ar.c` — empty/singleton reduction, `jtslash`, `jtmean`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L818-L849) · [Mean](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L1018-L1025)
-- [`jsrc/ap.c` — sliding sum/min/max/boolean/XOR paths](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L901-L965) · [numeric fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L750-L780)
-- [`jsrc/vi.c` — hash/prehash modes, sort+binary search](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L142-L184) · [sort path](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L804-L839)
-- [`jsrc/cu.c` — Under/Each and structural-under special paths](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cu.c#L391-L439)
-- [`jsrc/va2.c` — dot-like rank/type/fit boundary](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1640-L1687)
-
-The layer boundary is deliberate: Graph IR/facts own provenance, rank/cell/frame topology, shape/count, demand, logical-view opportunities and semantic traits; graph optimization owns fusion, rank-domain absorption, shape/count simplification, materialization elimination and idiom recognition; execution/physical planning owns explicit loops, buffer reuse, concrete views, cache blocking, SIMD/multicore/GPU mapping and library/custom-kernel selection.
-
-Do not make each jsource special entry point a Graph IR node, and do not copy runtime flags such as `WILLOPEN` or `RANKATOP` as semantic identity. Each rewrite still requires its own witness for J-visible dtype, rank/frame/cell, empty/prototype, fit/tolerance, overflow/promotion, and effect/error order. jsource special cases are optimization-source evidence, not sufficient correctness proofs. This section records design input only; it does not claim these optimizations are implemented.
-
-**Independent audit (2026-10-06):** Corrected overgeneralizations about kernel fusion, algebraic Box→Open cancellation and generic Mean/Dot equivalence; documented restricted fallback/type/rank/fit cases, plus reduction, sliding/scan, hash/search, Under/Each and constant-specialization omissions. This is a source/document review, not a RustJ implementation or differential/benchmark run.
-
-### Independent verification using three separate criteria (2026-10-06)
-
-| Review | Independent question | Findings | Limit |
-|---|---|---|---|
-| **1. Source trace** | Which exact constructor/entrypoint/fallback paths exist? | Rechecked pinned `ca/cf/cr/va2/ar/ap/vi/cu`, clarified `C_VIAVX` gate for `jtintersect`, `ct=0`/boxed restrictions for `jtiobs`, and expanded fallback source links. | Not an exhaustive jsource inventory |
-| **2. Semantic counterexamples** | Which apparently similar graph transforms can change J behavior? | Independently checked empty/sparse, rank/frame/cell, `!.`/promotion/NaN/overflow, boxed assembly/virtual alias, dynamic names, effect/error order. Rejected unconditional Mean/Dot/Box→Open/fusion rewrites. | No runtime/differential tests run |
-| **3. IR/document boundary** | Which layer owns discovery, proof and realization? | Compared graph discovery, §7.5 candidate evidence, execution semantic lowering and Physical Planner; their boundary is consistent. Repaired the broken Markdown table. | No implementation/performance claim |
-
-**Revision check:** pinned source baseline `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` is 20 commits behind jsource `master` at `0a5101cfdd834b23a0b89d455e4f327310520a08` (2026-10-05); intervening changes include `ap.c/ar.c/va2.c`. The inspected entry/guard excerpts for `jtmovavg`, `jtmovfslash`, `jtmean`, `jtreduce`, `jtfslashatg`, `jtsumattymes1` matched; this does not verify entire functions or all current-head paths.
-
-### Pending differential-regression matrix (not executed)
-
-| Candidate | Boundaries to test | Required legality result |
-|---|---|---|
-| `f/@:g` | empty/sparse, inplace, dtype mismatch, overflow reversion | value/type/error order and effect-safe fallback |
-| `+/%#` / Window(Mean) | zero/one/multiple cells; int/float/NaN/overflow; window lengths | shape/prototype/dtype/numeric equivalence |
-| `+/@:*"1 1` | mixed-rank/empty/sparse, `!.0`/`!.1`, QP | rank/agreement/result type and fallback |
-| BOXATOP/WILLOPEN/USESITEMCOUNT | nested boxes, nonuniform shapes, raze, sparse and virtual aliases | assembly/usecount/error/order invariants |
-| Search/Under/View | boxed/tolerance/prehash, rebinding, shared/inplace ravel | search identity, inverse binding timing, alias legality |
-| Every rewrite | proof/source version, effect/error order, guard miss | never commit unknown; no replay after effects |
-
-jsource code paths are sources for candidate discovery, not correctness proofs or performance measurements. Unverified candidates must not be marked selected or realized.
-
-### H. Additional missing optimization families found in repository-wide audit (2026-10-06)
-
-The preceding catalog of 18 representative observations was **not** an exhaustive account of jsource optimization. Reviewing the pinned `jsrc/` source tree and additional functional families revealed these **previously omitted or over-collapsed families**.
-
-| Missing family | Pinned direct source | What jsource specializes and where it is legal | RustJ owner |
-|---|---|---|---|
-| **Key/Group-by plus aggregation** | [`ao.c::jtkeyct`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L213-L260), [`jtsldot`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L824-L850) | Selected `u/.`/`f//.` cases directly accumulate group sum/min/max/mean rather than universally materializing reorder→Cut→Reduce. Requires key equality/tolerance, group ordering, type and overflow witnesses. | Graph **Key/GroupReduce candidate** → group algorithm |
-| **General inner product / matrix multiplication** | [`cip.c::jtpdt/jtdot`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cip.c#L715-L739), [size-dependent route](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cip.c#L925-L956), [`gemm.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/gemm.c#L923-L985) | Broader than the existing rank-1 dot-like `jtsumattymes1`. `+/ . *` selects small/cached/BLAS/in-house dgemm/zgemm/igemm routes with numeric fallback. | Graph **Contraction** → numeric witness + physical GEMM route |
-| **Grade/Sort/Ranking strategy selection** | [`vg.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vg.c#L525-L557), [`vgsort.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vgsort.c#L120-L149), [`vgranking.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vgranking.c#L34-L69) | Count/histogram+prefix, radix, quick/merge and direct sorting depending on range, item length and size; optional AVX512 gated route. Requires J equality/order and tie stability contracts. | Graph **Grade/Ranking** → target-aware algorithm choice |
-| **Tolerance-aware hash table algorithms** | [`viavx2.c` neighbor hash intervals](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L10-L49), [`viavx.c` table layout](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L15-L43) | Naive exact hashing cannot implement J tolerance. Neighbor-bucket probes, signed-zero handling and packed/AVX table strategies are distinct from prehash entrypoints. | Search tolerance semantic witness → hash planner |
-| **Interval Index `I.`** | [`viix.c` boolean/small-range](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viix.c#L18-L48), [binary search](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viix.c#L55-L86) | A separate ordered-interval operation from general `i.` membership/hash search; range and sortedness permit table or branchless search. | Graph **IntervalLookup** → search route |
-| **Cut/substring virtual paths** | [`cc.c::jtrightcut0`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L133-L147), [`jtboxcut0`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L158-L210) | Selected one-dimensional segments can be virtual; consumer-will-open permits boxed virtual contents. Reverse/negative paths and lifetime may force copying/fallback. | Graph Cut/segment + demand → View/Result Assembly |
-| **From/Gather copy-vs-view** | [`vfrom.c::jtget1cell`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vfrom.c#L39-L53), [AVX gather path](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vfrom.c#L70-L108) | Small cells may copy, large contiguous cell selections may return virtual blocks; arbitrary indexed gather is not a universal zero-copy view. | Graph access facts → Physical gather/layout |
-| **Reshape/Compress/Catenate ownership and copying** | [`vf.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vf.c#L301-L331), [`vrep.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vrep.c#L53-L93), [`vcat.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vcat.c#L192-L221) | Conditional header reuse, virtual reshape, in-place compression, and recursive-box ownership transfer require alias, pristine/usecount, fill and lifetime checks. | Graph materialization facts → buffer/ownership planner |
-| **Sparse-specific algorithms** | [`cpdtsp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cpdtsp.c#L1-L43), [`vgsp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vgsp.c#L1-L25), [`visp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c#L1-L25), [`vfromsp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vfromsp.c#L1-L35) | Specialized sparse inner product, grade, index-of and From do not imply dense fallback or unconditional dense fusion. | Sparse semantic facts → sparse execution route |
-| **Dynamic name-reference / locale caching** | [`sc.c` lookup](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L57-L100), [invalidation/locale guards](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L140-L178) | Timestamp/invalidation, short- vs long-term cache, permanent locale and atomic cache updates optimize dynamic lookup *without changing J binding semantics*. | Name/Binding runtime cache, **not** a Graph algebraic rewrite |
-
-These families need different layers: source syntax/graph identity permits candidate recognition, Execution Semantic Lowering owns rank/type/tolerance/error/effect proof, and physical planning owns sorting/hash/GEMM/view/sparse/memory route choice. Name lookup cache is a separate interpreter/runtime semantic boundary.
-
-### I. Explicit coverage limitation
-
-This additional review searched the pinned `jsrc/` source inventory and sampled source files in grade/sort, group/key, inner product/GEMM, tolerant hash/index, cut, data movement, sparse, and name caching. **It does not establish that no other jsource optimizations exist.** In particular, a complete inventory of `p.c` parser/assignment paths, `cx.c` explicit definitions, primitive numeric `va1/v0/v1/v2`, allocator/amend `m.c/am.c`, and all SIMD/assembly microkernels remains unverified. Suggested first research priorities are high-level Key/GroupReduce, Contraction, Grade/Ranking, and IntervalLookup identities, followed by their legality witnesses and target-specific algorithms. This was a source/document audit, **not** J/RustJ differential execution or a benchmark.
-
-### J. Framework-native RustJ integration (2026-10-06)
-
-This section distinguishes source-derived **design evidence** from actual RustJ code integration. No verified performance improvement or semantically committed transform is claimed.
-
-| Source-derived idea | Existing RustJ owner | Code status | Gate before execution optimization |
-|---|---|---|---|
-| `f/@:g` Map→Reduce streaming | Existing `j_graph_fusion.rs::MapReduce` and `fusion_planning.rs` | Reuse the existing envelope; do not add a duplicate rewrite | cell/rank, numeric/type, effect/order, target feasibility, fallback |
-| `+/%#` Mean fork | New `j_graph_jsource.rs` source analyzer | Recognize **monadically applied ordinary Fork of Insert(Add), Divide and Tally** as a source-backed **MeanIdiom candidate only** | shape/cell, empty, numeric order, effects; no Mean kernel yet |
-| Reduction/window/scan | Existing `GraphForm::Reduce/PrefixInfix`, `j_graph_scan.rs` | Register ReductionFastPath/WindowAlgorithm opportunities, separate from Scan witness | small-cell/window algorithm; NaN/overflow, monad vs dyad |
-| `i.` / `e.` / `E.` search | Primitive identity, existing FindViaWindowMatch rewrite | Dyadic SearchAlgorithm source opportunity; preserve existing Find rewrite | tolerance, hash/sort applicability, cost |
-| Dyadic `I.` interval index | `PrimitiveId::Indices` | Distinct IntervalLookup candidate, not monadic index-space | order/shape/type/tolerance |
-| Dyadic From and static reindex | `DynamicGather/StaticReindex` | GatherCopyOrView/ReindexCopyOrView candidates only, **not universal zero-copy** | bounds, alias/ownership, fill, stride/gather |
-| GroupReduce, full dot/GEMM, Grade/Ranking | Future J Graph/source-identity support + Execution Semantic Lowering | Source provenance, owner and obligations registered; do not fabricate executable nodes | frontend semantic support and differential proof |
-| Tolerant hash, sparse, buffer reuse and name cache | Execution/Physical planner and binding runtime | `DownstreamOnly` or `AwaitingFrontendOrFacts`; never mislabeled graph algebra | tolerance/sparse/alias/locale version, fallback |
-
-- `src/j_graph_jsource.rs` owns pinned source references, stable IDs, owner, coverage and proof obligations. `Plan::jsource_opportunities()` reports source `ValueId`, span, basis and facts without mutating the graph.
-- `CompilationAnalysis::jsource_opportunities` is populated in `runtime.rs::analyze_compilation_diagnostic`, alongside existing rewrites and Logical IR; it **does not select/execute** opportunities.
-- All opportunities are `AwaitingSemanticProofs`, `selected=false`. `verify(&Plan)` checks derivability/provenance against the graph, **not full numeric equivalence**.
-- Existing MapReduce fusion remains solely owned by `j_graph_fusion`; GroupAggregate, MatrixContraction and GradeRanking are registry-only until their constructors and proofs exist.
-- `tests/j_graph_jsource.rs` covers stable source registry, derivation/provenance, forged candidates, exact Mean fork and negative matches, selected Graph patterns and isolation from existing Find rewrite/MapReduce fusion. **Test execution has not yet been verified**.
-
-Deferred work: establish correct J constructor/operand/rank semantics for Key, Dot, Grade, Cut and Under; discharge semantic/effect/alias/numeric witnesses; add execution-specific GroupReduce/Contraction/GradeSort/IntervalLookup operations; select guarded CPU/GPU/sparse/BLAS routes only through target/cost planning; and validate against jsource for empty/sparse/tolerance/`!.`/overflow/rank/error/binding cases. Preserve the current frontend milestone priority. The optimization catalog is **not** an executable jsource-optimization port.
-
-### K. Follow-up source audit: monadic Mean guard and runtime-only optimizations (2026-10-06)
-
-**Concrete correction:** In the pinned [`cf.c::jtfolk`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L93-L101), `(+/ % #)` selects **`f1=jtmean` only**, not a dyadic `f2` specialization. Earlier RustJ discovery matched the derived fork but did not check applied valence, so it could falsely emit `MeanIdiom` for dyadic calls. `src/j_graph_jsource.rs` now requires a **monadic applied node**, and `tests/j_graph_jsource.rs` includes a dyadic negative regression. No mean kernel or numeric-equivalence proof is implied.
-
-A second pinned-source pass also sampled previously unreviewed areas:
-
-| Direct source | Observed mechanism | RustJ boundary |
-|---|---|---|
-| [`p.c` lines 10–24](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L10-L24) | Parse rows 0–2 support inplace execution, assignment `zombieval`, early parse completion | Frontend/runtime binding and lifetime, **not** graph-only donation |
-| [`cx.c` lines 270–329](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L270-L329) | Reuse/clone explicit local symbol tables, precomputed x/y buckets, borrowed/abandoned argument handling | Explicit runtime/binding; respect dynamic scopes and aliasing |
-| [`va1.c` lines 313–383](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va1.c#L313-L383) | Monadic numeric dispatch, retry/promotion by exceptional condition, distinct sparse fallback | Numeric semantic witnesses then guarded execution |
-| [`am.c` lines 55–89](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L55-L89), [568–581](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L568-L581) | Guarded Amend/scatter inplace paths checking indexing, sparse/type/read-only/alias/usecount | Amend semantics then Scatter/Buffer planning; do not conflate with Gather |
-| [`m.c` lines 743–783](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/m.c#L743-L783) | Virtual/recursive storage and allocation/refcount lifetime | Physical allocator/representation; do not copy C flags as graph semantics |
-
-Only the Mean false-positive is changed in graph discovery. Other observations remain source-evidence backlog assigned to their respective stages; they do not claim additional implemented graph transformations or exhaustive jsource coverage. `FOUNDATIONS.ko.md` remains consistent with the semantic/physical separation and needs no change. **Rust tests, differential execution and benchmarks have not been run for this change.**
-
-### L. Connect jsource source opportunities to canonical A3 and existing lowering (2026-10-06)
-
-`LoweringRegistry::jsource_planning_reports` first re-verifies the J Graph opportunity against its source plan. It validates both graph and A3 IR and source/node-count consistency, then maps the source `ValueId` to existing canonical A3 calls via `Operation.j_origin`. For an A3 `Basis` call it reports the *existing ordinary* `legal_candidates` for the selected target; for `SemanticCall` it reports the existing semantic-call boundary. **An ordinary CPU/GPU reference route is not a jsource-specialized implementation or an equivalence proof.**
-
-`JsourcePlanningReport` exposes candidate family, source provenance, decision owner, linked `OpId`s, the **entire unresolved** `ProofRequirement` list, and fail-closed status `NeedsLogicalCallLink` or `NeedsSemanticProof`. Type/shape facts, matching source syntax, and legal baseline routes do not silently discharge proof obligations. This is the first conditional-lowering *gate*, not optimized lowering execution. It does not commit a transform, select jsource-specific kernels, insert runtime guards, or make physical layout decisions.
-
-Next: typed family-specific equivalence witnesses and runtime guards (including effect/error/fallback order), parameterized lowering recipes, target/cost decisions, and differential tests. `tests/lowering.rs` adds cases for Reduce, monadic Mean, Gather, IntervalLookup, CPU/GPU route separation, stale provenance and missing A3 origins. These tests **were added but not executed**; CI, Cargo, C differential and performance validation remain unrun.
-
-<a id="jsource-audit-m"></a>
-
-### M. Re-audit of previously unlisted jsource optimization families (2026-10-06)
-
-**Method and scope.** On pinned [jsource revision 13994ffa](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc), separately inspected (1) the \`ca.c\` composition and \`cf.c\` hook/fork dispatch tables, (2) implementations and fallback guards in \`ao/cc/v/vi/vg/vrand/vx/vz/va1/vo/a.c\`, and (3) existing RustJ \`j_graph_ir\` / \`j_graph_jsource\` / A3 / lowering boundaries. These paths were missing or overly aggregated in the earlier A/H/K representative catalogs. Source fast paths do **not** establish semantic equivalence, RustJ support or measured gain.
-
-| Newly separated specialization | Verified pinned source and key guard | Placement in current RustJ framework |
-|---|---|---|
-| **Oblique reduction/convolution** \`f//.@:(g/)\` | [\`ca.c\` dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L367-L374) and [\`ao.c::jtpolymult\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L109-L161): atomic dyads with VFUSEDOK2, dense/nonempty vector and dtype/operator guards, generic fallback and overflow retry. | J Graph Oblique/Reduce candidate → typed Contract or segment-reduction/access relation → downstream convolution routine. Not an unconditional GEMM alias. **Not implemented.** |
-| **Cut → Scan/Window → Raze fusion** | [\`ca.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L358-L368), [\`cc.c::jtrazecut2\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L983-L1031): restricted Cut modes, atomic scan and dense input; **the upstream comment acknowledges an extra result axis in the no-cut case**. | Multi-region Graph candidate → SegmentView + Scan/Window + ConcatAssemble → materialization/assembly. **Blocked pending zero-cut semantics reconciliation.** |
-| **Byte-character substitution LUT** \`y {~ x i. ]\` | [\`cf.c\` fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L59-L65), [\`v.c::jtcharmap\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/v.c#L165-L191): LIT bytes, 256-entry table, alphabet special case, first-match precedence and index-error fallback. | IndexOf→Gather idiom → Lookup/Gather → Physical byte LUT with byte/shape/errors guard. **Not implemented.** |
-| **Boolean/sparse predicate direct indices** \`# i.@#\` | [\`cf.c::jthkiota\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L221-L234), plus [Key hooks](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L329-L339): dense boolean and guarded sparse boolean nonzero-index path. | IndexSpace + Compact/GroupBy candidate → direct mask/sparse index route. Preserve rank/empty/fill and original value semantics. **Not implemented.** |
-| **Grade→scalar Gather order statistics** | [\`cf.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L337-L345), [\`vg.c::jtordstat/jtordstati\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vg.c#L779-L800): scalar index, int/float vector and size restrictions. \`jtordstat\` draws **random pivots via \`jtrollksub\`**. | Grade→Gather candidate → guarded order-statistic select; inspect observable RNG state and tie/index behavior. **Not implemented.** |
-| **Shape + RNG generation fusion** \`?@#\`, \`?@$\`, \`?.@#\` | [\`ca.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L353-L359), [\`vrand.c::jtrollksub/jtrollk\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vrand.c#L609-L678): binary, power-of-two and general range RNG routines with rank/type fallback. | Source Generate/shape-demand candidate → **stateful** RNG runtime route; preserve seed/stream/draw/effects; never classify as pure algebraic fusion. **Not implemented.** |
-| **Direct boxed Append/Raze link** \`,<\`, \`;<\`, \`,&<\` | [\`cf.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L315-L326), [\`vo.c::jtjlink\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vo.c#L107-L144): boxed/virtual/recursive ownership, WILLOPEN and in-place guards, fallback. | Graph producer-consumer demand → ConcatAssemble/result assembly → guarded ownership/materialization. Not universal Box→Open cancellation. **Not implemented.** |
-| **Explicit \`M.\` memoization** | [\`a.c::jtmemo12/jtmemo\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/a.c#L93-L185): memoizable scalar integer-like arguments, locked expandable cache of key/result pairs, nonmemoizable input executes normally. | Derived verb identity + stateful cache runtime; preserve explicit memo semantics, call-skipping, bindings and lifetime. Not generic Graph CSE. **Not implemented.** |
-| **Numeric constant and exact-result idioms** | [\`ca.c\` dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L367-L387); [\`vx.c::jtdigits10\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vx.c#L257-L290), [\`vz.c::jtexppi\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vz.c#L293-L305), [\`va2.c\` exponent 0.5/power-of-two residue](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1937-L1940). Complex half-turn has exact-zero component handling. | Graph constant/derived numeric idiom → numeric/fit/error witness → typed backend recipe. No one-to-one C function Graph node. **Not implemented.** |
-| **Hook comparison and deadband** | [\`cf.c\` abs/level comparison](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L319-L333), [\`cf.c\` dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L105-L115), [\`va1.c::jtdeadband\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va1.c#L440-L462): AVX2 or emulated AVX2, dense floating-point, scalar-threshold and fallback guard. | Graph Hook/comparison candidate → typed numeric comparator → target-feature-gated SIMD. Preserve tolerance, NaN/signed-zero and error ordering. **Not implemented.** |
-
-Do not duplicate H's GroupReduce/GEMM/Grade/Search/virtual/sparse family rules. This table separates **different topology, proof conditions and target/runtime ownership** hidden inside those broad topics. Do not fabricate missing parser constructors or auto-register these ten as executable \`JSOURCE_FAMILY_RULES\`; future registry-only entries should start as \`AwaitingFrontendOrFacts\` or \`DownstreamOnly\`.
-
-#### M.1 Is a RustJ framework change necessary?
-
-**No wholesale architecture or canonical IR replacement is necessary. Several local contract extensions are necessary before these optimizations may execute.**
-
-| Current RustJ structure | Decision and necessary action |
-|---|---|
-| Shared \`FunctionEntity\`, J Graph regions, canonical A3 and basis vocabulary (Contract, Scan, GroupBy, Grade, Gather, ConcatAssemble, etc.) | **Keep.** Preserve operator topology and existing basis algebra. Fill in currently deferred family-specific \`ExecutionBasisPayload\` only with corresponding semantic support. Do not add C-entrypoint-shaped IR nodes. |
-| \`JsourceOpportunity\` stores one source ValueId/span; \`jsource_planning_reports\` links calls by \`Operation.j_origin == source_value\` | **Extend sidecar provenance** with optional region identity, graph-version/source anchor and the exact ordered A3 operation set for multi-region idioms such as Cut→Scan→Raze or Oblique→Reduce. Multiple nested regions can share a result ValueId. Do not change parser-owned semantic identity. |
-| \`JsourcePlanningState\` only has NeedsLogicalCallLink/NeedsSemanticProof; \`OpportunityLegality\` only AwaitingSemanticProofs, and family proofs remain unresolved | **Add proof discharge before enabling optimized execution.** Implement §4.1.4's per-obligation evidence/proof/guard/rejection contract; separate provenance, call/rank/empty/fit/numeric/error proof, target/resource/cost and final selection. A legal baseline lowering is not an optimization equivalence witness. |
-| A3 \`EffectSummary\` currently only Pure/Unknown; RNG, explicit \`M.\` cache, name bindings and control errors require ordered state relations | **Add scoped state/effect-resource contracts when supported.** Prevent loss of observable RNG consumption or explicit memo behavior; until then retain Unknown/runtime-semantic fallback. No forced immediate conversion of all A3 ops into memory/effect SSA. |
-| Logical \`SemanticCheck\` and constraints, physical target/resource/cost layers already separated | **Keep separation.** Handle zero-cut rank/fill, boolean/sparse, byte-LUT index errors, numeric guard, RNG draw ordering before observable effects, with specified source fallback. No replay after effects. Buffer/byte table/SIMD workgroup belongs downstream. |
-
-Two source-level counterexamples block automatic equivalence:
-
-1. [\`cc.c::jtrazecut2\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L983-L993) explicitly notes that its no-cut case can return a different result axis than the generic route. A jsource special entry point **is not an equivalence oracle**. Independently settle J result/empty assembly semantics before committing fusion.
-2. [\`vg.c::jtordstat\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vg.c#L779-L790) calls RNG to choose pivots. Check whether the RNG state is observable by subsequent J operations before classifying Grade→Select as pure. If observable, require an explicit state/trace policy and its proof.
-
-#### M.2 Staged implementation and validation
-
-1. Keep M2 frontend precedence: verify derived POS, operands, rank/valence, exact source pattern and fallback for \`/. /..\`, \`;.\`, \`M.\`, \`? / ?.\`, hook/fork/grade. Unsupported forms remain unregistered as applied candidates.
-2. Preserve source region/operation anchors, effect/RNG/cache/error edges and per-candidate numeric/empty/assembly proof obligations.
-3. Implement one narrow, guarded family (for example byte LUT or boolean-index) with existing generic reference fallback; defer no-cut segment fusion, randomized selection and memoization until their extra contracts are proved.
-4. Extend \`LoweringRegistry\` with verified parameterized recipes, then target/resource/cost and overlap-aware selection. The physical planner owns buffers, cache/tiling and device realization.
-5. Run differential comparisons for positive/negative guards, dtype/rank/boxed/sparse/empty/\`!.\`/tolerance/NaN/overflow/error precedence, RNG seed/trace, dynamic name binding and replay safety before declaring any family implemented.
-
-**Validation limits:** This is a pinned-source plus RustJ design/code **static audit**. No Cargo, CI, J/C differential execution or benchmarks were run. Not an exhaustive audit of every source file, all assembly/architecture microkernels, all build variants or current jsource HEAD; never claim zero omissions or working optimizations based on this section alone.
-
-<a id="jsource-index-family"></a>
-
-### N. Roger Hui's Index-Of family: phased integration in RustJ (2026-10-06)
-
-**Sources.** Roger Hui, *Index-Of, A 30-Year Quest* (J Conference 2014; [bibliographic evidence](https://www.sigapl.org/Articles/APL%20Since%201978_3386319.pdf)) and *Hashing for Tolerant Index-Of* ([Jsoftware, 2010](https://www.jsoftware.com/papers/Hashing.htm)). Actual dispatch, preconditions, fallback and mode ownership were examined in pinned [\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c), [\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c) and [\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c). Neither the historic paper nor the existence of a C specialized routine proves a RustJ optimization legal or profitable.
-
-**Separate J operations from search algorithms.** Dyadic \`i.\` (first match), \`i:\` (last match), \`e.\` (membership), \`~.\` (nub), \`~:\` (nub sieve), \`-.\` (less), \`I.@e.\` (matching positions), and Key classification can share a lookup engine, but result representation, rank/cell/frame, duplicate representative, empty/prototype and tolerance differ. Dyadic \`I.\` is **interval lookup**, not ordinary index-of; \`E.\` is a **substring/window match** owned by existing \`FindViaWindowMatch\`; monadic \`i.\`/\`i:\` generate index spaces. Do not fuse these semantic identities merely because their C implementations share a source file.
-
-| Upstream strategy | Guard and cost premise | RustJ ownership |
-|---|---|---|
-| Sequential scan | Tiny inputs where setup dominates ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1113-L1148)) | Execution algorithm/reference |
-| Direct indexing, bit-packed byte/small integer range | Integer domain span, presence-vs-position table width, initialization and cache locality ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1148-L1238)) | Physical algorithm/cost |
-| Hash and reverse hash | Index-vs-query relative cardinality, duplicate order ([\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850)) | Physical algorithm/cost |
-| Tolerant float/complex/boxed hashing | Runtime cct/\`!.\`, nontransitive approximate equality, +0/-0, NaN, exact insertion, neighboring intervals ([\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L78)) | Equality semantics/proof **before** target algorithm |
-| Boxed sort→binary search | Source \`jtiobs\` is limited to \`ct=0\` and selected boxed shapes ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L735-L840)) | Target algorithm after equivalence witness |
-| Sparse and Key self-classification | Sparse fill/axes, stable first occurrence ([\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c#L68-L106), [\`ao.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L213-L255)) | LookupClassify/GroupBy, representation-specific |
-| Prehash reuse / fused result modes | Dictionary key/type/rank/tolerance/version and lifetime; output index/boolean/compact/count/any/all ([\`vi.c\` modes](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185)) | Execution result intent and costed cache planning |
-
-#### N.1 First implemented slice — preserve canonical IR
-
-- \`src/index_ops.rs\`: \`LookupResult::{First,Last,Membership}\` and a shared \`lookup(indexed,queries,result)\`. Membership now **produces boolean results directly**, without a materialized index-position vector, preserving the prior frame/rank and incompatible-cell behavior.
-- Exact **integer/boolean scalar-only** inputs may use \`ExactScalarIndex::Direct\` or \`Hashed\`; small queries remain sequential. The direct table has a fixed **65,536-entry** ceiling, provisional \`span <= 4 * (indexed items + queries)\` heuristic, and \`items * queries <= 32\` sequential cutoff. Compute key span via \`i128\` to avoid signed overflow; preserve first/last duplicates and not-found. These numbers are **initial heuristic bounds, not benchmark-tuned cost evidence**.
-- Float/boxed/complex or non-scalar cells remain on generic sequential \`atom_eq\` fallback. No tolerance hash is enabled.
-- \`src/j_graph_jsource.rs\`: include dyadic \`i:\` in \`SearchAlgorithm\`; remove \`E.\` from this family (existing FindViaWindowMatch rewrite owns it); keep dyadic \`I.\` and monadic \`i.\`/\`i:\` distinct. Graph candidate legality remains unproven/unselected.
-- Add index tests for duplicate/negative/missing, boolean membership, bounded direct vs hash, extreme i64 key spans, and provenance separation. **Tests were added, not executed; this is static code integration only.**
-
-This is a narrow improvement to the CPU reference path, **not** full upstream \`i.\` support and **not** Graph-driven fast-path commitment.
-
-#### N.2 Necessary extensions, not an IR redesign
-
-The first N.2 extension has since landed in §O: A3 `LookupClassify { search: SearchDescriptor }` preserves first/last/membership/interval/self-classify, indexed/probe origin and J comparison meaning. **Still missing** are runtime `!.ct` policy/version witnesses, grouped/compact/count search modes, sortedness/uniqueness proofs, full prepared-lookup keys and shared `CandidateEvidence`. Preserve original `FunctionEntity`, dynamic tolerance and Rank/CellApply throughout.
-
-1. Validate duplicate order, rank/cells, mixed types, box/sparse/empty/fit and J-visible error semantics with a C J oracle before broadening algorithm options.
-2. Extend direct byte/packed-index tables, reverse hash and explicit prehash in separate increments with target cost/alias/cache/key-invalidation evidence; handle GPU resource constraints separately.
-3. Treat tolerant hashing as a dedicated research and equivalence gate: near equality is not generally transitive; matching float hashes and matching equality classes cannot be naively identified. Guard cct, signed zero, NaN, boxed recursion, first/last matches and pre-effect fallback.
-4. Feed proven algorithm recipes into \`LoweringRegistry\` with independent target/resource/cost evidence. Do not treat legal ordinary execution routes as equivalence witnesses for newer specializations.
-5. Require Rust/C differential plus benchmarks for claims of general legality or speed; CI, Cargo, differential runs and performance measurement were **not performed** in this implementation slice.
-
-
-
-#### N.3 Second slice: query-side reverse hashing and per-Engine prehash (2026-10-06)
-
-**Provenance.** [Pinned jsource \`viavx.c\` reverse-hash selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850) is conditional on indexed/query sizes and supported modes; [\`vi.c\` prehashed modes](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185) include saved derived-verb table semantics. RustJ borrows **only narrowly scoped algorithms** here; this is not a port of all upstream prehashed derived verbs.
-
-| Implementation | Eligibility and behavior | Explicit guardrail |
-|---|---|---|
-| **Query-side reverse hash** | \`src/index_ops.rs::reverse_exact_index\`: for exact scalar Int/Bool, at least 64 indexed items and indexed/items ratio over 2:1, hash distinct query values then scan the original indexed items once | Forward scan for First/Membership, backward for Last. Stop when all distinct query keys resolve. Duplicate queries share correct positions and absent keys retain the missing sentinel. No tolerance, boxed or multicell hashing |
-| **Engine-local prepared search index** | Retain one \`ExactPrehashCache\` per \`Engine\`. Index only shared immutable Int/Bool vectors, length 64–16,384. First and Membership reuse the same prepared index; Last requires a distinct representative policy | A hit requires identical retained \`Arc\` allocation, dtype, shape and policy. Retaining a shared source clone prevents pointer recycling; new backing after rebinding cannot hit a stale index. Single-entry bounded cache, not a global name cache |
-| **Interpreter integration** | \`runtime.rs::Engine::interpret_ir\` uses cache-aware exact-scalar \`i.\`, \`i:\`, \`e.\` for the regular pooled primitive path. \`index_prehash_stats()\` and \`clear_index_prehash()\` expose limited diagnostics | Other types, explicit rank and \`eval_semantic_reference\` use the existing route; no additional Graph/A3 source transform is committed |
-| **Regression cases** | Unit tests for direct/hash/reverse/linear vs a reference, duplicates, extreme keys, immutable identity and stale-rebind rejection; Engine integration tests for first-to-membership sharing, last-policy separation, temporary reverse and reference bypass | **Added, not executed.** CI/Cargo, C differential and benchmarks were not run |
-
-**Allocation fallback:** `Error::Limit` when allocating an optional reverse/direct/hash/prehash search table is treated as a missed optimization, so the original sequential lookup still executes. A genuine result-buffer allocation failure remains an execution error.
-
-**Architecture decision:** no new canonical Graph IR or A3 basis node. This remains a narrowly guarded **CPU interpreter implementation path**. The fixed thresholds (64 items, 2:1 size ratio, 16,384 cache items) are provisional, **not** measured optimal costs. It does not assert that JsourcePlanningReport has discharged equivalence proofs or that LoweringRegistry selects these implementations.
-
-**Remaining prehash gate:** explicit J derived prehash such as \`m&i.\` or \`e.&n\` requires a compiler-visible prepared-lookup descriptor, versioned dictionary/key equality/tolerance context, cache lifetime and invalidation, fallback/check ordering and target/cost evidence. Do not extend this immutable Arc-identity cache to dynamic name, locale, boxed, sparse or tolerance-aware domains without independent proofs. Run J/C differential and measurements before widening eligibility.
-
-
-<a id="algorithm-planning-migration"></a>
-
-### O. Algorithm-planning framework extension informed by MLIR, IREE, TVM, XLA and Futhark (2026-10-06)
-
-**Architecture decision:** do not turn jsource's special C entry points into J Graph node kinds or leave their choice exclusively in `index_ops.rs`. Preserve `J semantic identity → A3 meaning → target legality / proof evidence → Physical cost/selection → guarded executor with fallback`. This is the first search-family slice, **not** completion of a whole-compiler optimizer or auto-tuner.
-
-#### O.1 Comparison and adopted boundaries
-
-| Framework / verified reference | Actual mechanism | Adopt / explicitly defer |
-|---|---|---|
-| **MLIR Dialect Conversion** ([official reference](https://mlir.llvm.org/docs/DialectConversion/)) | ConversionTarget marks Legal/Dynamic/Illegal per operation and may leave unsupported operations in partial conversion | Distinguish baseline legality, runtime guard, semantic proof, target rejection and mismatched J operation in `SearchAlgorithmReadiness`. Do **not** replace J function/locale semantics with dialect legality |
-| **MLIR Transform dialect** ([official reference](https://mlir.llvm.org/docs/Dialects/Transform/)) | Transform/control IR acts on separate payload IR and distinguishes recoverable from irrecoverable failures | Leave J Graph/A3 semantics unchanged when reporting candidate/selection; keep guard miss separate from invalid transform. Do not import the dialect itself |
-| **IREE Flow/Stream/HAL and Codegen** ([phases](https://github.com/iree-org/iree/blob/main/docs/website/docs/developers/general/developer-tips.md), [LoweringConfig](https://iree.dev/reference/mlir-dialects/IREECodegen/)) | Separate dispatch/stream semantics, backend lowering configs, tiling/vectorization and bufferization | Keep hash size, SIMD, buffers and GPU scheduling out of semantic `SearchDescriptor`; do not claim unsupported GPU search kernels |
-| **TVM MetaSchedule** ([official tutorial](https://tvm.apache.org/docs/deep_dive/tensor_ir/tutorials/meta_schedule.html)) | SpaceGenerator, SearchStrategy, CostModel, Builder/Runner and measured tuning database are separate | Separate legal candidates, workload facts, selection and eventual measured feedback. Current bounds are **heuristics, not a tuned cost model or database** |
-| **XLA GPU priority fusion** ([design discussion](https://github.com/openxla/xla/discussions/10065), [pass source](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.h)) | Estimate compute/memory/kernel-launch impact and rank feasible fusion choices by modeled benefit | Cost/profitability does not legalize semantics; defer device cost ranking until the device route exists |
-| **Futhark SOAC / incremental flattening** ([2026 design](https://www.futhark-lang.org/blog/2026-07-31-full-flattening.html), [fusion discussion](https://www.futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html)) | Retain high-level array dataflow and select among sequential/flattened/fused implementations using shape and machine constraints | Retain high-level `LookupClassify` and later GroupBy/Reduce identity, but do not assume J errors, dynamic names and fit semantics satisfy unrestricted functional fusion identities |
-
-#### O.2 Implemented three-way ownership
-
-1. **A3 Execution Semantic Lowering:** `ExecutionBasisPayload::LookupClassify { search: SearchDescriptor }` now retains original primitive/valence-derived `FirstIndex/LastIndex/MembershipMask/IntervalIndex/SelfClassify`, J equality vs ordered interval comparison, indexed/probe SSA `ValueId` and rank-boundary identity. For `i.`/`i:` and dyadic `I.`, the **left operand is indexed and the right queried**; for dyadic `e.`, **the right operand is indexed and the left queried**. A3 retains this semantic direction before any physical strategy; unknown or nonprimitive derived calls remain `Deferred`. `A3_SCHEMA_VERSION` increases **0.4→0.5**; `Plan::verify` rejects a descriptor that differs from the originating `CallOp`. `JEquality` refers to actual J comparison semantics, **not** permission for exact float hashing.
-2. **LoweringRegistry:** a reference CPU capability for known pure `LookupClassify` calls, plus `SearchAlgorithm::{Sequential,DirectAddress,IndexedHash,ReverseQueryHash,PreparedHash,TolerantNeighborHash}` reports. `SearchAlgorithmReadiness` differentiates `Baseline`, `RequiresExactScalarGuard`, `NeedsSemanticProof`, `UnsupportedTarget`, `UnsupportedSearchForm`. Interval lookup and unsupported GPU/Tolerant Hash are not enabled by mere registration. The same algorithm report is exposed through `JsourceLinkedCall.search_algorithms`, without changing the `NeedsSemanticProof` or unselected source-candidate state. Existing `JsourcePlanningReport` source proofs remain unresolved and are **not** promoted to executable optimized transformations.
-3. **Physical strategy:** `physical.rs::plan_search_algorithm` receives an explicit `SearchWorkload` (indexed/query counts, key span if measured, shared immutable backing, prehash eligibility, available reverse-query values) and target. It queries the registry and returns a guarded or reference `SearchPhysicalChoice` with **estimated temporary table entries, not a byte-accurate resource model or measured timings**. Initial thresholds: sequential ≤32 pair comparisons, direct ≤65,536 entries and ≤4× total work, reverse ≥64 indexed with size ratio over 2:1, prepared 64–16,384 immutable shared entries. `index_ops.rs` checks actual Int/Bool scalar types/cells before following the Physical selector. **Hot-path boundary:** runtime selection uses allocation-free `LoweringRegistry::search_algorithm_readiness`, not a rebuilt registry and candidate vector for each lookup; compiler diagnostics can still request `search_algorithm_reports`. Optional table-allocation failure returns to sequential reference, while real result allocation errors remain observable.
-
-**No semantic shortcut:** approximate tolerance is not generally transitive; `!.ct`, complex/boxed and float values cannot be moved into exact hashing without a separate witness. `I.` interval is not an Index-Of hash family. These changes do not create final GPU codegen, native physical `BufferId` schedules or graph-rewrite commits.
-
-#### O.2a Representative example — `3 1 3 i: 3 4`
-
-- **J Frontend / Graph:** Preserve dyadic `i:` (last-match); 3 resolves to the last occurrence and 4 to the not-found sentinel.
-- **A3:** `LookupClassify { search: SearchDescriptor { output: LastIndex, indexed: left SSA ValueId, queried: right SSA ValueId, comparison: JEquality, .. } }` retains meaning without encoding a hash table.
-- **Registry:** CPU reports `Sequential=Baseline`, exact-scalar `DirectAddress/IndexedHash/ReverseQueryHash/PreparedHash=RequiresExactScalarGuard`, and `TolerantNeighborHash=NeedsSemanticProof`.
-- **Runtime/Physical:** Runtime checks Int/Bool scalar item types. With `3 × 2 <= 32` the candidate is sequential and the expected answer is `2 3`; bigger inputs may use other algorithms while preserving first/last/missing semantics.
-- **Verification:** The regression cases were added **but not executed**. This trace is a contract example, not a performance measurement.
-
-#### O.3 Generalization and verification gates
-
-~~~text
-A3 SemanticDescriptor (meaning, operands, rank, comparison)
- → AlgorithmCandidateSet (legal target, proof/guard obligations)
- → VerifiedRuntimeFacts or proven static witness (Unknown is not true)
- → CostProfile/ResourceBudget (work, bytes, transfer/occupancy)
- → SelectionPlan (independent of canonical semantic IR)
- → Guarded CommittedLowering (fallback before effects/errors)
-~~~
-
-The reusable concept is *algorithm option + proof/guard state + resource/cost profile + fallback*. The common report shape `AlgorithmCandidate<Algorithm, Readiness>` and its search-specific alias `SearchAlgorithmReport` are implemented; actual candidate registries, proof discharge, CostEstimate and SelectionPlan for Reduce/Scan, GroupBy, Grade and Contract are deferred until M2/M3 semantic convergence and an M4 CPU baseline, and should be generalized only after a second independently validated operator family actually needs the same contract: each family needs its own associative/tolerance, representative, ordering and numeric-precision proof rather than reusing search-specific enums. Runtime tolerance/fit policy, versioned prehash keys and nested Rank/CellApply legality also remain to be discharged. Do not select a GPU route until implementation/target hard-resource legality exists.
-
-Added A3 search-mode/origin and forged-payload verifier tests, registry CPU/GPU/proof tests and Physical planner selection/guard tests; existing search/rebinding tests are retained. **These are static repository changes. Cargo tests, CI, jsource/C differential checks and benchmarks were not run; no execution or speed claims are made.**
-
-
-
-#### O.4 Index-of family as a framework stress test — four independent audits (2026-10-06)
-
-**Question and finding.** We study jsource's `i.` family not mainly to copy its fast hash routines, but to ask **why one semantic operation permits multiple execution realizations, output demands and index lifetimes, and where RustJ should own each decision**. Existing stage separation is fundamentally sound, but the operational contracts between semantic meaning, candidate evidence, materialization lifetime, cost/selection and an independent execution oracle are incomplete. Do **not** invent a new search IR, create one IR op per `vi.c` mode, or prematurely implement a general optimizer. Close the existing §O.3 / §7.5 architecture incrementally.
-
-**Independent audit A — source semantics first.** The pinned [jsource `vi.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c) dispatches `IIDOT` (first), `IICO` (last), `IEPS` (membership), `INUB/INUBSV` (nub/nub-sieve), `IIFBEPS` (`I.@e.`), related aggregation/mask modes, and `IPH...` prehash variants through a related internal engine. **Transferable insight:** indexed domain, comparison policy, source-order representative, output demand and reusable physical index state are separable. **Not transferable as J meaning:** C mode integers and entrypoints, SIMD cases, specific hash layouts or the tolerant masks in `viavx2.c`. Monadic `i.` / `i:` generation, dyadic interval `I.`, window find `E.`, Nub and Key are distinct observable semantic contracts. Reuse a lower-level computation or multi-op region only when equivalence is witnessed.
-
-**Independent audit B — compiler IR first.** `src/logical_ir.rs::SearchDescriptor` already retains input `ValueId` provenance, indexed/query roles, first/last/membership/interval/self-classify output intent, J equality versus ordered interval and rank boundary. `src/j_graph_jsource.rs` discovers opportunities but leaves them unproved and unselected. **Keep these boundaries.** `JEquality` alone does **not** prove `!.t`/global `cct` compatibility, type promotion, complex/boxed/sparse handling, frame/cell/rank/prototype behavior or error ordering. `E.` belongs to its separately modeled window rewrite; a shared C implementation is not an argument to coerce it into `LookupClassify`. `I.@e.` and membership-consumer fusion are **multi-node graph/consumer-demand candidates** with source-region provenance, not new primitive opcodes.
-
-**Independent audit C — physical strategy first.** [BQN's search implementation notes](https://mlochbaum.github.io/BQN/implementation/primitive/search.html) distinguish normal/reverse/selectively initialized table lookup (which side is indexed/traversed), one-shot versus reused tables (build versus lifetime cost), direct-table versus hashing/SIMD (representation/target), and first/last/member outputs (observable result). The current `src/lowering.rs::SearchAlgorithm` flattens **different axes** into `DirectAddress/IndexedHash/ReverseQueryHash/PreparedHash/TolerantNeighborHash`. Retain the bounded CPU implementation, but do not generalize that monolithic search enum across primitives. When justified, describe candidate recipes with orthogonal **(1) traversal/build direction (2) table/key encoding (3) build/reuse/invalidation lifetime (4) output materialization/consumer demand (5) target/resource/cost**. Only register proven combinations, not their entire Cartesian product. Such recipes belong to a later optimizer/Physical plan, **not** the Graph IR or A3 schema.
-
-**Independent audit D — adversarial verification first.** `src/index_ops.rs::lookup` with `cache=None` can still call `optional_exact_scalar_index` → `plan_search_algorithm`. Consequently `Engine::eval_semantic_reference` avoids prehash, but is **not** an independently sequential search oracle. The legacy Rust `near` vs pinned C `TCMPEQ` boundary discrepancy proves a comparator identity cannot be inferred from a nominal tolerance. Non-transitive tolerant equality cannot be collapsed to a single equivalence-class representative; first/last, Nub and grouping have independent order obligations. Name rebinding, backing change, dynamic policy change, target change, empty cells and guard miss all require separately witnessed state invalidation. Use **three independent paths**: actual jsource C oracle, strictly sequential Rust semantic baseline, and selected optimized RustJ route.
-
-**Framework cross-check (comparison, not automatic adoption).** [MLIR Dialect Conversion](https://mlir.llvm.org/docs/DialectConversion/) offers **analysis conversion** that checks potential legalizability without modifying payload IR and **dynamic legality** based on properties of the concrete operation. The [MLIR Transform Dialect](https://mlir.llvm.org/docs/Tutorials/transform/) can keep transform/schedule instructions separate from the payload being transformed. These suggest RustJ's **discovery ≠ commitment**, **runtime/semantic evidence before permission**, and **canonical Graph/A3 ≠ selection plan** separation. MLIR dialect conversion success does not itself prove J `!.t`, late NAME resolution or observable error-order semantics, and this comparison does not authorize adopting MLIR Transform IR as a new required RustJ subsystem now.
-
-**Incremental stage contracts — inputs, preserved facts and forbidden decisions**
-
-| Stage | Minimum contract | Must not decide / near-term action |
-|---|---|---|
-| M2 parser / FunctionEntity | Primitive and derived identity; valence; source binding; `!.t` and global setting scope | Do not rewrite parse entities into C/CPU special routines; **finish general M2 frontend semantics first** |
-| J Graph / Analyzer | Original topology, domain/query roles, producer/consumer fanout, source-region provenance | Do not erase output demand or commit multi-op fusion early |
-| Execution semantics / A3 | **Distinct** first/last/member/interval/window/group results; frame/cell/rank/empty; comparator contract; error/effect meaning | No hash/direct/prehash/device as a J equality property or `SearchDescriptor` payload |
-| Candidate discovery / proof (§7.5) | `RuleId`, graph version/region, per-obligation `Unknown/Proven/Disproven/Guarded`, exact witness | No source idiom or dtype alone counts as legal; discard stale observations |
-| Target, resource and cost | Verified runtime/static dtype, cell size/count/range, hard table-byte bound, build/probe/reuse estimates, memory/transfer, supported target | Do not mislabel estimates as timings or unknown resource as zero/cheap |
-| Selection / index-state lifetime | Candidate compatibility, representation/direction, one-shot/persistent backing+policy identity/epoch, invalidation, pre-effect fallback | Do not store cache selection in canonical Graph IR or key prepared state on a J name alone |
-| Executor / oracle | Independent sequential baseline, guarded optimized execution and real J C oracle; result/error/effect equivalence | Reference must not silently call Physical planning; no replay after observable effects |
-
-**Smallest justified framework extension and order (acceptance gates, not an immediate coding request):**
-
-1. **M2:** Establish a strictly sequential search reference and actual J C differential for `i.`/family, `!.t`, global CCT, rank/shape/type/empty/errors. Preserve the existing `SearchDescriptor` source-direction verifier. Do not spend the M2 budget writing new hash schemes.
-2. **M3:** Extract the *minimum* shared view of §7.5 **source provenance + per-obligation proof/guard + invalidation** into existing search/rewrite/fusion sidecars. Add stale-witness/Unknown-not-legal negative checks one at a time. Do **not** build a speculative all-family registry first.
-3. **M4:** Verify the native CPU reference slice independently from existing guarded exact Int/Bool physical choices against the same J C oracle. Keep the current `SearchAlgorithm` enum and `PreparedHash` implementation for now; no unmeasured threshold tuning.
-4. **When optimization becomes the task:** Demand a **second independently validated family** (e.g., Reduce/Scan reassociation or GroupBy representative selection) actually requiring the same evidence/lifetime/selection interface before extracting general `CandidateEvidence`, recipe or `SelectionPlan`. Never relabel a search-only enum as a generic operator interface.
-5. **Later:** Commit one-shot/reused index, query-side index, output materialization elision, footprint, GPU/external routes only after full J legality, target and hard-resource checks, baseline differential and real measurements.
-
-**Repeated independent adversarial questions:** (A) Does the descriptor still determine J-observable results without C mode labels? (B) Does disabling every optional optimization leave a genuinely separate correct reference? (C) Do comparison-policy/binding/version changes invalidate candidate/cache state? (D) Can CPU and external routes share unchanged canonical Graph/A3 meaning? (E) Can `I.@e.`/Nub/Key/consumer fusion reuse *proof infrastructure* without falsely sharing primitive meaning? **Current status:** (A) partially supported; (B) fails because reference still consults Physical planning; (C) dynamic policy unsupported; (D) designed but not executed across targets; (E) insufficient derived-family semantic coverage. Do not claim generic optimizer completion or search speedups.
-
-**Audit scope:** Read-only code inspection, pinned upstream jsource, BQN and MLIR framework comparison. **No Rust/Cargo tests, integrated J C differential, benchmark or new optimizer API implementation occurred.** This reinforces §P.0's specialization freeze and §P.3's M2-first priority rather than replacing them.
-
-
-
-
-<a id="framework-migration-checklist"></a>
-
-#### O.5 Deferred-optimization framework migration plan and living checklist (2026-10-06)
-
-**Purpose.** Make §O.4's independently reviewed architectural direction an **actionable, evidence-based checklist**. The `i.` family is the first *validation case*, not a template for copying C special cases. The common framework should eventually support **discovery → provenance + semantic proof/guard → hard target/resource feasibility → cost → selection → guarded execution**, without corrupting J meaning. This §O.5 owns the **cross-stage migration gate**; §P.1 continues to track *search algorithms* specifically. Do not introduce a new roadmap file, one Graph opcode per upstream mode, or an upfront all-purpose optimizer crate.
-
-**Present status: plan committed; 0/18 implementation/verification gates accepted.** Existing `SearchDescriptor`, `AlgorithmCandidate<_,_>`, `GraphRewriteCandidate`, `FusionCandidate` and `ExactPrehashCache` are useful foundations, **not** completion of these new gates. General **M2 tokenizer → enqueuer → parser/POS/name/derived-entity semantic convergence** remains the top project task; this plan does not authorize early search-kernel work.
-
-**Checkbox rule.** [ ] = **not accepted**, even if part of the code/test exists. [x] = code, **actually executed verification**, and recorded evidence satisfy the row. Record `commit SHA | exact command | environment/target | passed/failed/ignored | pinned jsource commit and actual binary oracle scope | remaining gaps` in that row when completed. Historical tests, static review, and comparing two Rust routes using the same planner do **not** count. Do not claim CI if not executed.
-
-**Dependency gates:** A (**M2 reference and semantics**) → B (**M3 proof/guard evidence**) → C (**M4 independently validated CPU slice**) → D (**later measured Physical generalization**). A gate validates only explicitly supported J forms; leave unimplemented full-J cases `Unknown/Unsupported`. Start with outstanding **general M2 frontend** work before search reference fixes. Prefer **one semantic change and one corresponding regression/negative test** per increment.
-
-| ID / phase | Checklist item | Files / implementation scope | Acceptance and evidence; current status |
-|---|---|---|---|
-| FW-01 / A·M2 | [ ] Resolve frontend semantic scope | `src/tokenizer.rs`, `src/enqueuer.rs`, `src/parser.rs`, `src/semantic.rs`; classify word/POS/name/derived-entity gaps | Maintain general M2 priority; compare supported parse/resolution with actual J C oracle, record unsupported separately. **Not executed** |
-| FW-02 / A·M2 | [ ] Isolate true sequential semantic reference | `src/runtime.rs`, `src/kernels.rs`, `src/index_ops.rs`: split `pooled: bool` buffer ownership from optional search Physical policy; route supported `i.`/`i:`/`e.`, including rank/cell/derived calls, to a sequential reference | Instrument/negative-test **zero** `plan_search_algorithm` and prehash calls in `eval_semantic_reference`; no global mutable mode, new public API or canonical IR rewrite required. **Not executed** |
-| FW-03 / A·M2 | [ ] Verify real J equality policy | `src/comparison_policy.rs`, `src/kernels.rs`, semantic contracts: fixed Rust `near` vs pinned J C `TCMPEQ`, global `cct`, `!.t` scope, exceptional values and errors | Run pinned **real C binary** on boundary cases; unsupported dynamic policy stays `Unknown/Unsupported` and cannot enable tolerant hash. **Not executed** |
-| FW-04 / A·M2 | [ ] Establish three-way search regression fixtures | `src/index_ops.rs` and existing differential tests: first/last/member, duplicates, empty cells/frames, types, errors, rank | Independently compare **J C / strict sequential Rust / optimized Rust** and classify differences. Two routes sharing the same planner are not independent. **Not executed** **2026-10-06 partial evidence:** [4×20 C/Rust Rank gate](https://github.com/yunskim/RustJ/actions/runs/37449102885) all 80/80 matched; [Basis probe](https://github.com/yunskim/RustJ/actions/runs/37449102980) passed. Typed dense zero-frame Rank is implemented. User-defined effects, boxed/sparse fillers and error fallback remain unresolved; gate [ ] remains. **Follow-up unit gates:** [P.11 RK-01–RK-12](#rank-cellapply-followups) tracks evidence and state; parent remains [ ]. |
-| FW-05 / B·M3 | [ ] Witness source and rule identity/version | `src/j_graph_ir.rs`, `src/j_graph_rewrite.rs`, `src/j_graph_fusion.rs`, `src/j_graph_jsource.rs`: bind existing origin/span/basis to graph/schema/rule identity or reliable revalidation | Verifier negative tests reject forged/stale graph, changed rule and invalid origin; span-only comparison is insufficient. **Not executed** |
-| FW-06 / B·M3 | [ ] Record proof state per obligation | Expose minimal §7.5 evidence **sidecar/view or adapter** for existing search/rewrite/fusion: `Unknown / Proven(witness) / Guarded(guard,fallback) / Disproven` plus source provenance | No single selected bool, search enum or giant common IR as proof. Negative-test Unknown→legal/selected rejection. **Not executed** |
-| FW-07 / B·M3 | [ ] Prove guard and effect ordering | `src/lowering.rs`, effect/error verifier, executor adapters: guards before observable effects and explicit baseline fallback | Reject duplicate effects, post-effect replay, unknown fallback, or Guarded-without-actual-guard. **Not executed** |
-| FW-08 / B·M3 | [ ] Validate dynamic comparison/name/rank witnesses | Semantic contract surrounding `src/logical_ir.rs::SearchDescriptor`, `comparison_policy.rs`: `!.t`/CCT, late NAME binding, rank/cell/empty obligations | A `JEquality` tag or dtype alone cannot authorize exact hashing; unknown policy/rank forces reference/unsupported. **Not executed** |
-| FW-09 / B·M3 | [ ] Project one legality view onto three candidate kinds | Preserve native shapes of `j_graph_rewrite.rs`, `j_graph_fusion.rs`, `j_graph_jsource.rs`; expose provenance/obligations through `fusion_planning.rs` as needed | Reject incompatible overlap, borrowing `E.` window proof for different search semantics, and unknown resource silently accepted. **Not executed** |
-| FW-10 / B·M3 | [ ] Cross-validate a second operator family | Select one existing Reduce/Scan **or** GroupBy semantic candidate; exercise FW-05–09 proof/guard machinery | Preserve family-specific reassociation/representative/order proofs. Extract actual common implementation **only after** a second family needs it; no generalized registry upfront. **Not executed** |
-| FW-11 / C·M4 | [ ] Validate native CPU semantic vertical slice | Complete a supported J Graph → verified A3 → baseline CPU execution path with source, error and effect ordering | Record actual C-binary oracle commands and compared coverage. **Not executed** |
-| FW-12 / C·M4 | [ ] Independently validate existing guarded Int/Bool search | `src/index_ops.rs`, `src/physical.rs`: Sequential, Direct, Indexed, Reverse, Prepared; first/last/member, allocation-failure fallback | Three-way C/independent sequential/optimized comparison; log actual Rust default and portable tests separately. **Not executed** |
-| FW-13 / C·M4 | [ ] Separate target, hard resource and cost status | `src/lowering.rs`, `src/physical.rs`, `src/j_graph_resource.rs`: runtime/static proof, table **byte** bounds, estimated work/allocations, capability, measured performance | Unknown hard limit is not zero; estimate does not equal measured cost; unbenchmarked thresholds remain heuristics. **Not executed** |
-| FW-14 / D·later | [ ] Evaluate physical recipe axes | Only after two-family evidence and measurements, consider splitting `SearchAlgorithm` / `SearchWorkload/Choice` into build/traversal side, representation, lifetime, output demand and target | Require **two demonstrated shared use cases**, migration and semantic-equivalence tests. Never insert physical choices into Graph/A3. **Not executed** |
-| FW-15 / D·later | [ ] Generalize prepared-state lifetime/invalidation | Compare `src/index_ops.rs::ExactPrehashCache` with a second family: immutable backing identity, first/last representative, relevant policy/version, binding epoch, target, retention | Do not put irrelevant CCT into present exact Int/Bool keys; require source rebinding/cache miss/policy-change negative tests. **Not executed** |
-| FW-16 / D·later | [ ] Add a distinct SelectionPlan and compatibility check | When §7.5 proof, target, resources and cost have been evidenced, check candidate overlap/compatibility and separate plan identity from committed lowering | Source Graph/SSA and provenance remain unchanged; reject illegal choice, incompatible overlap, stale commit. **Not executed** |
-| FW-17 / D·later | [ ] Gate target and algorithm tuning on measurements | Evaluate jsource/BQN small/SIMD/reverse/prehash variants and CPU/external routes only after baseline measurements; GPU remains deferred | Enable candidates individually only with semantic proof, hard memory bound, measured benefit, portable fallback and negative checks. **Not executed** |
-| FW-18 / overall | [ ] Repeat independent audits and record regression evidence | Independently re-audit A) J meaning, B) Graph/A3 invariance, C) proof/invalidation, D) CPU/target/resources, E) C/strict sequential/optimized results and cost; tie to §P.2 | Reopen failed prior gates; retain actual pass/fail/ignored, environment, pinned upstream commit and benchmark details; reconcile §P.1 before acceptance. **Not executed** |
-
-**Stop rules.** Do not accept FW-12 before a truly separate reference exists (FW-02). Do not change `TolerantNeighborHash` from `NeedsSemanticProof` until dynamic equality and its guards are validated (FW-03/08). FW-05–09 cannot count as a second operator family (FW-10). Do not start physical strategy refactoring, tuning or target expansion (FW-14–17) before FW-11–13 plus hard-resource and performance evidence. Correctness and semantic bug fixes may proceed at any time.
-
-**Evidence-log format:** `FW-ID | code commit | command/environment | passed/failed/ignored | pinned J C revision + actual oracle scope | unsupported/known gaps | next gate`. Adding this documentation **does not** mean Rust/Cargo, C binary differential, CI or benchmark execution occurred. Update this table and its canonical Korean counterpart rather than a separate daily-status file.
-
-
-
-<a id="index-family-roadmap"></a>
-
-### P. Living Index-Of family plan and acceptance checklist — Roger Hui × Marshall Lochbaum (2026-10-06)
-
-**Cross-reference:** [§O.5 framework migration checklist](#framework-migration-checklist) owns cross-stage architecture acceptance; §P.1 continues to track per-search algorithm tests. A code-presence check in §P.1 never counts as an implementation/verification acceptance mark in §O.5.
-
-**Maintenance rule.** This is the authoritative **living checklist** under [§N](#jsource-index-family), [§O](#algorithm-planning-migration) and candidate lifecycle §7.5; do not create another tracking document. A checked box means code/document presence has been **statically verified**, **not** that tests passed or semantics/performance were validated. Record specific proof/commands/results when checking completion gates. **No Linux-specific milestone is required or created.**
-
-**Independently researched inputs:** Roger Hui, [*Index-Of, a 30-Year Quest*](https://www.jsoftware.com/papers/indexof/indexof.htm) and [*Hashing for Tolerant Index-Of*](https://www.jsoftware.com/papers/Hashing.htm), grounded against pinned [jsource vi.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [viavx.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850), [viavx2.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L98); Marshall Lochbaum, [*BQN: Implementation of search functions*](https://mlochbaum.github.io/BQN/implementation/primitive/search.html) for small-input SIMD, direct 1/2-byte tables, sparse **table initialization**, one-shot reverse hashing, cache-sensitive hashing, collision monitoring and radix partitioning. **BQN sparse lookup means selective initialization of a dense-address lookup table; it does not mean J axis-sparse array semantics.** BQN is a physical algorithm reference, never a J semantic oracle. §O's MLIR/IREE/TVM/XLA comparison supplies independent legality/target/resource/cost ownership rules.
-
-#### P.0 Stage-aligned deferred optimization policy and M2 priority audit (2026-10-06)
-
-**Finding: the boundaries mostly fit RustJ's design, but the work sequence and early execution specialization require correction.** The canonical project priority is **M2 word formation → enqueue → J parser/name/POS/derived-entity semantic convergence**, then M3 boundaries and an M4 native-CPU vertical slice. `FOUNDATIONS.ko.md` Part XX requires preserving high-level rank/train/reduce/scan and source provenance while separating logical legality from target-specific scheduling, profitability and materialization. **Delayed optimization** does not mean postponing semantic analysis or candidate discovery. It means **postponing commitment to a special executable algorithm until the semantic, target, resource and cost evidence exists.**
-
-| Work area | Audit | Stage gate |
-|---|---|---|
-| J primitive/valence/rank/search semantics; `!.t` and global `cct`, error precedence, first/last, nontransitivity and source-macro counterexamples | **Current semantics work** | Resolve via M2 reference/differential tests and M3 semantic contracts; jsource is an **oracle**, not an architecture to replicate |
-| J Graph topology, A3 `SearchDescriptor`, SSA provenance, `LookupClassify` | **Keep** | Record comparison, rank/frame, input direction, result intent and unknown facts; no physical buckets/hash/SIMD in canonical meaning |
-| `JsourceOpportunity`, `SearchAlgorithmReadiness`, `ComparisonPolicySnapshot` | **Keep only as inert evidence/semantic seams** | Opportunities remain unselected; tolerant route stays `NeedsSemanticProof`. Fixed Rust snapshot does not constitute dynamic J `cct` support |
-| Existing runtime CPU Int/Bool Direct/Hash/Reverse/Prehash | **Limited interpreter optimization; freeze expansion** | Retain only under exact scalar runtime guards and sequential fallback. This is not a verified general PhysicalPlan. Prioritize reverting to reference if a semantic regression appears |
-| Research-only tolerant exponent buckets and BQN SIMD/small-range tables, open addressing, radix/partition, tuning or production tolerant hashing | **Deferred / frozen** | Reassess after M2 semantics, M3 verification, M4 reference CPU slice, J differential and cost measurements. Keep research only under `#[cfg(test)]` |
-
-**Immediate work:** Compare real J C results with Rust reference for `=`, `i.`, `i:`, `e.`, `E.` across default/changed tolerance, rank/cells/frames, boxed/sparse/empty and error order. Record the observed `TCMPEQ` boundary mismatch as a **semantic parity obligation**, not a mandate to port `viavx2.c`. Do not let this research displace the general M2 frontend convergence tasks.
-
-**Resume gate:** Only reconsider executable specializations after validated reference semantics, independently sourced differential evidence, runtime guard/fallback, an M4 CPU baseline, and hard-resource/profitability evidence. P.1 stages 8–11 are **removed from the near-term work queue**; unfinished 5–7/12 remain unchecked. Never introduce a new RustJ IR node or executor path for each jsource C special case.
-
-**Reference-path independence gap discovered on review:** `eval_semantic_reference` disables pooling/cache, not the ordinary exact-scalar Physical search planner inside `index_ops::lookup`. The semantic reference is not yet an independent sequential oracle. See revised P.3.
-
-#### P.1 Phased checklist and gates
-
-| Stage | Checklist item | Owner and acceptance gate | Status |
-|---|---|---|---|
-| 0 | [x] Distinguish search identities | Graph/frontend distinguishes dyadic `i.`, `i:`, `e.`, monadic generators, interval `I.`, window `E.` | Source/§N presence only |
-| 1 | [x] Keep search semantic descriptor in A3 | First/last/membership/interval/self, J comparison, index/query direction, SSA origins and Rank remain independent of table layout; schema 0.5/verifier | Code/tests added, not run |
-| 2 | [x] Separate registered algorithm legality and Physical selection | Registry Baseline/Guard/NeedsProof/Unsupported and SearchWorkload/PhysicalChoice; Unknown never implies legal | Code exists, no benchmark |
-| 3 | [x] Guarded basic search implementations | Linear, narrow integer Direct, Hash, reverse query hashing, immutable-Arc per-Engine Prehash, direct membership outputs, allocation-failure fallback | Code exists; C conformance pending |
-| 4 | [x] Research-only nontransitivity/completeness harness **added and wired** | `src/tolerant_search.rs` under `#[cfg(test)]`: near chains, source-first/last, ±1 exponent buckets, ±0, NaN, infinities and subnormals, independently scanned indices | **Not executed; no optimized runtime path** |
-| 5 | [ ] Resolve full J comparison policy | `!.ct`/dynamic cct/version, float/complex/boxed/axis-sparse, exact insert vs tolerant probe, Rank/cell/frame and effect/error precedence with provenance | No discharged proofs |
-| 6 | [ ] Prove candidate-filter completeness | Present fixed `kernels::near` uses t=2^-44. Prove adjacent exponent/sign buckets include every possible match, then recheck all candidates using original comparison and choose min/max original index | Fixed-predicate research only |
-| 7 | [ ] Implement versioned tolerant runtime guard/fallback | Missing tolerance/rank/binding witness → pre-effect sequential reference; prehash key/invalidation includes comparison policy and backing lifetime | Not implemented |
-| 8 | [ ] Evaluate BQN small-array / small-range strategies | SIMD vector search, byte/2-byte direct, packed presence, sparse table initialization; target/memory/source-order guards | Unmeasured |
-| 9 | [ ] Evaluate collisions and large-input fallbacks | Alternative open addressing/linear probing (do not replace current HashMap on faith), collision counters, sorted/radix fallback, cache partitioning | Unimplemented |
-| 10 | [ ] Calibrate one-shot/prehash cost | Indexed/query ratio, distinct key count, initialization/retention, cache residency, repeated-use vs one-shot cost; ResourceEstimate != CostEstimate | Only provisional heuristics |
-| 11 | [ ] Share algorithm candidate infrastructure | Expand Nub/Key/filtered index outputs then use **family-specific** witnesses for Reduce/GroupBy/Grade/Contract. Do not reuse search-only semantics | Partial generic interface |
-| 12 | [ ] Final runtime/differential and benchmark gate | Rust default/portable, J C first/last/NaN/±0/empty/Rank/Boxed/Sparse/`!.ct`/error, independent reference vs fast paths, randomized/adversarial time & memory measures | **Not executed** |
-
-#### P.2 Five independent repeated reviews
-
-- [ ] **A — upstream-first:** separate Hui, pinned jsource dispatch/tolerant implementation and actual J errors/Rank/Fit; do not substitute BQN semantics.
-- [ ] **B — proof-first:** independently show nontransitive approximate equality, sign/exponent bucket completeness under explicit \(0 ≤ t < 1/2\), IEEE-754 edges and first/last **source** index; never prove from the candidate implementation alone.
-- [ ] **C — oracle-first:** compare J C reference, Rust sequential `near`, and candidate filtering separately. Matching the Rust oracle does **not** prove agreement with J C.
-- [ ] **D — boundary-first:** recheck Graph provenance, A3 direction/schema verifier, Registry target/guard/proof, Physical resource/cost and runtime fallback; no GPU/interval/tolerant route enabled on unknown proofs.
-- [ ] **E — performance/adversarial:** test repeated keys, pathological collisions, tolerant chains, nonmatches, small/wide ranges, cache pressure and allocation failure. Do not enable algorithms without measured benefit and acceptable worst cases.
-
-After fixing a finding, independently re-run the relevant checks and record commands, counts, exact upstream revision and measurements before checking a gate. No Linux milestone. Never mark CI/tests passed without actual execution.
-
-#### P.3 Next actions — reordered for M2 semantics (2026-10-06)
-
-1. **Finish M2 first.** Converge J word formation, enqueue, parser, name/POS resolution and derived-entity semantics, with actual regression execution. Search-optimization research must not displace the general frontend milestones.
-2. **Restore an independent reference interpreter path.** `eval_semantic_reference(...)` disables pooling, but `kernels::dyad("i."/"i:"/"e.")` calls `index_ops::lookup(..., None)`, which **still invokes `optional_exact_scalar_index` and `plan_search_algorithm`**. Thus the current semantic reference avoids prehash yet can still select Direct/IndexedHash/ReverseQueryHash. Separate strictly sequential, specification-oriented search from optional Physical search decisions and test both paths against the same J inputs. **No implementation change or passing test is claimed here.**
-3. **Verify J semantics independently.** Compare actual J C oracle results for `=`, `i.`, `i:`, `e.`, `E.`, `!.ct`, `9!:18/9!:19`, default-CCT macro boundaries, rank/cell/frame/empty, boxed/sparse and error precedence. This is a semantic-parity obligation, not a reason to port jsource's specialized hash implementations.
-4. **Retain Graph/A3/Registry evidence; defer Physical commitment.** Preserve source topology, comparison intent, provenance and unknown proof facts. Freeze expansion of existing Int/Bool runtime specializations. Reconsider BQN SIMD/small-range direct tables/radix/collision strategies, tolerance buckets and heuristic tuning only after M2/M3 semantics, M4 baseline CPU reference validation, differential evidence and measurements. `TolerantNeighborHash` remains `NeedsSemanticProof` and unselected.
-
-**Independent-verification rule:** Matching an optimized path against a so-called semantic reference that shares its Physical planner is not a valid independent correctness gate. Require three-way comparison against a truly sequential semantic baseline and actual J C oracle, in addition to error/effect/fallback and resource/cost checks.
-
-#### P.4 Independent review record #1 — restricted float candidate completeness (2026-10-06)
-
-**Math-first, independent of the implementation:** Current RustJ `kernels::near` is `a == b || finite(a,b) && |a-b| <= t * max(|a|,|b|)` with `t=2^-44`. If finite nonzero a,b match, their signs cannot differ: opposite signs make the absolute difference at least the larger magnitude, violating `t<1`. Writing `M=max(|a|,|b|)`, `m=min(|a|,|b|)`, successful comparison implies `m >= (1-t)M > M/2` (`t<1/2`), hence their base-two exponent floors differ by at most one. Therefore **same-sign exponent e-1/e/e+1 buckets form a complete candidate superset** for this limited predicate. Retain *every source index*, validate each returned candidate with the original `near` predicate, and choose the minimum/maximum original position for `i.`/`i:`. Never collapse tolerant chains into equivalence classes. +0/-0 and same-sign infinities use exact equality special cases; NaN never matches.
-
-**Independent numeric falsification attempt, NOT a Rust/C run:** An IEEE-754 JavaScript Number model compared **215 values yielding 1,160 near pairs**, including 132 cross-exponent near pairs and **zero** violations of same-sign/adjacent-exponent candidate coverage. Approximate equality on `(1, 1+0.75t, 1+1.5t)` produced `true,true,false`, confirming nontransitivity. Sampling cannot prove J semantic parity, Rust correctness or performance, and this argument does not authorize dynamic `!.ct`, boxed/complex or Rank-aware matching.
-
-**Source/boundary cross-check:** Lochbaum's BQN work informs tiny-input SIMD, sparse **table** initialization, reverse hashing and large-array partitioning, not J semantics. Pinned jsource `viavx2.c` instead uses adjacent tolerance-aware masked intervals with exact insertion and tolerant probe. The research-only **sign/exponent 3-bucket** approach must **not** be represented as the exact jsource bitmask algorithm. Static provenance/guard/architecture/checklist review passed **13/13 checks**, and `src/tolerant_search.rs` is reachable only under `#[cfg(test)]`, not production runtime. **No Cargo, CI, J C differential or benchmark execution took place; all release/semantic execution gates stay unchecked.**
-
-
-#### P.5 Independent audit record #2 — IEEE-754 neighbor words and ordered representatives (2026-10-06)
-
-**Scope of the change.** Added the research-only Rust test `fixed_near_candidate_filter_covers_ieee_neighbor_words_and_first_last` to `src/tolerant_search.rs`. It generates representable neighbors on both sides of normal/subnormal, powers of two and maximum-finite boundaries; signed zero, both infinities and NaNs; and 2,048 deterministically generated random `f64` bit patterns. For every sampled query it compares candidates with the **full original linear `kernels::near` scan**, checks candidate positions remain distinct and source-ordered, and checks the First/Last answers against the independent linear position oracle. The module remains `#[cfg(test)]` only, with no executable fast path.
-
-**Separate-language numerical falsification attempt.** An independently written Python binary64 model checked **4,224 indexed values × 310 queries = 1,309,440 pairs**; **674** pairs matched `near`, including **143 cross-bucket matches**. There were **zero missing matched positions**, and candidate-based First/Last agreed with linear reference for all 310 queries. The nontransitive chain again evaluated `true,true,false`. These are **finite Python-model results**, not a Rust/Cargo execution, a J C oracle, an exhaustive bit-pattern proof or a speedup measurement.
-
-**Independent proof and safety boundary.** For the present fixed `t=2^-44`, successful finite, nonzero `near` comparison requires matching signs and `m > M/2` for `m=min(|a|,|b|)`, `M=max(|a|,|b|)`; therefore only the same-sign exponent bucket and its immediate neighbors can contain matches. Filtering is necessary-only: preserve *all* original source positions, recheck using the original floating `near` predicate, and select min/max original position rather than coalescing approximate-equivalent keys. An underflowed `t*M` narrows the accepted comparison window; signed zeros and same-sign infinities are handled by the exact `a==b` branch. This is a fixed-predicate proof sketch, **not** evidence for dynamic `!.ct`, arbitrary J comparison tolerance, complex/boxed/sparse comparisons, Rank, or an indexed-key cache.
-
-**Verification ledger.** No available Rust/Cargo executable was found, so `cargo test tolerant_search`, `cargo test --features portable tolerant_search`, `cargo fmt --check`, Clippy, C differential and benchmarks are all **not run**. Do not mark P.1 stages 5–7/12 or P.2 C/E completed. The next independent gate is actual jsource C-versus-Rust conformance under `!.ct`, rank/cell/empty, float/complex/boxed and comparison-policy/version changes, followed by pre-effect runtime guard/fallback evidence. `TolerantNeighborHash` still has `NeedsSemanticProof`; neither Physical selection nor interpreter execution is enabled.
-
-
-#### P.6 Upstream J comparison policy and proof boundary — source-first audit (2026-10-06)
-
-**Normative J meaning.** The official J Dictionary [Equal (=)](https://www.jsoftware.com/help/dictionary/d000.htm) states that finite float/complex comparisons use default tolerance `2^-44` and may be changed by `!.t`. [Fit (!.)](https://www.jsoftware.com/docs/help806/dictionary/d411.htm) includes the search family `i.`, `i:`, `e.` and `E.`; [global parameters 9!:18 and 9!:19](https://www.jsoftware.com/help/dictionary/dx009.htm) query and change tolerance. A default numeric constant matching the current Rust `kernels::near` is **not proof of identical effective comparison policy at the call boundary**.
-
-**Pinned upstream implementation evidence.** [jsource `viavx2.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c) uses `TFINDXYT` to probe the main and adjacent tolerant intervals and `PUSHCCT(1.0)` in `IOFT` to build the table with **intolerant equality** before tolerant probes. `IIDOT` and `IICO` select distinct minimum/maximum source representatives. This is evidence that candidate completeness and ordering matter; it does **not** establish that RustJ's experimental three exponent buckets implement jsource's masked intervals. Collapsing an approximately equal chain would lose the only match in `[a,b] i. c` for `a≈b`, `b≈c`, `a≉c`; a test-only negative regression now fixes this design obligation.
-
-**Proposed `ComparisonPolicy` evidence (design only; not implemented):** retain the resolved primitive/valence and any `!.t` override; the active `9!:19` tolerance plus policy lifetime/version; dtype, rank/cell/frame and boxed/sparse structure; precise comparator identity including NaN/signed-zero/infinity/complex rules; tolerance range witness; indexed source identity, original positions and First/Last/Presence intent; observable error/effect boundary and sequential fallback. Changing policy, source backing or table lifetime must invalidate any prepared tolerant index. A3 `SearchDescriptor` carries semantic provenance, not table representation, which remains Physical-owned.
-
-**Promotion remains blocked.** Even a CPU scalar-float implementation requires an effective-policy witness/guard, complete candidate superset proof, per-candidate recheck with *the same* semantic comparator, stable min/max original index and no-match sentinel, and guard-miss fallback **before effects**. The support boundary must explicitly handle or reject NaNs, infinities, underflow, mixed dtypes, rank/cells, boxed/sparse and reference mismatch. Current proof covers only RustJ's fixed `near`, not full J or dynamic fit. Without C differential and policy evidence, retain `TolerantNeighborHash = NeedsSemanticProof` and no runtime wiring.
-
-
-#### P.7 Fixed comparison-policy snapshot implementation — dynamic J CCT remains unsupported (2026-10-06)
-
-**Implemented:** A crate-internal `ComparisonPolicySnapshot` in `src/comparison_policy.rs` currently has exactly one constructible identity, `FixedRustNearV0`. It owns the *unchanged* CPU predicate `a==b || finite(a,b) && |a-b| <= 2^-44 max(|a|,|b|)`; `kernels::near` now delegates to this snapshot. `src/index_ops.rs::lookup` captures one policy per search call for `i.`/`i:`/`e.`, while `find` captures one for `E.`; each individual atom comparison uses that shared snapshot. The `atom_eq` adapter used from `expansion.rs` remains present. This does not change J Graph IR, the A3 `SearchDescriptor`, or Physical search selection. Float lookups remain **sequential**, and Int/Bool exact-only prehash remains independent of tolerant comparison.
-
-**Regression coverage authored, execution unverified:** New internal policy tests cover the nontransitive near chain, ±0, NaN, ±infinity, and the minimum subnormal against zero. The `fixed_float_policy_preserves_first_last_membership_and_find` test in `src/index_ops.rs` covers duplicate positions, nontransitive near, the missing sentinel, and all four search outputs. The experimental tolerant candidate harness stays test-only and separate. **Cargo fmt/test/clippy, live jsource, C-vs-Rust differential and benchmarks have not run.**
-
-**Semantic boundary:** This is the first explicit capture of an *implemented* comparator identity, **not** an implementation of J `!.t` or global `9!:19`. The identity `FixedRustNearV0` does not witness equality with upstream jsource's runtime `cct` implementation. Runtime promotion requires fit-derived-verb semantics, global tolerance ownership and call-time policy generation, a supported-range proof and guards, rank/cell/type/error fidelity, cache identity and invalidation, and independent C comparison. TolerantNeighborHash remains unselected; float prehash and GPU/LLVM routes are not activated. P.1 gates 5–7/12 stay **unchecked**.
-
-
-#### P.8 Upstream default CCT boundary divergence — unresolved semantic difference (2026-10-06)
-
-**Independent source-first audit.** The pinned [`jsrc/vcomp.h::TCMPEQ`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vcomp.h), [`jsrc/i.c` initialization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/i.c) and [`jsrc/viavx.h::jeqd`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.h) show default `jt->cct=1.0-FUZZ`, `FUZZ=2^-44`, and the binary64 comparator `(a > cct*b) != (b <= cct*a)`. Tolerant float lookup probes call this macro via `jeqd`. The [`jsrc/xa.c` `9!:19` setter](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/xa.c) checks `0 <= t <= 5.820766091e-11` and assigns `cct=1.0-t`; a future dynamic-policy implementation must preserve its lifetime and limits.
-
-**Concrete binary64 source-macro counterexample, not a native J C run.** With `t=2^-44`, `a=1.0` and `b=1.0-t`, current RustJ `near` reports **true** because it uses inclusive `|a-b| <= t*max(...)`; the pinned C macro *modeled with IEEE-754 double operations* reports **false**. The same discrepancy arises for `b=1.0+t`: at the threshold, different arithmetic and strict comparisons matter. A separate intentionally boundary-focused Python probe compared **120,000 pairs** and found **19,968 model disagreements**. This does not estimate general-input mismatch frequency, verify an actual jsource executable, or prove every target/subnormal behavior.
-
-**Independent compiled C macro reproduction (NOT a full J execution).** A small C translation of the pinned `TCMPEQ` expression was built and run with Debian GCC **14.2.0**, once each using `cc -std=c11 -O0` and `-O2`. In both builds, the legacy RustJ *equation model* returned **true** and the upstream C macro expression returned **false** for `(a,b)=(1,1-2^-44)` and `(1,1+2^-44)`. Signed-zero, infinity and NaN controls matched across both builds. Inputs, environment, outputs and limitations are recorded in [`reports/cct-macro-boundary-probe.json`](reports/cct-macro-boundary-probe.json). **Neither Rust itself nor the full jsource engine was compiled or executed** (no `cargo`, `rustc` or J interpreter was available). A reproduced source macro is not an integrated J semantic oracle.
-
-**Code and release gate.** A test-only `source_cct_macro_model` and `jsource_cct_macro_model_exposes_fixed_near_boundary_gap` in `src/comparison_policy.rs` now capture the unresolved counterexample. Production `FixedRustNearV0` behavior is deliberately unchanged. Do not switch the global comparator or enable float hashing on the strength of a source-level emulation alone: first verify real J C output for boundary `=`, `i.`, `i:`, `e.`, `E.` and collect type/rank/fit/error differences. P.1 stages 5 and 12 remain unchecked. P.4's candidate-bound proof continues to apply only to RustJ's **legacy fixed `near`**, not automatically to upstream J.
-
-
-
-### P.9 Pinned default J CCT semantic cutover — FW-03 partial evidence (2026-10-06)
-
-The preceding P.8 observations describe the **historical legacy implementation**. RustJ now executes pinned default J CCT equality, `(a > cct*b) != (b <= cct*a)` with `cct=1-2^-44`, in `src/comparison_policy.rs`, `kernels.rs`, `index_ops.rs` and `search_reference.rs`. Legacy fixed-near is retained as a test-only regression witness, not the active CPU rule. [Linux CI 37445891526](https://github.com/yunskim/RustJ/actions/runs/37445891526) ran the pinned J C `j64`/`j64avx2` oracle against independent Rust sequential and optimized routes in default/portable builds: **48/48 per configuration, 192/192 aggregate, zero route mismatches**. Dynamic `9!:19`, `!.t`, boxed/sparse, broader Rank/error semantics and tolerant hashing approval are not implied. FW-03 remains unchecked.
-
-### P.10 Rank zero-frame fill-cell execution and FW-04 partial acceptance evidence (2026-10-06)
-
-Pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` provides type-correct fill cells when the result frame is empty, executes the underlying operation once to determine output cell type/shape, and assembles an empty result. RustJ previously returned `Unsupported` for `(i.0 3) (i."1 1) (i.0 3)`. The generic dense runtime now uses `src/value.rs::rank_fill_cell/empty_rank_result`, `src/logical_executor.rs::apply_ranked`, and `src/kernels.rs` monadic/dyadic Rank paths. It supports typed dense Bool/Int/Float/Char fills, without inventing an Index-Of-only special case or prematurely approving physical optimization. A concrete primitive identity is required to run fill-cell evaluation; user-defined effectful forms remain unsupported pending observable-effect and error contracts. Boxed/sparse fills, suppressible computational errors, heterogeneous cell-result padding, and general name/effect sequencing remain open. Conservative Rank analysis facts are unchanged.
-
-[Linux milestone CI 37449102885](https://github.com/yunskim/RustJ/actions/runs/37449102885) succeeded across the check job and pinned `j64`/`j64avx2` × default/portable execution: `tools/ranked_search_audit.py` compared 20 cases per configuration in C J / independent Rust reference / optimized Rust, **20/20 each and 80/80 aggregate**. [Basis compile probe 37449102980](https://github.com/yunskim/RustJ/actions/runs/37449102980) also succeeded. The suite covers first/last/membership, scalar/row/broadcast, typed empty frames and primitive reduction/addition. These are supported-subset confirmations, not full Rank, JX-04 or FW-04 acceptance. Keep all broader gates unchecked.
-
-<a id="rank-cellapply-followups"></a>
-
-### P.11 Rank/CellApply follow-up migration checklist — FW-04/JX-04 subordinate gates (2026-10-06)
-
-**Scope and acceptance.** This checklist tracks the move from the validated **dense zero-frame Rank subset** in §P.10 to full J Rank/CellApply semantics. It is subordinate to §O.5 FW-04 and §Q JX-04; it does not authorize a physical optimization. **Scoped progress: 5/12 checked; FW-04 and JX-04 stay [ ].** The pinned [jsource cr.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c) (jtrank1ex/jtrank2ex) and result.h are the semantic baseline.
-
-| Gate / stage | Check | Owner and acceptance | Evidence and required negative cases |
-|---|---|---|---|
-| RK-01 / A·M2 | [x] Source-first empty-frame contract | P.10 records the fill/first-existing-cell evaluation and result type/shape assembly; source error fallback remains separate | Pre-fix [CI 37446732381](https://github.com/yunskim/RustJ/actions/runs/37446732381): 13/14 matched per variant, one empty-frame discrepancy |
-| RK-02 / A·M2 | [x] Typed dense fill-cell + empty assembly | value.rs rank_fill_cell/empty_rank_result preserve Bool/Int/Float/Char types and real first cell when available | Tests for fill type, shape and boxed refusal; no guessed boxed/sparse semantics |
-| RK-03 / A·M2 | [x] Shared monadic/dyadic Rank execution | logical_executor.rs, kernels.rs, runtime.rs use shared Rank semantics, not an Index-Of-specific output; keep static Facts conservative | semantic.rs and analysis.rs tests |
-| RK-04 / A·M2 | [x] No unproven user-body execution | Primitive-witness guard allows known built-in fill evaluation only. Unsupported otherwise | empty_scope.rs effects and name scope regression; not full J user-defined Rank |
-| RK-05 / A·FW-04 | [x] Pinned C / independent Rust / optimized Rust matrix | ranked_search_audit.py and Linux CI compare first/last/member, typed empty frames, addition/reduction and frame cases | [4×20 CI 37449102885](https://github.com/yunskim/RustJ/actions/runs/37449102885) 80/80 matched; [basis 37449102980](https://github.com/yunskim/RustJ/actions/runs/37449102980) passed |
-| RK-06 / B·M2 | [x] Adversarial empty frame and rank corpus | ranked_search_audit.py + semantic tests: zero-leading/interior frames, only one operand empty, frame mismatch, negative/oversized rank, incompatible types, nested Rank | Pin C outcomes first. Distinguish value/error/Unsupported, test both C builds and Rust variants  **Diagnostic evidence (2026-10-06; [CI 37452153562](https://github.com/yunskim/RustJ/actions/runs/37452153562)):** each of j64/j64avx2 × default/portable had 22/24 matching pinned-C/Rust semantic/Rust optimized observations, with two `rust_semantic_mismatch` cases (`empty_type_mismatch`, `nested_rank_empty`). A green workflow is not conformance: this adversarial corpus intentionally remains non-acceptance. [`45af152`](https://github.com/yunskim/RustJ/commit/45af1526c41e33d9a5b3fda8bf7bfd5bf92d9b4e) and [`59bb6d8`](https://github.com/yunskim/RustJ/commit/59bb6d8adff86db0fd8c1d43bb41cc64bbc6dc52) expose full three-way observations and test diagnostic reporting. **At this earlier stage two cases diverged; see the subsequently accepted 32-case bounded gate below.**  **Partial fix with executed evidence (2026-10-06):** [`4d5f903`](https://github.com/yunskim/RustJ/commit/4d5f90348a91ece4c15139d0ae56affb1ade68c6) and [`edad61b`](https://github.com/yunskim/RustJ/commit/edad61bc17ebeb46198f1d1f050bcb9bc95f0a42) conservatively permit value-only fill through a Rank-of-Rank of an intrinsic primitive in the independent A3 and normal Rust executors, with positive [`a4c5953`](https://github.com/yunskim/RustJ/commit/a4c5953349ea8fba34df7bdcaed3e683ee773b01) and effectful negative [`f074620`](https://github.com/yunskim/RustJ/commit/f074620e6317e5f86ffb425f07fba00a00847cdb) tests. [Linux CI 37453410364](https://github.com/yunskim/RustJ/actions/runs/37453410364) **5/5 jobs success**, pinned-C three-way adversarial **23/24 matched, 1 `rust_semantic_mismatch` (`empty_type_mismatch`) in each of four variants**. The nested-Rank gap was closed, but this is **not full Rank conformance or ZF-IR-03 evidence; RK-06 remained [ ] at this earlier checkpoint.** |
-| RK-07 / B·M2 — **next** | [ ] Non-exigent/exigent error and retry semantics | Capture cr.c computational-error recovery, type retry, error precedence, and effect ordering in error.rs and Rank execution | C comparison for overflow, domain, incompatible type, shape error and order |
-| RK-08 / B·M3/FW-07 | [ ] User-defined effects, dynamic name resolution | Runtime witness, lookup time, observable prototype call count, post-effect replay and guarded fallback contracts | C-vs-Rust counter/binding/late-name tests; never speculate user code |
-| RK-09 / B·M3 | [ ] Boxed and sparse filler/prototype | value.rs/storage.rs/sparse.rs implement J prototype, fill value, axes and dtype semantics | Pinned C positive/negative suite; no zero-filled fake support |
-| RK-10 / B·M3 | [ ] Heterogeneous cell result assembly | assembly.rs/logical_executor.rs/kernels.rs: promotions, shape padding, error precedence as in result.h | Mixed type/shape, empty cells, char/numeric, errors and effect order |
-| RK-11 / C·M3 | [ ] Derived Rank and implicit loops | Preserve semantic operands and rank/cell/frame on fork/hook/@:/nested Rank/late names; no premature Graph route selection | Rank, frame repeat, late binding and modifier three-way fixtures. See §P.12 ZF-IR-01–04 for the narrower Graph empty-frame contract; broader RK-11 remains unchecked. |
-| RK-12 / D·FW-04/JX-04 | [ ] Scoped final semantic acceptance | For supported RK-06–11 claims: independent C / Rust reference / runtime, guard/effect/error/resource proof and explicit unsupported scope | Record pinned commit, 4 CI variants, command, case counts, classifications and JSON artifacts before marking each subgate complete; broader FW/JX remain [ ] where duties remain |
-
-**Iteration order and checklist use.** RK-06 → RK-07 → RK-08 → RK-09 → RK-10 → RK-11 → RK-12. For every gate: (1) pin positive and negative C cases, (2) classify C vs independent Rust baseline vs execution, (3) make the smallest shared semantic change, (4) run default/portable fmt, Clippy and tests plus both pinned C builds, and (5) append evidence to that RK row *before* ticking it. A passing subset cannot waive failures or turn on hash/GPU/Graph candidates without separate FW-05–FW-13 proof/guard/resource/cost authorization. M2 frontend convergence remains the overall priority.
-
-
-<a id="rank-graph-zero-frame"></a>
-
-### P.12 Zero-frame versus empty-cell semantics in J Graph IR — structural facts are not permission to elide evaluation (2026-10-06)
-
-**Decision.** Empty arrays remain ordinary logical arrays with J-visible type, shape and original Rank/CellApply semantics, not a new `EmptyArray` operation. Both `0 3` and `2 0` have zero atoms, but at rank 1 the former has **frame=[0], cell=[3]** (no ordinary cell iterations, but J fill-cell semantics apply); the latter has **frame=[2], cell=[0]** (two actual calls on empty cells). Therefore `element_count == 0` never by itself proves that there are no observable computations, errors or effects. Consult pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` and §P.10.
-
-**Implementation boundary.** The shared pure `src/facts.rs::rank_plan_for_shapes` produces frame/cell structure; `RankPlan::frame_execution()` distinguishes `ZeroFrameNeedsFill / CellsPresent / IncompatibleFrames`; `has_empty_input_cell()` is a separate structural fact. `src/j_graph_ir.rs::Plan::rank_frame_plan(ValueId)` exposes a **read-only** view only for an applied `GraphForm::Rank` with known requested ranks and argument shapes. J Graph projection and A3 analysis use the same frame decomposition. Unknown output-cell dtype/shape stays unknown. No physical buffer identity, execution selection, extra graph node or premature optimizer is introduced.
-
-**Safety barrier.** `ZeroFrameNeedsFill` is neither `ProvenEmptyResult` nor `SafeToElide`. The fill-cell can establish result dtype/shape, raise observable errors or execute effectful/named functions. A zero axis in the A3 `IterationDomain` does not automatically allow kernel skipping, fusion or buffer omission. A later optimization must separately prove result-cell shape/type, purity, error and dynamic-name behavior, guards and fallback; actual selection must pass FW-05–FW-13 resource/cost/execution gates.
-
-**Array-compiler comparison and transfer boundaries (2026-10-06).** These references provide mechanisms for separate RustJ layers, **not** evidence that another compiler already implements J's zero-frame fill-cell semantics.
-
-| Reference | Mechanism | RustJ transfer and limitation |
-|---|---|---|
-| [XLA ZeroSizedHloElimination](https://github.com/openxla/xla/blob/main/xla/hlo/transforms/simplifiers/zero_sized_hlo_elimination.h), [pass guide](https://openxla.org/xla/hlo_passes) | Replaces zero-element HLO results with empty constants | Generate analogous rewrites **only after** result semantics and elision legality are proved. Never suppress J fill-cell evaluation, effects or errors merely because item count is zero |
-| [Futhark size types](https://www.futhark-lang.org/blog/2020-03-15-futhark-0.15.1-released.html) | Encodes element type and sizes as `[n]a`; distinguishes `[0][2]i32` from `[2][0]i32` | Prove result-cell dtype/shape separately from Rank frame geometry; do not erase J dynamic names/effects or heterogeneous result assembly |
-| [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/) | Separates iteration/indexing space from compute payload region | Preserve `CellApply` iteration structure separately from cell computation and result assembly. `tensor.empty` creates an uninitialized-content tensor of a specified shape; it does **not** mean a zero-element tensor |
-| [StableHLO reduce](https://openxla.org/stablehlo/spec#reduce) | Explicit reduction axes, reducer computation, init_values and result types | Apply known-result inference only to the relevant proved subset; do not assume an initialized StableHLO reduction is equivalent to arbitrary J `/` or Rank fill-cell semantics |
-
-**ZF-IR-03 independent evidence ledger (planned; not implemented).** Keep the original J Graph immutable. A recomputable sidecar must independently track (1) graph/value identity, version and dynamic-name validity; (2) J result-cell dtype/shape, boxed/sparse fill and assembly; (3) semantic equivalence of fill-cell evaluation versus reconstructed output; (4) observable effects, errors, precedence and handlers; and (5) a guard ordered before the first observable effect with exact semantic-reference fallback. Each obligation distinguishes `Unknown / Proven(witness) / Guarded(guard+fallback) / Disproven`. Neither `frame=[0]` nor partially known shape upgrades an Unknown obligation to Proven. Guarded by itself never enables selection. FW-05–FW-13 and ZF-IR-04 remain the separate execution-selection gates.
-
-**Work order.** Start with RK-06 adversarial C-oracle Rank/zero-frame fixtures; establish RK-07–10 error/effect/boxed/sparse/assembly semantics; then implement ZF-IR-03 sidecar and Unknown/Guard negative tests; finally validate ZF-IR-04 with independent three-way CPU/physical measurements. This comparison does not advance M3 ahead of M2, or tick ZF-IR-03/04 or FW-06/07.
-
-**Exact RK-06 divergent inputs and outputs.** [Diagnostic CI 37452934704](https://github.com/yunskim/RustJ/actions/runs/37452934704), `j64/default` job: `(0 3 $ 'abc') (+"1 1) (i.0 3)` gives pinned J **integer type code 4**, shape `[0,3]`, empty data, but both Rust routes return **`domain error`**. `(i.0 3) ((+"0 0)"1 1) (i.0 3)` gives pinned J **integer type code 4**, shape `[0,3]`, empty data, but both Rust routes return **`unsupported`**. The full `jsrc/cr.c::jtrank2ex` fill-call/error-recovery contract and nested Rank semantics need separate verification. **Do not fix this by automatically inheriting an input type or indiscriminately suppressing errors.** The stated outputs come from the actual three-way diagnostic log.
-
-**Additional RK-06 pinned-C observations (authored; CI verification pending).** Commits [`a4ffb0c`](https://github.com/yunskim/RustJ/commit/a4ffb0c240e5a4271bb9f20b86627f0f5fca157f), [`b241c97`](https://github.com/yunskim/RustJ/commit/b241c9730e1993cda3a402b9256f1e184d9fc501), [`d5f8a03`](https://github.com/yunskim/RustJ/commit/d5f8a0312952e3d47ee53a48b7eb6b1a67c0d012) extend `tools/ranked_search_audit.py --adversarial` from 24 to **32 cases**. Eight new probes distinguish char/int order, char/float and bool fillers, one-sided empty frames, nonempty char/int cells, positive frames of empty cells, and nonempty nested Rank. In pinned `jsrc/cr.c::jtrank2ex`, `EVINHOMO` fill-cell retry selects a target type based on which original arguments have atoms; only *after retry* are non-exigent computational errors replaced with an integer-zero scalar while exigent errors propagate. **Four-way pinned-C evidence (2026-10-06):** [Linux CI 37453629236](https://github.com/yunskim/RustJ/actions/runs/37453629236) completed **5/5 jobs successfully** (check + pinned C j64/j64avx2 × Rust default/portable). Each reference combination reports **25 pass / 7 `rust_semantic_mismatch` out of 32**, i.e. 100/128 matched observations and 28 mismatched observations across four runs (seven distinct sources). The seven open sources are `empty_type_mismatch`, `empty_type_mismatch_reversed`, `empty_char_float_fill`, `empty_char_bool_fill`, `empty_char_left_real_right`, `empty_char_right_real_left`, and `positive_frame_empty_char_cells`. For the first six, pinned J yields integer shape `[0,3]`; for the last, integer shape `[2,0]`. Both independent Rust semantic reference and optimized Rust report `domain error` in all seven. The nonempty char/int domain case and nonempty nested-Rank case match. This **green CI validates diagnostic execution, not J conformance**; none of the seven mismatches is accepted or silently waived. This 25/32 result is historical pre-fix evidence. Only the finite 32-case RK-06 corpus is now promoted to a strict gate below; RK-07 and ZF-IR-03 remain unchecked. The preexisting 20-case strict rank gate remains unchanged.
-
-**RK-06 bounded acceptance (2026-10-06; not general RK-07 acceptance).** [Final strict Linux CI 37458845392](https://github.com/yunskim/RustJ/actions/runs/37458845392) completed **5/5 jobs**: check and pinned C j64/j64avx2 × Rust default/portable. Against the exact pinned C revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, **32 cases in each of four configurations, 128/128 three-way classifications `pass`, zero mismatches**. `--adversarial --gate-adversarial` now returns nonzero when any C/independent-Rust-reference/optimized-Rust comparison differs, while printing and retaining the exact offending observations. [`365c3ad`](https://github.com/yunskim/RustJ/commit/365c3adcb9e716e34f3083f50c317e243a51ad23) installs this **blocking four-way Linux CI gate**; [`1644644`](https://github.com/yunskim/RustJ/commit/1644644444d8e51ee2097f4acd659b1e4b893013) and [`b631f6f`](https://github.com/yunskim/RustJ/commit/b631f6fb488f449fcc4c35b44da6ac5bcca444d8) test its failure behavior. The existing 20-case strict ranked-search gate remains intact. **Only the pinned, finite, supported-dense RK-06 corpus is marked [x]**; no full-J-Rank claim follows from these witnesses.
-
-**RK-07 current boundary and open gates.** [`9ab2952`](https://github.com/yunskim/RustJ/commit/9ab2952100ae7b2ae1e6338a761ecf4fc798804f) implements integer-zero replacement of a **Domain failure from a value-only zero-result-frame fill-cell computation**. [`cbd13af`](https://github.com/yunskim/RustJ/commit/cbd13af0864a85452a2cface91f283bf07b9f4e2), [`85f1732`](https://github.com/yunskim/RustJ/commit/85f1732bb29da8b1573781e6fb6b86711d91468e), and [`a5541b2`](https://github.com/yunskim/RustJ/commit/a5541b22705b4f53aeb8a2094d958d5d749ec557) preserve the intrinsic atom-rank-zero result-cell shape of primitive `+`, avoiding an incorrect collapse of [0,3] to [0]. [`a23bcf4`](https://github.com/yunskim/RustJ/commit/a23bcf40b104e359fe135da9d76c8d0ae521e672) and [`6be596a`](https://github.com/yunskim/RustJ/commit/6be596a81ccec1edb346fe2554a42e7811c406ef) handle zero-atom `+` cells inside a positive outer Rank frame [2], preserving integer [2,0]. [`0d85f03`](https://github.com/yunskim/RustJ/commit/0d85f030b00122d2239150a8d868327ff8810f0c) and [`75a36eb`](https://github.com/yunskim/RustJ/commit/75a36eb7886ca2f68d9527412e41453b93d9af62) regress the original seven cases, nonempty char/int Domain and mismatched-frame Length; unit tests keep unsupported/resource errors intact. Pinned references: [`jsrc/cr.c::jtrank2ex` L397–418](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L397-L418), [`jtrank2ex0` L541–569](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L541-L569), [`jerr.h::EXIGENTERROR` L89–90](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h#L89-L90). **Still open:** the scoped dense primitive-`,` `EVINHOMO` retry below is implemented, but generic internal error classification/provenance for other primitives, the remaining non-exigent/exigent taxonomy and precedence, user-function effects/name versions, boxed/sparse fill, and heterogeneous result assembly are not. Unknown/Unsupported/Limit must not be silently recovered; Graph IR frame geometry alone never authorizes skipped execution or GPU lowering. **RK-07/08–12, ZF-IR-03/04, and FW-06/07 remain [ ].**
-
-**RK-07 — bounded `EVINHOMO` typed-retry implementation and C-oracle evidence (2026-10-06).** Pinned [`jsrc/cr.c::jtrank2ex` L397–418](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L397-L418) and [`jtrank2ex0` L541–569](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L541-L569) prescribe: first invoke the verb on typed fill-cells; on `EVINHOMO`, choose the type of an **original argument that has actual atoms**, otherwise the higher-ranked type when both originals are empty; **regenerate default fill-cells, rather than casting their contents**; retry once; finally substitute integer scalar zero for remaining non-exigent computational errors, but propagate exigent errors. The dense-type priorities bool < char < int < float come from pinned [`j.h::TYPEPRIORITY` L2040–2046](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L2040-L2046). This decision is not derivable from a zero-frame shape alone: retain verb identity, original-argument atom presence and dtype through execution.
-
-[`ae7258d`](https://github.com/yunskim/RustJ/commit/ae7258d2d391ee43cecb5477f1ccd52f96025e80) added **10 separate RK-07 C-oracle probes**, without changing RK-06's 32 strict tests: heterogeneous char/int in both orders, char/float, char/bool, one-sided nonempty arguments, positive frames with zero-atom cells and regular-error/length-error controls. Initial [exploratory run 37460517931](https://github.com/yunskim/RustJ/actions/runs/37460517931) j64/default showed **3/10 pass, 7 mismatches** (for example pinned int or float `[0,6]` versus Rust int `[0]`, and int `[2,0]` versus Rust Domain). [`d192ad6`](https://github.com/yunskim/RustJ/commit/d192ad6889b6dbcdf654321b7668b040cde54ae9) implemented target-typed fill regeneration without source data. [`4e35d44`](https://github.com/yunskim/RustJ/commit/4e35d443eb4eb8f2c8fa4fc8528439fc18aa141e), [`5485011`](https://github.com/yunskim/RustJ/commit/5485011de69fd2354d19059cd79612d1c4fcd3e8), and [`a6a254c`](https://github.com/yunskim/RustJ/commit/a6a254cac2cee70a963abd2b19a4ef2194f29632) allow exactly one typed retry for the **concrete pure primitive `,` in a witnessed dense char/numeric mismatch**, not for arbitrary Domain failures. [`48e8a6a`](https://github.com/yunskim/RustJ/commit/48e8a6a203e1f58f28063b0765f60a19ff59731e) preserves the output type for zero-atom catenate cells within nonempty outer frames. [`b370ac8`](https://github.com/yunskim/RustJ/commit/b370ac855f6cc81b02a38c569541100f98f2356e) and [`177b18c`](https://github.com/yunskim/RustJ/commit/177b18c50c4c2ad70a83aa3d7aee793c86a065da) pin expected type/shape, single retry, real nonempty-cell Domain, frame Length and no retry on Limit.
-
-**Executed acceptance boundary:** [final Linux CI 37461525543](https://github.com/yunskim/RustJ/actions/runs/37461525543), pinned C revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`. Python tests, fmt, clippy, Rust default/portable tests/build (check) plus C j64/j64avx2 × Rust default/portable comparisons **5/5 jobs green**. The **10 RK-07 probes × 4 configurations = 40/40 independent C/Rust-semantic-reference/Rust execution comparisons passed, 0 mismatches**. [`37e04dc`](https://github.com/yunskim/RustJ/commit/37e04dc8109065e86e4c2bca333416d0c9b441f4), [`706fa36`](https://github.com/yunskim/RustJ/commit/706fa367aa860760d5b4df3b17dbb9b26ccf2da3) and [`b245f9e`](https://github.com/yunskim/RustJ/commit/b245f9e8a27bac0ffd21b724a9ca8df0d18b941c) install the blocking `--retry-probes --gate-retry-probes` four-way CI gate with unwaived C/reference/optimized observations in archived JSON. The original RK-06 32-case strict gate remains intact.
-
-| RK-07 subtask | Status | Remaining acceptance requirement |
-|---|---|---|
-| RK-07-E1: type-specific catenate retry | [x] bounded dense subset | Original atom-presence priority, typed default filler regeneration, one retry, C 10-case differential |
-| RK-07-E2: durable evidence | [x] strict 10-case gate | 4 configurations, 40/40, CI fails any mismatch and retains JSON |
-| RK-07-E3: internal error provenance | [ ] | Distinguish `EVINHOMO` from generic Domain across other primitives and failure phases; never infer retry authority from Domain alone  **Partial implementation (2026-10-06; still [ ]):** [`5aa7074`](https://github.com/yunskim/RustJ/commit/5aa7074762ca6eac1570bc17d728b9ee07b6c3fc) requires an `Option<VerifiedValueOnlyZeroFrame>` proof token for `recover_zero_frame_fill_domain`. Domain failures from ordinary cells and unresolved/effectful calls are not recoverable; the previously verified value-only synthetic zero-frame path retains integer-zero fallback. Both independent A3 reference and primitive kernels supply the token, with negative tests. A distinct general internal `EVINHOMO` cause/provenance and C exigent-error classification remain unimplemented; this does not authorize ZF-IR-03 or FW-06/07 optimization. [Linux CI 37467064363](https://github.com/yunskim/RustJ/actions/runs/37467064363) **all 5/5 jobs passed**, including check and pinned j64/j64avx2 × Rust default/portable. Per configuration RK-06 32/32 + RK-07 retry 10/10 + error-precedence 8/8, thus **200/200 strict three-way C/Rust comparisons matched, 0 mismatches**. [Basis probe 37467064362](https://github.com/yunskim/RustJ/actions/runs/37467064362) passed. The general internal-error cause classification (E3) and exigent provenance (E4) **remain [ ]**. |
-| RK-07-E4: exigent/non-exigent classification | [ ] | Pinned [`jerr.h::EXIGENTERROR` L87–90](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h#L87-L90), overflow and error precedence; Rust Limit may conflate J EVLIMIT with actual allocation/resource failure, so do not suppress without provenance |
-| RK-07-E5: semantic coverage expansion | [ ] | Derived/dynamic/effectful calls, boxed/sparse and nonuniform result assembly; structural frame facts must never license skipped effects or GPU lowering |
-
-**Decision:** Only the finite dense primitive-catenate retry subset is accepted. **Parent RK-07, RK-08–12, ZF-IR-03/04 and FW-06/07 remain [ ]**. Neither general J Rank conformance nor optimization eligibility follows.
-
-**RK-07 — independent eight-case pinned-C error-precedence corpus (2026-10-06).** [Diagnostic Linux CI 37463314265](https://github.com/yunskim/RustJ/actions/runs/37463314265) succeeded on all **5/5 jobs**, checking pinned C j64/j64avx2 × Rust default/portable, with **8/8 three-way matches in each configuration (32/32 total; zero mismatches)**. `--error-probes` independently covers (1) inner cell Length under a zero result frame, (2) mixed empty char/numeric cells of different length, (3) genuine Length with a positive frame, (4) prefix-frame Length before fill execution, (5) empty-frame versus populated-cell Index, and (6) division with zero versus positive frames. The existing strict 32-case RK-06 and 10-case RK-07 `EVINHOMO` gates are unchanged. [`a84a508`](https://github.com/yunskim/RustJ/commit/a84a5084f3a4318f1f26dc95b0428e10317064cd) and [`cce5dec`](https://github.com/yunskim/RustJ/commit/cce5decdbbec2d6577c415d5696f8d7775738b10) add the C corpus and unwaived-difference tests. [`ba90688`](https://github.com/yunskim/RustJ/commit/ba9068801554e5836d9b57111e8e937440c23172), [`970f6b0`](https://github.com/yunskim/RustJ/commit/970f6b07c09ed3969cfc158005c12a2795ce5010), and [`c90701d`](https://github.com/yunskim/RustJ/commit/c90701de2b456e556fb256128e976a7556793930) promote `--error-probes --gate-error-probes` to a blocking bounded CI regression. **Final evidence: [Linux CI 37463712382](https://github.com/yunskim/RustJ/actions/runs/37463712382), 5/5 jobs successful, eight pinned-C three-way matches per reference configuration (32/32 total, zero mismatches)**. The exact source/result observations remain in each reference job and `rank-error-*.json` artifact. Only this **finite eight-case strict regression** is accepted; **overall RK-07 remains unchecked** because internal error provenance, complete exigent/non-exigent taxonomy, effects and general Rank semantics remain unproven.
-
-**RK-07-E4 exact exigent-error boundary.** In pinned [`jsrc/jerr.h` L7–55 and L87–90](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h#L87-L90), `EXIGENTERROR` contains selected internal J error codes including allocation/workspace, valence, nonce, value, throw, stack, and system failures that must propagate even for fill-cell execution. Although `EVDOMAIN`, `EVLENGTH`, `EVINDEX`, `EVRANK`, `EVLIMIT`, and `EVINHOMO` are not in that mask, it does **not** authorize suppressing arbitrary Rust errors. RustJ's `Error::Limit` does not yet distinguish J `EVLIMIT` from allocator/resource failure, and `Error::Unsupported` is not equivalent to J `EVNONCE`. A separate, proven witness for **internal error code, phase, provenance and possible effects** is required before broadening retry/suppression. Next steps are internal error provenance classification (E4), independently pinned precedence/exigent cases, and effectful user-function/dynamic-name boundaries (E5). The finite 8-case matches are neither all-rank-error proof nor permission for Graph IR zero-frame elision.
-
-**Living sub-checklist (under RK-11 and FW-04/JX-04).**
-
-| Gate | Status | Required evidence |
-|---|---|---|
-| ZF-IR-01 / M2 | [x] **Common Rank geometry** | Shared frame split and `RankFrameExecution` with Graph/A3 structural agreement. Implemented in [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398) and [fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11); [Linux CI 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) check and four oracle jobs passed |
-| ZF-IR-02 / M2 | [x] **Read-only Graph query and negative tests** | `Plan::rank_frame_plan` [89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d), tests [b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871) distinguishing `0 3`, `2 0`, inner zero and incompatible frame; Graph=A3; non-Rank=None; output remains unknown |
-| ZF-IR-03 / M3·FW-06/07 | [ ] **Independent proof for empty-result elision** | Result-cell dtype/shape, effects, errors, names, guards and fallback; prohibit Unknown→skip and frame-zero→automatic kernel skip with negative tests |
-| ZF-IR-04 / M3/M4·FW-11/13 | [ ] **Executed lowering and resource proof** | Compare pinned C, independent Rust semantic reference and optimized Rust, then measure CPU cost before enabling any individual kernel/buffer elision; preserve nonempty frames of empty cells. No GPU permission |
-
-**Status (2026-10-06):** ZF-IR-01/02 **2/4 checked**, supported by [Linux milestone run 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) at [`e9f821d`](https://github.com/yunskim/RustJ/commit/e9f821d0658005a1545131d31c31fb53d3521b26): **all 5/5 jobs passed**, including default/portable Rust checks and j64/j64avx2 × default/portable differential jobs. This is a regression of the unchanged execution path, NOT proof or execution of zero-frame kernel elision. ZF-IR-03/04 are unimplemented. RK-11, FW-04 and JX-04 remain [ ]; §P.11 RK-06–RK-12 precedence is unchanged.
-
-<a id="jsource-optimization-migration"></a>
-
-### Q. Whole-jsource optimization migration plan and living checklist — beyond Index-Of (2026-10-06)
-
-**Scope and authority.** §7.4.3 A–M catalogues audited jsource optimization **ideas, original guard/fallback constraints, and RustJ stage ownership**. §O.5 **FW-01–FW-18** owns shared semantics/evidence/guard/CPU milestones, and §P.1 owns **Index-Of-specific implementation**. This section is the complementary **per-family migration tracker**; passing one tracker does not complete another. Do not create another generic optimizer, translate C special entrypoints one-for-one into Graph IR nodes, or pre-build a common registry. Source audit pin: [jsource 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc).
-
-**Status: 0 / 26 complete.** Every [ ] is an **executed acceptance gate**, not a statement that a source family, candidate analyzer or test source exists. Keep M2 frontend and **FW-01 first**; source classification can proceed statically. Follow A (semantic baseline) → B (M3 proof/guard boundary) → C (family candidates and implementations) → D (M4 and later execution approval). C-stage candidate/proof research may precede FW-11–13, but **selecting or enabling specialized execution** requires the independently validated CPU baseline and separated target/resource/cost evidence. Do not extract a shared family interface before the second-family demonstration JX-08.
-
-| ID / gate | Source family and jsource evidence | RustJ change boundary | Acceptance / negative and differential evidence required |
-|---|---|---|---|
-| JX-01 / A | **Pinned source and coverage inventory:** ca/cf/cr/va2/ar/ap, ao/cip/gemm, vg/vgsort/vgranking, vi/viix, cc/cu/vfrom/vf/vrep/vcat, sparse/sc/a/vrand/am in §A/H/K/M | src/j_graph_jsource.rs catalogue/source pin/coverage and §7.4.3 A–M | For each family map **source form → entrypoint → guard/fallback → semantic conditions → RustJ owner → status**. Track duplicates and unaudited paths. Diff future upstream revisions separately; never claim exhaustive coverage |
-| JX-02 / A·FW-01 | **Frontend and derived entity coverage:** @:, fork/hook, rank, /., dot, grade, cut, under, M., ?/?. | src/tokenizer.rs, src/enqueuer.rs, src/parser.rs, src/semantic.rs, src/j_graph_ir.rs | Source/valence/POS/operand/late-binding must be supported before creating candidates. Unsupported forms stay AwaitingFrontendOrFacts; compare positive and negative parse/resolve cases with a real J C oracle |
-| JX-03 / A·FW-02 | **Truly sequential semantic baseline:** Reduce, Scan, Search and later families | src/runtime.rs, src/kernels.rs, src/index_ops.rs, semantic/runtime tests | Separate pool ownership from optimization authorization. Instrument zero candidate selection/prehash/specialized dispatch for supported strict Rust reference; external J C is a differential oracle, not normal fallback |
-| JX-04 / A·FW-03/04 | **J semantic fixture matrix:** rank/cell/frame, Fit/CCT, empty/prototype, boxed/sparse, numeric overflow, error precedence | tests/semantic.rs, tests/j_graph_jsource.rs, tests/index_ops.rs, existing differential harness | Record **independent pinned C / strict Rust / optimized Rust** outputs, supported coverage and unresolved issues. Distinguish upstream special-path oddities; never claim legacy Rust near is J CCT **2026-10-06 partial evidence:** [4×20 C/Rust Rank gate](https://github.com/yunskim/RustJ/actions/runs/37449102885) all 80/80 matched; [Basis probe](https://github.com/yunskim/RustJ/actions/runs/37449102980) passed. Typed dense zero-frame Rank is implemented. User-defined effects, boxed/sparse fillers and error fallback remain unresolved; gate [ ] remains. **Follow-up unit gates:** [P.11 RK-01–RK-12](#rank-cellapply-followups) tracks evidence and state; parent remains [ ]. |
-| JX-05 / B·FW-05 | **Versioned multi-region source anchors:** Cut–Scan–Raze, convolution, composition/nested rank | src/j_graph_ir.rs, src/j_graph_jsource.rs, src/analysis.rs, src/lowering.rs | Verify immutable graph schema, source value, region, ordered A3 operation set, rule/version via sidecar. Reject stale, forged, span-reused and wrong-region witnesses |
-| JX-06 / B·FW-06/08/09 | **Family-specific proof obligations:** valence, rank, equality, empty, error, ownership, resources | src/j_graph_jsource.rs, src/lowering.rs, current proof/verifier boundary | Keep per-obligation Unknown/Proven/Guarded/Disproven with witnesses. Any unresolved obligation blocks commit/selection; negative-test cross-family misuse of rewrite/fusion/search evidence |
-| JX-07 / B·FW-07 | **Guard, fallback and effect boundaries:** RNG, name lookup, memo, allocation, numeric retry | src/lowering.rs, src/runtime.rs, src/execution_semantics.rs | Guards precede observable effects, and misses fall back to an explicit baseline route. Reject replay after cache mutation, RNG draws, effects or observable errors; negative-test guard misses and post-effect reexecution |
-| JX-08 / B·FW-10 | **Second genuinely independent family:** Reduce/Scan **or** GroupReduce | src/j_graph_scan.rs or GroupBy basis, src/j_graph_jsource.rs, src/lowering.rs | Exercise JX-05–07 on numeric association/order or group representative/order obligations distinct from Search. Do not extract common Candidate/SelectionPlan APIs beforehand |
-| JX-09 / C | **Composition, rank absorption, MapReduce streaming:** ca.c, cf.c, cr.c, va2.c::jtfslashatg | src/j_graph_fusion.rs, src/j_graph_composition.rs, src/fusion_planning.rs | Retain @:/capped-fork provenance and rank domains; dense/empty/type/effect/inplace-cost guards. Do not duplicate existing fusion candidates; compare with generic fallback |
-| JX-10 / C | **Reduce, Mean, shape-driven fast paths:** ar.c::jtreduce/jtmean, cf.c::jtfolk | src/j_graph_jsource.rs, src/j_graph_scan.rs, Reduce lowering | +/%# is a **monadic** Mean opportunity only. Verify lengths 0/1/2, cell shape, prototype, promotion, FP order, overflow. Do not infer single-pass fusion or general reassociation |
-| JX-11 / C | **Prefix Scan, Infix Window, MovingAverage:** ap.c::jtpscan/jtmovfslash/jtmovavg | src/j_graph_scan.rs, src/j_graph_jsource.rs, Window/Scan lowering | Validate prefix vs sliding order, NaN/overflow, window lengths and fallback; retain original graph provenance on rediscovered Mean→Window candidates |
-| JX-12 / C | **Key/GroupBy plus GroupReduce:** ao.c::jtkeyct/jtsldot | src/j_graph_jsource.rs, GroupBy semantic basis, src/analysis.rs | Prove key equality/CCT, first-appearance group ordering, representatives, types, overflow, empty/sparse before direct aggregation; generic Search proof is insufficient |
-| JX-13 / C | **Contraction, full Dot/GEMM and oblique convolution:** cip.c, gemm.c, ao.c::jtpolymult; rank-1 sum-times in cr.c/va2.c | Contract basis in src/execution_semantics.rs, src/analysis.rs, src/lowering.rs | Distinguish general dot, restricted sum-times and oblique reductions; prove rank/agreement/Fit/overflow-retry/FP order/sparse and BLAS capability, then choose the library route downstream |
-| JX-14 / C | **Grade/Sort/Ranking and order statistics:** vg.c, vgsort.c, vgranking.c, vg.c::jtordstat | src/j_graph_jsource.rs, Grade/Ranking basis, src/lowering.rs | Prove ties/order, key/type/range, rank/index errors. **RNG draws inside order-statistic selection** may affect later J state; no pure quickselect rewrite until seed/trace effects are resolved |
-| JX-15 / C·§P | **Search/Index-Of versus interval I.:** vi.c, viavx.c, viix.c, viavx2.c | src/index_ops.rs, SearchDescriptor in src/logical_ir.rs, src/physical.rs | Delegate detailed index-family work to **§P.1 and FW-02/03/04/12**. Prove dyadic I. sorted interval semantics, distinguish i./i:/e. result/representative modes and E. window; no unproven tolerant optimization |
-| JX-16 / C | **Byte char-map LUT and Boolean/sparse mask to indices:** cf.c::jthkiota, v.c::jtcharmap | src/j_graph_jsource.rs, IndexSpace/Lookup/Gather basis | Prove byte alphabet, 256-entry limits, first duplicate match, invalid-index errors, mask/sparse fill and rank; do not jump from source detection directly to LUT/compact execution |
-| JX-17 / C | **Cut→Scan→Raze and Box+Append/Raze:** ca.c, cc.c::jtrazecut1/2, vo.c::jtjlink | src/j_graph_ir.rs, src/j_graph_fusion.rs, ConcatAssemble/Result Assembly | Treat the **zero-cut result-axis difference between source optimized and generic paths** as a blocker. Preserve intended J semantics, fill/shape, boxed lifetime, effects and correct fallback before transforming |
-| JX-18 / C | **Shape/Count shortcuts, bound constants, Hook thresholds:** ca.c, v.c, cf.c, va1.c, vx.c, vz.c | src/j_graph_ir.rs facts, src/analysis.rs, numeric lowering | Separate shape/count demands from value computation without suppressing errors/prototypes/sparse cases. Prove domain, Fit, FP rounding and SIMD/NaN guards for floor-log/digits/power/deadband |
-| JX-19 / C | **Under/Each and inverse precomputation:** cu.c::jtsunder etc. | src/semantic.rs, src/j_graph_ir.rs, src/execution_semantics.rs | Preserve forward→inner→inverse, dynamic binding timing, effects/alias and inverse validity; reject stale cached inverses after rebinding |
-| JX-20 / C | **Virtual View/Gather/Reshape/Compress/Catenate/Result Assembly:** v.c, vfrom.c, vf.c, vrep.c, vcat.c, result.h | src/physical.rs, src/storage.rs, src/lowering.rs, result assembly | No universal Box→Open cancellation. Verify contiguous/noncontiguous copy, recursive boxes, lifetime, alias/pristine/usecount, rank/shape/error; negative-test visible mutation through shared inputs |
-| JX-21 / C | **Sparse-specific execution:** cpdtsp.c, vgsp.c, visp.c, vfromsp.c | src/sparse.rs, tests/sparse_runtime.rs, src/execution_semantics.rs | Validate sparse axes/fill/empty/prototype, boxed/numeric types, density/resources and distinct error/ordering; never treat dense fusion as a universal sparse fallback |
-| JX-22 / C | **Amend/Scatter, donation and lifetime:** am.c, m.c, p.c, cx.c | src/runtime.rs, src/storage.rs, src/physical.rs, effect/assignment boundary | Prove index/type/readonly, alias, recursive boxes, commit/error order and failed retry. SSA liveness alone is insufficient for inplace; negative-test source mutation |
-| JX-23 / C | **Dynamic name and locale lookup cache:** sc.c, cx.c | src/semantic.rs, src/runtime.rs, name/binding version runtime | Validate late binding, locale epoch, invalidation, rebinding/reentrancy and thread safety; compare cache hit/miss. Do not turn a name cache into a Graph constant rewrite |
-| JX-24 / C | **Explicit M. memo and stateful RNG generate/shape:** a.c::jtmemo, vrand.c::jtrollk, vg.c | src/semantic.rs, src/runtime.rs, effect/state contracts in src/execution_semantics.rs | Keep requested M. semantics separate from unrestricted CSE. Prove cache key/lifetime/effects and observable RNG seed/draw order/state trace; unsupported remains RuntimeSemantic/Unknown |
-| JX-25 / D·FW-11–17 | **Physical target, hard resources and measured costs:** jsource SIMD/AVX, GEMM, hash, view, inplace | src/lowering.rs, src/physical.rs, src/j_graph_resource.rs, src/fusion_planning.rs | After independent baseline/three-way testing, separate capabilities, hard allocation bytes and measured latency/memory. Defer SIMD/BLAS/GPU/cache-tuning without semantic proof, guard/fallback and measured gain |
-| JX-26 / final·FW-18 | **Independent repeated audit and uncovered upstream paths:** numeric primitive/allocator/architecture-specific paths, new jsource commits | §7.4.3 A–M, §Q, §O.5, §P.1, reports/ | Separately audit **pinned C dispatch/fallback, J counterexamples, Graph-A3 provenance, guard-effect/runtime, target-cost/bench**. Record commit, environment/commands, pass/fail/ignored, pinned oracle scope and gaps; synchronize FW/P state |
-
-#### Q.1 Initial JX-01/FW-01 static source/frontend audit (2026-10-06)
-
-**Status: JX-01 [ ], FW-01 [ ] remain open.** We fetched all **16/16 pinned upstream C/H files** referenced by the current family registry. Representative text/symbols were found in 15; the `vcat.c` entry `boxed ownership transfer` is a descriptive label, **not** a literal C symbol. File/symbol presence does not prove the full guards, fallbacks, J semantics, runtime correctness, or performance.
-
-`src/j_graph_jsource.rs::JSOURCE_FAMILY_RULES` includes **16 families**: **AnalysisOnly 7 / ExistingAnalyzer 1 / AwaitingFrontendOrFacts 4 / DownstreamOnly 4**.
-
-| Family / discovery state | J form → pinned jsource evidence | Obligations and baseline fallback / RustJ owner·JX gate |
-|---|---|---|
-| `ReductionFastPath` / AnalysisOnly | `f/ y` → `ar.c::jtreduce` | empty/singleton/two-item, identity, overflow → Reduce; ExecutionAlgorithm / JX-10 |
-| `MeanIdiom` / AnalysisOnly | monadic `(+/ % #) y` → `cf.c::jtfolk`, `ar.c::jtmean` | exclude dyad; rank/FP order → original fork; ExecutionSemantics / JX-10 |
-| `WindowAlgorithm` / AnalysisOnly | `f\ y`, `x f\. y` → `ap.c::jtmovfslash` | Scan vs Window, length/NaN/overflow → generic; ExecutionAlgorithm / JX-11 |
-| `SearchAlgorithm` / AnalysisOnly | dyadic `i.` / `i:` / `e.` → `vi.c::indexofsub` | first/last/member, CCT/rank/boxed/sparse → sequential; ExecutionAlgorithm / §P·JX-15 |
-| `IntervalLookup` / AnalysisOnly | dyadic `x I. y` → `viix.c` | sortedness/type/empty, not monad → baseline; ExecutionAlgorithm / JX-15 |
-| `GatherCopyOrView` / AnalysisOnly | `x { y` → `vfrom.c::jtget1cell` | bounds/alias/contiguity → copying; PhysicalPlanner / JX-20 |
-| `ReindexCopyOrView` / AnalysisOnly | `$` / `|.` / `|:` → `vf.c` | fill/shape/usecount → materialize; PhysicalPlanner / JX-20 |
-| `MapReduceStreaming` / ExistingAnalyzer | `f/@:g` → `va2.c::jtfslashatg` | dense/type/empty/inplace/overflow → generic map-reduce; existing GraphFusion / JX-09 |
-| `ResultAssemblyDemand` / AwaitingFrontendOrFacts | box/open/raze → `result.h` | recursive boxes/raze checks/effects → generic assembly; ExecutionSemantics / JX-17/20 |
-| `GroupAggregate` / AwaitingFrontendOrFacts | `u/.`, `f//.` → `ao.c::jtkeyct/jtsldot` | CCT/group order/representative/type → generic group; ExecutionAlgorithm / JX-12 |
-| `MatrixContraction` / AwaitingFrontendOrFacts | `+/ . *` → `cip.c::jtpdt`, `gemm.c` | rank/Fit/overflow/FP order/sparse → generic dot; ExecutionAlgorithm / JX-13 |
-| `GradeRanking` / AwaitingFrontendOrFacts | `/:`, `\:` → `vg.c` | ties/order/type/axis → generic grade; ExecutionAlgorithm / JX-14 |
-| `TolerantHash` / DownstreamOnly | tolerant search → `viavx2.c` | CCT nontransitivity/±0/NaN → sequential; ExecutionAlgorithm / §P·JX-15 |
-| `SparseAlgorithm` / DownstreamOnly | sparse dot/grade/index/from → `cpdtsp.c` etc. | axes/fill/empty/type → sparse reference; ExecutionAlgorithm / JX-21 |
-| `BufferOwnership` / DownstreamOnly | boxed concat/reshape/compress → `vcat.c` etc. | alias/usecount/recursive boxes → allocate; PhysicalPlanner / JX-20/22 |
-| `NameLookupCache` / DownstreamOnly | late name/locale → `sc.c::jtunquote` | epoch/locale/reentrancy/invalidation → actual lookup; RuntimeBinding / JX-23 |
-
-**Tracked source families deliberately outside the registry:** §7.4.3 H/K/M includes Cut→Scan→Raze (`cc.c`, JX-17), oblique convolution (`ao.c`, JX-13), char-map LUT (`v.c`, JX-16), boolean/sparse→indices (`cf.c`, JX-16), RNG-pivot order statistics (`vg.c`, JX-14), RNG shape (`vrand.c`, JX-24), Box+Append (`vo.c`, JX-17), explicit `M.` memo (`a.c`, JX-24), Under/Each (`cu.c`, JX-19), bound numeric/deadband (`vx.c/vz.c/va1.c`, JX-18), Amend/Scatter (`am.c`, JX-22), assignment/explicit-definition fast paths (`p.c/cx.c`, JX-22). These are **source evidence backlogs**, not 16 additional executable or exhaustively audited families.
-
-**FW-01 frontend boundary:**
-- **Word formation:** `src/tokenizer.rs::scan/parse_word_spans` and `tests/syntax.rs`. Previous F0 differential results are history, **not** a rerun.
-- **Enqueue/POS:** `src/primitive.rs`, `src/enqueuer.rs`, `tests/enqueuer.rs` recognize `/.`, `.`, `/:`, `\:`, `;.`, `&.`, `M.`, `?`, `?.`, `!.` as vocabulary POS, **not** as proof of supported derived constructor, runtime, or optimization. Locatives/name-by-value and some numeric payloads remain Unsupported.
-- **Derived parser:** `src/parser.rs`, `src/semantic.rs::FunctionEntity`, `tests/semantic.rs` represent portions of `@:`, Hook/Fork, Rank, Insert/PrefixInfix. Key/Dot/Cut/Under/Memo/Grade construction/execution, late NAME, valence/POS and error/effect order require C differential evidence.
-- **Source opportunities:** `src/j_graph_jsource.rs::discover` limits Mean to the monad and keeps `E.` window separate from ordinary index search. Candidate discovery does not authorize execution.
-- **Regression source added:** [commit e364535](https://github.com/yunskim/RustJ/commit/e36453575430879e4bc546c62350107a3e698e84), `tests/j_graph_jsource.rs::optimization_vocabulary_pos_is_not_a_compiler_optimization_license`. **No Rust default/portable or real pinned C oracle pass yet verified**.
-
-**Observed GitHub Actions failures (2026-10-06):** [Basis compile probe](https://github.com/yunskim/RustJ/actions/runs/37428376593) for [e364535](https://github.com/yunskim/RustJ/commit/e36453575430879e4bc546c62350107a3e698e84) failed during `cargo test` in the **pre-existing `tests/index_ops.rs::member_preserves_cell_shapes_and_empty_query_semantics`**: actual boolean shape `[0]` versus the erroneous expected `[2]`, before the new Jsource test could be accepted. J's `x e. y ↔ (#y)>y i. x` contract means an empty left query stays empty, while an empty right lookup gives false for each left query. [80ad4a7](https://github.com/yunskim/RustJ/commit/80ad4a73b14099431966d2f697fa73f98778e159) corrects the test orientation only; it is **not** full pinned C-binary verification. The [Linux milestone](https://github.com/yunskim/RustJ/actions/runs/37428376492) for e364535 failed `cargo fmt --check` due to pre-existing formatting differences across multiple Rust files; its four separate C-reference jobs succeeded. **Later default/portable and new POS-test acceptance remain unconfirmed as of this note**, so do not mark JX-01, FW-01, FW-04 or the full CI as complete.
-
-**Next acceptance increment:** execute that regression under default/portable Rust, gather real pinned J C POS/derived syntax/error fixtures, then fix **one confirmed semantic discrepancy with one negative regression**. Do not check off JX-01/FW-01 before recording actual commands, environment, source pin, results, and unsupported boundaries.
-
-#### Q.2 FW-01 / JX-01 executed Rust regressions and pending C differential — second migration record (2026-10-06)
-
-**Acceptance: FW-01 [ ], JX-01 [ ], JX-10 [ ] remain open.** [02854b6 CI diagnostic](https://github.com/yunskim/RustJ/actions/runs/37429620894) reproduced a missed Mean candidate: in `(+/ % #) y`, the **outer fork call has one monadic input**, but the internal `g=%` join applies **dyadically** to the two monadic branch results. The previous `discover` checked `Valence::Monad` on this join node and therefore discarded all valid Mean regions. [05dae2d](https://github.com/yunskim/RustJ/commit/05dae2d9c250a466c1f0b89cfdc4b776e72d74c5) now checks original `RegionKind::Fork` and `region.inputs.len()==1`, while verifying that the internal join is dyadic. This changes **analysis discovery only**, not execution or effects. Pinned `jsrc/cf.c::jtfolk` installs `jtmean` as `f1` for `+/ % #`, not as `f2`: the monadic gate remains required.
-
-[268c83f](https://github.com/yunskim/RustJ/commit/268c83f656812b2a9fc951cb91c84e5e6f2a368b) removed temporary `MEAN_DIAG` prints and asserts **monadic outer Fork / dyadic internal join** plus the absence of a dyadic Mean opportunity. [d818a3e](https://github.com/yunskim/RustJ/commit/d818a3e807453327d7cc4cd265dc503acf36d0ec) separately fixed `e.` empty-query tests to distinguish **Boolean membership** from **integer `i.` missing sentinel**, including left empty frame `[0]` and false results for a right-empty lookup.
-
-**Executed CI evidence:** Ubuntu GitHub Actions with Rust stable. [268c83f Basis compile probe](https://github.com/yunskim/RustJ/actions/runs/37432213914): `cargo test`, `cargo test --features portable`, `cargo build --release` **passed**, while Clippy initially failed on pre-existing `src/index_ops.rs:330` manual inclusive range. [dd2c118](https://github.com/yunskim/RustJ/commit/dd2c118de8bb025a2f4fa3f21be9f22063c6be52) expressed the same gate as `(64..=MAX_PREHASH_ITEMS).contains(&items)`; [37432369878](https://github.com/yunskim/RustJ/actions/runs/37432369878) confirms **default + portable tests, release build and Clippy all passed**. Passing the Rust suite is not proof of full J semantic equivalence.
-
-**Remaining independent gates:** [Linux milestone 37432213939](https://github.com/yunskim/RustJ/actions/runs/37432213939) check still fails `cargo fmt --check`, with formatting differences across 13 Rust files. Do not claim entire CI green; record j64/j64avx2 reference jobs separately. [a91dd57](https://github.com/yunskim/RustJ/commit/a91dd5741f298e40782cea9a73801ff6dad0863e) adds `tools/conformance.py::cases` for **ordinary, singleton, empty and framed monadic Mean** C-versus-Rust differentials. Their **new pinned J C results have not yet been accepted**. Record case, C result, Rust result, exact pin, variant, backend and limitations before closing any FW/JX gate. No new specialized execution is enabled.
-
-#### Q.3 FW-01/JX-01 green CI and pinned J C differential evidence (2026-10-06)
-
-**Code/test commit:** [89bbfd0](https://github.com/yunskim/RustJ/commit/89bbfd0e55163c90b5059e90d10b0ba0bd87ded5). All **five jobs** in [Linux milestone 37433098574](https://github.com/yunskim/RustJ/actions/runs/37433098574) completed **successfully**. The check job passed Python tooling tests, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, default/portable `cargo test`, release build, and milestone execution. [Basis compile probe 37433098567](https://github.com/yunskim/RustJ/actions/runs/37433098567) passed as well. Formatting debt was resolved by applying exactly 104 rustfmt CI hunks across 13 Rust source/test files in one semantics-preserving commit.
-
-**Pinned J C differential:** All four Linux reference jobs succeeded against built pinned `jsource` commit `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`. Since [ed56b33](https://github.com/yunskim/RustJ/commit/ed56b336dd198b661cb1e4e80814488b4d890a57), the `conformance.py` and `word_conformance.py` reports explicitly carry the oracle `reference_revision` SHA.
-
-| C variant × Rust backend | Cases | Exact passes | Narrow known deviation | Unexpected failures |
-|---|---:|---:|---:|---:|
-| j64 × default | 5,384 | 5,383 | 1 | 0 |
-| j64 × portable | 5,384 | 5,383 | 1 | 0 |
-| j64avx2 × default | 5,384 | 5,384 | 0 | 0 |
-| j64avx2 × portable | 5,384 | 5,384 | 0 | 0 |
-
-The one pre-existing J64-specific allowance in `tools/conformance.py::known` is the fixed case `(i.2 3) -"1 0 (i.2 3 4)`: identical values/shape but Float in J64 versus Int in Rust. It is constrained by exact source, dtype and shape, not a blanket exception. **New monadic Mean Fork fixtures** (ordinary, singleton, empty, rank/frame) do **not** match that allowance and passed. The `failed=0` claim is limited to this **supported subset** and the explicitly separated known deviation; upstream's entire J test suite and all numeric/locale/effect semantics were not proven.
-
-**Gates stay open: FW-01 [ ], JX-01 [ ], JX-10 [ ].** The Mean region-candidate fix and J C differential are valuable **sub-gate evidence**, not complete M2 frontend semantics or enabled optimized Mean execution. FW-01 still needs unsupported Key/Dot/Cut/Grade/Under/Memo derived construction, rank/effect/error precedence, and real differential coverage beyond the subset. JX-01 needs a bounded audit of upstream guards and fallbacks per source family; JX-10 needs obligation proofs, guards, sequential-vs-specialized testing, and measured benefit before selection.
-
-**Next increment:** investigate **Key `/.` derived-verb construction** under FW-01/JX-02 against pinned J C parser/POS/valence while preserving the existing Rust vocabulary-only boundary. Keep unimplemented forms `AwaitingFrontendOrFacts`, add positive/negative regression cases, and advance one semantic family at a time.
-
-#### Q.4 First Key `/.` derived-verb construction under FW-01/JX-02 — no execution license (2026-10-06)
-
-**Gates stay open: FW-01 [ ], JX-02 [ ], JX-12 [ ], JX-01 [ ].** This increment promotes `/.` from POS-only vocabulary recognition to **non-executing construction for verb-left `u/.`**. It does **not** implement general Key/Oblique execution, noun-gerund construction, or GroupBy optimization.
-
-**Pinned source contract:** `jsrc/ao.c::jtsldot` constructs one derived verb with **monadic `jtoblique` and dyadic `jtkey`**, all intrinsic ranks `RMAX`. A verb operand is retained directly; a noun gerund is separately decoded using `fxeachv`. This does not authorize arbitrary noun operands. `jtkeyct` performs CCT-sensitive classification via `indexofsub(IFORKEY)` and separately applies the grouped verb; sparse, boxed and specialized reductions have distinct legality and fallback paths. Pinned revision: `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` (`ao.c`, `cf.c`).
-
-**Incremental acceptance checklist (separate from overall FW/JX closure):**
-- [x] Add `AdverbId::Key` to `src/primitive.rs`, remove duplicate `/.` vocabulary-only descriptor, bump `REGISTRY_VERSION` to 9; keep its POS Adverb, with no runtime-execution assertion.
-- [x] Reuse the existing verb-left `src/parser.rs::apply_adverb` construction path and preserve `FunctionHead::PrimitiveAdverb(Key)` with its function operand. Reflect `[63; 3]` intrinsic ranks in `src/semantic.rs`.
-- [x] Classify the derived verb as **opaque `GraphForm::Modifier`** in `src/j_graph_ir.rs`; never fabricate Reduce, Window or GroupAggregate candidates. Keep `GroupAggregate` at `AwaitingFrontendOrFacts`.
-- [x] Positive/negative tests in `tests/semantic.rs::key_derived_verb_keeps_operator_and_operand_without_licensing_execution`, `tests/j_graph_jsource.rs::key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection`, vocabulary/POS and primitive tests. Both monadic and dyadic calls parse but runtime returns explicit unsupported; noun `3/.` is not falsely accepted.
-- [x] Six stateful constructor/binding/alias J C differential fixtures added to `tools/conformance.py`. [Linux milestone 37435150581](https://github.com/yunskim/RustJ/actions/runs/37435150581) passed all **five jobs**, with formatting, Clippy, Rust default/portable tests, release build and Python tooling green. [Basis probe 37435150506](https://github.com/yunskim/RustJ/actions/runs/37435150506) also passed.
-- [ ] Support upstream noun-gerund `m/.` construction through appropriate `fxeachv`/AR decoding and validate malformed gerunds/error precedence against pinned J C.
-- [ ] Implement independent **sequential** monadic Oblique and dyadic Key semantics; cover CCT nontransitivity, group order/representative, rank, empties, boxed/sparse, effects, error ordering and overflow.
-- [ ] Prove any specialized execution recipe with provenance, ProofBundle, guards, fallback, invalidation and resource measurements; no GroupBy selection until those obligations pass.
-
-**Executed four-way pinned J C differential:** pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, GitHub Actions Linux, seed `20260926`, randomized rounds `100`. Reports record reference revision plus Rust and J C binary SHA256.
-
-| C variant / Rust build | Cases | Matches | Pre-existing narrowly known deviation | New failures |
-|---|---:|---:|---:|---:|
-| `j64` / default | 5,390 | 5,389 | 1 | 0 |
-| `j64` / portable | 5,390 | 5,389 | 1 | 0 |
-| `j64avx2` / default | 5,390 | 5,390 | 0 | 0 |
-| `j64avx2` / portable | 5,390 | 5,390 | 0 | 0 |
-
-The existing J64 deviation is Q.3's unrelated Rank result dtype issue, **not a Key failure**. The six new cases cover **constructor/assignment/alias behavior only**, not evaluation of `x u/. y` or `u/. y`; no claim about the entire upstream J test suite is made.
-
-**Commits:** [78ba45a](https://github.com/yunskim/RustJ/commit/78ba45a9bcbc47e15ef57299a77c7131be523cde) Key constructors and regression fixtures; [de5c4dc](https://github.com/yunskim/RustJ/commit/de5c4dc10b11570836794fda42d3adf84a0c10bf) formatting; [d8db5f9](https://github.com/yunskim/RustJ/commit/d8db5f95991f6116e672d41eaee6876d5faa3f19) opaque Graph negative test; [a4f4dd0](https://github.com/yunskim/RustJ/commit/a4f4dd078c26d4fe157357dbb65f37b56375dff2) final formatting.
-
-**Next priority:** Keep the unsupported frontend inventory explicit and implement **FW-02's independent sequential `i.` reference**, separating semantic validation from existing optimized search strategy. Only later use Key/Reduce as the second independent operation family for FW-10/JX-08 before extracting common optimization interfaces.
-
-**Operating rules.** Each JX gate requires **(1) pinned C source and guards → (2) J semantics/support boundaries → (3) graph provenance and candidates → (4) per-obligation proof/guard/fallback → (5) independent Rust reference, negative tests and real C differential → (6) target/resource/measured-cost decision**. Keep [ ] without actual execution evidence. Prefer **one semantic change plus one related regression/counterexample** at a time. A regression or upstream drift invalidates affected proofs and reopens prior FW gates. For each completed row record **JX-ID / code commit / commands and environment / passed-failed-ignored / jsource commit and executed oracle scope / fallback-negative results / measured metrics / known gaps / next gate**. Next actionable work remains **JX-01 source coverage and FW-01 M2**, not enabling new specializations.
-
 ## 7.5 Candidate lifecycle and proof-discharge contract
 
 A discovered candidate must not be represented conceptually by one `selected` boolean. Legality, target feasibility, hard-resource feasibility, cost, selection, and lowering answer different questions and carry different evidence.
@@ -3037,6 +2761,7 @@ The current Find rewrite does **not** satisfy this early-pruning proof contract.
 
 ---
 
+<a id="read-execution"></a>
 # Part VIII — Execution lowering and target feasibility
 
 ## 11. Logical Execution IR
@@ -3127,6 +2852,7 @@ Actual selection requires later `TargetProfile / ResourceEstimate / CostProfile`
 
 ---
 
+<a id="read-physical"></a>
 # Part IX — Target architecture
 
 ## 12. Target model
@@ -3223,235 +2949,9 @@ Its legality requires proofs for effects, errors, state dependencies, name bindi
 
 ---
 
-# Part XI — Historical JAXA inheritance audit
-
-
-<a id="out-of-core-io-contract"></a>
-
-## 13.2 Slow I/O / out-of-core array execution (2026-10-06; design candidate, not implemented)
-
-**Goal.** Evaluate arrays/NN weights larger than RAM/GPU capacity without changing J-visible values, type/shape/atom order, Rank zero-frame prototype behavior, errors or effects. Avoid unnecessary source reads, then overlap bounded I/O with compute. This is a physical planning/scheduling/runtime extension, governed by the canonical §8.5 contract, **not a new J language construct, nor a prerequisite for the first M4 native CPU vertical slice**. The single acceptance checklist is [§17 IO](#out-of-core-io-checklist).
-
-| Source | What is borrowed | What is NOT implied |
-|---|---|---|
-| [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; non-jmf typed boxed mapping is rejected, but JMF-backed boxed regression fixtures exist; scope must be tested per route |
-| [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c), J `1!:11`/`1!:12` | indexed byte-range read/write, sequential baseline based on `fread/fwrite` | effectful foreign I/O is not a pure logical scan and must not be silently rewritten |
-| Jsource in-place/alias machinery | ownership-proved buffer reuse and copy elimination | mapped mutation is not automatically safe in-place reuse |
-| Jd (J data add-on) | Verified on-demand file-backed columns and partition-column selective reads | Borrow storage/layout and pruning techniques only; do not assume arbitrary J effects or queries can be reordered |
-| [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) | independent async blocking-I/O pool, read-ahead, memory-governed queued jobs, park/resume | do not copy a full database engine |
-| [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
-| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
-| [Ray Data streaming](https://docs.ray.io/en/latest/data/data-internals.html) | block streams, bounded queues, backpressure/spilling accounting | shuffle/reduce barriers remain |
-| [DeepSpeed ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) | NVMe/CPU/GPU staging and transfer/compute overlap | CUDA work remains deferred |
-| [FlexGen (ICML 2023)](https://proceedings.mlr.press/v202/sheng23a.html) | version-stable weight reuse and layer/batch-block schedules under capacity and latency/throughput constraints | must not reorder visible J effects, late bindings, or failures |
-| TensorFlow `tf.data` | prefetch+parallel data preparation as an additional comparison candidate | not proof of full-J compatibility |
-
-**Ownership and stage contract.** J Semantic/J Graph IR owns J semantics, data+effect dependencies and unknown/opaque facts, but not file offsets, chunk sizes or queues. Verified Logical IR may produce guarded/witnessed byte-access and reuse candidates only if exact J semantics permit. Native Physical Planner/Schedule owns storage placement, byte ranges, materialization, chunk and job boundaries, prefetch, transfer, memory budget, cost and completion edges. Runtime initially owns synchronous `read_at`/`write_at` and chunk iteration; later it owns request pending/ready/error/cancel, exact lease lifetime, finite queues, and backpressure. An external adapter must declare the actual I/O/effect/ownership capabilities and decline unsupported routes.
-
-**Keep identities separate.** `ValueId` is logical SSA; `StateResource` is a mutable semantic resource; `BufferId/BufferLease` owns runtime memory; proposed `StorageObjectId/Version` identifies external backing bytes and consistency; proposed `IoRequestId/CompletionToken` identifies I/O completion. The latter names are not accepted Rust APIs. Semantic `StorageRequirement` is not Physical `MaterializationDecision`.
-
-**Legality.** Preserve J Rank/CellApply empty-frame/prototype, boxed/sparse, tolerance, error precedence, late-bound names and observable foreign I/O. Use checked offset/extent/shape arithmetic. Define short-read, EOF, permission, stale-version, non-atomic file update and cancellation behavior. Unknown access or mutability is an optimization barrier; no speculative I/O that reorders an observable failure/effect, no transparent replay after committed effects. A zero-byte data read never excuses required zero-cell J shape/type derivation.
-
-**Execution route.** Baseline is portable synchronous file/chunk CPU execution. Proven projection/slice/range pruning comes next. Then memory-reserved bounded async read-ahead, double buffering, `Read(n+1)` overlapped with `Compute(n)`, explicit dependency/completion and release; memory pressure reduces depth. Use a scheduling/weight-reuse candidate only when input data is read-only/version-stable and reordering is semantically legal. mmap competes with `read_at`, not universally replaces it; page faults and cache behavior are measured. `io_uring`, remote storage, direct I/O and device DMA remain optional later capabilities.
-
-**Writes/checkpoints.** A J foreign file write, shared mapped mutation and an optimizer checkpoint have different visible effects. Checkpoint design needs explicit immutable version capture, temporary write, platform-specific flush/durability, publication/recovery, cancellation and partial-write behavior. Never declare save success before the required durability level, or change J-visible effect/error timing silently.
-
-**Cost and evidence.** Keep `ResourceEstimate` (peak/resident/inflight bytes, handles, queue budget) separate from `CostEstimate` (bytes, seeks/requests, bandwidth/latency, compute time, transfer/overlap). Compare cold vs warm cache, byte counts, wait, CPU compute, page faults, peak+retained memory, spilling, throughput *and* per-input latency. A feature exists only after code+independent semantic/negative tests+recorded commands and J C oracle coverage, as specified in the `17 checklist.
-
-
-## 13.3 Independent source re-audit: J storage libraries, physical file formats, model loaders (2026-10-06)
-
-**New gap identified.** The first I/O plan concentrated on async read-ahead; separate contracts for physical storage encoding, read-chunk vs write-shard granularity, mapped SIMD tails, remap/refcounts, and cache invalidation were under-specified. Evidence from upstream projects is not evidence of RustJ feature completion. All of the following is proposed pending [§17 IO acceptance](#out-of-core-io-checklist).
-
-| Primary source | Verified mechanism | Adopt or defer |
-|---|---|---|
-| [J jfiles/keyfiles](https://github.com/jsoftware/jsource/tree/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles) | serialized component storage using byte-range indexed read and keyed components | Keep serialized arbitrary J noun distinct from typed dense mmap, avoid copying full Jfiles format |
-| [Jd column.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) | on-demand column mapping, remap/resize; source calls out multi-process reference-count dangers | Verify lease/alias/remap/ownership safety, not a universal global DB lock |
-| [Jd api_read.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) · [ptable tutorial](https://www.jsoftware.com/jd_tuts.html) | partition-column-based table pruning | Use as selective array/partition-access inspiration only with J access, effect and error witnesses |
-| [Jd jmfx.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | padding file endings to avoid SIMD overfetch faults; historical 4-KiB page assumption | Cautionary case: require safe vector tails, checked mapping spans, actual OS granularity and lifecycle validation; do not copy hard-coded padding |
-| [Zarr 3](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 cache](https://docs.h5py.org/en/stable/high/file.html) | independent read chunk and write shard layout, chunk cache/eviction | Physical shape and IO granularity need not equal J logical shape; benchmark amplification and per-workload layouts |
-| [Safetensors](https://github.com/safetensors/safetensors/blob/main/README.md) | tensor dtype/shape/byte offsets and optional slice access, zero-size payload | Validate metadata/offsets/endian/empty/scalar. Do not make a new canonical RustJ disk format mandatory |
-| [llama.cpp loader](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | mmap vs no-mmap/mlock/direct I/O/NUMA/lazy tensor row policies | Choose storage load strategy from page faults, RAM pressure and access/reuse costs, not global mmap dogma |
-| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | parameter.load/read/gather/write, AsyncTransfer and Timepoints encode loading/storing parameter byte ranges plus readiness and resource lifetime | **Most direct IR precedent:** read-only weights can use Physical ParameterRead/Load → Await → consumer; checkpoint write still needs a separate durability contract. Not equivalent to observable J file-foreign effects |
-| DuckDB, Polars, Arrow, Ray, ZeRO-Infinity, FlexGen | skip unnecessary bytes, bounded job/batch read-ahead, backpressure, staged weights and reuse | Physical optimization order: prune bytes → version and alias safety → bounded scheduling → overlap → proven reuse |
-
-**Corrected JMF boxed scope.** [jmf.ijs](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) rejects *non-JMF typed boxed* mapping, while [JMF-backed boxed tests](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) exist and [mbx.c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/mbx.c) says “not supported.” Neither blanket all-boxed-supported nor all-boxed-unsupported is justified without a C-oracle check of the specific representation and operations.
-
-
-**IREE Stream dependency precedent:** `stream.async.parameter.load/read/gather/write`, `stream.async.transfer`, and `stream.timepoint` make parameter byte ranges, readiness, and resource lifetime explicit in a physical schedule. Speculatable parameter loads are not a license to reorder observable J file foreign effects; preserve availability, cancellation and error ordering. Reference for IO-13–18 and IO-20. [Official Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/).
-
-**Clarified abstraction.** Distinguish logical ValueId, physical external StorageObject/Version, StorageEncoding (typed contiguous, typed chunked, serialized components, external adapters), ReadChunk, WriteShard, BufferLease and IoCompletion. These are concepts, *not* committed Rust APIs. Observable J foreign-file I/O cannot be silently rewritten as a pure read of versioned immutable array backing. An empty data region can require no file bytes and still require J Rank fill-cell/shape inference. Cache keys need source/version/range/encoding; memory budgeting must account for decoded/pinned/inflight/kernel buffers while reporting OS page cache/RSS separately.
-
-
-<a id="io-framework-execution-comparison"></a>
-
-## 13.4 Framework I/O optimization mechanisms and RustJ graph-to-physical scheduling (2026-10-06)
-
-**Five independent concerns.** Efficient out-of-core execution combines (1) skipping unnecessary reads, (2) choosing physical read/storage granularity, (3) overlapping reads with computation, (4) reusing already loaded bytes and (5) memory, readiness and failure control. These concerns are owned by different stages. J Semantic/J Graph/Verified Logical IR defines observable J semantics, access and legality proof; Physical Planning/Scheduling/Execution chooses byte ranges, chunks, transfers, buffer lifetime, inflight requests and resource budgets. The table is a source-informed set of design candidates, **not evidence of implemented RustJ functionality**.
-
-| Framework / primary documentation | Mechanism and owning layer | RustJ application and limits |
-|---|---|---|
-| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Predicate, projection and slice pushdown into scans; common subplan/file scan elimination in logical planning | IO-09–12: only prune bytes when `AccessRelation` and witnesses preserve J semantics; otherwise opaque fallback for Rank, dynamic lookup, errors and effects |
-| [DuckDB async I/O announcement (2026-07-31)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group / CSV scan jobs and range fetch tasks; separate `REGULAR` compute and primarily blocking `ASYNC` I/O pools; parked consumers resume at completion. Read-ahead depth negotiates with the temporary-memory manager | IO-13–17: bounded requests, readiness/wakeups, adaptive prefetch under pressure. Announced development/version behavior must not be assumed present in every release |
-| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | `stream.async.parameter.load` creates a resource; `read` fills an allocation; `gather` assembles several parameter archive ranges. Timepoints and await dependencies encode availability and ordering in the physical resource graph | IO-13–18/20: physical `ParameterLoad/Gather → Await → Consumer` for immutable weights; IREE's hoistable parameter loads do not authorize speculation of observable J `1!:` file foreign calls |
-| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | Separate `batch_readahead` and `fragment_readahead` scan concurrency | IO-14–16: independently bound read-ahead at chunk/fragment levels and account for decoded buffers |
-| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | Stream block references through operator queues; schedule only when resources and backpressure permit; spill when needed | IO-15–17: bounded queues, slow-consumer pressure, distinction between spill, workers' working memory and nonstreamable barriers |
-| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) / [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | Chunk/shard layout and decoded chunk caching trade read amplification, file count and reuse | IO-26–29: `LogicalShape`, `ReadChunk` and `WriteShard` remain independent. Small slices may still require decoding entire chunks |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Mapped vs unmapped model loading and residency tradeoffs | IO-23/30: measure page faults, cold/warm cache, resident memory, local/remote throughput rather than mandate mmap |
-| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) / [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | Parameter/optimizer-state offload and prefetch between NVMe, CPU and GPU; layer/batch scheduling to reuse weights at throughput/latency tradeoffs | IO-18–20: only legally reorder loads of immutable/version-stable weights; mutable gradients, checkpointing and J effects need different contracts |
-| [TensorFlow tf.data guide](https://www.tensorflow.org/guide/data_performance) | Input prefetch and parallel-map overlap producer and consumer | IO-14–16: helpful producer/consumer precedent, not permission to reorder arbitrary J cell/verb evaluation |
-| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | Stage mutable state and perform asynchronous persistence | IO-18: snapshot/version/write completion/publish/recovery, not success merely because an asynchronous operation was submitted |
-
-**Two disk-backed weight layers — meaning versus realization.** The logical array computation is `X → MatMul(W1) → Activation → MatMul(W2) → Y`. Provided W1 and W2 are proven immutable/version-stable physical inputs, the physical scheduler may overlap a read of W2 with computing Layer 1. It cannot start Layer 2 before both the activation result and W2's readiness token are available. This is a candidate, not the current implementation.
-
-~~~text
-Logical (J semantics)
-X ---> MatMul(W1) ---> Activation ---> MatMul(W2) ---> Y
-
-Physical candidate
-Reserve W1 -> Read W1 -> Ready W1 -> Compute L1 -> Activation --+
-Reserve W2 -> Read W2 -> Ready W2 ------------------------------+
-                                                               |
-                                                          Compute L2 -> Y
-Read W2 may overlap Compute L1, within the resource budget.
-Compute L2 awaits BOTH Activation and Ready W2.
-Release a buffer only after its last user and all pending I/O/transfers complete.
-~~~
-
-**Why these optimizations compose rather than replace one another.** Polars minimizes the requested bytes; IREE makes physical data movement/readiness explicit; DuckDB/Arrow/Ray manage request scheduling and backpressure; DeepSpeed/FlexGen seek profitable placement and reuse. Read-ahead can hide wait time but does not intrinsically reduce bytes, and merging many small byte ranges trades fewer requests for potential over-reading.
-
-**Semantic and failure guardrails.** Distinguish (A) an internal read of an immutable/versioned storage object, (B) observable J foreign I/O such as `1!:11`/`1!:12`, and (C) mutable weight/checkpoint persistence. Only A admits a proof/guard-authorized speculative prefetch or pruning. B preserves J effect and error ordering; C additionally needs snapshot, version, commit, publication and durability semantics. A zero-byte read does not eliminate J Rank zero-cell fill/prototype, dtype, shape or error obligations. Boxed/sparse, dynamic NAME/Rank, alias changes, stale files, EOF/short reads and premature exposure of speculative failures remain negative-test barriers.
-
-**Resource and cost accounting.** Bound queued + in-flight + decoded + pinned + temporary + output/retained buffers; report OS page cache and allocator RSS independently of runtime reservations. For cold/warm runs record actual bytes and I/O requests, seek/latency, blocking wait, CPU/GPU work, page faults, overlapped time, peak/retained memory, spilling, batch throughput and single-call latency. Approval order stays *semantic conformance → resource safety → measured cost-based route selection*.
-
-**Existing acceptance checklist mapping (no new checklist):** IO-09–12/29 for pruning and cache; IO-05–08/26–28 for storage and chunk/shard representation; IO-13–17/20 for async, transfer and backpressure; IO-18–19 for weights/checkpoint; IO-21–24/30 for comparative measurements; IO-01–04/25 for original-source and semantic contracts. Continue using the [IO-01–IO-30 single acceptance ledger](#out-of-core-io-checklist); writing this design section **does not advance implementation acceptance beyond 0/30**.
-
-
-<a id="unified-data-movement-contract"></a>
-## 13.5 Unified memory I/O and disk I/O planning contract — no new mandatory IR layer (2026-10-06)
-
-**Decision.** Treat memory access/copies, prospective CPU↔GPU transfers, and disk/file-backed range reads/writes as **joint data-movement planning and scheduling concerns of the existing Physical Planner / Physical Execution Plan**. Do not introduce a stand-alone `Data Movement IR` at this stage. Retain independently owned access-region proofs, effect/dependency contracts, and physical location/transfer/readiness/lifetime state at their established boundaries. Reconsider a separate resource/stream execution IR only when at least two concrete asynchronous or mixed-route use cases demonstrate that the existing Physical Plan cannot safely encode dependencies, buffer lifetime, or scheduling. This does **not** collapse the existing J Graph IR → Verified Logical Execution IR → Physical Plan boundaries.
-
-| Existing stage | Owned facts and decisions | Must not own |
-|---|---|---|
-| J Semantic IR / J Graph IR | Source topology; ValueId, Rank/CellApply, empty-frame semantics, source provenance; optional pass-local access-candidate sidecars | BufferId, file offsets, DMA, concrete transfers, physical layouts, or EffectSummary/committed selection embedded into GraphFacts |
-| Verified Logical Execution IR / analysis | Observable J file/namespace/state effects; error, ordering and guard dependencies; value/effect liveness; logical AccessRelation with Unknown/Proven/Guarded evidence | Reclassifying arbitrary file I/O as a pure array load or approving unsound read omission/reordering |
-| Existing Physical Planner / Representation / Schedule | Distinct StorageObject/Version and BufferId/Lease identities, physical regions (buffer slices vs file byte ranges), Read/Write/Copy/Transfer/Materialize/Release, completion/readiness edges, placement/layout and byte/resource/cost estimates | Mandating a physical copy for every access, unifying file/memory semantics, or selecting unsupported device transfers |
-| Executor / Backend | Independent synchronous CPU reference for read_at/write_at/buffer copies first; later separately verified async tokens, queues/backpressure, target implementations | Releasing buffers before transfer completion, replaying visible file effects, or claiming currently deferred GPU implementation |
-
-**Shared interface, distinct meaning.** `AccessRegion` identifies which logical elements are needed. Concrete `BufferSlice` and `FileByteRange` are distinct kinds of physical region; they must not be treated as one alias domain, address space or failure contract. Shared analyses may inspect interval/producer/consumer, placement, lifetime, alias constraints, dependency, capability and cost. Continue distinguishing logical `ValueId`, mutable `StateResource`, external `StorageObjectId/Version`, physical `BufferId/BufferLease`, and `IoRequestId/CompletionToken`. These are proposed conceptual names, not committed Rust APIs.
-
-**Compile time versus runtime.** Compile-time proofs may determine stable shape/dtype/access patterns, users/lifetimes, removable intermediates/copies, buffer-reuse opportunities, required regions and tentative streaming/transfer plans. Runtime must still establish actual file bytes, external modification, EOF/permissions, data sizes, available RAM/GPU capacity, cache/bandwidth conditions and completion, applying explicit guards and hard resource limits. Keep memory bytes, file requests/seeks, transfers, launch/synchronization, overlap, peak/inflight/retained bytes and cold/warm latency as distinct cost dimensions. Unknown is neither zero cost nor permission to reorder.
-
-**Effect safety.** Distinguish (A) an internally accessed, proven immutable/version-stable backing object, (B) J-observable `1!:` foreign file I/O, and (C) mutable-state/checkpoint publication. Even A may expose failures; speculative scheduling must separately prove that user-visible error timing/order is preserved. An unused result of B does not license deleting file existence/permission/error effects. An asynchronous write submission for C is not a durability-completion guarantee. A zero-byte/empty-frame result still has J virtual fill-cell, dtype/shape and applicable error obligations.
-
-**External framework precedents (not imported semantics).** [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) provides physical resource, async transfer, parameter/file read/write and readiness scheduling. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) and [Memory Effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/) motivate separating logical values from buffers and using resource-aware effect interfaces. [XLA GPU architecture](https://openxla.org/xla/gpu_architecture) shows staged fusion/buffer assignment/layout/transfer planning, not general J file I/O. [TVM](https://tvm.apache.org/docs/) informs device placement; [DataFusion](https://datafusion.apache.org/) informs file scan and proven filter/projection pushdown. None automatically enforces full-J foreign error ordering or Rank prototype semantics.
-
-**Trace example.** A proven immutable `File(A) → Slice → Elementwise → Consumer` may lower to a physical byte-range read followed by fused CPU work once an access witness is valid. An unused `1!:1`/`1!:11` read cannot be eliminated solely by dead-value analysis when file-open/EOF/errors are observable. CPU↔GPU copies are candidates for the same physical planner, while CUDA execution remains deferred.
-
-**Single existing acceptance ledger.** Do not create DM-* work items. Refine IO-03 (stage and identity/effect interface), IO-09 (access-region proof), IO-13/14 (sync-to-async readiness), IO-17 (effect/failure/lifetime), IO-20 (shared memory/file/transfer physical cost planning), and IO-22 (independent three-way and negative tests) in the existing [IO checklist](#out-of-core-io-checklist). Reuse FW-05–09 provenance/guard and DB effect evidence as prerequisites. **Status: architecture decision recorded; no implementation or execution evidence; IO acceptance remains 0/30. Not a prerequisite for M2 frontend convergence or the first M4 native CPU vertical slice.**
-
-<a id="io-a-source-audit"></a>
-## 13.6 IO-A pinned source cross-audit and executable witnesses (2026-10-06–07)
-
-**Scope/status.** Reviewed pinned implementation source for IO-01/IO-25 and identified negative tests required by IO-02. **Source inspection is partial progress, not acceptance**: file-foreign fixtures have run against pinned J C binaries, but mapped/Jd and broader effects have not been verified, so IO-01/02/25 remain [ ] and the I/O implementation ledger stays at 0/30.
-
-| Pinned source / location | Directly observed in source | Still to prove for RustJ |
-|---|---|---|
-| [jsource `xf.c` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/xf.c), `jtjiread/jtjiwrite/jtixin` | `1!:11` opens/inspects the file before validating start and length against file size; read enforces `j≤size, j+length≤size, length≥0`. `1!:12` passes null for output length, so it checks nonnegative starting index rather than imposing the same read end-bound, then writes. Negative start offsets are adjusted by file size. `jtrd/jtwa` use synchronous `fread/fwrite`. | Actual precedence of open/index/permission errors, EOF, short I/O, writing past EOF, concurrent mutation, and no replay of visible effects. Source alone does not establish atomicity or concurrent-truncation behavior |
-| [jsource `jmf.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) and [`gmbx.ijs`](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) | Modes 0/1/2 distinguish RW/RO/COW; live refs may prevent unmap. `additem` rejects type 32 boxed, whereas `gmbx.ijs`, despite its mapped-boxed label, contains `'' -: q` and `'' -: r` assertions, not a proof that arbitrary boxed payload read/write works. | Format/type/mode-specific boxed support via executable oracle; never equate COW with committed shared write |
-| [data_jd `column.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) and [`jmfx.ijs`](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | Mapping/remapping and cross-process reference-count hazards are documented, with DB locks providing a restricted usage assumption. The SIMD-tail padding workaround assumes `PAGESIZE=:4096`. | OS-independent checked spans/masked tails, real page size and safe remap/lease tests; do not generalize DB locks to J semantics |
-| [jsource `jfiles.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles/jfiles.ijs) and [data_jd `api_read.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) | jfiles `j_read` uses `3!:2 @ (1!:11)`, reading serialized components from offset-indexed directory entries. Jd `readptable` selects underlying partitions using predicate results. | Distinguish typed contiguous backing from serialized components. Do not generalize Jd's selective reads into arbitrary J/foreign-I/O rewrites |
-
-**Remaining executable fixtures (not yet fully run).** With a fixed J binary and controlled temporary files, observe normal/edge `1!:11` ranges, negative offsets, `1!:12` writes beyond EOF, nonexistent files, permissions, concurrent changes/short reads, named files versus numeric handles, error precedence and close/unlock behavior. Separately test JMF RW/RO/COW and live-reference unmap, exact mapped-boxed payload cases, resize/remap, and Jd/jfiles partition/keyed component access. Derive expected observable behavior from the executable C oracle rather than guessing it from source. Record pin, command/environment, pass/fail/unsupported and blockers in the existing IO ledger.
-
-**IO-A executable diagnostic harness (2026-10-06).** Added 15 isolated temporary-file C-oracle cases in [tools/file_io_audit.py](tools/file_io_audit.py): whole/range reads, file size, negative offsets, zero-length EOF reads, read bounds, partial/beyond-EOF writes, missing files and a discarded read whose failure remains observable. [tools/test_file_io_audit.py](tools/test_file_io_audit.py) checks fixture uniqueness, quoted names, temporary-path isolation and mismatch reporting without a J binary. [Linux CI](.github/workflows/linux.yml) now builds the pinned `j64/j64avx2 × default/portable` J libraries and records non-acceptance diagnostic JSON as an artifact; the default diagnostic mode reports expectation mismatches rather than converting them into a passing J-semantic gate. The audit source pin `0a5101cf` and CI oracle revision `13994ffa` have identical Git blob SHAs for `xf.c`, `jmf.ijs`, `gmbx.ijs` and `jfiles.ijs`. Do not predeclare J error precedence, platform-specific file-hole contents or mapped-boxed behavior before executing oracle fixtures. **IO-01/02/25 remain unchecked; no accepted RustJ I/O implementation is implied.**
-
-**Initial CI diagnostic correction (non-acceptance).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210) initially showed 9 of 15 expected outcomes matching and six requiring review on both `j64` and `j64avx2`. All six initially reported `length error`: this was traced to **incorrectly pre-boxing the file name** in the indexed-foreign fixture, not an established J semantic disagreement. The [J Files manual](https://www.jsoftware.com/help/dictionary/dx001.htm) distinguishes whole-file `1!:1 <'name'` from indexed `1!:11 'name';offset length` and `x 1!:12 'name';offset`. [Fix 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a) uses the unboxed name on indexed calls and prevents `length/rank/syntax` errors from counting as real missing-file effects. [Unit-test update bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) follows. Pending re-execution, 9/15 is not J-semantic acceptance and IO-01/02/25 and the overall 0/30 remain unchecked.
-
-**Executed pinned J evidence (2026-10-06).** In [Linux CI 37470839455](https://github.com/yunskim/RustJ/actions/runs/37470839455), the general `check` job passed and the observed `j64/default`, `j64/portable`, and `j64avx2/default` runs each matched **15/15 C file-foreign fixture expectations, zero review items**. `j64avx2/portable` was still running at this checkpoint and is not counted. [Workflow commit 3d476f6](https://github.com/yunskim/RustJ/commit/3d476f6f4f8bd1c925e2216ee856cfdfcd5fc9d2) enables `--gate` to enforce these C-oracle fixture expectations in subsequent runs. This **J reference fixture gate** is not independent RustJ three-way verification and does not prove JMF/Jd/boxed or async I/O; IO-01/02/25 and the 0/30 acceptance ledger remain unchecked.
-
-**Expanded IO-02 ordered J-reference witnesses (2026-10-07; partial oracle evidence).** [tools/file_io_audit.py](tools/file_io_audit.py) now adds **six ordered-effect cases / 14 J steps** alongside the prior 15 independent file-foreign fixtures. With one J interpreter and one isolated temporary file per case, it inspects file bytes after *every* JDo: (1) a discarded write result still has an observable effect, (2) a failing right read prevents a left write in J evaluation order, (3) a subsequent error does not roll back an earlier completed write, (4) a bad indexed write preserves a preceding completed write, (5) append followed by tail read, and (6) truncate followed by full read. [Offline tests](tools/test_file_io_audit.py) inject a forbidden early write and ensure it is detected. In [CI 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953), the general `check` job and pinned `j64/default` oracle passed with **15/15 independent and 6/6 ordered (14 steps), zero mismatches**; other matrix variants were unresolved at the time of this checkpoint. This is a **J C-reference semantic witness**, not native/optimized RustJ I/O equivalence or mapped/foreign coverage: IO-02 and overall IO remain **[ ] / 0 of 30 accepted**.
-
-**Next IO-02/IO-25 executable slices (within the existing ledger).** (a) Extend reference fixtures to named versus numeric handles and permissions/close/flush, EOF/short reads and concurrent truncation for `1!:1/2/3/4/11/12`; (b) independently verify loading the pinned J standard/add-on library before smoke-testing JMF RW/RO/COW, live-reference unmap/resize and typed/boxed variants; (c) enable Jd/jfiles executable probes only after their fixture and pinned dependency setup is demonstrably reproducible. Do not classify a missing J add-on bootstrap as J semantics, or promote the C-only 15+6 tests to RustJ implementation acceptance.
-
-**Pinned C matrix confirmation for IO-02 (2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953) completed successfully in the generic check job and all four `j64/j64avx2 × default/portable` reference jobs. Each recorded **15/15** independent C file-foreign fixtures and **6/6** ordered-effect cases (**14 JDo steps**), with zero cases requiring review. This is a repeated C-source semantic witness, not RustJ three-way I/O execution equivalence; the IO implementation acceptance ledger stays unchanged.
-
-**First independent IO-25 JMF smoke attempt (not accepted).** [tools/jmf_smoke.py](tools/jmf_smoke.py) attempts to bootstrap the pinned `jlibrary/bin/profile.ijs` and `load 'jmf'` under an isolated temporary HOME and J C binary, then runs RW(0)→RO(1)→COW(2) **map → empty noun check → unmap-result-zero** on a temporary JMF backing file. [Offline plan checks](tools/test_jmf_smoke.py) and a separate [Linux CI](.github/workflows/linux.yml) non-acceptance diagnostic step are added. Missing library bootstrap or JMF execution is reported as `blocked`, not a J semantic mismatch; CI results were not finalized at this checkpoint. This smoke does **not** validate boxed payloads, write durability/RO-COW mutation behavior, refcount-denied unmap, resize/remap, or Jd partitions. IO-25 remains [ ].
-
-**Initial JMF bootstrap observation (2026-10-07; not accepted).** In [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000), the pinned `j64/default` and `j64/portable` non-gating JMF probes recorded `status=blocked`, `stage_count=2`: setting `BINPATH_z_` succeeded but `0!:0 <.../jlibrary/bin/profile.ijs` returned `domain error`. **The probe never reached map/unmap.** This is a bootstrap blocker, not evidence that JMF RW/RO/COW semantics fail. [Diagnostic follow-up 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3) first checks loading a trivial standalone J script and captures `13!:12` on errors, to isolate script loading from full profile setup; the subsequent CI result was not yet confirmed at this checkpoint. IO-25 remains [ ].
-
-## 14. Principles retained
-
-Repeated review of `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` confirms that RustJ should preserve the following research ideas:
-
-1. J notation creates useful graph structure that should survive parsing.
-2. Basis should reflect meaningful access patterns rather than scalar arithmetic atoms.
-3. Rewrite/equivalence reasoning belongs above physical realization.
-4. Resource reasoning should be symbolic and compositional.
-5. Flow and Storage are related but distinct analyses.
-6. Static memory means logical determinability, not early physical offsets.
-7. High-level structured operations may remain graph black boxes.
-8. Backend realization may decompose or fuse them later.
-
-## 14.1 Ideas intentionally not inherited as hard rules
-
-Do not regress to superseded prototype assumptions such as:
-
-- special `"RjP` precision syntax;
-- rank change always being a fusion boundary;
-- all reshape/transpose always being zero-copy;
-- complete physical graph determination at parse time;
-- fixed physical buffer offsets in semantic/J Graph IR;
-- hardware register numbers embedded in primitive semantics;
-- pre-resolving all names before the J parser uses them.
-
-Current jsource remains the frontend semantic oracle.
-
-## 14.2 ArrayFire and the J ArrayFire add-on
-
-Checked: 2026-10-01.
-
-Primary references:
-
-- ArrayFire JIT: https://arrayfire.org/docs/jit.htm
-- Unified Backend: https://arrayfire.org/docs/unifiedbackend.htm
-- CUDA interoperability: https://arrayfire.org/docs/interop_cuda.htm
-- Memory manager API: https://arrayfire.org/docs/group__memory__manager.htm
-- Jsoftware `math_arrayfire`, pinned at `b0543c8278fe7a50e0ac9f938a936b4a84ee239b`:
-  https://github.com/jsoftware/math_arrayfire/tree/b0543c8278fe7a50e0ac9f938a936b4a84ee239b
-- J add-on manual:
-  https://github.com/jsoftware/math_arrayfire/blob/b0543c8278fe7a50e0ac9f938a936b4a84ee239b/man.txt
-- Alex Shroyer's historical J/ArrayFire GPU prototype:
-  https://alexshroyer.com/papers/matmul_j_gpu.pdf
-
-The useful ArrayFire lessons are narrower than "use ArrayFire as the RustJ GPU backend":
-
-1. ArrayFire accumulates supported elementwise operations in a lazy AST and JIT-fuses them at evaluation boundaries. RustJ should compare this with its later Logical/Physical planning, not collapse J Semantic IR into an ArrayFire-like expression tree.
-2. `eval` and `sync` separate evaluation/submission from completion. This is useful for future RustJ async-token/timepoint, lifetime, transfer, and external-library-call semantics.
-3. ArrayFire's unified API hides CPU/CUDA/OpenCL/oneAPI backends without making backend placement part of array-language meaning. RustJ should preserve the same semantic/physical separation.
-4. Device-pointer, stream, lock/unlock, and custom-memory-manager APIs are useful references for external-library ownership and synchronization boundaries.
-
-The Jsoftware add-on is especially valuable as a concrete **library-adapter/offload case study**:
-
-- J arrays are row-major while ArrayFire arrays are column-major, so the add-on performs an `rcc` conversion. RustJ should use this as a test case for keeping logical atom order separate from physical layout and choosing view/copy/consumer absorption only during physical planning.
-- `families.ijs` maps concrete functions such as `af_add`, `af_mul`, and `af_sum`. It does not make arbitrary J adverbs, rank, or derived verbs automatically equivalent to ArrayFire operations. RustJ external routes therefore need explicit capability/precondition checks.
-- The add-on tracks `af_array` handles and release/hold/device-GC state separately from J values. This supports RustJ's ValueId vs external buffer/handle separation.
-- The add-on effectively inherits ArrayFire's `dim4` rank boundary. That is a backend capability limit, not a valid restriction on J semantics.
-
-Do not inherit ArrayFire's physical limits upstream:
-
-- do not identify `af::array` with a RustJ Logical Array/J noun;
-- do not inherit rank<=4, column-major layout, or ArrayFire dtype coverage as J-language constraints;
-- do not treat fixed ArrayFire reductions as the semantics of J's general `/` or `\\`;
-- do not treat ArrayFire JIT fusibility as proof of RustJ graph-rewrite/fusion legality;
-- do not treat the J add-on's FFI mapping as RustJ's compiler architecture.
-
-For later adapter work, build a Graph Basis ↔ ArrayFire capability matrix for Elementwise, Reduce, Scan, Gather/Index, MatMul, Conv, Sparse, layout conversion, synchronization, and fallback. Benchmark cold JIT compile cost separately from warm cached execution, transfer, layout conversion, and materialization cost.
-
----
-
-# Part XII — Validation policy
+<a id="read-validation"></a>
+<a id="part-xii--validation-policy"></a>
+# Part XI — Validation policy
 
 <a id="validation-policy"></a>
 
@@ -3487,10 +2987,10 @@ Positive E2E tests are insufficient. Each stage must reject invalid states owned
 
 | Stage | Required rejection examples | Status |
 |---|---|---|
-| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.9 |
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid IDs/regions, stale region results/stages, malformed pipeline/fork/hook topology, provenance drift | implemented; current schema exact-matches J Graph 0.10 |
 | rewrite candidate verifier | stale source span/basis, unregistered rule/witness mismatch, invalid replacement DAG/facts/output semantics | implemented |
 | scan/fusion analysis verifier | forged order/rule version/witness/retention/fanout or unsupported selected state | partially implemented; proof-discharge/selection verification remains future |
-| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.5 |
+| A3 `Plan::verify` | schema/registry mismatch, invalid references/use-before-def, source/j_origin drift, malformed constraints/checks/effect/error/speculation/result/terminator | implemented; current schema exact-matches A3 0.6 |
 | CandidateEvidence / SelectionPlan | stale evidence, Selected with required proof Unknown, selected Illegal candidate, incompatible overlapping candidates | planned — §7.5 |
 | RouteRegion / RouteBoundary | missing live-ins/outs, dropped effect-live dependency, duplicated/dropped/reordered SemanticCheck, unproven region capability, post-effect guard, missing bridge | planned — §2.1 |
 | PhysicalPlan | invalid buffer/view/op IDs, use-before-bind, out-of-bounds view, incompatible kernel, unordered Check, unproved overlap/reuse, dangling Return | planned M4 — §17.2.1 |
@@ -3503,8 +3003,8 @@ Use one-mutated-invariant negative tests: build a valid artifact, clone it, brea
 Current J Graph/A3 artifacts are primarily in-process and do not promise long-term portable binary compatibility. Today the verifiers require exact schema and primitive-registry provenance:
 
 ```text
-J Graph schema 0.9   exact match
-A3 schema 0.5        exact match
+J Graph schema 0.10   exact match
+A3 schema 0.6        exact match
 PrimitiveRegistry    current REGISTRY_VERSION provenance
 ```
 
@@ -3516,18 +3016,24 @@ Compiler version is provenance; schema/registry plus explicit migration contract
 
 Unsupported schema/registry/migration is a compiler/artifact diagnostic, never a J Domain/Rank/Length error. Before 1.0, schemas may change frequently, but semantic field meaning must not change without a version bump.
 
+## 15.4 Future formal verification policy
+
+Formal proof of IR well-formedness, semantic preservation and rewrite/lowering correctness is a long-term need, not a current required gate. The single [FV-01–FV-12 deferred checklist](#formal-ir-verification-checklist) in §17 controls future activation; all execution/proof items are pending.
+
 ---
 
-# Part XIII — Current implementation status
+<a id="read-status"></a>
+<a id="part-xiii--current-implementation-status"></a>
+# Part XII — Current implementation status
 
 <a id="current-implementation-status"></a>
 
 ## 16. Completed or substantially implemented
 
-Code/document review baseline: the 2026-10-04 WI1 noun input metadata validation seam. Read the latest execution results and remaining boundaries together with the JE2 checklist. Earlier stage gates remain historical validation records.
+This section summarizes a transitional architecture baseline, including the 2026-10-04 WI1 noun-input metadata seam. For newer execution evidence, consult the 2026-10-08 Windows summary above, the detailed implementation/validation evidence in this part, and the active migration checklist. Earlier stage-gate counts are historical, not a current-HEAD CI claim.
 
 - shared immutable FunctionEntity semantic DAG;
-- explicit/direct-definition frontend support through immutable `DefinitionCode`, control-flow metadata, multiple root direct definitions, raw noun direct definitions, and UTF-8/source provenance; supported mode-1/2 straight-line invocation uses per-call local frames with x/y/u/v/m/n bindings and local/global assignment, while control-flow/nested scope, full locale/locative/operator-wrapper semantics, other tagged/computed forms, and Code-body J Graph/A3 CFG lowering remain incomplete;
+- explicit/direct immutable DefinitionCode, control/NAME metadata, multiple root/raw noun DD and source provenance are retained. Supported mode-3/4 calls, if/while/for/try, nested direct/string-explicit local scopes and A3 definition references are implemented. Supported-subset E2E completion is distinct from full J expressiveness, general locales/operator wrappers, body Graph/Logical/CFG compilation and body/caller diagnostic frames; see the frontend E2E re-audit.
 - J Graph IR as a separate analysis surface;
 - Graph Basis / Execution Basis separation;
 - structural opportunities plus initial graph rewrite/resource analysis;
@@ -3561,29 +3067,580 @@ Remaining transitions:
 - broad AD/VJP transforms;
 - aggressive resource pruning;
 - mature multi-route partitioning;
+- eventual formally checked IR semantics, rewrites and lowering (deferred; §17 FV-01–FV-12; no tool selected or proof work started).
 - complete full-J implementation.
 
 Linux/GitHub Actions CI is not a default architectural progress gate unless explicitly requested.
 
 ---
 
-# Part XIV — Architecture convergence roadmap
+
+### Detailed frontend implementation and validation evidence (2026-10-07)
+
+The material below records time-specific execution evidence and follow-up audits, not the initial architectural reading path. Current support claims and next-action gates remain defined by the status and roadmap sections.
+
+#### Definition calls and frontend E2E evidence (2026-10-07)
+
+This supersedes historical "17 ignored" definition coverage claims. Explicitly running all 17 acceptance tests initially produced **zero passes / 17 failures**: DefinitionCode and modifier frames existed, but ordinary mode-3/4 verbs were not dispatched to the definition executor.
+
+- [x] Dispatch ordinary explicit/direct verbs and ordinary aliases through the shared definition executor for both valences. Evaluate arguments in the established parser order and use a distinct LocalFrame for each call.
+- [x] Validate local/global assignment, noun snapshots, call-time global noun/function rebinding, isolation from caller-private locals, and frame restoration after errors. Unbound `u`/`x` in an ordinary mode-3 verb may fall back globally; they are not missing modifier operands.
+- [x] Execute audited ControlNode targets for if/elseif/else, while/whilst, break/continue, return, and try/catch/catchd. Keep T-block and last B-block results separate; initialize/reset results to C's Boolean empty matrix. Unsupported boundaries must not become successful caught J errors.
+- [x] Pass and unignore **14 of the original 17** acceptance tests; add **four** regression tests for C first-atom conditions, empty results, nested catches, and scope/effect/error restoration.
+- [x] Add `examples/frontend_e2e.rs`, observing the actual tokenizer, enqueuer, analysis Program, runtime FrontendContext/NAME/reduction records and result. Verify contexts, analysis without commits, and no escaped local `t`.
+- [x] Implement for/for_name leading-item iteration, scalar/empty/zero-atom rows, read-only index names, snapshots, and cleanup on branches/errors against C. Preserve uncatchable forinit failures. Named sparse iterators remain Unsupported; item transport currently copies into owned arrays, not zero-copy/GPU execution.
+- [x] Implement nested direct/string explicit construction and independent local scopes. Reuse input framing to collect complete multiline units and isolate inner controls, colon separators, names and inferred modes. Caller-private locals are not captured; global names resolve at call time. Embedded colon-zero blocks are syntax errors as in C; external input consumption is not implemented.
+- [x] Project definition values as A3 `VerbReference(Callable { target: Definition, semantic: Arc<FunctionEntity> })`, retaining immutable DefinitionCode, source and NAME plans without fabricated array facts, binding commits or body effects. Verify target/entity agreement and reject direct Definition SemanticCall. Body CFG lowering/compiled execution remains pending; call analysis retains its structural-lowering boundary.
+
+**Handoff:** analysis returns `Program { source, assignment, assignment_source, expression, frontend, reductions, ... }`. Its expression is Literal/ReadName/Monad/Dyad/VerbValue/etc.; `Arc<FrontendContext>` links expanded word flags/spans, parser items, semantic nodes, origins, NAME observations, stack/reduce steps and root. Runtime `CapturedEvaluation { result, capture }` pairs the actual result with the same runtime parser's context. This sidecar is not a second executable AST/continuation. Runtime parsing reduces nouns; the deferred analysis expression must not be misrepresented as a runtime result.
+
+**Definition boundary:** both the multiline explicit definition `explicit=:3 : 0\nt=.y+g\nt\n)` and direct definition `direct=:{{ t=.y+g\nt }}` construct VerbValue with an ExplicitDefinition Arc<DefinitionCode>, without executing their bodies. Code preserves source/form/spans, decoded body, valence ranges, queued body words/flags, control nodes, and DefinitionNamePlan. `t` is a LocalAssignmentTarget; `y/g/t` reads use CurrentFrameThenGlobal. This is preparse metadata, **not a precomputed optimizable AST of the entire body**. Calls parse the body through the shared runtime parser. Outer capture does not recursively export every internal body NAME event.
+
+The executable example uses `a=:1 2 3; a+2*3` (separate sentences), producing 7 8 9. Analysis retains `Dyad(Add, ReadName("a"), Dyad(Multiply, Literal(2), Literal(3)))`; runtime noun NAMEs snapshot when stacked. Explicit outer enqueue is Name / Assignment / Noun(3) / Conjunction(DefinitionConstructor) / Noun(body). Direct enqueue adds the generated `(9 : body)` structure, reduced by Conjunction → Parenthesis → Assignment, inferring mode 3 here. Calls retain `Monad(NameRef(name), Literal(2))` in analysis, with LateAtCall / FunctionReference / RuntimeClass runtime NAME observations. Both definitions return 12 for g=10 and 22 after g is rebound to 20; local t does not escape. Explicit `pair=:4 : 'x+y'` and direct `ddpair=:{{ x+y }}` both produce 5 for `2 pair 3` / `2 ddpair 3`, represented as Dyad(NameRef(name), Literal(2), Literal(3)).
+
+Native Windows reproduction: `cargo run --example frontend_e2e`. Raw evidence is in `reports/frontend-e2e-windows.json` and bounded C comparisons in `reports/definition-calls-windows.json`. All 14 demonstration results match j64/AVX2 × direct/semantic-reference. Extended definition cases have **31 fixtures / 124 observations / 124 matched**; existing NAME scopes have **10 fixtures / 40 observations / 40 matched**. All **67 Python harness tests** pass; the Windows file-quoting helper now normalizes slashes. No CUDA/Linux/GitHub CI/full-upstream or optimized-definition execution claim is made. Parser-nested recursion currently has a depth limit of eight; explicit execution frames remain follow-up work.
+
+**Final regression validation:** Windows default/portable each **596 passed / 3 ignored / zero failures**; fmt and clippy `--all-targets -D warnings` pass. Explicitly running the three pending for/nested/A3 tests fails at the corresponding boundary and is not counted as success. Source/binary hashes in all three evidence files were checked against the final default build.
+
+##### Definition iteration, nesting and A3 function values (2026-10-07)
+
+All 21 existing definition acceptance tests are active. Five loop regressions and four nested/function-reference regressions were added. Source → Program/FunctionEntity → J Graph → A3 function-value transport is distinct from executable body CFG lowering. Calls still use the shared runtime parser with a depth limit of eight. select/case/fcase, catcht/throw, goto/label, general locales/locatives, compiled CFG and CUDA execution remain follow-up work. The preceding 596/3 result is historical.
+
+Raw bounded evidence is in `reports/definition-loops-windows.json` and `reports/definition-nested-windows.json`, comparing two Windows J DLLs × two Rust evaluator routes, not full upstream conformance. Existing comparison bench linking under Windows `cargo test --all-targets` fails because it requires Linux dl.lib; this is separate from ordinary tests, portable tests and clippy static checks.
+
+
+Final native Windows validation: default/portable each **608 passed / zero ignored / zero failures**, Python **67 passed**, fmt/clippy pass. Two C DLLs × direct/semantic-reference: for **23 fixtures / 92 matched**, nested **12 / 48**, existing definitions **31 / 124**, NAME scopes **10 / 40**, totaling **304 observations / 304 matched**. Source and binary SHA-256 in all four C reports were verified against the final default build. frontend-e2e-windows.json remains the historical capture of the preceding demonstration and was not regenerated.
+
+
+
+#### Frontend E2E re-audit: expressiveness, handoff and errors (2026-10-07)
+
+The user-approved **frontend E2E completion for the supported subset** remains in force. It does not mean full J expressiveness, admission of every Program to Graph/A3, or compiled definition CFG execution. Body computations and structured regions belong to subsequent J Graph/Logical analysis, with CFG lowering where needed. No complete frontend CFG is required. This review changes audit tools/documentation, not runtime semantics.
+
+The 38/24 results and stage counts below are the pre-remediation baseline. Current results after the string-target implementation are recorded in its execution checklist below.
+
+`frontend_contract_probe` independently inspects P=prepare_semantic_diagnostic, G=J Graph and L=CompilationAnalysis/A3, then performs R=eval_captured. Reproduce with `python tools/frontend_contract_audit.py --assets-root ../rustj-project-docs --probe target/debug/examples/frontend_contract_probe.exe --report reports/frontend-contract-audit-windows.json` after building the example.
+
+**31 cases × two Windows DLLs = 62 observations: 38 runtime/post-state matches, 24 runtime gaps across 12 cases.** Gaps are findings, not passes. Complex/extended/rational probes establish C acceptance/type only because the noun bridge cannot serialize their values. Other observations compare values/error kinds and setup/post-state. C diagnostic locations/text/internal parser state are not compared. P has 15 accepted/14 Unsupported/one syntax/one control; G has 14/15/1/1; L has 13/16/1/1. These are deliberately selected boundary probes, not upstream coverage percentages.
+
+| Question | Finding | Owner |
+|---|---|---|
+| Full jsource expressiveness | Not yet: runtime supports single/multiple/computed string targets and bounded noun/verb/adverb/explicit conjunction abandon plus nameless conjunction transfer. Boxed/AR targets, locatives, direct nameless conjunction abandon application, deferred-effect lowering and complex/extended/rational literal conversion (decimal overflow is addressed by N1 below) remain unsupported | Existing F1/P4/numeric compatibility gates; noun-target and abandon checklists below |
+| Computed rank, `a+a=:2`, `a=:b=:1` | Runtime matches C; non-executing P/G/L reject them. Chained assignment is not universally unsupported at runtime | Dynamic construction/effect boundary, P8 |
+| `adv=:/` | Program preserves modifier/POS; Graph rejects modifier-value lowering | P8/A1/A2 |
+| execute primitive | P/G admit; L/runtime do not implement execution | Route/runtime capability |
+| explicit/direct/nested definitions | P/G/L admit function values. A3 carries Definition reference, not compiled body CFG | P8/A1/A2/A3 |
+| select definition | Preparse metadata admitted; this probe only constructs the definition | Subsequent body execution/lowering |
+
+Program.expression/FunctionEntity remain semantic authority. FrontendContext retains words/items/nodes/origins/NAME policies/reductions/steps/root, not a second executable AST. Function head/POS/operands, intrinsic noun snapshots, fork semantics and header ranks survive. Catalog/rank snapshots are not executable guards. Runtime simple-name observations contain frame/global identities, binding generation/version/POS; they are not locale/path witnesses.
+
+DefinitionCode preserves original/decoded source, form/mode/valences, body word classes/flags/spans, controls and local/global NAME plans. This enables later analysis but does not supply every statement as an already analyzed computation IR. Later semantic parsing/re-enqueue is an explicit boundary. Preserve declared-unbound global fallback and absence of caller-private local capture. **ControlNode.go is a C control/error target, not the sole normal successor/CFG edge**; consume it together with kind/previous-result data. Structured regions, merge/loop-carried values and exception edges belong downstream.
+
+Supported inputs retain enough source/identity to start downstream analysis. It is not justified to claim that every needed property is already a ready-to-optimize IR fact or that arbitrary inputs need no reanalysis. The private body_error mapping handles escaped source, with the public source-unit/frame-chain contract added in the follow-up section. This does not establish full J expressiveness or complete stage admission. Failure prefixes/captures are observations, not effect replay or exact-resume authorization. Body effect/error graphs are not connected to outer A3.
+
+**Error review (A0.6/P8/A3):** J error class, diagnostics and rendering are separate; ordinary inner context wins during merge. However, invoke_definition_verb explicitly clears body span/blame because it is a different source coordinate space, and parsing attaches caller coordinates. Modifier invocation similarly replaces the span. `f=:{{y+1 2 3}}` then `f 1 2` preserves length error, `+` and argument shapes [2]/[3], but locates failure only at caller f [0,1]. Nested outer→inner retains outer [0,5], not body failure location/call chain.
+
+`missing+(1 2+1 2 3)` exposes the right-side length error first. `(1 2+1 2 3)+a=:9` leaves a=9 after that error, although static P rejects it. Failed `a=:1 2+1 2 3` preserves previous a=7; invalid control redefinition preserves f=42. This is failed-write commit prevention, not sentence-wide rollback. Unsupported must not be caught as a successful J error; C forinit read-only failures have a distinct uncatchable boundary. Full throw/catcht, error-class coverage and optimized error ordering remain pending.
+
+Required contracts: distinguish J semantic failure, route/analysis admission miss, verifier/compiler defect and backend implementation failure. Current Unsupported conflates several categories and is not a catchable J error or replay permission. Retain immutable source/definition origin, decoded-to-original mapping, primary failure location plus callsite frames and semantic operation origin; retain bounded type/shape summaries, not full argument arrays. Do not raise potential runtime errors early merely because static analysis can see them.
+
+**Framework practices to apply through existing P8/A0.6/A3 work:**
+
+- [MLIR SCF](https://mlir.llvm.org/docs/Dialects/SCFDialect/): structured if/loop regions, yields and loop-carried values before optional branch CFG lowering; preserve J-specific condition/name/exception meaning.
+- [MLIR verification](https://mlir.llvm.org/docs/Tutorials/Toy/Ch-2/) and [conversion legality](https://mlir.llvm.org/docs/DialectConversion/): separate valid source/semantic IR from route admission, with boundary verifiers.
+- [MLIR diagnostics](https://mlir.llvm.org/docs/Diagnostics/) and [builtin locations](https://mlir.llvm.org/docs/Dialects/Builtin/): connect operation origins/body locations/callsites rather than overwrite one span.
+- [Effects/speculation](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/): memory effects alone do not establish safe speculation or J first-error behavior. MLIR explicitly documents incomplete non-local-control-flow modeling; do not assume it solves J try/throw.
+- [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html): explicit inputs/results/constants and nested computations. Do not adopt tracing-time constant capture for J late-bound globals or execute definition control flow during tracing.
+
+Existing Co-dfns/APEX/TAIL-Futhark research remains historical FOUNDATIONS evidence. The pinned Co-dfns manual could not be reopened in this review and is not counted as newly verified. New framework findings rely directly on official MLIR/JAX material.
+
+Audit-tool validation: native Windows default/portable each **608 passed / zero failed / zero ignored**, Python **67 passed**, fmt/clippy pass. No runtime change. Keep gaps in the new 62 observations separate from the preceding 304 matched acceptance observations.
+
+
+
+#### Frontend audit remediation execution plan (2026-10-07)
+
+Use existing F1/P4/P8/A0.6/A1–A3 checklists as the ledger. Supported-subset frontend E2E remains complete; CFG construction stays downstream. This table sequences existing work; completion requires implementation and independent validation.
+
+| Order | Existing owner | Scope / acceptance | Status |
+|---|---|---|---|
+| 1 | A0.6 definition source frames | Immutable original/decoded source mapping, body failure and call chain across ordinary/modifier/nested invocation; escaped quotes/UTF-8/CRLF/redefinition/catch/effect regressions, C kinds/post-state | Body/admission/return frames and source-unit/file provenance implemented and verified |
+| 2 | A0.6 error categories / P8 admission | Distinguish J failure from analysis/route miss, verifier defect and backend failure; structured stage admission; no catch/replay of Unsupported | Current frontend boundaries implemented; final validation pending |
+| 3 | P8 / A1–A3 handoff | NAME policy/scope/version observations vs executable guards, modifier-value transport and computed constructor/effect boundaries; structured body/CFG belongs downstream | Verified handoff/NAME adapter implemented; body lowering downstream |
+| 4 | F1/P4 NAME compatibility | Computed/noun/multiple targets, then abandon, then direct/indirect locatives; local/global/POS/effect/first-error C comparisons | String-target and bounded abandon/nameless transfer runtime plus top-level NAME effects/array Graph integration implemented; direct nameless application/general locatives pending |
+| 5 | F1 numeric compatibility | Complex/extended/rational/large integer conversion; separate recognition/type/value/error, extend C bridge first | Pending |
+| 6 | Modifier inventory | Add unsupported core/derived modifiers against original source; separate vocabulary, construction, runtime and lowering admission | Pending |
+
+Step 1 adds source-owned diagnostic frames to ErrorContext while preserving caller-relative span/word semantics. DefinitionCode maps body offsets through a sparse escaped-quote map. Share source through Arc, never copy noun payloads for diagnostics. The frame chain is diagnostic metadata, not function identity, CFG or a resume token. Render primary body failure, definition callsites and external caller. Validate on native Windows default/portable, fmt/clippy/Python and bounded C audits; CUDA/GitHub CI remain deferred. Step 1 completion does not close other compatibility gaps.
+
+A0.6 execution checklist — first implementation slice:
+
+- [x] `DefinitionSourceMap` maps decoded body byte ranges to original source, stores only doubled-quote positions, and verifies the entire body/source correspondence.
+- [x] `DiagnosticSourceFrame` preserves kind, shared `source: Arc<str>`, definition span, original source span and fragment-queue blame word. `ErrorContext.source_frames` runs from the innermost failure to outer definition callsites; existing caller span/word semantics remain intact.
+- [x] Preserve/render statement/control failures across ordinary/modifier/nested invocation. Add escaped-quote, UTF-8, CRLF, source lifetime after redefinition, failed-assignment and catch regressions.
+- [x] Final-source native Windows default/portable: **612 passed / 0 failed / 0 ignored** each; fmt/clippy passed; Python **67 passed**. Definition calls/loops/nested/NAME scopes: **304/304 C matches**. Frontend audit retains **38 matched / 24 runtime_gap** at existing unsupported boundaries. Binary/source hashes and results are in `reports/definition-*-windows.json` and `reports/frontend-contract-audit-windows.json`. C diagnostic location/text equality is not tested; Rust regression tests validate the source frames.
+- [x] Extend boundary-specific frames to pre-execution admission and post-statement noun-result/implicit-return fixing failures. Use the definition span when no control/statement site exists; never fabricate body coordinates.
+- [x] Extend source-unit/file identity and nested provenance to root input. Named source APIs and file CLI retain the immutable whole file; anonymous inputs retain their input unit.
+- [x] Order 2: error categories and typed admission for current frontend boundaries; follow the A0.6/P8 contract and legacy limits below.
+- [x] Order 3: verified Program/context handoff, NAME/effect/modifier obligations and bounded NAME adapter; general body/modifier lowering remains downstream.
+- [ ] Orders 4–6: expand NAME expressiveness, numeric literals and modifiers with independent C comparisons.
+
+F1/P4 noun-target priority slice (2026-10-07): implement single/multiple string assignment first. Follow `p.c::jtis`: a single string name receives the whole RHS; multiple names receive scalar extension or leading-axis items, opened once, in left-to-right order. Invalid names and read-only/global collisions retain earlier successful writes; name-count mismatch is checked before writes. Do not collapse this to one transactional write.
+
+- [x] Single string and runtime-computed string targets, local/global scope and function RHS.
+- [x] Multiple string targets: scalar extension, item/open, duplicates, partial failure and capture contract.
+- [x] Preserve original noun target and row-7 provenance; explicitly reject Graph/Logical transport until ordered writes are represented.
+- [x] Native Windows default/portable: **617 passed / 0 failed / 0 ignored** each; Python **67 passed**; fmt/clippy passed. New assignment cases: **28 fixtures × two DLLs × two routes = 112/112 matches**; existing definition/loop/nested/NAME scope cases: **304/304 matches**, total **416/416**. Refresh `reports/string-assignment-windows.json` and existing reports with final binaries.
+- [ ] Keep boxed targets, atomic-representation assignment and locatives as separate follow-ups.
+
+Updated frontend audit: **31 cases / 62 observations = 42 matched / 20 runtime_gap**. Runtime/post-state gaps for `computed_target` (`'a'=:7`) and `multiple_target` (`'a b'=:3 4`) are closed across both DLLs. Unique unsupported cases drop **12 → 10**; remaining 20 observations are not passes. P: **16 accepted / 13 Unsupported / one syntax / one control**; G: **15 / 14 / 1 / 1**; L: **14 / 15 / 1 / 1**. P=prepare includes binding, so parser structuring does not imply P admission for multiple targets. The next NAME implementation slice is `name_:` abandon; locales/locatives and boxed/AR targets remain separate gates.
+
+Handoff contract: `Program.noun_assignment: Option<NounAssignment>` retains original `target: Expr` and word-formed `names: Vec<String>`. `Program.assignment` remains the single-name compatibility field, not a representative of multiple/empty writes; use `has_assignment()` for final-assignment status. `FrontendContext::WriteName.target` refers to the original NAME/NOUN item, verifying noun target semantic edges. Completed runtime target values retain their original enqueue/reduction context. `AssignmentSource.selection` describes leading-axis item selection or scalar extension followed by one open from the capture's whole RHS occurrence. Ordered commit names/versions and partial failure survive; the capture is not a replay plan.
+
+Here `target: Expr` is the completed row-7 expression and may be a Literal after runtime computation. Pre-computation structure is retained through FrontendContext item/node/reduction links. `AssignmentSource.noun_target` explicitly identifies noun targets. Capture→Graph currently rejects all noun-target commits, including single literals: turning an observed target into a fixed write requires target dependencies/guards. This differs from the non-executing static Graph path for single literal targets.
+
+`parse_frontend` structures literal multiple-string targets, while `prepare_semantic` binding and Graph/Logical reject multiple/empty targets until ordered-write IR exists. Static parsing does not execute computed targets requiring values. Single literal string targets use the existing single-write analysis route. Ordinary NAME writes add no name-list heap allocation or repeated validation. Multiple RHS buffers are frozen once, then items are selected. Item selection currently copies; this is not zero-copy/GPU buffer-view support. Existing open-padding/sparse and unrelated primitive boundaries such as `;` remain.
+
+##### F1/P4 `name_:` execution checklist
+
+Follow-up plan (2026-10-08): narrow the blanket conjunction rejection. Both DLLs report valence error for direct primitive-conjunction application but accept explicit-conjunction application and primitive transfer through another name. Admit explicit/non-nameless conjunctions first. Conservatively reject nameless conjunctions until parser action contracts distinguish transfer from direct application. Represent non-executing function abandon as `FunctionHead::TakeName { name, single_word }`, preserving POS/source/abandon policy; binding/lowering still must not execute it.
+
+- [x] Compare non-nameless conjunction abandon across global/local, explicit/direct and retained deletion after failure with C.
+- [x] Test deferred function TakeName, explicit binding/Graph/Logical rejection and distinction from noun/late NameRef. Include cap inspection and hand-constructed capture/Graph boundaries.
+- [x] Refresh native Windows default/portable, fmt/clippy/Python and final C audits. Known gaps below are not passes.
+
+Function transport contract: `Engine::parse_frontend(&self, source)` uses the current Engine's read-only catalog and returns pre-binding `Program` or `FrontendFailure` with original queue/reduction/NAME/pending-action context. For abandon names it observes class and optional version assumptions without running kernels, definition bodies, assignment or deletion. Existing ordinary-modifier static identity observation is retained. Existing `prepare_semantic` also performs subsequent binding and is a separate API. Catalog-free `parser::parse_frontend` retains its noun default assumption; it does not infer every function POS.
+
+Example: after `f=:+`, `Engine::parse_frontend("g=:f_:")` returns a `VerbValue` expression with `entity.result_pos=Verb`, `entity.head=TakeName { name: "f", single_word: false }`, `entity.operands=[]`. It neither captures the actual `+` body nor becomes an ordinary late `NameRef("f")`. `FrontendContext` retains original `g`, `=:`, `f_:` spans/word indices, `CaptureAndAbandon`, `CatalogClass`, optional observed version and NAME-to-function links. Definition NAME scope plans and execution-frame boundaries determine local/global semantics; catalog observations are not executable guards.
+
+If non-executing modifier application or first-fork-operand cap inspection needs the actual abandon result, do not guess it. `h=:-c_:+` retains NAME information and pending Conjunction row; `f=:(cap_: + *)` retains pending Fork row and stops with Unsupported. Runtime parsing can fetch the actual value and perform construction. This does not implement deferred modifier-constructor IR. Binding and Graph builder/verifier reject TakeName anywhere in function DAGs; fact/effect inference remains Unknown. Hand-constructed BoundProgram or capture cannot promote it to a pure function constant/call.
+
+User clarification: tokenizer/enqueue do not immediately read/delete `name_:`. Preserve base name, abandon flag and original span/word index. Non-executing parsing builds noun `ExprKind::TakeName { name, single_word }`, distinct from ordinary ReadName. Existing binding/Graph/Logical reject ordered NAME effects without executing them. Default runtime semantic parsing fetches the value and deletes the found scope at C's stack-entry point. The new explicit NAME effect plan below preserves that order; compiled deferral must prove the same lookup/effect/error order.
+
+- [x] Enqueue flag, deferred noun expression, NAME policy and original context links.
+- [x] Runtime noun/verb/adverb by-value results, actual local/global deletion, missing/error ordering and deletion/recreation ABA guard regressions. Separate late namerefs inside returned functions remain late.
+- [x] Confirm pinned C's single-word local fast path returns without deletion. An assignment-target `name_:` writes the base name without lookup/deletion. Explicit/direct local declarations record the base name too.
+- [x] Preserve pre-action lookup and actual deletion in capture; never convert the effect into a pure Graph read. Ordinary SimpleNameGuard cannot be created for by-value names.
+- [x] Both C DLLs/routes; native Windows default/portable, Python, fmt/clippy validation. Unsupported findings below are not passes.
+- [ ] Locales/locatives, execute's special abandon behavior and deferred function entity lowering remain separate follow-ups.
+
+Initial `84782fd` boundary: all conjunction abandon was rejected. The 2026-10-08 follow-up admits explicit/non-nameless conjunctions while conservatively rejecting nameless conjunctions. Direct nameless primitive application differs from both DLLs' valence error and is not a conformance pass. C transfer through a separate name works but is not yet admitted in Rust. A separate general-path read-only loop index deletion probe caused an access fault inside `j.dll`; Rust rejects that boundary with Unsupported and the C probe is excluded from two-DLL pass totals. Single-word local index lookup without deletion is tested independently. Extension-registry abandon and general function-result display remain unsupported.
+
+The deferred unit combines lookup and deletion into one semantic operation. Do not replace it with a suffix-stripped ReadName or only an already computed Literal. `TakeName.single_word` retains the C local fast-path context. Analysis has no effects; future effect IR must jointly represent found scope/binding identity, by-value result, actual deletion and ordering against errors/other NAME lookups. `CaptureEvent::Abandon` records pre-action lookup and actual `deleted`; it is observational, not an execution plan.
+
+Final validation, 2026-10-07: native Windows default/portable each **625 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. Eight `tests/name_abandon.rs` regressions cover non-executing analysis, source/policy, value/alias lifetime, evaluation order and retained deletion on error, explicit/direct single-word locals, declared-unbound global fallback, no caller-private capture, inner late aliases, guard ABA and non-catchable Unsupported boundaries. `reports/name-abandon-windows.json`: **17 fixtures × two DLLs × two routes = 68 observations: 64 matched / 4 unsupported_gap**; all four gaps are one conjunction case. Existing string-assignment and definition/loop/nested/scope comparisons match **416/416** on the final binary. Combined: **480 matched / 4 unsupported_gap**, not full-J conformance. C diagnostic location/text equivalence was not tested.
+
+Final frontend audit: **31 cases / 62 observations = 44 matched / 18 runtime_gap**. Following the string-target snapshot **42/20** above, the two runtime/post-state `abandon_name` gaps are resolved. Unique gap cases drop **10 → 9**. P/G/L admission totals are unchanged; binding/lowering deferred effects remains Unsupported. `reports/frontend-contract-audit-windows.json` and the comparison reports record final source/binary hashes. Reference C source pin: `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`; actual DLL release: `ded7793fe5795d79eda8e7138dce94aa056edf78`, not a same-source rebuild.
+
+Follow-up final validation, 2026-10-08: native Windows default/portable each **635 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. Added four function-transport/verifier unit regressions and six runtime/public-frontend API regressions. `reports/name-abandon-windows.json`: **27 fixtures × two DLLs × two routes = 108 observations: 104 matched / 4 unsupported_gap**. Coverage includes explicit/direct conjunctions, binding retention after a caught local bare-result error, global fallback, retained deletion/catch after constructor failure and a fork whose actual abandoned value is cap. The four gaps remain the nameless conjunction direct-application case. Primitive transfer through another name was C-only research, not Rust support or a comparison pass. Existing string-assignment and definition/loop/nested/scope comparisons match **416/416** on the final binary; combined **520 matched / 4 unsupported_gap**.
+
+Frontend audit adds verb/adverb transfer and explicit conjunction cases: **34 cases / 68 observations = 50 matched / 18 runtime_gap**. The original 31-case set retains nine unique gaps; the increase is six additional successful runtime observations. P: **16 accepted / 16 Unsupported / one syntax / one control**; G: **15 / 17 / 1 / 1**; L: **14 / 18 / 1 / 1**. Distinguish new `Engine::parse_frontend` success from P admission, which also includes binding. Machine-report source/binary/DLL hashes identify the final executable. No claims of full J, C diagnostic location/text, Linux, GPU or GitHub CI validation.
+
+Next NAME gates: distinguish nameless conjunction transfer from direct application at parser-action boundaries, then lower noun/function TakeName into actual ordered NAME effect IR. Preserve found scope/binding identity, by-value result, actual deletion and observed error ordering; do not relax Graph/Logical admission before that. Locales/locatives, boxed/AR targets and remaining numeric/primitive gaps stay separate follow-ups.
+
+2026-10-08 name-transfer implementation checklist:
+
+- [x] Admit nameless conjunction abandon lookup/deletion; retain a separate application admission marker on parser Items, without changing semantic POS or FunctionEntity.
+- [x] Preserve the marker through assignment and parentheses, never in the stored function. A fresh ordinary lookup can apply the stored value; immediate application of a nested assignment remains Unsupported.
+- [x] Regress global/local, chained/grouped transfers, single-word local nondeletion, effects/commits retained after failure and capture order against both C DLLs. Report C valence error versus Rust Unsupported as a gap.
+- [x] Run Windows default/portable, fmt/clippy, Python and refresh final comparison reports. Ordered NAME effect IR remains the next independent implementation unit.
+
+The concrete contract is `Item.abandoned_nameless_conjunction: bool`, set only for an actual nameless conjunction abandon result. This runtime parser state is absent from immutable FunctionEntity identity, POS and stored bindings. Row 7 assignment and row 8 parentheses preserve it; other consuming actions stop with Unsupported after lookup/deletion and any completed nested commits, retaining pending action/failure capture. A fresh ordinary NAME lookup creates an unmarked Item and permits normal application. This does not change Rust function types to simulate C pointer tags or implement C's valence error. Unsupported remains non-catchable by J.
+
+Example: after `c=:@:`, `d=:(c_:)` deletes `c` and stores `@:` in `d`; subsequent `h=:-d+` and `h 3` yield `-3`. In contrast, `h=:- (d=:c_:) +` deletes `c`, commits `d`, then returns Unsupported without creating `h`. A subsequent `h=:-d+` succeeds. Capture retains the pre-deletion binding observation, actual deletion and nested commit order; admission still rejects it without ordered effect Graph support. Non-executing FunctionHead::TakeName transport and binding/Graph/Logical rejection remain unchanged.
+
+Final transfer validation: native Windows default/portable each **638 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy passed. `tests/name_abandon.rs` now has 17 tests, with three new regressions. `reports/name-abandon-windows.json`: **37 fixtures / 148 observations = 132 matched / 16 unsupported_gap**. Seven new successful transfer/local-bare fixtures match **28/28** across both DLLs/routes. The original four inline gaps plus twelve new grouped/nested-assignment/local inline gaps represent four error-difference cases, never counted as passes. Existing separate audits remain **416/416**; combined **548 matched / 16 unsupported_gap**. Frontend remains **34 cases / 68 observations = 50 matched / 18 runtime_gap**. Reports identify final source/binary/DLL hashes. Full J, C diagnostic locations, Linux, GPU and GitHub CI were not tested.
+
+Next independent unit: ordered NAME effect IR for noun/function TakeName. Represent lookup-time scope/binding identity, by-value results, actual deletion/single-word exceptions, subsequent read/write/failure order and nameless application admission before widening Graph/Logical admission.
+
+##### Initial ordered NAME effect execution unit
+
+- [x] Lower Program plus explicit parser step/item/node edges into ordered lookup/TakeName/primitive apply/final single NAME write operations. Never infer execution order from AST traversal or sorted spans.
+- [x] Separate SSA values from successful effect tokens. Failure stops the chain without replaying or rolling back prior deletion. Observe actual scope/generation/version and deletion outcomes at execution.
+- [x] Initially support top-level simple names, noun primitive calls, function TakeName transfer and a final single assignment. Check catalog POS reuse before effects; missing TakeName errors occur at lookup, while initially missing ordinary nouns fail POS admission. Never freeze values/versions.
+- [x] Verify forged/reversed tokens, invalid value edges and omitted effects; test ordering, failures, reuse, function transfer and effect-free admission. Keep existing J Graph/Logical pure-route admission unchanged.
+- [x] Run Windows default/portable, fmt/clippy, Python and both C DLL comparisons; update outcomes. Local definition frames/locatives, modifier construction, dynamic verb calls and intermediate writes remain follow-ups.
+
+Concrete handoff contract:
+
+| Item | Contract |
+| --- | --- |
+| Purpose/input | `Engine::prepare_name_effects` lowers non-executing Program using a read-only catalog. Preparation executes no kernels, definition bodies or lookup/deletion effects. |
+| Output | Private immutable `name_effect_ir::Plan` retains Program, shared literal/function payloads, `Step { operation, output: Option<ValueId>, before: EffectToken, after: EffectToken, parser_step, span, blame }` and result ValueId. Operations are Literal/Function/Read/Take/Apply/Commit. |
+| Order | Explicit FrontendContext Stack/Reduce steps determine order. Parentheses alias values; a final single assignment commits. Follow item/node edges; spans only diagnose. Program remains the literal/function semantic authority; FrontendContext is never executed. |
+| Execution/errors | `Engine::execute_name_effects(&Plan)` verifies and checks POS admission, then runs each step once. It returns `Execution { result, completed: EffectToken, names: Vec<NameObservation> }`. Failure stops the chain without parser replay. Observations contain step, before/after LookupObservation and deleted, never array payloads. |
+| Reuse | Catalog POS is a precondition. Missing ordinary noun names or changed POS reject before effects. A missing TakeName binding fails at its actual step, not preflight. Values/shapes/versions/generations are not frozen. Catalog lookup failures during preparation are dynamic-parsing admission failures, not executed value errors. |
+| Example | After `a=:7`, `a_:+a` lowers to Read(a), primitive + value, Take(a), Apply(+), yielding 14. The right noun snapshots before left abandon deletes the binding. In `a_:+1 2+1 2 3`, length error precedes Take, so the binding survives. |
+| Initial scope | Top-level simple-name noun snapshot/Take, primitive noun operations, function Take transfer and a final single NAME assignment. Function transfer stores the actual execution-time value and preserves inner late NameRefs. |
+| Exclusions/downstream | No local definition frames, locales/locatives, modifier construction, dynamic verb application or intermediate/multiple/noun-target writes. Direct nameless conjunction application is not executed by this plan. This explicit API does not widen default eval or existing pure J Graph/Logical admission. Next connect pure array regions between effects to Graph/Logical. |
+| Ownership/verification | Freeze literals once and share between Program/plan. Move at last use; share only for multiple uses. `Plan::verify` re-derives operations from original parser edges, detecting omitted/reordered effects, forged tokens/SSA edges/provenance without running a J kernel or parser. |
+
+POS boundary example: prepare `b=:a` while `a=:7`, then delete a. The old noun plan rejects before execution, because a fresh J parse may store the missing ordinary NAME as a verb reference. This is admission, not an emulated J error; another route can be chosen before effects. In contrast, an actual `a+a_:` plan's lookup failure after right Take is an executed value error and retains deletion. Both C DLLs confirm the bare/assignment sentence outcome and deleted state.
+
+Final validation, 2026-10-08: native Windows default/portable each **647 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight Rust integration regressions, one verifier unit regression and two Python audit-adapter regressions. `reports/name-effects-windows.json`: **19 fixtures × two C DLLs = 38/38 matched**. Only the marked effect sentence executes through the new plan; setup/check use ordinary eval. Compared values/errors, deletion/failed final assignment, array alias/reshape/search, verb/adverb/conjunction and explicit-definition transfer, and inner late alias behavior. No failed plan retries through ordinary execution.
+
+Refreshed existing audits on final binaries: abandon **132 matched / 16 unsupported_gap**, assignment/definition/loop/nested/scope **416/416 matched**, frontend **50 matched / 18 runtime_gap**. These existing gaps have not closed. The new plan's 38 comparisons are separate from the existing two runtime routes. Reports record source/binary/probe/DLL hashes; the recorded C source pin and actual DLL release are not a same-source rebuild. Linux, GPU, full J, C diagnostic locations and GitHub CI were not tested.
+
+The planned pure-array J Graph/Logical connection is implemented by the follow-up contract below. Next is multi-Apply batching that preserves internal success positions. Local frames, intermediate writes and modifier construction are separate gates. Verification must prevent array optimization from removing, moving or duplicating NAME effects.
+
+### NAME effects to array IR execution checklist
+
+- [x] Add explicit array Input to J Graph/Logical, distinct from name reads. Supply snapshots after their effect token; never invent names/versions or turn them into literals.
+- [x] Lower each primitive Apply into a verified region with input SSA mapping, original parser step and entry/success tokens. Initially retain one Apply per error boundary.
+- [x] Add open-input Logical execution; reject NAME reads/writes/dynamic calls inside regions. Verify every region before effects; never retry another route after failure.
+- [x] Compare semantic and Logical routes for values/errors/deletion/failure tokens; extend both C DLL comparisons.
+- [x] Next examine batching consecutive pure Applies with multiple outputs and internal success positions. Never fuse/hoist outside token boundaries.
+
+
+### Implemented NAME array-region contract — 2026-10-08
+
+Multi-Apply batching execution checklist:
+
+- [x] Combine Applies and intervening immutable literal/primitive-function transport into one Graph/Logical batch, never crossing Read/Take/Commit or other parser steps. Declare external inputs and live-outs.
+- [x] Preserve each Apply's Logical operation range and original step/entry/success token as a checkpoint. Literal/function transport has zero-operation checkpoints. Restore parent failure and success position from internal progress, without replay.
+- [x] Move each external input once; preserve internal SSA lifetimes, external aliases and live-outs. Preparation never executes kernels or moves checks.
+- [x] Verify success, first/later Apply failure, NAME boundaries, live-outs and tampering with regressions, Windows default/portable and both C DLLs.
+
+`Engine::prepare_name_arrays` lowers each primitive Apply in a verified ordered NAME plan into an `ArrayRegion`. Immutable `ArrayPlan` retains the effect plan and regions. Each region carries its parent `step`, entry/success `EffectToken`, input NAME SSA `ValueId` list, output `ValueId`, J Graph and Logical plan. Original parser step/span/blame remain on the parent effect step. Graph Input indices map to that list; they are neither NAME reads nor stored literals. Runtime lookup/Take results are supplied only when their effect tokens are reached.
+
+`Engine::execute_name_arrays` verifies every region and POS admission before effects. Only the parent executor reads/deletes/commits names; regions compute values. Failure preserves parent diagnostic provenance, last successful token and deletion observations, with no replay through another route. Function transfer can have zero array regions. Admission currently requires canonical unspecialized lowering: verification authenticates original FunctionEntity, SSA/token mappings, semantic checks and ordering. Optimized regions will require a separate equivalence-witness contract.
+
+Graph schema **0.10** and A3 schema **0.6** add explicit `Input { index }`. `logical_executor::execute_with_inputs` validates arity and known dtype/shape/rank before execution. Use counts include semantic checks and the final result. Last use moves ownership; only repeated use introduces shared handles. A 4,096-integer +1 regression verifies actual data-pointer reuse for unique input and preservation when an external alias remains. This proves copy elimination, not measured performance superiority over C.
+
+The initial array-connection scope remains that of the parent ordered NAME plan. Local definition frames, locatives, intermediate writes, modifier construction and dynamic verb calls are separate gates. Default eval and existing pure Graph admission remain unchanged. The initial implementation retained one Apply error boundary; multi-Apply batching is implemented by the follow-up contract below. Fusion, GPU execution and async scheduling are not introduced.
+
+Final array-connection validation: native Windows default/portable each **656 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added eight integration regressions and one verifier unit regression. They cover region/input SSA and check tampering, actual storage reuse/alias preservation, shared fanout, reuse after shape/generation changes, and error span/parser blame/failure tokens. `reports/name-effects-windows.json`: **19 fixtures × two DLLs × two routes = 76/76 matched**. Both semantic and Logical routes execute only the marked sentence through a plan; setup/check use ordinary eval.
+
+Existing final-binary audits remain **548 matched / 16 unsupported_gap**; the separate frontend audit remains **50 matched / 18 runtime_gap**. These gaps are not closed. All **520 source/binary/DLL hashes** across eight reports match final files. C source pin and actual DLL release are unchanged; this is not a same-source rebuild, full J conformance or equivalence of C diagnostic locations/text. Validation ran only on this computer's Windows; GitHub CI, Linux and GPU were not tested.
+
+### Multi-Apply batch handoff/execution contract — 2026-10-08
+
+`ArrayPlan::batches()` returns private immutable `ArrayBatch` objects. Existing per-Apply `regions()` remain available for inspection of original boundaries. Execution uses a combined J Graph/Logical plan and one SSA workspace per batch. Batches never cross Read/Take/Commit or unsupported steps. Only immutable Literal/unused Function transport between first and last Apply is included. Order follows effect steps, never source-span heuristics.
+
+| Field | Contract |
+| --- | --- |
+| steps | Contiguous parent effect-step range including Applies and intervening value transport. |
+| inputs | `(parent ValueId, replaced use count)` list. Import actual lookup results once; Logical SSA manages internal fanout. |
+| constants | `(parent ValueId, original Program literal NodeId)` list, supplied as Graph/Logical Inputs after ordinary imports. Only immutable payload handles are shared early; no NAME lookup, dynamic noun computation, definition or constructor executes. |
+| outputs | `(parent ValueId, Logical ValueId)` values used outside the batch. Internal-only intermediates are not exported. Supports multiple results without changing the existing single-result Logical plan/schema. |
+| checkpoints | Original step, Logical operation range, entry/success token for every step. Apply ranges include semantic checks and the call. Literal/Function transport has zero-operation ranges preserving original success positions. |
+| failure | Logical execution reports the successfully completed operation prefix. Parent restores failing Apply span/parser blame and last successful effect token. Earlier NAME deletion remains; later Commit does not run. No replay through another route. |
+| verification | Before effects, derive canonical batches from the original effect plan and authenticate input/literal payload links, exports, checkpoints, original FunctionEntity, SSA, facts, checks and ordering. This does not yet admit arbitrary optimized plans via equivalence witnesses. |
+
+Example: `b=:1+2+a_:` performs Take(a), then both additions in one batch. The first result stays internal; only the last is exported to Commit(b). `b=:a_:+1+2+3` splits the right additions from the addition after Take. In `b=:1 2+a_:+3`, a length error in the second addition after successful Take/first addition retains deletion and preserves b. Failure provenance identifies the actual Apply, not the whole batch.
+
+Execution reuses existing semantic kernels. Last-use moves, shared fanout and export lifetimes are counted together; exporting an intermediate prevents a later in-place kernel from mutating it. Execution is sequential CPU, without kernel fusion, physical scheduling or GPU execution. Next is legal fusion/bufferization candidate analysis over verified batches, including cost and error-order witnesses. Local frames, intermediate writes and modifiers remain independent gates.
+
+Final batch validation: native Windows default/portable each **663 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added five integration and two unit regressions. Coverage includes internal checkpoints, constant/input mapping, external aliases, current-shape reuse, actual unique data-pointer reuse across two operations, first/later check/kernel failures with exact parent token/span/parser blame/NAME post-state, multiple/duplicate exports and tampering rejection. Pointer reuse proves copy elimination; no performance benchmark or advantage over C is claimed.
+
+`reports/name-effects-windows.json`: **26 fixtures × two DLLs × semantic/Logical routes = 104/104 matched**. Seven new batch cases covering success, NAME boundaries, first/later length failures, length/domain after deletion and alias preservation match **28/28**. Existing audits remain **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**. All **528 source/binary/DLL hashes** match final files. Source pin and DLL release are unchanged. This is not full J, C diagnostic text/location, performance, Linux, GPU or GitHub CI validation. Default eval and parent NAME-plan admission scope are unchanged.
+
+### Frontend A0.6 — pre-execution and return error boundaries
+
+Frontend E2E remediation is restored as the current priority. Array batching/fusion expansion is not a completion condition for this gate. Supported-subset E2E remains verified; runtime audit gaps are not all tokenizer/enqueue/parser defects. Distinguish unsupported NAME/numeric/modifier execution from missing frontend handoff information.
+
+- [x] Attach `DefinitionAdmission` to pre-execution valence, unsupported control/framing, invocation-depth and frame-preparation failures. Map known control/statement sites; otherwise use the actual definition span.
+- [x] Attach `DefinitionReturn` to final noun-result and implicit-return fixing failures. Preserve the last result-producing body fragment without inventing queue blame.
+- [x] Preserve existing DefinitionBody/DefinitionCall chains and caller-relative span/blame. Return failures stay outside body catches; earlier effects, failed assignment and local-frame cleanup remain unchanged.
+- [x] Validate Windows default/portable, fmt/clippy, Python and error-kind/post-state against both C DLLs. Do not claim C diagnostic text/location equivalence.
+- [x] Implement source-unit/file identity and nested definitions' root-source provenance. Follow the validation and limits in the next section.
+
+The concrete handoff remains `ErrorContext.source_frames` containing `DiagnosticSourceFrame { kind, source: Arc<str>, definition_span, span, blame_word_index }`. Add DefinitionAdmission/DefinitionReturn kinds without replacing the structure. `DefinitionCode::diagnostic_error` adds source-owned context without changing J error kind or caller coordinates. Renderer labels are `before definition execution` and `returning from definition`. Source maps retain doubled quotes/UTF-8/CRLF coordinates; shared source survives redefinition.
+
+Pinned C `cx.c` performs the final noun check and `FIXAFIRSTIMPLOCONLY` after body execution. Example: `f=:3 : '+'` called with `f 0` raises a post-body noun-result error. Returning from `f=:3 : 'count=:count+1\ntry. local=.+ catch. 42 end.'` fails outside the body catch, retaining count's increment while the caller's failed assignment never commits. Unsupported select execution rejects before body effects. That is RustJ admission policy, not C-compatible select execution.
+
+Final validation: native Windows default/portable each **668 passed / 0 failed / 0 ignored**, Python **69 passed**, fmt/clippy(all-targets) passed. Added five regressions, bringing `definition_diagnostics` to nine. Coverage includes control/valence admission, explicit/direct final noun checks, implicit-return domain/Unsupported, nested frame order and repeated-failure cleanup, return failure versus catch/prior global effects/failed assignment/local lifetime, escaped quotes/UTF-8/CRLF and source lifetime after redefinition.
+
+Definition-call audit: **36 fixtures / 144 observations = 144/144 matched**, with all **20/20** new comparisons passing across five cases, two DLLs and two routes. CLI multiline bodies use explicit `3 : 0` blocks; API/hex probes validate string form. Existing NAME/assignment/definition/loop/nested/scope audits total **568 matched / 16 unsupported_gap**. Frontend audit adds four matching error/post-state cases: **38 cases / 76 observations = 58 matched / 18 runtime_gap**; nine unique gaps remain. Separate NAME effect/array audit remains **104/104 matched**. All **528 source/binary/DLL hashes** across eight reports match. C source pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` do not imply a same-source rebuild. Full J, C diagnostic text/location, Linux, GPU and GitHub CI were not tested.
+
+This closes the A0.6 pre-execution/return-frame omission item, not all A0.6 or full frontend conformance. Source-unit/file identity and nested-source → root-source provenance are addressed below; error categories/stage admission follow.
+
+### Frontend A0.6 — input identity and nested root-source provenance
+
+Purpose: connect tokenizer/enqueue/parser fragment coordinates to an immutable input revision. Input is `SourceUnit { id, name, text }` plus checked `SourceOrigin`; outputs are `FrontendContext.source_origin` (schema 3), `DefinitionSource.origin`, `DefinitionCode.origin` and `DiagnosticSourceFrame.origin`. Process-local SourceUnitId distinguishes rereads of identical paths/text. It is not FrontendUnitId, scope, binding version or SSA identity and does not change structural function equality.
+
+SourceOrigin composes shared source slices, decoded-body sparse quote maps and statement slices. Nested definitions created during body reparsing preserve their parent chain. Slices share Arc/ranges; there is no per-byte root map, source-search heuristic or noun-payload copy. Body maps are shared once per invocation. UTF-8/range validation rejects invalid slices; verifiers check parser/origin text agreement. This preserves names and source offsets without deciding CFG, batching, physical storage or replay.
+
+Public boundary: `SourceUnit::new(...).origin().slice(range)`, `parser::parse_frontend_source`, `Engine::eval_source_diagnostic`, `Engine::eval_source_captured`. Existing string APIs create anonymous `<input>` units. File CLI retains the original input once and uses the collector only for framing; evaluation uses exact original byte ranges including internal CRLF. Existing frame source/span/definition_span remain local; `origin.root_span(...)` yields file coordinates. Caller span/queue blame stay unchanged. Rendering uses root file name/line/column.
+
+Example: a nested `inner=:{{ missing+y }}` inside an outer explicit block reports inner failure and outer callsite in their original definition file, followed by the separate external caller. A globally retained inner function keeps its input revision after outer redefinition and dropping the input handle.
+
+- [x] Immutable input identity, checked slice/body-map composition, separate structural semantic equality.
+- [x] Carry provenance from enqueue constructors through parser results/captures, nested reparsing and diagnostic frames.
+- [x] File CLI uses raw LF/CRLF input; anonymous APIs explicitly retain their input unit.
+- [x] Six regressions cover explicit/direct nesting, quotes/UTF-8, escaped function/redefinition lifetime, admission/return, same-path revisions, forged verifier input, frontend success/failure/capture and raw LF/CRLF file CLI on both routes.
+- [x] Native Windows default/portable each **674 passed / 0 failed / 0 ignored**, fmt/clippy(all-targets), Python **69 passed**. Existing C audits retain **568 matched / 16 unsupported_gap**; frontend **58 matched / 18 runtime_gap**; NAME effects **104/104 matched**. All **536 source/binary/DLL hashes** across eight reports match. Nine unique frontend runtime gaps remain; new provenance regressions are Rust-side validation. C pin/DLL release are unchanged from the previous section and do not establish a same-source rebuild. C diagnostic text/location, full J, Linux, GPU and GitHub CI were not tested.
+
+Limits: retained definitions keep the whole file Arc alive. Editable source management, persistent/distributed IDs and dynamic-execute provenance are not implemented. stdin remains anonymous per-input source, not whole-session file coordinates. RustJ provenance does not imply C diagnostic text/location equivalence. Next A0.6 work is error categories/stage admission. Remaining NAME/numeric/modifier compatibility and downstream admission are separate gaps; full frontend E2E completion is not claimed.
+
+
+<a id="read-roadmap"></a>
+<a id="part-xiv--architecture-convergence-roadmap"></a>
+# Part XIII — Architecture convergence roadmap
 
 <a id="architecture-migration-checklist"></a>
 
+
+### Frontend A0.6/P8 — failure ownership and verified handoff
+
+`FailureCategory` distinguishes JLanguage, UnsupportedCapability, VerifierDefect and BackendFailure. Existing J error kinds remain stable. Invalid compiler IR uses `Error::Verification`/`verifier failure`; failure of an admitted implementation uses `Error::Backend`/`backend failure`. Definition handlers use the shared `Error::is_j_catchable` policy only during actual execution. Capability, verifier and backend failures bypass J catches, preserve prior effects and never authorize automatic replay. The backend category is a contract with negative tests, not a new backend/CUDA implementation.
+
+Read-only boundaries are `admission::{Stage, Admission<T>, Rejection}` and Engine's `admit_frontend`, `admit_frontend_handoff`, `admit_semantic`, `admit_j_graph`, `admit_logical`, `admit_name_effects`, `admit_name_arrays`. Input is source under the current catalog; output is that stage's representation or requested boundary plus original Error/category/known context. Frontend/handoff parse failures retain FrontendFailure.context prefixes. Requested boundary is distinct from the originating diagnostic phase. Even syntax/domain errors discovered by inspection cannot enter a J handler. `may_inspect_another_route` permits another read-only inspection for capability misses, never execution, fallback or replay. Acceptance proves neither downstream/target admission nor mutable NAME guards.
+
+`frontend_handoff::VerifiedFrontend` is an immutable checked boundary around the existing Arc<Program>, not another IR. It preserves the same Arc<FrontendContext>, original word/item/reduction records, NAME policy/resolution/evidence/binding observations and source origin. Verification checks completed Deferred parsing, source/root agreement, expression NAME/function-Arc/operand edges, final simple/noun assignment targets/copula flags/resolved names/single-word abandon, and DefinitionCode body/name-plan/control/source-map contracts. It does not recompute arbitrary literal values from source; the parser-produced Program remains the value authority. Observed captures and failure prefixes are not deferred executable input.
+
+Requirements explicitly identify a name environment, ordered NAME effects, late function lookup, construction observations and deferred definition bodies. These are downstream obligations, not POS/shape/purity/lookup proofs. Modifier result POS and constructor snapshots survive. DefinitionCode.name_plan retains monad/dyad local declarations, global writes and unbound-local fallback context; frontend does not decide body execution, CFG or local SSA binding. Literal payloads become shared once. `lower_name_effects()` lowers the same Program/context through the existing bounded ordered NAME adapter; prepare_name_effects now uses this boundary too.
+
+Example: prepare `b=:1+a_:` while a=7, then change a to 20. Handoff/lowering do not read/delete/compute it; the explicit executor later reads/deletes current a and commits b=21. `b=:a+a_:` retains deletion when a subsequent read fails. Ordinary binding/Graph rejection is distinct from ordered NAME admission. Captured execution cannot replay the sentence.
+
+- [x] Four error categories, context/unlocated preservation, actual J catches versus read-only rejection.
+- [x] Distinguish explicit verifier failures in Graph→A3, capture→Graph, Logical execution and ordered NAME/array/batch boundaries. Valid-plan input arity/fact mismatches remain capability misses.
+- [x] Typed stage admission, frontend/handoff failure prefixes, representation acceptance separate from execution/guard authority.
+- [x] Verify the same Program/context and connect bounded NAME lowering; preserve modifier/definition local/global context and reject observed replay.
+- [x] Add 15 Rust regressions and four Python audit-contract tests. Audit F(frontend)/H(handoff)/P(binding)/G(Graph)/L(Logical)/R(actual execution) separately, with machine-readable category/handler authority. P rejection is not automatically a tokenizer/parser failure. Observed verifier/backend defects fail the audit instead of being hidden as runtime gaps.
+- [x] Native Windows default/portable each **689 passed / zero failures / zero ignored**, fmt/clippy(all-targets) and Python **73 passed**. Existing C NAME/definition audits: **568 matched / 16 unsupported_gap**; NAME effects/arrays **104/104 matched**; frontend **58 matched / 18 runtime_gap**. Across 38 independent frontend cases, F/H each admit 24 representations, reject 12 capabilities and retain 2 J diagnostics; P counts are 20/16/2, G 19/17/2, L 18/18/2, with zero verifier/backend failures. F/H acceptance is not full-J conformance. All **552 source/binary/DLL hashes** across eight reports match. C diagnostic text/locations, Linux, GPU and GitHub CI were not tested.
+
+Limits/follow-up: this implements the current frontend and connected verifier boundaries, not every legacy Unsupported site or future backend. General locatives/locales, boxed/AR targets, complex/extended/rational payloads, numeric conversions outside N1 and unsupported modifiers remain separate compatibility gates. Runtime-dependent/non-final parsing keeps its semantic-runtime boundary; static prefixes are not executable continuations. Body Graph/Logical/CFG and general modifier-effect lowering remain downstream. Next frontend compatibility unit is separating numeric recognition from typed literal payload conversion for exact/complex families.
+
+### Frontend numeric conversion N1 — decimal integer overflow
+
+Scope is suffix-free decimal integer words. C `wn.c::jtnumi/jtconnum` admits the signed 64-bit boundaries; if any atom overflows, it rereads the entire word as Float and suppresses Int/Bool narrowing. Other integers in that word therefore undergo Float rounding too. Exact `x` integers and `r` rationals are outside this rule and remain Unsupported. No new IR or host/device storage decisions belong in this frontend change.
+
+- [x] Review pinned C source whole-word promotion and Windows DLL observations.
+- [x] Convert scalar/array overflow to Float payload while retaining in-range Int precision.
+- [x] Regress boundaries, negatives, long decimals, mixed words, later malformed numbers and definition/assignment failure state.
+- [x] Compare frontend/handoff/Graph/Logical/execution and both C DLLs; rerun all eight existing audits.
+- [x] Record full Windows default/portable, Python, fmt/clippy and hash evidence; push.
+
+Strict C comparison also exposed existing Float JSON formatting: a shortest-roundtrip spelling such as `9223372036854776000` is decoded as an exact integer, which compares differently from the underlying Float. Finite Float JSON now always retains decimal/exponent notation and preserves `-0.0`. The fix does not change dtype=8 into an integer dtype or relax comparison tolerances. `tests/numeric_overflow.rs` also checks numeric spelling bit round-trips.
+
+
+Executed evidence: native Windows default/portable each **696 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **79 passed**. New numeric corpus: **18 fixtures × two DLLs = 36/36 matched**, including actual errors and post-assignment state, with no gap waiver. Each DLL's separate numeric grammar audit has **2,485 cases / zero failures**; this is recognition evidence and does not count payload/precision boundaries as passes. Existing frontend audit improves to **60 matched / 16 runtime_gap**, leaving eight independent runtime gaps. NAME/definition audits retain **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched**. `tools/verify_frontend_reports.py --assets-root ../rustj-project-docs` verifies **11 reports / 631 source/binary/DLL hashes**. Existing source/DLL pin and bounded-evidence limits still apply. JSON formatting is a machine-output compatibility change, not evidence of faster kernels. Linux, GPU and GitHub CI were not run.
+
+Next numeric gates are decimal-spelling-dependent minimal Bool/Int/Float dtype selection and real-family ratio conversion, followed by exact/complex payloads and Value storage contracts. Do not silently turn new literal families into Float or execute NAME parsing to fill gaps. General locatives/locales, boxed/AR targets, modifier boundaries and body Graph/Logical/CFG remain incomplete.
+
+
+### Frontend numeric conversion N2a — integer spelling and Bool narrowing
+
+C `wn.c::jtconnum` uses `bcvtmask` to suppress Bool narrowing when two non-whitespace characters occur consecutively. The single-digit and two-character negative scalar fast paths are exceptions. Thus `1` is Bool, `01` is Int, `_0` is Bool, and `0 _0` is an Int array. This unit only covers suffix-free integer spellings; scientific real-to-Int narrowing and real ratios remain separate incomplete gates.
+
+- [x] Review scalar/word dtype differences in C source and both Windows DLLs.
+- [x] Determine Bool narrowing from the entire scalar/word spelling.
+- [x] Regress tokenizer/enqueue/parser/handoff/Graph/Logical and runtime/definition/assignment result dtypes.
+- [x] Run an independent strict C corpus, existing audits, full Windows regressions and hash checks; push.
+
+Executed evidence: native Windows default/portable each **698 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **79 passed**. `numeric-integer-dtype-windows.json`: **18 fixtures × two DLLs = 36/36 matched**; N1 overflow **36/36 matched**. Existing frontend **60 matched / 16 runtime_gap**, NAME/definition **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched** remain unchanged. Each DLL's numeric grammar audit has **2,485 cases / zero failures**, retaining separate payload/precision boundaries. `tools/verify_frontend_reports.py --assets-root ../rustj-project-docs` confirms **12 reports / 698 source/binary/DLL hashes**. This does not verify C diagnostic locations, full J, Linux, GPU or GitHub CI.
+
+Scientific real-to-Int narrowing and whole-word dtype combination remained open at N2a completion; implementation/validation follows separately in N2b below. At that point RustJ made `1e0` Float while C made it Int. Real ratios, exact/complex payloads and general NAME/locale boundaries remain incomplete after N2b.
+
+
+### Frontend numeric conversion N2b — exact scientific real-to-Int narrowing
+
+Input is a numeric word handled by the current real constructor; output remains the same Scalar/Value literal. Follow C `wn.c::jtnumcase/jtconnum`, `k.c::jtbcvt/jtIfromD` and `j.h::ISFTOIOKFZ`. `CVTNOFUZZ` permits only exactly integral Floats within signed 64-bit range `[-2^63, 2^63)`. A lowercase e anywhere and no dot permit real-path narrowing for the entire word. Uppercase E alone takes the failed INT-reader path and suppresses narrowing; mixed lowercase e selects the real path. Integers mixed into a real word are first parsed as Float, so the first atom of `9007199254740993 1e0` becomes 9007199254740992. No Bool narrowing, exact/ratio payloads, NAME execution or physical storage decisions are added.
+
+- [x] Review pinned C source and both DLLs for boundaries/spelling/whole-word behavior.
+- [x] Retain the entire word as Float if any atom cannot narrow; check range before conversion.
+- [x] Regress parser/handoff/Logical, execution, definitions, assignments and failure provenance.
+- [x] Run a strict scientific corpus, existing audits, Windows default/portable, Python, fmt/clippy and hash checks; push.
+
+Executed validation: native Windows default/portable each **703 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **79 passed**. Five new `tests/numeric_scientific.rs` regressions cover exact range/integrality, spelling masks, whole-word rounding, handoff/Logical and definition/assignment failure state. `numeric-scientific-windows.json` combines 40 fixed cases with 7 mantissas × 7 exponents × e/E × scalar/real-word/dot-word (294 combinations): **334 fixtures × two C DLLs = 668/668 matched**. Each frontend/handoff/binding/Graph/Logical inspection accepts 332 representations and retains two J input diagnostics, with zero verifier/backend failures. Representation acceptance, actual C result comparison and native compiled execution are different claims.
+
+Existing N1 overflow and N2a integer dtype each remain **36/36 matched**; frontend **60 matched / 16 runtime_gap**, NAME/definition **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched** remain unchanged. Each DLL's numeric syntax audit has **2,485 cases / zero failures**, recording payload/precision boundaries separately from recognition evidence. The persistent verifier confirms **13 reports / 765 source/binary/DLL hashes**. Existing DLL release versus reviewed-source pin limitations remain; C diagnostic text/locations, full J, Linux, GPU and GitHub CI were not verified.
+
+The decimal real-family ratio unit pending after N2b is implemented and verified in N2c below. Remaining: Exact/complex payloads, general locales/locatives, boxed/AR targets, modifier boundaries and body Graph/Logical/CFG remain separate tasks. N2b fixes literal semantics; it does not establish faster kernels or a complete frontend.
+
+### N2c — decimal real-family ratio conversion (2026-10-08)
+
+Contract: read the two decimal operands as f64 only after whole-word numeric mode/grammar validation. `1r2.0` is Float; `2r1 1e0` follows existing exact Int narrowing. Exact rational `1r2` and hexadecimal ratio payloads remain explicit Unsupported boundaries. No name lookup, deferred execution or physical memory planning is added.
+
+- [x] Check pinned `wn.c::jtnumfd` and Windows C behavior for type masks and signed zero/zero denominators.
+- [x] Implement decimal ratio conversion and J signed 0/0 and infinity rules.
+- [x] Verify enqueue→handoff→Logical→capture, definition local/global and failed assignment regressions.
+- [x] Re-run both C DLL strict corpus and existing audits; verify report hashes.
+- [x] Run Windows default/portable, fmt/clippy and Python checks, then commit/push.
+Executed validation: native Windows default/portable each **708 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **80 passed**. Added five regressions and updated two old unsupported expectations. Strict ratio audit: 22 fixed cases plus 9 numerators × 7 denominators × dot/scientific word contexts (126 combinations), **148 fixtures × two C DLLs = 296/296 matched**. Comparison distinguishes signed zero and checks values, types, shapes, error kinds and post-failure assignment state. Each frontend/handoff/binding/Graph/Logical inspection accepts 143 representations and retains five J input diagnostics, with zero verifier/backend failures.
+
+N1 overflow and N2a integer dtype each remain **36/36**, N2b scientific **668/668**, NAME effects/arrays **104/104 matched**. Frontend **60 matched / 16 runtime_gap** and NAME/definition **568 matched / 16 unsupported_gap** remain bounded gaps. Each DLL's numeric syntax audit has **2,485 cases / zero failures**; accepted nouns increase 184→198 and valid payload boundaries decrease 850→836. Other precision/recognition boundaries remain separately counted. The persistent verifier confirms **14 reports / 832 source/binary/DLL hashes**.
+
+The finite extended integer part of the next exact-payload/Value-storage work is addressed in N3a below; exact rational/complex remain follow-ups. Decimal ratios have f64 semantics and do not substitute for exact rational construction. Hexadecimal ratios, general locales/locatives, boxed/AR targets, modifier boundaries and definition body Graph/Logical/CFG remain incomplete. Existing reviewed-source versus DLL-release pin limitations apply; no full J, C diagnostic text/location, native compiled execution, Linux, GPU or GitHub CI validation is claimed.
+
+
+### N3a — finite extended integer payload and storage contract (2026-10-08)
+
+The first exact payload unit is the finite decimal `x` family. Parse all atoms as BigInt only after whole-word mode/grammar proves Extended. Preserve precision and dtype 64 in `1x 9007199254740993`; do not capture words belonging to rational/complex modes.
+
+Storage contract: `Data::ExtendedInt(CpuStorage<Arc<BigInt>>)` shares immutable exact atoms. Scalars use Inline, arrays Owned, NAME boundaries Shared buffers. Selection/views/rearrangement clone atom Arcs without copying limbs. This CPU runtime carrier introduces no GPU addresses, BufferId or physical layout into Logical IR. JSON uses exact decimal strings. The native affine physical adapter still rejects this type.
+
+- [x] Typed whole-word mode and finite extended payload construction.
+- [x] Value/views/type facts/sharing/selection/empty fills and structural operations.
+- [x] Exact basic arithmetic and Unsupported boundaries for missing operations.
+- [x] NAME aliases/definition local/global/failed assignment, precision and downstream regressions.
+- [x] Both C DLL comparisons, existing audits/hashes, Windows default/portable/fmt/clippy/Python.
+- [x] Update bilingual docs and commit/push; skip GitHub CI.
+Implemented scope: whole Extended-mode words including unsuffixed integers, scalar/vector storage, exact `+`/`-`/`*`/`=`/`<`/`>` with Bool/Int, monadic `+`/`-`/`*`/`|`, shape/tally/ravel/reshape/reverse/transpose/from/scalar take/drop/rotate and scalar box/open. Shape/tally/signum Semantic/Logical type facts preserve dtype 64. With an unresolved dynamic NAME dtype, these results remain Unknown rather than claiming machine Int. Unsupported extended reductions do not acquire definite Bool/Int result facts. Structural operations do not copy limbs; absolute value also reuses nonnegative atoms. Words belonging to rational/complex modes retain their boundaries.
+
+The C bridge uses public J formatting, avoiding private GMP pointers, to extract exact decimal atoms while preserving original shape. Dtype 64 JSON contains decimal strings without Python Float conversion or integer digit-limit dependence. Frontend reports also hash this oracle code. New strict corpus: **63 fixtures × two C DLLs = 126/126 matched**; each frontend/handoff/binding/Graph/Logical inspection has **60 accepted representations / three J input diagnostics**, with zero verifier/backend failures.
+
+Remaining: exact rational/complex payloads; extended rational division, Float mixing, i.-family, catenate, general reduce/rank assembly, sparse and native physical adapters. Missing capabilities are not disguised as J language errors. Mapping BigInt limb/Arc allocator failure to C workspace-full, large-memory measurements and performance remain unverified. Existing source-pin/DLL-release limitations and lack of full J, C diagnostic text/location, native compiled execution, Linux or GPU evidence remain.
+
+Final executed validation: Windows default/portable each **716 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **82 passed**. Added seven regressions for exact storage/precision, Arc sharing/selection/release, structural operations, handoff/Logical/capture, definitions/assignment and missing capabilities, plus one dtype/dynamic-Unknown inference regression. Two Python bridge regressions cover very long integers, signs, empty arrays and malformed decimal output.
+
+Existing strict numeric audits retain overflow **36/36**, integer dtype **36/36**, scientific **668/668** and real ratio **296/296 matched**. Frontend improves to **62 matched / 14 runtime_gap**; NAME/definition stays **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched**. Each DLL's numeric syntax audit has **2,485 cases / zero failures**, accepted nouns 198→224 and valid payload boundaries 836→810, with other precision/recognition boundaries kept separate. Verified **15 reports / 918 source/binary/DLL hashes**. GitHub CI was not run.
+
+The rational finite/non-finite construction and storage follow-up identified at N3a is implemented in N3b below. Complex payloads and remaining extended operations expand through separate checklist units; CUDA remains planned only.
+
+
+### N3b — rational literals, non-finite values and shared storage (2026-10-08)
+
+Contract: normalize exact numerator/denominator only after whole-word mode/grammar proves Rational. Finite values have reduced fractions and positive denominators; zero is 0/1, infinities ±1/0. Pinned `wn.c::jtnumr`/`vq.c::qstd` and Windows DLLs confirm `0r0`→zero, `1r0`→infinity, `1r_`→zero, `_r_0`→negative infinity. Preserve dtype 128 across the whole Rational word, even for integral values; do not capture real/complex-mode ratios.
+
+Storage: `Data::Rational(CpuStorage<Arc<Rational>>)` shares normalized exact atoms. Scalars use Inline, arrays Owned, NAME boundaries Shared; selection/views/rearrangement do not copy atom contents. JSON atoms are objects with decimal-string numerator/denominator. Only the CPU runtime carrier expands; physical adapters/GPU layouts and rational arithmetic are separate follow-ups.
+
+Implemented scope: rational literals and integer/extended mixed words, shape/tally (dtype 64), ravel/reshape/reverse/transpose/from/scalar take/drop/rotate and scalar box/open. `Rational::new` retains its Result API while expanding 0/0 to 0/1 and nonzero numerator/0 to ±1/0. Example JSON atom: `{"numerator":"9007199254740993","denominator":"2"}`. Fraction reduction uses finite BigRational only; rearrangement clones atom Arcs.
+
+C validation: 225 fixtures × `j.dll`/`javx2.dll` = **450/450 matched**. The pinned `j.dll` traps internally in `vq.c` (0xc000001d) for a 200-digit numerator/zero denominator. Six source combinations are excluded from both comparison sets and recorded under `reference_exclusions`, never counted as passes. Reviewed source `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` and DLL release `ded7793fe5795d79eda8e7138dce94aa056edf78` are not a same-source rebuild.
+
+Limits/next: rational arithmetic/comparison, Float/Complex mixing, rational count/index coercion, catenate, general reduce/rank assembly, sparse/native physical adapters remain distinct Unsupported boundaries. BigInt/Arc allocation failure to workspace-full, large-memory limits/performance, native compiled execution and Linux/GPU remain unverified. The N3b arithmetic/comparison follow-up is implemented in N3c below; CUDA remains planned only.
+
+- [x] Implement finite/infinite/zero and whole-word construction.
+- [x] Connect Value/views/type facts/sharing/selection/empty fills/structural operations.
+- [x] Regress NAME aliases, explicit/direct local/global, failed assignment and handoff/Logical/capture.
+- [x] Preserve Unsupported boundaries for rational arithmetic/mixing/reduce/rank/native adapters.
+- [x] Both C DLL strict comparisons, existing audits/hashes, Windows default/portable/fmt/clippy/Python.
+- [x] Update bilingual docs/checklists, commit/push; skip GitHub CI.
+
+Executed validation: Windows default/portable each **725 passed / zero failures / zero ignored**, fmt/clippy(all-targets) pass, Python **85 passed**. Includes eight new Rust regressions plus one type-fact regression and three Python exact-formatter regressions. Covers alias/overlap/Weak release, failed-assignment state, explicit/direct local/global, enqueue/handoff/Logical/capture and capability boundaries.
+
+Existing strict numeric audits retain overflow **36/36**, integer dtype **36/36**, scientific **668/668**, real ratio **296/296** and extended **126/126 matched**. Frontend audit: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**. Each DLL numeric-syntax audit has **2,485 cases / zero failures**, **313** accepted nouns and **721** valid payload boundaries, with precision/recognition boundaries separate. Verified **16 reports / 1,001 source/binary/DLL hashes**. GitHub CI was skipped. This is not full J or C diagnostic text/location equivalence.
+
+### N3c — exact rational arithmetic/comparison (2026-10-08)
+
+Contract: connect canonical N3b rationals to CPU `+`/`-`/`*`/`%`/`=`/`<`/`>` and monadic `-`/`|`/`*`/`%`. Bool/Int/ExtendedInt mixing promotes exactly; Float/Complex mixing remains a separate capability boundary. Finite operations use num-rational exact arithmetic; non-finite cases follow explicit pinned `vq.c` rules first. Opposite-infinity addition, same-infinity subtraction and infinity/infinity division raise J `NaN error` through shared diagnostics/try handling and transactional assignment. Zero times infinity and zero divided by zero yield rational zero. No parser deferral, physical adapter or GPU placement changes.
+
+Implementation/validation boundary: arithmetic results retain dtype 128 even when integral, comparisons return Bool, and monadic signum returns ExtendedInt (dtype 64). Rational on either side supports exact Bool/Int/ExtendedInt mixing. Division of two ExtendedInts is not included. Finite calculation constructs BigRational from canonical inputs, uses num-rational reduction/exact BigInt operations, and moves the canonical result via `into_raw` without a second reduction. Input atoms are borrowed, but finite numerator/denominator working values are cloned: arithmetic still copies limbs and allocates. Existing arrays/NAME aliases remain immutable; nonnegative absolute atoms reuse Arcs. No performance advantage or allocation-free arithmetic is claimed.
+
+C-specific rule: independently initialized DLLs return positive infinity for `1r0%_1r2` and negative infinity for `_1r0%_1r2`. Match `vq.c::qdiv`/`QdivQQ` zero-denominator behavior retaining the infinite numerator sign rather than ordinary real-division sign rules. This is covered by the strict Cartesian regressions. Existing reviewed-source versus DLL-release pin limitations remain.
+
+Remaining: Float/Complex/Char mixing, rational count/index coercion, catenate/general reduce/rank assembly/i.-family/sparse/native physical adapters. Limb/Arc OOM to J workspace-full and large-memory/performance measurements remain unverified. CUDA stays planned only. The ExtendedInt division follow-up is implemented in N3d below; rational reduction/assembly remain the N3e/N3f gates.
+
+- [x] Check C source/DLL finite/non-finite, promotion and errors.
+- [x] Connect exact arithmetic/comparison, unary operations, type facts and shared diagnostics.
+- [x] Independent expectations, broadcast/empty/alias, failed assignment/try, definitions and IR regressions.
+- [x] Both C DLL strict comparisons, refresh existing reports, Windows default/portable/fmt/clippy/Python.
+- [x] Update bilingual documentation/checklists, commit/push; skip CI.
+
+Executed validation: Windows default/portable each **731 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Six new Rust regressions and expanded type-fact/handoff/Logical/capture coverage verify exact 200-digit cancellation, promotion, infinity/NaN, prefix agreement/empty arrays, aliases/absolute Arc sharing, failed assignment, try, explicit/direct locals and shared diagnostics.
+
+Rational strict audit including prior construction: **649 fixtures × two DLLs = 1,298/1,298 matched**. The six N3b C-trap source exclusions remain recorded and are never passes. Existing strict numeric audits (overflow 36, integer dtype 36, scientific 668, real ratio 296, extended 126) remain matched. Frontend: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**; numeric syntax per DLL: **2,485 cases / zero failures**. Reverified **16 reports / 1,001 hashes**. No native compiled execution, full J, C diagnostic text/location, Linux/GPU/CI equivalence claim.
+
+### N3d — ExtendedInt exact division/reciprocal and three next units (2026-10-08)
+
+The immediate exact numeric follow-up has three acceptance units: (1) N3d conditional Rational promotion for ExtendedInt division/reciprocal (this change), (2) N3e rational right-fold reduction/empty identity/type/error ordering, (3) N3f rational rank result assembly/mixing/fill/empty frames. Completing (1) leaves two in this bounded group. This is not a full J or whole-RustJ remaining-stage count. Numeric/primitive, locale/modifier and definition-body analysis gaps, M3 boundary verification, M4 native CPU, optimization/performance and future GPU work remain; raw checkbox counts do not form a project estimate.
+
+Contract: support `%` with at least one ExtendedInt and both operands Bool/Int/ExtendedInt, plus monadic `%`. Pinned `vx.c::jtxdiv`/`va2.c` retain dtype 64 if every result is an exact integer; one fractional or infinite atom promotes the entire result to dtype 128. Zero/zero is integer zero, nonzero/zero rational infinity, empty outputs dtype 64. Preserve existing Rational-input dtype 128 and ordinary Int/Int Float division. Static facts remain Unknown without divisor/value proof; actual capture records exact dtype. Use num-integer single div_rem, moving earlier exact quotients on first promotion; inputs/NAME aliases remain immutable.
+
+Implementation details/limits: make already-transitive num-integer 0.1.47 a direct dependency for BigInt `div_rem`. Move private exact-prefix quotients out of Arcs into Rational numerators without recomputing earlier inputs. Two output vectors may coexist during promotion; Rational construction and limb/Arc allocations remain. OOM to J workspace-full, large peak-memory behavior and performance superiority remain unverified. Float/Char/Complex mixing stays Unsupported. This does not complete general reduce/rank, search, native physical adapters or GPU execution.
+
+- [x] N3d: both C DLL divisible/nondivisible/zero, whole-array promotion, empty, mixed/reciprocal rules.
+- [x] N3d: CPU implementation; independent expectations, broadcast/aliases/failed assignment, definitions/handoff/Logical/type-fact regressions.
+- [x] N3d: extend/refresh strict reports, Windows default/portable/fmt/clippy/Python, docs/commit/push (skip CI).
+- [x] N3e: rational right-fold/empty identity/error/type preservation with independent C gate.
+- [x] N3f: uniform-cell rational rank assembly/exact mixing/fill/empty-frame contract with independent C gate (nonuniform padding is separate).
+
+N3d executed results: Windows default/portable each **736 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Five new Rust regressions plus expanded handoff/Logical/capture/type-fact tests verify integer/fraction promotion, reciprocal, 200-digit values, prefix agreement/empties, NAME aliases, locals and failed assignment.
+
+Expanded rational/exact-division strict audit: **822 fixtures × two DLLs = 1,644/1,644 matched** (173 new fixtures/346 observations since N3c). The six existing C-trap source exclusions remain separately recorded, never counted as passes. Existing overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** remain matched. Frontend: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**; numeric syntax per DLL: **2,485 cases / zero failures**. Reverified **16 reports / 1,001 hashes**. At N3d this exact numeric follow-up group had **two unfinished units, N3e/N3f**; completion of N3e below leaves N3f. GitHub CI was skipped. No full J, C diagnostic text/location, native compiled execution, Linux/GPU validation claim.
+
+### N3e — rational primitive right-fold reduction (2026-10-08)
+
+Contract: monadic `+/`/`-/`/`*/`/`%/` on Rational folds right along the leading item axis. Scalars/single items retain dtype and atoms; ordinary nonempty results retain dtype 128. Pinned `ar.c::jtreduce`/`ai.c::jtiden` distinguish zero items from positive items/zero atoms: zero items return Bool 0/1 identities with tail shape; two or more items with a zero tail extent produce empty Int for add/subtract, Bool for multiply, Float for divide. One empty item retains Rational. Static Semantic/Logical dtype facts obey this shape contract, keeping unknown shapes Unknown.
+
+CPU borrows input Arc atoms, shares the last item into one private output, then replaces its atoms in right-fold order. Avoid per-row intermediate whole-array copies; introduce no unproven reassociation or parallelism. Preserve J NaN errors, failed assignment, try and NAME aliases. No primitive-identity/Rank/body CFG/physical/GPU contract expansion.
+
+Limits/next: general derived-reduction empty prototypes, dyadic insert, extended-only reduction, sparse and unsupported verbs remain outside this unit. N3f rank assembly remains unfinished; primitive reduce success does not establish general rank execution. Finite Rational arithmetic still copies limbs and allocates atom Arcs. OOM to workspace-full, large peak-memory behavior and performance superiority remain unverified. Preserve reviewed-source versus DLL-release and native compiled execution/C diagnostic locations/text/Linux/GPU limitations.
+
+- [x] Both C DLL finite/non-finite/right-fold/scalar/one/zero item/empty-tail outcomes.
+- [x] Shared CPU primitive reduce and Semantic/Logical dtype facts.
+- [x] Independent exact expectations, shape/empties, aliases/release, failed assignment/try, definitions/handoff/Logical/capture regressions.
+- [x] Extend strict C audit, refresh existing reports/hashes; Windows default/portable/fmt/clippy/Python.
+- [x] Update docs/checklists, commit/push (skip CI); N3f rank result assembly remains next.
+
+N3e executed results: Windows default/portable each **741 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Five new Rust regressions plus expanded type-fact/handoff/Logical/capture tests cover exact right-fold, 200-digit cancellation, scalar/single item, zero items/empty tails, shapes, infinity NaN, sharing/release, failed assignment/try and explicit/direct locals.
+
+Expanded strict rational audit: **1,395 fixtures × two DLLs = 2,790/2,790 matched** (573 new fixtures/1,146 observations since N3d). The six existing C-trap source exclusions remain separately recorded, never passes. Overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** remain matched. Frontend: **64 matched / 12 runtime_gap**; NAME/definition: **568 matched / 16 unsupported_gap**; NAME effects/arrays: **104/104 matched**; numeric syntax per DLL: **2,485 cases / zero failures**. Reverified **16 reports / 1,001 hashes**. GitHub CI was skipped. The three-unit exact numeric follow-up now has N3d/N3e complete and **one unfinished unit, N3f rank result assembly**, not a whole-RustJ remaining-stage count.
+
+### N3f — exact rank result assembly (2026-10-08)
+
+The bounded scope is **uniform result cells**: Rational/ExtendedInt assembly and exact Bool→Int→ExtendedInt→Rational promotion, including earlier/empty cells' types. Scalar rank, primitive reduce rank and explicit/direct definitions over positive frames use the existing CellBuilder execution order. `(%"0)1x 2x 0x` yields Rational `[1/1,1/2,1/0]`. Float mixing remains an explicit capability error rather than an implicit rounding conversion.
+
+Memory: retain the streaming one-cell plus output-buffer path. Existing Rational/ExtendedInt atoms share Arcs without retaining the input array backing. Integer→Rational constructs denominator 1 directly, avoiding GCD/normalization. Promotion converts the assembled prefix once; ExtendedInt limb copies, per-atom Arc allocation and overlapping old/new buffers during promotion remain. Performance superiority, OOM to workspace-full and large peak-memory behavior remain unverified.
+
+Empty frames distinguish generic fill evaluation from **primitive insert empty-total-atom dispatch**. `(+/"1)0 3$2r3` and `-/` produce empty Int, `*/` Bool, `%/` Float. One item retains Rational; zero items use Boolean identities. The same witnessed shortcut applies in kernel and concrete primitive insert semantic/composite routes, never arbitrary functions or dtype-only inference. Empty cells in positive frames retain reduction identity behavior. Reviewed pinned sources: `jsrc/ar.c` primitive dispatch and `jsrc/cr.c` fill/result assembly. The source and DLL release pins differ; this is not a same-source rebuild comparison.
+
+- [x] Uniform Rational/ExtendedInt cells and exact Bool/Int/X→R promotion; Float mixing stays explicitly unsupported.
+- [x] Regressions and two C DLL comparisons for typed fills, empty frames/cells, NAME aliases, failed assignment and errors.
+- [x] Record the existing nonuniform-cell padding boundary separately; do not overclaim completion.
+- [x] Windows default/portable, fmt/clippy, Python, all audits/hash verification, commit/push (skip CI).
+
+N3f executed results: Windows default/portable each **746 passed / zero failures / zero ignored**, fmt/clippy(all-targets), Python **85 passed**. Five new Rust regressions cover promotion in both orders, large exact atoms, empty cells/frames, sharing/release, explicit/direct locals, aliases, failed assignment and NaN errors.
+
+Strict rational audit: **1,472 fixtures × two DLLs = 2,944/2,944 matched** (77 new fixtures/154 observations since N3e). Six existing C-trap source exclusions remain separate, never passes. F/H/P/G: 1,467 accepted-representation / 5 J errors; L: 1,455 accepted-representation / 5 J errors / 12 unsupported-capability. Twelve new conditional definition rank cases match C at runtime while Logical IR lowering remains unsupported. Runtime agreement does not establish compiled execution support.
+
+Existing overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** remain matched. Frontend **64 matched / 12 runtime_gap**, NAME/definition **568 matched / 16 unsupported_gap**, NAME effects/arrays **104/104 matched**, numeric syntax per DLL **2,485 cases / zero failures** remain unchanged. Reverified **16 reports / 1,001 hashes**. GitHub CI skipped. This completes the **explicitly bounded three-unit N3d–N3f exact numeric group**, not general rank, full J, C diagnostic text/locations, native compiled execution or Linux/GPU verification.
+
+Independent remaining scope: nonuniform result-cell padding, effectful/user-defined empty-frame execution, boxed/sparse fill, Float/Complex mixing, general derived reduce, extended-only reduce and native physical adapters. This does not complete general rank, all frontend E2E or full J. CUDA remains planned only.
+
 ## 17. Active migration checklist
+
+**First CPU-route admission (2026-10-07):** [x] §17.2.1 H-A stages A0–A5 and negative gates HA-V1–HA-V7 distinguish a legal `ReferenceSequential` candidate from an implemented native CPU kernel, checked physical plan, live runtime readiness and independent E2E evidence. [ ] Implementation/execution validation not performed; no M3/M4/HE acceptance change.
+
+**M3→M4 implementation handoff checklist (H-P, documentation only; 2026-10-07):**
+
+- [x] Defined HP-01–HP-12 per-boundary evidence/verification/rejection contracts, HP-V01–HP-V09 single-invariant negatives and per-gate acceptance records in §17.2.1 H-P. This is **documentation complete only**.
+- [ ] HP-01/02: immutable A3 original operation, zero-result Check, distinct Write, region coverage and cross-route liveness verified (HP-V01/02).
+- [ ] HP-03/04: selected **implemented** CPU realization and first-observable-error Check/discharge owner independently verified (HP-V03).
+- [ ] HP-05/06: noun snapshot, late NameRef, Write owner, J Shape/zero-cell Rank/boxed/sparse semantics preserved (HP-V04).
+- [ ] HP-07/09: buffer/view/alias/last-use, runtime lease and **synchronous CPU** completion checked; async transfer/event machinery deferred (HP-V05/07).
+- [ ] HP-08: explicit data/Check/guard/effect/error dependencies validated, with missing-edge/cycle negatives (HP-V06).
+- [ ] HP-10/11: fresh invocation guards, safe pre-effect fallback, CPU+Host+zero-transfer feasibility verified (HP-V08).
+- [ ] HP-12: actual native result/error/effect differentials and per-gate CI/pinned-J-reference evidence recorded (HP-V09).
+
+**M3→M4 evidence handoff (2026-10-07):** [x] Documented H-01–H-09 and HM-V0–HM-V4 under §17.2.1 to distinguish RouteVerified, PhysicalVerified and RuntimeReady, with error/Check/Write/version/ownership and negative/differential obligations. [ ] Verifier implementation, proof discharge and execution/CI validation remain pending; no new runtime or IR was introduced. Added §17.2.1 H-K/H-KV1–5 to distinguish Literal, ReadNoun and VerbReference despite their shared ValueOnly class; design only.
+
+**M3-RB proof boundary (2026-10-07):** [x] Design contract RB-01–08 and verification gates RB-V0–V4 in §2.1.1, covering original A3 op/Check/Write provenance, cross-region liveness, ordered errors and guards without introducing a new IR. [ ] Actual RouteBoundary verifier, one-invariant negative tests and J C/reference differential remain **unimplemented and unverified**. M2→M3→M4 order unchanged.
 
 **I/O tracking:** All storage, slow-I/O and out-of-core acceptance work belongs to the [IO-01–IO-30 checklist](#out-of-core-io-checklist). M2→M3→M4 semantic/CPU baseline remains the project priority; IO-A primary-source audits may proceed concurrently. Do not create another checklist.
 
-<a id="heterogeneous-execution-checklist"></a>
+<a id="formal-ir-verification-checklist"></a>
 
-### M4-P0 — Verified host identity PhysicalPlan (2026-10-07; partial code, tests not run)
+### FV — Formal verification of IR correctness: deferred checklist (2026-10-08; documentation only)
 
-- [x] **Code added:** `src/physical_plan.rs` introduces `PlanBufferId` distinct from runtime `BufferId`, `PhysicalViewId`, independent `ExecutionDevice` / `MemorySpace`, plan buffer/view descriptors, `PhysicalOp` variants, and a fail-closed v0 verifier. `empty_from_a3` supports genuinely empty blocks. `identity_literal` / `execute_identity` use `BufferRegistry` and a checked CPU `PhysicalArray` to realize only a single closed dense literal with `BindInput → Return`, no kernel or transfer.
-- [ ] **Validation pending:** `tests/physical_plan.rs` contains independent logical-executor comparison and one-invariant-at-a-time invalid-plan cases (stale provenance, view, buffer extent/encoding, ownership, order, result, Check/Kernel/stateful A3). Rust fmt/clippy/default/portable tests, C oracle comparison and CI have **not** been run for this change. This is *not* general PhysicalPlan/CPU kernel execution, nor HE-01 acceptance.
-- [ ] **Next slice:** view span and metadata-only reshape/reindex where semantics are proven; ordered A3 Check; selected Add Kernel/capability; materialization and lifetime/reuse witnesses, followed by end-to-end source→PhysicalPlan CPU differential testing.
+**State and priority.** A formal verification capability for IR correctness is a long-term requirement, **not a current implementation task**. No tool adoption, formal model, theorem proof, SMT run, Rust proof, or CI integration has occurred. Preserve the M2 frontend → M3 boundary → M4 first native CPU slice priorities; formal verification is **not** an acceptance prerequisite for that slice. Existing stage verifiers/negative tests and pinned jsource differential/golden tests remain independently necessary.
+
+**Goals.** (1) IR well-formedness including SSA/references/scopes; (2) semantics preservation from J source/frontend through FunctionEntity/J Graph to A3 Logical Execution IR; (3) observational equivalence of rewrites, fusion, routes, lowering and eventually CPU/GPU realization. Observations include values, dtype/shape/rank, boxed/sparse/empty-frame fill-cell/prototype/assembly, lookup timing/binding versions, effects and error class/priority/order, and numeric/overflow/fit policy. A theorem about an abstract model alone is **not** a proof of the production Rust implementation.
+
+**Candidate tools, not selected dependencies:** Lean 4 / Rocq (Coq) / Isabelle/HOL for general semantic and transformation theorems; Z3 / cvc5 for SMT equivalence/counterexamples over accurately modeled restricted cases; Verus / Creusot / Kani for supported Rust implementation contracts; Alive2 for LLVM-level optimizations only when a relevant path is faithfully lowered to LLVM IR. Alive2 does not directly verify native J Graph/A3.
+
+- [ ] **FV-01 — Activation and scope:** Reassess risk, benefit, proof surface, ownership and maintenance cost. Explicitly approve a minimal pilot before making formal verification a required schedule gate.
+- [ ] **FV-02 — Observable semantics:** Pin the jsource reference, distinguish supported J semantics from unsupported behavior, and specify values/errors/effects/state observables of frontend, J Graph and A3. Never imply proof of unmodeled J features.
+- [ ] **FV-03 — IR invariants:** Define proof preconditions for ValueId, regions/blocks, SSA definition/use/dominance, provenance, schema/registry, effect/Check/Write, name/binding versions and physical identity separation.
+- [ ] **FV-04 — J-specific array behavior:** Specify Rank prefix agreement, CellApply, virtual fill-cell for zero-frame versus empty cell, prototype/shape/type/heterogeneous assembly, boxed/sparse, tolerance and error precedence; maintain counterexamples.
+- [ ] **FV-05 — Cross-stage preservation:** State and prove a representative J Graph → A3 lowering property with explicit dynamic guard/Unsupported assumptions; keep frontend→graph and route→physical proof scopes separate.
+- [ ] **FV-06 — Rewrite legality:** Specify preconditions/postconditions and counterexamples for DCE, CSE, fusion, scan, sharing/recomputation, zero-trip elimination, name lookup and effect/error reordering; Unknown never discharges a proof.
+- [ ] **FV-07 — Small SMT pilot:** Trial Z3 or cvc5 on a bounded Shape/integer/SSA rule, distinguishing SAT, UNSAT and UNKNOWN; bounded checking is not a universal theorem.
+- [ ] **FV-08 — Production Rust link:** Trial supported Verus/Creusot/Kani paths and document the refinement/contract gap between the abstract semantics and actual RustJ implementation.
+- [ ] **FV-09 — Backend-limited verification:** Evaluate Alive2 only for eligible LLVM lowering; separately model or test GPU parallel effects/errors, race/lifetime and floating-point reassociation/numeric policy. The CUDA implementation hold remains.
+- [ ] **FV-10 — Tool/trust selection:** Choose a minimal proof/SMT/Rust verifier combination, documenting encoding assumptions, timeouts/unknowns, proof checker, version coupling and verified coverage.
+- [ ] **FV-11 — Regression and CI acceptance:** Version proof witnesses/counterexamples with IR schema, rewrite rule and compiler revision; keep negative and pinned C differential evidence distinct from theorem status. CI integration requires a later explicit go-ahead.
+- [ ] **FV-12 — Completion and maintenance:** Require repeatable theorem checks, assessed proof upkeep, explicit unproved steps/trusted assumptions, and failure/UNKNOWN policy before marking verification complete.
+
+**Restart gate.** Revisit FV-01 only upon explicit user request or when stable core IR semantics and a high-risk optimization justify the pilot. This 2026-10-08 entry records the need and future checklist only: **FV-01–FV-12 are all pending**.
 
 ---
+
+<a id="heterogeneous-execution-checklist"></a>
+
+**Bounded M4-P0 code integration (PR #4):** `physical_plan` separates plan-time buffer/view identities from the runtime BufferRegistry. It verifies and executes only a completely empty A3 plan or one closed Bool/Int/Float/Char literal through BindInput → Return. Exact literal/source witnesses reject stale payload/facts/span; tests cover singleton strides and aliases. ExtendedInt/Rational/boxed/sparse and unsupported operations, SemanticChecks, writes and name reads are rejected. Add/Check/View/Materialize/lifetime/reuse and general M3 proofs remain open; this does not complete M3/M4 or change the current runtime route.
 
 ### HE — Heterogeneous CPU/GPU execution planning (2026-10-07; links M4→M6)
 
@@ -3606,7 +3663,7 @@ Linux/GitHub Actions CI is not a default architectural progress gate unless expl
 | Gate / phase | State | Acceptance |
 |---|---|---|
 | HE-00 / concurrent with M2 | [x] Architecture comparison and boundary decision recorded | Design only: this section, `FOUNDATIONS`, `AGENTS`; does **not** establish executable parallel/GPU support |
-| HE-01 / M4 | [ ] Single-device, all-CPU, zero-transfer verified PhysicalPlan and end-to-end execution (**P0 identity code exists; acceptance pending**) | Original `BindInput/Check/View/Materialize/Kernel/Return` sequential slice vs `logical_executor` and actual J reference |
+| HE-01 / M4 | [ ] Single-device, all-CPU, zero-transfer verified PhysicalPlan and end-to-end execution | Original `BindInput/Check/View/Materialize/Kernel/Return` sequential slice vs `logical_executor` and actual J reference |
 | HE-02 / M4→M5 | [ ] Distinct execution device / memory space / intra-device scheduler contracts and verifier | Graph/A3 unchanged, unknown feasibility rejected, live resources and disjoint output checks |
 | HE-03 / M5 | [ ] Semantic ExecutionLegality report and witnesses/guards through existing lowering | Dynamic names, error/effect order, alias, Rank fill, guarded fallback and negative tests |
 | HE-04 / M5 | [ ] CPU sequential/SIMD/worker candidates and observed cost model | Work size, bandwidth, launch/pool overhead, nested oversubscription and output parity |
@@ -4480,9 +4537,1497 @@ The PhysicalPlan verifier must reject invalid IDs or use-before-def; out-of-boun
 
 Error/cleanup contract: Check failures remain J semantic errors; backend implementation failures are not silently reclassified as J Domain/Rank/Length errors; executor-owned temporaries are cleaned up without destroying caller inputs; the first pure slice does not own namespace-assignment commit; and no transparent replay occurs after observable effects have committed.
 
+#### M4→M5 prerequisites and verification protocol (2026-10-07; **design only**)
+
+**Scope:** This section defines **conditions and evidence** to accept the existing §17 M4 and HE-01–HE-09 / IO-20 work. It does **not** implement a PhysicalPlan, Executor, View, Kernel, transfer runtime, new Parallel IR or separate Data Movement IR. The narrow identity-only code left in draft PR #4 is not a completed M4 path or a substitute for these gates. Keep one implementation checklist rather than cloning it.
+
+| Boundary | Conditions / proof obligations before execution | Positive and negative verification | Without evidence |
+|---|---|---|---|
+| **A3 → Route/Physical** | Valid \`logical_ir::Plan::verify\`, matching schema/registry/provenance, explicit mapping of every source value, Check, effect and observable order edge, capability and guard/witness | Trace each source op to its physical owner; mutate exactly one source producer, version, guard, Check presence/duplication/order, or stale schema and require verifier rejection | Route stays on a supported semantic/reference path or is reported unsupported; Unknown is never Supported |
+| **Device and memory axes** | Distinct execution device, memory space and device-local scheduling; logical \`ValueId\`, plan \`PlanBufferId\`/view and runtime \`BufferId\`/lease must not share identity. Initial M4 = CPU/Host/no transfers | Verify no CPU thread count, CUDA stream or addresses enter Graph/A3; physical model can represent independent device and memory locations; M4 rejects unsupported Transfer/Sync | No mixed-device claim; use a single legal CPU route |
+| **BindInput** | Actual noun dtype/shape/encoding/extent, owner, version, read lease and alias evidence match the A3 input; no implicit deep copy or mutation | Individually forge a name version, buffer generation, registry, encoding, size and alias; assert input remains intact | Reject route, never silently rebind or mutate caller data |
+| **View** | Primitive/Rank/axis semantics proven; J result shape and logical atom order preserved; checked signed min/max shape/stride/offset byte span and encoding/alignment; distinguish zero frame from empty cells | Scalar, ranks 1–3, [0,3]/[3,0], singleton, negative or zero strides, transpose/reverse, signed overflow and out-of-bounds, with proof that metadata-only view did not copy/write | Refuse the view and select a separately legal materialization/route |
+| **SemanticCheck and errors** | Unique provenance and execution order for each A3 Check; original J error kind and precedence; guards before observable effects; catchable/handled errors retained | Missing/duplicated/reordered Checks; Rank/Length/Index failures, name rebinding, effects and error handlers; compare **first error, class, state and execution counts** to J semantic references | Do not expose arbitrary first-thread errors or relabel a GPU/backend trap as a J error |
+| **Kernel (first Add)** | Chosen registered \`ParameterizedLoweringRecipe\`/realization legal for target, valence, Rank/cell, prefix agreement, dtype promotion, overflow, fit, alias and stride; required Checks retained | Scalar/vector/matrix, bool/int/float, overflow/promotion, NaN/Inf, length/error cases, empty, SIMD tails and stride mismatches; forged target/shape/realization rejected; **calling the semantic interpreter is not a native-kernel pass** | Native route unsupported, not a new J Domain error |
+| **Materialize and Return** | Explicit copy in **J logical atom order**, correct type/shape, separate output ownership, temporary last use and buffer lease lifetime | Compare address order vs logical order for transpose/reverse; empty, boxed/sparse refusal or valid route, dangling output/early cleanup, input mutation, assembly errors | Do not return partial/dangling outputs; preserve caller inputs after failure |
+| **Buffer reuse/resource** | Last-use completed, no observing live views/leases, disjoint write/alias proof, compatible encoding/size/alignment/space, budget and effect/error ordering | One-invariant negative cases for overlapping writes, premature release, undersized buffer, allocation failure, cleanup and reuse-after-free | Disable reuse or reject rather than inventing safety |
+| **CPU/GPU and I/O after M5** | Region/device placement, residency and versions, bytes moved, ready/completion/sync dependencies, lifetime and resource capacity; external adapters follow same contract | Plan-only verifier rejects stale data, read-before-ready, missing transfer, copy-before-producer, transfer-after-free and repeated effect commit. **Real GPU execution** is deferred pending validated hardware and explicit restart | Remain single-CPU without claiming mixed-device completion |
+
+**Required evidence and acceptance order**
+
+1. Build and verify normal A3 → physical plan → verified limited CPU execution. Create *one valid baseline per case*, mutate **one invariant only**, verify rejection *before execution*, and retain source-operation/provenance diagnostics.
+2. Compare three independent semantic paths on identical inputs: (a) jsource C oracle, (b) RustJ \`logical_executor::execute_closed\` or the corresponding semantic reference path, (c) native Physical Executor. Check value, dtype, shape, logical element order, error class/first-error precedence and observable effects. If a C oracle is unavailable, mark that gate **unverified**, not passed by the other two paths.
+3. Add separate regressions for zero-frame Rank virtual fill vs positive-frame empty cells, heterogeneous CellApply type/shape assembly, boxed/sparse, tolerance and \`!.\` fit, numeric reassociation, late NAME/assignment/effects and failure cleanup. Unsupported subcases remain coverage limitations, never new J language restrictions.
+4. Only upon implementation run \`cargo fmt --check\`, default and portable \`cargo test\`, \`cargo clippy\`, and applicable Linux/Windows and reference-variant gates; record commit, platform/toolchain, features, test count, pass/fail/ignored and skipped cases. **Written but unexecuted tests do not count as passing.**
+5. Measure resource/cost *after semantic gates*: sequential CPU zero-transfer baseline, bytes read/written/transferred, allocations/peak residency, launches/syncs, guard misses, fallbacks and dependency critical path. Keep \`ResourceEstimate\`, \`CostEstimate\` and measured \`CostProfile\` distinct; Unknown is not zero or feasible.
+6. **M4/HE-01 acceptance:** a real compiler-native operation (starting with selected Add) plus necessary Check/View/Materialize steps must execute through A3 → verified PhysicalPlan → CPU and pass negative verifier cases and jsource differential. A lone literal \`BindInput → Return\`, documents or test source alone cannot close M4/HE-01. Neither mixed-device placement nor GPU/async realization is a prerequisite of this initial acceptance.
+
+**Status (2026-10-07):** Only these prerequisites and verification steps are approved as design. No new runtime implementation, execution-test result, performance claim, or M4/HE-01–09 completion is asserted. Future implementation evidence belongs in the existing §17/HE checklist.
+
+**Related acceptance checklist:** [sw-MLPL SW-03/04/06 implementation references](#sw-mlpl-reference-checklist) supplement the existing M4 gates; inserting this research is not a runtime pass.
+
+#### Independent M4 architectural consistency audit (2026-10-07; **no implementation**)
+
+**Conclusion:** The current **J Graph → verified A3 → target-dependent lowering candidate → Physical Representation** architecture can be extended without a new parallel-first or device-specific canonical IR. However, structural A3 verification, per-candidate legality, and *end-to-end preservation from the original A3 program to the selected Physical Plan* are distinct proofs. Existing successful checks are not blanket runtime authorization. This is a static audit of **current main** and its existing tests; no new tests were executed.
+
+| Audit / owner | Grounded existing implementation | Missing proof / stage classification | Required verification |
+|---|---|---|---|
+| **CA-01 / A3 structural semantics** | src/logical_ir.rs Plan::verify checks schema/primitive provenance, one block, SSA producers/definitions, predecessor order_after, zero-result Checks and some rank/shape consistency. tests/logical_ir.rs covers examples | **M3→M4 proof gap:** it does not independently reconstruct all semantic effect/error summaries from the J source or prove that subsequent transformations did not delete a necessary Check. IterationAxisKind::Parallel is not concurrency authorization | Separately forge dropped/duplicated Checks, deleted order edge, unproven relaxation of effect/possible_errors/speculation, stale origin/version; distinguish structurally invalid artifacts from structurally valid but unjustified semantic claims; downstream verifier must reject both |
+| **CA-02 / Lowering candidate legality** | src/lowering.rs Requirement::satisfied / legal_candidates gates target features/families, purity, no observable errors, order relaxation, known access/rank and reassociation; tests/lowering.rs exercises conservative SIMD/GPU/reduce eligibility | **Missing M3 proof discharge:** a candidate and the mutable CallOp facts are not an unforgeable legality certificate. ReferenceSequential candidate is not a finished physical CPU kernel | Reject selected realizations with forged effect/error/guard/witness; verify target, valence, shape, stride, recipe and proven input facts before execution |
+| **CA-03 / RoutePartition** | lowering.rs partition_plan groups contiguous operations by ValueOnly/PureArray/SemanticCheck/RuntimeSemantic class | **Missing M3→M4 RouteBoundary verifier:** a class plus range does not attest complete source-op coverage, live-in/out, zero-result Checks, effect-live/order edges, name-version guards, commit frontier or safe replay | Require exact correspondence of source A3 operations, proof-backed replacements, preserved Checks/effects/ordering and cross-region consumer readiness; reject missing Check, reordered effect, dangling live-in, stale version or replay after observable commit |
+| **CA-04 / Physical representation** | src/physical.rs provides registry/slot/generation BufferId, read-only BufferLease, checked affine PhysicalArray. tests/physical.rs covers stale handles, lifetime, aliases, negative strides, transpose, empty/singleton axes | **Unimplemented M4, not evidence for redesign:** no main-branch plan-time PlanBufferId/PhysicalViewId, writable output ownership, last-use/reuse proof, PhysicalPlan verifier, placement/readiness/transfer plan. Do not reuse runtime BufferId as compiler storage identity | One-invariant negative tests for span overflow, alias despite distinct IDs, stale generation, overlapping mutable outputs, dangling Return, early free, OOM cleanup and reuse-after-free. Keep write/reuse disabled until proven |
+| **CA-05 / Rank and error semantics** | src/facts.rs distinguishes ZeroFrameNeedsFill from CellsPresent. logical_executor::execute_closed supplies a sequential, closed-noun Check→Call reference | **M4/M5 semantic gate:** the closed reference does not cover dynamic NAME/state. Generic CellApply is not a fixed-shape parallel map; first error must not depend on worker completion | Compare zero-frame virtual fill versus positive-frame empty cells, result-cell dtype/shape joining, boxed/sparse, tolerance/fit, overflow/reassociation, first J error, try/catch/effects against available C jsource and RustJ reference routes. Keep unsafe candidates sequential |
+| **CA-06 / heterogeneous placement and cost** | TargetCapabilities enumerates CPU/GPU family/features. j_graph_work_depth.rs models successful-path symbolic work/depth; j_graph_resource.rs models resources | **Unimplemented after M5:** current types do not establish independent concrete device placement, memory space, residency/version, transfers/timepoints, critical path or measured cost | CPU/Host/no-transfer baseline first. Later reject read-before-ready, copy-before-producer, transfer-after-free, stale versions, capacity oversubscription and unknown-cost-as-zero; permit overlap only with proven dependencies |
+
+**Two independent static cross-checks:** (1) forward code/interface trace across logical_ir.rs, lowering.rs, physical.rs, facts.rs, j_graph_work_depth.rs and j_graph_resource.rs; (2) reverse coverage trace through tests/logical_ir.rs, tests/lowering.rs, tests/physical.rs and logical_executor.rs. Both reach the same decision: **no foundational redesign needed; complete RouteBoundary source coverage, discharged legality guards, and PhysicalPlan verification remain outstanding**. This is not a new test execution or CI pass.
+
+**Contracts to settle before implementing more code:**
+
+1. **A3/M3:** distinguish valid A3 structure, a proof/witness/guard discharged for a chosen transformation, and a fully verified selected physical plan. Never add physical thread/device/layout state to A3.
+2. **Route M3→M4:** own source operation correspondence, live-ins/outs, zero-result Check/effect/order/name-version dependencies, guard-before-effect, commit/replay frontier via a verified **sidecar or equivalent existing route contract**. Do not prematurely create a mandatory new IR or prescribe a final Rust type.
+3. **M4 Physical:** separate PlanBufferId from runtime BufferId and view identity; verify affine span, ownership/lease/liveness, selected realization, Check coverage and Return. Device placement, memory placement and device-local schedule are orthogonal; CPU/Host/Sequential suffices for first accepted slice.
+4. **M5+:** separate ResourceEstimate, predictive CostEstimate, empirical CostProfile and successful-path work/depth from exceptional/effect paths. Defer transfer/migration/async cost selection until executable dependencies and actual hardware evidence support it.
+
+**Decision/priority:** (a) finalize M3 A3→Route Check/effect/witness obligations; (b) M4 CPU/Host zero-transfer verified PhysicalPlan plus a real native Add operation; (c) M5 placement/resource/cost candidates; (d) explicitly resumed M6+ GPU/asynchronous execution. No structural architectural contradiction was identified, but all unsupported or unproven routes must fail closed. Retain M2→M3→M4 ordering, incomplete HE-01–09 acceptance and the explicit CUDA hold.
+
+#### M3→M4 Route-to-Physical handoff and verification contract (2026-10-07; **design only**)
+
+**Purpose.** Join §2.1.1 `M3-RB/RB-01–08` approval obligations to the §17.2.1 PhysicalPlan verifier through a single **evidence chain**. M3 owns J-semantic legality and route admission. M4 checks whether the admitted semantics can be implemented safely by the particular selected buffer/view/kernel ordering. M4 must **not invent missing semantic witnesses**, reclassify J errors, or reinterpret unproven Rank/NAME/order facts. Passing M3 is not sufficient to prove a physical runtime route exists.
+
+**Handoff inputs, outputs and responsibility (conceptual contracts, not new required IR/Rust APIs):**
+
+| Field | M3 provides/guarantees | M4 independently verifies/realizes | If not established |
+|---|---|---|---|
+| **H-01 source authority** | Immutable verified source A3 identity, schema/primitive registry, source op/`j_origin`/version and justified rewrite/fusion mappings | Selected physical ops derive from **that same source**, not a self-certified transformed candidate | Reject stale/forged source mapping |
+| **H-02 admitted route** | Region-wide source coverage, selected route/target capability and selection reason, distinct from a mere `legal_candidates` list | Verify every Kernel/View/Materialize belongs to the admitted region and implemented target-specific recipe/realization | Unsupported native or external realization cannot masquerade as runnable |
+| **H-03 value interface** | Producers, `ValueId` region live-in/out, `Plan.result`, J-visible dtype/shape/rank/boxed/sparse and input snapshot identities | Bind plan-time `PlanBufferId`/`PhysicalViewId`, validate encoding/extent/stride/affine span, Return logical shape/order, and ownership | Reject missing values, incompatible backing, dangling outputs |
+| **H-04 Check disposition** | Every original zero-result `SemanticCheck` is assigned **exactly one** obligation: execute; discharge with sound input-dependent proof; or replace with observationally equivalent checked guard. Retain J error kind and precedence | Bind Check-to-PhysicalOp mapping for those **required to execute**, compare approved dispositions; do not silently reintroduce discharged Checks or invent previously lost ones | Reject omitted/duplicate/late Checks and changed error precedence |
+| **H-05 effects, NAME, Write** | Original `order_after`, effect/error edges, noun snapshot vs late callable NameRef; `Plan.write` as a **separate commit event** and guard-before-effect/replay frontier | Preserve Check/Kernel/Return/commit-handoff order; initial M4 pure CPU executor does **not** own stateful assignment commit | Unproven stateful portions remain RuntimeSemantic; never replay after effect commit |
+| **H-06 guards and readiness** | Witness-input versions, pending `GuardRequired`, guard evaluation time, permitted precommit fallback and commit frontier | Check guard has been legally placed **before effects**, executed with matching binding versions, and has a safe failure path | `GuardRequired` is **not** automatically Verified/Ready; do not execute without guard discharge |
+| **H-07 dependencies/lifetimes** | SSA def/use, cross-region dependencies, Check/effect/first-error precedence, effect-live edges | Real BindInput/allocate → Check → View/Materialize/Kernel → Return, buffer readiness, leases/last-use, overlap/reuse authorization. Explicit completion edges if asynchronous | Reject use-before-def, lifetime violation, unauthorized reorder or overlapping writes |
+| **H-08 memory/device split** | J-visible representation and permitted target *constraints*, not actual physical stride/pointer/device residency | Choose execution device, memory space and device-local schedule **independently**. M4 baseline = CPU/Host/Sequential/zero-transfer; future transfer/readiness in M5+ | Do not invent residency or assume unavailable GPU/bridge support |
+| **H-09 resource/diagnostics** | Semantic/legal preconditions separate from performance preference | Check capacity/peak bytes and physical feasibility independently of predicted cost; report source op/region/plan-buffer reasons | Unknown cost/resource is not free/feasible; defer selection |
+
+**Conceptual admission phases (not an instruction to add enums or another IR):**
+
+~~~text
+original A3 (structurally verified and semantically authoritative)
+  → M3 Route candidate (partition_plan is only a classifier)
+  → M3 RouteVerified + source-op/Check/Write/order/guard/bridge evidence
+       ├─ Rejected: unsupported/forged evidence → another legal route or Unsupported
+       ├─ GuardRequired: no execution until guard placement/failure path is proven
+       └─ Verified: semantic/route obligations only
+  → M4 Physical candidate (selected recipe, buffers, views, ordered ops)
+  → M4 PhysicalVerified (target, storage, check coverage, order, resources)
+  → RuntimeReady (recheck dynamic guards, input versions, leases/capacity)
+  → execution / J-visible error / cleanup
+~~~
+
+`RouteVerified`, `PhysicalVerified` and `RuntimeReady` describe *independent acceptance phases*. Static verification does not discharge runtime name/version/guard/lease preconditions if they can change between planning and use. Supported RuntimeSemantic/external routes need not pass through RustJ's native M4 executor, but must preserve equivalent boundary value/version/Check/error/effect obligations.
+
+**Which verifier owns which proof:**
+
+- **M3 Route verifier**: original A3 correspondence, every zero-result Check disposition, name/read/write/effect/error ordering, region-wide J semantic legality, guard ownership and representation-neutral bridge *admissibility*. It does not choose concrete buffer addresses, strides or devices.
+- **M4 Physical verifier**: independently match the selected physical plan against the admitted source mapping, ordered Check/guard obligations and selected recipe; verify implementation/CPU target capability, affine bounds, plan buffer vs runtime lease identity, encoding, liveness, ownership, output validity and resource feasibility. It does not manufacture or relax J-semantic proof.
+- **Runtime admission / Executor**: at use time recheck actual input/name snapshots and guard outcomes, buffer generations/readiness and supported devices. Reject unverified plans, effect-after-commit transparent replay, and arbitrary relabeling of backend failures as J semantic errors.
+- **Cross-route boundary**: do not require a single RustJ-native PhysicalPlan to contain all RuntimeSemantic/MLIR/external regions. Each logical value, version, Check, observable error/effect and handoff obligation must still be accounted for across routes.
+
+#### H-K: M3→M4 admission by original A3 OpKind (2026-10-07; design only)
+
+**Concrete ambiguity in the current classifier.** In `lowering.rs::route_operation`, `Literal`, `ReadNoun` and `VerbReference` all return `RouteDecision::NoKernel`. Adjacent instances are merged by `partition_plan` into `RouteRegionClass::ValueOnly`. That describes a **candidate grouping**, not proof that these operation kinds share a storage binding, name-resolution or call contract. M4 admission must inspect the **original OpKind**, not only the region class.
+
+| Original A3 operation or event | M3 handoff evidence | M4 permitted realization / prohibition |
+|---|---|---|
+| `Literal(value)` | Original payload/type/shape, producing OpId, resulting ValueId and source origin | May bind a supported dense read-only CPU literal. Do not imply a mandatory deep copy or freely change the logical shape/dtype |
+| `ReadNoun {symbol,version}` | J-visible **read time** and noun snapshot, namespace/scope/version, observable ordering | `ValueOnly` is **not** constant folding permission. Require actual snapshot and version/guard; absent sound runtime binding retain a supported RuntimeSemantic route rather than using a future/stale noun |
+| `VerbReference(Callable)` | FunctionEntity/result POS, primitive/derived function identity, dynamic NameRef lookup obligations | A function reference is **not** a dense J noun buffer. `NoKernel` does not license `BindInput` or arbitrary kernel data operand; require a suitable function-semantic route |
+| `Basis {kind,payload,call}` | Original target/valence, Rank/CellApply/access/facts/effects/errors, selected recipe, Check and proof/guard obligations | Only a **real implemented** compatible native kernel/view on the admitted target is executable. Neither `legal_candidates` nor a `ReferenceSequential` candidate proves native readiness |
+| `SemanticCall(call)` | Non-normalized semantic call, dynamic binding and observable errors/effects | Currently classified as RuntimeSemanticFallback. Do not invent a Basis/native Kernel without separate equivalence and supported route evidence |
+| `SemanticCheck(check)` | Inputs and liveness, zero SSA results, original constraint/J error class/source span/order; one execute/discharge/equivalent-guard owner | No SSA result does **not** mean dead. Execute at the admitted J order when required; omit only if independently discharged by proof |
+| `Plan.result / Return` | Authoritative final ValueId, logical dtype/shape/order and any cross-region producer | Return requires valid output lease/ownership; a Return is not assignment/Write commit |
+| `Plan.write` (outside operations) | symbol/value/previous/proposed/span/after, separate commit and effect ownership | Coverage of all op ranges does **not** cover Write. The first native pure M4 slice cannot silently omit, duplicate or perform an unowned assignment |
+
+**Global versus native-local coverage.** RB-01 requires M3 to account for **every** original A3 operation and its separate Write event, across **all routes**. An M4 RustJ-native PhysicalPlan may implement **only an admitted native region**. M4 verifies that region's realized operations, Check/guard mapping, ValueId interface, and physical outputs; other runtime/external regions are connected by verified boundary values and effect/error edges rather than forced into one physical plan.
+
+**Three distinct admission checkpoints (no new mandatory IR):**
+
+1. **RouteVerified at M3:** Does the original immutable A3's OpKind, source/check/write identity, operand and ordering data match the selected region? A mere class/range or manually changed `CallOp` is not sufficient. GuardRequired is not execution admission.
+2. **PhysicalVerified at M4:** Does each admitted native operation have a real target-compatible recipe and concrete physical Bind/Check/View/Kernel/Materialize/Return correspondence? Distinguish `PlanBufferId`, `PhysicalViewId` and runtime `BufferId`. Verify affine bounds, encoding, ownership, leases, last use and readiness without creating new semantic facts.
+3. **RuntimeReady before use:** Recheck observable noun/name snapshots, input versions, guard outcomes, actual lease generation and capacity **at the point of use**. On failure, permit only an already legal fallback **before observable effect commit**, never transparent replay after it.
+
+**Proposed rejection tests H-KV1–5 (not implemented or run):**
+
+- **H-KV1:** `1+2` preserves literal and Basis operand mapping. Reject interpreting a `VerbReference` as a dense `BindInput` just because its class is `ValueOnly`, or forging a literal producer.
+- **H-KV2:** For `a`, reject changed snapshot/version/read time. For `a=:1+2`, reject a changed/missing independent Write event even if returned SSA value is correct.
+- **H-KV3:** For `1 2+1 2 3`, keep the zero-result Length Check ordered before the call. Reject missing, duplicated, or delayed physical checks.
+- **H-KV4:** Reject silently turning `future 3`'s SemanticCall into a native CPU/GPU kernel without separate proof, or mistaking a `ReferenceSequential` candidate for implemented native Add.
+- **H-KV5:** For mixed CPU-native and RuntimeSemantic regions from the same A3, test **both global M3 coverage and native-local M4 coverage**. Reject loss of a cross-region live-out, first J error, effect-live operation or final Return.
+
+**Acceptance status:** H-K refines existing H-01–09/HM-V0–V4 with explicit per-OpKind tests; it is not a new compiler layer, canonical IR or parallel/GPU implementation. Keep all actual M3/M4/HE-01 runtime and differential acceptance items **open** until verifier and reference-based tests really pass.
+
+**Proposed one-invariant-negative test matrix (not yet implemented):**
+
+| Case | Valid handoff | Must reject / fail |
+|---|---|---|
+| `1+2` | Original SSA literals → admitted CPU Elementwise candidate → separately verified physical input/result mappings | Treat `ReferenceSequential` *candidate* as a finished native Add kernel; conflate `ValueId` with `PlanBufferId` |
+| `1 2+1 2 3` | A3 zero-result Length Check handed to M4 and executed before the chosen kernel | Drop/duplicate/move Check or reclassify J Length as a backend failure |
+| `1 2+3 4` | A sound PrefixAgreement witness allows Check discharge with source/version fidelity | Reuse stale witness after input shape/name version changes; M4 invents a proof |
+| `3 { 10 20 30` | Index Check and first-error priority maintained | Relabel as Length or schedule Check after kernel/materialization |
+| `a` / `a=:1+2` | Independent noun snapshot and Write commit retained; unsupported stateful pieces stay RuntimeSemantic | Lose Write because it is outside A3 op range, freeze dynamic names early, replay after effect commit |
+| Rank zero frame / 2D reverse, transpose | J shape/atom order/virtual fill decisions owned by M3; M4 verifies physical affine span and copying | Out-of-bounds negative stride; skip virtual fill and infer result shape/type without J proof |
+| Same source with CPU/GPU/External candidates | Shared A3/guard/error semantics; physical device/memory plans vary only under corresponding support | Claim GPU/transfer ready based on all-CPU checks; read from nonready memory; reorder visible errors via async overlap |
+
+**Validation and gate sequence (tests deferred):**
+
+1. **HM-V0 static interface:** cross-check all RB-V0–V2 fields, immutable source bindings, mapped op/Check/Write/guard and selected route versus incoming M4 plan. Reject missing, duplicated, stale or cross-source evidence.
+2. **HM-V1 storage and resource:** verify `ValueId ↔ PlanBufferId ↔ PhysicalViewId ↔ BufferLease` only where proven; affine span, encoding, output ownership, last-use/cleanup/capacity, with distinct static and runtime obligations.
+3. **HM-V2 errors and order:** trace zero-result Checks, first J error, ordered effects, guard-before-effect, commit frontier and fallback through M3→M4→Runtime.
+4. **HM-V3 differential:** compare the same source A3 using jsource C (where available), RustJ reference/semantic execution, and a *real* native Physical execution path. Check value/dtype/shape/atom order, first J error, effects and name state. Unavailable C/native execution remains **unverified**, not passed.
+5. **HM-V4 stage acceptance:** `RouteVerified` is never automatically `PhysicalVerified` or `RuntimeReady`. M4 closes only after executable native operations (e.g. Add with required Checks) and negative/differential tests pass. GPU/async/transfers keep separate M5/M6+ acceptance gates.
+
+**Decision:** No new canonical compiler layer is needed. **M3 owns semantic-legality evidence; M4 checks its faithful physical realization.** This is a design and verification specification only. No code/tests executed, no M3/M4/HE-01 runtime gate completed, and CUDA implementation remains on hold.
+
+#### H-A — First CPU native-route admission matrix for M3→M4 (2026-10-07; design only)
+
+**Purpose:** Turn H-01–09/H-K/HM-V0–V4 into an explicit answer to “is this *legal to consider*, *physically realizable*, or *actually runnable*?” without restating the whole interface. Current `lowering.rs` only offers `RouteDecision` / contiguous `RouteRegionClass` candidate grouping; current `main` has no `src/physical_plan.rs`. Existing read-only `physical.rs` and the narrow unmerged draft PR #4 identity code are **not** a native Add executor. No implementation or test runs are added.
+
+**Acceptance stages (questions, not new required IR/enums):**
+
+| Stage | Subject and required evidence | If missing |
+|---|---|---|
+| **A0 SourceA3** | Independently verified immutable source `logical_ir::Plan`, original op/Check/Write/error duties, schema/source/primitive-registry provenance, separate from modified candidate | Reject stale or altered authority |
+| **A1 RouteVerified** | RB-01–08 coverage of every source op, live values/result, zero-result Check executions or proved discharges/guard replacements, separate Write, observable ordering and whole-region legality | `NoKernel`, `NativeExecutionBasis`, `RuntimeSemanticFallback` classification is **not** admission |
+| **A2 ExecutableRoute** | *Selected concrete* CPU realization and actually implemented kernel/adapter, matching valence/type/Rank/guards. `ReferenceSequential` as a registered candidate is **not proof** of a compiler-native CPU kernel | Use a separate valid semantic/reference route or Unsupported; do not mark native-ready |
+| **A3 PhysicalVerified** | Per-native-region selected-op mapping, recipe, BindInput/Check/View/Kernel/Materialize/Return dependencies; distinct `PlanBufferId`/`PhysicalViewId`/runtime `BufferId`, checked extents, ownership/liveness, CPU/Host resources | Reject without execution or erroneous J-error relabeling |
+| **A4 RuntimeReady** | At call time, name/input snapshot version, dynamic guard result, lease generation, capacity/readiness and safe fallback frontier are still valid | Reject or change route **before** observable effect; no transparent replay after commit |
+| **A5 AcceptedNativeE2E** | Actual compiler-native output, dtype/Shape/atom order/first J error/effects independently compared against RustJ reference and applicable jsource C oracle; negative tests passed | Parsing, route candidacy, reference execution, documentation and unrun tests do not count as M4 completion |
+
+**Concrete code-grounded traces**
+
+~~~text
+1+2
+  A3: Literal(1) -> ValueId(0), Literal(2) -> ValueId(1),
+      Basis(Elementwise, Add) -> ValueId(2) returned
+  Candidate partition: ValueOnly literals -> PureArray Add
+  M3 obligation: original op/value mapping, PrefixAgreement proof/Check duty
+  Today: Elementwise CPU ReferenceSequential *candidate* exists
+  Still unapproved: A2 native Add implementation, A3 physical plan,
+                    A4 live bindings/leases, A5 native differential
+
+1 2+1 2 3
+  A3: two Literal ops -> zero-result SemanticCheck(Length) -> Basis(Add)
+  Candidate partition: ValueOnly -> SemanticCheck -> PureArray
+  M3 obligation: preserve Check input liveness and error-before-call order
+  M4 may not run Add before proven/equivalent Length Check handling;
+  the physical path is currently unvalidated.
+
+a=:1+2
+  A3: computation operations PLUS separate Plan.write commit event
+  M3 obligation: map both computed value and write symbol/versions/after
+  M4 first pure CPU region may compute a value, not commit assignment;
+  another properly owned runtime/effect route must handle the write.
+~~~
+
+**Decision cautions:** `ReferenceSequential`, `GenericCellLoop` and `MetadataOrIndexReindex` are registered *realization candidates*, not evidence that the native Physical Executor exists. `NoKernel` does not make Literal, ReadNoun and VerbReference interchangeable (H-K). `TargetCapabilities::gpu_generic()` describes a feature set, not a present GPU or a validated runtime. For M4-v0 only select CPU/Host/Sequential/zero-transfer physical policy; do not encode that restriction as J-language or Logical IR semantics.
+
+**HA-V1–HA-V7 planned evidence (none executed):**
+
+| Gate | Positive baseline | One-invariant-at-a-time rejection |
+|---|---|---|
+| **HA-V1 source coverage** | `1+2` retains complete source op/operand/result mapping across regions | Missing Add op, overlap, foreign original-A3 origin |
+| **HA-V2 candidate vs native** | Candidate marked as candidate; A2 only with genuinely implemented native kernel | Treat `ReferenceSequential` registry match as PhysicalVerified/RuntimeReady/E2E |
+| **HA-V3 checks and first errors** | `1 2+1 2 3` Length and `3 { 10 20 30` Index Checks precede their calls | Omit/duplicate/postpone Check, change Length↔Index, schedule kernel first |
+| **HA-V4 proof freshness** | `1 2+3 4` has a valid input-shape witness; a required guard executes before any effect | Reuse stale witness after input/name version change; treat GuardRequired as runnable |
+| **HA-V5 names/commit** | `a` uses validated noun snapshot; `a=:1+2` has separately owned Write commit | Convert ReadNoun into a literal, freeze a late function lookup, discard/duplicate Write or replay after commit |
+| **HA-V6 storage/output** | Reverse/transpose, signed stride and empty Shape preserve J atom order and checked lease/output ownership | Confuse ValueId with PlanBufferId, use stale/free buffer, overlap writes, return dangling view or wrong order |
+| **HA-V7 cross-route** | Whole-program M3 coverage plus native-region-local M4 verification preserve effects/first error | Approve the whole expression using only one native-region success; claim unimplemented bridge/GPU route E2E |
+
+**Implementation order and present status:** First validate immutable A3→Route semantics and HA-V1/3/4/5 (M3), then selected actual CPU realization and Physical verifier HA-V2/6 (M4), then HA-V7 differential and native E2E acceptance, with GPU/transfer/async costs deferred to M5/M6. **Only this admission/test specification is added today**. All implementation, test-pass and HE-01 acceptance gates remain open.
+
+
+#### H-P — Implementation-ready M3→M4 handoff and physical verification register (2026-10-07; documentation only)
+
+**Purpose:** Convert existing H-01–09, H-K, H-A (A0–A5) and RB-01–08 into testable **admission evidence**, not a new mandatory IR or CPU-only parallel layer. M3 supplies and owns semantic/route legality and global source-A3 coverage; M4 checks physical realization for the **selected native region** without manufacturing missing semantic evidence. An unknown/missing proof is not approval.
+
+| ID | Required upstream evidence | Independent M4 validation | Missing/invalid |
+|---|---|---|---|
+| **HP-01 original source** | Separately preserved verified original A3 schema/registry, op payload/facts, span/J graph origin, immutable identity and lawful rewrite mapping | Match **actual original operations**, checks/writes and origin, not merely source text or a `verify()`-passing mutated plan; a checksum alone is not an immutable source proof | Reject stale/forged proof |
+| **HP-02 region coverage** | Global owner of every original op, zero-result Check and separate `Plan.write`; region live-ins/outs, final return and cross-route bridges | Require a **complete proven** original-op→physical-task relation, not necessarily 1:1: fused/rewritten N:1 or 1:N mappings need RB-01 equivalence witnesses. Preserve external regions/live-outs; `NoKernel`/`ValueOnly` never licenses conflating literal, noun read and verb reference | Reject missing, overlapping, unwitnessed fusion or duplicated execution |
+| **HP-03 selected realization** | Actual `OpKind`, POS/valence, Rank/CellApply, fit/tolerance/numeric policies, selected target/recipe and proof/guard | Check a **real available** kernel/adapter with admitted type/rank/valence/capability, not just a registered `ReferenceSequential` candidate | Do not admit unsupported native execution |
+| **HP-04 Check/errors** | Each `SemanticCheck` with inputs, original J error kind, order and exactly one execute/discharged/guard owner | Preserve zero-result checks and first **observable** J error precedence. Execute/check guards **before dependent** kernels/effects, but **never hoist before other errors/effects that precede the Check in the original J order**. Discharge requires a valid unchanged-input witness and error/order equivalence | Reject omissions, duplication, changed precedence, error class or unsupported discharge |
+| **HP-05 names/effects/writes** | Noun read-time value/version/scope/locale, late function NameRef/POS obligations, effect order, separate transactional `Plan.write` owner | Revalidate changing names, never pre-snapshot whole statements or confuse Return with Write commit; no transparent replay after an observable effect | Withhold native admission |
+| **HP-06 logical values** | SSA producers/use graph; dtype/rank/Shape/J atom order; boxed/sparse, zero-cell Rank fill and assembly, overflow/retry and error policies | Preserve J semantics; `ValueId` != plan `PlanBufferId` != runtime `BufferId`; empty Shape and prefix frame rules survive physical representation | Use valid semantic route or Unsupported |
+| **HP-07 buffer/view** | Storage/materialization needs; input/temporary/persistent/external ownership; alias/donation proof; capacity budget | Check encoding, span/stride/offset, alignment, space, generation, actual backing alias, exclusive writes and last-use-before-reuse; never mutate caller-owned input | Reject ownership/alias/bounds violations |
+| **HP-08 tasks/dependencies** | Data-flow, check/guard/effect/error precedence and ready edges for regional interfaces | BindInput/Check/View/Materialize/Kernel/Return task source mapping; producer→consumer and observable order; missing edges/cycles rejected. Sequential CPU may realize a verified ordered list | No launch on failed graph validation |
+| **HP-09 completion/lifetime** | All uses and completion obligations, including readers/writers/transfers and outputs | Submission is **not** completion; reuse/release only after every use completes. Synchronous CPU may use immediately completed tasks with an explicit rationale; async needs events/timepoints and retained leases | Reject premature release or async route |
+| **HP-10 guards/fallback** | Proof provenance, invocation-time dynamic checks, safe pre-effect fallback boundary and an already legal alternative | Recheck versions/shapes/buffer generations at use; never replay after partial effects; backend errors are not arbitrarily J Domain/Rank/Length | Reject or choose valid pre-effect route |
+| **HP-11 target/resources** | Resolved target and actual device/runtime availability, resource feasibility distinct from cost ranking | M4-v0 = deterministic CPU + Host + sequential + zero-transfer. Later separate placement, memory space, transfer/readiness, intra-device scheduling; legal != profitable | No unsupported device/transfer claims |
+| **HP-12 outcome evidence** | Reference/Jsource-oracle test vectors, J values/errors/effects and actual route identity | Three-way applicable pinned J C ↔ RustJ reference ↔ **executed native route**; report test ID, CI SHA, artifacts and negatives, not only source tests | E2E gate remains open |
+
+**Gate flow:** `SourceA3 + selected region + proofs/guards + all original Check/Write obligations` → **RouteVerified** (A0/A1) → `tasks + planned buffers/views + dependencies/readiness/completion + implemented kernel + ownership/resource verification` → **PhysicalVerified** (A2/A3, native region only) → runtime name/input/guard/lease rechecks → **RuntimeReady** (A4) → actual execution and independent differential evidence (A5).
+
+**Final review/acceptance (existing A0–A5 gates, not new stages):**
+
+| Existing gate / accountable owner | Required evidence for PASS | FAIL/UNRUN and next action |
+|---|---|---|
+| **A0 SourceA3 — Frontend/A3** | Independently retained unchanged authoritative A3 snapshot: verifier, schema/registry/op payload/facts/span/origin; candidates never overwrite it | Missing/stale source FAIL; comparison not executed UNRUN |
+| **A1 RouteVerified — M3** | RB-01–08 **global** op/Check/Write coverage, provably legal region selection and all effect/error/guard/Name/bridge obligations accounted for. `GuardRequired` is not unconditional `Verified` | Missing coverage, unsupported fusion/capability FAIL or UNRUN; only independently legal alternative route |
+| **A2/A3 ExecutableRoute/PhysicalVerified — M4** | A genuinely implemented selected realization; witnessed original-op↔native-task mapping, checked buffers/views/aliases/dependencies, synchronous CPU completion and resource limits; cannot inherit PASS from A1 | Unimplemented kernel/verifier = UNRUN/unsupported; invalid buffer/dependency = FAIL |
+| **A4 RuntimeReady — per-invocation runtime/executor** | **Every invocation** refreshes live names/versions, guards, buffer leases/generations/readiness, and pre-effect fallback | False guard blocks native route, fallback only before effects; no retry past commit |
+| **A5 AcceptedNativeE2E — independent differential testing** | **Actually executed native route** and RustJ semantic reference plus pinned J C oracle where available match values/Shape/first J error/effects; positives, negatives and CI SHA/run recorded | Reference/fallback-only success or unexecuted test = UNRUN; mismatch FAIL. Record missing C oracle explicitly, do not claim a three-way PASS |
+
+**Failure taxonomy:** Invalid physical plan, missing realization and pending `GuardRequired` are **not** J Domain/Rank/Length errors. A legitimately executed J `SemanticCheck` retains its original J error precedence/class. Documents, candidate classifications and test declarations alone never imply PASS. A downstream gate never inherits an upstream PASS automatically; `PhysicalVerified` applies only to a selected native region, not the whole J expression or GPU.
+
+**One-invariant-at-a-time negative-test register:**
+
+| Test | Mutation or example | Required outcome |
+|---|---|---|
+| **HP-V01 source** | Identical source text but modified literal payload/SSA facts/rank/`j_origin` | Reject. Draft PR #4's `LiteralSourceWitness` covers only its narrow v0 literal route, not general M3 proofs |
+| **HP-V02 coverage** | Lose Add op in `1+2`, drop independent Write in `a=:1+2`, overlap regions | Reject route/physical admission |
+| **HP-V03 Check** | Remove, delay, duplicate or relabel Length Check for `1 2+1 2 3` | Reject, or produce the original J Length error before Add |
+| **HP-V04 name/guard** | Change noun snapshot/version; freeze late NameRef; reuse stale shape guard | Fail invocation validation; only legal pre-effect fallback |
+| **HP-V05 views** | **Valid controls:** in-bounds negative stride, singleton zero stride, empty Shape and read-only alias. **Mutate separately:** out-of-range span, stale generation, wrong encoding, overlapping exclusive writes or early last-use reuse | Accept valid layouts, including negative/zero stride and empty Shape; reject only invalid bounds/alias/lifetime |
+| **HP-V06 dependencies** | Delete Check→Kernel, producer→reader or effect→commit edge; introduce cycle | Reject, preserve first-error order |
+| **HP-V07 completion** | Enqueue copy/kernel then release input or reuse buffer before reader finishes | Reject until real completion |
+| **HP-V08 replay/error** | Reverse error-capable tasks or retry after partial effect commit | Reject, no duplicate observable effects |
+| **HP-V09 baseline** | Literal identity, later an **actually implemented** sequential CPU operation and independent differential. Valid J boxed/sparse/zero-frame Rank cases **unsupported by that native slice** must be separately checked on semantic/reference fallback | Correct native support classification; a successful fallback does not count as native E2E |
+
+**Per-gate evidence record:** `HP ID | source A3 revision/schema/registry | original op/region | proof + guard owner | chosen recipe/capability | physical task/edge/buffer/view | runtime versions/completion/effect frontier | positive + single-mutation negative test | CI SHA/run + C-reference artifact | PASS/FAIL/UNRUN | remaining gaps`. `UNRUN` never means PASS.
+
+**Scope/status:** `main` still lacks complete M3 RouteBoundary and M4 native executor acceptance. The narrow literal identity + source witness + passing CI in draft [PR #4](https://github.com/yunskim/RustJ/pull/4) do not establish Check/Add/whole-program coverage, async completion or GPU support. Implement first the **sequential CPU** semantic boundaries HP-01–06/08/10 with negative gates HP-V01–04/06/08, then actual CPU realization and buffer tests; make async transfers, multidevice and worker scheduling later M5/M6 obligations, not M4-v0 prerequisites.
+
 Current `src/physical.rs` is only the G1 representation foundation (`BufferRegistry`, `BufferLease`, runtime `BufferId`, and checked read-only affine PhysicalArray). It is not a PhysicalPlan, planner, or physical executor. `logical_executor.rs` is an A3 semantic/reference executor, not the Physical Executor.
 
 Implement in one-meaning/one-test steps: plan-time buffer/view IDs plus empty-plan verification; BindInput+Return identity E2E; View span verification; Check/error-order regression; one Kernel realization (Add) with capability verification; Materialize ownership/order tests; last-use/reuse witnesses with alias-negative tests; then a multi-op Logical IR → PhysicalPlan → CPU differential case.
+
+---
+
+<a id="read-references"></a>
+<a id="part-xi--historical-jaxa-inheritance-audit"></a>
+# Part XIV — Historical JAXA inheritance audit
+
+
+
+## Historical sources and the JAXA-to-RustJ rationale
+
+These reference implementations and the former §3 JAXA rationale are supporting evidence, **not prerequisites for understanding the core compiler pipeline**. Legacy subsection numbers and headings remain in place to protect existing citations and links.
+
+### Reference implementations
+
+RustJ does not treat all external implementations as having the same authority. They are used as **role-specific reference implementations**.
+
+- **`jsoftware/jsource` — J semantic reference / oracle**
+  - The authority for language semantics, parser/name behavior, primitive corner cases, rank/agreement, errors, and type semantics.
+  - The primary reference for RustJ semantic correctness and differential testing.
+
+- **ArrayFire — array execution / JIT fusion / multi-backend runtime reference**
+  - A reference for lazy expression graphs, evaluation boundaries, kernel JIT fusion, CPU/CUDA/OpenCL/oneAPI backend selection, and device-memory/stream/synchronization handling.
+  - Used when comparing RustJ Graph/Execution optimization, Physical Planner behavior, external-library routes, and cost models.
+  - **It is not an oracle for J language semantics.**
+
+- **`jsoftware/math_arrayfire` — J ↔ GPU-library adapter/offload reference**
+  - A concrete adapter that passes J arrays into ArrayFire handles.
+  - Useful for studying row-major J versus column-major ArrayFire conversion, backend capability/rank limits, external-handle lifetime, release, and device-GC boundaries.
+  - It must not be interpreted as an implementation of arbitrary J rank/adverb/derived-verb semantics as a GPU compiler.
+
+- **APEX / Co-dfns / TAIL→Futhark — array-compiler research implementations**
+  - References for morphology/fact analysis, data-parallel compiler representation, high-level parallel IR, fusion, and GPU lowering.
+  - Their restricted APL subsets are not inherited as restrictions on RustJ's J semantics.
+
+- **Remora / Bohrium / Lift / MLIR Linalg — adjacent array-language / IR compiler references**
+  - Remora is a comparison point for rank polymorphism, frame/cell semantics, and implicit lifting in the J/APL family. Source: https://arxiv.org/abs/1907.00509
+  - Bohrium is a precedent for lazily collecting NumPy-style array operations so fusion, allocation/materialization, host-device movement, and backend-specific execution can be delayed. Do not overstate it as dynamically selecting CPU versus GPU for every operation. Publications: https://bohrium.readthedocs.io/publications.html
+  - Lift is a comparison point for rewrite-driven progression from portable map/reduce patterns toward OpenCL-specific functional patterns and increasingly concrete hardware mappings. Do not describe it as a strict separation of rewriting from hardware mapping. Source: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg is a comparison point for preserving structured operations and implicit iteration until later tiling/vectorization/lowering materializes loops. Source: https://mlir.llvm.org/docs/Tutorials/transform/Ch0/
+  - None of these systems define RustJ's J semantics; they are evidence for compiler layering and optimization techniques.
+
+The reference depends on the question being asked:
+
+```text
+J semantic correctness       → jsource
+array graph/JIT fusion       → ArrayFire
+J↔external GPU adapter       → jsoftware/math_arrayfire
+array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
+rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
+```
+
+The detailed ArrayFire source observations, RustJ applications, and non-adoptions are recorded in §14.2, **ArrayFire and the J ArrayFire add-on**.
+
+---
+
+
+## 3. JAXA design principle — “SQL for array operations”
+
+Earlier JAXA documents used the phrases **“SQL for neural networks”** and **“SQL for array operations.”** RustJ carries the idea forward in the more general sense of J as a **high-level array language / array query language**.
+
+The analogy is not a claim that J syntax resembles SQL or that full J is a purely declarative language. Full J has names, assignment, effects, observable errors, and control semantics. The relevant principle is:
+
+> **J source is not an execution plan.**
+
+J's array semantics and function composition should preserve **what is being computed** at a high level, while the compiler chooses **how to realize it** subject to J semantic legality.
+
+~~~text
+J source / J semantics
+        ↓
+J Semantic IR / J Graph IR
+        ↓
+Logical Array / Execution IR
+        ↓
+equivalence / fusion / logical optimization
+        ↓
+execution planning / route selection
+        ↓
+CPU / SIMD / multicore / GPU / external compiler / library
+~~~
+
+At the level of responsibilities, the SQL analogy is:
+
+~~~text
+SQL / relational system          RustJ
+---------------------------      --------------------------------
+query                             J array computation
+logical query plan                J Graph + Logical Execution IR
+logical rewrite                   J-algebra / logical rewrite
+physical planner                  schedule / route / physical planner
+execution engine                  CPU/GPU/runtime/external backend
+~~~
+
+Users should express the computation and semantic/storage obligations that matter, while the analyzer/compiler/backend decides matters such as:
+
+- which equivalent graph form to use;
+- whether to fuse or materialize;
+- which execution basis and route to use;
+- which memory/layout/schedule strategy to use;
+- whether CPU, SIMD, multicore, GPU, or another realization is appropriate;
+- whether a verified external compiler or library route should be used.
+
+J is unusually useful as a frontend for this model because the source already carries optimization-relevant array structure:
+
+- rank exposes cell/frame boundaries and implicit iteration domains;
+- adverbs, conjunctions, and derived entities preserve reduction, scan, cell-application, and composition structure;
+- hook/fork/train/@: expose producer/consumer, branch/join, and composition topology;
+- reshape/transpose/take/drop allow logical shape/reindex meaning to remain separate from physical materialization;
+- whole-array notation reduces the need to rediscover high-level array intent from scalar loop nests.
+
+### Historical origin of JAXA Graph IR — read optimization topology from J notation
+
+JAXA did not begin from the abstract goal of “building a graph compiler.” It began from a concrete observation:
+
+~~~text
+u@:v
+    → input → v → u
+    → producer/consumer chain
+    → kernel-fusion candidate
+
+(f g h) y
+    → f and h branch from the same input and join at g
+    → branch/join topology
+    → branch parallelism / branch-local fusion candidate
+
+(f g) y
+    → the original input and g(y) both feed f
+    → ordered dependency + input-lifetime relation
+    → producer/consumer fusion candidate
+~~~
+
+J combinators such as `@:`, Hook, and Fork are therefore more than compact syntax. They expose **computation dependencies and topology without committing to a physical execution procedure**. JAXA's initial hypothesis was that a compiler should read and preserve this information before lowering it into scalar loops or backend kernels, so that fusion, parallelism, materialization, reuse, and lifetime candidates remain explicit.
+
+That observation motivates RustJ's independent `J Graph IR` layer:
+
+~~~text
+J syntax / FunctionEntity
+        ↓
+syntax-derived computation topology
+        ↓
+J Graph IR
+        ↓
+candidate generation
+  fusion / branch parallelism / materialization / reuse
+        ↓
+semantic legality
+  effects / errors / names / alias / rank contracts
+        ↓
+profitability / resource / target choice
+        ↓
+Logical/Physical realization
+~~~
+
+Three questions must remain separate:
+
+1. **Does the topology expose an optimization candidate?**
+2. **Is the transformation legal under J semantics?**
+3. **Is that legal strategy actually profitable on the chosen target?**
+
+A Fork does not imply that its branches may always execute in parallel, and `@:` does not imply unconditional fusion. Source structure identifies candidates; effect/error/name/alias semantics establish legality; resource and cost models choose a realization.
+
+The branch/join diagram describes an **ordinary VVV fork**. A constructor-fixed capped `[: g h` instead follows the sequential pipeline `input → h → g(monad)`; a noun-left fork passes `h(input)` and its fixed noun to g. Interpret constructor meaning and operand POS before assuming two executable branches from a Fork parser row/head. Preserve the original source Fork/NAME DAG.
+
+#### Canonical J Graph example suite
+
+| Source | semantic construction / preserved provenance | applied topology | candidate | never infer from syntax alone |
+|---|---|---|---|---|
+| `f @: g` | Atop-derived Verb + Pipeline provenance | `input → g → f` | fusion/materialization elision | fused kernel, target placement, check removal |
+| `(f g h) y` ordinary fork | Fork with original f/g/h + observable branch order | shared-input fan-out into `h(y)` and `f(y)`, joined by dyadic `g` | parallel-branch, branch/join fusion, retained/live-across | actual concurrent execution or branch reordering |
+| `([: g h) y` capped fork | source Fork plus immutable capped-construction fact | `h(y) → g(monad)`; no executable first branch | pipeline/materialization | ordinary-fork parallel/retained treatment or calling `[:` as a branch |
+| `(f g) y` hook | Hook provenance + shared original input | `g(y)` and retained `y` feed dyadic `f` | retained-input/materialization, legal fusion | dropping the shared input or arbitrary reorder |
+| `u"r y` | Rank-derived Verb, requested-rank provenance | outer CellApply around the inner operation basis | cell parallelism, nested CellApply absorption/fusion | physical loop/thread mapping or rank-boundary collapse |
+| `u/ y` | Insert-derived Verb | Reduce basis with operand `u` provenance | reduction realization, legal map/reduce fusion | tree reassociation, altered empty/identity behavior, arbitrary parallel reduction |
+| `u\ y` | Prefix/Infix-derived Verb | preserved prefix/window family structure | witnessed Scan candidate or window/reduce rewrite | immediate replacement by Scan without associativity/error/numeric proof |
+
+The suite deliberately keeps **source construction identity and applied dependency graph together**. Two forms may happen to lower to similar SSA DAGs while differing in name/effect/error/constructor semantics. Current GraphForm/GraphBasis/hint support and capped-fork/scan regressions do not imply that the candidate proof/selection lifecycle is fully implemented.
+
+RustJ does not claim that each ingredient is itself novel. Hook/Fork dataflow, function-level program transformation, graph-based fusion, and high-level array IR all have prior art. The distinctive architectural combination being explored by JAXA/RustJ is to **preserve J's tacit combinator algebra as an independent semantic graph layer, generate optimization candidates directly from that topology, and then separate full-J semantic legality from physical profitability**.
+
+#### Related prior art and RustJ's position
+
+There is direct prior art for the starting observation itself. RustJ therefore does **not** claim novelty for the general proposition that J syntax exposes optimization-relevant information. In particular, Bernecky's APL93 paper is strikingly close to the problem framing that motivated JAXA's use of `@:`, Fork, and Hook: parallel Fork arms, composition as a pipeline, and expression-level merging to reduce intermediate-array and storage overhead.
+
+- **Robert Bernecky, _The Role of APL and J in High-performance Computation_ (APL93, 1993)**
+  - explicitly observes that the `f` and `h` arms of a J tacit Fork can proceed in parallel, and argues that tacit definition simplifies data-flow/data-dependency analysis;
+  - discusses expression-level **loop jamming / merging**, combining sequences of array primitives into interleaved execution, which directly anticipates temporary-elimination/fusion concerns;
+  - describes J composition as a verb-to-verb **pipeline** and points out cell-level parallelism;
+  - paper: https://www.snakeisland.com/aplhiperf.pdf
+  - DOI: https://doi.org/10.1145/166197.166201
+
+- **John Backus, _Can Programming Be Liberated from the von Neumann Style?_ (CACM, 1978)**
+  - is an important function-level precedent for treating program-combining forms and their algebra as objects of program transformation;
+  - https://research.ibm.com/publications/can-programming-be-liberated-from-the-von-neumann-style-a-functional-style-and-its-algebra-of-programs
+
+- **Accelerate / Futhark / Lift / MLIR Linalg**
+  - Accelerate and Futhark preserve high-level array operations and dependency structure for fusion and parallel lowering;
+  - Lift uses the semantics of functional data-parallel patterns such as map/reduce for rewrite-rule optimization and GPU mapping;
+  - MLIR Linalg preserves structured transformation-relevant semantics before loop/CFG lowering and separates transformation validity from profitability;
+  - Accelerate: https://www.acceleratehs.org/publications.html
+  - Futhark: https://futhark.readthedocs.io/
+  - Lift: https://doi.org/10.1109/CGO.2017.7863730
+  - MLIR Linalg: https://mlir.llvm.org/docs/Rationale/RationaleLinalgDialect/
+
+The conservative novelty framing is therefore:
+
+~~~text
+J syntax exposes optimization-relevant structure
+    → direct prior art exists
+
+Fork/Composition/Rank expose parallelism or pipeline structure
+    → direct J/APL prior art exists
+
+high-level array operations are preserved for fusion/rewrite
+    → prior art exists in Accelerate / Futhark / Lift / MLIR
+
+preserve the full-J tacit combinator algebra
+as an independent J Graph IR,
+generate optimization candidates from that topology,
+then separate full-J semantic legality
+from physical profitability
+    → the distinctive architectural combination explored by RustJ/JAXA
+~~~
+
+The historical JAXA question is therefore recorded as:
+
+> **If J's function-composition notation already exposes computation topology, why destroy that intent into loops and try to rediscover it later?**
+
+RustJ's J Graph IR is the current implementation answer to that question.
+
+A central compiler rule follows: **do not destroy this information too early.** Modifier identity, rank boundaries, and derived structure remain in J Semantic IR/J Graph until Semantic Analyzer/Lowering can normalize them into logical operations such as `Reduce`, `CellApply`, `Scan`, and reindex forms. Explicit loops, threads, blocks, buffers, and device mappings are downstream schedule/physical choices.
+
+Historical JAXA focused mainly on analysis and a restricted vocabulary. RustJ reuses that design work while extending it to **full-J frontend/semantic ownership with incremental optimized-backend coverage**. Analyzable array regions may use aggressive logical/physical planning, while dynamic or effectful regions can remain on semantics-preserving native/runtime routes.
+
+The historical JAXA statements:
+
+> **JAXA specifies logical array intent, not physical execution procedure.**
+
+> **JAXA does not execute fusion — the compiler does.**
+
+remain useful origin points. The more precise long-term RustJ framing is therefore not merely “J with GPU support,” but **a heterogeneous array compiler/runtime using J as a high-level array language**.
+
+This framing does not claim that the product scope is already complete. RustJ's immediate goal remains **a J compiler/runtime that preserves full J semantics**; “SQL for array operations” is a design analogy for compiler layering and optimization freedom.
+
+## 3.1 Core array-model decision — separate Logical Array from Physical Array
+
+Logical Array owns J-visible type/shape/atom order and boxed/sparse semantics. Physical Array owns buffers, strides, offsets, layout and placement. A logical value need not have a distinct materialized buffer.
+
+The model and completion gate are defined once in [§6](#logical-physical-array-model); introductory text does not duplicate its detailed structures or checklists.
+
+## 3.2 Naming policy
+
+`Jaxa` / `JAXA` is not the name of a current RustJ compiler component.
+
+Historical repositories:
+
+- `JAXA`
+- `JAXA-complier`
+- `japchae`
+- `jaxa-analyzer`
+
+are research/prototype sources. Their useful ideas are absorbed into RustJ's current components:
+
+```text
+Jaxa Analyzer      → J Graph analysis + Execution Semantic Lowering
+Jaxa lowering      → J Graph IR → Logical Execution IR lowering
+Jaxa optimizer     → J Graph algebraic optimizer + Logical Optimizer
+Jaxa physical plan → Physical Planner / Physical Plan
+```
+
+New architecture decisions belong in `PROJECT.ko.md` first and are mirrored here.
+
+---
+
+
+<a id="out-of-core-io-contract"></a>
+
+## 13.2 Slow I/O / out-of-core array execution (2026-10-06; design candidate, not implemented)
+
+**Goal.** Evaluate arrays/NN weights larger than RAM/GPU capacity without changing J-visible values, type/shape/atom order, Rank zero-frame prototype behavior, errors or effects. Avoid unnecessary source reads, then overlap bounded I/O with compute. This is a physical planning/scheduling/runtime extension, governed by the canonical §8.5 contract, **not a new J language construct, nor a prerequisite for the first M4 native CPU vertical slice**. The single acceptance checklist is [§17 IO](#out-of-core-io-checklist).
+
+| Source | What is borrowed | What is NOT implied |
+|---|---|---|
+| [Jsource jmf.ijs](https://github.com/jsoftware/jsource/blob/master/jlibrary/addons/data/jmf/jmf.ijs) | mapped J noun, read-write/read-only/COW maps, header/shape and unmap reference constraints | mmap does not provide automatic async prefetch; non-jmf typed boxed mapping is rejected, but JMF-backed boxed regression fixtures exist; scope must be tested per route |
+| [Jsource xf.c](https://github.com/jsoftware/jsource/blob/master/jsrc/xf.c), J `1!:11`/`1!:12` | indexed byte-range read/write, sequential baseline based on `fread/fwrite` | effectful foreign I/O is not a pure logical scan and must not be silently rewritten |
+| Jsource in-place/alias machinery | ownership-proved buffer reuse and copy elimination | mapped mutation is not automatically safe in-place reuse |
+| Jd (J data add-on) | Verified on-demand file-backed columns and partition-column selective reads | Borrow storage/layout and pruning techniques only; do not assume arbitrary J effects or queries can be reordered |
+| [DuckDB async I/O](https://duckdb.org/2026/07/31/asynchronous-io) | independent async blocking-I/O pool, read-ahead, memory-governed queued jobs, park/resume | do not copy a full database engine |
+| [Polars lazy](https://docs.pola.rs/user-guide/lazy/optimizations/) | projection/predicate/slice pushdown, common subplan scan reuse | only with J-compatible access/effect/error proofs; not arbitrary verbs/reductions |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | distinct batch/fragment read-ahead, bounded batches and metadata pruning | no blanket conversion to Arrow representation |
+| [Ray Data streaming](https://docs.ray.io/en/latest/data/data-internals.html) | block streams, bounded queues, backpressure/spilling accounting | shuffle/reduce barriers remain |
+| [DeepSpeed ZeRO-Infinity](https://www.deepspeed.ai/tutorials/zero/) | NVMe/CPU/GPU staging and transfer/compute overlap | CUDA work remains deferred |
+| [FlexGen (ICML 2023)](https://proceedings.mlr.press/v202/sheng23a.html) | version-stable weight reuse and layer/batch-block schedules under capacity and latency/throughput constraints | must not reorder visible J effects, late bindings, or failures |
+| TensorFlow `tf.data` | prefetch+parallel data preparation as an additional comparison candidate | not proof of full-J compatibility |
+
+**Ownership and stage contract.** J Semantic/J Graph IR owns J semantics, data+effect dependencies and unknown/opaque facts, but not file offsets, chunk sizes or queues. Verified Logical IR may produce guarded/witnessed byte-access and reuse candidates only if exact J semantics permit. Native Physical Planner/Schedule owns storage placement, byte ranges, materialization, chunk and job boundaries, prefetch, transfer, memory budget, cost and completion edges. Runtime initially owns synchronous `read_at`/`write_at` and chunk iteration; later it owns request pending/ready/error/cancel, exact lease lifetime, finite queues, and backpressure. An external adapter must declare the actual I/O/effect/ownership capabilities and decline unsupported routes.
+
+**Keep identities separate.** `ValueId` is logical SSA; `StateResource` is a mutable semantic resource; `BufferId/BufferLease` owns runtime memory; proposed `StorageObjectId/Version` identifies external backing bytes and consistency; proposed `IoRequestId/CompletionToken` identifies I/O completion. The latter names are not accepted Rust APIs. Semantic `StorageRequirement` is not Physical `MaterializationDecision`.
+
+**Legality.** Preserve J Rank/CellApply empty-frame/prototype, boxed/sparse, tolerance, error precedence, late-bound names and observable foreign I/O. Use checked offset/extent/shape arithmetic. Define short-read, EOF, permission, stale-version, non-atomic file update and cancellation behavior. Unknown access or mutability is an optimization barrier; no speculative I/O that reorders an observable failure/effect, no transparent replay after committed effects. A zero-byte data read never excuses required zero-cell J shape/type derivation.
+
+**Execution route.** Baseline is portable synchronous file/chunk CPU execution. Proven projection/slice/range pruning comes next. Then memory-reserved bounded async read-ahead, double buffering, `Read(n+1)` overlapped with `Compute(n)`, explicit dependency/completion and release; memory pressure reduces depth. Use a scheduling/weight-reuse candidate only when input data is read-only/version-stable and reordering is semantically legal. mmap competes with `read_at`, not universally replaces it; page faults and cache behavior are measured. `io_uring`, remote storage, direct I/O and device DMA remain optional later capabilities.
+
+**Writes/checkpoints.** A J foreign file write, shared mapped mutation and an optimizer checkpoint have different visible effects. Checkpoint design needs explicit immutable version capture, temporary write, platform-specific flush/durability, publication/recovery, cancellation and partial-write behavior. Never declare save success before the required durability level, or change J-visible effect/error timing silently.
+
+**Cost and evidence.** Keep `ResourceEstimate` (peak/resident/inflight bytes, handles, queue budget) separate from `CostEstimate` (bytes, seeks/requests, bandwidth/latency, compute time, transfer/overlap). Compare cold vs warm cache, byte counts, wait, CPU compute, page faults, peak+retained memory, spilling, throughput *and* per-input latency. A feature exists only after code+independent semantic/negative tests+recorded commands and J C oracle coverage, as specified in the `17 checklist.
+
+
+## 13.3 Independent source re-audit: J storage libraries, physical file formats, model loaders (2026-10-06)
+
+**New gap identified.** The first I/O plan concentrated on async read-ahead; separate contracts for physical storage encoding, read-chunk vs write-shard granularity, mapped SIMD tails, remap/refcounts, and cache invalidation were under-specified. Evidence from upstream projects is not evidence of RustJ feature completion. All of the following is proposed pending [§17 IO acceptance](#out-of-core-io-checklist).
+
+| Primary source | Verified mechanism | Adopt or defer |
+|---|---|---|
+| [J jfiles/keyfiles](https://github.com/jsoftware/jsource/tree/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles) | serialized component storage using byte-range indexed read and keyed components | Keep serialized arbitrary J noun distinct from typed dense mmap, avoid copying full Jfiles format |
+| [Jd column.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) | on-demand column mapping, remap/resize; source calls out multi-process reference-count dangers | Verify lease/alias/remap/ownership safety, not a universal global DB lock |
+| [Jd api_read.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) · [ptable tutorial](https://www.jsoftware.com/jd_tuts.html) | partition-column-based table pruning | Use as selective array/partition-access inspiration only with J access, effect and error witnesses |
+| [Jd jmfx.ijs](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | padding file endings to avoid SIMD overfetch faults; historical 4-KiB page assumption | Cautionary case: require safe vector tails, checked mapping spans, actual OS granularity and lifecycle validation; do not copy hard-coded padding |
+| [Zarr 3](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) · [HDF5 cache](https://docs.h5py.org/en/stable/high/file.html) | independent read chunk and write shard layout, chunk cache/eviction | Physical shape and IO granularity need not equal J logical shape; benchmark amplification and per-workload layouts |
+| [Safetensors](https://github.com/safetensors/safetensors/blob/main/README.md) | tensor dtype/shape/byte offsets and optional slice access, zero-size payload | Validate metadata/offsets/endian/empty/scalar. Do not make a new canonical RustJ disk format mandatory |
+| [llama.cpp loader](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | mmap vs no-mmap/mlock/direct I/O/NUMA/lazy tensor row policies | Choose storage load strategy from page faults, RAM pressure and access/reuse costs, not global mmap dogma |
+| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | parameter.load/read/gather/write, AsyncTransfer and Timepoints encode loading/storing parameter byte ranges plus readiness and resource lifetime | **Most direct IR precedent:** read-only weights can use Physical ParameterRead/Load → Await → consumer; checkpoint write still needs a separate durability contract. Not equivalent to observable J file-foreign effects |
+| DuckDB, Polars, Arrow, Ray, ZeRO-Infinity, FlexGen | skip unnecessary bytes, bounded job/batch read-ahead, backpressure, staged weights and reuse | Physical optimization order: prune bytes → version and alias safety → bounded scheduling → overlap → proven reuse |
+
+**Corrected JMF boxed scope.** [jmf.ijs](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) rejects *non-JMF typed boxed* mapping, while [JMF-backed boxed tests](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) exist and [mbx.c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/mbx.c) says “not supported.” Neither blanket all-boxed-supported nor all-boxed-unsupported is justified without a C-oracle check of the specific representation and operations.
+
+
+**IREE Stream dependency precedent:** `stream.async.parameter.load/read/gather/write`, `stream.async.transfer`, and `stream.timepoint` make parameter byte ranges, readiness, and resource lifetime explicit in a physical schedule. Speculatable parameter loads are not a license to reorder observable J file foreign effects; preserve availability, cancellation and error ordering. Reference for IO-13–18 and IO-20. [Official Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/).
+
+**Clarified abstraction.** Distinguish logical ValueId, physical external StorageObject/Version, StorageEncoding (typed contiguous, typed chunked, serialized components, external adapters), ReadChunk, WriteShard, BufferLease and IoCompletion. These are concepts, *not* committed Rust APIs. Observable J foreign-file I/O cannot be silently rewritten as a pure read of versioned immutable array backing. An empty data region can require no file bytes and still require J Rank fill-cell/shape inference. Cache keys need source/version/range/encoding; memory budgeting must account for decoded/pinned/inflight/kernel buffers while reporting OS page cache/RSS separately.
+
+
+<a id="io-framework-execution-comparison"></a>
+
+## 13.4 Framework I/O optimization mechanisms and RustJ graph-to-physical scheduling (2026-10-06)
+
+**Five independent concerns.** Efficient out-of-core execution combines (1) skipping unnecessary reads, (2) choosing physical read/storage granularity, (3) overlapping reads with computation, (4) reusing already loaded bytes and (5) memory, readiness and failure control. These concerns are owned by different stages. J Semantic/J Graph/Verified Logical IR defines observable J semantics, access and legality proof; Physical Planning/Scheduling/Execution chooses byte ranges, chunks, transfers, buffer lifetime, inflight requests and resource budgets. The table is a source-informed set of design candidates, **not evidence of implemented RustJ functionality**.
+
+| Framework / primary documentation | Mechanism and owning layer | RustJ application and limits |
+|---|---|---|
+| [Polars lazy optimizer](https://docs.pola.rs/user-guide/lazy/optimizations/) | Predicate, projection and slice pushdown into scans; common subplan/file scan elimination in logical planning | IO-09–12: only prune bytes when `AccessRelation` and witnesses preserve J semantics; otherwise opaque fallback for Rank, dynamic lookup, errors and effects |
+| [DuckDB async I/O announcement (2026-07-31)](https://duckdb.org/2026/07/31/asynchronous-io) | Parquet row-group / CSV scan jobs and range fetch tasks; separate `REGULAR` compute and primarily blocking `ASYNC` I/O pools; parked consumers resume at completion. Read-ahead depth negotiates with the temporary-memory manager | IO-13–17: bounded requests, readiness/wakeups, adaptive prefetch under pressure. Announced development/version behavior must not be assumed present in every release |
+| [IREE Stream dialect](https://iree.dev/reference/mlir-dialects/Stream/) | `stream.async.parameter.load` creates a resource; `read` fills an allocation; `gather` assembles several parameter archive ranges. Timepoints and await dependencies encode availability and ordering in the physical resource graph | IO-13–18/20: physical `ParameterLoad/Gather → Await → Consumer` for immutable weights; IREE's hoistable parameter loads do not authorize speculation of observable J `1!:` file foreign calls |
+| [Apache Arrow Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) | Separate `batch_readahead` and `fragment_readahead` scan concurrency | IO-14–16: independently bound read-ahead at chunk/fragment levels and account for decoded buffers |
+| [Ray Data internals](https://docs.ray.io/en/latest/data/data-internals.html) | Stream block references through operator queues; schedule only when resources and backpressure permit; spill when needed | IO-15–17: bounded queues, slow-consumer pressure, distinction between spill, workers' working memory and nonstreamable barriers |
+| [Zarr arrays/sharding](https://zarr.readthedocs.io/en/stable/user-guide/arrays/) / [HDF5 chunk cache](https://docs.h5py.org/en/stable/high/file.html) | Chunk/shard layout and decoded chunk caching trade read amplification, file count and reuse | IO-26–29: `LogicalShape`, `ReadChunk` and `WriteShard` remain independent. Small slices may still require decoding entire chunks |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Mapped vs unmapped model loading and residency tradeoffs | IO-23/30: measure page faults, cold/warm cache, resident memory, local/remote throughput rather than mandate mmap |
+| [DeepSpeed ZeRO](https://www.deepspeed.ai/tutorials/zero/) / [FlexGen](https://proceedings.mlr.press/v202/sheng23a.html) | Parameter/optimizer-state offload and prefetch between NVMe, CPU and GPU; layer/batch scheduling to reuse weights at throughput/latency tradeoffs | IO-18–20: only legally reorder loads of immutable/version-stable weights; mutable gradients, checkpointing and J effects need different contracts |
+| [TensorFlow tf.data guide](https://www.tensorflow.org/guide/data_performance) | Input prefetch and parallel-map overlap producer and consumer | IO-14–16: helpful producer/consumer precedent, not permission to reorder arbitrary J cell/verb evaluation |
+| [PyTorch Distributed Checkpoint](https://pytorch.org/docs/stable/distributed.checkpoint.html) | Stage mutable state and perform asynchronous persistence | IO-18: snapshot/version/write completion/publish/recovery, not success merely because an asynchronous operation was submitted |
+
+**Two disk-backed weight layers — meaning versus realization.** The logical array computation is `X → MatMul(W1) → Activation → MatMul(W2) → Y`. Provided W1 and W2 are proven immutable/version-stable physical inputs, the physical scheduler may overlap a read of W2 with computing Layer 1. It cannot start Layer 2 before both the activation result and W2's readiness token are available. This is a candidate, not the current implementation.
+
+~~~text
+Logical (J semantics)
+X ---> MatMul(W1) ---> Activation ---> MatMul(W2) ---> Y
+
+Physical candidate
+Reserve W1 -> Read W1 -> Ready W1 -> Compute L1 -> Activation --+
+Reserve W2 -> Read W2 -> Ready W2 ------------------------------+
+                                                               |
+                                                          Compute L2 -> Y
+Read W2 may overlap Compute L1, within the resource budget.
+Compute L2 awaits BOTH Activation and Ready W2.
+Release a buffer only after its last user and all pending I/O/transfers complete.
+~~~
+
+**Why these optimizations compose rather than replace one another.** Polars minimizes the requested bytes; IREE makes physical data movement/readiness explicit; DuckDB/Arrow/Ray manage request scheduling and backpressure; DeepSpeed/FlexGen seek profitable placement and reuse. Read-ahead can hide wait time but does not intrinsically reduce bytes, and merging many small byte ranges trades fewer requests for potential over-reading.
+
+**Semantic and failure guardrails.** Distinguish (A) an internal read of an immutable/versioned storage object, (B) observable J foreign I/O such as `1!:11`/`1!:12`, and (C) mutable weight/checkpoint persistence. Only A admits a proof/guard-authorized speculative prefetch or pruning. B preserves J effect and error ordering; C additionally needs snapshot, version, commit, publication and durability semantics. A zero-byte read does not eliminate J Rank zero-cell fill/prototype, dtype, shape or error obligations. Boxed/sparse, dynamic NAME/Rank, alias changes, stale files, EOF/short reads and premature exposure of speculative failures remain negative-test barriers.
+
+**Resource and cost accounting.** Bound queued + in-flight + decoded + pinned + temporary + output/retained buffers; report OS page cache and allocator RSS independently of runtime reservations. For cold/warm runs record actual bytes and I/O requests, seek/latency, blocking wait, CPU/GPU work, page faults, overlapped time, peak/retained memory, spilling, batch throughput and single-call latency. Approval order stays *semantic conformance → resource safety → measured cost-based route selection*.
+
+**Existing acceptance checklist mapping (no new checklist):** IO-09–12/29 for pruning and cache; IO-05–08/26–28 for storage and chunk/shard representation; IO-13–17/20 for async, transfer and backpressure; IO-18–19 for weights/checkpoint; IO-21–24/30 for comparative measurements; IO-01–04/25 for original-source and semantic contracts. Continue using the [IO-01–IO-30 single acceptance ledger](#out-of-core-io-checklist); writing this design section **does not advance implementation acceptance beyond 0/30**.
+
+
+<a id="unified-data-movement-contract"></a>
+## 13.5 Unified memory I/O and disk I/O planning contract — no new mandatory IR layer (2026-10-06)
+
+**Decision.** Treat memory access/copies, prospective CPU↔GPU transfers, and disk/file-backed range reads/writes as **joint data-movement planning and scheduling concerns of the existing Physical Planner / Physical Execution Plan**. Do not introduce a stand-alone `Data Movement IR` at this stage. Retain independently owned access-region proofs, effect/dependency contracts, and physical location/transfer/readiness/lifetime state at their established boundaries. Reconsider a separate resource/stream execution IR only when at least two concrete asynchronous or mixed-route use cases demonstrate that the existing Physical Plan cannot safely encode dependencies, buffer lifetime, or scheduling. This does **not** collapse the existing J Graph IR → Verified Logical Execution IR → Physical Plan boundaries.
+
+| Existing stage | Owned facts and decisions | Must not own |
+|---|---|---|
+| J Semantic IR / J Graph IR | Source topology; ValueId, Rank/CellApply, empty-frame semantics, source provenance; optional pass-local access-candidate sidecars | BufferId, file offsets, DMA, concrete transfers, physical layouts, or EffectSummary/committed selection embedded into GraphFacts |
+| Verified Logical Execution IR / analysis | Observable J file/namespace/state effects; error, ordering and guard dependencies; value/effect liveness; logical AccessRelation with Unknown/Proven/Guarded evidence | Reclassifying arbitrary file I/O as a pure array load or approving unsound read omission/reordering |
+| Existing Physical Planner / Representation / Schedule | Distinct StorageObject/Version and BufferId/Lease identities, physical regions (buffer slices vs file byte ranges), Read/Write/Copy/Transfer/Materialize/Release, completion/readiness edges, placement/layout and byte/resource/cost estimates | Mandating a physical copy for every access, unifying file/memory semantics, or selecting unsupported device transfers |
+| Executor / Backend | Independent synchronous CPU reference for read_at/write_at/buffer copies first; later separately verified async tokens, queues/backpressure, target implementations | Releasing buffers before transfer completion, replaying visible file effects, or claiming currently deferred GPU implementation |
+
+**Shared interface, distinct meaning.** `AccessRegion` identifies which logical elements are needed. Concrete `BufferSlice` and `FileByteRange` are distinct kinds of physical region; they must not be treated as one alias domain, address space or failure contract. Shared analyses may inspect interval/producer/consumer, placement, lifetime, alias constraints, dependency, capability and cost. Continue distinguishing logical `ValueId`, mutable `StateResource`, external `StorageObjectId/Version`, physical `BufferId/BufferLease`, and `IoRequestId/CompletionToken`. These are proposed conceptual names, not committed Rust APIs.
+
+**Compile time versus runtime.** Compile-time proofs may determine stable shape/dtype/access patterns, users/lifetimes, removable intermediates/copies, buffer-reuse opportunities, required regions and tentative streaming/transfer plans. Runtime must still establish actual file bytes, external modification, EOF/permissions, data sizes, available RAM/GPU capacity, cache/bandwidth conditions and completion, applying explicit guards and hard resource limits. Keep memory bytes, file requests/seeks, transfers, launch/synchronization, overlap, peak/inflight/retained bytes and cold/warm latency as distinct cost dimensions. Unknown is neither zero cost nor permission to reorder.
+
+**Effect safety.** Distinguish (A) an internally accessed, proven immutable/version-stable backing object, (B) J-observable `1!:` foreign file I/O, and (C) mutable-state/checkpoint publication. Even A may expose failures; speculative scheduling must separately prove that user-visible error timing/order is preserved. An unused result of B does not license deleting file existence/permission/error effects. An asynchronous write submission for C is not a durability-completion guarantee. A zero-byte/empty-frame result still has J virtual fill-cell, dtype/shape and applicable error obligations.
+
+**External framework precedents (not imported semantics).** [IREE Stream](https://iree.dev/reference/mlir-dialects/Stream/) provides physical resource, async transfer, parameter/file read/write and readiness scheduling. [MLIR Bufferization](https://mlir.llvm.org/docs/Bufferization/) and [Memory Effects](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/) motivate separating logical values from buffers and using resource-aware effect interfaces. [XLA GPU architecture](https://openxla.org/xla/gpu_architecture) shows staged fusion/buffer assignment/layout/transfer planning, not general J file I/O. [TVM](https://tvm.apache.org/docs/) informs device placement; [DataFusion](https://datafusion.apache.org/) informs file scan and proven filter/projection pushdown. None automatically enforces full-J foreign error ordering or Rank prototype semantics.
+
+**Trace example.** A proven immutable `File(A) → Slice → Elementwise → Consumer` may lower to a physical byte-range read followed by fused CPU work once an access witness is valid. An unused `1!:1`/`1!:11` read cannot be eliminated solely by dead-value analysis when file-open/EOF/errors are observable. CPU↔GPU copies are candidates for the same physical planner, while CUDA execution remains deferred.
+
+**Single existing acceptance ledger.** Do not create DM-* work items. Refine IO-03 (stage and identity/effect interface), IO-09 (access-region proof), IO-13/14 (sync-to-async readiness), IO-17 (effect/failure/lifetime), IO-20 (shared memory/file/transfer physical cost planning), and IO-22 (independent three-way and negative tests) in the existing [IO checklist](#out-of-core-io-checklist). Reuse FW-05–09 provenance/guard and DB effect evidence as prerequisites. **Status: architecture decision recorded; no implementation or execution evidence; IO acceptance remains 0/30. Not a prerequisite for M2 frontend convergence or the first M4 native CPU vertical slice.**
+
+<a id="io-a-source-audit"></a>
+## 13.6 IO-A pinned source cross-audit and executable witnesses (2026-10-06–07)
+
+**Scope/status.** Reviewed pinned implementation source for IO-01/IO-25 and identified negative tests required by IO-02. **Source inspection is partial progress, not acceptance**: file-foreign fixtures have run against pinned J C binaries, but mapped/Jd and broader effects have not been verified, so IO-01/02/25 remain [ ] and the I/O implementation ledger stays at 0/30.
+
+| Pinned source / location | Directly observed in source | Still to prove for RustJ |
+|---|---|---|
+| [jsource `xf.c` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jsrc/xf.c), `jtjiread/jtjiwrite/jtixin` | `1!:11` opens/inspects the file before validating start and length against file size; read enforces `j≤size, j+length≤size, length≥0`. `1!:12` passes null for output length, so it checks nonnegative starting index rather than imposing the same read end-bound, then writes. Negative start offsets are adjusted by file size. `jtrd/jtwa` use synchronous `fread/fwrite`. | Actual precedence of open/index/permission errors, EOF, short I/O, writing past EOF, concurrent mutation, and no replay of visible effects. Source alone does not establish atomicity or concurrent-truncation behavior |
+| [jsource `jmf.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jmf/jmf.ijs) and [`gmbx.ijs`](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/test/gmbx.ijs) | Modes 0/1/2 distinguish RW/RO/COW; live refs may prevent unmap. `additem` rejects type 32 boxed, whereas `gmbx.ijs`, despite its mapped-boxed label, contains `'' -: q` and `'' -: r` assertions, not a proof that arbitrary boxed payload read/write works. | Format/type/mode-specific boxed support via executable oracle; never equate COW with committed shared write |
+| [data_jd `column.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/column.ijs) and [`jmfx.ijs`](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/base/jmfx.ijs) | Mapping/remapping and cross-process reference-count hazards are documented, with DB locks providing a restricted usage assumption. The SIMD-tail padding workaround assumes `PAGESIZE=:4096`. | OS-independent checked spans/masked tails, real page size and safe remap/lease tests; do not generalize DB locks to J semantics |
+| [jsource `jfiles.ijs` @0a5101c](https://github.com/jsoftware/jsource/blob/0a5101cfdd834b23a0b89d455e4f327310520a08/jlibrary/addons/data/jfiles/jfiles.ijs) and [data_jd `api_read.ijs` @0492991](https://github.com/jsoftware/data_jd/blob/0492991263a05bafa84ceca15f0f8249cfc62dcf/api/api_read.ijs) | jfiles `j_read` uses `3!:2 @ (1!:11)`, reading serialized components from offset-indexed directory entries. Jd `readptable` selects underlying partitions using predicate results. | Distinguish typed contiguous backing from serialized components. Do not generalize Jd's selective reads into arbitrary J/foreign-I/O rewrites |
+
+**Remaining executable fixtures (not yet fully run).** With a fixed J binary and controlled temporary files, observe normal/edge `1!:11` ranges, negative offsets, `1!:12` writes beyond EOF, nonexistent files, permissions, concurrent changes/short reads, named files versus numeric handles, error precedence and close/unlock behavior. Separately test JMF RW/RO/COW and live-reference unmap, exact mapped-boxed payload cases, resize/remap, and Jd/jfiles partition/keyed component access. Derive expected observable behavior from the executable C oracle rather than guessing it from source. Record pin, command/environment, pass/fail/unsupported and blockers in the existing IO ledger.
+
+**IO-A executable diagnostic harness (2026-10-06).** Added 15 isolated temporary-file C-oracle cases in [tools/file_io_audit.py](tools/file_io_audit.py): whole/range reads, file size, negative offsets, zero-length EOF reads, read bounds, partial/beyond-EOF writes, missing files and a discarded read whose failure remains observable. [tools/test_file_io_audit.py](tools/test_file_io_audit.py) checks fixture uniqueness, quoted names, temporary-path isolation and mismatch reporting without a J binary. [Linux CI](.github/workflows/linux.yml) now builds the pinned `j64/j64avx2 × default/portable` J libraries and records non-acceptance diagnostic JSON as an artifact; the default diagnostic mode reports expectation mismatches rather than converting them into a passing J-semantic gate. The audit source pin `0a5101cf` and CI oracle revision `13994ffa` have identical Git blob SHAs for `xf.c`, `jmf.ijs`, `gmbx.ijs` and `jfiles.ijs`. Do not predeclare J error precedence, platform-specific file-hole contents or mapped-boxed behavior before executing oracle fixtures. **IO-01/02/25 remain unchecked; no accepted RustJ I/O implementation is implied.**
+
+**Initial CI diagnostic correction (non-acceptance).** [Linux CI 37470524210](https://github.com/yunskim/RustJ/actions/runs/37470524210) initially showed 9 of 15 expected outcomes matching and six requiring review on both `j64` and `j64avx2`. All six initially reported `length error`: this was traced to **incorrectly pre-boxing the file name** in the indexed-foreign fixture, not an established J semantic disagreement. The [J Files manual](https://www.jsoftware.com/help/dictionary/dx001.htm) distinguishes whole-file `1!:1 <'name'` from indexed `1!:11 'name';offset length` and `x 1!:12 'name';offset`. [Fix 843ae79](https://github.com/yunskim/RustJ/commit/843ae79d922d57f40d8378f56d70e9cbb251b41a) uses the unboxed name on indexed calls and prevents `length/rank/syntax` errors from counting as real missing-file effects. [Unit-test update bfcfe7e](https://github.com/yunskim/RustJ/commit/bfcfe7e9e1dffaefa095a837f641c18fdda7c1fe) follows. Pending re-execution, 9/15 is not J-semantic acceptance and IO-01/02/25 and the overall 0/30 remain unchecked.
+
+**Executed pinned J evidence (2026-10-06).** In [Linux CI 37470839455](https://github.com/yunskim/RustJ/actions/runs/37470839455), the general `check` job passed and the observed `j64/default`, `j64/portable`, and `j64avx2/default` runs each matched **15/15 C file-foreign fixture expectations, zero review items**. `j64avx2/portable` was still running at this checkpoint and is not counted. [Workflow commit 3d476f6](https://github.com/yunskim/RustJ/commit/3d476f6f4f8bd1c925e2216ee856cfdfcd5fc9d2) enables `--gate` to enforce these C-oracle fixture expectations in subsequent runs. This **J reference fixture gate** is not independent RustJ three-way verification and does not prove JMF/Jd/boxed or async I/O; IO-01/02/25 and the 0/30 acceptance ledger remain unchecked.
+
+**Expanded IO-02 ordered J-reference witnesses (2026-10-07; partial oracle evidence).** [tools/file_io_audit.py](tools/file_io_audit.py) now adds **six ordered-effect cases / 14 J steps** alongside the prior 15 independent file-foreign fixtures. With one J interpreter and one isolated temporary file per case, it inspects file bytes after *every* JDo: (1) a discarded write result still has an observable effect, (2) a failing right read prevents a left write in J evaluation order, (3) a subsequent error does not roll back an earlier completed write, (4) a bad indexed write preserves a preceding completed write, (5) append followed by tail read, and (6) truncate followed by full read. [Offline tests](tools/test_file_io_audit.py) inject a forbidden early write and ensure it is detected. In [CI 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953), the general `check` job and pinned `j64/default` oracle passed with **15/15 independent and 6/6 ordered (14 steps), zero mismatches**; other matrix variants were unresolved at the time of this checkpoint. This is a **J C-reference semantic witness**, not native/optimized RustJ I/O equivalence or mapped/foreign coverage: IO-02 and overall IO remain **[ ] / 0 of 30 accepted**.
+
+**Next IO-02/IO-25 executable slices (within the existing ledger).** (a) Extend reference fixtures to named versus numeric handles and permissions/close/flush, EOF/short reads and concurrent truncation for `1!:1/2/3/4/11/12`; (b) independently verify loading the pinned J standard/add-on library before smoke-testing JMF RW/RO/COW, live-reference unmap/resize and typed/boxed variants; (c) enable Jd/jfiles executable probes only after their fixture and pinned dependency setup is demonstrably reproducible. Do not classify a missing J add-on bootstrap as J semantics, or promote the C-only 15+6 tests to RustJ implementation acceptance.
+
+**Pinned C matrix confirmation for IO-02 (2026-10-07).** [Linux run 37537959953](https://github.com/yunskim/RustJ/actions/runs/37537959953) completed successfully in the generic check job and all four `j64/j64avx2 × default/portable` reference jobs. Each recorded **15/15** independent C file-foreign fixtures and **6/6** ordered-effect cases (**14 JDo steps**), with zero cases requiring review. This is a repeated C-source semantic witness, not RustJ three-way I/O execution equivalence; the IO implementation acceptance ledger stays unchanged.
+
+**First independent IO-25 JMF smoke attempt (not accepted).** [tools/jmf_smoke.py](tools/jmf_smoke.py) attempts to bootstrap the pinned `jlibrary/bin/profile.ijs` and `load 'jmf'` under an isolated temporary HOME and J C binary, then runs RW(0)→RO(1)→COW(2) **map → empty noun check → unmap-result-zero** on a temporary JMF backing file. [Offline plan checks](tools/test_jmf_smoke.py) and a separate [Linux CI](.github/workflows/linux.yml) non-acceptance diagnostic step are added. Missing library bootstrap or JMF execution is reported as `blocked`, not a J semantic mismatch; CI results were not finalized at this checkpoint. This smoke does **not** validate boxed payloads, write durability/RO-COW mutation behavior, refcount-denied unmap, resize/remap, or Jd partitions. IO-25 remains [ ].
+
+**Initial JMF bootstrap observation (2026-10-07; not accepted).** In [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000), the pinned `j64/default` and `j64/portable` non-gating JMF probes recorded `status=blocked`, `stage_count=2`: setting `BINPATH_z_` succeeded but `0!:0 <.../jlibrary/bin/profile.ijs` returned `domain error`. **The probe never reached map/unmap.** This is a bootstrap blocker, not evidence that JMF RW/RO/COW semantics fail. [Diagnostic follow-up 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3) first checks loading a trivial standalone J script and captures `13!:12` on errors, to isolate script loading from full profile setup; the subsequent CI result was not yet confirmed at this checkpoint. IO-25 remains [ ].
+
+
+### Source-level optimization catalog (formerly §7.4.3)
+
+The detailed pinned jsource audits and coverage plans are reference material; the core J Graph IR explanation above is sufficient for a first reading.
+
+## 7.4.3 jsource-derived optimization principles and RustJ placement
+
+Review baseline: `jsoftware/jsource` source pin **`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`**. This is not a plan to clone jsource's hand-written special entry points one-for-one. It mines accumulated J-specific optimization knowledge and relocates it into RustJ graph facts, candidate rewrites, and downstream execution planning. **J Graph discovers candidates; Execution Semantic Lowering/proof validates call-dependent legality; Physical Planning chooses concrete realization.** This catalog is representative, not exhaustive.
+
+| jsource observation | Direct source | Generalized RustJ idea | Placement |
+|---|---|---|---|
+| Derived verbs propagate execution-relevant properties | `ca.c::jtatop/jtatco`; `jtype.h` `VF2*` | Distinguish intrinsic traits from engine-specific result-assembly/consumer-demand hints; propagated runtime flags are not themselves J semantic identity. | **J Graph provenance + call facts / assembly** |
+| `@:`/capped-fork/special-form recognition | `ca.c` `SPECAT/SPECATCO`; `cf.c::jtfolk` | Canonicalize equivalent applied topology while retaining source provenance; expose composition as fusion/materialization candidates. | **J Graph canonicalization + discovery** |
+| Atomic `f/@:g` can reduce intermediate materialization | `ca.c::jtatco`; `va2.c::jtfslashatg` | Cell-at-a-time execution is **not proof of a single fused kernel**; source checks dense/nonempty, type compatibility and whether inplace is more beneficial, and may fall back. | **Graph fusion/streaming candidate → guarded execution schedule** |
+| Nested rank loops can be subsumed | `jtype.h` `VF2RANKATOP*/RANKONLY*`; `ca.c`; `cr.c` | Preserve cell/frame iteration domains and discover compatible rank-domain absorption/fusion. | **Graph/execution semantic analysis**, concrete loop later |
+| `+/%#` gets `jtmean` | `cf.c::jtfolk`; `ar.c::jtmean` | Mean is a high-level idiom, not necessarily a fused pass: jsource computes reduce then divides by cell length. Require numeric/rank/error witnesses before replacement. | **Graph idiom → execution selection** |
+| Mean under infix/window becomes moving average | `ap.c::jtbslash/jtmovavg/jtmovsumavg`, with generic fallback | Rewrite rediscovery matters, but so do sliding-window algorithm/dtype choices, NaN/overflow handling and exact numeric behavior. | **Graph idiom → Window planning** |
+| `+/@:*"1 1` gets `jtsumattymes1` | `cr.c` choice; `va2.c::jtsumattymes1` | Dot-like only under specific rank/dtype/empty/sparse/fit (`!.0/!.1`) paths. Generic Dot substitution is not automatically valid. | **Graph idiom + witnessed numeric lowering** |
+| `#@,`, `#@$`, `*/@$` shortcut to rank/atom count | `ca.c`; `v.c::jtrank/jtnatoms` (sparse has a shape-based route) | Use shape/rank/count demand while preserving sparse/empty/prototype and observable check/error behavior. | **Graph facts / shape rewrite** |
+| `BOXATOP/WILLOPEN/ATOPOPEN/USESITEMCOUNT` coordinate result assembly and consumer | `ca.c` explanation; `cr.c` result assembly; `jtype.h`, `result.h` | This is **not universal algebraic Box→Open cancellation**: it controls virtual boxed contents, recursive assembly/EPILOG, and raze count/shape checks. | **Graph demand → guarded assembly/materialization** |
+| Ravel can use virtual blocks/header reshaping | `v.c::jtravel` incl. `ASGNINPLACESGN`, `AFNJA` | Expose a logical view opportunity, but not every reshape/take/transpose is zero-copy or a simple stride view; alias/pristinity/ownership matter. | **Graph view fact → physical representation** |
+| Comparison/search/set combinations get specialized algorithms | `ca.c` ranking and comparison forms; `cf.c::jtfolk` `jtintersect` under `#if C_VIAVX` | Promote recognized Ranking/Intersection/Search idioms, but keep build capability and tolerance/type restrictions distinct from semantic proof. | **Graph candidate → target/algorithm selection** |
+| Use count and inplaceability drive storage reuse | `v.c::jtravel` incl. use count, pristine and incorpable checks; `JTINPLACE*` | SSA liveness alone is insufficient: require ownership/alias, recursive boxed contents, rank/result shape, and error/retry legality. | **Buffer planner / physical lowering** |
+| Cache footprint/SIMD/special routines influence the execution path | `va2.c::jtfslashatg` and specialized entry points | Keep fusion/streaming freedom and logical extent in graph IR; select chunking, SIMD, GPU workgroups, and libraries later. | **Target lowering / schedule / cost** |
+| Reduce has empty/singleton/two-item/type-specialized paths | `ar.c::jtreduce/jtslash` | Identify neutral/singleton shape candidates, but preserve prototype/numeric semantics and select small-cell routines downstream. | **Graph facts → Reduce lowering** |
+| Scan/infix has multiple specialized sliding algorithms | `ap.c::jtpscan/jtmovfslash` | Distinguish Scan from Window; sliding sum/min/max/boolean/XOR paths need numeric, NaN, overflow, and fallback contracts. | **Graph Scan/Window → schedule** |
+| Search/index-of can use prehash or sorting + binary search | `vi.c` IPH modes and `jtiobs` | Prehash modes do not guarantee applicability; `jtiobs` is limited to `ct=0` tolerance and selected boxed high-rank/numeric-box cases. Select hash/sort/generic based on facts and cost. | **Graph Search → execution algorithm selection** |
+| Under/each has structural and specialized paths | `cu.c` `u&.>`, `jtsunder`, inverse caching for `nameless(wvb)` | Preserve inverse and dynamic-name binding timing, effects, aliases; structural and cached-inverse routes require legality proof. | **J Graph Under provenance → execution** |
+| Bound constants enable specialized numeric algorithms | `ca.c` constant `2&^.` log2 and modular-power cases | Preserve bound constants as facts; demand full numeric-domain/fit/overflow witnesses. | **Graph constant candidate → numeric lowering** |
+
+Pinned sources:
+
+- [`jsrc/ca.c` — Result Assembly flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L269-L289) · [`jtatop/jtatco` patterns](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L293-L516)
+- [`jsrc/cf.c` — `jtfolk`, capped-fork normalization, mean and intersection specializations](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L55-L198)
+- [`jsrc/cr.c` — rank/IRS selection and `jtsumattymes1`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L779-L799)
+- [`jsrc/ap.c` — infix dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L940-L965) · [moving-average fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L769-L780)
+- [`jsrc/va2.c::jtfslashatg` — cell-at-a-time execution and fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1806-L1850)
+- [`jsrc/v.c` — rank/atom-count shortcuts, virtual ravel and inplace/header reuse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/v.c#L8-L40)
+- [`jsrc/jtype.h` — BOXATOP/WILLOPEN/USESITEMCOUNT/RANKATOP/RANKONLY contracts](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1280-L1320)
+- [`jsrc/result.h` — WILLBEOPENED/COUNTITEMS result-assembly contract](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/result.h#L20-L36)
+
+- [`jsrc/ar.c` — empty/singleton reduction, `jtslash`, `jtmean`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L818-L849) · [Mean](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L1018-L1025)
+- [`jsrc/ap.c` — sliding sum/min/max/boolean/XOR paths](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L901-L965) · [numeric fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L750-L780)
+- [`jsrc/vi.c` — hash/prehash modes, sort+binary search](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L142-L184) · [sort path](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L804-L839)
+- [`jsrc/cu.c` — Under/Each and structural-under special paths](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cu.c#L391-L439)
+- [`jsrc/va2.c` — dot-like rank/type/fit boundary](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1640-L1687)
+
+The layer boundary is deliberate: Graph IR/facts own provenance, rank/cell/frame topology, shape/count, demand, logical-view opportunities and semantic traits; graph optimization owns fusion, rank-domain absorption, shape/count simplification, materialization elimination and idiom recognition; execution/physical planning owns explicit loops, buffer reuse, concrete views, cache blocking, SIMD/multicore/GPU mapping and library/custom-kernel selection.
+
+Do not make each jsource special entry point a Graph IR node, and do not copy runtime flags such as `WILLOPEN` or `RANKATOP` as semantic identity. Each rewrite still requires its own witness for J-visible dtype, rank/frame/cell, empty/prototype, fit/tolerance, overflow/promotion, and effect/error order. jsource special cases are optimization-source evidence, not sufficient correctness proofs. This section records design input only; it does not claim these optimizations are implemented.
+
+**Independent audit (2026-10-06):** Corrected overgeneralizations about kernel fusion, algebraic Box→Open cancellation and generic Mean/Dot equivalence; documented restricted fallback/type/rank/fit cases, plus reduction, sliding/scan, hash/search, Under/Each and constant-specialization omissions. This is a source/document review, not a RustJ implementation or differential/benchmark run.
+
+### Independent verification using three separate criteria (2026-10-06)
+
+| Review | Independent question | Findings | Limit |
+|---|---|---|---|
+| **1. Source trace** | Which exact constructor/entrypoint/fallback paths exist? | Rechecked pinned `ca/cf/cr/va2/ar/ap/vi/cu`, clarified `C_VIAVX` gate for `jtintersect`, `ct=0`/boxed restrictions for `jtiobs`, and expanded fallback source links. | Not an exhaustive jsource inventory |
+| **2. Semantic counterexamples** | Which apparently similar graph transforms can change J behavior? | Independently checked empty/sparse, rank/frame/cell, `!.`/promotion/NaN/overflow, boxed assembly/virtual alias, dynamic names, effect/error order. Rejected unconditional Mean/Dot/Box→Open/fusion rewrites. | No runtime/differential tests run |
+| **3. IR/document boundary** | Which layer owns discovery, proof and realization? | Compared graph discovery, §7.5 candidate evidence, execution semantic lowering and Physical Planner; their boundary is consistent. Repaired the broken Markdown table. | No implementation/performance claim |
+
+**Revision check:** pinned source baseline `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` is 20 commits behind jsource `master` at `0a5101cfdd834b23a0b89d455e4f327310520a08` (2026-10-05); intervening changes include `ap.c/ar.c/va2.c`. The inspected entry/guard excerpts for `jtmovavg`, `jtmovfslash`, `jtmean`, `jtreduce`, `jtfslashatg`, `jtsumattymes1` matched; this does not verify entire functions or all current-head paths.
+
+### Pending differential-regression matrix (not executed)
+
+| Candidate | Boundaries to test | Required legality result |
+|---|---|---|
+| `f/@:g` | empty/sparse, inplace, dtype mismatch, overflow reversion | value/type/error order and effect-safe fallback |
+| `+/%#` / Window(Mean) | zero/one/multiple cells; int/float/NaN/overflow; window lengths | shape/prototype/dtype/numeric equivalence |
+| `+/@:*"1 1` | mixed-rank/empty/sparse, `!.0`/`!.1`, QP | rank/agreement/result type and fallback |
+| BOXATOP/WILLOPEN/USESITEMCOUNT | nested boxes, nonuniform shapes, raze, sparse and virtual aliases | assembly/usecount/error/order invariants |
+| Search/Under/View | boxed/tolerance/prehash, rebinding, shared/inplace ravel | search identity, inverse binding timing, alias legality |
+| Every rewrite | proof/source version, effect/error order, guard miss | never commit unknown; no replay after effects |
+
+jsource code paths are sources for candidate discovery, not correctness proofs or performance measurements. Unverified candidates must not be marked selected or realized.
+
+### H. Additional missing optimization families found in repository-wide audit (2026-10-06)
+
+The preceding catalog of 18 representative observations was **not** an exhaustive account of jsource optimization. Reviewing the pinned `jsrc/` source tree and additional functional families revealed these **previously omitted or over-collapsed families**.
+
+| Missing family | Pinned direct source | What jsource specializes and where it is legal | RustJ owner |
+|---|---|---|---|
+| **Key/Group-by plus aggregation** | [`ao.c::jtkeyct`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L213-L260), [`jtsldot`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L824-L850) | Selected `u/.`/`f//.` cases directly accumulate group sum/min/max/mean rather than universally materializing reorder→Cut→Reduce. Requires key equality/tolerance, group ordering, type and overflow witnesses. | Graph **Key/GroupReduce candidate** → group algorithm |
+| **General inner product / matrix multiplication** | [`cip.c::jtpdt/jtdot`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cip.c#L715-L739), [size-dependent route](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cip.c#L925-L956), [`gemm.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/gemm.c#L923-L985) | Broader than the existing rank-1 dot-like `jtsumattymes1`. `+/ . *` selects small/cached/BLAS/in-house dgemm/zgemm/igemm routes with numeric fallback. | Graph **Contraction** → numeric witness + physical GEMM route |
+| **Grade/Sort/Ranking strategy selection** | [`vg.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vg.c#L525-L557), [`vgsort.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vgsort.c#L120-L149), [`vgranking.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vgranking.c#L34-L69) | Count/histogram+prefix, radix, quick/merge and direct sorting depending on range, item length and size; optional AVX512 gated route. Requires J equality/order and tie stability contracts. | Graph **Grade/Ranking** → target-aware algorithm choice |
+| **Tolerance-aware hash table algorithms** | [`viavx2.c` neighbor hash intervals](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L10-L49), [`viavx.c` table layout](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L15-L43) | Naive exact hashing cannot implement J tolerance. Neighbor-bucket probes, signed-zero handling and packed/AVX table strategies are distinct from prehash entrypoints. | Search tolerance semantic witness → hash planner |
+| **Interval Index `I.`** | [`viix.c` boolean/small-range](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viix.c#L18-L48), [binary search](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viix.c#L55-L86) | A separate ordered-interval operation from general `i.` membership/hash search; range and sortedness permit table or branchless search. | Graph **IntervalLookup** → search route |
+| **Cut/substring virtual paths** | [`cc.c::jtrightcut0`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L133-L147), [`jtboxcut0`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L158-L210) | Selected one-dimensional segments can be virtual; consumer-will-open permits boxed virtual contents. Reverse/negative paths and lifetime may force copying/fallback. | Graph Cut/segment + demand → View/Result Assembly |
+| **From/Gather copy-vs-view** | [`vfrom.c::jtget1cell`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vfrom.c#L39-L53), [AVX gather path](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vfrom.c#L70-L108) | Small cells may copy, large contiguous cell selections may return virtual blocks; arbitrary indexed gather is not a universal zero-copy view. | Graph access facts → Physical gather/layout |
+| **Reshape/Compress/Catenate ownership and copying** | [`vf.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vf.c#L301-L331), [`vrep.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vrep.c#L53-L93), [`vcat.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vcat.c#L192-L221) | Conditional header reuse, virtual reshape, in-place compression, and recursive-box ownership transfer require alias, pristine/usecount, fill and lifetime checks. | Graph materialization facts → buffer/ownership planner |
+| **Sparse-specific algorithms** | [`cpdtsp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cpdtsp.c#L1-L43), [`vgsp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vgsp.c#L1-L25), [`visp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c#L1-L25), [`vfromsp.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vfromsp.c#L1-L35) | Specialized sparse inner product, grade, index-of and From do not imply dense fallback or unconditional dense fusion. | Sparse semantic facts → sparse execution route |
+| **Dynamic name-reference / locale caching** | [`sc.c` lookup](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L57-L100), [invalidation/locale guards](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L140-L178) | Timestamp/invalidation, short- vs long-term cache, permanent locale and atomic cache updates optimize dynamic lookup *without changing J binding semantics*. | Name/Binding runtime cache, **not** a Graph algebraic rewrite |
+
+These families need different layers: source syntax/graph identity permits candidate recognition, Execution Semantic Lowering owns rank/type/tolerance/error/effect proof, and physical planning owns sorting/hash/GEMM/view/sparse/memory route choice. Name lookup cache is a separate interpreter/runtime semantic boundary.
+
+### I. Explicit coverage limitation
+
+This additional review searched the pinned `jsrc/` source inventory and sampled source files in grade/sort, group/key, inner product/GEMM, tolerant hash/index, cut, data movement, sparse, and name caching. **It does not establish that no other jsource optimizations exist.** In particular, a complete inventory of `p.c` parser/assignment paths, `cx.c` explicit definitions, primitive numeric `va1/v0/v1/v2`, allocator/amend `m.c/am.c`, and all SIMD/assembly microkernels remains unverified. Suggested first research priorities are high-level Key/GroupReduce, Contraction, Grade/Ranking, and IntervalLookup identities, followed by their legality witnesses and target-specific algorithms. This was a source/document audit, **not** J/RustJ differential execution or a benchmark.
+
+### J. Framework-native RustJ integration (2026-10-06)
+
+This section distinguishes source-derived **design evidence** from actual RustJ code integration. No verified performance improvement or semantically committed transform is claimed.
+
+| Source-derived idea | Existing RustJ owner | Code status | Gate before execution optimization |
+|---|---|---|---|
+| `f/@:g` Map→Reduce streaming | Existing `j_graph_fusion.rs::MapReduce` and `fusion_planning.rs` | Reuse the existing envelope; do not add a duplicate rewrite | cell/rank, numeric/type, effect/order, target feasibility, fallback |
+| `+/%#` Mean fork | New `j_graph_jsource.rs` source analyzer | Recognize **monadically applied ordinary Fork of Insert(Add), Divide and Tally** as a source-backed **MeanIdiom candidate only** | shape/cell, empty, numeric order, effects; no Mean kernel yet |
+| Reduction/window/scan | Existing `GraphForm::Reduce/PrefixInfix`, `j_graph_scan.rs` | Register ReductionFastPath/WindowAlgorithm opportunities, separate from Scan witness | small-cell/window algorithm; NaN/overflow, monad vs dyad |
+| `i.` / `e.` / `E.` search | Primitive identity, existing FindViaWindowMatch rewrite | Dyadic SearchAlgorithm source opportunity; preserve existing Find rewrite | tolerance, hash/sort applicability, cost |
+| Dyadic `I.` interval index | `PrimitiveId::Indices` | Distinct IntervalLookup candidate, not monadic index-space | order/shape/type/tolerance |
+| Dyadic From and static reindex | `DynamicGather/StaticReindex` | GatherCopyOrView/ReindexCopyOrView candidates only, **not universal zero-copy** | bounds, alias/ownership, fill, stride/gather |
+| GroupReduce, full dot/GEMM, Grade/Ranking | Future J Graph/source-identity support + Execution Semantic Lowering | Source provenance, owner and obligations registered; do not fabricate executable nodes | frontend semantic support and differential proof |
+| Tolerant hash, sparse, buffer reuse and name cache | Execution/Physical planner and binding runtime | `DownstreamOnly` or `AwaitingFrontendOrFacts`; never mislabeled graph algebra | tolerance/sparse/alias/locale version, fallback |
+
+- `src/j_graph_jsource.rs` owns pinned source references, stable IDs, owner, coverage and proof obligations. `Plan::jsource_opportunities()` reports source `ValueId`, span, basis and facts without mutating the graph.
+- `CompilationAnalysis::jsource_opportunities` is populated in `runtime.rs::analyze_compilation_diagnostic`, alongside existing rewrites and Logical IR; it **does not select/execute** opportunities.
+- All opportunities are `AwaitingSemanticProofs`, `selected=false`. `verify(&Plan)` checks derivability/provenance against the graph, **not full numeric equivalence**.
+- Existing MapReduce fusion remains solely owned by `j_graph_fusion`; GroupAggregate, MatrixContraction and GradeRanking are registry-only until their constructors and proofs exist.
+- `tests/j_graph_jsource.rs` covers stable source registry, derivation/provenance, forged candidates, exact Mean fork and negative matches, selected Graph patterns and isolation from existing Find rewrite/MapReduce fusion. **Test execution has not yet been verified**.
+
+Deferred work: establish correct J constructor/operand/rank semantics for Key, Dot, Grade, Cut and Under; discharge semantic/effect/alias/numeric witnesses; add execution-specific GroupReduce/Contraction/GradeSort/IntervalLookup operations; select guarded CPU/GPU/sparse/BLAS routes only through target/cost planning; and validate against jsource for empty/sparse/tolerance/`!.`/overflow/rank/error/binding cases. Preserve the current frontend milestone priority. The optimization catalog is **not** an executable jsource-optimization port.
+
+### K. Follow-up source audit: monadic Mean guard and runtime-only optimizations (2026-10-06)
+
+**Concrete correction:** In the pinned [`cf.c::jtfolk`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L93-L101), `(+/ % #)` selects **`f1=jtmean` only**, not a dyadic `f2` specialization. Earlier RustJ discovery matched the derived fork but did not check applied valence, so it could falsely emit `MeanIdiom` for dyadic calls. `src/j_graph_jsource.rs` now requires a **monadic applied node**, and `tests/j_graph_jsource.rs` includes a dyadic negative regression. No mean kernel or numeric-equivalence proof is implied.
+
+A second pinned-source pass also sampled previously unreviewed areas:
+
+| Direct source | Observed mechanism | RustJ boundary |
+|---|---|---|
+| [`p.c` lines 10–24](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L10-L24) | Parse rows 0–2 support inplace execution, assignment `zombieval`, early parse completion | Frontend/runtime binding and lifetime, **not** graph-only donation |
+| [`cx.c` lines 270–329](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L270-L329) | Reuse/clone explicit local symbol tables, precomputed x/y buckets, borrowed/abandoned argument handling | Explicit runtime/binding; respect dynamic scopes and aliasing |
+| [`va1.c` lines 313–383](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va1.c#L313-L383) | Monadic numeric dispatch, retry/promotion by exceptional condition, distinct sparse fallback | Numeric semantic witnesses then guarded execution |
+| [`am.c` lines 55–89](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L55-L89), [568–581](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/am.c#L568-L581) | Guarded Amend/scatter inplace paths checking indexing, sparse/type/read-only/alias/usecount | Amend semantics then Scatter/Buffer planning; do not conflate with Gather |
+| [`m.c` lines 743–783](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/m.c#L743-L783) | Virtual/recursive storage and allocation/refcount lifetime | Physical allocator/representation; do not copy C flags as graph semantics |
+
+Only the Mean false-positive is changed in graph discovery. Other observations remain source-evidence backlog assigned to their respective stages; they do not claim additional implemented graph transformations or exhaustive jsource coverage. `FOUNDATIONS.ko.md` remains consistent with the semantic/physical separation and needs no change. **Rust tests, differential execution and benchmarks have not been run for this change.**
+
+### L. Connect jsource source opportunities to canonical A3 and existing lowering (2026-10-06)
+
+`LoweringRegistry::jsource_planning_reports` first re-verifies the J Graph opportunity against its source plan. It validates both graph and A3 IR and source/node-count consistency, then maps the source `ValueId` to existing canonical A3 calls via `Operation.j_origin`. For an A3 `Basis` call it reports the *existing ordinary* `legal_candidates` for the selected target; for `SemanticCall` it reports the existing semantic-call boundary. **An ordinary CPU/GPU reference route is not a jsource-specialized implementation or an equivalence proof.**
+
+`JsourcePlanningReport` exposes candidate family, source provenance, decision owner, linked `OpId`s, the **entire unresolved** `ProofRequirement` list, and fail-closed status `NeedsLogicalCallLink` or `NeedsSemanticProof`. Type/shape facts, matching source syntax, and legal baseline routes do not silently discharge proof obligations. This is the first conditional-lowering *gate*, not optimized lowering execution. It does not commit a transform, select jsource-specific kernels, insert runtime guards, or make physical layout decisions.
+
+Next: typed family-specific equivalence witnesses and runtime guards (including effect/error/fallback order), parameterized lowering recipes, target/cost decisions, and differential tests. `tests/lowering.rs` adds cases for Reduce, monadic Mean, Gather, IntervalLookup, CPU/GPU route separation, stale provenance and missing A3 origins. These tests **were added but not executed**; CI, Cargo, C differential and performance validation remain unrun.
+
+<a id="jsource-audit-m"></a>
+
+### M. Re-audit of previously unlisted jsource optimization families (2026-10-06)
+
+**Method and scope.** On pinned [jsource revision 13994ffa](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc), separately inspected (1) the \`ca.c\` composition and \`cf.c\` hook/fork dispatch tables, (2) implementations and fallback guards in \`ao/cc/v/vi/vg/vrand/vx/vz/va1/vo/a.c\`, and (3) existing RustJ \`j_graph_ir\` / \`j_graph_jsource\` / A3 / lowering boundaries. These paths were missing or overly aggregated in the earlier A/H/K representative catalogs. Source fast paths do **not** establish semantic equivalence, RustJ support or measured gain.
+
+| Newly separated specialization | Verified pinned source and key guard | Placement in current RustJ framework |
+|---|---|---|
+| **Oblique reduction/convolution** \`f//.@:(g/)\` | [\`ca.c\` dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L367-L374) and [\`ao.c::jtpolymult\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L109-L161): atomic dyads with VFUSEDOK2, dense/nonempty vector and dtype/operator guards, generic fallback and overflow retry. | J Graph Oblique/Reduce candidate → typed Contract or segment-reduction/access relation → downstream convolution routine. Not an unconditional GEMM alias. **Not implemented.** |
+| **Cut → Scan/Window → Raze fusion** | [\`ca.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L358-L368), [\`cc.c::jtrazecut2\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L983-L1031): restricted Cut modes, atomic scan and dense input; **the upstream comment acknowledges an extra result axis in the no-cut case**. | Multi-region Graph candidate → SegmentView + Scan/Window + ConcatAssemble → materialization/assembly. **Blocked pending zero-cut semantics reconciliation.** |
+| **Byte-character substitution LUT** \`y {~ x i. ]\` | [\`cf.c\` fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L59-L65), [\`v.c::jtcharmap\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/v.c#L165-L191): LIT bytes, 256-entry table, alphabet special case, first-match precedence and index-error fallback. | IndexOf→Gather idiom → Lookup/Gather → Physical byte LUT with byte/shape/errors guard. **Not implemented.** |
+| **Boolean/sparse predicate direct indices** \`# i.@#\` | [\`cf.c::jthkiota\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L221-L234), plus [Key hooks](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L329-L339): dense boolean and guarded sparse boolean nonzero-index path. | IndexSpace + Compact/GroupBy candidate → direct mask/sparse index route. Preserve rank/empty/fill and original value semantics. **Not implemented.** |
+| **Grade→scalar Gather order statistics** | [\`cf.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L337-L345), [\`vg.c::jtordstat/jtordstati\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vg.c#L779-L800): scalar index, int/float vector and size restrictions. \`jtordstat\` draws **random pivots via \`jtrollksub\`**. | Grade→Gather candidate → guarded order-statistic select; inspect observable RNG state and tie/index behavior. **Not implemented.** |
+| **Shape + RNG generation fusion** \`?@#\`, \`?@$\`, \`?.@#\` | [\`ca.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L353-L359), [\`vrand.c::jtrollksub/jtrollk\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vrand.c#L609-L678): binary, power-of-two and general range RNG routines with rank/type fallback. | Source Generate/shape-demand candidate → **stateful** RNG runtime route; preserve seed/stream/draw/effects; never classify as pure algebraic fusion. **Not implemented.** |
+| **Direct boxed Append/Raze link** \`,<\`, \`;<\`, \`,&<\` | [\`cf.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L315-L326), [\`vo.c::jtjlink\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vo.c#L107-L144): boxed/virtual/recursive ownership, WILLOPEN and in-place guards, fallback. | Graph producer-consumer demand → ConcatAssemble/result assembly → guarded ownership/materialization. Not universal Box→Open cancellation. **Not implemented.** |
+| **Explicit \`M.\` memoization** | [\`a.c::jtmemo12/jtmemo\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/a.c#L93-L185): memoizable scalar integer-like arguments, locked expandable cache of key/result pairs, nonmemoizable input executes normally. | Derived verb identity + stateful cache runtime; preserve explicit memo semantics, call-skipping, bindings and lifetime. Not generic Graph CSE. **Not implemented.** |
+| **Numeric constant and exact-result idioms** | [\`ca.c\` dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L367-L387); [\`vx.c::jtdigits10\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vx.c#L257-L290), [\`vz.c::jtexppi\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vz.c#L293-L305), [\`va2.c\` exponent 0.5/power-of-two residue](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1937-L1940). Complex half-turn has exact-zero component handling. | Graph constant/derived numeric idiom → numeric/fit/error witness → typed backend recipe. No one-to-one C function Graph node. **Not implemented.** |
+| **Hook comparison and deadband** | [\`cf.c\` abs/level comparison](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L319-L333), [\`cf.c\` dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L105-L115), [\`va1.c::jtdeadband\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va1.c#L440-L462): AVX2 or emulated AVX2, dense floating-point, scalar-threshold and fallback guard. | Graph Hook/comparison candidate → typed numeric comparator → target-feature-gated SIMD. Preserve tolerance, NaN/signed-zero and error ordering. **Not implemented.** |
+
+Do not duplicate H's GroupReduce/GEMM/Grade/Search/virtual/sparse family rules. This table separates **different topology, proof conditions and target/runtime ownership** hidden inside those broad topics. Do not fabricate missing parser constructors or auto-register these ten as executable \`JSOURCE_FAMILY_RULES\`; future registry-only entries should start as \`AwaitingFrontendOrFacts\` or \`DownstreamOnly\`.
+
+#### M.1 Is a RustJ framework change necessary?
+
+**No wholesale architecture or canonical IR replacement is necessary. Several local contract extensions are necessary before these optimizations may execute.**
+
+| Current RustJ structure | Decision and necessary action |
+|---|---|
+| Shared \`FunctionEntity\`, J Graph regions, canonical A3 and basis vocabulary (Contract, Scan, GroupBy, Grade, Gather, ConcatAssemble, etc.) | **Keep.** Preserve operator topology and existing basis algebra. Fill in currently deferred family-specific \`ExecutionBasisPayload\` only with corresponding semantic support. Do not add C-entrypoint-shaped IR nodes. |
+| \`JsourceOpportunity\` stores one source ValueId/span; \`jsource_planning_reports\` links calls by \`Operation.j_origin == source_value\` | **Extend sidecar provenance** with optional region identity, graph-version/source anchor and the exact ordered A3 operation set for multi-region idioms such as Cut→Scan→Raze or Oblique→Reduce. Multiple nested regions can share a result ValueId. Do not change parser-owned semantic identity. |
+| \`JsourcePlanningState\` only has NeedsLogicalCallLink/NeedsSemanticProof; \`OpportunityLegality\` only AwaitingSemanticProofs, and family proofs remain unresolved | **Add proof discharge before enabling optimized execution.** Implement §4.1.4's per-obligation evidence/proof/guard/rejection contract; separate provenance, call/rank/empty/fit/numeric/error proof, target/resource/cost and final selection. A legal baseline lowering is not an optimization equivalence witness. |
+| A3 \`EffectSummary\` currently only Pure/Unknown; RNG, explicit \`M.\` cache, name bindings and control errors require ordered state relations | **Add scoped state/effect-resource contracts when supported.** Prevent loss of observable RNG consumption or explicit memo behavior; until then retain Unknown/runtime-semantic fallback. No forced immediate conversion of all A3 ops into memory/effect SSA. |
+| Logical \`SemanticCheck\` and constraints, physical target/resource/cost layers already separated | **Keep separation.** Handle zero-cut rank/fill, boolean/sparse, byte-LUT index errors, numeric guard, RNG draw ordering before observable effects, with specified source fallback. No replay after effects. Buffer/byte table/SIMD workgroup belongs downstream. |
+
+Two source-level counterexamples block automatic equivalence:
+
+1. [\`cc.c::jtrazecut2\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L983-L993) explicitly notes that its no-cut case can return a different result axis than the generic route. A jsource special entry point **is not an equivalence oracle**. Independently settle J result/empty assembly semantics before committing fusion.
+2. [\`vg.c::jtordstat\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vg.c#L779-L790) calls RNG to choose pivots. Check whether the RNG state is observable by subsequent J operations before classifying Grade→Select as pure. If observable, require an explicit state/trace policy and its proof.
+
+#### M.2 Staged implementation and validation
+
+1. Keep M2 frontend precedence: verify derived POS, operands, rank/valence, exact source pattern and fallback for \`/. /..\`, \`;.\`, \`M.\`, \`? / ?.\`, hook/fork/grade. Unsupported forms remain unregistered as applied candidates.
+2. Preserve source region/operation anchors, effect/RNG/cache/error edges and per-candidate numeric/empty/assembly proof obligations.
+3. Implement one narrow, guarded family (for example byte LUT or boolean-index) with existing generic reference fallback; defer no-cut segment fusion, randomized selection and memoization until their extra contracts are proved.
+4. Extend \`LoweringRegistry\` with verified parameterized recipes, then target/resource/cost and overlap-aware selection. The physical planner owns buffers, cache/tiling and device realization.
+5. Run differential comparisons for positive/negative guards, dtype/rank/boxed/sparse/empty/\`!.\`/tolerance/NaN/overflow/error precedence, RNG seed/trace, dynamic name binding and replay safety before declaring any family implemented.
+
+**Validation limits:** This is a pinned-source plus RustJ design/code **static audit**. No Cargo, CI, J/C differential execution or benchmarks were run. Not an exhaustive audit of every source file, all assembly/architecture microkernels, all build variants or current jsource HEAD; never claim zero omissions or working optimizations based on this section alone.
+
+<a id="jsource-index-family"></a>
+
+### N. Roger Hui's Index-Of family: phased integration in RustJ (2026-10-06)
+
+**Sources.** Roger Hui, *Index-Of, A 30-Year Quest* (J Conference 2014; [bibliographic evidence](https://www.sigapl.org/Articles/APL%20Since%201978_3386319.pdf)) and *Hashing for Tolerant Index-Of* ([Jsoftware, 2010](https://www.jsoftware.com/papers/Hashing.htm)). Actual dispatch, preconditions, fallback and mode ownership were examined in pinned [\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c), [\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c) and [\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c). Neither the historic paper nor the existence of a C specialized routine proves a RustJ optimization legal or profitable.
+
+**Separate J operations from search algorithms.** Dyadic \`i.\` (first match), \`i:\` (last match), \`e.\` (membership), \`~.\` (nub), \`~:\` (nub sieve), \`-.\` (less), \`I.@e.\` (matching positions), and Key classification can share a lookup engine, but result representation, rank/cell/frame, duplicate representative, empty/prototype and tolerance differ. Dyadic \`I.\` is **interval lookup**, not ordinary index-of; \`E.\` is a **substring/window match** owned by existing \`FindViaWindowMatch\`; monadic \`i.\`/\`i:\` generate index spaces. Do not fuse these semantic identities merely because their C implementations share a source file.
+
+| Upstream strategy | Guard and cost premise | RustJ ownership |
+|---|---|---|
+| Sequential scan | Tiny inputs where setup dominates ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1113-L1148)) | Execution algorithm/reference |
+| Direct indexing, bit-packed byte/small integer range | Integer domain span, presence-vs-position table width, initialization and cache locality ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L1148-L1238)) | Physical algorithm/cost |
+| Hash and reverse hash | Index-vs-query relative cardinality, duplicate order ([\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850)) | Physical algorithm/cost |
+| Tolerant float/complex/boxed hashing | Runtime cct/\`!.\`, nontransitive approximate equality, +0/-0, NaN, exact insertion, neighboring intervals ([\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L78)) | Equality semantics/proof **before** target algorithm |
+| Boxed sort→binary search | Source \`jtiobs\` is limited to \`ct=0\` and selected boxed shapes ([\`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L735-L840)) | Target algorithm after equivalence witness |
+| Sparse and Key self-classification | Sparse fill/axes, stable first occurrence ([\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c#L68-L106), [\`ao.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L213-L255)) | LookupClassify/GroupBy, representation-specific |
+| Prehash reuse / fused result modes | Dictionary key/type/rank/tolerance/version and lifetime; output index/boolean/compact/count/any/all ([\`vi.c\` modes](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185)) | Execution result intent and costed cache planning |
+
+#### N.1 First implemented slice — preserve canonical IR
+
+- \`src/index_ops.rs\`: \`LookupResult::{First,Last,Membership}\` and a shared \`lookup(indexed,queries,result)\`. Membership now **produces boolean results directly**, without a materialized index-position vector, preserving the prior frame/rank and incompatible-cell behavior.
+- Exact **integer/boolean scalar-only** inputs may use \`ExactScalarIndex::Direct\` or \`Hashed\`; small queries remain sequential. The direct table has a fixed **65,536-entry** ceiling, provisional \`span <= 4 * (indexed items + queries)\` heuristic, and \`items * queries <= 32\` sequential cutoff. Compute key span via \`i128\` to avoid signed overflow; preserve first/last duplicates and not-found. These numbers are **initial heuristic bounds, not benchmark-tuned cost evidence**.
+- Float/boxed/complex or non-scalar cells remain on generic sequential \`atom_eq\` fallback. No tolerance hash is enabled.
+- \`src/j_graph_jsource.rs\`: include dyadic \`i:\` in \`SearchAlgorithm\`; remove \`E.\` from this family (existing FindViaWindowMatch rewrite owns it); keep dyadic \`I.\` and monadic \`i.\`/\`i:\` distinct. Graph candidate legality remains unproven/unselected.
+- Add index tests for duplicate/negative/missing, boolean membership, bounded direct vs hash, extreme i64 key spans, and provenance separation. **Tests were added, not executed; this is static code integration only.**
+
+This is a narrow improvement to the CPU reference path, **not** full upstream \`i.\` support and **not** Graph-driven fast-path commitment.
+
+#### N.2 Necessary extensions, not an IR redesign
+
+The first N.2 extension has since landed in §O: A3 `LookupClassify { search: SearchDescriptor }` preserves first/last/membership/interval/self-classify, indexed/probe origin and J comparison meaning. **Still missing** are runtime `!.ct` policy/version witnesses, grouped/compact/count search modes, sortedness/uniqueness proofs, full prepared-lookup keys and shared `CandidateEvidence`. Preserve original `FunctionEntity`, dynamic tolerance and Rank/CellApply throughout.
+
+1. Validate duplicate order, rank/cells, mixed types, box/sparse/empty/fit and J-visible error semantics with a C J oracle before broadening algorithm options.
+2. Extend direct byte/packed-index tables, reverse hash and explicit prehash in separate increments with target cost/alias/cache/key-invalidation evidence; handle GPU resource constraints separately.
+3. Treat tolerant hashing as a dedicated research and equivalence gate: near equality is not generally transitive; matching float hashes and matching equality classes cannot be naively identified. Guard cct, signed zero, NaN, boxed recursion, first/last matches and pre-effect fallback.
+4. Feed proven algorithm recipes into \`LoweringRegistry\` with independent target/resource/cost evidence. Do not treat legal ordinary execution routes as equivalence witnesses for newer specializations.
+5. Require Rust/C differential plus benchmarks for claims of general legality or speed; CI, Cargo, differential runs and performance measurement were **not performed** in this implementation slice.
+
+
+
+#### N.3 Second slice: query-side reverse hashing and per-Engine prehash (2026-10-06)
+
+**Provenance.** [Pinned jsource \`viavx.c\` reverse-hash selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850) is conditional on indexed/query sizes and supported modes; [\`vi.c\` prehashed modes](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185) include saved derived-verb table semantics. RustJ borrows **only narrowly scoped algorithms** here; this is not a port of all upstream prehashed derived verbs.
+
+| Implementation | Eligibility and behavior | Explicit guardrail |
+|---|---|---|
+| **Query-side reverse hash** | \`src/index_ops.rs::reverse_exact_index\`: for exact scalar Int/Bool, at least 64 indexed items and indexed/items ratio over 2:1, hash distinct query values then scan the original indexed items once | Forward scan for First/Membership, backward for Last. Stop when all distinct query keys resolve. Duplicate queries share correct positions and absent keys retain the missing sentinel. No tolerance, boxed or multicell hashing |
+| **Engine-local prepared search index** | Retain one \`ExactPrehashCache\` per \`Engine\`. Index only shared immutable Int/Bool vectors, length 64–16,384. First and Membership reuse the same prepared index; Last requires a distinct representative policy | A hit requires identical retained \`Arc\` allocation, dtype, shape and policy. Retaining a shared source clone prevents pointer recycling; new backing after rebinding cannot hit a stale index. Single-entry bounded cache, not a global name cache |
+| **Interpreter integration** | \`runtime.rs::Engine::interpret_ir\` uses cache-aware exact-scalar \`i.\`, \`i:\`, \`e.\` for the regular pooled primitive path. \`index_prehash_stats()\` and \`clear_index_prehash()\` expose limited diagnostics | Other types, explicit rank and \`eval_semantic_reference\` use the existing route; no additional Graph/A3 source transform is committed |
+| **Regression cases** | Unit tests for direct/hash/reverse/linear vs a reference, duplicates, extreme keys, immutable identity and stale-rebind rejection; Engine integration tests for first-to-membership sharing, last-policy separation, temporary reverse and reference bypass | **Added, not executed.** CI/Cargo, C differential and benchmarks were not run |
+
+**Allocation fallback:** `Error::Limit` when allocating an optional reverse/direct/hash/prehash search table is treated as a missed optimization, so the original sequential lookup still executes. A genuine result-buffer allocation failure remains an execution error.
+
+**Architecture decision:** no new canonical Graph IR or A3 basis node. This remains a narrowly guarded **CPU interpreter implementation path**. The fixed thresholds (64 items, 2:1 size ratio, 16,384 cache items) are provisional, **not** measured optimal costs. It does not assert that JsourcePlanningReport has discharged equivalence proofs or that LoweringRegistry selects these implementations.
+
+**Remaining prehash gate:** explicit J derived prehash such as \`m&i.\` or \`e.&n\` requires a compiler-visible prepared-lookup descriptor, versioned dictionary/key equality/tolerance context, cache lifetime and invalidation, fallback/check ordering and target/cost evidence. Do not extend this immutable Arc-identity cache to dynamic name, locale, boxed, sparse or tolerance-aware domains without independent proofs. Run J/C differential and measurements before widening eligibility.
+
+
+<a id="algorithm-planning-migration"></a>
+
+### O. Algorithm-planning framework extension informed by MLIR, IREE, TVM, XLA and Futhark (2026-10-06)
+
+**Architecture decision:** do not turn jsource's special C entry points into J Graph node kinds or leave their choice exclusively in `index_ops.rs`. Preserve `J semantic identity → A3 meaning → target legality / proof evidence → Physical cost/selection → guarded executor with fallback`. This is the first search-family slice, **not** completion of a whole-compiler optimizer or auto-tuner.
+
+#### O.1 Comparison and adopted boundaries
+
+| Framework / verified reference | Actual mechanism | Adopt / explicitly defer |
+|---|---|---|
+| **MLIR Dialect Conversion** ([official reference](https://mlir.llvm.org/docs/DialectConversion/)) | ConversionTarget marks Legal/Dynamic/Illegal per operation and may leave unsupported operations in partial conversion | Distinguish baseline legality, runtime guard, semantic proof, target rejection and mismatched J operation in `SearchAlgorithmReadiness`. Do **not** replace J function/locale semantics with dialect legality |
+| **MLIR Transform dialect** ([official reference](https://mlir.llvm.org/docs/Dialects/Transform/)) | Transform/control IR acts on separate payload IR and distinguishes recoverable from irrecoverable failures | Leave J Graph/A3 semantics unchanged when reporting candidate/selection; keep guard miss separate from invalid transform. Do not import the dialect itself |
+| **IREE Flow/Stream/HAL and Codegen** ([phases](https://github.com/iree-org/iree/blob/main/docs/website/docs/developers/general/developer-tips.md), [LoweringConfig](https://iree.dev/reference/mlir-dialects/IREECodegen/)) | Separate dispatch/stream semantics, backend lowering configs, tiling/vectorization and bufferization | Keep hash size, SIMD, buffers and GPU scheduling out of semantic `SearchDescriptor`; do not claim unsupported GPU search kernels |
+| **TVM MetaSchedule** ([official tutorial](https://tvm.apache.org/docs/deep_dive/tensor_ir/tutorials/meta_schedule.html)) | SpaceGenerator, SearchStrategy, CostModel, Builder/Runner and measured tuning database are separate | Separate legal candidates, workload facts, selection and eventual measured feedback. Current bounds are **heuristics, not a tuned cost model or database** |
+| **XLA GPU priority fusion** ([design discussion](https://github.com/openxla/xla/discussions/10065), [pass source](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.h)) | Estimate compute/memory/kernel-launch impact and rank feasible fusion choices by modeled benefit | Cost/profitability does not legalize semantics; defer device cost ranking until the device route exists |
+| **Futhark SOAC / incremental flattening** ([2026 design](https://www.futhark-lang.org/blog/2026-07-31-full-flattening.html), [fusion discussion](https://www.futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html)) | Retain high-level array dataflow and select among sequential/flattened/fused implementations using shape and machine constraints | Retain high-level `LookupClassify` and later GroupBy/Reduce identity, but do not assume J errors, dynamic names and fit semantics satisfy unrestricted functional fusion identities |
+
+#### O.2 Implemented three-way ownership
+
+1. **A3 Execution Semantic Lowering:** `ExecutionBasisPayload::LookupClassify { search: SearchDescriptor }` now retains original primitive/valence-derived `FirstIndex/LastIndex/MembershipMask/IntervalIndex/SelfClassify`, J equality vs ordered interval comparison, indexed/probe SSA `ValueId` and rank-boundary identity. For `i.`/`i:` and dyadic `I.`, the **left operand is indexed and the right queried**; for dyadic `e.`, **the right operand is indexed and the left queried**. A3 retains this semantic direction before any physical strategy; unknown or nonprimitive derived calls remain `Deferred`. `A3_SCHEMA_VERSION` increases **0.4→0.5**; `Plan::verify` rejects a descriptor that differs from the originating `CallOp`. `JEquality` refers to actual J comparison semantics, **not** permission for exact float hashing.
+2. **LoweringRegistry:** a reference CPU capability for known pure `LookupClassify` calls, plus `SearchAlgorithm::{Sequential,DirectAddress,IndexedHash,ReverseQueryHash,PreparedHash,TolerantNeighborHash}` reports. `SearchAlgorithmReadiness` differentiates `Baseline`, `RequiresExactScalarGuard`, `NeedsSemanticProof`, `UnsupportedTarget`, `UnsupportedSearchForm`. Interval lookup and unsupported GPU/Tolerant Hash are not enabled by mere registration. The same algorithm report is exposed through `JsourceLinkedCall.search_algorithms`, without changing the `NeedsSemanticProof` or unselected source-candidate state. Existing `JsourcePlanningReport` source proofs remain unresolved and are **not** promoted to executable optimized transformations.
+3. **Physical strategy:** `physical.rs::plan_search_algorithm` receives an explicit `SearchWorkload` (indexed/query counts, key span if measured, shared immutable backing, prehash eligibility, available reverse-query values) and target. It queries the registry and returns a guarded or reference `SearchPhysicalChoice` with **estimated temporary table entries, not a byte-accurate resource model or measured timings**. Initial thresholds: sequential ≤32 pair comparisons, direct ≤65,536 entries and ≤4× total work, reverse ≥64 indexed with size ratio over 2:1, prepared 64–16,384 immutable shared entries. `index_ops.rs` checks actual Int/Bool scalar types/cells before following the Physical selector. **Hot-path boundary:** runtime selection uses allocation-free `LoweringRegistry::search_algorithm_readiness`, not a rebuilt registry and candidate vector for each lookup; compiler diagnostics can still request `search_algorithm_reports`. Optional table-allocation failure returns to sequential reference, while real result allocation errors remain observable.
+
+**No semantic shortcut:** approximate tolerance is not generally transitive; `!.ct`, complex/boxed and float values cannot be moved into exact hashing without a separate witness. `I.` interval is not an Index-Of hash family. These changes do not create final GPU codegen, native physical `BufferId` schedules or graph-rewrite commits.
+
+#### O.2a Representative example — `3 1 3 i: 3 4`
+
+- **J Frontend / Graph:** Preserve dyadic `i:` (last-match); 3 resolves to the last occurrence and 4 to the not-found sentinel.
+- **A3:** `LookupClassify { search: SearchDescriptor { output: LastIndex, indexed: left SSA ValueId, queried: right SSA ValueId, comparison: JEquality, .. } }` retains meaning without encoding a hash table.
+- **Registry:** CPU reports `Sequential=Baseline`, exact-scalar `DirectAddress/IndexedHash/ReverseQueryHash/PreparedHash=RequiresExactScalarGuard`, and `TolerantNeighborHash=NeedsSemanticProof`.
+- **Runtime/Physical:** Runtime checks Int/Bool scalar item types. With `3 × 2 <= 32` the candidate is sequential and the expected answer is `2 3`; bigger inputs may use other algorithms while preserving first/last/missing semantics.
+- **Verification:** The regression cases were added **but not executed**. This trace is a contract example, not a performance measurement.
+
+#### O.3 Generalization and verification gates
+
+~~~text
+A3 SemanticDescriptor (meaning, operands, rank, comparison)
+ → AlgorithmCandidateSet (legal target, proof/guard obligations)
+ → VerifiedRuntimeFacts or proven static witness (Unknown is not true)
+ → CostProfile/ResourceBudget (work, bytes, transfer/occupancy)
+ → SelectionPlan (independent of canonical semantic IR)
+ → Guarded CommittedLowering (fallback before effects/errors)
+~~~
+
+The reusable concept is *algorithm option + proof/guard state + resource/cost profile + fallback*. The common report shape `AlgorithmCandidate<Algorithm, Readiness>` and its search-specific alias `SearchAlgorithmReport` are implemented; actual candidate registries, proof discharge, CostEstimate and SelectionPlan for Reduce/Scan, GroupBy, Grade and Contract are deferred until M2/M3 semantic convergence and an M4 CPU baseline, and should be generalized only after a second independently validated operator family actually needs the same contract: each family needs its own associative/tolerance, representative, ordering and numeric-precision proof rather than reusing search-specific enums. Runtime tolerance/fit policy, versioned prehash keys and nested Rank/CellApply legality also remain to be discharged. Do not select a GPU route until implementation/target hard-resource legality exists.
+
+Added A3 search-mode/origin and forged-payload verifier tests, registry CPU/GPU/proof tests and Physical planner selection/guard tests; existing search/rebinding tests are retained. **These are static repository changes. Cargo tests, CI, jsource/C differential checks and benchmarks were not run; no execution or speed claims are made.**
+
+
+
+#### O.4 Index-of family as a framework stress test — four independent audits (2026-10-06)
+
+**Question and finding.** We study jsource's `i.` family not mainly to copy its fast hash routines, but to ask **why one semantic operation permits multiple execution realizations, output demands and index lifetimes, and where RustJ should own each decision**. Existing stage separation is fundamentally sound, but the operational contracts between semantic meaning, candidate evidence, materialization lifetime, cost/selection and an independent execution oracle are incomplete. Do **not** invent a new search IR, create one IR op per `vi.c` mode, or prematurely implement a general optimizer. Close the existing §O.3 / §7.5 architecture incrementally.
+
+**Independent audit A — source semantics first.** The pinned [jsource `vi.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c) dispatches `IIDOT` (first), `IICO` (last), `IEPS` (membership), `INUB/INUBSV` (nub/nub-sieve), `IIFBEPS` (`I.@e.`), related aggregation/mask modes, and `IPH...` prehash variants through a related internal engine. **Transferable insight:** indexed domain, comparison policy, source-order representative, output demand and reusable physical index state are separable. **Not transferable as J meaning:** C mode integers and entrypoints, SIMD cases, specific hash layouts or the tolerant masks in `viavx2.c`. Monadic `i.` / `i:` generation, dyadic interval `I.`, window find `E.`, Nub and Key are distinct observable semantic contracts. Reuse a lower-level computation or multi-op region only when equivalence is witnessed.
+
+**Independent audit B — compiler IR first.** `src/logical_ir.rs::SearchDescriptor` already retains input `ValueId` provenance, indexed/query roles, first/last/membership/interval/self-classify output intent, J equality versus ordered interval and rank boundary. `src/j_graph_jsource.rs` discovers opportunities but leaves them unproved and unselected. **Keep these boundaries.** `JEquality` alone does **not** prove `!.t`/global `cct` compatibility, type promotion, complex/boxed/sparse handling, frame/cell/rank/prototype behavior or error ordering. `E.` belongs to its separately modeled window rewrite; a shared C implementation is not an argument to coerce it into `LookupClassify`. `I.@e.` and membership-consumer fusion are **multi-node graph/consumer-demand candidates** with source-region provenance, not new primitive opcodes.
+
+**Independent audit C — physical strategy first.** [BQN's search implementation notes](https://mlochbaum.github.io/BQN/implementation/primitive/search.html) distinguish normal/reverse/selectively initialized table lookup (which side is indexed/traversed), one-shot versus reused tables (build versus lifetime cost), direct-table versus hashing/SIMD (representation/target), and first/last/member outputs (observable result). The current `src/lowering.rs::SearchAlgorithm` flattens **different axes** into `DirectAddress/IndexedHash/ReverseQueryHash/PreparedHash/TolerantNeighborHash`. Retain the bounded CPU implementation, but do not generalize that monolithic search enum across primitives. When justified, describe candidate recipes with orthogonal **(1) traversal/build direction (2) table/key encoding (3) build/reuse/invalidation lifetime (4) output materialization/consumer demand (5) target/resource/cost**. Only register proven combinations, not their entire Cartesian product. Such recipes belong to a later optimizer/Physical plan, **not** the Graph IR or A3 schema.
+
+**Independent audit D — adversarial verification first.** `src/index_ops.rs::lookup` with `cache=None` can still call `optional_exact_scalar_index` → `plan_search_algorithm`. Consequently `Engine::eval_semantic_reference` avoids prehash, but is **not** an independently sequential search oracle. The legacy Rust `near` vs pinned C `TCMPEQ` boundary discrepancy proves a comparator identity cannot be inferred from a nominal tolerance. Non-transitive tolerant equality cannot be collapsed to a single equivalence-class representative; first/last, Nub and grouping have independent order obligations. Name rebinding, backing change, dynamic policy change, target change, empty cells and guard miss all require separately witnessed state invalidation. Use **three independent paths**: actual jsource C oracle, strictly sequential Rust semantic baseline, and selected optimized RustJ route.
+
+**Framework cross-check (comparison, not automatic adoption).** [MLIR Dialect Conversion](https://mlir.llvm.org/docs/DialectConversion/) offers **analysis conversion** that checks potential legalizability without modifying payload IR and **dynamic legality** based on properties of the concrete operation. The [MLIR Transform Dialect](https://mlir.llvm.org/docs/Tutorials/transform/) can keep transform/schedule instructions separate from the payload being transformed. These suggest RustJ's **discovery ≠ commitment**, **runtime/semantic evidence before permission**, and **canonical Graph/A3 ≠ selection plan** separation. MLIR dialect conversion success does not itself prove J `!.t`, late NAME resolution or observable error-order semantics, and this comparison does not authorize adopting MLIR Transform IR as a new required RustJ subsystem now.
+
+**Incremental stage contracts — inputs, preserved facts and forbidden decisions**
+
+| Stage | Minimum contract | Must not decide / near-term action |
+|---|---|---|
+| M2 parser / FunctionEntity | Primitive and derived identity; valence; source binding; `!.t` and global setting scope | Do not rewrite parse entities into C/CPU special routines; **finish general M2 frontend semantics first** |
+| J Graph / Analyzer | Original topology, domain/query roles, producer/consumer fanout, source-region provenance | Do not erase output demand or commit multi-op fusion early |
+| Execution semantics / A3 | **Distinct** first/last/member/interval/window/group results; frame/cell/rank/empty; comparator contract; error/effect meaning | No hash/direct/prehash/device as a J equality property or `SearchDescriptor` payload |
+| Candidate discovery / proof (§7.5) | `RuleId`, graph version/region, per-obligation `Unknown/Proven/Disproven/Guarded`, exact witness | No source idiom or dtype alone counts as legal; discard stale observations |
+| Target, resource and cost | Verified runtime/static dtype, cell size/count/range, hard table-byte bound, build/probe/reuse estimates, memory/transfer, supported target | Do not mislabel estimates as timings or unknown resource as zero/cheap |
+| Selection / index-state lifetime | Candidate compatibility, representation/direction, one-shot/persistent backing+policy identity/epoch, invalidation, pre-effect fallback | Do not store cache selection in canonical Graph IR or key prepared state on a J name alone |
+| Executor / oracle | Independent sequential baseline, guarded optimized execution and real J C oracle; result/error/effect equivalence | Reference must not silently call Physical planning; no replay after observable effects |
+
+**Smallest justified framework extension and order (acceptance gates, not an immediate coding request):**
+
+1. **M2:** Establish a strictly sequential search reference and actual J C differential for `i.`/family, `!.t`, global CCT, rank/shape/type/empty/errors. Preserve the existing `SearchDescriptor` source-direction verifier. Do not spend the M2 budget writing new hash schemes.
+2. **M3:** Extract the *minimum* shared view of §7.5 **source provenance + per-obligation proof/guard + invalidation** into existing search/rewrite/fusion sidecars. Add stale-witness/Unknown-not-legal negative checks one at a time. Do **not** build a speculative all-family registry first.
+3. **M4:** Verify the native CPU reference slice independently from existing guarded exact Int/Bool physical choices against the same J C oracle. Keep the current `SearchAlgorithm` enum and `PreparedHash` implementation for now; no unmeasured threshold tuning.
+4. **When optimization becomes the task:** Demand a **second independently validated family** (e.g., Reduce/Scan reassociation or GroupBy representative selection) actually requiring the same evidence/lifetime/selection interface before extracting general `CandidateEvidence`, recipe or `SelectionPlan`. Never relabel a search-only enum as a generic operator interface.
+5. **Later:** Commit one-shot/reused index, query-side index, output materialization elision, footprint, GPU/external routes only after full J legality, target and hard-resource checks, baseline differential and real measurements.
+
+**Repeated independent adversarial questions:** (A) Does the descriptor still determine J-observable results without C mode labels? (B) Does disabling every optional optimization leave a genuinely separate correct reference? (C) Do comparison-policy/binding/version changes invalidate candidate/cache state? (D) Can CPU and external routes share unchanged canonical Graph/A3 meaning? (E) Can `I.@e.`/Nub/Key/consumer fusion reuse *proof infrastructure* without falsely sharing primitive meaning? **Current status:** (A) partially supported; (B) fails because reference still consults Physical planning; (C) dynamic policy unsupported; (D) designed but not executed across targets; (E) insufficient derived-family semantic coverage. Do not claim generic optimizer completion or search speedups.
+
+**Audit scope:** Read-only code inspection, pinned upstream jsource, BQN and MLIR framework comparison. **No Rust/Cargo tests, integrated J C differential, benchmark or new optimizer API implementation occurred.** This reinforces §P.0's specialization freeze and §P.3's M2-first priority rather than replacing them.
+
+
+
+
+<a id="framework-migration-checklist"></a>
+
+#### O.5 Deferred-optimization framework migration plan and living checklist (2026-10-06)
+
+**Purpose.** Make §O.4's independently reviewed architectural direction an **actionable, evidence-based checklist**. The `i.` family is the first *validation case*, not a template for copying C special cases. The common framework should eventually support **discovery → provenance + semantic proof/guard → hard target/resource feasibility → cost → selection → guarded execution**, without corrupting J meaning. This §O.5 owns the **cross-stage migration gate**; §P.1 continues to track *search algorithms* specifically. Do not introduce a new roadmap file, one Graph opcode per upstream mode, or an upfront all-purpose optimizer crate.
+
+**Present status: plan committed; 0/18 implementation/verification gates accepted.** Existing `SearchDescriptor`, `AlgorithmCandidate<_,_>`, `GraphRewriteCandidate`, `FusionCandidate` and `ExactPrehashCache` are useful foundations, **not** completion of these new gates. General **M2 tokenizer → enqueuer → parser/POS/name/derived-entity semantic convergence** remains the top project task; this plan does not authorize early search-kernel work.
+
+**Checkbox rule.** [ ] = **not accepted**, even if part of the code/test exists. [x] = code, **actually executed verification**, and recorded evidence satisfy the row. Record `commit SHA | exact command | environment/target | passed/failed/ignored | pinned jsource commit and actual binary oracle scope | remaining gaps` in that row when completed. Historical tests, static review, and comparing two Rust routes using the same planner do **not** count. Do not claim CI if not executed.
+
+**Dependency gates:** A (**M2 reference and semantics**) → B (**M3 proof/guard evidence**) → C (**M4 independently validated CPU slice**) → D (**later measured Physical generalization**). A gate validates only explicitly supported J forms; leave unimplemented full-J cases `Unknown/Unsupported`. Start with outstanding **general M2 frontend** work before search reference fixes. Prefer **one semantic change and one corresponding regression/negative test** per increment.
+
+| ID / phase | Checklist item | Files / implementation scope | Acceptance and evidence; current status |
+|---|---|---|---|
+| FW-01 / A·M2 | [ ] Resolve frontend semantic scope | `src/tokenizer.rs`, `src/enqueuer.rs`, `src/parser.rs`, `src/semantic.rs`; classify word/POS/name/derived-entity gaps | Maintain general M2 priority; compare supported parse/resolution with actual J C oracle, record unsupported separately. **Not executed** |
+| FW-02 / A·M2 | [ ] Isolate true sequential semantic reference | `src/runtime.rs`, `src/kernels.rs`, `src/index_ops.rs`: split `pooled: bool` buffer ownership from optional search Physical policy; route supported `i.`/`i:`/`e.`, including rank/cell/derived calls, to a sequential reference | Instrument/negative-test **zero** `plan_search_algorithm` and prehash calls in `eval_semantic_reference`; no global mutable mode, new public API or canonical IR rewrite required. **Not executed** |
+| FW-03 / A·M2 | [ ] Verify real J equality policy | `src/comparison_policy.rs`, `src/kernels.rs`, semantic contracts: fixed Rust `near` vs pinned J C `TCMPEQ`, global `cct`, `!.t` scope, exceptional values and errors | Run pinned **real C binary** on boundary cases; unsupported dynamic policy stays `Unknown/Unsupported` and cannot enable tolerant hash. **Not executed** |
+| FW-04 / A·M2 | [ ] Establish three-way search regression fixtures | `src/index_ops.rs` and existing differential tests: first/last/member, duplicates, empty cells/frames, types, errors, rank | Independently compare **J C / strict sequential Rust / optimized Rust** and classify differences. Two routes sharing the same planner are not independent. **Not executed** **2026-10-06 partial evidence:** [4×20 C/Rust Rank gate](https://github.com/yunskim/RustJ/actions/runs/37449102885) all 80/80 matched; [Basis probe](https://github.com/yunskim/RustJ/actions/runs/37449102980) passed. Typed dense zero-frame Rank is implemented. User-defined effects, boxed/sparse fillers and error fallback remain unresolved; gate [ ] remains. **Follow-up unit gates:** [P.11 RK-01–RK-12](#rank-cellapply-followups) tracks evidence and state; parent remains [ ]. |
+| FW-05 / B·M3 | [ ] Witness source and rule identity/version | `src/j_graph_ir.rs`, `src/j_graph_rewrite.rs`, `src/j_graph_fusion.rs`, `src/j_graph_jsource.rs`: bind existing origin/span/basis to graph/schema/rule identity or reliable revalidation | Verifier negative tests reject forged/stale graph, changed rule and invalid origin; span-only comparison is insufficient. **Not executed** |
+| FW-06 / B·M3 | [ ] Record proof state per obligation | Expose minimal §7.5 evidence **sidecar/view or adapter** for existing search/rewrite/fusion: `Unknown / Proven(witness) / Guarded(guard,fallback) / Disproven` plus source provenance | No single selected bool, search enum or giant common IR as proof. Negative-test Unknown→legal/selected rejection. **Not executed** |
+| FW-07 / B·M3 | [ ] Prove guard and effect ordering | `src/lowering.rs`, effect/error verifier, executor adapters: guards before observable effects and explicit baseline fallback | Reject duplicate effects, post-effect replay, unknown fallback, or Guarded-without-actual-guard. **Not executed** |
+| FW-08 / B·M3 | [ ] Validate dynamic comparison/name/rank witnesses | Semantic contract surrounding `src/logical_ir.rs::SearchDescriptor`, `comparison_policy.rs`: `!.t`/CCT, late NAME binding, rank/cell/empty obligations | A `JEquality` tag or dtype alone cannot authorize exact hashing; unknown policy/rank forces reference/unsupported. **Not executed** |
+| FW-09 / B·M3 | [ ] Project one legality view onto three candidate kinds | Preserve native shapes of `j_graph_rewrite.rs`, `j_graph_fusion.rs`, `j_graph_jsource.rs`; expose provenance/obligations through `fusion_planning.rs` as needed | Reject incompatible overlap, borrowing `E.` window proof for different search semantics, and unknown resource silently accepted. **Not executed** |
+| FW-10 / B·M3 | [ ] Cross-validate a second operator family | Select one existing Reduce/Scan **or** GroupBy semantic candidate; exercise FW-05–09 proof/guard machinery | Preserve family-specific reassociation/representative/order proofs. Extract actual common implementation **only after** a second family needs it; no generalized registry upfront. **Not executed** |
+| FW-11 / C·M4 | [ ] Validate native CPU semantic vertical slice | Complete a supported J Graph → verified A3 → baseline CPU execution path with source, error and effect ordering | Record actual C-binary oracle commands and compared coverage. **Not executed** |
+| FW-12 / C·M4 | [ ] Independently validate existing guarded Int/Bool search | `src/index_ops.rs`, `src/physical.rs`: Sequential, Direct, Indexed, Reverse, Prepared; first/last/member, allocation-failure fallback | Three-way C/independent sequential/optimized comparison; log actual Rust default and portable tests separately. **Not executed** |
+| FW-13 / C·M4 | [ ] Separate target, hard resource and cost status | `src/lowering.rs`, `src/physical.rs`, `src/j_graph_resource.rs`: runtime/static proof, table **byte** bounds, estimated work/allocations, capability, measured performance | Unknown hard limit is not zero; estimate does not equal measured cost; unbenchmarked thresholds remain heuristics. **Not executed** |
+| FW-14 / D·later | [ ] Evaluate physical recipe axes | Only after two-family evidence and measurements, consider splitting `SearchAlgorithm` / `SearchWorkload/Choice` into build/traversal side, representation, lifetime, output demand and target | Require **two demonstrated shared use cases**, migration and semantic-equivalence tests. Never insert physical choices into Graph/A3. **Not executed** |
+| FW-15 / D·later | [ ] Generalize prepared-state lifetime/invalidation | Compare `src/index_ops.rs::ExactPrehashCache` with a second family: immutable backing identity, first/last representative, relevant policy/version, binding epoch, target, retention | Do not put irrelevant CCT into present exact Int/Bool keys; require source rebinding/cache miss/policy-change negative tests. **Not executed** |
+| FW-16 / D·later | [ ] Add a distinct SelectionPlan and compatibility check | When §7.5 proof, target, resources and cost have been evidenced, check candidate overlap/compatibility and separate plan identity from committed lowering | Source Graph/SSA and provenance remain unchanged; reject illegal choice, incompatible overlap, stale commit. **Not executed** |
+| FW-17 / D·later | [ ] Gate target and algorithm tuning on measurements | Evaluate jsource/BQN small/SIMD/reverse/prehash variants and CPU/external routes only after baseline measurements; GPU remains deferred | Enable candidates individually only with semantic proof, hard memory bound, measured benefit, portable fallback and negative checks. **Not executed** |
+| FW-18 / overall | [ ] Repeat independent audits and record regression evidence | Independently re-audit A) J meaning, B) Graph/A3 invariance, C) proof/invalidation, D) CPU/target/resources, E) C/strict sequential/optimized results and cost; tie to §P.2 | Reopen failed prior gates; retain actual pass/fail/ignored, environment, pinned upstream commit and benchmark details; reconcile §P.1 before acceptance. **Not executed** |
+
+**Stop rules.** Do not accept FW-12 before a truly separate reference exists (FW-02). Do not change `TolerantNeighborHash` from `NeedsSemanticProof` until dynamic equality and its guards are validated (FW-03/08). FW-05–09 cannot count as a second operator family (FW-10). Do not start physical strategy refactoring, tuning or target expansion (FW-14–17) before FW-11–13 plus hard-resource and performance evidence. Correctness and semantic bug fixes may proceed at any time.
+
+**Evidence-log format:** `FW-ID | code commit | command/environment | passed/failed/ignored | pinned J C revision + actual oracle scope | unsupported/known gaps | next gate`. Adding this documentation **does not** mean Rust/Cargo, C binary differential, CI or benchmark execution occurred. Update this table and its canonical Korean counterpart rather than a separate daily-status file.
+
+
+
+<a id="index-family-roadmap"></a>
+
+### P. Living Index-Of family plan and acceptance checklist — Roger Hui × Marshall Lochbaum (2026-10-06)
+
+**Cross-reference:** [§O.5 framework migration checklist](#framework-migration-checklist) owns cross-stage architecture acceptance; §P.1 continues to track per-search algorithm tests. A code-presence check in §P.1 never counts as an implementation/verification acceptance mark in §O.5.
+
+**Maintenance rule.** This is the authoritative **living checklist** under [§N](#jsource-index-family), [§O](#algorithm-planning-migration) and candidate lifecycle §7.5; do not create another tracking document. A checked box means code/document presence has been **statically verified**, **not** that tests passed or semantics/performance were validated. Record specific proof/commands/results when checking completion gates. **No Linux-specific milestone is required or created.**
+
+**Independently researched inputs:** Roger Hui, [*Index-Of, a 30-Year Quest*](https://www.jsoftware.com/papers/indexof/indexof.htm) and [*Hashing for Tolerant Index-Of*](https://www.jsoftware.com/papers/Hashing.htm), grounded against pinned [jsource vi.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [viavx.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850), [viavx2.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c#L8-L98); Marshall Lochbaum, [*BQN: Implementation of search functions*](https://mlochbaum.github.io/BQN/implementation/primitive/search.html) for small-input SIMD, direct 1/2-byte tables, sparse **table initialization**, one-shot reverse hashing, cache-sensitive hashing, collision monitoring and radix partitioning. **BQN sparse lookup means selective initialization of a dense-address lookup table; it does not mean J axis-sparse array semantics.** BQN is a physical algorithm reference, never a J semantic oracle. §O's MLIR/IREE/TVM/XLA comparison supplies independent legality/target/resource/cost ownership rules.
+
+#### P.0 Stage-aligned deferred optimization policy and M2 priority audit (2026-10-06)
+
+**Finding: the boundaries mostly fit RustJ's design, but the work sequence and early execution specialization require correction.** The canonical project priority is **M2 word formation → enqueue → J parser/name/POS/derived-entity semantic convergence**, then M3 boundaries and an M4 native-CPU vertical slice. `FOUNDATIONS.ko.md` Part XX requires preserving high-level rank/train/reduce/scan and source provenance while separating logical legality from target-specific scheduling, profitability and materialization. **Delayed optimization** does not mean postponing semantic analysis or candidate discovery. It means **postponing commitment to a special executable algorithm until the semantic, target, resource and cost evidence exists.**
+
+| Work area | Audit | Stage gate |
+|---|---|---|
+| J primitive/valence/rank/search semantics; `!.t` and global `cct`, error precedence, first/last, nontransitivity and source-macro counterexamples | **Current semantics work** | Resolve via M2 reference/differential tests and M3 semantic contracts; jsource is an **oracle**, not an architecture to replicate |
+| J Graph topology, A3 `SearchDescriptor`, SSA provenance, `LookupClassify` | **Keep** | Record comparison, rank/frame, input direction, result intent and unknown facts; no physical buckets/hash/SIMD in canonical meaning |
+| `JsourceOpportunity`, `SearchAlgorithmReadiness`, `ComparisonPolicySnapshot` | **Keep only as inert evidence/semantic seams** | Opportunities remain unselected; tolerant route stays `NeedsSemanticProof`. Fixed Rust snapshot does not constitute dynamic J `cct` support |
+| Existing runtime CPU Int/Bool Direct/Hash/Reverse/Prehash | **Limited interpreter optimization; freeze expansion** | Retain only under exact scalar runtime guards and sequential fallback. This is not a verified general PhysicalPlan. Prioritize reverting to reference if a semantic regression appears |
+| Research-only tolerant exponent buckets and BQN SIMD/small-range tables, open addressing, radix/partition, tuning or production tolerant hashing | **Deferred / frozen** | Reassess after M2 semantics, M3 verification, M4 reference CPU slice, J differential and cost measurements. Keep research only under `#[cfg(test)]` |
+
+**Immediate work:** Compare real J C results with Rust reference for `=`, `i.`, `i:`, `e.`, `E.` across default/changed tolerance, rank/cells/frames, boxed/sparse/empty and error order. Record the observed `TCMPEQ` boundary mismatch as a **semantic parity obligation**, not a mandate to port `viavx2.c`. Do not let this research displace the general M2 frontend convergence tasks.
+
+**Resume gate:** Only reconsider executable specializations after validated reference semantics, independently sourced differential evidence, runtime guard/fallback, an M4 CPU baseline, and hard-resource/profitability evidence. P.1 stages 8–11 are **removed from the near-term work queue**; unfinished 5–7/12 remain unchecked. Never introduce a new RustJ IR node or executor path for each jsource C special case.
+
+**Reference-path independence gap discovered on review:** `eval_semantic_reference` disables pooling/cache, not the ordinary exact-scalar Physical search planner inside `index_ops::lookup`. The semantic reference is not yet an independent sequential oracle. See revised P.3.
+
+#### P.1 Phased checklist and gates
+
+| Stage | Checklist item | Owner and acceptance gate | Status |
+|---|---|---|---|
+| 0 | [x] Distinguish search identities | Graph/frontend distinguishes dyadic `i.`, `i:`, `e.`, monadic generators, interval `I.`, window `E.` | Source/§N presence only |
+| 1 | [x] Keep search semantic descriptor in A3 | First/last/membership/interval/self, J comparison, index/query direction, SSA origins and Rank remain independent of table layout; schema 0.5/verifier | Code/tests added, not run |
+| 2 | [x] Separate registered algorithm legality and Physical selection | Registry Baseline/Guard/NeedsProof/Unsupported and SearchWorkload/PhysicalChoice; Unknown never implies legal | Code exists, no benchmark |
+| 3 | [x] Guarded basic search implementations | Linear, narrow integer Direct, Hash, reverse query hashing, immutable-Arc per-Engine Prehash, direct membership outputs, allocation-failure fallback | Code exists; C conformance pending |
+| 4 | [x] Research-only nontransitivity/completeness harness **added and wired** | `src/tolerant_search.rs` under `#[cfg(test)]`: near chains, source-first/last, ±1 exponent buckets, ±0, NaN, infinities and subnormals, independently scanned indices | **Not executed; no optimized runtime path** |
+| 5 | [ ] Resolve full J comparison policy | `!.ct`/dynamic cct/version, float/complex/boxed/axis-sparse, exact insert vs tolerant probe, Rank/cell/frame and effect/error precedence with provenance | No discharged proofs |
+| 6 | [ ] Prove candidate-filter completeness | Present fixed `kernels::near` uses t=2^-44. Prove adjacent exponent/sign buckets include every possible match, then recheck all candidates using original comparison and choose min/max original index | Fixed-predicate research only |
+| 7 | [ ] Implement versioned tolerant runtime guard/fallback | Missing tolerance/rank/binding witness → pre-effect sequential reference; prehash key/invalidation includes comparison policy and backing lifetime | Not implemented |
+| 8 | [ ] Evaluate BQN small-array / small-range strategies | SIMD vector search, byte/2-byte direct, packed presence, sparse table initialization; target/memory/source-order guards | Unmeasured |
+| 9 | [ ] Evaluate collisions and large-input fallbacks | Alternative open addressing/linear probing (do not replace current HashMap on faith), collision counters, sorted/radix fallback, cache partitioning | Unimplemented |
+| 10 | [ ] Calibrate one-shot/prehash cost | Indexed/query ratio, distinct key count, initialization/retention, cache residency, repeated-use vs one-shot cost; ResourceEstimate != CostEstimate | Only provisional heuristics |
+| 11 | [ ] Share algorithm candidate infrastructure | Expand Nub/Key/filtered index outputs then use **family-specific** witnesses for Reduce/GroupBy/Grade/Contract. Do not reuse search-only semantics | Partial generic interface |
+| 12 | [ ] Final runtime/differential and benchmark gate | Rust default/portable, J C first/last/NaN/±0/empty/Rank/Boxed/Sparse/`!.ct`/error, independent reference vs fast paths, randomized/adversarial time & memory measures | **Not executed** |
+
+#### P.2 Five independent repeated reviews
+
+- [ ] **A — upstream-first:** separate Hui, pinned jsource dispatch/tolerant implementation and actual J errors/Rank/Fit; do not substitute BQN semantics.
+- [ ] **B — proof-first:** independently show nontransitive approximate equality, sign/exponent bucket completeness under explicit \(0 ≤ t < 1/2\), IEEE-754 edges and first/last **source** index; never prove from the candidate implementation alone.
+- [ ] **C — oracle-first:** compare J C reference, Rust sequential `near`, and candidate filtering separately. Matching the Rust oracle does **not** prove agreement with J C.
+- [ ] **D — boundary-first:** recheck Graph provenance, A3 direction/schema verifier, Registry target/guard/proof, Physical resource/cost and runtime fallback; no GPU/interval/tolerant route enabled on unknown proofs.
+- [ ] **E — performance/adversarial:** test repeated keys, pathological collisions, tolerant chains, nonmatches, small/wide ranges, cache pressure and allocation failure. Do not enable algorithms without measured benefit and acceptable worst cases.
+
+After fixing a finding, independently re-run the relevant checks and record commands, counts, exact upstream revision and measurements before checking a gate. No Linux milestone. Never mark CI/tests passed without actual execution.
+
+#### P.3 Next actions — reordered for M2 semantics (2026-10-06)
+
+1. **Finish M2 first.** Converge J word formation, enqueue, parser, name/POS resolution and derived-entity semantics, with actual regression execution. Search-optimization research must not displace the general frontend milestones.
+2. **Restore an independent reference interpreter path.** `eval_semantic_reference(...)` disables pooling, but `kernels::dyad("i."/"i:"/"e.")` calls `index_ops::lookup(..., None)`, which **still invokes `optional_exact_scalar_index` and `plan_search_algorithm`**. Thus the current semantic reference avoids prehash yet can still select Direct/IndexedHash/ReverseQueryHash. Separate strictly sequential, specification-oriented search from optional Physical search decisions and test both paths against the same J inputs. **No implementation change or passing test is claimed here.**
+3. **Verify J semantics independently.** Compare actual J C oracle results for `=`, `i.`, `i:`, `e.`, `E.`, `!.ct`, `9!:18/9!:19`, default-CCT macro boundaries, rank/cell/frame/empty, boxed/sparse and error precedence. This is a semantic-parity obligation, not a reason to port jsource's specialized hash implementations.
+4. **Retain Graph/A3/Registry evidence; defer Physical commitment.** Preserve source topology, comparison intent, provenance and unknown proof facts. Freeze expansion of existing Int/Bool runtime specializations. Reconsider BQN SIMD/small-range direct tables/radix/collision strategies, tolerance buckets and heuristic tuning only after M2/M3 semantics, M4 baseline CPU reference validation, differential evidence and measurements. `TolerantNeighborHash` remains `NeedsSemanticProof` and unselected.
+
+**Independent-verification rule:** Matching an optimized path against a so-called semantic reference that shares its Physical planner is not a valid independent correctness gate. Require three-way comparison against a truly sequential semantic baseline and actual J C oracle, in addition to error/effect/fallback and resource/cost checks.
+
+#### P.4 Independent review record #1 — restricted float candidate completeness (2026-10-06)
+
+**Math-first, independent of the implementation:** Current RustJ `kernels::near` is `a == b || finite(a,b) && |a-b| <= t * max(|a|,|b|)` with `t=2^-44`. If finite nonzero a,b match, their signs cannot differ: opposite signs make the absolute difference at least the larger magnitude, violating `t<1`. Writing `M=max(|a|,|b|)`, `m=min(|a|,|b|)`, successful comparison implies `m >= (1-t)M > M/2` (`t<1/2`), hence their base-two exponent floors differ by at most one. Therefore **same-sign exponent e-1/e/e+1 buckets form a complete candidate superset** for this limited predicate. Retain *every source index*, validate each returned candidate with the original `near` predicate, and choose the minimum/maximum original position for `i.`/`i:`. Never collapse tolerant chains into equivalence classes. +0/-0 and same-sign infinities use exact equality special cases; NaN never matches.
+
+**Independent numeric falsification attempt, NOT a Rust/C run:** An IEEE-754 JavaScript Number model compared **215 values yielding 1,160 near pairs**, including 132 cross-exponent near pairs and **zero** violations of same-sign/adjacent-exponent candidate coverage. Approximate equality on `(1, 1+0.75t, 1+1.5t)` produced `true,true,false`, confirming nontransitivity. Sampling cannot prove J semantic parity, Rust correctness or performance, and this argument does not authorize dynamic `!.ct`, boxed/complex or Rank-aware matching.
+
+**Source/boundary cross-check:** Lochbaum's BQN work informs tiny-input SIMD, sparse **table** initialization, reverse hashing and large-array partitioning, not J semantics. Pinned jsource `viavx2.c` instead uses adjacent tolerance-aware masked intervals with exact insertion and tolerant probe. The research-only **sign/exponent 3-bucket** approach must **not** be represented as the exact jsource bitmask algorithm. Static provenance/guard/architecture/checklist review passed **13/13 checks**, and `src/tolerant_search.rs` is reachable only under `#[cfg(test)]`, not production runtime. **No Cargo, CI, J C differential or benchmark execution took place; all release/semantic execution gates stay unchecked.**
+
+
+#### P.5 Independent audit record #2 — IEEE-754 neighbor words and ordered representatives (2026-10-06)
+
+**Scope of the change.** Added the research-only Rust test `fixed_near_candidate_filter_covers_ieee_neighbor_words_and_first_last` to `src/tolerant_search.rs`. It generates representable neighbors on both sides of normal/subnormal, powers of two and maximum-finite boundaries; signed zero, both infinities and NaNs; and 2,048 deterministically generated random `f64` bit patterns. For every sampled query it compares candidates with the **full original linear `kernels::near` scan**, checks candidate positions remain distinct and source-ordered, and checks the First/Last answers against the independent linear position oracle. The module remains `#[cfg(test)]` only, with no executable fast path.
+
+**Separate-language numerical falsification attempt.** An independently written Python binary64 model checked **4,224 indexed values × 310 queries = 1,309,440 pairs**; **674** pairs matched `near`, including **143 cross-bucket matches**. There were **zero missing matched positions**, and candidate-based First/Last agreed with linear reference for all 310 queries. The nontransitive chain again evaluated `true,true,false`. These are **finite Python-model results**, not a Rust/Cargo execution, a J C oracle, an exhaustive bit-pattern proof or a speedup measurement.
+
+**Independent proof and safety boundary.** For the present fixed `t=2^-44`, successful finite, nonzero `near` comparison requires matching signs and `m > M/2` for `m=min(|a|,|b|)`, `M=max(|a|,|b|)`; therefore only the same-sign exponent bucket and its immediate neighbors can contain matches. Filtering is necessary-only: preserve *all* original source positions, recheck using the original floating `near` predicate, and select min/max original position rather than coalescing approximate-equivalent keys. An underflowed `t*M` narrows the accepted comparison window; signed zeros and same-sign infinities are handled by the exact `a==b` branch. This is a fixed-predicate proof sketch, **not** evidence for dynamic `!.ct`, arbitrary J comparison tolerance, complex/boxed/sparse comparisons, Rank, or an indexed-key cache.
+
+**Verification ledger.** No available Rust/Cargo executable was found, so `cargo test tolerant_search`, `cargo test --features portable tolerant_search`, `cargo fmt --check`, Clippy, C differential and benchmarks are all **not run**. Do not mark P.1 stages 5–7/12 or P.2 C/E completed. The next independent gate is actual jsource C-versus-Rust conformance under `!.ct`, rank/cell/empty, float/complex/boxed and comparison-policy/version changes, followed by pre-effect runtime guard/fallback evidence. `TolerantNeighborHash` still has `NeedsSemanticProof`; neither Physical selection nor interpreter execution is enabled.
+
+
+#### P.6 Upstream J comparison policy and proof boundary — source-first audit (2026-10-06)
+
+**Normative J meaning.** The official J Dictionary [Equal (=)](https://www.jsoftware.com/help/dictionary/d000.htm) states that finite float/complex comparisons use default tolerance `2^-44` and may be changed by `!.t`. [Fit (!.)](https://www.jsoftware.com/docs/help806/dictionary/d411.htm) includes the search family `i.`, `i:`, `e.` and `E.`; [global parameters 9!:18 and 9!:19](https://www.jsoftware.com/help/dictionary/dx009.htm) query and change tolerance. A default numeric constant matching the current Rust `kernels::near` is **not proof of identical effective comparison policy at the call boundary**.
+
+**Pinned upstream implementation evidence.** [jsource `viavx2.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c) uses `TFINDXYT` to probe the main and adjacent tolerant intervals and `PUSHCCT(1.0)` in `IOFT` to build the table with **intolerant equality** before tolerant probes. `IIDOT` and `IICO` select distinct minimum/maximum source representatives. This is evidence that candidate completeness and ordering matter; it does **not** establish that RustJ's experimental three exponent buckets implement jsource's masked intervals. Collapsing an approximately equal chain would lose the only match in `[a,b] i. c` for `a≈b`, `b≈c`, `a≉c`; a test-only negative regression now fixes this design obligation.
+
+**Proposed `ComparisonPolicy` evidence (design only; not implemented):** retain the resolved primitive/valence and any `!.t` override; the active `9!:19` tolerance plus policy lifetime/version; dtype, rank/cell/frame and boxed/sparse structure; precise comparator identity including NaN/signed-zero/infinity/complex rules; tolerance range witness; indexed source identity, original positions and First/Last/Presence intent; observable error/effect boundary and sequential fallback. Changing policy, source backing or table lifetime must invalidate any prepared tolerant index. A3 `SearchDescriptor` carries semantic provenance, not table representation, which remains Physical-owned.
+
+**Promotion remains blocked.** Even a CPU scalar-float implementation requires an effective-policy witness/guard, complete candidate superset proof, per-candidate recheck with *the same* semantic comparator, stable min/max original index and no-match sentinel, and guard-miss fallback **before effects**. The support boundary must explicitly handle or reject NaNs, infinities, underflow, mixed dtypes, rank/cells, boxed/sparse and reference mismatch. Current proof covers only RustJ's fixed `near`, not full J or dynamic fit. Without C differential and policy evidence, retain `TolerantNeighborHash = NeedsSemanticProof` and no runtime wiring.
+
+
+#### P.7 Fixed comparison-policy snapshot implementation — dynamic J CCT remains unsupported (2026-10-06)
+
+**Implemented:** A crate-internal `ComparisonPolicySnapshot` in `src/comparison_policy.rs` currently has exactly one constructible identity, `FixedRustNearV0`. It owns the *unchanged* CPU predicate `a==b || finite(a,b) && |a-b| <= 2^-44 max(|a|,|b|)`; `kernels::near` now delegates to this snapshot. `src/index_ops.rs::lookup` captures one policy per search call for `i.`/`i:`/`e.`, while `find` captures one for `E.`; each individual atom comparison uses that shared snapshot. The `atom_eq` adapter used from `expansion.rs` remains present. This does not change J Graph IR, the A3 `SearchDescriptor`, or Physical search selection. Float lookups remain **sequential**, and Int/Bool exact-only prehash remains independent of tolerant comparison.
+
+**Regression coverage authored, execution unverified:** New internal policy tests cover the nontransitive near chain, ±0, NaN, ±infinity, and the minimum subnormal against zero. The `fixed_float_policy_preserves_first_last_membership_and_find` test in `src/index_ops.rs` covers duplicate positions, nontransitive near, the missing sentinel, and all four search outputs. The experimental tolerant candidate harness stays test-only and separate. **Cargo fmt/test/clippy, live jsource, C-vs-Rust differential and benchmarks have not run.**
+
+**Semantic boundary:** This is the first explicit capture of an *implemented* comparator identity, **not** an implementation of J `!.t` or global `9!:19`. The identity `FixedRustNearV0` does not witness equality with upstream jsource's runtime `cct` implementation. Runtime promotion requires fit-derived-verb semantics, global tolerance ownership and call-time policy generation, a supported-range proof and guards, rank/cell/type/error fidelity, cache identity and invalidation, and independent C comparison. TolerantNeighborHash remains unselected; float prehash and GPU/LLVM routes are not activated. P.1 gates 5–7/12 stay **unchecked**.
+
+
+#### P.8 Upstream default CCT boundary divergence — unresolved semantic difference (2026-10-06)
+
+**Independent source-first audit.** The pinned [`jsrc/vcomp.h::TCMPEQ`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vcomp.h), [`jsrc/i.c` initialization](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/i.c) and [`jsrc/viavx.h::jeqd`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.h) show default `jt->cct=1.0-FUZZ`, `FUZZ=2^-44`, and the binary64 comparator `(a > cct*b) != (b <= cct*a)`. Tolerant float lookup probes call this macro via `jeqd`. The [`jsrc/xa.c` `9!:19` setter](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/xa.c) checks `0 <= t <= 5.820766091e-11` and assigns `cct=1.0-t`; a future dynamic-policy implementation must preserve its lifetime and limits.
+
+**Concrete binary64 source-macro counterexample, not a native J C run.** With `t=2^-44`, `a=1.0` and `b=1.0-t`, current RustJ `near` reports **true** because it uses inclusive `|a-b| <= t*max(...)`; the pinned C macro *modeled with IEEE-754 double operations* reports **false**. The same discrepancy arises for `b=1.0+t`: at the threshold, different arithmetic and strict comparisons matter. A separate intentionally boundary-focused Python probe compared **120,000 pairs** and found **19,968 model disagreements**. This does not estimate general-input mismatch frequency, verify an actual jsource executable, or prove every target/subnormal behavior.
+
+**Independent compiled C macro reproduction (NOT a full J execution).** A small C translation of the pinned `TCMPEQ` expression was built and run with Debian GCC **14.2.0**, once each using `cc -std=c11 -O0` and `-O2`. In both builds, the legacy RustJ *equation model* returned **true** and the upstream C macro expression returned **false** for `(a,b)=(1,1-2^-44)` and `(1,1+2^-44)`. Signed-zero, infinity and NaN controls matched across both builds. Inputs, environment, outputs and limitations are recorded in [`reports/cct-macro-boundary-probe.json`](reports/cct-macro-boundary-probe.json). **Neither Rust itself nor the full jsource engine was compiled or executed** (no `cargo`, `rustc` or J interpreter was available). A reproduced source macro is not an integrated J semantic oracle.
+
+**Code and release gate.** A test-only `source_cct_macro_model` and `jsource_cct_macro_model_exposes_fixed_near_boundary_gap` in `src/comparison_policy.rs` now capture the unresolved counterexample. Production `FixedRustNearV0` behavior is deliberately unchanged. Do not switch the global comparator or enable float hashing on the strength of a source-level emulation alone: first verify real J C output for boundary `=`, `i.`, `i:`, `e.`, `E.` and collect type/rank/fit/error differences. P.1 stages 5 and 12 remain unchecked. P.4's candidate-bound proof continues to apply only to RustJ's **legacy fixed `near`**, not automatically to upstream J.
+
+
+
+### P.9 Pinned default J CCT semantic cutover — FW-03 partial evidence (2026-10-06)
+
+The preceding P.8 observations describe the **historical legacy implementation**. RustJ now executes pinned default J CCT equality, `(a > cct*b) != (b <= cct*a)` with `cct=1-2^-44`, in `src/comparison_policy.rs`, `kernels.rs`, `index_ops.rs` and `search_reference.rs`. Legacy fixed-near is retained as a test-only regression witness, not the active CPU rule. [Linux CI 37445891526](https://github.com/yunskim/RustJ/actions/runs/37445891526) ran the pinned J C `j64`/`j64avx2` oracle against independent Rust sequential and optimized routes in default/portable builds: **48/48 per configuration, 192/192 aggregate, zero route mismatches**. Dynamic `9!:19`, `!.t`, boxed/sparse, broader Rank/error semantics and tolerant hashing approval are not implied. FW-03 remains unchecked.
+
+### P.10 Rank zero-frame fill-cell execution and FW-04 partial acceptance evidence (2026-10-06)
+
+Pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` provides type-correct fill cells when the result frame is empty, executes the underlying operation once to determine output cell type/shape, and assembles an empty result. RustJ previously returned `Unsupported` for `(i.0 3) (i."1 1) (i.0 3)`. The generic dense runtime now uses `src/value.rs::rank_fill_cell/empty_rank_result`, `src/logical_executor.rs::apply_ranked`, and `src/kernels.rs` monadic/dyadic Rank paths. It supports typed dense Bool/Int/Float/Char fills, without inventing an Index-Of-only special case or prematurely approving physical optimization. A concrete primitive identity is required to run fill-cell evaluation; user-defined effectful forms remain unsupported pending observable-effect and error contracts. Boxed/sparse fills, suppressible computational errors, heterogeneous cell-result padding, and general name/effect sequencing remain open. Conservative Rank analysis facts are unchanged.
+
+[Linux milestone CI 37449102885](https://github.com/yunskim/RustJ/actions/runs/37449102885) succeeded across the check job and pinned `j64`/`j64avx2` × default/portable execution: `tools/ranked_search_audit.py` compared 20 cases per configuration in C J / independent Rust reference / optimized Rust, **20/20 each and 80/80 aggregate**. [Basis compile probe 37449102980](https://github.com/yunskim/RustJ/actions/runs/37449102980) also succeeded. The suite covers first/last/membership, scalar/row/broadcast, typed empty frames and primitive reduction/addition. These are supported-subset confirmations, not full Rank, JX-04 or FW-04 acceptance. Keep all broader gates unchecked.
+
+<a id="rank-cellapply-followups"></a>
+
+### P.11 Rank/CellApply follow-up migration checklist — FW-04/JX-04 subordinate gates (2026-10-06)
+
+**Scope and acceptance.** This checklist tracks the move from the validated **dense zero-frame Rank subset** in §P.10 to full J Rank/CellApply semantics. It is subordinate to §O.5 FW-04 and §Q JX-04; it does not authorize a physical optimization. **Scoped progress: 5/12 checked; FW-04 and JX-04 stay [ ].** The pinned [jsource cr.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c) (jtrank1ex/jtrank2ex) and result.h are the semantic baseline.
+
+| Gate / stage | Check | Owner and acceptance | Evidence and required negative cases |
+|---|---|---|---|
+| RK-01 / A·M2 | [x] Source-first empty-frame contract | P.10 records the fill/first-existing-cell evaluation and result type/shape assembly; source error fallback remains separate | Pre-fix [CI 37446732381](https://github.com/yunskim/RustJ/actions/runs/37446732381): 13/14 matched per variant, one empty-frame discrepancy |
+| RK-02 / A·M2 | [x] Typed dense fill-cell + empty assembly | value.rs rank_fill_cell/empty_rank_result preserve Bool/Int/Float/Char types and real first cell when available | Tests for fill type, shape and boxed refusal; no guessed boxed/sparse semantics |
+| RK-03 / A·M2 | [x] Shared monadic/dyadic Rank execution | logical_executor.rs, kernels.rs, runtime.rs use shared Rank semantics, not an Index-Of-specific output; keep static Facts conservative | semantic.rs and analysis.rs tests |
+| RK-04 / A·M2 | [x] No unproven user-body execution | Primitive-witness guard allows known built-in fill evaluation only. Unsupported otherwise | empty_scope.rs effects and name scope regression; not full J user-defined Rank |
+| RK-05 / A·FW-04 | [x] Pinned C / independent Rust / optimized Rust matrix | ranked_search_audit.py and Linux CI compare first/last/member, typed empty frames, addition/reduction and frame cases | [4×20 CI 37449102885](https://github.com/yunskim/RustJ/actions/runs/37449102885) 80/80 matched; [basis 37449102980](https://github.com/yunskim/RustJ/actions/runs/37449102980) passed |
+| RK-06 / B·M2 | [x] Adversarial empty frame and rank corpus | ranked_search_audit.py + semantic tests: zero-leading/interior frames, only one operand empty, frame mismatch, negative/oversized rank, incompatible types, nested Rank | Pin C outcomes first. Distinguish value/error/Unsupported, test both C builds and Rust variants  **Diagnostic evidence (2026-10-06; [CI 37452153562](https://github.com/yunskim/RustJ/actions/runs/37452153562)):** each of j64/j64avx2 × default/portable had 22/24 matching pinned-C/Rust semantic/Rust optimized observations, with two `rust_semantic_mismatch` cases (`empty_type_mismatch`, `nested_rank_empty`). A green workflow is not conformance: this adversarial corpus intentionally remains non-acceptance. [`45af152`](https://github.com/yunskim/RustJ/commit/45af1526c41e33d9a5b3fda8bf7bfd5bf92d9b4e) and [`59bb6d8`](https://github.com/yunskim/RustJ/commit/59bb6d8adff86db0fd8c1d43bb41cc64bbc6dc52) expose full three-way observations and test diagnostic reporting. **At this earlier stage two cases diverged; see the subsequently accepted 32-case bounded gate below.**  **Partial fix with executed evidence (2026-10-06):** [`4d5f903`](https://github.com/yunskim/RustJ/commit/4d5f90348a91ece4c15139d0ae56affb1ade68c6) and [`edad61b`](https://github.com/yunskim/RustJ/commit/edad61bc17ebeb46198f1d1f050bcb9bc95f0a42) conservatively permit value-only fill through a Rank-of-Rank of an intrinsic primitive in the independent A3 and normal Rust executors, with positive [`a4c5953`](https://github.com/yunskim/RustJ/commit/a4c5953349ea8fba34df7bdcaed3e683ee773b01) and effectful negative [`f074620`](https://github.com/yunskim/RustJ/commit/f074620e6317e5f86ffb425f07fba00a00847cdb) tests. [Linux CI 37453410364](https://github.com/yunskim/RustJ/actions/runs/37453410364) **5/5 jobs success**, pinned-C three-way adversarial **23/24 matched, 1 `rust_semantic_mismatch` (`empty_type_mismatch`) in each of four variants**. The nested-Rank gap was closed, but this is **not full Rank conformance or ZF-IR-03 evidence; RK-06 remained [ ] at this earlier checkpoint.** |
+| RK-07 / B·M2 — **next** | [ ] Non-exigent/exigent error and retry semantics | Capture cr.c computational-error recovery, type retry, error precedence, and effect ordering in error.rs and Rank execution | C comparison for overflow, domain, incompatible type, shape error and order |
+| RK-08 / B·M3/FW-07 | [ ] User-defined effects, dynamic name resolution | Runtime witness, lookup time, observable prototype call count, post-effect replay and guarded fallback contracts | C-vs-Rust counter/binding/late-name tests; never speculate user code |
+| RK-09 / B·M3 | [ ] Boxed and sparse filler/prototype | value.rs/storage.rs/sparse.rs implement J prototype, fill value, axes and dtype semantics | Pinned C positive/negative suite; no zero-filled fake support |
+| RK-10 / B·M3 | [ ] Heterogeneous cell result assembly | assembly.rs/logical_executor.rs/kernels.rs: promotions, shape padding, error precedence as in result.h | Mixed type/shape, empty cells, char/numeric, errors and effect order |
+| RK-11 / C·M3 | [ ] Derived Rank and implicit loops | Preserve semantic operands and rank/cell/frame on fork/hook/@:/nested Rank/late names; no premature Graph route selection | Rank, frame repeat, late binding and modifier three-way fixtures. See §P.12 ZF-IR-01–04 for the narrower Graph empty-frame contract; broader RK-11 remains unchecked. |
+| RK-12 / D·FW-04/JX-04 | [ ] Scoped final semantic acceptance | For supported RK-06–11 claims: independent C / Rust reference / runtime, guard/effect/error/resource proof and explicit unsupported scope | Record pinned commit, 4 CI variants, command, case counts, classifications and JSON artifacts before marking each subgate complete; broader FW/JX remain [ ] where duties remain |
+
+**Iteration order and checklist use.** RK-06 → RK-07 → RK-08 → RK-09 → RK-10 → RK-11 → RK-12. For every gate: (1) pin positive and negative C cases, (2) classify C vs independent Rust baseline vs execution, (3) make the smallest shared semantic change, (4) run default/portable fmt, Clippy and tests plus both pinned C builds, and (5) append evidence to that RK row *before* ticking it. A passing subset cannot waive failures or turn on hash/GPU/Graph candidates without separate FW-05–FW-13 proof/guard/resource/cost authorization. M2 frontend convergence remains the overall priority.
+
+
+<a id="rank-graph-zero-frame"></a>
+
+### P.12 Zero-frame versus empty-cell semantics in J Graph IR — structural facts are not permission to elide evaluation (2026-10-06)
+
+**Decision.** Empty arrays remain ordinary logical arrays with J-visible type, shape and original Rank/CellApply semantics, not a new `EmptyArray` operation. Both `0 3` and `2 0` have zero atoms, but at rank 1 the former has **frame=[0], cell=[3]** (no ordinary cell iterations, but J fill-cell semantics apply); the latter has **frame=[2], cell=[0]** (two actual calls on empty cells). Therefore `element_count == 0` never by itself proves that there are no observable computations, errors or effects. Consult pinned `jsrc/cr.c::jtrank1ex/jtrank2ex` and §P.10.
+
+**Implementation boundary.** The shared pure `src/facts.rs::rank_plan_for_shapes` produces frame/cell structure; `RankPlan::frame_execution()` distinguishes `ZeroFrameNeedsFill / CellsPresent / IncompatibleFrames`; `has_empty_input_cell()` is a separate structural fact. `src/j_graph_ir.rs::Plan::rank_frame_plan(ValueId)` exposes a **read-only** view only for an applied `GraphForm::Rank` with known requested ranks and argument shapes. J Graph projection and A3 analysis use the same frame decomposition. Unknown output-cell dtype/shape stays unknown. No physical buffer identity, execution selection, extra graph node or premature optimizer is introduced.
+
+**Safety barrier.** `ZeroFrameNeedsFill` is neither `ProvenEmptyResult` nor `SafeToElide`. The fill-cell can establish result dtype/shape, raise observable errors or execute effectful/named functions. A zero axis in the A3 `IterationDomain` does not automatically allow kernel skipping, fusion or buffer omission. A later optimization must separately prove result-cell shape/type, purity, error and dynamic-name behavior, guards and fallback; actual selection must pass FW-05–FW-13 resource/cost/execution gates.
+
+**Array-compiler comparison and transfer boundaries (2026-10-06).** These references provide mechanisms for separate RustJ layers, **not** evidence that another compiler already implements J's zero-frame fill-cell semantics.
+
+| Reference | Mechanism | RustJ transfer and limitation |
+|---|---|---|
+| [XLA ZeroSizedHloElimination](https://github.com/openxla/xla/blob/main/xla/hlo/transforms/simplifiers/zero_sized_hlo_elimination.h), [pass guide](https://openxla.org/xla/hlo_passes) | Replaces zero-element HLO results with empty constants | Generate analogous rewrites **only after** result semantics and elision legality are proved. Never suppress J fill-cell evaluation, effects or errors merely because item count is zero |
+| [Futhark size types](https://www.futhark-lang.org/blog/2020-03-15-futhark-0.15.1-released.html) | Encodes element type and sizes as `[n]a`; distinguishes `[0][2]i32` from `[2][0]i32` | Prove result-cell dtype/shape separately from Rank frame geometry; do not erase J dynamic names/effects or heterogeneous result assembly |
+| [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/) | Separates iteration/indexing space from compute payload region | Preserve `CellApply` iteration structure separately from cell computation and result assembly. `tensor.empty` creates an uninitialized-content tensor of a specified shape; it does **not** mean a zero-element tensor |
+| [StableHLO reduce](https://openxla.org/stablehlo/spec#reduce) | Explicit reduction axes, reducer computation, init_values and result types | Apply known-result inference only to the relevant proved subset; do not assume an initialized StableHLO reduction is equivalent to arbitrary J `/` or Rank fill-cell semantics |
+
+**ZF-IR-03 independent evidence ledger (planned; not implemented).** Keep the original J Graph immutable. A recomputable sidecar must independently track (1) graph/value identity, version and dynamic-name validity; (2) J result-cell dtype/shape, boxed/sparse fill and assembly; (3) semantic equivalence of fill-cell evaluation versus reconstructed output; (4) observable effects, errors, precedence and handlers; and (5) a guard ordered before the first observable effect with exact semantic-reference fallback. Each obligation distinguishes `Unknown / Proven(witness) / Guarded(guard+fallback) / Disproven`. Neither `frame=[0]` nor partially known shape upgrades an Unknown obligation to Proven. Guarded by itself never enables selection. FW-05–FW-13 and ZF-IR-04 remain the separate execution-selection gates.
+
+**Work order.** Start with RK-06 adversarial C-oracle Rank/zero-frame fixtures; establish RK-07–10 error/effect/boxed/sparse/assembly semantics; then implement ZF-IR-03 sidecar and Unknown/Guard negative tests; finally validate ZF-IR-04 with independent three-way CPU/physical measurements. This comparison does not advance M3 ahead of M2, or tick ZF-IR-03/04 or FW-06/07.
+
+**Exact RK-06 divergent inputs and outputs.** [Diagnostic CI 37452934704](https://github.com/yunskim/RustJ/actions/runs/37452934704), `j64/default` job: `(0 3 $ 'abc') (+"1 1) (i.0 3)` gives pinned J **integer type code 4**, shape `[0,3]`, empty data, but both Rust routes return **`domain error`**. `(i.0 3) ((+"0 0)"1 1) (i.0 3)` gives pinned J **integer type code 4**, shape `[0,3]`, empty data, but both Rust routes return **`unsupported`**. The full `jsrc/cr.c::jtrank2ex` fill-call/error-recovery contract and nested Rank semantics need separate verification. **Do not fix this by automatically inheriting an input type or indiscriminately suppressing errors.** The stated outputs come from the actual three-way diagnostic log.
+
+**Additional RK-06 pinned-C observations (authored; CI verification pending).** Commits [`a4ffb0c`](https://github.com/yunskim/RustJ/commit/a4ffb0c240e5a4271bb9f20b86627f0f5fca157f), [`b241c97`](https://github.com/yunskim/RustJ/commit/b241c9730e1993cda3a402b9256f1e184d9fc501), [`d5f8a03`](https://github.com/yunskim/RustJ/commit/d5f8a0312952e3d47ee53a48b7eb6b1a67c0d012) extend `tools/ranked_search_audit.py --adversarial` from 24 to **32 cases**. Eight new probes distinguish char/int order, char/float and bool fillers, one-sided empty frames, nonempty char/int cells, positive frames of empty cells, and nonempty nested Rank. In pinned `jsrc/cr.c::jtrank2ex`, `EVINHOMO` fill-cell retry selects a target type based on which original arguments have atoms; only *after retry* are non-exigent computational errors replaced with an integer-zero scalar while exigent errors propagate. **Four-way pinned-C evidence (2026-10-06):** [Linux CI 37453629236](https://github.com/yunskim/RustJ/actions/runs/37453629236) completed **5/5 jobs successfully** (check + pinned C j64/j64avx2 × Rust default/portable). Each reference combination reports **25 pass / 7 `rust_semantic_mismatch` out of 32**, i.e. 100/128 matched observations and 28 mismatched observations across four runs (seven distinct sources). The seven open sources are `empty_type_mismatch`, `empty_type_mismatch_reversed`, `empty_char_float_fill`, `empty_char_bool_fill`, `empty_char_left_real_right`, `empty_char_right_real_left`, and `positive_frame_empty_char_cells`. For the first six, pinned J yields integer shape `[0,3]`; for the last, integer shape `[2,0]`. Both independent Rust semantic reference and optimized Rust report `domain error` in all seven. The nonempty char/int domain case and nonempty nested-Rank case match. This **green CI validates diagnostic execution, not J conformance**; none of the seven mismatches is accepted or silently waived. This 25/32 result is historical pre-fix evidence. Only the finite 32-case RK-06 corpus is now promoted to a strict gate below; RK-07 and ZF-IR-03 remain unchecked. The preexisting 20-case strict rank gate remains unchanged.
+
+**RK-06 bounded acceptance (2026-10-06; not general RK-07 acceptance).** [Final strict Linux CI 37458845392](https://github.com/yunskim/RustJ/actions/runs/37458845392) completed **5/5 jobs**: check and pinned C j64/j64avx2 × Rust default/portable. Against the exact pinned C revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, **32 cases in each of four configurations, 128/128 three-way classifications `pass`, zero mismatches**. `--adversarial --gate-adversarial` now returns nonzero when any C/independent-Rust-reference/optimized-Rust comparison differs, while printing and retaining the exact offending observations. [`365c3ad`](https://github.com/yunskim/RustJ/commit/365c3adcb9e716e34f3083f50c317e243a51ad23) installs this **blocking four-way Linux CI gate**; [`1644644`](https://github.com/yunskim/RustJ/commit/1644644444d8e51ee2097f4acd659b1e4b893013) and [`b631f6f`](https://github.com/yunskim/RustJ/commit/b631f6fb488f449fcc4c35b44da6ac5bcca444d8) test its failure behavior. The existing 20-case strict ranked-search gate remains intact. **Only the pinned, finite, supported-dense RK-06 corpus is marked [x]**; no full-J-Rank claim follows from these witnesses.
+
+**RK-07 current boundary and open gates.** [`9ab2952`](https://github.com/yunskim/RustJ/commit/9ab2952100ae7b2ae1e6338a761ecf4fc798804f) implements integer-zero replacement of a **Domain failure from a value-only zero-result-frame fill-cell computation**. [`cbd13af`](https://github.com/yunskim/RustJ/commit/cbd13af0864a85452a2cface91f283bf07b9f4e2), [`85f1732`](https://github.com/yunskim/RustJ/commit/85f1732bb29da8b1573781e6fb6b86711d91468e), and [`a5541b2`](https://github.com/yunskim/RustJ/commit/a5541b22705b4f53aeb8a2094d958d5d749ec557) preserve the intrinsic atom-rank-zero result-cell shape of primitive `+`, avoiding an incorrect collapse of [0,3] to [0]. [`a23bcf4`](https://github.com/yunskim/RustJ/commit/a23bcf40b104e359fe135da9d76c8d0ae521e672) and [`6be596a`](https://github.com/yunskim/RustJ/commit/6be596a81ccec1edb346fe2554a42e7811c406ef) handle zero-atom `+` cells inside a positive outer Rank frame [2], preserving integer [2,0]. [`0d85f03`](https://github.com/yunskim/RustJ/commit/0d85f030b00122d2239150a8d868327ff8810f0c) and [`75a36eb`](https://github.com/yunskim/RustJ/commit/75a36eb7886ca2f68d9527412e41453b93d9af62) regress the original seven cases, nonempty char/int Domain and mismatched-frame Length; unit tests keep unsupported/resource errors intact. Pinned references: [`jsrc/cr.c::jtrank2ex` L397–418](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L397-L418), [`jtrank2ex0` L541–569](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L541-L569), [`jerr.h::EXIGENTERROR` L89–90](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h#L89-L90). **Still open:** the scoped dense primitive-`,` `EVINHOMO` retry below is implemented, but generic internal error classification/provenance for other primitives, the remaining non-exigent/exigent taxonomy and precedence, user-function effects/name versions, boxed/sparse fill, and heterogeneous result assembly are not. Unknown/Unsupported/Limit must not be silently recovered; Graph IR frame geometry alone never authorizes skipped execution or GPU lowering. **RK-07/08–12, ZF-IR-03/04, and FW-06/07 remain [ ].**
+
+**RK-07 — bounded `EVINHOMO` typed-retry implementation and C-oracle evidence (2026-10-06).** Pinned [`jsrc/cr.c::jtrank2ex` L397–418](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L397-L418) and [`jtrank2ex0` L541–569](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L541-L569) prescribe: first invoke the verb on typed fill-cells; on `EVINHOMO`, choose the type of an **original argument that has actual atoms**, otherwise the higher-ranked type when both originals are empty; **regenerate default fill-cells, rather than casting their contents**; retry once; finally substitute integer scalar zero for remaining non-exigent computational errors, but propagate exigent errors. The dense-type priorities bool < char < int < float come from pinned [`j.h::TYPEPRIORITY` L2040–2046](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L2040-L2046). This decision is not derivable from a zero-frame shape alone: retain verb identity, original-argument atom presence and dtype through execution.
+
+[`ae7258d`](https://github.com/yunskim/RustJ/commit/ae7258d2d391ee43cecb5477f1ccd52f96025e80) added **10 separate RK-07 C-oracle probes**, without changing RK-06's 32 strict tests: heterogeneous char/int in both orders, char/float, char/bool, one-sided nonempty arguments, positive frames with zero-atom cells and regular-error/length-error controls. Initial [exploratory run 37460517931](https://github.com/yunskim/RustJ/actions/runs/37460517931) j64/default showed **3/10 pass, 7 mismatches** (for example pinned int or float `[0,6]` versus Rust int `[0]`, and int `[2,0]` versus Rust Domain). [`d192ad6`](https://github.com/yunskim/RustJ/commit/d192ad6889b6dbcdf654321b7668b040cde54ae9) implemented target-typed fill regeneration without source data. [`4e35d44`](https://github.com/yunskim/RustJ/commit/4e35d443eb4eb8f2c8fa4fc8528439fc18aa141e), [`5485011`](https://github.com/yunskim/RustJ/commit/5485011de69fd2354d19059cd79612d1c4fcd3e8), and [`a6a254c`](https://github.com/yunskim/RustJ/commit/a6a254cac2cee70a963abd2b19a4ef2194f29632) allow exactly one typed retry for the **concrete pure primitive `,` in a witnessed dense char/numeric mismatch**, not for arbitrary Domain failures. [`48e8a6a`](https://github.com/yunskim/RustJ/commit/48e8a6a203e1f58f28063b0765f60a19ff59731e) preserves the output type for zero-atom catenate cells within nonempty outer frames. [`b370ac8`](https://github.com/yunskim/RustJ/commit/b370ac855f6cc81b02a38c569541100f98f2356e) and [`177b18c`](https://github.com/yunskim/RustJ/commit/177b18c50c4c2ad70a83aa3d7aee793c86a065da) pin expected type/shape, single retry, real nonempty-cell Domain, frame Length and no retry on Limit.
+
+**Executed acceptance boundary:** [final Linux CI 37461525543](https://github.com/yunskim/RustJ/actions/runs/37461525543), pinned C revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`. Python tests, fmt, clippy, Rust default/portable tests/build (check) plus C j64/j64avx2 × Rust default/portable comparisons **5/5 jobs green**. The **10 RK-07 probes × 4 configurations = 40/40 independent C/Rust-semantic-reference/Rust execution comparisons passed, 0 mismatches**. [`37e04dc`](https://github.com/yunskim/RustJ/commit/37e04dc8109065e86e4c2bca333416d0c9b441f4), [`706fa36`](https://github.com/yunskim/RustJ/commit/706fa367aa860760d5b4df3b17dbb9b26ccf2da3) and [`b245f9e`](https://github.com/yunskim/RustJ/commit/b245f9e8a27bac0ffd21b724a9ca8df0d18b941c) install the blocking `--retry-probes --gate-retry-probes` four-way CI gate with unwaived C/reference/optimized observations in archived JSON. The original RK-06 32-case strict gate remains intact.
+
+| RK-07 subtask | Status | Remaining acceptance requirement |
+|---|---|---|
+| RK-07-E1: type-specific catenate retry | [x] bounded dense subset | Original atom-presence priority, typed default filler regeneration, one retry, C 10-case differential |
+| RK-07-E2: durable evidence | [x] strict 10-case gate | 4 configurations, 40/40, CI fails any mismatch and retains JSON |
+| RK-07-E3: internal error provenance | [ ] | Distinguish `EVINHOMO` from generic Domain across other primitives and failure phases; never infer retry authority from Domain alone  **Partial implementation (2026-10-06; still [ ]):** [`5aa7074`](https://github.com/yunskim/RustJ/commit/5aa7074762ca6eac1570bc17d728b9ee07b6c3fc) requires an `Option<VerifiedValueOnlyZeroFrame>` proof token for `recover_zero_frame_fill_domain`. Domain failures from ordinary cells and unresolved/effectful calls are not recoverable; the previously verified value-only synthetic zero-frame path retains integer-zero fallback. Both independent A3 reference and primitive kernels supply the token, with negative tests. A distinct general internal `EVINHOMO` cause/provenance and C exigent-error classification remain unimplemented; this does not authorize ZF-IR-03 or FW-06/07 optimization. [Linux CI 37467064363](https://github.com/yunskim/RustJ/actions/runs/37467064363) **all 5/5 jobs passed**, including check and pinned j64/j64avx2 × Rust default/portable. Per configuration RK-06 32/32 + RK-07 retry 10/10 + error-precedence 8/8, thus **200/200 strict three-way C/Rust comparisons matched, 0 mismatches**. [Basis probe 37467064362](https://github.com/yunskim/RustJ/actions/runs/37467064362) passed. The general internal-error cause classification (E3) and exigent provenance (E4) **remain [ ]**. |
+| RK-07-E4: exigent/non-exigent classification | [ ] | Pinned [`jerr.h::EXIGENTERROR` L87–90](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h#L87-L90), overflow and error precedence; Rust Limit may conflate J EVLIMIT with actual allocation/resource failure, so do not suppress without provenance |
+| RK-07-E5: semantic coverage expansion | [ ] | Derived/dynamic/effectful calls, boxed/sparse and nonuniform result assembly; structural frame facts must never license skipped effects or GPU lowering |
+
+**Decision:** Only the finite dense primitive-catenate retry subset is accepted. **Parent RK-07, RK-08–12, ZF-IR-03/04 and FW-06/07 remain [ ]**. Neither general J Rank conformance nor optimization eligibility follows.
+
+**RK-07 — independent eight-case pinned-C error-precedence corpus (2026-10-06).** [Diagnostic Linux CI 37463314265](https://github.com/yunskim/RustJ/actions/runs/37463314265) succeeded on all **5/5 jobs**, checking pinned C j64/j64avx2 × Rust default/portable, with **8/8 three-way matches in each configuration (32/32 total; zero mismatches)**. `--error-probes` independently covers (1) inner cell Length under a zero result frame, (2) mixed empty char/numeric cells of different length, (3) genuine Length with a positive frame, (4) prefix-frame Length before fill execution, (5) empty-frame versus populated-cell Index, and (6) division with zero versus positive frames. The existing strict 32-case RK-06 and 10-case RK-07 `EVINHOMO` gates are unchanged. [`a84a508`](https://github.com/yunskim/RustJ/commit/a84a5084f3a4318f1f26dc95b0428e10317064cd) and [`cce5dec`](https://github.com/yunskim/RustJ/commit/cce5decdbbec2d6577c415d5696f8d7775738b10) add the C corpus and unwaived-difference tests. [`ba90688`](https://github.com/yunskim/RustJ/commit/ba9068801554e5836d9b57111e8e937440c23172), [`970f6b0`](https://github.com/yunskim/RustJ/commit/970f6b07c09ed3969cfc158005c12a2795ce5010), and [`c90701d`](https://github.com/yunskim/RustJ/commit/c90701de2b456e556fb256128e976a7556793930) promote `--error-probes --gate-error-probes` to a blocking bounded CI regression. **Final evidence: [Linux CI 37463712382](https://github.com/yunskim/RustJ/actions/runs/37463712382), 5/5 jobs successful, eight pinned-C three-way matches per reference configuration (32/32 total, zero mismatches)**. The exact source/result observations remain in each reference job and `rank-error-*.json` artifact. Only this **finite eight-case strict regression** is accepted; **overall RK-07 remains unchecked** because internal error provenance, complete exigent/non-exigent taxonomy, effects and general Rank semantics remain unproven.
+
+**RK-07-E4 exact exigent-error boundary.** In pinned [`jsrc/jerr.h` L7–55 and L87–90](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h#L87-L90), `EXIGENTERROR` contains selected internal J error codes including allocation/workspace, valence, nonce, value, throw, stack, and system failures that must propagate even for fill-cell execution. Although `EVDOMAIN`, `EVLENGTH`, `EVINDEX`, `EVRANK`, `EVLIMIT`, and `EVINHOMO` are not in that mask, it does **not** authorize suppressing arbitrary Rust errors. RustJ's `Error::Limit` does not yet distinguish J `EVLIMIT` from allocator/resource failure, and `Error::Unsupported` is not equivalent to J `EVNONCE`. A separate, proven witness for **internal error code, phase, provenance and possible effects** is required before broadening retry/suppression. Next steps are internal error provenance classification (E4), independently pinned precedence/exigent cases, and effectful user-function/dynamic-name boundaries (E5). The finite 8-case matches are neither all-rank-error proof nor permission for Graph IR zero-frame elision.
+
+**Living sub-checklist (under RK-11 and FW-04/JX-04).**
+
+| Gate | Status | Required evidence |
+|---|---|---|
+| ZF-IR-01 / M2 | [x] **Common Rank geometry** | Shared frame split and `RankFrameExecution` with Graph/A3 structural agreement. Implemented in [911e113](https://github.com/yunskim/RustJ/commit/911e113c8761f3e7b25ca6b932f6c8ab56e0b398) and [fb9f884](https://github.com/yunskim/RustJ/commit/fb9f8842ac74ef289e0852927f3ef65d54574f11); [Linux CI 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) check and four oracle jobs passed |
+| ZF-IR-02 / M2 | [x] **Read-only Graph query and negative tests** | `Plan::rank_frame_plan` [89984f1](https://github.com/yunskim/RustJ/commit/89984f10aa6e3869e2f3d4f77730e2537030854d), tests [b52fd51](https://github.com/yunskim/RustJ/commit/b52fd51d2420c27d4425b920f534b8941d0f0871) distinguishing `0 3`, `2 0`, inner zero and incompatible frame; Graph=A3; non-Rank=None; output remains unknown |
+| ZF-IR-03 / M3·FW-06/07 | [ ] **Independent proof for empty-result elision** | Result-cell dtype/shape, effects, errors, names, guards and fallback; prohibit Unknown→skip and frame-zero→automatic kernel skip with negative tests |
+| ZF-IR-04 / M3/M4·FW-11/13 | [ ] **Executed lowering and resource proof** | Compare pinned C, independent Rust semantic reference and optimized Rust, then measure CPU cost before enabling any individual kernel/buffer elision; preserve nonempty frames of empty cells. No GPU permission |
+
+**Status (2026-10-06):** ZF-IR-01/02 **2/4 checked**, supported by [Linux milestone run 37451816951](https://github.com/yunskim/RustJ/actions/runs/37451816951) at [`e9f821d`](https://github.com/yunskim/RustJ/commit/e9f821d0658005a1545131d31c31fb53d3521b26): **all 5/5 jobs passed**, including default/portable Rust checks and j64/j64avx2 × default/portable differential jobs. This is a regression of the unchanged execution path, NOT proof or execution of zero-frame kernel elision. ZF-IR-03/04 are unimplemented. RK-11, FW-04 and JX-04 remain [ ]; §P.11 RK-06–RK-12 precedence is unchanged.
+
+<a id="jsource-optimization-migration"></a>
+
+### Q. Whole-jsource optimization migration plan and living checklist — beyond Index-Of (2026-10-06)
+
+**Scope and authority.** §7.4.3 A–M catalogues audited jsource optimization **ideas, original guard/fallback constraints, and RustJ stage ownership**. §O.5 **FW-01–FW-18** owns shared semantics/evidence/guard/CPU milestones, and §P.1 owns **Index-Of-specific implementation**. This section is the complementary **per-family migration tracker**; passing one tracker does not complete another. Do not create another generic optimizer, translate C special entrypoints one-for-one into Graph IR nodes, or pre-build a common registry. Source audit pin: [jsource 13994ffa1ed5f06f79fad6e9822a7ed2d29b1528](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc).
+
+**Status: 0 / 26 complete.** Every [ ] is an **executed acceptance gate**, not a statement that a source family, candidate analyzer or test source exists. Keep M2 frontend and **FW-01 first**; source classification can proceed statically. Follow A (semantic baseline) → B (M3 proof/guard boundary) → C (family candidates and implementations) → D (M4 and later execution approval). C-stage candidate/proof research may precede FW-11–13, but **selecting or enabling specialized execution** requires the independently validated CPU baseline and separated target/resource/cost evidence. Do not extract a shared family interface before the second-family demonstration JX-08.
+
+| ID / gate | Source family and jsource evidence | RustJ change boundary | Acceptance / negative and differential evidence required |
+|---|---|---|---|
+| JX-01 / A | **Pinned source and coverage inventory:** ca/cf/cr/va2/ar/ap, ao/cip/gemm, vg/vgsort/vgranking, vi/viix, cc/cu/vfrom/vf/vrep/vcat, sparse/sc/a/vrand/am in §A/H/K/M | src/j_graph_jsource.rs catalogue/source pin/coverage and §7.4.3 A–M | For each family map **source form → entrypoint → guard/fallback → semantic conditions → RustJ owner → status**. Track duplicates and unaudited paths. Diff future upstream revisions separately; never claim exhaustive coverage |
+| JX-02 / A·FW-01 | **Frontend and derived entity coverage:** @:, fork/hook, rank, /., dot, grade, cut, under, M., ?/?. | src/tokenizer.rs, src/enqueuer.rs, src/parser.rs, src/semantic.rs, src/j_graph_ir.rs | Source/valence/POS/operand/late-binding must be supported before creating candidates. Unsupported forms stay AwaitingFrontendOrFacts; compare positive and negative parse/resolve cases with a real J C oracle |
+| JX-03 / A·FW-02 | **Truly sequential semantic baseline:** Reduce, Scan, Search and later families | src/runtime.rs, src/kernels.rs, src/index_ops.rs, semantic/runtime tests | Separate pool ownership from optimization authorization. Instrument zero candidate selection/prehash/specialized dispatch for supported strict Rust reference; external J C is a differential oracle, not normal fallback |
+| JX-04 / A·FW-03/04 | **J semantic fixture matrix:** rank/cell/frame, Fit/CCT, empty/prototype, boxed/sparse, numeric overflow, error precedence | tests/semantic.rs, tests/j_graph_jsource.rs, tests/index_ops.rs, existing differential harness | Record **independent pinned C / strict Rust / optimized Rust** outputs, supported coverage and unresolved issues. Distinguish upstream special-path oddities; never claim legacy Rust near is J CCT **2026-10-06 partial evidence:** [4×20 C/Rust Rank gate](https://github.com/yunskim/RustJ/actions/runs/37449102885) all 80/80 matched; [Basis probe](https://github.com/yunskim/RustJ/actions/runs/37449102980) passed. Typed dense zero-frame Rank is implemented. User-defined effects, boxed/sparse fillers and error fallback remain unresolved; gate [ ] remains. **Follow-up unit gates:** [P.11 RK-01–RK-12](#rank-cellapply-followups) tracks evidence and state; parent remains [ ]. |
+| JX-05 / B·FW-05 | **Versioned multi-region source anchors:** Cut–Scan–Raze, convolution, composition/nested rank | src/j_graph_ir.rs, src/j_graph_jsource.rs, src/analysis.rs, src/lowering.rs | Verify immutable graph schema, source value, region, ordered A3 operation set, rule/version via sidecar. Reject stale, forged, span-reused and wrong-region witnesses |
+| JX-06 / B·FW-06/08/09 | **Family-specific proof obligations:** valence, rank, equality, empty, error, ownership, resources | src/j_graph_jsource.rs, src/lowering.rs, current proof/verifier boundary | Keep per-obligation Unknown/Proven/Guarded/Disproven with witnesses. Any unresolved obligation blocks commit/selection; negative-test cross-family misuse of rewrite/fusion/search evidence |
+| JX-07 / B·FW-07 | **Guard, fallback and effect boundaries:** RNG, name lookup, memo, allocation, numeric retry | src/lowering.rs, src/runtime.rs, src/execution_semantics.rs | Guards precede observable effects, and misses fall back to an explicit baseline route. Reject replay after cache mutation, RNG draws, effects or observable errors; negative-test guard misses and post-effect reexecution |
+| JX-08 / B·FW-10 | **Second genuinely independent family:** Reduce/Scan **or** GroupReduce | src/j_graph_scan.rs or GroupBy basis, src/j_graph_jsource.rs, src/lowering.rs | Exercise JX-05–07 on numeric association/order or group representative/order obligations distinct from Search. Do not extract common Candidate/SelectionPlan APIs beforehand |
+| JX-09 / C | **Composition, rank absorption, MapReduce streaming:** ca.c, cf.c, cr.c, va2.c::jtfslashatg | src/j_graph_fusion.rs, src/j_graph_composition.rs, src/fusion_planning.rs | Retain @:/capped-fork provenance and rank domains; dense/empty/type/effect/inplace-cost guards. Do not duplicate existing fusion candidates; compare with generic fallback |
+| JX-10 / C | **Reduce, Mean, shape-driven fast paths:** ar.c::jtreduce/jtmean, cf.c::jtfolk | src/j_graph_jsource.rs, src/j_graph_scan.rs, Reduce lowering | +/%# is a **monadic** Mean opportunity only. Verify lengths 0/1/2, cell shape, prototype, promotion, FP order, overflow. Do not infer single-pass fusion or general reassociation |
+| JX-11 / C | **Prefix Scan, Infix Window, MovingAverage:** ap.c::jtpscan/jtmovfslash/jtmovavg | src/j_graph_scan.rs, src/j_graph_jsource.rs, Window/Scan lowering | Validate prefix vs sliding order, NaN/overflow, window lengths and fallback; retain original graph provenance on rediscovered Mean→Window candidates |
+| JX-12 / C | **Key/GroupBy plus GroupReduce:** ao.c::jtkeyct/jtsldot | src/j_graph_jsource.rs, GroupBy semantic basis, src/analysis.rs | Prove key equality/CCT, first-appearance group ordering, representatives, types, overflow, empty/sparse before direct aggregation; generic Search proof is insufficient |
+| JX-13 / C | **Contraction, full Dot/GEMM and oblique convolution:** cip.c, gemm.c, ao.c::jtpolymult; rank-1 sum-times in cr.c/va2.c | Contract basis in src/execution_semantics.rs, src/analysis.rs, src/lowering.rs | Distinguish general dot, restricted sum-times and oblique reductions; prove rank/agreement/Fit/overflow-retry/FP order/sparse and BLAS capability, then choose the library route downstream |
+| JX-14 / C | **Grade/Sort/Ranking and order statistics:** vg.c, vgsort.c, vgranking.c, vg.c::jtordstat | src/j_graph_jsource.rs, Grade/Ranking basis, src/lowering.rs | Prove ties/order, key/type/range, rank/index errors. **RNG draws inside order-statistic selection** may affect later J state; no pure quickselect rewrite until seed/trace effects are resolved |
+| JX-15 / C·§P | **Search/Index-Of versus interval I.:** vi.c, viavx.c, viix.c, viavx2.c | src/index_ops.rs, SearchDescriptor in src/logical_ir.rs, src/physical.rs | Delegate detailed index-family work to **§P.1 and FW-02/03/04/12**. Prove dyadic I. sorted interval semantics, distinguish i./i:/e. result/representative modes and E. window; no unproven tolerant optimization |
+| JX-16 / C | **Byte char-map LUT and Boolean/sparse mask to indices:** cf.c::jthkiota, v.c::jtcharmap | src/j_graph_jsource.rs, IndexSpace/Lookup/Gather basis | Prove byte alphabet, 256-entry limits, first duplicate match, invalid-index errors, mask/sparse fill and rank; do not jump from source detection directly to LUT/compact execution |
+| JX-17 / C | **Cut→Scan→Raze and Box+Append/Raze:** ca.c, cc.c::jtrazecut1/2, vo.c::jtjlink | src/j_graph_ir.rs, src/j_graph_fusion.rs, ConcatAssemble/Result Assembly | Treat the **zero-cut result-axis difference between source optimized and generic paths** as a blocker. Preserve intended J semantics, fill/shape, boxed lifetime, effects and correct fallback before transforming |
+| JX-18 / C | **Shape/Count shortcuts, bound constants, Hook thresholds:** ca.c, v.c, cf.c, va1.c, vx.c, vz.c | src/j_graph_ir.rs facts, src/analysis.rs, numeric lowering | Separate shape/count demands from value computation without suppressing errors/prototypes/sparse cases. Prove domain, Fit, FP rounding and SIMD/NaN guards for floor-log/digits/power/deadband |
+| JX-19 / C | **Under/Each and inverse precomputation:** cu.c::jtsunder etc. | src/semantic.rs, src/j_graph_ir.rs, src/execution_semantics.rs | Preserve forward→inner→inverse, dynamic binding timing, effects/alias and inverse validity; reject stale cached inverses after rebinding |
+| JX-20 / C | **Virtual View/Gather/Reshape/Compress/Catenate/Result Assembly:** v.c, vfrom.c, vf.c, vrep.c, vcat.c, result.h | src/physical.rs, src/storage.rs, src/lowering.rs, result assembly | No universal Box→Open cancellation. Verify contiguous/noncontiguous copy, recursive boxes, lifetime, alias/pristine/usecount, rank/shape/error; negative-test visible mutation through shared inputs |
+| JX-21 / C | **Sparse-specific execution:** cpdtsp.c, vgsp.c, visp.c, vfromsp.c | src/sparse.rs, tests/sparse_runtime.rs, src/execution_semantics.rs | Validate sparse axes/fill/empty/prototype, boxed/numeric types, density/resources and distinct error/ordering; never treat dense fusion as a universal sparse fallback |
+| JX-22 / C | **Amend/Scatter, donation and lifetime:** am.c, m.c, p.c, cx.c | src/runtime.rs, src/storage.rs, src/physical.rs, effect/assignment boundary | Prove index/type/readonly, alias, recursive boxes, commit/error order and failed retry. SSA liveness alone is insufficient for inplace; negative-test source mutation |
+| JX-23 / C | **Dynamic name and locale lookup cache:** sc.c, cx.c | src/semantic.rs, src/runtime.rs, name/binding version runtime | Validate late binding, locale epoch, invalidation, rebinding/reentrancy and thread safety; compare cache hit/miss. Do not turn a name cache into a Graph constant rewrite |
+| JX-24 / C | **Explicit M. memo and stateful RNG generate/shape:** a.c::jtmemo, vrand.c::jtrollk, vg.c | src/semantic.rs, src/runtime.rs, effect/state contracts in src/execution_semantics.rs | Keep requested M. semantics separate from unrestricted CSE. Prove cache key/lifetime/effects and observable RNG seed/draw order/state trace; unsupported remains RuntimeSemantic/Unknown |
+| JX-25 / D·FW-11–17 | **Physical target, hard resources and measured costs:** jsource SIMD/AVX, GEMM, hash, view, inplace | src/lowering.rs, src/physical.rs, src/j_graph_resource.rs, src/fusion_planning.rs | After independent baseline/three-way testing, separate capabilities, hard allocation bytes and measured latency/memory. Defer SIMD/BLAS/GPU/cache-tuning without semantic proof, guard/fallback and measured gain |
+| JX-26 / final·FW-18 | **Independent repeated audit and uncovered upstream paths:** numeric primitive/allocator/architecture-specific paths, new jsource commits | §7.4.3 A–M, §Q, §O.5, §P.1, reports/ | Separately audit **pinned C dispatch/fallback, J counterexamples, Graph-A3 provenance, guard-effect/runtime, target-cost/bench**. Record commit, environment/commands, pass/fail/ignored, pinned oracle scope and gaps; synchronize FW/P state |
+
+#### Q.1 Initial JX-01/FW-01 static source/frontend audit (2026-10-06)
+
+**Status: JX-01 [ ], FW-01 [ ] remain open.** We fetched all **16/16 pinned upstream C/H files** referenced by the current family registry. Representative text/symbols were found in 15; the `vcat.c` entry `boxed ownership transfer` is a descriptive label, **not** a literal C symbol. File/symbol presence does not prove the full guards, fallbacks, J semantics, runtime correctness, or performance.
+
+`src/j_graph_jsource.rs::JSOURCE_FAMILY_RULES` includes **16 families**: **AnalysisOnly 7 / ExistingAnalyzer 1 / AwaitingFrontendOrFacts 4 / DownstreamOnly 4**.
+
+| Family / discovery state | J form → pinned jsource evidence | Obligations and baseline fallback / RustJ owner·JX gate |
+|---|---|---|
+| `ReductionFastPath` / AnalysisOnly | `f/ y` → `ar.c::jtreduce` | empty/singleton/two-item, identity, overflow → Reduce; ExecutionAlgorithm / JX-10 |
+| `MeanIdiom` / AnalysisOnly | monadic `(+/ % #) y` → `cf.c::jtfolk`, `ar.c::jtmean` | exclude dyad; rank/FP order → original fork; ExecutionSemantics / JX-10 |
+| `WindowAlgorithm` / AnalysisOnly | `f\ y`, `x f\. y` → `ap.c::jtmovfslash` | Scan vs Window, length/NaN/overflow → generic; ExecutionAlgorithm / JX-11 |
+| `SearchAlgorithm` / AnalysisOnly | dyadic `i.` / `i:` / `e.` → `vi.c::indexofsub` | first/last/member, CCT/rank/boxed/sparse → sequential; ExecutionAlgorithm / §P·JX-15 |
+| `IntervalLookup` / AnalysisOnly | dyadic `x I. y` → `viix.c` | sortedness/type/empty, not monad → baseline; ExecutionAlgorithm / JX-15 |
+| `GatherCopyOrView` / AnalysisOnly | `x { y` → `vfrom.c::jtget1cell` | bounds/alias/contiguity → copying; PhysicalPlanner / JX-20 |
+| `ReindexCopyOrView` / AnalysisOnly | `$` / `|.` / `|:` → `vf.c` | fill/shape/usecount → materialize; PhysicalPlanner / JX-20 |
+| `MapReduceStreaming` / ExistingAnalyzer | `f/@:g` → `va2.c::jtfslashatg` | dense/type/empty/inplace/overflow → generic map-reduce; existing GraphFusion / JX-09 |
+| `ResultAssemblyDemand` / AwaitingFrontendOrFacts | box/open/raze → `result.h` | recursive boxes/raze checks/effects → generic assembly; ExecutionSemantics / JX-17/20 |
+| `GroupAggregate` / AwaitingFrontendOrFacts | `u/.`, `f//.` → `ao.c::jtkeyct/jtsldot` | CCT/group order/representative/type → generic group; ExecutionAlgorithm / JX-12 |
+| `MatrixContraction` / AwaitingFrontendOrFacts | `+/ . *` → `cip.c::jtpdt`, `gemm.c` | rank/Fit/overflow/FP order/sparse → generic dot; ExecutionAlgorithm / JX-13 |
+| `GradeRanking` / AwaitingFrontendOrFacts | `/:`, `\:` → `vg.c` | ties/order/type/axis → generic grade; ExecutionAlgorithm / JX-14 |
+| `TolerantHash` / DownstreamOnly | tolerant search → `viavx2.c` | CCT nontransitivity/±0/NaN → sequential; ExecutionAlgorithm / §P·JX-15 |
+| `SparseAlgorithm` / DownstreamOnly | sparse dot/grade/index/from → `cpdtsp.c` etc. | axes/fill/empty/type → sparse reference; ExecutionAlgorithm / JX-21 |
+| `BufferOwnership` / DownstreamOnly | boxed concat/reshape/compress → `vcat.c` etc. | alias/usecount/recursive boxes → allocate; PhysicalPlanner / JX-20/22 |
+| `NameLookupCache` / DownstreamOnly | late name/locale → `sc.c::jtunquote` | epoch/locale/reentrancy/invalidation → actual lookup; RuntimeBinding / JX-23 |
+
+**Tracked source families deliberately outside the registry:** §7.4.3 H/K/M includes Cut→Scan→Raze (`cc.c`, JX-17), oblique convolution (`ao.c`, JX-13), char-map LUT (`v.c`, JX-16), boolean/sparse→indices (`cf.c`, JX-16), RNG-pivot order statistics (`vg.c`, JX-14), RNG shape (`vrand.c`, JX-24), Box+Append (`vo.c`, JX-17), explicit `M.` memo (`a.c`, JX-24), Under/Each (`cu.c`, JX-19), bound numeric/deadband (`vx.c/vz.c/va1.c`, JX-18), Amend/Scatter (`am.c`, JX-22), assignment/explicit-definition fast paths (`p.c/cx.c`, JX-22). These are **source evidence backlogs**, not 16 additional executable or exhaustively audited families.
+
+**FW-01 frontend boundary:**
+- **Word formation:** `src/tokenizer.rs::scan/parse_word_spans` and `tests/syntax.rs`. Previous F0 differential results are history, **not** a rerun.
+- **Enqueue/POS:** `src/primitive.rs`, `src/enqueuer.rs`, `tests/enqueuer.rs` recognize `/.`, `.`, `/:`, `\:`, `;.`, `&.`, `M.`, `?`, `?.`, `!.` as vocabulary POS, **not** as proof of supported derived constructor, runtime, or optimization. Locatives/name-by-value and some numeric payloads remain Unsupported.
+- **Derived parser:** `src/parser.rs`, `src/semantic.rs::FunctionEntity`, `tests/semantic.rs` represent portions of `@:`, Hook/Fork, Rank, Insert/PrefixInfix. Key/Dot/Cut/Under/Memo/Grade construction/execution, late NAME, valence/POS and error/effect order require C differential evidence.
+- **Source opportunities:** `src/j_graph_jsource.rs::discover` limits Mean to the monad and keeps `E.` window separate from ordinary index search. Candidate discovery does not authorize execution.
+- **Regression source added:** [commit e364535](https://github.com/yunskim/RustJ/commit/e36453575430879e4bc546c62350107a3e698e84), `tests/j_graph_jsource.rs::optimization_vocabulary_pos_is_not_a_compiler_optimization_license`. **No Rust default/portable or real pinned C oracle pass yet verified**.
+
+**Observed GitHub Actions failures (2026-10-06):** [Basis compile probe](https://github.com/yunskim/RustJ/actions/runs/37428376593) for [e364535](https://github.com/yunskim/RustJ/commit/e36453575430879e4bc546c62350107a3e698e84) failed during `cargo test` in the **pre-existing `tests/index_ops.rs::member_preserves_cell_shapes_and_empty_query_semantics`**: actual boolean shape `[0]` versus the erroneous expected `[2]`, before the new Jsource test could be accepted. J's `x e. y ↔ (#y)>y i. x` contract means an empty left query stays empty, while an empty right lookup gives false for each left query. [80ad4a7](https://github.com/yunskim/RustJ/commit/80ad4a73b14099431966d2f697fa73f98778e159) corrects the test orientation only; it is **not** full pinned C-binary verification. The [Linux milestone](https://github.com/yunskim/RustJ/actions/runs/37428376492) for e364535 failed `cargo fmt --check` due to pre-existing formatting differences across multiple Rust files; its four separate C-reference jobs succeeded. **Later default/portable and new POS-test acceptance remain unconfirmed as of this note**, so do not mark JX-01, FW-01, FW-04 or the full CI as complete.
+
+**Next acceptance increment:** execute that regression under default/portable Rust, gather real pinned J C POS/derived syntax/error fixtures, then fix **one confirmed semantic discrepancy with one negative regression**. Do not check off JX-01/FW-01 before recording actual commands, environment, source pin, results, and unsupported boundaries.
+
+#### Q.2 FW-01 / JX-01 executed Rust regressions and pending C differential — second migration record (2026-10-06)
+
+**Acceptance: FW-01 [ ], JX-01 [ ], JX-10 [ ] remain open.** [02854b6 CI diagnostic](https://github.com/yunskim/RustJ/actions/runs/37429620894) reproduced a missed Mean candidate: in `(+/ % #) y`, the **outer fork call has one monadic input**, but the internal `g=%` join applies **dyadically** to the two monadic branch results. The previous `discover` checked `Valence::Monad` on this join node and therefore discarded all valid Mean regions. [05dae2d](https://github.com/yunskim/RustJ/commit/05dae2d9c250a466c1f0b89cfdc4b776e72d74c5) now checks original `RegionKind::Fork` and `region.inputs.len()==1`, while verifying that the internal join is dyadic. This changes **analysis discovery only**, not execution or effects. Pinned `jsrc/cf.c::jtfolk` installs `jtmean` as `f1` for `+/ % #`, not as `f2`: the monadic gate remains required.
+
+[268c83f](https://github.com/yunskim/RustJ/commit/268c83f656812b2a9fc951cb91c84e5e6f2a368b) removed temporary `MEAN_DIAG` prints and asserts **monadic outer Fork / dyadic internal join** plus the absence of a dyadic Mean opportunity. [d818a3e](https://github.com/yunskim/RustJ/commit/d818a3e807453327d7cc4cd265dc503acf36d0ec) separately fixed `e.` empty-query tests to distinguish **Boolean membership** from **integer `i.` missing sentinel**, including left empty frame `[0]` and false results for a right-empty lookup.
+
+**Executed CI evidence:** Ubuntu GitHub Actions with Rust stable. [268c83f Basis compile probe](https://github.com/yunskim/RustJ/actions/runs/37432213914): `cargo test`, `cargo test --features portable`, `cargo build --release` **passed**, while Clippy initially failed on pre-existing `src/index_ops.rs:330` manual inclusive range. [dd2c118](https://github.com/yunskim/RustJ/commit/dd2c118de8bb025a2f4fa3f21be9f22063c6be52) expressed the same gate as `(64..=MAX_PREHASH_ITEMS).contains(&items)`; [37432369878](https://github.com/yunskim/RustJ/actions/runs/37432369878) confirms **default + portable tests, release build and Clippy all passed**. Passing the Rust suite is not proof of full J semantic equivalence.
+
+**Remaining independent gates:** [Linux milestone 37432213939](https://github.com/yunskim/RustJ/actions/runs/37432213939) check still fails `cargo fmt --check`, with formatting differences across 13 Rust files. Do not claim entire CI green; record j64/j64avx2 reference jobs separately. [a91dd57](https://github.com/yunskim/RustJ/commit/a91dd5741f298e40782cea9a73801ff6dad0863e) adds `tools/conformance.py::cases` for **ordinary, singleton, empty and framed monadic Mean** C-versus-Rust differentials. Their **new pinned J C results have not yet been accepted**. Record case, C result, Rust result, exact pin, variant, backend and limitations before closing any FW/JX gate. No new specialized execution is enabled.
+
+#### Q.3 FW-01/JX-01 green CI and pinned J C differential evidence (2026-10-06)
+
+**Code/test commit:** [89bbfd0](https://github.com/yunskim/RustJ/commit/89bbfd0e55163c90b5059e90d10b0ba0bd87ded5). All **five jobs** in [Linux milestone 37433098574](https://github.com/yunskim/RustJ/actions/runs/37433098574) completed **successfully**. The check job passed Python tooling tests, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, default/portable `cargo test`, release build, and milestone execution. [Basis compile probe 37433098567](https://github.com/yunskim/RustJ/actions/runs/37433098567) passed as well. Formatting debt was resolved by applying exactly 104 rustfmt CI hunks across 13 Rust source/test files in one semantics-preserving commit.
+
+**Pinned J C differential:** All four Linux reference jobs succeeded against built pinned `jsource` commit `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`. Since [ed56b33](https://github.com/yunskim/RustJ/commit/ed56b336dd198b661cb1e4e80814488b4d890a57), the `conformance.py` and `word_conformance.py` reports explicitly carry the oracle `reference_revision` SHA.
+
+| C variant × Rust backend | Cases | Exact passes | Narrow known deviation | Unexpected failures |
+|---|---:|---:|---:|---:|
+| j64 × default | 5,384 | 5,383 | 1 | 0 |
+| j64 × portable | 5,384 | 5,383 | 1 | 0 |
+| j64avx2 × default | 5,384 | 5,384 | 0 | 0 |
+| j64avx2 × portable | 5,384 | 5,384 | 0 | 0 |
+
+The one pre-existing J64-specific allowance in `tools/conformance.py::known` is the fixed case `(i.2 3) -"1 0 (i.2 3 4)`: identical values/shape but Float in J64 versus Int in Rust. It is constrained by exact source, dtype and shape, not a blanket exception. **New monadic Mean Fork fixtures** (ordinary, singleton, empty, rank/frame) do **not** match that allowance and passed. The `failed=0` claim is limited to this **supported subset** and the explicitly separated known deviation; upstream's entire J test suite and all numeric/locale/effect semantics were not proven.
+
+**Gates stay open: FW-01 [ ], JX-01 [ ], JX-10 [ ].** The Mean region-candidate fix and J C differential are valuable **sub-gate evidence**, not complete M2 frontend semantics or enabled optimized Mean execution. FW-01 still needs unsupported Key/Dot/Cut/Grade/Under/Memo derived construction, rank/effect/error precedence, and real differential coverage beyond the subset. JX-01 needs a bounded audit of upstream guards and fallbacks per source family; JX-10 needs obligation proofs, guards, sequential-vs-specialized testing, and measured benefit before selection.
+
+**Next increment:** investigate **Key `/.` derived-verb construction** under FW-01/JX-02 against pinned J C parser/POS/valence while preserving the existing Rust vocabulary-only boundary. Keep unimplemented forms `AwaitingFrontendOrFacts`, add positive/negative regression cases, and advance one semantic family at a time.
+
+#### Q.4 First Key `/.` derived-verb construction under FW-01/JX-02 — no execution license (2026-10-06)
+
+**Gates stay open: FW-01 [ ], JX-02 [ ], JX-12 [ ], JX-01 [ ].** This increment promotes `/.` from POS-only vocabulary recognition to **non-executing construction for verb-left `u/.`**. It does **not** implement general Key/Oblique execution, noun-gerund construction, or GroupBy optimization.
+
+**Pinned source contract:** `jsrc/ao.c::jtsldot` constructs one derived verb with **monadic `jtoblique` and dyadic `jtkey`**, all intrinsic ranks `RMAX`. A verb operand is retained directly; a noun gerund is separately decoded using `fxeachv`. This does not authorize arbitrary noun operands. `jtkeyct` performs CCT-sensitive classification via `indexofsub(IFORKEY)` and separately applies the grouped verb; sparse, boxed and specialized reductions have distinct legality and fallback paths. Pinned revision: `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` (`ao.c`, `cf.c`).
+
+**Incremental acceptance checklist (separate from overall FW/JX closure):**
+- [x] Add `AdverbId::Key` to `src/primitive.rs`, remove duplicate `/.` vocabulary-only descriptor, bump `REGISTRY_VERSION` to 9; keep its POS Adverb, with no runtime-execution assertion.
+- [x] Reuse the existing verb-left `src/parser.rs::apply_adverb` construction path and preserve `FunctionHead::PrimitiveAdverb(Key)` with its function operand. Reflect `[63; 3]` intrinsic ranks in `src/semantic.rs`.
+- [x] Classify the derived verb as **opaque `GraphForm::Modifier`** in `src/j_graph_ir.rs`; never fabricate Reduce, Window or GroupAggregate candidates. Keep `GroupAggregate` at `AwaitingFrontendOrFacts`.
+- [x] Positive/negative tests in `tests/semantic.rs::key_derived_verb_keeps_operator_and_operand_without_licensing_execution`, `tests/j_graph_jsource.rs::key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection`, vocabulary/POS and primitive tests. Both monadic and dyadic calls parse but runtime returns explicit unsupported; noun `3/.` is not falsely accepted.
+- [x] Six stateful constructor/binding/alias J C differential fixtures added to `tools/conformance.py`. [Linux milestone 37435150581](https://github.com/yunskim/RustJ/actions/runs/37435150581) passed all **five jobs**, with formatting, Clippy, Rust default/portable tests, release build and Python tooling green. [Basis probe 37435150506](https://github.com/yunskim/RustJ/actions/runs/37435150506) also passed.
+- [ ] Support upstream noun-gerund `m/.` construction through appropriate `fxeachv`/AR decoding and validate malformed gerunds/error precedence against pinned J C.
+- [ ] Implement independent **sequential** monadic Oblique and dyadic Key semantics; cover CCT nontransitivity, group order/representative, rank, empties, boxed/sparse, effects, error ordering and overflow.
+- [ ] Prove any specialized execution recipe with provenance, ProofBundle, guards, fallback, invalidation and resource measurements; no GroupBy selection until those obligations pass.
+
+**Executed four-way pinned J C differential:** pin `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`, GitHub Actions Linux, seed `20260926`, randomized rounds `100`. Reports record reference revision plus Rust and J C binary SHA256.
+
+| C variant / Rust build | Cases | Matches | Pre-existing narrowly known deviation | New failures |
+|---|---:|---:|---:|---:|
+| `j64` / default | 5,390 | 5,389 | 1 | 0 |
+| `j64` / portable | 5,390 | 5,389 | 1 | 0 |
+| `j64avx2` / default | 5,390 | 5,390 | 0 | 0 |
+| `j64avx2` / portable | 5,390 | 5,390 | 0 | 0 |
+
+The existing J64 deviation is Q.3's unrelated Rank result dtype issue, **not a Key failure**. The six new cases cover **constructor/assignment/alias behavior only**, not evaluation of `x u/. y` or `u/. y`; no claim about the entire upstream J test suite is made.
+
+**Commits:** [78ba45a](https://github.com/yunskim/RustJ/commit/78ba45a9bcbc47e15ef57299a77c7131be523cde) Key constructors and regression fixtures; [de5c4dc](https://github.com/yunskim/RustJ/commit/de5c4dc10b11570836794fda42d3adf84a0c10bf) formatting; [d8db5f9](https://github.com/yunskim/RustJ/commit/d8db5f95991f6116e672d41eaee6876d5faa3f19) opaque Graph negative test; [a4f4dd0](https://github.com/yunskim/RustJ/commit/a4f4dd078c26d4fe157357dbb65f37b56375dff2) final formatting.
+
+**Next priority:** Keep the unsupported frontend inventory explicit and implement **FW-02's independent sequential `i.` reference**, separating semantic validation from existing optimized search strategy. Only later use Key/Reduce as the second independent operation family for FW-10/JX-08 before extracting common optimization interfaces.
+
+**Operating rules.** Each JX gate requires **(1) pinned C source and guards → (2) J semantics/support boundaries → (3) graph provenance and candidates → (4) per-obligation proof/guard/fallback → (5) independent Rust reference, negative tests and real C differential → (6) target/resource/measured-cost decision**. Keep [ ] without actual execution evidence. Prefer **one semantic change plus one related regression/counterexample** at a time. A regression or upstream drift invalidates affected proofs and reopens prior FW gates. For each completed row record **JX-ID / code commit / commands and environment / passed-failed-ignored / jsource commit and executed oracle scope / fallback-negative results / measured metrics / known gaps / next gate**. Next actionable work remains **JX-01 source coverage and FW-01 M2**, not enabling new specializations.
+
+
+## 14. Principles retained
+
+Repeated review of `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` confirms that RustJ should preserve the following research ideas:
+
+1. J notation creates useful graph structure that should survive parsing.
+2. Basis should reflect meaningful access patterns rather than scalar arithmetic atoms.
+3. Rewrite/equivalence reasoning belongs above physical realization.
+4. Resource reasoning should be symbolic and compositional.
+5. Flow and Storage are related but distinct analyses.
+6. Static memory means logical determinability, not early physical offsets.
+7. High-level structured operations may remain graph black boxes.
+8. Backend realization may decompose or fuse them later.
+
+## 14.1 Ideas intentionally not inherited as hard rules
+
+Do not regress to superseded prototype assumptions such as:
+
+- special `"RjP` precision syntax;
+- rank change always being a fusion boundary;
+- all reshape/transpose always being zero-copy;
+- complete physical graph determination at parse time;
+- fixed physical buffer offsets in semantic/J Graph IR;
+- hardware register numbers embedded in primitive semantics;
+- pre-resolving all names before the J parser uses them.
+
+Current jsource remains the frontend semantic oracle.
+
+## 14.2 ArrayFire and the J ArrayFire add-on
+
+Checked: 2026-10-01.
+
+Primary references:
+
+- ArrayFire JIT: https://arrayfire.org/docs/jit.htm
+- Unified Backend: https://arrayfire.org/docs/unifiedbackend.htm
+- CUDA interoperability: https://arrayfire.org/docs/interop_cuda.htm
+- Memory manager API: https://arrayfire.org/docs/group__memory__manager.htm
+- Jsoftware `math_arrayfire`, pinned at `b0543c8278fe7a50e0ac9f938a936b4a84ee239b`:
+  https://github.com/jsoftware/math_arrayfire/tree/b0543c8278fe7a50e0ac9f938a936b4a84ee239b
+- J add-on manual:
+  https://github.com/jsoftware/math_arrayfire/blob/b0543c8278fe7a50e0ac9f938a936b4a84ee239b/man.txt
+- Alex Shroyer's historical J/ArrayFire GPU prototype:
+  https://alexshroyer.com/papers/matmul_j_gpu.pdf
+
+The useful ArrayFire lessons are narrower than "use ArrayFire as the RustJ GPU backend":
+
+1. ArrayFire accumulates supported elementwise operations in a lazy AST and JIT-fuses them at evaluation boundaries. RustJ should compare this with its later Logical/Physical planning, not collapse J Semantic IR into an ArrayFire-like expression tree.
+2. `eval` and `sync` separate evaluation/submission from completion. This is useful for future RustJ async-token/timepoint, lifetime, transfer, and external-library-call semantics.
+3. ArrayFire's unified API hides CPU/CUDA/OpenCL/oneAPI backends without making backend placement part of array-language meaning. RustJ should preserve the same semantic/physical separation.
+4. Device-pointer, stream, lock/unlock, and custom-memory-manager APIs are useful references for external-library ownership and synchronization boundaries.
+
+The Jsoftware add-on is especially valuable as a concrete **library-adapter/offload case study**:
+
+- J arrays are row-major while ArrayFire arrays are column-major, so the add-on performs an `rcc` conversion. RustJ should use this as a test case for keeping logical atom order separate from physical layout and choosing view/copy/consumer absorption only during physical planning.
+- `families.ijs` maps concrete functions such as `af_add`, `af_mul`, and `af_sum`. It does not make arbitrary J adverbs, rank, or derived verbs automatically equivalent to ArrayFire operations. RustJ external routes therefore need explicit capability/precondition checks.
+- The add-on tracks `af_array` handles and release/hold/device-GC state separately from J values. This supports RustJ's ValueId vs external buffer/handle separation.
+- The add-on effectively inherits ArrayFire's `dim4` rank boundary. That is a backend capability limit, not a valid restriction on J semantics.
+
+Do not inherit ArrayFire's physical limits upstream:
+
+- do not identify `af::array` with a RustJ Logical Array/J noun;
+- do not inherit rank<=4, column-major layout, or ArrayFire dtype coverage as J-language constraints;
+- do not treat fixed ArrayFire reductions as the semantics of J's general `/` or `\\`;
+- do not treat ArrayFire JIT fusibility as proof of RustJ graph-rewrite/fusion legality;
+- do not treat the J add-on's FFI mapping as RustJ's compiler architecture.
+
+For later adapter work, build a Graph Basis ↔ ArrayFire capability matrix for Elementwise, Reduce, Scan, Gather/Index, MatMul, Conv, Sparse, layout conversion, synchronization, and fallback. Benchmark cold JIT compile cost separately from warm cached execution, transfer, layout conversion, and materialization cost.
 
 ---
 
@@ -4530,7 +6075,7 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 | Stage / boundary | Documentation status | Strong coverage today | Main remaining gap |
 |---|---|---|---|
 | word formation → enqueue → parser | **documentation contract closed / convergence ongoing** | A0.5/F0–F2/P0–P8, jsource oracle, 9-row reductions, sequencing/gates, §4.3.1 `+/ y` canonical trace | actual support for locatives/definitions/gerunds/value-dependent constructors remains checklist-driven; orientation ownership is closed |
-| Semantic Construction / binding / dynamic semantics | **documentation contract closed / general CFG implementation incomplete** | FunctionEntity/JEntity, late NameRef, assignment=value+effect, definition metadata, **runtime straight-line per-call LocalFrame/invocation subset**, gerund/rank/train preservation, explicit-definition handoff | Runtime frames are not wholly planned. What remains is general control-flow/nested/locale-locative support plus compiled Branch/CondBranch/value-merge CFG lowering; current A3 Terminator remains Return-only |
+| Semantic Construction / binding / dynamic semantics | **supported frontend E2E subset complete / general compiled CFG incomplete** | FunctionEntity/JEntity, late NameRef, definition metadata, supported per-call LocalFrame/if/while/for/try/nested direct-string explicit, A3 definition reference | Full J/locales-locatives, body Graph/Logical analysis, diagnostic source frames and compiled Branch/CondBranch/value merges remain follow-up work. A3 Terminator remains Return-only |
 | J Semantic → J Graph IR | **documentation contract closed** | GraphForm/GraphBasis/GraphHint, provenance/applied graph, Graph-vs-Execution distinction, canonical suite for `@:`/ordinary+capped fork/hook/rank/reduce/prefix-infix | remaining gaps are implementation/test coverage per form, not missing stage ownership |
 | graph analysis → candidate/proof | **documentation contract strengthened / implementation partial** | §7.5 defines orthogonal evidence, derived lifecycle, evidence owners, guarded legality, overlap/selection rules | Common `CandidateEvidence/ProofBundle`, per-obligation discharge, and SelectionPlan are **not implemented**; individual proof algorithms land with their verifier/tests |
 | J Graph → execution-semantic lowering → A3 | **documentation contract mostly closed / CFG implementation incomplete** | direct lowering, fact-drift checks, Execution Basis, SemanticCheck, effects/errors/speculation, verifier, schema header, canonical mean trace, explicit-definition current/planned handoff example | A3-v0 is still single-block/Return-only. What remains is executable Branch/CondBranch/block-merge lowering plus differential E2E, not a missing documentation example |
@@ -4539,7 +6084,7 @@ This is a documentation-connectivity audit, not a score of design quality or imp
 | native executor | **M4-v0 contract mostly closed / unimplemented** | §§17.2/17.2.1 cover op roles, verifier, cleanup/errors, executor non-responsibilities, and the canonical mean planned route | No real Physical Executor or differential E2E test yet; stateful/async execution remains later work |
 | fallback / guard miss / replay | **documentation contract strengthened / dispatcher unimplemented** | §5.2.2 defines route fallback vs guard miss vs replay/continuation, the decision table, commit frontier, and precise RuntimeSemanticFallback meaning | Integrated guard dispatcher, exact continuation, and transactional rollback remain unimplemented and must not be claimed as capabilities |
 | external route / GPU | **boundary contract fixed / implementation deferred** | §12.2 defines adapter input/capabilities/output, check/error/effect/token mapping, bridge/ownership, round-trip verification and failure classes | production adapters remain unimplemented; CUDA remains intentionally deferred |
-| validation / versioning | **documentation contract strengthened / implementation follows stages** | frontend gates, exact J Graph 0.9/A3 0.5 schema+registry verification, §15.2 negative matrix, §15.3 migration/downgrade policy | Candidate/Route/Physical/External negative verifiers land with their stage implementations; portable serialization is not yet offered |
+| validation / versioning | **documentation contract strengthened / implementation follows stages** | frontend gates, exact J Graph 0.10/A3 0.6 schema+registry verification, §15.2 negative matrix, §15.3 migration/downgrade policy | Candidate/Route/Physical/External negative verifiers land with their stage implementations; portable serialization is not yet offered |
 
 **First-pass documentation closures completed on 2026-10-06** without changing the current M2 implementation priority:
 

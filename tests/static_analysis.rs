@@ -13,6 +13,81 @@ fn input(shape: Option<Vec<usize>>) -> GraphFacts {
         shape,
     }
 }
+
+#[test]
+fn computed_constructor_operand_stops_analysis_without_committing_a_target() {
+    let mut analyzer = StaticAnalyzer::new();
+    analyzer
+        .declare_noun("data", input(Some(vec![2, 3])))
+        .unwrap();
+    let original = analyzer.binding("data").unwrap().clone();
+    analyzer.analyze("out=:(+/\"1) data").unwrap();
+    assert_eq!(
+        analyzer
+            .analyze("out=:(+/\"(1+0)) data")
+            .unwrap_err()
+            .kind(),
+        "unsupported"
+    );
+    assert!(analyzer.binding("out").is_none());
+    assert_eq!(analyzer.binding("data").unwrap(), &original);
+    let value = rustj::Engine::new()
+        .eval("(+/\"(1+0)) i.2 3")
+        .unwrap()
+        .unwrap();
+    assert_eq!(value.shape(), &[2]);
+    assert_eq!(value.int_at(0).unwrap(), 3);
+    assert_eq!(value.int_at(1).unwrap(), 12);
+}
+
+#[test]
+fn nonfinal_write_stops_analysis_before_reusing_a_stale_name_read() {
+    let mut analyzer = StaticAnalyzer::new();
+    analyzer.declare_noun("a", input(Some(vec![]))).unwrap();
+    let original = analyzer.binding("a").unwrap().clone();
+    assert_eq!(
+        analyzer.analyze("a+a=:2").unwrap_err().kind(),
+        "unsupported"
+    );
+    assert_eq!(analyzer.binding("a").unwrap(), &original);
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=:1").unwrap();
+    assert_eq!(
+        engine.eval("a+a=:2").unwrap().unwrap().int_at(0).unwrap(),
+        4
+    );
+    assert_eq!(engine.eval("a").unwrap().unwrap().int_at(0).unwrap(), 2);
+}
+
+#[test]
+fn unknown_result_shape_keeps_a_deferred_call_instead_of_demanding_atoms() {
+    let mut analyzer = StaticAnalyzer::new();
+    analyzer.declare_noun("n", input(Some(vec![]))).unwrap();
+    let report = analyzer.analyze("out=:i.n").unwrap();
+    report.graph.verify().unwrap();
+    assert!(analyzer.binding("out").is_none());
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|node| matches!(node.kind, NodeKind::ReadNoun { .. }))
+    );
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .any(|node| matches!(node.kind, NodeKind::Apply { .. }))
+    );
+    assert!(
+        report
+            .graph
+            .nodes
+            .iter()
+            .all(|node| !matches!(node.kind, NodeKind::Literal(_)))
+    );
+}
 #[test]
 fn trillion_atom_inputs_require_no_data_values_and_preserve_graph_edges() {
     let mut a = StaticAnalyzer::new();

@@ -76,7 +76,7 @@ fn append_execution_basis(
                 layers.push(kind);
             }
         }
-        FunctionHead::NameRef(_) => {}
+        FunctionHead::NameRef(_) | FunctionHead::TakeName { .. } => {}
         FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
@@ -164,6 +164,17 @@ pub(crate) fn lower_graph(
     graph: crate::j_graph_ir::Plan,
     noun_facts: &dyn Fn(&str) -> Facts,
 ) -> Result<Plan> {
+    graph
+        .verify()
+        .map_err(|message| Error::Verification(format!("invalid J graph before A3: {message}")))?;
+    let parser_provenance =
+        graph
+            .frontend
+            .clone()
+            .map(|context| crate::frontend_context::ParserProvenance {
+                context,
+                graph_nodes: graph.parser_origins.clone(),
+            });
     let source = graph.source.clone();
     let graph_node_count = graph.nodes.len();
     let graph_result = graph.result;
@@ -186,6 +197,11 @@ pub(crate) fn lower_graph(
         let graph_facts = node.facts.clone();
         let span = node.span;
         let value = match node.kind {
+            crate::j_graph_ir::NodeKind::Input { index } => {
+                builder
+                    .logical
+                    .push_input(index, builder.current_j_origin, span)
+            }
             crate::j_graph_ir::NodeKind::Literal(value) => builder.push_literal(value, span),
             crate::j_graph_ir::NodeKind::ReadNoun { name, version } => {
                 builder.push_read_noun(name, version, span)
@@ -294,9 +310,10 @@ pub(crate) fn lower_graph(
     let Builder {
         symbols, logical, ..
     } = builder;
-    let plan = logical.finish(symbols, opportunities, result, write);
+    let mut plan = logical.finish(symbols, opportunities, result, write);
+    plan.parser_provenance = parser_provenance;
     plan.verify()
-        .map_err(|error| Error::Unsupported(error.to_string()))?;
+        .map_err(|error| Error::Verification(error.to_string()))?;
     Ok(plan)
 }
 
@@ -360,6 +377,7 @@ impl Builder<'_> {
                     current = base.clone();
                 }
                 FunctionHead::VocabularyPrimitive(_)
+                | FunctionHead::TakeName { .. }
                 | FunctionHead::PrimitiveAdverb(_)
                 | FunctionHead::PrimitiveConjunction(_)
                 | FunctionHead::DefinitionConstructor(_)
@@ -398,7 +416,14 @@ impl Builder<'_> {
         function: Arc<FunctionEntity>,
         span: Range<usize>,
     ) -> Result<ValueId> {
-        let callable = self.callable_entity(function)?;
+        let callable = if matches!(function.head, FunctionHead::ExplicitDefinition(_)) {
+            Callable {
+                target: CallTarget::Definition,
+                semantic: function,
+            }
+        } else {
+            self.callable_entity(function)?
+        };
         Ok(self
             .logical
             .push_verb_reference(callable, self.current_j_origin, span))

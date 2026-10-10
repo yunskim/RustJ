@@ -2757,6 +2757,14 @@ SSA value identity
 
 classical CFG SSA, block argument/phi-like merge, memory/effect SSA의 실제 도입 위치는 PROJECT.ko.md의 IR 계층 설계가 정한다.
 
+### 54.1 NAME을 보존한다는 것은 semantic lookup을 연기한다는 뜻이 아니다 (2026-10-07)
+
+**J의 의미론적 해석 시점 ≠ 최적화기를 위해 출처를 보존하는 기간.** [jsource `p.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)에서 noun NAME은 parser stack에 들어올 때 즉시 값으로 치환된다. 일반 Verb NAME은 당시 POS가 parser row를 정하지만 `nameref`의 실제 함수는 나중에 호출할 때 조회될 수 있다. Adverb/Conjunction, gerund/fork 생성에서는 실제 constructor-time operand lookup/fix가 추가될 수 있다. 따라서 noun을 *나중*에 재조회하거나 verb를 *먼저* 고정하는 것은 compiler 최적화가 아니라 J 의미론 변경이다.
+
+그러나 값으로 치환한 noun의 원본 `NameOccurrence`, 실제 `NameResolutionEvent`, lookup frame/locale/path·source span·order, `JEntity/SSA ValueId`, `OptimizationNameEvidence`를 **서로 다른 정체성**으로 기록하면 최적화기의 미래 shape/rank/primitive-family 힌트를 제공할 수 있다. 단순 관찰은 runtime lookup 삭제·호이스팅·함수 특수화의 적법성 증거가 아니다.
+
+구조 참고: [MLIR SymbolRef](https://mlir.llvm.org/docs/SymbolsAndSymbolTables/)는 symbol reference와 SSA를 분리한다. [LLVM MemorySSA](https://llvm.org/docs/MemorySSA.html)는 effect의 read/write clobber를 추적한다. [Truffle Assumption](https://www.graalvm.org/truffle/javadoc/com/oracle/truffle/api/Assumption.html)은 무효화 가능한 최적화 가정을 제공한다. [JAX captured constants](https://docs.jax.dev/en/latest/internals/constants.html)의 constant carrier와 [JAX global state caveat](https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html)를 함께 살펴야 한다. JAX의 global 캡처를 J의 동적 rebinding/locale semantics에 이식하지 않는다. 구체적인 ownership과 NP-01~07/NP-V01~07 체크리스트는 PROJECT.ko.md §3.7.3에 둔다.
+
 ## 55. Call-site specialization은 relevant facts와 guard를 기준으로 한다
 
 APEX의 call-site specialization에서 가져올 원칙은 **호출마다 필요한 정적 사실이 다를 수 있으므로, 유효한 facts에 따라 specialization할 수 있어야 한다**는 것이다. [APEX-2]

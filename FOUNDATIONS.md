@@ -345,6 +345,14 @@ Right-to-left lookup/assignment effects and locale mutation must not be erased f
 
 # Part VII — Rank is a semantic system
 
+### 6.1 NAME provenance must not change J lookup timing (2026-10-07)
+
+**Semantic resolution time differs from optimization provenance lifetime.** Pinned [jsource `p.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c) snapshots noun NAME values when the word enters the parser stack. Normal Verb NAME selects parse-row POS and generally retains `nameref` until call-time. Modifier, gerund and fork constructors may separately inspect or capture operands at construction time. Moving a noun read later or freezing an ordinary function prematurely changes J.
+
+Preserve distinct `NameOccurrence`, actual `NameResolutionEvent`, scope/locale/path/source/order witness, JEntity/SSA ValueId and `OptimizationNameEvidence`. This offers optimization **candidates** (known shape/rank/primitive family) without treating observations as a proof that name lookup/effects may be erased or reordered.
+
+Borrow [MLIR SymbolRef vs SSA](https://mlir.llvm.org/docs/SymbolsAndSymbolTables/), [LLVM MemorySSA](https://llvm.org/docs/MemorySSA.html) read/write clobber tracking and [Truffle Assumption](https://www.graalvm.org/truffle/javadoc/com/oracle/truffle/api/Assumption.html) guarded invalidation. Distinguish [JAX captured constants](https://docs.jax.dev/en/latest/internals/constants.html) from its [cached global-state caveats](https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html); importing JAX's trace-time global snapshot would break J rebinding. The normative NP-01–07 and NP-V01–07 contracts live in PROJECT.ko.md §3.7.3 and English PROJECT.md §4.4.
+
 ## 7. Rank is not simply loop syntax
 
 J rank semantics include:

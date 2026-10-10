@@ -207,3 +207,14 @@ fn m4_rejects_mutated_a3_payload_and_provenance_even_with_identical_source_text(
 
     plan.verify(&logical).unwrap();
 }
+
+#[test]
+fn identity_route_rejects_exact_numeric_storage_without_a_physical_encoding() {
+    for source in ["1x", "1r2"] {
+        let logical = Engine::new().analyze_a3(source).unwrap();
+        assert!(matches!(
+            PhysicalPlan::identity_literal(&logical),
+            Err(PhysicalPlanError::Unsupported(_))
+        ));
+    }
+}

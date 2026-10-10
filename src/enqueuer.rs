@@ -25,11 +25,42 @@ pub enum EnqueueClass {
     RightParen,
 }
 
-/// jtenqueue's sentence environment; explicit bodies retain local copulas.
+/// The three jtenqueue environments affect copula classification, not J
+/// semantic binding. TacitTranslator keeps the unspecialized primitive copula
+/// (env=0), TopLevel forces =. global (env=1), and ExplicitDefinition retains
+/// local =. (env=2), except for lexical locative targets. Locale execution
+/// remains a separate runtime contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnqueueEnvironment {
+    TacitTranslator,
     TopLevel,
     ExplicitDefinition,
+}
+
+/// Lexical NAME form, independent of the locale selected at runtime.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NameForm {
+    #[default]
+    Simple,
+    DirectLocative,
+    IndirectLocative,
+    BaseLocative,
+}
+impl NameForm {
+    fn from_validated(word: &str) -> Self {
+        if word.ends_with("__") {
+            Self::BaseLocative
+        } else if word.ends_with('_') {
+            Self::DirectLocative
+        } else if word.contains("__") {
+            Self::IndirectLocative
+        } else {
+            Self::Simple
+        }
+    }
+    pub fn is_locative(self) -> bool {
+        self != Self::Simple
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -37,10 +68,14 @@ pub struct EnqueueFlags {
     /// Ordinary names are resolved at parser-stack entry. Assignment targets
     /// deliberately keep this false, matching jsource QCNAMEASSIGNED.
     pub lookup_name: bool,
+    /// By-value lookup plus scope deletion; interpreted only at stack entry.
+    pub abandon_name: bool,
     /// Copula metadata retained for parser-time assignment semantics.
     pub global_assignment: bool,
     pub local_assignment: bool,
     pub assignment_to_name: bool,
+    /// Source form only; never a resolved namespace identity.
+    pub name_form: NameForm,
 }
 
 #[derive(Clone, Debug)]
@@ -78,7 +113,7 @@ fn numeric_text(s: &str) -> Cow<'_, str> {
 
 fn numeric_failure(s: &str) -> Error {
     // Whole-word validation already chose the C numeric conversion mode.
-    // A real-mode ratio can be valid while its payload conversion is pending.
+    // Validated platform hexadecimal ratio operands remain a payload boundary.
     if s.contains('r') {
         Error::Unsupported(format!("validated real-family ratio conversion {s}"))
     } else {
@@ -86,23 +121,67 @@ fn numeric_failure(s: &str) -> Error {
     }
 }
 
-fn parse_int(s: &str) -> Result<i64> {
-    numeric_text(s)
-        .parse()
-        .map_err(|e: std::num::ParseIntError| match e.kind() {
-            std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow => {
-                Error::Unsupported("overflowing integer literal conversion".into())
-            }
-            _ => numeric_failure(s),
-        })
+// None requests whole-word Float promotion, as wn.c::jtconnum does after
+// jtnumi overflows. It is not an exact-integer payload or a J error.
+fn parse_int(s: &str) -> Result<Option<i64>> {
+    match numeric_text(s).parse::<i64>() {
+        Ok(value) => Ok(Some(value)),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(_) => Err(numeric_failure(s)),
+    }
 }
 
 fn parse_float(s: &str) -> Result<f64> {
+    if let Some((numerator, denominator)) = s.split_once('r') {
+        // Only reached after whole-word mode/grammar validation. In particular,
+        // exact RAT words must never enter this approximate conversion path.
+        let decimal = |text: &str| {
+            numeric_text(text)
+                .parse::<f64>()
+                .map_err(|_| numeric_failure(s))
+        };
+        let x = if numerator.is_empty() {
+            0.0
+        } else {
+            decimal(numerator)?
+        };
+        let y = decimal(denominator)?;
+        return Ok(if y != 0.0 {
+            x / y
+        } else {
+            // wn.c::jtnumfd defines 0/0 as signed zero, not IEEE NaN.
+            let sign = (x.to_bits() ^ y.to_bits()) & (1_u64 << 63);
+            if x == 0.0 {
+                f64::from_bits(sign)
+            } else {
+                f64::from_bits(f64::INFINITY.to_bits() | sign)
+            }
+        });
+    }
     match s {
         "_" => Ok(f64::INFINITY),
         "__" => Ok(f64::NEG_INFINITY),
         "_." => Ok(f64::NAN),
         _ => numeric_text(s).parse().map_err(|_| numeric_failure(s)),
+    }
+}
+
+// k.c::bcvt uses CVTNOFUZZ: never round a nearby noninteger or let a
+// saturating Rust cast turn the exclusive upper bound into i64::MAX.
+fn exact_literal_int(value: f64) -> Option<i64> {
+    if (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&value)
+        && value.fract() == 0.0
+    {
+        Some(value as i64)
+    } else {
+        None
     }
 }
 
@@ -219,8 +298,16 @@ fn interpret_word<'a>(
     let numeric = word.as_bytes()[0].is_ascii_digit() || word.starts_with('_');
     if word.ends_with(':') || (!numeric && word.ends_with('.')) {
         if word.as_bytes()[0].is_ascii_alphabetic() && word.ends_with("_:") {
-            validate_name_syntax(&word[..word.len() - 2])?;
-            return Err(Error::Unsupported("J name-by-value/abandon lookup".into()));
+            let name = &word[..word.len() - 2];
+            validate_assignment_name(name)?;
+            return Ok((
+                EnqueueClass::Name,
+                EnqueuedPayload::Name(name),
+                EnqueueFlags {
+                    abandon_name: true,
+                    ..Default::default()
+                },
+            ));
         }
         return Err(Error::Spelling);
     }
@@ -251,18 +338,63 @@ fn interpret_word<'a>(
     }
 
     if numeric {
-        crate::numeric_input::validate(word)?;
+        let mode = crate::numeric_input::validate(word)?;
+        if mode == crate::numeric_input::Mode::Rational {
+            let mut values = crate::value::buffer(word.split_ascii_whitespace().count())?;
+            for part in word.split_ascii_whitespace() {
+                values.push(std::sync::Arc::new(crate::rational::literal(part)?));
+            }
+            let payload = if values.len() == 1 {
+                EnqueuedPayload::Scalar(Scalar::Rational(values.pop().unwrap()))
+            } else {
+                EnqueuedPayload::Noun(Box::new(Value::new(
+                    [values.len()],
+                    Data::Rational(CpuStorage::new(values)),
+                )?))
+            };
+            return Ok((EnqueueClass::Noun, payload, EnqueueFlags::default()));
+        }
+        if mode == crate::numeric_input::Mode::Extended {
+            let mut values = crate::value::buffer(word.split_ascii_whitespace().count())?;
+            for part in word.split_ascii_whitespace() {
+                let text = part.strip_suffix('x').unwrap_or(part);
+                let integer = numeric_text(text)
+                    .parse::<crate::types::BigInt>()
+                    .map_err(|_| Error::IllFormedNumber)?;
+                values.push(std::sync::Arc::new(integer));
+            }
+            let payload = if values.len() == 1 {
+                EnqueuedPayload::Scalar(Scalar::ExtendedInt(values.pop().unwrap()))
+            } else {
+                EnqueuedPayload::Noun(Box::new(Value::new(
+                    [values.len()],
+                    Data::ExtendedInt(CpuStorage::new(values)),
+                )?))
+            };
+            return Ok((EnqueueClass::Noun, payload, EnqueueFlags::default()));
+        }
         let fields = word.split_ascii_whitespace().count();
         let is_float = word
             .split_ascii_whitespace()
             .any(|part| part.contains(['.', 'e', 'E']) || part == "_" || part == "__");
+        // numcase clears INT for lowercase e. Uppercase E alone instead
+        // fails the INT reader, whose overflow mask suppresses narrowing.
+        let narrow_real = word.contains('e') && !word.contains('.');
         if fields == 1 {
             let value = if is_float {
-                Scalar::Float(parse_float(word)?)
+                let value = parse_float(word)?;
+                if let Some(integer) = narrow_real.then(|| exact_literal_int(value)).flatten() {
+                    Scalar::Int(integer)
+                } else {
+                    Scalar::Float(value)
+                }
             } else {
                 match parse_int(word)? {
-                    x @ (0 | 1) => Scalar::Bool(x != 0),
-                    x => Scalar::Int(x),
+                    // wn.c's single-digit / two-character negative shortcuts
+                    // precede the whole-word Bool suppression mask.
+                    Some(x @ (0 | 1)) if word.len() == 1 || word == "_0" => Scalar::Bool(x != 0),
+                    Some(x) => Scalar::Int(x),
+                    None => Scalar::Float(parse_float(word)?),
                 }
             };
             return Ok((
@@ -272,22 +404,47 @@ fn interpret_word<'a>(
             ));
         }
         let data = if is_float {
-            Data::Float(CpuStorage::new(
-                word.split_ascii_whitespace()
-                    .map(parse_float)
-                    .collect::<Result<Vec<_>>>()?,
-            ))
+            let values = word
+                .split_ascii_whitespace()
+                .map(parse_float)
+                .collect::<Result<Vec<_>>>()?;
+            if narrow_real
+                && values
+                    .iter()
+                    .all(|&value| exact_literal_int(value).is_some())
+            {
+                Data::Int(CpuStorage::new(
+                    values.into_iter().map(|value| value as i64).collect(),
+                ))
+            } else {
+                Data::Float(CpuStorage::new(values))
+            }
         } else {
             let values = word
                 .split_ascii_whitespace()
                 .map(parse_int)
-                .collect::<Result<Vec<_>>>()?;
-            if values.iter().all(|&n| n == 0 || n == 1) {
-                Data::Bool(CpuStorage::new(
-                    values.into_iter().map(|n| n as u8).collect(),
-                ))
+                .collect::<Result<Option<Vec<_>>>>()?;
+            if let Some(values) = values {
+                // Value equality alone cannot authorize narrowing: 00, 01 and
+                // signed atoms suppress Bool for the whole array in jtconnum.
+                if word
+                    .split_ascii_whitespace()
+                    .all(|part| matches!(part, "0" | "1"))
+                {
+                    Data::Bool(CpuStorage::new(
+                        values.into_iter().map(|n| n as u8).collect(),
+                    ))
+                } else {
+                    Data::Int(CpuStorage::new(values))
+                }
             } else {
-                Data::Int(CpuStorage::new(values))
+                // Reread every atom, including those before the overflow, and
+                // validate the suffix too. Never retain a mixed Int/Float word.
+                Data::Float(CpuStorage::new(
+                    word.split_ascii_whitespace()
+                        .map(parse_float)
+                        .collect::<Result<Vec<_>>>()?,
+                ))
             }
         };
         return Ok((
@@ -300,19 +457,14 @@ fn interpret_word<'a>(
     if word.as_bytes()[0].is_ascii_alphabetic()
         && word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
     {
-        // jsource vnm accepts ordinary underscores inside simple names.
-        // Trailing '_' and '__' introduce direct/indirect locatives, which are
-        // a separate name-resolution feature not implemented by this frontend.
-        // sn.c::vnm rejects a trailing single underscore without a preceding
-        // locale separator. foo__ is a valid base-locale name, still unsupported.
         validate_name_syntax(word)?;
-        if word.ends_with('_') || word.contains("__") {
-            return Err(Error::Unsupported("J locative names".into()));
-        }
         return Ok((
             EnqueueClass::Name,
             EnqueuedPayload::Name(word),
-            EnqueueFlags::default(),
+            EnqueueFlags {
+                name_form: NameForm::from_validated(word),
+                ..EnqueueFlags::default()
+            },
         ));
     }
 
@@ -405,6 +557,15 @@ fn validate_name_syntax(word: &str) -> Result<()> {
     }
 }
 
+/// Computed assignment uses NAME syntax, not primitive/enqueue classification.
+pub(crate) fn validate_assignment_name(word: &str) -> Result<()> {
+    validate_name_syntax(word)?;
+    if word.ends_with('_') || word.contains("__") {
+        return Err(Error::Unsupported("J locative names".into()));
+    }
+    Ok(())
+}
+
 /// Interpret parse-visible words after word formation.
 ///
 /// This is the F1 boundary: parser code receives typed enqueue records rather
@@ -427,6 +588,15 @@ pub fn enqueue_in_environment<'a>(
     source: &'a str,
     primitives: &crate::primitive::PrimitiveContext,
     environment: EnqueueEnvironment,
+) -> Result<Vec<EnqueuedWord<'a>>> {
+    enqueue_with_origin(source, primitives, environment, None)
+}
+
+pub(crate) fn enqueue_with_origin<'a>(
+    source: &'a str,
+    primitives: &crate::primitive::PrimitiveContext,
+    environment: EnqueueEnvironment,
+    origin: Option<&crate::source::SourceOrigin>,
 ) -> Result<Vec<EnqueuedWord<'a>>> {
     let definitions = match crate::definition_input::frame(source)? {
         crate::definition_input::InputFrame::Definition(input) => vec![input],
@@ -464,10 +634,11 @@ pub fn enqueue_in_environment<'a>(
         .iter()
         .any(|input| input.form != crate::definition_input::DefinitionForm::NounDirect)
         .then(|| {
-            (
-                std::sync::Arc::<str>::from(source),
-                std::sync::Arc::new(primitives.clone()),
-            )
+            let source = std::sync::Arc::<str>::from(source);
+            let origin = origin.cloned().unwrap_or_else(|| {
+                crate::source::SourceUnit::new("<input>", source.clone()).origin()
+            });
+            (source, std::sync::Arc::new(primitives.clone()), origin)
         });
     let mut out = Vec::with_capacity(spans.len());
     for span in spans {
@@ -503,9 +674,10 @@ pub fn enqueue_in_environment<'a>(
                 crate::definition_input::DefinitionForm::ExplicitString(m)
                 | crate::definition_input::DefinitionForm::ExplicitBlock(m) => m,
             };
-            let (source_origin, primitive_origin) = origins.as_ref().unwrap();
+            let (source_origin, primitive_origin, origin) = origins.as_ref().unwrap();
             let provenance = std::sync::Arc::new(crate::definition_code::DefinitionSource {
                 source: source_origin.clone(),
+                origin: origin.clone(),
                 input: input.clone(),
                 primitives: primitive_origin.clone(),
             });
@@ -586,12 +758,22 @@ pub fn enqueue_in_environment<'a>(
         }
         if out[index].class == EnqueueClass::Assignment {
             // w.c::jtenqueue env==1 upgrades local copulas at top level.
-            if environment == EnqueueEnvironment::TopLevel && out[index].flags.local_assignment {
+            let force_global = environment == EnqueueEnvironment::TopLevel
+                || (environment == EnqueueEnvironment::ExplicitDefinition
+                    && index > 0
+                    && out[index - 1].class == EnqueueClass::Name
+                    && out[index - 1].flags.name_form.is_locative());
+            if force_global && out[index].flags.local_assignment {
                 out[index].flags.local_assignment = false;
                 out[index].flags.global_assignment = true;
             }
-            out[index].flags.assignment_to_name =
-                index > 0 && out[index - 1].class == EnqueueClass::Name;
+            // w.c::jtenqueue env=0 skips assignment-block specialization.
+            // It must not synthesize ASGNTONAME just because a NAME precedes
+            // the copula. env=1/2 attach that parser-visible assignment flag.
+            out[index].flags.assignment_to_name = environment
+                != EnqueueEnvironment::TacitTranslator
+                && index > 0
+                && out[index - 1].class == EnqueueClass::Name;
         }
     }
 

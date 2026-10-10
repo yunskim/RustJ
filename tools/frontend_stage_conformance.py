@@ -21,7 +21,7 @@ from conformance import nuvoc_selector_cases, VERB_RANK_PRIMITIVES, VERB_RANK_DE
 CLASSES = ['Noun', 'Verb', 'Adverb', 'Conjunction', 'Name', 'Assignment', 'LParen', 'RParen', 'Mark']
 C_CLASSES = dict(zip(['NOUN', 'VERB', 'ADV', 'CONJ', 'NAME', 'ASGN', 'LPAR', 'RPAR', 'MARK'], CLASSES))
 PENDING = {
-    'enqueue': ['complex/extended/rational numeric notation', 'locatives and name _:', 'complete spellin/ds inventory', 'tacit translator env=0 and locative copula upgrade'],
+    'enqueue': ['complex/extended/rational numeric notation', 'locative by-value NAME payloads', 'complete spellin/ds inventory', 'C internal enqueue trace export'],
     'parser': ['runtime ptcol reachable-state trace equivalence', 'full local/locale assignment and right-to-left effect coverage', 'full computed noun modifier operands', 'derived modifier application and named derived identities', 'complete explicit/direct definitions: nested/tagged input, controls and invocation', 'full row provenance and reinsertion trace'],
 }
 
@@ -354,6 +354,28 @@ def run(args):
                 check('enqueue_flags', source + f' word {i}', expected, {k:word[k] for k in expected})
                 check('enqueue_provenance', source + f' word {i}', observation['visible_words'][i], source.encode()[slice(*word['span'])].hex())
                 check('enqueue_index', source + f' word {i}', i, word['index'])
+        # sn.c::vnm + w.c::jtenqueue source goldens; C public runtime checks
+        # grammar/value, not exported internal queue flags or locale execution.
+        for name, form in [('stage_a', 'Simple'), ('stage_a_base_', 'DirectLocative'),
+                           ('stage_a__stageholder', 'IndirectLocative'), ('stage_a__', 'BaseLocative')]:
+            oracle.run("stageholder=:<'base'")
+            for copula in ['=.', '=:']:
+                source = name + copula + '7'
+                error = oracle.run(source)
+                check('locative_c_grammar', source, None, error)
+                if not error:
+                    check('locative_c_value', name, [7], oracle.eval(name)['data'])
+                queue = probe.inspect(source)['enqueue']
+                if not isinstance(queue, list):
+                    check('locative_enqueue', source, 'queue', queue)
+                    continue
+                check('locative_name_form', source, form, queue[0]['name_form'])
+                check('locative_target', source, False, queue[0]['lookup'])
+                check('locative_top_level_copula', source,
+                      {'global': True, 'local': False, 'to_name': True},
+                      {k: queue[1][k] for k in ('global', 'local', 'to_name')})
+                check('locative_tokenizer', source, oracle.words(source)['words_hex'],
+                      probe.inspect(source)['raw_words'])
         functions = ['/', '\\', '"', '@:', '(/)', '(")', 'stageadverb=:/', 'stageconjunction=:@:', '+', '+/', '+\\', '+*', '+-*', '+-*%', '+-*%#', '+/ % #', '+"1', '+"0 1', '+"0 1 2', '+@:-', '+@:-@:*', '(+/) % #', '(+*) - %', '7 + *', '(7) + *', '+"((1))', '(+"1)/']
         # cf.c CADVF trains: retain arity, operands and actual ADV/CONJ POS.
         functions.extend(['+"', '"1', '3"', '/+', '/\\', '/@:', '@:/', '@:@:',

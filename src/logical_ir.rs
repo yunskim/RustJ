@@ -23,7 +23,7 @@ pub struct IrSchemaVersion {
     pub minor: u16,
 }
 
-pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 5 };
+pub const A3_SCHEMA_VERSION: IrSchemaVersion = IrSchemaVersion { major: 0, minor: 6 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrProvenance {
@@ -119,7 +119,7 @@ pub enum Constraint {
 }
 
 impl Constraint {
-    fn values(&self) -> [Option<ValueId>; 2] {
+    pub(crate) fn values(&self) -> [Option<ValueId>; 2] {
         match *self {
             Self::PrefixAgreement { left, right }
             | Self::CellFrameAgreement { left, right, .. } => [Some(left), Some(right)],
@@ -302,6 +302,7 @@ fn semantic_effect_summary(
         }
         FunctionHead::VocabularyPrimitive(_)
         | FunctionHead::NameRef(_)
+        | FunctionHead::TakeName { .. }
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)
@@ -536,6 +537,10 @@ fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPaylo
 
 #[derive(Clone, Debug)]
 pub enum OpKind {
+    /// Caller-supplied logical array, with no namespace or storage identity.
+    Input {
+        index: usize,
+    },
     Literal(Value),
     ReadNoun {
         symbol: SymbolId,
@@ -606,6 +611,7 @@ pub struct Function {
 
 #[derive(Clone, Debug)]
 pub struct Plan {
+    pub parser_provenance: Option<crate::frontend_context::ParserProvenance>,
     pub header: IrHeader,
     pub source: String,
     pub symbols: Vec<Symbol>,
@@ -805,6 +811,7 @@ impl PlanBuilder {
     ) -> Self {
         Self {
             plan: Plan {
+                parser_provenance: None,
                 header: IrHeader::current(),
                 source,
                 symbols: Vec::new(),
@@ -894,6 +901,23 @@ impl PlanBuilder {
         self.push_value(
             OpKind::Literal(value),
             facts,
+            ValueRoleFacts::default(),
+            &ConstraintSet::default(),
+            j_origin,
+            span,
+            false,
+        )
+    }
+
+    pub(crate) fn push_input(
+        &mut self,
+        index: usize,
+        j_origin: Option<crate::j_graph_ir::ValueId>,
+        span: Range<usize>,
+    ) -> ValueId {
+        self.push_value(
+            OpKind::Input { index },
+            Facts::default(),
             ValueRoleFacts::default(),
             &ConstraintSet::default(),
             j_origin,
@@ -1049,6 +1073,26 @@ impl Plan {
 
     pub fn verify(&self) -> std::result::Result<(), VerifyError> {
         let fail = |operation: Option<OpId>, message: String| VerifyError { operation, message };
+        if let Some(provenance) = &self.parser_provenance {
+            if provenance.context.source.as_ref() != self.source {
+                return Err(fail(None, "A3/parser source mismatch".into()));
+            }
+            provenance
+                .context
+                .verify()
+                .map_err(|message| fail(None, message))?;
+            if !provenance.context.complete
+                || provenance.graph_nodes.len() != self.j_graph_node_count
+                || provenance.graph_nodes.iter().any(|nodes| {
+                    nodes.is_empty()
+                        || nodes
+                            .iter()
+                            .any(|node| node.0 >= provenance.context.nodes.len())
+                })
+            {
+                return Err(fail(None, "invalid A3 parser provenance".into()));
+            }
+        }
         let source_len = self.source.len();
 
         if self.header.schema != A3_SCHEMA_VERSION {
@@ -1139,6 +1183,7 @@ impl Plan {
             ));
         }
 
+        let mut input_count = 0;
         for (index, operation) in self.operations.iter().enumerate() {
             let op_id = OpId(index);
             if operation.span.start > operation.span.end
@@ -1185,6 +1230,17 @@ impl Plan {
                 }
             };
             let check_callable = |callable: &Callable| {
+                if (callable.target == CallTarget::Definition)
+                    != matches!(
+                        callable.semantic.head,
+                        crate::semantic::FunctionHead::ExplicitDefinition(_)
+                    )
+                {
+                    return Err(fail(
+                        Some(op_id),
+                        "definition target disagrees with semantic entity".into(),
+                    ));
+                }
                 if callable.semantic.result_pos != crate::semantic::FunctionPartOfSpeech::Verb {
                     return Err(fail(
                         Some(op_id),
@@ -1197,6 +1253,12 @@ impl Plan {
                 Ok(())
             };
             let check_call_result = |call: &CallOp| {
+                if call.callable.target == CallTarget::Definition {
+                    return Err(fail(
+                        Some(op_id),
+                        "definition body requires structural lowering".into(),
+                    ));
+                }
                 let [result] = operation.results.as_slice() else {
                     return Err(fail(
                         Some(op_id),
@@ -1221,6 +1283,15 @@ impl Plan {
             };
 
             match &operation.kind {
+                OpKind::Input { index } => {
+                    if *index != input_count || operation.results.len() != 1 {
+                        return Err(fail(
+                            Some(op_id),
+                            "array inputs require dense indices and one result".into(),
+                        ));
+                    }
+                    input_count += 1;
+                }
                 OpKind::Literal(_) => {}
                 OpKind::ReadNoun { symbol, .. } => check_symbol(*symbol)?,
                 OpKind::VerbReference(callable) => check_callable(callable)?,

@@ -11,6 +11,7 @@ use std::{borrow::Cow, ops::Range, sync::Arc};
 #[derive(Clone, Debug)]
 pub struct DefinitionSource {
     pub source: Arc<str>,
+    pub origin: crate::source::SourceOrigin,
     pub input: DefinitionInput,
     pub primitives: Arc<PrimitiveContext>,
 }
@@ -38,11 +39,144 @@ pub struct DefinitionSentence {
     pub line: usize,
     pub words: Vec<DefinitionWord>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefinitionNameRole {
+    /// A declaration does not prebind a read: unbound locals can fall back globally.
+    ReadCurrentFrameThenGlobal,
+    ReadAndAbandonCurrentFrameThenGlobal,
+    LocalAssignmentTarget,
+    GlobalAssignmentTarget,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefinitionNameOccurrence {
+    pub sentence: usize,
+    pub word: usize,
+    pub span: Range<usize>,
+    pub role: DefinitionNameRole,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DefinitionScopePlan {
+    /// Literal simple-name =. targets for this valence; not a closed-world proof.
+    /// Implicit operands/arguments are supplied separately by each invocation.
+    pub local_declarations: Vec<String>,
+    pub occurrences: Vec<DefinitionNameOccurrence>,
+    /// Computed/noun assignment targets cannot be guessed from name spelling.
+    pub dynamic_assignment_targets: Vec<(usize, usize)>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DefinitionNamePlan {
+    pub monad: DefinitionScopePlan,
+    pub dyad: DefinitionScopePlan,
+}
+
+fn scope_plan(
+    body: &str,
+    sentences: &[DefinitionSentence],
+    range: Range<usize>,
+) -> DefinitionScopePlan {
+    let mut plan = DefinitionScopePlan::default();
+    let mut declarations = std::collections::BTreeSet::new();
+    for sentence_index in range {
+        let sentence = &sentences[sentence_index];
+        for (word_index, word) in sentence.words.iter().enumerate() {
+            if word.class == EnqueueClass::Assignment
+                && (word_index == 0 || sentence.words[word_index - 1].class != EnqueueClass::Name)
+            {
+                plan.dynamic_assignment_targets
+                    .push((sentence_index, word_index));
+            }
+            if word.class != EnqueueClass::Name {
+                continue;
+            }
+            let role = match sentence.words.get(word_index + 1) {
+                Some(copula) if copula.class == EnqueueClass::Assignment => {
+                    if copula.flags.local_assignment {
+                        let spelling = &body[word.span.clone()];
+                        declarations.insert(
+                            if word.flags.abandon_name {
+                                spelling.strip_suffix("_:").expect("abandon spelling")
+                            } else {
+                                spelling
+                            }
+                            .to_owned(),
+                        );
+                        DefinitionNameRole::LocalAssignmentTarget
+                    } else {
+                        DefinitionNameRole::GlobalAssignmentTarget
+                    }
+                }
+                _ if word.flags.abandon_name => {
+                    DefinitionNameRole::ReadAndAbandonCurrentFrameThenGlobal
+                }
+                _ => DefinitionNameRole::ReadCurrentFrameThenGlobal,
+            };
+            plan.occurrences.push(DefinitionNameOccurrence {
+                sentence: sentence_index,
+                word: word_index,
+                span: word.span.clone(),
+                role,
+            });
+        }
+    }
+    plan.local_declarations = declarations.into_iter().collect();
+    plan
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefinitionSourceMap {
+    start: usize,
+    len: usize,
+    /// Decoded byte positions where the original contains a doubled quote.
+    escaped_quotes: Vec<usize>,
+}
+
+impl DefinitionSourceMap {
+    fn new(source: &str, input: &DefinitionInput, body: &str) -> Self {
+        let mut escaped_quotes = Vec::new();
+        let start = if matches!(input.form, DefinitionForm::ExplicitString(_)) {
+            let bytes = &source.as_bytes()[input.body.start + 1..input.body.end - 1];
+            let (mut original, mut decoded) = (0, 0);
+            while original < bytes.len() {
+                let doubled = bytes[original] == b'\'' && bytes.get(original + 1) == Some(&b'\'');
+                if doubled {
+                    escaped_quotes.push(decoded);
+                }
+                original += 1 + usize::from(doubled);
+                decoded += 1;
+            }
+            input.body.start + 1
+        } else {
+            input.body.end - body.len()
+        };
+        Self {
+            start,
+            len: body.len(),
+            escaped_quotes,
+        }
+    }
+
+    /// Map decoded body byte boundaries to the immutable original source.
+    pub fn original_span(&self, span: Range<usize>) -> Option<Range<usize>> {
+        if span.start > span.end || span.end > self.len {
+            return None;
+        }
+        let boundary = |n| self.start + n + self.escaped_quotes.partition_point(|&q| q < n);
+        Some(boundary(span.start)..boundary(span.end))
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct DefinitionCode {
+    pub origin: crate::source::SourceOrigin,
+    pub name_plan: DefinitionNamePlan,
     pub source: Arc<str>,
     pub body: Arc<str>,
     pub source_span: Range<usize>,
+    pub source_map: DefinitionSourceMap,
     pub form: DefinitionForm,
     /// Resolved explicit mode, including direct definition inference.
     pub mode: u8,
@@ -55,6 +189,26 @@ pub struct DefinitionCode {
     pub monad_controls: Vec<crate::definition_flow::ControlNode>,
     pub dyad_controls: Vec<crate::definition_flow::ControlNode>,
 }
+// Diagnostic input revision identity does not change structural function meaning.
+impl PartialEq for DefinitionCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.name_plan == other.name_plan
+            && self.source == other.source
+            && self.body == other.body
+            && self.source_span == other.source_span
+            && self.source_map == other.source_map
+            && self.form == other.form
+            && self.mode == other.mode
+            && self.result_pos == other.result_pos
+            && self.sentences == other.sentences
+            && self.monad == other.monad
+            && self.dyad == other.dyad
+            && self.operator_definition == other.operator_definition
+            && self.monad_controls == other.monad_controls
+            && self.dyad_controls == other.dyad_controls
+    }
+}
+impl Eq for DefinitionCode {}
 
 pub(crate) fn semantic_body<'a>(source: &'a str, input: &DefinitionInput) -> Result<Cow<'a, str>> {
     let raw = input.body_text(source)?;
@@ -110,18 +264,64 @@ pub fn compile(
     input: &DefinitionInput,
     primitives: &PrimitiveContext,
 ) -> Result<Arc<DefinitionCode>> {
+    compile_with_origin(
+        source,
+        input,
+        primitives,
+        crate::source::SourceUnit::new("<input>", source).origin(),
+    )
+}
+
+pub(crate) fn compile_with_origin(
+    source: &str,
+    input: &DefinitionInput,
+    primitives: &PrimitiveContext,
+    origin: crate::source::SourceOrigin,
+) -> Result<Arc<DefinitionCode>> {
+    if origin.text() != source {
+        return Err(Error::Unsupported(
+            "definition source provenance mismatch".into(),
+        ));
+    }
     if input.form == DefinitionForm::NounDirect {
         return Err(Error::Domain.at(input.span.clone()));
     }
-    if !input.nested.is_empty() {
-        return Err(
-            Error::Unsupported("nested definition code construction".into()).at(input.span.clone()),
-        );
-    }
     let body: Arc<str> = Arc::from(semantic_body(source, input)?.as_ref());
-    let mut lines: Vec<_> = body.split_inclusive('\n').collect();
+    // Collect complete input units before partitioning outer control words.
+    // A nested definition owns its physical lines, names and valence separator.
+    let mut lines = Vec::new();
+    let mut unit_start = 0;
+    let mut unit_line = 0;
+    let mut physical_end = 0;
+    for (line_index, physical) in body.split_inclusive('\n').enumerate() {
+        physical_end += physical.len();
+        let unit = &body[unit_start..physical_end];
+        let framed = crate::definition_input::frame(unit)
+            .map_err(|e| body_error(e, source, input, &body, unit_start, unit.len()))?;
+        if matches!(
+            framed,
+            crate::definition_input::InputFrame::Definition(DefinitionInput {
+                form: DefinitionForm::ExplicitBlock(_),
+                ..
+            })
+        ) {
+            // C colon0 reads from the external input stream, not the enclosing
+            // immutable body's lines. An embedded ')' is a syntax error.
+            return Err(Error::Syntax(
+                "nested colon-zero input is not an embedded definition".into(),
+            ));
+        }
+        if !matches!(framed, crate::definition_input::InputFrame::NeedMore) {
+            lines.push((unit_line, unit));
+            unit_start = physical_end;
+            unit_line = line_index + 1;
+        }
+    }
+    if unit_start != body.len() {
+        return Err(Error::Syntax("incomplete nested definition".into()));
+    }
     if lines.is_empty() {
-        lines.push("");
+        lines.push((0, ""));
     }
     use crate::{
         definition_control::ControlWord as W,
@@ -130,7 +330,7 @@ pub fn compile(
     let split_line = lines
         .iter()
         .enumerate()
-        .find(|(i, line)| {
+        .find(|(i, (_, line))| {
             *i + 1 < lines.len() && line.trim_end_matches(['\r', '\n']).trim_matches(' ') == ":"
         })
         .map(|(i, _)| i);
@@ -142,9 +342,9 @@ pub fn compile(
     let mut queued_words = [0usize; 2];
     let mut audited = [false; 2];
     let mut pending_assert: Option<std::ops::Range<usize>> = None;
-    for (line_index, physical) in lines.iter().enumerate() {
+    for (unit_index, &(line_index, physical)) in lines.iter().enumerate() {
         let line = physical.trim_end_matches(['\r', '\n']);
-        if Some(line_index) == split_line {
+        if Some(unit_index) == split_line {
             if let Some(span) = pending_assert.take() {
                 return Err(body_error(
                     Error::Control.at(span),
@@ -388,6 +588,12 @@ pub fn compile(
         }
     }
     let code = DefinitionCode {
+        origin,
+        source_map: DefinitionSourceMap::new(source, input, &body),
+        name_plan: DefinitionNamePlan {
+            monad: scope_plan(&body, &sentences, monad.clone()),
+            dyad: scope_plan(&body, &sentences, dyad.clone()),
+        },
         source: Arc::from(source),
         body,
         source_span: input.span.clone(),
@@ -406,12 +612,87 @@ pub fn compile(
 }
 
 impl DefinitionCode {
+    /// Attach source-owned coordinates without replacing the caller's context.
+    /// A boundary without a precise body site uses the definition span, never
+    /// a fabricated body word or decoded/file coordinate.
+    pub(crate) fn diagnostic_error(
+        &self,
+        error: Error,
+        kind: crate::error::DiagnosticFrameKind,
+        body_span: Option<Range<usize>>,
+        blame_word_index: Option<usize>,
+    ) -> Error {
+        let mut context = error.context().cloned().unwrap_or_default();
+        let span = body_span
+            .and_then(|span| self.source_map.original_span(span))
+            .unwrap_or_else(|| self.source_span.clone());
+        context
+            .source_frames
+            .push(crate::error::DiagnosticSourceFrame {
+                kind,
+                origin: self.origin.clone(),
+                source: self.source.clone(),
+                definition_span: self.source_span.clone(),
+                span,
+                blame_word_index,
+            });
+        error.into_unlocated().with_context(context)
+    }
     /// Verify source/word/control references before consuming this code in analysis.
     pub fn verify(&self) -> Result<()> {
+        if self.origin.text() != self.source.as_ref()
+            || self.origin.root_span(self.source_span.clone()).is_none()
+        {
+            return Err(Error::Unsupported(
+                "definition source provenance mismatch".into(),
+            ));
+        }
+        let mapped = self
+            .source_map
+            .original_span(0..self.body.len())
+            .and_then(|span| self.source.get(span));
+        if mapped.is_none_or(|text| {
+            if matches!(self.form, DefinitionForm::ExplicitString(_)) {
+                let mut original = text.bytes();
+                let matches = self.body.bytes().all(|byte| {
+                    original.next() == Some(byte)
+                        && (byte != b'\'' || original.next() == Some(b'\''))
+                });
+                !matches || original.next().is_some()
+            } else {
+                text != self.body.as_ref()
+            }
+        }) {
+            return Err(Error::Unsupported(
+                "definition source map does not match body".into(),
+            ));
+        }
+        for sentence in &self.sentences {
+            if self.body.get(sentence.span.clone()).is_none()
+                || sentence
+                    .words
+                    .iter()
+                    .any(|word| self.body.get(word.span.clone()).is_none())
+            {
+                return Err(Error::Unsupported(
+                    "definition NAME source outside body".into(),
+                ));
+            }
+        }
         for range in [&self.monad, &self.dyad] {
             if self.sentences.get(range.clone()).is_none() {
                 return Err(Error::Unsupported(
                     "definition valence range outside source lines".into(),
+                ));
+            }
+        }
+        for (plan, range) in [
+            (&self.name_plan.monad, &self.monad),
+            (&self.name_plan.dyad, &self.dyad),
+        ] {
+            if plan != &scope_plan(&self.body, &self.sentences, range.clone()) {
+                return Err(Error::Unsupported(
+                    "definition NAME plan does not match source/valence".into(),
                 ));
             }
         }

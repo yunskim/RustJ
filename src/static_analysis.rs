@@ -189,6 +189,9 @@ impl StaticAnalyzer {
         if words.len() != 1 || !matches!(words[0].payload, EnqueuedPayload::Name(n) if n == name) {
             return Err(Error::IllFormedName);
         }
+        if words[0].flags.name_form.is_locative() {
+            return Err(Error::Unsupported("J locative catalog declaration".into()));
+        }
         let revision = self.revision.checked_add(1).ok_or(Error::Limit)?;
         self.catalog.insert(
             name.to_owned(),

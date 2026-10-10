@@ -72,8 +72,11 @@ fn construction_does_not_execute_body_and_failed_code_preserves_binding() {
         assert!(engine.eval(bad).is_err());
         assert_eq!(engine.binding_version("f"), version);
     }
-    // A completed function is represented, but its executor is a later step.
-    assert_eq!(engine.eval("f 1").unwrap_err().kind(), "unsupported");
+    assert_eq!(engine.eval("f 1").unwrap().unwrap().int_at(0).unwrap(), 1);
+    assert_eq!(
+        engine.eval("counter").unwrap().unwrap().int_at(0).unwrap(),
+        1
+    );
 }
 
 #[test]

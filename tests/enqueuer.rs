@@ -113,7 +113,7 @@ fn one_word_non_result_entities_are_rejected_during_enqueue() {
 }
 
 #[test]
-fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsupported() {
+fn simple_and_locative_names_keep_their_lexical_form() {
     let words = enqueuer::enqueue("foo_bar").unwrap();
     assert_eq!(words.len(), 1);
     assert_eq!(words[0].class, EnqueueClass::Name);
@@ -124,11 +124,8 @@ fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsuppor
         rustj::Error::IllFormedName
     ));
     for source in ["foo_bar_", "foo__bar", "foo__"] {
-        let error = enqueuer::enqueue(source).unwrap_err();
-        assert!(matches!(
-            error.into_unlocated(),
-            rustj::Error::Unsupported(_)
-        ));
+        let words = enqueuer::enqueue(source).unwrap();
+        assert!(words[0].flags.name_form.is_locative());
     }
 }
 
@@ -156,9 +153,13 @@ fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_fun
     ] {
         enqueuer::enqueue(source).unwrap();
     }
-    for source in ["foo_:", "foo_bar_:", "foo_bar__:"] {
-        assert_eq!(enqueuer::enqueue(source).unwrap_err().kind(), "unsupported");
+    for source in ["foo_:", "foo_bar_:"] {
+        assert!(enqueuer::enqueue(source).unwrap()[0].flags.abandon_name);
     }
+    assert_eq!(
+        enqueuer::enqueue("foo_bar__:").unwrap_err().kind(),
+        "unsupported"
+    );
     assert_eq!(
         enqueuer::enqueue("foo__:").unwrap_err().kind(),
         "ill-formed name"
@@ -171,7 +172,7 @@ fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_fun
 }
 
 #[test]
-fn locative_name_syntax_is_checked_before_unsupported_lookup() {
+fn locative_name_syntax_is_checked_before_runtime_lookup() {
     for source in [
         "foo__",
         "foo_bar_",
@@ -187,11 +188,17 @@ fn locative_name_syntax_is_checked_before_unsupported_lookup() {
         "foo__bar___1",
         "foo__bar_:",
     ] {
-        assert_eq!(
-            enqueuer::enqueue(source).unwrap_err().kind(),
-            "unsupported",
-            "{source}"
-        );
+        if source.ends_with(':') {
+            assert_eq!(enqueuer::enqueue(source).unwrap_err().kind(), "unsupported");
+        } else {
+            assert!(
+                enqueuer::enqueue(source).unwrap()[0]
+                    .flags
+                    .name_form
+                    .is_locative(),
+                "{source}"
+            );
+        }
     }
     for source in [
         "a_",
@@ -224,7 +231,7 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
         ("a".repeat(256), Some("limit error")),
         ("a".repeat(32766), Some("limit error")),
         ("a".repeat(32767), Some("ill-formed name")),
-        (format!("{}_b_", "a".repeat(255)), Some("unsupported")),
+        (format!("{}_b_", "a".repeat(255)), None),
         (format!("{}_b_", "a".repeat(256)), Some("limit error")),
         (format!("a_{}_", "b".repeat(256)), Some("limit error")),
         (format!("a__{}", "b".repeat(256)), Some("limit error")),
@@ -235,7 +242,16 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
     ];
     let by_value = cases
         .iter()
-        .map(|(word, expected)| (format!("{word}_:"), Some(expected.unwrap_or("unsupported"))))
+        .map(|(word, expected)| {
+            (
+                format!("{word}_:"),
+                if word.ends_with('_') && expected.is_none() {
+                    Some("unsupported")
+                } else {
+                    *expected
+                },
+            )
+        })
         .collect::<Vec<_>>();
     cases.extend(by_value);
     for (word, expected) in cases {
@@ -257,8 +273,7 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
 #[test]
 fn numeric_families_are_validated_in_whole_word_context_before_unsupported_payloads() {
     for source in [
-        "1x", "1j2", "2r3", "1xr2", "2b102", "2ad90", "2ar1", "1p2", "2x3", "1x 2", "1x 2r3",
-        "1r2 3x", "_r", "_r_3", "2r__", "1.5 2r3", "1j2 1r2",
+        "1j2", "1xr2", "2b102", "2ad90", "2ar1", "1p2", "2x3", "1j2 1r2",
     ] {
         let error = enqueuer::enqueue(source).unwrap_err();
         assert_eq!(error.kind(), "unsupported", "{source}");
@@ -267,6 +282,13 @@ fn numeric_families_are_validated_in_whole_word_context_before_unsupported_paylo
         };
         assert!(reason.contains("validated"), "{source}: {reason}");
     }
+    let words = enqueuer::enqueue("1.5 2r3").unwrap();
+    let EnqueuedPayload::Noun(value) = &words[0].payload else {
+        panic!("real-mode ratio word must construct a noun")
+    };
+    assert_eq!(value.type_code(), 8);
+    assert_eq!(value.float_at(0).unwrap(), 1.5);
+    assert_eq!(value.float_at(1).unwrap(), 2.0 / 3.0);
     for word in [
         "1xx", "1j", "1jj2", "2r", "2rr3", "2r3x", "2b", "2b.", "2b_", "2ad", "_2ad90", "1ax2",
         "1p", "1z", "1f", "1.0 1x", "1j2 1x", "2b10 1x", "1E3 2r3",
@@ -512,5 +534,122 @@ fn exact_hex_polar_ratios_follow_division_zero_sign_and_read_windows() {
             panic!("{source}")
         };
         assert!(!reason.starts_with("validated"), "{source}: {reason}");
+    }
+}
+
+#[test]
+fn tacit_translator_keeps_copulas_unspecialized_without_losing_name_lookup_order() {
+    use rustj::enqueuer::EnqueueEnvironment;
+    use rustj::primitive::PrimitiveContext;
+
+    let primitives = PrimitiveContext::core();
+    for (environment, local, global, to_name) in [
+        (EnqueueEnvironment::TacitTranslator, true, false, false),
+        (EnqueueEnvironment::TopLevel, false, true, true),
+        (EnqueueEnvironment::ExplicitDefinition, true, false, true),
+    ] {
+        let words = enqueuer::enqueue_in_environment("a =. b", &primitives, environment)
+            .expect("recognized assignment words");
+        assert_eq!(words.len(), 3);
+        assert_eq!(words[0].class, EnqueueClass::Name);
+        assert_eq!(words[1].class, EnqueueClass::Assignment);
+        assert_eq!(words[2].class, EnqueueClass::Name);
+        assert!(!words[0].flags.lookup_name);
+        assert!(words[2].flags.lookup_name);
+        assert_eq!(words[1].flags.local_assignment, local);
+        assert_eq!(words[1].flags.global_assignment, global);
+        assert_eq!(words[1].flags.assignment_to_name, to_name);
+        assert_eq!(words[1].word_index, 1);
+        assert_eq!(&"a =. b"[words[1].span.clone()], "=.");
+    }
+
+    for environment in [
+        EnqueueEnvironment::TacitTranslator,
+        EnqueueEnvironment::TopLevel,
+        EnqueueEnvironment::ExplicitDefinition,
+    ] {
+        let words = enqueuer::enqueue_in_environment("a =: b", &primitives, environment)
+            .expect("recognized global copula");
+        assert!(!words[1].flags.local_assignment);
+        assert!(words[1].flags.global_assignment);
+        assert_eq!(
+            words[1].flags.assignment_to_name,
+            environment != EnqueueEnvironment::TacitTranslator
+        );
+    }
+
+    // A non-name left operand never receives the to-name specialization.
+    let words = enqueuer::enqueue_in_environment(
+        "1 =. 2",
+        &primitives,
+        EnqueueEnvironment::ExplicitDefinition,
+    )
+    .unwrap();
+    assert!(!words[1].flags.assignment_to_name);
+}
+
+#[test]
+fn locative_copulas_follow_all_three_enqueue_environments() {
+    use enqueuer::{EnqueueEnvironment as Env, NameForm};
+    let primitives = rustj::primitive::PrimitiveContext::core();
+    for (name, form) in [
+        ("a_b", NameForm::Simple),
+        ("a_b_", NameForm::DirectLocative),
+        ("a__b", NameForm::IndirectLocative),
+        ("a__", NameForm::BaseLocative),
+    ] {
+        for env in [Env::TacitTranslator, Env::TopLevel, Env::ExplicitDefinition] {
+            for copula in ["=.", "=:"] {
+                let source = format!("  {name}{copula}7");
+                let q = enqueuer::enqueue_in_environment(&source, &primitives, env).unwrap();
+                assert_eq!(q[0].flags.name_form, form);
+                assert!(!q[0].flags.lookup_name);
+                assert_eq!(q[0].span, 2..2 + name.len());
+                assert_eq!(q[1].flags.assignment_to_name, env != Env::TacitTranslator);
+                let global = copula == "=:"
+                    || env == Env::TopLevel
+                    || (env == Env::ExplicitDefinition && form.is_locative());
+                assert_eq!(q[1].flags.global_assignment, global, "{source} {env:?}");
+                assert_eq!(q[1].flags.local_assignment, !global);
+            }
+        }
+    }
+}
+
+#[test]
+fn locative_execution_stops_before_ordinary_namespace_mutation() {
+    let mut engine = rustj::runtime::Engine::new();
+    engine.eval("kept=:7").unwrap();
+    {
+        let source = "kept__holder";
+        let error = engine.eval_diagnostic(source).unwrap_err();
+        assert_eq!(error.kind(), "unsupported", "{source}");
+        assert_eq!(
+            error.span(),
+            Some(&(0..source.split('=').next().unwrap().len()))
+        );
+        assert_eq!(error.context().unwrap().blame_word_index, Some(0));
+        assert!(engine.binding_version("kept__").is_none());
+        assert_eq!(engine.eval("kept").unwrap().unwrap().int_at(0).unwrap(), 7);
+    }
+}
+
+#[test]
+fn locative_catalog_and_control_bindings_remain_unsupported() {
+    let mut catalog = rustj::static_analysis::StaticAnalyzer::new();
+    for name in ["f_base_", "f__holder", "f__"] {
+        assert_eq!(
+            catalog
+                .declare_function(name, rustj::semantic::FunctionPartOfSpeech::Verb)
+                .unwrap_err()
+                .kind(),
+            "unsupported"
+        );
+        assert_eq!(
+            rustj::definition_control::classify(&format!("for_{name}."))
+                .unwrap_err()
+                .kind(),
+            "unsupported"
+        );
     }
 }
