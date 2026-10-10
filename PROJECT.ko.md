@@ -2160,9 +2160,11 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **NJ-04 explicit-base own noun abandon:** `a___:`/`a_base__:`는 local을 우회하여 base own noun을 반환·삭제한다. own 함수 및 미발견 path/future 삭제는 Unsupported로 유지하며 상태를 변경하지 않는다. noun snapshot 수명, RHS 오류 전 삭제 없음, 삭제 후 오류에도 삭제 유지, 양쪽 실행 경로 local shadow 우회 및 실제 base found capture를 회귀·고정 C 감사로 검증한다. static/deferred parser와 Graph/guard 수용은 별도 미지원이며 full NJ-04/L3는 미완료다.
 
-**NJ-04 explicit-base default z noun abandon:** base own miss의 `a___:`/`a_base__:`는 실제 발견 z noun을 반환·삭제한다. local 우회, BaseDefaultZ/실제 found locale 및 삭제 전 version/generation을 보존한다. snapshot·오류 순서·지역 shadow 우회·두 alias 일관성과 event search/found 변조 거부를 회귀·고정 C 감사로 검증한다. own 함수·미발견 path/future·named own miss 삭제 및 static/Graph/guard 수용은 별도 미지원이며 full NJ-04/L3는 미완료다.
+**NJ-04 explicit-base default z noun abandon:** base own miss의 `a___:`/`a_base__:`는 실제 발견 z noun을 반환·삭제한다. local 우회, BaseDefaultZ/실제 found locale 및 삭제 전 version/generation을 보존한다. snapshot·오류 순서·지역 shadow 우회·두 alias 일관성과 event search/found 변조 거부를 회귀·고정 C 감사로 검증한다. own 함수·미발견 path/future 삭제 및 static/Graph/guard 수용은 별도 미지원이며 full NJ-04/L3는 미완료다.
 
-**NJ-04 named own noun abandon:** `a_probe__:`/`a_z__:` 등 direct named 주소는 local을 우회하여 해당 locale own noun을 반환·삭제한다. 다른 table과 noun snapshot을 보존하고 최초 오류·삭제 후 오류·지역 shadow 및 실제 found capture/변조 거부를 회귀·고정 C 감사로 검증한다. named own miss의 z/path/future 삭제·함수·indirect/numbered 및 static/Graph/guard 수용은 Unsupported로 유지하며 full NJ-04/L3는 미완료다.
+**NJ-04 named own noun abandon:** `a_probe__:`/`a_z__:` 등 direct named 주소는 local을 우회하여 해당 locale own noun을 반환·삭제한다. 다른 table과 noun snapshot을 보존하고 최초 오류·삭제 후 오류·지역 shadow 및 실제 found capture/변조 거부를 회귀·고정 C 감사로 검증한다. 미발견 path/future 삭제·함수·indirect/numbered 및 static/Graph/guard 수용은 Unsupported로 유지하며 full NJ-04/L3는 미완료다.
+
+**NJ-04 named default z noun abandon:** direct named own miss의 `a_probe__:`는 실제 발견 z noun을 반환·삭제한다. 시작 named locale과 found z·local 우회·삭제 전 version/generation을 분리하며 첫 locale 조회·snapshot·최초 오류·삭제 후 오류와 start/found/frame 변조 거부를 회귀·고정 C 감사로 검증한다. 임의 path/future·함수·indirect/numbered 및 static/Graph/guard 수용은 미지원이며 full NJ-04/L3는 미완료다.
 
 **NJ-07 대입 버전 경계:** parser commit의 이전/새 버전은 `assignment_version(name, local)`로 실제 대입 대상 테이블에서 관찰한다. 지역 선언이 아직 없을 때 RHS가 전역 값을 읽더라도 지역 첫 commit의 이전 버전은 없음이며, 다음 지역 commit은 지역 버전을 사용한다. base/named-own locative는 지역 flag와 무관하게 해당 own table을 사용한다. 읽기용 `version`은 기존 조회 의미를 유지한다. 실패한 RHS는 commit을 만들지 않는다. 이 경계는 default z path의 읽기 발견 테이블과 쓰기 대상 테이블을 분리하기 위한 선행 단위이며, path 지원·완전한 namespace commit witness·L3 완료를 뜻하지 않는다. 회귀는 지역 첫/반복 commit, 전역 값 보존, 전역 첫 commit과 RHS 오류를 검사한다.
 
