@@ -5347,6 +5347,8 @@ backend / executor
 
 <a id="heterogeneous-execution-checklist"></a>
 
+**M4-P0 제한된 코드 통합(PR #4):** `physical_plan`은 plan-time buffer/view ID와 runtime BufferRegistry를 분리하며, 완전히 빈 A3 또는 closed Bool/Int/Float/Char literal 하나의 BindInput → Return만 검증·실행한다. exact literal/source witness로 stale payload/facts/span을 거부하고 singleton stride와 alias를 검증한다. ExtendedInt/Rational/boxed/sparse 및 미지원 op·SemanticCheck·쓰기·이름 조회는 거부한다. Add/Check/View/Materialize/lifetime/reuse와 일반 M3 proof는 미구현이며 M3/M4 전체 완료가 아니다. 현재 런타임 경로는 변경하지 않는다.
+
 #### HE — 이종 CPU/GPU 실행 계획 수렴 (2026-10-07, M4→M6 연계 체크리스트)
 
 **설계 결정:** RustJ는 **CPU 멀티코어 컴파일러가 아니라 이종 배열 컴파일러**다. CPU thread 병렬화는 Physical Plan의 device-local 실행 전략일 뿐이다. `ParallelLegality` 또는 CPU 전용 `ParallelPhysicalPlanner`를 독립적인 canonical 상위 단계로 도입하지 않는다. 기존 `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`를 유지한다. 이 체크리스트는 본 §10의 기존 M/IO 이행 계획에 통합되며 별도 Markdown이나 새로운 필수 IR을 만들지 않는다.

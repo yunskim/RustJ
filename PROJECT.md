@@ -3640,6 +3640,8 @@ Independent remaining scope: nonuniform result-cell padding, effectful/user-defi
 
 <a id="heterogeneous-execution-checklist"></a>
 
+**Bounded M4-P0 code integration (PR #4):** `physical_plan` separates plan-time buffer/view identities from the runtime BufferRegistry. It verifies and executes only a completely empty A3 plan or one closed Bool/Int/Float/Char literal through BindInput → Return. Exact literal/source witnesses reject stale payload/facts/span; tests cover singleton strides and aliases. ExtendedInt/Rational/boxed/sparse and unsupported operations, SemanticChecks, writes and name reads are rejected. Add/Check/View/Materialize/lifetime/reuse and general M3 proofs remain open; this does not complete M3/M4 or change the current runtime route.
+
 ### HE — Heterogeneous CPU/GPU execution planning (2026-10-07; links M4→M6)
 
 **Decision.** RustJ is a heterogeneous array compiler, not a CPU thread-parallel compiler. CPU workers are a *device-local physical realization*, not a top-level canonical `Parallel IR` or `Parallel Physical Planner`. Retain `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`. Keep this checklist inside §17; do not fork the canonical roadmap or create an additional required IR. **This design decision does not lift the existing CUDA hold.**
