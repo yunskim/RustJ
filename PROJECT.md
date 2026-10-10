@@ -1706,7 +1706,9 @@ Evidence: [FOUNDATIONS §21/§33](FOUNDATIONS.md), pinned C [p.c parser](https:/
 
 ## 5.3 Extension primitives — functions, rationale and adoption status
 
-Updated **2026-10-02** after checking remote default-branch HEADs and reading documents/registries at those revisions. Later topic-specific decisions and current RustJ invariants take precedence; historical descriptions/registry records are not evidence of executable support.
+Updated **2026-10-02** after checking remote default-branch HEADs and reading documents/registries at those revisions. This is a **historical research/source inventory**, not a live implementation checklist. Later topic-specific decisions and current RustJ invariants take precedence; historical descriptions/registry records are not evidence of executable support.
+
+**Deduplication and single-source-of-truth boundary (2026-10-10):** The prototype/candidate/research statuses below are a **snapshot of research classification on 2026-10-02**, not current implementation completion. The **only per-NN-item priority, status and native-promotion tracker is [§5.3.3a NN extension checklist](#nn-extension-checklist)**. The A2 checklist owns *shared Registry/IR infrastructure implementation*, whereas NN-G0–G7 are **per-NN-operation acceptance gates** that consume those shared capabilities, not duplicates of A2 completion state. Non-NN families such as `store`/`load`/`with` continue to be tracked by their existing owning sections.
 
 | Repository | Verified latest HEAD | Evidence role |
 |---|---|---|
@@ -1723,7 +1725,7 @@ The rationale/minimum-contract column records RustJ requirements inferred from t
 
 Source names are ordinary J bindings, not reserved keywords. Distinguish adverbs deriving verbs from parameter/verb operands, computational verbs, conjunctions deriving entities from two operands, and registration APIs declaring relations. Builder POS is not the derived computational verb’s valence/rank.
 
-| Name/family | Surface POS/kind | Function | Rationale and minimum contract | RustJ status | Sources |
+| Name/family | Surface POS/kind | Function | Rationale and minimum contract | 2026-10-02 research classification (not live progress) | Sources |
 |---|---|---|---|---|---|
 | `conv / conv_forward` | Adverb | Build a spatial convolution verb from a parameter noun. | Retain window/channel-contraction structure for reference, library and kernel routes; specify kernel, stride, padding, dilation, bias and explicit weight resources. | Candidate; execution unverified | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [A](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md) |
 | `depthwise_conv / depthwise_conv_forward` | Adverb | Build a channel-wise convolution verb. | Expose different channel connectivity/reuse; specify multiplier and output shape. The prototype identity shape rule is insufficient for registration. | Candidate; execution unverified | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py) |
@@ -1773,19 +1775,18 @@ These later research cases are not completed entries in the prototype registry a
 4. **Dtype/POS do not fix physical execution.** Historical forced-fusion adverbs, narrowing-in-place and widening-new-buffer rules are not current invariants. Choose realization after numeric, alias, use/liveness and target/cost analysis.
 5. **State is explicit.** Do not copy hidden weights/moments, fixed offsets, barriers/streams or register counts into primitive identity. Keep `ValueId`, `StateResource` and `BufferId` separate.
 
-### 5.3.3 Implementation status and checklist
+### 5.3.3 Archived implementation-evidence review (2026-10-02 snapshot)
 
 Code inspection baseline: documentation checkout `89b87b8`. `src/primitive.rs` provides `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`, and `src/runtime.rs` provides parser name-binding integration. These seams and test extension handles do not implement the listed NN/effect contracts or kernels. Existing `tests/semantic.rs::unknown_contracts_are_barriers` covers conservative unknown contracts for `conv` and `with`; it was read, not rerun in this documentation change.
 
-- [x] Check latest HEADs of all four repositories and record functions, rationale, POS and adoption status with pinned sources.
-- [x] Include missing forward/backward families, historical `grad`/`consume`, and later cast/storage/registration vocabulary.
-- [x] Integrate Korean canonical and English mirror.
-- [ ] Specify each candidate’s parameter schema, valence/innate rank, shape/dtype/numeric rules and reference.
-- [ ] Verify effects/errors/alias, StateResource/version and access/reduction contracts.
-- [ ] Connect at least one verified execution/lowering route before marking individual support complete.
-- [ ] On native Windows, compare ordinary name rebinding/locale/POS, empty/exceptional inputs, values/shapes/dtypes/errors/effect order.
+**Historical research work performed (record only; not active NN completion checkboxes):**
+- Checked the repositories' then-current HEADs and recorded function/POS/research classifications with pinned sources.
+- Distinguished historical forward/backward and `grad`/`consume` from later cast/storage/registration vocabulary.
+- Integrated the then-current Korean canonical and English mirror inventories.
 
-Small validation candidates are `relu` → `linear`/`flatten` → `conv`/`avgpool2d`. Existing M1–M6/frontend migration order remains authoritative; this inventory does not require all candidates as new prerequisites. Training/AD/state families come later; actual CUDA implementation remains deferred.
+**Four formerly unchecked gates have one owner now.** Parameter/POS/rank is tracked at **NN-G0**; shape/dtype/reference, empty semantics and errors at **NN-G1**; effects/alias/StateResource at **NN-G2**; a verified execution route at **NN-G5**; and native-Windows/J-oracle/error/effect checks at **NN-G6**. The implementation status of shared extension-registry/analysis infrastructure stays in **A2 only**. Do not maintain another completion state in this historical subsection.
+
+The historical suggested sequence (`relu` → `linear`/`flatten` → `conv`/`avgpool2d`) is superseded by the active **NN-D1/NN-D2** plan. Existing M1–M6/frontend migration gates still have precedence; actual CUDA implementation remains deferred.
 
 
 <a id="nn-extension-checklist"></a>
@@ -1794,7 +1795,7 @@ Small validation candidates are `relu` → `linear`/`flatten` → `conv`/`avgpoo
 
 **Decision:** Introduce computations first as extensions bound to ordinary J names and retain them as **single, semantically specified computational primitives in J Graph IR**. Subsequently **Execution Semantic Lowering / Logical Execution IR** may *optionally* expand a graph atom into a proven composition, or retain the atom for native CPU, verified libraries, MLIR/StableHLO-compatible subsets, or GPU kernels. "Extension now, native later" keeps source interface and observable meaning stable; it does **not** require promoting a Graph IR primitive to a new core-J syntax primitive. Decomposition, fusion, target selection, and numeric relaxation are separate proof/cost choices. Sources: [JAXA late architecture (A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [prototype registry (P)](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), and the canonical [Korean NN admission checklist](PROJECT.ko.md#nn-extension-checklist).
 
-**Status policy:** Every unchecked item is a *proposed/unverified extension task*, **not runnable support**. P0–P3 describe order *within this independent track*, not new prerequisites overriding frontend, M3 or M4 acceptance. Names and surface POS are candidates, not automatically inherited as commitments from JAXA prototypes. Stateful computations use explicit `StateResource` identities rather than primitive-owned hidden weight/buffer fields; parameterized adverb/builders and their resulting computational verbs are distinct.
+**Active per-item checklist (single status owner):** The §5.3 prototype table remains historical source evidence and four open gates from §5.3.3 have been consolidated here. A2 tracks shared infrastructure; this section tracks per-NN-op admission. Every unchecked item is a *proposed/unverified extension task*, **not runnable support**. P0–P3 describe order *within this independent track*, not new prerequisites overriding frontend, M3 or M4 acceptance. Names and surface POS are candidates, not automatically inherited as commitments from JAXA prototypes. Stateful computations use explicit `StateResource` identities rather than primitive-owned hidden weight/buffer fields; parameterized adverb/builders and their resulting computational verbs are distinct.
 
 | Priority | ID/check | Candidate extension/family | Atomic J Graph IR meaning and motivation | Optional later Logical IR decomposition / execution |
 |---|---|---|---|---|
