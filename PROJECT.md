@@ -1835,6 +1835,7 @@ The historical suggested sequence (`relu` → `linear`/`flatten` → `conv`/`avg
 
 - [x] **NN-D0:** reconcile historical §5.3 JAXA/Japchae sources with current A2/IR invariants and record prioritized candidates plus entry/exit gates.
 - [ ] **NN-D1:** `relu` vertical slice: J binding → atomic Graph IR → CPU reference → decomposed/undecomposed equivalence and negative verifier.
+  - **NN-D1a (registration admission, partial implementation):** Validate J NAME spelling, duplicates, semantic identity/lowering-key agreement and registry version in `PrimitiveResolver::with_extensions`; add negative regressions. This does not implement `relu` Graph atoms, CPU execution, J Rank/empty semantics, or decomposition equivalence. Do not mark PASS before exact PR-head and merged-main CI evidence.
 - [ ] **NN-D2:** small MLP using `linear`/`flatten`/`softmax`; small CNN using `conv2d`/`avgpool2d`, with Shape/Rank/zero-frame evidence.
 - [ ] **NN-D3:** small Transformer inference combining attention/embedding/norm; compare mask/numeric/target-route behavior.
 - [ ] **NN-D4:** only after separate proof, implement P2 VJP/optimizer/state/AD; choose P3 additions only with workload and kernel demand.

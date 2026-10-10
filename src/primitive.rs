@@ -659,10 +659,43 @@ impl PrimitiveResolver {
         Self::default()
     }
 
-    pub fn with_extensions(extensions: impl IntoIterator<Item = ExtensionPrimitive>) -> Self {
-        Self {
-            extensions: extensions.into_iter().collect(),
+    /// Admit only consistent extension identities at a compile-profile boundary.
+    ///
+    /// A descriptor is metadata, not proof of executable semantics. Even an
+    /// admitted name stays a normal J NAME until parser-time binding lookup.
+    pub fn with_extensions(
+        extensions: impl IntoIterator<Item = ExtensionPrimitive>,
+    ) -> Result<Self, String> {
+        let mut admitted: Vec<ExtensionPrimitive> = Vec::new();
+        for extension in extensions {
+            let spelling = extension.spelling;
+            // Consult the existing J word classifier, not a second spelling
+            // grammar. Explicit locatives are not registry-owned base names.
+            let words = crate::enqueuer::enqueue(spelling)
+                .map_err(|_| format!("invalid extension NAME: {spelling}"))?;
+            if !matches!(words.as_slice(), [word]
+                if word.class == crate::enqueuer::EnqueueClass::Name
+                    && word.span == (0..spelling.len())
+                    && !word.flags.name_form.is_locative())
+            {
+                return Err(format!("extension must be a single ordinary J NAME: {spelling}"));
+            }
+            if admitted.iter().any(|previous| previous.spelling == spelling) {
+                return Err(format!("duplicate extension NAME: {spelling}"));
+            }
+            let handle = extension.handle;
+            let PrimitiveSemanticId::Extension(identity) = handle.semantic_id else {
+                return Err(format!("extension has non-extension semantic identity: {spelling}"));
+            };
+            if handle.source_origin != PrimitiveSourceOrigin::Extension
+                || handle.lowering_key != LoweringKey::Extension(identity)
+                || handle.semantic_info.registry_version != REGISTRY_VERSION
+            {
+                return Err(format!("inconsistent extension handle: {spelling}"));
+            }
+            admitted.push(extension);
         }
+        Ok(Self { extensions: admitted })
     }
 
     /// Resolve only spellings that are J core primitives at enqueue time.

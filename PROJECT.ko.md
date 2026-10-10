@@ -9682,6 +9682,7 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 
 - [x] **NN-D0:** 기존 §4.6 JAXA/Japchae prototype 근거 및 현행 A2/IR 불변식에 연결된 도입 후보/우선순위·진입/종료 gate를 문서화.
 - [ ] **NN-D1:** P0 `relu` 한 개에 대해 name binding → Graph atom → reference CPU → decomposition/no-decomposition 동일 결과 vertical slice 및 음성 verifier 실증.
+  - **NN-D1a (registration admission, partial implementation):** `PrimitiveResolver::with_extensions`의 유효 NAME·중복·semantic identity/lowering key·registry version 사전 검증과 음성 회귀 테스트를 추가하는 단계. 이는 등록 계약 검증만이며 `relu` Graph atom, CPU 실행, J Rank/빈 배열 및 분해 동등성은 미검증/미지원이다. PR-head CI·병합 뒤 main CI가 확인되기 전에는 PASS로 기록하지 않는다.
 - [ ] **NN-D2:** `linear` + `flatten` + `softmax` 최소 MLP, `conv2d` + `avgpool2d` 최소 CNN으로 Shape/Rank/empty-frame 증거 수집.
 - [ ] **NN-D3:** P1 attention/embedding/norm 연결로 작은 Transformer inference; 마스킹과 numeric stability/target route 차이 검증.
 - [ ] **NN-D4:** P2 backward/optimizer/state/AD 관계는 명시적 effect·gradient 계약 확보 후 별도 구현; P3은 구체 workload와 외부 커널 수요가 확인된 뒤 판단.
