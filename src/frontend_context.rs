@@ -121,8 +121,8 @@ impl ScopeInstanceId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopeSearch {
-    /// Bounded boxed-holder named noun read; not a path epoch or compiler proof.
-    IndirectNamedNoun {
+    /// Bounded boxed-holder base/named noun read; not a path epoch or compiler proof.
+    IndirectNoun {
         start: ScopeInstanceId,
         z: Option<ScopeInstanceId>,
         holder_found: FoundScope,
@@ -776,7 +776,7 @@ impl FrontendContext {
                 ) {
                     (
                         frame,
-                        ScopeSearch::IndirectNamedNoun {
+                        ScopeSearch::IndirectNoun {
                             start,
                             z,
                             holder_found,
@@ -784,15 +784,23 @@ impl FrontendContext {
                             ..
                         },
                         state,
-                        FoundScope::Locale(hit),
+                        found,
                     ) => {
                         let word = &self.words[name_use.word.0];
                         word.flags.name_form == crate::enqueuer::NameForm::IndirectLocative
                             && !word.flags.abandon_name
                             && lookup.binding_class == Some(ParseClass::Noun)
-                            && start != lookup.engine
                             && z.is_none_or(|z| z != start && z != lookup.engine)
-                            && hit == z.unwrap_or(start)
+                            && match found {
+                                FoundScope::Global(hit) => {
+                                    start == lookup.engine && z.is_none() && hit == start
+                                }
+                                FoundScope::Locale(hit) => {
+                                    (start != lookup.engine || z.is_some())
+                                        && hit == z.unwrap_or(start)
+                                }
+                                _ => false,
+                            }
                             && match frame {
                                 None => {
                                     state == LocalLookupState::NoFrame

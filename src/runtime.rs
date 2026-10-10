@@ -586,8 +586,8 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     }
     fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
         if indirect_holder(name).is_some() {
-            let (key, locale) = self.engine.indirect_named_address(name)?;
-            if !self.engine.named_locales.contains_key(locale)
+            let (key, locale) = self.engine.indirect_noun_address(name)?;
+            if (locale != "base" && !self.engine.named_locales.contains_key(locale))
                 || !matches!(
                     self.engine.direct_read_binding(key, locale),
                     Some(Binding {
@@ -728,7 +728,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             {
                 return Err(Error::IllFormedName);
             }
-            let Some((key, locale)) = self.engine.indirect_named_address(name) else {
+            let Some((key, locale)) = self.engine.indirect_noun_address(name) else {
                 return Err(Error::Unsupported(
                     "indirect noun namespace resolution".into(),
                 ));
@@ -787,7 +787,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Ok(self.engine.parser_name_binding(name))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
-        if let Some((key, locale)) = self.engine.indirect_named_address(name) {
+        if let Some((key, locale)) = self.engine.indirect_noun_address(name) {
             return self
                 .engine
                 .direct_read_binding(key, locale)
@@ -2712,8 +2712,8 @@ impl Engine {
         Ok(())
     }
     // s.c::locindirect: scalar box containing an atomic/list literal locale name.
-    // Base aliases and numbered/debug/chained resolution remain separate gates.
-    fn indirect_named_address<'a>(&'a self, name: &'a str) -> Option<(&'a str, &'a str)> {
+    // Numbered/debug/chained resolution remains a separate gate.
+    fn indirect_noun_address<'a>(&'a self, name: &'a str) -> Option<(&'a str, &'a str)> {
         let holder = indirect_holder(name)?;
         let (key, _) = name.split_once("__")?;
         let JEntity::Noun(value) = &self.visible_binding(holder)?.value else {
@@ -2738,7 +2738,7 @@ impl Engine {
             return None;
         }
         let locale = std::str::from_utf8(chars).ok()?;
-        (locale != "base").then_some((key, locale))
+        Some((key, locale))
     }
 
     fn direct_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
@@ -2924,8 +2924,12 @@ impl Engine {
         use crate::frontend_context::{
             FoundScope, LocalLookupState, LookupObservation, ScopeSearch,
         };
-        if let Some((key, locale)) = self.indirect_named_address(name)
-            && let Some(start) = self.named_locales.get(locale).map(|locale| locale.instance)
+        if let Some((key, locale)) = self.indirect_noun_address(name)
+            && let Some(start) = if locale == "base" {
+                Some(self.namespace_instance)
+            } else {
+                self.named_locales.get(locale).map(|locale| locale.instance)
+            }
             && let Some(binding) = self.direct_read_binding(key, locale)
         {
             let holder_name = indirect_holder(name).expect("validated indirect holder");
@@ -2937,7 +2941,7 @@ impl Engine {
             return LookupObservation {
                 engine: self.namespace_instance,
                 frame: self.local_frames.last().map(|frame| frame.instance),
-                search: ScopeSearch::IndirectNamedNoun {
+                search: ScopeSearch::IndirectNoun {
                     start,
                     z,
                     holder_found: holder.found,
@@ -2950,7 +2954,11 @@ impl Engine {
                 } else {
                     LocalLookupState::Bypassed
                 },
-                found: FoundScope::Locale(z.unwrap_or(start)),
+                found: if locale == "base" && z.is_none() {
+                    FoundScope::Global(start)
+                } else {
+                    FoundScope::Locale(z.unwrap_or(start))
+                },
                 binding_version: Some(binding.version),
                 binding_generation: Some(binding.generation),
                 binding_class: Some(crate::parser::ParseClass::Noun),

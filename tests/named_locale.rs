@@ -1086,7 +1086,7 @@ fn indirect_noun_capture_separates_holder_and_target_versions_and_locales() {
     assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
     assert!(LocativeNounGuard::from_name_use(c, NameUseId(0)).is_err());
     let obs = c.name_uses[0].lookup.as_ref().unwrap();
-    let ScopeSearch::IndirectNamedNoun {
+    let ScopeSearch::IndirectNoun {
         start,
         z: Some(z),
         holder_found,
@@ -1106,7 +1106,7 @@ fn indirect_noun_capture_separates_holder_and_target_versions_and_locales() {
         if mutation == 0 {
             obs.found = FoundScope::Global(obs.engine);
         }
-        if let ScopeSearch::IndirectNamedNoun {
+        if let ScopeSearch::IndirectNoun {
             holder_found,
             holder_local_state,
             ..
@@ -1131,7 +1131,7 @@ fn indirect_noun_capture_separates_holder_and_target_versions_and_locales() {
         .as_ref()
         .unwrap();
     assert_eq!(obs.binding_version, obs2.binding_version);
-    let ScopeSearch::IndirectNamedNoun {
+    let ScopeSearch::IndirectNoun {
         holder_version: v2,
         holder_generation: g2,
         ..
@@ -1199,10 +1199,107 @@ fn indirect_holder_contents_errors_preserve_order_state_and_no_witness() {
             );
         }
     }
-    // Negative debug and base-alias resolution are still separate contracts.
+    // Negative debug resolution remains a separate contract.
     let mut e = Engine::new();
-    for holder in ["_1", "<_1", "<'base'"] {
+    for holder in ["_1", "<_1"] {
         e.eval(&format!("holder=:{holder}")).unwrap();
         assert_eq!(e.eval("a__holder+0").unwrap_err().kind(), "unsupported");
+    }
+}
+
+#[test]
+fn boxed_base_holder_reads_own_z_snapshots_and_local_holder() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        for s in [
+            "a=:i.3",
+            "fallback_z_=:11",
+            "a_probe_=:9",
+            "holder=:<'base'",
+        ] {
+            e.eval(s).unwrap();
+        }
+        let eval = |e: &mut Engine, s: &str| {
+            if semantic {
+                e.eval_semantic_reference(s)
+            } else {
+                e.eval(s)
+            }
+        };
+        eval(&mut e, "saved=:a__holder").unwrap();
+        e.eval("a=:a+10").unwrap();
+        assert_eq!(
+            eval(&mut e, "saved").unwrap().unwrap().json(),
+            e.eval("i.3").unwrap().unwrap().json()
+        );
+        assert_eq!(
+            eval(&mut e, "fallback__holder+0")
+                .unwrap()
+                .unwrap()
+                .int_at(0)
+                .unwrap(),
+            11
+        );
+        e.eval("holder=:<'probe'").unwrap();
+        scalar(&mut e, "a__holder+0", 9);
+        e.eval("f=:3 : 0\nholder=.<'base'\na=.99\nfallback__holder+0\n)")
+            .unwrap();
+        assert_eq!(eval(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 11);
+        scalar(&mut e, "a__holder+0", 9);
+        e.eval("holder=:<'base'").unwrap();
+        assert_eq!(e.eval("a__holder=:99").unwrap_err().kind(), "unsupported");
+        assert_eq!(
+            e.prepare_semantic("a__holder").unwrap_err().kind(),
+            "unsupported"
+        );
+    }
+}
+
+#[test]
+fn boxed_base_holder_capture_distinguishes_own_global_from_z_hit() {
+    use rustj::frontend_context::{FoundScope, NameUseId, ScopeSearch};
+    let mut e = Engine::new();
+    for s in ["a=:7", "fallback_z_=:11", "holder=:<'base'"] {
+        e.eval(s).unwrap();
+    }
+    for (source, z_hit) in [("a__holder+0", false), ("fallback__holder+0", true)] {
+        let r = e.eval_captured(source);
+        r.result.unwrap();
+        r.capture.verify().unwrap();
+        let ctx = r.capture.frontend.as_ref().unwrap();
+        let (index, use_) = ctx
+            .name_uses
+            .iter()
+            .enumerate()
+            .find(|(_, u)| u.lookup.is_some())
+            .unwrap();
+        let observation = use_.lookup.as_ref().unwrap();
+        let ScopeSearch::IndirectNoun { start, z, .. } = observation.search else {
+            panic!("indirect witness")
+        };
+        assert_eq!(start, observation.engine);
+        assert_eq!(z.is_some(), z_hit);
+        assert_eq!(
+            observation.found,
+            if z_hit {
+                FoundScope::Locale(z.unwrap())
+            } else {
+                FoundScope::Global(start)
+            }
+        );
+        assert!(
+            rustj::frontend_context::SimpleNameGuard::from_name_use(ctx, NameUseId(index)).is_err()
+        );
+        assert!(
+            rustj::frontend_context::LocativeNounGuard::from_name_use(ctx, NameUseId(index))
+                .is_err()
+        );
+        let mut bad = (**ctx).clone();
+        bad.name_uses[index].lookup.as_mut().unwrap().found = if z_hit {
+            FoundScope::Global(start)
+        } else {
+            FoundScope::Locale(start)
+        };
+        assert!(bad.verify().is_err());
     }
 }
