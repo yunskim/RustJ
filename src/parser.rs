@@ -2983,6 +2983,9 @@ pub(crate) trait RuntimeParserHost {
     fn supports_base_locative_nouns(&self) -> bool {
         false
     }
+    fn supports_named_direct_locative_nouns(&self) -> bool {
+        false
+    }
 
     fn lookup(&mut self, name: &str) -> Result<Option<ParserNameBinding>>;
     fn fork_cap_binding(
@@ -3588,7 +3591,14 @@ fn expression(
                         .host
                         .as_ref()
                         .is_some_and(|host| host.supports_base_locative_nouns());
-                if tokens[*pos].flags.name_form.is_locative() && !base_noun_host {
+                let named_noun_host = tokens[*pos].flags.name_form
+                    == crate::enqueuer::NameForm::DirectLocative
+                    && context
+                        .host
+                        .as_ref()
+                        .is_some_and(|host| host.supports_named_direct_locative_nouns());
+                if tokens[*pos].flags.name_form.is_locative() && !base_noun_host && !named_noun_host
+                {
                     return Err(Error::Unsupported("J locative namespace resolution".into())
                         .with_context(
                             ErrorContext::phase(DiagnosticPhase::Parse)

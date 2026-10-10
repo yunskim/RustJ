@@ -101,7 +101,7 @@ fn function_locatives_and_static_admission_remain_explicit_boundaries() {
     let mut engine = Engine::new();
     engine.eval("f=:+").unwrap();
     let version = engine.binding_version("f");
-    for source in ["f__", "f__=:*", "a_probe_=:7", "a__holder", "f___:"] {
+    for source in ["f__", "f__=:*", "a_probe_=:*", "a__holder", "f___:"] {
         assert_eq!(
             engine.eval(source).unwrap_err().kind(),
             "unsupported",

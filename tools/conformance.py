@@ -573,6 +573,15 @@ def definition_flow_cases():
         for sentence in ["flowfn=:3 : '" + body + "'", 'flowcounter']]
 
 
+def named_locale_noun_cases():
+    return ['locnoun=:1', 'locnoun_probe_=:7', 'locnoun_other_=.11',
+            'locnoun', 'locnoun_probe_', 'locnoun_other_', 'locnoun_base_=.2',
+            'locnoun__', 'locnoun_probe_+(locnoun_probe_=:2)',
+            '(locnoun_probe_=:3)+locnoun_probe_', 'locnoun_other_',
+            "locfn=:3 : '(locnoun=.9)+locnoun_probe_'", 'locfn 0', 'locnoun',
+            'locnoun_probe_=:1 2+1 2 3', 'locnoun_probe_']
+
+
 def base_locative_noun_cases():
     # One stateful CLI sentence per case; empty direct locale selects base.
     return ['basenoun=:1', 'basenoun__', 'basenoun__+(basenoun__=:2)',
@@ -953,6 +962,7 @@ def cases():
     fixed.extend(noun_direct_cases())
     fixed.extend(entity_boundary_cases())
     fixed.extend(base_locative_noun_cases())
+    fixed.extend(named_locale_noun_cases())
     fixed.extend("matrixflow=:3 : '"+body+"'" for body in control_sequence_matrix())
     fixed.extend("gotomatrix=:3 : '"+body.replace("\n", " ").replace("'", "''")+"'" for body in goto_position_matrix())
     return fixed
