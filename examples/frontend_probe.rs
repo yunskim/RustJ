@@ -190,7 +190,7 @@ fn inspect(source: &str) -> rustj::Result<String> {
                     EnqueuedPayload::Noun(v) => Ok(v.json()),
                     _ => Ok("null".to_owned()),
                 }?;
-                Ok(format!("{{\"class\":\"{:?}\",\"span\":[{},{}],\"index\":{},\"lookup\":{},\"global\":{},\"local\":{},\"to_name\":{},\"noun\":{}}}", w.class, w.span.start,w.span.end,w.word_index,w.flags.lookup_name,w.flags.global_assignment,w.flags.local_assignment,w.flags.assignment_to_name,noun))
+                Ok(format!("{{\"class\":\"{:?}\",\"span\":[{},{}],\"index\":{},\"lookup\":{},\"global\":{},\"local\":{},\"to_name\":{},\"name_form\":\"{:?}\",\"noun\":{}}}", w.class, w.span.start,w.span.end,w.word_index,w.flags.lookup_name,w.flags.global_assignment,w.flags.local_assignment,w.flags.assignment_to_name,w.flags.name_form,noun))
             }).collect::<rustj::Result<Vec<_>>>()?;
             format!("[{}]", entries.join(","))
         }

@@ -74,6 +74,9 @@ pub fn classify(word: &str) -> Result<Option<ControlWord>> {
         {
             return Err(Error::IllFormedName);
         }
+        if queue[0].flags.name_form.is_locative() {
+            return Err(Error::Unsupported("J locative loop binding".into()));
+        }
         return Ok(Some(ControlWord::For));
     }
     // goto/label targets are audited later by congoto, not by conword.

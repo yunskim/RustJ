@@ -28,12 +28,39 @@ pub enum EnqueueClass {
 /// The three jtenqueue environments affect copula classification, not J
 /// semantic binding. TacitTranslator keeps the unspecialized primitive copula
 /// (env=0), TopLevel forces =. global (env=1), and ExplicitDefinition retains
-/// local =. (env=2). Locative assignment remains a separate future feature.
+/// local =. (env=2), except for lexical locative targets. Locale execution
+/// remains a separate runtime contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnqueueEnvironment {
     TacitTranslator,
     TopLevel,
     ExplicitDefinition,
+}
+
+/// Lexical NAME form, independent of the locale selected at runtime.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NameForm {
+    #[default]
+    Simple,
+    DirectLocative,
+    IndirectLocative,
+    BaseLocative,
+}
+impl NameForm {
+    fn from_validated(word: &str) -> Self {
+        if word.ends_with("__") {
+            Self::BaseLocative
+        } else if word.ends_with('_') {
+            Self::DirectLocative
+        } else if word.contains("__") {
+            Self::IndirectLocative
+        } else {
+            Self::Simple
+        }
+    }
+    pub fn is_locative(self) -> bool {
+        self != Self::Simple
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -47,6 +74,8 @@ pub struct EnqueueFlags {
     pub global_assignment: bool,
     pub local_assignment: bool,
     pub assignment_to_name: bool,
+    /// Source form only; never a resolved namespace identity.
+    pub name_form: NameForm,
 }
 
 #[derive(Clone, Debug)]
@@ -428,19 +457,14 @@ fn interpret_word<'a>(
     if word.as_bytes()[0].is_ascii_alphabetic()
         && word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
     {
-        // jsource vnm accepts ordinary underscores inside simple names.
-        // Trailing '_' and '__' introduce direct/indirect locatives, which are
-        // a separate name-resolution feature not implemented by this frontend.
-        // sn.c::vnm rejects a trailing single underscore without a preceding
-        // locale separator. foo__ is a valid base-locale name, still unsupported.
         validate_name_syntax(word)?;
-        if word.ends_with('_') || word.contains("__") {
-            return Err(Error::Unsupported("J locative names".into()));
-        }
         return Ok((
             EnqueueClass::Name,
             EnqueuedPayload::Name(word),
-            EnqueueFlags::default(),
+            EnqueueFlags {
+                name_form: NameForm::from_validated(word),
+                ..EnqueueFlags::default()
+            },
         ));
     }
 
@@ -734,7 +758,12 @@ pub(crate) fn enqueue_with_origin<'a>(
         }
         if out[index].class == EnqueueClass::Assignment {
             // w.c::jtenqueue env==1 upgrades local copulas at top level.
-            if environment == EnqueueEnvironment::TopLevel && out[index].flags.local_assignment {
+            let force_global = environment == EnqueueEnvironment::TopLevel
+                || (environment == EnqueueEnvironment::ExplicitDefinition
+                    && index > 0
+                    && out[index - 1].class == EnqueueClass::Name
+                    && out[index - 1].flags.name_form.is_locative());
+            if force_global && out[index].flags.local_assignment {
                 out[index].flags.local_assignment = false;
                 out[index].flags.global_assignment = true;
             }

@@ -113,7 +113,7 @@ fn one_word_non_result_entities_are_rejected_during_enqueue() {
 }
 
 #[test]
-fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsupported() {
+fn simple_and_locative_names_keep_their_lexical_form() {
     let words = enqueuer::enqueue("foo_bar").unwrap();
     assert_eq!(words.len(), 1);
     assert_eq!(words[0].class, EnqueueClass::Name);
@@ -124,11 +124,8 @@ fn simple_names_may_contain_underscores_but_locatives_remain_explicitly_unsuppor
         rustj::Error::IllFormedName
     ));
     for source in ["foo_bar_", "foo__bar", "foo__"] {
-        let error = enqueuer::enqueue(source).unwrap_err();
-        assert!(matches!(
-            error.into_unlocated(),
-            rustj::Error::Unsupported(_)
-        ));
+        let words = enqueuer::enqueue(source).unwrap();
+        assert!(words[0].flags.name_form.is_locative());
     }
 }
 
@@ -175,7 +172,7 @@ fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_fun
 }
 
 #[test]
-fn locative_name_syntax_is_checked_before_unsupported_lookup() {
+fn locative_name_syntax_is_checked_before_runtime_lookup() {
     for source in [
         "foo__",
         "foo_bar_",
@@ -191,11 +188,17 @@ fn locative_name_syntax_is_checked_before_unsupported_lookup() {
         "foo__bar___1",
         "foo__bar_:",
     ] {
-        assert_eq!(
-            enqueuer::enqueue(source).unwrap_err().kind(),
-            "unsupported",
-            "{source}"
-        );
+        if source.ends_with(':') {
+            assert_eq!(enqueuer::enqueue(source).unwrap_err().kind(), "unsupported");
+        } else {
+            assert!(
+                enqueuer::enqueue(source).unwrap()[0]
+                    .flags
+                    .name_form
+                    .is_locative(),
+                "{source}"
+            );
+        }
     }
     for source in [
         "a_",
@@ -228,7 +231,7 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
         ("a".repeat(256), Some("limit error")),
         ("a".repeat(32766), Some("limit error")),
         ("a".repeat(32767), Some("ill-formed name")),
-        (format!("{}_b_", "a".repeat(255)), Some("unsupported")),
+        (format!("{}_b_", "a".repeat(255)), None),
         (format!("{}_b_", "a".repeat(256)), Some("limit error")),
         (format!("a_{}_", "b".repeat(256)), Some("limit error")),
         (format!("a__{}", "b".repeat(256)), Some("limit error")),
@@ -239,7 +242,16 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
     ];
     let by_value = cases
         .iter()
-        .map(|(word, expected)| (format!("{word}_:"), *expected))
+        .map(|(word, expected)| {
+            (
+                format!("{word}_:"),
+                if word.ends_with('_') && expected.is_none() {
+                    Some("unsupported")
+                } else {
+                    *expected
+                },
+            )
+        })
         .collect::<Vec<_>>();
     cases.extend(by_value);
     for (word, expected) in cases {
@@ -574,4 +586,75 @@ fn tacit_translator_keeps_copulas_unspecialized_without_losing_name_lookup_order
     )
     .unwrap();
     assert!(!words[1].flags.assignment_to_name);
+}
+
+#[test]
+fn locative_copulas_follow_all_three_enqueue_environments() {
+    use enqueuer::{EnqueueEnvironment as Env, NameForm};
+    let primitives = rustj::primitive::PrimitiveContext::core();
+    for (name, form) in [
+        ("a_b", NameForm::Simple),
+        ("a_b_", NameForm::DirectLocative),
+        ("a__b", NameForm::IndirectLocative),
+        ("a__", NameForm::BaseLocative),
+    ] {
+        for env in [Env::TacitTranslator, Env::TopLevel, Env::ExplicitDefinition] {
+            for copula in ["=.", "=:"] {
+                let source = format!("  {name}{copula}7");
+                let q = enqueuer::enqueue_in_environment(&source, &primitives, env).unwrap();
+                assert_eq!(q[0].flags.name_form, form);
+                assert!(!q[0].flags.lookup_name);
+                assert_eq!(q[0].span, 2..2 + name.len());
+                assert_eq!(q[1].flags.assignment_to_name, env != Env::TacitTranslator);
+                let global = copula == "=:"
+                    || env == Env::TopLevel
+                    || (env == Env::ExplicitDefinition && form.is_locative());
+                assert_eq!(q[1].flags.global_assignment, global, "{source} {env:?}");
+                assert_eq!(q[1].flags.local_assignment, !global);
+            }
+        }
+    }
+}
+
+#[test]
+fn locative_execution_stops_before_ordinary_namespace_mutation() {
+    let mut engine = rustj::runtime::Engine::new();
+    engine.eval("kept=:7").unwrap();
+    for source in [
+        "kept__",
+        "kept_base_",
+        "kept__holder",
+        "kept__=:9",
+        "kept_base_=.9",
+    ] {
+        let error = engine.eval_diagnostic(source).unwrap_err();
+        assert_eq!(error.kind(), "unsupported", "{source}");
+        assert_eq!(
+            error.span(),
+            Some(&(0..source.split('=').next().unwrap().len()))
+        );
+        assert_eq!(error.context().unwrap().blame_word_index, Some(0));
+        assert!(engine.binding_version("kept__").is_none());
+        assert_eq!(engine.eval("kept").unwrap().unwrap().int_at(0).unwrap(), 7);
+    }
+}
+
+#[test]
+fn locative_catalog_and_control_bindings_remain_unsupported() {
+    let mut catalog = rustj::static_analysis::StaticAnalyzer::new();
+    for name in ["f_base_", "f__holder", "f__"] {
+        assert_eq!(
+            catalog
+                .declare_function(name, rustj::semantic::FunctionPartOfSpeech::Verb)
+                .unwrap_err()
+                .kind(),
+            "unsupported"
+        );
+        assert_eq!(
+            rustj::definition_control::classify(&format!("for_{name}."))
+                .unwrap_err()
+                .kind(),
+            "unsupported"
+        );
+    }
 }

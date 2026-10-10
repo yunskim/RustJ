@@ -2130,6 +2130,8 @@ future CFG lowering이 추가될 때 필요한 최소 증명:
 
 NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_reference.py` 산출물을 사용할 수 있다. 빌드 manifest의 고정 commit·platform·variant와 실제 library 존재를 검사하고 binary SHA256을 기록한다. 없는 variant는 미실행으로 남으며, unsupported/mismatch를 통과로 계산하지 않는다. 기존 Windows `--assets-root` 경로도 유지한다.
 
+일반 locative는 이제 Simple/DirectLocative/IndirectLocative/BaseLocative 어휘 메타데이터를 가진 NAME으로 enqueue된다. env=2에서 locative NAME 대입 대상의 지역 copula는 전역으로 승격되며 env=0은 특수화하지 않는다. 원본 span·queue index를 보존한다. 런타임/정적 parser, gerund lookup, catalog 선언, 반복 변수는 일반 namespace 접근 전에 locative 실행을 계속 거부한다. computed/abandon locative도 Unsupported다. #14에서 현재 코드로 이식한 NJ-01 분류 단위이며 NJ-04 locale/path 해석이나 L3 완료가 아니다. 회귀 검사는 세 환경·두 copula, malformed/limit 우선순위와 비변경 경계를 포함한다. 고정 소스/public C stage 비교는 어휘 문법과 값 probe를 검사하며 C 내부 queue flag는 소스 기반 golden이지 exported runtime trace가 아니다.
+
 | ID | jsource 관찰 계약 | RustJ 현재 구조/차이 | 수용 조건 |
 |---|---|---|---|
 | **NJ-01 NAME 인식** | 단순 이름(내부 `_` 허용), direct `name_locale_`, indirect `name__holder`, base alias `name__`; 적법한 `name_:`는 `NAMEBYVALUE/NAMEABANDON` 별도 inflection. `nfs` 길이/오류 precedence, `vnm` 문법 유지 | `enqueuer::validate_name_syntax`가 일부 문법·길이 검사를 구현하지만 적법한 locative와 `name_:`를 `Unsupported`로 차단함. 32-bit numeric locale 제한 등 플랫폼 경계 미검증 | 모든 jsource-valid NAME을 정상 parse queue에 전달하고 invalid/limit/spelling만 해당 J 오류로 구분. `Unsupported`를 최종 NAME 구문 결과로 인정하지 않음 |
