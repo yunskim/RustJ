@@ -90,6 +90,7 @@ INDIRECT_NOUN_FIXTURES = [
     ("indirect_noun_self_holder", ["holder=:<'base'", "holder__holder=:<'other'", "holder"]),
     ("indirect_noun_local_write", ["a=:13", "holder=:<'base'", "f=:3 : 0\nholder=.<'fresh'\na=.99\na__holder=.21\na+a__holder\n)", "f 0", "a_fresh_", "a", "holder"]),
     ("indirect_noun_invalid_write_order", ["a_probe_=:7", "holder=:7", "a__holder=:1 2+1 2 3", "a__holder=:9", "a_probe_", "holder"]),
+    ("indirect_noun_select_rhs", ["a_probe_=:7", "holder=:<'probe'", "a__holder=: [ holder=:<'other'", "a_probe_", "a_other_", "holder"]),
     ("indirect_noun_holder_rebind", ["a_probe_=:7", "a_other_=:11", "holder=:<'probe'", "a__holder+0", "holder=:<'other'", "a__holder+0"]),
     ("indirect_noun_z_write", ["a_z_=:7", "holder=:<'probe'", "a__holder+0", "a__holder=:9", "a_probe_+0", "a_z_+0"]),
     ("indirect_noun_snapshot", ["a_probe_=:i.3", "holder=:<'probe'", "saved=:a__holder", "a_probe_=:a_probe_+10", "saved"]),
