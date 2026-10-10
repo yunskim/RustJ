@@ -299,12 +299,13 @@ fn interpret_word<'a>(
     if word.ends_with(':') || (!numeric && word.ends_with('.')) {
         if word.as_bytes()[0].is_ascii_alphabetic() && word.ends_with("_:") {
             let name = &word[..word.len() - 2];
-            validate_assignment_name(name)?;
+            validate_name_syntax(name)?;
             return Ok((
                 EnqueueClass::Name,
                 EnqueuedPayload::Name(name),
                 EnqueueFlags {
                     abandon_name: true,
+                    name_form: NameForm::from_validated(name),
                     ..Default::default()
                 },
             ));

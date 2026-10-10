@@ -2647,6 +2647,13 @@ impl Engine {
     }
 
     fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        // Enqueue retains address form independently of abandon policy. Do not
+        // reinterpret unsupported locatives as flat ordinary-name keys.
+        if name.ends_with('_') || name.contains("__") {
+            return Err(Error::Unsupported(
+                "locative abandon namespace resolution".into(),
+            ));
+        }
         if let Some(frame) = self.local_frames.last_mut()
             && let Some(binding) = frame.names.get(name)
         {
