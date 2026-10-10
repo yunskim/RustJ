@@ -572,7 +572,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         if let Some(key) = base_locative_key(name) {
             // sn.c/sl.c: an empty direct locale selects base, bypassing the
             // invocation-local table. Nouns snapshot at parser stack entry.
-            return match self.engine.names.get(key) {
+            return match self.engine.direct_read_binding(key, "base") {
                 Some(Binding {
                     value: JEntity::Noun(value),
                     ..
@@ -598,7 +598,10 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
                 .map(|binding| binding.version);
         }
         if let Some(key) = base_locative_key(name) {
-            return self.engine.names.get(key).map(|binding| binding.version);
+            return self
+                .engine
+                .direct_read_binding(key, "base")
+                .map(|binding| binding.version);
         }
         self.engine
             .visible_binding(name)
@@ -2514,7 +2517,7 @@ impl Engine {
     /// A bounded named-locale noun path. Writes continue to use direct_binding.
     fn direct_read_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
         self.direct_binding(key, locale).or_else(|| {
-            if locale == "base" || locale == "z" {
+            if locale == "z" {
                 None
             } else {
                 self.direct_binding(key, "z")
@@ -2611,9 +2614,13 @@ impl Engine {
                 engine: self.namespace_instance,
                 frame: self.local_frames.last().map(|frame| frame.instance),
                 search: if let Some(z) = z {
-                    ScopeSearch::NamedDefaultZ {
-                        start: start.expect("successful lookup created locale"),
-                        z,
+                    if locale == "base" {
+                        ScopeSearch::BaseDefaultZ { z }
+                    } else {
+                        ScopeSearch::NamedDefaultZ {
+                            start: start.expect("successful lookup created locale"),
+                            z,
+                        }
                     }
                 } else {
                     ScopeSearch::DirectLocaleOnly(start.expect("successful lookup created locale"))
@@ -2625,7 +2632,7 @@ impl Engine {
                 },
                 found: if binding.is_none() {
                     FoundScope::Missing
-                } else if locale == "base" {
+                } else if locale == "base" && z.is_none() {
                     FoundScope::Global(self.namespace_instance)
                 } else {
                     FoundScope::Locale(z.unwrap_or_else(|| start.unwrap()))
@@ -2639,17 +2646,23 @@ impl Engine {
             };
         }
         if let Some(key) = base_locative_key(name) {
-            let binding = self.names.get(key);
+            let own = self.names.get(key);
+            let binding = self.direct_read_binding(key, "base");
+            let z = (own.is_none() && binding.is_some()).then(|| self.named_locales["z"].instance);
             return LookupObservation {
                 engine: self.namespace_instance,
                 frame: self.local_frames.last().map(|frame| frame.instance),
-                search: ScopeSearch::BaseLocaleOnly,
+                search: z.map_or(ScopeSearch::BaseLocaleOnly, |z| ScopeSearch::BaseDefaultZ {
+                    z,
+                }),
                 local_state: if self.local_frames.is_empty() {
                     LocalLookupState::NoFrame
                 } else {
                     LocalLookupState::Bypassed
                 },
-                found: if binding.is_some() {
+                found: if let Some(z) = z {
+                    FoundScope::Locale(z)
+                } else if binding.is_some() {
                     FoundScope::Global(self.namespace_instance)
                 } else {
                     FoundScope::Missing
