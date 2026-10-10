@@ -678,6 +678,14 @@ impl FrontendContext {
                 {
                     return fail("invalid runtime NAME observation");
                 }
+                if matches!(
+                    lookup.search,
+                    ScopeSearch::GlobalOnly | ScopeSearch::CurrentFrameThenGlobal
+                ) && self.words[name_use.word.0].flags.name_form
+                    != crate::enqueuer::NameForm::Simple
+                {
+                    return fail("simple NAME search requires a simple lexical name");
+                }
                 let frame_valid = match (
                     lookup.frame,
                     lookup.search,
