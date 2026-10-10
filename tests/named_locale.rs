@@ -1158,6 +1158,10 @@ fn indirect_holder_contents_errors_preserve_order_state_and_no_witness() {
         ("<'1probe'", "ill-formed name"),
         ("<7", "locale error"),
         ("<0", "locale error"),
+        ("_1", "locale error"),
+        ("<_1", "locale error"),
+        ("_2", "locale error"),
+        ("<_2", "locale error"),
     ];
     for semantic in [false, true] {
         for (holder, expected) in cases {
@@ -1198,12 +1202,6 @@ fn indirect_holder_contents_errors_preserve_order_state_and_no_witness() {
                     .all(|u| u.lookup.is_none())
             );
         }
-    }
-    // Negative debug resolution remains a separate contract.
-    let mut e = Engine::new();
-    for holder in ["_1", "<_1"] {
-        e.eval(&format!("holder=:{holder}")).unwrap();
-        assert_eq!(e.eval("a__holder+0").unwrap_err().kind(), "unsupported");
     }
 }
 
@@ -1301,5 +1299,24 @@ fn boxed_base_holder_capture_distinguishes_own_global_from_z_hit() {
             FoundScope::Locale(start)
         };
         assert!(bad.verify().is_err());
+    }
+}
+
+#[test]
+fn negative_holder_does_not_alias_an_active_unsuspended_local_frame() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("a=:7").unwrap();
+        e.eval("holder=:<'base'").unwrap();
+        e.eval("f=:3 : 0\na=.99\nholder=.r\na__holder+0\n)")
+            .unwrap();
+        e.eval("r=:_1").unwrap();
+        let err = if semantic {
+            e.eval_semantic_reference("f 0")
+        } else {
+            e.eval("f 0")
+        };
+        assert_eq!(err.unwrap_err().kind(), "locale error");
+        scalar(&mut e, "a__holder+0", 7);
     }
 }

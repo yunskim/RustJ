@@ -115,6 +115,14 @@ INDIRECT_HOLDER_VALIDATION_FIXTURES = [
     ]
 ]
 FIXTURES += INDIRECT_HOLDER_VALIDATION_FIXTURES
+FIXTURES += [
+    ("indirect_absent_debug_" + label,
+     ["a_probe_=:7", "holder=:" + holder, "a__holder+(a_probe_=:9)",
+      "a_probe_+0", "(a_probe_=:11)+a__holder", "a_probe_+0"])
+    for label, holder in [("minus_one", "_1"), ("boxed_minus_one", "<_1"),
+                          ("minus_two", "_2"), ("boxed_minus_two", "<_2")]
+]
+
 
 
 # Boundary probes pin observable runtime behavior. They do not test a future

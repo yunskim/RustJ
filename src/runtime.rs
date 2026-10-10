@@ -687,8 +687,8 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
             if !value.shape().is_empty() {
                 return Err(Error::Rank);
             }
-            // Numbered locales cannot be created here; negative debug holders
-            // remain a separate execution-context contract.
+            // This runtime has neither created numbered locales nor suspended
+            // debugger call frames. Both numeric address families are absent.
             let numbered = |value: &Value| match &value.data {
                 crate::value::Data::Int(numbers) if value.shape().is_empty() => Some(numbers[0]),
                 crate::value::Data::Bool(numbers) if value.shape().is_empty() => {
@@ -696,23 +696,15 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
                 }
                 _ => None,
             };
-            if let Some(number) = numbered(value) {
-                return Err(if number >= 0 {
-                    Error::Locale
-                } else {
-                    Error::Unsupported("indirect debug locale resolution".into())
-                });
+            if numbered(value).is_some() {
+                return Err(Error::Locale);
             }
             let crate::value::Data::Boxed(boxes) = &value.data else {
                 return Err(Error::Domain);
             };
             let contents = &boxes[0];
-            if let Some(number) = numbered(contents) {
-                return Err(if number >= 0 {
-                    Error::Locale
-                } else {
-                    Error::Unsupported("indirect debug locale resolution".into())
-                });
+            if numbered(contents).is_some() {
+                return Err(Error::Locale);
             }
             if contents.shape().len() > 1 {
                 return Err(Error::Rank);
