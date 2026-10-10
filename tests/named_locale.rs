@@ -1546,3 +1546,36 @@ fn indirect_abandon_holder_errors_preserve_target_bindings() {
         }
     }
 }
+
+#[test]
+fn indirect_holder_observations_reject_zero_identity() {
+    for source in ["a__holder+0", "a__holder_:+0"] {
+        let mut e = Engine::new();
+        e.eval("holder=:<'probe'").unwrap();
+        e.eval("a_probe_=:7").unwrap();
+        let r = e.eval_captured(source);
+        r.result.unwrap();
+        r.capture.verify().unwrap();
+        let context = r.capture.frontend.as_ref().unwrap();
+        for zero_version in [true, false] {
+            let mut bad = (**context).clone();
+            for use_ in &mut bad.name_uses {
+                if let Some(lookup) = &mut use_.lookup {
+                    if let ScopeSearch::IndirectNoun {
+                        holder_version,
+                        holder_generation,
+                        ..
+                    } = &mut lookup.search
+                    {
+                        if zero_version {
+                            holder_version.0 = 0;
+                        } else {
+                            holder_generation.0 = 0;
+                        }
+                    }
+                }
+            }
+            assert!(bad.verify().is_err(), "{source}, version={zero_version}");
+        }
+    }
+}
