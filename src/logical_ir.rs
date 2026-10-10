@@ -371,6 +371,18 @@ pub struct CallOp {
     pub constraints: ConstraintSet,
 }
 
+impl CallOp {
+    /// Recompute nested rank geometry from semantic construction and argument facts.
+    /// This is inspection metadata; existing execution and verifier contracts remain authoritative.
+    pub fn cell_application(
+        &self,
+        left: Option<&crate::facts::Facts>,
+        right: &crate::facts::Facts,
+    ) -> Option<crate::facts::CellApplicationPlan> {
+        crate::facts::cell_application_for_function(&self.callable.semantic, left, right)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReindexKind {
     Reshape,

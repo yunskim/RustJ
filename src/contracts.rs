@@ -4,6 +4,75 @@ pub enum Valence {
     Monad,
     Dyad,
 }
+/// Semantic J rank, independent of jsource's integer RMAX sentinel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RankSpec {
+    Infinite,
+    Absolute(usize),
+    /// Negative source rank resolved relative to the actual argument rank.
+    Relative(i64),
+}
+impl RankSpec {
+    pub fn from_integer(value: i64) -> Self {
+        if value < 0 {
+            Self::Relative(value)
+        } else {
+            Self::Absolute(usize::try_from(value).unwrap_or(usize::MAX))
+        }
+    }
+
+    pub fn resolve(self, argument_rank: usize) -> usize {
+        match self {
+            Self::Infinite => argument_rank,
+            Self::Absolute(rank) => rank.min(argument_rank),
+            Self::Relative(delta) => {
+                let raw = argument_rank as i128 + delta as i128;
+                if raw <= 0 {
+                    0
+                } else {
+                    usize::try_from(raw)
+                        .unwrap_or(usize::MAX)
+                        .min(argument_rank)
+                }
+            }
+        }
+    }
+}
+
+/// Monad / dyad-left / dyad-right rank contract carried by a callable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RankContract {
+    pub monad: RankSpec,
+    pub left: RankSpec,
+    pub right: RankSpec,
+}
+impl RankContract {
+    pub const fn new(monad: RankSpec, left: RankSpec, right: RankSpec) -> Self {
+        Self { monad, left, right }
+    }
+
+    pub const fn all(rank: RankSpec) -> Self {
+        Self::new(rank, rank, rank)
+    }
+}
+
+impl RankContract {
+    pub fn from_normalized(ranks: [i64; 3]) -> Self {
+        let at = |rank| {
+            if rank == 63 {
+                RankSpec::Infinite
+            } else {
+                RankSpec::from_integer(rank)
+            }
+        };
+        Self::new(at(ranks[0]), at(ranks[1]), at(ranks[2]))
+    }
+}
+/// Consume the authoritative primitive registry rather than duplicating its table.
+pub fn innate_rank(id: crate::primitive::PrimitiveId) -> RankContract {
+    RankContract::from_normalized(id.innate_ranks())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
     Pure,
