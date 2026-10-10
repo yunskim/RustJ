@@ -550,3 +550,24 @@ fn z_abandon_observation_rejects_frame_alias_and_wrong_search_state() {
         }
     }
 }
+
+#[test]
+fn locative_abandon_enqueue_does_not_admit_unimplemented_deletion() {
+    for semantic in [false, true] {
+        for source in ["a___:", "a_base__:", "a_probe__:", "a_z__:", "a__holder_:"] {
+            let mut e = Engine::new();
+            e.eval("a=:9").unwrap();
+            e.eval("a_probe_=:11").unwrap();
+            e.eval("a_z_=:7").unwrap();
+            let result = if semantic {
+                e.eval_semantic_reference(source)
+            } else {
+                e.eval(source)
+            };
+            assert_eq!(result.unwrap_err().kind(), "unsupported");
+            scalar(&mut e, "a", 9);
+            scalar(&mut e, "a_probe_", 11);
+            scalar(&mut e, "a_z_", 7);
+        }
+    }
+}

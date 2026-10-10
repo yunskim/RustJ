@@ -156,9 +156,10 @@ fn spelling_errors_do_not_reclassify_valid_names_numeric_dots_or_unsupported_fun
     for source in ["foo_:", "foo_bar_:"] {
         assert!(enqueuer::enqueue(source).unwrap()[0].flags.abandon_name);
     }
-    assert_eq!(
-        enqueuer::enqueue("foo_bar__:").unwrap_err().kind(),
-        "unsupported"
+    assert!(
+        enqueuer::enqueue("foo_bar__:").unwrap()[0]
+            .flags
+            .abandon_name
     );
     assert_eq!(
         enqueuer::enqueue("foo__:").unwrap_err().kind(),
@@ -189,7 +190,7 @@ fn locative_name_syntax_is_checked_before_runtime_lookup() {
         "foo__bar_:",
     ] {
         if source.ends_with(':') {
-            assert_eq!(enqueuer::enqueue(source).unwrap_err().kind(), "unsupported");
+            assert!(enqueuer::enqueue(source).unwrap()[0].flags.abandon_name);
         } else {
             assert!(
                 enqueuer::enqueue(source).unwrap()[0]
@@ -242,16 +243,7 @@ fn name_storage_limits_preserve_c_error_precedence_and_provenance() {
     ];
     let by_value = cases
         .iter()
-        .map(|(word, expected)| {
-            (
-                format!("{word}_:"),
-                if word.ends_with('_') && expected.is_none() {
-                    Some("unsupported")
-                } else {
-                    *expected
-                },
-            )
-        })
+        .map(|(word, expected)| (format!("{word}_:"), *expected))
         .collect::<Vec<_>>();
     cases.extend(by_value);
     for (word, expected) in cases {
@@ -648,6 +640,34 @@ fn locative_catalog_and_control_bindings_remain_unsupported() {
         assert_eq!(
             rustj::definition_control::classify(&format!("for_{name}."))
                 .unwrap_err()
+                .kind(),
+            "unsupported"
+        );
+    }
+}
+
+#[test]
+fn locative_abandon_retains_address_and_policy_independently() {
+    use rustj::enqueuer::{EnqueueClass, EnqueuedPayload, NameForm};
+    for (source, name, form) in [
+        ("a___:", "a__", NameForm::BaseLocative),
+        ("a_base__:", "a_base_", NameForm::DirectLocative),
+        ("a_probe__:", "a_probe_", NameForm::DirectLocative),
+        ("a__holder_:", "a__holder", NameForm::IndirectLocative),
+    ] {
+        let words = enqueuer::enqueue(source).unwrap();
+        assert_eq!(words.len(), 1);
+        let word = &words[0];
+        assert_eq!(word.class, EnqueueClass::Name);
+        assert!(matches!(word.payload, EnqueuedPayload::Name(n) if n == name));
+        assert!(word.flags.abandon_name && word.flags.lookup_name);
+        assert_eq!(word.flags.name_form, form);
+        assert_eq!(word.span, 0..source.len());
+        assert_eq!(word.word_index, 0);
+        assert_eq!(
+            rustj::parser::parse_frontend(source)
+                .unwrap_err()
+                .error
                 .kind(),
             "unsupported"
         );
