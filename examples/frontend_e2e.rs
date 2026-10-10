@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .filter(|spec| spec.frontend_preview)
     {
-        let parsed = nn_engine.parse_frontend(spec.spelling)?;
+        let parsed = nn_engine.parse_frontend(spec.spelling).map_err(|failure| failure.error)?;
         let frontend = parsed.frontend.as_ref().ok_or("missing NN frontend")?;
         frontend.verify()?;
         let family =
