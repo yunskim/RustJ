@@ -86,6 +86,12 @@ FIXTURES = [(name, setup + [query]) for name, setup, query, _, _ in CASES] + [
 # Prerequisite matrix for indirect noun resolution. Unsupported Rust results
 # remain gaps; C values/errors and post-error state are observable contracts.
 INDIRECT_NOUN_FIXTURES = [
+    ("indirect_abandon_holder_domain", ["a=:3", "a_probe_=:9", "a_z_=:7", "holder=:7.5", "a__holder_:+(1 2+1 2 3)", "a__holder_:+0", "a", "a_probe_", "a_z_"]),
+    ("indirect_abandon_holder_rank", ["a=:3", "a_probe_=:9", "a_z_=:7", "holder=:1 2", "a__holder_:+(1 2+1 2 3)", "a__holder_:+0", "a", "a_probe_", "a_z_"]),
+    ("indirect_abandon_holder_numbered", ["a=:3", "a_probe_=:9", "a_z_=:7", "holder=:7", "a__holder_:+(1 2+1 2 3)", "a__holder_:+0", "a", "a_probe_", "a_z_"]),
+    ("indirect_abandon_holder_length", ["a=:3", "a_probe_=:9", "a_z_=:7", "holder=:<''", "a__holder_:+(1 2+1 2 3)", "a__holder_:+0", "a", "a_probe_", "a_z_"]),
+    ("indirect_abandon_holder_name", ["a=:3", "a_probe_=:9", "a_z_=:7", "holder=:<'bad!'", "a__holder_:+(1 2+1 2 3)", "a__holder_:+0", "a", "a_probe_", "a_z_"]),
+    ("indirect_abandon_holder_debug", ["a=:3", "a_probe_=:9", "a_z_=:7", "holder=:<_1", "a__holder_:+(1 2+1 2 3)", "a__holder_:+0", "a", "a_probe_", "a_z_"]),
     ("indirect_noun_commit_holder", ["a_probe_=:7", "holder=:<'probe'", "a__holder=:holder=:<'other'", "a_probe_", "a_other_", "holder"]),
     ("indirect_noun_self_holder", ["holder=:<'base'", "holder__holder=:<'other'", "holder"]),
     ("indirect_noun_local_write", ["a=:13", "holder=:<'base'", "f=:3 : 0\nholder=.<'fresh'\na=.99\na__holder=.21\na+a__holder\n)", "f 0", "a_fresh_", "a", "holder"]),

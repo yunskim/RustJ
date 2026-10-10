@@ -625,7 +625,7 @@ struct EngineParserHost<'a> {
 impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn prepare_take_name(&mut self, name: &str) -> Result<()> {
         if indirect_holder(name).is_some() {
-            let (_, locale) = self.engine.resolve_indirect_noun_address(name)?;
+            let (_, locale) = self.engine.resolve_indirect_abandon_address(name)?;
             self.engine.ensure_named_locale(&locale)?;
         }
         Ok(())
@@ -2821,6 +2821,16 @@ impl Engine {
         Ok((key.to_owned(), locale.to_owned()))
     }
 
+    fn resolve_indirect_abandon_address(&self, name: &str) -> Result<(String, String)> {
+        // p.c undefname makes failed NAMEABANDON lookup a value error,
+        // including malformed holder addresses. Unsupported families remain closed.
+        self.resolve_indirect_noun_address(name)
+            .map_err(|error| match error {
+                Error::Unsupported(_) => error,
+                _ => Error::Value(name.to_owned()),
+            })
+    }
+
     fn direct_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
         if locale == "base" {
             self.names.get(key)
@@ -2912,7 +2922,7 @@ impl Engine {
 
     fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
         if indirect_holder(name).is_some() {
-            let (key, locale) = self.resolve_indirect_noun_address(name)?;
+            let (key, locale) = self.resolve_indirect_abandon_address(name)?;
             self.ensure_named_locale(&locale)?;
             // Direct abandon already selects own then z and bypasses locals.
             return self.take_binding(&format!("{key}_{locale}_"), single_word);
