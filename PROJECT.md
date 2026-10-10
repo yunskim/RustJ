@@ -1787,6 +1787,66 @@ Code inspection baseline: documentation checkout `89b87b8`. `src/primitive.rs` p
 
 Small validation candidates are `relu` → `linear`/`flatten` → `conv`/`avgpool2d`. Existing M1–M6/frontend migration order remains authoritative; this inventory does not require all candidates as new prerequisites. Training/AD/state families come later; actual CUDA implementation remains deferred.
 
+
+<a id="nn-extension-checklist"></a>
+
+#### NN/array extension-first admission inventory and execution checklist (2026-10-10; design/planning only)
+
+**Decision:** Introduce computations first as extensions bound to ordinary J names and retain them as **single, semantically specified computational primitives in J Graph IR**. Subsequently **Execution Semantic Lowering / Logical Execution IR** may *optionally* expand a graph atom into a proven composition, or retain the atom for native CPU, verified libraries, MLIR/StableHLO-compatible subsets, or GPU kernels. "Extension now, native later" keeps source interface and observable meaning stable; it does **not** require promoting a Graph IR primitive to a new core-J syntax primitive. Decomposition, fusion, target selection, and numeric relaxation are separate proof/cost choices. Sources: [JAXA late architecture (A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [prototype registry (P)](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), and the canonical [Korean NN admission checklist](PROJECT.ko.md#nn-extension-checklist).
+
+**Status policy:** Every unchecked item is a *proposed/unverified extension task*, **not runnable support**. P0–P3 describe order *within this independent track*, not new prerequisites overriding frontend, M3 or M4 acceptance. Names and surface POS are candidates, not automatically inherited as commitments from JAXA prototypes. Stateful computations use explicit `StateResource` identities rather than primitive-owned hidden weight/buffer fields; parameterized adverb/builders and their resulting computational verbs are distinct.
+
+| Priority | ID/check | Candidate extension/family | Atomic J Graph IR meaning and motivation | Optional later Logical IR decomposition / execution |
+|---|---|---|---|---|
+| P0 | [ ] NN-01 | `relu`, `sigmoid`, `tanh` | Elementwise activations; convenience numeric contracts (a separate graph atom is optional when core-J composition suffices) | Map/elementwise, standard-J reference |
+| P0 | [ ] NN-02 | `linear` builder | Affine/dense layer with explicit W/bias, batch/axis and parameter schema | MatMul + Bias → GEMM/fused route |
+| P0 | [ ] NN-03 | `flatten` / feature reshape | Flatten chosen cell axes preserving J atom order and frames | StaticReindex/Reshape; view/no-copy requires proof |
+| P0 | [ ] NN-04 | `conv2d` / historical `conv` builder | Spatial convolution; window/stride/pad/dilation/groups/axes/output-shape contract | Window/Gather + Contract/Reduce, or library Conv |
+| P0 | [ ] NN-05 | `avgpool2d`, `maxpool2d` builders | Window pooling: padding denominator, ties, NaNs, empty window | WindowReduce / library |
+| P0 | [ ] NN-06 | `softmax`, `log_softmax` | Stable axis normalization with empty/Inf/NaN contracts | MaxReduce + Exp + SumReduce + Normalize / fused |
+| P0 | [ ] NN-07 | `crossentropy` (explicit logits/probabilities mode) | Labels, stable logs, reduction mode and result shape | Gather/LogSumExp/Reduce or dedicated loss |
+| P1 | [ ] NN-08 | `conv1d`, `conv3d`, `depthwise_conv`, `grouped_conv` | Dimension, grouping, channel-axis and derived cell-rank semantics; not mere conv2d aliases | Window + Contraction / target Conv |
+| P1 | [ ] NN-09 | `layernorm`, `rmsnorm`, `batchnorm` | Feature/batch reduction axes, epsilon, affine and training/inference running-state policy | Reduce + Normalize + Scale/Shift; BN effects distinct |
+| P1 | [ ] NN-10 | `gelu`, `silu` | Numeric definition and separately declared approximation | Elementwise / fused activation |
+| P1 | [ ] NN-11 | `embedding` | Integer-index lookup, out-of-range error, padding index and optional weight sharing | Gather; indexed scatter-add for weight VJP |
+| P1 | [ ] NN-12 | `scaled_dot_product_attn` | Q/K/V, scale, causal/padding mask, head/layout axes and output dtype | MatMul + Mask + Softmax + MatMul or fused; not a FlashAttention claim |
+| P1 | [ ] NN-13 | `rotary_embedding` / positional transform | Position indices, rotated axes, frequency/precision numeric rules | Slice/paired Map/Rotate; basic positional add stays core J |
+| P1 | [ ] NN-14 | `matmul`/batched-contraction **optional alias** | Recognize core J `+/ .*`; no mandatory new syntax/extension | Dot/Reduce/Rank → GEMM/batched GEMM |
+| P2 | [ ] NN-15 | `dropout` builder | Explicit RNG seed/state/version, train/eval and mask lifetime | RNG + Mask + Scale with effect/reproducibility evidence |
+| P2 | [ ] NN-16 | `*_vjp_x`, `*_vjp_weight` / `*_grad_*` | Independent per-input backward, residual requirements and gradient shapes | Composition-derived VJP where possible; otherwise registered VJP |
+| P2 | [ ] NN-17 | `sgd`, `adam`, `adamw` optimizer builders | Explicit parameter/gradient/moment/step reads, writes and versions | Elementwise updates and explicit `StateResource` |
+| P2 | [ ] NN-18 | `adjoint` / VJP relation registration | Static declaration API, not a computational conjunction; never redefine J obverse/inverse | AD rule registration, *not* completed autodiff |
+| P2 | [ ] NN-19 | `cast_*`, `to_*`, `cp`, `emit`/accumulate candidates | Mixed precision, residual retention, side-output effects; surface adoption of `cp`/`emit` remains open | Conversion and explicit Value/State effects, not physical placement |
+| P3 | [ ] NN-20 | `conv_transpose`, adaptive/global pooling | Upsampling and variable output/edge-window contracts | Scatter/WindowReduce or dedicated kernel |
+| P3 | [ ] NN-21 | `quantize`, `dequantize`, `quantized_matmul` | Scale/zero-point, saturation/rounding, accumulator dtype first | Q/DQ + Contract or integer GEMM |
+| P3 | [ ] NN-22 | KV-cache update / paged attention | Inference state/version, alias/order and incremental indices; distinct from pure attention | Gather/Scatter + Attention / specialized fusion |
+| P3 | [ ] NN-23 | MoE gate/dispatch/combine | Routing index, capacity/drop/pad, reassembly and VJP | TopK/Gather/Scatter/SegmentedReduce; entire MoE block not required as a primitive |
+
+**Do not duplicate core J vocabulary:** `+`, `*`, `+/`, `|:`, Rank `"`, `@:`, fork/hook; ordinary residual connections, MLP/Transformer blocks and full model/training loops should primarily remain **compositions of derived verbs**. A `matmul` or reshape convenience name must share the lowering pipeline used by equivalent built-in J forms. Existing `with` is a **typed semantic-contract conjunction**, not a device/tile policy channel.
+
+**Per-entry closure gates (all apply before checking an NN-xx item):**
+
+- [ ] **NN-G0 / public identity:** ordinary J name with correct POS (verb/adverb/conjunction), builder operand schema, derived verb valence/innate ranks, late binding/locale/redefinition and versioning; no new parser keyword.
+- [ ] **NN-G1 / exact semantics:** use standard-J reference/oracle where expressible; otherwise pin a mathematical/framework oracle. Specify axis/frame/cell, zero-frame virtual/prototype/fill/assembly semantics, empty cell, scalar, dynamic shape, dtype/promotion, NaN/Inf/signed zero, boundary checks and observable error precedence.
+- [ ] **NN-G2 / state and differentiation:** explicit effects/alias, distinct `StateResource` and `ValueId`, RNG, parameter versions and read/write order; for training, per-input VJP, residual/gradient accumulation. Keep `BufferId`, layout, tile and device counts out of semantic identity.
+- [ ] **NN-G3 / J Graph IR:** one graph primitive call with provenance, name-binding/derived-function identity and contracts; unknown contracts conservatively bar rewrites/execution rather than claim support.
+- [ ] **NN-G4 / optional decomposition:** preserve the source J Graph atom and emit decomposition candidates at later Execution Semantic Lowering/Logical IR only with an equivalence witness/guard and source provenance. Reject decomposition on unproven numeric order, first-error/effect semantics or invalid layout assumptions; retain an atomic route or report unsupported.
+- [ ] **NN-G5 / runnable route:** demonstrate at least one portable CPU/reference **or** verified external/library execution route with legal preconditions and explicit unsupported/fallback behavior. Name/Graph registration alone never means implemented. Native/GPU/fused/FlashAttention support are separate milestones.
+- [ ] **NN-G6 / verifiable evidence:** positive, edge and negative cases comparing values/dtype/shape/rank/J errors/effects; gradient checks if applicable; stage/negative verifiers and decomposition-on/off equivalence; reproducible exact SHA/CI by target. Differential-check core-J expressions against pinned jsource; pin a separate oracle for newly specified NN semantics. Untested is `UNRUN`.
+- [ ] **NN-G7 / native promotion:** keep the J public interface and observable semantics unchanged; add native realization/pattern recognition only after representative correctness, cost and performance evidence. Record Graph atom, Logical decomposition, native kernel and **core J primitive syntax** as distinct decisions.
+
+**Track-level progress (documented plan only, no implementation/CI claims):**
+
+- [x] **NN-D0:** reconcile historical §5.3 JAXA/Japchae sources with current A2/IR invariants and record prioritized candidates plus entry/exit gates.
+- [ ] **NN-D1:** `relu` vertical slice: J binding → atomic Graph IR → CPU reference → decomposed/undecomposed equivalence and negative verifier.
+- [ ] **NN-D2:** small MLP using `linear`/`flatten`/`softmax`; small CNN using `conv2d`/`avgpool2d`, with Shape/Rank/zero-frame evidence.
+- [ ] **NN-D3:** small Transformer inference combining attention/embedding/norm; compare mask/numeric/target-route behavior.
+- [ ] **NN-D4:** only after separate proof, implement P2 VJP/optimizer/state/AD; choose P3 additions only with workload and kernel demand.
+- [ ] **NN-D5:** keep per-entry status aligned with A2/affected M-stage gates and Korean canonical checklist, with exact main SHA, CI and UNRUN scope.
+
+**Boundary/sources:** [Existing extension inventory](#section), [Korean canonical counterpart](PROJECT.ko.md#nn-extension-checklist), [JAXA late architecture (A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md). Historical "conv owns hidden weights" does not override RustJ's explicit `StateResource` invariant. This subsection does not report newly implemented features or executed tests.
+
+
 ### 5.3.4 Pre-execution input information — ``with (X`Y)`` candidate and metadata validation
 
 **User intent:** investigate how input information enables analysis/optimization before execution. with/gerunds are optional candidates, not a required or finalized surface schema. Facts can come from existing noun metadata, an external API/catalog, file/dataset headers/schemas, or optional annotations and converge at one analysis boundary. Header access remains actual I/O with effects. Some topology analysis needs no shapes; dtype/rank/extents/dimension relations enable more precise legality/resource analysis. Metadata does not prove content-dependent conditions. Frontend priorities and deferred optimizer execution remain unchanged.
