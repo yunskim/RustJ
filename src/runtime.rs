@@ -2647,6 +2647,21 @@ impl Engine {
     }
 
     fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
+        let base_key = base_locative_key(name).or_else(|| {
+            named_direct_address(name).and_then(|(key, locale)| (locale == "base").then_some(key))
+        });
+        if let Some(key) = base_key {
+            return match self.names.get(key) {
+                Some(Binding {
+                    value: JEntity::Noun(_),
+                    ..
+                }) => Ok((self.names.remove(key).expect("found base noun").value, true)),
+                Some(_) => Err(Error::Unsupported("base-locative function abandon".into())),
+                None => Err(Error::Unsupported(
+                    "base-locative path/future abandon".into(),
+                )),
+            };
+        }
         // Enqueue retains address form independently of abandon policy. Do not
         // reinterpret unsupported locatives as flat ordinary-name keys.
         if name.ends_with('_') || name.contains("__") {
