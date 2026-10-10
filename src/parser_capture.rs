@@ -238,12 +238,25 @@ impl ParseCapture {
                                 if z == hit && z != lookup.engine
                                     && *deleted
                                     && lookup.binding_class == Some(crate::parser::ParseClass::Noun)
+                                    && !name.ends_with('_') && !name.contains("__")
                                     && match lookup.frame {
                                         None => lookup.local_state == crate::frontend_context::LocalLookupState::NoFrame,
                                         Some(frame) => frame != z && frame != lookup.engine
                                             && matches!(lookup.local_state,
                                                 crate::frontend_context::LocalLookupState::Absent
                                                 | crate::frontend_context::LocalLookupState::DeclaredUnbound),
+                                    }
+                        ) || matches!(
+                            (lookup.search, lookup.found),
+                            (crate::frontend_context::ScopeSearch::BaseDefaultZ { z },
+                             crate::frontend_context::FoundScope::Locale(hit))
+                                if z == hit && z != lookup.engine && *deleted
+                                    && (name.ends_with("__") || name.ends_with("_base_"))
+                                    && lookup.binding_class == Some(crate::parser::ParseClass::Noun)
+                                    && match lookup.frame {
+                                        None => lookup.local_state == crate::frontend_context::LocalLookupState::NoFrame,
+                                        Some(frame) => frame != z && frame != lookup.engine
+                                            && lookup.local_state == crate::frontend_context::LocalLookupState::Bypassed,
                                     }
                         ))
                     {

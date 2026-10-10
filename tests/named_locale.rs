@@ -601,8 +601,8 @@ fn explicit_base_own_abandon_preserves_snapshots_and_first_error_order() {
             assert!(e.binding_version("a").is_none());
             assert_eq!(e.eval("saved").unwrap().unwrap().shape(), &[3]);
             scalar(&mut e, "a", 7);
-            assert_eq!(run(&mut e, name).unwrap_err().kind(), "unsupported");
-            scalar(&mut e, "a_z_", 7);
+            assert_eq!(run(&mut e, name).unwrap().unwrap().int_at(0).unwrap(), 7);
+            assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
             e.eval("a=:+").unwrap();
             assert_eq!(run(&mut e, name).unwrap_err().kind(), "unsupported");
             scalar(&mut e, "a 3", 3);
@@ -636,5 +636,69 @@ fn explicit_base_own_abandon_capture_and_local_bypass_select_base() {
             assert!(e.binding_version("a").is_none());
             scalar(&mut e, "a_z_", 7);
         }
+    }
+}
+
+#[test]
+fn explicit_base_z_abandon_captures_hit_and_rejects_role_mutation() {
+    for (take, read) in [("a___:", "a_base_"), ("a_base__:", "a__")] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:7").unwrap();
+        let r = e.eval_captured(&format!("{take}+{read}"));
+        assert_eq!(r.result.unwrap().unwrap().int_at(0).unwrap(), 14);
+        r.capture.verify().unwrap();
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+        assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+        for wrong_search in [false, true] {
+            let mut bad = r.capture.clone();
+            let rustj::parser_capture::CaptureEvent::Abandon { lookup, .. } = bad
+                .events
+                .iter_mut()
+                .find(|event| matches!(event, rustj::parser_capture::CaptureEvent::Abandon { .. }))
+                .unwrap()
+            else {
+                unreachable!()
+            };
+            let ScopeSearch::BaseDefaultZ { z } = lookup.search else {
+                panic!()
+            };
+            if wrong_search {
+                lookup.search = ScopeSearch::SimpleDefaultZ { z };
+            } else {
+                lookup.found = FoundScope::Locale(lookup.engine);
+            }
+            assert!(bad.verify().is_err());
+        }
+    }
+}
+
+#[test]
+fn explicit_base_z_abandon_preserves_snapshots_errors_and_local_bypass() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        let run = |e: &mut Engine, source: &str| {
+            if semantic {
+                e.eval_semantic_reference(source)
+            } else {
+                e.eval(source)
+            }
+        };
+        e.eval("a_z_=:i.3").unwrap();
+        e.eval("saved=:a__").unwrap();
+        assert_eq!(
+            run(&mut e, "a___:+1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        assert_eq!(e.eval("a").unwrap().unwrap().shape(), &[3]);
+        assert_eq!(
+            run(&mut e, "1 2+a_base__:").unwrap_err().kind(),
+            "length error"
+        );
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
+        assert_eq!(e.eval("saved").unwrap().unwrap().shape(), &[3]);
+        e.eval("a_z_=:7").unwrap();
+        e.eval("f=:3 : 0\na=.11\na_base__:+a\n)").unwrap();
+        assert_eq!(run(&mut e, "f 0").unwrap().unwrap().int_at(0).unwrap(), 18);
+        assert_eq!(e.eval("a+0").unwrap_err().kind(), "value error");
     }
 }
