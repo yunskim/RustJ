@@ -688,6 +688,14 @@ impl FrontendContext {
                         self.words[name_use.word.0].flags.name_form
                             == crate::enqueuer::NameForm::DirectLocative
                             && lookup.binding_class == Some(ParseClass::Noun)
+                            && self.words[name_use.word.0]
+                                .name
+                                .as_deref()
+                                .is_some_and(|name| {
+                                    // Only the literal base alias selects the engine table.
+                                    // Distinct named locales cannot forge the base resource ID.
+                                    name.ends_with("_base_") == (start == lookup.engine)
+                                })
                             && match found {
                                 FoundScope::Locale(hit) => hit == start && hit != lookup.engine,
                                 FoundScope::Global(hit) => hit == start && hit == lookup.engine,

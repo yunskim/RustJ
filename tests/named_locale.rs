@@ -119,3 +119,36 @@ fn unsupported_paths_functions_and_computed_locatives_do_not_mutate_bindings() {
         "unsupported"
     );
 }
+
+#[test]
+fn direct_locale_witness_cannot_swap_base_and_named_namespace_roles() {
+    let mut e = Engine::new();
+    e.eval("a=:7").unwrap();
+    e.eval("a_probe_=:7").unwrap();
+    let capture = e.eval_captured("a_probe_");
+    let ScopeSearch::DirectLocaleOnly(named) = capture.capture.frontend.as_ref().unwrap().name_uses
+        [0]
+    .lookup
+    .as_ref()
+    .unwrap()
+    .search
+    else {
+        panic!()
+    };
+    for source in ["a_probe_", "a_base_"] {
+        let r = e.eval_captured(source);
+        r.result.unwrap();
+        r.capture.verify().unwrap();
+        let mut bad = (**r.capture.frontend.as_ref().unwrap()).clone();
+        let read = bad.name_uses[0].lookup.as_mut().unwrap();
+        if source == "a_probe_" {
+            read.search = ScopeSearch::DirectLocaleOnly(read.engine);
+            read.found = FoundScope::Global(read.engine);
+        } else {
+            let forged = named;
+            read.search = ScopeSearch::DirectLocaleOnly(forged);
+            read.found = FoundScope::Locale(forged);
+        }
+        assert!(bad.verify().is_err(), "forged namespace role: {source}");
+    }
+}
