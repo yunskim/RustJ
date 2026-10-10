@@ -230,12 +230,14 @@ mod scope_provenance_tests {
                 .iter()
                 .any(|event| matches!(event, CaptureEvent::Commit { previous: None, .. }))
         );
-        assert!(
-            crate::frontend_context::SimpleNameGuard::from_name_use(
-                context,
-                crate::frontend_context::NameUseId(0)
-            )
-            .is_err()
+        let guard = crate::frontend_context::SimpleNameGuard::from_name_use(
+            context,
+            crate::frontend_context::NameUseId(0),
+        )
+        .unwrap();
+        assert_eq!(
+            engine.check_name_guard(&guard),
+            crate::frontend_context::NameGuardCheck::LookupChanged
         );
     }
 
