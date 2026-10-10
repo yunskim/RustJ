@@ -260,6 +260,9 @@ fn dimensions(v: &Value) -> Result<Vec<usize>> {
 }
 
 pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
+    if matches!(verb, "[" | "]") {
+        return Ok(y);
+    }
     if verb == "[:" {
         return Err(Error::Valence);
     }
@@ -412,6 +415,11 @@ pub fn monad(verb: &str, mut y: Value) -> Result<Value> {
 }
 
 pub fn dyad(verb: &str, a: Value, mut b: Value) -> Result<Value> {
+    match verb {
+        "[" => return Ok(a),
+        "]" => return Ok(b),
+        _ => {}
+    }
     if verb == "[:" {
         return Err(Error::Valence);
     }

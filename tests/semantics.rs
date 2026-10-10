@@ -151,3 +151,89 @@ fn rank_lists_select_monadic_left_and_right_ranks() {
     assert!(matches!(e.eval("a=:#\"1 2 3 4 i.2 3"), Err(Error::Length)));
     assert_eq!(e.eval("a").unwrap().unwrap().json(), eval("i.2 3"));
 }
+
+#[test]
+fn argument_selection_preserves_noun_type_shape_and_snapshots() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        let eval = |e: &mut Engine, s: &str| {
+            if semantic {
+                e.eval_semantic_reference(s)
+            } else {
+                e.eval(s)
+            }
+        };
+        for noun in [
+            "i.2 3", "i.0", "<'boxed'", "'abc'", "1 0 1", "1.5 2.5", "2r3", "2x", "$.i.2 3",
+        ] {
+            let expected = eval(&mut e, noun).unwrap().unwrap().json();
+            for verb in ["[", "]"] {
+                assert_eq!(
+                    eval(&mut e, &format!("{verb} {noun}"))
+                        .unwrap()
+                        .unwrap()
+                        .json(),
+                    expected
+                );
+            }
+            assert_eq!(
+                eval(&mut e, &format!("({noun}) [ <'ignored'"))
+                    .unwrap()
+                    .unwrap()
+                    .json(),
+                expected
+            );
+            assert_eq!(
+                eval(&mut e, &format!("(<'ignored') ] {noun}"))
+                    .unwrap()
+                    .unwrap()
+                    .json(),
+                expected
+            );
+        }
+        e.eval("a=:i.3").unwrap();
+        eval(&mut e, "saved=:[a").unwrap();
+        e.eval("a=:a+10").unwrap();
+        assert_eq!(
+            eval(&mut e, "saved").unwrap().unwrap().json(),
+            e.eval("i.3").unwrap().unwrap().json()
+        );
+    }
+}
+
+#[test]
+fn argument_selection_evaluates_both_operands_and_preserves_first_error() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        let eval = |e: &mut Engine, s: &str| {
+            if semantic {
+                e.eval_semantic_reference(s)
+            } else {
+                e.eval(s)
+            }
+        };
+        for verb in ["[", "]"] {
+            e.eval("state=:0").unwrap();
+            assert_eq!(
+                eval(&mut e, &format!("(state=:2) {verb} (1 2+1 2 3)"))
+                    .unwrap_err()
+                    .kind(),
+                "length error"
+            );
+            assert_eq!(e.eval("state").unwrap().unwrap().int_at(0).unwrap(), 0);
+            assert_eq!(
+                eval(&mut e, &format!("(1 2+1 2 3) {verb} (state=:3)"))
+                    .unwrap_err()
+                    .kind(),
+                "length error"
+            );
+            assert_eq!(e.eval("state").unwrap().unwrap().int_at(0).unwrap(), 3);
+        }
+        e.eval("holder=:<'probe'").unwrap();
+        eval(&mut e, "a__holder=: [ holder=:<'other'").unwrap();
+        assert_eq!(
+            e.eval("a_other_").unwrap().unwrap().json(),
+            e.eval("holder").unwrap().unwrap().json()
+        );
+    }
+}

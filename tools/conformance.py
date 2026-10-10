@@ -663,6 +663,11 @@ def multiple_definition_cases():
 
 def cases():
     fixed = [
+        '[i.2 3', ']i.0', "[<'boxed'", "]'abc'", '[2r3', ']2x',
+        '0$. [ $.i.2 3', "(i.2 3) [ <'ignored'", "(<'ignored') ] i.2 3",
+        '(1 2+1 2 3) [ 7', '7 ] (1 2+1 2 3)',
+        'selectionstate=:0', '(selectionstate=:2) [ (1 2+1 2 3)', 'selectionstate',
+        '(1 2+1 2 3) ] (selectionstate=:3)', 'selectionstate',
         'snap=:1', 'copy=:snap', 'snap=:2', 'copy',
         'fn=:+', 'alias=:fn', 'alias 3', 'fn=:*', 'alias 3', '2 alias 3',
         'deferred=:futureverb', 'deferred 3', 'futureverb=:-', 'deferred 3',

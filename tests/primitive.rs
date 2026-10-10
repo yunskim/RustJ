@@ -30,10 +30,15 @@ fn registered_spellings_reach_the_lexer_and_logical_plan() {
         assert_eq!(callable.target, CallTarget::Primitive(id));
         // Implicit locatives are recognized primitives with context-dependent
         // execution, so lexical support must not imply a pure kernel contract.
-        // Cap has no callable valence; keep its analysis contract conservative.
+        // Cap has no callable valence. Argument selection executes at runtime;
+        // its compiler alias/evaluation proof remains conservative.
         if matches!(
             id,
-            PrimitiveId::OperandU | PrimitiveId::OperandV | PrimitiveId::Cap
+            PrimitiveId::OperandU
+                | PrimitiveId::OperandV
+                | PrimitiveId::Cap
+                | PrimitiveId::Left
+                | PrimitiveId::Right
         ) {
             for valence in [Valence::Monad, Valence::Dyad] {
                 assert_eq!(contracts::for_primitive(id, valence), contracts::unknown());

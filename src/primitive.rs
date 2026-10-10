@@ -1,7 +1,7 @@
 //! Canonical IDs for the currently recognized primitive spellings.
 //! IDs denote a J symbol, not a valence or a physical kernel.
 
-pub const REGISTRY_VERSION: u32 = 9;
+pub const REGISTRY_VERSION: u32 = 10;
 macro_rules! primitives {
     ($($id:ident => $spelling:literal),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -43,6 +43,8 @@ primitives! {
     OperandU => "u.",
     OperandV => "v.",
     Cap => "[:",
+    Left => "[",
+    Right => "]",
 }
 
 impl PrimitiveId {
@@ -57,7 +59,7 @@ impl PrimitiveId {
             From => [1, 0, 63],
             IndexOf | Indices => [1, 63, 63],
             Steps | Find => [0, 63, 63],
-            Sparse | Ravel | Member | OperandU | OperandV | Cap => [63; 3],
+            Sparse | Ravel | Member | OperandU | OperandV | Cap | Left | Right => [63; 3],
         }
     }
 }
@@ -393,19 +395,11 @@ impl VocabularyPrimitive {
             part_of_speech: PrimitivePartOfSpeech::Verb,
         },
         Self {
-            spelling: "[",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
             spelling: "\\.",
             part_of_speech: PrimitivePartOfSpeech::Adverb,
         },
         Self {
             spelling: "\\:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "]",
             part_of_speech: PrimitivePartOfSpeech::Verb,
         },
         Self {
