@@ -123,6 +123,12 @@ impl ScopeInstanceId {
 pub enum ScopeSearch {
     /// A direct locative resolved in the selected locale's own noun table.
     DirectLocaleOnly(ScopeInstanceId),
+    /// A named locale's own table missed; its default z table supplied a noun.
+    /// This is an observation, not a path-epoch optimization guard.
+    NamedDefaultZ {
+        start: ScopeInstanceId,
+        z: ScopeInstanceId,
+    },
     /// Empty direct locale selects base explicitly, bypassing local search.
     BaseLocaleOnly,
     GlobalOnly,
@@ -713,6 +719,35 @@ impl FrontendContext {
                                 None => state == LocalLookupState::NoFrame,
                                 Some(frame) => {
                                     frame != start
+                                        && frame != lookup.engine
+                                        && state == LocalLookupState::Bypassed
+                                }
+                            }
+                    }
+                    (
+                        frame,
+                        ScopeSearch::NamedDefaultZ { start, z },
+                        state,
+                        FoundScope::Locale(hit),
+                    ) => {
+                        self.words[name_use.word.0].flags.name_form
+                            == crate::enqueuer::NameForm::DirectLocative
+                            && lookup.binding_class == Some(ParseClass::Noun)
+                            && self.words[name_use.word.0]
+                                .name
+                                .as_deref()
+                                .is_some_and(|name| {
+                                    !name.ends_with("_base_") && !name.ends_with("_z_")
+                                })
+                            && start != lookup.engine
+                            && z != lookup.engine
+                            && start != z
+                            && hit == z
+                            && match frame {
+                                None => state == LocalLookupState::NoFrame,
+                                Some(frame) => {
+                                    frame != start
+                                        && frame != z
                                         && frame != lookup.engine
                                         && state == LocalLookupState::Bypassed
                                 }

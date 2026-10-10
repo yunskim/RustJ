@@ -497,6 +497,13 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         self.engine.take_binding(name, single_word)
     }
     fn lookup_observation(&self, name: &str) -> Option<crate::frontend_context::LookupObservation> {
+        if let Some((_, locale)) = named_direct_address(name)
+            && locale != "base"
+            && !self.engine.named_locales.contains_key(locale)
+        {
+            // Normal lookup creates the selected locale. Do not invent its ID before that.
+            return None;
+        }
         Some(self.engine.lookup_observation(name))
     }
     fn function_name_ranks(&self, name: &str) -> Option<[i64; 3]> {
@@ -549,7 +556,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     fn lookup(&mut self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
         if let Some((key, locale)) = named_direct_address(name) {
             self.engine.ensure_named_locale(locale)?;
-            return match self.engine.direct_binding(key, locale) {
+            return match self.engine.direct_read_binding(key, locale) {
                 Some(Binding {
                     value: JEntity::Noun(value),
                     ..
@@ -587,7 +594,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         if let Some((key, locale)) = named_direct_address(name) {
             return self
                 .engine
-                .direct_binding(key, locale)
+                .direct_read_binding(key, locale)
                 .map(|binding| binding.version);
         }
         if let Some(key) = base_locative_key(name) {
@@ -2477,7 +2484,7 @@ impl Engine {
     }
 
     // sl.c initializes a named locale with a z path. This slice supports its
-    // own noun table only, including z: path lookup/mutation and numbered locales stay closed.
+    // own noun tables plus the bounded default z noun path; path mutation and numbered locales stay closed.
     fn ensure_named_locale(&mut self, locale: &str) -> Result<()> {
         if !locale
             .as_bytes()
@@ -2502,6 +2509,17 @@ impl Engine {
         } else {
             self.named_locales.get(locale)?.names.get(key)
         }
+    }
+
+    /// A bounded named-locale noun path. Writes continue to use direct_binding.
+    fn direct_read_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
+        self.direct_binding(key, locale).or_else(|| {
+            if locale == "base" || locale == "z" {
+                None
+            } else {
+                self.direct_binding(key, "z")
+            }
+        })
     }
 
     fn commit_runtime_binding(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
@@ -2586,13 +2604,20 @@ impl Engine {
             } else {
                 self.named_locales.get(locale).map(|locale| locale.instance)
             };
-            let binding = self.direct_binding(key, locale);
+            let own = self.direct_binding(key, locale);
+            let binding = self.direct_read_binding(key, locale);
+            let z = (own.is_none() && binding.is_some()).then(|| self.named_locales["z"].instance);
             return LookupObservation {
                 engine: self.namespace_instance,
                 frame: self.local_frames.last().map(|frame| frame.instance),
-                search: ScopeSearch::DirectLocaleOnly(
-                    start.expect("successful lookup created locale"),
-                ),
+                search: if let Some(z) = z {
+                    ScopeSearch::NamedDefaultZ {
+                        start: start.expect("successful lookup created locale"),
+                        z,
+                    }
+                } else {
+                    ScopeSearch::DirectLocaleOnly(start.expect("successful lookup created locale"))
+                },
                 local_state: if self.local_frames.is_empty() {
                     LocalLookupState::NoFrame
                 } else {
@@ -2603,7 +2628,7 @@ impl Engine {
                 } else if locale == "base" {
                     FoundScope::Global(self.namespace_instance)
                 } else {
-                    FoundScope::Locale(start.unwrap())
+                    FoundScope::Locale(z.unwrap_or_else(|| start.unwrap()))
                 },
                 binding_version: binding.map(|binding| binding.version),
                 binding_generation: binding.map(|binding| binding.generation),
