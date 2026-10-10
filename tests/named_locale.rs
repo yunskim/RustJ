@@ -1500,3 +1500,49 @@ fn indirect_abandon_capture_keeps_predelete_holder_and_rejects_mutation() {
     r.capture.verify().unwrap();
     assert_eq!(e.eval("holder").unwrap_err().kind(), "value error");
 }
+
+#[test]
+fn indirect_abandon_holder_errors_preserve_target_bindings() {
+    for reference in [false, true] {
+        for (holder, expected) in [
+            ("holder=:1 2", "value error"),
+            ("holder=:7", "value error"),
+            ("holder=:7.5", "value error"),
+            ("holder=:<''", "value error"),
+            ("holder=:<'bad!'", "value error"),
+            ("holder=:<_1", "value error"),
+        ] {
+            let mut e = Engine::new();
+            for source in ["a=:3", "a_probe_=:9", "a_z_=:7", holder] {
+                e.eval(source).unwrap();
+            }
+            let before = e.binding_version("a");
+            assert_eq!(
+                if reference {
+                    e.eval_semantic_reference("a__holder_:+(1 2+1 2 3)")
+                } else {
+                    e.eval("a__holder_:+(1 2+1 2 3)")
+                }
+                .unwrap_err()
+                .kind(),
+                "length error",
+                "{holder}, reference={reference}"
+            );
+            assert_eq!(
+                if reference {
+                    e.eval_semantic_reference("a__holder_:+0")
+                } else {
+                    e.eval("a__holder_:+0")
+                }
+                .unwrap_err()
+                .kind(),
+                expected,
+                "{holder}, reference={reference}"
+            );
+            assert_eq!(e.binding_version("a"), before);
+            scalar(&mut e, "a", 3);
+            scalar(&mut e, "a_probe_", 9);
+            scalar(&mut e, "a_z_", 7);
+        }
+    }
+}
