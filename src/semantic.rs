@@ -169,15 +169,13 @@ impl FunctionEntity {
                 Some([63; 3])
             }
             FunctionHead::PrimitiveAdverb(
-                crate::primitive::AdverbId::Insert | crate::primitive::AdverbId::Key,
+                crate::primitive::AdverbId::Slash | crate::primitive::AdverbId::Sldot,
             )
-            | FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+            | FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atco) => {
                 Some([63; 3])
             }
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
-                Some([63, 0, 63])
-            }
-            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Bslash) => Some([63, 0, 63]),
+            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
                 if self.decoded_gerund.is_some() {
                     return Some([63; 3]);
                 }
@@ -196,7 +194,7 @@ impl FunctionEntity {
         if depth > MAX_EXPR_DEPTH
             || !matches!(
                 self.head,
-                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank)
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq)
             )
         {
             return None;
@@ -383,7 +381,9 @@ pub(crate) fn rank_noun_contract(value: &Value) -> Result<[i64; 3]> {
             }
             _ => value.int_at(index)?,
         };
-        // J's maximum array rank is 63. Retain the source noun unchanged.
+        // jsource RMAX = 63 is both the maximum array rank and the
+        // effective infinite verb rank over permitted arrays. Normalize
+        // requested ranks here; retain the original source noun unchanged.
         Ok(rank.clamp(-63, 63))
     };
     Ok(match value.len() {
@@ -576,7 +576,7 @@ pub(crate) fn bind(
                             && matches!(
                                 function.head,
                                 FunctionHead::PrimitiveConjunction(
-                                    crate::primitive::ConjunctionId::Rank
+                                    crate::primitive::ConjunctionId::Qq
                                 )
                             ))
                     {

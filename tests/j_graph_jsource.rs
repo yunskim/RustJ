@@ -96,7 +96,7 @@ fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
     assert_eq!(key.result_pos, Pos::Adverb);
     assert!(matches!(
         key.semantic_id,
-        PrimitiveSemanticId::Adverb(rustj::primitive::AdverbId::Key)
+        PrimitiveSemanticId::Adverb(rustj::primitive::AdverbId::Sldot)
     ));
 
     // The source catalog must not turn known frontend forms into
@@ -130,7 +130,7 @@ fn key_construction_preserves_an_opaque_graph_boundary_without_groupby_selection
             plan.nodes.iter().any(|node| matches!(
                 &node.kind,
                 NodeKind::Apply { function, form: GraphForm::Modifier { .. }, .. }
-                    if function.head == FunctionHead::PrimitiveAdverb(AdverbId::Key)
+                    if function.head == FunctionHead::PrimitiveAdverb(AdverbId::Sldot)
             )),
             "{source} lost its opaque Key modifier identity"
         );

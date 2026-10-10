@@ -1206,30 +1206,30 @@ macro_rules! primitives {
     }
 }
 primitives! {
-    Add => "+",
-    Subtract => "-",
-    Multiply => "*",
-    Divide => "%",
-    Shape => "$",
+    Plus => "+",
+    Minus => "-",
+    Star => "*",
+    Div => "%",
+    Dollar => "$",
     Sparse => "$.",
-    Tally => "#",
-    Ravel => ",",
-    Equal => "=",
-    Less => "<",
-    Greater => ">",
-    From => "{",
-    Magnitude => "|",
-    IndexOf => "i.",
-    Reverse => "|.",
-    Transpose => "|:",
+    Pound => "#",
+    Comma => ",",
+    Eq => "=",
+    Lt => "<",
+    Gt => ">",
+    Lbrace => "{",
+    Stile => "|",
+    Iota => "i.",
+    Rev => "|.",
+    Cant => "|:",
     Take => "{.",
     Drop => "}.",
-    Steps => "i:",
-    Indices => "I.",
-    Member => "e.",
-    Find => "E.",
-    OperandU => "u.",
-    OperandV => "v.",
+    Ico => "i:",
+    Icap => "I.",
+    Eps => "e.",
+    Ebar => "E.",
+    Udot => "u.",
+    Vdot => "v.",
     Cap => "[:",
     Left => "[",
     Right => "]",
@@ -1237,30 +1237,35 @@ primitives! {
 
 impl PrimitiveId {
     /// C t.c's intrinsic (monad, dyad-left, dyad-right) header ranks.
-    /// 63 is J's unbounded-rank sentinel, not an actual argument rank.
+    /// jsource RMAX is 63: six rank bits in RANKT, leaving two flag bits.
+    /// It is also the maximum permitted array rank; an actual rank-63
+    /// argument is a 63-dimensional array. As an innate verb rank, 63
+    /// acts as infinite rank over permitted arrays: the effective cell
+    /// rank is capped by the argument rank, so the whole argument is a cell.
+    /// Retain this integer representation for current jsource compatibility.
     pub const fn innate_ranks(self) -> [i64; 3] {
         use PrimitiveId::*;
         match self {
-            Add | Subtract | Multiply | Divide | Greater | Magnitude => [0, 0, 0],
-            Equal | Less => [63, 0, 0],
-            Shape | Tally | Reverse | Transpose | Take | Drop => [63, 1, 63],
-            From => [1, 0, 63],
-            IndexOf | Indices => [1, 63, 63],
-            Steps | Find => [0, 63, 63],
-            Sparse | Ravel | Member | OperandU | OperandV | Cap | Left | Right => [63; 3],
+            Plus | Minus | Star | Div | Gt | Stile => [0, 0, 0],
+            Eq | Lt => [63, 0, 0],
+            Dollar | Pound | Rev | Cant | Take | Drop => [63, 1, 63],
+            Lbrace => [1, 0, 63],
+            Iota | Icap => [1, 63, 63],
+            Ico | Ebar => [0, 63, 63],
+            Sparse | Comma | Eps | Udot | Vdot | Cap | Left | Right => [63; 3],
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AdverbId {
-    Insert,
+    Slash,
     /// J `/.`: a verb-derived noun group/oblique function. Source identity
     /// is constructed independently of its monadic/dyadic runtime semantics.
-    Key,
+    Sldot,
     /// J prefix/infix adverb `\`. The derived verb keeps the adverb
     /// identity; monadic prefix vs dyadic infix is resolved at application.
-    PrefixInfix,
+    Bslash,
     /// Ident `]:` returns its noun or verb operand without invoking it.
     Ident,
 }
@@ -1271,18 +1276,18 @@ impl AdverbId {
 
     pub fn from_spelling(s: &str) -> Option<Self> {
         match s {
-            "/" => Some(Self::Insert),
-            "/." => Some(Self::Key),
-            "\\" => Some(Self::PrefixInfix),
+            "/" => Some(Self::Slash),
+            "/." => Some(Self::Sldot),
+            "\\" => Some(Self::Bslash),
             "]:" => Some(Self::Ident),
             _ => None,
         }
     }
     pub const fn spelling(self) -> &'static str {
         match self {
-            Self::Insert => "/",
-            Self::Key => "/.",
-            Self::PrefixInfix => "\\",
+            Self::Slash => "/",
+            Self::Sldot => "/.",
+            Self::Bslash => "\\",
             Self::Ident => "]:",
         }
     }
@@ -1290,9 +1295,9 @@ impl AdverbId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ConjunctionId {
-    Rank,
-    /// Historical internal name: spelling `@:` is NuVoc At, not rank-sensitive `@` Atop.
-    Atop,
+    Qq,
+    /// Historical internal name: spelling `@:` is NuVoc At, not rank-sensitive `@` Atco.
+    Atco,
     Lev,
     Dex,
 }
@@ -1303,8 +1308,8 @@ impl ConjunctionId {
 
     pub fn from_spelling(s: &str) -> Option<Self> {
         match s {
-            "\"" => Some(Self::Rank),
-            "@:" => Some(Self::Atop),
+            "\"" => Some(Self::Qq),
+            "@:" => Some(Self::Atco),
             "[." => Some(Self::Lev),
             "]." => Some(Self::Dex),
             _ => None,
@@ -1312,8 +1317,8 @@ impl ConjunctionId {
     }
     pub const fn spelling(self) -> &'static str {
         match self {
-            Self::Rank => "\"",
-            Self::Atop => "@:",
+            Self::Qq => "\"",
+            Self::Atco => "@:",
             Self::Lev => "[.",
             Self::Dex => "].",
         }

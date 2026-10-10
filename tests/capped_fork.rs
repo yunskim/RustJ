@@ -87,11 +87,11 @@ fn named_cap_static_and_captured_graph_keep_dependencies_and_pipeline_only() {
     assert_eq!(stages.len(), 2);
     assert_eq!(
         stages[0].head,
-        FunctionHead::PrimitiveVerb(PrimitiveId::Subtract)
+        FunctionHead::PrimitiveVerb(PrimitiveId::Minus)
     );
     assert_eq!(
         stages[1].head,
-        FunctionHead::PrimitiveVerb(PrimitiveId::Add)
+        FunctionHead::PrimitiveVerb(PrimitiveId::Plus)
     );
     assert!(!hints.contains(GraphHint::ParallelBranchCandidate));
     assert!(!hints.contains(GraphHint::RetainedValueCandidate));

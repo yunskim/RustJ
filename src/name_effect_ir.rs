@@ -318,7 +318,7 @@ fn lower(
                         };
                         if matches!(
                             primitive,
-                            PrimitiveId::OperandU | PrimitiveId::OperandV | PrimitiveId::Cap
+                            PrimitiveId::Udot | PrimitiveId::Vdot | PrimitiveId::Cap
                         ) || !function.operands.is_empty()
                         {
                             return Err(unsupported());

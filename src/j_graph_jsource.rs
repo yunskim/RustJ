@@ -337,13 +337,11 @@ fn is_mean_fork(function: &FunctionEntity) -> bool {
     else {
         return false;
     };
-    if !matches!(
-        &divide.head,
-        FunctionHead::PrimitiveVerb(PrimitiveId::Divide)
-    ) || !matches!(&count.head, FunctionHead::PrimitiveVerb(PrimitiveId::Tally))
+    if !matches!(&divide.head, FunctionHead::PrimitiveVerb(PrimitiveId::Div))
+        || !matches!(&count.head, FunctionHead::PrimitiveVerb(PrimitiveId::Pound))
         || !matches!(
             &reduction.head,
-            FunctionHead::PrimitiveAdverb(AdverbId::Insert)
+            FunctionHead::PrimitiveAdverb(AdverbId::Slash)
         )
     {
         return false;
@@ -351,7 +349,7 @@ fn is_mean_fork(function: &FunctionEntity) -> bool {
     matches!(
         reduction.operands.as_slice(),
         [FunctionOperand::Function(add)]
-            if matches!(&add.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add))
+            if matches!(&add.head, FunctionHead::PrimitiveVerb(PrimitiveId::Plus))
     )
 }
 
@@ -379,22 +377,22 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
                 // i: is the dyadic last-index member of the index-of family.
                 (
                     FunctionHead::PrimitiveVerb(
-                        PrimitiveId::IndexOf | PrimitiveId::Steps | PrimitiveId::Member,
+                        PrimitiveId::Iota | PrimitiveId::Ico | PrimitiveId::Eps,
                     ),
                     Valence::Dyad,
                     Some(_),
                 ) => Some(JsourceFamily::SearchAlgorithm),
-                (FunctionHead::PrimitiveVerb(PrimitiveId::Indices), Valence::Dyad, Some(_)) => {
+                (FunctionHead::PrimitiveVerb(PrimitiveId::Icap), Valence::Dyad, Some(_)) => {
                     Some(JsourceFamily::IntervalLookup)
                 }
-                (FunctionHead::PrimitiveVerb(PrimitiveId::From), Valence::Dyad, Some(_)) => {
+                (FunctionHead::PrimitiveVerb(PrimitiveId::Lbrace), Valence::Dyad, Some(_)) => {
                     Some(JsourceFamily::GatherCopyOrView)
                 }
                 (
                     FunctionHead::PrimitiveVerb(
-                        PrimitiveId::Shape
-                        | PrimitiveId::Reverse
-                        | PrimitiveId::Transpose
+                        PrimitiveId::Dollar
+                        | PrimitiveId::Rev
+                        | PrimitiveId::Cant
                         | PrimitiveId::Take
                         | PrimitiveId::Drop,
                     ),
@@ -403,7 +401,7 @@ pub fn discover(plan: &Plan) -> Vec<JsourceOpportunity> {
                 ) => Some(JsourceFamily::ReindexCopyOrView),
                 (
                     FunctionHead::PrimitiveVerb(
-                        PrimitiveId::Ravel | PrimitiveId::Reverse | PrimitiveId::Transpose,
+                        PrimitiveId::Comma | PrimitiveId::Rev | PrimitiveId::Cant,
                     ),
                     Valence::Monad,
                     None,

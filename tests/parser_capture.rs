@@ -62,11 +62,8 @@ fn each_runtime_row_application_executes_once_and_keeps_input_edges() {
         })
         .collect();
     assert_eq!(calls.len(), 2);
-    assert_eq!(
-        calls[0].1,
-        FunctionHead::PrimitiveVerb(PrimitiveId::Multiply)
-    );
-    assert_eq!(calls[1].1, FunctionHead::PrimitiveVerb(PrimitiveId::Add));
+    assert_eq!(calls[0].1, FunctionHead::PrimitiveVerb(PrimitiveId::Star));
+    assert_eq!(calls[1].1, FunctionHead::PrimitiveVerb(PrimitiveId::Plus));
     assert_eq!(calls[1].3, calls[0].0);
     assert_eq!(report.capture.result, Some(calls[1].0));
     assert_eq!(
@@ -230,7 +227,10 @@ fn capture_adapter_preserves_applications_and_observed_facts_separately() {
     else {
         panic!()
     };
-    assert_eq!(function.head, FunctionHead::PrimitiveVerb(PrimitiveId::Add));
+    assert_eq!(
+        function.head,
+        FunctionHead::PrimitiveVerb(PrimitiveId::Plus)
+    );
     assert!(matches!(
         graph.graph.nodes[right.0].kind,
         NodeKind::Apply { .. }
@@ -756,7 +756,7 @@ fn named_bound_modifier_application_retains_identity_version_and_current_use_spa
     ));
     assert!(report.capture.events.iter().any(|event| matches!(event,
         CaptureEvent::ConstructionSuccess { function, .. }
-        if function.head == FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank))));
+        if function.head == FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Qq))));
 }
 
 #[test]
@@ -779,7 +779,7 @@ fn computed_left_bident_input_retains_noun_origin_without_static_execution() {
         CaptureEvent::ConstructionAttempt { row: ParseRow::Adverb, noun_inputs, .. } if noun_inputs == &[origin])));
     assert!(report.capture.events.iter().any(|event| matches!(event,
         CaptureEvent::ConstructionSuccess { function, .. }
-        if function.head == FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank))));
+        if function.head == FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Qq))));
     assert_eq!(
         engine.prepare_semantic("(1+0) left").unwrap_err().kind(),
         "unsupported"
@@ -872,7 +872,7 @@ fn noun_left_rank_with_right_verb_is_not_a_rank_of_that_verb() {
                 if matches!(
                     function.head,
                     rustj::semantic::FunctionHead::PrimitiveConjunction(
-                        rustj::primitive::ConjunctionId::Rank
+                        rustj::primitive::ConjunctionId::Qq
                     )
                 ) =>
             {
@@ -1252,7 +1252,7 @@ fn nameless_modifier_train_keeps_value_after_redefinition() {
     let FunctionOperand::Function(child) = &train.operands[0] else {
         panic!()
     };
-    assert_eq!(child.head, FunctionHead::PrimitiveAdverb(AdverbId::Insert));
+    assert_eq!(child.head, FunctionHead::PrimitiveAdverb(AdverbId::Slash));
     engine.eval("adv=:1").unwrap();
     let report = engine.eval_captured("fn=:+train");
     report.result.unwrap();

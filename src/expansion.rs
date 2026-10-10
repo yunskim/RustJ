@@ -165,7 +165,7 @@ pub fn discover(plan: &Plan) -> Vec<ExecutionBasisExpansion> {
         let OpKind::SemanticCall(call) = &operation.kind else {
             continue;
         };
-        let CallTarget::Primitive(PrimitiveId::Find) = call.callable.target else {
+        let CallTarget::Primitive(PrimitiveId::Ebar) = call.callable.target else {
             continue;
         };
         let Some(left) = call.left else {

@@ -190,17 +190,17 @@ fn infer_semantic_primitive(
         _ => None,
     });
     let dtype = match (id, left) {
-        (Less, None) => TypeFact::Exact(DType::Boxed),
-        (Equal | Less | Greater | Find, Some(_)) => TypeFact::Exact(DType::Bool),
-        (Shape | Tally | Multiply, None) if right.dtype == TypeFact::Exact(DType::Rational) => {
+        (Lt, None) => TypeFact::Exact(DType::Boxed),
+        (Eq | Lt | Gt | Ebar, Some(_)) => TypeFact::Exact(DType::Bool),
+        (Dollar | Pound | Star, None) if right.dtype == TypeFact::Exact(DType::Rational) => {
             TypeFact::Exact(DType::ExtendedInt)
         }
-        (Shape | Tally | Multiply | Subtract, None)
+        (Dollar | Pound | Star | Minus, None)
             if right.dtype == TypeFact::Exact(DType::ExtendedInt) =>
         {
             right.dtype
         }
-        (Shape | Tally | Multiply, None)
+        (Dollar | Pound | Star, None)
             if matches!(
                 right.dtype,
                 TypeFact::Exact(
@@ -210,9 +210,9 @@ fn infer_semantic_primitive(
         {
             TypeFact::Exact(DType::Int)
         }
-        (Ravel | Reverse | Transpose | Add | Sparse, None) => right.dtype,
-        (Subtract | Divide, None) if right.dtype == TypeFact::Exact(DType::Rational) => right.dtype,
-        (Add | Subtract | Multiply | Divide, Some(x))
+        (Comma | Rev | Cant | Plus | Sparse, None) => right.dtype,
+        (Minus | Div, None) if right.dtype == TypeFact::Exact(DType::Rational) => right.dtype,
+        (Plus | Minus | Star | Div, Some(x))
             if [x.dtype, right.dtype].contains(&TypeFact::Exact(DType::Rational))
                 && [x.dtype, right.dtype].iter().all(|t| {
                     matches!(
@@ -225,7 +225,7 @@ fn infer_semantic_primitive(
         {
             TypeFact::Exact(DType::Rational)
         }
-        (Add | Subtract | Multiply, Some(x))
+        (Plus | Minus | Star, Some(x))
             if x.dtype == TypeFact::Exact(DType::Int)
                 && right.dtype == TypeFact::Exact(DType::Int) =>
         {
@@ -248,7 +248,7 @@ pub(crate) fn infer(
     let representation_class = match (id, left, right.rank) {
         (Sparse, None, Some(0)) => right.representation_class,
         (Sparse, None, Some(_)) => RepresentationClassFact::AxisSparse,
-        (Shape | Tally, None, _) => RepresentationClassFact::Dense,
+        (Dollar | Pound, None, _) => RepresentationClassFact::Dense,
         _ => RepresentationClassFact::Unknown,
     };
     Facts {
@@ -362,7 +362,7 @@ fn cell(input: &Facts, shape: Vec<usize>) -> Facts {
     }
 }
 fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
-    if !matches!(id, Add | Subtract | Multiply | Divide) {
+    if !matches!(id, Plus | Minus | Star | Div) {
         return Facts::default();
     }
     let shape = input
@@ -378,9 +378,9 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
         Some([_, tail @ ..]) if input.dtype == TypeFact::Exact(DType::Rational) => {
             TypeFact::Exact(if tail.contains(&0) {
                 match id {
-                    Add | Subtract => DType::Int,
-                    Multiply => DType::Bool,
-                    Divide => DType::Float,
+                    Plus | Minus => DType::Int,
+                    Star => DType::Bool,
+                    Div => DType::Float,
                     _ => unreachable!(),
                 }
             } else {
@@ -388,10 +388,8 @@ fn reduction(id: PrimitiveId, input: &Facts) -> Facts {
             })
         }
         Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
-        Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
-        Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
-            TypeFact::IntOrFloat
-        }
+        Some([0, ..]) if matches!(id, Plus | Star) => TypeFact::Exact(DType::Bool),
+        Some(_) if id != Div && input.dtype == TypeFact::Exact(DType::Int) => TypeFact::IntOrFloat,
         _ => TypeFact::Unknown,
     };
     Facts {
@@ -521,7 +519,7 @@ pub(crate) fn infer_semantic_call(
                 None,
             )
         }
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
             if left.is_some() {
                 return (Facts::default(), None);
             }
@@ -530,7 +528,7 @@ pub(crate) fn infer_semantic_call(
             };
             (infer_derived_reduction(operand, right), None)
         }
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
             let Some(operand) = function_operand(function) else {
                 return (Facts::default(), None);
             };
@@ -561,7 +559,7 @@ fn semantic_cell(input: &SemanticFacts, shape: Vec<usize>) -> SemanticFacts {
 }
 
 fn semantic_reduction(id: PrimitiveId, input: &SemanticFacts) -> SemanticFacts {
-    if !matches!(id, Add | Subtract | Multiply | Divide) {
+    if !matches!(id, Plus | Minus | Star | Div) {
         return SemanticFacts::default();
     }
     let shape = input
@@ -577,9 +575,9 @@ fn semantic_reduction(id: PrimitiveId, input: &SemanticFacts) -> SemanticFacts {
         Some([_, tail @ ..]) if input.dtype == TypeFact::Exact(DType::Rational) => {
             TypeFact::Exact(if tail.contains(&0) {
                 match id {
-                    Add | Subtract => DType::Int,
-                    Multiply => DType::Bool,
-                    Divide => DType::Float,
+                    Plus | Minus => DType::Int,
+                    Star => DType::Bool,
+                    Div => DType::Float,
                     _ => unreachable!(),
                 }
             } else {
@@ -587,10 +585,8 @@ fn semantic_reduction(id: PrimitiveId, input: &SemanticFacts) -> SemanticFacts {
             })
         }
         Some(_) if input.dtype == TypeFact::Exact(DType::ExtendedInt) => TypeFact::Unknown,
-        Some([0, ..]) if matches!(id, Add | Multiply) => TypeFact::Exact(DType::Bool),
-        Some(_) if id != Divide && input.dtype == TypeFact::Exact(DType::Int) => {
-            TypeFact::IntOrFloat
-        }
+        Some([0, ..]) if matches!(id, Plus | Star) => TypeFact::Exact(DType::Bool),
+        Some(_) if id != Div && input.dtype == TypeFact::Exact(DType::Int) => TypeFact::IntOrFloat,
         _ => TypeFact::Unknown,
     };
     SemanticFacts {
@@ -700,7 +696,7 @@ pub(crate) fn infer_semantic_projection(
                 right,
             )
         }
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
             if left.is_some() {
                 return SemanticFacts::default();
             }
@@ -709,7 +705,7 @@ pub(crate) fn infer_semantic_projection(
             };
             infer_derived_reduction_semantic(operand, right)
         }
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
             let Some(operand) = function_operand(function) else {
                 return SemanticFacts::default();
             };
@@ -765,9 +761,9 @@ mod extended_type_tests {
                 .unwrap(),
         );
         for (id, rule) in [
-            (Shape, ShapeRule::ShapeOf),
-            (Tally, ShapeRule::Tally),
-            (Multiply, ShapeRule::PreserveRight),
+            (Dollar, ShapeRule::ShapeOf),
+            (Pound, ShapeRule::Tally),
+            (Star, ShapeRule::PreserveRight),
         ] {
             let result = infer_semantic_primitive(id, rule, None, &input);
             assert_eq!(result.dtype, TypeFact::Exact(DType::ExtendedInt));
@@ -777,12 +773,11 @@ mod extended_type_tests {
         // Exact integer division may keep ExtendedInt or promote the whole noun.
         // No value/divisibility proof is present in these static facts.
         assert_eq!(
-            infer_semantic_primitive(Divide, ShapeRule::PreserveRight, None, &input).dtype,
+            infer_semantic_primitive(Div, ShapeRule::PreserveRight, None, &input).dtype,
             TypeFact::Unknown
         );
         assert_eq!(
-            infer_semantic_primitive(Divide, ShapeRule::PrefixAgreement, Some(&input), &input)
-                .dtype,
+            infer_semantic_primitive(Div, ShapeRule::PrefixAgreement, Some(&input), &input).dtype,
             TypeFact::Unknown
         );
         let empty = SemanticFacts {
@@ -790,7 +785,7 @@ mod extended_type_tests {
             shape: Some(vec![0]),
             rank: Some(1),
         };
-        assert_eq!(semantic_reduction(Add, &empty).dtype, TypeFact::Unknown);
+        assert_eq!(semantic_reduction(Plus, &empty).dtype, TypeFact::Unknown);
     }
 }
 
@@ -807,7 +802,7 @@ mod rational_type_tests {
             .unwrap(),
         );
         assert_eq!(input.dtype, TypeFact::Exact(DType::Rational));
-        for (id, rule) in [(Shape, ShapeRule::ShapeOf), (Tally, ShapeRule::Tally)] {
+        for (id, rule) in [(Dollar, ShapeRule::ShapeOf), (Pound, ShapeRule::Tally)] {
             assert_eq!(
                 infer_semantic_primitive(id, rule, None, &input).dtype,
                 TypeFact::Exact(DType::ExtendedInt)
@@ -818,13 +813,13 @@ mod rational_type_tests {
             );
         }
         assert_eq!(
-            infer_semantic_primitive(Add, ShapeRule::PrefixAgreement, Some(&input), &input).dtype,
+            infer_semantic_primitive(Plus, ShapeRule::PrefixAgreement, Some(&input), &input).dtype,
             TypeFact::Exact(DType::Rational)
         );
         for (id, dtype) in [
-            (Subtract, DType::Rational),
-            (Divide, DType::Rational),
-            (Multiply, DType::ExtendedInt),
+            (Minus, DType::Rational),
+            (Div, DType::Rational),
+            (Star, DType::ExtendedInt),
         ] {
             assert_eq!(
                 infer_semantic_primitive(id, ShapeRule::PreserveRight, None, &input).dtype,
@@ -833,7 +828,7 @@ mod rational_type_tests {
         }
         assert_eq!(
             infer_semantic_primitive(
-                Add,
+                Plus,
                 ShapeRule::PrefixAgreement,
                 Some(&SemanticFacts::default()),
                 &input
@@ -842,14 +837,14 @@ mod rational_type_tests {
             TypeFact::Unknown
         );
         for (shape, id, expected) in [
-            (vec![0, 2], Add, DType::Bool),
-            (vec![0], Divide, DType::Bool),
-            (vec![2, 0], Add, DType::Int),
-            (vec![2, 0], Subtract, DType::Int),
-            (vec![2, 0], Multiply, DType::Bool),
-            (vec![2, 0], Divide, DType::Float),
-            (vec![1, 0], Add, DType::Rational),
-            (vec![3, 2], Divide, DType::Rational),
+            (vec![0, 2], Plus, DType::Bool),
+            (vec![0], Div, DType::Bool),
+            (vec![2, 0], Plus, DType::Int),
+            (vec![2, 0], Minus, DType::Int),
+            (vec![2, 0], Star, DType::Bool),
+            (vec![2, 0], Div, DType::Float),
+            (vec![1, 0], Plus, DType::Rational),
+            (vec![3, 2], Div, DType::Rational),
         ] {
             let sample = SemanticFacts {
                 dtype: input.dtype,
@@ -876,7 +871,7 @@ mod rational_type_tests {
         }
         assert_eq!(
             semantic_reduction(
-                Add,
+                Plus,
                 &SemanticFacts {
                     dtype: input.dtype,
                     ..SemanticFacts::default()
@@ -891,7 +886,7 @@ mod rational_type_tests {
             ..input
         };
         assert_eq!(
-            semantic_reduction(Add, &empty).dtype,
+            semantic_reduction(Plus, &empty).dtype,
             TypeFact::Exact(DType::Bool)
         );
     }
@@ -1070,7 +1065,7 @@ pub fn cell_application_for_function(
     for _ in 0..=crate::semantic::MAX_EXPR_DEPTH {
         let explicit = matches!(
             current.head,
-            FunctionHead::PrimitiveConjunction(ConjunctionId::Rank)
+            FunctionHead::PrimitiveConjunction(ConjunctionId::Qq)
         );
         let (boundary, contract) = if explicit {
             (

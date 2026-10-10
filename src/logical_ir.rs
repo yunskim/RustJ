@@ -287,14 +287,14 @@ fn semantic_effect_summary(
         FunctionHead::PrimitiveVerb(id) => {
             EffectSummary::from_contract(crate::contracts::for_primitive(*id, valence))
         }
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
             let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
                 return EffectSummary::Unknown;
             };
             // u/ applies u dyadically between items.
             semantic_effect_summary(operand, Valence::Dyad)
         }
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
             let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
                 return EffectSummary::Unknown;
             };
@@ -438,21 +438,21 @@ pub struct SearchDescriptor {
 pub fn search_descriptor(call: &CallOp) -> Option<SearchDescriptor> {
     use crate::primitive::PrimitiveId;
     let (output, comparison) = match (call.callable.target, call.left) {
-        (CallTarget::Primitive(PrimitiveId::IndexOf), Some(_)) => {
+        (CallTarget::Primitive(PrimitiveId::Iota), Some(_)) => {
             (SearchOutputKind::FirstIndex, SearchComparison::JEquality)
         }
-        (CallTarget::Primitive(PrimitiveId::Steps), Some(_)) => {
+        (CallTarget::Primitive(PrimitiveId::Ico), Some(_)) => {
             (SearchOutputKind::LastIndex, SearchComparison::JEquality)
         }
-        (CallTarget::Primitive(PrimitiveId::Member), Some(_)) => (
+        (CallTarget::Primitive(PrimitiveId::Eps), Some(_)) => (
             SearchOutputKind::MembershipMask,
             SearchComparison::JEquality,
         ),
-        (CallTarget::Primitive(PrimitiveId::Indices), Some(_)) => (
+        (CallTarget::Primitive(PrimitiveId::Icap), Some(_)) => (
             SearchOutputKind::IntervalIndex,
             SearchComparison::JOrderedInterval,
         ),
-        (CallTarget::Primitive(PrimitiveId::Equal), None) => {
+        (CallTarget::Primitive(PrimitiveId::Eq), None) => {
             (SearchOutputKind::SelfClassify, SearchComparison::JEquality)
         }
         _ => return None,
@@ -519,10 +519,10 @@ fn basis_payload(kind: ExecutionBasisKind, call: &CallOp) -> ExecutionBasisPaylo
         },
         ExecutionBasisKind::StaticReindex => {
             let reindex = match call.callable.target {
-                CallTarget::Primitive(PrimitiveId::Shape) => ReindexKind::Reshape,
-                CallTarget::Primitive(PrimitiveId::Ravel) => ReindexKind::Ravel,
-                CallTarget::Primitive(PrimitiveId::Reverse) => ReindexKind::Reverse,
-                CallTarget::Primitive(PrimitiveId::Transpose) => ReindexKind::Transpose,
+                CallTarget::Primitive(PrimitiveId::Dollar) => ReindexKind::Reshape,
+                CallTarget::Primitive(PrimitiveId::Comma) => ReindexKind::Ravel,
+                CallTarget::Primitive(PrimitiveId::Rev) => ReindexKind::Reverse,
+                CallTarget::Primitive(PrimitiveId::Cant) => ReindexKind::Transpose,
                 CallTarget::Primitive(PrimitiveId::Take) => ReindexKind::Take,
                 CallTarget::Primitive(PrimitiveId::Drop) => ReindexKind::Drop,
                 _ => return ExecutionBasisPayload::Deferred,

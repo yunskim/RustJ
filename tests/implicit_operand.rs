@@ -93,7 +93,7 @@ fn direct_definitions_count_implicit_primitives_as_operands() {
     ranked.result.unwrap();
     assert!(ranked.capture.events.iter().any(|event| matches!(event,
         rustj::parser_capture::CaptureEvent::FunctionResult { function, .. }
-        if matches!(function.head, rustj::semantic::FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank)))));
+        if matches!(function.head, rustj::semantic::FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Qq)))));
     for spelling in ["u.", "v."] {
         let graph = engine.analyze_j_graph(&format!("{spelling} 7")).unwrap();
         graph.verify().unwrap();

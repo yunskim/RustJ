@@ -545,7 +545,7 @@ fn apply_adverb(
     if matches!(left.class, ParseClass::Noun)
         && matches!(
             operator.head,
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix)
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Bslash)
         )
     {
         let (noun, _) = left.into_noun().unwrap();
@@ -571,7 +571,7 @@ fn apply_adverb(
     }
     let Some(left) = left.into_verb() else {
         return Err(match operator.head {
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => Error::Domain,
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => Error::Domain,
             _ => Error::Unsupported(
                 "noun adverb construction requires semantic parser execution".into(),
             ),
@@ -1373,7 +1373,7 @@ fn apply_conjunction_at(
     // constant/gerund construction. Keep both original operands in the DAG.
     let right_span = match &right.value {
         ParseValue::Noun(expr, _) => {
-            if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Atop)) {
+            if matches!(primitive_id, Some(crate::primitive::ConjunctionId::Atco)) {
                 return Err(Error::Domain);
             }
             expr.span.clone()
@@ -1389,7 +1389,7 @@ fn apply_conjunction_at(
     let ranks = match &right.entity {
         JEntity::Noun(value) => Some(rank_noun_contract(value)?),
         JEntity::Function(function)
-            if primitive_id == Some(crate::primitive::ConjunctionId::Rank) =>
+            if primitive_id == Some(crate::primitive::ConjunctionId::Qq) =>
         {
             Some(function.innate_ranks().ok_or_else(|| {
                 Error::Unsupported(
@@ -1404,7 +1404,7 @@ fn apply_conjunction_at(
     let left_span = match &left.value {
         ParseValue::Verb(_) => left.span(),
         ParseValue::Noun(expr, _) => {
-            if !matches!(primitive_id, Some(crate::primitive::ConjunctionId::Rank)) {
+            if !matches!(primitive_id, Some(crate::primitive::ConjunctionId::Qq)) {
                 return Err(Error::Domain);
             }
             expr.span.clone()
@@ -3958,14 +3958,11 @@ mod deferred_abandon_tests {
     fn catalog_identity_is_not_a_captured_function_value() {
         for binding in [
             ParserNameBinding::KnownVerb {
-                function: FunctionEntity::primitive(crate::primitive::PrimitiveId::Add, 0..1),
+                function: FunctionEntity::primitive(crate::primitive::PrimitiveId::Plus, 0..1),
                 version: crate::semantic::NameVersion(7),
             },
             ParserNameBinding::KnownModifier {
-                function: FunctionEntity::primitive_adverb(
-                    crate::primitive::AdverbId::Insert,
-                    0..1,
-                ),
+                function: FunctionEntity::primitive_adverb(crate::primitive::AdverbId::Slash, 0..1),
                 version: crate::semantic::NameVersion(7),
             },
         ] {
@@ -4280,7 +4277,7 @@ mod stack_entry_tests {
                 "x" => ParserNameBinding::AbstractNoun,
                 "adv" => ParserNameBinding::KnownModifier {
                     function: FunctionEntity::primitive_adverb(
-                        crate::primitive::AdverbId::Insert,
+                        crate::primitive::AdverbId::Slash,
                         0..0,
                     ),
                     version: crate::semantic::NameVersion(1),
@@ -4297,7 +4294,7 @@ mod stack_entry_tests {
         };
         assert_eq!(
             verb.entity.head,
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash)
         );
         assert_eq!(program.modifier_snapshots.len(), 1);
         assert_eq!(program.modifier_snapshots[0].name, "adv");
@@ -4664,22 +4661,22 @@ mod gerund_ar_tests {
         for (value, expected, pos) in [
             (
                 boxes(vec![text("+")]),
-                FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Add),
+                FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Plus),
                 FunctionPartOfSpeech::Verb,
             ),
             (
                 ar("/", vec![text("+")]),
-                FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert),
+                FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash),
                 FunctionPartOfSpeech::Verb,
             ),
             (
                 ar("\"", vec![text("+"), noun(Value::scalar(1))]),
-                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank),
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq),
                 FunctionPartOfSpeech::Verb,
             ),
             (
                 ar("@:", vec![text("+"), text("-")]),
-                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop),
+                FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atco),
                 FunctionPartOfSpeech::Verb,
             ),
             (
@@ -4712,7 +4709,7 @@ mod gerund_ar_tests {
         };
         assert_eq!(
             function.head,
-            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert)
+            FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash)
         );
         assert_eq!(child.head, function.head);
     }
@@ -5124,7 +5121,7 @@ mod rank_constructor_transport_tests {
                 0,
             )
             .with_span(0..9),
-            FunctionEntity::primitive_conjunction(ConjunctionId::Rank, 9..10),
+            FunctionEntity::primitive_conjunction(ConjunctionId::Qq, 9..10),
             Item::noun(
                 Expr {
                     origin: None,
@@ -5172,7 +5169,7 @@ mod rank_constructor_transport_tests {
                 0,
             )
         };
-        let rank = || FunctionEntity::primitive_conjunction(ConjunctionId::Rank, 4..5);
+        let rank = || FunctionEntity::primitive_conjunction(ConjunctionId::Qq, 4..5);
         let noun = |value| {
             Item::noun(
                 Expr {
@@ -5218,7 +5215,7 @@ mod rank_constructor_transport_tests {
         assert_eq!(error.kind(), "unsupported");
         let error = apply_conjunction_at(
             deferred(),
-            FunctionEntity::primitive_conjunction(ConjunctionId::Atop, 4..5),
+            FunctionEntity::primitive_conjunction(ConjunctionId::Atco, 4..5),
             deferred(),
             0..9,
             0,

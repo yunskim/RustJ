@@ -123,7 +123,7 @@ fn find_produces_a_witnessed_graph_rewrite_candidate_without_mutating_source_gra
     };
     assert!(matches!(
         &function.head,
-        FunctionHead::PrimitiveVerb(PrimitiveId::Find)
+        FunctionHead::PrimitiveVerb(PrimitiveId::Ebar)
     ));
     assert_eq!(basis.layers, vec![GraphBasisKind::Search]);
 

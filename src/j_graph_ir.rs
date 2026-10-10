@@ -456,7 +456,7 @@ fn function_operands(function: &FunctionEntity) -> Vec<Arc<FunctionEntity>> {
 fn flatten_atop(function: &Arc<FunctionEntity>, out: &mut Vec<Arc<FunctionEntity>>) {
     if matches!(
         &function.head,
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop)
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atco)
     ) {
         if let [
             FunctionOperand::Function(outer),
@@ -483,7 +483,7 @@ fn rule_refs(function: &FunctionEntity) -> GraphRuleRefs {
         FunctionHead::PrimitiveVerb(id)
             if !matches!(
                 id,
-                crate::primitive::PrimitiveId::OperandU | crate::primitive::PrimitiveId::OperandV
+                crate::primitive::PrimitiveId::Udot | crate::primitive::PrimitiveId::Vdot
             ) =>
         {
             GraphRuleRefs {
@@ -553,13 +553,13 @@ fn graph_basis(function: &Arc<FunctionEntity>, valence: Valence, form: &GraphFor
                 return GraphBasis { layers };
             };
             let classified = match (*id, valence) {
-                (Shape, Valence::Dyad)
-                | (Ravel, Valence::Monad)
-                | (Reverse, _)
-                | (Transpose, _)
+                (Dollar, Valence::Dyad)
+                | (Comma, Valence::Monad)
+                | (Rev, _)
+                | (Cant, _)
                 | (Take, _)
                 | (Drop, _) => Some(StaticReindex),
-                (From, Valence::Dyad) => Some(DynamicGather),
+                (Lbrace, Valence::Dyad) => Some(DynamicGather),
                 _ => match contracts::for_primitive(*id, valence).class {
                     OperationClass::Map => Some(Elementwise),
                     OperationClass::Gather => Some(DynamicGather),
@@ -691,9 +691,9 @@ fn apply_hints(
     mut hints: GraphHints,
 ) -> GraphHints {
     if let FunctionHead::PrimitiveVerb(
-        crate::primitive::PrimitiveId::Ravel
-        | crate::primitive::PrimitiveId::Reverse
-        | crate::primitive::PrimitiveId::Transpose,
+        crate::primitive::PrimitiveId::Comma
+        | crate::primitive::PrimitiveId::Rev
+        | crate::primitive::PrimitiveId::Cant,
     ) = &function.head
     {
         hints.push(GraphHint::VirtualIndexingCandidate);
@@ -782,14 +782,14 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
                 h: h.clone(),
             }
         }
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atop) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Atco) => {
             hints.push(GraphHint::PipelineFusionCandidate);
             hints.push(GraphHint::IntermediateMaterializationElision);
             let mut stages = Vec::new();
             flatten_atop(function, &mut stages);
             GraphForm::Pipeline { stages }
         }
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Insert) => {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Slash) => {
             hints.push(GraphHint::ReductionStructure);
             let Some(operand) = function_operands(function).into_iter().next() else {
                 return (
@@ -805,11 +805,11 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
         // ao.c::jtsldot constructs a derived verb with distinct monadic
         // Oblique and dyadic Key semantics. Retain an opaque modifier region,
         // not a Reduce/Window or an executable GroupBy candidate.
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Key) => GraphForm::Modifier {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Sldot) => GraphForm::Modifier {
             head: function.head.clone(),
             operands: function_operands(function),
         },
-        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::PrefixInfix) => {
+        FunctionHead::PrimitiveAdverb(crate::primitive::AdverbId::Bslash) => {
             hints.push(GraphHint::WindowStructure);
             let Some(operand) = function_operands(function).into_iter().next() else {
                 return (
@@ -822,7 +822,7 @@ pub fn classify_function(function: &Arc<FunctionEntity>) -> (GraphForm, GraphHin
             };
             GraphForm::PrefixInfix { operand }
         }
-        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Rank) => {
+        FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq) => {
             hints.push(GraphHint::CellParallelStructure);
             let Some(FunctionOperand::Function(operand)) = function.operands.first() else {
                 return (
@@ -1332,9 +1332,7 @@ impl Plan {
                     || (index == 1
                         && matches!(
                             function.head,
-                            FunctionHead::PrimitiveConjunction(
-                                crate::primitive::ConjunctionId::Rank
-                            )
+                            FunctionHead::PrimitiveConjunction(crate::primitive::ConjunctionId::Qq)
                         ))
                 {
                     continue;

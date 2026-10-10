@@ -11,7 +11,7 @@ fn function(f: &FunctionEntity) -> String {
     // Keep the source rank entity intact; normalize only this AR observation.
     if matches!(
         f.head,
-        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Rank)
+        FunctionHead::PrimitiveConjunction(rustj::primitive::ConjunctionId::Qq)
     ) {
         if let [
             FunctionOperand::Function(operand),
@@ -20,7 +20,7 @@ fn function(f: &FunctionEntity) -> String {
         {
             if matches!(
                 operand.head,
-                FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Add)
+                FunctionHead::PrimitiveVerb(rustj::primitive::PrimitiveId::Plus)
             ) && value.shape().len() <= 1
                 && (1..=3).contains(&value.len())
                 && (0..value.len()).all(|index| value.float_at(index) == Ok(0.0))
