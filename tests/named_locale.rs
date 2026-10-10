@@ -876,3 +876,70 @@ fn simple_z_noun_guard_detects_shadow_rebind_delete_and_aba() {
         );
     }
 }
+
+#[test]
+fn locative_noun_guards_recheck_own_and_path_hits_without_simple_admission() {
+    use rustj::frontend_context::{LocativeNounGuard, NameGuardCheck};
+    for address in ["a__", "a_base_", "a_probe_", "a_z_"] {
+        for own in [false, true] {
+            if address == "a_z_" && !own {
+                continue;
+            }
+            let mut e = Engine::new();
+            e.eval("a_z_=:7").unwrap();
+            if own {
+                e.eval(&format!("{address}=:7")).unwrap();
+            }
+            let r = e.eval_captured(&format!("{address}+0"));
+            r.result.unwrap();
+            let c = r.capture.frontend.as_ref().unwrap();
+            let g = LocativeNounGuard::from_name_use(c, NameUseId(0)).unwrap();
+            assert_eq!(g.name(), address);
+            assert_eq!(g.origin(), (c.unit, NameUseId(0)));
+            assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
+            assert_eq!(
+                e.check_locative_noun_guard(&g),
+                NameGuardCheck::ValidAtCheck
+            );
+            e.eval("unrelated_z_=:9").unwrap();
+            assert_eq!(
+                e.check_locative_noun_guard(&g),
+                NameGuardCheck::ValidAtCheck
+            );
+            assert_eq!(
+                Engine::new().check_locative_noun_guard(&g),
+                NameGuardCheck::EngineChanged
+            );
+            e.eval(&format!("{address}=:8")).unwrap();
+            assert_eq!(
+                e.check_locative_noun_guard(&g),
+                NameGuardCheck::LookupChanged
+            );
+        }
+    }
+}
+
+#[test]
+fn locative_noun_guard_rejects_abandon_and_same_value_recreation() {
+    use rustj::frontend_context::{LocativeNounGuard, NameGuardCheck};
+    for address in ["a__", "a_base_", "a_probe_", "a_z_"] {
+        let mut e = Engine::new();
+        e.eval(&format!("{address}=:7")).unwrap();
+        let r = e.eval_captured(&format!("{address}+0"));
+        r.result.unwrap();
+        let g =
+            LocativeNounGuard::from_name_use(r.capture.frontend.as_ref().unwrap(), NameUseId(0))
+                .unwrap();
+        let r = e.eval_captured(&format!("{address}_:+0"));
+        r.result.unwrap();
+        assert!(
+            LocativeNounGuard::from_name_use(r.capture.frontend.as_ref().unwrap(), NameUseId(0))
+                .is_err()
+        );
+        e.eval(&format!("{address}=:7")).unwrap();
+        assert_eq!(
+            e.check_locative_noun_guard(&g),
+            NameGuardCheck::LookupChanged
+        );
+    }
+}
