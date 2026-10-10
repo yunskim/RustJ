@@ -238,6 +238,13 @@ impl ParseCapture {
                                 if z == hit && z != lookup.engine
                                     && *deleted
                                     && lookup.binding_class == Some(crate::parser::ParseClass::Noun)
+                                    && match lookup.frame {
+                                        None => lookup.local_state == crate::frontend_context::LocalLookupState::NoFrame,
+                                        Some(frame) => frame != z && frame != lookup.engine
+                                            && matches!(lookup.local_state,
+                                                crate::frontend_context::LocalLookupState::Absent
+                                                | crate::frontend_context::LocalLookupState::DeclaredUnbound),
+                                    }
                         ))
                     {
                         return Err("invalid abandon observation");
