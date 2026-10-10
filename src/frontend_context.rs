@@ -131,6 +131,10 @@ pub enum ScopeSearch {
     },
     /// Empty direct locale selects base explicitly, bypassing local search.
     BaseLocaleOnly,
+    /// An explicit base locative missed base and read a noun in the default z table.
+    BaseDefaultZ {
+        z: ScopeInstanceId,
+    },
     GlobalOnly,
     CurrentFrameThenGlobal,
 }
@@ -748,6 +752,26 @@ impl FrontendContext {
                                 Some(frame) => {
                                     frame != start
                                         && frame != z
+                                        && frame != lookup.engine
+                                        && state == LocalLookupState::Bypassed
+                                }
+                            }
+                    }
+                    (frame, ScopeSearch::BaseDefaultZ { z }, state, FoundScope::Locale(hit)) => {
+                        let word = &self.words[name_use.word.0];
+                        (word.flags.name_form == crate::enqueuer::NameForm::BaseLocative
+                            || (word.flags.name_form == crate::enqueuer::NameForm::DirectLocative
+                                && word
+                                    .name
+                                    .as_deref()
+                                    .is_some_and(|name| name.ends_with("_base_"))))
+                            && lookup.binding_class == Some(ParseClass::Noun)
+                            && z != lookup.engine
+                            && hit == z
+                            && match frame {
+                                None => state == LocalLookupState::NoFrame,
+                                Some(frame) => {
+                                    frame != z
                                         && frame != lookup.engine
                                         && state == LocalLookupState::Bypassed
                                 }

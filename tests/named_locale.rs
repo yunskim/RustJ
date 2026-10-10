@@ -319,3 +319,70 @@ fn named_z_path_preserves_snapshot_local_bypass_and_failed_target_write() {
         scalar(&mut e, "a_z_", 7);
     }
 }
+
+#[test]
+fn explicit_base_z_reads_and_writes_preserve_the_target_table() {
+    for source in ["a__", "a_base_"] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:7").unwrap();
+        let r = e.eval_captured(&format!("{source}=:{source}+1"));
+        r.result.unwrap();
+        r.capture.verify().unwrap();
+        let previous = r
+            .capture
+            .events
+            .iter()
+            .find_map(|event| match event {
+                rustj::parser_capture::CaptureEvent::Commit { previous, .. } => Some(*previous),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(previous, None);
+        let c = r.capture.frontend.as_ref().unwrap();
+        let obs = c.name_uses[0].lookup.as_ref().unwrap();
+        let ScopeSearch::BaseDefaultZ { z } = obs.search else {
+            panic!()
+        };
+        assert_eq!(obs.found, FoundScope::Locale(z));
+        assert_ne!(z, obs.engine);
+        assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
+        assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+        let mut bad = (**c).clone();
+        bad.name_uses[0].lookup.as_mut().unwrap().found = FoundScope::Global(obs.engine);
+        assert!(bad.verify().is_err());
+        scalar(&mut e, "a", 8);
+        scalar(&mut e, "a__", 8);
+        scalar(&mut e, "a_base_", 8);
+        scalar(&mut e, "a_probe_", 7);
+        scalar(&mut e, "a_z_", 7);
+    }
+}
+
+#[test]
+fn base_z_snapshots_failed_writes_and_local_bypass_match_both_paths() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:i.4").unwrap();
+        e.eval("saved=:a__").unwrap();
+        e.eval("a_z_=:a_z_+10").unwrap();
+        assert_eq!(
+            e.eval("saved").unwrap().unwrap().json(),
+            e.eval("i.4").unwrap().unwrap().json()
+        );
+        e.eval("a_z_=:7").unwrap();
+        assert_eq!(
+            e.eval("a_base_=:1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        scalar(&mut e, "a__", 7);
+        e.eval("f=:3 : 0\na=.9\na__=.a_base_+1\na+a__\n)").unwrap();
+        let r = if semantic {
+            e.eval_semantic_reference("f 0")
+        } else {
+            e.eval("f 0")
+        };
+        assert_eq!(r.unwrap().unwrap().int_at(0).unwrap(), 17);
+        scalar(&mut e, "a", 8);
+        scalar(&mut e, "a_z_", 7);
+    }
+}
