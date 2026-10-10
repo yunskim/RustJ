@@ -386,3 +386,60 @@ fn base_z_snapshots_failed_writes_and_local_bypass_match_both_paths() {
         scalar(&mut e, "a_z_", 7);
     }
 }
+
+#[test]
+fn ordinary_z_read_hits_do_not_become_global_assignment_versions_or_guards() {
+    let mut e = Engine::new();
+    e.eval("a_z_=:7").unwrap();
+    let r = e.eval_captured("a=:a+1");
+    r.result.unwrap();
+    r.capture.verify().unwrap();
+    assert!(r.capture.events.iter().any(|event| matches!(
+        event,
+        rustj::parser_capture::CaptureEvent::Commit { previous: None, .. }
+    )));
+    let c = r.capture.frontend.as_ref().unwrap();
+    let obs = c.name_uses[0].lookup.as_ref().unwrap();
+    let ScopeSearch::SimpleDefaultZ { z } = obs.search else {
+        panic!()
+    };
+    assert_eq!(obs.found, FoundScope::Locale(z));
+    assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
+    let mut bad = (**c).clone();
+    bad.name_uses[0].lookup.as_mut().unwrap().found = FoundScope::Global(obs.engine);
+    assert!(bad.verify().is_err());
+    scalar(&mut e, "a", 8);
+    scalar(&mut e, "a__", 8);
+    scalar(&mut e, "a_base_", 8);
+    scalar(&mut e, "a_probe_", 7);
+    scalar(&mut e, "a_z_", 7);
+}
+
+#[test]
+fn ordinary_z_snapshot_and_local_first_write_preserve_z_in_both_paths() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:i.4").unwrap();
+        e.eval("saved=:a").unwrap();
+        e.eval("a_z_=:a_z_+10").unwrap();
+        assert_eq!(
+            e.eval("saved").unwrap().unwrap().json(),
+            e.eval("i.4").unwrap().unwrap().json()
+        );
+        e.eval("a_z_=:7").unwrap();
+        assert_eq!(e.eval("a=:1 2+1 2 3").unwrap_err().kind(), "length error");
+        scalar(&mut e, "a", 7);
+        e.eval("f=:3 : 0\na=.a+1\na+a__\n)").unwrap();
+        let r = if semantic {
+            e.eval_semantic_reference("f 0")
+        } else {
+            e.eval("f 0")
+        };
+        assert_eq!(r.unwrap().unwrap().int_at(0).unwrap(), 15);
+        scalar(&mut e, "a", 7);
+        scalar(&mut e, "a_z_", 7);
+        assert!(e.binding_version("a").is_none());
+        assert_eq!(e.eval("a_:").unwrap_err().kind(), "unsupported");
+        scalar(&mut e, "a_z_", 7);
+    }
+}

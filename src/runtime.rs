@@ -166,6 +166,45 @@ mod scope_provenance_tests {
         assert_eq!(local.int_at(0).unwrap(), 9);
     }
 
+    #[test]
+    fn first_local_z_read_capture_retains_frame_and_own_commit_version() {
+        use crate::parser_capture::{CaptureEvent, ParseCapture};
+        let mut engine = Engine::new();
+        engine.eval("a_z_=:7").unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::from(["a".to_owned()]),
+        });
+        let mut capture = ParseCapture::default();
+        let mut host = ModifierFrame {
+            parent: EngineParserHost {
+                engine: &mut engine,
+                pooled: false,
+            },
+        };
+        crate::parser::parse_runtime_host("a=.a+1", &mut host, Some(&mut capture)).unwrap();
+        capture.verify().unwrap();
+        let context = capture.frontend.as_ref().unwrap();
+        let obs = context.name_uses[0].lookup.as_ref().unwrap();
+        assert!(matches!(obs.search, ScopeSearch::SimpleDefaultZ { .. }));
+        assert_eq!(obs.local_state, LocalLookupState::DeclaredUnbound);
+        assert!(obs.frame.is_some());
+        assert!(
+            capture
+                .events
+                .iter()
+                .any(|event| matches!(event, CaptureEvent::Commit { previous: None, .. }))
+        );
+        assert!(
+            crate::frontend_context::SimpleNameGuard::from_name_use(
+                context,
+                crate::frontend_context::NameUseId(0)
+            )
+            .is_err()
+        );
+    }
+
     fn guard_for(engine: &mut Engine, name: &str) -> crate::frontend_context::SimpleNameGuard {
         let program = parse_frame(engine, name);
         crate::frontend_context::SimpleNameGuard::from_name_use(
@@ -2567,6 +2606,10 @@ impl Engine {
             .last()
             .and_then(|frame| frame.names.get(name))
             .or_else(|| self.names.get(name))
+            .or_else(|| {
+                self.direct_binding(name, "z")
+                    .filter(|binding| matches!(binding.value, JEntity::Noun(_)))
+            })
     }
 
     fn take_binding(&mut self, name: &str, single_word: bool) -> Result<(JEntity, bool)> {
@@ -2588,6 +2631,9 @@ impl Engine {
         }
         if let Some(binding) = self.names.remove(name) {
             return Ok((binding.value, true));
+        }
+        if self.direct_binding(name, "z").is_some() {
+            return Err(Error::Unsupported("abandon default z path binding".into()));
         }
         if self.primitives.resolve_extension_binding(name).is_some() {
             return Err(Error::Unsupported(
@@ -2685,13 +2731,18 @@ impl Engine {
         let found = match frame {
             Some(frame) if frame.names.contains_key(name) => FoundScope::Local(frame.instance),
             _ if self.names.contains_key(name) => FoundScope::Global(self.namespace_instance),
+            _ if self.direct_binding(name, "z").is_some() => {
+                FoundScope::Locale(self.named_locales["z"].instance)
+            }
             _ if self.primitives.resolve_extension_binding(name).is_some() => FoundScope::Extension,
             _ => FoundScope::Missing,
         };
         LookupObservation {
             engine: self.namespace_instance,
             frame: frame.map(|frame| frame.instance),
-            search: if frame.is_some() {
+            search: if let FoundScope::Locale(z) = found {
+                ScopeSearch::SimpleDefaultZ { z }
+            } else if frame.is_some() {
                 ScopeSearch::CurrentFrameThenGlobal
             } else {
                 ScopeSearch::GlobalOnly
