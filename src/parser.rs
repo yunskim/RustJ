@@ -1508,6 +1508,12 @@ fn reduce_parse_stack_subset(
             ParseValue::LookupName { name, .. } => Some(name.clone()),
             _ => None,
         };
+        if item.flags.abandon_name
+            && let (Some(name), Some(host)) = (&name, &mut context.host)
+        {
+            host.prepare_take_name(name)
+                .map_err(|e| e.at(item.span()))?;
+        }
         let lookup_before = name
             .as_deref()
             .filter(|_| context.frontend.is_some())
@@ -2981,6 +2987,9 @@ pub(crate) struct ResolvedModifier {
 }
 
 pub(crate) trait RuntimeParserHost {
+    fn prepare_take_name(&mut self, _name: &str) -> Result<()> {
+        Ok(())
+    }
     fn take_name(&mut self, _name: &str, _single_word: bool) -> Result<(JEntity, bool)> {
         Err(Error::Unsupported("abandon lookup host".into()))
     }
@@ -3000,6 +3009,9 @@ pub(crate) trait RuntimeParserHost {
         false
     }
     fn supports_named_direct_locative_nouns(&self) -> bool {
+        false
+    }
+    fn supports_indirect_noun_abandon(&self) -> bool {
         false
     }
     fn supports_indirect_noun_reads(&self) -> bool {
@@ -3627,10 +3639,12 @@ fn expression(
                         .host
                         .as_ref()
                         .is_some_and(|host| host.supports_named_direct_locative_nouns());
-                let indirect_error_host = !tokens[*pos].flags.abandon_name
-                    && tokens[*pos].flags.name_form == crate::enqueuer::NameForm::IndirectLocative
+                let indirect_error_host = tokens[*pos].flags.name_form
+                    == crate::enqueuer::NameForm::IndirectLocative
                     && context.host.as_ref().is_some_and(|host| {
-                        if tokens[*pos].flags.lookup_name {
+                        if tokens[*pos].flags.abandon_name {
+                            host.supports_indirect_noun_abandon()
+                        } else if tokens[*pos].flags.lookup_name {
                             host.supports_indirect_noun_reads()
                         } else {
                             host.supports_indirect_noun_assignments()

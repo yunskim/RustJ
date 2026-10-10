@@ -223,6 +223,27 @@ impl ParseCapture {
                     deleted,
                     ..
                 } => {
+                    if matches!(
+                        lookup.search,
+                        crate::frontend_context::ScopeSearch::IndirectNoun { .. }
+                    ) && let Some(frontend) = &self.frontend
+                        && !frontend.name_uses.iter().any(|usage| {
+                            frontend.words[usage.word.0].span == *span
+                                && usage.policy
+                                    == crate::frontend_context::NamePolicy::CaptureAndAbandon
+                                && usage.lookup.as_ref() == Some(lookup)
+                        })
+                    {
+                        return Err("indirect abandon differs from predelete NAME observation");
+                    }
+                    if matches!(
+                        lookup.search,
+                        crate::frontend_context::ScopeSearch::IndirectNoun { .. }
+                    ) && (!*deleted
+                        || lookup.binding_class != Some(crate::parser::ParseClass::Noun))
+                    {
+                        return Err("invalid indirect noun abandon");
+                    }
                     if name.is_empty()
                         || self.source.get(span.clone()).is_none()
                         || lookup.binding_version.is_none()
@@ -282,6 +303,19 @@ impl ParseCapture {
                                     && match lookup.frame {
                                         None => lookup.local_state == crate::frontend_context::LocalLookupState::NoFrame,
                                         Some(frame) => frame != start && frame != z && frame != lookup.engine
+                                            && lookup.local_state == crate::frontend_context::LocalLookupState::Bypassed,
+                                    }
+                        ) || matches!(
+                            (lookup.search, lookup.found),
+                            (crate::frontend_context::ScopeSearch::IndirectNoun { start, z, .. },
+                             crate::frontend_context::FoundScope::Locale(hit))
+                                if hit == z.unwrap_or(start) && (start != lookup.engine || z.is_some())
+                                    && z.is_none_or(|z| z != start && z != lookup.engine)
+                                    && *deleted && name.contains("__") && !name.ends_with('_')
+                                    && lookup.binding_class == Some(crate::parser::ParseClass::Noun)
+                                    && match lookup.frame {
+                                        None => lookup.local_state == crate::frontend_context::LocalLookupState::NoFrame,
+                                        Some(frame) => frame != start && z != Some(frame) && frame != lookup.engine
                                             && lookup.local_state == crate::frontend_context::LocalLookupState::Bypassed,
                                     }
                         ))

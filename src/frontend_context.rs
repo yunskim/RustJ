@@ -121,7 +121,7 @@ impl ScopeInstanceId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopeSearch {
-    /// Bounded boxed-holder base/named noun read; not a path epoch or compiler proof.
+    /// Bounded boxed-holder base/named noun lookup or abandon; not a path epoch or compiler proof.
     IndirectNoun {
         start: ScopeInstanceId,
         z: Option<ScopeInstanceId>,
@@ -788,7 +788,6 @@ impl FrontendContext {
                     ) => {
                         let word = &self.words[name_use.word.0];
                         word.flags.name_form == crate::enqueuer::NameForm::IndirectLocative
-                            && !word.flags.abandon_name
                             && lookup.binding_class == Some(ParseClass::Noun)
                             && z.is_none_or(|z| z != start && z != lookup.engine)
                             && match found {

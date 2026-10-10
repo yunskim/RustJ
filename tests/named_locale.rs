@@ -102,7 +102,6 @@ fn unsupported_paths_functions_and_computed_locatives_do_not_mutate_bindings() {
         "a_probe_=:+",
         "a__holder__other",
         "a___1",
-        "a__holder_:",
         "a_0_=:9",
         "'a_probe_'=:9",
         "missing_probe__:9",
@@ -570,7 +569,14 @@ fn locative_abandon_enqueue_does_not_admit_unimplemented_deletion() {
             } else {
                 e.eval(source)
             };
-            assert_eq!(result.unwrap_err().kind(), "unsupported");
+            assert_eq!(
+                result.unwrap_err().kind(),
+                if source == "a__holder_:" {
+                    "value error"
+                } else {
+                    "unsupported"
+                }
+            );
             scalar(&mut e, "a", 9);
             scalar(&mut e, "a_probe_", 11);
             scalar(&mut e, "a_z_", 7);
@@ -1363,4 +1369,134 @@ fn indirect_noun_writes_use_own_table_and_commit_time_holder() {
         scalar(&mut e, "a_fresh_", 21);
         scalar(&mut e, "a", 13);
     }
+}
+
+#[test]
+fn indirect_noun_abandon_deletes_found_table_and_preserves_order() {
+    for semantic in [false, true] {
+        for locale in ["base", "probe", "fresh"] {
+            let mut e = Engine::new();
+            let eval = |e: &mut Engine, s: &str| {
+                if semantic {
+                    e.eval_semantic_reference(s)
+                } else {
+                    e.eval(s)
+                }
+            };
+            e.eval("a_z_=:7").unwrap();
+            if locale != "fresh" {
+                e.eval(&format!("a_{locale}_=:i.3")).unwrap();
+            }
+            e.eval(&format!("holder=:<'{locale}'")).unwrap();
+            eval(&mut e, "saved=:a__holder").unwrap();
+            assert_eq!(
+                eval(&mut e, "a__holder_:+(1 2+1 2 3)").unwrap_err().kind(),
+                "length error"
+            );
+            assert_eq!(
+                eval(&mut e, "a__holder").unwrap().unwrap().json(),
+                e.eval("saved").unwrap().unwrap().json()
+            );
+            if locale == "fresh" {
+                assert_eq!(
+                    eval(&mut e, "a__holder_:")
+                        .unwrap()
+                        .unwrap()
+                        .int_at(0)
+                        .unwrap(),
+                    7
+                );
+            } else {
+                assert_eq!(
+                    eval(&mut e, "1 2+a__holder_:").unwrap_err().kind(),
+                    "length error"
+                );
+                assert_eq!(
+                    eval(&mut e, "a__holder")
+                        .unwrap()
+                        .unwrap()
+                        .int_at(0)
+                        .unwrap(),
+                    7
+                );
+            }
+            assert_eq!(
+                e.eval("saved").unwrap().unwrap().json(),
+                if locale == "fresh" {
+                    e.eval("7").unwrap().unwrap().json()
+                } else {
+                    e.eval("i.3").unwrap().unwrap().json()
+                }
+            );
+        }
+        let mut e = Engine::new();
+        e.eval("a=:9").unwrap();
+        e.eval("holder=:<'base'").unwrap();
+        e.eval("f=:3 : 0\nholder=.<'probe'\na=.13\na__holder_:+a\n)")
+            .unwrap();
+        e.eval("a_probe_=:7").unwrap();
+        let value = if semantic {
+            e.eval_semantic_reference("f 0")
+        } else {
+            e.eval("f 0")
+        };
+        assert_eq!(value.unwrap().unwrap().int_at(0).unwrap(), 20);
+        scalar(&mut e, "a", 9);
+    }
+}
+
+#[test]
+fn indirect_abandon_capture_keeps_predelete_holder_and_rejects_mutation() {
+    use rustj::frontend_context::{FoundScope, LocativeNounGuard, NameUseId, SimpleNameGuard};
+    use rustj::parser_capture::CaptureEvent;
+    for (locale, own) in [("base", true), ("probe", true), ("fresh", false)] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:7").unwrap();
+        if own {
+            e.eval(&format!("a_{locale}_=:9")).unwrap();
+        }
+        e.eval(&format!("holder=:<'{locale}'")).unwrap();
+        let r = e.eval_captured("a__holder_:+0");
+        r.result.unwrap();
+        r.capture.verify().unwrap();
+        let c = r.capture.frontend.as_ref().unwrap();
+        assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
+        assert!(LocativeNounGuard::from_name_use(c, NameUseId(0)).is_err());
+        let mut bad = (**c).clone();
+        bad.name_uses[0].lookup.as_mut().unwrap().found = FoundScope::Missing;
+        assert!(bad.verify().is_err());
+        assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+        let mut bad = r.capture.clone();
+        for event in &mut bad.events {
+            if let CaptureEvent::Abandon { lookup, .. } = event {
+                lookup.found = FoundScope::Missing;
+            }
+        }
+        assert!(bad.verify().is_err());
+        let mut bad = r.capture.clone();
+        for event in &mut bad.events {
+            if let CaptureEvent::Abandon { lookup, .. } = event {
+                if let rustj::frontend_context::ScopeSearch::IndirectNoun {
+                    holder_version, ..
+                } = &mut lookup.search
+                {
+                    holder_version.0 += 1;
+                }
+            }
+        }
+        assert!(bad.verify().is_err());
+        let mut bad = r.capture.clone();
+        for event in &mut bad.events {
+            if let CaptureEvent::Abandon { deleted, .. } = event {
+                *deleted = false;
+            }
+        }
+        assert!(bad.verify().is_err());
+    }
+    let mut e = Engine::new();
+    e.eval("holder=:<'base'").unwrap();
+    let r = e.eval_captured("holder__holder_:");
+    r.result.unwrap();
+    r.capture.verify().unwrap();
+    assert_eq!(e.eval("holder").unwrap_err().kind(), "value error");
 }
