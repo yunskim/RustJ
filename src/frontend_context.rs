@@ -237,6 +237,62 @@ impl SimpleNameGuard {
     }
 }
 
+/// A check-time witness for the currently supported direct/base noun searches.
+/// This does not authorize compiler execution or suppress later lookups.
+#[derive(Clone, Debug)]
+pub struct LocativeNounGuard {
+    pub(crate) name: String,
+    pub(crate) expected: LookupObservation,
+    origin: (FrontendUnitId, NameUseId),
+}
+
+impl LocativeNounGuard {
+    pub fn from_name_use(context: &FrontendContext, id: NameUseId) -> Result<Self, String> {
+        context.verify()?;
+        if !context.complete {
+            return Err("incomplete locative guard context".into());
+        }
+        let usage = context
+            .name_uses
+            .get(id.0)
+            .ok_or("NAME use out of bounds")?;
+        let word = &context.words[usage.word.0];
+        let name = word.name.as_ref().ok_or("missing NAME spelling")?;
+        let expected = usage.lookup.as_ref().ok_or("missing runtime lookup")?;
+        if word.flags.abandon_name
+            || !matches!(
+                word.flags.name_form,
+                crate::enqueuer::NameForm::DirectLocative | crate::enqueuer::NameForm::BaseLocative
+            )
+            || usage.evidence != NameEvidence::RuntimeClass
+            || usage.result_class != ParseClass::Noun
+            || expected.binding_class != Some(ParseClass::Noun)
+            || expected.binding_version.is_none()
+            || expected.binding_generation.is_none()
+            || !matches!(
+                expected.search,
+                ScopeSearch::BaseLocaleOnly
+                    | ScopeSearch::DirectLocaleOnly(_)
+                    | ScopeSearch::BaseDefaultZ { .. }
+                    | ScopeSearch::NamedDefaultZ { .. }
+            )
+        {
+            return Err("guard requires a supported bound locative noun".into());
+        }
+        Ok(Self {
+            name: name.clone(),
+            expected: expected.clone(),
+            origin: (context.unit, id),
+        })
+    }
+    pub fn origin(&self) -> (FrontendUnitId, NameUseId) {
+        self.origin
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NameGuardCheck {
     ValidAtCheck,

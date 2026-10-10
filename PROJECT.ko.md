@@ -2166,7 +2166,9 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **NJ-04 named default z noun abandon:** direct named own miss의 `a_probe__:`는 실제 발견 z noun을 반환·삭제한다. 시작 named locale과 found z·local 우회·삭제 전 version/generation을 분리하며 첫 locale 조회·snapshot·최초 오류·삭제 후 오류와 start/found/frame 변조 거부를 회귀·고정 C 감사로 검증한다. 임의 path/future·함수·indirect/numbered 및 static/Graph/guard 수용은 미지원이며 full NJ-04/L3는 미완료다.
 
-**NJ-04 일반 z noun guard:** 일반 NAME의 SimpleDefaultZ noun hit도 제한된 SimpleNameGuard를 만들 수 있다. 검사 때 전체 lookup observation을 재확인하여 base shadow·z 재대입·삭제·동일 값 재생성 ABA·다른 engine을 거부하며 무관한 z 이름 대입은 허용한다. 이는 검사 시점의 사실이며 read hoisting·effect replay·컴파일 실행 허용이 아니다. locative/abandon/function path guard와 임의 path epoch 및 full NJ-04/L3는 미완료다.
+**NJ-04 일반 z noun guard:** 일반 NAME의 SimpleDefaultZ noun hit도 제한된 SimpleNameGuard를 만들 수 있다. 검사 때 전체 lookup observation을 재확인하여 base shadow·z 재대입·삭제·동일 값 재생성 ABA·다른 engine을 거부하며 무관한 z 이름 대입은 허용한다. 이는 검사 시점의 사실이며 read hoisting·effect replay·컴파일 실행 허용이 아니다. abandon/function path guard와 임의 path epoch 및 full NJ-04/L3는 미완료다.
+
+**NJ-04 locative noun guard:** 검증된 runtime base/direct named own 및 기본 z noun 관찰에서 별도 LocativeNounGuard를 만든다. 전체 lookup 재검사로 own shadow·재대입·삭제 후 동일 값 재생성 ABA·engine/frame 변경을 거부하며 무관한 이름 대입은 보존한다. SimpleNameGuard의 일반 이름 경계는 확장하지 않고 abandon/function/indirect/numbered·임의 path와 compiler/hoisting/effect replay 수용은 계속 미지원이다. 이는 check-time 사실이며 full NJ-04/L3 완료가 아니다.
 
 **NJ-07 대입 버전 경계:** parser commit의 이전/새 버전은 `assignment_version(name, local)`로 실제 대입 대상 테이블에서 관찰한다. 지역 선언이 아직 없을 때 RHS가 전역 값을 읽더라도 지역 첫 commit의 이전 버전은 없음이며, 다음 지역 commit은 지역 버전을 사용한다. base/named-own locative는 지역 flag와 무관하게 해당 own table을 사용한다. 읽기용 `version`은 기존 조회 의미를 유지한다. 실패한 RHS는 commit을 만들지 않는다. 이 경계는 default z path의 읽기 발견 테이블과 쓰기 대상 테이블을 분리하기 위한 선행 단위이며, path 지원·완전한 namespace commit witness·L3 완료를 뜻하지 않는다. 회귀는 지역 첫/반복 commit, 전역 값 보존, 전역 첫 commit과 RHS 오류를 검사한다.
 

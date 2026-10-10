@@ -2886,6 +2886,14 @@ impl Engine {
         self.check_lookup_observation(&guard.name, &guard.expected)
     }
 
+    /// Recheck a bounded direct/base noun lookup, including path hit and frame.
+    pub fn check_locative_noun_guard(
+        &self,
+        guard: &crate::frontend_context::LocativeNounGuard,
+    ) -> crate::frontend_context::NameGuardCheck {
+        self.check_lookup_observation(&guard.name, &guard.expected)
+    }
+
     fn check_lookup_observation(
         &self,
         name: &str,
