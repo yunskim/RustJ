@@ -247,3 +247,75 @@ fn z_own_nouns_bypass_local_shadowing_in_both_execution_paths() {
         scalar(&mut e, "a_z_", 11);
     }
 }
+
+#[test]
+fn named_default_z_reads_separate_found_scope_and_assignment_target() {
+    let mut e = Engine::new();
+    e.eval("a_z_=:7").unwrap();
+    e.eval("a=:1").unwrap();
+    let r = e.eval_captured("a_probe_=:a_probe_+1");
+    r.result.unwrap();
+    r.capture.verify().unwrap();
+    let previous = r
+        .capture
+        .events
+        .iter()
+        .find_map(|event| match event {
+            rustj::parser_capture::CaptureEvent::Commit { previous, .. } => Some(*previous),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        previous, None,
+        "first named write must not inherit the z version"
+    );
+    let c = r.capture.frontend.as_ref().unwrap();
+    let read = c.name_uses.iter().find(|n| n.lookup.is_some()).unwrap();
+    let obs = read.lookup.as_ref().unwrap();
+    let ScopeSearch::NamedDefaultZ { start, z } = obs.search else {
+        panic!()
+    };
+    assert_ne!(start, z);
+    assert_eq!(obs.found, FoundScope::Locale(z));
+    assert!(SimpleNameGuard::from_name_use(c, NameUseId(0)).is_err());
+    assert!(rustj::j_graph_ir::Plan::from_capture(&r.capture).is_err());
+    scalar(&mut e, "a_probe_", 8);
+    scalar(&mut e, "a_z_", 7);
+    scalar(&mut e, "a", 1);
+    scalar(&mut e, "a_other_", 7);
+    for found in [FoundScope::Locale(start), FoundScope::Global(obs.engine)] {
+        let mut bad = (**c).clone();
+        bad.name_uses[0].lookup.as_mut().unwrap().found = found;
+        assert!(bad.verify().is_err());
+    }
+}
+
+#[test]
+fn named_z_path_preserves_snapshot_local_bypass_and_failed_target_write() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("a_z_=:i.4").unwrap();
+        e.eval("saved=:a_probe_").unwrap();
+        e.eval("a_z_=:a_z_+10").unwrap();
+        assert_eq!(
+            e.eval("saved").unwrap().unwrap().json(),
+            e.eval("i.4").unwrap().unwrap().json()
+        );
+        e.eval("a_z_=:7").unwrap();
+        assert_eq!(
+            e.eval("a_probe_=:1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        scalar(&mut e, "a_probe_", 7);
+        e.eval("f=:3 : 0\na=.9\na_probe_=.a_probe_+1\na+a_probe_\n)")
+            .unwrap();
+        let r = if semantic {
+            e.eval_semantic_reference("f 0")
+        } else {
+            e.eval("f 0")
+        };
+        assert_eq!(r.unwrap().unwrap().int_at(0).unwrap(), 17);
+        scalar(&mut e, "a_probe_", 8);
+        scalar(&mut e, "a_z_", 7);
+    }
+}

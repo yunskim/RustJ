@@ -1518,6 +1518,18 @@ fn reduce_parse_stack_subset(
                     .and_then(|host| host.lookup_observation(name))
             });
         let mut item = resolve_stack_item(item, context)?;
+        // A successful named lookup can create its starting locale. Preserve pre-read
+        // observations when available (especially abandon); otherwise observe that new scope.
+        let lookup_before = lookup_before.or_else(|| {
+            name.as_deref()
+                .filter(|_| context.frontend.is_some())
+                .and_then(|name| {
+                    context
+                        .host
+                        .as_ref()
+                        .and_then(|host| host.lookup_observation(name))
+                })
+        });
         if let Some(trace) = &mut context.frontend {
             let queued = queued_id.expect("queued frontend occurrence");
             if name.is_some() {
