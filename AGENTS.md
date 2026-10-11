@@ -4,7 +4,7 @@
 
 This is an **execution policy**, not a second architecture/status specification.
 The canonical technical requirements, acceptance checklist and completion states
-remain in `PROJECT.ko.md` (with synchronized `PROJECT.md`); `FOUNDATIONS.ko.md`
+remain in `PROJECT.ko.md` and sections explicitly migrated to indexed `docs/project/**/*.ko.md` modules (with English mirrors); `FOUNDATIONS.ko.md`
 remains the architectural correctness guardrail. A GitHub issue may hold an
 *ephemeral execution queue and run evidence*, with links to canonical gates.
 
@@ -55,7 +55,8 @@ these instructions do not imply autonomous background execution.
 - `AGENTS.md` is internal maintainer/agent guidance and remains English-only.
 - User-facing maintained Markdown uses a Korean canonical file plus an English mirror:
   - `README.ko.md` (canonical) ↔ `README.md` (English mirror)
-  - `PROJECT.ko.md` (canonical) ↔ `PROJECT.md` (English mirror)
+  - `PROJECT.ko.md` (canonical entrypoint and unmigrated sections) ↔ `PROJECT.md` (English mirror)
+  - `docs/project/**/*.ko.md` (canonical migrated modules) ↔ matching `docs/project/**/*.md` (English mirrors)
   - `FOUNDATIONS.ko.md` (canonical) ↔ `FOUNDATIONS.md` (English mirror)
   - `CLA.ko.md` (canonical) ↔ `CLA.md` (English mirror)
 - Make architecture/design/progress/checklist edits in the `*.ko.md` canonical file first, then update the corresponding English `*.md` mirror in the same change whenever practical.
@@ -68,16 +69,16 @@ these instructions do not imply autonomous background execution.
 - External contributions require acceptance of `CLA.ko.md` / `CLA.md`. The CLA must preserve contributor ownership while granting rights sufficient for both GPL distribution and separate commercial relicensing; it must never be described as granting or expanding Jsoftware-owned rights.
 
 
-Use `PROJECT.ko.md` as the single authoritative document for architecture, roadmap, support status, and validation policy. Use `FOUNDATIONS.ko.md` as the mandatory rationale/guardrail document for deciding whether an architecture change preserves J or regresses into a compiler-convenience subset.
+Use `PROJECT.ko.md` as the stable root entry point and authority for sections not yet moved. After a section has been explicitly migrated, its indexed `docs/project/**/*.ko.md` module is the single authority for that section and its checklist; the English mirror follows the same structure. Follow the [modularization plan](docs/project/MODULARIZATION_PLAN.ko.md) and execution [issue #64](https://github.com/yunskim/RustJ/issues/64) for mapping, lossless-migration gates, and authoritative cutover. Never mark an unmigrated section complete or treat two copies as independent sources of truth. Use `FOUNDATIONS.ko.md` as the mandatory rationale/guardrail document for deciding whether an architecture change preserves J or regresses into a compiler-convenience subset.
 
-- Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering` for the target-independent middle-end; `Logical Optimizer`, `Schedule/Transform Plan`, and `Physical Planner` are RustJ-native-route stages, not mandatory stages for every execution route. The `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` repositories are historical research/prototype material only; new design decisions belong in RustJ `PROJECT.ko.md`.
+- Do not introduce `Jaxa`/`JAXA` as a current RustJ compiler component name. Use `Semantic Analyzer / Lowering` for the target-independent middle-end; `Logical Optimizer`, `Schedule/Transform Plan`, and `Physical Planner` are RustJ-native-route stages, not mandatory stages for every execution route. The `JAXA`, `JAXA-complier`, `japchae`, and `jaxa-analyzer` repositories are historical research/prototype material only; new design decisions belong in the relevant authoritative Korean project section (`PROJECT.ko.md` until migrated; afterward the indexed `docs/project/**/*.ko.md` module).
 
-For architecture changes affecting frontend semantics, J Semantic IR, interpreter/JIT/AOT boundaries, rank/CellApply, dynamic-name behavior, optimizer legality, or target semantics, review `FOUNDATIONS.ko.md` first. If a proposed change contradicts it, do not silently override the document: document the new evidence/rationale and update both `FOUNDATIONS.ko.md` and `PROJECT.ko.md` in the same design change.
+For architecture changes affecting frontend semantics, J Semantic IR, interpreter/JIT/AOT boundaries, rank/CellApply, dynamic-name behavior, optimizer legality, or target semantics, review `FOUNDATIONS.ko.md` first. If a proposed change contradicts it, do not silently override the document: document the new evidence/rationale and update `FOUNDATIONS.ko.md` and the governing Korean project section (root until migrated; otherwise its indexed `docs/project/` module) in the same design change.
 
 For every implementation change:
 
-- Update `PROJECT.ko.md` when architecture, boundaries, roadmap, checklist, supported semantics, or validation status changes.
-- Do not create new design/progress/checklist Markdown reports. Keep machine-generated measurement data in `reports/` when useful.
+- Update the authoritative Korean project section when architecture, boundaries, roadmap, checklist, supported semantics, or validation status changes; update its English mirror in the same change. Before extraction, that section is still in `PROJECT.ko.md`; after a verified move, it is in an indexed `docs/project/**/*.ko.md` module.
+- Do not create ad hoc or unindexed design/progress/checklist Markdown reports. The scoped `docs/project/` modules in the [modularization plan](docs/project/MODULARIZATION_PLAN.ko.md) are deliberate replacements for parts of the oversized canonical project document, not an additional reporting layer. Preserve one owner per contract/checklist and use GitHub issues for ephemeral execution queues; keep machine-generated measurements in `reports/` when useful.
 - Add a reproducer and regression coverage for every semantic bug fix.
 - Extend conformance coverage for newly supported semantics.
 - Run Rust default and portable tests, fmt, clippy, and relevant Python harness tests.
