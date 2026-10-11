@@ -16,6 +16,8 @@ JAXA에서는 한때 **“NN의 SQL”**, 또는 **“배열 연산의 SQL”**�
 
 > **J source는 execution plan이 아니다.**
 
+배열 연산의 공통 기저·동치 규칙·역방향 데이터 요구량 분석을 실제로 검증하기 위한 **[공통 배열 대수 연구 가설과 반증 실험](PROJECT.ko.md#common-array-algebra-hypothesis)**을 정본에 정리했습니다. 이는 완성된 범용 대수나 신규 필수 IR이 아니라, 기존 Graph Basis/Rewrite/FactWitness 위의 분석 후보입니다.
+
 J의 rank, cell/frame, derived entity, train/composition, reduce/scan, shape/reindex 의미는 **무엇을 계산하는가**를 높은 수준에서 드러냅니다. RustJ는 이 정보를 가능한 한 오래 보존하고, **어떻게 실행하는가**는 legality·resource·cost를 고려해 compiler가 선택하도록 설계합니다.
 
 ```text
