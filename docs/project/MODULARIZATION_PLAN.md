@@ -1,6 +1,6 @@
 # PROJECT document modularization plan and verification checklist
 
-> Status: **planning** (2026-10-11). The large documents have **not** been split; no runtime, implementation, or CI acceptance state changes as a result of this plan.
+> Status: **Korean root split completed, English mirror migration pending** (2026-10-11). `PROJECT.ko.md` now indexes 40 modules; the English integrated `PROJECT.md` is unchanged. No implementation or CI acceptance status changes.
 > Execution tracker: [#64 — PROJECT document split](https://github.com/yunskim/RustJ/issues/64). The Korean counterpart is the authoritative modularization plan; the issue tracks step-by-step evidence and execution status.
 
 ## Purpose and document authority
@@ -61,16 +61,21 @@ These destinations are proposals until every original section and checklist has 
 - [ ] Author this plan and its Korean canonical counterpart; review in a repository PR
 
 ### P3 — Lossless incremental splitting
-- [ ] Extract architecture, frontend, NAME and JEntity
-- [ ] Extract rank/array semantics and NN extensions
-- [ ] Extract Graph IR, rewrites, resources, and logical/physical execution
-- [ ] Extract validation policy, current implementation status and active checklists
-- [ ] Extract JAXA history, research references, and source audits
-- [ ] Finally replace both root files with short link-oriented indices
+- [x] Extract all 14,498 lines of Korean `PROJECT.ko.md` into 40 linked modules (commit `b3bea373f4ff00d42225603932a0df531e60a56b`)
+- [ ] Extract English `PROJECT.md` into corresponding topic modules and verify bilingual parity
+- [ ] Reconcile architecture, frontend, NAME and JEntity **bilingual pairs**
+- [ ] Reconcile rank/array semantics and NN extension **bilingual pairs**
+- [ ] Reconcile Graph IR, rewrites, resources, and logical/physical execution **bilingual pairs**
+- [ ] Reconcile validation policy, current implementation status and active checklists **bilingual pairs**
+- [ ] Reconcile JAXA history, research references and source audits **bilingual pairs**
+- [x] Replace Korean `PROJECT.ko.md` with a short link-oriented index (257 lines)
+- [ ] Replace English `PROJECT.md` with a short link-oriented index
 
 ### P4 — Verify, integrate and cut over
 - [ ] Produce explicit preservation evidence for all headings, tables, code, checkboxes, references, and citations
-- [ ] Validate GitHub relative paths and anchors; preserve important existing `PROJECT*.md#anchor` links or publish a clear relocation map
+- [x] Confirm 363 local file links across Korean modules/index resolve to existing repository paths (current branch)
+- [x] Add root-level relocation links for 63 explicit historical anchors
+- [ ] Verify all generated heading anchors and repository-wide inbound deep links, plus English-side links
 - [ ] Compare Korean/English file and heading coverage, implementation state, and checklist semantics
 - [ ] Add reproducible structural/link verification scripts and CI checks without disturbing existing CI policy
 - [ ] Validate the live PR head, merge, independently recheck `main`, then record final cutover
