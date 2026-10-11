@@ -183,6 +183,8 @@ RustJ의 **언어 의미 목표는 장기적으로 J 전체**입니다. 다만 �
 ordinary name의 실제 품사는 enqueue에서 고정하지 않고 **parser가 그 name을 사용할 때 정상 J name environment에서 lookup하여 결정**합니다. 일반 verb/adverb/conjunction name의 late-binding nameref 의미도 보존합니다. **현재 runtime definition subset은 current `LocalFrame` → global namespace lookup까지 구현되어 있고, 일반 user locale/path lookup은 아직 미완료**입니다.
 
 `with`는 ordinary J name에 binding되는 conjunction extension으로 유지하되, typed semantic annotation/contract만 결합합니다. tile/device/register 같은 physical policy를 `with`에 넣지 않습니다.
+
+**정적 입력 계약·DataSource I/O 계약·역방향 데이터 요구량 분석**은 [PROJECT.ko.md §8.5.5](PROJECT.ko.md#io-static-source-contracts)를 참고합니다. `with`에 Shape/DType 등 의미론적 계약을 제공하고, 저장소의 access/consistency/chunk 계약과 물리적 I/O 정책은 분리합니다. 구현·검증 상태는 기존 [IO-01~IO-30 체크리스트](PROJECT.ko.md#out-of-core-io-checklist)에서만 관리합니다.
 하드웨어 lowering은 extension에만 적용하지 않습니다. `+`, `*`, `+/`, `|:` 같은 **기존 J primitive도** target-independent semantic capability와 backend/architecture별 lowering capability를 가집니다. 특정 GPU의 tile/register 숫자를 primitive 의미에 넣는 대신, primitive/op identity를 key로 target lowering을 조회합니다.
 
 GPU/CPU target은 하나의 `TargetProfile` blob으로 보지 않고 다음처럼 구분합니다.
