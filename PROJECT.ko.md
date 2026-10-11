@@ -5001,6 +5001,55 @@ Release(buffer) follows last use AND all pending I/O/transfer completions.
 
 **JMF 부트스트랩 첫 실측 결과(2026-10-07, 미수용).** [Linux 37538470000](https://github.com/yunskim/RustJ/actions/runs/37538470000)의 `j64/default`와 `j64/portable` C job에서 JMF 탐색 단계는 `status=blocked`, `stage_count=2`였으며, 첫 `BINPATH_z_` 설정은 실행되고 `0!:0 <.../jlibrary/bin/profile.ijs`에 `domain error`가 발생했다. **map/unmap까지 도달하지 않았다.** 이 결과를 JMF RW/RO/COW의 부정 결과로 해석하지 않는다. [후속 진단 541be39](https://github.com/yunskim/RustJ/commit/541be39f42f1df655e7af5bde86d928321f4c9b3)는 실제 J script loader가 짧은 독립 fixture를 읽을 수 있는지 먼저 검사하고, 실패 원본에 `13!:12` 문맥을 포함하도록 분리했다. 후속 CI 결과는 이 기록 시점 미확정이다. IO-25는 [ ]이다.
 
+<a id="io-static-source-contracts"></a>
+#### 8.5.5 정적 입력·DataSource 계약과 역방향 데이터 요구량 분석 (2026-10-11, 설계 후보 / 미구현)
+
+**결정 범위.** 과거 JAXA의 `with` 구상을 RustJ의 **ordinary-name conjunction으로서 typed semantic annotation/contract만 부착한다**는 기존 규약 안에서 재사용한다. `with`는 입력에 대한 *정적 의미론적 계약*을 보완하고, 외부 DataSource의 *접근 capability·실제 저장 특성·일관성 증거*는 별도의 binding 계약으로 취급한다. `with`에 파일 경로, chunk 크기, prefetch 깊이, tile/register/device 정책을 넣지 않는다. 데이터 원소를 컴파일 시점에 모두 읽을 필요는 없으며, 같은 generic J graph를 서로 다른 입력과 storage adapter에 반복 적용할 수 있어야 한다. 이는 **설계 후보**이며 현재 `with` 및 Out-of-core API가 구현됐다는 뜻이 아니다. 기존 [§8.5.3](#unified-data-movement-contract) 계층 및 [IO-01~IO-30](#out-of-core-io-checklist) 외에 새로운 필수 IR 또는 별도 수용 원장은 만들지 않는다.
+
+**세 계약의 분리.**
+
+| 계약 주체 | 사전에 알거나 보장하는 정보 | 하지 않는 일 |
+|---|---|---|
+| `with` / 함수·입력 semantic contract | 경계 입력의 J-visible dtype, shape(Exact/Symbolic/Dynamic), 인수 사이 차원 제약, 증거가 있는 배열 속성(정렬·유일성·범위 등), 선택적인 static value, 의미론적 adjoint 연결 후보 | 실행할 파일 경로·buffer address·저장 chunk·하드웨어 schedule을 결정하지 않음; 중간 결과 shape/Rank/Cell을 사용자에게 전부 선언시키지 않음 |
+| DataSource의 *static requirement/capability contract* | logical domain/schema와의 호환성, sequential/seek/region read, repeatability, write/append/atomic publish 지원 여부, version/snapshot을 요구할 수 있는지, codec/encoding 지원 | capability가 빠르다는 보장 아님; read-only 핸들만으로 외부 불변성을 보장하지 않음 |
+| 실제 *BoundSourceDescriptor*와 runtime witness | 연결 시 확인한 source identity, version/snapshot lease, storage layout/strides, read/write/codec chunk geometry, byte offsets/index, 압축·endianness, alignment, 파일 크기/권한, 가용 자원 | 확인되지 않은 snapshot·원소 성질·성공한 I/O·지연시간을 정적 사실로 승격하지 않음 |
+
+**계약 강도 네 가지.** (1) **Hard/semantic requirement**(dtype, 확정 shape, J-visible type, 일관된 index domain, 허용 가능한 snapshot): 불일치 시 해당 특수화·실행 경로를 거부하거나 guard를 통한 안전한 재특수화/일반 경로로 이동한다. (2) **Capability**(region read, replay, 독립 부분 쓰기, seek): 후보가 *가능한가*만 제한하며 성능을 약속하지 않는다. (3) **Soft performance preference**(선호 read bytes, chunk aspect ratio, bandwidth hint): 비용 모델에서만 사용, legality 증명에는 사용할 수 없다. (4) **Runtime observation**(EOF, cache, latency, free memory, 실패/완료): 실제 binding/실행에서 확인하고, 잘못된 추정으로 J 의미를 바꾸지 않는다. 'Unknown'은 불변·저비용·무효과를 의미하지 않는다.
+
+**Array Shape, Rank, Frame/Cell.** `shape=[N,784]` 같은 기호 차원은 generic graph의 반복 사용을 돕는다. `"` Rank conjunction의 *Cell 적용 의미*는 Shape declaration과 별개이며, Rank의 요청/실현·빈 Frame의 가상 Cell, fill/type/shape 조립 규칙을 계속 보존한다. Logical Array dtype·원소 순서·J-visible boxed/sparse 의미는 storage encoding과 다르다. 파생된 중간 배열 facts는 IR 분석으로 유도하고, `with`는 증명되지 않은 값을 보충하는 경계 정보만 제공한다. Static Value는 값 고정·version/provenance 보장 시에만 상수 최적화와 specialization key의 입력이 된다. 키에는 사용된 사실만 담고 widening/guard로 variant 폭증을 막는다.
+
+**서로 다른 분할 단위.** `Logical ArrayRegion`(사용자에게 보이는 의미적 위치), `Storage ReadChunk`, `Storage WriteChunk/Shard`, `CodecChunk`, `IoRequestRange`, `ComputeTile`, `DevicePartition`은 하나의 `ChunkSize`가 아니다. 저장 포맷의 read/write/codec 경계와 compute tile은 달라도 된다. `ArrayRegion`에서 `FileByteRange`로 변환하는 책임은 layout/encoding을 검증한 physical adapter에 있으며, 일부 원소 요청이 전체 압축 block read/decode를 피할 수 있다는 보장은 없다.
+
+**역방향 data-demand 분석(새 IR이 아닌 pass/sidecar 후보).** 최종 결과 또는 필요한 sink region을 seed로 놓고 그래프의 소비자에서 생산자 방향으로 `Demand`를 전파한다. Demand는 `None / KnownRegions / Full / Unknown`의 값 요구량과 dtype·shape/prototype 등 **별도 metadata/semantic-check 의무**를 표현하며, 여러 소비자는 영역의 합집합을 취한다. 원소별 연산은 대응 region, slice/transpose/reshape는 증명된 inverse index mapping, reduce는 요구 출력에 영향을 주는 reduction 축 전체, convolution은 kernel/stride/padding이 요구하는 halo, dynamic gather는 확인된 인덱스 또는 보수적 full/unknown으로 되돌린다. `GraphOperationContract::access`는 접근 *범주*일 뿐 정확한 region transformer가 아니므로, primitive별 transfer rule·witness가 없으면 reduction/Rank/boxed/sparse를 포함해 확대 분석하지 않는다. `Full` data demand는 '전체 bytes 필요'이지 '전체 배열 동시 메모리 상주'가 아니다. Streaming·Chunk 병렬화는 별도의 associativity, numeric promotion, errors/effect/order, state/halo 합법성 증명이 있어야 한다.
+
+~~~text
+J verb + with(input semantic requirements)
+    -> J Graph IR + symbolic ArrayRegion demand sidecar
+    -> Verified Logical Execution IR (effects/errors/checks/guards)
+    + DataSource requirement/capability
+    -> bind source, validate schema/version/layout/witness
+    -> Physical candidates: exact/coalesced read, sequential scan,
+       storage rechunk, compute tiling, bounded streaming, full read
+    -> legal candidates only -> resource budget + measured/estimated cost
+    -> executable plan (readiness, buffer lease, failure/cancel order)
+~~~
+
+**Binding/최적화 절차.** generic 컴파일은 Graph IR/정적 입력 요구와 가능한 access region을 보존한다. 실제 DataSource 결합 시 Hard 제약을 확인하고 source capability, physical chunk/codec/layout, version·lease를 수집한다. 실패하면 기존 의미론적으로 안전한 경로를 사용하거나 계약 불일치를 보고한다. 그다음 verified logical access demand를 byte ranges로 내리고, 작은 random reads 합치기·sequential scan·mmap·prefetch·rechunk·materialize 등의 **후보**를 비용 비교한다. 재사용되는 compiled plan은 관련 정적 조건과 source version이 유효할 때만 cache한다. 외부 변경이나 snapshot 검증 실패는 cache invalidation/guard failure이며, 이미 발생한 관찰 가능한 I/O를 소급하여 지우지 않는다.
+
+**읽기·쓰기·효과 분리.** (A) 내부 immutable/versioned backing read, (B) J `1!:` foreign의 관찰 가능한 read/write/open/error, (C) mutable weight/checkpoint sink는 서로 다른 semantics다. ReadOnly ≠ externally immutable; repeatable ≠ snapshot; region-readable ≠ cheap random access; async submission ≠ successful completion/durability; mapped ≠ zero-copy. B의 사용되지 않는 read가 파일 오류를 낼 수 있으므로 단순 DCE·pushdown으로 제거할 수 없다. A의 speculative prefetch조차 사용자에게 보이는 첫 오류/순서를 바꾸지 않는다는 증명이 필요하다. C는 write range 겹침, ordering, commit/flush/durability, cancellation, partial failure를 별도 계약과 시험으로 검증한다. 빈 데이터 read를 생략하더라도 J 빈 Frame의 virtual Cell prototype/check 의무는 독립적으로 남는다.
+
+**선행 시스템 대조 — 참고 모델이지 RustJ 기능 주장 아님.**
+
+| 프레임워크 · 공식 출처 | 실제 추상화 / 교훈 | RustJ 도입 경계 |
+|---|---|---|
+| [TensorStore Schema](https://google.github.io/tensorstore/schema.html) · [Spec](https://google.github.io/tensorstore/spec.html) | dtype/rank/domain의 Hard constraint, storage layout의 Hard/Soft 제약, Read/Write/Codec Chunk 구분, 열 때 Schema 검증 | static/source contract의 강도와 물리 저장 배치 분리; TensorStore는 full-J 계산 의미론 제공자가 아님 |
+| [DaCe SDFG](https://spcldace.readthedocs.io/en/latest/sdfg/ir.html) | Data Container, Tasklet, `Memlet`의 symbolic subset/volume로 계산과 데이터 이동 기술 | `ArrayRegion` 전파·witness 참고; Memlet을 파일 snapshot 보장으로 오해하지 않음 |
+| [JAX JIT](https://docs.jax.dev/en/latest/jit-compilation.html) · [Shape Polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) | Shape/DType abstract value, static argument specialization, symbolic dimension 제약 | `with`가 사전 계약을 제공하는 구조에 참고; JAX JIT가 일반 파일 I/O 계약까지 해결하지는 않음 |
+| [Arrow Dataset Scanner](https://arrow.apache.org/docs/python/generated/pyarrow.dataset.Scanner.html) · [DuckDB Parquet](https://duckdb.org/docs/stable/data/parquet/overview.html) | column/filter pushdown, fragment/batch read-ahead 및 데이터 형식별 pruning | 순수하고 증명된 access에 한정; 임의 J verb나 foreign 오류를 없애지 않음 |
+| [Dask Chunks](https://docs.dask.org/en/stable/array-chunks.html) | 논리 array shape와 계산 Chunk, rechunk 이동 비용이 독립 | Chunking은 physical policy; J-visible shape/rank 변경 금지 |
+
+**기존 IO 체크리스트에만 반영하는 검증/이행 범위.** IO-03에 semantic `with` vs source capability vs bound physical descriptor의 stage ownership, provenance/guards, invalid-contract negative verifier를 포함한다. IO-04에는 sequential-only/single-pass vs region-readable/replayable, mutable vs versioned snapshot, Hard/Soft 차이, source binding mismatch matrix를 포함한다. IO-09/10에는 `None/Regions/Full/Unknown` demand transfer와 다중 소비자 union, slice/transpose/reduction/halo/indirect fallback 및 no-skip-on-error 증명을 포함한다. IO-11/12에는 immutable/versioned cache와 invalidation/witness를, IO-26/27에는 logical schema·read/write/codec chunk 분리 및 encoding/EOF/overflow 검증을, IO-16/17에는 full-demand streaming vs barrier, error visibility, buffer lease·completion을, IO-20/21/22에는 cost, exact/coalesced/scan 후보 측정 및 독립 3경로·negative 회귀를 포함한다. **IO-01~IO-30의 ID/상태는 변경하지 않으며 현재 구현 수용 0/30이다.** 이 계약 도입은 M2 또는 최초 M4 CPU 경로의 선행 조건이 아니다.
+
 <a id="read-scope"></a>
 ## 9. 언어 및 구현 범위
 
