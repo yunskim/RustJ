@@ -6822,13 +6822,13 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 <a id="common-array-algebra-hypothesis"></a>
 #### 2026-10-11 연구 가설: 배열 계산의 공통 접근 대수와 증명 가능한 재작성
 
-> **위상: 연구 가설 / 분석·문서 단계.** 아래 §Domain–Access–Compute–Combine§(DACC)는 기존 학계가 정식으로 채택한 이름이나 RustJ의 확정 IR이 아니다. J의 언어 의미론 또는 현재 §GraphBasisKind§·§ExecutionBasisKind§를 대체하지 않는다. 목적은 **여러 배열 연산에서 재사용할 수 있는 공통 분석 관계와 동치 규칙이 실제로 존재하는지 반증 가능한 실험으로 확인**하는 것이다. §GF2~GF6§의 기존 graph composition, witness, rewrite 후보 및 work/depth 계약을 그대로 출발점으로 삼으며 새로운 필수 컴파일 단계, 별도 AST, 새 §AA-*§ 체크리스트를 지금 만들지 않는다.
+> **위상: 연구 가설 / 분석·문서 단계.** 아래 `Domain–Access–Compute–Combine`(DACC)는 기존 학계가 정식으로 채택한 이름이나 RustJ의 확정 IR이 아니다. J의 언어 의미론 또는 현재 `GraphBasisKind`·`ExecutionBasisKind`를 대체하지 않는다. 목적은 **여러 배열 연산에서 재사용할 수 있는 공통 분석 관계와 동치 규칙이 실제로 존재하는지 반증 가능한 실험으로 확인**하는 것이다. `GF2~GF6`의 기존 graph composition, witness, rewrite 후보 및 work/depth 계약을 그대로 출발점으로 삼으며 새로운 필수 컴파일 단계, 별도 AST, 새 `AA-*` 체크리스트를 지금 만들지 않는다.
 
 ##### 1. 문제 정의: 표현 가능성·동치성·최적화 유용성은 서로 다른 주장
 
-- **표현 가능성(coverage):** 어떤 연산 §P§를 공통 구조의 항목으로 기술할 수 있는가? 극단적으로 모든 연산을 하나의 불투명한 §Compute(P)§로 처리하는 것은 참이지만 아무 최적화 지식도 제공하지 않으므로 성공이 아니다.
-- **동치성(equivalence):** 원본 §P§와 대체 §Q§에 대해 모든 허용 입력에서 J가 관찰하는 결과값·타입·Shape·오류·효과·순서·상태가 같은가? 수학적 값의 동등성만으로는 부족하다.
-- **재사용성(reuse):** 연산별 전용 패스 없이 같은 §Domain/Access§ 분석기, 영역 역전파 규칙 또는 guarded rewrite가 **서로 다른 연산군 두 개 이상**에 적용되는가? 공유할 수 없는 예외 나열이라면 공통 대수라는 가설은 약해진다.
+- **표현 가능성(coverage):** 어떤 연산 `P`를 공통 구조의 항목으로 기술할 수 있는가? 극단적으로 모든 연산을 하나의 불투명한 `Compute(P)`로 처리하는 것은 참이지만 아무 최적화 지식도 제공하지 않으므로 성공이 아니다.
+- **동치성(equivalence):** 원본 `P`와 대체 `Q`에 대해 모든 허용 입력에서 J가 관찰하는 결과값·타입·Shape·오류·효과·순서·상태가 같은가? 수학적 값의 동등성만으로는 부족하다.
+- **재사용성(reuse):** 연산별 전용 패스 없이 같은 `Domain/Access` 분석기, 영역 역전파 규칙 또는 guarded rewrite가 **서로 다른 연산군 두 개 이상**에 적용되는가? 공유할 수 없는 예외 나열이라면 공통 대수라는 가설은 약해진다.
 - **실용성(profitability):** 더 적은 수의 기저 연산으로 표현되더라도 알고리즘 정체성을 잃고 특수 라이브러리 경로가 막히면 실패다. 실행 가능성, 계산 Work/Depth, 물리 메모리·I/O 비용, target capability는 동치성 이후 별도로 평가한다.
 - **완전성(completeness)은 별도 고난도 의제:** SPORES가 논의하는 자신의 선형대수 부분언어에서의 완전성 주장은 full-J의 동치 재작성에 대한 완전성 증명이 아니다. RustJ는 이를 선결 요구사항으로 두지 않는다.
 
@@ -6836,9 +6836,9 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 
 ##### 2. 논리적 배열 모델과 ‘좌표 → 값’ 모델의 한계
 
-가장 작은 순수 Dense 후보 모델은 §A : Index(shape(A)) → Atom(dtype(A))§다. §Index(s)§는 각 차원이 §0..s_i-1§인 유한 좌표 집합이다. 이는 물리 §strides/offset/buffer/placement§와 무관하므로 transpose·indexing·shape 변환을 기술하기 좋다. 그러나 **이 정의만으로 J noun을 완전히 모델링하지 못한다.** 특히 크기가 0인 배열은 좌표·원소를 전혀 갖지 않아도 J-visible 타입·Shape·fill/prototype 관련 결과가 달라질 수 있으며, boxed/sparse 표현과 value semantics, tolerances/fit, 불리언과 숫자 promotion 및 오류 의미론이 남는다.
+가장 작은 순수 Dense 후보 모델은 `A : Index(shape(A)) → Atom(dtype(A))`다. `Index(s)`는 각 차원이 `0..s_i-1`인 유한 좌표 집합이다. 이는 물리 `strides/offset/buffer/placement`와 무관하므로 transpose·indexing·shape 변환을 기술하기 좋다. 그러나 **이 정의만으로 J noun을 완전히 모델링하지 못한다.** 특히 크기가 0인 배열은 좌표·원소를 전혀 갖지 않아도 J-visible 타입·Shape·fill/prototype 관련 결과가 달라질 수 있으며, boxed/sparse 표현과 value semantics, tolerances/fit, 불리언과 숫자 promotion 및 오류 의미론이 남는다.
 
-따라서 개념적 논리값은 §LogicalArray = (JType, Shape, OrderedAtoms, JVisibleRepresentation/FillFacts)§이고, §A(i)§는 **값 의미의 한 투영**일 뿐이다. Rank의 빈 Frame에서 virtual Cell을 이용한 결과 형식 결정은 원소가 없는 경우에도 별도의 **ResultAssembly/Prototype 의무**로 남겨야 한다. §JEntity§의 noun/function distinction과 arbitrary derived verb에 noun-style shape/rank를 부여하지 않는 규약은 불변이다.
+따라서 개념적 논리값은 `LogicalArray = (JType, Shape, OrderedAtoms, JVisibleRepresentation/FillFacts)`이고, `A(i)`는 **값 의미의 한 투영**일 뿐이다. Rank의 빈 Frame에서 virtual Cell을 이용한 결과 형식 결정은 원소가 없는 경우에도 별도의 **ResultAssembly/Prototype 의무**로 남겨야 한다. `JEntity`의 noun/function distinction과 arbitrary derived verb에 noun-style shape/rank를 부여하지 않는 규약은 불변이다.
 
 ##### 3. 공통 구조 후보: DACC + J-semantic envelope
 
@@ -6857,51 +6857,51 @@ ArrayOperationContract (candidate analysis view)
   Evidence:     Known / Guarded / Unknown; witnessed facts and guards
 ~~~
 
-- **Domain:** 결과 원소와 §Cell/Frame§이 존재하는 논리 좌표·분할; 반복 변수 중 출력축·계약축·Window축을 구분한다. §Rank§ conjunction은 여전히 **J가 어떤 Cell에 함수를 적용하는지**를 정의한다. §Domain§과 §Shape§만으로 Rank를 대체하거나 MLIR 반복차원의 §parallel/reduction§ 구분을 J Rank와 동일시하지 않는다.
-- **Access:** 입력 occurrence 및 값/좌표 사이 관계. §CorrespondingElements§(Map), §IndexTransform§(Transpose/Slice), §ReductionAxis§, §WindowRelative§, §CellRelative§, §Indirect§, §SearchDependent§, §Unknown§ 같은 기존 §GraphOperationContract::access§ 분류를 재사용하되, 그것은 **정확한 역함수나 데이터 지역성 증명**이 아니다. 필요한 경우 별도 규칙과 witness를 부가한다.
-- **Compute:** 원소/Cell의 값 변환. 모든 연산의 내부를 무조건 §Map+Reduce§로 평탄화하지 않는다. FFT·Sort·Search·Scatter·Dynamic Gather·Attention·Convolution은 알고리즘 정체성을 가진 구조적 primitive로 보존하고, 증명된 §access/decomposition contract§가 있으면 **후보로만** 펼친다.
-- **Combine:** 접기/축약 방향, 시작값/identity, 연산 순서, Scan carry, 통합 규칙. 일반 J §u/§와 §u\\§에서 §u§를 결합법칙이 성립하는 연산이라고 가정하지 않는다. 삽입/reduction의 원래 J 평가 방향·승격·오류 순서를 보존하는 순서 지정과 병렬 결합 가능성은 다르다.
-- **Envelope:** 의미론적 correctness의 경계. 원소값만 같아도 J의 Name late binding, Hook/Fork 순서, Fill, comparison tolerance, overflow/retry/promotion, error/side effect가 다르면 rewrite는 불법이다. 증거 없는 §Unknown§은 pass가 합법적이라고 해석할 수 없다.
+- **Domain:** 결과 원소와 `Cell/Frame`이 존재하는 논리 좌표·분할; 반복 변수 중 출력축·계약축·Window축을 구분한다. `Rank` conjunction은 여전히 **J가 어떤 Cell에 함수를 적용하는지**를 정의한다. `Domain`과 `Shape`만으로 Rank를 대체하거나 MLIR 반복차원의 `parallel/reduction` 구분을 J Rank와 동일시하지 않는다.
+- **Access:** 입력 occurrence 및 값/좌표 사이 관계. `CorrespondingElements`(Map), `IndexTransform`(Transpose/Slice), `ReductionAxis`, `WindowRelative`, `CellRelative`, `Indirect`, `SearchDependent`, `Unknown` 같은 기존 `GraphOperationContract::access` 분류를 재사용하되, 그것은 **정확한 역함수나 데이터 지역성 증명**이 아니다. 필요한 경우 별도 규칙과 witness를 부가한다.
+- **Compute:** 원소/Cell의 값 변환. 모든 연산의 내부를 무조건 `Map+Reduce`로 평탄화하지 않는다. FFT·Sort·Search·Scatter·Dynamic Gather·Attention·Convolution은 알고리즘 정체성을 가진 구조적 primitive로 보존하고, 증명된 `access/decomposition contract`가 있으면 **후보로만** 펼친다.
+- **Combine:** 접기/축약 방향, 시작값/identity, 연산 순서, Scan carry, 통합 규칙. 일반 J `u/`와 `u\\`에서 `u`를 결합법칙이 성립하는 연산이라고 가정하지 않는다. 삽입/reduction의 원래 J 평가 방향·승격·오류 순서를 보존하는 순서 지정과 병렬 결합 가능성은 다르다.
+- **Envelope:** 의미론적 correctness의 경계. 원소값만 같아도 J의 Name late binding, Hook/Fork 순서, Fill, comparison tolerance, overflow/retry/promotion, error/side effect가 다르면 rewrite는 불법이다. 증거 없는 `Unknown`은 pass가 합법적이라고 해석할 수 없다.
 
-현재 Graph IR §GraphBasis§, §CompositionRelation§, §GraphFacts§, §AccessContract§, §GraphRewriteProvenance§/§FactWitness§, A3 §ExecutionBasis§/§EffectSummary§/§SemanticCheck§ 위의 **분석 sidecar / 계약 투영**으로 출발한다. Physical §BufferId§, concrete tile/strides, file byte offset, device schedule은 여기 넣지 않는다.
+현재 Graph IR `GraphBasis`, `CompositionRelation`, `GraphFacts`, `AccessContract`, `GraphRewriteProvenance`/`FactWitness`, A3 `ExecutionBasis`/`EffectSummary`/`SemanticCheck` 위의 **분석 sidecar / 계약 투영**으로 출발한다. Physical `BufferId`, concrete tile/strides, file byte offset, device schedule은 여기 넣지 않는다.
 
 ##### 4. 여섯 연산군에서 공통 구조를 유도하는 예
 
-아래 §i,j,k§ 표기는 **수학적 의사 표기**이며 J 구문 또는 실현된 RustJ lowering이 아니다.
+아래 `i,j,k` 표기는 **수학적 의사 표기**이며 J 구문 또는 실현된 RustJ lowering이 아니다.
 
 | 연산군 | 결과 Domain / 입력 Access / Combine | 재사용할 수 있을 것으로 예상하는 분석 |
 |---|---|---|
-| Elementwise | §C[i,j] = f(A[i,j],B[i,j])§. 대응하는 입력 좌표, 독립 출력축 | 동일 위치 region transfer; guarded Map→Map fusion |
-| Transpose / Reshape / Slice | §B[i,j] = A[j,i]§처럼 IndexTransform. Reshape는 Shape/atom-order 규칙, Slice는 범위·fill/error 조건 포함 | Index-map composition; 요청 출력 영역을 입력 영역으로 역상 추적 |
-| Reduce | §B[i] = fold_ordered_k (A[i,k])§. 출력축 §i§와 결합축 §k§를 분리 | 필요한 reduction 축의 역방향 수요; 결합 방향·numeric law 증명 |
-| Scan | §B[i,k] = prefix_ordered_{0..k}(A[i,*])§. Prefix dependency/carry 명시 | 공통 축 역할 분석; Window→반복 접기와 *다른* first-class Scan identity 보존 |
-| Convolution / Window | §Y[n,o,h,w]§는 입력 채널과 kernel offset이 정의하는 유한 접근 집합에서 값/가중치를 읽음 | Access halo와 연산량·I/O 요구량, 조건부 WindowView/Contract decomposition |
-| Gather / Indirect / Search | §B[i] = A[index[i]]§. 실제 index 값이 접근 영역을 결정; lookup/search 오류·중복 영향 | Known/Guarded/Unknown access, inspector-executor 후보, 보수적 full/opaque fallback |
+| Elementwise | `C[i,j] = f(A[i,j],B[i,j])`. 대응하는 입력 좌표, 독립 출력축 | 동일 위치 region transfer; guarded Map→Map fusion |
+| Transpose / Reshape / Slice | `B[i,j] = A[j,i]`처럼 IndexTransform. Reshape는 Shape/atom-order 규칙, Slice는 범위·fill/error 조건 포함 | Index-map composition; 요청 출력 영역을 입력 영역으로 역상 추적 |
+| Reduce | `B[i] = fold_ordered_k (A[i,k])`. 출력축 `i`와 결합축 `k`를 분리 | 필요한 reduction 축의 역방향 수요; 결합 방향·numeric law 증명 |
+| Scan | `B[i,k] = prefix_ordered_{0..k}(A[i,*])`. Prefix dependency/carry 명시 | 공통 축 역할 분석; Window→반복 접기와 *다른* first-class Scan identity 보존 |
+| Convolution / Window | `Y[n,o,h,w]`는 입력 채널과 kernel offset이 정의하는 유한 접근 집합에서 값/가중치를 읽음 | Access halo와 연산량·I/O 요구량, 조건부 WindowView/Contract decomposition |
+| Gather / Indirect / Search | `B[i] = A[index[i]]`. 실제 index 값이 접근 영역을 결정; lookup/search 오류·중복 영향 | Known/Guarded/Unknown access, inspector-executor 후보, 보수적 full/opaque fallback |
 
-**행렬곱 유도 예시.** §C[i,j] = ordered_sum_k A[i,k] * B[k,j]§를 결과축 §i,j§, 계약축 §k§, 입력 접근 §(i,k)§ / §(k,j)§로 기술한다. §C[10:20,30:40]§의 데이터 결과만 요구하면 논리 수요는 §A[10:20,:]§, §B[:,30:40]§가 된다. 다만 실제 J §+/ . *§ 등 내적의 숫자 형식·연산 순서·오류 의미론을 동일하다고 **가정하면 안 된다**. 위 식은 정적 접근 분석의 예이며 동치 rewrite 승인 증거가 아니다. Shape/Cell, 정렬된 §k§ 순서, source-level checks가 별도다.
+**행렬곱 유도 예시.** `C[i,j] = ordered_sum_k A[i,k] * B[k,j]`를 결과축 `i,j`, 계약축 `k`, 입력 접근 `(i,k)` / `(k,j)`로 기술한다. `C[10:20,30:40]`의 데이터 결과만 요구하면 논리 수요는 `A[10:20,:]`, `B[:,30:40]`가 된다. 다만 실제 J `+/ . *` 등 내적의 숫자 형식·연산 순서·오류 의미론을 동일하다고 **가정하면 안 된다**. 위 식은 정적 접근 분석의 예이며 동치 rewrite 승인 증거가 아니다. Shape/Cell, 정렬된 `k` 순서, source-level checks가 별도다.
 
 **Convolution 유도 예시.** 특정 출력 사각 영역이 필요하면 kernel/stride/dilation/padding·group/channel 역할에서 해당 입력 좌표 및 halo를 계산한다. Direct Conv, WindowView→Contract, im2col→GEMM은 서로 다른 후보일 뿐이고, padding/fill·boundary/stride·layout meaning·숫자 누적 순서·activation/save/adjoint semantics를 확인하기 전에는 동치라고 승인하지 않는다. 원본은 GraphBasis::Structured(Conv)로 남긴다.
 
-**Rank 유도 예시.** §u"r§는 Frame 위에 각 Cell에 §u§를 적용하고 결과 Cell을 J 방식으로 조립한다. Frame 크기가 0일 때 데이터 셀을 실제 실행하지 않더라도 결과 dtype/shape/fill을 유도해야 하는 경우가 있으므로 §Demand(Value)=None§이 §Demand(Prototype/Checks)=None§을 뜻하지 않는다. Rank는 §Map§과 닮아도 **J의 적용·조립 연산자**로 독립적으로 검증한다.
+**Rank 유도 예시.** `u"r`는 Frame 위에 각 Cell에 `u`를 적용하고 결과 Cell을 J 방식으로 조립한다. Frame 크기가 0일 때 데이터 셀을 실제 실행하지 않더라도 결과 dtype/shape/fill을 유도해야 하는 경우가 있으므로 `Demand(Value)=None`이 `Demand(Prototype/Checks)=None`을 뜻하지 않는다. Rank는 `Map`과 닮아도 **J의 적용·조립 연산자**로 독립적으로 검증한다.
 
 ##### 5. 공통 재작성 후보 — 모두 Proof Obligation이 있음
 
 | 규칙/후보 | 기대 이득 | 필수 합법성 증거 / 실패 사례 |
 |---|---|---|
-| §Map(f, Map(g,A)) → Map(f∘g,A)§ | 중간 배열 제거 / fusion | 순수성, 동일 evaluation multiplicity, 각 원소 error ordering, dtype/shape/overflow/provenance. 공유 §g(A)§가 다른 consumer에도 사용되면 계산 복제가 이득 아닐 수 있음 |
-| §IndexMap(p,IndexMap(q,A)) → IndexMap(q∘p,A)§ | 중간 view/reindex 단계 축소 | 정확한 합성 좌표·정의역/범위, negative/out-of-bounds, fill·Rank/Shape 계약, index-dependent errors |
-| §Map(f,IndexMap(p,A)) ↔ IndexMap(p,Map(f,A))§ | Materialization 생략 | §f§ 순수·total이고 관찰 가능한 오류 순서/중복 적용이 바뀌지 않을 것, J array agreement 및 shape 조립 증명 |
-| §Map→Reduce§ / §Map→Scan§ | 중간 buffer 없이 소비 | 동일 ordered fold/prefix와 callback/error 순서, accumulator/carry 및 empty/singleton, J numeric promotions; 자동 reassociation 불허 |
+| `Map(f, Map(g,A)) → Map(f∘g,A)` | 중간 배열 제거 / fusion | 순수성, 동일 evaluation multiplicity, 각 원소 error ordering, dtype/shape/overflow/provenance. 공유 `g(A)`가 다른 consumer에도 사용되면 계산 복제가 이득 아닐 수 있음 |
+| `IndexMap(p,IndexMap(q,A)) → IndexMap(q∘p,A)` | 중간 view/reindex 단계 축소 | 정확한 합성 좌표·정의역/범위, negative/out-of-bounds, fill·Rank/Shape 계약, index-dependent errors |
+| `Map(f,IndexMap(p,A)) ↔ IndexMap(p,Map(f,A))` | Materialization 생략 | `f` 순수·total이고 관찰 가능한 오류 순서/중복 적용이 바뀌지 않을 것, J array agreement 및 shape 조립 증명 |
+| `Map→Reduce` / `Map→Scan` | 중간 buffer 없이 소비 | 동일 ordered fold/prefix와 callback/error 순서, accumulator/carry 및 empty/singleton, J numeric promotions; 자동 reassociation 불허 |
 | Fold/Scan 병렬 Tree | Work/Depth 변화 | associativity/identity와 J-visible 부동소수점·정수 overflow/promotion·오류까지 **해당 dtype/모드에서** 입증; 단순한 수학적 결합법칙만으로 불충분 |
 | Conv→WindowView/Contract 또는 im2col+GEMM | 특수 커널·접근 변환 | kernel geometry, padding, numeric order, dtype, alias/lifetime, output shape, partial read semantics 일치 증거 |
 | Common producer read-region union | 동일 backing의 I/O 읽기 중복 감소 | source identity/version/snapshot, 순서/오류/효과 안전성, 실제 codec/read-chunk amplification 및 buffer lease |
 | Dead input-region pruning | 필요한 byte-range 최소화 | 원래 J-visible check·effects·name binding·오류를 제거하지 않았는지; 데이터 결과가 필요 없다는 것과 읽기 효과가 없다는 것은 다름 |
 
-**대표 반례 corpus(가설의 필수 반증 시도).** (a) floating-point §(a+b)+c ≠ a+(b+c)§; NaN/tolerance, (b) overflow/promotion 가능한 integer sum, (c) nonassociative §-/§와 order-sensitive Scan, (d) empty Frame에서 결과 prototype/shape와 virtual Cell, (e) boxed/sparse의 fill/representation difference, (f) dynamic gather의 index 값·bounds check, (g) J §1!:§ read의 결과가 사용되지 않아도 error 발생, (h) Hook/Fork의 J right-to-left NAME/effect/error precedence, (i) aliased/mutable weight와 source-version 변경, (j) FFT/IFFT scale 및 adjoint 별도 정의. 하나라도 일반 규칙의 반례가 나오면 규칙 적용 조건을 좁히거나 기각한다. **반례를 예외로 숨기거나 J 의미를 제한해 맞추지 않는다.**
+**대표 반례 corpus(가설의 필수 반증 시도).** (a) floating-point `(a+b)+c ≠ a+(b+c)`; NaN/tolerance, (b) overflow/promotion 가능한 integer sum, (c) nonassociative `-/`와 order-sensitive Scan, (d) empty Frame에서 결과 prototype/shape와 virtual Cell, (e) boxed/sparse의 fill/representation difference, (f) dynamic gather의 index 값·bounds check, (g) J `1!:` read의 결과가 사용되지 않아도 error 발생, (h) Hook/Fork의 J right-to-left NAME/effect/error precedence, (i) aliased/mutable weight와 source-version 변경, (j) FFT/IFFT scale 및 adjoint 별도 정의. 하나라도 일반 규칙의 반례가 나오면 규칙 적용 조건을 좁히거나 기각한다. **반례를 예외로 숨기거나 J 의미를 제한해 맞추지 않는다.**
 
 ##### 6. 같은 대수에서 역방향 ArrayRegion demand를 얻는 법
 
-필요한 결과 좌표 집합 §R_out§과 입력 slot §s§의 Access 관계 §Access_s(o) ⊆ InputIndices§를 안다면 **값 수요**의 sound over-approximation은 다음과 같다.
+필요한 결과 좌표 집합 `R_out`과 입력 slot `s`의 Access 관계 `Access_s(o) ⊆ InputIndices`를 안다면 **값 수요**의 sound over-approximation은 다음과 같다.
 
 ~~~text
 Need_s(R_out) ⊇ Union_{o ∈ R_out} Access_s(o)
@@ -6913,9 +6913,9 @@ effect and ordering liveness survive independently of value demand.
 
 - Elementwise는 대응 좌표를 역전파한다. Transpose/Slice는 증명된 inverse index mapping이 있을 때만 좁힌다.
 - Reduce는 요구 출력에 영향을 주는 **해당 reduction 축 전체**를 포함한다. Scan의 특정 prefix는 해당 prefix dependency/carry를 포함한다. 비결합적 Scan을 블록 간 독립 부분합으로 대체하지 않는다.
-- Convolution은 입력 채널과 receptive-field halo를 포함한다. Gather는 index 데이터 자체와 실제 대상 좌표가 필요하며, index를 읽기 전에는 §Unknown§일 수 있다.
-- 최종 §Full§ 요구는 전체 논리 데이터를 언젠가 사용한다는 뜻이지 **전체 데이터를 한 번에 RAM에 올려야 한다는 의미가 아니다**. Out-of-core streaming/tiling의 가능성은 별도의 결합·순서·state·effect proof에서 판단한다.
-- I/O Source 계약과 결합할 때에만 §ArrayRegion§을 실제 storage chunk/codec unit/byte ranges로 바꾼다. §RegionReadable§은 기능(capability)이지 빠른 랜덤 접근 성능 보장이 아니다. [§8.5 I/O 계약](#out-of-core-io-contract) 및 현재 논의한 §with§ 의미론적 계약 경계를 따른다(후속 §8.5.5§가 병합되면 같은 원칙으로 연결).
+- Convolution은 입력 채널과 receptive-field halo를 포함한다. Gather는 index 데이터 자체와 실제 대상 좌표가 필요하며, index를 읽기 전에는 `Unknown`일 수 있다.
+- 최종 `Full` 요구는 전체 논리 데이터를 언젠가 사용한다는 뜻이지 **전체 데이터를 한 번에 RAM에 올려야 한다는 의미가 아니다**. Out-of-core streaming/tiling의 가능성은 별도의 결합·순서·state·effect proof에서 판단한다.
+- I/O Source 계약과 결합할 때에만 `ArrayRegion`을 실제 storage chunk/codec unit/byte ranges로 바꾼다. `RegionReadable`은 기능(capability)이지 빠른 랜덤 접근 성능 보장이 아니다. [`8.5 I/O 계약](#out-of-core-io-contract) 및 현재 논의한 `with` 의미론적 계약 경계를 따른다(후속 `8.5.5`가 병합되면 같은 원칙으로 연결).
 
 이 분석은 **역방향 index-map 분석**이라는 측면에서 MLIR Linalg의 “iteration subset ↔ accessed data subset”과 연결되지만, J observable semantics와 정적 source-binding의 안전성은 RustJ가 별도로 책임진다.
 
@@ -6927,26 +6927,26 @@ effect and ordering liveness survive independently of value demand.
 | [Glenside — Smith et al., MAPS 2021](https://ztatlock.net/pubs/2021-maps-glenside/) | 순수 tensor Access Pattern과 rewrite, im2col/하드웨어 accelerator mapping 사례 | 순수 access relationship 중심 표현·generic rewriting. J의 동적 의미론/오류 및 효과 보존은 추가 의무 |
 | [MLIR Linalg — Structured Ops](https://mlir.llvm.org/docs/Dialects/Linalg/) | iterator/indexing maps; iteration subset↔data subset 분석, fusion/tiling | Domain/Access 및 backward region 유도의 직접 근거. affine map 제약·buffer-oriented lowering을 J Rank 의미와 혼동 금지 |
 | [TACO — Kjolstad et al., ASE 2017](https://compilers.stanford.edu/publications/ase17/) | dense/sparse tensor algebra의 index notation과 코드 생성 | index/contract 관점; full-J boxed/fill/error/sparse ordering 지원을 자동 계승하지 않음 |
-| [Remora — Slepak/Shivers/Manolios, 2019](https://arxiv.org/abs/1907.00509) | Rank polymorphism, Frame/Cell 기반 lifting과 shape typing의 형식적 모델 | §u"r§의 의미론을 독립적으로 취급하는 비교 대상; Remora가 J의 모든 동작을 정의한 것은 아님 |
+| [Remora — Slepak/Shivers/Manolios, 2019](https://arxiv.org/abs/1907.00509) | Rank polymorphism, Frame/Cell 기반 lifting과 shape typing의 형식적 모델 | `u"r`의 의미론을 독립적으로 취급하는 비교 대상; Remora가 J의 모든 동작을 정의한 것은 아님 |
 | [Futhark Scan–Scatter Fusion, 2026-03-24](https://www.futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html) | 기존 fusion 규칙이 취약한 scan/scatter 결합에 대한 표현·컴파일 방법 연구 | Scan/Scatter·Accumulator를 Map/Reduce 하나로 소거하지 않고 basis를 진화시키는 사례 |
 
 이 자료들은 공통 구조의 **가능성을 보여 주는 서로 다른 부분적 실증**이지, 하나의 범용·완결된 Array Algebra가 발견되었다는 합의가 아니다. 선행연구가 이미 달성한 것은 novelty로 주장하지 않는다.
 
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 
-**아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → §GraphRewriteCandidate + FactWitness/Guard§ → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 §Scan/CellApply/Conv§는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. §with§는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.
+**아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → `GraphRewriteCandidate + FactWitness/Guard` → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 `Scan/CellApply/Conv`는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. `with`는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.
 
 **최소 실험 프로토콜(기존 GF/IO 작업의 하위 검증 규정).**
 1. Elementwise, StaticReindex, ordered Reduce, ordered Scan, Rank/CellApply, Window/Conv, DynamicGather를 각 **source 형태 + operand shape/type + expected J result/error**를 가진 작은 corpus로 고정한다. 처음 여섯 군을 중심으로 하되 Gather를 반드시 실패/unknown 반례에 포함한다.
-2. 각 사례에 §ResultDomain/AccessClass/Compute/Combine/Assembly§ 계약이 실제로 무엇을 알 수 있는지 §Known/Guarded/Unknown§으로 기록한다. 원본 FunctionEntity, input occurrence, target-independent facts와 witness를 유지한다.
+2. 각 사례에 `ResultDomain/AccessClass/Compute/Combine/Assembly` 계약이 실제로 무엇을 알 수 있는지 `Known/Guarded/Unknown`으로 기록한다. 원본 FunctionEntity, input occurrence, target-independent facts와 witness를 유지한다.
 3. **동일한 transfer API**를 두 개 이상의 군(예: Map·Transpose의 region pullback, Reduce·Conv의 contracted-axis/halo demand)에 적용하고, 각 부류의 정확성·unknown fallback을 검증한다. 연산별 예외만 늘어나면 실패로 기록한다.
 4. 후보 rewrite마다 **원본 J C oracle ↔ RustJ semantic/reference ↔ 후보(구현된 경우)** 값을 비교하고 dtype/shape/fill·오류 종류/첫 관찰 순서·side effect/late binding을 함께 검사한다. 소스 매칭만으로 equivalence를 선언하지 않는다.
 5. 결과 region 수요가 정확하거나 안전한 상위 근사인지 brute-force 작은 Shape와 기호 Shape를 교차 확인한다. 여분을 읽는 것은 비용 문제지만 필수 데이터를 놓치는 것은 correctness failure다. Empty/zero-rank, boxed/sparse, dynamic index, unknown side effects는 반드시 negative fixture를 만든다.
-6. 합법적 후보에만 §Work/Depth§, region bytes, intermediate materialization, fanout, target capability를 비교한다. 실제 CPU 실행/측정 근거가 없으면 fusion 성능 이득을 **가설**로 남긴다.
+6. 합법적 후보에만 `Work/Depth`, region bytes, intermediate materialization, fanout, target capability를 비교한다. 실제 CPU 실행/측정 근거가 없으면 fusion 성능 이득을 **가설**로 남긴다.
 
-**가설을 강화하는 증거:** (i) 6개 이상 연산군이 같은 구조 필드로 표현됨 **+** (ii) 서로 다른 군 사이에 재사용 가능한 일반 §Access/Rewrite§ 규칙 둘 이상이 sound하게 적용됨 **+** (iii) 정확성/오류/빈 Frame/동적 Gather 반례 테스트 통과 **+** (iv) 최소 한 종류의 불필요한 intermediate 또는 I/O 영역 감소를 측정 가능한 실행 경로에서 실증. **기각·수정 조건:** 모두 opaque로 귀착, 적용 규칙이 매번 ad hoc, numeric/error/rank 의미 보존 실패, 더 낮은 basis로 내려가며 Conv/FFT/Scan identity와 합법적 lowering이 사라짐. 어떤 연구 결과도 full-J 완전성이나 “모든 배열 계산의 관계대수” 성립 증명으로 과장하지 않는다.
+**가설을 강화하는 증거:** (i) 6개 이상 연산군이 같은 구조 필드로 표현됨 **+** (ii) 서로 다른 군 사이에 재사용 가능한 일반 `Access/Rewrite` 규칙 둘 이상이 sound하게 적용됨 **+** (iii) 정확성/오류/빈 Frame/동적 Gather 반례 테스트 통과 **+** (iv) 최소 한 종류의 불필요한 intermediate 또는 I/O 영역 감소를 측정 가능한 실행 경로에서 실증. **기각·수정 조건:** 모두 opaque로 귀착, 적용 규칙이 매번 ad hoc, numeric/error/rank 의미 보존 실패, 더 낮은 basis로 내려가며 Conv/FFT/Scan identity와 합법적 lowering이 사라짐. 어떤 연구 결과도 full-J 완전성이나 “모든 배열 계산의 관계대수” 성립 증명으로 과장하지 않는다.
 
-**기존 수용 원장만 사용한다.** §GF4§(후보 규칙/동치 witness), §GF5a§(Rank·Reduction·Scan·Window의 axis/Work-Depth 사실), §GF6§(실행 가능한 합법적 후보의 physical 이득), §FW-05~09§(FactWitness·rewrite correctness), §IO-09/10§(region demand·byte pruning)의 미완료 항목에 하위 증거를 축적한다. **이 문서화만으로 해당 항목에 새 §[x]§를 주지 않는다.** M2 frontend 우선순위 및 최초 M4 single-CPU vertical slice를 지연시키는 선행 게이트로 격상하지 않는다.
+**기존 수용 원장만 사용한다.** `GF4`(후보 규칙/동치 witness), `GF5a`(Rank·Reduction·Scan·Window의 axis/Work-Depth 사실), `GF6`(실행 가능한 합법적 후보의 physical 이득), `FW-05~09`(FactWitness·rewrite correctness), `IO-09/10`(region demand·byte pruning)의 미완료 항목에 하위 증거를 축적한다. **이 문서화만으로 해당 항목에 새 `[x]`를 주지 않는다.** M2 frontend 우선순위 및 최초 M4 single-CPU vertical slice를 지연시키는 선행 게이트로 격상하지 않는다.
 
 **GF 후속 체크리스트 — M2/M3 및 기존 A1.5 순서를 유지**
 - [x] GF0: 선행연구 설명과 실제 GraphBasis 코드의 차이를 감사하고 Scan의 독립 basis 설계 결정을 정정한다.
