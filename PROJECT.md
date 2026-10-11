@@ -2424,6 +2424,40 @@ This is close to MLIR Linalg's dual “iteration subset ↔ accessed data subset
 
 These are **partial and complementary research results**, not proof that a universal, complete array relational algebra already exists. Do not claim the earlier papers' established novelty for RustJ.
 
+##### 7.1 SPORES primary-source audit: applicable NN fragments and precise completeness (2026-10-11)
+
+**What SPORES established.** SPORES (Wang, Hutchison, Leang, Howe, Suciu) translates a linear-algebra (LA) expression into relational algebra (RA), explores alternatives with equality saturation, extracts a costed plan, and converts it back into LA. It is a concrete predecessor of RustJ's **Equivalent Form Discovery** ambition, **not** a complete optimizer for all neural-network operators or full-J array semantics. Primary texts: [arXiv v2 (2020-12-24)](https://arxiv.org/pdf/2002.07951), [PVLDB edition](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf).
+
+**Precise theorem scope.** The paper's Table 1 defines a **seven-operation LA grammar**: matrix multiply, elementwise multiplication and addition, row/column/global sum aggregations, and transpose; subtraction is represented by `A + (-1)B`. Its `K`-relation interpretation maps elementwise multiplication to join, addition to union, contracted sums to aggregation, and transpose to attribute/binding changes. Six LA↔RA translation rules and seven RA rewrites suffice for its **Theorem 2.3 completeness**: two expressions **inside that modeled language**, equivalent for inputs of **arbitrary dimensions**, are connected through finite rewrite sequences. Its uniqueness argument explicitly depends on arbitrary dimensions rather than one fixed matrix size. The theorem does **not** guarantee bitwise IEEE floating-point equality, all neural operators, all J programs, or that a resource-bounded sampled e-graph actually visits every alternative. Mathematical rule completeness and practical search convergence are different properties.
+
+**Worked sparse low-rank loss and corrected cost interpretation.** In the real-number algebra:
+~~~text
+L = sum((X - u v^T)^2)
+  = sum(X .* X) - 2 * (u^T X v) + (u^T u) * (v^T v)
+
+X: sparse, 1,000,000 × 500,000
+u: 1,000,000; v: 500,000
+Naive outer product: 500,000,000,000 multiplies + dense materialization
+Rewritten: 1,500,000 entries in the two vector self-dots,
+           PLUS u^T X v and sum(X .* X) work tied to X's nnz
+           and the source access/traversal cost.
+~~~
+Thus the contributed report's **"only 1.5 million multiplications for the entire result"** omits sparse cross-term and source-scan work; the important advantage is avoiding a huge dense intermediate. Algebraic distribution/reassociation can change rounding, signed zero, NaN, overflow, promotion and observable J error/effect ordering. Never promote SPORES-style mathematical equality to **Exact-J equivalence** without a separate witnessed numerical/semantic contract.
+
+**Applicability by NN operator family.**
+
+| Scope | SPORES-derived opportunity | RustJ obligations |
+|---|---|---|
+| Linear layers, matrix chains, Gram/low-rank losses, linear sums/reductions | Factorization, distributivity, CSE, sparse-aware plan changes | Extract pure sum-product fragments; prove dtype/shape/numeric/order |
+| Conv linear contractions, attention `QK^T` and `AV` | Sum-product subgraphs after indexing/contract description | Additional padding/window/mask/group/geometry rules; preserve structured Conv, isolate Softmax |
+| ReLU, GELU, Sigmoid, Softmax, LayerNorm, MaxPool | Not generally in the original sum-product grammar | Opaque boundary or separate nonlinear/normalization algebra and exact guards |
+| FFT, Sort, duplicate-index Scatter, indirect Gather, mutable optimizer state | Requires different algorithm, indirect access, update-order or effect model | No imported completeness claim; effect/alias/error obligations |
+| Explicit adjoint primitives | May contain optimizable, independently represented sum-product pieces | Preserve explicit adjoint policy; do not replace with autograd |
+
+**Performance and search qualifications.** The arXiv v2 abstract and discussion state **1.2×–5×** additional improvements over the compared SystemML optimizer, with up to **5×** in ALS. Public descriptions of the publication report **up to 10×**; these figures should be labeled by **version, workload and baseline**, never generalized to RustJ or arbitrary NN graphs. SPORES reports re-deriving **84 hand-written sum-product rewrite/heuristic rules**, not that seven rules suffice for every deep-learning operator. ILP-based extraction captures shared CSE cost but may be expensive; greedy extraction and sampled matches trade full-search/optimality guarantees for compile-time bounds. The paper reports programs whose e-graph exploration did not converge before iteration limits.
+
+**Implementation experiment, not an architecture mandate.** (1) Identify proven pure sum-product subgraphs within existing GraphBasis, using `with`-declared static shape/dtype/facts only as checked hypotheses. (2) Create an **optional** K-relation/index-sum-product analysis projection; store alternatives through the existing GF4 rewrite/provenance/witness machinery. (3) Mark all rules as **Exact-J proven, guarded conditional, mathematical-only, or unsupported**; never select floating-point distributivity simply because it holds over real numbers. (4) Separate bounded rewrite exploration from legality, target capability, resource/cost and final plan selection; measure representative NN cases and counterexamples. **No new mandatory relational IR, SPORES runtime, autograd, implementation acceptance or GF/IO checklist ID is implied.**
+
 ##### 8. RustJ placement, experimental design and falsification criteria
 
 **Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → `GraphRewriteCandidate` with `FactWitness/Guard` → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. `with` can supply static dtype/shape/semantic input facts; hardware policy remains physical.
