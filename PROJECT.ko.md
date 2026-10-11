@@ -6932,6 +6932,42 @@ effect and ordering liveness survive independently of value demand.
 
 이 자료들은 공통 구조의 **가능성을 보여 주는 서로 다른 부분적 실증**이지, 하나의 범용·완결된 Array Algebra가 발견되었다는 합의가 아니다. 선행연구가 이미 달성한 것은 novelty로 주장하지 않는다.
 
+##### 7.1 SPORES 원 논문 재검토 — NN 적용 범위와 완전성의 정확한 의미 (2026-10-11)
+
+**사용자가 제공한 SPORES 심층 보고서의 검증 가능한 핵심.** SPORES(Wang·Hutchison·Leang·Howe·Suciu)는 선형대수(LA) DAG → 관계대수(RA) → equality saturation → 비용 기반 추출 → LA 복원의 설계를 제시한다. 논문의 중심 가설은 *복잡한 합·곱 수식의 Equivalent Form을 개별 하드코딩 패턴 대신 공통 대수와 작은 재작성 규칙으로 탐색*할 수 있다는 것이다. 이는 RustJ의 **Equivalent Form Discovery** 연구와 본질적으로 같은 질문의 제한된 선행 성공 사례다. 그 자체가 NN 전체를 최적화하거나 J Rank를 보존하는 실행 컴파일러는 아니다. 원문: [arXiv 2002.07951, 2020-12-24 v2](https://arxiv.org/pdf/2002.07951), [PVLDB 출판본](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf).
+
+**수학적 핵심을 정확히 한정한다.** 논문 Table 1의 LA grammar는 행렬곱, 원소별 곱·합, 행·열·전체 sum aggregation, transpose의 **일곱 연산**이다(뺄셈은 `A + (-1)B`). 이 부분언어를 실수 계수 `K`-relation으로 사상한다: 원소별 곱↔join, 원소별 합↔union, 합산↔aggregate, 행렬곱↔join 뒤 contracted-axis aggregate, transpose↔속성명/축 순서 변환. `R_LR`의 여섯 LA↔RA 번역 규칙과 `R_EQ`의 일곱 관계 대수 등식으로 정상형을 다룬다. 정리 2.3의 **completeness**는 이 LA/RA grammar와 수학적 모델에 속한 두 식이 **임의의 유효 차원·입력**에 대해 의미상 동치일 때 관계대수 재작성의 유한 경로로 연결된다는 것이다. *IEEE 754에서 bitwise 같은 결과, 임의의 기계학습 모델/연산, 모든 J verb의 완전 동치*를 증명하지 않는다. 정규형의 유일성 보조정리는 **특정 크기로 고정된 행렬**에 대해서가 아니라 임의 차원 전체에서 동치임을 전제로 한다. 또한 theorem의 **규칙 표현력**과 실제 샘플링·time/fuel-bound e-graph의 **모든 표현 탐색 완료**는 구분해야 한다.
+
+**실제 최적화의 대표 사례와 올바른 비용 계산.** `L = sum((X - u v^T)^2)`는 실수 대수의 조건에서 다음 등가형으로 바꿀 수 있다.
+
+~~~text
+L = sum(X .* X) - 2 * (u^T X v) + (u^T u) * (v^T v)
+
+X: 1,000,000 × 500,000 sparse
+u: 1,000,000; v: 500,000
+naive uv^T: 500,000,000,000 multiply + huge dense materialization
+rewritten:
+  u^T u / v^T v: about 1,500,000 entries
+  u^T X v: additionally proportional to X's relevant nnz, access/traversal
+  sum(X .* X): additionally proportional to stored nonzero entries
+~~~
+
+따라서 사용자 제공 보고서의 **“최종 전체 계산량이 150만 번의 곱셈뿐”**은 `u^Tu`와 `v^Tv` 비용만 센 **불완전한 비용 주장**이다. `X`를 스캔하고 `u^TXv`, `sum(X^2)`를 계산하는 비용도 포함해야 하며, 논문은 거대한 dense 외적 구체화를 피하는 성과를 보여준다. 본 변환은 수학적 등가이지만 연산 재결합/분배가 부동소수점 rounding, signed zero, NaN, overflow 및 J observable error/promotion 순서를 바꿀 수 있으므로 **RustJ Exact-J 후보 자동 승인 금지**.
+
+**NN에서 유용한 범위와 경계.**
+
+| 범위 | SPORES식 대수 탐색의 가치 | RustJ 판정 |
+|---|---|---|
+| Dense/Linear, MatMul chain, Gram·Low-rank loss, 선형 결합 및 Reduction | contraction 축·공통 부분식·factorization·분배, sparse-aware 알고리즘 순서 변경 | 순수한 합·곱 fragment를 추출할 가능성 높음. 실제 J numeric/order 증명 필요 |
+| Convolution의 선형 합산 부분, projection, Attention `QK^T`와 `AV` | index/contract 분해 이후 공통 합·곱 최적화 기회 | padding/stride/window/mask/shape, softmax 경계 등의 additional rules 필요; conv identity 유지 |
+| ReLU, GELU, Sigmoid, Softmax, LayerNorm, MaxPool, clipping | 비선형·max/div/exp/conditional 등은 원 논문 합·곱 grammar 밖 | `Opaque` 경계 또는 별도 sound algebra/primitive 계약. 임의 push-through·분배 금지 |
+| FFT/IFFT, Sort, Scatter with duplicates, random Gather, stateful optimizer | 별도 알고리즘·접근 관계/갱신 순서 필요 | SPORES completeness 적용 불가, 효과/오류/alias proof 필요 |
+| 명시적인 adjoint primitives | 각 primitive의 J 배열 계산이 합·곱 영역을 포함할 수 있음 | autodiff로 대체하지 않음; 선언된 adjoint는 별도 semantic graph이며 동일한 증명 게이트를 통과해야 함 |
+
+**성능 수치는 버전/비교 기준을 함께 기록한다.** 확인한 arXiv v2 초록·본문은 기존 SystemML 대비 새로운 최적화의 성능 향상을 **1.2×~5×**, ALS에서 최대 **5×**로 기술한다. 출판본 및 공개 초록/2차 자료에는 **최대 10×**가 보고된다. 서로 다른 논문 버전·워크로드·baseline을 혼합하여 RustJ나 일반 NN에서 10×를 보장한다고 쓰지 않는다. 또한 SPORES는 SystemML에 존재했던 **84개 handwritten sum-product rewrite/heuristic**을 발견할 수 있었다고 보고하지만, '모든 NN 최적화가 일곱 규칙으로 충분'이라는 뜻이 아니다. E-graph는 phase ordering 문제를 줄이지만 비용 추출은 CSE 공유 고려 시 전역적이고, 원 논문의 ILP 추출은 비용이 크며 greedy 추출·규칙 sampling은 **완전탐색의 실용적 근사**다. 탐색이 포화하지 못한 사례도 논문에서 보고된다.
+
+**RustJ에 반영하는 검증 가능한 설계 가설.** (1) `with`로 확인한 dtype/shape/property를 *증명 조건*으로 쓰고 Graph Basis에서 side-effect-free Sum/Product region만 분석적으로 식별한다. (2) 해당 fragment에만 optional `KRelation/IndexSumProduct` projection을 만들어 대안 식을 기존 `GF4 GraphRewriteCandidate`와 witness로 보관한다. (3) 결합·분배·aggregate pushdown은 `Exact-J`/guarded 또는 `math-only`로 분류하고 IEEE J numeric·효과·오류가 보존되지 않으면 selection 금지한다. (4) bounded alternative discovery와 resource/target/cost extraction을 분리하며 measured NN workloads/negative cases에 기록한다. **새 필수 relational IR·SPORES runtime·자동미분 도입 결정이 아니다.** 이 비교의 실행 검증은 기존 GF4/GF5/GF6 및 FW/IO 원장에 종속되며 **구현 수용 [ ]**다.
+
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 
 **아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → `GraphRewriteCandidate + FactWitness/Guard` → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 `Scan/CellApply/Conv`는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. `with`는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.
