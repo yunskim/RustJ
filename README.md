@@ -16,6 +16,8 @@ The important principle is not SQL-like syntax:
 
 > **J source is not an execution plan.**
 
+The canonical design now includes a **[falsifiable common array-algebra research hypothesis](PROJECT.md#common-array-algebra-hypothesis)**, comparing cross-operation access contracts, witnessed equivalence and backward data demand. This is an analysis candidate over existing Graph Basis/Rewrite/FactWitness infrastructure, not a proved universal algebra or a new mandatory IR.
+
 J's rank, cell/frame semantics, derived entities, trains/composition, reductions/scans, and shape/reindex operations expose high-level information about **what is being computed**. RustJ tries to preserve that information for as long as possible and lets the compiler choose **how to realize it** subject to semantic legality, resource constraints, and cost.
 
 ```text
