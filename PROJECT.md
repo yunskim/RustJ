@@ -2320,7 +2320,7 @@ The independent Scan basis is now a design decision (2026-10-05); GF3 now adds i
 <a id="common-array-algebra-hypothesis"></a>
 #### 2026-10-11 Research hypothesis: shared access algebra for arrays and witnessed equivalence
 
-> **Status: research hypothesis, documentation/analysis only.** §Domain–Access–Compute–Combine§ (DACC) below is a **proposed analytic vocabulary**, not an established universal algebra or a committed new RustJ IR. It does not replace full-J semantics, existing §GraphBasisKind§ / §ExecutionBasisKind§, or the proven graph/semantic/physical stage boundaries. The question is whether reusable access relations and guarded rewrite rules arise from **multiple distinct array operations**. Reuse existing §GF2–GF6§ composition, witness, rewrite-candidate, Work/Depth and sidecar infrastructure; create neither a mandatory new compilation layer nor a duplicate acceptance checklist.
+> **Status: research hypothesis, documentation/analysis only.** `Domain–Access–Compute–Combine` (DACC) below is a **proposed analytic vocabulary**, not an established universal algebra or a committed new RustJ IR. It does not replace full-J semantics, existing `GraphBasisKind` / `ExecutionBasisKind`, or the proven graph/semantic/physical stage boundaries. The question is whether reusable access relations and guarded rewrite rules arise from **multiple distinct array operations**. Reuse existing `GF2–GF6` composition, witness, rewrite-candidate, Work/Depth and sidecar infrastructure; create neither a mandatory new compilation layer nor a duplicate acceptance checklist.
 
 ##### 1. Distinguish expressibility, equivalence, reusable reasoning, and profitability
 
@@ -2334,9 +2334,9 @@ The independent Scan basis is now a design decision (2026-10-05); GF3 now adds i
 
 ##### 2. Logical indexed-array semantics and the empty-array counterexample
 
-For a simple pure dense array, a useful projection is §A : Index(shape(A)) → Atom(dtype(A))§, where §Index(shape)§ is the finite Cartesian set of valid logical coordinates. This deliberately omits buffer layout, placement, addresses, chunks and devices.
+For a simple pure dense array, a useful projection is `A : Index(shape(A)) → Atom(dtype(A))`, where `Index(shape)` is the finite Cartesian set of valid logical coordinates. This deliberately omits buffer layout, placement, addresses, chunks and devices.
 
-**But it is not a complete model of J nouns.** A zero-atom array has no indexed elements while its J-visible type, shape, fill/prototype-derived result and Rank empty-frame behavior may remain observable. Boxed and sparse semantics, atom ordering, comparison fit/tolerance, numeric promotion and errors also exceed a naive coordinate map. A better conceptual carrier is §LogicalArray = (JType, Shape, OrderedAtoms, JVisibleRepresentation/FillFacts)§, with the coordinate function merely one analytic projection. Preserve the virtual-cell and result-type/shape assembly obligations even when value demand is empty. Keep §JEntity§ noun/function kinds separate and never grant noun-style shape/rank to arbitrary verbs or conjunctions.
+**But it is not a complete model of J nouns.** A zero-atom array has no indexed elements while its J-visible type, shape, fill/prototype-derived result and Rank empty-frame behavior may remain observable. Boxed and sparse semantics, atom ordering, comparison fit/tolerance, numeric promotion and errors also exceed a naive coordinate map. A better conceptual carrier is `LogicalArray = (JType, Shape, OrderedAtoms, JVisibleRepresentation/FillFacts)`, with the coordinate function merely one analytic projection. Preserve the virtual-cell and result-type/shape assembly obligations even when value demand is empty. Keep `JEntity` noun/function kinds separate and never grant noun-style shape/rank to arbitrary verbs or conjunctions.
 
 ##### 3. DACC plus a J-semantic envelope: an analysis view, not new mandatory IR
 
@@ -2353,13 +2353,13 @@ ArrayOperationContract (proposed analysis view)
   Evidence:     Known / Guarded / Unknown, witness and runtime guard
 ~~~
 
-- **Domain** describes valid logical output indices and the frame/cell application boundary, not a physical loop nest. J Rank §"§ is an application operator; it cannot be reconstructed merely from the shape or equated with MLIR iterator annotations.
-- **Access** relates output requests to input **occurrences**. Reuse coarse existing §GraphOperationContract::access§ classes such as CorrespondingElements, IndexTransform, ReductionAxis, WindowRelative, CellRelative, Indirect and Unknown. A class label alone does **not** prove an inverse map, exact region or movable read.
+- **Domain** describes valid logical output indices and the frame/cell application boundary, not a physical loop nest. J Rank `"` is an application operator; it cannot be reconstructed merely from the shape or equated with MLIR iterator annotations.
+- **Access** relates output requests to input **occurrences**. Reuse coarse existing `GraphOperationContract::access` classes such as CorrespondingElements, IndexTransform, ReductionAxis, WindowRelative, CellRelative, Indirect and Unknown. A class label alone does **not** prove an inverse map, exact region or movable read.
 - **Compute** retains the distinction between element/cell payload and higher-level structured operation identity. Conv, FFT, Sort, Search, Scatter, dynamic Gather and Attention must not be irreversibly scalarized merely to fit a small basis. Provide **optional, witnessed** expansions.
-- **Combine** specifies ordered folding/prefixes, identity, carry, numeric mode and exceptional behavior. An arbitrary J §u/§ or prefix §u\§ does not imply associativity, parallel-prefix legality, or freedom to change reduction direction.
-- **J-semantic envelope** preserves names and late binding, rank/cell/fill, tolerance, J integer-overflow retry/promotion, effect/error precedence and source provenance. An §Unknown§ proof state never grants a rewrite.
+- **Combine** specifies ordered folding/prefixes, identity, carry, numeric mode and exceptional behavior. An arbitrary J `u/` or prefix `u\` does not imply associativity, parallel-prefix legality, or freedom to change reduction direction.
+- **J-semantic envelope** preserves names and late binding, rank/cell/fill, tolerance, J integer-overflow retry/promotion, effect/error precedence and source provenance. An `Unknown` proof state never grants a rewrite.
 
-Start with an **analysis sidecar / projected contract** over present J Graph IR §GraphBasis§, §CompositionRelation§, §GraphFacts§, §AccessContract§, §GraphRewriteProvenance§/§FactWitness§ and A3 §ExecutionBasis§/§EffectSummary§/§SemanticCheck§. Do not add physical BufferIds, device scheduling, file offsets or concrete tile sizes to Graph/Logical meanings.
+Start with an **analysis sidecar / projected contract** over present J Graph IR `GraphBasis`, `CompositionRelation`, `GraphFacts`, `AccessContract`, `GraphRewriteProvenance`/`FactWitness` and A3 `ExecutionBasis`/`EffectSummary`/`SemanticCheck`. Do not add physical BufferIds, device scheduling, file offsets or concrete tile sizes to Graph/Logical meanings.
 
 ##### 4. Six families plus a mandatory indirect counterexample
 
@@ -2367,37 +2367,37 @@ The following mathematics is **not literal J source syntax** and does not assert
 
 | Family | Domain / access / combine structure | Candidate cross-family analyses |
 |---|---|---|
-| Elementwise | §C[i,j] = f(A[i,j],B[i,j])§; corresponding indices | Identity-region pullback; witnessed Map→Map fusion |
-| Transpose / Reshape / Slice | §B[i,j] = A[j,i]§; reindexing with shape/atom-order constraints; slice bounds/fill | Index-map composition and inverse logical-demand mapping |
-| Reduce | §B[i] = fold_ordered_k A[i,k]§; separate output and contracted dimensions | Contracted-axis demand; order, identity and promotion proofs |
-| Scan | §B[i,k] = prefix_ordered_{0..k} A[i,*]§; prefix dependencies/carry | Shared axis roles; preserve first-class Scan rather than treating every prefix as independent Window→Reduce |
-| Convolution / Window | §Y[n,o,h,w]§ consumes a finite input-channel/kernel-offset region | Halo requirements, data traffic, conditional WindowView/Contract expansion |
-| Gather / Indirect / Search | §B[i] = A[index[i]]§; access set depends on index values | Known/Guarded/Unknown access; inspection costs; safe conservative fallback |
+| Elementwise | `C[i,j] = f(A[i,j],B[i,j])`; corresponding indices | Identity-region pullback; witnessed Map→Map fusion |
+| Transpose / Reshape / Slice | `B[i,j] = A[j,i]`; reindexing with shape/atom-order constraints; slice bounds/fill | Index-map composition and inverse logical-demand mapping |
+| Reduce | `B[i] = fold_ordered_k A[i,k]`; separate output and contracted dimensions | Contracted-axis demand; order, identity and promotion proofs |
+| Scan | `B[i,k] = prefix_ordered_{0..k} A[i,*]`; prefix dependencies/carry | Shared axis roles; preserve first-class Scan rather than treating every prefix as independent Window→Reduce |
+| Convolution / Window | `Y[n,o,h,w]` consumes a finite input-channel/kernel-offset region | Halo requirements, data traffic, conditional WindowView/Contract expansion |
+| Gather / Indirect / Search | `B[i] = A[index[i]]`; access set depends on index values | Known/Guarded/Unknown access; inspection costs; safe conservative fallback |
 
-**Matrix multiplication worked example:** §C[i,j] = ordered_sum_k A[i,k] * B[k,j]§ has output axes §i,j§, contracted axis §k§, and accesses §(i,k)§ / §(k,j)§. If only §C[10:20,30:40]§ is demanded, sound logical input regions include §A[10:20,:]§ and §B[:,30:40]§. This illustrates demand pullback, **not** a proof of equivalence to an arbitrary J inner product §+/ . *§: exact numeric promotion, order, type, rank, shape and error behavior must still be established.
+**Matrix multiplication worked example:** `C[i,j] = ordered_sum_k A[i,k] * B[k,j]` has output axes `i,j`, contracted axis `k`, and accesses `(i,k)` / `(k,j)`. If only `C[10:20,30:40]` is demanded, sound logical input regions include `A[10:20,:]` and `B[:,30:40]`. This illustrates demand pullback, **not** a proof of equivalence to an arbitrary J inner product `+/ . *`: exact numeric promotion, order, type, rank, shape and error behavior must still be established.
 
-**Convolution worked example:** An output rectangle and kernel/stride/dilation/padding/group/channel facts determine a required input receptive field and halo. Direct convolution, a witnessed WindowView→Contract expansion and im2col→GEMM are distinct realizations; equality requires padding/boundary, type, layout meaning, numeric accumulation order, state/activation/adjoint and error evidence. Keep §GraphBasis::Structured(Conv)§ unchanged until optional lowering is proven.
+**Convolution worked example:** An output rectangle and kernel/stride/dilation/padding/group/channel facts determine a required input receptive field and halo. Direct convolution, a witnessed WindowView→Contract expansion and im2col→GEMM are distinct realizations; equality requires padding/boundary, type, layout meaning, numeric accumulation order, state/activation/adjoint and error evidence. Keep `GraphBasis::Structured(Conv)` unchanged until optional lowering is proven.
 
-**Rank worked example:** §u"r§ applies §u§ to J cells under a frame, then assembles result cells by J rules. An empty frame may still require determining cell-result dtype, shape and fill. Thus §Demand(Value)=None§ does not imply §Demand(Prototype/Checks)=None§. Rank may resemble Map in part of its behavior but retains independent J application and assembly semantics.
+**Rank worked example:** `u"r` applies `u` to J cells under a frame, then assembles result cells by J rules. An empty frame may still require determining cell-result dtype, shape and fill. Thus `Demand(Value)=None` does not imply `Demand(Prototype/Checks)=None`. Rank may resemble Map in part of its behavior but retains independent J application and assembly semantics.
 
 ##### 5. Candidate rewrite families: every arrow requires proof
 
 | Candidate | Potential win | Mandatory obligations / pitfalls |
 |---|---|---|
-| §Map(f,Map(g,A)) → Map(f∘g,A)§ | Intermediate elimination/fusion | Purity, evaluation multiplicity, exact per-cell errors and their order, dtype/shape/overflow, provenance; shared producer fan-out may increase work |
-| §IndexMap(p,IndexMap(q,A)) → IndexMap(q∘p,A)§ | Reindex/view composition | Complete domain/range mapping, negative/out-of-range behavior, fill, rank/shape and check effects |
-| §Map(f,IndexMap(p,A)) ↔ IndexMap(p,Map(f,A))§ | Avoid materialization | Total/pure §f§, unchanged evaluation-count/error precedence, agreement and result-cell assembly |
-| §Map→Reduce§ / §Map→Scan§ | Stream values into consumer | Same ordered fold or prefix semantics, carry and empty/singleton behavior, numeric promotion; no automatic reassociation |
+| `Map(f,Map(g,A)) → Map(f∘g,A)` | Intermediate elimination/fusion | Purity, evaluation multiplicity, exact per-cell errors and their order, dtype/shape/overflow, provenance; shared producer fan-out may increase work |
+| `IndexMap(p,IndexMap(q,A)) → IndexMap(q∘p,A)` | Reindex/view composition | Complete domain/range mapping, negative/out-of-range behavior, fill, rank/shape and check effects |
+| `Map(f,IndexMap(p,A)) ↔ IndexMap(p,Map(f,A))` | Avoid materialization | Total/pure `f`, unchanged evaluation-count/error precedence, agreement and result-cell assembly |
+| `Map→Reduce` / `Map→Scan` | Stream values into consumer | Same ordered fold or prefix semantics, carry and empty/singleton behavior, numeric promotion; no automatic reassociation |
 | Parallel tree Reduce/Scan | Lower dependency depth | Proven associativity/identity **under J's actual dtype/fit/error contract**; mathematical associativity of real numbers is insufficient for floating point |
 | Conv→Window/Contract or im2col+GEMM | Accelerator/library mapping | Exact geometry, padding, accumulator order, alias/lifetime, dtype, output and partial-read semantics |
 | Union of common source regions | Reuse read bytes | Source identity/version/snapshot, observed error/effect order, codec/read-chunk amplification and buffer leases |
 | Dead input-region pruning | Avoid needless I/O | No discarded J-visible checks, named bindings, foreign reads, errors or effects |
 
-**Required refutation cases:** (a) floating-point §(a+b)+c ≠ a+(b+c)§, NaNs/tolerance, (b) integer overflow and promotion, (c) nonassociative subtraction insertion and order-sensitive Scan, (d) empty-frame virtual-cell result/prototype, (e) boxed/sparse fill/representation, (f) data-dependent Gather indexes and bounds errors, (g) discarded J §1!:§ read that still fails, (h) right-to-left NAME/Hook/Fork effects and error precedence, (i) mutable/aliased weights and changing external version, (j) FFT/IFFT normalization and separately defined adjoints. **Narrow or reject an unsafe generic law; never restrict full-J semantics to make the law true.**
+**Required refutation cases:** (a) floating-point `(a+b)+c ≠ a+(b+c)`, NaNs/tolerance, (b) integer overflow and promotion, (c) nonassociative subtraction insertion and order-sensitive Scan, (d) empty-frame virtual-cell result/prototype, (e) boxed/sparse fill/representation, (f) data-dependent Gather indexes and bounds errors, (g) discarded J `1!:` read that still fails, (h) right-to-left NAME/Hook/Fork effects and error precedence, (i) mutable/aliased weights and changing external version, (j) FFT/IFFT normalization and separately defined adjoints. **Narrow or reject an unsafe generic law; never restrict full-J semantics to make the law true.**
 
 ##### 6. Backward ArrayRegion demand from the same access relations
 
-For required output coordinate set §R_out§ and input occurrence §s§, a sound over-approximation of the **value** demand is:
+For required output coordinate set `R_out` and input occurrence `s`, a sound over-approximation of the **value** demand is:
 
 ~~~text
 Need_s(R_out) ⊇ Union_{o ∈ R_out} Access_s(o)
@@ -2407,7 +2407,7 @@ Retain independent obligations for dtype/shape/prototype, ordered checks,
 effects, observable errors and name resolution.
 ~~~
 
-Elementwise ops pull back corresponding coordinates; transpose/slice use proven inverse maps. Reductions include the needed **entire contracted axis**; prefix scans require the entire dependent prefix or carry state. Convolution expands by receptive-field halo. Gather requires its index data and may leave the target region unknown until inspection. A §Full§ value demand means all logical data is eventually needed, **not** that all data must reside in RAM simultaneously. Streaming and chunk-based execution still need separate associativity/order/state/effect/budget proofs. Source binding may translate §ArrayRegion§ to storage read/codec chunks and physical byte ranges only after layout/version/capability validation; region-read capability is not a latency promise. See the existing [I/O design](#out-of-core-io-contract). The separate §with§ typed-semantic input boundary remains intact.
+Elementwise ops pull back corresponding coordinates; transpose/slice use proven inverse maps. Reductions include the needed **entire contracted axis**; prefix scans require the entire dependent prefix or carry state. Convolution expands by receptive-field halo. Gather requires its index data and may leave the target region unknown until inspection. A `Full` value demand means all logical data is eventually needed, **not** that all data must reside in RAM simultaneously. Streaming and chunk-based execution still need separate associativity/order/state/effect/budget proofs. Source binding may translate `ArrayRegion` to storage read/codec chunks and physical byte ranges only after layout/version/capability validation; region-read capability is not a latency promise. See the existing [I/O design](#out-of-core-io-contract). The separate `with` typed-semantic input boundary remains intact.
 
 This is close to MLIR Linalg's dual “iteration subset ↔ accessed data subset” questions, but the proof of full-J observational equivalence remains RustJ's own obligation.
 
@@ -2419,18 +2419,18 @@ This is close to MLIR Linalg's dual “iteration subset ↔ accessed data subset
 | [Glenside — Smith et al. 2021](https://ztatlock.net/pubs/2021-maps-glenside/) | Pure tensor access patterns and equality saturation; im2col / accelerator mappings | Shared pure index/access representation; no automatic J effect/Rank/error coverage |
 | [MLIR Linalg structured operations](https://mlir.llvm.org/docs/Dialects/Linalg/) | Index maps, iterator structure, iteration/data-region bidirectional analysis, fusion/tiling | Direct precedent for access transfer; not a substitute for J Rank or all non-affine accesses |
 | [TACO — Kjolstad et al. 2017](https://compilers.stanford.edu/publications/ase17/) | Dense/sparse tensor index-notation compilation | Index/contract analysis, without inheriting full J boxed/fill/numeric semantics |
-| [Remora — Slepak/Shivers/Manolios 2019](https://arxiv.org/abs/1907.00509) | Formal rank polymorphism, cell/frame lifting and shape-dependent typing | Semantics comparison for J §u"r§; does not specify the whole of J |
+| [Remora — Slepak/Shivers/Manolios 2019](https://arxiv.org/abs/1907.00509) | Formal rank polymorphism, cell/frame lifting and shape-dependent typing | Semantics comparison for J `u"r`; does not specify the whole of J |
 | [Futhark Scan–Scatter Fusion, March 2026](https://www.futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html) | Investigates representation and fusion for scan/scatter with accumulator-related structure | Evidence that basis/rewrite vocabularies evolve and Map/Reduce is not always enough |
 
 These are **partial and complementary research results**, not proof that a universal, complete array relational algebra already exists. Do not claim the earlier papers' established novelty for RustJ.
 
 ##### 8. RustJ placement, experimental design and falsification criteria
 
-**Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → §GraphRewriteCandidate§ with §FactWitness/Guard§ → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. §with§ can supply static dtype/shape/semantic input facts; hardware policy remains physical.
+**Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → `GraphRewriteCandidate` with `FactWitness/Guard` → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. `with` can supply static dtype/shape/semantic input facts; hardware policy remains physical.
 
 **Protocol (sub-evidence for existing GF/IO acceptance items, not a new checklist):**
 1. Fix small source- and shape/type-aware reference cases for Elementwise, StaticReindex, ordered Reduce, ordered Scan, Rank/CellApply, Window/Conv and DynamicGather. Gather is mandatory as an unknown/indirect counterexample.
-2. For each case describe §ResultDomain, AccessClass, Compute, Combine, Assembly§ as §Known/Guarded/Unknown§, preserving the original FunctionEntity, input occurrence and source provenance.
+2. For each case describe `ResultDomain, AccessClass, Compute, Combine, Assembly` as `Known/Guarded/Unknown`, preserving the original FunctionEntity, input occurrence and source provenance.
 3. Demonstrate at least **two generic cross-family transfer rules** (e.g., elementwise + transpose region pullback; reduce + convolution contracted-axis/halo demand), or record a failed hypothesis rather than accumulating ad hoc special cases.
 4. For every rewrite compare pinned J C oracle, RustJ semantic/reference execution, and any implemented candidate, including dtype/shape/fill, first observable error, effects and late binding. Pattern matching alone is not a proof.
 5. Validate region-demand soundness against exhaustive small-shape cases and symbolic dimensions; over-reading may cost performance, but omitting required data is a correctness failure. Include empty rank/frame, boxed/sparse, indirect index and unknown-effect negative cases.
@@ -2438,7 +2438,7 @@ These are **partial and complementary research results**, not proof that a unive
 
 **Evidence that strengthens the hypothesis:** (i) at least six operation families admit informative shared fields, **and** (ii) at least two sound rules demonstrably work across distinct families, **and** (iii) empty-frame/numeric/effect/Gather counterexamples are handled correctly, **and** (iv) one actual implemented route demonstrates measurable saved intermediates or I/O regions. **Evidence against / reason to revise:** everything collapses to opaque; every rule is special-case-only; numeric, Rank or error equivalence fails; decomposition destroys Conv/FFT/Scan identity or backend feasibility. Never extrapolate this to a proof of completeness for all array programming.
 
-**Use only existing acceptance tracking.** Store evidence under §GF4§ (witnessed rewrite rules), §GF5a§ (Rank/Scan/Window and axes/Work-Depth), §GF6§ (proved executable candidates and physical costs), §FW-05–09§ (facts/witness/equivalence correctness), and §IO-09/10§ (backward regions, byte pruning). **No implementation gate is marked complete by this documentation change.** Do not make this a prerequisite for M2 frontend convergence or the first native M4 single-CPU vertical slice.
+**Use only existing acceptance tracking.** Store evidence under `GF4` (witnessed rewrite rules), `GF5a` (Rank/Scan/Window and axes/Work-Depth), `GF6` (proved executable candidates and physical costs), `FW-05–09` (facts/witness/equivalence correctness), and `IO-09/10` (backward regions, byte pruning). **No implementation gate is marked complete by this documentation change.** Do not make this a prerequisite for M2 frontend convergence or the first native M4 single-CPU vertical slice.
 
 **GF follow-up checklist — preserve M2/M3 and existing A1.5 sequencing**
 - [x] GF0: Audit documentation against GraphBasis implementation and resolve the independent-Scan design decision.
