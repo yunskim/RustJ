@@ -6915,7 +6915,7 @@ effect and ordering liveness survive independently of value demand.
 - Reduce는 요구 출력에 영향을 주는 **해당 reduction 축 전체**를 포함한다. Scan의 특정 prefix는 해당 prefix dependency/carry를 포함한다. 비결합적 Scan을 블록 간 독립 부분합으로 대체하지 않는다.
 - Convolution은 입력 채널과 receptive-field halo를 포함한다. Gather는 index 데이터 자체와 실제 대상 좌표가 필요하며, index를 읽기 전에는 `Unknown`일 수 있다.
 - 최종 `Full` 요구는 전체 논리 데이터를 언젠가 사용한다는 뜻이지 **전체 데이터를 한 번에 RAM에 올려야 한다는 의미가 아니다**. Out-of-core streaming/tiling의 가능성은 별도의 결합·순서·state·effect proof에서 판단한다.
-- I/O Source 계약과 결합할 때에만 `ArrayRegion`을 실제 storage chunk/codec unit/byte ranges로 바꾼다. `RegionReadable`은 기능(capability)이지 빠른 랜덤 접근 성능 보장이 아니다. [§8.5 I/O 계약](#out-of-core-io-contract) 및 현재 논의한 `with` 의미론적 계약 경계를 따른다(후속 `8.5.5`가 병합되면 같은 원칙으로 연결).
+- I/O Source 계약과 결합할 때에만 `ArrayRegion`을 실제 storage chunk/codec unit/byte ranges로 바꾼다. `RegionReadable`은 기능(capability)이지 빠른 랜덤 접근 성능 보장이 아니다. [8.5 I/O 계약](#out-of-core-io-contract) 및 현재 논의한 `with` 의미론적 계약 경계를 따른다(후속 `8.5.5`가 병합되면 같은 원칙으로 연결).
 
 이 분석은 **역방향 index-map 분석**이라는 측면에서 MLIR Linalg의 “iteration subset ↔ accessed data subset”과 연결되지만, J observable semantics와 정적 source-binding의 안전성은 RustJ가 별도로 책임진다.
 
