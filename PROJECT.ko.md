@@ -9648,6 +9648,68 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 4. **dtype와 품사만으로 physical 실행을 확정하지 않는다.** 역사 cast 문서의 “adverb이면 fusion 강제”, “narrowing이면 in-place”, “widening이면 새 버퍼”는 현행 불변식이 아니다. numeric correctness·alias·use/liveness·target/cost 판단 후 실제 realization을 선택한다.
 5. **상태는 explicit resource다.** prototype의 hidden weight/moment, fixed offset, 고정 barrier/stream/register 숫자를 primitive identity로 복사하지 않는다. `ValueId`, `StateResource`, `BufferId`를 구분한다.
 
+<a id="nn-explicit-adjoint-candidates"></a>
+#### 4.6.2a 명시적 Adjoint/VJP 후보 계약 — NN-01~NN-34 (2026-10-11)
+
+**결정:** RustJ는 범용 자동미분/역방향 그래프 생성기를 필수 구성요소로 두지 않는다. Extended primitive의 Forward와 **입력별 명시적 Adjoint/VJP**는 각각 독립적인 배열 변환이며 동일한 J Rank/Cell/Frame, Graph IR, Logical IR, 합법성·비용 분석을 사용한다. 이 표는 위의 **단일 NN-01~NN-34 완료 체크리스트에 종속되는 계약 후보 표**이지 별도의 채택/완료 목록이 아니다. 표의 이름은 아직 등록된 J NAME이나 실행 가능 커널이라는 뜻이 아니다.
+
+**수학적 경계:** 선형 A에는 A*가 정의된다. 비선형 f에는 primal x와 cotangent v를 받는 `VJP_f(x,v)=Df(x)^*v`가 필요하다. 비미분 입력(정수 index, mask, RNG draw, state mutation)에는 임의의 0-gradient/straight-through estimator(STE)를 자동으로 부여하지 않는다. 입력별 cotangent shape/dtype 및 복소 inner product를 검증한다. **Forward·Adjoint의 intrinsic rank가 같다고 가정하지 않으며**, 공유 parameter-gradient는 batch/frame 축 Reduce를 필요로 할 수 있다. J의 prefix agreement, 빈 Frame virtual fill-cell, heterogeneous result assembly, observable error/effect order는 각각 증명해야 한다.
+
+**참고 기준:** [N] NNlib의 호출 가능한 `∇softmax` 등, [P] PyTorch `torch.nn.grad.conv2d_input/weight`, [C] cuDNN `ConvolutionBwdData/Filter`, [O] oneDNN Backward, [R] ChainRulesCore의 primal+pullback 규칙, [J] 과거 JAXA의 독립 `grad_x/grad_w` 및 관계 등록, [D] RustJ의 설계 도출(외부 라이브러리에 동일 이름/API가 있다는 주장이 아님). **외부 API는 참고 근거이지 J Rank·숫자·에러 의미론과의 동등성 증명이 아니다.**
+
+| 계열 | Forward | 분류 | 입력 Adjoint 후보 | 파라미터 Adjoint 후보 | 필요한 primal/residual | Rank/Logical IR 방향 | 미결 계약/주의 | 근거 |
+|---|---|---|---|---|---|---|---|---|
+| NN-01 | `relu / sigmoid / tanh` | 명시적 VJP 후보 | `relu_vjp / sigmoid_vjp / tanh_vjp` | — | 입력 또는 출력 y, cotangent | Frame별 elementwise Map | ReLU x=0 subgradient, sigmoid/tanh 정밀도 | [D] |
+| NN-02 | `linear` | 명시적 VJP 후보 | `linear_grad_input` | `linear_grad_weight, linear_grad_bias` | X, W, dY, input/weight shape | batched dW/db는 공유 축 Reduce | bias broadcast/축 정합 및 누산 정밀도 | [D] |
+| NN-03 | `flatten` | 명시적 VJP 후보 | `flatten_vjp (= inverse reshape)` | — | 원본 shape/axis, dY | Frame/Cell 재배열; 복사 강제 금지 | 빈 배열·boxed/heterogeneous J 결과 조립 | [D] |
+| NN-04 | `conv2d` | 명시적 VJP 후보 | `conv2d_grad_input` | `conv2d_grad_weight, conv2d_grad_bias` | W, X, dY, stride/padding/dilation/groups, input/output sizes | dX Window/Scatter; dW batched Reduce/Contract | 경계·그룹·padding, 산술 및 레이아웃 증명 | [P], [C], [O] |
+| NN-05 | `avg_pool2d / max_pool2d` | 조건부 VJP 후보 | `avg_pool2d_vjp / max_pool2d_vjp` | — | window geometry; max의 선택 인덱스/동률 정책 | window별 Scatter + overlap Reduce | NaN/ties, ceil_mode, count_include_pad, 빈 창 | [O], [D] |
+| NN-06 | `softmax / log_softmax` | 명시적 VJP 후보 | `softmax_vjp / log_softmax_vjp` | — | 출력 y, dY, reduction axis | Cell별 Reduce + Map | 안정적 수식, 빈 reduction, Inf/NaN 및 dtype | [N] |
+| NN-07 | `cross_entropy` | 조건부 VJP 후보 | `cross_entropy_vjp_logits` | `선택적 class weight VJP 미정` | logits/log-prob 또는 확률, labels, reduction divisor | class-axis Reduce + batch-axis Reduce | 정수 target은 no VJP; ignore_index/label_smoothing 검증 | [D] |
+| NN-08 | `conv1d / conv3d` | 명시적 VJP 후보 | `conv1d_grad_input / conv3d_grad_input` | `conv1d_grad_weight / conv3d_grad_weight, bias` | X, W, dY, spatial hyperparameters | spatial Window + batch Reduce | 차원별 layout, groups, dilations, boundary | [C], [O] |
+| NN-09 | `layer_norm / rms_norm / batch_norm` | 조건부 VJP 후보 | `*_norm_grad_input` | `*_norm_grad_weight / *_norm_grad_bias` | input, mean/rstd 또는 rms, affine parameters, training flag | normalization axes Reduce, batch statistics 공유 | running-stat StateResource/version; forward residual precision | [O], [D] |
+| NN-10 | `gelu / silu` | 명시적 VJP 후보 | `gelu_vjp / silu_vjp` | — | input x 또는 유효 residual, exact/approx mode | elementwise Map | 근사 GELU 모드별 서로 다른 derivative | [D] |
+| NN-11 | `embedding` | 조건부 VJP 후보 | `indices: no VJP` | `embedding_grad_weight (scatter-add)` | indices, dY, padding_idx, weight shape | Gather 역방향 Scatter/SegmentReduce | indices 정수; 반복 index, max_norm state, sparse mode | [D] |
+| NN-12 | `scaled_dot_product_attention` | 조건부 VJP 후보 | `attention_grad_q / _grad_k / _grad_v` | — | Q,K,V, mask, scale, softmax stats, dropout mask/key | Contract + Softmax VJP + Contract; head/frame Map | masked rows, GQA, dropout RNG, precision, flash backend 별도 | [D] |
+| NN-13 | `rotary_embedding` | 조건부 VJP 후보 | `rotary_embedding_vjp (inverse rotation)` | `선택적 frequency VJP는 별도 정책` | position, sin/cos, rotated axes, dY | paired-element Map/StaticReindex | position index no VJP; frequency trainability 미정 | [D] |
+| NN-14 | `matmul / J contraction` | 명시적 VJP 후보 | `matmul_grad_input` | `matmul_grad_other` | X, W, dY, transpose flags, batch-prefix frame | transpose/Contract + broadcast axes Reduce | 복소 conjugate adjoint, J prefix-rank 정합 | [O], [D] |
+| NN-15 | `dropout` | 조건부 VJP 후보 | `dropout_vjp_input` | — | forward와 동일한 mask 또는 key/version, p, training | masked Map | 새 RNG draw 금지, RNG 재현성/effect barrier | [D] |
+| NN-16 | `vjp (explicit invocation)` | 계산 VJP 해당 없음 | `등록된 input-specific VJP를 명시 호출` | — | primal, output cotangent, residual handle | 대상 primitive의 Rank/Cell 계약 상속 | forward graph 자동 미분/생성 금지; 미등록 VJP 오류 | [R], [J] |
+| NN-17 | `SGD / Adam / AdamW` | 계산 VJP 해당 없음 | `일반적인 VJP 계약 없음` | — | weights, gradients, moments, step StateResource | elementwise state transition, 명시적 순서 | optimizer state update는 adjoint가 아님 | [D] |
+| NN-18 | `register_adjoint (declaration)` | 계산 VJP 해당 없음 | `계산 없음: forward→input-index VJP 관계 선언` | — | dtype/shape/rank, primal/residual, input-slot identity | 등록 메타데이터만; Graph 실행노드 생성 안 함 | J :. / ^:_1 inverse 재정의 금지 | [R], [J] |
+| NN-19 | `to (dtype conversion)` | 조건부 VJP 후보 | `floating_cast_vjp (정의 시)` | — | source/dest dtype, rounding/overflow policy | elementwise Map | 정수/양자화 cast는 일반 VJP 없음; STE 기본 채택 금지 | [D] |
+| NN-20 | `conv_transpose2d / adaptive pooling` | 조건부 VJP 후보 | `transpose_conv_grad_input / adaptive_pool_vjp` | `transpose_conv_grad_weight, bias` | X,W,dY, output_size; adaptive window/indices | Window/Scatter + Reduce | adaptive max tie/NaN; output_padding/shape consistency | [C], [O], [D] |
+| NN-21 | `quantize_per_tensor / dequantize` | VJP 없음 | `일반 양자화의 정확한 VJP 없음` | — | scale, zero_point, rounding, saturation, dtype | 직접 Adjoint 경로 없음 | STE는 별도 surrogate policy; VJP로 위장 금지 | [D] |
+| NN-22 | `kv_cache_update` | VJP 없음 | `state mutation 자체 VJP 없음` | — | cache version, index/offset, alias, explicit state | StateResource read/write dependency | pure gather 경로의 VJP와 상태 갱신을 구분 | [D] |
+| NN-23 | `grouped_mm` | 조건부 VJP 후보 | `grouped_mm_grad_input` | `grouped_mm_grad_weight` | expert assignment, offsets, X, W, dY | expert별 batched Contract + Reduce | routing index no VJP; capacity/drop/pad/reassembly | [D] |
+| NN-24 | `logsumexp` | 명시적 VJP 후보 | `logsumexp_vjp` | — | input/output, reduction axes, stable max stats | Reduce + broadcast Map | empty/Inf/NaN, keepdims, accumulation dtype | [N], [D] |
+| NN-25 | `topk` | 조건부 VJP 후보 | `topk_values_vjp (scatter to chosen indices)` | — | forward-selected indices, input shape, dValues | Scatter; repeated collisions require proof | index VJP 없음; ties/stability/NaN policy | [D] |
+| NN-26 | `group_norm / instance_norm` | 명시적 VJP 후보 | `group_norm_vjp / instance_norm_vjp` | `affine scale/bias VJP` | per-group stats, input/scale, eps, dY | group-axis Reduce + Map, batch frame | group divisibility, no running stats 혼동 | [O], [D] |
+| NN-27 | `segment_reduce / embedding_bag` | 조건부 VJP 후보 | `segment_reduce_vjp / embedding_bag_vjp` | `embedding_bag_grad_weight` | segments/offsets, indices, reduction type, argmax if max | SegmentView/Scatter + Reduce | empty segments, duplicate indices, max ties, sparse accumulation | [D] |
+| NN-28 | `scatter_reduce / index_add` | 조건부 VJP 후보 | `scatter_reduce_grad_base / index_add_grad_input` | `scatter_reduce_grad_src / index_add_grad_src` | indices, reduce mode, include_self, winning ties | Gather + collision-aware ScatterCombine | overwrite collisions, min/max tie/order, deterministic accumulation | [D] |
+| NN-29 | `interpolate / grid_sample` | 조건부 VJP 후보 | `interpolate_vjp_input / grid_sample_vjp_input` | `grid_sample_vjp_grid (mode dependent)` | grid/coords, input, mode, padding, align_corners | WeightedScatter/Window + Reduce | nearest grid derivative undefined; bounds, NaN, precision | [D] |
+| NN-30 | `rand / randn / bernoulli / multinomial` | VJP 없음 | `RNG sampling 자체에 일반 VJP 없음` | — | explicit key/state, distribution parameters | ExplicitRng route, not differentiation | reparameterization/score estimator는 별도 API | [D] |
+| NN-31 | `RNN / GRU / LSTM` | 조건부 VJP 후보 | `recurrent_vjp_input / _vjp_initial_state` | `recurrent_vjp_weight / _vjp_bias` | gate activations, hidden/cell states, lengths, direction | reverse-time Scan + per-step Contract/Map | zero-length, dropout, gate order/state version, truncation | [D] |
+| NN-32 | `nms` | VJP 없음 | `discrete box selection: 일반 VJP 없음` | — | selected indices, ties, thresholds | selection graph only | continuous surrogate는 별도 op, NN-32 VJP 주장 금지 | [D] |
+| NN-33 | `roi_align` | 조건부 VJP 후보 | `roi_align_vjp_features` | `ROI-coordinate VJP는 별도 정책/검증` | ROI coords, sampling grid, feature/input shapes | GridSample adjoint + accumulation | boxes/coordinates gradient 지원 범위 미확정 | [D] |
+| NN-34 | `ctc_loss` | 조건부 VJP 후보 | `ctc_loss_vjp_log_probs` | — | log_probs, targets, input/target lengths, alpha/beta DP | log-domain Scan/StateMachine + Reduce | blank/zero_infinity, impossible alignment, padded frames | [D] |
+
+[N]: https://fluxml.ai/NNlib.jl/dev/reference/
+[P]: https://github.com/pytorch/pytorch/blob/main/torch/nn/grad.py
+[C]: https://docs.nvidia.com/deeplearning/cudnn/latest/developer/graph-api.html
+[O]: https://uxlfoundation.github.io/oneDNN/v3.12/dev_guide_convolution.html
+[R]: https://juliadiff.org/ChainRulesCore.jl/stable/
+[J]: https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md
+
+**구현·수용 순서 (기존 단일 NN 체크리스트의 하위 게이트):**
+- [ ] **NN-AG1:** 미분 가능한 입력 slot·cotangent/result shape/dtype·intrinsic/derived rank·axis/broadcast reduce·동적 shape guard를 Forward와 독립적으로 지정한다.
+- [ ] **NN-AG2:** residual/activation의 값·버전·lifetime·storage/recompute 후보를 효과·오류 순서와 분리해 증명한다. `cp`/`emit`의 표면 문법 채택 여부는 기존 A2에서 결정한다.
+- [ ] **NN-AG3:** 연산별 명시적 VJP를 독립 Graph 연산과 Logical decomposition 후보로 설계하며, 등록 선언은 실행 Graph node가 아니다. NN-16은 등록된 입력별 VJP의 **명시적 호출**만, NN-18은 `register_adjoint`라는 **관계 등록 후보**만 다룬다. `register_autograd`와 자동 backward 생성은 채택하지 않는다. J `:. `/`^:_1`의 inverse 계약은 불변이다.
+- [ ] **NN-AG4:** dot-product adjoint 테스트(선형), finite-difference directional/VJP 검사(매끄러운 비선형), shape/rank·empty/frame·dtype/numeric·오류/effect 부정 사례를 수행한다. 테스트 도구가 역방향 프로그램을 자동 생성하는 것은 아니다.
+- [ ] **NN-AG5:** NNlib/oneDNN/cuDNN/PyTorch 참조와 동등성 증거를 확보하고, Native/External lowering을 정식 선택하기 전 J 의미 차이·backend 지원 범위·workspace를 기록한다.
+
+**진행 상태:** 34/34 계열 후보 계약을 문서와 `src/nn_extensions.rs::ADJOINT_CANDIDATES`에 연결함. **구현된 VJP 0개로 간주**하며, 의미론 적법성·실행·성능·CI 통과를 주장하지 않는다.
+
 #### 4.6.3 기존 조사·구현 증거 기록 (2026-10-02 스냅샷)
 
 이 절의 코드 대조 기준은 **2026-10-02 조사 당시 checkout `89b87b8`**이다. 현재 `main`의 구현 상태를 뜻하지 않으며 최신 상태는 §12/A1.5를 따른다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
