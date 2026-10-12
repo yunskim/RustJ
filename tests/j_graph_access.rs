@@ -230,10 +230,7 @@ fn graph_monadic_map_and_transpose_share_region_pullback() {
         composed.pullback_region(&requested).unwrap(),
         map.access.pullback_region(&map_result_box).unwrap()
     );
-    assert_eq!(
-        composed.pullback_point(&[2, 1]).unwrap(),
-        vec![1, 2]
-    );
+    assert_eq!(composed.pullback_point(&[2, 1]).unwrap(), vec![1, 2]);
 
     // The same transfer handles empty logical value demand, but does not
     // authorize skipping J prototype or error work outside this demand.
