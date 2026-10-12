@@ -110,16 +110,22 @@ fn axis_region_pullback_matches_composition_and_exact_requested_points() {
         composed.pullback_region(&[1..1, 0..2, 0..2]).unwrap(),
         vec![0..2, 0..2, 1..1]
     );
+    let rank_one_region = 0..1;
     assert_eq!(
-        composed.pullback_region(&[0..1]).unwrap_err(),
+        composed
+            .pullback_region(std::slice::from_ref(&rank_one_region))
+            .unwrap_err(),
         AxisAccessError::RankMismatch
     );
     assert_eq!(
         composed.pullback_region(&[0..5, 0..2, 0..2]).unwrap_err(),
         AxisAccessError::RegionOutOfBounds
     );
+    let descending = std::ops::Range { start: 3, end: 2 };
     assert_eq!(
-        composed.pullback_region(&[3..2, 0..2, 0..2]).unwrap_err(),
+        composed
+            .pullback_region(&[descending, 0..2, 0..2])
+            .unwrap_err(),
         AxisAccessError::RegionOutOfBounds
     );
 }
