@@ -59,7 +59,10 @@ fn axis_composition_preserves_scalar_and_zero_extent_shapes() {
     let scalar = StaticAxisAccess::new(vec![], vec![]).unwrap();
     let scalar_twice = scalar.compose_after(&scalar).unwrap();
     assert_eq!(scalar_twice.output_shape(), Vec::<usize>::new());
-    assert_eq!(scalar_twice.pullback_point(&[]).unwrap(), Vec::<usize>::new());
+    assert_eq!(
+        scalar_twice.pullback_point(&[]).unwrap(),
+        Vec::<usize>::new()
+    );
 
     let first = StaticAxisAccess::new(vec![0, 2], vec![1, 0]).unwrap();
     let second = StaticAxisAccess::new(vec![2, 0], vec![1, 0]).unwrap();
