@@ -152,8 +152,10 @@ impl Plan {
         else {
             return None;
         };
-        if !matches!(&function.head, FunctionHead::PrimitiveVerb(PrimitiveId::Cant))
-            || !function.operands.is_empty()
+        if !matches!(
+            &function.head,
+            FunctionHead::PrimitiveVerb(PrimitiveId::Cant)
+        ) || !function.operands.is_empty()
             || !matches!(form, GraphForm::Atomic)
             || *valence != Valence::Monad
             || left.is_some()
